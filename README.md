@@ -11,11 +11,11 @@
 </p>
 
 
-<p align="center"><img width="1200" height="338" alt="combined_small" src="https://github.com/user-attachments/assets/0d817fe8-4f46-49cb-92a8-ab252e84e56c" /></p>
+<p align="center"><img width="1200" height="338" alt="combined_small" src="docs/images/combined_small.gif" /></p>
 
-<img width="2779" height="1737" alt="1_combined" src="https://github.com/user-attachments/assets/e942911e-28d7-4ab7-82b8-73972395f60f" />
+<img width="2779" height="1737" alt="1_combined" src="docs/images/1_combined.png" />
 
-<img width="1989" height="1490" alt="2_combined" src="https://github.com/user-attachments/assets/e579ed5e-0562-4e1c-ba06-1c61852c2e43" />
+<img width="1989" height="1490" alt="2_combined" src="docs/images/2_combined.png" />
 
 
 
@@ -185,9 +185,9 @@ work), paste your API key, save. Keys are encrypted at rest.
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
 
-<img width="3783" height="1554" alt="llm_1" src="https://github.com/user-attachments/assets/21418146-857e-49dc-a27c-260e72f22d9a" />
+<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="https://github.com/user-attachments/assets/527f7bdf-1c28-4cc8-baa0-ac77bb73e359" />
+<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
 
 ### 6. Connect your stores
 
@@ -197,7 +197,7 @@ and pick plain Chrome instead if you prefer.
 
 **Mac**:
 
-<img width="969" height="1350" alt="ziniao" src="https://github.com/user-attachments/assets/d3591836-979d-4953-bfd6-f3dcc8a93ad3" />
+<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
 **Windows (WSL)** — Ziniao runs on the Windows side, Vibe Seller
 runs inside WSL. Ziniao only runs one mode at a time, and Vibe
@@ -211,7 +211,7 @@ Windows:
 3. Back in WSL, hit **Refresh** on the Ziniao page in Vibe Seller —
    your accounts pop in automatically, no manual fields to fill.
 
-<img width="906" height="1251" alt="ziniao_wsl" src="https://github.com/user-attachments/assets/1e3b4a12-95fe-4e21-814c-d9c8736f6b89" />
+<img width="906" height="1251" alt="ziniao_wsl" src="docs/images/ziniao_wsl.png" />
 
 ### 7. (Optional) Wire up email / WeCom
 

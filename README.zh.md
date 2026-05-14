@@ -11,11 +11,11 @@
 </p>
 
 
-<p align="center"><img width="1200" height="338" alt="combined_small" src="https://github.com/user-attachments/assets/0d817fe8-4f46-49cb-92a8-ab252e84e56c" /></p>
+<p align="center"><img width="1200" height="338" alt="combined_small" src="docs/images/combined_small.gif" /></p>
 
-<img width="2779" height="1737" alt="1_combined" src="https://github.com/user-attachments/assets/e942911e-28d7-4ab7-82b8-73972395f60f" />
+<img width="2779" height="1737" alt="1_combined" src="docs/images/1_combined.png" />
 
-<img width="1989" height="1490" alt="2_combined" src="https://github.com/user-attachments/assets/e579ed5e-0562-4e1c-ba06-1c61852c2e43" />
+<img width="1989" height="1490" alt="2_combined" src="docs/images/2_combined.png" />
 
 
 
@@ -173,9 +173,9 @@ Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller
 > 会直接复用那个会话，跳过这一步。
 
-<img width="3783" height="1554" alt="llm_1" src="https://github.com/user-attachments/assets/21418146-857e-49dc-a27c-260e72f22d9a" />
+<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="https://github.com/user-attachments/assets/527f7bdf-1c28-4cc8-baa0-ac77bb73e359" />
+<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
 
 ### 6. 绑定店铺
 
@@ -184,7 +184,7 @@ Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key
 
 **Mac**：
 
-<img width="969" height="1350" alt="ziniao" src="https://github.com/user-attachments/assets/d3591836-979d-4953-bfd6-f3dcc8a93ad3" />
+<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
 **Windows（WSL）**——紫鸟装在 Windows 侧，Vibe Seller 跑在 WSL
 里。紫鸟同一时间只能跑一种模式，Vibe Seller 需要开发者模式（这
@@ -196,7 +196,7 @@ Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key
 3. 回到 WSL 里的 Vibe Seller，紫鸟页面点「**刷新**」按钮，账号
    自动出现，不用手填字段。
 
-<img width="906" height="1251" alt="ziniao_wsl" src="https://github.com/user-attachments/assets/1e3b4a12-95fe-4e21-814c-d9c8736f6b89" />
+<img width="906" height="1251" alt="ziniao_wsl" src="docs/images/ziniao_wsl.png" />
 
 ### 7. （可选）配置邮件 / 企业微信
 
