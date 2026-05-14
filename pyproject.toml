@@ -1,0 +1,160 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibe-seller"
+dynamic = ["version"]
+description = "Multi-store browser-automation framework for cross-border sellers"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy[asyncio]",
+    "aiosqlite",
+    "pydantic",
+    "email-validator",
+    "pydantic-settings",
+    "sse-starlette",
+    "httpx[socks]",
+    "browser-use>=0.12.5",
+    "python-multipart",
+    # apscheduler 3.x exposes `apscheduler.schedulers.asyncio` which
+    # is what `app/scheduler/cron.py` imports. 4.x rearranged the
+    # module layout and there are 4.0.0aN pre-releases on PyPI — a
+    # `--prerelease=allow` install (used by the release pipeline to
+    # pull TestPyPI dev builds of vibe-seller itself) would otherwise
+    # pre-release-bump this dep and break imports at runtime.
+    "apscheduler<4",
+    "tzlocal",
+    "anthropic",
+    "google-api-python-client",
+    "google-auth-oauthlib",
+    "PyJWT>=2.8.0",
+    "bcrypt",
+    "cryptography",
+    "gitpython",
+    "playwright",
+    "posthog>=4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-cov>=5.0.0",
+    "pytest-xdist>=3.5.0",
+    "pytest-rerunfailures>=14.0",
+    "httpx>=0.27.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+vibe-seller = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+# Three globs, three different lifecycles — all get into the wheel.
+#
+#   knowledge/**/*  Source-controlled L1 knowledge catalogs (always
+#                   committed). End users get them out-of-the-box;
+#                   the agent syncs them into ~/.vibe-seller/knowledge/.
+#
+#   skills/**/*     Source-controlled built-in skills (amazon-ads,
+#                   browser-use, noon-*, etc). Always committed.
+#                   `SkillsSyncManager` copies them into the task
+#                   workspace at run-time.
+#
+#   static/**/*     The compiled frontend SPA. NOT committed to git
+#                   (build artifact — see .gitignore). The release
+#                   workflow runs `pnpm build` and stages the output
+#                   into `app/static/` before `python -m build`, so
+#                   `pip install vibe-seller` ships a working web UI
+#                   without a clone.
+#
+# The Playwright Chromium binary is the only piece NOT in the wheel —
+# it's ~150 MB and ships separately via `playwright install chromium`,
+# which `install.sh` runs after `uv tool install vibe-seller`.
+app = ["knowledge/**/*", "skills/**/*", "static/**/*"]
+
+[tool.setuptools_scm]
+# Version is derived from the latest `v*` git tag at build time.
+# No version file is written — runtime code can call
+# `importlib.metadata.version("vibe-seller")` if it needs the value.
+# fallback_version keeps builds working in shallow clones or
+# unreleased branches without any tag (e.g. CI with default
+# fetch-depth, fresh `pip install -e .` in dev).
+fallback_version = "0.0.0+dev"
+
+[tool.ruff]
+line-length = 80
+target-version = "py311"
+preview = true  # Enable preview rules including PLC0415 (import-outside-toplevel)
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming (Google style naming)
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "Q",    # flake8-quotes (single quote enforcement)
+    "SIM",  # flake8-simplify
+    "T20",  # flake8-print (no print() in production code)
+    "PLC0415",  # import-outside-toplevel
+    "PLC2701",  # import-private-name (no `from x import _foo` across modules)
+]
+ignore = [
+    # Disabled lint checks
+    "E501",   # line too long - enforced by formatter
+    "N802",   # function name should be lowercase (allow camelCase like setUp)
+    "N803",   # argument name should be lowercase
+    "N806",   # variable in function should be lowercase
+    "N812",   # lowercase imported as non-lowercase
+    "N818",   # exception name should end in Error
+    "B006",   # mutable default argument
+    "B007",   # unused loop variable
+    "B009",   # do not call getattr with a constant attribute value
+    "B010",   # do not call setattr with a constant attribute value
+    "SIM102", # collapsible-if
+    "SIM105", # use contextlib.suppress
+    "SIM108", # use ternary operator
+    "SIM110", # use any/all
+    "SIM114", # combine if branches
+    "SIM117", # use single with statement
+    "UP015",  # unnecessary open mode parameter
+    "B008",   # function call in default arg (FastAPI Depends pattern)
+    "B904",   # raise from within except (too strict)
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+force-sort-within-sections = true
+known-first-party = ["app"]
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
+docstring-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.lint.pep8-naming]
+classmethod-decorators = ["classmethod"]
+
+[tool.ruff.lint.per-file-ignores]
+"app/events_system/backends/google_calendar.py" = ["E402"]
+"app/cli.py" = ["T20"]  # CLI uses print for user-facing output
+"app/skills/**/generate_invoice.py" = ["T20"]
+"scripts/**/*.py" = ["T20"]
+"tests/**" = ["N", "B", "SIM"]
+"tests/e2e/**" = ["T20", "E402", "PLC0415"]
+".github/**" = ["N", "B", "SIM", "T20"]
+
+[tool.ruff.format]
+quote-style = "single"
+docstring-code-format = true

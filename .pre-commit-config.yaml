@@ -1,0 +1,42 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+        args: ['--allow-multiple-documents']
+    -   id: check-added-large-files
+
+-   repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.9.10
+    hooks:
+    -   id: ruff
+        name: ruff lint
+        args: ['--fix']
+    -   id: ruff-format
+        name: ruff format
+
+-   repo: local
+    hooks:
+    -   id: frontend-lint
+        name: frontend lint
+        entry: bash -c 'cd frontend && npm run lint'
+        language: node
+        language_version: 24.12.0
+        files: ^frontend/
+        pass_filenames: false
+
+    -   id: frontend-typecheck
+        name: frontend typecheck
+        entry: bash -c 'cd frontend && npx tsc -b'
+        language: node
+        language_version: 24.12.0
+        files: ^frontend/
+        pass_filenames: false
+
+    -   id: line-limit
+        name: enforce 800-line limit
+        entry: scripts/check_line_limit.sh
+        language: system
+        files: ^(app/.*\.py|frontend/src/.*\.(ts|tsx))$

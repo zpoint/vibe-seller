@@ -1,0 +1,795 @@
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { LanguageSwitcher, WsFileItem } from './ui'
+import { api } from '../api'
+import { sendEvent } from '../lib/telemetry'
+import { FrontendEvent } from '../lib/telemetryEvents'
+import type { Store, AuthUser, AppView, WsStructured, WsSkill, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+
+interface SidebarProps {
+  currentUser: AuthUser
+  appView: AppView
+  setAppView: (v: AppView) => void
+  handleLogout: () => void
+  authRequired: boolean
+  // Store list
+  stores: Store[]
+  selectedStore: Store | null
+  showAllTasks: boolean
+  selectStore: (store: Store) => void
+  selectAllTasks: () => void
+  // Store creation
+  showCreateStore: boolean
+  setShowCreateStore: (v: boolean) => void
+  createStore: () => void
+  newStoreName: string
+  setNewStoreName: (v: string) => void
+  newStoreBackend: string
+  setNewStoreBackend: (v: string) => void
+  showProxy: boolean
+  setShowProxy: (v: boolean) => void
+  newStoreProxyServer: string
+  setNewStoreProxyServer: (v: string) => void
+  newStoreProxyBypass: string
+  setNewStoreProxyBypass: (v: string) => void
+  // Ziniao
+  ziniaoAccounts: ZiniaoAccount[]
+  selectedZiniaoAccountId: string
+  setSelectedZiniaoAccountId: (v: string) => void
+  ziniaoBrowsers: ZiniaoBrowserProfile[]
+  selectedBrowserOauth: string
+  setSelectedBrowserOauth: (v: string) => void
+  fetchingBrowsers: boolean
+  browserFetchError: string
+  setBrowserFetchError: (v: string) => void
+  fetchBrowserProfiles: (accountId: string) => void
+  restartZiniao: (accountId: string) => void
+  ziniaoRetried: boolean
+  showAddAccount: boolean
+  setShowAddAccount: (v: boolean) => void
+  showAccountPassword: boolean
+  setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
+  editingAccountId: string
+  setEditingAccountId: (v: string) => void
+  newAccount: { name: string; company: string; username: string; password: string }
+  setNewAccount: React.Dispatch<React.SetStateAction<{ name: string; company: string; username: string; password: string }>>
+  createZiniaoAccount: () => void
+  updateZiniaoAccount: () => void
+  deleteZiniaoAccount: (id: string) => void
+  // Workspace
+  wsStructured: WsStructured | null
+  wsSelectedFile: string | null
+  wsExpandedStores: Set<string>
+  wsExpandedSkills: Set<string>
+  toggleStoreExpanded: (slug: string) => void
+  toggleSkillExpanded: (slug: string) => void
+  openWsFile: (path: string) => void
+  deleteWsFile: (path: string) => void
+  wsNewFileName: string
+  setWsNewFileName: (v: string) => void
+  wsNewFileSection: string | null
+  setWsNewFileSection: (v: string | null) => void
+  createWsFile: (section: string, fileName: string) => void
+  syncProjectKnowledge: () => void
+  wsSyncing: boolean
+  wsSyncMeta: Record<string, unknown> | null
+  loadWsStructured: () => void
+  syncBuiltinSkills: () => void
+  wsSkillsSyncing: boolean
+}
+
+export function Sidebar(props: SidebarProps) {
+  const { t } = useTranslation()
+  const {
+    currentUser, appView, setAppView, handleLogout, authRequired,
+    stores, selectedStore, showAllTasks, selectStore, selectAllTasks,
+    showCreateStore, setShowCreateStore, createStore,
+    newStoreName, setNewStoreName, newStoreBackend, setNewStoreBackend,
+    showProxy, setShowProxy,
+    newStoreProxyServer, setNewStoreProxyServer, newStoreProxyBypass, setNewStoreProxyBypass,
+    ziniaoAccounts, selectedZiniaoAccountId, setSelectedZiniaoAccountId,
+    ziniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth,
+    fetchingBrowsers, browserFetchError, setBrowserFetchError,
+    fetchBrowserProfiles, restartZiniao, ziniaoRetried,
+    showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
+    editingAccountId, setEditingAccountId, newAccount, setNewAccount,
+    createZiniaoAccount, updateZiniaoAccount, deleteZiniaoAccount,
+    wsStructured, wsSelectedFile, wsExpandedStores, wsExpandedSkills,
+    toggleStoreExpanded, toggleSkillExpanded, openWsFile, deleteWsFile,
+    wsNewFileName, setWsNewFileName, wsNewFileSection, setWsNewFileSection,
+    createWsFile, syncProjectKnowledge, wsSyncing, wsSyncMeta, loadWsStructured,
+    syncBuiltinSkills, wsSkillsSyncing,
+  } = props
+
+  return (
+    <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+      <div className="p-4 border-b border-gray-200">
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-lg font-bold">Vibe Seller</h1>
+          <div className="flex items-center gap-1">
+            <LanguageSwitcher />
+            {currentUser.role === 'admin' && (
+              <button onClick={() => { sendEvent(FrontendEvent.VIEW_CHANGED, { view: 'settings' }); setAppView('settings') }} className="p-1 text-gray-400 hover:text-gray-700" title={t('settings.title')}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              </button>
+            )}
+            {authRequired && (
+              <button onClick={handleLogout} className="p-1 text-gray-400 hover:text-red-600" title={t('auth.signOut')}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="text-xs text-gray-500 mb-2 truncate">{currentUser.username} <span className="text-gray-400">({currentUser.role})</span></div>
+        <div className="flex bg-gray-100 rounded-lg p-0.5">
+          {(['tasks', 'workspace'] as const).map(v => (
+            <button
+              key={v}
+              onClick={() => { sendEvent(FrontendEvent.VIEW_CHANGED, { view: v }); setAppView(v) }}
+              className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-colors ${appView === v ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {t(`navigation.${v}`)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {appView === 'tasks' ? (
+        <>
+          <div className="p-3">
+            <button
+              onClick={() => setShowCreateStore(true)}
+              className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+            >
+              + {t('settings.newStore')}
+            </button>
+          </div>
+          {showCreateStore && (
+            <StoreCreationForm
+              newStoreName={newStoreName} setNewStoreName={setNewStoreName}
+              newStoreBackend={newStoreBackend} setNewStoreBackend={setNewStoreBackend}
+              showProxy={showProxy} setShowProxy={setShowProxy}
+              newStoreProxyServer={newStoreProxyServer} setNewStoreProxyServer={setNewStoreProxyServer}
+              newStoreProxyBypass={newStoreProxyBypass} setNewStoreProxyBypass={setNewStoreProxyBypass}
+              ziniaoAccounts={ziniaoAccounts}
+              selectedZiniaoAccountId={selectedZiniaoAccountId} setSelectedZiniaoAccountId={setSelectedZiniaoAccountId}
+              ziniaoBrowsers={ziniaoBrowsers}
+              selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
+              fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError}
+              setBrowserFetchError={setBrowserFetchError}
+              fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
+              showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
+              showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
+              editingAccountId={editingAccountId} setEditingAccountId={setEditingAccountId}
+              newAccount={newAccount} setNewAccount={setNewAccount}
+              createZiniaoAccount={createZiniaoAccount} updateZiniaoAccount={updateZiniaoAccount}
+              deleteZiniaoAccount={deleteZiniaoAccount}
+              createStore={createStore} setShowCreateStore={setShowCreateStore}
+            />
+          )}
+          <div className="flex-1 overflow-y-auto">
+            <button
+              onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: true }); selectAllTasks() }}
+              className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${showAllTasks ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''}`}
+            >
+              <div className="font-medium text-sm">{t('tasks.allStores')}</div>
+              <div className="text-xs text-gray-500">{t('tasks.noStore')}</div>
+            </button>
+            {stores.map(store => (
+              <button
+                key={store.id}
+                onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: false, backend: store.browser_backend }); selectStore(store) }}
+                className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedStore?.id === store.id && !showAllTasks ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''}`}
+              >
+                <div className="font-medium text-sm">{store.name}</div>
+                <div className="text-xs text-gray-500">{store.browser_backend}</div>
+              </button>
+            ))}
+            {stores.length === 0 && (
+              <div className="p-4 text-sm text-gray-400 text-center">{t('navigation.stores')}</div>
+            )}
+          </div>
+        </>
+      ) : appView === 'workspace' ? (
+        <WorkspaceSidebar
+          wsStructured={wsStructured} wsSelectedFile={wsSelectedFile}
+          wsExpandedStores={wsExpandedStores} wsExpandedSkills={wsExpandedSkills}
+          toggleStoreExpanded={toggleStoreExpanded} toggleSkillExpanded={toggleSkillExpanded}
+          openWsFile={openWsFile} deleteWsFile={deleteWsFile}
+          wsNewFileName={wsNewFileName} setWsNewFileName={setWsNewFileName}
+          wsNewFileSection={wsNewFileSection} setWsNewFileSection={setWsNewFileSection}
+          createWsFile={createWsFile}
+          syncProjectKnowledge={syncProjectKnowledge} wsSyncing={wsSyncing}
+          wsSyncMeta={wsSyncMeta} loadWsStructured={loadWsStructured}
+          syncBuiltinSkills={syncBuiltinSkills} wsSkillsSyncing={wsSkillsSyncing}
+        />
+      ) : (
+        <div className="flex-1 overflow-y-auto p-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{t('settings.title')}</p>
+          <button onClick={() => setAppView('settings')} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded">{t('settings.userManagement')}</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Store creation sub-component (inline) ───────────
+function StoreCreationForm(props: {
+  newStoreName: string; setNewStoreName: (v: string) => void
+  newStoreBackend: string; setNewStoreBackend: (v: string) => void
+  showProxy: boolean; setShowProxy: (v: boolean) => void
+  newStoreProxyServer: string; setNewStoreProxyServer: (v: string) => void
+  newStoreProxyBypass: string; setNewStoreProxyBypass: (v: string) => void
+  ziniaoAccounts: ZiniaoAccount[]
+  selectedZiniaoAccountId: string; setSelectedZiniaoAccountId: (v: string) => void
+  ziniaoBrowsers: ZiniaoBrowserProfile[]
+  selectedBrowserOauth: string; setSelectedBrowserOauth: (v: string) => void
+  fetchingBrowsers: boolean; browserFetchError: string
+  setBrowserFetchError: (v: string) => void
+  fetchBrowserProfiles: (accountId: string) => void
+  restartZiniao: (accountId: string) => void
+  ziniaoRetried: boolean
+  showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
+  showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
+  editingAccountId: string; setEditingAccountId: (v: string) => void
+  newAccount: { name: string; company: string; username: string; password: string }
+  setNewAccount: React.Dispatch<React.SetStateAction<{ name: string; company: string; username: string; password: string }>>
+  createZiniaoAccount: () => void; updateZiniaoAccount: () => void
+  deleteZiniaoAccount: (id: string) => void
+  createStore: () => void; setShowCreateStore: (v: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const p = props
+  return (
+    <div className="px-3 pb-3">
+      <input
+        value={p.newStoreName}
+        onChange={e => p.setNewStoreName(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && p.newStoreBackend === 'chrome' && p.createStore()}
+        placeholder={t('settings.storeName') + '...'}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2"
+        autoFocus
+      />
+      {!p.newStoreName.trim() && (
+        <p className="text-xs text-amber-600 mb-1">{t('settings.enterStoreNameFirst')}</p>
+      )}
+      <select
+        value={p.newStoreBackend}
+        onChange={e => p.setNewStoreBackend(e.target.value)}
+        disabled={!p.newStoreName.trim()}
+        className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-2 bg-white ${!p.newStoreName.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
+      >
+        <option value="chrome">Chrome (Playwright)</option>
+        <option value="ziniao">{t('tasks.ziniao')} ({t('tasks.browserBackend')})</option>
+      </select>
+      {p.newStoreBackend === 'chrome' && (
+        <div className="mb-2">
+          <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer mb-1">
+            <input
+              type="checkbox"
+              checked={p.showProxy}
+              onChange={e => p.setShowProxy(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            {t('settings.needProxy')}
+          </label>
+          {p.showProxy && (
+            <div className="space-y-1">
+              <input
+                value={p.newStoreProxyServer}
+                onChange={e => p.setNewStoreProxyServer(e.target.value)}
+                placeholder={`${t('settings.proxyServer')} (http://127.0.0.1:7890)`}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs"
+              />
+              <input
+                value={p.newStoreProxyBypass}
+                onChange={e => p.setNewStoreProxyBypass(e.target.value)}
+                placeholder={`${t('settings.proxyBypass')} (.amazon.com,.google.com)`}
+                className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs"
+              />
+              <p className="text-[10px] text-gray-400">{t('settings.proxyHint')}</p>
+            </div>
+          )}
+        </div>
+      )}
+      {p.newStoreBackend === 'ziniao' && (
+        <ZiniaoSection {...p} />
+      )}
+      <div className="flex gap-2">
+        {(() => {
+          const nameEmpty = !p.newStoreName.trim()
+          const ziniaoIncomplete = p.newStoreBackend === 'ziniao' && (!p.selectedZiniaoAccountId || !p.selectedBrowserOauth || p.fetchingBrowsers || !!p.browserFetchError)
+          const disabled = nameEmpty || ziniaoIncomplete
+          return <button
+            onClick={p.createStore}
+            disabled={disabled}
+            className={`px-3 py-1 rounded text-sm ${disabled ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-green-600 text-white hover:bg-green-700'}`}
+          >{t('common.create')}</button>
+        })()}
+        <button onClick={() => p.setShowCreateStore(false)} className="px-3 py-1 bg-gray-300 rounded text-sm">{t('common.cancel')}</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Ziniao account + browser picker ─────────────────
+function ZiniaoSection(props: {
+  ziniaoAccounts: ZiniaoAccount[]
+  selectedZiniaoAccountId: string; setSelectedZiniaoAccountId: (v: string) => void
+  ziniaoBrowsers: ZiniaoBrowserProfile[]
+  selectedBrowserOauth: string; setSelectedBrowserOauth: (v: string) => void
+  fetchingBrowsers: boolean; browserFetchError: string
+  setBrowserFetchError: (v: string) => void
+  fetchBrowserProfiles: (accountId: string) => void
+  restartZiniao: (accountId: string) => void
+  ziniaoRetried: boolean
+  showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
+  showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
+  editingAccountId: string; setEditingAccountId: (v: string) => void
+  newAccount: { name: string; company: string; username: string; password: string }
+  setNewAccount: React.Dispatch<React.SetStateAction<{ name: string; company: string; username: string; password: string }>>
+  createZiniaoAccount: () => void; updateZiniaoAccount: () => void
+  deleteZiniaoAccount: (id: string) => void
+}) {
+  const { t } = useTranslation()
+  const p = props
+  return (
+    <div className="space-y-2 mb-2">
+      <div className="flex items-center gap-1">
+        <select
+          value={p.selectedZiniaoAccountId}
+          onChange={e => { p.setSelectedZiniaoAccountId(e.target.value); p.setBrowserFetchError(''); if (e.target.value) p.fetchBrowserProfiles(e.target.value) }}
+          className="min-w-0 flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs bg-white"
+        >
+          <option value="">{t('settings.ziniaoSelectAccount')}</option>
+          {p.ziniaoAccounts.map(a => (
+            <option key={a.id} value={a.id}>{a.name} ({a.company})</option>
+          ))}
+        </select>
+        {p.selectedZiniaoAccountId && (
+          <>
+            <button onClick={() => {
+              const acct = p.ziniaoAccounts.find(a => a.id === p.selectedZiniaoAccountId)
+              if (acct) { p.setNewAccount({ name: acct.name, company: acct.company, username: acct.username, password: '' }); p.setEditingAccountId(acct.id); p.setShowAddAccount(true) }
+            }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-gray-500 hover:bg-gray-100 rounded border border-gray-300" title={t('common.edit')}>&#9998;</button>
+            <button onClick={() => { if (confirm(t('settings.deleteAccountConfirm'))) p.deleteZiniaoAccount(p.selectedZiniaoAccountId) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-red-500 hover:bg-red-50 rounded border border-gray-300" title={t('common.delete')}>&times;</button>
+          </>
+        )}
+        <button onClick={() => { p.setEditingAccountId(''); p.setNewAccount({ name: '', company: '', username: '', password: '' }); p.setShowAddAccount(!p.showAddAccount) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-blue-600 hover:bg-blue-50 rounded border border-gray-300" title="Add account">+</button>
+      </div>
+      {p.showAddAccount && (
+        <div className="space-y-1 p-2 bg-gray-50 rounded border border-gray-200">
+          <p className="text-xs font-medium text-gray-600 mb-1">{p.editingAccountId ? t('settings.editZiniaoAccount') : t('settings.addZiniaoAccount')}</p>
+          <input value={p.newAccount.company} onChange={e => p.setNewAccount(prev => ({ ...prev, company: e.target.value }))} placeholder={t('settings.ziniaoCompany')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+          <input value={p.newAccount.username} onChange={e => p.setNewAccount(prev => ({ ...prev, username: e.target.value }))} placeholder={t('settings.ziniaoUsername')} className="w-full px-2 py-1 border border-gray-300 rounded text-xs" />
+          <div className="relative">
+            <input value={p.newAccount.password} onChange={e => p.setNewAccount(prev => ({ ...prev, password: e.target.value }))} placeholder={p.editingAccountId ? t('settings.passwordLeaveBlank') : t('auth.password')} type={p.showAccountPassword ? 'text' : 'password'} className="w-full px-2 py-1 pr-7 border border-gray-300 rounded text-xs" />
+            <button type="button" onClick={() => p.setShowAccountPassword(v => !v)} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600" tabIndex={-1}>
+              {p.showAccountPassword ? <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0020 10c-1.796-4.667-6-8-10-8a9.864 9.864 0 00-4.512 1.074L3.707 2.293zM10 15a9.864 9.864 0 004.512-1.074L13.06 12.474A3 3 0 017.526 6.94L5.534 4.948A7.966 7.966 0 002 10c1.194 3.1 3.672 5.457 6.676 6.725L10 15zm2.121-4.879A1 1 0 0010 9l-.707-.707A1 1 0 0010 11l2.121-2.121-.707-.707.707.707z" clipRule="evenodd" /></svg> : <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z" /><path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" /></svg>}
+            </button>
+          </div>
+          <div className="flex gap-1">
+            <button onClick={p.editingAccountId ? p.updateZiniaoAccount : p.createZiniaoAccount} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">{t('common.save')}</button>
+            <button onClick={() => { p.setShowAddAccount(false); p.setEditingAccountId(''); p.setShowAccountPassword(false) }} className="px-2 py-1 bg-gray-200 rounded text-xs">{t('common.cancel')}</button>
+          </div>
+          <p className="text-[10px] text-gray-400">Credentials stored in local SQLite, not in the cloud.</p>
+        </div>
+      )}
+      {p.selectedZiniaoAccountId && (() => {
+        // "ziniao:STATUS:PLATFORM[:BASE64_MSG]" — the optional 4th
+        // segment is Ziniao's own err text (base64'd to survive colons).
+        const zs = p.browserFetchError.startsWith('ziniao:') ? (() => {
+          const [, status, platform, encoded] = p.browserFetchError.split(':')
+          let message = ''
+          try { if (encoded) message = decodeURIComponent(escape(atob(encoded))) } catch { /* leave empty */ }
+          return { status, platform, message }
+        })() : null
+
+        return p.fetchingBrowsers ? (
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+            <p className="text-sm font-medium text-blue-700">{t('settings.ziniaoLoading')}</p>
+          </div>
+        ) : zs?.status === 'running_normal' && (zs.platform === 'mac' || zs.platform === 'wsl') ? (
+          // Mac/WSL: Ziniao running in normal mode
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
+            <p className="text-sm font-medium text-amber-700 mb-2">
+              {p.ziniaoRetried ? t('settings.ziniaoStillRunning') : t('settings.ziniaoRunningNormalMode')}
+            </p>
+            <p className="text-xs text-amber-600 mb-3">
+              {p.ziniaoRetried ? '' : t('settings.ziniaoNormalModeHint')}
+            </p>
+            <div className="flex gap-2">
+              {p.ziniaoRetried && (
+                <button onClick={() => p.restartZiniao(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-700">{zs.platform === 'wsl' ? t('settings.ziniaoForceKill') : t('settings.ziniaoForceRestart')}</button>
+              )}
+              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700">{t('common.refresh')}</button>
+            </div>
+          </div>
+        ) : zs?.status === 'no_permission' ? (
+          // -10003: show Ziniao's own err if present (specific/actionable);
+          // otherwise the generic "enable WebDriver" UI. Refresh always.
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
+            {zs.message
+              ? <p className="text-sm font-medium text-red-700 mb-3 break-all">{zs.message}</p>
+              : <><p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNoPermission')}</p><p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNoPermissionHint')}</p></>
+            }
+            <div className="flex gap-2">
+              {!zs.message && <a href="https://open.ziniao.com/docSupport?docId=99" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoEnableWebDriver')}</a>}
+              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+            </div>
+          </div>
+        ) : zs?.status === 'not_installed' && zs.platform === 'mac' ? (
+          // Mac: Ziniao not installed
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNotInstalled')}</p>
+            <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNotInstalledHint')}</p>
+            <div className="flex gap-2">
+              <a href="https://www.ziniao.com/download" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadZiniao')}</a>
+              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+            </div>
+          </div>
+        ) : p.browserFetchError === 'connect_error' || (zs && !['no_profiles'].includes(zs.status)) ? (
+          // Fallback connect error (includes Windows/WSL .bat flow and generic errors)
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm font-medium text-red-700 mb-2">{zs?.platform === 'mac' ? t('settings.ziniaoConnectErrorMac') : t('settings.ziniaoConnectError')}</p>
+            {zs?.platform !== 'mac' && <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoLaunchHint')}</p>}
+            <div className="flex gap-2">
+              {zs?.platform !== 'mac' && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadLauncher')}</a>}
+              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+            </div>
+          </div>
+        ) : p.browserFetchError.startsWith('api_error:') ? (
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm font-medium text-red-700 mb-2">{p.browserFetchError.slice('api_error:'.length)}</p>
+            <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+          </div>
+        ) : p.browserFetchError.startsWith('restart_failed:') ? (
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoRestartFailed') || 'Failed to restart. Please close Ziniao manually and try again.'}</p>
+            <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+          </div>
+        ) : p.browserFetchError === 'no_profiles' ? (
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
+            <p className="text-sm font-medium text-amber-700">{t('settings.ziniaoNoProfiles')}</p>
+          </div>
+        ) : p.ziniaoBrowsers.length > 0 ? (
+          <select
+            value={p.selectedBrowserOauth}
+            onChange={e => p.setSelectedBrowserOauth(e.target.value)}
+            className="w-full px-2 py-1.5 border border-gray-300 rounded text-xs bg-white"
+          >
+            <option value="">{t('settings.ziniaoSelectProfile')}</option>
+            {p.ziniaoBrowsers.map(b => (
+              <option key={b.browser_oauth} value={b.browser_oauth}>{b.browser_name}</option>
+            ))}
+          </select>
+        ) : null
+      })()}
+    </div>
+  )
+}
+
+// ─── Reusable skill item renderer ─────────────────────
+function SkillItem(props: {
+  skill: WsSkill
+  badge: React.ReactNode
+  expanded: boolean
+  toggleExpanded: () => void
+  wsSelectedFile: string | null
+  openWsFile: (path: string) => void
+  deleteWsFile: (path: string) => void
+  onDelete?: (slug: string) => void
+}) {
+  const { t } = useTranslation()
+  const { skill, badge, expanded, toggleExpanded, wsSelectedFile, openWsFile, deleteWsFile, onDelete } = props
+  return (
+    <div className="border-b border-gray-50">
+      <div className="flex items-center px-3">
+        <button
+          onClick={toggleExpanded}
+          className="flex-1 text-left py-1.5 flex items-center gap-2 hover:bg-gray-50 text-sm"
+        >
+          <span className={`text-[10px] text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
+          <span className="font-medium text-gray-700 text-xs">{skill.slug}</span>
+          {badge}
+          <span className="text-[10px] text-gray-400 ml-auto">{skill.file_count}</span>
+        </button>
+        {onDelete && (
+          <button
+            type="button"
+            onClick={() => onDelete(skill.slug)}
+            className="text-gray-300 hover:text-red-500 cursor-pointer ml-1 text-xs"
+            title={t('workspace.uninstallSkill')}
+            aria-label={t('workspace.uninstallSkill')}
+          >&times;</button>
+        )}
+      </div>
+      {skill.description && !expanded && (
+        <p className="px-3 pb-1 ml-5 text-[10px] text-gray-400 leading-tight truncate">{skill.description}</p>
+      )}
+      {expanded && (
+        <div className="ml-3">
+          {skill.files.map(f => (
+            <WsFileItem key={f.path} file={f} selected={wsSelectedFile === f.path} onSelect={openWsFile} onDelete={deleteWsFile} />
+          ))}
+          {skill.files.length === 0 && (
+            <div className="px-4 py-1 text-[10px] text-gray-400 italic">{t('common.noData')}</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Workspace sidebar tree ──────────────────────────
+function WorkspaceSidebar(props: {
+  wsStructured: WsStructured | null; wsSelectedFile: string | null
+  wsExpandedStores: Set<string>; wsExpandedSkills: Set<string>
+  toggleStoreExpanded: (slug: string) => void; toggleSkillExpanded: (slug: string) => void
+  openWsFile: (path: string) => void; deleteWsFile: (path: string) => void
+  wsNewFileName: string; setWsNewFileName: (v: string) => void
+  wsNewFileSection: string | null; setWsNewFileSection: (v: string | null) => void
+  createWsFile: (section: string, fileName: string) => void
+  syncProjectKnowledge: () => void; wsSyncing: boolean
+  wsSyncMeta: Record<string, unknown> | null
+  loadWsStructured: () => void
+  syncBuiltinSkills: () => void; wsSkillsSyncing: boolean
+}) {
+  const { t } = useTranslation()
+  const p = props
+  const [skillsTab, setSkillsTab] = useState<'builtin' | 'myskills'>('myskills')
+
+  const builtinSkills = p.wsStructured?.skills.filter(s => s.source === 'builtin') ?? []
+  const customSkills = p.wsStructured?.skills.filter(s => s.source === 'custom') ?? []
+  const importedSkills = p.wsStructured?.skills.filter(s => s.source === 'imported') ?? []
+
+  const uninstallSkill = async (slug: string) => {
+    if (!confirm(t('workspace.uninstallSkillConfirm', { name: slug }))) return
+    await api.del(`/api/workspace/skills/${encodeURIComponent(slug)}`)
+    await p.loadWsStructured()
+  }
+
+  const getOriginDomain = (url?: string): string => {
+    if (!url) return t('workspace.importedBadge')
+    try { return new URL(url).hostname } catch { return t('workspace.importedBadge') }
+  }
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      {/* Skills section */}
+      <div className="border-b border-gray-100">
+        <div className="px-3 pt-2 pb-1 flex items-center justify-between">
+          <div className="flex items-center gap-0">
+            <button
+              onClick={() => setSkillsTab('builtin')}
+              className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${skillsTab === 'builtin' ? 'text-blue-600 border-blue-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
+            >{t('workspace.builtinTab')}</button>
+            <button
+              onClick={() => setSkillsTab('myskills')}
+              className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${skillsTab === 'myskills' ? 'text-blue-600 border-blue-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
+            >{t('workspace.mySkillsTab')}</button>
+          </div>
+          <div className="flex items-center gap-1">
+            {skillsTab === 'builtin' && (
+              <button
+                onClick={p.syncBuiltinSkills}
+                disabled={p.wsSkillsSyncing}
+                className={`text-gray-400 hover:text-blue-600 text-[10px] leading-none ${p.wsSkillsSyncing ? 'animate-spin' : ''}`}
+                title={t('workspace.syncSkills')}
+              >&#8635;</button>
+            )}
+            {skillsTab === 'myskills' && (
+              <button
+                onClick={() => p.setWsNewFileSection(p.wsNewFileSection === '_skill_create' ? null : '_skill_create')}
+                className="text-gray-400 hover:text-blue-600 text-sm leading-none"
+                title={t('workspace.createSkill')}
+              >+</button>
+            )}
+          </div>
+        </div>
+        <p className="px-3 pb-2 text-[10px] text-gray-400 leading-tight">{t('workspace.skillsHint')}</p>
+
+        {/* Built-in tab content */}
+        {skillsTab === 'builtin' && (
+          <>
+            {builtinSkills.map(skill => (
+              <SkillItem
+                key={skill.slug + skill.source}
+                skill={skill}
+                badge={<span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{t('workspace.builtinBadge')}</span>}
+                expanded={p.wsExpandedSkills.has(skill.slug)}
+                toggleExpanded={() => p.toggleSkillExpanded(skill.slug)}
+                wsSelectedFile={p.wsSelectedFile}
+                openWsFile={p.openWsFile}
+                deleteWsFile={p.deleteWsFile}
+              />
+            ))}
+            {builtinSkills.length === 0 && (
+              <div className="px-4 py-2 text-xs text-gray-400 italic">{t('workspace.noBuiltinSkills')}</div>
+            )}
+          </>
+        )}
+
+        {/* My Skills tab content */}
+        {skillsTab === 'myskills' && (
+          <>
+            {p.wsNewFileSection === '_skill_create' && (
+              <div className="px-3 pb-2 flex gap-1">
+                <input
+                  value={p.wsNewFileName}
+                  onChange={e => p.setWsNewFileName(e.target.value)}
+                  onKeyDown={async e => {
+                    if (e.key === 'Enter' && p.wsNewFileName.trim()) {
+                      await api.post('/api/workspace/skill', { name: p.wsNewFileName.trim(), description: '' })
+                      await p.loadWsStructured()
+                      p.setWsNewFileName('')
+                      p.setWsNewFileSection(null)
+                    }
+                    if (e.key === 'Escape') p.setWsNewFileSection(null)
+                  }}
+                  placeholder={t('workspace.skillNamePlaceholder')}
+                  className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+                  autoFocus
+                />
+              </div>
+            )}
+
+            {/* CUSTOM section */}
+            <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-gray-400">{t('workspace.customSkillsSection')}</p>
+            {customSkills.map(skill => (
+              <SkillItem
+                key={skill.slug + skill.source}
+                skill={skill}
+                badge={<span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{t('workspace.customBadge')}</span>}
+                expanded={p.wsExpandedSkills.has(skill.slug)}
+                toggleExpanded={() => p.toggleSkillExpanded(skill.slug)}
+                wsSelectedFile={p.wsSelectedFile}
+                openWsFile={p.openWsFile}
+                deleteWsFile={p.deleteWsFile}
+                onDelete={uninstallSkill}
+              />
+            ))}
+            {customSkills.length === 0 && (
+              <div className="px-4 py-2 text-xs text-gray-400 italic">{t('workspace.noCustomSkills')}</div>
+            )}
+
+            {/* IMPORTED section */}
+            <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase text-gray-400">{t('workspace.importedSkillsSection')}</p>
+            {importedSkills.map(skill => (
+              <SkillItem
+                key={skill.slug + skill.source}
+                skill={skill}
+                badge={<span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{getOriginDomain(skill.origin_url)}</span>}
+                expanded={p.wsExpandedSkills.has(skill.slug)}
+                toggleExpanded={() => p.toggleSkillExpanded(skill.slug)}
+                wsSelectedFile={p.wsSelectedFile}
+                openWsFile={p.openWsFile}
+                deleteWsFile={p.deleteWsFile}
+                onDelete={uninstallSkill}
+              />
+            ))}
+            {importedSkills.length === 0 && (
+              <div className="px-4 py-2 text-xs text-gray-400 italic">{t('workspace.noImportedSkills')}</div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Project Knowledge section */}
+      <div className="border-b border-gray-100">
+        <div className="px-3 pt-2 pb-1 flex items-center justify-between">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('workspace.projectKnowledge')}</p>
+          <button
+            onClick={p.syncProjectKnowledge}
+            disabled={p.wsSyncing}
+            className={`text-gray-400 hover:text-blue-600 text-[10px] leading-none ${p.wsSyncing ? 'animate-spin' : ''}`}
+            title={p.wsSyncing ? t('workspace.syncing') : t('workspace.syncKnowledge')}
+          >&#8635;</button>
+        </div>
+        <p className="px-3 pb-1 text-[10px] text-gray-400 leading-tight">{t('workspace.projectKnowledgeHint')}</p>
+        {p.wsSyncMeta && (
+          <div className="px-3 pb-2">
+            {p.wsSyncMeta.status === 'failed' && (
+              <p className="text-[10px] text-red-500 leading-tight">{t('workspace.syncFailed', { error: p.wsSyncMeta.error as string })}</p>
+            )}
+            <p className="text-[10px] text-gray-400 leading-tight">
+              {p.wsSyncMeta.last_sync_at
+                ? t('workspace.lastSynced', { time: new Date(p.wsSyncMeta.last_sync_at as string).toLocaleString() })
+                : t('workspace.neverSynced')}
+            </p>
+          </div>
+        )}
+        {p.wsStructured?.project_knowledge.map(f => (
+          <WsFileItem key={f.path} file={f} selected={p.wsSelectedFile === f.path} onSelect={p.openWsFile} onDelete={p.deleteWsFile} displayPrefix="knowledge/project/" />
+        ))}
+        {p.wsStructured && p.wsStructured.project_knowledge.length === 0 && (
+          <div className="px-4 py-2 text-xs text-gray-400 italic">{t('workspace.noProjectKnowledge')}</div>
+        )}
+      </div>
+
+      {/* Local Knowledge section */}
+      <div className="border-b border-gray-100">
+        <div className="px-3 pt-2 pb-1 flex items-center justify-between">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('workspace.localKnowledge')}</p>
+          <button
+            onClick={() => p.setWsNewFileSection(p.wsNewFileSection === 'knowledge' ? null : 'knowledge')}
+            className="text-gray-400 hover:text-blue-600 text-sm leading-none"
+            title={t('workspace.addKnowledgeFile')}
+          >+</button>
+        </div>
+        <p className="px-3 pb-2 text-[10px] text-gray-400 leading-tight">{t('workspace.localKnowledgeHint')}</p>
+        {p.wsNewFileSection === 'knowledge' && (
+          <div className="px-3 pb-2 flex gap-1">
+            <input
+              value={p.wsNewFileName}
+              onChange={e => p.setWsNewFileName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') p.createWsFile('knowledge', p.wsNewFileName); if (e.key === 'Escape') p.setWsNewFileSection(null) }}
+              placeholder="filename.md"
+              className="flex-1 px-2 py-1 border border-gray-300 rounded text-xs"
+              autoFocus
+            />
+          </div>
+        )}
+        {p.wsStructured?.local_knowledge.map(f => (
+          <WsFileItem key={f.path} file={f} selected={p.wsSelectedFile === f.path} onSelect={p.openWsFile} onDelete={p.deleteWsFile} />
+        ))}
+        {p.wsStructured && p.wsStructured.local_knowledge.length === 0 && !p.wsNewFileSection && (
+          <div className="px-4 py-2 text-xs text-gray-400 italic">{t('workspace.noLocalKnowledge')}</div>
+        )}
+      </div>
+
+      {/* Store Memories section */}
+      <div>
+        <div className="px-3 pt-2 pb-1">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('workspace.files')}</p>
+        </div>
+        <p className="px-3 pb-2 text-[10px] text-gray-400 leading-tight">{t('workspace.storeFilesHint')}</p>
+        {p.wsStructured?.store_profiles.map(store => (
+          <div key={store.slug} className="border-b border-gray-50">
+            <button
+              onClick={() => p.toggleStoreExpanded(store.slug)}
+              className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-gray-50 text-sm"
+            >
+              <span className={`text-[10px] text-gray-400 transition-transform ${p.wsExpandedStores.has(store.slug) ? 'rotate-90' : ''}`}>&#9654;</span>
+              <span className="font-medium text-gray-700 text-xs">{store.slug}</span>
+              {store.has_content && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" title={t('workspace.hasContent')} />}
+              <span className="text-[10px] text-gray-400 ml-auto">{store.file_count}</span>
+            </button>
+            {p.wsExpandedStores.has(store.slug) && (
+              <div className="ml-3">
+                <div className="flex items-center px-3 py-0.5">
+                  <button
+                    onClick={() => p.setWsNewFileSection(p.wsNewFileSection === store.path ? null : store.path)}
+                    className="text-[10px] text-gray-400 hover:text-blue-600"
+                  >+ {t('workspace.newFile')}</button>
+                </div>
+                {p.wsNewFileSection === store.path && (
+                  <div className="px-3 pb-1 flex gap-1">
+                    <input
+                      value={p.wsNewFileName}
+                      onChange={e => p.setWsNewFileName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') p.createWsFile(store.path, p.wsNewFileName); if (e.key === 'Escape') p.setWsNewFileSection(null) }}
+                      placeholder="filename.md"
+                      className="flex-1 px-2 py-0.5 border border-gray-300 rounded text-xs"
+                      autoFocus
+                    />
+                  </div>
+                )}
+                {store.files.map(f => (
+                  <WsFileItem key={f.path} file={f} selected={p.wsSelectedFile === f.path} onSelect={p.openWsFile} onDelete={p.deleteWsFile} />
+                ))}
+                {store.files.length === 0 && (
+                  <div className="px-4 py-1 text-[10px] text-gray-400 italic">{t('common.noData')}</div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {p.wsStructured && p.wsStructured.store_profiles.length === 0 && (
+          <div className="px-4 py-2 text-xs text-gray-400 italic">{t('workspace.noStoresInWorkspace')}</div>
+        )}
+      </div>
+    </div>
+  )
+}

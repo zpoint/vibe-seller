@@ -1,0 +1,375 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Type check
+        run: npx tsc -b
+
+      - name: Run tests
+        run: npm run test
+
+  backend-unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure git identity
+        run: |
+          git config --local user.email "ci@vibe-seller.test"
+          git config --local user.name "CI Bot"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv
+
+      # No playwright install needed — browser-use comes via pyproject.toml
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+          uv pip install pytest pytest-asyncio pytest-cov httpx
+
+      - name: Run unit tests
+        run: uv run pytest tests/unit -v --cov=app --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          flags: unit
+          name: unit-tests
+
+  workflow-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv
+
+      # No playwright install needed — browser-use comes via pyproject.toml
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+          uv pip install pytest pytest-asyncio pytest-cov httpx
+
+      - name: Configure git identity
+        run: |
+          git config --local user.email "ci@vibe-seller.test"
+          git config --local user.name "CI Bot"
+
+      - name: Run workflow tests
+        run: uv run pytest tests/workflow -v --cov=app --cov-report=xml
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          flags: workflow
+          name: workflow-tests
+
+  e2e-mock-cli:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+          uv pip install pytest pytest-asyncio httpx pytest-playwright
+
+      # Playwright is dev-only — needed for UI tests (pytest-playwright)
+      - name: Install Playwright browsers (UI tests only)
+        run: uv run playwright install --with-deps chromium
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
+      - name: Configure git identity
+        run: |
+          git config --local user.email "ci@vibe-seller.test"
+          git config --local user.name "CI Bot"
+
+      - name: Kill leftover server
+        run: lsof -ti:7777 | xargs kill -9 2>/dev/null || true
+
+      - name: Clean stale data from previous runs
+        run: rm -rf ~/.vibe-seller
+
+      - name: Start server with mock CLI
+        env:
+          MOCK_CLI: tests/e2e/mock_cli.py
+          VIBE_SELLER_TELEMETRY: '0'
+        run: |
+          mkdir -p logs
+          BACKEND_PORT=7777 MOCK_CLI=tests/e2e/mock_cli.py \
+            uv run uvicorn app.main:app \
+            --host 0.0.0.0 --port 7777 --log-level info \
+            > logs/mock_server_stdout.log 2>&1 &
+          SERVER_PID=$!
+          echo "Mock CLI server PID: $SERVER_PID"
+          for i in {1..15}; do
+            sleep 1
+            if ! kill -0 $SERVER_PID 2>/dev/null; then
+              echo "ERROR: Server died on iteration $i"
+              cat logs/mock_server_stdout.log
+              exit 1
+            fi
+            if curl -s http://127.0.0.1:7777/api/health > /dev/null 2>&1; then
+              echo "Server healthy after $i seconds"
+              exit 0
+            fi
+          done
+          echo "ERROR: Server failed health check"
+          cat logs/mock_server_stdout.log
+          exit 1
+
+      - name: Run mock CLI E2E tests
+        env:
+          E2E_BASE_URL: http://127.0.0.1:7777
+          MOCK_CLI: tests/e2e/mock_cli.py
+        run: >
+          uv run pytest tests/e2e/test_conversation_ui.py --e2e -v
+          --log-cli-level=INFO
+
+      - name: Stop mock CLI server
+        if: always()
+        run: lsof -ti:7777 | xargs kill -9 2>/dev/null || true
+
+      - name: Upload server logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mock-cli-server-logs
+          path: logs/*.log
+          retention-days: 14
+
+  integration-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+          uv pip install pytest pytest-asyncio httpx
+
+      - name: Install Playwright browsers
+        run: uv run playwright install --with-deps chromium
+
+      - name: Run integration tests
+        run: uv run pytest tests/integration -v
+
+  e2e-test:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: e2e-test
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: |
+          uv pip install -e ".[dev]"
+          uv pip install pytest pytest-asyncio httpx
+
+      # Playwright is dev-only — needed for UI tests (pytest-playwright)
+      - name: Install Playwright dependencies
+        run: |
+          uv pip install pytest-playwright
+          uv run playwright install --with-deps chromium
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install sqlite3 CLI
+        # vibe_seller_email_info advertises `sqlite3 <db_path>`
+        # as the canonical way for agents to query per-account
+        # email DBs. The runner image doesn't ship it, so the
+        # agent got "sqlite3: command not found" and fell into
+        # the circuit-breaker loop.
+        run: |
+          if ! command -v sqlite3 >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3
+          fi
+          sqlite3 --version
+
+      - name: Install Claude CLI
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          echo "Claude CLI installed at: $(which claude)"
+          claude --version
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          npm install
+          npm run build
+
+      - name: Configure git identity
+        run: |
+          git config --local user.email "ci@vibe-seller.test"
+          git config --local user.name "CI Bot"
+
+      - name: Kill leftover server
+        run: lsof -ti:7777 | xargs kill -9 2>/dev/null || true
+
+      - name: Clean stale data from previous runs
+        run: rm -rf ~/.vibe-seller
+
+      - name: Start server
+        env:
+          # No ANTHROPIC_* — conftest sets user's default_profile_id
+          # to the worker profile, so even UI-created tasks use it.
+          API_TIMEOUT_MS: 3000000
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
+          MAX_AGENT_CONCURRENCY: 9
+          AGENT_DEBUG: '1'
+          VIBE_SELLER_TELEMETRY: '0'
+        run: |
+          mkdir -p logs
+          echo "=== Starting server with uvicorn ==="
+          echo "Claude CLI location: $(which claude)"
+          BACKEND_PORT=7777 uv run uvicorn app.main:app \
+            --host 0.0.0.0 --port 7777 --log-level info \
+            > logs/server_stdout.log 2>&1 &
+          SERVER_PID=$!
+          echo "Server PID: $SERVER_PID"
+          # Wait and check
+          for i in {1..15}; do
+            sleep 1
+            if ! kill -0 $SERVER_PID 2>/dev/null; then
+              echo "ERROR: Server process died on iteration $i"
+              cat logs/server_stdout.log
+              exit 1
+            fi
+            if curl -s http://127.0.0.1:7777/api/health > /dev/null 2>&1; then
+              echo "Server healthy after $i seconds"
+              exit 0
+            fi
+          done
+          echo "ERROR: Server failed to respond to health check"
+          cat logs/server_stdout.log
+          exit 1
+
+      - name: Run E2E tests
+        env:
+          API_TIMEOUT_MS: 3000000
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
+          MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          KIMI_BASE_URL: ${{ secrets.KIMI_BASE_URL }}
+          KIMI_MODEL: ${{ secrets.KIMI_MODEL }}
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
+          GLM_MODEL: ${{ secrets.GLM_MODEL }}
+          E2E_WORKERS: 4
+          E2E_PROVIDER_MAP: minimax,minimax,glm,glm
+        run: |
+          E2E_N="${E2E_WORKERS:-0}"
+          XDIST_ARGS=""
+          if [ "$E2E_N" -gt 1 ] 2>/dev/null; then
+            XDIST_ARGS="-n $E2E_N"
+          fi
+          uv run pytest tests/e2e --e2e -v --log-cli-level=INFO \
+            --reruns 1 \
+            --only-rerun 'API Error: 529' \
+            --only-rerun 'overloaded_error' \
+            --only-rerun 'Agent stream stalled' \
+            --maxfail=1 \
+            $XDIST_ARGS \
+            --ignore=tests/e2e/test_chrome_backend.py
+
+      - name: Upload server logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-server-logs
+          path: logs/*.log
+          retention-days: 14

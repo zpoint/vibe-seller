@@ -1,0 +1,340 @@
+"""Tests for browser-use CLI wrapper isolation.
+
+Generates wrapper scripts to a tmp dir and verifies:
+- Default session is the store slug
+- Allowed sessions pass through
+- Wrong sessions are blocked (exit 1)
+- --cdp-url flag is blocked
+- --mcp flag is blocked
+- Both Ziniao and Chrome wrappers inject --cdp-url
+- Concurrent stores get separate isolated wrappers
+"""
+
+from pathlib import Path
+import subprocess
+from unittest import mock
+
+import pytest
+
+from app.browser.manager import (
+    store_slug,
+    write_browser_use_wrapper,
+)
+
+
+def _generate_wrapper(
+    tmp_path: Path,
+    store_name: str = 'test-store',
+    backend: str = 'ziniao',
+    proxy_port: int | None = 9222,
+    store_id: str = 'store-1',
+) -> Path:
+    """Helper: generate a wrapper and patch REAL_BU to echo."""
+    bin_dir = tmp_path / 'bin'
+    with (
+        mock.patch('app.browser.wrapper._BIN_DIR', bin_dir),
+        mock.patch(
+            'app.browser.wrapper.shutil.which',
+            return_value='/usr/local/bin/browser-use',
+        ),
+    ):
+        write_browser_use_wrapper(
+            store_name,
+            backend,
+            proxy_port,
+            store_id=store_id,
+        )
+
+    slug = store_slug(store_name)
+    wrapper = bin_dir / slug / 'browser-use'
+
+    # Replace REAL_BU with echo so the wrapper prints args
+    # instead of executing the real binary.
+    content = wrapper.read_text()
+    content = content.replace(
+        'REAL_BU="/usr/local/bin/browser-use"',
+        'REAL_BU="echo"',
+    )
+    # Replace curl with /usr/bin/true so auto-start checks
+    # pass instantly without hitting real endpoints.
+    content = content.replace('curl ', '/usr/bin/true ')
+    wrapper.write_text(content)
+    return wrapper
+
+
+def _run_wrapper(wrapper: Path, *args: str) -> subprocess.CompletedProcess:
+    """Run the wrapper script with the given arguments."""
+    return subprocess.run(
+        [str(wrapper), *args],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+
+
+@pytest.mark.unit
+class TestWrapperDefaultSession:
+    """Default session should be the store slug."""
+
+    def test_default_session_is_store(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(wrapper, 'state')
+        assert result.returncode == 0
+        assert '--session test-store' in result.stdout
+
+
+@pytest.mark.unit
+class TestWrapperSessionValidation:
+    """Session allow/deny logic."""
+
+    def test_explicit_store_session_allowed(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(wrapper, '--session', 'test-store', 'state')
+        assert result.returncode == 0
+
+    def test_aux_session_allowed(self, tmp_path: Path):
+        wrapper = _generate_wrapper(
+            tmp_path,
+            store_name='test-store',
+            backend='chrome',
+            proxy_port=9222,
+        )
+        result = _run_wrapper(wrapper, '--session', 'test-store-aux', 'state')
+        assert result.returncode == 0
+
+    def test_wrong_session_blocked(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(wrapper, '--session', 'other-store', 'state')
+        assert result.returncode == 1
+        assert 'not allowed' in result.stderr
+
+    def test_per_task_session_allowed(self, tmp_path: Path):
+        """Per-task sessions with 8-hex suffix are allowed."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        # Valid per-task session format: {slug}-{8hex}
+        result = _run_wrapper(
+            wrapper, '--session', 'test-store-a1b2c3d4', 'state'
+        )
+        assert result.returncode == 0
+
+    def test_per_task_session_uppercase_hex_allowed(self, tmp_path: Path):
+        """Per-task sessions accept uppercase hex characters."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(
+            wrapper, '--session', 'test-store-A1B2C3D4', 'state'
+        )
+        assert result.returncode == 0
+
+    def test_per_task_session_wrong_length_blocked(self, tmp_path: Path):
+        """Per-task sessions must have exactly 8 hex chars."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        # Too short (7 chars)
+        result = _run_wrapper(
+            wrapper, '--session', 'test-store-a1b2c3d', 'state'
+        )
+        assert result.returncode == 1
+        assert 'not allowed' in result.stderr
+        # Too long (9 chars)
+        result = _run_wrapper(
+            wrapper, '--session', 'test-store-a1b2c3d4e', 'state'
+        )
+        assert result.returncode == 1
+        assert 'not allowed' in result.stderr
+
+    def test_per_task_session_invalid_chars_blocked(self, tmp_path: Path):
+        """Per-task sessions must be hex characters only."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        # Invalid characters (g, h, i)
+        result = _run_wrapper(
+            wrapper, '--session', 'test-store-a1b2c3gh', 'state'
+        )
+        assert result.returncode == 1
+        assert 'not allowed' in result.stderr
+
+
+@pytest.mark.unit
+class TestWrapperFlagBlocking:
+    """Dangerous flags are rejected."""
+
+    def test_cdp_url_blocked(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(wrapper, '--cdp-url', 'http://evil', 'state')
+        assert result.returncode == 1
+        assert '--cdp-url' in result.stderr
+
+    def test_mcp_flag_blocked(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(wrapper, '--mcp')
+        assert result.returncode == 1
+        assert '--mcp' in result.stderr
+
+    def test_headed_flag_blocked(self, tmp_path: Path):
+        """--headed is managed by the wrapper and blocked."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(wrapper, '--headed', 'state')
+        assert result.returncode == 1
+        assert '--headed' in result.stderr
+
+    def test_session_override_blocked_in_agent(self, tmp_path: Path):
+        """--session override is blocked when VIBE_TASK_ID is set."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        env = {'VIBE_TASK_ID': 'a1b2c3d4-0000-0000-0000-000000000000'}
+        result = subprocess.run(
+            [str(wrapper), '--session', 'test-store', 'state'],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={**subprocess.os.environ, **env},
+        )
+        assert result.returncode == 1
+        assert 'auto-assigned' in result.stderr
+
+    def test_session_aux_allowed_in_agent(self, tmp_path: Path):
+        """--session {slug}-aux is allowed even in agent mode."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        env = {'VIBE_TASK_ID': 'a1b2c3d4-0000-0000-0000-000000000000'}
+        result = subprocess.run(
+            [str(wrapper), '--session', 'test-store-aux', 'state'],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={**subprocess.os.environ, **env},
+        )
+        assert result.returncode == 0
+
+    def test_session_override_allowed_without_task(self, tmp_path: Path):
+        """--session override is allowed when VIBE_TASK_ID is NOT set."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        # Unset VIBE_TASK_ID if present
+        env = {
+            k: v
+            for k, v in subprocess.os.environ.items()
+            if k != 'VIBE_TASK_ID'
+        }
+        result = subprocess.run(
+            [str(wrapper), '--session', 'test-store', 'state'],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env=env,
+        )
+        assert result.returncode == 0
+
+
+@pytest.mark.unit
+class TestWrapperCdpInjection:
+    """Ziniao vs Chrome CDP injection."""
+
+    def test_ziniao_wrapper_has_cdp_url(self, tmp_path: Path):
+        bin_dir = tmp_path / 'bin'
+        with (
+            mock.patch('app.browser.wrapper._BIN_DIR', bin_dir),
+            mock.patch(
+                'app.browser.wrapper.shutil.which',
+                return_value='/usr/local/bin/browser-use',
+            ),
+        ):
+            write_browser_use_wrapper(
+                'test-store', 'ziniao', 9222, store_id='s1'
+            )
+
+        content = (bin_dir / 'test-store' / 'browser-use').read_text()
+        assert '--cdp-url' in content
+        assert 'CDP_ARGS' in content
+
+    def test_ziniao_wrapper_autostart_polls(self, tmp_path: Path):
+        """Wrapper uses --max-time 90 and a poll loop, not sleep 2."""
+        bin_dir = tmp_path / 'bin'
+        with (
+            mock.patch('app.browser.wrapper._BIN_DIR', bin_dir),
+            mock.patch(
+                'app.browser.wrapper.shutil.which',
+                return_value='/usr/local/bin/browser-use',
+            ),
+        ):
+            write_browser_use_wrapper(
+                'test-store', 'ziniao', 9222, store_id='s1'
+            )
+
+        content = (bin_dir / 'test-store' / 'browser-use').read_text()
+        assert '--max-time 90' in content
+        assert 'while [' in content
+        assert 'sleep 2' not in content
+
+    def test_chrome_wrapper_has_cdp_url(self, tmp_path: Path):
+        """Chrome wrapper now has CDP_ARGS injection (same as Ziniao).
+
+        Both backends use CDPMuxProxy, so both get --cdp-url injected.
+        """
+        bin_dir = tmp_path / 'bin'
+        with (
+            mock.patch('app.browser.wrapper._BIN_DIR', bin_dir),
+            mock.patch(
+                'app.browser.wrapper.shutil.which',
+                return_value='/usr/local/bin/browser-use',
+            ),
+        ):
+            write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
+
+        content = (bin_dir / 'storec' / 'browser-use').read_text()
+        # CDP_ARGS block is present in Chrome wrappers (unified with Ziniao)
+        assert 'CDP_ARGS' in content
+        assert '--cdp-url' in content
+
+
+@pytest.mark.unit
+class TestWrapperAutoStartFailure:
+    """Wrapper exits with error when CDP auto-start fails."""
+
+    def test_api_failure_exits_with_error(self, tmp_path: Path):
+        """Non-2xx API response causes wrapper to exit 1."""
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        # Replace /usr/bin/true (always succeeds) with a
+        # script that fails the CDP check and API call.
+        content = wrapper.read_text()
+        content = content.replace(
+            '/usr/bin/true ',
+            '/usr/bin/false ',
+        )
+        wrapper.write_text(content)
+        result = _run_wrapper(wrapper, 'state')
+        assert result.returncode == 1
+        assert 'ERROR' in result.stderr
+
+
+@pytest.mark.unit
+class TestWrapperConcurrentStores:
+    """Multiple stores get separate isolated wrappers."""
+
+    def test_concurrent_stores_isolated(self, tmp_path: Path):
+        wrapper_a = _generate_wrapper(
+            tmp_path,
+            store_name='store-a',
+            proxy_port=9222,
+            store_id='sa',
+        )
+        wrapper_b = _generate_wrapper(
+            tmp_path,
+            store_name='store-b',
+            proxy_port=9223,
+            store_id='sb',
+        )
+
+        # Separate directories
+        assert wrapper_a.parent != wrapper_b.parent
+        assert wrapper_a.parent.name == 'store-a'
+        assert wrapper_b.parent.name == 'store-b'
+
+        # store-a wrapper only allows store-a sessions
+        result = _run_wrapper(wrapper_a, '--session', 'store-b', 'state')
+        assert result.returncode == 1
+
+        # store-b wrapper only allows store-b sessions
+        result = _run_wrapper(wrapper_b, '--session', 'store-a', 'state')
+        assert result.returncode == 1
+
+        # Each allows its own session
+        result = _run_wrapper(wrapper_a, '--session', 'store-a', 'state')
+        assert result.returncode == 0
+        result = _run_wrapper(wrapper_b, '--session', 'store-b', 'state')
+        assert result.returncode == 0

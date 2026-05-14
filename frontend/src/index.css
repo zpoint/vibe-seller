@@ -1,0 +1,28 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Markdown table styling */
+.prose table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.prose th,
+.prose td {
+  border: 1px solid #e5e7eb;
+  white-space: nowrap;
+}
+.prose th {
+  font-weight: 600;
+}
+.prose tbody tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+.prose tbody tr:hover {
+  background-color: #f3f4f6;
+}

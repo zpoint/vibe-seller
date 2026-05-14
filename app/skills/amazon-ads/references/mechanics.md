@@ -1,0 +1,1561 @@
+# Amazon Ads & Coupons — Verified Mechanics
+
+> **Reference of the `amazon-ads` skill.** See `../SKILL.md` for the
+> catalog and high-level reference picker. This file is the single
+> source of truth for click paths, URLs, modal patterns, and field
+> input ranges across the Amazon Ads + Coupons UIs.
+
+Every click path below was confirmed by hands-on browser-use testing on
+`advertising.amazon.sa` and `sellercentral.amazon.{sa,ae}`. The Chinese
+labels are what the UI actually shows when the merchant account uses
+zh-CN; English labels are noted where the page is locale-mixed.
+
+## 0. Preconditions every run
+
+Before any browser-use call:
+
+1. Load `browser-use` skill first (CLI syntax).
+2. The wrapper auto-starts the browser on first `open` if the CDP
+   proxy isn't already up, so you don't need to pre-warm anything.
+
+## 1. URLs that work (and ones that don't)
+
+This table covers **advertising and coupons URLs only**. For
+seller-central paths (inventory, listings, orders, performance,
+etc.) read `knowledge/project/common/amazon-sites.md` — that file
+has the canonical per-country base URLs and the path table. Don't
+guess seller-central paths.
+
+| Purpose | Working URL | Notes |
+|---|---|---|
+| Campaign manager | `https://advertising.amazon.{sa,ae}/campaign-manager` | Bare URL works — Amazon resolves a default `entityId` from the signed-in account. The path `/aiv/overview` is a **stale redirect target** that 404s — do not document it. To deep-link to a specific campaign / ad-group, scrape `entityId=ENTITY[A-Z0-9]+` from the landing page's body innerHTML first, then build the deeper URL with that suffix. |
+| Single campaign | `…/cm/sp/campaigns/<campaignId>?entityId=...` | Deep-link only — needs the `entityId` scraped from the campaign-manager landing. The first path leg after `cm/sp/` switches per ad type (`sp`, `sb`, `sd`). |
+| Ad group | `…/cm/sp/campaigns/<campId>/ad-groups/<agId>/<tab>?entityId=...` where tab ∈ `ads`/`targeting`/`negative-targeting`/`search-terms`/`history` |  |
+| Campaign tabs | `…/cm/sp/campaigns/<id>/<tab>` where tab ∈ `ad-groups`/`bid-adjustments`/`negative-targeting`/`budget-rules`/`settings`/`history` | |
+| Bulk operations | `…/bulk-operations?entityId=...` | NOT `/sp/bulk-operations` (404). |
+| Drafts | `…/cm/drafts?entityId=...` | NOT `/cm/sp/drafts/...` (only the inner path). |
+| Coupons dashboard | `https://sellercentral.amazon.{sa,ae}/coupons/dashboard` | NOT `/promotions/coupons` (redirects elsewhere) and NOT `/cppd/coupons` (404). |
+| Coupon create | `https://sellercentral.amazon.{sa,ae}/coupons/create-coupon` | |
+
+The ad console **redirects through Amazon sign-in on first hit per
+session** even though the seller-central session is good. Ziniao
+auto-fills the password (and OTP/2FA via 紫鸟验证码服务). Click
+`signInSubmit` (or the `mfaSubmit` after OTP) and wait ~5s for the
+redirect to settle.
+
+Each store's ad console may be on a *different* underlying Amazon
+account from its seller-central account (different email and entity
+id). Re-check the entity id on the campaign-manager landing page —
+search the page HTML for `entityId=ENTITY[A-Z0-9]+`. Save it; you'll
+need it on every URL.
+
+## 2. Reading existing campaigns
+
+### 2a. The campaign-list "Find a campaign" search
+
+The campaign list has a search input with placeholder
+`Find a campaign` (or `查找广告活动`). Setting its value via the standard
+React-friendly setter and dispatching `input` + `keydown:Enter` triggers
+the table filter. Returns deep-links to each campaign in the result rows
+(`<a href="…/cm/sp/campaigns/<id>?entityId=…">`).
+
+The other top-of-page input — placeholder `Search with metrics or
+settings` / `使用指标或设置进行搜索` — is **not** a campaign-name search.
+It's a saved-filter builder. Don't use it.
+
+The campaign list is **paginated** (50/page) but `pageNumber` URL
+params are silently ignored. To browse pages, click the bottom-right
+`Next Page` button. Easier: just use the "Find a campaign" search to
+jump straight to the campaigns you want.
+
+The default status filter is "Active : Enabled" (a removable chip
+near the table). The "Remove all" link near the top *doesn't* clear
+this chip — you have to click the chip's own × button (or its
+internal close action) to see paused/archived campaigns.
+
+### 2b. Reading a single campaign's settings tab
+
+`…/cm/sp/campaigns/<id>/settings?entityId=…` page text contains, in
+order:
+
+```
+Campaign:<name>
+Status:<状态>
+Type:Sponsored Products - Manual|Auto
+Country:<country>
+Schedule:<start date> - <No End Date|end date>
+Budget:<currency><amount> - Daily
+…
+Campaign ID
+<id>
+Portfolio
+<No portfolio|name>
+…
+Bid optimization
+<Dynamic (down only)|Dynamic (up and down)|Fixed bids>
+…
+Top of search (first page)
+adjust value %
+Product detail pages
+adjust value %
+Rest of search
+adjust value %
+```
+
+`Schedule` shows only one date when the campaign has no end date.
+Placement adjustments default to 0% — when blank in display they
+ARE 0%, not unset.
+
+### 2c. Reading targets
+
+Ad-group `…/targeting` page **virtualizes** rows — the DOM may only
+contain ~16 of 20 keyword rows at any time, and scrolling within the
+table doesn't always materialize the rest. The reliable way to get
+all rows is the per-page **Export** button (top-right of the targets
+table) which writes a CSV like `Sponsored_Products_Target_<date>.csv`
+to `~/.vibe-seller/downloads/<store>/`. CSV columns include `State`,
+`Keyword`, `Target match type`, `Status`, `Suggested bid (low|median|high)(SAR)`,
+`Bid (SAR)`, plus performance metrics. Per-table CSV export works for
+keyword and category and auto-target groups.
+
+The "Total: N" cell in the table footer is the authoritative count.
+
+### 2d. Bulk download (cross-campaign capture)
+
+Bulk Operations → `Download campaigns` (`下载广告活动`). The modal
+has these checkboxes (default all checked for "Enabled & Paused"):
+
+- Terminated campaigns
+- Paused campaigns
+- Campaign items with zero impressions
+- Placement data
+- Sponsored Products / Brands / Brands multi-ad / Display data
+- Sponsored products search term data
+- Sponsored brands search term data
+- Budget Rules Data
+
+Click `Download` (`下载`) in the modal. The job takes **5–15 min** for
+~150 campaigns. The status table polls infrequently — refresh the
+page to update. When status flips to `Success` (`成功`), click the row's
+`Download` link; the file lands in `~/.vibe-seller/downloads/<store>/BulkSheetExport.xlsx`.
+
+The XLSX has 9 sheets; the meaningful ones for SP are
+`Sponsored Products Campaigns` (one row per entity: Campaign /
+Bidding Adjustment / Ad Group / Product Ad / Keyword / Negative Keyword
+/ Product Targeting / Negative Product Targeting) and
+`SP Search Term Report`.
+
+**Bulk export gotchas verified in the wild:**
+
+- The download date-range filter affects whether **structure** is
+  emitted, not just metrics — campaigns that are paused with no
+  recent activity get *dropped from the export entirely*, even when
+  "Paused campaigns" + "Campaign items with zero impressions" are
+  both checked. To capture an old paused campaign, fall back to the
+  per-table CSV export from the campaign's UI tabs.
+- Auto-targeting `complements` group can be **silently dropped** when
+  the rest of close/loose/substitutes have non-default bids and
+  complements is at the ad-group default. The ad group will appear
+  to have only 3 product-targeting rows in the export when the UI
+  shows 4. Always cross-verify auto campaigns via UI.
+
+## 3. Creating a campaign via UI (the verified path)
+
+The new-campaign UI is a **single long form**, not a multi-step
+wizard, despite having section headers. Submit goes from the entire
+form at once. Save-as-draft also writes the entire form.
+
+### 3a. Open the form
+
+```bash
+# campaign-manager landing → the visible "Create campaign" link/button
+# (the icon-only one is at x≈12, the labeled link is at x≈316; click the
+# labeled one — the icon variant doesn't always navigate)
+browser-use eval "(()=>{const all=document.querySelectorAll('a, button');for(const a of all){const t=(a.innerText||'').trim();const r=a.getBoundingClientRect();if((t==='创建广告活动'||t==='Create campaign')&&Math.abs(r.x-316)<10){a.click();return;}}})()"
+# A modal opens with options: 商品推广 / 品牌推广 / 展示
+# (Sponsored Products / Sponsored Brands / Sponsored Display)
+# click the matching one.
+```
+
+**Country selector — verify before proceeding (gotcha).** The
+modal renders a country control above the campaign-type tiles.
+There are two shapes depending on how the seller account is
+registered with Amazon Ads — the agent must read the DOM, not guess
+from the URL.
+
+DOM shapes verified live:
+
+```text
+# A) multi-market account (one Amazon Ads entity registered for
+#    several marketplaces, e.g. SA + AE + AU under the same login)
+<button aria-label="<current-country-name>">  # clickable trigger
+  …click to open…
+  <button value="SA" role="option" selected="false">Saudi Arabia</button>
+  <button value="AE" role="option" selected="true">United Arab Emirates</button>
+  <button value="AU" role="option" selected="false">Australia</button>
+
+# B) single-market account (Amazon Ads entity registered for one
+#    marketplace only — typical when the seller signed up Amazon
+#    Ads for one country and never extended)
+<button aria-label="<country-name>" disabled="true">  # NOT clickable
+  Saudi Arabia
+```
+
+Procedure:
+
+1. Read the country trigger button's attributes from the modal.
+2. If `disabled="true"` (shape B): this account can only advertise
+   on the country shown. The campaign you're about to create will
+   land on that country regardless of which seller-central
+   marketplace the listing lives on. If that doesn't match the
+   task's intent, **stop and tell the user** — the fix is not on
+   this page (the account needs Amazon Ads registration for the
+   target marketplace, or use a different store whose Amazon Ads
+   entity already covers it). Do NOT proceed and "hope it sorts
+   out at submit time".
+3. If the trigger is clickable (shape A): read its `aria-label`. If
+   it doesn't already match the task's country, click the trigger,
+   then click the option whose `value` equals the target ISO code
+   (`AE`, `SA`, etc.). Re-read the trigger's `aria-label` after the
+   click to confirm the switch took.
+
+The URL TLD (`advertising.amazon.ae` vs `advertising.amazon.sa`)
+**does not** force the country in shape A — the modal dropdown
+overrides it. The TLD matters only as the entry point of an
+already-authenticated session: in shape B, the TLD typically
+matches the only registered marketplace; in shape A it's just
+where this entity's console happens to live, and the dropdown is
+authoritative.
+
+### 3b. Form-field map (Sponsored Products)
+
+Prefer `id`-based selectors below — they're stable across UI locale.
+The `placeholder` columns show the per-locale strings for context;
+do not rely on placeholder for selection. Currency-bearing inputs
+are dynamically labelled `enter amount in <CURRENCY>` (e.g. `AED` on
+amazon.ae, `SAR` on amazon.sa) — match by `id`, not currency.
+
+| Field | id selector | Locale placeholder examples | Notes |
+|---|---|---|---|
+| Ad group name | `#sspa_sp_adGroupSettings_adGroupName` | EN `Example: Seasonal Products` / ZH `示例：季节性商品` | Pre-filled with `Ad Group - <DD/MM/YYYY HH:MM:SS.mmm>` timestamp on form open; overwrite if a naming convention is required. |
+| Campaign name | `#fieldSet\.campaignSettingsFieldSet-AtlasCoreComponents\:CampaignName\:Input` | EN `Example: Holiday Favorites` / ZH `示例：假日最爱` | Pre-filled with `Campaign - <DD/MM/YYYY HH:MM:SS.mmm>`. **Setter on launch is unreliable** — see § 3h save-as-draft-then-rename workaround. The ad-group-name setter works the same way and persists. |
+| Product search | `#ucb-sp-ups\:ups-asin-search-input` | EN `Search by product name, ASIN, or SKU` / ZH `按商品名称、ASIN 或 SKU 搜索` | Set value via `input` event — typeahead fires automatically, no Enter required. **Must flip the All-products toggle first** (see Suggested-vs-All-products trap above) and **scroll the virtualised grid** to see all results. |
+| Default bid | `#sp-defaultBid` | dynamic `aria-label="enter amount in <CCY>"` | Pre-filled with Amazon's suggested bid (e.g. `0.64`); overwrite as needed. |
+| Daily budget | `#fieldSet\.campaignSettingsFieldSet-AtlasCoreComponents\:CurrencyInput\:Input` | dynamic `aria-label="enter amount in <CCY>"` | The **empty** currency input. Set the value as a plain number. Currency follows the campaign country (AED on AE, SAR on SA) — do NOT hardcode currency. |
+| Targeting type | `input[type=radio][name=targetingType][value=AUTO\|MANUAL]` |  |  |
+| Manual sub-type | `input[type=radio][name=manualTargetingType][value=KEYWORD\|PRODUCT]` |  |  |
+| Auto sub-type | `input[type=radio][name=automaticTargetingType][value=DEFAULT\|TARGETING_GROUP]` |  | `TARGETING_GROUP` reveals 4 per-group bid inputs. |
+| Bidding strategy | `input[type=radio][name=biddingStrategy][value=optimizeForSales\|legacy\|manual]` |  | `legacy` = "Dynamic - down only". |
+| Start date | inner of `kat-date-picker[name=start-date]` |  | See § 3c. |
+| End date | inner of `kat-date-picker[name=end-date]` |  |  |
+| Save as Draft (button) | `#sspa_sp_save_as_draft` |  | Persists form state without launching ads. Use this for the plan-stop review flow — show the draft to the user, then return here to click Launch. |
+| Launch campaign (button) | `#sspa_sp_createCampaign` |  | Final commit. Only click after the user confirms the draft. |
+
+After clicking the product search input + dispatching Enter, parse the
+left-pane suggestions: each row has an `添加` (Add) button. The right
+panel pinned to the screen shows `N 个商品` (N products selected) and
+each added item with brand, SAR price, ASIN, SKU. Use the surrounding
+row's text to disambiguate when multiple matches show — walk parents 8
+deep looking for the desired ASIN.
+
+**Suggested-vs-All-products toggle (recurring trap).** Above the
+results grid the form has two `role=switch` buttons: `Suggested` /
+`مقترح` (default, checked) and `All products` / `كل المنتجات`
+(unchecked). With the default `Suggested` toggle on, the results grid
+shows other products from the seller and **ignores the search input**
+— a typed ASIN returns rows for unrelated SKUs and looks like the
+search "didn't work". Click the `All products` toggle *before*
+judging whether a search returned the right ASIN. Typing the ASIN
+alone fires the search (no Enter required); switching the toggle is
+what makes results filter to the typed value.
+
+**Virtualised results grid — scroll the GRID, not the page (recurring
+trap).** The product results panel is `<div aria-label="grid">` and is
+**virtualised**. Only the rows that fit in the visible viewport are
+rendered into the DOM at any moment. Header text reads e.g.
+`1-35 of 35 results` even though only ~15 are present in the DOM. If
+you only inspect what's visible — via `state`, an innerText scrape, or
+a SKU regex — you will conclude the target product "isn't there" and
+fail the task on a phantom indexing-lag theory. The product is there;
+it's just below the fold of the inner grid.
+
+To inspect all results, scroll the grid element itself (not the page):
+
+```js
+const grid = document.querySelector('div[aria-label="grid"]');
+grid.scrollTop = grid.scrollHeight;          // jump to the bottom
+// then re-read grid.innerText / re-query its row children
+```
+
+Scroll, snapshot, scroll again until `scrollTop + clientHeight >=
+scrollHeight`, accumulating SKUs/ASINs as you go. Page-level scroll
+(`window.scrollTo` / `browser-use scroll down`) does **not** reveal
+the off-screen rows because the grid uses an internal virtualised
+viewport.
+
+**Parsing rows is column-concatenated, not field-labelled.** A single
+visible row's `innerText` reads like
+`<title>\n(<rating>)\n\n<currency> <price>\n\nIn stock\n\nASIN:<asin>\n\nSKU:<sku>\n\n<eligibility>\n<brand>`
+— so a SKU regex like `/SKU:([^\s]+)/` will sometimes capture the SKU
+glued to the next two fields (e.g. `<sku-name>IneligibleBRAND`) when
+the row separator between them is a non-newline character. Always
+anchor the regex to a known boundary: prefer
+`/SKU:\s*([A-Za-z0-9._-]+)\b/` over greedy `[^\s]+`, and parse
+`Eligibility` (`Eligible` / `Ineligible`) and `Status` (`In stock` /
+`Out of stock`) as separate fields rather than tail-of-SKU substrings.
+
+### 3c. Date picker — the recurring trap
+
+The kat-date-picker accepts `value=MM/DD/YYYY` internally but its
+visible inner `<input>` shows `DD/MM/YYYY`. Setting the inner input's
+value via `Object.getOwnPropertyDescriptor(...,'value').set` and
+dispatching `input`/`change`/`blur` is **not enough** — the kat
+component re-renders and clears the field on next form interaction.
+
+Reliable path: open the picker by clicking it, then click the day cell
+button whose innerText equals the day-of-month you want. Search:
+`button` whose `innerText.trim()` exactly equals the target day, and
+whose `getBoundingClientRect()` falls inside the open picker overlay
+(roughly y∈[200,400], x∈[100,400] for start; x∈[800,1000] for end).
+After clicking the day, the picker closes and the inner input
+properly reflects.
+
+If the day click doesn't take, try Tab out of the field after typing.
+
+### 3d. Adding keywords (manual / KEYWORD targeting)
+
+Click the keyword section's `输入列表` (Input list) tab — there are
+**two** `输入列表` tabs on the page (one for the product search above,
+one for the keyword section below). The keyword one is at y≈1877; the
+product one is at y≈614. Filter by y to disambiguate.
+
+The match-type checkboxes are at y≈1990 immediately *after* clicking
+the input-list tab, but **after one batch is added the page re-flows
+and the match-type checkboxes can shift to y≈490**. Do not hardcode a
+y range when toggling them; instead match by label text:
+`广泛`/`词组`/`精准` (Broad/Phrase/Exact). Click the surrounding
+`<label>` element, not the inner input — kat-checkbox swallows direct
+input-element clicks.
+
+Bid input for the keyword section: `input[type=text]` with aria-label
+matching `输入金额` and `针对关键词…的竞价，GROUP匹配类型` — but
+**setting it programmatically is unreliable**: Amazon's auto-suggest
+system overwrites whatever you type with its own "suggested bid"
+within ~1s. Better: add the keywords first (default bid will populate
+each row from the suggested-bid system), then **per-row** edit each
+row's individual bid input by aria-label
+`针对关键词<keywordText>的竞价，<BROAD|PHRASE|EXACT>匹配类型` — but
+even this gets stomped by auto-suggest. Realistic outcome: keywords
+go in with Amazon's suggested bids, and the user can tune in the
+dashboard later. Do not block the launch on bid mismatches.
+
+To enter the keywords themselves, set the value of
+`textarea#kwp\:kwp-enter-list-text-input-area`, dispatch `input`/
+`change`, then click the button labeled `添加关键词` (Add keyword).
+Newlines separate keywords. Pass them as a JSON array
+`["foo","bar"]` from your eval and `kws.join(String.fromCharCode(10))`
+inside the eval; bash quoting of literal newlines into JS strings is
+fragile.
+
+**Modal-blocker gotcha:** when *any* of the keywords being added
+"has no suggested bid" (e.g. some Arabic keywords for an exact match
+type), Amazon pops a modal: `<keyword>-精准 没有建议竞价 / 选择备选竞价`
+with a SAR-default fallback bid input and an `添加 个关键词` button.
+The modal **blocks subsequent adds** until dismissed. After every
+add-keywords batch, check for this modal and click `添加 个关键词`
+inside it (the regex `^添加\s*\d*\s*个?关键词$`). Only the keywords
+in the *last* batch may have triggered the modal — but if you don't
+dismiss it, the *next* two batches you submit are silently dropped.
+
+Each match type needs a separate add — the form's "all 3 checkboxes"
+default does **not** create 3 rows per keyword reliably; some keywords
+get duplicated, some get skipped, and Amazon de-dups across batches.
+Always: uncheck all but one match type, add that match type's
+keywords, dismiss any modal, repeat for the next match type.
+
+### 3e. Adding categories (manual / PRODUCT targeting)
+
+Switch sub-type to `PRODUCT`. The targeting section reveals tabs:
+`Categories | Individual Products`, and within Categories: `Suggested |
+Search`. Click `Search` to expose `input[placeholder="Search by
+category name"]`.
+
+Above the search input is a **bid-mode dropdown** — default
+`Suggested bid`. To use a fixed bid for all categories, click it and
+choose `Custom bid`; a SAR/AED input appears next to it. **Set this
+before searching** — adding a category captures the bid mode active
+at the time of click.
+
+Search the category name → click the `Add` button on the matching row.
+The search returns multiple matches (e.g. searching "Women's Athletic
+Socks" returns 17 categories including Men's Athletic Socks); the
+category row whose breadcrumb ends in your exact target string is
+typically the first row in the result list, but verify before clicking.
+
+The page may also show a `Refine` link next to `Add` — `Refine` opens
+sub-categories without adding the parent. Click `Add` for the leaf
+category you want.
+
+### 3f. Auto-targeting groups
+
+Switch targeting to `AUTO`, then auto-sub-type to `TARGETING_GROUP`.
+Four bid inputs appear at predictable y-coordinates (typically y≈1776,
+1852, 1924, 2000 in document order: 紧密匹配 / 宽泛匹配 / 同类商品 /
+关联商品 = close-match / loose-match / substitutes / complements).
+Target each in y-order and set bids. These setters DO stick (unlike
+keyword bids) because the auto-target form submits the values in the
+form payload directly.
+
+### 3g. Negatives
+
+Skip the `否定关键词投放` and `否定商品投放` collapsible sections
+when there are no negatives — leaving them collapsed is fine.
+
+### 3h. Saving and launching
+
+Bottom of the form has three actions: `返回广告活动` (cancel) /
+`另存为草稿` (save as draft) / `启动N个广告活动` (launch N campaigns).
+
+For the new-product-launch plan-stop pattern, **always click 另存为
+草稿 first**, then re-open the draft from the `草稿` (Drafts)
+sidebar link, screenshot it for the user, get explicit "proceed",
+then click `启动` from inside the draft.
+
+The drafts list is at `https://advertising.amazon.sa/cm/drafts?entityId=…`;
+each draft row has an `编辑` (Edit) button. Reopening loads the same
+single-form view with all values populated. Make any final name/bid
+tweaks, then `启动`.
+
+**Name conflicts:** if you've already had an empty-shell campaign
+created with the same name (typical from a failed bulk upload),
+launch will fail with `您的其中一个广告活动已使用了此名称`. Names
+are NOT released when a campaign is archived — you have to add a
+suffix (e.g. ` v2`) on both the ad group name and the campaign name
+to break the conflict. The `- agent` agent-marker suffix from
+`new-product-launch` is already part of the name; add `v2` after it.
+
+**Campaign-name persistence gotcha (verified):** if you fill the
+campaign-name input via JS setter and click `启动` directly without
+the draft round-trip, Amazon's React state is empty for that field
+at submit time and the campaign is launched with a default
+auto-generated name like `广告活动 - 25/04/2026 23:07:32.456`. Two
+fixes:
+
+1. **Save-as-draft-then-edit-then-launch** — save the form as draft,
+   re-open the draft (the form re-hydrates the campaign-name field
+   correctly), set the name there, launch from the draft view. This
+   is the safe path and matches the plan-stop pattern anyway.
+2. **Rename in-place after launch** — go to
+   `…/cm/sp/campaigns/<id>/settings`, find the campaign-name input
+   (it's now bound to a real React value), set + dispatch
+   input/change/blur, click `Save`. Useful for fixing campaigns that
+   already launched with a placeholder name.
+
+The Ad-Group-name input on the same form does NOT have this issue —
+it persists correctly from the JS setter. Only the campaign-name
+input is affected. The cause appears to be that the campaign-name
+field's React state is initialized to a generated placeholder string
+(`广告活动 - <timestamp>`) and only re-binds when the draft cycle
+re-hydrates it. Seek confirmation in upstream changelogs before
+removing this note.
+
+### 3i. Don't ship sister-store ad copy
+
+The campaign creation form has no "ad copy" field directly — Amazon
+serves the listing's own title/bullets. So this rule is enforced by
+*not* touching the listing copy on the target store as part of the
+ad run.
+
+## 4. Bulk upload — when, when not, gotchas
+
+### 4a. When to consider it
+
+Useful for re-flipping bid values across N existing campaigns at once,
+or for pure structure-only operations that don't include Product Ad
+rows.
+
+### 4b. When to avoid it
+
+**Never bulk-upload a Product Ad row using an ASIN as the SKU value.**
+The validator silently rejects the Product Ad, and Amazon then drops
+*every entity rooted under that ad group* (Ad Group, Product Ad, all
+Keyword/Product Targeting rows). The Campaign and Bidding Adjustment
+rows DO commit, leaving an empty paused shell that can't deliver. The
+upload's status box shows `Failed` only after a long delay; campaign
+list shows the empty shell well before that. Waiting 30+ minutes for
+the upload-status field to flip to `Failed` is the norm.
+
+**Looking up a child SKU.** If the user gives you a child SKU
+(e.g. variation suffix like `<PARENT>-<VARIANT>`), open
+`…/skucentral?mSku=<exactChildSku>&condition=New` directly. The
+page resolves the child SKU even when the parent has zero
+inventory and shows ASIN, FNSKU, and per-SKU sales/inventory tabs.
+Do NOT search for the parent first and try to "expand variations"
+on skucentral — that page only renders the SKU named in the
+query, it has no expand-variations control. Manage-inventory's
+list view also shows parent rows only, so searching `Boxer-XYZ`
+returns the parent line and looks like the child is missing.
+
+For freshly listed products, the children sometimes use the
+user's existing SKU scheme (e.g. a stable prefix + variant
+suffix like `<PREFIX>-NNN`) and sometimes use Amazon-auto-
+generated tokens (8-12 alphanumeric, dashed, e.g.
+`<XX-XXXX-XXXX>`). When the SKU naming is unknown, ask the user
+for the exact child SKU before browsing — guessing variation
+suffixes wastes a lot of clicks.
+
+If you suspect SKUs but want to verify before uploading, use the UI
+campaign create form's product search — search by ASIN and inspect
+the `SKU: …` line on the right-pane added-product card. That confirms
+the seller-side SKU.
+
+### 4c. Bulk Excel schema (Sponsored Products Campaigns sheet, 52 columns)
+
+```
+Product, Entity, Operation, Campaign ID, Ad Group ID, Portfolio ID, Ad ID,
+Keyword ID, Product Targeting ID, Campaign Name, Ad Group Name,
+Campaign Name (Informational only), Ad Group Name (Informational only),
+Portfolio Name (Informational only), Start Date, End Date, Targeting Type,
+State, Campaign State (Informational only), Ad Group State (Informational only),
+Daily Budget, SKU, ASIN (Informational only), Eligibility Status (Informational only),
+Reason for Ineligibility (Informational only), Ad Group Default Bid,
+Ad Group Default Bid (Informational only), Bid, Keyword Text, Native Language Keyword,
+Native Language Locale, Match Type, Bidding Strategy, Placement, Percentage,
+Product Targeting Expression, Resolved Product Targeting Expression (Informational only),
+Audience ID, Shopper Cohort Percentage, Shopper Cohort Type,
+Segment Name (Informational only), Impressions, Clicks, Click-through Rate,
+Spend, Sales, Orders, Units, Conversion Rate, ACOS, CPC, ROAS
+```
+
+Key columns by entity type:
+
+- **Campaign**: Campaign Name, Start Date (`YYYYMMDD`), Targeting Type
+  (`Auto`/`Manual`), State (`enabled`/`paused`), Daily Budget,
+  Bidding Strategy.
+- **Bidding Adjustment**: Campaign Name, Bidding Strategy, Placement
+  (`Placement Top`/`Placement Product Page`/`Placement Rest Of Search`),
+  Percentage.
+- **Ad Group**: Campaign Name, Ad Group Name, State, Ad Group Default Bid.
+- **Product Ad**: Campaign Name, Ad Group Name, State, **SKU** (real
+  seller SKU — not ASIN).
+- **Keyword**: Campaign Name, Ad Group Name, State, Bid, Keyword Text,
+  Match Type (`broad`/`phrase`/`exact`).
+- **Product Targeting** (manual category): Campaign Name, Ad Group
+  Name, State, Bid, Product Targeting Expression
+  (`category="<exact category name>"`).
+- **Product Targeting** (auto): Campaign Name, Ad Group Name, State,
+  Bid, Product Targeting Expression (`close-match`/`loose-match`/
+  `substitutes`/`complements`).
+
+Operation = `Create` for new entities; `Update` to modify;
+`Archive` to archive.
+
+### 4d. Bulk download to learn the store's SKU naming scheme
+
+Run a `Download campaigns` job, parse the resulting XLSX's
+`Sponsored Products Campaigns` sheet, filter `Entity == 'Product Ad'`
+to read each existing campaign's `SKU` column. That's the canonical
+source of the seller's SKU naming scheme for that store.
+
+## 5. Coupons
+
+### 5a. Eligibility ≠ inventory
+
+A SKU being Active and in stock is **not** sufficient for it to appear
+in the coupon-creation product search. Amazon's coupon eligibility
+gate is opaque and account-aware. Observed behavior:
+
+- **Saudi marketplace (`amazon.sa`)**: New listings (recently added,
+  no review history) are NOT eligible. The coupon search returns
+  `No eligible ASINs found` for **every** product including older
+  ones with running coupons, when the account is in a "no new
+  coupons" state. This may be account-level (e.g. recent program
+  warning) or temporary.
+- **UAE marketplace (`amazon.ae`)**: The same SKU is often eligible
+  immediately after listing for MENA unified accounts (one
+  seller, two marketplaces).
+
+**Always try `amazon.ae` first** for new-product coupons on a MENA
+unified account, even when the user nominally talked in SAR. The
+user typically asks for "10 SAR/AED" → run the coupon at AED10 on
+`amazon.ae`.
+
+### 5b. Coupon dashboard URLs
+
+```
+https://sellercentral.amazon.sa/coupons/dashboard
+https://sellercentral.amazon.ae/coupons/dashboard
+```
+
+The dashboard lists existing coupons with status pills, dates, budget,
+budget-utilization. Two top-right buttons: `Create coupons in bulk`
+and `Create a new Coupon` — both inside shadow DOM. Walk
+`document → element.shadowRoot` recursively to find them.
+
+### 5c. Three-step form
+
+`/coupons/create-coupon` is a 3-step wizard:
+
+1. **Products** — choose coupon type (Standard), Audience Type (All
+   customers), search and check products.
+2. **Details** — schedule (start/end), discount type (Money off /
+   Percentage off), discount amount, redemption-limit checkbox,
+   budget, coupon title (max 150 chars), stacked-promotions radio
+   (Yes/No allow stacking).
+3. **Review** — final review screen, then submit.
+
+### 5d. Step 1: Products
+
+Search input placeholder: `Search by product name or ASIN`. Search by
+SKU works too. The result row has a checkbox at the far left
+(usually a `[role=checkbox]` div, not a native `<input>`); click it
+to select. The right side counter `Participating products (N)` updates.
+
+### 5e. Step 2: Details — the kat-input wall
+
+This is where DOM-scripting hits a wall. The Amazon-built kat-input
+components for `discount-value`, `budget`, and `start-date` accept
+your value visually — `i.value` reads back what you set — but the
+React state behind them stays "empty/invalid", so **the `Continue`
+button stays `disabled=true`**.
+
+Things tried that DON'T enable the button:
+
+- `Object.getOwnPropertyDescriptor(...,'value').set.call(...)` + `input`
+  + `change` + `blur` events.
+- Setting via the kat-input wrapper's attributes (`value`, `valuetext`).
+- `browser-use input <idx> "10"` (which simulates real typing).
+- `Control+a` then re-type then `Tab`.
+- Clicking outside, scrolling, refreshing.
+
+What WOULD work (untested at finish): manual click + click + click +
+keyboard-typed digits with explicit per-keystroke events. Real user
+typing engages the kat focus → blur → React commit cycle properly.
+For the new-product-launch flow, it's faster to **hand the coupon to
+the user** for the 30-second manual completion than to keep grinding
+on this.
+
+What CAN be set programmatically:
+
+- The `Money off`/`Percentage off` radio (kat-radiobutton with
+  `name=discount-type`).
+- The stacking radio (`name=combinability`).
+- The end-date kat-date-picker (via clicking a day cell after opening,
+  not via setting the inner input).
+
+What CANNOT be reliably set:
+
+- The amount kat-numberinputs (`discount-value`, `budget`).
+- The start-date kat-date-picker — even when the kat element's
+  `value` attribute reads `MM/DD/YYYY`, the inner display stays empty
+  until a real user clicks a day cell.
+- The coupon-title kat-textinput — sometimes accepts the setter,
+  sometimes doesn't, depending on whether the field has been
+  user-focused on the page in this session.
+
+### 5f. Pragmatic coupon flow for the agent
+
+Do step 1 (product selection) end-to-end in the agent. Cancel before
+step 2 OR save as far as you can and tell the user "click Continue
+and type the 4 numbers" — those 4 are: discount=10, budget=1000,
+start-date=today (click day in picker), coupon title=<short generic
+product name>. The user finishes in <60s.
+
+Do not try to launch a coupon from the agent without explicit
+"go ahead" from the user — coupons spend money and have a 24h
+review window before going live.
+
+### 5g. Coupon discount, budget, duration defaults
+
+Per the user's standing rule for new-product launches:
+
+- Discount: 10 (in marketplace currency: 10 AED on `amazon.ae`,
+  10 SAR on `amazon.sa`).
+- Budget: 1000 (same currency).
+- Duration: 30 days from today (Amazon caps at 30; trying 31 fails).
+- Title: do NOT copy a sister coupon's exact title — Amazon flags
+  duplicates across accounts.
+
+## 6. Recovery from a wedged daemon
+
+If `browser-use` calls return `TimeoutError: timed out` or
+`Client is stopping`:
+
+1. `~/.vibe-seller/bin/<store>/browser-use sessions` — list daemons.
+2. `pkill -9 -f "skill_cli.daemon.*<store>-<8hex>"` (or `kill -9 <pid>`
+   from the sessions output).
+3. `~/.vibe-seller/bin/<store>/browser-use open <url>` — the next
+   call recreates the daemon and the wrapper restarts the CDP proxy
+   if needed.
+
+The Ziniao Chrome itself stays up; you don't need to restart it.
+Only the per-store `skill_cli.daemon` Python process is the wedge
+target.
+
+To open a non-seller URL (public Amazon page, docs, etc.) use
+`--session <store>-aux` — see the system prompt's DUAL BROWSER
+section.
+
+## 7. Per-store conventions to follow
+
+- **Naming:** existing campaigns on a store typically use
+  `<sku> <targeting type> <market>` where market is `KSA` or `UAE`.
+  When the agent creates a campaign, append ` - agent` (with surrounding
+  spaces) so the user can filter for review. Add ` v2`/`v3` only when
+  Amazon rejects for name conflict.
+- **Bidding strategy default:** `Dynamic - down only` (`legacy` in
+  the form payload) for the new-product-launch flow, matching the
+  user's standing preference.
+- **Placement adjustments:** all 0% by default. Only set non-zero
+  when explicitly captured from a sister campaign.
+- **Budget/bid currency:** matches the marketplace (SAR on
+  `amazon.sa`, AED on `amazon.ae`). The form's
+  `aria-label="enter amount in SAR"` is misleading on AE pages —
+  ignore the label and trust the marketplace.
+
+## 8. Reading existing campaigns for tuning
+
+For the ad-tuning workflow (see `tuning-workflow.md` reference in
+this same skill), these UI surfaces are where the data lives. All
+click paths verified.
+
+### 8a. Marketplace switching (Seller Central)
+
+Multiple marketplaces under one seller account share a login. To
+switch from KSA to AE (or any pair):
+
+1. From `sellercentral.amazon.<tld>/home`, click the **country pill**
+   near the top-left of the header (next to the `amazon seller
+   central` logo). Text is the current country name (e.g. "Saudi
+   Arabia"). A small dropdown appears with `See all` link.
+2. Click `See all` → navigates to
+   `sellercentral.amazon.<tld>/account-switcher/default/merchantMarketplace`.
+3. The page lists all linked marketplaces. Click the destination
+   row (e.g. "United Arab Emirates") — row highlights with a
+   checkmark.
+4. Click `Select account` button (bottom-right).
+5. Page redirects back to seller-central home with new
+   `mons_sel_mkid=<mp-id>` query param. The page header pill now
+   shows the new country.
+6. Some accounts have **separate ad entities per marketplace**. KSA
+   uses `merchantId=<X>` + `entityId=<Y>` while AE uses different
+   ones. The Campaign Manager menu link reads the active marketplace
+   and routes accordingly. **Do NOT** copy a campaign URL across
+   marketplaces — the entityId won't match.
+
+### 8b. Campaign list view (advertising.amazon.<tld>/campaign-manager)
+
+Reach via `Campaign Manager` link in seller central menu (never type
+`advertising.amazon.<tld>/...` directly on Ziniao-backed stores —
+gates).
+
+Key UI elements:
+
+- **Date range picker** (page header) — has presets `Today`,
+  `Yesterday`, `Last 7 days`, `Last 30 days`, `Last Week`,
+  `This Week`, `Last Month`, `This Month`, `Year to Date`,
+  `Lifetime`. Apply via the 3-step click sequence in the
+  date-picker subsection below.
+- **Table-level date filter** (bottom of campaign table, near
+  Export) — independent of the page header. Defaults to a rolling
+  ~30 days (e.g. "YYYY-MM-DD - YYYY-MM-DD"). For tuning, this is usually the
+  filter that matters; the page-header one drives only the top
+  metric tiles.
+- **Pre-built tuning filter chips** above the table: `Targets with
+  impressions and no sales`, `Targets with clicks and no orders`,
+  `Targets with conversions`. One-click pre-filtered tuning cuts.
+- **Default columns include** `Active`, `Campaign name`, `Status`,
+  `Type`, `Campaign start date`, `Campaign end date`, `Campaign
+  budget amount`, `Top-of-search impression share`, `Top-of-search
+  bid adjustment`, `Clicks`, `CTR`, `Total cost`, `CPC`,
+  `Purchases` (= orders), `Sales`, `ACOS`, `ROAS`. **The default
+  view is sufficient for most tuning analysis — no Columns toggle
+  needed.**
+- **Status values that matter**: `Delivering`, `Out of budget`,
+  `Paused`, `Ended`, `Archived`. `Out of budget` = Amazon has hit
+  the daily budget cap recently (signal to consider raise *only
+  after* tuning ACOS, not before).
+- **Row-name link href** points to `/cm/sp/campaigns/<id>/ad-groups`.
+
+#### Extracting campaign-list metrics — DO THIS, not that
+
+The campaign-list table renders inside an **ag-Grid that
+virtualizes both rows AND columns**. Trying to read every column
+via JS eval is unreliable: at any scroll position, ~6 of 17
+columns are in the DOM, the rest are placeholder cells. Verified
+in the wild — an agent burnt ~50 tool calls trying to scroll +
+re-eval + disable virtualization + screenshot + bulk-export
+before finding a path that worked. *Don't repeat it.*
+
+**The reliable path: per-campaign drill.** Extract every campaign's
+detail-page URL from the list, then iterate.
+
+```bash
+# Step 1 — read all SP / SB / SD campaign URLs from the list page.
+# (`/cm/sp/`, `/cm/sb/`, `/cm/sd/` cover Sponsored Products, Sponsored
+# Brands incl. Brand Video, and Sponsored Display respectively — see
+# the URL table at top of § 1.) This works regardless of horizontal
+# scroll because the campaign-name column is the pinned-left column.
+browser-use eval "
+var urls = [];
+document.querySelectorAll('a[href*=\"/cm/sp/campaigns/\"], a[href*=\"/cm/sb/campaigns/\"], a[href*=\"/cm/sd/campaigns/\"]')
+  .forEach(a => { if (a.href && !urls.includes(a.href)) urls.push(a.href); });
+JSON.stringify(urls);
+"
+# Returns the deep-link list. Save to /tmp/<run>/campaign-urls.json.
+
+# Step 2 — for each URL: open + read top-tile metrics via the
+# chart's metric-toggle buttons (their innerText carries the value).
+browser-use open "<url>" && sleep 3 && browser-use eval "
+(() => {
+  var r = {};
+  document.querySelectorAll('button[pressed], button[aria-pressed=\"true\"]').forEach(b => {
+    var t = b.innerText.trim();
+    if (t) r['metric_' + Object.keys(r).length] = t;
+  });
+  return JSON.stringify(r);
+})();
+"
+# Returns e.g. {metric_0:'<ccy x.xx>', metric_1:'<ccy y.yy>',
+#               metric_2:'<roas>', metric_3:'<orders>'}
+# meaning Total cost / Sales / ROAS / Purchases — in that order
+# because the chart's button row is fixed.
+```
+
+**Why this works.** The campaign-detail page's 4 top tiles are
+metric-toggle buttons for the chart (clicking one switches the
+chart series). Each button's `innerText` contains both the label
+("Total cost") AND the formatted value (e.g. `<ccy 100.00>`) —
+pinning order doesn't matter for tuning analysis as long as the
+four fixed positions map to Total cost / Sales / ROAS / Purchases.
+
+**Date range gotcha.** Each campaign-detail page has its OWN date
+picker, and the default differs per campaign (one detail page
+lands on a 30-day window ending mid-month, the next on a window
+ending today). Setting the date range on the campaign-list page
+does NOT propagate to the detail pages. Two acceptable strategies:
+
+1. **Accept per-page defaults**, capture each campaign's actual
+   date window into the report alongside its metrics, surface the
+   misalignment in the *Defaults applied* line. Faster.
+2. **Set each detail page's picker** to the session window before
+   reading. Slower (one extra click per campaign + verify) but
+   produces clean apples-to-apples comparison.
+
+For first-pass reads, (1) is fine; for high-stakes recommendations
+that depend on cross-campaign comparisons, escalate to (2).
+
+**Date-picker click sequence.** Both campaign-manager and
+per-campaign detail pages require a multi-step click to apply a
+preset:
+
+```bash
+# 1. Click the date display button to open the picker
+browser-use eval "
+(() => {
+  var btns = document.querySelectorAll('button');
+  var d = null;
+  btns.forEach(function(b) {
+    if (b.innerText.match(/<current displayed date string>/)) d = b;
+  });
+  if (d) { d.click(); return 'opened'; }
+})()"
+
+# 2. Click a preset leaf by walking up to the parent button
+browser-use eval "
+(() => {
+  var els = Array.from(document.querySelectorAll('*'));
+  var leaf = els.find(function(e) {
+    return e.children.length === 0 &&
+      (e.textContent || '').trim() === 'Last 30 days' &&
+      e.offsetParent !== null;
+  });
+  if (leaf) {
+    (leaf.closest('button, kat-button, [role=button]') || leaf).click();
+    return 'clicked';
+  }
+})()"
+
+# 3. Apply — only needed on some page variants (campaign-manager
+#    list view). Detail pages auto-apply after preset click.
+sleep 3
+browser-use eval "
+(() => {
+  var b = Array.from(document.querySelectorAll('button'))
+    .find(function(x) {
+      return x.innerText.trim() === 'Apply' && x.offsetParent !== null;
+    });
+  if (b) { b.click(); return 'apply'; }
+  return 'auto-applied';
+})()"
+```
+
+The visible "Last 30 days" text is a leaf inside a clickable
+parent — must walk up via `closest('button')`. Two pickers
+coexist on the campaign-manager page (table-filter + chart-range);
+filter by `offsetParent !== null` to find the visible one.
+
+**When to fall back to bulk export instead.** If the portfolio is
+> ~25 active campaigns, the per-campaign-drill loop costs ~25 ×
+3-5 s = 1-2 min per country, plus extra time for each ad-group
+drill. The bulk download (§ 2d) takes 5-15 min total but emits
+ALL data in one XLSX. Tradeoff: drill is faster for ≤ 20
+campaigns; bulk is faster for portfolios beyond that. **Don't
+attempt ag-Grid scraping in either case.**
+
+#### Second-level drill — ad-group Targeting + Search-terms tabs (REQUIRED)
+
+Top tiles only give campaign-aggregate spend/sales/orders/ROAS.
+Per-keyword / per-auto-target-group / per-search-term data lives
+one level deeper: the **ad group's Targeting and Search-terms
+tabs**. Without this drill, every "check 4 auto-target-groups",
+"identify high-ROAS search terms", and "trim bid drift" finding
+is impossible to back with data — the report devolves into
+generic "needs check" notes. Verified in the wild: an agent run
+emitted *"自动广告需检查4个target group"* for 4 SP-Auto campaigns
+without ever capturing the 4 rows.
+
+**Click path — same pattern for SP and SB.** Tabs in the ad-group
+strip use a JS router (no `<a href>` per tab), so direct URL
+deep-link is the reliable navigation:
+
+```
+…/cm/{sp|sb}/campaigns/<campId>/ad-groups/<agId>/targeting?entityId=…
+…/cm/sb/campaigns/<campId>/ad-groups/<agId>/search-terms?entityId=…
+```
+
+Find `<agId>` from the campaign's ad-groups page (already loaded
+in step 2 of § 8b above):
+
+```bash
+browser-use eval "
+[...document.querySelectorAll('a')]
+  .filter(a => a.href && a.href.includes('ad-groups') && a.href.includes('targeting'))
+  .map(a => a.href);
+"
+# Each href encodes the ad-group ID. For multi-ad-group campaigns
+# the agent iterates all of them; most SP-Auto / SBV campaigns
+# have one ad group.
+```
+
+**Auto campaign ad group ID ≠ campaign ID.** For auto
+campaigns, the ad group ID ALWAYS differs from the campaign ID.
+Navigating to `…/campaigns/<campId>/ad-groups/<campId>/targeting`
+renders a blank page. Extract the real ad group ID from the
+campaign detail page:
+```bash
+browser-use eval "
+var links = document.querySelectorAll('a[href*=\"/ad-groups/\"]');
+var agIds = [];
+links.forEach(function(l) {
+  var m = l.href.match(/\\/ad-groups\\/([^?/]+)/);
+  if (m && agIds.indexOf(m[1]) === -1) agIds.push(m[1]);
+});
+JSON.stringify(agIds);
+"
+```
+
+**ag-Grid pinned-left + center merge for Targeting tab.**
+The Targeting tab's ag-Grid renders keyword text in a
+**pinned-left container** (`.ag-pinned-left-cols-container`)
+while metric columns render in the **center container**
+(`.ag-center-cols-container`). `innerText` on the full row
+misses the keyword because it's in a different DOM subtree.
+Merge by `row-index`:
+
+```bash
+browser-use eval "
+(() => {
+  var pc = document.querySelector('.ag-pinned-left-cols-container');
+  var pr = pc ? pc.querySelectorAll('[role=row]') : [];
+  var bc = document.querySelector('.ag-center-cols-container');
+  var br = bc ? bc.querySelectorAll('[role=row]') : [];
+  var result = [];
+  pr.forEach(function(row) {
+    var idx = row.getAttribute('row-index');
+    if (idx) {
+      var kw = row.innerText.trim().replace(/\n/g, ' ');
+      br.forEach(function(b) {
+        if (b.getAttribute('row-index') === idx) {
+          var met = b.innerText.trim().replace(/\n/g, ' | ');
+          if (met) result.push(kw + ' ||| ' + met);
+        }
+      });
+    }
+  });
+  return result.join('@@@');
+})()
+"
+```
+
+Use `@@@` as delimiter (not `\n`) because `browser-use eval`
+only prefixes the first line with `result:` — newlines drop
+subsequent rows from shell pipelines.
+
+**SP-Auto Targeting tab — capture the 4 auto-target-groups.**
+The page uses `[role=row]` (no `<table>`). Group labels (Close
+match / Substitutes / Loose match / Complements) and data rows
+are sibling rows, paired positionally. The data row's last 7
+cells map cleanly to bid / clicks / spend / orders / sales /
+ACOS / ROAS regardless of currency or row state. The pinned-left
++ center merge eval above also works here — group names appear
+in the pinned-left container.
+
+```bash
+browser-use eval "
+(function() {
+  const rows = [...document.querySelectorAll('[role=row]')];
+  const LABELS = ['Close match', 'Loose match', 'Complements', 'Substitutes'];
+  const labelRows = rows.filter(r => LABELS.includes(r.innerText.trim()));
+  const dataRows = rows.filter(r => {
+    const t = r.innerText.trim();
+    return (t.startsWith('Delivering') || t.startsWith('Paused'));
+  });
+  return JSON.stringify(labelRows.map((lr, i) => {
+    const cells = (dataRows[i]?.innerText || '').split('\\n').map(c => c.trim()).filter(Boolean);
+    return {
+      group:  lr.innerText.trim(),
+      status: cells[0],
+      bid:    cells.at(-7), clicks: cells.at(-6), spend: cells.at(-5),
+      orders: cells.at(-4), sales:  cells.at(-3), acos:  cells.at(-2),
+      roas:   cells.at(-1)
+    };
+  }));
+})()
+"
+```
+
+Paused rows with no impressions return `—` for clicks/spend/etc.
+— that's the correct truthy answer; preserve in the report as
+`—` rather than 0.
+
+**SA vs AE — Targeting tab metric column order differs.**
+The center-container metric columns vary by marketplace for
+both SP-Manual and SP-Auto campaigns:
+
+| Marketplace | Metric column order (after Bid) |
+|---|---|
+| SA | `Clicks \| Total cost \| Purchases \| Sales \| ACOS \| ROAS` |
+| AE | `ACOS \| Clicks \| Purchases \| ROAS \| Impressions \| Total cost` |
+
+AE includes **Impressions** and puts ACOS first; SA includes
+**Sales** and puts Clicks first. Column-index-based extraction
+(e.g. `cells.at(-7)`) produces **silently wrong data** when the
+script runs against the wrong marketplace. Use the `innerText`
+split approach or verify column headers before picking indices.
+
+**New campaigns show "—" metrics when date range predates
+creation.** Campaign detail pages default to a date range set
+at the campaign-manager level. Campaigns created after the
+range end date show all metrics as "—". Change the detail
+page's date range to include the campaign's start date.
+
+**SB / SBV Targeting tab.** Layout differs from SP — uses
+`[role=grid]` with a horizontally-split dual-pane: `grids[2]` =
+left pane (keyword text), `grids[3]` = right pane (metrics).
+Paused rows insert a "Details" token after status that must be
+skipped by value, not by fixed offset.
+
+```bash
+browser-use eval "
+(function() {
+  const grids = [...document.querySelectorAll('[role=grid]')];
+  const kwLines = (grids[2]?.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+  const metLines = (grids[3]?.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+  const keywords = kwLines.filter(l => l !== 'select');
+  const MATCH = new Set(['Phrase', 'Exact', 'Broad']);
+  const rows = [];
+  let i = 0;
+  while (i < metLines.length && rows.length < 200) {
+    if (!MATCH.has(metLines[i])) { i++; continue; }
+    const match_type = metLines[i++], status = metLines[i++];
+    if (metLines[i] === 'Details') i++;
+    if (metLines[i] === 'No current data') i++;
+    if (metLines[i] === 'adjust value') i++;
+    if (metLines[i] === 'SAR' || metLines[i] === 'AED' || metLines[i] === 'USD') i++;
+    rows.push({
+      keyword: keywords[rows.length] || null,
+      match_type, status,
+      top_search_IS: metLines[i++], cpc: metLines[i++], clicks: metLines[i++],
+      spend: metLines[i++], orders: metLines[i++], sales: metLines[i++],
+      acos: metLines[i++], roas: metLines[i++], ntb: metLines[i++]
+    });
+  }
+  return JSON.stringify(rows);
+})()
+"
+```
+
+SB Targeting columns (in order): keyword / match_type / status /
+top-of-search IS% / **CPC** / clicks / spend / orders / sales /
+ACOS / ROAS / **NTB%** (new-to-brand — SB-only). Earlier skill
+notes claimed a "DPV" column existed here; live verification on
+SBV showed only the 12 columns above — no separate DPV.
+
+**SB / SBV Search-terms tab.** Same dual-grid pattern but the
+right-pane row is a flat 5-cell sequence (clicks/spend/orders/
+sales/ACOS — no ROAS, no DPV).
+
+```bash
+browser-use eval "
+(function() {
+  const grids = [...document.querySelectorAll('[role=grid]')];
+  const left  = (grids[2]?.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+  const right = (grids[3]?.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+  const leftRows = [];
+  for (let i = 0; i + 2 < left.length; i += 3) {
+    leftRows.push({ search_term: left[i], target_keyword: left[i+1], match_type: left[i+2] });
+  }
+  const FIELDS = 5;
+  const metRows = [];
+  for (let i = 0; i + FIELDS <= right.length; i += FIELDS) {
+    metRows.push({ clicks: right[i], spend: right[i+1], orders: right[i+2], sales: right[i+3], acos: right[i+4] });
+  }
+  return JSON.stringify(leftRows.map((lr, i) => ({...lr, ...(metRows[i] || {})})));
+})()
+"
+```
+
+**Search-terms virtualizes on SP and SB alike.** The page header
+shows the `Total: N` count. If N > what the eval returned, the
+rest are below the fold. Verified: SP-Auto returned 13 of 35 on
+first eval; SP-Manual returned 15 of 47; SBV returned 23 of 48.
+Either click `Export` (file lands in `~/.vibe-seller/downloads/
+<store>/`) or scroll the inner grid container and re-eval until
+you see all `N` rows. **Don't trust a truncated capture** — the
+top-spending tail you missed is often where the negate / harvest
+candidates live.
+
+**SP-Manual Targeting tab does NOT render Match type in the row
+DOM.** The header omits the column entirely (verified live: row
+text is `<status> / <suggested-bid> / <bid> / <clicks> / ...`).
+The Search-terms tab on SP shows the source keyword's match type
+in the center container (as `Match type: Broad|Phrase|Exact`),
+so match type IS available via the Search-terms merge eval (see
+§ 8f). But for a direct Targeting tab match-type read without
+cross-referencing Search-terms, CSV export is required.
+**Match type recovery for SP-Manual Targeting tab = CSV export
+or cross-reference from Search-terms tab.** Use the per-table
+CSV Export button on the Targeting tab (§ 2c) or the bulk-sheet
+download (§ 2d). Both include the `Match type` column.
+
+**SB / SBV campaign-detail top tiles use a different DOM than
+SP.** SP exposes the four tiles (Total cost / Sales / ROAS /
+Purchases) as `button[pressed]` toggles for the chart series
+(per § 8b step 2 above). SB's tiles are **static, with the label
+on its own line and the value on the next line concatenated with
+a `TOTAL` / `AVERAGE` suffix** — and the value embeds the
+currency prefix or `%` sign (`SAR96.00TOTAL`, `80.01%AVERAGE`).
+The pressed-button eval gets ~0–2 of these. Use a line-pair
+scan:
+
+```bash
+browser-use eval "
+(function() {
+  const lines = document.body.innerText.split('\\n').map(s => s.trim()).filter(Boolean);
+  const tiles = {};
+  for (let i = 0; i < lines.length - 1; i++) {
+    // Label is a Title-Case phrase; value line ends in TOTAL or AVERAGE.
+    const labelLooksOk = /^[A-Z][A-Za-z ]{2,30}\$/.test(lines[i]);
+    const m = lines[i + 1].match(/^([A-Z]{3}\\s*)?([\\d,\\.]+)%?(TOTAL|AVERAGE)\$/);
+    if (labelLooksOk && m) tiles[lines[i]] = lines[i + 1];
+  }
+  return JSON.stringify(tiles);
+})()
+"
+```
+
+Returns e.g. `{"Total cost":"SAR96.00TOTAL", "Sales":"SAR119.98TOTAL",
+"ACOS":"80.01%AVERAGE", "Impressions":"6,090TOTAL"}`. Strip the
+trailing `TOTAL`/`AVERAGE` and currency prefix when assembling
+the report. The set of tiles SB shows varies by Goal / Cost type —
+`Drive page visits` and `Drive sales` expose different tiles —
+so don't hard-code a fixed set.
+
+**Date range — capture per-page**, since each detail page has its
+own picker that defaults differently per campaign. Two patterns
+exist depending on page type. Try them in order:
+
+```bash
+browser-use eval "
+document.body.innerText.match(/Date range:\\s*[A-Za-z0-9 ,\\-–]+\\d{4}/)?.[0] ||
+document.body.innerText.match(/Data ranges from\\s+(\\d{4}-\\d{2}-\\d{2}).*?to\\s+(\\d{4}-\\d{2}-\\d{2})/s)?.[0]?.replace(/\\s+/g,' ') ||
+document.body.innerText.match(/\\d{1,2}\\s+[A-Z][a-z]{2}\\s*[-–]\\s*\\d{1,2}\\s+[A-Z][a-z]{2},?\\s*\\d{4}/)?.[0] ||
+'unknown'
+"
+```
+
+The first pattern catches SB campaign-detail ('Date range: 22 Apr
+- 8 May 2026'). The second catches SP campaign-detail (chart
+ARIA text 'Data ranges from 2026-04-23 00:00:00 to 2026-05-08
+00:00:00'). The third is a generic fallback. Surface the captured
+window in each campaign section's data header so the reader knows
+which dates the metrics apply to. For cross-campaign comparison
+work where misaligned windows would mislead, set each detail
+page's picker to the session window before reading.
+
+### 8c. Campaign detail page
+
+URL: `/cm/sp/campaigns/<campaign-id>/ad-groups`.
+
+Left sidebar (campaign-level tabs):
+- **Ad groups** (default landing) — list of ad groups inside this
+  campaign with per-group metrics (default bid, total targets,
+  products, total cost, purchases, sales, ACOS, ROAS).
+- **Bid adjustments** — per-placement modifier table (Top of search,
+  Rest of search, Product pages); see `8e`.
+- **Negative targeting** — campaign-level negative keywords +
+  negative product targets, two sub-tabs.
+- **Budget rules** — scheduled budget bumps for events (Black
+  Friday, Ramadan, etc.).
+- **Campaign settings** — name, schedule, daily budget, bidding
+  strategy.
+- **History** — change log.
+
+Top of page: 4 metric tiles (Total cost, Sales, ROAS, Purchases) +
+performance chart over the date range.
+
+JS `.click()` on these sidebar buttons OFTEN fails — they're
+shadow-DOM kat-button components whose React handlers don't fire
+on synthetic click events. **Use coord-click** (`browser-use click
+<x> <y>`) instead. Find coordinates via element bounding-rect first.
+
+### 8d. Ad group detail page
+
+URL: `/cm/sp/campaigns/<campaign-id>/ad-groups/<ad-group-id>/ads`.
+
+Left sidebar (ad-group level):
+- **Ads** (default landing) — list of advertised products (SKUs).
+- **Targeting** — keywords + product targets table; columns include
+  `Active`, `Keyword`, `Match type`, `Status`, `Suggested bid` (+
+  Apply button), `Bid`, `Clicks`, `CTR`, `Total cost`, etc.
+- **Negative targeting** — ad-group level negatives.
+- **Search terms** — the customer-query report; see `8f`.
+- **Ad group settings** — default bid, ad group bidding rule.
+- **History** — change log.
+
+### 8d-2. Creating a new ad group in an existing campaign
+
+URL: `/cm/sp/campaigns/<campaign-id>/ad-groups`.
+
+Click the **"Create ad group"** button on the ad-groups page. A
+full-page creation form opens at URL pattern `/cb/sp/campaigns/<id>/adGroups`
+(same form as campaign creation's ad group step, but scoped to this
+campaign).
+
+**Form fields:**
+1. **Ad group name** — input `#sspa_sp_adGroupSettings_adGroupName`.
+   Pre-filled with a timestamp; overwrite with the naming convention.
+2. **Products** — search by ASIN/SKU, click "Add" on the matching row.
+   **Use coord-click on the "Add" button**, not JS `.click()` — the
+   React form state may not register JS-triggered adds.
+3. **Default bid** — input `#sp-defaultBid`. Pre-filled with Amazon's
+   suggested bid (may be higher than expected, e.g. SAR 4.00 vs
+   target SAR 2.00).
+4. **Targeting type** — **CRITICAL**: the form defaults to **product
+   targeting** even in manual keyword campaigns. You MUST explicitly
+   click the `manualTargetingType-KEYWORD` radio button via coord-click
+   (not JS `.click()`) to enable keyword targeting. Without this, the
+   ad group will have a product-targeting tab instead of keyword
+   targeting, and "Add keywords" won't work.
+5. **Keywords** (after setting targeting type to keyword) — type
+   keywords and set per-keyword bids.
+
+**Shadow DOM bid pitfall.** When adding keywords with per-keyword
+bids, the bid input cells (e.g. `#kwp:kwp-bid-cell-field-0`) are
+inside `|SHADOW(open)|` elements. Using `browser-use input` sets the
+DOM `.value` but the SPA framework (React) does not register the
+change — the form still considers the bid as empty/missing. On
+submit, validation fails with "Required" on the bid field.
+
+**Workaround — click the suggested bid "Apply" button:**
+If the per-keyword row shows a suggested bid with an "Apply" link,
+clicking it is a framework-native action that sets the bid correctly.
+Prefer this when the suggested bid is acceptable. This is more
+reliable than the nativeInputValueSetter approach in the creation
+form context.
+
+**Do NOT run `browser-use eval` on the main page while the creation
+form is open.** The SPA may interpret the eval as navigation and
+redirect to `about:blank`, losing all form state. Use `browser-use
+state` for reading and `browser-use input`/`browser-use click` for
+interacting — both are safe.
+
+**Form state caching.** After creating an ad group, Amazon's SPA may
+cache the creation form state. Subsequent navigations to the
+campaign's ad-groups page may redirect back to the creation form
+(`/cb/sp/...`). Recovery: navigate to `campaign-manager/all-campaigns`
+first, then back to the campaign.
+
+### 8e. Bid Adjustments page (placement modifiers)
+
+URL: `/cm/sp/campaigns/<campaign-id>/bid-adjustments`.
+
+Page header text: **"Increase your bid for specific placements.
+These placements include Amazon Business."**
+
+Three default placement rows:
+- **Top of search (first page)** — usually the highest-CTR
+  placement.
+- **Rest of search** — middle of search results.
+- **Product pages** — appearing on competitor PDPs.
+
+Columns: Placement Name, Campaign bid strategy, Bid adjustment
+(editable %), Impressions, Clicks, CTR, Total cost, CPC, Purchases,
+Sales, ACOS.
+
+**Date range — read this BEFORE reading the table.** This page has
+its OWN date-range picker in the page header (e.g. `YYYY-MM-DD - YYYY-MM-DD,
+2026`). It is **independent** of the date range you set on the
+campaign-list page or on the campaign top-tile. Defaults can drift
+across pages and across visits. The placement breakdown only
+reconciles to the campaign top-tile (impressions, clicks, spend,
+orders, sales, ACOS sums match) **when both pages are set to the
+exact same date range.**
+
+Reconciliation example (illustrative numbers): with the page-header
+date picker pinned to a 30-day window, summing the per-placement
+Purchases / Sales / Total cost columns yields the same totals as the
+campaign-detail top tiles (e.g. `<X> orders / <SAR Y.YY> sales /
+<Z%> ACOS` matches to the cent). With a different date filter (or
+the default rolling window), the per-placement orders sum to less
+than the campaign top-tile and the analyst incorrectly concludes
+there's an "irreducible attribution gap". There isn't — align the
+date ranges first.
+
+**Required workflow on this page:**
+1. Read the date range shown in the page header.
+2. Compare to the date range used for the campaign top-tile reading.
+3. If they differ, click the page-header date picker on this page,
+   set it to match, wait for the table to refresh, then read.
+4. Sum the per-placement Purchases / Sales / Total cost columns and
+   verify they equal the campaign top-tile. If they don't, the dates
+   still aren't aligned (or the page hasn't finished refreshing).
+
+**Editing the % cell**: click the `0%` button → kat-numberinput
+edit popup appears with `Save` / `Cancel` buttons and an example.
+Popup also shows the validation message in the help text below.
+
+**Field input range**: **0% to +900%, INCREASE-only.** Amazon's
+own popup text: *"Choose a percentage between 0 and 900%"*. Negative
+values rejected by the input. To suppress a bad placement (lower
+spend), this lever is **not the right tool** — use bidding strategy
+change, per-keyword bid trim, or negative-ASIN targeting instead.
+
+Some rows show `Recommended: X%` below the current value — Amazon
+suggesting a positive bump (e.g. `Recommended: 25%`). Apply the
+recommendation by clicking it (or typing the value manually).
+
+### 8f. Search terms report
+
+Reach via Ad group → `Search terms` left sidebar (use coord-click).
+
+Columns: `Actions`, `Added as`, `Customer search term`, `Keywords`
+(with match type below), `Target bid`, `Clicks`, `Total cost`,
+`Purchases`, `Sales`, `ROAS`.
+
+**Per-row "Add as ⌄" dropdown**:
+- `Add as keyword` — promotes the search term to an exact-match
+  positive keyword in this ad group.
+- `Add as negative exact` — adds as a negative-exact rule.
+- `Add as negative phrase` — adds as a negative-phrase rule.
+- **No `Add as negative broad`** — Amazon SP doesn't support
+  negative-broad match type.
+
+For ASIN-targeting on Product-pages — search terms starting with
+`B0...` (10 chars) ARE ASIN targets, not text queries. They can be
+used to find which competitor PDPs the ad showed on, then pasted
+into Negative targeting → Negative products (campaign-level) to
+block.
+
+**SP-Auto search terms: ASIN is embedded after product title.**
+Auto campaign search-term cells contain `<full product title>
+ASIN : <B0XXXXXXXX>` — not just the ASIN. A regex anchored on
+`^B0...` will miss them. Extract with:
+```javascript
+/ASIN\s*:\s*(B0[A-Z0-9]{8})/
+```
+
+**ag-Grid pinned-left + center merge for Search-terms tab.**
+Same dual-container layout as the Targeting tab. The pinned-left
+container holds the customer search-term cell; the center
+container holds source keyword + match type + bid + metrics.
+Use the same `row-index` merge eval as Targeting, but pair with
+`=== ` as delimiter:
+
+```bash
+browser-use eval "
+(() => {
+  var pc = document.querySelector('.ag-pinned-left-cols-container');
+  var pr = pc ? pc.querySelectorAll('[role=row]') : [];
+  var bc = document.querySelector('.ag-center-cols-container');
+  var br = bc ? bc.querySelectorAll('[role=row]') : [];
+  var result = [];
+  pr.forEach(function(row) {
+    var idx = row.getAttribute('row-index');
+    if (idx) {
+      var term = row.innerText.trim().replace(/\n/g, ' ');
+      br.forEach(function(b) {
+        if (b.getAttribute('row-index') === idx) {
+          var met = b.innerText.trim().replace(/\n/g, ' | ');
+          if (met) result.push(term + ' === ' + met);
+        }
+      });
+    }
+  });
+  return result.join('@@@');
+})()
+"
+```
+
+**Match type is visible in the Search-terms center container**
+(as `Match type: Broad|Phrase|Exact` prefix in each row). This
+provides the source keyword's match type for each search term.
+
+**Harvesting search terms as keywords.** For **manual campaigns**:
+click "Add as" button on the search term row → "Add as keyword"
+from dropdown. The modal defaults to **all three match types**
+checked (Exact, Phrase, Broad) — uncheck Phrase and Broad if only
+Exact is wanted. Click "Add keywords" to confirm. After adding,
+the row's "Added as" column changes to "Keyword" and the "Add as"
+button disables.
+
+For **auto campaigns**: auto ad groups cannot accept keyword
+targets. Harvested search terms must be added to a **manual
+campaign's** ad group instead. Use the **dedicated harvest ad
+group** pattern (see below). The "Add as keyword" UI button in an
+auto campaign's search-terms tab may exist but is not the correct
+path for auto→manual harvest.
+
+**Harvest ad group naming convention.** Every auto campaign that
+has harvest candidates needs a dedicated ad group in a manual
+campaign for the same product. The ad group name follows the
+pattern:
+
+```
+<campaign-name-slug>-harvest-kw
+```
+
+For example, if the auto campaign is named "product-abc auto KSA",
+the harvest ad group would be `product-abc-auto-ksa-harvest-kw`.
+The `-harvest-kw` suffix distinguishes agent-managed harvest groups
+from human-created ones.
+
+**Auto→manual harvest workflow:**
+
+1. Identify the auto campaign's product(s) from the Products tab.
+2. Find an existing **manual** campaign that targets the same
+   product(s). If none exists, create one (see § 3).
+3. In that manual campaign's ad-groups tab, check if an ad group
+   named `*-harvest-kw` already exists:
+   ```javascript
+   JSON.stringify(
+     Array.from(document.querySelectorAll('a[href*="/ad-groups/"]'))
+       .map(a => ({name: a.textContent.trim(),
+                   href: a.href}))
+       .filter(o => o.name.includes('harvest-kw'))
+   )
+   ```
+4. **If not found**: create a new ad group. On the campaign's
+   ad-groups page, click "Create ad group" → set the name to
+   `<campaign-name-slug>-harvest-kw` → add the same
+   product(s) as the auto campaign → **select keyword targeting**
+   (click `manualTargetingType-KEYWORD` radio via coord-click — the
+   form defaults to product targeting even in manual keyword campaigns)
+   → set a default bid at the suggested-bid midpoint → save.
+   See § 8d-2 for the creation form mechanics including the
+   targeting-type trap, Shadow DOM bid pitfall, and form-state
+   caching.
+5. **If found**: reuse it — add Exact match keywords to this
+   existing ad group.
+6. In the harvest ad group's Targeting tab, add each harvested
+   search term as an **Exact match** keyword with bid at the
+   suggested-bid midpoint.
+7. Add the same search term as **negative exact at the auto
+   campaign level** (not the auto ad group) to prevent
+   cannibalization.
+
+The grid uses virtual scrolling — off-screen rows exist in DOM
+but clicks don't reach them. Scroll via JS first:
+```javascript
+document.querySelector(".ag-body-viewport").scrollTop = N
+```
+
+### 8g. Bidding strategy edit
+
+Campaign settings → **Campaign bidding strategy** section.
+
+Radio options:
+- **Fixed bids** — Amazon never adjusts.
+- **Dynamic bids - down only** — Amazon lowers in real-time when
+  conversion looks unlikely.
+- **Dynamic bids - up and down** — Amazon raises or lowers up to
+  ±100%.
+- **Rule-based bidding** — pursue a target ROAS; Amazon adjusts.
+  When selected, shows a sub-form like `Drive sales while seeking
+  to keep ROAS at or above 1.80` with an `Edit` link to change the
+  number.
+
+Saving the strategy change requires confirming the campaign is not
+currently mid-edit elsewhere; some accounts have a confirmation
+modal.
+
+### 8h. Daily budget edit
+
+Campaign settings → **Budget** section → kat-numberinput showing
+e.g. `SAR 15`. Click the value, clear it, type new amount, then
+click the **inline Save button** that appears below the input.
+The change does NOT auto-save on blur — the explicit Save click
+is required. Verified live: setting `value` + dispatching
+`input`/`change`/`blur` events without clicking Save did not
+persist. After Save, the campaign header updates immediately.
+
+`Add budget rule` link adjacent — opens a separate flow for
+scheduled budget bumps (Ramadan, BFCM, etc.). Reserved for the
+new-product-launch + budget-rules use case; not part of routine
+ad-tuning.
+
+### 8i. Field input ranges (verified)
+
+**Critical for the ad-tuning skill** — the agent must know the valid
+range of every field before recommending a change. Recommending an
+out-of-range value (e.g. negative placement modifier) is a skill bug.
+
+| Field | Where | Range | Direction | Unit | Source |
+|---|---|---|---|---|---|
+| Placement bid adjustment | Campaign → Bid adjustments → cell | 0 to 900 | Increase only | % | Amazon popup: "Choose a percentage between 0 and 900%" |
+| Keyword bid | Ad group → Targeting → bid cell | marketplace min (~SAR/AED 0.50) to 1000 | Either | currency | Amazon documentation; varies by marketplace |
+| Daily budget | Campaign settings → Budget | marketplace min (~SAR/AED 5) to 21000 | Either | currency | Per Amazon SP docs |
+| Default bid (ad group) | Ad group settings | marketplace min to 1000 | Either | currency | |
+| Match type for keyword | keyword editor | Broad / Phrase / Exact | enum | n/a | |
+| Match type for negative | search terms `Add as ⌄` | Exact / Phrase | enum | n/a | **Negative-broad NOT supported** |
+| Bidding strategy | Campaign settings | Fixed / Dynamic-down-only / Dynamic-up-and-down / Rule-based | enum | n/a | |
+| Rule-based ROAS target | Bidding strategy → Edit rule | positive number, typically 0.5 to 10 | Either | ratio | |
+| Coupon money-off amount | Coupons UI | depends on marketplace + product price | positive | currency | See § 5 |
+| Coupon budget | Coupons UI | positive | positive | currency | See § 5 |
+| Coupon duration | Coupons UI | up to 30 days | positive | days | Verified empirically; 31 days fails. § 5g for context. |
+
+When recommending any numeric change, the ad-tuning skill must:
+1. State current value with unit.
+2. State proposed value with unit.
+3. State direction (increase / decrease / add / remove / change-mode).
+4. Confirm the proposed value is in range from this table.
+
+Rejecting an out-of-range value at submit time wastes the user's
+plan-stop confirm; better to never propose it.
+
+## 9. Things that are NOT in this reference (intentionally)
+
+- The high-level "what to do for a new product launch" → that's the
+  separate `new-product-launch` skill. Don't duplicate the workflow
+  here.
+- The high-level "what to tune in already-running campaigns" → see
+  `tuning-workflow.md` (sibling reference in this same skill). This
+  file is mechanics; the workflow + thinking is over there.
+- Listing creation/edit, FBA shipments, account onboarding → out of
+  scope.
+- Sponsored Brands / Sponsored Display specifics — only Sponsored
+  Products is verified end-to-end here. Some patterns transfer
+  (URL shape, kat-component behavior, bulk Excel sheet structure
+  for `Sponsored Brands Campaigns`); the wizard is materially
+  different. Document SB/SD only when verified.

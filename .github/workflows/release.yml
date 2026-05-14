@@ -1,0 +1,297 @@
+name: Release to PyPI
+
+# Triggered by a `v*` tag. Six stages, fail-fast:
+#
+#   1. build              Produces TWO wheels in the same checkout:
+#                         - dist-pypi/      canonical (version from tag)
+#                         - dist-testpypi/  dev-versioned (`<tag>.devYYYYMMDDHHMMSS`)
+#                         so the TestPyPI verification stage can iterate
+#                         across runs without colliding with previous
+#                         uploads (PyPI/TestPyPI versions are immutable).
+#   2. publish-testpypi   Publish the dev-versioned wheel.
+#   3. verify-testpypi    Fresh runner: install via `install.sh --test-pypi
+#                         --version <dev>`, start server, run
+#                         `tests/releases/verify_install.sh <dev>` — asserts
+#                         `vibe-seller --version` matches, /api/health is
+#                         200, and POST/GET round-trips on /api/stores +
+#                         /api/profiles. Gates the production publish.
+#   4. publish-pypi       Publish the canonical wheel.
+#   5. verify-pypi        Re-run the same smoke against PyPI (post-publish
+#                         audit; same script, different version + source).
+#   6. github-release     Draft a GitHub Release with auto-generated notes.
+#
+# Prerequisites (one-time, per index):
+#
+#   PyPI (https://pypi.org/manage/account/publishing/)
+#     project: vibe-seller    owner: zpoint    repo: vibe-seller
+#     workflow: release.yml   environment: pypi
+#
+#   TestPyPI (https://test.pypi.org/manage/account/publishing/)
+#     project: vibe-seller    owner: zpoint    repo: vibe-seller
+#     workflow: release.yml   environment: test-pypi
+#
+#   GitHub environments `pypi` and `test-pypi` must exist on the repo.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build wheels (canonical + testpypi-dev)
+    runs-on: ubuntu-latest
+    outputs:
+      dev_version: ${{ steps.build_testpypi.outputs.dev_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm needs full tag history
+
+      # --- Frontend build (staged into the wheel as package data) ---
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+          run_install: false
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm build
+
+      - name: Stage built frontend into the package
+        # pyproject.toml's [tool.setuptools.package-data] includes
+        # `static/**/*`. Copying the build output here is what makes
+        # `pip install vibe-seller` ship a working web UI.
+        run: |
+          rm -rf app/static
+          mkdir -p app/static
+          cp -r frontend/dist/. app/static/
+
+      # --- Python build (twice: canonical for PyPI, dev for TestPyPI) ---
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build
+        run: python -m pip install --upgrade build
+
+      - name: Build canonical wheel (for PyPI)
+        # Tag-derived version, e.g. v0.0.1 → 0.0.1.
+        run: python -m build --outdir dist-pypi
+
+      - name: Build dev-versioned wheel (for TestPyPI)
+        id: build_testpypi
+        # `SETUPTOOLS_SCM_PRETEND_VERSION` overrides the tag-derived
+        # version. We stamp it with UTC seconds so every workflow run
+        # gets a unique, immutable upload, e.g.
+        # `0.0.1.dev20260514120555`.
+        run: |
+          DEV_VERSION="${GITHUB_REF_NAME#v}.dev$(date -u +%Y%m%d%H%M%S)"
+          echo "==> dev version: $DEV_VERSION"
+          SETUPTOOLS_SCM_PRETEND_VERSION="$DEV_VERSION" \
+            python -m build --outdir dist-testpypi
+          echo "dev_version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify both wheels bundle frontend assets
+        run: |
+          python - <<'PY'
+          import glob, zipfile, sys
+          for label, pattern in [('PyPI', 'dist-pypi/*.whl'), ('TestPyPI', 'dist-testpypi/*.whl')]:
+              wheels = glob.glob(pattern)
+              assert wheels, f'no {label} wheel produced'
+              wheel = wheels[0]
+              with zipfile.ZipFile(wheel) as z:
+                  names = z.namelist()
+                  static = [n for n in names if n.startswith('app/static/')]
+                  has_index = any(n == 'app/static/index.html' for n in static)
+                  if not has_index:
+                      print(f'  FAILED ({label}): app/static/index.html missing in {wheel}')
+                      sys.exit(1)
+                  print(f'OK ({label}): {wheel} ships {len(static)} static entries')
+          PY
+
+      - name: Upload canonical wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-pypi
+          path: dist-pypi/
+
+      - name: Upload testpypi-dev wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-testpypi
+          path: dist-testpypi/
+
+  publish-testpypi:
+    name: Publish to TestPyPI (dev-versioned)
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: test-pypi
+      url: https://test.pypi.org/p/vibe-seller
+    permissions:
+      id-token: write
+    steps:
+      - name: Download testpypi wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-testpypi
+          path: dist/
+
+      - name: Publish via Trusted Publisher
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  verify-testpypi:
+    name: Verify install — TestPyPI (gates real release)
+    needs: [build, publish-testpypi]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.build.outputs.dev_version }}
+      SIMPLE_INDEX: https://test.pypi.org/simple/vibe-seller/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for TestPyPI /simple/ index to see the new version
+        # Poll the SIMPLE index (what uv/pip read) rather than the JSON
+        # API. TestPyPI runs them on separate caches — JSON can return
+        # 200 well before the simple index catches up, leading to a
+        # spurious "no version found" from uv.
+        run: |
+          echo "Waiting for vibe-seller==$VERSION at $SIMPLE_INDEX..."
+          for i in $(seq 1 60); do
+            if curl -fsS "$SIMPLE_INDEX" 2>/dev/null | grep -qF "$VERSION"; then
+              echo "  visible in simple index after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: vibe-seller==$VERSION not visible on simple index after 120s"
+          curl -fsS "$SIMPLE_INDEX" 2>/dev/null | head -30 || true
+          exit 1
+
+      - name: Install via install.sh --test-pypi --version
+        run: ./install.sh --test-pypi --version "$VERSION"
+
+      - name: Start server (background)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller start --port 7777
+
+      - name: Smoke-test (verify_install.sh asserts version + API)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          bash tests/releases/verify_install.sh "$VERSION"
+
+      - name: Stop server
+        if: always()
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller stop --port 7777 || true
+          echo "--- last 30 lines of server log ---"
+          tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
+
+  publish-pypi:
+    name: Publish to PyPI (canonical)
+    needs: verify-testpypi
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vibe-seller
+    permissions:
+      id-token: write
+    steps:
+      - name: Download canonical wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-pypi
+          path: dist/
+
+      - name: Publish via Trusted Publisher
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify-pypi:
+    name: Verify install — PyPI (post-publish audit)
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    env:
+      # Strip the leading `v` from the tag — pip/uv take 0.0.1, not v0.0.1.
+      VERSION: ${{ github.ref_name }}
+      SIMPLE_INDEX: https://pypi.org/simple/vibe-seller/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Normalise tag → version
+        run: echo "VERSION=${VERSION#v}" >> "$GITHUB_ENV"
+
+      - name: Wait for PyPI /simple/ index to see the new version
+        # Same reason as TestPyPI verify: poll the simple index (what
+        # uv reads) instead of the JSON API, which can lag behind.
+        run: |
+          echo "Waiting for vibe-seller==$VERSION at $SIMPLE_INDEX..."
+          for i in $(seq 1 60); do
+            if curl -fsS "$SIMPLE_INDEX" 2>/dev/null | grep -qF "$VERSION"; then
+              echo "  visible in simple index after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "ERROR: vibe-seller==$VERSION not visible on PyPI simple index after 120s"
+          exit 1
+
+      - name: Install via install.sh --version (no --test-pypi)
+        run: ./install.sh --version "$VERSION"
+
+      - name: Start server (background)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller start --port 7777
+
+      - name: Smoke-test (verify_install.sh asserts version + API)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          bash tests/releases/verify_install.sh "$VERSION"
+
+      - name: Stop server
+        if: always()
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller stop --port 7777 || true
+          echo "--- last 30 lines of server log ---"
+          tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
+
+  github-release:
+    name: Create GitHub Release
+    needs: verify-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download canonical wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-pypi
+          path: dist/
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/*

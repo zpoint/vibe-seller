@@ -1,0 +1,72 @@
+"""Centralized environment variable options for vibe-seller.
+
+Follows the SkyPilot pattern (sky/utils/env_options.py): each enum
+member is an (env_var_name, default_value) pair with typed accessors.
+"""
+
+import enum
+import os
+
+
+class Options(enum.Enum):
+    """Environment variables for Vibe Seller.
+
+    Each member is ``(env_var_name, default_value)``.
+    Use ``.get()`` for strings, ``.get_bool()`` for booleans,
+    ``.get_int(fallback)`` for integers.
+    """
+
+    # Auth
+    ADMIN_USERNAME = ('ADMIN_USERNAME', 'admin')
+    ADMIN_EMAIL = ('ADMIN_EMAIL', 'admin@vibe-seller.local')
+    ADMIN_PASSWORD = ('ADMIN_PASSWORD', 'admin')
+    JWT_SECRET = (
+        'JWT_SECRET',
+        'change-me-in-production-use-a-long-secret-key',
+    )
+    AUTH_REQUIRED = ('VIBE_AUTH_REQUIRED', 'false')
+    FORCE_ADMIN_RESET = ('FORCE_ADMIN_RESET', 'false')
+
+    # Server
+    BACKEND_PORT = ('BACKEND_PORT', '7777')
+    HOST = ('HOST', '0.0.0.0')
+    FRONTEND_URL = ('FRONTEND_URL', '')
+    LOG_DIR = ('LOG_DIR', '')
+
+    # Logging
+    LOG_LEVEL = ('LOG_LEVEL', 'INFO')
+
+    # AI Agent
+    AGENT_DEBUG = ('AGENT_DEBUG', 'false')
+    MOCK_CLI = ('MOCK_CLI', '')
+    ANTHROPIC_MODEL = ('ANTHROPIC_MODEL', '')
+    MAX_AGENT_CONCURRENCY = ('MAX_AGENT_CONCURRENCY', '2')
+    ANTHROPIC_API_KEY = ('ANTHROPIC_API_KEY', '')
+    MAX_REPEAT_TOOL_CALLS = ('VIBE_MAX_REPEAT_TOOL_CALLS', '6')
+
+    # Sync
+    KNOWLEDGE_REPO_URL = ('KNOWLEDGE_REPO_URL', '')
+    SKILLS_REPO_URL = ('SKILLS_REPO_URL', '')
+
+    def __init__(self, env_var: str, default: str) -> None:
+        super().__init__()
+        self.env_var = env_var
+        self.default = default
+
+    def __repr__(self) -> str:
+        return self.env_var
+
+    def get(self) -> str:
+        """Return the env var value, or its default."""
+        return os.environ.get(self.env_var, self.default)
+
+    def get_bool(self) -> bool:
+        """Return ``True`` if the env var is ``'true'`` or ``'1'``."""
+        return self.get().lower() in ('true', '1')
+
+    def get_int(self) -> int:
+        """Return the env var as an int, or the default on failure."""
+        try:
+            return int(self.get())
+        except ValueError:
+            return int(self.default)
