@@ -22,9 +22,6 @@ server.log
 logs/
 logs_*/
 
-# Screenshots from testing
-*.png
-
 # Playwright MCP
 .playwright-mcp/
 
