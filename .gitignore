@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv
+.venv/
+venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+
+# Built frontend staged into the package for wheel builds (release.yml).
+# Not source; reproducible from `frontend/` via `pnpm build`.
+app/static/
+
+# Runtime data
+data/
+*.log
+server.log
+logs/
+logs_*/
+
+# Screenshots from testing
+*.png
+
+# Playwright MCP
+.playwright-mcp/
+
+# Worktrees + per-user Claude state
+.worktrees/
+.claude/worktrees/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Lock files
+uv.lock
+
+# Brainstorming artifacts
+docs/superpowers/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+.pids_*
+.superpowers/
+.coverage
+coverage.xml
+
+# Cloudflare Worker source for the PostHog proxy is deployed via
+# the maintainer's local copy + wrangler — no need to track in repo.
+cloudflare/

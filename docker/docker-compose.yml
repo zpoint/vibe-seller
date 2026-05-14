@@ -1,0 +1,110 @@
+# Vibe Seller — local dev / e2e test runner.
+#
+# Usage:
+#   cd docker
+#   docker compose run --rm app bash              # interactive shell
+#   docker compose run --rm app ./start.sh        # run server
+#
+# E2E tests — mirrors CI (3 workers, multiple providers):
+#   MINIMAX_API_KEY=sk-... KIMI_API_KEY=sk-... \
+#     docker compose run --rm e2e
+#
+# E2E tests — single provider (simpler, for quick local runs):
+#   MINIMAX_API_KEY=sk-... E2E_WORKERS=1 E2E_PROVIDER_MAP=minimax \
+#     docker compose run --rm e2e
+#
+# Run a specific test:
+#   MINIMAX_API_KEY=sk-... E2E_WORKERS=1 E2E_PROVIDER_MAP=minimax \
+#     docker compose run --rm e2e \
+#     uv run pytest tests/e2e/test_task_execution.py -v --e2e
+#
+# Ziniao tests (require host networking to reach random CDP ports on host):
+#   docker compose run --rm e2e-ziniao \
+#     uv run pytest tests/e2e/test_ziniao_browser.py -v --e2e
+#
+# Cleanup:
+#   docker compose down -v
+
+x-e2e-env: &e2e-env
+  # -- LLM provider credentials (pass via shell env) --
+  # MiniMax
+  MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
+  MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimaxi.com/anthropic}
+  MINIMAX_MODEL: ${MINIMAX_MODEL:-MiniMax-M2.5}
+  # DeepSeek
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-}
+  DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
+  # GLM
+  GLM_API_KEY: ${GLM_API_KEY:-}
+  GLM_BASE_URL: ${GLM_BASE_URL:-}
+  GLM_MODEL: ${GLM_MODEL:-}
+  # Kimi
+  KIMI_API_KEY: ${KIMI_API_KEY:-}
+  KIMI_BASE_URL: ${KIMI_BASE_URL:-}
+  KIMI_MODEL: ${KIMI_MODEL:-}
+  # -- Test parallelism (mirrors CI defaults) --
+  E2E_WORKERS: ${E2E_WORKERS:-4}
+  E2E_PROVIDER_MAP: ${E2E_PROVIDER_MAP:-minimax,minimax,glm,glm}
+  # -- Server config --
+  BACKEND_PORT: "7777"
+  API_TIMEOUT_MS: "3000000"
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+  MAX_AGENT_CONCURRENCY: "9"
+  AGENT_DEBUG: "1"
+  LOG_LEVEL: "DEBUG"
+
+services:
+  app:
+    build: .
+    ports:
+      - "7777:7777"
+    working_dir: /app
+    volumes:
+      - ..:/app
+    environment:
+      - BACKEND_PORT=7777
+      - API_TIMEOUT_MS=3000000
+      - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+
+  e2e:
+    build: .
+    working_dir: /app
+    volumes:
+      - ..:/app
+      # Persist server + agent logs across runs for debugging.
+      # Logs are at logs/server_stdout.log on the host after
+      # the container exits (even with --rm).
+      - ../logs:/app/logs
+    environment:
+      <<: *e2e-env
+    # Default: run all e2e tests with xdist workers
+    command:
+      - uv
+      - run
+      - pytest
+      - tests/e2e
+      - --e2e
+      - -v
+      - --log-cli-level=INFO
+
+  # Host networking variant — only for tests that need to reach
+  # host-side processes on random ports (e.g. Ziniao anti-detect
+  # browser CDP ports, or a real server running on the host).
+  e2e-ziniao:
+    build: .
+    network_mode: host
+    working_dir: /app
+    volumes:
+      - ..:/app
+      - ../logs:/app/logs
+    environment:
+      <<: *e2e-env
+    command:
+      - uv
+      - run
+      - pytest
+      - tests/e2e/test_ziniao_browser.py
+      - --e2e
+      - -v
+      - --log-cli-level=INFO

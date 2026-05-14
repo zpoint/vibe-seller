@@ -1,0 +1,11 @@
+.git
+.venv
+__pycache__
+*.pyc
+node_modules
+frontend/node_modules
+frontend/dist
+logs/
+*.sqlite
+*.sqlite-journal
+.claude/
