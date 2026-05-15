@@ -267,6 +267,12 @@ jobs:
         run: rm -rf ~/.vibe-seller
 
       - name: Start server
+        # Use the documented user command, not raw uvicorn — that
+        # way `_cmd_start`'s PATH augmentation (which makes claude
+        # findable after `curl|bash install.sh`) is exercised by
+        # CI on every PR. Env vars on this step propagate into
+        # `vibe-seller start`'s parent shell and from there into
+        # the daemon (cli.py copies os.environ).
         env:
           # No ANTHROPIC_* — conftest sets user's default_profile_id
           # to the worker profile, so even UI-created tasks use it.
@@ -276,37 +282,19 @@ jobs:
           AGENT_DEBUG: '1'
           VIBE_SELLER_TELEMETRY: '0'
         run: |
-          # install.sh's fix_npm_permissions puts claude (and any
-          # other `npm install -g` payload) in ~/.npm-global/bin/.
-          # That path is written into ~/.bashrc for interactive
-          # shells, but GitHub Actions runs non-interactive bash
-          # which doesn't source it, so without this export the
-          # daemon's `asyncio.create_subprocess_exec(['claude', ...])`
-          # exits with FileNotFoundError on every agent task.
-          export PATH="$HOME/.npm-global/bin:$PATH"
-          mkdir -p logs
-          echo "=== Starting server with uvicorn ==="
-          echo "Claude CLI location: $(which claude)"
-          BACKEND_PORT=7777 uv run uvicorn app.main:app \
-            --host 0.0.0.0 --port 7777 --log-level info \
-            > logs/server_stdout.log 2>&1 &
-          SERVER_PID=$!
-          echo "Server PID: $SERVER_PID"
-          # Wait and check
-          for i in {1..15}; do
-            sleep 1
-            if ! kill -0 $SERVER_PID 2>/dev/null; then
-              echo "ERROR: Server process died on iteration $i"
-              cat logs/server_stdout.log
-              exit 1
-            fi
-            if curl -s http://127.0.0.1:7777/api/health > /dev/null 2>&1; then
-              echo "Server healthy after $i seconds"
+          source .venv/bin/activate
+          echo "=== Starting server via vibe-seller CLI ==="
+          echo "Claude CLI location: $(which claude || echo not-on-shell-PATH)"
+          vibe-seller start --port 7777
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:7777/api/health > /dev/null 2>&1; then
+              echo "Server healthy after ${i}s"
               exit 0
             fi
+            sleep 1
           done
           echo "ERROR: Server failed to respond to health check"
-          cat logs/server_stdout.log
+          tail -50 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
           exit 1
 
       - name: Run E2E tests
@@ -347,5 +335,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: e2e-server-logs
-          path: logs/*.log
+          path: ~/.vibe-seller/logs/*.log
           retention-days: 14
