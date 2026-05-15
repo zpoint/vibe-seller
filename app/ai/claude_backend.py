@@ -368,10 +368,39 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Pass task ID for multi-client CDP proxy isolation
         env['VIBE_TASK_ID'] = self.task_id
 
-        venv_bin = VIBE_SELLER_DIR / '.venv' / 'bin'
-        if venv_bin.is_dir():
-            env['PATH'] = f'{venv_bin}:{env.get("PATH", "")}'
-            env['VIRTUAL_ENV'] = str(VIBE_SELLER_DIR / '.venv')
+        # Claude Code auto-commits the task workspace ("Initial
+        # workspace setup") right after `git init`. The workspace
+        # is a fresh repo at ~/.vibe-seller/tasks/<id>/, so no
+        # `git config --local` on the source checkout reaches it,
+        # and many fresh user machines (and CI runners scoped to
+        # repo-local identity per #181) have no `git config --global`
+        # either. `Author identity unknown` blows up the agent's
+        # first commit. Setting GIT_{AUTHOR,COMMITTER}_* via env
+        # makes the commit succeed without touching any git config
+        # file. setdefault keeps any real identity the user already
+        # exported via their shell.
+        env.setdefault('GIT_AUTHOR_NAME', 'Vibe Seller Agent')
+        env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
+        env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller Agent')
+        env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
+
+        # Inject the daemon's own venv bin onto the agent's PATH so
+        # the wrapper's `exec "$REAL_BU"` (and any bash the agent
+        # runs — pytest, fastapi, etc.) resolves binaries from the
+        # same interpreter that runs this server. Works in both modes:
+        #
+        #   - Dev clone (`./start.sh`):   <repo>/.venv/bin/python
+        #   - Wheel install (`vibe-seller start`):
+        #       ~/.local/share/uv/tools/vibe-seller/bin/python
+        #
+        # The old code referenced ``VIBE_SELLER_DIR/.venv/bin``
+        # (``~/.vibe-seller/.venv/bin``), which is never created by
+        # any install mode — a dead branch that masked the missing
+        # PATH injection in wheel-install mode.
+        daemon_bin = Path(sys.executable).resolve().parent
+        if daemon_bin.is_dir():
+            env['PATH'] = f'{daemon_bin}:{env.get("PATH", "")}'
+            env['VIRTUAL_ENV'] = str(daemon_bin.parent)
 
         # start_new_session=True puts claude and every descendant into
         # a fresh POSIX session/process group. We do not rely on this

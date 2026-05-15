@@ -6,9 +6,11 @@ CDP mux proxy URL, and auto-starts the proxy if down.
 """
 
 import logging
+from pathlib import Path
 import re
 import shutil
 import stat
+import sys
 import textwrap
 
 from app.config import BACKEND_PORT, BROWSER_USE_BIN_DIR, LOCALHOST
@@ -70,11 +72,24 @@ def write_browser_use_wrapper(
     wrapper_dir.mkdir(parents=True, exist_ok=True)
     wrapper_path = wrapper_dir / 'browser-use'
 
-    real_bu = shutil.which('browser-use')
+    # Prefer the browser-use binary that lives in the same bin/ as the
+    # daemon's Python interpreter. This is the ONLY place it exists in
+    # `uv tool install vibe-seller` mode — the tool venv's bin is not
+    # on PATH, so shutil.which() would fall through to the bare-string
+    # fallback and produce a wrapper that fails at exec time with
+    # "command not found". In `./start.sh` (dev clone) mode both paths
+    # find it; the sibling lookup is just authoritative.
+    daemon_bin = Path(sys.executable).resolve().parent
+    candidate = daemon_bin / 'browser-use'
+    real_bu = (
+        str(candidate) if candidate.is_file()
+        else shutil.which('browser-use')
+    )
     if not real_bu:
         logger.warning(
-            'browser-use binary not found on PATH; '
-            'wrapper will use "browser-use" as fallback'
+            'browser-use not found alongside %s nor on PATH; '
+            'wrapper will use "browser-use" as fallback',
+            sys.executable,
         )
         real_bu = 'browser-use'
 
