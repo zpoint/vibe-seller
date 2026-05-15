@@ -76,13 +76,27 @@ async def _patch_async_session(monkeypatch):
         )
         await db.commit()
 
-    for mod in [
-        'app.database',
-        'app.routers.tasks',
-        'app.task_runner',
-    ]:
+    # `from app.database import async_session` (used in ~30 app
+    # modules) binds the name into each module's namespace at
+    # import time. Patching only `app.database.async_session`
+    # would miss those bindings, so every caller of build_system_*
+    # that touches the DB via a re-imported reference would hit
+    # the real ~/.vibe-seller/data/vibe_seller.db instead of the
+    # in-memory test DB. We walk sys.modules instead of hardcoding
+    # a list because new code paths keep adding new imports —
+    # before this change the list was missing app.task_runner_context
+    # (added when build_system_context started querying tasks for
+    # the previous schedule run), and the 16 prompt-assembly tests
+    # silently 'no such table: tasks'.
+    import sys as _sys
+
+    for _mod_name, _mod in list(_sys.modules.items()):
+        if not _mod_name.startswith('app.'):
+            continue
+        if getattr(_mod, 'async_session', None) is None:
+            continue
         try:
-            monkeypatch.setattr(f'{mod}.async_session', maker)
+            monkeypatch.setattr(f'{_mod_name}.async_session', maker)
         except AttributeError:
             pass
     yield maker
