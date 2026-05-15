@@ -42,6 +42,26 @@ Each catalog level includes all entries from the level below. Agents read **one*
 - Store tasks → `stores/<slug>/CATALOG.md` (L3, contains L1+L2+L3)
 - No-store tasks → `knowledge/CATALOG.md` (L2, contains L1+L2)
 
+### Catalog Format: 3 Columns
+
+All three catalog levels use the same shape:
+
+```
+| File | Relevance | Summary |
+|---|---|---|
+| knowledge/project/common/noon-sites.md | noon | Noon Seller Center portal domains (login/welcome/store/...) |
+| knowledge/project/common/amazon-sites.md | amazon | Seller Central URLs for 23 countries... |
+| stores/my-store/notes.md |  | Empty/stub — knowledge accumulates here |
+```
+
+**Relevance** tags a row by platform (`amazon`, `noon`, comma-separated for multiple). Empty Relevance means cross-platform / optional.
+
+The agent prompt (`design_system.md`) treats Relevance as a contract, not a hint:
+
+> For every platform the task touches, the agent MUST read every catalog row whose Relevance column contains that platform before opening any URL on that platform. Empty-Relevance rows are read by judgment.
+
+This is the design fix for "agent cherry-picked the catalog and skipped `noon-sites.md`" — Relevance turns mandatory reads into a deterministic rule. The L2/L3 sync prompts (`CATALOG_DESC_L2`/`CATALOG_DESC_L3` in `app/prompts/__init__.py`) preserve the column when copying rows from L1 → L2 → L3. Earlier versions dropped Relevance at L2 generation; that broke the contract.
+
 ```
 ~/.vibe-seller/
 ├── knowledge/

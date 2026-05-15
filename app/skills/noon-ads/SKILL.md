@@ -1,6 +1,7 @@
 ---
 name: noon-ads
 description: "Noon Ad Manager — campaigns (Auto / Manual / Brand), tuning audits, keyword research, negatives, Vantage analytics. Covers Targets / Customer Queries / Export Data flows. Load for any noon ads work — review, audit, tune, create. References under references/ for the tuning playbook (ads-tuning.md), creation guide (ads-creation.md), and keyword research (ads-keyword-research.md)."
+requires: [noon-shared]
 ---
 
 # Noon — Ad Manager

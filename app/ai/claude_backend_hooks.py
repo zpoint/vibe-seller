@@ -16,7 +16,10 @@ from app.ai.claude_backend_utils import (
     AUTO_APPROVE_CALLBACK,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
+    find_skill_md,
+    parse_skill_requires,
 )
+from app.workspace.manager import VIBE_SELLER_DIR
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
@@ -196,6 +199,35 @@ class _HookMixin:
                 self._error_category = 'agent_loop'
                 asyncio.create_task(self.stop())
                 return
+            # Skill prerequisite enforcement: when a skill declares
+            # ``requires: [X]`` in its frontmatter, the agent must
+            # have loaded X first this session. Same shape as
+            # Claude Code's Read-before-Write rule — a deny with a
+            # clear retry message turns a prose contract into a
+            # mechanism. See parse_skill_requires for the format.
+            if inner_name == 'Skill':
+                skill_name = inner_input.get('skill', '')
+                deny = self._check_skill_prereqs(skill_name)
+                if deny:
+                    logger.info(
+                        'Skill prereq: agent %s tried %r without %s',
+                        self.task_id[:8],
+                        skill_name,
+                        deny,
+                    )
+                    await self._send_hook_response(
+                        request_id,
+                        {
+                            'hookSpecificOutput': {
+                                'hookEventName': 'PreToolUse',
+                                'permissionDecision': 'deny',
+                                'permissionDecisionReason': deny,
+                            },
+                        },
+                    )
+                    return
+                if skill_name:
+                    self._loaded_skills.add(skill_name)
             # Auto-approve all other tools
             await self._send_hook_response(
                 request_id,
@@ -274,6 +306,49 @@ class _HookMixin:
                     },
                 },
             )
+
+    def _check_skill_prereqs(self, skill_name: str) -> str | None:
+        """Return a deny-reason if loading `skill_name` would skip
+        a prerequisite the agent hasn't loaded yet; ``None`` otherwise.
+
+        The check is read-only on the workspace SKILL.md frontmatter —
+        no side effects. Caller is responsible for adding `skill_name`
+        to ``_loaded_skills`` after a successful approve.
+        """
+        if not skill_name:
+            return None
+        ws_dir = self.task_dir or VIBE_SELLER_DIR
+        skill_md = find_skill_md(ws_dir, skill_name)
+        if skill_md is None:
+            logger.debug(
+                'Skill prereq: %s no SKILL.md found for %r (ws=%s)',
+                self.task_id[:8],
+                skill_name,
+                ws_dir,
+            )
+            # Unknown skill (user-installed, plugin, or CLI builtin
+            # we don't ship). No requires data → no enforcement.
+            return None
+        requires = parse_skill_requires(skill_md)
+        logger.debug(
+            'Skill prereq: %s checking %r at %s — requires=%s loaded=%s',
+            self.task_id[:8],
+            skill_name,
+            skill_md,
+            requires,
+            sorted(self._loaded_skills),
+        )
+        missing = [r for r in requires if r not in self._loaded_skills]
+        if not missing:
+            return None
+        # Same shape as Read-before-Write: tell the agent the order
+        # it must follow, in one short message.
+        first = missing[0]
+        return (
+            f"Skill '{skill_name}' requires '{first}' to be loaded"
+            f' first. Call the Skill tool with skill={first!r}, then'
+            f' retry skill={skill_name!r}.'
+        )
 
     async def _handle_can_use_tool(self, request_id: str, request: dict):
         """Handle a CanUseTool control request."""

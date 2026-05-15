@@ -273,6 +273,52 @@ def write_browser_use_wrapper(
             exit 1
         fi
 
+        # URL-shape validation for `open` subcommand.
+        # ----------------------------------------------------------------
+        # Some seller-platform URLs include unquoted `?` and `&`. When
+        # an agent invokes them via `browser-use open <URL>` without
+        # quotes, the CALLING shell (zsh on macOS) parses `?...` as a
+        # failing glob and `&` as a background operator BEFORE this
+        # wrapper runs. browser-use then sees a truncated URL (or
+        # none at all) and navigation silently falls back to the
+        # previous page — the agent thinks the open succeeded because
+        # a follow-up `state` returns a non-error page.
+        #
+        # We can't fix the calling shell from inside this wrapper —
+        # the shell parsing happens before our script runs. What we
+        # CAN do is detect the shape that proves shell-mangling
+        # happened (open without a proper http(s) URL) and exit
+        # loudly so the agent sees the failure on the first call
+        # instead of compounding it with retries.
+        _bu_subcmd=""
+        _bu_url=""
+        for ((i=0; i<${{#PASSTHROUGH[@]}}; i++)); do
+          case "${{PASSTHROUGH[$i]}}" in
+            open|navigate)
+              _bu_subcmd="${{PASSTHROUGH[$i]}}"
+              _bu_url="${{PASSTHROUGH[$((i+1))]:-}}"
+              break
+              ;;
+          esac
+        done
+        if [ -n "$_bu_subcmd" ]; then
+          case "$_bu_url" in
+            http://*|https://*)
+              : # OK, looks like a real URL
+              ;;
+            *)
+              echo "ERROR: 'browser-use $_bu_subcmd' expects an http:// or https:// URL." >&2
+              echo "       Got: ${{_bu_url:-<missing>}}" >&2
+              echo "" >&2
+              echo "Likely cause: the calling shell (zsh/bash) parsed special" >&2
+              echo "characters in your URL before the wrapper saw it. URLs" >&2
+              echo "containing '?', '&', or '#' MUST be quoted, e.g.:" >&2
+              echo "  browser-use open 'https://example.com/page?a=1&b=2'" >&2
+              exit 2
+              ;;
+          esac
+        fi
+
     """)
 
     if auto_start_block:

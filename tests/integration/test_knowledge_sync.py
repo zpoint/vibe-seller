@@ -104,10 +104,19 @@ async def test_local_package_sync(sync_manager):
 
 @pytest.mark.asyncio
 async def test_remote_fetch_with_mock(sync_manager, knowledge_dest):
-    """Remote fetch downloads files from mocked MANIFEST.txt."""
-    with patch(
-        'app.workspace.knowledge_sync.httpx.AsyncClient',
-        _patched_client(_mock_transport()),
+    """Remote fetch downloads files from mocked MANIFEST.txt.
+
+    Patches ``_get_local_source`` to None so the local-precedence
+    guard doesn't skip files that happen to exist in the installed
+    package — this test exercises the remote-only fallback path.
+    Local-precedence behavior has its own dedicated test below.
+    """
+    with (
+        patch(
+            'app.workspace.knowledge_sync.httpx.AsyncClient',
+            _patched_client(_mock_transport()),
+        ),
+        patch.object(sync_manager, '_get_local_source', return_value=None),
     ):
         result = await sync_manager.fetch_remote()
 
@@ -120,13 +129,60 @@ async def test_remote_fetch_with_mock(sync_manager, knowledge_dest):
 
 
 @pytest.mark.asyncio
+async def test_remote_fetch_skips_files_present_in_local_package(
+    sync_manager, knowledge_dest, tmp_path
+):
+    """Local package version is authoritative — remote does not
+    overwrite files that exist in the installed source.
+
+    Regression: an in-flight CI run on a branch with newly-added
+    knowledge content had those files silently overwritten by the
+    public-main version at remote-sync time. The fix makes the
+    installed package the source of truth and remote a fallback
+    for content not shipped with the user's release.
+    """
+    # Fake "local package" that has the same files the mock remote
+    # claims to ship — local-precedence guard must skip them.
+    local_pkg = tmp_path / 'local_source'
+    local_pkg.mkdir()
+    (local_pkg / 'README.md').write_text('# LOCAL ONLY\n')
+    (local_pkg / 'common').mkdir()
+    (local_pkg / 'common' / 'ziniao-browser.md').write_text('# LOCAL\n')
+
+    with (
+        patch(
+            'app.workspace.knowledge_sync.httpx.AsyncClient',
+            _patched_client(_mock_transport()),
+        ),
+        patch.object(sync_manager, '_get_local_source', return_value=local_pkg),
+    ):
+        result = await sync_manager.fetch_remote()
+
+    # Both files in the mock MANIFEST were skipped because local
+    # owns them. ``copied`` is 0; ``skipped`` reflects the guard.
+    assert result['status'] == 'success'
+    assert result['copied'] == 0
+    assert result['skipped'] == 2
+
+    # And dest is untouched — remote did NOT write its versions
+    dest = sync_manager._dest_dir
+    assert not (dest / 'README.md').exists()
+    assert not (dest / 'common' / 'ziniao-browser.md').exists()
+
+
+@pytest.mark.asyncio
 async def test_remote_fetch_current_branch(
     sync_manager, knowledge_dest, monkeypatch
 ):
-    """Remote fetch from current branch URL matches local files.
+    """Remote fetch from current branch URL is reachable and writes
+    the files local doesn't ship.
 
-    Uses the real current git branch to construct the GitHub raw
-    URL. Skips gracefully if branch is not pushed yet.
+    Patches ``_get_local_source`` to None so the local-precedence
+    guard (added with the sync clobber-protection fix) doesn't skip
+    every file. With that opt-out, the test exercises the actual
+    remote-download path against the current branch's GitHub raw
+    URLs — verifying the manifest is reachable and the content
+    persists to dest. Skips gracefully if the branch isn't pushed.
     """
     branch = _get_current_branch()
     branch_url = (
@@ -138,7 +194,8 @@ async def test_remote_fetch_current_branch(
         branch_url,
     )
 
-    result = await sync_manager.fetch_remote()
+    with patch.object(sync_manager, '_get_local_source', return_value=None):
+        result = await sync_manager.fetch_remote()
 
     if result['status'] == 'failed':
         pytest.skip(
@@ -164,9 +221,15 @@ async def test_remote_fetch_current_branch(
 @pytest.mark.asyncio
 async def test_sync_meta_persisted(sync_manager, knowledge_dest):
     """After sync, .sync_meta.json has correct fields."""
-    with patch(
-        'app.workspace.knowledge_sync.httpx.AsyncClient',
-        _patched_client(_mock_transport()),
+    with (
+        patch(
+            'app.workspace.knowledge_sync.httpx.AsyncClient',
+            _patched_client(_mock_transport()),
+        ),
+        # Local-precedence guard would skip the mocked manifest
+        # files if a real installed package shipped them — opt
+        # out so this test exercises the remote-write path.
+        patch.object(sync_manager, '_get_local_source', return_value=None),
     ):
         await sync_manager.fetch_remote()
 
@@ -280,6 +343,9 @@ async def test_sync_creates_system_event_on_success(
             'app.workspace.knowledge_sync.async_session',
             return_value=mock_ctx,
         ),
+        # Opt out of local-precedence so this test exercises the
+        # remote-write path that emits the success Event.
+        patch.object(sync_manager, '_get_local_source', return_value=None),
     ):
         result = await sync_manager.fetch_remote()
 

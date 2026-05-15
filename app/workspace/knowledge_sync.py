@@ -259,8 +259,15 @@ class KnowledgeSyncManager:
             return result
 
     async def _do_remote_sync(self, client: httpx.AsyncClient) -> dict:
-        """Download files from remote URL using MANIFEST.txt."""
+        """Download files from remote URL using MANIFEST.txt.
+
+        Local-package precedence: files that exist in the installed
+        package are authoritative for the package version's lifetime.
+        Remote sync only fills in files NOT present locally. See
+        ``skills_sync._do_remote_sync`` for the rationale.
+        """
         base_url = KNOWLEDGE_REPO_URL.rstrip('/')
+        local_source = self._get_local_source()
         try:
             # 1. Fetch MANIFEST.txt
             resp = await client.get(f'{base_url}/MANIFEST.txt', timeout=15)
@@ -287,6 +294,12 @@ class KnowledgeSyncManager:
                         'Path traversal in MANIFEST: %s',
                         rel_path,
                     )
+                    continue
+
+                # Local-package precedence: skip files that exist
+                # in the installed package — local is authoritative.
+                if local_source and (local_source / rel_path).is_file():
+                    skipped += 1
                     continue
 
                 url = f'{base_url}/{rel_path}'
