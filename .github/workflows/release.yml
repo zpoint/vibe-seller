@@ -187,12 +187,12 @@ jobs:
 
       - name: Start server (background)
         run: |
-          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           vibe-seller start --port 7777
 
       - name: Smoke-test (verify_install.sh asserts version + API)
         run: |
-          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           bash tests/releases/verify_install.sh "$VERSION"
 
       # Below: run a real agent task against the installed daemon.
@@ -226,7 +226,7 @@ jobs:
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
           VIBE_SELLER_TELEMETRY: '0'
         run: |
-          export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           pytest \
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage \
             --e2e -v --log-cli-level=INFO
@@ -234,7 +234,7 @@ jobs:
       - name: Stop server
         if: always()
         run: |
-          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           vibe-seller stop --port 7777 || true
           echo "--- last 30 lines of server log ---"
           tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
@@ -292,12 +292,12 @@ jobs:
 
       - name: Start server (background)
         run: |
-          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           vibe-seller start --port 7777
 
       - name: Smoke-test (verify_install.sh asserts version + API)
         run: |
-          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           bash tests/releases/verify_install.sh "$VERSION"
 
       # Below: run a real agent task against the installed daemon.
@@ -331,7 +331,7 @@ jobs:
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
           VIBE_SELLER_TELEMETRY: '0'
         run: |
-          export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           pytest \
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage \
             --e2e -v --log-cli-level=INFO
@@ -339,7 +339,7 @@ jobs:
       - name: Stop server
         if: always()
         run: |
-          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.npm-global/bin:$PATH"
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           vibe-seller stop --port 7777 || true
           echo "--- last 30 lines of server log ---"
           tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
