@@ -436,12 +436,16 @@ check_pnpm() {
 install_pnpm() {
     _info "Installing pnpm..."
     # fix_npm_permissions ensures npm global dir is user-writable on Linux
-    # so we don't need sudo for npm install -g
+    # so we don't need sudo for npm install -g. Pin pnpm to 9.x
+    # because pnpm 10/11 require Node.js 22+, but install_node still
+    # ships v20 on many distros (and release.yml pins setup-node to
+    # version 20 + pnpm 9). Drop the pin once the project standardises
+    # on Node 22.
     if _check corepack; then
         corepack enable 2>/dev/null || true
-        corepack prepare pnpm@latest --activate 2>/dev/null || npm install -g pnpm
+        corepack prepare pnpm@9 --activate 2>/dev/null || npm install -g pnpm@9
     else
-        npm install -g pnpm
+        npm install -g pnpm@9
     fi
     if ! _check pnpm; then
         _error "pnpm install failed"
@@ -561,6 +565,29 @@ _install_via_pip() {
     # prompt there.
     if [[ "$OS" == "linux" ]]; then
         require_sudo
+    fi
+
+    # Runtime deps the daemon's agents need but the wheel can't
+    # ship: claude CLI (the AI backend's process), sqlite3 (agents
+    # query per-account email DBs via `sqlite3 <path>`), node (claude
+    # CLI is an npm package), lsof (vibe-seller stop). Without these,
+    # `vibe-seller start` succeeds but the first agent task fails
+    # with "command not found". --dev mode installs them via the
+    # main() DEPS=(...) loop; default mode used to exit 0 before
+    # reaching that loop and end users got a half-working install.
+    if ! check_lsof; then
+        install_lsof
+    fi
+    if ! check_sqlite3; then
+        install_sqlite3
+    fi
+    if ! check_node; then
+        install_node
+    fi
+    fix_npm_permissions
+    if ! check_claude; then
+        install_claude \
+            || _warn "claude CLI install failed — AI agent features will not work"
     fi
 
     # Compose `uv tool install` args from --test-pypi / --version.
@@ -754,6 +781,22 @@ main() {
                     || _warn "Playwright browser install failed"
             fi
             _success "Playwright browsers installed"
+        fi
+
+        # Build the frontend bundle so the dev checkout matches what
+        # `pip install vibe-seller` ships (a wheel with prebuilt
+        # static assets under app/static/). README documents
+        # `./install.sh --dev` as the line that does this; start.sh's
+        # own pnpm-build step then becomes a no-op until a source
+        # file changes. Only runs when pnpm is on PATH (it should be
+        # — installed in the DEPS loop above).
+        if [ -f "$SCRIPT_DIR/frontend/package.json" ] \
+            && _check pnpm; then
+            _info "Building frontend (pnpm build → frontend/dist/)..."
+            (cd "$SCRIPT_DIR/frontend" \
+                && pnpm install --frozen-lockfile \
+                && pnpm build) \
+                || _warn "Frontend build failed — start.sh will retry"
         fi
     elif [[ "$CHECK_ONLY" == true && -f "$SCRIPT_DIR/pyproject.toml" ]]; then
         if [ -f "$VENV_DIR/bin/vibe-seller" ]; then
