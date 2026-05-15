@@ -26,6 +26,17 @@ fi
 
 WORK_DIR="$(pwd)"
 
+# When the host bind-mounts /app, its files retain host UIDs that
+# don't exist inside the container. Git's "dubious ownership"
+# guard then refuses every introspection call (including the one
+# `uv pip install -e .` runs via setuptools-scm/vcs-versioning).
+# Mark every path safe — `GIT_CONFIG_*` env vars are inherited by
+# uv's isolated build subprocess; a file-based `git config` is not.
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0="safe.directory"
+export GIT_CONFIG_VALUE_0="*"
+git config --global --add safe.directory '*'
+
 # Install Python deps as root (needs write to global cache)
 rm -rf .venv
 uv venv --python 3.11
@@ -46,9 +57,11 @@ chown -R vibe:vibe /home/vibe/.claude
 
 # ── Non-root phase: server + tests ────────────────
 
-# Git config for non-root user
+# Git config for non-root user (same safe.directory rule — vibe
+# has its own ~/.gitconfig and doesn't inherit root's).
 gosu vibe git config --global user.email "docker@vibe-seller.test"
 gosu vibe git config --global user.name "Docker E2E"
+gosu vibe git config --global --add safe.directory '*'
 gosu vibe git init -q
 
 # Start server in background as non-root

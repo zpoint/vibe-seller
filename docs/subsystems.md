@@ -155,6 +155,62 @@ handled by `waiting.py`'s 30-day timeout, not this reaper.
 | `auto_approve_plan` narrowing | `app/task_runner_auto.py` |
 | Prompt block for plan-only tasks | `app/task_runner.py:build_system_extra` |
 
+## Skill Prerequisite Enforcement
+
+Skills can declare `requires: [<prereq-skill-name>]` in their YAML frontmatter. The PreToolUse hook enforces the order: a `Skill(<dependent>)` call is denied until `<prereq>` has been loaded in the same session — same mechanism shape as Claude Code's built-in Read-before-Write rule.
+
+### Why
+
+Several skills are layered: e.g. `noon-ads` needs `noon-shared`'s login flow and URL map before any ad work makes sense. A prose `> **PREREQUISITE:** Read ../noon-shared/SKILL.md` line in the dependent's SKILL.md is the *spec*, but non-Claude models (and Claude under load) sometimes skip it and run with a partial context. The hook turns that prose into a mechanism.
+
+### Frontmatter format
+
+```yaml
+---
+name: noon-ads
+description: "Noon Ad Manager — campaigns, tuning audits, ..."
+requires: [noon-shared]
+---
+```
+
+Only the inline-list form is parsed (`parse_skill_requires` in `app/ai/claude_backend_utils.py`). Multiple prereqs are allowed: `requires: [a, b]`. Skills with no `requires:` (and unknown skills not shipped by us) pass through unchanged.
+
+### Hook flow
+
+```
+Skill(noon-ads) tool_use
+        ↓
+Claude Code → control_request hook_callback (PreToolUse, tool_name="Skill")
+        ↓
+_handle_hook_callback (claude_backend_hooks.py)
+        ↓
+_check_skill_prereqs("noon-ads"):
+   • find_skill_md(workspace, "noon-ads") → task_dir/.claude/skills/noon-ads/SKILL.md
+   • parse_skill_requires() → ["noon-shared"]
+   • missing = [r for r in requires if r not in self._loaded_skills]
+        ↓
+missing? → control_response {permissionDecision: "deny",
+                             permissionDecisionReason: "Skill 'noon-ads' requires 'noon-shared'
+                                                        to be loaded first. Call ..."}
+not missing? → allow, then self._loaded_skills.add("noon-ads")
+```
+
+The deny lands back at Claude Code as an `is_error: true` tool_result, which the agent reads and reacts to in the same turn — typically by calling `Skill(noon-shared)` next, then retrying `Skill(noon-ads)`.
+
+### Per-session state
+
+`self._loaded_skills: set[str]` lives on `AgentSession`. It resets when the session resets (e.g. a fresh restart of a failed task) — which is correct, because the restarted agent's context window doesn't have the prior skill body. The hook then re-enforces the order against the fresh session.
+
+### Key files
+
+| Concern | File |
+|---|---|
+| Frontmatter `requires:` parser | `app/ai/claude_backend_utils.py:parse_skill_requires` |
+| SKILL.md path resolver (task workspace → global fallback) | `app/ai/claude_backend_utils.py:find_skill_md` |
+| Hook deny path | `app/ai/claude_backend_hooks.py:_check_skill_prereqs` |
+| Per-session loaded set | `app/ai/claude_backend.py:AgentSession._loaded_skills` |
+| E2E proof of full deny → retry → load cycle | `tests/e2e/test_skill_prereq_hook.py` |
+
 ## Email System
 
 Persistent per-account email storage with background sync and SMTP send capability.

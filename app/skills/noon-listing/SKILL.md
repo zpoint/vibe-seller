@@ -1,6 +1,7 @@
 ---
 name: noon-listing
 description: "Noon listing operations — create SKU (3-step wizard) and edit listings (Offer / Content / Sizes / Groups tabs). Load when creating, editing, pricing, restocking, or updating content on a noon SKU."
+requires: [noon-shared]
 ---
 
 # Noon — Listing Operations
