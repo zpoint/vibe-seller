@@ -695,13 +695,28 @@ browser: {backend}
     async def _run_git(
         self, *args, check: bool = True
     ) -> asyncio.subprocess.Process:
-        """Run a git command in the workspace directory."""
+        """Run a git command in the workspace directory.
+
+        Pre-set GIT_AUTHOR_*/GIT_COMMITTER_* via env (with
+        setdefault, so a real user identity wins) so the
+        `Initial workspace setup` commit succeeds on hosts with no
+        `git config --global user.email/name` — most fresh user
+        machines and CI runners scoped to repo-local identity per
+        #181 fall into that bucket. Touching env (not git config
+        files) keeps the workspace's `.git/config` clean.
+        """
+        git_env = dict(os.environ)
+        git_env.setdefault('GIT_AUTHOR_NAME', 'Vibe Seller')
+        git_env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
+        git_env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller')
+        git_env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
         proc = await asyncio.create_subprocess_exec(
             'git',
             *args,
             cwd=str(self.root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=git_env,
         )
         await proc.wait()
         if check and proc.returncode != 0:

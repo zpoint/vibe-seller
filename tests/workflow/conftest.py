@@ -19,6 +19,15 @@ from sqlalchemy.pool import StaticPool
 from app.auth import create_token
 from app.database import get_db
 from app.main import app
+# Force-import every model so Base.metadata.create_all() below sees
+# them all. SQLAlchemy only registers a table on Base.metadata when
+# the model class has been imported — without this `from app import
+# models`, tables for any model not separately imported (e.g.
+# StoreEmailLink, EmailAccount, Event, ...) silently aren't created
+# and the tests blow up later with "no such table: <name>". The
+# `# noqa: F401` is because we don't use `models` as a symbol — the
+# import is only for its side effect on Base.metadata.
+from app import models  # noqa: F401
 from app.models.app_settings import AppSettings
 from app.models.base import Base
 from app.models.user import User

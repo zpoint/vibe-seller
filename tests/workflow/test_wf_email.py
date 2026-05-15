@@ -243,7 +243,7 @@ class TestSyncNow:
                 return_value=3,
             ),
             patch(
-                'app.scheduler.email_sync.maybe_seed_sync_state',
+                'app.routers.email_accounts.maybe_seed_sync_state',
                 new_callable=AsyncMock,
             ),
             patch(
@@ -284,7 +284,7 @@ class TestSyncNow:
                 side_effect=Exception('IMAP connection refused'),
             ),
             patch(
-                'app.scheduler.email_sync.maybe_seed_sync_state',
+                'app.routers.email_accounts.maybe_seed_sync_state',
                 new_callable=AsyncMock,
             ),
             patch(

@@ -195,6 +195,42 @@ jobs:
           export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           bash tests/releases/verify_install.sh "$VERSION"
 
+      # Below: run a real agent task against the installed daemon.
+      # This exercises the per-store browser-use wrapper — the exact
+      # code path that was silently broken in 0.0.1 when installed
+      # via `uv tool install` (the tool venv's bin/ is not on PATH,
+      # so wrapper.py's `shutil.which('browser-use')` returned None
+      # and the wrapper baked in the literal string `"browser-use"`,
+      # which then failed at exec time with "command not found").
+      # Without this step, verify only proves the daemon stands up
+      # — not that browser tasks work end-to-end.
+      # Inject pytest test-runner deps INTO the uv-tool venv that
+      # install.sh just created. That venv already has playwright
+      # (browser-use dep), so pytest runs from the same interpreter
+      # the daemon does and resolves every module the test imports
+      # without duplicate installs.
+      - name: Install pytest runner deps into the tool venv
+        run: |
+          TOOL_PY="$(uv tool dir)/vibe-seller/bin/python"
+          uv pip install --python "$TOOL_PY" \
+            pytest pytest-asyncio httpx pytest-playwright
+
+      - name: Run agent smoke against installed daemon
+        env:
+          E2E_BASE_URL: http://127.0.0.1:7777
+          E2E_PROVIDER_MAP: deepseek
+          DEEPSEEK_API_KEY:  ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL:    ${{ secrets.DEEPSEEK_MODEL }}
+          API_TIMEOUT_MS: '3000000'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+          VIBE_SELLER_TELEMETRY: '0'
+        run: |
+          export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          pytest \
+            tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage \
+            --e2e -v --log-cli-level=INFO
+
       - name: Stop server
         if: always()
         run: |
@@ -263,6 +299,42 @@ jobs:
         run: |
           export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
           bash tests/releases/verify_install.sh "$VERSION"
+
+      # Below: run a real agent task against the installed daemon.
+      # This exercises the per-store browser-use wrapper — the exact
+      # code path that was silently broken in 0.0.1 when installed
+      # via `uv tool install` (the tool venv's bin/ is not on PATH,
+      # so wrapper.py's `shutil.which('browser-use')` returned None
+      # and the wrapper baked in the literal string `"browser-use"`,
+      # which then failed at exec time with "command not found").
+      # Without this step, verify only proves the daemon stands up
+      # — not that browser tasks work end-to-end.
+      # Inject pytest test-runner deps INTO the uv-tool venv that
+      # install.sh just created. That venv already has playwright
+      # (browser-use dep), so pytest runs from the same interpreter
+      # the daemon does and resolves every module the test imports
+      # without duplicate installs.
+      - name: Install pytest runner deps into the tool venv
+        run: |
+          TOOL_PY="$(uv tool dir)/vibe-seller/bin/python"
+          uv pip install --python "$TOOL_PY" \
+            pytest pytest-asyncio httpx pytest-playwright
+
+      - name: Run agent smoke against installed daemon
+        env:
+          E2E_BASE_URL: http://127.0.0.1:7777
+          E2E_PROVIDER_MAP: deepseek
+          DEEPSEEK_API_KEY:  ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL:    ${{ secrets.DEEPSEEK_MODEL }}
+          API_TIMEOUT_MS: '3000000'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+          VIBE_SELLER_TELEMETRY: '0'
+        run: |
+          export PATH="$(uv tool dir)/vibe-seller/bin:$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          pytest \
+            tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage \
+            --e2e -v --log-cli-level=INFO
 
       - name: Stop server
         if: always()
