@@ -276,6 +276,14 @@ jobs:
           AGENT_DEBUG: '1'
           VIBE_SELLER_TELEMETRY: '0'
         run: |
+          # install.sh's fix_npm_permissions puts claude (and any
+          # other `npm install -g` payload) in ~/.npm-global/bin/.
+          # That path is written into ~/.bashrc for interactive
+          # shells, but GitHub Actions runs non-interactive bash
+          # which doesn't source it, so without this export the
+          # daemon's `asyncio.create_subprocess_exec(['claude', ...])`
+          # exits with FileNotFoundError on every agent task.
+          export PATH="$HOME/.npm-global/bin:$PATH"
           mkdir -p logs
           echo "=== Starting server with uvicorn ==="
           echo "Claude CLI location: $(which claude)"
