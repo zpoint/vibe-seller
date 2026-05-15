@@ -30,6 +30,14 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 from app.auth import create_token  # noqa: E402
 from app.database import get_db  # noqa: E402
 from app.main import app  # noqa: E402
+# Force-import every model so Base.metadata.create_all() in the
+# async_db_session fixture below sees every table. SQLAlchemy only
+# registers a table on Base.metadata when its model class has been
+# imported — without this `from app import models`, tables for any
+# model not separately imported (e.g. StoreEmailLink, EmailAccount,
+# Event, ...) silently aren't created and a test that touches them
+# fails later with "no such table: <name>".
+from app import models  # noqa: F401, E402
 from app.models.base import Base  # noqa: E402
 from app.models.store import Store  # noqa: E402
 from app.models.task import Task  # noqa: E402
