@@ -236,56 +236,24 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Setup uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
+      # Dogfood install.sh --dev so this job catches install.sh
+      # regressions (missing claude/sqlite3/playwright/etc.) the
+      # moment they land — same script every end user runs. --dev
+      # detects the checkout, installs system deps (uv, node, pnpm,
+      # sqlite3, lsof, claude), creates ./.venv, runs
+      # `uv pip install -e .`, and installs Playwright Chromium.
+      - name: Install via install.sh --dev
+        run: ./install.sh --dev
 
-      - name: Install Python 3.11
-        run: uv python install 3.11
-
-      - name: Create virtual environment
-        run: uv venv
-
-      - name: Install dependencies
+      - name: Install pytest test-runner deps
+        # The `.[dev]` extras (pyproject.toml) carry pytest +
+        # pytest-asyncio + pytest-xdist + pytest-rerunfailures +
+        # httpx + ruff. These are test-runner deps, never shipped
+        # to end-user wheels. pytest-playwright is needed only by
+        # the UI tests so it lives outside `.[dev]`.
         run: |
-          uv pip install -e ".[dev]"
-          uv pip install pytest pytest-asyncio httpx
-
-      # Playwright is dev-only — needed for UI tests (pytest-playwright)
-      - name: Install Playwright dependencies
-        run: |
-          uv pip install pytest-playwright
-          uv run playwright install --with-deps chromium
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-
-      - name: Install sqlite3 CLI
-        # vibe_seller_email_info advertises `sqlite3 <db_path>`
-        # as the canonical way for agents to query per-account
-        # email DBs. The runner image doesn't ship it, so the
-        # agent got "sqlite3: command not found" and fell into
-        # the circuit-breaker loop.
-        run: |
-          if ! command -v sqlite3 >/dev/null 2>&1; then
-            sudo apt-get update -qq && sudo apt-get install -y -qq sqlite3
-          fi
-          sqlite3 --version
-
-      - name: Install Claude CLI
-        run: |
-          npm install -g @anthropic-ai/claude-code
-          echo "Claude CLI installed at: $(which claude)"
-          claude --version
-
-      - name: Build frontend
-        working-directory: frontend
-        run: |
-          npm install
-          npm run build
+          source .venv/bin/activate
+          uv pip install -e ".[dev]" pytest-playwright
 
       - name: Configure git identity
         run: |
