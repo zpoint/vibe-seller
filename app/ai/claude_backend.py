@@ -185,6 +185,11 @@ class AgentSession(_HookMixin, _StreamMixin):
         # is denied with a clear retry message, the same way Claude
         # Code's built-in Read-before-Write rule works.
         self._loaded_skills: set[str] = set()
+        # Whether the agent has read any catalog file this session.
+        # Used by the catalog-first bash guard: filesystem searches
+        # of knowledge/ or stores/ are denied until this is True.
+        # See app.ai.bash_safety.check_catalog_first.
+        self._catalog_read: bool = False
         # Serialize message persistence so seq + created_at stay in order
         self._emit_lock: asyncio.Lock = asyncio.Lock()
 

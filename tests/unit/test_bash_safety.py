@@ -8,7 +8,11 @@ incident on 2026-05-07).
 
 import pytest
 
-from app.ai.bash_safety import check_dangerous_kill
+from app.ai.bash_safety import (
+    check_catalog_first,
+    check_dangerous_kill,
+    is_catalog_path,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -102,3 +106,91 @@ class TestEdgeCases:
         # one still kills cross-task.
         cmd = 'pkill -f "x" || pkill -P $$ "y"'
         assert check_dangerous_kill(cmd) is not None
+
+
+
+class TestCatalogFirstGuard:
+    """Block filesystem search of knowledge/ or stores/ until the
+    agent reads any CATALOG.md.
+
+    The pattern is the same as Claude Code's Read-before-Write rule:
+    one deny + clear retry hint educates the model in-context, and
+    once the catalog has been read the guard turns off for the
+    remainder of the session.
+    """
+
+    def test_find_on_stores_before_catalog_is_denied(self):
+        cmd = 'find /home/runner/.vibe-seller/stores/abc/ -name "*"'
+        deny = check_catalog_first(cmd, catalog_read=False)
+        assert deny is not None
+        assert 'catalog' in deny.lower()
+
+    def test_ls_on_knowledge_before_catalog_is_denied(self):
+        cmd = 'ls -la ~/.vibe-seller/knowledge/'
+        assert check_catalog_first(cmd, catalog_read=False) is not None
+
+    def test_grep_on_stores_workspace_relative_is_denied(self):
+        # Workspace-relative path (no leading /) is the common form
+        # an agent will use inside the task cwd.
+        cmd = 'grep -r SECRET stores/myslug/'
+        assert check_catalog_first(cmd, catalog_read=False) is not None
+
+    def test_after_catalog_read_the_guard_is_off(self):
+        cmd = 'find /home/runner/.vibe-seller/stores/abc/ -name "*"'
+        assert check_catalog_first(cmd, catalog_read=True) is None
+
+    def test_search_outside_catalog_tree_is_allowed(self):
+        # Searching /tmp or arbitrary files has nothing to do with
+        # the catalog contract — must not be blocked.
+        assert check_catalog_first('ls /tmp/', catalog_read=False) is None
+        assert check_catalog_first(
+            'grep pattern file.txt', catalog_read=False
+        ) is None
+
+    def test_non_search_command_against_stores_is_allowed(self):
+        # Reading a single file by `cat` isn't a directory search.
+        # The guard only fires on find/ls/grep/rg/fd/tree.
+        assert check_catalog_first(
+            'cat stores/myslug/notes.md', catalog_read=False
+        ) is None
+
+    def test_quoted_search_keyword_in_echo_is_allowed(self):
+        # ``ls`` inside a quoted string isn't in command position;
+        # false-positive guard.
+        assert check_catalog_first(
+            'echo "ls stores"', catalog_read=False
+        ) is None
+
+    def test_empty_command_is_allowed(self):
+        assert check_catalog_first('', catalog_read=False) is None
+
+
+class TestIsCatalogPath:
+    """Identifies any-level CATALOG.md path so the hook can flip
+    the catalog-first guard off once the agent reads one."""
+
+    def test_l1_catalog(self):
+        assert is_catalog_path(
+            '/home/runner/.vibe-seller/knowledge/project/CATALOG.md'
+        )
+
+    def test_l2_catalog(self):
+        assert is_catalog_path(
+            '/home/runner/.vibe-seller/knowledge/CATALOG.md'
+        )
+
+    def test_l3_store_catalog(self):
+        assert is_catalog_path(
+            '/home/runner/.vibe-seller/stores/myslug/CATALOG.md'
+        )
+
+    def test_non_catalog_md_is_not_a_catalog(self):
+        assert not is_catalog_path(
+            '/home/runner/.vibe-seller/stores/myslug/notes.md'
+        )
+
+    def test_unrelated_path_is_not_a_catalog(self):
+        assert not is_catalog_path('/tmp/CATALOG.md')
+
+    def test_empty_path_is_not_a_catalog(self):
+        assert not is_catalog_path('')

@@ -30,12 +30,19 @@ WORK_DIR="$(pwd)"
 # don't exist inside the container. Git's "dubious ownership"
 # guard then refuses every introspection call (including the one
 # `uv pip install -e .` runs via setuptools-scm/vcs-versioning).
-# Mark every path safe — `GIT_CONFIG_*` env vars are inherited by
-# uv's isolated build subprocess; a file-based `git config` is not.
-export GIT_CONFIG_COUNT=1
+# Narrowed to the two paths the container actually uses — /app
+# (the bind mount) and /tmp/vibe-seller-workspace (the worktree
+# copy this entrypoint creates above). Avoids widening trust to
+# arbitrary future bind mounts. `GIT_CONFIG_*` env vars are
+# inherited by uv's isolated build subprocess; a file-based
+# `git config` is not.
+export GIT_CONFIG_COUNT=2
 export GIT_CONFIG_KEY_0="safe.directory"
-export GIT_CONFIG_VALUE_0="*"
-git config --global --add safe.directory '*'
+export GIT_CONFIG_VALUE_0="/app"
+export GIT_CONFIG_KEY_1="safe.directory"
+export GIT_CONFIG_VALUE_1="/tmp/vibe-seller-workspace"
+git config --global --add safe.directory /app
+git config --global --add safe.directory /tmp/vibe-seller-workspace
 
 # Install Python deps as root (needs write to global cache)
 rm -rf .venv
@@ -61,7 +68,8 @@ chown -R vibe:vibe /home/vibe/.claude
 # has its own ~/.gitconfig and doesn't inherit root's).
 gosu vibe git config --global user.email "docker@vibe-seller.test"
 gosu vibe git config --global user.name "Docker E2E"
-gosu vibe git config --global --add safe.directory '*'
+gosu vibe git config --global --add safe.directory /app
+gosu vibe git config --global --add safe.directory /tmp/vibe-seller-workspace
 gosu vibe git init -q
 
 # Start server in background as non-root

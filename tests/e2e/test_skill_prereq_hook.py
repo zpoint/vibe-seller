@@ -53,7 +53,20 @@ NOON_SHARED_MARKER = 'https://login.noon.partners/en/'
 # Server hook log lines look like:
 #   ... app.ai.claude_backend_hooks INFO Skill prereq: agent abc12345 \
 #       tried 'noon-ads' without "Skill 'noon-ads' requires 'noon-shared'..."
-HOOK_LOG_PATH = Path('logs/server_stdout.log')
+#
+# Candidates the e2e test searches for the server log, in order:
+# - docker-runner convention (docker-entrypoint.sh symlinks here)
+# - public-repo start.sh (writes to ``$LOG_DIR/backend.log`` where
+#   LOG_DIR defaults to ``logs`` or ``~/.vibe-seller/logs``)
+# - dev-repo start.sh (port-suffixed)
+# The first one that exists and is non-empty wins.
+HOOK_LOG_CANDIDATES = (
+    Path('logs/server_stdout.log'),
+    Path('logs/backend_7777.log'),
+    Path('logs/backend.log'),
+    Path.home() / '.vibe-seller' / 'logs' / 'backend_7777.log',
+    Path.home() / '.vibe-seller' / 'logs' / 'backend.log',
+)
 
 
 @pytest.fixture(scope='module')
@@ -75,10 +88,13 @@ def prereq_store(api_client: httpx.Client) -> dict:
 
 
 def _read_hook_log() -> str:
-    """Read the server log file (mounted into the test container)."""
-    if not HOOK_LOG_PATH.exists():
-        return ''
-    return HOOK_LOG_PATH.read_text(encoding='utf-8', errors='replace')
+    """Read the server log file from whichever path the deploy
+    happens to use. Returns the first non-empty match.
+    """
+    for path in HOOK_LOG_CANDIDATES:
+        if path.is_file() and path.stat().st_size > 0:
+            return path.read_text(encoding='utf-8', errors='replace')
+    return ''
 
 
 def _hook_denied(log_text: str, task_id_prefix: str, skill: str) -> bool:
@@ -158,8 +174,8 @@ class TestSkillPrereqHookEndToEnd:
         # every event for this task_id.
         log_text = _read_hook_log()
         assert log_text, (
-            f'Hook log file {HOOK_LOG_PATH} is empty or missing — '
-            "can't verify hook fired."
+            f'No server log found at any of {[str(p) for p in HOOK_LOG_CANDIDATES]}'
+            " — can't verify hook fired."
         )
         assert _hook_denied(log_text, task_id_prefix, 'noon-ads'), (
             f"Hook log has no 'Skill prereq: agent {task_id_prefix} "
