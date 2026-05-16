@@ -10,6 +10,7 @@ import pytest
 
 from app.ai.bash_safety import (
     check_catalog_first,
+    check_catalog_first_tool_args,
     check_dangerous_kill,
     is_catalog_path,
 )
@@ -194,3 +195,37 @@ class TestIsCatalogPath:
 
     def test_empty_path_is_not_a_catalog(self):
         assert not is_catalog_path('')
+
+
+class TestCatalogFirstToolArgs:
+    """Same catalog-first contract, applied to the Claude Code
+    built-in Glob/Grep tools. Without this guard, an agent denied
+    at the Bash layer pivots to Glob/Grep on the same trees and
+    gets the broad sweep through a different tool.
+    """
+
+    def test_glob_pattern_on_stores_is_denied(self):
+        inp = {'pattern': 'stores/cat-store-x-1234/**/*'}
+        assert check_catalog_first_tool_args(inp, False) is not None
+
+    def test_glob_pattern_on_knowledge_is_denied(self):
+        inp = {'pattern': 'knowledge/**/*.md'}
+        assert check_catalog_first_tool_args(inp, False) is not None
+
+    def test_grep_path_on_stores_is_denied(self):
+        inp = {'pattern': 'SECRET', 'path': 'stores/myslug'}
+        assert check_catalog_first_tool_args(inp, False) is not None
+
+    def test_after_catalog_read_glob_is_allowed(self):
+        inp = {'pattern': 'stores/x/**/*'}
+        assert check_catalog_first_tool_args(inp, True) is None
+
+    def test_glob_outside_catalog_tree_is_allowed(self):
+        inp = {'pattern': 'src/**/*.py'}
+        assert check_catalog_first_tool_args(inp, False) is None
+
+    def test_glob_with_no_path_or_pattern_is_allowed(self):
+        # Defensive — if the tool input is missing the relevant
+        # fields entirely, we don't fire (lets unrelated tool calls
+        # with the same callback path through).
+        assert check_catalog_first_tool_args({}, False) is None
