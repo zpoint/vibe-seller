@@ -12,6 +12,7 @@ import logging
 
 from app.ai.bash_safety import (
     check_catalog_first,
+    check_catalog_first_tool_args,
     check_dangerous_kill,
     is_catalog_path,
 )
@@ -189,6 +190,35 @@ class _HookMixin:
                         'Catalog-first: agent %s tried %r before reading catalog',
                         self.task_id[:8],
                         cmd[:120],
+                    )
+                    await self._send_hook_response(
+                        request_id,
+                        {
+                            'hookSpecificOutput': {
+                                'hookEventName': 'PreToolUse',
+                                'permissionDecision': 'deny',
+                                'permissionDecisionReason': deny_reason,
+                            },
+                        },
+                    )
+                    return
+            # Catalog-first guard for the Glob/Grep built-in tools.
+            # Same intent as the Bash branch above: agents denied at
+            # the Bash layer pivot to Glob/Grep on the same trees
+            # unless we close that escape hatch too.
+            if inner_name in ('Glob', 'Grep'):
+                deny_reason = check_catalog_first_tool_args(
+                    inner_input, self._catalog_read
+                )
+                if deny_reason:
+                    logger.info(
+                        'Catalog-first: agent %s tried %s(%r) before reading catalog',
+                        self.task_id[:8],
+                        inner_name,
+                        {
+                            k: v for k, v in inner_input.items()
+                            if k in ('path', 'pattern')
+                        },
                     )
                     await self._send_hook_response(
                         request_id,

@@ -165,3 +165,38 @@ def is_catalog_path(path: str) -> bool:
     if not path:
         return False
     return bool(_CATALOG_FILE.search(path))
+
+
+# Same intent as ``check_catalog_first`` for Bash, but applied to the
+# Claude Code built-in ``Glob`` and ``Grep`` tools. Without this, an
+# agent denied at the Bash layer pivots to ``Glob(pattern='stores/...')``
+# or ``Grep(path='knowledge/...')`` and gets the same broad sweep
+# through a different tool — exactly what the catalog-first contract
+# is supposed to prevent. The check looks at the tool's ``path`` /
+# ``pattern`` arguments; if either references a catalog tree the
+# guard fires until the agent has read a CATALOG.md.
+_PATTERN_TOUCHES_CATALOG = re.compile(
+    r'(?:^|/|\*|\\)(stores|knowledge)(?:/|\b|$)'
+)
+
+
+def check_catalog_first_tool_args(
+    tool_input: dict, catalog_read: bool
+) -> str | None:
+    """Return a deny reason if a Glob/Grep tool call sweeps the
+    knowledge/ or stores/ trees before the agent has read a catalog.
+
+    Inspects the ``path`` and ``pattern`` fields — either may carry
+    the offending directory reference. Once the agent has read any
+    CATALOG.md this session, the guard turns off and Glob/Grep work
+    normally against those trees.
+    """
+    if catalog_read:
+        return None
+    for field in ('path', 'pattern'):
+        val = tool_input.get(field, '')
+        if not isinstance(val, str) or not val:
+            continue
+        if _PATTERN_TOUCHES_CATALOG.search(val):
+            return _CATALOG_FIRST_DENY
+    return None
