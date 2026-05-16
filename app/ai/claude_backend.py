@@ -178,17 +178,9 @@ class AgentSession(_HookMixin, _StreamMixin):
         self._input_closed: bool = False
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
-        # Skills the agent has successfully loaded this session — keyed
-        # by the ``skill`` argument it passed to the Skill tool. Used
-        # by the PreToolUse hook to enforce ``requires:`` ordering:
-        # loading a dependent skill while its prerequisite is absent
-        # is denied with a clear retry message, the same way Claude
-        # Code's built-in Read-before-Write rule works.
+        # PreToolUse-hook state. See app.ai.bash_safety and
+        # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()
-        # Whether the agent has read any catalog file this session.
-        # Used by the catalog-first bash guard: filesystem searches
-        # of knowledge/ or stores/ are denied until this is True.
-        # See app.ai.bash_safety.check_catalog_first.
         self._catalog_read: bool = False
         # Serialize message persistence so seq + created_at stay in order
         self._emit_lock: asyncio.Lock = asyncio.Lock()

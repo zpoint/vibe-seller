@@ -109,7 +109,6 @@ class TestEdgeCases:
         assert check_dangerous_kill(cmd) is not None
 
 
-
 class TestCatalogFirstGuard:
     """Block filesystem search of knowledge/ or stores/ until the
     agent reads any CATALOG.md.
@@ -144,23 +143,27 @@ class TestCatalogFirstGuard:
         # Searching /tmp or arbitrary files has nothing to do with
         # the catalog contract — must not be blocked.
         assert check_catalog_first('ls /tmp/', catalog_read=False) is None
-        assert check_catalog_first(
-            'grep pattern file.txt', catalog_read=False
-        ) is None
+        assert (
+            check_catalog_first('grep pattern file.txt', catalog_read=False)
+            is None
+        )
 
     def test_non_search_command_against_stores_is_allowed(self):
         # Reading a single file by `cat` isn't a directory search.
         # The guard only fires on find/ls/grep/rg/fd/tree.
-        assert check_catalog_first(
-            'cat stores/myslug/notes.md', catalog_read=False
-        ) is None
+        assert (
+            check_catalog_first(
+                'cat stores/myslug/notes.md', catalog_read=False
+            )
+            is None
+        )
 
     def test_quoted_search_keyword_in_echo_is_allowed(self):
         # ``ls`` inside a quoted string isn't in command position;
         # false-positive guard.
-        assert check_catalog_first(
-            'echo "ls stores"', catalog_read=False
-        ) is None
+        assert (
+            check_catalog_first('echo "ls stores"', catalog_read=False) is None
+        )
 
     def test_empty_command_is_allowed(self):
         assert check_catalog_first('', catalog_read=False) is None
@@ -176,9 +179,7 @@ class TestIsCatalogPath:
         )
 
     def test_l2_catalog(self):
-        assert is_catalog_path(
-            '/home/runner/.vibe-seller/knowledge/CATALOG.md'
-        )
+        assert is_catalog_path('/home/runner/.vibe-seller/knowledge/CATALOG.md')
 
     def test_l3_store_catalog(self):
         assert is_catalog_path(

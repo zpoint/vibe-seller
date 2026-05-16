@@ -130,9 +130,7 @@ _CATALOG_FIRST_DENY = (
 )
 
 
-def check_catalog_first(
-    command: str, catalog_read: bool
-) -> str | None:
+def check_catalog_first(command: str, catalog_read: bool) -> str | None:
     """Return a deny reason if *command* searches knowledge/stores
     before the agent has read a catalog this session.
 

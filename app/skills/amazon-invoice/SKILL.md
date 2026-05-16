@@ -1,5 +1,5 @@
 ---
-name: Amazon Invoice Generator
+name: amazon-invoice
 description: Generate tax invoices from Amazon Seller Central order data using browser extraction and PDF generation
 requires: [amazon-shared]
 ---
