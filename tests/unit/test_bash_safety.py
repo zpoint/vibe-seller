@@ -230,3 +230,37 @@ class TestCatalogFirstToolArgs:
         # fields entirely, we don't fire (lets unrelated tool calls
         # with the same callback path through).
         assert check_catalog_first_tool_args({}, False) is None
+
+    def test_glob_exact_catalog_path_is_allowed(self):
+        # Regression for the catalog-sync deadlock: the L2/L3
+        # catalog-generation agents legitimately do
+        # ``Glob(pattern='knowledge/project/CATALOG.md')`` to check
+        # the L1 catalog exists before reading it. An exact path
+        # with no wildcards isn't a broad sweep — must pass.
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'knowledge/project/CATALOG.md'}, False
+            )
+            is None
+        )
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'stores/myslug/CATALOG.md'}, False
+            )
+            is None
+        )
+
+    def test_glob_wildcard_on_stores_still_denied(self):
+        # Wildcard form is still a sweep — keep blocking.
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'stores/myslug/*.md'}, False
+            )
+            is not None
+        )
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'stores/?slug/CATALOG.md'}, False
+            )
+            is not None
+        )
