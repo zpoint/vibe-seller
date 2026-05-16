@@ -9,6 +9,7 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import logging
+from pathlib import Path
 
 from app.ai.bash_safety import (
     check_catalog_first,
@@ -21,10 +22,9 @@ from app.ai.claude_backend_utils import (
     AUTO_APPROVE_CALLBACK,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
+    check_skill_prereqs,
     find_skill_md,
-    parse_skill_requires,
 )
-from app.workspace.manager import VIBE_SELLER_DIR
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
@@ -36,6 +36,7 @@ from app.prompts import (
     render_prompt,
 )
 from app.task_states import TaskStatus
+from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,8 @@ class _HookMixin:
                         self.task_id[:8],
                         inner_name,
                         {
-                            k: v for k, v in inner_input.items()
+                            k: v
+                            for k, v in inner_input.items()
                             if k in ('path', 'pattern')
                         },
                     )
@@ -237,9 +239,15 @@ class _HookMixin:
             # follow-up Bash in the same assistant turn already sees
             # the updated state — the catalog content reaches the
             # model in the same tool_result that this Read returns.
+            # The path must both LOOK like a catalog (shape match)
+            # AND actually exist on disk — otherwise an agent could
+            # bypass the catalog-first guard by reading a fake
+            # ``stores/<bogus>/CATALOG.md`` that doesn't exist,
+            # which would still flip the flag and re-enable Bash
+            # search even though no catalog content was loaded.
             if inner_name == 'Read':
                 path = inner_input.get('file_path', '')
-                if is_catalog_path(path):
+                if is_catalog_path(path) and Path(path).is_file():
                     self._catalog_read = True
             if self._check_tool_loop(inner_name, inner_input):
                 logger.warning(
@@ -291,7 +299,21 @@ class _HookMixin:
                         },
                     )
                     return
-                if skill_name:
+                # Only track skills we actually ship (a SKILL.md
+                # exists in the task workspace or global skills dir).
+                # Without this gate the agent could "satisfy" a
+                # prereq by calling ``Skill('<arbitrary-name>')`` —
+                # the hook would add the name to ``_loaded_skills``
+                # and let a dependent skill through even though no
+                # actual prerequisite content was loaded. Limiting
+                # the set to shipped skills closes that bypass.
+                if (
+                    skill_name
+                    and find_skill_md(
+                        self.task_dir or VIBE_SELLER_DIR, skill_name
+                    )
+                    is not None
+                ):
                     self._loaded_skills.add(skill_name)
             # Auto-approve all other tools
             await self._send_hook_response(
@@ -373,46 +395,17 @@ class _HookMixin:
             )
 
     def _check_skill_prereqs(self, skill_name: str) -> str | None:
-        """Return a deny-reason if loading `skill_name` would skip
-        a prerequisite the agent hasn't loaded yet; ``None`` otherwise.
-
-        The check is read-only on the workspace SKILL.md frontmatter —
-        no side effects. Caller is responsible for adding `skill_name`
-        to ``_loaded_skills`` after a successful approve.
+        """Adapter that forwards to :func:`check_skill_prereqs` with
+        this session's state. Kept as a thin method so the existing
+        hook call site stays simple; the actual logic lives in
+        ``claude_backend_utils`` so this file stays under the 800
+        line cap (enforced by the line-limit pre-commit hook).
         """
-        if not skill_name:
-            return None
-        ws_dir = self.task_dir or VIBE_SELLER_DIR
-        skill_md = find_skill_md(ws_dir, skill_name)
-        if skill_md is None:
-            logger.debug(
-                'Skill prereq: %s no SKILL.md found for %r (ws=%s)',
-                self.task_id[:8],
-                skill_name,
-                ws_dir,
-            )
-            # Unknown skill (user-installed, plugin, or CLI builtin
-            # we don't ship). No requires data → no enforcement.
-            return None
-        requires = parse_skill_requires(skill_md)
-        logger.debug(
-            'Skill prereq: %s checking %r at %s — requires=%s loaded=%s',
-            self.task_id[:8],
+        return check_skill_prereqs(
             skill_name,
-            skill_md,
-            requires,
-            sorted(self._loaded_skills),
-        )
-        missing = [r for r in requires if r not in self._loaded_skills]
-        if not missing:
-            return None
-        # Same shape as Read-before-Write: tell the agent the order
-        # it must follow, in one short message.
-        first = missing[0]
-        return (
-            f"Skill '{skill_name}' requires '{first}' to be loaded"
-            f' first. Call the Skill tool with skill={first!r}, then'
-            f' retry skill={skill_name!r}.'
+            self.task_dir or VIBE_SELLER_DIR,
+            self._loaded_skills,
+            self.task_id[:8],
         )
 
     async def _handle_can_use_tool(self, request_id: str, request: dict):
