@@ -362,6 +362,24 @@ class TestWrapperUrlValidation:
             f'http(s) URL must pass: stderr={result.stderr!r}'
         )
 
+    def test_open_with_about_blank_passes_through(self, tmp_path: Path):
+        """browser-use uses about:blank for session recovery — must
+        pass the URL-shape guard. Regression guard against a too-tight
+        ``http(s)://`` allowlist."""
+        wrapper = _generate_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'open', 'about:blank')
+        assert result.returncode == 0, (
+            f'about:blank must pass: stderr={result.stderr!r}'
+        )
+
+    def test_open_with_file_url_passes_through(self, tmp_path: Path):
+        """file:// is a valid local-artifact navigation."""
+        wrapper = _generate_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'open', 'file:///tmp/report.html')
+        assert result.returncode == 0, (
+            f'file:// must pass: stderr={result.stderr!r}'
+        )
+
     def test_open_with_no_url_is_loud(self, tmp_path: Path):
         """Simulates zsh nomatch swallowing the URL entirely."""
         wrapper = _generate_wrapper(tmp_path)

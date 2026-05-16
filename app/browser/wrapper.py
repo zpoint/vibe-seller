@@ -303,11 +303,15 @@ def write_browser_use_wrapper(
         done
         if [ -n "$_bu_subcmd" ]; then
           case "$_bu_url" in
-            http://*|https://*)
-              : # OK, looks like a real URL
-              ;;
+            # Real navigations
+            http://*|https://*) : ;;
+            # Non-http schemes browser-use uses for recovery:
+            # ``about:blank`` resets the active tab; ``file://``
+            # opens local artifacts the agent generated. Both
+            # are legitimate targets the guard must allow.
+            about:*|file://*)   : ;;
             *)
-              echo "ERROR: 'browser-use $_bu_subcmd' expects an http:// or https:// URL." >&2
+              echo "ERROR: 'browser-use $_bu_subcmd' expects an http(s)://, about:, or file:// URL." >&2
               echo "       Got: ${{_bu_url:-<missing>}}" >&2
               echo "" >&2
               echo "Likely cause: the calling shell (zsh/bash) parsed special" >&2

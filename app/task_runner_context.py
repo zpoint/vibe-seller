@@ -304,15 +304,15 @@ async def build_system_context(task: Task) -> str:
         'automatic when your session ends.\n'
         '\n'
         '**Picking the right tool:**\n'
-        '- Success → `set_task_result(summary)` or nothing. '
-        'Do NOT also call `set_task_error`.\n'
-        '- Hard failure → `set_task_error(reason)` only. The '
-        'reason must describe what went wrong, never positive '
-        'phrasing like "completed successfully".\n'
+        '- Success → `vibe_seller_set_task_result(summary)` or '
+        'nothing. Do NOT also call `vibe_seller_set_task_error`.\n'
+        '- Hard failure → `vibe_seller_set_task_error(reason)` '
+        'only. The reason must describe what went wrong, never '
+        'positive phrasing like "completed successfully".\n'
         '- Partial (collected useful output but the primary '
         'objective was not achieved) → call BOTH, with '
-        '`set_task_error` stating what was missing. This is the '
-        'ONLY case where both tools are called.'
+        '`vibe_seller_set_task_error` stating what was missing. '
+        'This is the ONLY case where both tools are called.'
     )
 
     # Task type

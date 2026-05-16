@@ -10,7 +10,11 @@ from datetime import UTC, datetime
 import json
 import logging
 
-from app.ai.bash_safety import check_dangerous_kill
+from app.ai.bash_safety import (
+    check_catalog_first,
+    check_dangerous_kill,
+    is_catalog_path,
+)
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
@@ -156,14 +160,13 @@ class _HookMixin:
             # Concurrent-task safety: reject unscoped pkill/killall
             # before they can hit sibling tasks' processes.
             if inner_name == 'Bash':
-                deny_reason = check_dangerous_kill(
-                    inner_input.get('command', '')
-                )
+                cmd = inner_input.get('command', '')
+                deny_reason = check_dangerous_kill(cmd)
                 if deny_reason:
                     logger.warning(
                         'Bash safety: agent %s tried unscoped kill: %r',
                         self.task_id[:8],
-                        inner_input.get('command', '')[:200],
+                        cmd[:200],
                     )
                     await self._send_hook_response(
                         request_id,
@@ -176,6 +179,38 @@ class _HookMixin:
                         },
                     )
                     return
+                # Catalog-first guard: deny filesystem search of
+                # knowledge/ or stores/ until the agent has read a
+                # catalog file this session. The deny reason tells
+                # the agent which catalog to read.
+                deny_reason = check_catalog_first(cmd, self._catalog_read)
+                if deny_reason:
+                    logger.info(
+                        'Catalog-first: agent %s tried %r before reading catalog',
+                        self.task_id[:8],
+                        cmd[:120],
+                    )
+                    await self._send_hook_response(
+                        request_id,
+                        {
+                            'hookSpecificOutput': {
+                                'hookEventName': 'PreToolUse',
+                                'permissionDecision': 'deny',
+                                'permissionDecisionReason': deny_reason,
+                            },
+                        },
+                    )
+                    return
+            # Catalog-read tracker: flip the catalog-first guard off
+            # once the agent issues a Read against any CATALOG.md.
+            # Done in the PreToolUse hook (not on result) so a
+            # follow-up Bash in the same assistant turn already sees
+            # the updated state — the catalog content reaches the
+            # model in the same tool_result that this Read returns.
+            if inner_name == 'Read':
+                path = inner_input.get('file_path', '')
+                if is_catalog_path(path):
+                    self._catalog_read = True
             if self._check_tool_loop(inner_name, inner_input):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',

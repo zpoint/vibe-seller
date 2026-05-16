@@ -33,9 +33,16 @@ x-e2e-env: &e2e-env
   # setuptools-scm/vcs-versioning). The env-var form is
   # inherited by uv's isolated build subprocess; a file-based
   # `git config` is not.
-  GIT_CONFIG_COUNT: "1"
+  #
+  # Narrowed to ``/app`` (and the worktree-copy path the
+  # entrypoint uses when /app/.git is a worktree marker)
+  # rather than ``*`` so the guard still applies to any other
+  # bind mount that might be introduced later.
+  GIT_CONFIG_COUNT: "2"
   GIT_CONFIG_KEY_0: "safe.directory"
-  GIT_CONFIG_VALUE_0: "*"
+  GIT_CONFIG_VALUE_0: "/app"
+  GIT_CONFIG_KEY_1: "safe.directory"
+  GIT_CONFIG_VALUE_1: "/tmp/vibe-seller-workspace"
   # -- LLM provider credentials (pass via shell env) --
   # MiniMax
   MINIMAX_API_KEY: ${MINIMAX_API_KEY:-}
