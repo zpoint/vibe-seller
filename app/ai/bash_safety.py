@@ -188,13 +188,27 @@ def check_catalog_first_tool_args(
     the offending directory reference. Once the agent has read any
     CATALOG.md this session, the guard turns off and Glob/Grep work
     normally against those trees.
+
+    Only fires when the input actually looks like a *broad sweep*:
+    a wildcard (``*`` / ``**`` / ``?``) somewhere in the pattern, or
+    the ``path`` field is set (directory traversal). A wildcard-free
+    pattern referring to one specific file (e.g.
+    ``Glob(pattern='knowledge/project/CATALOG.md')``) is essentially
+    a file-existence check — the L2/L3 catalog-generation agents
+    do this legitimately while building the catalog itself, and
+    blocking it deadlocks the catalog-sync flow.
     """
     if catalog_read:
         return None
-    for field in ('path', 'pattern'):
-        val = tool_input.get(field, '')
-        if not isinstance(val, str) or not val:
-            continue
-        if _PATTERN_TOUCHES_CATALOG.search(val):
-            return _CATALOG_FIRST_DENY
+    path = tool_input.get('path', '')
+    if isinstance(path, str) and path and _PATTERN_TOUCHES_CATALOG.search(path):
+        return _CATALOG_FIRST_DENY
+    pattern = tool_input.get('pattern', '')
+    if (
+        isinstance(pattern, str)
+        and pattern
+        and _PATTERN_TOUCHES_CATALOG.search(pattern)
+        and any(ch in pattern for ch in ('*', '?'))
+    ):
+        return _CATALOG_FIRST_DENY
     return None
