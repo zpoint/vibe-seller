@@ -2,13 +2,17 @@
 
 import json
 from unittest import mock
+import uuid
 
 from httpx import AsyncClient
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.browser.ziniao_utils import ZiniaoNormalModeError
 from app.models.store import Store
 from app.models.user import User
+from app.models.ziniao_account import ZiniaoAccount
+from app.utils.crypto import encrypt_password
 
 
 class TestStoresRouter:
@@ -129,3 +133,105 @@ class TestStoresRouter:
         response = await async_client.get('/api/stores')
 
         assert response.status_code == 401
+
+
+class TestBrowserStartForce:
+    """POST /api/stores/{id}/browser/start with optional ?force=1.
+
+    Covers the agent-side opt-in recovery when Ziniao is sitting in
+    normal (non-WebDriver) mode. Default behavior (no force) must
+    keep the original 500 so the UI's Force Restart button stays the
+    sole entry point for the kill-and-relaunch path.
+    """
+
+    async def _make_ziniao_store(self, async_db_session: AsyncSession) -> Store:
+        account = ZiniaoAccount(
+            id=str(uuid.uuid4()),
+            name='test-account',
+            company='c',
+            username='u',
+            encrypted_password=encrypt_password('p'),
+            socket_port=16851,
+        )
+        async_db_session.add(account)
+        store = Store(
+            id=str(uuid.uuid4()),
+            name='Z Store',
+            browser_backend='ziniao',
+            browser_config='{}',
+            ziniao_account_id=account.id,
+            platforms='["amazon"]',
+            countries='["SA"]',
+        )
+        async_db_session.add(store)
+        await async_db_session.commit()
+        return store
+
+    @pytest.mark.asyncio
+    async def test_force_false_propagates_normal_mode_error(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """Without ?force, ZiniaoNormalModeError still becomes 500."""
+        store = await self._make_ziniao_store(async_db_session)
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session',
+            side_effect=ZiniaoNormalModeError('normal mode'),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start'
+            )
+        assert response.status_code == 500
+        assert 'normal mode' in response.json()['detail']
+
+    @pytest.mark.asyncio
+    async def test_force_true_relaunches_and_retries(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """force=1: kill_and_relaunch then start_session succeeds."""
+        store = await self._make_ziniao_store(async_db_session)
+        start_session = mock.AsyncMock(
+            side_effect=[ZiniaoNormalModeError('normal'), None]
+        )
+        relaunch = mock.AsyncMock(return_value=True)
+        with (
+            mock.patch(
+                'app.routers.stores.browser_manager.start_session',
+                start_session,
+            ),
+            mock.patch('app.routers.stores.kill_and_relaunch_ziniao', relaunch),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start?force=1'
+            )
+        assert response.status_code == 200
+        assert response.json() == {'ok': True}
+        relaunch.assert_awaited_once()
+        assert start_session.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_force_true_relaunch_failure_returns_502(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """force=1: 502 when kill_and_relaunch raises RuntimeError."""
+        store = await self._make_ziniao_store(async_db_session)
+        with (
+            mock.patch(
+                'app.routers.stores.browser_manager.start_session',
+                side_effect=ZiniaoNormalModeError('normal'),
+            ),
+            mock.patch(
+                'app.routers.stores.kill_and_relaunch_ziniao',
+                side_effect=RuntimeError('relaunch boom'),
+            ),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start?force=1'
+            )
+        assert response.status_code == 502
+        assert 'relaunch boom' in response.json()['detail']

@@ -88,7 +88,7 @@ async def _patch_async_session(monkeypatch):
     # (added when build_system_context started querying tasks for
     # the previous schedule run), and the 16 prompt-assembly tests
     # silently 'no such table: tasks'.
-    import sys as _sys
+    import sys as _sys  # noqa: PLC0415
 
     for _mod_name, _mod in list(_sys.modules.items()):
         if not _mod_name.startswith('app.'):

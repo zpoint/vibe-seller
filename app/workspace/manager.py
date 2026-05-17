@@ -1,10 +1,8 @@
-"""
-WorkspaceManager: manages the ~/.vibe-seller/ directory.
+"""WorkspaceManager: manages the ~/.vibe-seller/ directory.
 
-This directory is git-managed and contains:
-  - .claude/skills/      — Claude Code auto-discovers via --add-dir
-  - knowledge/           — shared platform knowledge
-  - stores/<slug>/       — per-store profiles and accumulated knowledge
+Git-managed, contains ``.claude/skills/`` (auto-discovered via
+``--add-dir``), ``knowledge/`` (shared platform knowledge), and
+``stores/<slug>/`` (per-store profiles and accumulated knowledge).
 """
 
 import asyncio
@@ -695,16 +693,11 @@ browser: {backend}
     async def _run_git(
         self, *args, check: bool = True
     ) -> asyncio.subprocess.Process:
-        """Run a git command in the workspace directory.
-
-        Pre-set GIT_AUTHOR_*/GIT_COMMITTER_* via env (with
-        setdefault, so a real user identity wins) so the
-        `Initial workspace setup` commit succeeds on hosts with no
-        `git config --global user.email/name` — most fresh user
-        machines and CI runners scoped to repo-local identity per
-        #181 fall into that bucket. Touching env (not git config
-        files) keeps the workspace's `.git/config` clean.
-        """
+        """Run a git command in the workspace directory."""
+        # GIT_*_NAME/EMAIL via env (setdefault, so a real identity
+        # wins) keeps the initial-commit working on hosts with no
+        # global `git config user.email/name` (#181) without touching
+        # `.git/config`.
         git_env = dict(os.environ)
         git_env.setdefault('GIT_AUTHOR_NAME', 'Vibe Seller')
         git_env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
@@ -738,13 +731,10 @@ browser: {backend}
     ) -> Path:
         """Create a per-task working directory with symlinks.
 
-        Returns the absolute path to ``tasks/{task_id}/``.
-
-        Shared resources (knowledge, stores, skills, CLAUDE.md)
-        are symlinked so the agent can discover and update them
-        while task-specific files stay isolated.
-
-        When *store_id* is ``None`` (orchestrator / non-store task),
+        Returns the absolute path to ``tasks/{task_id}/``. Shared
+        resources (knowledge, stores, skills, CLAUDE.md) are
+        symlinked; task-specific files stay isolated. When
+        *store_id* is ``None`` (orchestrator / non-store task),
         browser-only skills are excluded from the copy.
         """
         await self.ensure_init()

@@ -11,6 +11,7 @@ Generates wrapper scripts to a tmp dir and verifies:
 """
 
 from pathlib import Path
+import re
 import subprocess
 from unittest import mock
 
@@ -49,12 +50,13 @@ def _generate_wrapper(
     wrapper = bin_dir / slug / 'browser-use'
 
     # Replace REAL_BU with echo so the wrapper prints args
-    # instead of executing the real binary.
+    # instead of executing the real binary. Use regex because
+    # the generator picks the sibling `browser-use` next to
+    # `sys.executable` first (real path on dev clones) and
+    # only falls back to `shutil.which` if that's missing —
+    # so the mocked /usr/local/bin path isn't guaranteed.
     content = wrapper.read_text()
-    content = content.replace(
-        'REAL_BU="/usr/local/bin/browser-use"',
-        'REAL_BU="echo"',
-    )
+    content = re.sub(r'REAL_BU="[^"]*"', 'REAL_BU="echo"', content)
     # Replace curl with /usr/bin/true so auto-start checks
     # pass instantly without hitting real endpoints.
     content = content.replace('curl ', '/usr/bin/true ')
