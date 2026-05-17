@@ -235,8 +235,12 @@ class TestHandleEventReflectionGuard:
         """Empty-string ``_pre_reflection_result`` proves reflection
         fired but the agent had no exec-phase text. The result
         event's reflection content MUST NOT become the user-facing
-        answer — text is overridden to empty and nothing is emitted
-        (matches the empty-result branch)."""
+        answer — text is overridden to empty. BUT we still emit a
+        result message with that empty text: the result event's
+        existence is the "turn ended" signal downstream consumers
+        (UI, e2e test polls) depend on, so dropping it entirely
+        would just trade one bug (wrong text) for another (no
+        end-of-turn signal)."""
         session = _make_session('execute')
         session._pre_reflection_result = ''
         emitted: list[tuple[str, str]] = []
@@ -250,8 +254,10 @@ class TestHandleEventReflectionGuard:
                 'result': 'No transferable learning from this task.',
             })
 
-        assert emitted == []
-        assert session._first_result_emitted is False
+        # Result emitted with empty text — turn-end signal goes out,
+        # reflection content does NOT become the answer.
+        assert emitted == [('result', '')]
+        assert session._first_result_emitted is True
         assert session._result_text == ''
         # Always cleared so a later turn does not adopt stale state.
         assert session._pre_reflection_result is None
