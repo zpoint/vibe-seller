@@ -1,6 +1,7 @@
 ---
 name: noon-exports
 description: "Noon data exports — Sales report (per country), Transaction View (multi-contract CSV with status enum gotchas), Catalog Exports (Content / Pricing / Stock / Reports). Load when downloading sales, finance, transaction, or catalog data from noon."
+requires: [noon-shared]
 ---
 
 # Noon — Data Exports

@@ -1,6 +1,7 @@
 ---
 name: amazon-reports
 description: "Amazon platform only. MUST load BEFORE taking any action when the task involves Amazon Seller Central report pages (Tax Document Library, Business Reports, Fulfillment, Payments CSV, Advertising Reports, etc.). Contains URLs, hover navigation, CSV structures, and wait times."
+requires: [amazon-shared]
 ---
 
 # Amazon Seller Central — Reports Export Guide

@@ -338,3 +338,79 @@ class TestWrapperConcurrentStores:
         assert result.returncode == 0
         result = _run_wrapper(wrapper_b, '--session', 'store-b', 'state')
         assert result.returncode == 0
+
+
+@pytest.mark.unit
+class TestWrapperUrlValidation:
+    """Surface shell-mangled URLs at the wrapper boundary.
+
+    Background: when an agent issues
+    ``browser-use open https://x.com/page?a=1&b=2`` from an
+    unquoted shell context, zsh treats ``?`` as a glob and ``&``
+    as a background operator. The URL gets chopped before the
+    wrapper sees it, so ``browser-use open`` runs with no URL (or
+    a fragment) and quietly stays on the previous page. The
+    wrapper used to be silent about this; now it exits non-zero
+    with a clear error so the failure is visible on the FIRST
+    call instead of being papered over by retries.
+    """
+
+    def test_open_with_valid_url_passes_through(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'open', 'https://example.com/')
+        assert result.returncode == 0, (
+            f'http(s) URL must pass: stderr={result.stderr!r}'
+        )
+
+    def test_open_with_about_blank_passes_through(self, tmp_path: Path):
+        """browser-use uses about:blank for session recovery — must
+        pass the URL-shape guard. Regression guard against a too-tight
+        ``http(s)://`` allowlist."""
+        wrapper = _generate_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'open', 'about:blank')
+        assert result.returncode == 0, (
+            f'about:blank must pass: stderr={result.stderr!r}'
+        )
+
+    def test_open_with_file_url_passes_through(self, tmp_path: Path):
+        """file:// is a valid local-artifact navigation."""
+        wrapper = _generate_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'open', 'file:///tmp/report.html')
+        assert result.returncode == 0, (
+            f'file:// must pass: stderr={result.stderr!r}'
+        )
+
+    def test_open_with_no_url_is_loud(self, tmp_path: Path):
+        """Simulates zsh nomatch swallowing the URL entirely."""
+        wrapper = _generate_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'open')
+        assert result.returncode == 2, (
+            f'missing URL must exit 2, got {result.returncode}'
+        )
+        assert 'browser-use open' in result.stderr
+        assert 'http' in result.stderr.lower()
+        # Mentions the actual fix (quoting) so the agent can self-correct
+        assert "'" in result.stderr  # the quoted-URL example
+
+    def test_open_with_non_url_fragment_is_loud(self, tmp_path: Path):
+        """Simulates zsh chopping a URL on '?' or '&'."""
+        wrapper = _generate_wrapper(tmp_path)
+        # After `?` was treated as a glob, the leftover was a stray
+        # arg like 'foo=bar' — not an http(s) URL.
+        result = _run_wrapper(wrapper, 'open', 'foo=bar')
+        assert result.returncode == 2
+        assert 'expects an http' in result.stderr
+        assert 'foo=bar' in result.stderr
+
+    def test_non_open_subcommands_dont_require_url(self, tmp_path: Path):
+        """`state`, `click`, etc. don't take a URL — must still work."""
+        wrapper = _generate_wrapper(tmp_path)
+        for argv in (
+            ('state',),
+            ('click', '5'),
+            ('get', 'text', '3'),
+        ):
+            result = _run_wrapper(wrapper, *argv)
+            assert result.returncode == 0, (
+                f'{argv} should not trip URL check: stderr={result.stderr!r}'
+            )

@@ -61,6 +61,20 @@ Singleton that orchestrates browser sessions across all stores:
 
 **Aux daemon probe + recycle**: The aux daemon is launched lazily by browser-use itself on the first command, and occasionally wedges after a heavy page load (Chromium watchdog racing in-flight dispatches) — the socket keeps accepting connects but subsequent `sock.recv` calls block for the full CLI timeout. To recover without operator intervention, the Ziniao wrapper runs a short probe (`timeout 3 browser-use --session {slug}-aux state >/dev/null`) before exec; if the probe fails, it calls `browser-use --session {slug}-aux close` so the real command below relaunches a fresh daemon. The probe is skipped when the real command is itself `close`, `sessions`, or `shutdown` so recovery paths still work on a stuck daemon. `state` is read-only and the 3-second cap means a wedged daemon can't eat more than a few seconds on the healthy-path. Chrome wrappers don't emit the block (Chrome has no aux daemon — everything routes through CDPMuxProxy).
 
+**URL-shape guard for `open` / `navigate`**: An agent's `browser-use open https://x.com/page?a=1&b=2` is silently destructive under any common shell: zsh treats `?` as a glob and `&` as a background operator BEFORE the wrapper sees the command, so the URL arrives truncated (or absent entirely) and `browser-use open` quietly "navigates" to nothing — the next `state` call returns the previous page and the agent assumes success. The wrapper can't fix the calling shell, but it CAN detect the shape that proves shell-mangling already happened. After argument parsing, the wrapper walks `PASSTHROUGH[@]` for an `open` or `navigate` subcommand; if the next positional arg doesn't start with `http://`, `https://`, `about:` (legitimate for session-recovery navigations to `about:blank`), or `file://` (legitimate for opening local artifacts the agent generated), the wrapper exits 2 with a stderr message pointing at the quoting fix:
+
+```
+ERROR: 'browser-use open' expects an http(s)://, about:, or file:// URL.
+       Got: <missing>
+
+Likely cause: the calling shell (zsh/bash) parsed special
+characters in your URL before the wrapper saw it. URLs
+containing '?', '&', or '#' MUST be quoted, e.g.:
+  browser-use open 'https://example.com/page?a=1&b=2'
+```
+
+This converts a silent failure into a loud one on the first call instead of compounding through retries. Tests in `tests/unit/test_browser/test_browser_use_wrapper.py::TestWrapperUrlValidation` exercise the generated bash directly with good/bad URL shapes.
+
 ### `cdp_mux_proxy.py` — Multi-Client CDP Proxy (primary)
 
 WebSocket-level CDP multiplexing proxy that allows multiple browser-use CLI processes (one per task) to share a single browser simultaneously. Replaces the old TCP relay for Ziniao stores.
