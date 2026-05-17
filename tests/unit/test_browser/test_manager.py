@@ -65,6 +65,12 @@ class TestWriteBrowserUseWrapper:
     def test_creates_wrapper_ziniao(self, tmp_path: Path, monkeypatch):
         """Creates executable wrapper for ziniao store."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
+        # Point sys.executable at a tmp dir with no browser-use
+        # sibling so the wrapper falls back to shutil.which.
+        monkeypatch.setattr(
+            'app.browser.wrapper.sys.executable',
+            str(tmp_path / 'fake-venv' / 'bin' / 'python'),
+        )
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
@@ -163,6 +169,13 @@ class TestWriteBrowserUseWrapper:
     def test_fallback_when_binary_not_found(self, tmp_path: Path, monkeypatch):
         """Uses 'browser-use' as fallback if binary not found."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
+        # No sibling next to sys.executable AND shutil.which
+        # returns None — the wrapper should fall back to the
+        # bare-string "browser-use".
+        monkeypatch.setattr(
+            'app.browser.wrapper.sys.executable',
+            str(tmp_path / 'fake-venv' / 'bin' / 'python'),
+        )
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
             lambda x: None,

@@ -15,6 +15,10 @@ from app.browser.manager import (
     browser_manager,
     store_slug as _store_slug,
 )
+from app.browser.ziniao_utils import (
+    ZiniaoNormalModeError,
+    kill_and_relaunch_ziniao,
+)
 from app.database import get_db
 from app.models.browser_session import BrowserSession
 from app.models.event import Event
@@ -23,10 +27,12 @@ from app.models.store import Store
 from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.models.user import User
+from app.models.ziniao_account import ZiniaoAccount
 from app.scheduler.cron import remove_schedule_job
 from app.schemas.store import StoreCreate, StoreResponse, StoreUpdate
 from app.task_states import ACTIVE
 from app.telemetry_events import TelemetryEvent
+from app.utils.crypto import decrypt_password
 from app.workspace.manager import VIBE_SELLER_DIR, workspace_manager
 
 logger = logging.getLogger(__name__)
@@ -388,6 +394,17 @@ async def get_store_bookmarks(
 @router.post('/{store_id}/browser/start')
 async def start_browser(
     store_id: str,
+    force: bool = Query(
+        False,
+        description=(
+            'If True and Ziniao is detected in normal (non-WebDriver) '
+            'mode, kill-and-relaunch Ziniao in WebDriver mode then '
+            'retry the start. Default False preserves the existing '
+            'safety: the user must explicitly click Force Restart in '
+            'the UI. Agent task wrappers pass force=True so they can '
+            'self-recover instead of failing the task.'
+        ),
+    ),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
@@ -397,6 +414,74 @@ async def start_browser(
         raise HTTPException(status_code=404, detail='Store not found')
     try:
         await browser_manager.start_session(store, db)
+    except ZiniaoNormalModeError as e:
+        # Ziniao is sitting in normal (UI) mode. Only the
+        # `Force Restart` button (UI) can relaunch in WebDriver
+        # mode by default — agent tasks must opt in via
+        # ``force=True`` to keep the original safety boundary
+        # explicit. Without ``force``, behave exactly as before.
+        if not force:
+            raise HTTPException(
+                status_code=500,
+                detail=f'Failed to start browser: {e}',
+            ) from e
+        if store.browser_backend != 'ziniao' or not store.ziniao_account_id:
+            raise HTTPException(
+                status_code=500,
+                detail=f'Failed to start browser: {e}',
+            ) from e
+        # DB lookup / decrypt happen inside this handler, outside
+        # the outer try — wrap them so a transient DB error or a
+        # corrupt encrypted_password doesn't bubble out as an
+        # unstructured 500 from FastAPI's default handler.
+        try:
+            account = await db.get(ZiniaoAccount, store.ziniao_account_id)
+            if not account:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f'Failed to start browser: {e}',
+                ) from e
+            user_info = {
+                'company': account.company,
+                'username': account.username,
+                'password': decrypt_password(account.encrypted_password),
+            }
+            client_path = account.client_path or 'ziniao'
+        except HTTPException:
+            raise
+        except Exception as prep_err:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    'Failed to prepare Ziniao credentials for '
+                    f'force-restart: {prep_err}'
+                ),
+            ) from prep_err
+        logger.info(
+            'force=true: Ziniao in normal mode for store %s, '
+            'relaunching in WebDriver mode',
+            store.name,
+        )
+        try:
+            await kill_and_relaunch_ziniao(
+                account.socket_port, client_path, user_info
+            )
+        except RuntimeError as relaunch_err:
+            raise HTTPException(
+                status_code=502,
+                detail=(f'Ziniao relaunch failed: {relaunch_err}'),
+            ) from relaunch_err
+        # Retry the start now that Ziniao is in WebDriver mode.
+        try:
+            await browser_manager.start_session(store, db)
+        except Exception as retry_err:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    'Failed to start browser after Ziniao '
+                    f'relaunch: {retry_err}'
+                ),
+            ) from retry_err
     except Exception as e:
         raise HTTPException(
             status_code=500,
