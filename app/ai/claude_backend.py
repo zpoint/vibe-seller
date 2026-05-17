@@ -178,6 +178,10 @@ class AgentSession(_HookMixin, _StreamMixin):
         self._input_closed: bool = False
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
+        # PreToolUse-hook state. See app.ai.bash_safety and
+        # app.ai.claude_backend_utils.check_skill_prereqs.
+        self._loaded_skills: set[str] = set()
+        self._catalog_read: bool = False
         # Serialize message persistence so seq + created_at stay in order
         self._emit_lock: asyncio.Lock = asyncio.Lock()
 

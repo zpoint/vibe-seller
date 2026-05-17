@@ -85,6 +85,16 @@ catalog lists a file relevant to your task (URLs, page layouts,
 selectors), read it first. Skipping knowledge recall leads to wrong
 URLs, wasted retries, and failed tasks.
 
+The catalog has 3 columns: `File | Relevance | Summary`. The
+**Relevance** column tags rows with platform names (`amazon`,
+`noon`, etc.). The rule is deterministic, not a judgment call:
+**for every platform your task touches, you MUST read every
+catalog row whose Relevance column contains that platform
+before opening any URL on that platform.** A row tagged `noon`
+is mandatory reading for any noon task — the Summary column is
+informational, the Relevance column is the contract. Rows with
+an empty Relevance are optional; read by judgment.
+
 ## Phase 2 — Critical Thinking (internal, do not output)
 
 Silently reason through these questions before asking anything:

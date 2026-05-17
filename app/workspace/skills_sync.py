@@ -375,8 +375,23 @@ class SkillsSyncManager:
             return result
 
     async def _do_remote_sync(self, client: httpx.AsyncClient) -> dict:
-        """Download files from remote URL using MANIFEST.txt."""
+        """Download files from remote URL using MANIFEST.txt.
+
+        Remote sync NEVER overwrites a file that exists in the local
+        package source. Rationale: the installed package version is
+        the authoritative content for the lifetime of that version —
+        ``pip install vibe-seller==X.Y.Z`` is the user's signed-up
+        contract. Remote sync exists to add NEW skills shipped after
+        the user's release, not to silently mutate skills the user
+        already has.
+
+        Without this guard, a dev-checkout or in-flight CI run gets
+        its local skills clobbered by the public-main version, which
+        in CI manifested as the skill-prereq hook silently never
+        seeing the new ``requires:`` frontmatter field.
+        """
         base_url = SKILLS_REPO_URL.rstrip('/')
+        local_source = self._get_local_source()
         try:
             # 1. Fetch MANIFEST.txt
             resp = await client.get(
@@ -409,6 +424,13 @@ class SkillsSyncManager:
                         'Path traversal in MANIFEST: %s',
                         rel_path,
                     )
+                    continue
+
+                # Local-package precedence: if this file exists in
+                # the installed package, the package version is
+                # authoritative — do not let remote overwrite it.
+                if local_source and (local_source / rel_path).is_file():
+                    skipped += 1
                     continue
 
                 url = f'{base_url}/{rel_path}'

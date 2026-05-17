@@ -8,7 +8,12 @@ incident on 2026-05-07).
 
 import pytest
 
-from app.ai.bash_safety import check_dangerous_kill
+from app.ai.bash_safety import (
+    check_catalog_first,
+    check_catalog_first_tool_args,
+    check_dangerous_kill,
+    is_catalog_path,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -102,3 +107,160 @@ class TestEdgeCases:
         # one still kills cross-task.
         cmd = 'pkill -f "x" || pkill -P $$ "y"'
         assert check_dangerous_kill(cmd) is not None
+
+
+class TestCatalogFirstGuard:
+    """Block filesystem search of knowledge/ or stores/ until the
+    agent reads any CATALOG.md.
+
+    The pattern is the same as Claude Code's Read-before-Write rule:
+    one deny + clear retry hint educates the model in-context, and
+    once the catalog has been read the guard turns off for the
+    remainder of the session.
+    """
+
+    def test_find_on_stores_before_catalog_is_denied(self):
+        cmd = 'find /home/runner/.vibe-seller/stores/abc/ -name "*"'
+        deny = check_catalog_first(cmd, catalog_read=False)
+        assert deny is not None
+        assert 'catalog' in deny.lower()
+
+    def test_ls_on_knowledge_before_catalog_is_denied(self):
+        cmd = 'ls -la ~/.vibe-seller/knowledge/'
+        assert check_catalog_first(cmd, catalog_read=False) is not None
+
+    def test_grep_on_stores_workspace_relative_is_denied(self):
+        # Workspace-relative path (no leading /) is the common form
+        # an agent will use inside the task cwd.
+        cmd = 'grep -r SECRET stores/myslug/'
+        assert check_catalog_first(cmd, catalog_read=False) is not None
+
+    def test_after_catalog_read_the_guard_is_off(self):
+        cmd = 'find /home/runner/.vibe-seller/stores/abc/ -name "*"'
+        assert check_catalog_first(cmd, catalog_read=True) is None
+
+    def test_search_outside_catalog_tree_is_allowed(self):
+        # Searching /tmp or arbitrary files has nothing to do with
+        # the catalog contract — must not be blocked.
+        assert check_catalog_first('ls /tmp/', catalog_read=False) is None
+        assert (
+            check_catalog_first('grep pattern file.txt', catalog_read=False)
+            is None
+        )
+
+    def test_non_search_command_against_stores_is_allowed(self):
+        # Reading a single file by `cat` isn't a directory search.
+        # The guard only fires on find/ls/grep/rg/fd/tree.
+        assert (
+            check_catalog_first(
+                'cat stores/myslug/notes.md', catalog_read=False
+            )
+            is None
+        )
+
+    def test_quoted_search_keyword_in_echo_is_allowed(self):
+        # ``ls`` inside a quoted string isn't in command position;
+        # false-positive guard.
+        assert (
+            check_catalog_first('echo "ls stores"', catalog_read=False) is None
+        )
+
+    def test_empty_command_is_allowed(self):
+        assert check_catalog_first('', catalog_read=False) is None
+
+
+class TestIsCatalogPath:
+    """Identifies any-level CATALOG.md path so the hook can flip
+    the catalog-first guard off once the agent reads one."""
+
+    def test_l1_catalog(self):
+        assert is_catalog_path(
+            '/home/runner/.vibe-seller/knowledge/project/CATALOG.md'
+        )
+
+    def test_l2_catalog(self):
+        assert is_catalog_path('/home/runner/.vibe-seller/knowledge/CATALOG.md')
+
+    def test_l3_store_catalog(self):
+        assert is_catalog_path(
+            '/home/runner/.vibe-seller/stores/myslug/CATALOG.md'
+        )
+
+    def test_non_catalog_md_is_not_a_catalog(self):
+        assert not is_catalog_path(
+            '/home/runner/.vibe-seller/stores/myslug/notes.md'
+        )
+
+    def test_unrelated_path_is_not_a_catalog(self):
+        assert not is_catalog_path('/tmp/CATALOG.md')
+
+    def test_empty_path_is_not_a_catalog(self):
+        assert not is_catalog_path('')
+
+
+class TestCatalogFirstToolArgs:
+    """Same catalog-first contract, applied to the Claude Code
+    built-in Glob/Grep tools. Without this guard, an agent denied
+    at the Bash layer pivots to Glob/Grep on the same trees and
+    gets the broad sweep through a different tool.
+    """
+
+    def test_glob_pattern_on_stores_is_denied(self):
+        inp = {'pattern': 'stores/cat-store-x-1234/**/*'}
+        assert check_catalog_first_tool_args(inp, False) is not None
+
+    def test_glob_pattern_on_knowledge_is_denied(self):
+        inp = {'pattern': 'knowledge/**/*.md'}
+        assert check_catalog_first_tool_args(inp, False) is not None
+
+    def test_grep_path_on_stores_is_denied(self):
+        inp = {'pattern': 'SECRET', 'path': 'stores/myslug'}
+        assert check_catalog_first_tool_args(inp, False) is not None
+
+    def test_after_catalog_read_glob_is_allowed(self):
+        inp = {'pattern': 'stores/x/**/*'}
+        assert check_catalog_first_tool_args(inp, True) is None
+
+    def test_glob_outside_catalog_tree_is_allowed(self):
+        inp = {'pattern': 'src/**/*.py'}
+        assert check_catalog_first_tool_args(inp, False) is None
+
+    def test_glob_with_no_path_or_pattern_is_allowed(self):
+        # Defensive — if the tool input is missing the relevant
+        # fields entirely, we don't fire (lets unrelated tool calls
+        # with the same callback path through).
+        assert check_catalog_first_tool_args({}, False) is None
+
+    def test_glob_exact_catalog_path_is_allowed(self):
+        # Regression for the catalog-sync deadlock: the L2/L3
+        # catalog-generation agents legitimately do
+        # ``Glob(pattern='knowledge/project/CATALOG.md')`` to check
+        # the L1 catalog exists before reading it. An exact path
+        # with no wildcards isn't a broad sweep — must pass.
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'knowledge/project/CATALOG.md'}, False
+            )
+            is None
+        )
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'stores/myslug/CATALOG.md'}, False
+            )
+            is None
+        )
+
+    def test_glob_wildcard_on_stores_still_denied(self):
+        # Wildcard form is still a sweep — keep blocking.
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'stores/myslug/*.md'}, False
+            )
+            is not None
+        )
+        assert (
+            check_catalog_first_tool_args(
+                {'pattern': 'stores/?slug/CATALOG.md'}, False
+            )
+            is not None
+        )

@@ -9,13 +9,21 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import logging
+from pathlib import Path
 
-from app.ai.bash_safety import check_dangerous_kill
+from app.ai.bash_safety import (
+    check_catalog_first,
+    check_catalog_first_tool_args,
+    check_dangerous_kill,
+    is_catalog_path,
+)
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
+    check_skill_prereqs,
+    find_skill_md,
 )
 from app.database import async_session
 from app.events.bus import event_bus
@@ -28,6 +36,7 @@ from app.prompts import (
     render_prompt,
 )
 from app.task_states import TaskStatus
+from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -153,14 +162,13 @@ class _HookMixin:
             # Concurrent-task safety: reject unscoped pkill/killall
             # before they can hit sibling tasks' processes.
             if inner_name == 'Bash':
-                deny_reason = check_dangerous_kill(
-                    inner_input.get('command', '')
-                )
+                cmd = inner_input.get('command', '')
+                deny_reason = check_dangerous_kill(cmd)
                 if deny_reason:
                     logger.warning(
                         'Bash safety: agent %s tried unscoped kill: %r',
                         self.task_id[:8],
-                        inner_input.get('command', '')[:200],
+                        cmd[:200],
                     )
                     await self._send_hook_response(
                         request_id,
@@ -173,6 +181,74 @@ class _HookMixin:
                         },
                     )
                     return
+                # Catalog-first guard: deny filesystem search of
+                # knowledge/ or stores/ until the agent has read a
+                # catalog file this session. The deny reason tells
+                # the agent which catalog to read.
+                deny_reason = check_catalog_first(cmd, self._catalog_read)
+                if deny_reason:
+                    logger.info(
+                        'Catalog-first: agent %s tried %r before reading catalog',
+                        self.task_id[:8],
+                        cmd[:120],
+                    )
+                    await self._send_hook_response(
+                        request_id,
+                        {
+                            'hookSpecificOutput': {
+                                'hookEventName': 'PreToolUse',
+                                'permissionDecision': 'deny',
+                                'permissionDecisionReason': deny_reason,
+                            },
+                        },
+                    )
+                    return
+            # Catalog-first guard for the Glob/Grep built-in tools.
+            # Same intent as the Bash branch above: agents denied at
+            # the Bash layer pivot to Glob/Grep on the same trees
+            # unless we close that escape hatch too.
+            if inner_name in ('Glob', 'Grep'):
+                deny_reason = check_catalog_first_tool_args(
+                    inner_input, self._catalog_read
+                )
+                if deny_reason:
+                    logger.info(
+                        'Catalog-first: agent %s tried %s(%r) before reading catalog',
+                        self.task_id[:8],
+                        inner_name,
+                        {
+                            k: v
+                            for k, v in inner_input.items()
+                            if k in ('path', 'pattern')
+                        },
+                    )
+                    await self._send_hook_response(
+                        request_id,
+                        {
+                            'hookSpecificOutput': {
+                                'hookEventName': 'PreToolUse',
+                                'permissionDecision': 'deny',
+                                'permissionDecisionReason': deny_reason,
+                            },
+                        },
+                    )
+                    return
+            # Catalog-read tracker: flip the catalog-first guard off
+            # once the agent issues a Read against any CATALOG.md.
+            # Done in the PreToolUse hook (not on result) so a
+            # follow-up Bash in the same assistant turn already sees
+            # the updated state — the catalog content reaches the
+            # model in the same tool_result that this Read returns.
+            # The path must both LOOK like a catalog (shape match)
+            # AND actually exist on disk — otherwise an agent could
+            # bypass the catalog-first guard by reading a fake
+            # ``stores/<bogus>/CATALOG.md`` that doesn't exist,
+            # which would still flip the flag and re-enable Bash
+            # search even though no catalog content was loaded.
+            if inner_name == 'Read':
+                path = inner_input.get('file_path', '')
+                if is_catalog_path(path) and Path(path).is_file():
+                    self._catalog_read = True
             if self._check_tool_loop(inner_name, inner_input):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
@@ -196,6 +272,49 @@ class _HookMixin:
                 self._error_category = 'agent_loop'
                 asyncio.create_task(self.stop())
                 return
+            # Skill prerequisite enforcement: when a skill declares
+            # ``requires: [X]`` in its frontmatter, the agent must
+            # have loaded X first this session. Same shape as
+            # Claude Code's Read-before-Write rule — a deny with a
+            # clear retry message turns a prose contract into a
+            # mechanism. See parse_skill_requires for the format.
+            if inner_name == 'Skill':
+                skill_name = inner_input.get('skill', '')
+                deny = self._check_skill_prereqs(skill_name)
+                if deny:
+                    logger.info(
+                        'Skill prereq: agent %s tried %r without %s',
+                        self.task_id[:8],
+                        skill_name,
+                        deny,
+                    )
+                    await self._send_hook_response(
+                        request_id,
+                        {
+                            'hookSpecificOutput': {
+                                'hookEventName': 'PreToolUse',
+                                'permissionDecision': 'deny',
+                                'permissionDecisionReason': deny,
+                            },
+                        },
+                    )
+                    return
+                # Only track skills we actually ship (a SKILL.md
+                # exists in the task workspace or global skills dir).
+                # Without this gate the agent could "satisfy" a
+                # prereq by calling ``Skill('<arbitrary-name>')`` —
+                # the hook would add the name to ``_loaded_skills``
+                # and let a dependent skill through even though no
+                # actual prerequisite content was loaded. Limiting
+                # the set to shipped skills closes that bypass.
+                if (
+                    skill_name
+                    and find_skill_md(
+                        self.task_dir or VIBE_SELLER_DIR, skill_name
+                    )
+                    is not None
+                ):
+                    self._loaded_skills.add(skill_name)
             # Auto-approve all other tools
             await self._send_hook_response(
                 request_id,
@@ -274,6 +393,20 @@ class _HookMixin:
                     },
                 },
             )
+
+    def _check_skill_prereqs(self, skill_name: str) -> str | None:
+        """Adapter that forwards to :func:`check_skill_prereqs` with
+        this session's state. Kept as a thin method so the existing
+        hook call site stays simple; the actual logic lives in
+        ``claude_backend_utils`` so this file stays under the 800
+        line cap (enforced by the line-limit pre-commit hook).
+        """
+        return check_skill_prereqs(
+            skill_name,
+            self.task_dir or VIBE_SELLER_DIR,
+            self._loaded_skills,
+            self.task_id[:8],
+        )
 
     async def _handle_can_use_tool(self, request_id: str, request: dict):
         """Handle a CanUseTool control request."""

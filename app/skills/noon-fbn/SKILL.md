@@ -1,6 +1,7 @@
 ---
 name: noon-fbn
 description: "Noon Fulfilled-by-noon (FBN) — ASN creation flow, ASN status enum, inventory export, barcode print. Load when scheduling a shipment, managing FBN inventory, creating an ASN, or exporting warehouse stock."
+requires: [noon-shared]
 ---
 
 # Noon — FBN (Fulfilled by noon)
