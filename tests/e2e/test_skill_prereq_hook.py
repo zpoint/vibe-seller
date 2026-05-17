@@ -25,9 +25,9 @@ Requires: real ``claude`` CLI + LLM API key + running server.
 """
 
 import logging
+from pathlib import Path
 import re
 import time
-from pathlib import Path
 
 import httpx
 import pytest
@@ -150,7 +150,7 @@ class TestSkillPrereqHookEndToEnd:
                 '`skill="noon-ads"` again. It will now succeed.\n\n'
                 '4. Echo back the noon login URL '
                 '(https://login.noon.partners/en/) on its own line '
-                "in your final response. Copy it exactly from the "
+                'in your final response. Copy it exactly from the '
                 'noon-shared content you loaded.'
             ),
         )
@@ -184,8 +184,7 @@ class TestSkillPrereqHookEndToEnd:
             'of this test.\n\n'
             'Log excerpt around task_id:\n'
             + '\n'.join(
-                line for line in log_text.splitlines()
-                if task_id_prefix in line
+                line for line in log_text.splitlines() if task_id_prefix in line
             )[:2000]
         )
 
@@ -195,13 +194,15 @@ class TestSkillPrereqHookEndToEnd:
         # loaded after the retry — which can only happen if the
         # agent corrected its load order in response to the deny.
         messages = get_messages(api_client, task_id)
-        all_text = ' '.join(
-            m.get('content', '') for m in messages
-        ) + ' ' + (result.get('result') or '')
+        all_text = (
+            ' '.join(m.get('content', '') for m in messages)
+            + ' '
+            + (result.get('result') or '')
+        )
         assert NOON_SHARED_MARKER in all_text, (
             f'Expected the noon login URL {NOON_SHARED_MARKER!r} '
             "(from noon-shared) to appear in the agent's "
-            "transcript after the prerequisite load succeeded. "
+            'transcript after the prerequisite load succeeded. '
             'Either the agent never loaded noon-shared, or its '
             'content never reached the context.\n'
             f'Transcript first 800 chars: {all_text[:800]!r}'

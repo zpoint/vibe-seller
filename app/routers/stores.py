@@ -430,23 +430,38 @@ async def start_browser(
                 status_code=500,
                 detail=f'Failed to start browser: {e}',
             ) from e
-        account = await db.get(ZiniaoAccount, store.ziniao_account_id)
-        if not account:
+        # DB lookup / decrypt happen inside this handler, outside
+        # the outer try — wrap them so a transient DB error or a
+        # corrupt encrypted_password doesn't bubble out as an
+        # unstructured 500 from FastAPI's default handler.
+        try:
+            account = await db.get(ZiniaoAccount, store.ziniao_account_id)
+            if not account:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f'Failed to start browser: {e}',
+                ) from e
+            user_info = {
+                'company': account.company,
+                'username': account.username,
+                'password': decrypt_password(account.encrypted_password),
+            }
+            client_path = account.client_path or 'ziniao'
+        except HTTPException:
+            raise
+        except Exception as prep_err:
             raise HTTPException(
                 status_code=500,
-                detail=f'Failed to start browser: {e}',
-            ) from e
+                detail=(
+                    'Failed to prepare Ziniao credentials for '
+                    f'force-restart: {prep_err}'
+                ),
+            ) from prep_err
         logger.info(
             'force=true: Ziniao in normal mode for store %s, '
             'relaunching in WebDriver mode',
             store.name,
         )
-        user_info = {
-            'company': account.company,
-            'username': account.username,
-            'password': decrypt_password(account.encrypted_password),
-        }
-        client_path = account.client_path or 'ziniao'
         try:
             await kill_and_relaunch_ziniao(
                 account.socket_port, client_path, user_info
