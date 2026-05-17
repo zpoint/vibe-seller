@@ -79,11 +79,17 @@ def write_browser_use_wrapper(
     # fallback and produce a wrapper that fails at exec time with
     # "command not found". In `./start.sh` (dev clone) mode both paths
     # find it; the sibling lookup is just authoritative.
-    daemon_bin = Path(sys.executable).resolve().parent
+    #
+    # Do NOT .resolve() here: uv tool venvs (and `uv venv`) symlink the
+    # interpreter to a base Python (pyenv / homebrew / conda). Following
+    # that symlink lands in a dir that often has its OWN `browser-use`
+    # from a different (typically older) install — picking it up would
+    # bypass our pinned `browser-use>=0.12.5` and produce a wrapper that
+    # passes flags the older binary doesn't understand (--cdp-url, etc).
+    daemon_bin = Path(sys.executable).parent
     candidate = daemon_bin / 'browser-use'
     real_bu = (
-        str(candidate) if candidate.is_file()
-        else shutil.which('browser-use')
+        str(candidate) if candidate.is_file() else shutil.which('browser-use')
     )
     if not real_bu:
         logger.warning(
@@ -156,7 +162,7 @@ def write_browser_use_wrapper(
                 -X POST \\{auth_header}
                 -H "Content-Type: application/json" \\
                 --max-time 90 \\
-                "http://{LOCALHOST}:{port}/api/stores/{store_id or 'UNKNOWN'}/browser/start" \\
+                "http://{LOCALHOST}:{port}/api/stores/{store_id or 'UNKNOWN'}/browser/start?force=1" \\
                 2>/dev/null) || true
               _start_http=${{_start_resp##*$'\\n'}}
               if ! [ "$_start_http" -ge 200 ] 2>/dev/null \\

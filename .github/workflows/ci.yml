@@ -9,6 +9,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Mirror what contributors run locally: `pre-commit run --all-files`.
+      # Frontend hooks (frontend-lint, frontend-typecheck) are skipped here
+      # because the frontend-test job below already runs the same checks
+      # (`npm run lint`, `npx tsc -b`) with full node_modules — running them
+      # twice would just slow CI down. Python hooks (ruff lint, ruff format),
+      # the line-limit script, and the file-hygiene hooks all run.
+      - name: Run pre-commit
+        env:
+          SKIP: frontend-lint,frontend-typecheck
+        uses: pre-commit/action@v3.0.1
+
   frontend-test:
     runs-on: ubuntu-latest
     defaults:

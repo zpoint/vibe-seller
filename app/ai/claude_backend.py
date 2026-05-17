@@ -363,12 +363,6 @@ class AgentSession(_HookMixin, _StreamMixin):
             env.get('ANTHROPIC_BASE_URL', '<default>'),
             env.get('ANTHROPIC_MODEL', '<default>'),
         )
-        # Browser-use CLI wrapper (per-store isolation)
-        if self.store_slug:
-            store_bin = VIBE_SELLER_DIR / 'bin' / self.store_slug
-            if store_bin.is_dir():
-                env['PATH'] = f'{store_bin}:{env.get("PATH", "")}'
-
         # Pass task ID for multi-client CDP proxy isolation
         env['VIBE_TASK_ID'] = self.task_id
 
@@ -388,23 +382,25 @@ class AgentSession(_HookMixin, _StreamMixin):
         env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller Agent')
         env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
 
-        # Inject the daemon's own venv bin onto the agent's PATH so
-        # the wrapper's `exec "$REAL_BU"` (and any bash the agent
-        # runs — pytest, fastapi, etc.) resolves binaries from the
-        # same interpreter that runs this server. Works in both modes:
-        #
-        #   - Dev clone (`./start.sh`):   <repo>/.venv/bin/python
-        #   - Wheel install (`vibe-seller start`):
-        #       ~/.local/share/uv/tools/vibe-seller/bin/python
-        #
-        # The old code referenced ``VIBE_SELLER_DIR/.venv/bin``
-        # (``~/.vibe-seller/.venv/bin``), which is never created by
-        # any install mode — a dead branch that masked the missing
-        # PATH injection in wheel-install mode.
-        daemon_bin = Path(sys.executable).resolve().parent
+        # Inject the daemon's venv bin so child bash resolves
+        # binaries from the same interpreter that runs the server.
+        # Do NOT .resolve(): uv tool / `uv venv` symlink the
+        # interpreter to a base Python (pyenv/homebrew/conda); the
+        # resolved bin often ships its own `browser-use` that would
+        # shadow the per-store wrapper prepended below.
+        daemon_bin = Path(sys.executable).parent
         if daemon_bin.is_dir():
             env['PATH'] = f'{daemon_bin}:{env.get("PATH", "")}'
             env['VIRTUAL_ENV'] = str(daemon_bin.parent)
+
+        # Per-store browser-use wrapper. MUST be prepended last so
+        # it sits ahead of daemon_bin — daemon_bin's `browser-use`
+        # would otherwise bypass proxy stripping, --cdp-url
+        # injection, per-task session naming, and URL validation.
+        if self.store_slug:
+            store_bin = VIBE_SELLER_DIR / 'bin' / self.store_slug
+            if store_bin.is_dir():
+                env['PATH'] = f'{store_bin}:{env.get("PATH", "")}'
 
         # start_new_session=True puts claude and every descendant into
         # a fresh POSIX session/process group. We do not rely on this
