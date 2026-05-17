@@ -355,8 +355,14 @@ class _HookMixin:
                 pre = '\n\n'.join(p for p in self._exec_phase_text_parts if p)
                 if not pre:
                     pre = tool_input.get('last_assistant_message', '')
+                # Always set (even to '') so the result handler can
+                # detect that Stop-hook reflection fired. If pre is
+                # empty, the post-reflection text in the next
+                # ``result`` event is reflection content (e.g. 'No
+                # transferable learning…') and MUST NOT become the
+                # user-facing answer.
+                self._pre_reflection_result = pre
                 if pre:
-                    self._pre_reflection_result = pre
                     await self._save_result(pre)
                 reason = render_prompt(
                     REFLECTION_PROMPT,
