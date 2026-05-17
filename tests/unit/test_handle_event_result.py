@@ -172,3 +172,86 @@ class TestHandleEventResultDedup:
         assert emitted[0] == ('result', 'Auto result')
         assert emitted[1] == ('assistant', 'Extra ack')
         assert session._result_text == 'Auto result'
+
+
+class TestHandleEventReflectionGuard:
+    """_handle_event must distinguish ``_pre_reflection_result``:
+
+    - ``None`` → Stop-hook reflection never fired this turn; use the
+      result event's own text as-is.
+    - non-empty string → reflection fired AFTER the agent produced
+      real exec-phase text; the pre-reflection snapshot is the
+      user-facing answer and overrides the result event (which
+      otherwise reports reflection content).
+    - empty string ``''`` → reflection fired but the agent had no
+      exec-phase text (e.g. answer in a ``thinking`` block only);
+      the result event's text is reflection content and must be
+      suppressed so reflection never becomes the user-facing answer.
+
+    The ``is not None`` check is the contract; this pin guards it.
+    """
+
+    async def test_none_pre_reflection_uses_result_text(self):
+        """Default ``_pre_reflection_result`` is None → result event
+        text passes through unchanged."""
+        session = _make_session('execute')
+        assert session._pre_reflection_result is None
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Plain answer',
+            })
+
+        assert emitted == [('result', 'Plain answer')]
+        assert session._result_text == 'Plain answer'
+
+    async def test_nonempty_pre_reflection_overrides_result(self):
+        """Pre-reflection snapshot (real answer) overrides the
+        post-reflection text in the result event."""
+        session = _make_session('execute')
+        session._pre_reflection_result = 'The real answer'
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'No transferable learning…',
+            })
+
+        assert emitted == [('result', 'The real answer')]
+        assert session._result_text == 'The real answer'
+        # Always cleared so a later turn does not adopt stale state.
+        assert session._pre_reflection_result is None
+
+    async def test_empty_pre_reflection_suppresses_reflection_text(self):
+        """Empty-string ``_pre_reflection_result`` proves reflection
+        fired but the agent had no exec-phase text. The result
+        event's reflection content MUST NOT become the user-facing
+        answer — text is overridden to empty and nothing is emitted
+        (matches the empty-result branch)."""
+        session = _make_session('execute')
+        session._pre_reflection_result = ''
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'No transferable learning from this task.',
+            })
+
+        assert emitted == []
+        assert session._first_result_emitted is False
+        assert session._result_text == ''
+        # Always cleared so a later turn does not adopt stale state.
+        assert session._pre_reflection_result is None
