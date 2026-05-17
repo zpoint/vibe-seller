@@ -267,15 +267,27 @@ class _StreamMixin:
             is_error = event.get('is_error', False)
             if event.get('subtype') == 'success' and not is_error:
                 self._agent_success = True
-            # Prefer pre-reflection result (saved before Stop hook
-            # blocked) over the post-reflection text that Claude
-            # Code reports in the final result event.
-            if self._pre_reflection_result:
+            # ``None`` means Stop-hook reflection never fired this
+            # turn; '' means it fired but the agent had no pre-
+            # reflection text — in that case the post-reflection
+            # text is reflection content and must NOT become the
+            # user-facing result. Distinguish via ``is not None``.
+            reflection_suppressed = False
+            if self._pre_reflection_result is not None:
                 if not is_error:
                     text = self._pre_reflection_result
-                # Always clear to prevent stale leakage
+                reflection_suppressed = self._pre_reflection_result == ''
                 self._pre_reflection_result = None
-            if text:
+            # Emit when there's text, OR when reflection was
+            # suppressed (text intentionally empty). The result
+            # event existence is the "turn ended" signal that
+            # downstream consumers (UI, the e2e test poll) depend
+            # on; dropping it entirely just because reflection
+            # contaminated the text turns one bug (wrong text)
+            # into another (no end-of-turn signal). Legitimate
+            # empty results from the agent (no reflection, no
+            # text) stay ignored — see test_empty_result_ignored.
+            if text or reflection_suppressed:
                 self._last_result_event = text
                 if is_error:
                     self._is_error_result = True
