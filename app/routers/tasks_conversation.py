@@ -101,6 +101,16 @@ async def _spawn_followup_agent(
             resume=True,
             auto_approve_plan=auto_approve_plan,
             store_slug=(_store_slug(store.name, store.id) if store else None),
+            # Follow-up turns are conversational — reflection is
+            # for initial task knowledge capture. Re-running it on
+            # every follow-up forces a text-emitting reflection
+            # phase that overwrites the agent's actual response
+            # when the model put its answer only in a thinking
+            # block (e.g. GLM-4.7 on terse follow-ups). The
+            # initial task's reflection already captured any
+            # learnings; conversational turns have nothing new
+            # to learn from.
+            skip_reflection=True,
         )
     except Exception:
         logger.exception(
