@@ -117,3 +117,16 @@ class TestWeeklyFireDay:
         assert next_fire.strftime('%A') == expected_weekday
         assert next_fire.hour == 7
         assert next_fire.minute == 0
+
+    @pytest.mark.parametrize('bad_day', [0, -1, 8, 100])
+    def test_weekly_rejects_out_of_range_day(self, bad_day):
+        """Out-of-range schedule_day must fail loudly, not silently
+        wrap to a different weekday — the prior ``% 7`` translation
+        would have turned 0→Sun, 8→Mon, etc., hiding bad input."""
+        with pytest.raises(ValueError, match='1..7'):
+            cron_mod.build_trigger(
+                'weekly',
+                '07:00',
+                schedule_day=bad_day,
+                timezone='Asia/Shanghai',
+            )

@@ -335,9 +335,8 @@ class _HookMixin:
             if tool_input.get('stop_hook_active'):
                 # Bracket-end of the reflection turn — paired with
                 # reflection_started; see comment there.
-                await self._emit_message(
-                    'agent_event', '{"event": "reflection_completed"}'
-                )
+                _ev = json.dumps({'event': 'reflection_completed'})
+                await self._emit_message('agent_event', _ev)
                 await self._send_hook_response(
                     request_id, {'decision': 'approve'}
                 )
@@ -370,9 +369,8 @@ class _HookMixin:
                     await self._save_result(pre)
                 # Structured marker — makes the reflection PHASE
                 # observable independently of model wording.
-                await self._emit_message(
-                    'agent_event', '{"event": "reflection_started"}'
-                )
+                _ev = json.dumps({'event': 'reflection_started'})
+                await self._emit_message('agent_event', _ev)
                 reason = render_prompt(
                     REFLECTION_PROMPT,
                     store_slug=self.store_slug,
