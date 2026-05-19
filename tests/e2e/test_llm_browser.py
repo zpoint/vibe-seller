@@ -263,7 +263,15 @@ class TestLLMBrowserAPI:
                 ev = payload.get('event') if isinstance(payload, dict) else None
                 if ev in ('reflection_started', 'reflection_completed'):
                     reflection_events.append({'role': m['role'], 'event': ev})
-            if reflection_events:
+            # Wait for the full bracket: reflection_started pins that the
+            # Stop-hook block fired, reflection_completed pins the retry
+            # approve. Breaking on either alone would let the test pass
+            # on a half-emitted run and weaken what the contract proves.
+            event_names = [e['event'] for e in reflection_events]
+            if (
+                'reflection_started' in event_names
+                and 'reflection_completed' in event_names
+            ):
                 break
             time.sleep(1)
 
@@ -272,10 +280,17 @@ class TestLLMBrowserAPI:
             len(reflection_events),
             [e['event'] for e in reflection_events],
         )
-        assert reflection_events, (
+        event_names = [e['event'] for e in reflection_events]
+        assert 'reflection_started' in event_names, (
             'Stop hook should emit a reflection_started agent_event '
-            'within 30s of task completion. Got 0. '
+            'within 30s of task completion. '
+            f'Got events: {event_names}. '
             f'Roles seen: {[m["role"] for m in msgs_last]}'
+        )
+        assert 'reflection_completed' in event_names, (
+            'Stop hook should emit reflection_completed after the '
+            'retry approves; got only '
+            f'{event_names}.'
         )
 
 

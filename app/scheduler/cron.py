@@ -294,7 +294,14 @@ def build_trigger(
         if schedule_day is not None:
             # DB stores ISO weekday (Mon=1..Sun=7) but APScheduler's
             # CronTrigger uses Mon=0..Sun=6 — translate at the boundary.
-            kwargs['day_of_week'] = (schedule_day - 1) % 7
+            # Range-check explicitly so bad input fails loudly instead of
+            # being silently wrapped to a different weekday.
+            if not 1 <= schedule_day <= 7:
+                raise ValueError(
+                    f'weekly schedule_day must be 1..7 (ISO weekday, '
+                    f'Mon=1..Sun=7); got {schedule_day}'
+                )
+            kwargs['day_of_week'] = schedule_day - 1
         return CronTrigger(**kwargs)
     if schedule_type == 'monthly':
         parts = schedule_time.split(':')
