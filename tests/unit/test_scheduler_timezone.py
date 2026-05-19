@@ -5,6 +5,7 @@ timezone plumbing in build_trigger, since the function signature
 defaults were the source of the original hardcoded 'Asia/Riyadh' bug.
 """
 
+from datetime import datetime
 from unittest import mock
 from zoneinfo import ZoneInfo
 
@@ -74,3 +75,45 @@ class TestBuildTrigger:
             )
         assert isinstance(trig, CronTrigger)
         assert str(trig.timezone) == 'Asia/Tokyo'
+
+
+class TestWeeklyFireDay:
+    """Pin the ISO (Mon=1..Sun=7) → APScheduler (Mon=0..Sun=6) mapping.
+
+    The DB stores ``schedule_day`` in ISO form because the frontend
+    day picker uses Mon=1..Sun=7. APScheduler's CronTrigger uses
+    Mon=0..Sun=6. ``build_trigger`` must translate at the boundary —
+    otherwise picking "Monday" in the UI fires on Tuesday, picking
+    "Sunday" goes out of range, etc.
+    """
+
+    @pytest.mark.parametrize(
+        'schedule_day,expected_weekday',
+        [
+            (1, 'Monday'),
+            (2, 'Tuesday'),
+            (3, 'Wednesday'),
+            (4, 'Thursday'),
+            (5, 'Friday'),
+            (6, 'Saturday'),
+            (7, 'Sunday'),
+        ],
+    )
+    def test_weekly_fires_on_correct_iso_day(
+        self, schedule_day, expected_weekday
+    ):
+        tz = ZoneInfo('Asia/Shanghai')
+        trig = cron_mod.build_trigger(
+            'weekly',
+            '07:00',
+            schedule_day=schedule_day,
+            timezone='Asia/Shanghai',
+        )
+        # Reference is a Thursday — far enough back to land on the
+        # next occurrence of any weekday without ambiguity.
+        ref = datetime(2026, 5, 14, 0, 0, tzinfo=tz)
+        next_fire = trig.get_next_fire_time(None, ref)
+        assert next_fire is not None
+        assert next_fire.strftime('%A') == expected_weekday
+        assert next_fire.hour == 7
+        assert next_fire.minute == 0

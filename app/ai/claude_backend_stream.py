@@ -278,22 +278,36 @@ class _StreamMixin:
                     text = self._pre_reflection_result
                 reflection_suppressed = self._pre_reflection_result == ''
                 self._pre_reflection_result = None
-            # Emit when there's text, OR when reflection was
-            # suppressed (text intentionally empty). The result
-            # event existence is the "turn ended" signal that
-            # downstream consumers (UI, the e2e test poll) depend
-            # on; dropping it entirely just because reflection
-            # contaminated the text turns one bug (wrong text)
-            # into another (no end-of-turn signal). Legitimate
-            # empty results from the agent (no reflection, no
-            # text) stay ignored — see test_empty_result_ignored.
-            if text or reflection_suppressed:
+            # The result event existence is the "turn ended" signal
+            # that downstream consumers (UI, the e2e test poll, the
+            # follow-up agent loop) depend on. Drop it only when it
+            # is NOT the canonical end-of-turn for this session.
+            #
+            # Keep:
+            #   - any non-empty text (real result)
+            #   - reflection_suppressed (text intentionally cleared)
+            #   - first execute-phase result, even if empty — this is
+            #     the only end-of-turn signal a chat-mode follow-up
+            #     session ever produces, and weaker models (GLM-4.7,
+            #     observed) sometimes emit their answer only in a
+            #     ``thinking`` block, leaving the result text empty.
+            # Drop:
+            #   - empty subsequent results (no useful payload, and the
+            #     first result already carried the end-of-turn signal)
+            #   - empty planning-phase results
+            is_first_execute_result = (
+                self._executing and not self._first_result_emitted
+            )
+            should_emit = (
+                text or reflection_suppressed or is_first_execute_result
+            )
+            if should_emit:
                 self._last_result_event = text
                 if is_error:
                     self._is_error_result = True
                 # First execution-phase result → green card;
                 # subsequent results → regular assistant message
-                if not self._first_result_emitted and self._executing:
+                if is_first_execute_result:
                     self._result_text = text
                     await self._emit_message('result', text)
                     self._first_result_emitted = True
