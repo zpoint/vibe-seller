@@ -34,7 +34,7 @@ class Schedule(Base):
     )  # 'HH:MM' or 'HH:MM:SS'  (ignored for minutes/hours)
     schedule_day: Mapped[int | None] = mapped_column(
         Integer, nullable=True
-    )  # 0-6 for weekly (Mon=0), 1-31 for monthly
+    )  # 1-7 for weekly (ISO: Mon=1, Sun=7), 1-31 for monthly
     interval_value: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1
     )  # e.g. every N minutes/hours/days
