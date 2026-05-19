@@ -292,7 +292,9 @@ def build_trigger(
             'timezone': tz,
         }
         if schedule_day is not None:
-            kwargs['day_of_week'] = schedule_day
+            # DB stores ISO weekday (Mon=1..Sun=7) but APScheduler's
+            # CronTrigger uses Mon=0..Sun=6 — translate at the boundary.
+            kwargs['day_of_week'] = (schedule_day - 1) % 7
         return CronTrigger(**kwargs)
     if schedule_type == 'monthly':
         parts = schedule_time.split(':')

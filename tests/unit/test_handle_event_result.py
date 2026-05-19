@@ -136,8 +136,15 @@ class TestHandleEventResultDedup:
         assert session._is_error_result is True
         assert emitted[0] == ('result', 'Error occurred')
 
-    async def test_empty_result_ignored(self):
-        """Empty result text is skipped entirely."""
+    async def test_empty_first_execute_result_still_emits_turn_end(self):
+        """First execute-phase result emits even when text is empty.
+
+        The result event is the canonical end-of-turn signal that
+        chat-mode follow-up sessions, UI polling, and e2e tests rely
+        on. Weaker models (GLM-4.7 observed) sometimes emit the
+        final answer in a ``thinking`` block only, leaving the
+        result text empty — the turn-end signal must still fire.
+        """
         session = _make_session('execute')
         emitted: list[tuple[str, str]] = []
 
@@ -147,7 +154,45 @@ class TestHandleEventResultDedup:
         with patch.object(session, '_emit_message', _mock_emit):
             await session._handle_event({'type': 'result', 'result': ''})
 
-        assert len(emitted) == 0
+        assert emitted == [('result', '')]
+        assert session._first_result_emitted is True
+
+    async def test_empty_subsequent_result_dropped(self):
+        """After the first result, empty results are dropped.
+
+        The end-of-turn signal already fired with the first result;
+        a trailing empty result carries no information.
+        """
+        session = _make_session('execute')
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'First',
+            })
+            await session._handle_event({'type': 'result', 'result': ''})
+
+        assert emitted == [('result', 'First')]
+        assert session._first_result_emitted is True
+
+    async def test_empty_planning_phase_result_dropped(self):
+        """Empty planning-phase result is dropped — no end-of-turn
+        signal needed during planning."""
+        session = _make_session('plan_then_execute')
+        assert session._executing is False
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({'type': 'result', 'result': ''})
+
+        assert emitted == []
         assert session._first_result_emitted is False
 
     async def test_auto_mode_first_result(self):
