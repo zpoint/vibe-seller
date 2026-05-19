@@ -573,7 +573,7 @@ class BrowserManager:
         user_info = {
             'company': account.company,
             'username': account.username,
-            'password': account.password,
+            'password': decrypt_password(account.encrypted_password),
         }
         await ensure_ziniao_running(
             socket_port=account.socket_port,

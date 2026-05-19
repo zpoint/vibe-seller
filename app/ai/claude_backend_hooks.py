@@ -333,9 +333,12 @@ class _HookMixin:
             # Claude Code sends stop_hook_active=true on the retry
             # after a block, preventing infinite loops.
             if tool_input.get('stop_hook_active'):
+                # Bracket-end of the reflection turn — paired with
+                # reflection_started; see comment there.
+                _ev = json.dumps({'event': 'reflection_completed'})
+                await self._emit_message('agent_event', _ev)
                 await self._send_hook_response(
-                    request_id,
-                    {'decision': 'approve'},
+                    request_id, {'decision': 'approve'}
                 )
             else:
                 # Save the real task result before reflection
@@ -364,6 +367,10 @@ class _HookMixin:
                 self._pre_reflection_result = pre
                 if pre:
                     await self._save_result(pre)
+                # Structured marker — makes the reflection PHASE
+                # observable independently of model wording.
+                _ev = json.dumps({'event': 'reflection_started'})
+                await self._emit_message('agent_event', _ev)
                 reason = render_prompt(
                     REFLECTION_PROMPT,
                     store_slug=self.store_slug,
