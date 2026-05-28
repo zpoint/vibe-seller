@@ -217,6 +217,12 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 |--------|------|-------------|
 | GET | `/api/ziniao/launcher` | Download ziniao_webdriver.bat |
 
+## `system.py` — Server Runtime Metadata
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/system/info` | Return `{ platform: 'mac' \| 'windows' \| 'wsl' \| 'linux' }`. Frontend fetches this once on mount and uses it as the single source of truth for platform-conditional UI (Ziniao launcher download, install hints, etc.) — never inferred from per-request error payloads. |
+
 ## `screenshots.py` — Screenshot Serving
 
 | Method | Path | Description |

@@ -310,7 +310,7 @@ async def get_ziniao_status(
 ) -> dict:
     """Get structured Ziniao status for frontend display.
 
-    Returns dict with 'status' and 'platform' keys.
+    Returns dict with a 'status' key.
     Status values:
       - running_webdriver: API responds, ready to use
       - no_permission: API responds with -10003 (WebDriver
@@ -319,9 +319,11 @@ async def get_ziniao_status(
       - running_normal: process found but API unreachable
       - not_running: not running but installed (Mac)
       - not_installed: not found on system (Mac)
-    """
-    plat = get_platform()
 
+    The server platform is published separately via
+    GET /api/system/info — callers should fetch it once at app
+    init instead of relying on each error payload to carry it.
+    """
     # Probe the HTTP API
     probe = {
         'action': 'getBrowserList',
@@ -332,22 +334,22 @@ async def get_ziniao_status(
     if result is not None:
         status_code = str(result.get('statusCode', ''))
         if status_code == '0':
-            return {'status': 'running_webdriver', 'platform': plat}
+            return {'status': 'running_webdriver'}
         if status_code == '-10003':
-            return {'status': 'no_permission', 'platform': plat}
-        return {'status': 'api_error', 'platform': plat}
+            return {'status': 'no_permission'}
+        return {'status': 'api_error'}
 
     # API unreachable — check if process is running
     if is_ziniao_process_running():
-        return {'status': 'running_normal', 'platform': plat}
+        return {'status': 'running_normal'}
 
     # Not running — check if installed (Mac only)
     if IS_MAC:
         if is_ziniao_installed_mac():
-            return {'status': 'not_running', 'platform': plat}
-        return {'status': 'not_installed', 'platform': plat}
+            return {'status': 'not_running'}
+        return {'status': 'not_installed'}
 
-    return {'status': 'not_running', 'platform': plat}
+    return {'status': 'not_running'}
 
 
 def force_kill_ziniao() -> None:

@@ -20,6 +20,7 @@ import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCr
 import { retryTask as retryTaskHandler } from './handlers/retryTask'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
+  ServerPlatform,
   WsStructured, ZiniaoAccount, ZiniaoBrowserProfile,
   AppView, PendingFile, Schedule, EmailAccount, ConversationItem,
 } from './types'
@@ -30,6 +31,8 @@ export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
+  const [serverPlatform, setServerPlatform] = useState<ServerPlatform | null>(null)
+  const [serverVersion, setServerVersion] = useState<string>('')
   const [loginIdentifier, setLoginIdentifier] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -147,6 +150,19 @@ export default function App() {
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
   }, [])
 
+  // /api/system/info on mount: platform + version (top-left).
+  useEffect(() => {
+    fetch('/api/system/info', { credentials: 'include' })
+      .then(r => r.ok ? r.json() : null)
+      .then(info => {
+        if (info?.platform) setServerPlatform(info.platform)
+        const v = String(info?.version || ''), c = String(info?.commit || '')
+        const pick = v && !v.includes('+') && !v.includes('dev') ? v : (c || v)
+        if (pick) setServerVersion(pick)
+      })
+      .catch(() => {})
+  }, [])
+
   // Auth check on mount — first check if auth is required
   useEffect(() => {
     fetch('/api/auth/status')
@@ -258,8 +274,9 @@ export default function App() {
   }
   const fetchBrowserProfiles = async (accountId: string) => {
     if (!accountId) return
-    // Track retry: if already in running_normal, this is a retry
-    const wasNormalMode = browserFetchError.includes(':running_normal:')
+    // Retry if previously in running_normal. The encoding is
+    // `ziniao:running_normal` or `ziniao:running_normal:<base64msg>`.
+    const wasNormalMode = browserFetchError === 'ziniao:running_normal' || browserFetchError.startsWith('ziniao:running_normal:')
     setFetchingBrowsers(true); setZiniaoBrowsers([]); setSelectedBrowserOauth(''); setBrowserFetchError('')
     // Reset retry state unless this is a retry from running_normal
     if (!wasNormalMode) setZiniaoRetried(false)
@@ -270,10 +287,12 @@ export default function App() {
       if (browsers.length === 0) setBrowserFetchError('no_profiles')
     } catch (e) {
       const msg = e instanceof Error ? e.message : ''
-      // Try to parse structured JSON status from backend
+      // Try to parse structured JSON status from backend. The server
+      // platform comes from /api/system/info (serverPlatform state) —
+      // we only carry the ziniao status + its own error text here.
       try {
         const status = JSON.parse(msg)
-        if (status.status && status.platform) {
+        if (status.status) {
           if (wasNormalMode && status.status === 'running_normal') setZiniaoRetried(true)
           // Carry Ziniao's own err text through as an extra colon-
           // delimited field so the UI can surface it. base64 the
@@ -283,7 +302,7 @@ export default function App() {
           const encoded = ziniaoMsg
             ? `:${btoa(unescape(encodeURIComponent(ziniaoMsg)))}`
             : ''
-          setBrowserFetchError(`ziniao:${status.status}:${status.platform}${encoded}`)
+          setBrowserFetchError(`ziniao:${status.status}${encoded}`)
           setFetchingBrowsers(false)
           return
         }
@@ -649,6 +668,7 @@ export default function App() {
         ziniaoBrowsers={ziniaoBrowsers} selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
         fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError} setBrowserFetchError={setBrowserFetchError}
         fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
+        serverPlatform={serverPlatform} serverVersion={serverVersion}
         showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
         showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
         editingAccountId={editingAccountId} setEditingAccountId={setEditingAccountId}

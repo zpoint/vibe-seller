@@ -188,6 +188,20 @@ work), paste your API key, save. Keys are encrypted at rest.
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
 
+> **Using cc-switch or a similar tool? Pick the default here.**
+>
+> Tools like cc-switch edit `~/.claude/settings.json`, which
+> conflicts with Vibe Seller's AI picker. Just pick the default
+> and let cc-switch manage which AI you use.
+>
+> If you'd rather Vibe Seller manage it: quit cc-switch, then
+> **copy-paste this line into a terminal** and hit return to
+> clear what cc-switch wrote into `settings.json`:
+>
+> ```bash
+> python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
+> ```
+
 <img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
 
 <img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
