@@ -41,15 +41,27 @@ ALLOWED_KEYS = {
     'default_schedule_phase_mode',
     'default_schedule_timezone',
     'telemetry_enabled',
+    'skills_auto_sync_enabled',
     TASK_RETENTION_KEY,
 }
+
+# Default for skills_auto_sync_enabled when the row is missing. The
+# auto-sync is on by default; users opt out via Settings → General to
+# pin the locally-bundled skills version and stop the 24h GitHub poll
+# that runs before each task (see app.workspace.skills_sync).
+SKILLS_AUTO_SYNC_DEFAULT = 'true'
 
 MAX_CONCURRENCY_LIMIT = 10
 
 
 def _bucket_setting_value(key: str, value: str):
     """Turn a setting value into a privacy-safe summary for telemetry."""
-    if key in {'auth_required', 'telemetry_enabled', 'browser_headless'}:
+    if key in {
+        'auth_required',
+        'telemetry_enabled',
+        'browser_headless',
+        'skills_auto_sync_enabled',
+    }:
         return value == 'true'
     if key == 'max_agent_concurrency':
         try:
@@ -103,6 +115,8 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
         # 'false' in Settings → General to make agent browsers
         # visible on a workstation.
         settings['browser_headless'] = 'true'
+    if 'skills_auto_sync_enabled' not in settings:
+        settings['skills_auto_sync_enabled'] = SKILLS_AUTO_SYNC_DEFAULT
     # Reflect env-var opt-out in the value the frontend reads, so it
     # doesn't init PostHog while the backend stays silent.
     if telemetry._disabled_via_env():
@@ -124,7 +138,12 @@ async def update_settings(
         raise HTTPException(status_code=403, detail='Admin access required')
 
     # Keys that store boolean values — normalize to 'true'/'false'
-    bool_keys = {'auth_required', 'telemetry_enabled', 'browser_headless'}
+    bool_keys = {
+        'auth_required',
+        'telemetry_enabled',
+        'browser_headless',
+        'skills_auto_sync_enabled',
+    }
     int_keys = {'max_agent_concurrency', TASK_RETENTION_KEY}
     # (key, lo, hi) — clamp ranges per int key.
     int_ranges: dict[str, tuple[int, int]] = {

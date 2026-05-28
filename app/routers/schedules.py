@@ -264,7 +264,14 @@ async def create_schedule(
         phase_mode=phase_mode,
         plan_mode=effective_plan_mode,
         plan_status=PlanStatus.PLANNING.value,
-        ai_profile_id=data.ai_profile_id,
+        # Mirror task-creation fallback: if the client didn't pick a
+        # profile, use the user's default_profile_id rather than the
+        # literal 'default'. Without this fallback, schedules silently
+        # bypass the user's chosen provider (deepseek/glm/etc.) and
+        # send traffic to the real Anthropic API instead.
+        ai_profile_id=(
+            data.ai_profile_id or current_user.default_profile_id or 'default'
+        ),
         created_by=current_user.id,
     )
     db.add(schedule)

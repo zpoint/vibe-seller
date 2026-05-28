@@ -30,6 +30,7 @@ import httpx
 
 from app.config import AI_BOT_USER_ID, SKILLS_REPO_URL
 from app.database import async_session
+from app.models.app_settings import AppSettings
 from app.models.event import Event
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -37,6 +38,34 @@ logger = logging.getLogger(__name__)
 
 _SYNC_META_PATH = VIBE_SELLER_DIR / '.claude' / 'skills' / '.sync_meta.json'
 _COOLDOWN_SECONDS = 24 * 3600  # 24 hours
+# Key in AppSettings that gates the periodic GitHub poll. Missing
+# row → enabled (the auto-sync ships on by default; the user opts
+# out via Settings → General).
+_AUTO_SYNC_KEY = 'skills_auto_sync_enabled'
+
+
+async def _auto_sync_enabled() -> bool:
+    """Read skills_auto_sync_enabled from AppSettings (default True).
+
+    Surfaced as a module-level helper so callers (the task-runner
+    pre-flight hook) can read the same source of truth the API
+    writes to. Any DB error degrades to enabled — better to sync
+    once on a transient failure than to silently stop pulling
+    upstream skill updates.
+    """
+    try:
+        async with async_session() as db:
+            row = await db.get(AppSettings, _AUTO_SYNC_KEY)
+            if row is None:
+                return True
+            return row.value == 'true'
+    except Exception:
+        logger.debug(
+            'Failed to read %s from AppSettings; defaulting to enabled',
+            _AUTO_SYNC_KEY,
+            exc_info=True,
+        )
+        return True
 
 
 class SkillsSyncManager:
@@ -291,9 +320,23 @@ class SkillsSyncManager:
 
         Conditions to trigger sync:
           1. >24 hours since last remote sync
-          2. Remote commit hash differs from last synced commit
+          2. Auto-sync is enabled in AppSettings (default on)
+          3. Remote commit hash differs from last synced commit
 
         Returns sync result dict if synced, None if skipped.
+
+        Check order matters: this runs before every task launch, so
+        the cheap file-based cooldown read is checked first. The
+        AppSettings lookup only runs when the cooldown has elapsed
+        (≈once per 24h per task path), keeping the hot path free of
+        DB round-trips. The gate still runs before any network call,
+        which is the invariant the toggle promises.
+
+        The gate lives here rather than at the call site so every
+        periodic trigger funnels through one check — the manual
+        ``fetch_remote()`` endpoint stays unaffected because clicking
+        Sync is an explicit user action that should override the
+        background-poll opt-out.
         """
         meta = self._read_sync_meta()
         last_sync = meta.get('last_sync_at')
@@ -305,6 +348,9 @@ class SkillsSyncManager:
                     return None  # Too soon
             except Exception:
                 pass
+
+        if not await _auto_sync_enabled():
+            return None
 
         # Check remote commit
         async with httpx.AsyncClient() as client:

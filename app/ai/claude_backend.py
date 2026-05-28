@@ -366,6 +366,12 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Pass task ID for multi-client CDP proxy isolation
         env['VIBE_TASK_ID'] = self.task_id
 
+        # Pin Claude Code's TaskList directory to a per-task path
+        # (default is session UUID, which is regenerated per spawn
+        # and unreachable from follow-up sessions). The Stop-hook
+        # completion gate reads from this exact path.
+        env['CLAUDE_CODE_TASK_LIST_ID'] = f'vibe-{self.task_id[:8]}'
+
         # Claude Code auto-commits the task workspace ("Initial
         # workspace setup") right after `git init`. The workspace
         # is a fresh repo at ~/.vibe-seller/tasks/<id>/, so no

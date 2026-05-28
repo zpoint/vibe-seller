@@ -370,7 +370,11 @@ install_uv() {
 # ============================================================
 # Dependency: node (>= 18)
 # ============================================================
-NODE_MIN_MAJOR=18
+# pnpm@latest (v11+) imports `node:sqlite`, a built-in module added in
+# Node 22. Older Node throws ERR_UNKNOWN_BUILTIN_MODULE on the very
+# first `pnpm` invocation, so we require >=22 here. The apt installer
+# below already pulls NodeSource setup_22.x; Homebrew is on Node 25+.
+NODE_MIN_MAJOR=22
 
 check_node() {
     if _check node; then
@@ -436,16 +440,12 @@ check_pnpm() {
 install_pnpm() {
     _info "Installing pnpm..."
     # fix_npm_permissions ensures npm global dir is user-writable on Linux
-    # so we don't need sudo for npm install -g. Pin pnpm to 9.x
-    # because pnpm 10/11 require Node.js 22+, but install_node still
-    # ships v20 on many distros (and release.yml pins setup-node to
-    # version 20 + pnpm 9). Drop the pin once the project standardises
-    # on Node 22.
+    # so we don't need sudo for npm install -g
     if _check corepack; then
         corepack enable 2>/dev/null || true
-        corepack prepare pnpm@9 --activate 2>/dev/null || npm install -g pnpm@9
+        corepack prepare pnpm@latest --activate 2>/dev/null || npm install -g pnpm
     else
-        npm install -g pnpm@9
+        npm install -g pnpm
     fi
     if ! _check pnpm; then
         _error "pnpm install failed"
@@ -565,29 +565,6 @@ _install_via_pip() {
     # prompt there.
     if [[ "$OS" == "linux" ]]; then
         require_sudo
-    fi
-
-    # Runtime deps the daemon's agents need but the wheel can't
-    # ship: claude CLI (the AI backend's process), sqlite3 (agents
-    # query per-account email DBs via `sqlite3 <path>`), node (claude
-    # CLI is an npm package), lsof (vibe-seller stop). Without these,
-    # `vibe-seller start` succeeds but the first agent task fails
-    # with "command not found". --dev mode installs them via the
-    # main() DEPS=(...) loop; default mode used to exit 0 before
-    # reaching that loop and end users got a half-working install.
-    if ! check_lsof; then
-        install_lsof
-    fi
-    if ! check_sqlite3; then
-        install_sqlite3
-    fi
-    if ! check_node; then
-        install_node
-    fi
-    fix_npm_permissions
-    if ! check_claude; then
-        install_claude \
-            || _warn "claude CLI install failed — AI agent features will not work"
     fi
 
     # Compose `uv tool install` args from --test-pypi / --version.

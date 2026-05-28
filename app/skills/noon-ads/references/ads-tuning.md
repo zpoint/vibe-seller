@@ -140,7 +140,13 @@ and target bids in the recommendation.
   Problem subsection ("No actionable problems this round" + data
   table + watch-next metric). `Skipped — incomplete data` is
   acceptable only when the agent attempted the capture and it
-  failed for an infra reason (stated in the section).
+  failed for an infra reason (stated in the section). Sections
+  must include the Targets/Queries data table inline — referencing
+  `stores/<slug>/ads/noon/<country>/<campaign_id>.tsv` is not a
+  substitute. The TSV is the machine-readable record; the
+  Markdown table is what the human reviewer skims to pick which
+  rows to apply on follow-up. Missing a per-campaign data table
+  is the same defect as skipping the campaign entirely.
 
 - **Surface, don't auto-execute.** Recommendations include current
   value, proposed value, and reason; the user confirms before

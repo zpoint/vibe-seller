@@ -22,8 +22,13 @@ from app.ai.claude_backend_utils import (
     AUTO_APPROVE_CALLBACK,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
+    build_tasklist_open_reason,
+    check_exec_review_status_for_stop,
+    check_review_status_for_stop,
     check_skill_prereqs,
     find_skill_md,
+    get_open_tasklist_items,
+    validate_fanout_plan_text,
 )
 from app.database import async_session
 from app.events.bus import event_bus
@@ -130,6 +135,56 @@ class _HookMixin:
             else:
                 await self._send_control_response(request_id, 'allow')
 
+    async def _deny_stop_if_tasklist_open(self, request_id: str) -> bool:
+        """Deny stop if TaskList has open items; return True if denied."""
+        items = get_open_tasklist_items(self.task_id)
+        if not items:
+            return False
+        logger.info('Stop denied %s — %d open', self.task_id[:8], len(items))
+        await self._send_hook_response(
+            request_id,
+            {'decision': 'block', 'reason': build_tasklist_open_reason(items)},
+        )
+        return True
+
+    async def _deny_stop_if_review_unsatisfied(self, request_id: str) -> bool:
+        """Deny stop if the ads-audit reviewer hasn't returned
+        ``Status: ok`` (or ``incomplete`` at iter 5+); return True if
+        denied.
+
+        See ``check_review_status_for_stop`` in
+        ``claude_backend_utils`` for the contract and
+        ``amazon-ads/references/reviewer-loop.md`` for the loop the
+        main agent runs to satisfy this gate. Quiet no-op for non-ads
+        tasks (no ``AD_AUDIT_*.md`` in the workspace).
+        """
+        deny = check_review_status_for_stop(self.task_dir)
+        if not deny:
+            return False
+        logger.info(
+            'Stop denied %s — ads-audit reviewer unsatisfied',
+            self.task_id[:8],
+        )
+        await self._send_hook_response(
+            request_id,
+            {'decision': 'block', 'reason': deny},
+        )
+        return True
+
+    async def _deny_stop_if_exec_review_unsatisfied(self, request_id):
+        """Stop-hook variant of the exec-review gate. The primary gate
+        is in the ``set_task_result`` MCP endpoint; this is a backstop
+        for backends that do emit Stop events.
+        """
+        deny = check_exec_review_status_for_stop(self.task_dir)
+        if not deny:
+            return False
+        logger.info('Stop denied %s — exec-review', self.task_id[:8])
+        await self._send_hook_response(
+            request_id, {'decision': 'block', 'reason': deny}
+        )
+        return True
+
     async def _handle_hook_callback(self, request_id: str, request: dict):
         """Handle a HookCallback control request."""
         callback_id = request.get('callback_id', '')
@@ -235,16 +290,9 @@ class _HookMixin:
                     return
             # Catalog-read tracker: flip the catalog-first guard off
             # once the agent issues a Read against any CATALOG.md.
-            # Done in the PreToolUse hook (not on result) so a
-            # follow-up Bash in the same assistant turn already sees
-            # the updated state — the catalog content reaches the
-            # model in the same tool_result that this Read returns.
-            # The path must both LOOK like a catalog (shape match)
-            # AND actually exist on disk — otherwise an agent could
-            # bypass the catalog-first guard by reading a fake
-            # ``stores/<bogus>/CATALOG.md`` that doesn't exist,
-            # which would still flip the flag and re-enable Bash
-            # search even though no catalog content was loaded.
+            # Path must LOOK like a catalog AND exist on disk —
+            # otherwise an agent could bypass the guard by reading a
+            # fake ``stores/<bogus>/CATALOG.md``.
             if inner_name == 'Read':
                 path = inner_input.get('file_path', '')
                 if is_catalog_path(path) and Path(path).is_file():
@@ -341,20 +389,18 @@ class _HookMixin:
                     request_id, {'decision': 'approve'}
                 )
             else:
-                # Save the real task result before reflection
-                # overwrites it in the result event. Persist to
-                # DB immediately so it's visible even if the agent
-                # calls set_task_result (via MCP) during reflection
-                # with a reflection-derived summary instead of the
-                # real task outcome.
-                #
-                # Prefer the full exec-phase transcript — agents often
-                # emit the full report in one message and a brief
-                # "Done." closing in a second message. The Stop-hook
-                # payload's ``last_assistant_message`` only contains
-                # the closing, which drops the real content. Fall
-                # back to ``last_assistant_message`` if we somehow
-                # have no accumulated text.
+                if await self._deny_stop_if_tasklist_open(request_id):
+                    return
+                if await self._deny_stop_if_review_unsatisfied(request_id):
+                    return
+                if await self._deny_stop_if_exec_review_unsatisfied(request_id):
+                    return
+                # Save real result before reflection overwrites it.
+                # Prefer full exec-phase transcript (agent may emit
+                # the full report then a brief "Done." closing — the
+                # Stop-hook payload's ``last_assistant_message`` only
+                # contains the closing). Fall back to that field if
+                # we have no accumulated text.
                 pre = '\n\n'.join(p for p in self._exec_phase_text_parts if p)
                 if not pre:
                     pre = tool_input.get('last_assistant_message', '')
@@ -482,7 +528,7 @@ class _HookMixin:
         # agent re-plans in the same session. The prompt block in
         # task_runner.build_system_extra already tells the agent
         # about this; the validator is the backstop.
-        violation = await self._validate_fanout_plan_text(plan_text)
+        violation = await validate_fanout_plan_text(self.task_id, plan_text)
         if violation:
             logger.info(
                 'Plan-only validation rejected plan for task %s: %s',
@@ -620,57 +666,6 @@ class _HookMixin:
                 }
             ],
         )
-
-    # Substrings that invalidate a fanout-schedule plan. The schedule
-    # itself fans out per-store each fire, so if the plan instructs
-    # the agent to also call ``vibe_seller_create_task`` or reason
-    # about ``parent_task_id``, every fire's per-store agent would
-    # recursively spawn more children. Matched case-insensitively
-    # against the full plan text.
-    _FANOUT_FORBIDDEN_PATTERNS = (
-        ('vibe_seller_create_task', 'calls the sub-task MCP tool'),
-        ('parent_task_id', 'designs a parent/sub-task hierarchy'),
-    )
-
-    async def _validate_fanout_plan_text(self, plan_text: str) -> str | None:
-        """Return a human-readable reason string if the plan text is
-        invalid for a fanout-mode plan-only Task, else None.
-
-        Only runs for ``Task.is_plan_only=True`` whose owning
-        ``Schedule.phase_mode='fanout'``. Other cases (single-mode
-        schedules, standalone interactive plan-mode tasks) are not
-        subject to this check — orchestration is legitimate for
-        them.
-        """
-        try:
-            async with async_session() as db:
-                task = await db.get(Task, self.task_id)
-                if not task or not task.is_plan_only or not task.schedule_id:
-                    return None
-                sched = await db.get(Schedule, task.schedule_id)
-                if not sched or sched.phase_mode != 'fanout':
-                    return None
-        except Exception:
-            logger.debug(
-                'Fanout-plan validator could not load context for %s',
-                self.task_id,
-                exc_info=True,
-            )
-            return None
-
-        haystack = (plan_text or '').lower()
-        for needle, description in self._FANOUT_FORBIDDEN_PATTERNS:
-            if needle.lower() in haystack:
-                return (
-                    f'the plan {description}'
-                    f' (found {needle!r}), but this schedule is a'
-                    ' fanout schedule — the scheduler already creates'
-                    ' one per-store Task per fire and runs the plan'
-                    ' once per store. Remove the orchestrator step'
-                    ' and describe what a single store-bound agent'
-                    ' should do with the per-store L3 catalog.'
-                )
-        return None
 
     async def _commit_plan_only_approval(
         self,

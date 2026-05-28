@@ -493,7 +493,7 @@ inventory and shows ASIN, FNSKU, and per-SKU sales/inventory tabs.
 Do NOT search for the parent first and try to "expand variations"
 on skucentral — that page only renders the SKU named in the
 query, it has no expand-variations control. Manage-inventory's
-list view also shows parent rows only, so searching `Boxer-XYZ`
+list view also shows parent rows only, so searching `Product-Y-XYZ`
 returns the parent line and looks like the child is missing.
 
 For freshly listed products, the children sometimes use the
@@ -991,6 +991,63 @@ browser-use eval "
 Use `@@@` as delimiter (not `\n`) because `browser-use eval`
 only prefixes the first line with `result:` — newlines drop
 subsequent rows from shell pipelines.
+
+**Canonical column layout — SP-Manual-Keyword Targeting tab.**
+After splitting the metric string on ` | `, the cell ordering is
+fixed and **must be indexed by position**, not by parsing currency
+symbols. Verified-in-the-wild defect: agents read the *first*
+`SAR x.xx` value (position 2) as the bid and recorded the
+suggested-bid midpoint as if it were the keyword's bid, then
+proposed bid changes "from the suggested midpoint" — which is a
+no-op.
+
+```
+position 0:  Status                 ("Delivering" | "Paused" | ...)
+position 1:  (empty spacer)         (always "")
+position 2:  Suggested bid + range  ("SAR 0.60 (SAR 0.45-SAR 0.75)")
+position 3:  Apply button           ("Apply")
+position 4:  Rules indicator        ("—" when no rules)
+position 5:  Bid                    ("SAR 3.00")   ← THIS is the bid
+position 6:  Bid (duplicate)        ("SAR 3.00")   ← same value, alt render
+position 7:  Clicks                 ("259")
+position 8:  Spend                  ("SAR 631.75")
+position 9:  Orders                 ("37")
+position 10: Sales                  ("SAR 1,485.40")
+position 11: ACOS                   ("42.53%")
+position 12: ROAS                   ("2.35")
+```
+
+Worked example (verified 2026-05-20 against `A33333333` / women
+socks Broad): the row text returned by the merge eval is
+
+```
+women socks ||| Delivering |  | SAR 0.60 (SAR 0.45-SAR 0.75) | Apply | — | SAR 3.00 | SAR 3.00 | 259 | SAR 631.75 | 37 | SAR 1,485.40 | 42.53% | 2.35
+```
+
+Correct extraction:
+- `keyword = "women socks"` (left of `|||`)
+- `cells = right.split(" | ")` (length 13)
+- `status = cells[0]`            → `"Delivering"`
+- `suggested = cells[2]`         → `"SAR 0.60 (SAR 0.45-SAR 0.75)"`
+  - Parse: midpoint `0.60`, low `0.45`, high `0.75`
+- `bid = cells[5]`               → `"SAR 3.00"` (parse → `3.00`)
+- `clicks = cells[7]`            → `259`
+- `spend = cells[8]`             → `631.75`
+- `orders = cells[9]`            → `37`
+- `sales = cells[10]`            → `1485.40`
+- `acos = cells[11]`             → `0.4253`
+- `roas = cells[12]`             → `2.35`
+- `actual_cpc = spend / clicks`  → `2.44`
+
+**Common defect pattern**: grabbing the first SAR value via regex
+(`/SAR ([\d.]+)/`) returns `0.60` because Suggested-bid appears
+before Bid in the row text. The midpoint of the suggested-bid
+range is NOT the keyword's current bid. Index by position, not by
+"first SAR".
+
+If the row contains paused keywords with `0` clicks, positions
+7–12 may render as `—` instead of numeric values; the position
+layout is still the same.
 
 **SP-Auto Targeting tab — capture the 4 auto-target-groups.**
 The page uses `[role=row]` (no `<table>`). Group labels (Close
@@ -1543,6 +1600,396 @@ When recommending any numeric change, the ad-tuning skill must:
 
 Rejecting an out-of-range value at submit time wastes the user's
 plan-stop confirm; better to never propose it.
+
+## 8b. Virtualized-grid extraction (SB-Video keywords, ag-Grid virtualScroll)
+
+Some Amazon Ads grids — notably **Sponsored Brands Video Targeting**
+— render rows on demand via React-Virtualized / ag-Grid
+`enableVirtualization`. A naive `eval` against `[role=row]` returns
+only the currently-visible rows (~6–10), and the agent that gives
+up here writes audit rows like
+*"13 keywords (React Virtualized grid — per-row extraction blocked)"*.
+That output fails reviewer Rule 16.
+
+The correct extraction pattern is **scroll-and-accumulate**: scroll
+the grid container in chunks, eval after each scroll, dedupe rows
+by their `row-index` attribute. Sketch:
+
+```bash
+browser-use eval "
+(async () => {
+  const grid = document.querySelector('.ag-center-cols-container, [role=grid] [role=rowgroup]');
+  if (!grid) return JSON.stringify({error: 'no grid'});
+  const scroller = grid.closest('.ag-body-viewport, [role=grid] [data-virtual]') || grid.parentElement;
+  const collected = new Map();   // row-index → cell text
+  const scrape = () => {
+    document.querySelectorAll('[role=row][row-index]').forEach(r => {
+      const idx = r.getAttribute('row-index');
+      if (!collected.has(idx)) collected.set(idx, r.innerText.replace(/\\n/g,' | ').trim());
+    });
+  };
+  scrape();
+  // Scroll in 200-px chunks until scroller stops growing the row set.
+  let last = 0, stable = 0;
+  while (stable < 3 && scroller.scrollTop < scroller.scrollHeight) {
+    scroller.scrollTop += 200;
+    await new Promise(r => setTimeout(r, 250));
+    scrape();
+    if (collected.size === last) stable++; else { stable = 0; last = collected.size; }
+  }
+  return JSON.stringify({rows: collected.size, data: [...collected.entries()]});
+})()
+"
+```
+
+Run that, parse the `data` array, treat each row as the same shape
+as the regular Targeting-tab merge eval (`mechanics.md § 8`). If
+the grid genuinely has < N rows, stable returns early; no harm.
+**The keyword count from the campaign header (e.g. "13 keywords")
+is the ground truth — if your scrape returns fewer than that, you
+didn't scroll enough; loop the scroll-and-eval again.**
+
+For ag-Grid pinned-left + center pattern (Manual-Keyword Targeting),
+the merge eval in § 8 already handles virtualization implicitly
+because both panes scroll together; the pattern above is only
+needed when a single virtualized container holds all rows.
+
+## 8c. Brand Analytics ASIN-keyword report capture
+
+When the `format-anchor.md` § Rule 15 Alternatives table cites
+**Source C — Amazon Brand Analytics**, the agent must have
+actually fetched the **ASIN-keyword** report (NOT a category
+report) and saved the result to a TSV file the reviewer can
+verify. This section documents the click path.
+
+### Why ASIN-specific, not category
+
+Category reports return generic terms like *"socks men"* / *"ankle
+socks"* / *"cotton socks"* — high-volume but uncoupled from any
+specific listing. The Pause-and-redirect decision is per-ASIN:
+*"this listing's auto-discovered traffic dried up; what queries
+would buyers use to find THIS listing?"* The ASIN-keyword report
+answers exactly that.
+
+Category-broad rows fail Rule 15 even when the capture file
+exists, because the file's filtered-ASIN column won't match the
+ASIN cited in the row's Evidence cell. The reviewer treats this
+mismatch as a fabrication.
+
+### Domain note — sellercentral, NOT advertising
+
+Brand Analytics lives under **`sellercentral.amazon.<tld>`**, not
+under `advertising.amazon.<tld>`. The ads-tuning audit primarily
+drives `advertising.amazon.<tld>`; switching to seller-central
+may require a session change. **Cookies for the two subdomains
+share the same Amazon account credential**, so once
+`amazon-shared § 1` login has happened in this Chromium profile,
+both subdomains see the same logged-in user.
+
+If the first navigation to `sellercentral.amazon.<tld>` after a
+fresh start lands on `/ap/signin`, run the standard login flow
+from `amazon-shared § 1` (Ziniao auto-fills password on
+`Sign in` click; OTP comes from the store's bound email account
+— the workspace handles OTP retrieval). The flow is verified to
+take ~10-20 s end-to-end.
+
+### URL & navigation path
+
+```
+Landing:   https://sellercentral.amazon.<tld>/brand-analytics/dashboard
+Sub-page:  https://sellercentral.amazon.<tld>/brand-analytics/<report>
+           where <report> is one of:
+               search-terms   (top search terms — category report)
+               search-terms-asin   (top search terms — ASIN reverse-lookup)
+               item-comparison
+               demographics
+               repeat-purchase
+```
+
+The **ASIN reverse-lookup report** is the one Rule 15 cites. URL
+slug varies by locale rollout — in 2026 SA / AE it's typically
+labelled "Top Search Terms" with a tab/toggle for "Category" vs
+"ASIN". If the direct URL `/search-terms-asin` 404s for a given
+locale, navigate via:
+
+```
+/brand-analytics/dashboard
+  → left-nav: "Top Search Terms" or "搜索词排名"
+  → toggle: Category ↔ ASIN (or "ASIN Reverse Lookup")
+```
+
+Click flow (verified URL pattern on Amazon SA 2026-05-24; AE/MX
+parallel):
+
+1. Open `https://sellercentral.amazon.<tld>/brand-analytics/dashboard`.
+   - If redirected to `/ap/signin`: run the
+     `amazon-shared § 1` login flow.
+   - If redirected to `/ap/mfa`: the workspace's email-OTP poll
+     should pick up the OTP and fill it. If it doesn't (no
+     bound email or authenticator-app required), this is an
+     **infra-blocked** outcome — fall back to Rule 15
+     Outcome (B) "Searched, none found" with a Brand Analytics
+     proof file containing a `# infra_block: OTP_AUTH_APP_REQUIRED`
+     header line.
+2. Navigate to "Top Search Terms — ASIN" (URL slug
+   `/search-terms-asin` if the locale supports it).
+3. Filter inputs:
+   - **ASIN**: the SKU's parent or child ASIN — the same ASIN
+     that the paused campaign was targeting (find it on the
+     campaign's Targets tab → Products column, or in the TSV
+     under `entity_id` for product targets).
+   - **Time window**: last 30 days (default).
+4. Hit `Apply` / `Run`. Wait for the result table to render.
+5. Export the table:
+   - Click `Download / Export` → choose CSV/TSV.
+   - The file downloads to the per-store Ziniao downloads dir
+     (see `debug-store § "The Ziniao download dir"`).
+6. Move/copy the export to the canonical path (the workspace
+   auto-commits this write):
+
+```
+stores/<slug>/ads/brand-analytics/<ASIN>_<YYYY-MM-DD>.tsv
+```
+
+The first column (or a top-of-file metadata line) MUST clearly
+identify the filtered ASIN — typically the export includes a
+header like `Filtered ASIN: B0XXXXXXXX` or a column named
+`asin` whose values all match. This is what the reviewer reads
+to verify the filter was set correctly.
+
+### Schema of the captured TSV
+
+Amazon's export shape varies slightly by locale; the minimum
+required columns the reviewer looks for:
+
+```
+asin       — filtered ASIN (constant across rows)
+rank       — search-frequency rank within the ASIN's traffic
+query      — the customer's search term verbatim
+click_share — % of clicks from this query that landed on this ASIN
+conversion_share — % of conversions, same as above
+```
+
+If the export schema doesn't match (locale or report-shape
+change), the agent must add a TSV-header line normalising it
+before writing:
+
+```
+# brand_analytics_asin_report
+# asin: B0XXXXXXXX
+# captured: 2026-05-24
+# source: sellercentral.amazon.<tld>/brand-analytics/search-terms-asin
+asin	rank	query	click_share	conversion_share
+B0XXXXXXXX	1	...	...	...
+```
+
+### Evidence cell shape (what the agent writes in the audit)
+
+Don't paste raw file paths — use a readable reference name plus
+the file path in parens. The Evidence cell format:
+
+```
+Amazon SA — Brand Analytics ASIN report for WIDGET-A
+(stores/acme-store/ads/brand-analytics/B0XXXXXXXX_2026-05-24.tsv
+ row 5): query "<keyword>", rank <R>, click_share <X%>
+```
+
+Reviewer reads BOTH the readable name (sanity) and the file path
+(verification). See `format-anchor.md § Readable evidence
+references` for the broader naming rule.
+
+### Capture-file freshness
+
+A Brand Analytics capture is valid for **7 days**. If
+`stores/<slug>/ads/brand-analytics/<ASIN>_*.tsv` exists from a
+recent audit and is within 7 days, reuse it — no need to re-fetch.
+Stale files (> 7 days) must be re-captured before citation.
+
+### What about the empty case
+
+If the ASIN-keyword report returns zero rows for the filtered
+ASIN (low-traffic listing, brand-new listing), still capture the
+file with the header rows only. That empty file is the proof for
+the "Searched, none found" block in Rule 15's Outcome (B).
+
+### What if Brand Analytics is genuinely inaccessible
+
+The store may not have Brand Registry (Brand Analytics is a
+Brand-Registry-only feature). When the BA navigation lands on
+"Brand Analytics is not enabled for this account" or similar,
+capture proof:
+
+```
+stores/<slug>/ads/brand-analytics/_unavailable_<YYYY-MM-DD>.txt
+<one line: "Brand Analytics: not enabled — store lacks Brand Registry">
+```
+
+Reviewer accepts the `_unavailable_*.txt` marker as proof of
+search for Source C in Outcome (B) "Searched, none found" blocks.
+Without it, Source C rows or empty-block claims for BA are
+treated as fabrications.
+
+## 8d. Amazon React-textarea workaround (Add Keywords / Add Negative Keywords modal)
+
+Amazon's Add Keywords and Add Negative Keywords modals use a React
+**controlled `<textarea>`** component. The "Add keywords" submit
+button stays disabled until React's internal state matches the DOM
+value — so just calling `element.value = "..."` (whether via
+`browser-use input`, the native value setter, or DOM assignment) is
+ignored. The button never enables.
+
+The agent's first execution session tried five methods and reported
+all five failed:
+
+- `browser-use input <idx> "text"` — DOM value set, React state not updated
+- `browser-use type "text"` — keyboard simulation, React state not updated
+- JS native value setter + `dispatchEvent(new Event('input'))` — React ignored
+- Clipboard `execCommand('paste')` — React ignored
+- CDP `Input.insertText` / `Input.dispatchKeyEvent` — React ignored / timed out
+
+What actually works (verified 2026-05-24 against
+`UCM-SP-APP:ADGROUP_NEGATIVE_KEYWORDS:kwp:kwp-enter-list-text-input-area`
+on `advertising.amazon.sa`):
+
+```javascript
+// Canonical React controlled-component workaround.
+// `execCommand('insertText', ...)` fires `beforeinput` + `input` events
+// with `inputType: 'insertText'` — which React's controlled handler
+// listens to and updates the component's state from. After this:
+//   - textarea.value reflects the new text
+//   - "Add keywords" button transitions to enabled
+
+const ta = document.querySelector('textarea#<modal-textarea-id>');
+ta.focus();
+ta.select();  // wipe any pre-fill so insertText replaces, not appends
+const ok = document.execCommand('insertText', false, 'cotton socks\nankle socks');
+// ok === true, ta.value === 'cotton socks\nankle socks',
+// Add keywords button disabled === false
+```
+
+`execCommand('insertText')` is NOT the same as
+`execCommand('paste')` — paste reads from the clipboard and ignores
+the second argument; insertText synthesizes a real text-insertion
+input event with the provided string. React's controlled-component
+handler listens to the `input` event with `inputType === 'insertText'`
+to update state — same code path it uses for real typing.
+
+### When to use this
+
+- Adding negative keywords (campaign or ad group level) via the
+  `Add negative Keyword` modal.
+- Adding positive keywords via the `Add keywords` modal (harvest,
+  mirror, manual keyword expansion).
+- Any future Amazon Ads modal that uses a `<textarea>` for
+  multi-line input. The pattern is generic to React controlled
+  components.
+
+### Procedure (verified end-to-end on both SA and AE)
+
+```bash
+# 1. Open the modal (click the "Add keywords" or "Add negative Keyword" button)
+browser-use eval "
+  var btns = document.querySelectorAll('button, [role=button], a');
+  btns.forEach(function(b){
+    if ((b.innerText||'').trim().indexOf('Add negative Keyword') === 0) b.click();
+  });
+  'clicked';
+"
+sleep 2  # let the modal render
+
+# 2. CLICK THE 'Enter list' TAB. The modal has 'Enter list' + 'Upload file'
+#    tabs at the top. The default tab varies by marketplace (SA defaults to
+#    Enter list; AE defaults to a different tab). If you skip this step on
+#    AE, the textarea exists in the DOM but is `visible: false` — execCommand
+#    runs against an off-screen element and the Save button never enables.
+#    Always click 'Enter list' explicitly; it's a no-op when already selected.
+browser-use eval "
+  var clicked = false;
+  document.querySelectorAll('span, button, [role=tab]').forEach(function(el){
+    if ((el.innerText||'').trim() === 'Enter list' && !clicked) {
+      var rect = el.getBoundingClientRect();
+      if (rect.width > 0) { el.click(); clicked = true; }
+    }
+  });
+  'enter-list tab clicked: '+clicked;
+"
+sleep 1
+
+# 3. Find the textarea id (verify it's visible now)
+browser-use eval "
+  var ta = document.querySelectorAll('textarea')[0];
+  if (!ta) 'no textarea';
+  else {
+    var r = ta.getBoundingClientRect();
+    JSON.stringify({id: ta.id, visible: r.width>0});
+  }
+"
+
+# 4. Insert text via execCommand (use getElementById because the id has colons)
+browser-use eval "
+  var ta = document.getElementById('<id-from-step-3>');
+  ta.focus();
+  ta.select();
+  document.execCommand('insertText', false, 'keyword1\nkeyword2\nkeyword3');
+  'inserted: '+ta.value;
+"
+
+# 5. Click the intermediate 'Add keywords' button (moves staging-list →
+#    confirmed-list). The 'Save' button enables AFTER this click — not
+#    after step 4. Marketplaces differ: SA may submit on a single 'Add
+#    keywords' click; AE has Add (intermediate) → Save (final) two-step.
+browser-use eval "
+  document.querySelectorAll('button').forEach(function(b){
+    if ((b.innerText||'').trim() === 'Add keywords' && !b.disabled) {
+      var r = b.getBoundingClientRect();
+      if (r.width > 0) b.click();
+    }
+  });
+  'add clicked';
+"
+sleep 2
+
+# 6. Verify Save (or equivalent final-submit) is now enabled, then click it
+browser-use eval "
+  var btn = null;
+  document.querySelectorAll('button').forEach(function(b){
+    if ((b.innerText||'').trim() === 'Save') {
+      var r = b.getBoundingClientRect();
+      if (r.width > 0) btn = b;
+    }
+  });
+  btn ? {disabled: btn.disabled} : 'no save btn — modal may use Add as final';
+"
+
+# 7. If Save is enabled, click it. After save, return to the listing and
+#    confirm the new keyword(s) appear in the targeting / negative-targeting
+#    table. The Verification cell in EXECUTION_LOG.md quotes that read-back.
+```
+
+### Match-type radio buttons (negate Exact / Phrase)
+
+After insertText fills the textarea, the modal usually shows a row
+of match-type radio buttons (Exact, Phrase, Broad). For negatives,
+"Exact" is the default. Confirm by reading the radio's
+`aria-checked` attribute before clicking submit:
+
+```javascript
+var radios = document.querySelectorAll('input[type=radio][name*=matchType], [role=radio]');
+// Find the one labeled "Negative exact" and verify it's checked.
+```
+
+### Caveat — the textarea id contains a colon
+
+Amazon's id (`UCM-SP-APP:ADGROUP_NEGATIVE_KEYWORDS:kwp:kwp-...`)
+has colons, which are CSS selector syntax. Either escape them
+(`\\\\:`) when using `querySelector`, or use `getElementById`:
+
+```javascript
+document.getElementById('UCM-SP-APP:ADGROUP_NEGATIVE_KEYWORDS:kwp:kwp-enter-list-text-input-area');
+```
+
+`getElementById` accepts colons literally — usually the cleaner
+choice for these compound ids.
 
 ## 9. Things that are NOT in this reference (intentionally)
 
