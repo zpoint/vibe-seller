@@ -8,6 +8,7 @@ and we want a single source of truth for the user-facing message.
 
 import json
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -160,42 +161,45 @@ class TestUserMessage:
         assert 'cc-switch' in msg.lower() or 'quit' in msg.lower()
 
 
-import json as _json  # noqa: E402 — moved out of test method body
-import subprocess  # noqa: E402
-
-from app.ai.external_config import (  # noqa: E402,F811
-    ExternalConfigOverrideError as _ECOE,
-)
-
-
 class TestClearCommandActuallyWorks:
     """Run the generated cleanup command against a fixture
     ``settings.json`` to prove it actually removes the conflicting
-    keys. Pins the ``('SINGLE_KEY')``-is-a-string-not-a-tuple
-    regression — the single-key case is the most common cc-switch
-    shape, and a list literal makes it work for any count.
+    keys. The command iterates by ``ANTHROPIC_*`` prefix so it
+    works for any number of keys (one, many, or future ones we
+    don't know about yet) without needing the names interpolated
+    into the shell command — which was the source of two prior
+    bugs (single-key-becomes-string-not-tuple, and shell-escape
+    breakage from double-quoted JSON inside the outer python3 -c
+    double-quoted arg).
     """
 
-    def _run_clear(self, tmp_path, keys: list[str], env_seed: dict):
-        """Build the clear command for ``keys``, patch its target
-        path to ``tmp_path/settings.json`` (so we don't touch the
-        real home dir), then execute it. Returns the resulting env
-        dict."""
+    def _run_clear(self, tmp_path, env_seed: dict):
+        """Build the clear command, patch its target path to
+        ``tmp_path/settings.json`` so we don't touch the real home
+        dir, then execute it. Returns the resulting env dict."""
         path = tmp_path / 'settings.json'
-        path.write_text(_json.dumps({'env': env_seed}))
+        path.write_text(json.dumps({'env': env_seed}))
 
-        err = _ECOE('deepseek', keys)
+        # The overriding_keys argument is no longer used by
+        # ``_clear_command`` (it iterates by prefix), but the
+        # constructor still requires it to build the user-facing
+        # message — pass whatever's in the seed for realism.
+        anthropic_keys = [k for k in env_seed if k.startswith('ANTHROPIC_')]
+        err = ExternalConfigOverrideError('deepseek', anthropic_keys)
+        # ``repr(str(path))`` produces a properly-escaped Python
+        # string literal, so the swap survives tmp paths that
+        # contain single quotes, backslashes (Windows), or other
+        # characters that would break a naive f-string.
         cmd = err._clear_command().replace(
             "pathlib.Path.home()/'.claude'/'settings.json'",
-            f"pathlib.Path('{path}')",
+            f'pathlib.Path({repr(str(path))})',
         )
         subprocess.run(cmd, shell=True, check=True)
-        return _json.loads(path.read_text())['env']
+        return json.loads(path.read_text())['env']
 
     def test_single_key_removed(self, tmp_path):
         env = self._run_clear(
             tmp_path,
-            ['ANTHROPIC_BASE_URL'],
             {
                 'ANTHROPIC_BASE_URL': 'https://x.test',
                 'PATH': '/usr/bin',
@@ -207,7 +211,6 @@ class TestClearCommandActuallyWorks:
     def test_multiple_keys_all_removed(self, tmp_path):
         env = self._run_clear(
             tmp_path,
-            ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN'],
             {
                 'ANTHROPIC_BASE_URL': 'https://x.test',
                 'ANTHROPIC_AUTH_TOKEN': 'sk-fake',
@@ -216,4 +219,17 @@ class TestClearCommandActuallyWorks:
         )
         assert 'ANTHROPIC_BASE_URL' not in env
         assert 'ANTHROPIC_AUTH_TOKEN' not in env
+        assert env.get('PATH') == '/usr/bin'
+
+    def test_future_anthropic_key_also_removed(self, tmp_path):
+        """A key the code has never heard of should still be cleaned
+        — prefix iteration is the whole point."""
+        env = self._run_clear(
+            tmp_path,
+            {
+                'ANTHROPIC_FUTURE_FLAG_2027': '1',
+                'PATH': '/usr/bin',
+            },
+        )
+        assert 'ANTHROPIC_FUTURE_FLAG_2027' not in env
         assert env.get('PATH') == '/usr/bin'
