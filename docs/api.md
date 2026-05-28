@@ -221,7 +221,7 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/system/info` | Return `{ platform: 'mac' \| 'windows' \| 'wsl' \| 'linux' }`. Frontend fetches this once on mount and uses it as the single source of truth for platform-conditional UI (Ziniao launcher download, install hints, etc.) — never inferred from per-request error payloads. |
+| GET | `/api/system/info` | Return `{ platform: 'mac' \| 'windows' \| 'wsl' \| 'linux', version: str, commit: str \| null }`. `platform` is the host OS; `version` is the package version from `importlib.metadata` (`'0.0.0+dev'` for editable / dev installs); `commit` is the short git SHA when the source tree is a git checkout (useful when `version` is the dev fallback). Frontend fetches this once on mount and uses it as the single source of truth for platform-conditional UI (Ziniao launcher download, install hints, etc.) and the about/footer build stamp. |
 
 ## `screenshots.py` — Screenshot Serving
 

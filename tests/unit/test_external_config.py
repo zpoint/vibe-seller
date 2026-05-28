@@ -158,3 +158,62 @@ class TestUserMessage:
         err = self._err(fake_settings, {'ANTHROPIC_BASE_URL': 'https://x'})
         msg = err.user_message()
         assert 'cc-switch' in msg.lower() or 'quit' in msg.lower()
+
+
+import json as _json  # noqa: E402 — moved out of test method body
+import subprocess  # noqa: E402
+
+from app.ai.external_config import (  # noqa: E402,F811
+    ExternalConfigOverrideError as _ECOE,
+)
+
+
+class TestClearCommandActuallyWorks:
+    """Run the generated cleanup command against a fixture
+    ``settings.json`` to prove it actually removes the conflicting
+    keys. Pins the ``('SINGLE_KEY')``-is-a-string-not-a-tuple
+    regression — the single-key case is the most common cc-switch
+    shape, and a list literal makes it work for any count.
+    """
+
+    def _run_clear(self, tmp_path, keys: list[str], env_seed: dict):
+        """Build the clear command for ``keys``, patch its target
+        path to ``tmp_path/settings.json`` (so we don't touch the
+        real home dir), then execute it. Returns the resulting env
+        dict."""
+        path = tmp_path / 'settings.json'
+        path.write_text(_json.dumps({'env': env_seed}))
+
+        err = _ECOE('deepseek', keys)
+        cmd = err._clear_command().replace(
+            "pathlib.Path.home()/'.claude'/'settings.json'",
+            f"pathlib.Path('{path}')",
+        )
+        subprocess.run(cmd, shell=True, check=True)
+        return _json.loads(path.read_text())['env']
+
+    def test_single_key_removed(self, tmp_path):
+        env = self._run_clear(
+            tmp_path,
+            ['ANTHROPIC_BASE_URL'],
+            {
+                'ANTHROPIC_BASE_URL': 'https://x.test',
+                'PATH': '/usr/bin',
+            },
+        )
+        assert 'ANTHROPIC_BASE_URL' not in env
+        assert env.get('PATH') == '/usr/bin'
+
+    def test_multiple_keys_all_removed(self, tmp_path):
+        env = self._run_clear(
+            tmp_path,
+            ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN'],
+            {
+                'ANTHROPIC_BASE_URL': 'https://x.test',
+                'ANTHROPIC_AUTH_TOKEN': 'sk-fake',
+                'PATH': '/usr/bin',
+            },
+        )
+        assert 'ANTHROPIC_BASE_URL' not in env
+        assert 'ANTHROPIC_AUTH_TOKEN' not in env
+        assert env.get('PATH') == '/usr/bin'

@@ -39,8 +39,15 @@ def record_attempt(task_id: str, gate: str) -> int:
 
 
 def reset_attempts(task_id: str) -> None:
-    """Drop all attempt counters for a task. Call when a task is
-    deleted or retried — keeps the dict bounded over time.
+    """Drop all attempt counters for a task.
+
+    Called by ``app/routers/tasks.py``:
+    - after ``set_task_result`` persists a result (terminal success)
+    - after ``delete_task`` removes a task
+
+    Both paths guarantee no further gates will fire for that task,
+    so the in-memory counters are dead weight from then on. This
+    keeps the dict bounded over a long-running server.
     """
     for key in [k for k in _attempts if k[0] == task_id]:
         _attempts.pop(key, None)

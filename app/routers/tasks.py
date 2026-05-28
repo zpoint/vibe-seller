@@ -20,6 +20,7 @@ from app.ai.stop_gates import (
     SOFT_GATE_MAX_DENIALS,
     markdown_format as md_format_gate,
     record_attempt,
+    reset_attempts,
     result_language as language_gate,
 )
 from app.auth import get_current_user
@@ -255,6 +256,10 @@ async def delete_task(
         await delete_task_record(db, task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Drop any soft-gate attempt counters for this task — same
+    # rationale as the success path: stop the in-memory map from
+    # accumulating stale entries over a long-running server.
+    reset_attempts(task_id)
     return {'ok': True}
 
 
@@ -705,6 +710,10 @@ async def set_task_result(
     task.result = final_result
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
+
+    # Result persisted — drop the per-task gate-attempt counters
+    # so a long-running server doesn't accumulate stale entries.
+    reset_attempts(task_id)
 
     # Emit a result message so the frontend conversation stream
     # renders the Result section immediately via SSE. Don't
