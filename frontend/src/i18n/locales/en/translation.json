@@ -361,6 +361,7 @@
     "ziniaoEnableWebDriver": "How to enable WebDriver",
     "ziniaoRestartFailed": "Failed to restart. Please close Ziniao manually and try again.",
     "ziniaoConnectErrorMac": "Cannot connect to Ziniao. Please check if Ziniao is installed.",
+    "ziniaoCredentialsError": "The stored password can't be decrypted on this machine (the secret used to encrypt it doesn't match this install). Click Edit to re-enter the password.",
     "enterStoreNameFirst": "Please enter a store name first",
     "editZiniaoAccount": "Edit Ziniao Account",
     "addZiniaoAccount": "Add Ziniao Account",
@@ -571,6 +572,19 @@
     "confirmDelete": "Delete profile \"{name}\"? This cannot be undone.",
     "loadGlobalMcp": "Load global MCP servers",
     "loadGlobalMcpHint": "Include MCP servers from global Claude settings. Disable to reduce tool count and speed up third-party APIs."
+  },
+  "errors": {
+    "externalConfigOverride": {
+      "title": "External config conflicts with this profile",
+      "intro": "Profile \"{{profileId}}\" can't be used: {{settingsPath}} has env entries that take precedence and silently route the agent to another endpoint:",
+      "pickOne": "Pick one:",
+      "optionDefault": "Switch your profile to \"Claude\" (default) and let the external tool (e.g. cc-switch) own provider routing.",
+      "optionClear": "Quit the tool that wrote it (cc-switch / similar), then run this once to clear the conflicting env block:",
+      "useDefault": "Use Default Profile",
+      "copyCommand": "Copy Command",
+      "copied": "Copied!",
+      "close": "Close"
+    }
   },
   "status": {
     "pending": "Pending",

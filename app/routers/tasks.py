@@ -16,6 +16,13 @@ from app.ai.bash_safety import (
 )
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
+from app.ai.stop_gates import (
+    SOFT_GATE_MAX_DENIALS,
+    markdown_format as md_format_gate,
+    record_attempt,
+    reset_attempts,
+    result_language as language_gate,
+)
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
@@ -249,6 +256,10 @@ async def delete_task(
         await delete_task_record(db, task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    # Drop any soft-gate attempt counters for this task — same
+    # rationale as the success path: stop the in-memory map from
+    # accumulating stale entries over a long-running server.
+    reset_attempts(task_id)
     return {'ok': True}
 
 
@@ -665,9 +676,44 @@ async def set_task_result(
         except (OSError, ValueError):
             resolved_content = None
 
-    task.result = resolved_content if resolved_content is not None else raw
+    final_result = resolved_content if resolved_content is not None else raw
+
+    # Generic soft gates — run on the resolved result text, regardless
+    # of task type. Each gate gets at most SOFT_GATE_MAX_DENIALS denies
+    # per task; the next attempt is allowed through with the original
+    # text so a stubborn lint failure (or untranslatable identifier
+    # cluster) doesn't trap the agent forever. The agent sees the deny
+    # reason as the 400 detail; it can edit and call again. See
+    # ``app/ai/stop_gates/`` for the gate bodies and the rationale for
+    # placing them at set_task_result rather than the Stop hook (some
+    # backends don't emit Stop events).
+    for gate_module, gate_args in (
+        (md_format_gate, (final_result,)),
+        (language_gate, (final_result, task.title, task.description)),
+    ):
+        deny = gate_module.check(*gate_args)
+        if not deny:
+            continue
+        attempt = record_attempt(task_id, deny.gate)
+        if attempt <= SOFT_GATE_MAX_DENIALS:
+            raise HTTPException(status_code=400, detail=deny.reason)
+        # Past the cap: log and allow through.
+        logger.warning(
+            'Soft gate %s exceeded %d denials for task %s — allowing '
+            'result through anyway. Reason: %s',
+            deny.gate,
+            SOFT_GATE_MAX_DENIALS,
+            task_id,
+            deny.reason[:200],
+        )
+
+    task.result = final_result
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
+
+    # Result persisted — drop the per-task gate-attempt counters
+    # so a long-running server doesn't accumulate stale entries.
+    reset_attempts(task_id)
 
     # Emit a result message so the frontend conversation stream
     # renders the Result section immediately via SSE. Don't

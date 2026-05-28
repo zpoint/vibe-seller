@@ -6,6 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
+from app.ai.external_config import (
+    ExternalConfigOverrideError,
+    assert_profile_compatible,
+)
 from app.ai.profiles import ProfileManager, profile_kind
 from app.auth import get_current_user
 from app.database import get_db
@@ -28,6 +32,9 @@ async def create_profile(
 ):
     """Create a new AI profile."""
     try:
+        # Block creation of a non-default profile while
+        # ~/.claude/settings.json env would silently override it.
+        assert_profile_compatible(data.get('id'))
         existing_count = len(ProfileManager.list_profiles())
         profile = ProfileManager.create_profile(
             profile_id=data['id'],
@@ -45,6 +52,8 @@ async def create_profile(
             },
         )
         return profile
+    except ExternalConfigOverrideError as e:
+        raise HTTPException(status_code=409, detail=e.to_api_detail())
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -57,8 +66,11 @@ async def update_profile(
 ):
     """Update an AI profile."""
     try:
+        assert_profile_compatible(profile_id)
         profile = ProfileManager.update_profile(profile_id, data)
         return profile
+    except ExternalConfigOverrideError as e:
+        raise HTTPException(status_code=409, detail=e.to_api_detail())
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -98,6 +110,11 @@ async def set_default_profile(
     profile = ProfileManager.get_profile(profile_id)
     if not profile:
         raise HTTPException(status_code=404, detail='Profile not found')
+    # Block set-default when ~/.claude/settings.json would override.
+    try:
+        assert_profile_compatible(profile_id)
+    except ExternalConfigOverrideError as e:
+        raise HTTPException(status_code=409, detail=e.to_api_detail())
     user = await db.get(User, current_user.id)
     if not user:
         raise HTTPException(status_code=404, detail='User not found')

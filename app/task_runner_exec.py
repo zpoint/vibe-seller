@@ -7,6 +7,7 @@ from sqlalchemy import select
 from app import telemetry
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import parse_wait_condition
+from app.ai.external_config import assert_profile_compatible
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
@@ -193,6 +194,12 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 store,
                 header=TaskHeader.EXECUTE,
             )
+            # Re-check the override before each execute-phase spawn
+            # — cc-switch may have written settings.json since the
+            # initial plan. Raises ExternalConfigOverrideError which
+            # the outer ``_run_with_status`` failure handler maps to
+            # the task FAILED transition.
+            assert_profile_compatible(task.ai_profile_id or DEFAULT_PROFILE_ID)
             await agent_manager.run(
                 task_id,
                 bundle.prompt,
@@ -549,6 +556,11 @@ async def execute_woken_task(task_id: str, store: Store | None):
             header=TaskHeader.WOKEN,
             store_emails=store_emails,
         )
+        # Same cc-switch / external-override re-check as the execute
+        # phase above — see that site for the rationale. Raises
+        # ``ExternalConfigOverrideError`` which the woken-launch
+        # error handler maps to a task FAILED transition.
+        assert_profile_compatible(task.ai_profile_id or DEFAULT_PROFILE_ID)
         await agent_manager.run(
             task_id,
             prompt,

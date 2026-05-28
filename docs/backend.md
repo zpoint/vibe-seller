@@ -83,6 +83,26 @@ Request/response schemas in `app/schemas/`. Key conventions:
 - Response schemas use `Config.from_attributes = True` for ORM → schema conversion
 - Request schemas only include user-provided fields (IDs and timestamps are auto-generated)
 
+## External Config Detection (`ai/external_config.py`)
+
+Detects when an external tool (e.g. cc-switch — https://github.com/farion1231/cc-switch) has written `ANTHROPIC_*` env entries into `~/.claude/settings.json`. Claude Code applies those entries with **higher precedence than the subprocess env our agent passes at spawn time**, so without this guard, a user's AI-profile selection silently becomes a no-op and the agent runs against whatever endpoint the external tool configured.
+
+| Symbol | Purpose |
+|---|---|
+| `detect_claude_settings_overrides()` | Returns the sorted list of `ANTHROPIC_*` keys present in `settings.json`'s `env` block. Prefix-match (no hardcoded enumeration) so a future Anthropic env var is caught automatically. |
+| `assert_profile_compatible(profile_id)` | Raises `ExternalConfigOverrideError` if `profile_id` is non-default *and* the env block has any `ANTHROPIC_*` keys. No-op for the default profile (the documented escape hatch — lets the external tool fully own routing). |
+| `ExternalConfigOverrideError.to_api_detail()` | Structured `HTTPException.detail` payload (`code`, `profile_id`, `overriding_keys`, `settings_path`, `clear_command`, English-fallback `message`). The frontend renders this in the user's locale via `errors.externalConfigOverride.*` i18n keys (see `frontend/src/components/ExternalConfigOverrideModal.tsx` and `ExternalConfigOverrideErrorCard.tsx`). |
+
+### Wired into
+
+- `routers/profiles.py` — POST `/api/profiles`, PUT `/api/profiles/{id}`, PATCH `/api/profiles/{id}/set-default` all return HTTP 409 with the structured detail when a non-default profile is selected while overrides exist.
+- `task_runner_auto.auto_run_task` — fails the task fast with `error_category='external_config_override'` and the JSON-encoded detail in `task.error` *before* the agent is spawned. The frontend's `ExternalConfigOverrideErrorCard` parses the JSON and renders the localized template on the failed-task panel.
+
+### Test surface
+
+- `tests/unit/test_external_config.py` — detection across no-settings / no-env / malformed JSON / non-`ANTHROPIC` keys / single + multiple overrides; default-profile escape hatch; load-bearing pieces of the user message; future-key prefix-match.
+- `tests/workflow/test_wf_external_config_override.py` — end-to-end across the profile router (409) and the task runner (fail-fast).
+
 ## Configuration
 
 All config in `config.py`. Key settings:

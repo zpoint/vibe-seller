@@ -9,13 +9,12 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import logging
-from pathlib import Path
 
 from app.ai.bash_safety import (
     check_catalog_first,
     check_catalog_first_tool_args,
     check_dangerous_kill,
-    is_catalog_path,
+    should_mark_catalog_read,
 )
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
@@ -289,14 +288,14 @@ class _HookMixin:
                     )
                     return
             # Catalog-read tracker: flip the catalog-first guard off
-            # once the agent issues a Read against any CATALOG.md.
-            # Path must LOOK like a catalog AND exist on disk —
-            # otherwise an agent could bypass the guard by reading a
-            # fake ``stores/<bogus>/CATALOG.md``.
-            if inner_name == 'Read':
-                path = inner_input.get('file_path', '')
-                if is_catalog_path(path) and Path(path).is_file():
-                    self._catalog_read = True
+            # once the agent issues a Read against any CATALOG.md —
+            # existence on disk deliberately doesn't matter. See
+            # ``bash_safety.should_mark_catalog_read`` for the
+            # design rationale (fresh stores with no L3 catalog yet
+            # were stuck in a deny loop, breaking DeepSeek thinking
+            # mode in particular).
+            if should_mark_catalog_read(inner_name, inner_input):
+                self._catalog_read = True
             if self._check_tool_loop(inner_name, inner_input):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',

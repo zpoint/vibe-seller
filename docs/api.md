@@ -217,6 +217,12 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 |--------|------|-------------|
 | GET | `/api/ziniao/launcher` | Download ziniao_webdriver.bat |
 
+## `system.py` — Server Runtime Metadata
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/system/info` | Return `{ platform: 'mac' \| 'windows' \| 'wsl' \| 'linux', version: str, commit: str \| null }`. `platform` is the host OS; `version` is the package version from `importlib.metadata` (`'0.0.0+dev'` for editable / dev installs); `commit` is the short git SHA when the source tree is a git checkout (useful when `version` is the dev fallback). Frontend fetches this once on mount and uses it as the single source of truth for platform-conditional UI (Ziniao launcher download, install hints, etc.) and the about/footer build stamp. |
+
 ## `screenshots.py` — Screenshot Serving
 
 | Method | Path | Description |

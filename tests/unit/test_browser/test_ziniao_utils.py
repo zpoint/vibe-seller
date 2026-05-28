@@ -333,54 +333,41 @@ class TestGetZiniaoStatus:
     }
 
     @pytest.mark.asyncio
-    @mock.patch('app.browser.ziniao_utils.get_platform', return_value='mac')
     @mock.patch('app.browser.ziniao_utils.try_connect_ziniao')
-    async def test_running_webdriver(self, mock_connect, mock_plat):
+    async def test_running_webdriver(self, mock_connect):
         """API responds 0 -> running_webdriver."""
         mock_connect.return_value = (
             {'statusCode': '0', 'browserList': []},
             '127.0.0.1',
         )
         result = await get_ziniao_status(16851, self.USER_INFO)
-        assert result == {
-            'status': 'running_webdriver',
-            'platform': 'mac',
-        }
+        assert result == {'status': 'running_webdriver'}
 
     @pytest.mark.asyncio
-    @mock.patch('app.browser.ziniao_utils.get_platform', return_value='mac')
     @mock.patch('app.browser.ziniao_utils.try_connect_ziniao')
-    async def test_no_permission(self, mock_connect, mock_plat):
+    async def test_no_permission(self, mock_connect):
         """API responds -10003 -> no_permission."""
         mock_connect.return_value = (
             {'statusCode': '-10003', 'err': 'no perm'},
             '127.0.0.1',
         )
         result = await get_ziniao_status(16851, self.USER_INFO)
-        assert result == {
-            'status': 'no_permission',
-            'platform': 'mac',
-        }
+        assert result == {'status': 'no_permission'}
 
     @pytest.mark.asyncio
-    @mock.patch('app.browser.ziniao_utils.get_platform', return_value='mac')
     @mock.patch(
         'app.browser.ziniao_utils.is_ziniao_process_running',
         return_value=True,
     )
     @mock.patch('app.browser.ziniao_utils.try_connect_ziniao')
-    async def test_running_normal(self, mock_connect, mock_proc, mock_plat):
+    async def test_running_normal(self, mock_connect, mock_proc):
         """API unreachable + process found -> running_normal."""
         mock_connect.return_value = (None, '127.0.0.1')
         result = await get_ziniao_status(16851, self.USER_INFO)
-        assert result == {
-            'status': 'running_normal',
-            'platform': 'mac',
-        }
+        assert result == {'status': 'running_normal'}
 
     @pytest.mark.asyncio
     @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
-    @mock.patch('app.browser.ziniao_utils.get_platform', return_value='mac')
     @mock.patch(
         'app.browser.ziniao_utils.is_ziniao_installed_mac',
         return_value=True,
@@ -390,20 +377,14 @@ class TestGetZiniaoStatus:
         return_value=False,
     )
     @mock.patch('app.browser.ziniao_utils.try_connect_ziniao')
-    async def test_not_running(
-        self, mock_connect, mock_proc, mock_inst, mock_plat
-    ):
+    async def test_not_running(self, mock_connect, mock_proc, mock_inst):
         """No API + no process + installed -> not_running."""
         mock_connect.return_value = (None, '127.0.0.1')
         result = await get_ziniao_status(16851, self.USER_INFO)
-        assert result == {
-            'status': 'not_running',
-            'platform': 'mac',
-        }
+        assert result == {'status': 'not_running'}
 
     @pytest.mark.asyncio
     @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
-    @mock.patch('app.browser.ziniao_utils.get_platform', return_value='mac')
     @mock.patch(
         'app.browser.ziniao_utils.is_ziniao_installed_mac',
         return_value=False,
@@ -413,16 +394,11 @@ class TestGetZiniaoStatus:
         return_value=False,
     )
     @mock.patch('app.browser.ziniao_utils.try_connect_ziniao')
-    async def test_not_installed(
-        self, mock_connect, mock_proc, mock_inst, mock_plat
-    ):
+    async def test_not_installed(self, mock_connect, mock_proc, mock_inst):
         """No API + no process + not installed -> not_installed."""
         mock_connect.return_value = (None, '127.0.0.1')
         result = await get_ziniao_status(16851, self.USER_INFO)
-        assert result == {
-            'status': 'not_installed',
-            'platform': 'mac',
-        }
+        assert result == {'status': 'not_installed'}
 
 
 @pytest.mark.unit

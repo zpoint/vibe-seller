@@ -278,3 +278,30 @@ Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_pro
 **Lifecycle**: The proxy stays alive while any task uses it. Client disconnect (clean or crash) triggers cleanup: close the client's tabs, remove routing entries. Startup cleanup closes orphan tabs from prior server crashes.
 
 A legacy TCP relay (`CDPTcpProxy` in `cdp_proxy.py`) is kept as fallback for single-client scenarios.
+
+## Soft Stop-Gates
+
+When the agent calls `vibe_seller_set_task_result`, the resolved result text runs through a small chain of **soft gates** before the task is allowed to settle. Each gate is a function that returns either `None` (allow) or a `GateDeny` with a short, agent-readable `reason` and a `gate` identifier. Code lives under `app/ai/stop_gates/`; the dispatch is in `app/routers/tasks.py::set_task_result`.
+
+### Why soft, not hard
+
+Gates can be wrong, the model can be stubborn, and trapping the agent forever in a deny loop wastes tokens. Each gate is allowed at most `SOFT_GATE_MAX_DENIALS` (currently 2) per task; on the next attempt the result is allowed through with the original text and a `logger.warning(...)`. Deny counts are tracked in-memory by task id (`record_attempt` in `app/ai/stop_gates/__init__.py`).
+
+### Why at the MCP tool call, not the Stop hook
+
+Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there.
+
+### Bundled gates
+
+| Module | Concern | Body of the check |
+|---|---|---|
+| `app/ai/stop_gates/markdown_format.py` | Final result is well-formed Markdown — no leftover XML-style closing tags, no truncated fences | Regex scan on the resolved text |
+| `app/ai/stop_gates/result_language.py` | Reply language matches the user's task language (the agent shouldn't answer a Chinese task in English) | Character-set heuristic over the prompt + result, with carve-outs for technical identifiers |
+
+### Adding a gate
+
+1. Drop a module under `app/ai/stop_gates/` exporting a `check(text, …) -> GateDeny | None` callable. Free to take extra inputs (e.g. `result_language.check` also takes the task title + description).
+2. Wire it into the dispatch loop in `set_task_result` (`for gate_module, gate_args in (…)`).
+3. Add a unit test under `tests/unit/test_stop_gates.py`.
+
+The dispatch loop deliberately runs gates in declaration order and short-circuits on the first deny — so put cheaper / more important gates first.
