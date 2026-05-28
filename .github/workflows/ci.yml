@@ -22,9 +22,9 @@ jobs:
       # Mirror what contributors run locally: `pre-commit run --all-files`.
       # Frontend hooks (frontend-lint, frontend-typecheck) are skipped here
       # because the frontend-test job below already runs the same checks
-      # (`npm run lint`, `npx tsc -b`) with full node_modules — running them
-      # twice would just slow CI down. Python hooks (ruff lint, ruff format),
-      # the line-limit script, and the file-hygiene hooks all run.
+      # (`pnpm lint`, `pnpm exec tsc -b`) with full node_modules — running
+      # them twice would just slow CI down. Python hooks (ruff lint, ruff
+      # format), the line-limit script, and the file-hygiene hooks all run.
       - name: Run pre-commit
         env:
           SKIP: frontend-lint,frontend-typecheck
@@ -41,16 +41,24 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Matches install.sh's NODE_MIN_MAJOR (22). pnpm@latest
+          # imports node:sqlite which only exists on Node 22+.
+          node-version: '22'
 
-      - name: Install dependencies
-        run: npm install
+      # Mirror install.sh / start.sh — both use pnpm. Using npm here
+      # would silently bypass `frontend/pnpm-workspace.yaml` so CI's
+      # dep state diverges from what end users get.
+      - name: Install dependencies (pnpm — matches install.sh)
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          pnpm install --frozen-lockfile
 
       - name: Type check
-        run: npx tsc -b
+        run: pnpm exec tsc -b
 
       - name: Run tests
-        run: npm run test
+        run: pnpm test
 
   backend-unit-test:
     runs-on: ubuntu-latest
@@ -77,7 +85,6 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install -e ".[dev]"
-          uv pip install pytest pytest-asyncio pytest-cov httpx
 
       - name: Run unit tests
         run: uv run pytest tests/unit -v --cov=app --cov-report=xml
@@ -109,7 +116,6 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install -e ".[dev]"
-          uv pip install pytest pytest-asyncio pytest-cov httpx
 
       - name: Configure git identity
         run: |
@@ -146,7 +152,8 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install -e ".[dev]"
-          uv pip install pytest pytest-asyncio httpx pytest-playwright
+          # pytest-playwright is dev-only — used by UI tests only
+          uv pip install pytest-playwright
 
       # Playwright is dev-only — needed for UI tests (pytest-playwright)
       - name: Install Playwright browsers (UI tests only)
@@ -155,13 +162,21 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          # Matches install.sh's NODE_MIN_MAJOR (22). pnpm@latest
+          # imports node:sqlite which only exists on Node 22+.
+          node-version: '22'
 
-      - name: Build frontend
+      # Mirror install.sh / start.sh — both use pnpm, not npm. Using
+      # npm here would silently bypass `frontend/pnpm-workspace.yaml`
+      # (`allowBuilds:` for esbuild/core-js/protobufjs) so the CI
+      # build state would diverge from what end users get.
+      - name: Build frontend (pnpm — matches install.sh)
         working-directory: frontend
         run: |
-          npm install
-          npm run build
+          corepack enable
+          corepack prepare pnpm@latest --activate
+          pnpm install --frozen-lockfile
+          pnpm build
 
       - name: Configure git identity
         run: |
@@ -241,7 +256,6 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install -e ".[dev]"
-          uv pip install pytest pytest-asyncio httpx
 
       - name: Install Playwright browsers
         run: uv run playwright install --with-deps chromium

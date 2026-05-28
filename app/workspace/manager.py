@@ -30,6 +30,8 @@ class WorkspaceManager:
     def __init__(self, root: Path | None = None):
         self.root = root or VIBE_SELLER_DIR
         self._repo: gitlib.Repo | None = None
+        # Serialise git subprocesses; concurrent tasks race on index.lock.
+        self._git_lock = asyncio.Lock()
 
     async def ensure_init(self):
         """Ensure workspace directory exists and is a git repo."""
@@ -72,7 +74,6 @@ class WorkspaceManager:
         git_dir = self.root / '.git'
         if not git_dir.exists():
             await self._run_git('init')
-            # Create initial .gitignore
             gitignore = self.root / '.gitignore'
             if not gitignore.exists():
                 gitignore.write_text(
@@ -693,29 +694,29 @@ browser: {backend}
     async def _run_git(
         self, *args, check: bool = True
     ) -> asyncio.subprocess.Process:
-        """Run a git command in the workspace directory."""
-        # GIT_*_NAME/EMAIL via env (setdefault, so a real identity
-        # wins) keeps the initial-commit working on hosts with no
-        # global `git config user.email/name` (#181) without touching
-        # `.git/config`.
+        """Run git in self.root; serialised on ``self._git_lock``."""
+        # GIT_*_NAME/EMAIL via env (setdefault; a real identity wins)
+        # keeps initial-commit working on hosts with no global
+        # `git config user.email/name` (#181), without touching .git/config.
         git_env = dict(os.environ)
         git_env.setdefault('GIT_AUTHOR_NAME', 'Vibe Seller')
         git_env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
         git_env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller')
         git_env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
-        proc = await asyncio.create_subprocess_exec(
-            'git',
-            *args,
-            cwd=str(self.root),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=git_env,
-        )
-        await proc.wait()
-        if check and proc.returncode != 0:
-            stderr = (await proc.stderr.read()).decode() if proc.stderr else ''
-            raise RuntimeError(f'git {" ".join(args)} failed: {stderr}')
-        return proc
+        async with self._git_lock:
+            proc = await asyncio.create_subprocess_exec(
+                'git',
+                *args,
+                cwd=str(self.root),
+                env=git_env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await proc.wait()
+            if check and proc.returncode != 0:
+                err = (await proc.stderr.read()).decode() if proc.stderr else ''
+                raise RuntimeError(f'git {" ".join(args)} failed: {err}')
+            return proc
 
     # Skills that require a browser session.  Excluded from
     # non-store (orchestrator) task workspaces so the agent

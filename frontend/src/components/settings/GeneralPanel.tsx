@@ -23,6 +23,7 @@ export function GeneralPanel({ currentUser, setCurrentUser }: GeneralPanelProps)
   const [defaultTimezone, setDefaultTimezone] = useState<string>(browserZone)
   const [telemetryEnabled, setTelemetryEnabled] = useState<boolean>(true)
   const [browserHeadless, setBrowserHeadless] = useState<boolean>(false)
+  const [skillsAutoSync, setSkillsAutoSync] = useState<boolean>(true)
 
   useEffect(() => {
     api.get('/api/settings').then((s: Record<string, string>) => {
@@ -44,6 +45,9 @@ export function GeneralPanel({ currentUser, setCurrentUser }: GeneralPanelProps)
       if (s.task_retention_days !== undefined) {
         const n = parseInt(s.task_retention_days, 10)
         if (!Number.isNaN(n)) setTaskRetentionDays(n)
+      }
+      if (s.skills_auto_sync_enabled !== undefined) {
+        setSkillsAutoSync(s.skills_auto_sync_enabled !== 'false')
       }
     }).catch(() => {})
   }, [])
@@ -78,6 +82,20 @@ export function GeneralPanel({ currentUser, setCurrentUser }: GeneralPanelProps)
       optOutTelemetry()
     } else {
       window.location.reload()
+    }
+  }
+
+  const saveSkillsAutoSync = async (next: boolean) => {
+    // Optimistic flip + revert on failure. Non-admin users get a
+    // 403 from PUT /api/settings; without the revert the toggle
+    // would visually change but the backend wouldn't, which is
+    // worse than just refusing to move.
+    const prev = skillsAutoSync
+    setSkillsAutoSync(next)
+    try {
+      await api.put('/api/settings', { skills_auto_sync_enabled: next })
+    } catch {
+      setSkillsAutoSync(prev)
     }
   }
 
@@ -251,6 +269,29 @@ export function GeneralPanel({ currentUser, setCurrentUser }: GeneralPanelProps)
             />
             <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-blue-600">
               <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${browserHeadless ? 'translate-x-5' : ''}`}></span>
+            </span>
+          </label>
+        </div>
+      </div>
+
+      {/* Skills */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <h3 className="font-semibold text-sm mb-3">{t('settings.skillsTitle')}</h3>
+        <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium">{t('settings.skillsAutoSyncTitle')}</p>
+            <p className="text-xs text-gray-500">{t('settings.skillsAutoSyncDesc')}</p>
+          </div>
+          <label className="inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              className="sr-only peer"
+              checked={skillsAutoSync}
+              onChange={e => saveSkillsAutoSync(e.target.checked)}
+              aria-label={t('settings.skillsAutoSyncTitle')}
+            />
+            <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-blue-600">
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${skillsAutoSync ? 'translate-x-5' : ''}`}></span>
             </span>
           </label>
         </div>

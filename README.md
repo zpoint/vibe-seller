@@ -83,9 +83,11 @@ the bridge.
 
 ### Prerequisites
 
-- macOS, or Windows 10/11 with WSL2
+- OS — **macOS** *or* **Windows 11+ with WSL2**
+
+  <sub><b>For Windows users:</b> WSL and the Windows-side browser need to talk to each other, so WSL must start in <b>mirrored networking mode</b>, which only Windows 11+ supports.</sub>
 - Python 3.11+ (auto-installed by [`uv`](https://docs.astral.sh/uv/) if missing)
-- Node.js 18+
+- Node.js 22+
 - One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
 - Ziniao (optional but recommended — plain Chrome works if you skip it)
 
@@ -177,10 +179,11 @@ default).
 Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
 work), paste your API key, save. Keys are encrypted at rest.
 
-> **No key yet?** DeepSeek is the path of least resistance — sign
-> up on their site, top up $2–3, pay-as-you-go per token (cost
-> per task scales with task size). The other providers usually sell
-> prepaid monthly token packs; pick a plan that fits your usage.
+> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
+> the path of least resistance — sign up, top up $2–3,
+> pay-as-you-go per token (cost per task scales with task size).
+> The other providers usually sell prepaid monthly token packs;
+> pick a plan that fits your usage.
 
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
@@ -446,6 +449,39 @@ Asking for the password is the necessary trade-off: developer-mode
 auth requires it, no OAuth / token flow exists on the Ziniao side
 today. If that's a deal-breaker, use plain Chrome instead
 (`Settings → Stores → Add Chrome store`).
+
+</details>
+
+<details>
+<summary><b>Ziniao says "无权限通过 webdriver 登录" when I bind a store. How do I fix it?</b></summary>
+
+The BOSS (admin) account hasn't enabled WebDriver login for your
+sub-account yet. Follow [Ziniao's official guide](https://open.ziniao.com/docSupport?docId=99#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E7%99%BB%E5%BD%95%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0%E6%8E%A7%E5%88%B6%E5%8F%B00)
+and tick the WebDriver-login option in the Open Platform console:
+
+<img width="1857" height="903" alt="Ziniao Open Platform — enable WebDriver login" src="https://github.com/user-attachments/assets/c6066eff-f877-470e-a061-6abd73b6d2f8" />
+
+The admin (BOSS) account has to do this once. After it's saved,
+your sub-account can log in via WebDriver and Vibe Seller will
+bind the store on the next refresh.
+
+</details>
+
+<details>
+<summary><b>Ziniao says "检测到您在新终端登录" and won't let me bind the store. How do I fix it?</b></summary>
+
+This is Ziniao's new-device security check, not a Vibe Seller bug.
+The first time a given machine logs into an account, Ziniao requires
+a one-time manual approval:
+
+1. Open Ziniao on this machine and log in manually (normal mode, not
+   WebDriver) with the same sub-account credentials.
+2. Ziniao will show a new-device prompt — submit the approval request.
+3. Have the admin (BOSS) account approve the device in the Ziniao
+   backend.
+
+After that one-time approval the device is trusted, and Vibe Seller's
+WebDriver login goes through on the next refresh.
 
 </details>
 

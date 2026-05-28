@@ -10,6 +10,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
+from app.ai.bash_safety import (
+    check_exec_review_status,
+    check_review_status,
+)
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
 from app.auth import get_current_user
@@ -605,6 +609,20 @@ async def set_task_result(
             detail=(f'Cannot set result on task in status {task.status}'),
         )
 
+    # Ad-tuning reviewer gates. The Stop-hook variants are unreliable
+    # (some agent backends — e.g. deepseek-v4-pro — never emit a Stop
+    # event), so the gates live at the MCP tool the agent always calls.
+    # Both are quiet no-ops for non-ads tasks (no ``AD_AUDIT_*.md``
+    # / ``EXECUTION_LOG.md`` in the workspace). See
+    # ``amazon-ads/references/reviewer-loop.md`` for the contract.
+    task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
+    deny = check_review_status(task_root)
+    if deny:
+        raise HTTPException(status_code=400, detail=deny)
+    deny = check_exec_review_status(task_root)
+    if deny:
+        raise HTTPException(status_code=400, detail=deny)
+
     # File-pointer mode: if `body.result` is a relative path that
     # exists inside this task's workspace, read the file and use
     # its contents. This lets the agent compose long reports via
@@ -632,7 +650,6 @@ async def set_task_result(
             candidate = raw.lstrip('/')
         else:
             candidate = raw
-        task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
         try:
             target = (task_root / candidate).resolve()
             # `is_relative_to` is the canonical containment check —

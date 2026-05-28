@@ -16,36 +16,43 @@ references in `references/`. Load whichever ones apply to the task.
 
 ## What this skill produces
 
-For tuning tasks ("review the ads", "improve ACOS", "audit"): one
-**audit report** covering **every campaign** in the analysis window,
-and — on user follow-up — execution of approved actions against
-that report. The audit and follow-up are split into 4 phases
-specified in `tuning-workflow.md`:
+For tuning tasks ("review the ads", "improve ACOS", "audit"):
+**one Markdown report** (`AD_AUDIT_<YYYY-MM-DD>.md`) plus **one
+TSV per active campaign** (`stores/<slug>/ads/<platform>/<country>/<id>.tsv`,
+auto-committed by the workspace). The Markdown's exact shape is
+fixed by **[`format-anchor.md`](references/format-anchor.md)** —
+read it before composing any audit; deviating from the anchor
+fails the reviewer-loop gate at Stop.
+
+Phases:
 
 ```
-Phase 1: Discover  →  manifest of every campaign + mechanical state
-Phase 2: Drill     →  per-campaign data section (active campaigns)
-Phase 3: Compose   →  full report (header + sections + checklist)
-Phase 4: Apply     →  on user reply: execute approved rows OR re-emit
+Phase 1: Discover    →  manifest of every campaign + state
+Phase 2: Drill       →  per-campaign data section + per-campaign TSV
+Phase 3: Compose     →  full Markdown report following format-anchor.md
+Phase 3.5: Review    →  spawn ads-format-review subagent, loop until ok
+Phase 4: Apply       →  on user reply: execute approved rows
 ```
 
-Phase 1–3 are read-only. Phase 4 is the only phase that clicks
-state-modifying buttons, and only after explicit per-row user
-approval. Every campaign appears in the report (active = full
-section; inactive = one line citing the mechanical reason). There
-is no "skipped because tight" — see [`tuning-workflow.md`
-"Mechanical state taxonomy"](references/tuning-workflow.md#mechanical-state-taxonomy).
+Phase 1–3.5 are read-only against the live store. Phase 3.5 is
+**mandatory** — the Stop-hook gate denies finalization until the
+reviewer subagent has written ``REVIEW_<date>_iter<N>.md`` with
+``Status: ok`` (or ``Status: incomplete`` at iter ≥ 5). The loop
+mechanics are in **[`reviewer-loop.md`](references/reviewer-loop.md)**.
 
 ## Workflow references — the "what to do" thinking
 
 | Reference | Load when |
 |---|---|
+| [`format-anchor.md`](references/format-anchor.md) | **Required for every audit.** Canonical Markdown structure: per-campaign sections with inline Recommendation column on every Targeting / Search-terms / Targets / Customer-Queries row. Single bid-change rule (≤ 25 % per session). PROTECT = two simple cases. The reviewer subagent checks against this file. |
+| [`reviewer-loop.md`](references/reviewer-loop.md) | **Required at end of Phase 3.** How to spawn the `ads-format-review` subagent, the loop mechanics, the `REVIEW_<date>_iter<N>.md` output format the Stop-hook gate reads. Hard-cap: 5 iterations before accepting `Status: incomplete`. |
 | [`tuning-workflow.md`](references/tuning-workflow.md) | User asks to tune ads, improve ACOS, "review last month's ads", harvest search terms, lower bids on losers, weekly ad review, "why is X campaign burning money", or any ongoing-campaign refinement task. |
 | [`tuning-campaign-types.md`](references/tuning-campaign-types.md) | A campaign isn't SP-Manual-Keyword. The skill defaults to SP-Manual-Keyword; for SP-Auto / SP-Manual-Product / Sponsored Brands / Sponsored Brands Video / Sponsored Display, this reference has the per-type sidebar tabs, Targeting-tab columns, and lever-applicability matrix observed on a live merchant account. Pair with `tuning-workflow.md` Phase 3 — that phase branches on type. |
 | [`tuning-thresholds.md`](references/tuning-thresholds.md) | Need to derive per-store thresholds (breakeven ACOS = margin %, target ACOS = 0.7 × breakeven, protect-zone, waste/harvest cutoffs). Always heuristic, never hardcoded. |
 | [`tuning-toolbox.md`](references/tuning-toolbox.md) | Picking the right lever — 8 levers + 2 advanced (dayparting, structural splits) disabled by default. Ordered surgical-first (search-term negate / harvest, per-keyword bid trim) → blanket-last (bidding strategy, pause campaign). For which levers apply per type, see `tuning-campaign-types.md`. |
 | [`tuning-funnel-diagnosis.md`](references/tuning-funnel-diagnosis.md) | Distinguishing listing-side problems (low CTR = image / title; low CVR = PDP / price / reviews) from ad-side problems (ACOS) before reaching for a bid lever. Bad CTR is not an ad-tuning problem. |
 | [`tuning-recommendation-format.md`](references/tuning-recommendation-format.md) | Composing the per-campaign output table at the end of a tuning session — header table → per-campaign data → per-problem subsections with per-entity data tables. Targeting-first, placement-second. Data table shape varies by type — see `tuning-campaign-types.md`. |
+| [`tuning-history.md`](references/tuning-history.md) | The per-campaign TSV under git that records every observed state (bid, status, suggested range, recent metrics) across audits. Read at Phase 2 to diff scrape against record (catches OBSERVED_DRIFT); read at Phase 3 for recency check before recommending changes (< 7 days since last change → downgrade to Hold); written at Phase 4 after each verified apply (cause-and-effect ledger). One TSV per campaign, written via `vibe_seller_write_workspace_file`; the workspace auto-commits. |
 
 ## Mechanics reference — the "how to click" lookup
 

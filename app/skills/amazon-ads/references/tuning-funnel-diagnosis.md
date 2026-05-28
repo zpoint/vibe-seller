@@ -110,6 +110,48 @@ The temptation to "always optimize something" is real and wrong.
 A campaign that's hitting target ACOS with healthy funnel is doing
 its job; tinkering risks regression for marginal gain.
 
+## Self-stabilized campaign — judge by active-only, not campaign-level
+
+A campaign where **most rows are already in Paused state** is a
+campaign that has already been pruned (by prior tuning or by Amazon's
+own auction signals). The campaign-level top-tile ROAS / ACOS shown
+in the UI is computed over the **entire window's history** —
+including the spend / sales of rows that are now paused. That
+top-tile number does NOT reflect the current state of the campaign.
+
+**Diagnostic rule**:
+- If `paused_row_count / total_row_count ≥ 0.5` (≥ 50% of keyword
+  / target rows in Paused state), **do not use the campaign-level
+  ROAS / ACOS as the diagnosis input**.
+- Instead, recompute over **active rows only**:
+  ```
+  active_spend  = sum(spend  for row in rows if row.status == 'Delivering')
+  active_sales  = sum(sales  for row in rows if row.status == 'Delivering')
+  active_orders = sum(orders for row in rows if row.status == 'Delivering')
+  active_roas   = active_sales / active_spend   # may be undefined if active_spend == 0
+  ```
+- The diagnosis (Layer 1 / 2 / 3 funnel call, "is this campaign
+  bleeding") must be made off `active_roas`, not the top-tile.
+
+**Worked example — why this matters**: Campaign with 13 keyword
+rows; 11 are Paused (carrying old spend SAR 125, old sales SAR
+60, ROAS 0.48 — these dragged the historical campaign-level ROAS
+to 1.35). The 2 active rows have spend SAR 3.50, sales SAR 53.99,
+1 order, active_roas = 15.43. The campaign top-tile shows ROAS
+1.35 — alarming if read at face value. But the active-only ROAS
+is 15.43 — far above target. **Diagnosis**: the campaign is
+self-stabilized, the paused rows did the bleeding, and the
+remaining active rows are profitable. **Action**: leave alone,
+or only address the active rows individually. Do NOT recommend
+pausing the campaign on the basis of the 1.35 number — that
+would destroy a 15.43-ROAS source.
+
+This rule composes with the row-level PROTECT rules in
+`tuning-thresholds.md § Row-level PROTECT`: in a
+self-stabilized campaign, the surviving active rows are
+implicitly PROTECT-tagged unless they have themselves turned
+negative within the window.
+
 ## Pitfalls
 
 - **Sample size**: don't apply layer thresholds to campaigns with
