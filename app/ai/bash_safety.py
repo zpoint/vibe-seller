@@ -212,3 +212,261 @@ def check_catalog_first_tool_args(
     ):
         return _CATALOG_FIRST_DENY
     return None
+
+
+# ── Ad-tuning reviewer-status guard ───────────────────────────────
+#
+# When an ads-tuning audit task is about to finalize its deliverable
+# (transition to Stop), the agent must have run the
+# ``ads-format-review`` reviewer subagent against
+# ``AD_AUDIT_<date>.md`` and got back ``Status: ok``. The reviewer
+# writes its findings to
+# ``<task_workspace>/REVIEW_<YYYY-MM-DD>_iter<N>.md`` with a
+# canonical header that includes a ``Status: ok|gaps|incomplete``
+# line. The Stop hook reads the latest review file and decides:
+#
+# - ``ok``               → allow stop
+# - ``gaps``             → deny stop, point agent at the gaps
+# - ``incomplete``       → allow only if iter ≥ 5 (post-mortem trail)
+# - file missing         → deny stop; reviewer must run at least once
+# - file unparseable     → deny stop with format reminder
+#
+# Semantic quality of the review is the reviewer subagent's job;
+# code only gates on the file contents. See
+# ``amazon-ads/references/reviewer-loop.md`` for the contract and
+# the subagent prompt the main agent uses.
+
+_REVIEW_FILE_GLOB = 'REVIEW_*_iter*.md'
+_REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
+_REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
+
+# Max iterations before we accept ``incomplete`` as a terminal state
+# (matches the loop cap documented in ``reviewer-loop.md``).
+_REVIEW_MAX_ITERS = 5
+
+
+def check_review_status(task_dir) -> str | None:
+    """Return a deny reason if the ads-audit reviewer hasn't returned
+    ``ok`` (or ``incomplete`` at iter ≥ 5); otherwise ``None``.
+
+    Reads the highest-iteration ``REVIEW_*_iter*.md`` in *task_dir*.
+    Quiet no-op for non-ads tasks (no ``AD_AUDIT_*.md`` present in
+    the workspace — caller should pre-check; this function still
+    returns ``None`` when no review file exists AND no audit file
+    exists, but DENIES when audit exists without a review).
+    """
+    if task_dir is None:
+        return None
+    try:
+        audit_files = list(task_dir.glob('AD_AUDIT_*.md'))
+    except OSError:
+        return None
+    if not audit_files:
+        return None  # Not an ads-tuning task; nothing to gate.
+
+    try:
+        review_files = sorted(task_dir.glob(_REVIEW_FILE_GLOB))
+    except OSError:
+        review_files = []
+    if not review_files:
+        return (
+            'Reviewer never ran. Before finalizing, spawn the '
+            '``ads-format-review`` subagent (subagent_type='
+            '"general-purpose") against your AD_AUDIT_*.md per '
+            '``amazon-ads/references/reviewer-loop.md``, and write '
+            'the result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in this '
+            'workspace. Re-run reviewer until Status: ok or until '
+            f'iter {_REVIEW_MAX_ITERS} with Status: incomplete.'
+        )
+
+    def _iter_of(p):
+        m = _REVIEW_ITER_RE.search(p.name)
+        return int(m.group(1)) if m else 0
+
+    # Pick the most recently written review file, not the highest
+    # iter number. A workspace can accumulate REVIEW files from
+    # several audit cycles (e.g. ``REVIEW_2026-05-22_iter7.md``
+    # from yesterday's audit + ``REVIEW_2026-05-24_iter1.md`` from
+    # today's) — choosing by iter number would pick yesterday's
+    # iter7 over today's iter1, gating the new audit against a
+    # stale verdict. mtime correctly reflects which review covers
+    # the current audit.
+    try:
+        latest = max(review_files, key=lambda p: p.stat().st_mtime)
+    except OSError:
+        latest = max(review_files, key=_iter_of)
+    try:
+        content = latest.read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        return f'{latest.name} could not be read; rewrite the review file.'
+
+    match = _REVIEW_STATUS_RE.search(content)
+    if not match:
+        return (
+            f'{latest.name} has no ``Status:`` line. The reviewer '
+            'output must begin with one of: ``Status: ok`` | '
+            '``Status: gaps`` | ``Status: incomplete``. See '
+            '``amazon-ads/references/reviewer-loop.md`` for the '
+            'canonical format.'
+        )
+
+    status = match.group(1).lower()
+    iter_num = _iter_of(latest)
+    if status == 'ok':
+        return None
+    if status == 'incomplete' and iter_num >= _REVIEW_MAX_ITERS:
+        return None  # accept as terminal; gaps are on-disk for post-mortem
+    if status == 'gaps':
+        return (
+            f'Reviewer iter {iter_num} found gaps in the audit. '
+            f'Read {latest.name} for the list, fix the audit in '
+            f'place (Edit tool, not re-drill), then spawn the '
+            'reviewer again to write '
+            f'``REVIEW_*_iter{iter_num + 1}.md``. Repeat until '
+            f'Status: ok or iter {_REVIEW_MAX_ITERS} with '
+            'Status: incomplete.'
+        )
+    if status == 'incomplete' and iter_num < _REVIEW_MAX_ITERS:
+        return (
+            f'``Status: incomplete`` only valid at iter '
+            f'{_REVIEW_MAX_ITERS}+. Current is iter {iter_num} — '
+            'keep iterating.'
+        )
+    return (
+        f'Unknown reviewer status {status!r} in {latest.name}. '
+        'Must be one of: ok | gaps | incomplete.'
+    )
+
+
+# ── Ad-tuning execution-review guard ───────────────────────────────
+#
+# Once an audit has been delivered (REVIEW_*_iter*.md Status: ok) and
+# the user instructs the agent to execute the plan, the agent creates
+# ``EXECUTION_LOG.md`` and begins applying each Recommendation row to
+# the live Amazon/Noon console. Before the agent may stop, an
+# ``ads-execution-review`` subagent must verify that:
+#
+# - Every actionable Recommendation in the audit has a corresponding
+#   EXECUTION_LOG row marked ``applied``.
+# - For every ``applied`` row, the per-campaign TSV reflects the new
+#   value (bid, status, negative-keyword, etc.).
+# - No row marked ``failed`` is left without a retry or an explicit
+#   note explaining why it was skipped.
+#
+# The reviewer writes ``EXEC_REVIEW_<YYYY-MM-DD>_iter<N>.md`` with the
+# same canonical ``Status: ok|gaps|incomplete`` header. The gate is
+# triggered only when ``EXECUTION_LOG.md`` exists in the task
+# workspace — non-execution tasks (audit-only) pass through.
+#
+# Semantic quality is the reviewer subagent's job. See
+# ``amazon-ads/references/reviewer-loop.md § Execution-review mode``.
+
+_EXEC_LOG_NAME = 'EXECUTION_LOG.md'
+_EXEC_REVIEW_FILE_GLOB = 'EXEC_REVIEW_*_iter*.md'
+_EXEC_REVIEW_MAX_ITERS = 5
+
+
+def check_exec_review_status(task_dir) -> str | None:
+    """Return a deny reason if the ads-execution reviewer hasn't
+    returned ``ok`` (or ``incomplete`` at iter ≥ 5); otherwise None.
+
+    Quiet no-op when ``EXECUTION_LOG.md`` is absent — the task is
+    not in execution mode.
+    """
+    if task_dir is None:
+        return None
+    try:
+        exec_log = task_dir / _EXEC_LOG_NAME
+        if not exec_log.exists():
+            return None  # Not an execution task; nothing to gate.
+    except OSError:
+        return None
+
+    try:
+        review_files = sorted(task_dir.glob(_EXEC_REVIEW_FILE_GLOB))
+    except OSError:
+        review_files = []
+    if not review_files:
+        return (
+            'Execution reviewer never ran. After applying every '
+            'Recommendation row from AD_AUDIT_*.md, spawn the '
+            '``ads-execution-review`` subagent (subagent_type='
+            '"general-purpose") per ``amazon-ads/references/'
+            'reviewer-loop.md § Execution-review mode``, and write '
+            'the result to ``EXEC_REVIEW_<YYYY-MM-DD>_iter1.md`` in '
+            'this workspace. Re-run until Status: ok or until '
+            f'iter {_EXEC_REVIEW_MAX_ITERS} with Status: incomplete.'
+        )
+
+    def _iter_of(p):
+        m = _REVIEW_ITER_RE.search(p.name)
+        return int(m.group(1)) if m else 0
+
+    latest = max(review_files, key=_iter_of)
+    try:
+        content = latest.read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        return (
+            f'{latest.name} could not be read; rewrite the '
+            'execution-review file.'
+        )
+
+    match = _REVIEW_STATUS_RE.search(content)
+    if not match:
+        return (
+            f'{latest.name} has no ``Status:`` line. The execution '
+            'reviewer output must begin with one of: ``Status: ok`` '
+            '| ``Status: gaps`` | ``Status: incomplete``. See '
+            '``amazon-ads/references/reviewer-loop.md § '
+            'Execution-review mode``.'
+        )
+
+    status = match.group(1).lower()
+    iter_num = _iter_of(latest)
+    # Stale-review guard: a Status: ok review predating the latest
+    # EXECUTION_LOG row count is no longer valid. Compare mtimes.
+    # Without this, an agent can pass an iter1 ok, then add more
+    # rows post-review, and finalize without re-running the reviewer.
+    try:
+        log_mtime = exec_log.stat().st_mtime
+        review_mtime = latest.stat().st_mtime
+        if log_mtime > review_mtime + 5:
+            return (
+                f'Execution reviewer {latest.name} predates the '
+                f'current EXECUTION_LOG.md (log mtime {log_mtime:.0f}'
+                f' > review mtime {review_mtime:.0f}). New rows have '
+                'been added since the last review. Spawn the '
+                '``ads-execution-review`` subagent again to write '
+                f'``EXEC_REVIEW_*_iter{iter_num + 1}.md`` covering '
+                'the current log state. Old reviews are not carried '
+                'forward — every set_task_result must be backed by a '
+                'review that postdates the latest log changes.'
+            )
+    except OSError:
+        pass
+    if status == 'ok':
+        return None
+    if status == 'incomplete' and iter_num >= _EXEC_REVIEW_MAX_ITERS:
+        return None
+    if status == 'gaps':
+        return (
+            f'Execution reviewer iter {iter_num} found gaps. Read '
+            f'{latest.name} for the list: missing actions, '
+            'unverified claims, or incorrect applications. Apply '
+            'the missing/incorrect changes on the live page, '
+            're-read the bid/status field to verify, update the '
+            'per-campaign TSV, then spawn the reviewer again to '
+            f'write ``EXEC_REVIEW_*_iter{iter_num + 1}.md``. Repeat '
+            f'until Status: ok or iter {_EXEC_REVIEW_MAX_ITERS} '
+            'with Status: incomplete.'
+        )
+    if status == 'incomplete' and iter_num < _EXEC_REVIEW_MAX_ITERS:
+        return (
+            f'``Status: incomplete`` only valid at iter '
+            f'{_EXEC_REVIEW_MAX_ITERS}+. Current is iter {iter_num} '
+            '— keep iterating on the unresolved actions.'
+        )
+    return (
+        f'Unknown execution-reviewer status {status!r} in '
+        f'{latest.name}. Must be one of: ok | gaps | incomplete.'
+    )

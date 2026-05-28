@@ -70,15 +70,62 @@ metrics moved.
   new value → Save.
 - **When**: per-keyword ROAS < target_roas, but the keyword still
   produces some orders (worth keeping at lower bid).
-- **Direction**: decrease, in steps.
-  - Soft trim: -15% (1× target → 0.85× target)
-  - Standard: -25 to -30%
-  - Aggressive: -50% (consider pausing instead at this scale)
+- **Direction**: decrease, in steps. Single-step max is **−25%**
+  per `format-anchor.md § Bid-change rule` (the canonical 25% cap,
+  no tiers). Step bids across multiple audits to reach a target.
+- **Single-step delta cap — HARD RULE**: `|proposed_bid − current_bid|
+  / current_bid ≤ 0.25`. Bid changes are not "set to a target"; they
+  are **stepped over multiple sessions** so you can observe traffic
+  before the next step. A SAR 3.00 → SAR 0.80 jump (−73%) is a bid
+  *collapse*, not a trim — even when Amazon's suggested midpoint is
+  SAR 0.60. **Never use Amazon's suggested bid as the proposed value
+  in one step if the current bid is more than 1.33× the suggested
+  upper.** Instead: propose `max(current × 0.75, suggested_upper)`
+  for the first step, then re-audit after 7d before stepping further.
+- **Actual-CPC floor — HARD RULE**: if the keyword has captured
+  clicks in the analysis window, compute `actual_cpc = spend / clicks`.
+  Proposed bid must satisfy `proposed_bid ≥ actual_cpc × 0.7`. Below
+  that floor, impressions typically collapse to zero (Amazon's
+  auction won't clear you), and the orders attached to that
+  keyword vanish along with the spend. The "Amazon suggested bid"
+  is a recommendation for new keywords with no history; **observed
+  CPC always overrides it** for keywords that already cleared the
+  auction at a higher price.
+- **Workhorse guardrail — HARD RULE**: if the keyword carries
+  `≥ 50%` of campaign orders, cap delta at `−15%` (overrides the
+  general 25% cap) and pause is forbidden. Mirrors
+  `format-anchor.md § PROTECT — two simple cases`.
 - **Range**: positive currency, ≥ marketplace minimum bid (typically
   SAR 0.50 / AED 0.50 / USD 0.10 depending on marketplace).
 - **Pitfall**: Amazon's auto-bid (rule-based, dynamic strategies)
   may revise the bid back up after you set it; verify by reading
   back the cell after a few minutes.
+- **Worked example — the "bid cliff" you must avoid**: keyword
+  `women socks` Broad, current bid SAR 3.00, clicks 259, spend
+  SAR 631.75, orders 37 (80% of campaign orders), ROAS 2.35,
+  Amazon suggested 0.45–0.75. Actual CPC = 631.75 / 259 = SAR
+  2.44. Wrong proposal: SAR 0.80 (−73%, below actual CPC, kills
+  the workhorse). Correct first step: SAR 2.55 (−15% Soft trim;
+  workhorse + ≥ 50% order share triggers the order-share
+  guardrail; still well above actual CPC SAR 2.44). Re-audit
+  after 7d; if traffic holds and ROAS improves, step again.
+
+- **Worked example — promote to Pause when clamped (Lever 2 fallback)**:
+  keyword `women's socks` Broad (AE), current bid AED 2.00,
+  clicks 30, spend AED 97.82, orders 1, ROAS 0.38, ACOS 264%,
+  Amazon suggested 0.61–1.01. Actual CPC = 97.82 / 30 = AED 3.26
+  (higher than the bid — Amazon's dynamic bidding is paying a
+  premium). Floors:
+    floor          = 3.26 × 0.7 = AED 2.28
+    step_cap_floor = 2.00 × 0.5 = AED 1.00
+    proposed       = max(2.28, 1.00) = AED 2.28
+  But `proposed (2.28) ≥ current (2.00)` → **no room to trim**.
+  Per `tuning-recommendation-format.md § Bid-trim cell` step 4,
+  promote to `Pause` (Lever 2) — a single-order workhorse-less
+  row at ACOS 264% is a bleeder by any reasonable definition,
+  even if it has 1 order rather than 0. Cell text:
+  `**Pause** — 264% ACOS, 30 clicks / 1 order; bid trim has no
+  safe headroom (floor AED 2.28 ≥ current AED 2.00)`.
 
 ### 4. Negative ASIN / product target
 
@@ -104,10 +151,10 @@ metrics moved.
   share is below ~50% (Amazon shows `Top-of-search impression share`
   in default columns). Indicates the keyword is winning but not
   showing enough.
-- **Direction**: increase, in steps.
-  - Soft: +15-20%
-  - Standard: +30-50%
-  - Aggressive: 2× (only on proven winners with ≥ 30 days of data)
+- **Direction**: increase, in steps. Single-step max is **+25%**
+  per `format-anchor.md § Bid-change rule`. To reach a 2× target
+  on a proven winner, step across multiple audits (each ≤+25%) —
+  no aggressive single jumps.
 
 ### 6. Placement bid modifier (Top of search / Rest of search / Product pages)
 
@@ -188,8 +235,10 @@ metrics moved.
   - Campaign ROAS ≥ target_roas (i.e. campaign is profitable).
   - **AND tune-before-scale rule has been satisfied**: the campaign
     has gone through a Phase 3 deep-dive and ACOS is at or below target.
-  - Suggested raise: +30-50% if Amazon shows a `Recommended` value
-    nearby, follow that; else conservative +30%.
+  - Suggested raise: budget changes are not bound by the 25% bid
+    cap (different lever). Follow Amazon's `Recommended` value if
+    visible; else +30% as a conservative default. Budget is
+    scoped per-campaign and reversible; bid changes need stepping.
 - **When to LOWER**:
   - Wasteful campaign you don't want to pause but don't want to feed
     either; lower budget reduces exposure but doesn't fix the ACOS.
@@ -272,7 +321,8 @@ Recipe:
 Symptoms: ROAS ≥ target × 1.5, low impression share, healthy CTR.
 
 Recipe:
-1. Lever 5 — raise per-keyword bid on the winning keywords (+25-50%).
+1. Lever 5 — raise per-keyword bid on the winning keywords (+25%
+   max per session per `format-anchor.md § Bid-change rule`).
 2. Lever 6 — placement modifier on the placement(s) where the winner
    is converting.
 3. Lever 9 — raise budget if currently constrained.

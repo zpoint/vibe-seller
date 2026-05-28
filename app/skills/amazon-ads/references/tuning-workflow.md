@@ -229,6 +229,23 @@ Iterate the manifest. For **each entry where `state == active`**,
 produce a per-campaign section. The loop terminates only when the
 active set is exhausted.
 
+> **Phase 2 must write a per-campaign TSV under git** at
+> `stores/<slug>/ads/<platform>/<country>/<campaign_id>.tsv`,
+> **immediately after each campaign drill, before moving to the
+> next campaign**. NOT in a batch at end of session — the audit
+> exceeds one Claude Code context window and gets compacted
+> mid-run; only TSVs already written to disk survive. Diff the
+> scrape against the prior file's config block (status /
+> match_type / bid / suggested_* / rule_id); surface any
+> OBSERVED_DRIFT as a dedicated subsection in the Phase 3 report.
+> The workspace auto-commits the write. **Full schema, drift
+> rules, and worked examples live in
+> [`tuning-history.md`](tuning-history.md).** Bid column
+> extraction MUST follow `mechanics.md § Canonical column layout`
+> — the SAR midpoint at position 2 is the *suggested* bid, not
+> the keyword's bid; misreads here are the defect class this file
+> is designed to catch.
+
 ### Drill is per-campaign and non-transferable
 
 **The drill of campaign A is data only about campaign A.** It does
@@ -419,6 +436,15 @@ dropped ACOS to target.
 
 ## Phase 3: Compose
 
+> **Phase 3 recency gate.** Before emitting any state-modifying
+> recommendation (`Trim`, `Pause`, `Raise`, `Scale`, bidding-strategy
+> change), `git log` the per-campaign TSV file for the most recent
+> commit touching the row in question. If `< 7 days`, downgrade to
+> `Hold (recent change — last edit N days ago)` and surface the
+> would-have-been action in the trailing narrative. 7–14 days:
+> downgrade one tier (Standard → Soft trim). ≥ 14 days: normal
+> logic. See [`tuning-history.md § Phase 3 — recency check`](tuning-history.md).
+
 Assemble the report. The canonical layout (table shapes, per-row
 recommendation format, action-checklist numbering) is in
 `tuning-recommendation-format.md`. Phase 3's job is to enforce the
@@ -447,6 +473,24 @@ recommendation format, action-checklist numbering) is in
    numbering (`1a, 1b, 2a, …`). Each leaf names the specific entity
    (keyword / search term / auto-target-group / placement / ASIN /
    budget value) it operates on. Generic items are a defect.
+5. **Write the report** to `AD_AUDIT_<YYYY-MM-DD>.md` in the task
+   workspace. The per-task workspace at
+   `~/.vibe-seller/tasks/<task_id>/` is already isolated, so no
+   cross-task collision is possible. **Never overwrite** an
+   existing `AD_AUDIT_*.md` from a prior session in the same
+   workspace — if one is already present, you are in Phase 4 (see
+   below), not a fresh audit; patch the existing file instead.
+6. **Plan-mode tasks: call `ExitPlanMode`** at the end of Phase 3
+   with a compact summary of the Action checklist (IDs +
+   one-liners; reference the `AD_AUDIT_*.md` filename for the
+   full data) as the `plan` argument. This is what persists the
+   plan into the task's `plan` field so the Phase 4 follow-up
+   session sees the approved checklist — without it, the
+   follow-up has no record of what was approved and will fall
+   back to re-running Phase 1–3 from scratch. **Auto-mode tasks**
+   (default for ad-hoc requests): skip `ExitPlanMode` — Phase 3
+   is the final deliverable, and Phase 4 fires from a fresh task
+   the user creates by naming action IDs.
 
 **Header-table count check**: the number of rows in the header
 table equals the number of campaigns the campaign-list page
@@ -467,6 +511,125 @@ can opt straight into the high-impact rows:
   outliers with IDs.
 
 ## Phase 4: Apply (follow-up)
+
+> **Phase 4 must update the per-campaign TSV after each verified
+> action.** Update the affected row's affected field, re-stamp
+> `scraped_at`. The workspace auto-commits with subject
+> `apply: <slug> <campaign_id> <row_id> — <field>: <old> → <new>`.
+> One commit per action — multi-row commits hide which apply caused
+> which change. See [`tuning-history.md § Phase 4 — apply ledger`](tuning-history.md).
+
+### Phase 4 entry — do NOT re-run Phase 1–3
+
+Phase 4 is **always a follow-up**, never a fresh start. Before any
+other action, check both signals:
+
+1. **Prior audit on disk?** `ls AD_AUDIT_*.md` in the workspace.
+   If a file exists from a prior session, that is your Phase 3
+   output — **read it** as the reference for the approved Action
+   checklist. **Do NOT re-run Phase 1–3** and **do NOT overwrite
+   the file**. Overwriting destroys the user's previously-approved
+   work and is the single most damaging failure mode of this skill.
+2. **Plan persisted on the task?** Plan-mode follow-ups inject the
+   prior plan into the task's `plan` field (see Phase 3 step 6).
+   When present, that is the approved Action checklist — execute
+   against the IDs the user named.
+
+Reply patterns and what they trigger — pick exactly one:
+
+| User says | Skill action | What NOT to do |
+|---|---|---|
+| `execute all` / `执行所有` / `follow the plan` / `I agree with the plan` / `<N> all` / explicit IDs (`1a, 1b, 4a`) | **Execute named rows** (Class A — see dispatch table below). Read the prior `AD_AUDIT_*.md` / `tasks.plan` and run the click paths in `mechanics.md`. | Re-run Phase 1–3. Write a new audit file. Overwrite the existing one. |
+| `correct <X>` / `修正 <X>` / `update <X>` / `<X> should be Y instead` | **Patch the prior plan in place** (Class B / C — override or scoped re-drill). Edit the relevant row of the existing `AD_AUDIT_*.md` and re-emit just the affected campaign section. Only re-drill (Phase 2) for the *specific* campaign / keyword the user named — never the full portfolio. | Re-run Phase 1 (the manifest is already correct). Re-drill campaigns the user didn't mention. Write a fresh top-to-bottom audit. |
+| `redo SA5 with 14-day window` / `drill A059...` (explicit re-drill) | **Class C** — re-run Phase 2 for the named campaigns only with the new parameters; replace just those sections in the existing `AD_AUDIT_*.md`. | Re-drill anything the user didn't name. |
+| `margin is 30%, redo recommendations` | **Class D** — recompute thresholds from existing data, re-emit per-campaign sections without re-capturing. | Re-drill. Re-open the browser. |
+| `why did you flag X?` / `why did you recommend X?` / `为什么 X` / `compare SA5 and SA6` | **Class E** — answer from data already in the report **first**. If, while answering, you conclude that the original recommendation was wrong (e.g. "你说得对，建议过于粗暴" / "the trim was too aggressive"), STOP — promote the reply to **Class B**: edit the affected rows in `AD_AUDIT_*.md` in place and re-call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` so the UI re-renders. A chat-only "you're right, here's the fix" without touching the file is a **defect** — the user will go back to the file later and see the old recommendation. | Re-run anything. Leave the file stale after agreeing the original recommendation was wrong. |
+
+#### Class E → Class B promotion — explicit rule
+
+A "why" question is Class E only if your answer is a defense of
+the original recommendation. The moment your answer concedes (any
+of: "你说得对", "the original was too aggressive", "I should have
+PROTECT-tagged this", "the proposed bid is below actual CPC",
+"the campaign is self-stabilized — pausing it loses the
+high-ROAS rows"), the situation has converted to a Class B
+correction. Required actions for a Class B conversion:
+
+1. **Edit the affected rows** in `AD_AUDIT_<date>.md` using the
+   `Edit` tool — replace the old `recommendation` cell text with
+   the corrected verb + reason. Re-check the bid-trim cell
+   constraints from `tuning-recommendation-format.md § Bid-trim
+   cell — required content for Precedence 3` (step cap, actual-CPC
+   floor, order-share guardrail).
+2. **Update the campaign-section summary / Action checklist**
+   if the change reverses a Pause → Hold, a Trim → Hold, or
+   re-tags PROTECT. Don't leave stale verbs in the per-campaign
+   narrative.
+3. **Re-call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`**
+   so the frontend file-viewer picks up the new content.
+4. **Reply in chat** with a short summary of *what changed in the
+   file* (e.g. "已把 A33333333 的 'women socks' Broad 改为 Trim
+   to SAR 2.55（−15% soft trim，仍高于 actual CPC SAR 2.44）；
+   Product-Y SBV campaign 整体改为 Hold，保留 'cotton underwear'
+   Exact 不动"). Do NOT just paste a re-analysis — point the user
+   at the file changes.
+
+A Class E reply that should have been a Class B and was not is a
+*reliability* defect, not a stylistic one: the next person to
+read the file (the user, a teammate, the next-week's scheduled
+follow-up) will see the wrong recommendation and act on it.
+
+If the workspace has **no** prior `AD_AUDIT_*.md` AND the task has
+**no** persisted plan, you are NOT in a Phase 4 follow-up — ask
+the user *"no prior audit found in this workspace; should I run a
+fresh Phase 1–3 audit?"* rather than silently re-running the full
+workflow. Silent re-runs waste the user's time and overwrite the
+old report.
+
+### Phase 4 execution loop — anchor progress in TaskList
+
+State-modifying execution against the ad console can run long.
+Long sessions hit context-window compaction; compaction collapses
+in-context progress notes into prose, and the agent then often
+declares "done" after completing only a fraction of the
+checklist. Anchor your progress in **TaskList**, which is stored
+on disk by Claude Code and survives compaction unchanged.
+
+**Class A entry (`execute all` / explicit IDs):**
+
+1. **Enumerate up front.** Right after reading `AD_AUDIT_*.md`,
+   call `TaskCreate` once per state-modifying action ID in the
+   checklist (C1, C2, S3, S4, M1, M2, … — skip pure `Hold`
+   rows). Use the action ID as the `subject` prefix
+   (`subject: "C1: Pause BackPack-001-SMALL auto"`). All start
+   in `pending`.
+2. **Loop.** Repeat until `TaskList` returns zero pending +
+   zero in_progress items in scope:
+   - `TaskList` → pick the lowest-ID `pending` item.
+   - `TaskUpdate` → `in_progress`.
+   - Execute the action per `mechanics.md` (click paths,
+     before/after capture into `/tmp/<run-slug>/`).
+   - Verify the change took effect (re-read the relevant tile
+     or row).
+   - `TaskUpdate` → `completed`.
+3. **After any compaction** (you will see a system message like
+   *"This session is being continued from a previous
+   conversation that ran out of context. The summary below
+   covers the earlier portion of the conversation"*), your
+   **first tool call MUST be `TaskList`**. Do NOT trust the
+   summary's prose description of what's done — it is lossy.
+   Re-anchor on the disk-resident TaskList state, then resume
+   the loop at the lowest-ID `pending` / `in_progress` row.
+4. **Stop condition.** Phase 4 is complete **only** when
+   `TaskList` shows zero `pending` and zero `in_progress`
+   items for this audit. Declaring completion before that is
+   a contract violation; the host enforces this via the Stop
+   hook and will deny stop if TaskList still has open work.
+
+This loop is the single most important thing in Phase 4. Skip
+it and the checklist will be silently truncated on long runs.
+
+### Reply dispatch
 
 After the report has been delivered, the user replies. The reply is
 exactly one of these classes; the agent dispatches mechanically:

@@ -261,11 +261,16 @@ class TestCompactionOnProfileSwitch:
             f'{_SECRET_CODE} not found in history file'
         )
 
-        # Step 6: Verify agent recovered context
+        # Step 6: Verify agent recovered context.
+        # Include 'thinking' role: some providers (e.g. glm-4.7
+        # under interleaved-thinking mode) sometimes return the
+        # final answer in a thinking block with no text block. The
+        # contract is "the agent's response contains the code" —
+        # which is demonstrated equally by either content kind.
         switch_msgs = [
             m
             for m in msgs_after[count_before:]
-            if m.get('role') in ('assistant', 'result')
+            if m.get('role') in ('assistant', 'result', 'thinking')
         ]
         if switch_msgs:
             response_text = ' '.join(m.get('content', '') for m in switch_msgs)
@@ -315,10 +320,13 @@ class TestCompactionOnProfileSwitch:
         )
 
         # Behavior: agent recalls the secret across the --resume.
+        # Accept 'thinking' content for the same reason as Step 6 —
+        # some providers omit the text block when the answer is
+        # short and produce only a thinking block.
         fu2_msgs = [
             m
             for m in msgs_after_fu2[count_before_fu2:]
-            if m.get('role') in ('assistant', 'result')
+            if m.get('role') in ('assistant', 'result', 'thinking')
         ]
         assert fu2_msgs, 'No assistant/result message for second follow-up'
         fu2_text = ' '.join(m.get('content', '') for m in fu2_msgs)

@@ -93,9 +93,8 @@ def write_browser_use_wrapper(
     )
     if not real_bu:
         logger.warning(
-            'browser-use not found alongside %s nor on PATH; '
-            'wrapper will use "browser-use" as fallback',
-            sys.executable,
+            'browser-use binary not found on PATH; '
+            'wrapper will use "browser-use" as fallback'
         )
         real_bu = 'browser-use'
 

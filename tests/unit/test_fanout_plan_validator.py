@@ -1,5 +1,5 @@
 """Unit tests for the fanout-plan validator in
-``app/ai/claude_backend_hooks.py._validate_fanout_plan_text``.
+``app/ai/claude_backend_utils.py.validate_fanout_plan_text``.
 
 The validator runs when the agent calls ``ExitPlanMode`` on a
 plan-only Task whose owning Schedule is in ``phase_mode='fanout'``.
@@ -32,21 +32,13 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-import app.ai.claude_backend_hooks as _hooks
+import app.ai.claude_backend_utils as _utils
 import app.database as _db
 from app.models.base import Base
 from app.models.schedule import Schedule
 from app.models.task import Task
 
 pytestmark = pytest.mark.unit
-
-
-class _StubSession(_hooks._HookMixin):
-    """Bare mixin instance wired to a task_id — mirrors the attrs
-    the validator reads from ``AgentSession``."""
-
-    def __init__(self, task_id: str):
-        self.task_id = task_id
 
 
 @pytest_asyncio.fixture
@@ -63,7 +55,7 @@ async def env(monkeypatch):
         engine, class_=AsyncSession, expire_on_commit=False
     )
     monkeypatch.setattr(_db, 'async_session', maker)
-    monkeypatch.setattr(_hooks, 'async_session', maker)
+    monkeypatch.setattr(_utils, 'async_session', maker)
     yield maker
 
 
@@ -101,15 +93,17 @@ async def _seed(maker, *, is_plan_only: bool, phase_mode: str):
 class TestFanoutPlanValidator:
     async def test_clean_plan_passes(self, env):
         task_id = await _seed(env, is_plan_only=True, phase_mode='fanout')
-        reason = await _StubSession(task_id)._validate_fanout_plan_text(
-            '## Plan\n\n1. Read store L3 catalog\n2. Do per-store work.\n'
+        reason = await _utils.validate_fanout_plan_text(
+            task_id,
+            '## Plan\n\n1. Read store L3 catalog\n2. Do per-store work.\n',
         )
         assert reason is None
 
     async def test_vibe_seller_create_task_rejected(self, env):
         task_id = await _seed(env, is_plan_only=True, phase_mode='fanout')
-        reason = await _StubSession(task_id)._validate_fanout_plan_text(
-            '## Orchestrator\nCall `vibe_seller_create_task` per store.\n'
+        reason = await _utils.validate_fanout_plan_text(
+            task_id,
+            '## Orchestrator\nCall `vibe_seller_create_task` per store.\n',
         )
         assert reason is not None
         assert 'sub-task MCP' in reason
@@ -119,16 +113,16 @@ class TestFanoutPlanValidator:
 
     async def test_parent_task_id_rejected(self, env):
         task_id = await _seed(env, is_plan_only=True, phase_mode='fanout')
-        reason = await _StubSession(task_id)._validate_fanout_plan_text(
-            'For each sub-task, set parent_task_id = orchestrator id.'
+        reason = await _utils.validate_fanout_plan_text(
+            task_id, 'For each sub-task, set parent_task_id = orchestrator id.'
         )
         assert reason is not None
         assert 'parent/sub-task' in reason
 
     async def test_case_insensitive(self, env):
         task_id = await _seed(env, is_plan_only=True, phase_mode='fanout')
-        reason = await _StubSession(task_id)._validate_fanout_plan_text(
-            'Call Vibe_Seller_Create_Task per store.'
+        reason = await _utils.validate_fanout_plan_text(
+            task_id, 'Call Vibe_Seller_Create_Task per store.'
         )
         assert reason is not None
 
@@ -137,8 +131,8 @@ class TestFanoutPlanValidator:
         # may be legitimate (e.g. a shared-mailbox sweep task that
         # wants to dispatch per-tenant work).
         task_id = await _seed(env, is_plan_only=True, phase_mode='single')
-        reason = await _StubSession(task_id)._validate_fanout_plan_text(
-            'Call vibe_seller_create_task per tenant.'
+        reason = await _utils.validate_fanout_plan_text(
+            task_id, 'Call vibe_seller_create_task per tenant.'
         )
         assert reason is None
 
@@ -146,8 +140,8 @@ class TestFanoutPlanValidator:
         # A scheduled fire or interactive plan-mode task is exempt —
         # the validator only guards the plan-authoring phase.
         task_id = await _seed(env, is_plan_only=False, phase_mode='fanout')
-        reason = await _StubSession(task_id)._validate_fanout_plan_text(
-            'Call vibe_seller_create_task per store.'
+        reason = await _utils.validate_fanout_plan_text(
+            task_id, 'Call vibe_seller_create_task per store.'
         )
         assert reason is None
 
@@ -171,7 +165,7 @@ class TestFanoutPlanValidator:
                 )
             )
             await db.commit()
-        reason = await _StubSession(task_id)._validate_fanout_plan_text(
-            'vibe_seller_create_task everywhere'
+        reason = await _utils.validate_fanout_plan_text(
+            task_id, 'vibe_seller_create_task everywhere'
         )
         assert reason is None

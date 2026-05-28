@@ -395,7 +395,15 @@ class TestCatalogSystem:
         tool_use_msgs = [m for m in messages if m['role'] == 'tool_use']
         assistant_msgs = [m for m in messages if m['role'] == 'assistant']
         total_turns = len(tool_use_msgs) + len(assistant_msgs)
-        MAX_TOTAL_TURNS = 6
+        # Efficiency check: the catalog-first flow should be at most
+        # ~5 turns on a strong model (read CATALOG → read entry →
+        # find secret → reply). Bound is generous (12) because CI
+        # uses smaller/cheaper providers (MiniMax-M2.7, glm-4.7)
+        # that take more turns than Sonnet for the same work. The
+        # real correctness signals — agent read CATALOG, no broad
+        # globs, found the secret — are checked above; this is the
+        # last-line "agent didn't go totally feral" guard.
+        MAX_TOTAL_TURNS = 12
         assert total_turns <= MAX_TOTAL_TURNS, (
             f'Agent took {total_turns} turns (max {MAX_TOTAL_TURNS}).'
         )

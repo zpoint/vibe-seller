@@ -131,15 +131,39 @@ placements as the second table for context.
 SP campaigns). The last column is **`recommendation`** — the
 per-row action so the reader sees data + decision in one place.
 
+> 🛑 **Hard schema requirement — applies to every keyword table in
+> every campaign section, every report, no exceptions.**
+>
+> The **`actual CPC`** column is REQUIRED on every keyword table
+> (and every Search-terms table, and every Targets table on noon).
+> Compute as `spend / clicks` (cell shows `—` when `clicks == 0`).
+>
+> Why it's non-negotiable: the proposed-bid floor (`actual_cpc ×
+> 0.7`) is the single guardrail that prevents "bid cliff"
+> recommendations from being emitted. A keyword table without this
+> column lets the floor go uncomputed, and the cliff pattern
+> recurs. **Reports observed in the wild that omitted the column on
+> some campaigns (but not others) emitted floor-violating Trim
+> proposals on exactly the campaigns where the column was missing.**
+> The column existing on table A but not table B is the same defect
+> as the column missing everywhere — generalize it, or the gate is
+> a coin flip.
+>
+> If you're about to write a Markdown table that begins
+> `| Keyword | ... | bid | ... | recommendation |` and is missing
+> `actual CPC` between `bid` and `recommendation` (or between
+> `bid` and `suggested`), stop. Add the column. Recompute the
+> Trim proposals against the floor before publishing.
+
 ```
-| Keyword (match)    | status     | clicks | spend       | orders | sales       | ROAS | ACOS       | bid      | recommendation                                      |
-|---|---|---|---|---|---|---|---|---|---|
-| "<kw-1>" (Phrase)  | Delivering | 119    | <ccy 250.00>| 6      | <ccy 260.00>| 1.00 | **100.0%** | <ccy 2>  | **Pause** — 100% ACOS, 119 clicks / 6 orders        |
-| "<kw-2>" (Broad)   | Delivering |  82    | <ccy 180.00>| 9      | <ccy 380.00>| 2.00 |  50.0%     | <ccy 2>  | Trim to <ccy 1.50> — 50% ACOS, but 9 orders, scale-able |
-| "<kw-3>" (Broad)   | **Paused** |  15    | <ccy  30.00>| 1      | <ccy  30.00>| 1.00 | 100.0%     | <ccy 2>  | Hold (Paused) — already paused, no action            |
-| "<kw-4>" (Broad)   | Delivering |   3    | <ccy   7.00>| 1      | <ccy  30.00>| 4.30 |  25.0%     | <ccy 3>  | **Scale** — 4.30 ROAS / 25% ACOS; raise bid +20%     |
-| "<kw-5>" (Phrase)  | Delivering |   4    | <ccy   8.00>| 1      | <ccy  40.00>| 5.00 |  20.0%     | <ccy 3>  | Hold — 4 clicks is small sample; watch 7d            |
-| (≤ 9 idle variants, 0–3 clicks, 0 orders)                                |        |        | <small>     |        | —           | —    | —          | <ccy 3>  | **Pause** all idle — 80%+ kw with 0 clicks (clutter) |
+| Keyword (match)    | status     | clicks | spend       | orders | sales       | ROAS | ACOS       | bid      | actual CPC | suggested | recommendation                                      |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| "<kw-1>" (Phrase)  | Delivering | 119    | <ccy 250.00>| 6      | <ccy 260.00>| 1.00 | **100.0%** | <ccy 2>  | <ccy 2.10> | <ccy 1.50–2.20> | **Pause** — 100% ACOS, 119 clicks / 6 orders        |
+| "<kw-2>" (Broad)   | Delivering |  82    | <ccy 180.00>| 9      | <ccy 380.00>| 2.00 |  50.0%     | <ccy 2>  | <ccy 2.20> | <ccy 1.40–2.10> | **Trim to <ccy 1.55>** (−23%; floor <ccy 1.54>; Amazon rec 1.40–2.10) — 50% ACOS, 9 orders |
+| "<kw-3>" (Broad)   | **Paused** |  15    | <ccy  30.00>| 1      | <ccy  30.00>| 1.00 | 100.0%     | <ccy 2>  | <ccy 2.00> | <ccy 1.40–2.10> | Hold (Paused) — already paused, no action            |
+| "<kw-4>" (Broad)   | Delivering |   3    | <ccy   7.00>| 1      | <ccy  30.00>| 4.30 |  25.0%     | <ccy 3>  | <ccy 2.33> | <ccy 2.00–3.00> | **Scale** — 4.30 ROAS / 25% ACOS; raise bid +20%     |
+| "<kw-5>" (Phrase)  | Delivering |   4    | <ccy   8.00>| 1      | <ccy  40.00>| 5.00 |  20.0%     | <ccy 3>  | <ccy 2.00> | <ccy 1.80–2.80> | Hold — 4 clicks is small sample; watch 7d            |
+| (≤ 9 idle variants, 0–3 clicks, 0 orders)                                |        |        | <small>     |        | —           | —    | —          | <ccy 3>  | —          | <ccy 2.00–3.00> | **Pause** all idle — 80%+ kw with 0 clicks (clutter) |
 ```
 
 (`<ccy ...>` is the marketplace currency — SAR, AED, USD, etc.)
@@ -157,10 +181,120 @@ per-row action so the reader sees data + decision in one place.
   (Amazon rec 1.00–2.00)"*. Often the suggested-bid column is
   blank (Amazon hasn't computed a value yet for low-traffic kws);
   in that case omit it from the cell.
-- **PROTECT keywords** (≥ 5% of campaign orders): `Hold (PROTECT)
-  — N orders, ROAS X.XX`.
 - **No vague phrases** like *"review later"* or *"check"* — every
   cell has a concrete action or `Hold`.
+
+### Precedence — when multiple signals fire on the same row
+
+Most keyword/target rows match one signal cleanly. When more than
+one fires (common on top performers — high spend triggers both
+PROTECT and bid-drift, for example), resolve **top-down through
+this table** and emit exactly the cell text on the first matching
+row. Lower-precedence signals that also fired are surfaced in the
+trailing narrative ("bid 4× suggested upper but driving 79 % of
+campaign orders"), never as a second action verb.
+
+| Precedence | Signal | Cell text |
+|---|---|---|
+| 1 | **PROTECT** — either: (a) row ROAS ≥ target_roas × 2 AND ≥ 1 order (Efficiency PROTECT), or (b) row carries ≥ 50 % of campaign orders (Workhorse — pause forbidden, trim cap drops to −15 %). Matches `format-anchor.md § PROTECT — two simple cases` (canonical, reviewer-enforced). | `Hold (PROTECT) — N orders, ROAS X.XX` (append `(efficiency)` or `(workhorse)` to indicate which trigger). No other action verb. |
+| 2 | **Bleeder** — 0 orders AND spend ≥ 1.5 × AOV | `**Pause** — N clicks / <ccy spend> / 0 orders` |
+| 3 | **Bid drift high** — bid > 1.5 × suggested midpoint | `**Trim to <ccy X.XX>** (−P %; Amazon rec L–U; actual CPC <ccy>) — Z % ACOS, N orders` |
+| 4 | **Bid drift low + performing** — bid < 0.5 × suggested midpoint AND actual ROAS ≥ target | `**Raise to <ccy>** — under-bid; ROAS X.XX, N orders` |
+| 5 | **Scale** — actual ROAS ≥ 1.5 × target AND budget headroom | `**Scale** — ROAS X.XX vs target Y.YY; raise bid / budget` |
+| 6 | (none of the above) | `Hold` |
+
+Combining a higher-precedence verdict with a lower-precedence
+action verb in the same cell (e.g. `Hold (PROTECT) ... Trim to X`)
+is a contract violation and a user-trust violation — the PROTECT
+tag exists to suppress those exact actions on order-drivers.
+
+### Bid-trim cell — required content for Precedence 3
+
+Before writing **any** `Trim to <ccy X.XX>` cell, run this 4-step
+checklist on paper / in scratch space. Skipping it is the single
+most reliable way to produce the "bid cliff" defect.
+
+```
+Step 1. actual_cpc      = spend / clicks   (if clicks == 0, do not propose Trim — emit Hold with reason "no traffic")
+Step 2. floor           = actual_cpc * 0.7
+Step 3. step_cap_floor  = current_bid * 0.5
+Step 4. proposed        = max(floor, step_cap_floor)   # both are floors; the larger one wins
+        if row_orders >= 0.5 * campaign_orders:
+            proposed = max(proposed, current_bid * 0.85)  # workhorse soft-trim cap
+        if proposed >= current_bid:
+            # no room to trim — promote to Lever 2 (Pause) or Lever 7 (bidding-strategy change), do NOT emit Trim
+            emit Pause OR Hold-with-reason, NOT Trim
+```
+
+The three constraints (`Step 2`, `Step 3`, workhorse cap) are
+each enforced by `tuning-toolbox.md § Lever 3`. The cell text
+MUST surface enough numbers for the user to re-derive the floor
+in one glance:
+
+```
+**Trim to <ccy 2.55>** (−15% Soft; floor <ccy 2.44> from actual CPC; Amazon rec 0.45–0.75) — workhorse (80% of campaign orders)
+```
+
+— format: `verb`, `proposed value`, `(delta %; floor source; Amazon
+rec)`, `— short reason`. The `floor` number is mandatory; it
+proves the proposal is not below `actual_cpc × 0.7`.
+
+### Anti-patterns — recognize-and-stop list
+
+| Anti-pattern in the proposed value | What's wrong | What to emit instead |
+|---|---|---|
+| `Trim to <suggested midpoint>` when current bid > 1.33× suggested upper | Single-step −25 %+; would violate the canonical 25 % cap. | `Trim to current × 0.75` (one step), or `Pause` if floor > step_cap_floor. |
+| `Trim to <ccy X>` where X < `(spend / clicks) × 0.7` | Below actual-CPC floor — keyword loses the auction on next round. | `Trim to actual_cpc × 0.7` (if still < current) or `Pause` if floor ≥ current. |
+| `Trim to <ccy X>` on a row with ≥ 50 % of campaign orders (Workhorse), with X < current × 0.85 | Wipes the workhorse; campaign's order base collapses. | `Trim to current × 0.85` (−15 % workhorse cap per `format-anchor.md`) only; full review after 7d. |
+| `Trim to <ccy X>` on a row with 0 clicks | No actual_cpc; the proposed value is unanchored. | `Hold — no traffic to size the trim against`. Reconsider why the keyword exists. |
+
+A proposed bid that prints below `actual_cpc × 0.7` is a **defect**
+the report must catch before delivery. So is `−P %` > `25 %` in a
+single step (the canonical cap from `format-anchor.md § Bid-change
+rule` — reviewer rejects anything over 25 %). So is "Trim straight
+to suggested midpoint" when current bid is more than 1.33× the
+suggested upper. These defects
+produce the "bid cliff" pattern; flag them in self-review and
+either re-clamp the value, or promote to Pause if no clamp
+satisfies all constraints.
+
+### Self-review gate — per campaign section, not deferred to end
+
+The gate runs **inside the per-campaign drill loop**, not as a
+single global pass at the end of the report. Concretely, the
+agent's per-campaign workflow is:
+
+```
+for each active campaign in the manifest:
+  1. drill: capture top-tile, keyword/target rows, search terms
+  2. write the keyword table — INCLUDING the actual CPC column
+  3. for each row that triggered Precedence 3 (bid drift high):
+     - compute floor, step_cap_floor, workhorse cap
+     - if no clamp passes all three → promote to Pause / Hold
+     - else propose the clamped value
+     - print the floor source in the cell text
+  4. RE-READ the section you just wrote. For every "Trim to <X>" cell,
+     verify on the spot:
+        delta_cap_ok   : |X − current| / current ≤ 0.25
+        floor_ok       : X ≥ (spend / clicks) × 0.7   (or clicks==0 ⇒ not Trim)
+        workhorse_ok   : if orders ≥ 0.5 × campaign_orders ⇒ |X − current| / current ≤ 0.15
+     If ANY check fails, FIX THE CELL before moving to the next campaign.
+  5. only then move to the next campaign
+```
+
+Why per-campaign and not global: in observed runs, the agent
+applied the gate to the worst campaign in the report but skipped
+it on the second-worst — because by the time the second campaign
+was being written, the gate had drifted out of working memory.
+Anchoring the gate inside each per-campaign loop body keeps it
+adjacent to the recommendation it must check.
+
+A report containing even one Trim cell that fails the per-section
+gate is not delivered. If the agent notices the omission after
+the section is written, the fix is to `Edit` the section in place
+(re-clamping the value or promoting to Pause), not to leave the
+defect and add a caveat. Caveats are not a substitute for
+correct recommendations.
 
 Sum the keyword columns; they should equal the campaign top-tile to
 the cent (clicks, spend, orders, sales). If they don't, the date
