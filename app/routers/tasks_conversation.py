@@ -12,6 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.compaction import build_history_prompt, dump_history_file
+from app.ai.external_config import (
+    ExternalConfigOverrideError,
+    assert_profile_compatible,
+)
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.auth import get_current_user
 from app.browser.manager import browser_manager, store_slug as _store_slug
@@ -92,6 +96,22 @@ async def _spawn_followup_agent(
     """
     started = False
     try:
+        # cc-switch / external override may have appeared since the
+        # initial task ran — re-check before each follow-up spawn so
+        # the agent never silently routes to whatever endpoint the
+        # external tool configured. Treat as a normal launch failure
+        # so the existing revert path runs (task back to its prior
+        # terminal status, error surfaced on the task card).
+        try:
+            assert_profile_compatible(profile_id)
+        except ExternalConfigOverrideError as override_err:
+            # JSON-encode the structured detail so the frontend
+            # ``ExternalConfigOverrideErrorCard`` can render it in
+            # the user's locale — same shape as the auto-launch
+            # path in ``app/task_runner_auto.py``.
+            revert_error = json.dumps(override_err.to_api_detail())
+            revert_error_category = 'external_config_override'
+            raise
         started = await agent_manager.run(
             task_id,
             prompt,

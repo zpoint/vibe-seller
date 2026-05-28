@@ -12,7 +12,6 @@ from app.auth import get_current_user
 from app.browser.ziniao_utils import (
     ZiniaoNormalModeError,
     ensure_ziniao_running,
-    get_platform,
     get_ziniao_status,
     kill_and_relaunch_ziniao,
     try_connect_ziniao,
@@ -32,6 +31,26 @@ from app.utils.crypto import decrypt_password, encrypt_password
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/ziniao-accounts', tags=['ziniao-accounts'])
+
+
+def _decrypt_or_400(encrypted: str) -> str:
+    """Decrypt a stored password; raise structured 400 on failure.
+
+    Fernet decrypts will fail when the row was sealed with a JWT_SECRET
+    other than the one this install resolves (e.g. DB copied between
+    machines whose ~/.vibe-seller/data/jwt_secret was auto-generated
+    independently). The user fix is to re-enter the password, so we
+    surface that as a structured ziniao status the Sidebar can render
+    next to an Edit button — not a bare 500.
+    """
+    try:
+        return decrypt_password(encrypted)
+    except Exception:
+        logger.exception('Failed to decrypt ziniao account password')
+        raise HTTPException(
+            status_code=400,
+            detail=json.dumps({'status': 'credentials_error'}),
+        )
 
 
 @router.get('', response_model=list[ZiniaoAccountResponse])
@@ -129,7 +148,7 @@ async def list_browsers(
     user_info = {
         'company': account.company,
         'username': account.username,
-        'password': decrypt_password(account.encrypted_password),
+        'password': _decrypt_or_400(account.encrypted_password),
     }
     client_path = account.client_path or 'ziniao'
 
@@ -195,7 +214,6 @@ async def list_browsers(
                 detail=json.dumps(
                     {
                         'status': 'no_permission',
-                        'platform': get_platform(),
                         'message': err_msg,
                     },
                     ensure_ascii=False,
@@ -247,7 +265,7 @@ async def restart_ziniao(
     user_info = {
         'company': account.company,
         'username': account.username,
-        'password': decrypt_password(account.encrypted_password),
+        'password': _decrypt_or_400(account.encrypted_password),
     }
     client_path = account.client_path or 'ziniao'
 

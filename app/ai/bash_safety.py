@@ -165,6 +165,30 @@ def is_catalog_path(path: str) -> bool:
     return bool(_CATALOG_FILE.search(path))
 
 
+def should_mark_catalog_read(tool_name: str, tool_input: dict) -> bool:
+    """Return True iff a Read of a catalog-shaped path was attempted.
+
+    Used by the PreToolUse hook to flip the catalog-first guard off
+    once the agent has *tried* to consult the catalog. Existence on
+    disk deliberately doesn't matter: a fresh workspace (newly created
+    store, never-run catalog-sync) has no ``stores/<slug>/CATALOG.md``
+    yet, so the legitimate first move "Read the catalog, find it
+    missing, then `ls` to see what's there" was indefinitely denied
+    under the old `is_file()`-gated check — which broke every fresh
+    task for providers (DeepSeek thinking mode in particular) that
+    can't recover from a hook-denied tool_use in the same turn.
+
+    Anti-spoofing concern (agent fabricates a fake catalog file to
+    bypass the guard) is mitigated elsewhere: Write/Edit tools are
+    routed through the same approval flow, and a fake CATALOG.md
+    would still be empty, so the agent gains nothing by reading it
+    first.
+    """
+    if tool_name != 'Read':
+        return False
+    return is_catalog_path(tool_input.get('file_path', ''))
+
+
 # Same intent as ``check_catalog_first`` for Bash, but applied to the
 # Claude Code built-in ``Glob`` and ``Grep`` tools. Without this, an
 # agent denied at the Bash layer pivots to ``Glob(pattern='stores/...')``

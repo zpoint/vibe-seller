@@ -368,7 +368,7 @@ install_uv() {
 }
 
 # ============================================================
-# Dependency: node (>= 18)
+# Dependency: node (>= 22)
 # ============================================================
 # pnpm@latest (v11+) imports `node:sqlite`, a built-in module added in
 # Node 22. Older Node throws ERR_UNKNOWN_BUILTIN_MODULE on the very
@@ -410,6 +410,15 @@ install_node() {
             sudo -E bash "$tmpdir/nodesource_setup.sh"
             rm -rf "$tmpdir"
             _apt_updated=true  # NodeSource setup already ran apt-get update
+            # Ubuntu LTS ships nodejs 12 + libnode-dev which OWN
+            # /usr/include/node/common.gypi and other paths that
+            # nodejs 22 also installs. dpkg refuses to overwrite
+            # files owned by another package, so the install fails
+            # with "trying to overwrite ... which is also in
+            # package libnode-dev". Purge the OS nodejs stack first
+            # — NodeSource is the source of truth from here on.
+            sudo apt-get remove -y -qq \
+                nodejs nodejs-doc libnode-dev libnode72 npm 2>/dev/null || true
             sudo apt-get install -y -qq nodejs
         elif _pacman; then
             sudo pacman -S --noconfirm nodejs npm
@@ -440,12 +449,24 @@ check_pnpm() {
 install_pnpm() {
     _info "Installing pnpm..."
     # fix_npm_permissions ensures npm global dir is user-writable on Linux
-    # so we don't need sudo for npm install -g
-    if _check corepack; then
-        corepack enable 2>/dev/null || true
-        corepack prepare pnpm@latest --activate 2>/dev/null || npm install -g pnpm
-    else
-        npm install -g pnpm
+    # so we don't need sudo for npm install -g.
+    #
+    # We deliberately skip `corepack enable` here: it tries to symlink
+    # into the corepack install's bin dir (typically `/usr/bin/` for
+    # apt-installed Node), which fails with EACCES on hosts where the
+    # user isn't root (e.g. self-hosted CI runners or any non-root
+    # install). `npm install -g pnpm` honours the user-local prefix
+    # we just configured and works without sudo on the same hosts.
+    npm install -g pnpm
+    # If fix_npm_permissions returned early (npm prefix already
+    # writable, common when /usr/local is owned by the runner user),
+    # nothing extended PATH; pnpm installed to the npm prefix's bin
+    # which may not be on the caller's PATH. Add it explicitly so
+    # the subsequent _check picks it up.
+    local npm_bin
+    npm_bin="$(npm config get prefix 2>/dev/null)/bin"
+    if [[ -d "$npm_bin" && ":$PATH:" != *":$npm_bin:"* ]]; then
+        export PATH="$npm_bin:$PATH"
     fi
     if ! _check pnpm; then
         _error "pnpm install failed"

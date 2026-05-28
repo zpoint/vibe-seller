@@ -15,7 +15,14 @@ from app.workspace.skills_sync import SkillsSyncManager
 
 @pytest.fixture
 def sync_mgr(tmp_path):
-    """Create a SkillsSyncManager with a temp dest dir."""
+    """Create a SkillsSyncManager with a temp dest dir.
+
+    The 24h cooldown now reads its meta path through the
+    ``_sync_meta_path`` instance property (derived from
+    ``self._dest_dir``), so overriding ``_dest_dir`` to a tmp dir
+    naturally isolates the cooldown file too. No extra patching
+    needed here.
+    """
     mgr = SkillsSyncManager()
     mgr._dest_dir = tmp_path / '.claude' / 'skills'
     mgr._dest_dir.mkdir(parents=True)
@@ -68,10 +75,6 @@ async def test_fetch_replaces_builtin_skill_atomically(sync_mgr, tmp_path):
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
     ):
         result = await sync_mgr.fetch()
 
@@ -114,10 +117,6 @@ async def test_fetch_skips_unchanged_skill(sync_mgr, tmp_path):
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
     ):
         result = await sync_mgr.fetch()
 
@@ -152,10 +151,6 @@ async def test_fetch_preserves_user_created_skills(sync_mgr, tmp_path):
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
     ):
         await sync_mgr.fetch()
 
@@ -191,10 +186,6 @@ async def test_fetch_detects_stale_files_as_changed(sync_mgr, tmp_path):
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
     ):
         result = await sync_mgr.fetch()
 
@@ -293,10 +284,6 @@ async def test_fetch_uses_unique_temp_dirs(sync_mgr, tmp_path):
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
     ):
         r1 = await sync_mgr.fetch()
         _make_source_skill(src, 'my-skill', {'SKILL.md': '# v2'})
@@ -335,10 +322,6 @@ async def test_fetch_handles_symlink_dest(sync_mgr, tmp_path):
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
     ):
         await sync_mgr.fetch()
 
@@ -371,7 +354,6 @@ async def test_synced_skills_derived_from_source(sync_mgr, tmp_path):
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch('app.workspace.skills_sync._SYNC_META_PATH', meta_path),
     ):
         await sync_mgr.fetch()
 
@@ -406,10 +388,6 @@ async def test_install_skill_deps_triggers_on_new_requirements(
     with (
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
         patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
-        patch(
             'asyncio.create_subprocess_exec',
             new_callable=AsyncMock,
         ) as mock_exec,
@@ -438,13 +416,9 @@ async def test_install_skill_deps_skips_unchanged(sync_mgr, tmp_path):
 
     # Simulate already-installed state in meta (content md5 hash)
     content_hash = hashlib.md5(req.read_bytes()).hexdigest()
-    with patch(
-        'app.workspace.skills_sync._SYNC_META_PATH',
-        sync_mgr._dest_dir / '.sync_meta.json',
-    ):
-        sync_mgr._write_sync_meta({
-            'installed_deps': {'test-skill': content_hash},
-        })
+    sync_mgr._write_sync_meta({
+        'installed_deps': {'test-skill': content_hash},
+    })
 
     venv = tmp_path / '.venv'
     venv.mkdir()
@@ -453,10 +427,6 @@ async def test_install_skill_deps_skips_unchanged(sync_mgr, tmp_path):
 
     with (
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
-        patch(
-            'app.workspace.skills_sync._SYNC_META_PATH',
-            sync_mgr._dest_dir / '.sync_meta.json',
-        ),
         patch(
             'asyncio.create_subprocess_exec',
             new_callable=AsyncMock,
@@ -538,7 +508,6 @@ async def test_check_and_sync_remote_cooldown_short_circuits_before_gate(
     )
 
     with (
-        patch('app.workspace.skills_sync._SYNC_META_PATH', meta_path),
         patch(
             'app.workspace.skills_sync._auto_sync_enabled',
             new_callable=AsyncMock,

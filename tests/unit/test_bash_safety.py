@@ -13,6 +13,7 @@ from app.ai.bash_safety import (
     check_catalog_first_tool_args,
     check_dangerous_kill,
     is_catalog_path,
+    should_mark_catalog_read,
 )
 
 pytestmark = pytest.mark.unit
@@ -264,3 +265,52 @@ class TestCatalogFirstToolArgs:
             )
             is not None
         )
+
+
+class TestShouldMarkCatalogRead:
+    """The PreToolUse hook flips ``_catalog_read = True`` once the
+    agent has tried to consult a catalog. The predicate must accept
+    *any* Read of a catalog-shaped path — even if the file doesn't
+    exist on disk yet (fresh store, no L3 catalog generated). The
+    older ``is_file()``-gated version trapped fresh-store tasks in
+    a deny loop the moment the agent reached for a CATALOG.md that
+    hadn't been generated, which then 400'd DeepSeek thinking mode
+    on the next turn.
+    """
+
+    def test_read_existing_l3_catalog_flips_guard(self, tmp_path):
+        store_dir = tmp_path / 'stores' / 'real-store'
+        store_dir.mkdir(parents=True)
+        catalog = store_dir / 'CATALOG.md'
+        catalog.write_text('# real catalog\n')
+        assert should_mark_catalog_read('Read', {'file_path': str(catalog)})
+
+    def test_read_missing_l3_catalog_still_flips_guard(self, tmp_path):
+        # The whole point: file may not exist yet on a fresh install.
+        missing = tmp_path / 'stores' / 'fresh-store' / 'CATALOG.md'
+        assert not missing.exists()
+        assert should_mark_catalog_read('Read', {'file_path': str(missing)})
+
+    def test_read_missing_l2_catalog_still_flips_guard(self, tmp_path):
+        missing = tmp_path / 'knowledge' / 'CATALOG.md'
+        assert not missing.exists()
+        assert should_mark_catalog_read('Read', {'file_path': str(missing)})
+
+    def test_read_non_catalog_path_does_not_flip(self):
+        assert not should_mark_catalog_read(
+            'Read', {'file_path': '/home/user/.vibe-seller/stores/x/notes.md'}
+        )
+
+    def test_non_read_tool_does_not_flip(self):
+        # Even pointing at a CATALOG.md, only Read counts as
+        # "tried to consult the catalog".
+        assert not should_mark_catalog_read(
+            'Bash', {'command': 'cat stores/x/CATALOG.md'}
+        )
+        assert not should_mark_catalog_read(
+            'Edit', {'file_path': 'stores/x/CATALOG.md'}
+        )
+
+    def test_empty_input_does_not_flip(self):
+        assert not should_mark_catalog_read('Read', {})
+        assert not should_mark_catalog_read('Read', {'file_path': ''})
