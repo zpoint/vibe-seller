@@ -28,13 +28,31 @@ logger = logging.getLogger(__name__)
 
 
 def detect_language_hint(title: str, description: str | None = None) -> str:
-    """Detect if task text contains Chinese and return a language hint."""
+    """Detect if task text contains Chinese and return a language hint.
+
+    Covers prose cells in tables (e.g. Recommendation columns) too —
+    those are the place agents most often drift back to English under
+    context pressure, and the language gate at set_task_result will
+    deny results whose prose runs below 85% in the expected script.
+    """
     text = title + (description or '')
     has_chinese = any('\u4e00' <= ch <= '\u9fff' for ch in text)
     if has_chinese:
-        return '\n\nIMPORTANT: The user writes in Chinese. Respond in Chinese (中文) for plans, results, and messages.\n'
+        return (
+            '\n\nIMPORTANT: The user writes in Chinese. Respond in '
+            'Chinese (中文) for ALL prose you produce — plans, results,'
+            ' chat messages, AND prose cells inside tables (e.g. the '
+            'Recommendation column of every audit / analysis table). '
+            'Identifiers, IDs, SKUs, ASINs, verbatim search terms, '
+            'URLs, and metric names (ROAS, ACOS, CTR, CVR, CPC, etc.)'
+            ' stay in their original form. Mixed-language prose is a'
+            ' defect: the server enforces this at set_task_result and'
+            ' will reject results whose prose is < 85% Chinese.\n'
+        )
     return (
-        '\n\nIMPORTANT: Respond in English for plans, results, and messages.\n'
+        '\n\nIMPORTANT: Respond in English for plans, results, and '
+        'messages. The server enforces this at set_task_result and '
+        'will reject results whose prose is < 85% English.\n'
     )
 
 

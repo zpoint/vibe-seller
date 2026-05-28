@@ -36,7 +36,6 @@ from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
 
-_SYNC_META_PATH = VIBE_SELLER_DIR / '.claude' / 'skills' / '.sync_meta.json'
 _COOLDOWN_SECONDS = 24 * 3600  # 24 hours
 # Key in AppSettings that gates the periodic GitHub poll. Missing
 # row → enabled (the auto-sync ships on by default; the user opts
@@ -248,19 +247,30 @@ class SkillsSyncManager:
 
     # ── Remote sync ─────────────────────────────────────
 
+    @property
+    def _sync_meta_path(self) -> Path:
+        # Derive from ``self._dest_dir`` so test fixtures that
+        # override ``_dest_dir`` to a tmp dir also redirect the meta
+        # file. Using the module-level ``_SYNC_META_PATH`` makes the
+        # cooldown short-circuit leak between test runs on hosts
+        # where ``~/.vibe-seller`` persists (self-hosted CI).
+        return self._dest_dir / '.sync_meta.json'
+
     def _read_sync_meta(self) -> dict:
         """Read .sync_meta.json."""
-        if _SYNC_META_PATH.exists():
+        path = self._sync_meta_path
+        if path.exists():
             try:
-                return json.loads(_SYNC_META_PATH.read_text())
+                return json.loads(path.read_text())
             except Exception:
                 pass
         return {}
 
     def _write_sync_meta(self, meta: dict) -> None:
         """Write .sync_meta.json."""
-        _SYNC_META_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _SYNC_META_PATH.write_text(json.dumps(meta, indent=2))
+        path = self._sync_meta_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(meta, indent=2))
 
     def get_sync_meta(self) -> dict:
         """Return sync metadata for the API."""

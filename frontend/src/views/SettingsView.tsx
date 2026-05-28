@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { AccountPanel } from '../components/settings/AccountPanel'
@@ -6,6 +6,11 @@ import { GeneralPanel } from '../components/settings/GeneralPanel'
 import { StoresPanel } from '../components/settings/StoresPanel'
 import { EmailAccountsPanel } from '../components/settings/EmailAccountsPanel'
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
+import { ExternalConfigOverrideModal } from '../components/ExternalConfigOverrideModal'
+import {
+  isExternalConfigOverrideDetail,
+  type ExternalConfigOverrideDetail,
+} from '../components/externalConfigOverrideDetail'
 import type { AuthUser, Profile, EmailAccount, Store } from '../types'
 
 export type SettingsTab = 'stores' | 'general' | 'aiAgent' | 'email' | 'account' | 'integrations'
@@ -63,6 +68,29 @@ export function SettingsView({
 }: SettingsViewProps) {
   const { t } = useTranslation()
   const tabs: SettingsTab[] = ['stores', 'general', 'aiAgent', 'email', 'account', 'integrations']
+  const [overrideError, setOverrideError] = useState<ExternalConfigOverrideDetail | null>(null)
+
+  // Centralized handler — surfaces the cc-switch / external-config
+  // override conflict from any profile-management API call.
+  // ``api.patch`` / ``api.post`` throw on non-2xx with the parsed
+  // ``detail`` attached as ``err.detail``.
+  const handleProfileApiError = (err: unknown): boolean => {
+    const detail = (err as { detail?: unknown })?.detail
+    if (isExternalConfigOverrideDetail(detail)) {
+      setOverrideError(detail)
+      return true
+    }
+    return false
+  }
+
+  const useDefaultAndDismiss = async () => {
+    try {
+      await api.patch('/api/profiles/default/set-default')
+      setCurrentUser(prev => prev ? { ...prev, default_profile_id: 'default' } : prev)
+      setSelectedProfileId('default')
+    } catch { /* ignore — modal stays open */ }
+    setOverrideError(null)
+  }
 
   return (
     <div className="flex-1 flex flex-col bg-gray-50 p-6 overflow-y-auto">
@@ -150,7 +178,7 @@ export function SettingsView({
                           await api.patch('/api/profiles/default/set-default')
                           setCurrentUser(prev => prev ? { ...prev, default_profile_id: 'default' } : prev)
                           setSelectedProfileId('default')
-                        } catch { /* ignore */ }
+                        } catch (err) { if (!handleProfileApiError(err)) { /* swallow other errors */ } }
                       }}
                       className="px-2 py-1 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50"
                     >
@@ -183,7 +211,7 @@ export function SettingsView({
                             await api.patch(`/api/profiles/${profile.id}/set-default`)
                             setCurrentUser(prev => prev ? { ...prev, default_profile_id: profile.id } : prev)
                             setSelectedProfileId(profile.id)
-                          } catch { /* ignore */ }
+                          } catch (err) { if (!handleProfileApiError(err)) { /* swallow other errors */ } }
                         }}
                         className="px-2 py-1 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50"
                       >
@@ -219,6 +247,14 @@ export function SettingsView({
       ) : settingsTab === 'integrations' ? (
         <IntegrationsPanel />
       ) : null}
+
+      {overrideError && (
+        <ExternalConfigOverrideModal
+          detail={overrideError}
+          onUseDefault={useDefaultAndDismiss}
+          onClose={() => setOverrideError(null)}
+        />
+      )}
     </div>
   )
 }

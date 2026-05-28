@@ -1,4 +1,10 @@
 // ─── Types ───────────────────────────────────────────
+export type ServerPlatform = 'mac' | 'windows' | 'wsl' | 'linux'
+export interface ServerInfo {
+  platform: ServerPlatform
+  version: string
+  commit: string | null
+}
 export interface Store {
   id: string; name: string; browser_backend: string; browser_config: Record<string, unknown>;
   ziniao_account_id: string | null; browser_oauth: string | null;

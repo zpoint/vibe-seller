@@ -4,7 +4,7 @@ import { LanguageSwitcher, WsFileItem } from './ui'
 import { api } from '../api'
 import { sendEvent } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
-import type { Store, AuthUser, AppView, WsStructured, WsSkill, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import type { Store, AuthUser, AppView, ServerPlatform, WsStructured, WsSkill, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 interface SidebarProps {
   currentUser: AuthUser
@@ -45,6 +45,7 @@ interface SidebarProps {
   fetchBrowserProfiles: (accountId: string) => void
   restartZiniao: (accountId: string) => void
   ziniaoRetried: boolean
+  serverPlatform: ServerPlatform | null; serverVersion: string
   showAddAccount: boolean
   setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean
@@ -91,6 +92,7 @@ export function Sidebar(props: SidebarProps) {
     ziniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth,
     fetchingBrowsers, browserFetchError, setBrowserFetchError,
     fetchBrowserProfiles, restartZiniao, ziniaoRetried,
+    serverPlatform, serverVersion,
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
     editingAccountId, setEditingAccountId, newAccount, setNewAccount,
     createZiniaoAccount, updateZiniaoAccount, deleteZiniaoAccount,
@@ -105,7 +107,7 @@ export function Sidebar(props: SidebarProps) {
     <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-2">
-          <h1 className="text-lg font-bold">Vibe Seller</h1>
+          <div className="flex items-baseline gap-1"><h1 className="text-lg font-bold leading-tight">Vibe Seller</h1>{serverVersion && <span className="text-[10px] text-gray-400" title={`Server: ${serverVersion}`}>v{serverVersion.slice(0, 14)}</span>}</div>
           <div className="flex items-center gap-1">
             <LanguageSwitcher />
             {currentUser.role === 'admin' && (
@@ -158,6 +160,7 @@ export function Sidebar(props: SidebarProps) {
               fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError}
               setBrowserFetchError={setBrowserFetchError}
               fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
+              serverPlatform={serverPlatform}
               showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
               showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
               editingAccountId={editingAccountId} setEditingAccountId={setEditingAccountId}
@@ -228,7 +231,7 @@ function StoreCreationForm(props: {
   setBrowserFetchError: (v: string) => void
   fetchBrowserProfiles: (accountId: string) => void
   restartZiniao: (accountId: string) => void
-  ziniaoRetried: boolean
+  ziniaoRetried: boolean; serverPlatform: ServerPlatform | null
   showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
   editingAccountId: string; setEditingAccountId: (v: string) => void
@@ -322,7 +325,7 @@ function ZiniaoSection(props: {
   setBrowserFetchError: (v: string) => void
   fetchBrowserProfiles: (accountId: string) => void
   restartZiniao: (accountId: string) => void
-  ziniaoRetried: boolean
+  ziniaoRetried: boolean; serverPlatform: ServerPlatform | null
   showAddAccount: boolean; setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean; setShowAccountPassword: React.Dispatch<React.SetStateAction<boolean>>
   editingAccountId: string; setEditingAccountId: (v: string) => void
@@ -376,50 +379,51 @@ function ZiniaoSection(props: {
         </div>
       )}
       {p.selectedZiniaoAccountId && (() => {
-        // "ziniao:STATUS:PLATFORM[:BASE64_MSG]" — the optional 4th
-        // segment is Ziniao's own err text (base64'd to survive colons).
+        // "ziniao:STATUS[:BASE64_MSG]" — the optional 3rd segment is
+        // Ziniao's own err text (base64'd to survive colons).
         const zs = p.browserFetchError.startsWith('ziniao:') ? (() => {
-          const [, status, platform, encoded] = p.browserFetchError.split(':')
+          const [, status, encoded] = p.browserFetchError.split(':')
           let message = ''
           try { if (encoded) message = decodeURIComponent(escape(atob(encoded))) } catch { /* leave empty */ }
-          return { status, platform, message }
+          return { status, message }
         })() : null
+        const isMac = p.serverPlatform === 'mac', isWsl = p.serverPlatform === 'wsl', isWindowsLike = p.serverPlatform === 'windows' || isWsl
+        const editSelected = () => { const a = p.ziniaoAccounts.find(x => x.id === p.selectedZiniaoAccountId); if (a) { p.setNewAccount({ name: a.name, company: a.company, username: a.username, password: '' }); p.setEditingAccountId(a.id); p.setShowAddAccount(true) } }
 
         return p.fetchingBrowsers ? (
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-blue-50 rounded-lg border border-blue-200">
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
             <p className="text-sm font-medium text-blue-700">{t('settings.ziniaoLoading')}</p>
           </div>
-        ) : zs?.status === 'running_normal' && (zs.platform === 'mac' || zs.platform === 'wsl') ? (
+        ) : zs?.status === 'running_normal' && (isMac || isWsl) ? (
           // Mac/WSL: Ziniao running in normal mode
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
-            <p className="text-sm font-medium text-amber-700 mb-2">
-              {p.ziniaoRetried ? t('settings.ziniaoStillRunning') : t('settings.ziniaoRunningNormalMode')}
-            </p>
-            <p className="text-xs text-amber-600 mb-3">
-              {p.ziniaoRetried ? '' : t('settings.ziniaoNormalModeHint')}
-            </p>
+            <p className="text-sm font-medium text-amber-700 mb-2">{p.ziniaoRetried ? t('settings.ziniaoStillRunning') : t('settings.ziniaoRunningNormalMode')}</p>
+            <p className="text-xs text-amber-600 mb-3">{p.ziniaoRetried ? '' : t('settings.ziniaoNormalModeHint')}</p>
             <div className="flex gap-2">
-              {p.ziniaoRetried && (
-                <button onClick={() => p.restartZiniao(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-700">{zs.platform === 'wsl' ? t('settings.ziniaoForceKill') : t('settings.ziniaoForceRestart')}</button>
-              )}
+              {p.ziniaoRetried && <button onClick={() => p.restartZiniao(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-700">{isWsl ? t('settings.ziniaoForceKill') : t('settings.ziniaoForceRestart')}</button>}
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-gray-600 text-white rounded text-xs hover:bg-gray-700">{t('common.refresh')}</button>
             </div>
           </div>
         ) : zs?.status === 'no_permission' ? (
-          // -10003: show Ziniao's own err if present (specific/actionable);
-          // otherwise the generic "enable WebDriver" UI. Refresh always.
+          // -10003: surface Ziniao's own err if present; otherwise generic
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
-            {zs.message
-              ? <p className="text-sm font-medium text-red-700 mb-3 break-all">{zs.message}</p>
-              : <><p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNoPermission')}</p><p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNoPermissionHint')}</p></>
-            }
+            {zs.message ? <p className="text-sm font-medium text-red-700 mb-3 break-all">{zs.message}</p> : <><p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNoPermission')}</p><p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNoPermissionHint')}</p></>}
             <div className="flex gap-2">
               {!zs.message && <a href="https://open.ziniao.com/docSupport?docId=99" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoEnableWebDriver')}</a>}
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>
-        ) : zs?.status === 'not_installed' && zs.platform === 'mac' ? (
+        ) : zs?.status === 'credentials_error' ? (
+          // Stored password can't be decrypted (e.g. DB copied across installs).
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
+            <p className="text-sm font-medium text-red-700 mb-3 break-all">{t('settings.ziniaoCredentialsError')}</p>
+            <div className="flex gap-2">
+              <button onClick={editSelected} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.editZiniaoAccount')}</button>
+              <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
+            </div>
+          </div>
+        ) : zs?.status === 'not_installed' && isMac ? (
           // Mac: Ziniao not installed
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNotInstalled')}</p>
@@ -430,12 +434,13 @@ function ZiniaoSection(props: {
             </div>
           </div>
         ) : p.browserFetchError === 'connect_error' || (zs && !['no_profiles'].includes(zs.status)) ? (
-          // Fallback connect error (includes Windows/WSL .bat flow and generic errors)
+          // Fallback connect error. Platform UI keys off serverPlatform.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
-            <p className="text-sm font-medium text-red-700 mb-2">{zs?.platform === 'mac' ? t('settings.ziniaoConnectErrorMac') : t('settings.ziniaoConnectError')}</p>
-            {zs?.platform !== 'mac' && <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoLaunchHint')}</p>}
+            <p className="text-sm font-medium text-red-700 mb-2">{isMac ? t('settings.ziniaoConnectErrorMac') : t('settings.ziniaoConnectError')}</p>
+            {isWindowsLike && <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoLaunchHint')}</p>}
             <div className="flex gap-2">
-              {zs?.platform !== 'mac' && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadLauncher')}</a>}
+              {isWindowsLike && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadLauncher')}</a>}
+              <button onClick={editSelected} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.editZiniaoAccount')}</button>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>

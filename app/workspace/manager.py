@@ -20,6 +20,7 @@ import time
 import git as gitlib
 
 from app.config import VIBE_SELLER_DIR
+from app.workspace.store_seed import write_catalog_stub
 
 logger = logging.getLogger(__name__)
 
@@ -46,29 +47,25 @@ class WorkspaceManager:
             claude_md.write_text(
                 '# Vibe Seller Workspace\n\n'
                 '## Symlinked directories\n\n'
-                '`knowledge/` and `stores/` are symlinks. '
-                'The Glob and Grep tools use ripgrep which '
-                'cannot follow symlinks.\n\n'
-                '- For `knowledge/` and `stores/`: use '
-                '`Bash("find knowledge/ ...")`, '
-                '`Bash("ls stores/*/")`, or '
-                '`Bash("grep -r ... stores/")` instead '
-                'of Glob/Grep.\n'
-                '- For `.claude/` and other directories: '
-                'Glob and Grep work normally.\n\n'
+                '`knowledge/` and `stores/` are symlinks. The Glob and Grep'
+                ' tools use ripgrep which cannot follow symlinks.\n\n'
+                '- For `knowledge/` and `stores/`: use'
+                ' `Bash("find knowledge/ ...")`, `Bash("ls stores/*/")`,'
+                ' or `Bash("grep -r ... stores/")` instead of Glob/Grep.\n'
+                '- For `.claude/` and other directories: Glob and Grep'
+                ' work normally.\n\n'
                 '## browser-use\n\n'
-                '`browser-use` is a Bash CLI tool. '
-                'Run it via `Bash("browser-use ...")`.\n'
-                'Do NOT use the Skill tool for browser-use '
-                '— it is not a slash command.\n\n'
-                'Flags `--profile`, `--cdp-url`, `--connect` '
-                'are managed by the per-store wrapper and '
-                'must not be passed manually.\n\n'
+                '`browser-use` is a Bash CLI tool.'
+                ' Run it via `Bash("browser-use ...")`.\n'
+                'Do NOT use the Skill tool for browser-use'
+                ' — it is not a slash command.\n\n'
+                'Flags `--profile`, `--cdp-url`, `--connect` are managed'
+                ' by the per-store wrapper and must not be passed'
+                ' manually.\n\n'
                 '## Authenticated Pages\n\n'
-                'Pages requiring login or JavaScript '
-                '(seller center, email providers, admin '
-                'panels) MUST be accessed via `browser-use`'
-                ', not WebFetch or curl.\n'
+                'Pages requiring login or JavaScript (seller center, email'
+                ' providers, admin panels) MUST be accessed via'
+                ' `browser-use`, not WebFetch or curl.\n'
             )
 
         git_dir = self.root / '.git'
@@ -598,6 +595,8 @@ browser: {backend}
             logistics_md.write_text(
                 f'# Logistics for {name}\n\n', encoding='utf-8'
             )
+
+        write_catalog_stub(store_dir, slug, name)
 
         if backend == 'ziniao':
             routing_md = store_dir / 'browser-routing.md'

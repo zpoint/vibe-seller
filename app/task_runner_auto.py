@@ -5,6 +5,10 @@ import logging
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import parse_wait_condition
+from app.ai.external_config import (
+    ExternalConfigOverrideError,
+    assert_profile_compatible,
+)
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
@@ -70,6 +74,37 @@ async def auto_run_task(task_id: str, store: Store | None):
                 return
             if task.schedule_id:
                 schedule = await db.get(Schedule, task.schedule_id)
+
+        # Fail fast if ~/.claude/settings.json overrides the chosen
+        # profile's env. Without this gate the agent silently runs
+        # against whatever external tool (cc-switch / similar) wrote
+        # into settings.json, the user's UI selection is a no-op, and
+        # the failure shows up later as an opaque API error.
+        try:
+            assert_profile_compatible(task.ai_profile_id)
+        except ExternalConfigOverrideError as e:
+            # Store the structured payload as JSON in ``task.error``
+            # so the frontend can render it in the user's locale
+            # (see ``frontend/src/views/TasksView.tsx`` error_category
+            # branch). Non-i18n consumers (logs / CLI) get the same
+            # JSON and can still extract the English ``message`` field.
+            async with async_session() as db_fail:
+                t = await db_fail.get(Task, task_id)
+                if t and can_transition(t.status, TaskStatus.FAILED):
+                    t.status = TaskStatus.FAILED
+                    t.error = json.dumps(e.to_api_detail())
+                    t.error_category = 'external_config_override'
+                    t.completed_at = datetime.now(UTC).isoformat()
+                    await db_fail.commit()
+                    await event_bus.emit(
+                        'task_update',
+                        {
+                            'task_id': task_id,
+                            'status': TaskStatus.FAILED,
+                            'error': t.error,
+                        },
+                    )
+            return
 
         # 0. Write MCP config (no browser start — agent does that lazily)
         # Also query linked email addresses for agent context.

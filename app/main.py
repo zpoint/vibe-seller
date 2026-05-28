@@ -50,6 +50,7 @@ from app.routers.schedules import router as schedules_router
 from app.routers.screenshots import router as screenshots_router
 from app.routers.sse import router as sse_router
 from app.routers.stores import router as stores_router
+from app.routers.system import router as system_router
 from app.routers.tasks import router as tasks_router
 from app.routers.tasks_conversation import router as tasks_conversation_router
 from app.routers.tasks_files import router as tasks_files_router
@@ -241,6 +242,7 @@ app.include_router(profiles_router)
 app.include_router(dida365_oauth_router)
 app.include_router(ws_assistant_router)
 app.include_router(wecom_bots_router)
+app.include_router(system_router)
 
 
 @app.get('/api/health')

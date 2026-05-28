@@ -38,6 +38,20 @@ dependencies = [
     "gitpython",
     "playwright",
     "posthog>=4.0",
+    # GFM-strict markdown parser. Used by the set_task_result gate to
+    # detect malformed tables (header/separator/body column-count
+    # mismatch) before the result reaches the frontend, where
+    # remark-gfm would silently fall back to <p>. mistune's
+    # accept/reject behavior matches remark-gfm 1:1, so what we
+    # validate locally is what the user sees rendered.
+    "mistune>=3.0",
+    # Statistical language detector. Used by the set_task_result
+    # gate to verify the result's prose is in the user's language
+    # (Chinese task → ≥ 85% Chinese-attributed prose, etc.) without
+    # us having to hand-maintain regex exemption lists for IDs and
+    # metric names — lingua's per-segment attribution handles those
+    # the same way the human eye does.
+    "lingua-language-detector>=2.0",
 ]
 
 [project.optional-dependencies]

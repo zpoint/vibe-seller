@@ -361,6 +361,7 @@
     "ziniaoEnableWebDriver": "如何开通 WebDriver",
     "ziniaoRestartFailed": "重启失败，请手动关闭紫鸟后重试。",
     "ziniaoConnectErrorMac": "无法连接紫鸟，请检查是否已安装。",
+    "ziniaoCredentialsError": "无法解密已保存的密码（当前实例的密钥与加密时使用的密钥不一致）。点击「编辑」重新输入密码。",
     "enterStoreNameFirst": "请先输入店铺名称",
     "editZiniaoAccount": "编辑紫鸟账号",
     "addZiniaoAccount": "添加紫鸟账号",
@@ -571,6 +572,19 @@
     "confirmDelete": "确定要删除配置文件 \"{name}\" 吗？此操作无法撤销。",
     "loadGlobalMcp": "加载全局 MCP 服务器",
     "loadGlobalMcpHint": "包含全局 Claude 设置中的 MCP 服务器。关闭可减少工具数量，加速第三方 API 调用。"
+  },
+  "errors": {
+    "externalConfigOverride": {
+      "title": "外部工具的配置与当前 Profile 冲突",
+      "intro": "Profile「{{profileId}}」无法使用：{{settingsPath}} 里写了优先级更高的环境变量，会把 Agent 静默地路由到另一个 endpoint：",
+      "pickOne": "二选一：",
+      "optionDefault": "把 Profile 切到「Claude（默认）」，把供应商路由交给外部工具（例如 cc-switch）管理。",
+      "optionClear": "退出写入这些配置的工具（cc-switch 或类似），然后执行下面这条命令清掉冲突的 env：",
+      "useDefault": "切换到默认 Profile",
+      "copyCommand": "复制命令",
+      "copied": "已复制",
+      "close": "关闭"
+    }
   },
   "status": {
     "pending": "待处理",

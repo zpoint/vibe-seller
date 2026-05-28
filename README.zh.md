@@ -176,6 +176,19 @@ Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller
 > 会直接复用那个会话，跳过这一步。
 
+> **装了 cc-switch 或类似工具？这里请选默认。**
+>
+> 因为这类工具会改 `~/.claude/settings.json` 文件，跟本项目里选
+> 的 AI 起冲突。直接选默认就行，AI 切换交给 cc-switch 管。
+>
+> 想反过来让本项目管的话：退出 cc-switch，然后在终端里**原样复
+> 制粘贴**下面这一行回车，把 cc-switch 写进 `settings.json` 的
+> 部分清掉：
+>
+> ```bash
+> python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
+> ```
+
 <img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
 
 <img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
