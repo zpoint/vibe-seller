@@ -1,12 +1,20 @@
 """Module-level helpers shared across claude_backend split modules."""
 
+import json
 import logging
 from pathlib import Path
 import re
 
 from sqlalchemy import func, select
 
+from app.ai.bash_safety import (
+    check_exec_review_status,
+    check_review_status,
+)
+from app.database import async_session
 from app.env_options import Options
+from app.models.schedule import Schedule
+from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -183,3 +191,137 @@ def check_skill_prereqs(
         f' first. Call the Skill tool with skill={first!r}, then'
         f' retry skill={skill_name!r}.'
     )
+
+
+def get_open_tasklist_items(task_id: str) -> list[tuple[str, str]]:
+    """Return [(id, subject), ...] for pending/in_progress TaskList
+    entries belonging to this task.
+
+    Claude Code stores each TaskList item as a JSON file at
+    ``~/.claude/tasks/<task_list_id>/<n>.json``. We pin
+    ``CLAUDE_CODE_TASK_LIST_ID=vibe-<task_id_short>`` in the agent
+    env (see ``claude_backend.py``) so the directory path is
+    predictable from the task id.
+
+    Used by the Stop-hook completion gate to deny stop while the
+    agent still has open work. Returns empty list when the
+    directory is absent (agent never created any TaskList items —
+    no gate to enforce; let stop proceed).
+    """
+    task_list_id = f'vibe-{task_id[:8]}'
+    tasks_dir = Path.home() / '.claude' / 'tasks' / task_list_id
+    if not tasks_dir.is_dir():
+        return []
+    open_items: list[tuple[str, str]] = []
+    for path in sorted(tasks_dir.glob('*.json')):
+        if path.name.startswith('.'):
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if data.get('status', '') in ('pending', 'in_progress'):
+            open_items.append((
+                str(data.get('id', path.stem)),
+                str(data.get('subject', '')),
+            ))
+    return open_items
+
+
+def build_tasklist_open_reason(open_items: list[tuple[str, str]]) -> str:
+    """Build the deny-stop reason text from open TaskList items.
+
+    Lives here so the Stop-hook call site stays small under the
+    800-line file limit. ``open_items`` is the output of
+    ``get_open_tasklist_items``.
+    """
+    lst = '\n'.join(f'- [#{i}] {s}' for i, s in open_items[:20])
+    more = f'\n…and {len(open_items) - 20} more' if len(open_items) > 20 else ''
+    return (
+        f'TaskList still has {len(open_items)} open item(s):\n'
+        f'{lst}{more}\n\n'
+        'Continue executing the next pending item. After every'
+        ' action: TaskUpdate to "completed". Phase 4 is only done'
+        ' when TaskList shows zero open items. Re-call TaskList'
+        ' NOW to confirm current state, then pick the lowest-ID'
+        ' open item.'
+    )
+
+
+_FANOUT_FORBIDDEN_PATTERNS = (
+    ('vibe_seller_create_task', 'calls the sub-task MCP tool'),
+    ('parent_task_id', 'designs a parent/sub-task hierarchy'),
+)
+
+
+async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
+    """Return a deny reason if *plan_text* contains fanout-illegal
+    patterns for a plan-only fanout-schedule Task, else None.
+
+    Only runs for ``Task.is_plan_only=True`` whose owning
+    ``Schedule.phase_mode='fanout'``. Other cases (single-mode
+    schedules, standalone interactive plan-mode tasks) are not
+    subject to this check — orchestration is legitimate for them.
+
+    Lives here (not as an AgentSession method) to keep the hook
+    module under the 800-line file limit.
+    """
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+            if not task or not task.is_plan_only or not task.schedule_id:
+                return None
+            sched = await db.get(Schedule, task.schedule_id)
+            if not sched or sched.phase_mode != 'fanout':
+                return None
+    except Exception:
+        logger.debug(
+            'Fanout-plan validator could not load context for %s',
+            task_id,
+            exc_info=True,
+        )
+        return None
+
+    haystack = (plan_text or '').lower()
+    for needle, description in _FANOUT_FORBIDDEN_PATTERNS:
+        if needle.lower() in haystack:
+            return (
+                f'the plan {description}'
+                f' (found {needle!r}), but this schedule is a'
+                ' fanout schedule — the scheduler already creates'
+                ' one per-store Task per fire and runs the plan'
+                ' once per store. Remove the orchestrator step'
+                ' and describe what a single store-bound agent'
+                ' should do with the per-store L3 catalog.'
+            )
+    return None
+
+
+def check_review_status_for_stop(task_dir: Path | None) -> str | None:
+    """Return a deny reason for Stop if the ads-audit reviewer
+    hasn't run (or returned gaps); otherwise ``None``.
+
+    Thin wrapper around ``bash_safety.check_review_status`` that
+    handles the empty-task_dir case for the hook caller. Quiet
+    no-op for non-ads tasks (no ``AD_AUDIT_*.md`` in the workspace).
+    See ``amazon-ads/references/reviewer-loop.md`` for the contract.
+    """
+    if task_dir is None:
+        return None
+    return check_review_status(task_dir)
+
+
+def check_exec_review_status_for_stop(
+    task_dir: Path | None,
+) -> str | None:
+    """Return a deny reason for Stop if the ads-execution reviewer
+    hasn't returned ok; otherwise ``None``.
+
+    Thin wrapper around ``bash_safety.check_exec_review_status``.
+    Quiet no-op when ``EXECUTION_LOG.md`` is absent in the workspace
+    (task is not in execution mode). See
+    ``amazon-ads/references/reviewer-loop.md § Execution-review mode``.
+    """
+    if task_dir is None:
+        return None
+    return check_exec_review_status(task_dir)

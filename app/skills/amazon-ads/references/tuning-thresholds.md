@@ -51,6 +51,13 @@ ROAS is just the inverse — using whichever the campaign UI surfaces.
 
 ### Protect-zone (don't auto-cut these)
 
+Protection is checked at **two scopes**: campaign-level (don't
+recommend pausing / blanket-budget-cutting the whole campaign) and
+row-level (don't recommend pausing / cutting bid on the individual
+keyword, target, or search term).
+
+#### Campaign-level PROTECT
+
 A campaign is **protected** if BOTH conditions hold:
 
 1. `campaign_orders ≥ p75(per_campaign_orders)` — top quartile by
@@ -66,6 +73,36 @@ The two-filter rule prevents both:
 The user may override the formula with their own preferred rule
 ("protect anything with ≥ 30 orders", "top 5 campaigns by orders only",
 etc.) — store the override for the session.
+
+#### Row-level PROTECT (keyword / target / search term)
+
+A row is **protected from cuts** if ANY of these hold:
+
+1. **Volume PROTECT**: `row_orders ≥ p75(per_row_orders within campaign)`
+   AND `row_orders ≥ 0.05 × total_row_orders` (same two-filter rule as
+   campaign-level, applied within the campaign's row set).
+2. **Efficiency PROTECT**: `row_orders ≥ 1` AND `row_roas ≥ target_roas × 2`.
+   A keyword with ROAS = 35.99 on SAR 1.50 / 1 order isn't a volume
+   driver, but it's an efficiency outlier — pausing it loses pure
+   margin. The ≥ 1 order filter excludes noise (0-click rows with
+   undefined ROAS).
+3. **Self-stabilized campaign PROTECT**: if the row is among the
+   *only* active rows in a campaign where most of the campaign has
+   already been paused (≥ 50% of rows in Paused state), the active
+   rows are by definition what survived prior tuning. Treat as
+   PROTECT until evidence the row has *itself* turned negative.
+
+The skill must NOT recommend pausing or cutting bid on a
+PROTECT-tagged row, and must NOT recommend pausing the parent
+campaign if any of its active rows are Efficiency-PROTECT or
+Self-stabilized-PROTECT — those orders would be lost to the
+blanket action.
+
+When the campaign-level signal would say "pause this campaign"
+but a row-level PROTECT exists, downgrade the campaign action to
+"keep campaign live; surface only the offending rows for individual
+action". Trail the report with the per-row recommendations under
+the campaign heading; do not emit a campaign-level pause verb.
 
 ### Waste threshold (auto-negate candidate)
 
