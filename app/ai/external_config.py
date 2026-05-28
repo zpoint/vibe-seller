@@ -117,9 +117,13 @@ class ExternalConfigOverrideError(RuntimeError):
             "p=pathlib.Path.home()/'.claude'/'settings.json';"
             'd=json.loads(p.read_text());'
             "env=d.get('env') or {};"
-            "[env.pop(k,None) for k in ('"
+            # NB: list literal (not tuple) — ``('SINGLE_KEY')`` is a
+            # string in Python and would iterate char-by-char, which
+            # silently breaks the one-key cc-switch shape (the most
+            # common case).
+            "[env.pop(k,None) for k in ['"
             + "','".join(self.overriding_keys)
-            + "')];"
+            + "']];"
             "d['env']=env;"
             'p.write_text(json.dumps(d,indent=2))"'
         )
