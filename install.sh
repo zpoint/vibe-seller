@@ -554,12 +554,18 @@ install_claude() {
         _warn "npm not available — skipping claude CLI install"
         return 1
     fi
-    # npm global prefix is user-writable after fix_npm_permissions
-    npm install -g @anthropic-ai/claude-code || {
+    # Pin to 2.1.153 — the last release before Claude Code started
+    # emitting messages[N].role="system" entries that strict
+    # Anthropic-compatible endpoints (DeepSeek, etc.) reject with
+    # HTTP 400 "invalid message role: system". 2.1.154+ break the
+    # whole DeepSeek integration; bump this pin only after the
+    # upstream regression is resolved and re-verified end-to-end.
+    # npm global prefix is user-writable after fix_npm_permissions.
+    npm install -g @anthropic-ai/claude-code@2.1.153 || {
         _warn "Claude CLI install failed (non-fatal)"
         return 1
     }
-    _success "claude CLI installed"
+    _success "claude CLI installed (pinned 2.1.153)"
 }
 
 # ============================================================
