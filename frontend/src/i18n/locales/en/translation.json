@@ -63,6 +63,7 @@
     "noStore": "No Store",
     "filterByStore": "Filter by store",
     "allStores": "All Stores",
+    "allStoresHint": "This is the cross-store task list — these tasks can't open a specific store's browser. Best for jobs like reading email or sending WeCom messages. To use a store's backend, click the store on the left first, then create a task.",
     "noStoreTasks": "No Store Tasks",
     "browser": "Browser",
     "browserBackend": "Browser Backend",

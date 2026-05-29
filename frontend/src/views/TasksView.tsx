@@ -291,6 +291,11 @@ export function TasksView({
                 </button>
               </div>
             </div>
+            {showAllTasks && taskSubTab === 'onetime' && (
+              <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 text-[11px] leading-snug text-amber-900">
+                {t('tasks.allStoresHint')}
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto">
               {taskSubTab === 'onetime' ? (
                 <>
