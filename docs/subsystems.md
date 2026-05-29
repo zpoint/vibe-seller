@@ -285,7 +285,7 @@ When the agent calls `vibe_seller_set_task_result`, the resolved result text run
 
 ### Why soft, not hard
 
-Gates can be wrong, the model can be stubborn, and trapping the agent forever in a deny loop wastes tokens. Each gate is allowed at most `SOFT_GATE_MAX_DENIALS` (currently 2) per task; on the next attempt the result is allowed through with the original text and a `logger.warning(...)`. Deny counts are tracked in-memory by task id (`record_attempt` in `app/ai/stop_gates/__init__.py`).
+Gates can be wrong, the model can be stubborn, and trapping the agent forever in a deny loop wastes tokens. Each gate is allowed at most `SOFT_GATE_MAX_DENIALS` denials per task (the agent sees the deny reason and can retry); past the cap the result is allowed through with the original text and a `logger.warning(...)`. Deny counts are tracked in-memory by task id (`record_attempt` in `app/ai/stop_gates/__init__.py`); the current cap value lives there alongside the rationale.
 
 ### Why at the MCP tool call, not the Stop hook
 

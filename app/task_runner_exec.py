@@ -7,7 +7,10 @@ from sqlalchemy import select
 from app import telemetry
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import parse_wait_condition
-from app.ai.external_config import assert_profile_compatible
+from app.ai.external_config import (
+    ExternalConfigOverrideError,
+    assert_profile_compatible,
+)
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
@@ -44,6 +47,30 @@ logger = logging.getLogger(__name__)
 
 _send_task_completed = send_task_completed
 _send_task_failed = send_task_failed
+
+
+async def _fail_task_external_config_override(
+    task_id: str, ext_err: ExternalConfigOverrideError
+) -> None:
+    # Persist as structured failure: JSON detail in task.error +
+    # error_category='external_config_override' so the frontend's
+    # ExternalConfigOverrideErrorCard renders the localized template.
+    async with async_session() as db_fail:
+        t = await db_fail.get(Task, task_id)
+        if t and can_transition(t.status, TaskStatus.FAILED):
+            t.status = TaskStatus.FAILED
+            t.error = json.dumps(ext_err.to_api_detail())
+            t.error_category = 'external_config_override'
+            t.completed_at = datetime.now(UTC).isoformat()
+            await db_fail.commit()
+            await event_bus.emit(
+                'task_update',
+                {
+                    'task_id': task_id,
+                    'status': TaskStatus.FAILED,
+                    'error': t.error,
+                },
+            )
 
 
 async def execute_planned_task(task_id: str, store: Store | None):
@@ -194,12 +221,16 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 store,
                 header=TaskHeader.EXECUTE,
             )
-            # Re-check the override before each execute-phase spawn
-            # — cc-switch may have written settings.json since the
-            # initial plan. Raises ExternalConfigOverrideError which
-            # the outer ``_run_with_status`` failure handler maps to
-            # the task FAILED transition.
-            assert_profile_compatible(task.ai_profile_id or DEFAULT_PROFILE_ID)
+            # Re-check the override before each execute-phase spawn —
+            # cc-switch may have written settings.json since the
+            # initial plan.
+            try:
+                assert_profile_compatible(
+                    task.ai_profile_id or DEFAULT_PROFILE_ID
+                )
+            except ExternalConfigOverrideError as ext_err:
+                await _fail_task_external_config_override(task_id, ext_err)
+                return
             await agent_manager.run(
                 task_id,
                 bundle.prompt,
@@ -557,10 +588,12 @@ async def execute_woken_task(task_id: str, store: Store | None):
             store_emails=store_emails,
         )
         # Same cc-switch / external-override re-check as the execute
-        # phase above — see that site for the rationale. Raises
-        # ``ExternalConfigOverrideError`` which the woken-launch
-        # error handler maps to a task FAILED transition.
-        assert_profile_compatible(task.ai_profile_id or DEFAULT_PROFILE_ID)
+        # phase above.
+        try:
+            assert_profile_compatible(task.ai_profile_id or DEFAULT_PROFILE_ID)
+        except ExternalConfigOverrideError as ext_err:
+            await _fail_task_external_config_override(task_id, ext_err)
+            return
         await agent_manager.run(
             task_id,
             prompt,
@@ -765,5 +798,3 @@ async def execute_woken_task(task_id: str, store: Store | None):
                 'Failed to update woken task %s after error',
                 task_id,
             )
-    finally:
-        pass

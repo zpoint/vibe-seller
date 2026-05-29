@@ -80,11 +80,12 @@ class TestProfileRouterBlocksNonDefaultUnderOverride:
         assert detail['profile_id'] == 'deepseek'
         assert 'ANTHROPIC_BASE_URL' in detail['overriding_keys']
         assert detail['settings_path'].endswith('settings.json')
-        # The copy-paste cleanup command is rendered by the backend
-        # because it parameterises over the actual overriding keys.
+        # The copy-paste cleanup command iterates by ``ANTHROPIC_*``
+        # prefix so it works for any current or future key without
+        # shell-escaping the names. Verify the prefix-iteration form,
+        # not specific names.
         assert 'python3 -c' in detail['clear_command']
-        for key in detail['overriding_keys']:
-            assert key in detail['clear_command']
+        assert "startswith('ANTHROPIC_')" in detail['clear_command']
         # The English ``message`` field is kept as a fallback for
         # non-i18n consumers (logs, task.error).
         assert isinstance(detail['message'], str) and detail['message']

@@ -105,33 +105,48 @@ async def _spawn_followup_agent(
         try:
             assert_profile_compatible(profile_id)
         except ExternalConfigOverrideError as override_err:
-            # JSON-encode the structured detail so the frontend
-            # ``ExternalConfigOverrideErrorCard`` can render it in
-            # the user's locale — same shape as the auto-launch
-            # path in ``app/task_runner_auto.py``.
+            # Expected, user-actionable condition — don't ``raise``
+            # into the outer ``except Exception`` (it would log a
+            # full stack trace via ``logger.exception``). Instead
+            # update the revert vars in-place and skip past the
+            # agent_manager.run call so the existing revert path
+            # below runs with the structured detail.
+            #
+            # JSON-encode so the frontend's
+            # ``ExternalConfigOverrideErrorCard`` renders the
+            # localized template (same shape as auto_run_task).
             revert_error = json.dumps(override_err.to_api_detail())
             revert_error_category = 'external_config_override'
-            raise
-        started = await agent_manager.run(
-            task_id,
-            prompt,
-            system_extra=system_extra,
-            mode=mode,
-            profile_id=profile_id,
-            resume=True,
-            auto_approve_plan=auto_approve_plan,
-            store_slug=(_store_slug(store.name, store.id) if store else None),
-            # Follow-up turns are conversational — reflection is
-            # for initial task knowledge capture. Re-running it on
-            # every follow-up forces a text-emitting reflection
-            # phase that overwrites the agent's actual response
-            # when the model put its answer only in a thinking
-            # block (e.g. GLM-4.7 on terse follow-ups). The
-            # initial task's reflection already captured any
-            # learnings; conversational turns have nothing new
-            # to learn from.
-            skip_reflection=True,
-        )
+            logger.info(
+                'Follow-up for task %s blocked by external config '
+                'override (%s); will revert.',
+                task_id,
+                override_err.overriding_keys,
+            )
+            started = False
+        else:
+            started = await agent_manager.run(
+                task_id,
+                prompt,
+                system_extra=system_extra,
+                mode=mode,
+                profile_id=profile_id,
+                resume=True,
+                auto_approve_plan=auto_approve_plan,
+                store_slug=(
+                    _store_slug(store.name, store.id) if store else None
+                ),
+                # Follow-up turns are conversational — reflection is
+                # for initial task knowledge capture. Re-running it
+                # on every follow-up forces a text-emitting
+                # reflection phase that overwrites the agent's
+                # actual response when the model put its answer
+                # only in a thinking block (e.g. GLM-4.7 on terse
+                # follow-ups). The initial task's reflection already
+                # captured any learnings; conversational turns have
+                # nothing new to learn from.
+                skip_reflection=True,
+            )
     except Exception:
         logger.exception(
             'Background follow-up agent run failed for task %s', task_id
