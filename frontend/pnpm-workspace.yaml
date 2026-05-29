@@ -1,3 +1,12 @@
+# Single-package "workspace" — pnpm 11+ requires a `packages:` field
+# whenever this file exists, even though we only have one package
+# rooted here. The actual reason this file exists is `allowBuilds`:
+# pnpm 11+ refuses ignored post-install scripts in CI by default
+# (esbuild / core-js / protobufjs need their native binaries), so
+# they have to be explicitly approved here.
+packages:
+  - .
+
 allowBuilds:
   core-js: true
   esbuild: true

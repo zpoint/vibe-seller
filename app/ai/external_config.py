@@ -112,18 +112,24 @@ class ExternalConfigOverrideError(RuntimeError):
         }
 
     def _clear_command(self) -> str:
+        # Drop ALL ``ANTHROPIC_*`` keys from ``settings.json`` env by
+        # prefix rather than interpolating each specific key into a
+        # python3 -c one-liner. The interpolated form had two real
+        # footguns:
+        #   - The outer shell string is double-quoted, so quoting
+        #     the key list with double-quotes (json.dumps) breaks
+        #     the shell escape.
+        #   - A key containing a quote could let a hostile
+        #     settings.json synthesize unintended shell text.
+        # Prefix-iterate sidesteps both — and matches the README
+        # snippet so users see one consistent recipe.
         return (
             'python3 -c "import json,pathlib;'
             "p=pathlib.Path.home()/'.claude'/'settings.json';"
             'd=json.loads(p.read_text());'
             "env=d.get('env') or {};"
-            # NB: list literal (not tuple) — ``('SINGLE_KEY')`` is a
-            # string in Python and would iterate char-by-char, which
-            # silently breaks the one-key cc-switch shape (the most
-            # common case).
-            "[env.pop(k,None) for k in ['"
-            + "','".join(self.overriding_keys)
-            + "']];"
+            '[env.pop(k,None) for k in list(env) '
+            "if k.startswith('ANTHROPIC_')];"
             "d['env']=env;"
             'p.write_text(json.dumps(d,indent=2))"'
         )
