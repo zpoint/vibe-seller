@@ -554,12 +554,18 @@ install_claude() {
         _warn "npm not available — skipping claude CLI install"
         return 1
     fi
-    # npm global prefix is user-writable after fix_npm_permissions
-    npm install -g @anthropic-ai/claude-code || {
+    # Pin to 2.1.153 — the last release before Claude Code started
+    # emitting messages[N].role="system" entries that strict
+    # Anthropic-compatible endpoints (DeepSeek, etc.) reject with
+    # HTTP 400 "invalid message role: system". 2.1.154+ break the
+    # whole DeepSeek integration; bump this pin only after the
+    # upstream regression is resolved and re-verified end-to-end.
+    # npm global prefix is user-writable after fix_npm_permissions.
+    npm install -g @anthropic-ai/claude-code@2.1.153 || {
         _warn "Claude CLI install failed (non-fatal)"
         return 1
     }
-    _success "claude CLI installed"
+    _success "claude CLI installed (pinned 2.1.153)"
 }
 
 # ============================================================
@@ -586,6 +592,32 @@ _install_via_pip() {
     # prompt there.
     if [[ "$OS" == "linux" ]]; then
         require_sudo
+    fi
+
+    # Runtime deps the daemon's agents need but the wheel can't ship:
+    # claude CLI (the AI backend's subprocess), sqlite3 (agents query
+    # per-account email DBs via `sqlite3 <path>`), node (claude CLI is
+    # an npm package), lsof (vibe-seller stop). Without these,
+    # `vibe-seller start` succeeds but the first agent task fails
+    # with FileNotFoundError. --dev mode installs them via main()'s
+    # DEPS loop; the default mode `exit 0`s before reaching that loop,
+    # so the deps have to be installed here explicitly. This block
+    # was dropped in an install.sh refactor that introduced a
+    # half-working default install, observed as a CI verify-testpypi
+    # failure on v0.0.6 (FileNotFoundError on `claude` spawn).
+    if ! check_lsof; then
+        install_lsof
+    fi
+    if ! check_sqlite3; then
+        install_sqlite3
+    fi
+    if ! check_node; then
+        install_node
+    fi
+    fix_npm_permissions
+    if ! check_claude; then
+        install_claude \
+            || _warn "claude CLI install failed — AI agent features will not work"
     fi
 
     # Compose `uv tool install` args from --test-pypi / --version.
