@@ -98,10 +98,60 @@ class TestProfileCrud:
             'glm_intl',
             'deepseek',
             'qwen',
+            'qwen_coding',
         ):
             assert name in presets
             assert 'name' in presets[name]
             assert 'env' in presets[name]
+
+    async def test_presets_match_vendor_docs(self, admin_client):
+        """Pin the load-bearing values for the vendor-doc-aligned
+        presets so a typo or accidental revert is caught by CI rather
+        than only surfacing on a real agent run. Asserts:
+
+        - DeepSeek: ``[1m]`` suffix on opus/sonnet (1M-context variant),
+          ``deepseek-v4-flash`` for haiku/small-fast/subagent, and the
+          new ``CLAUDE_CODE_EFFORT_LEVEL=max`` flag.
+        - Qwen split: pay-as-you-go vs Coding Plan have DIFFERENT
+          base URLs and DIFFERENT model name tiers.
+        """
+        r = await admin_client.get('/api/profiles/presets')
+        presets = r.json()['presets']
+
+        ds = presets['deepseek']['env']
+        assert ds['ANTHROPIC_BASE_URL'] == (
+            'https://api.deepseek.com/anthropic'
+        )
+        assert ds['ANTHROPIC_MODEL'] == 'deepseek-v4-pro[1m]'
+        assert ds['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'deepseek-v4-pro[1m]'
+        assert ds['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'deepseek-v4-pro[1m]'
+        assert ds['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'deepseek-v4-flash'
+        assert ds['ANTHROPIC_SMALL_FAST_MODEL'] == 'deepseek-v4-flash'
+        assert ds['CLAUDE_CODE_SUBAGENT_MODEL'] == 'deepseek-v4-flash'
+        assert ds['CLAUDE_CODE_EFFORT_LEVEL'] == 'max'
+
+        qwen = presets['qwen']['env']
+        assert qwen['ANTHROPIC_BASE_URL'] == (
+            'https://dashscope.aliyuncs.com/apps/anthropic'
+        )
+        assert qwen['ANTHROPIC_MODEL'] == 'qwen3.7-max'
+        assert qwen['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.6-flash'
+        assert qwen['ANTHROPIC_SMALL_FAST_MODEL'] == 'qwen3.6-flash'
+
+        qwen_cp = presets['qwen_coding']['env']
+        assert qwen_cp['ANTHROPIC_BASE_URL'] == (
+            'https://coding.dashscope.aliyuncs.com/apps/anthropic'
+        )
+        # Coding Plan uses one model uniformly across tiers + subagent
+        assert qwen_cp['ANTHROPIC_MODEL'] == 'qwen3.6-plus'
+        assert qwen_cp['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'qwen3.6-plus'
+        assert qwen_cp['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'qwen3.6-plus'
+        assert qwen_cp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.6-plus'
+        assert qwen_cp['CLAUDE_CODE_SUBAGENT_MODEL'] == 'qwen3.6-plus'
+
+        # The two qwen tiers MUST diverge on base URL — collapsing them
+        # back into one preset is what this PR's split was undoing.
+        assert qwen['ANTHROPIC_BASE_URL'] != qwen_cp['ANTHROPIC_BASE_URL']
 
     async def test_profile_env_injection_roundtrip(self, admin_client):
         env = {

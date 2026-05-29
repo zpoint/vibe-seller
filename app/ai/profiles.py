@@ -84,24 +84,38 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'glm-4.5-air',
         },
     },
+    # Env keys per DeepSeek's official integration doc:
+    # https://api-docs.deepseek.com/zh-cn/quick_start/agent_integrations/claude_code
+    # The ``[1m]`` suffix on the pro model picks the 1M-context variant
+    # (docs render the suffix literally in both EN and CN examples).
     'deepseek': {
         'name': 'DeepSeek',
-        'description': 'DeepSeek V4 Pro via DeepSeek API',
+        'description': 'DeepSeek V4 Pro (1M context) via DeepSeek API',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.deepseek.com/anthropic',
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'deepseek-v4-pro',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'deepseek-v4-pro',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'deepseek-v4-pro',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'deepseek-v4-pro',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'deepseek-v4-pro',
+            'ANTHROPIC_MODEL': 'deepseek-v4-pro[1m]',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'deepseek-v4-flash',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'deepseek-v4-pro[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'deepseek-v4-pro[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'deepseek-v4-flash',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'deepseek-v4-flash',
+            'CLAUDE_CODE_EFFORT_LEVEL': 'max',
         },
     },
+    # Alibaba Cloud / DashScope has two separate Anthropic endpoints —
+    # pay-as-you-go and Coding Plan — with DIFFERENT base URLs and
+    # different recommended models. Keep them as two presets so the
+    # UI can offer the right one based on the user's subscription.
+    # https://help.aliyun.com/zh/model-studio/claude-code
+    # https://help.aliyun.com/zh/model-studio/claude-code-coding-plan
     'qwen': {
-        'name': 'Qwen',
-        'description': 'Qwen3-Max via Alibaba Cloud Bailian',
+        'name': 'Qwen (Pay-as-you-go)',
+        'description': (
+            'Qwen3.7-Max via Alibaba Cloud DashScope, pay-as-you-go billing'
+        ),
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
@@ -109,11 +123,32 @@ PROVIDER_PRESETS = {
             ),
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'qwen3-max',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'qwen3-max',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3-max',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3-max',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3-max',
+            'ANTHROPIC_MODEL': 'qwen3.7-max',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'qwen3.6-flash',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-max',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-max',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
+        },
+    },
+    'qwen_coding': {
+        'name': 'Qwen (Coding Plan)',
+        'description': (
+            'Qwen3.6-Plus via Alibaba Cloud DashScope Coding Plan '
+            '(monthly subscription)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://coding.dashscope.aliyuncs.com/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'qwen3.6-plus',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'qwen3.6-plus',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.6-plus',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.6-plus',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-plus',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.6-plus',
         },
     },
 }
@@ -223,7 +258,8 @@ def profile_kind(profile: dict | None) -> str:
     """Return a privacy-safe enum identifying which provider a profile uses.
 
     Matches the profile's ANTHROPIC_BASE_URL against PROVIDER_PRESETS
-    to get one of: kimi/minimax/glm/glm_intl/deepseek/qwen/default/custom.
+    to get one of: kimi/minimax/glm/glm_intl/deepseek/qwen/qwen_coding/
+    default/custom.
     Used by telemetry; never sends the env itself.
     """
     if not profile:

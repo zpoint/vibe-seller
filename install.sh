@@ -588,6 +588,32 @@ _install_via_pip() {
         require_sudo
     fi
 
+    # Runtime deps the daemon's agents need but the wheel can't ship:
+    # claude CLI (the AI backend's subprocess), sqlite3 (agents query
+    # per-account email DBs via `sqlite3 <path>`), node (claude CLI is
+    # an npm package), lsof (vibe-seller stop). Without these,
+    # `vibe-seller start` succeeds but the first agent task fails
+    # with FileNotFoundError. --dev mode installs them via main()'s
+    # DEPS loop; the default mode `exit 0`s before reaching that loop,
+    # so the deps have to be installed here explicitly. This block
+    # was dropped in an install.sh refactor that introduced a
+    # half-working default install, observed as a CI verify-testpypi
+    # failure on v0.0.6 (FileNotFoundError on `claude` spawn).
+    if ! check_lsof; then
+        install_lsof
+    fi
+    if ! check_sqlite3; then
+        install_sqlite3
+    fi
+    if ! check_node; then
+        install_node
+    fi
+    fix_npm_permissions
+    if ! check_claude; then
+        install_claude \
+            || _warn "claude CLI install failed — AI agent features will not work"
+    fi
+
     # Compose `uv tool install` args from --test-pypi / --version.
     # TestPyPI only hosts our project — pull dependencies (FastAPI,
     # uvicorn, etc.) from real PyPI via --extra-index-url so the

@@ -182,19 +182,17 @@ export default function App() {
 
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
+  // Login default: first store else all-stores. Refs guard against a click landing during in-flight loadStores.
+  const selRef = useRef(selectedStore), allRef = useRef(showAllTasks); selRef.current = selectedStore; allRef.current = showAllTasks
   useEffect(() => {
-    if (currentUser) {
-      loadStores(); loadZiniaoAccounts(); loadProfiles()
-      // Default: load all-stores view on login
-      if (!selectedStore && showAllTasks) {
-        api.get('/api/tasks?store_id=__none__').then(setTasks).catch(() => {})
-        loadSchedules()
-      }
-    }
+    if (!currentUser) return
+    loadZiniaoAccounts(); loadProfiles()
+    loadStores().then(f => { if (selRef.current || !allRef.current) return; if (f?.length) selectStore(f[0]); else selectAllTasks() })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser])
 
   // ─── Data loaders ──────────────────────────────────
-  const loadStores = async () => { setStores(await api.get('/api/stores')) }
+  const loadStores = async (): Promise<Store[]> => { const f: Store[] = await api.get('/api/stores'); setStores(f); return f }
   const loadZiniaoAccounts = async () => { try { setZiniaoAccounts(await api.get('/api/ziniao-accounts')) } catch { /* ignore */ } }
   const loadProfiles = async () => { try { const data = await api.get('/api/profiles'); setProfiles(data.profiles || []) } catch { setProfiles([]) } }
   const loadUsers = async () => { try { setAllUsers(await api.get('/api/users')) } catch { /* ignore */ } }
@@ -591,7 +589,9 @@ export default function App() {
 
   // ─── Auth helpers ──────────────────────────────────
   const handleLogin = async () => { setLoginError(''); try { const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' }); if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }; const u = await r.json(); setCurrentUser(u); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false); setLoginIdentifier(''); setLoginPassword('') } catch { setLoginError(t('auth.invalidCredentials')) } }
-  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); setCurrentUser(null); setAppView('tasks') }
+  // Reset session-scoped selection on logout so next login re-enters
+  // the default-selection branch (else a stale selectedStore skips it).
+  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); setAppView('tasks') }
 
   // ─── Settings helpers ──────────────────────────────
   const createUser = async () => { if (!newUserForm.username.trim() || !newUserForm.password.trim()) return; try { await api.post('/api/users', { ...newUserForm, email: newUserForm.email.trim() || undefined }); setNewUserForm({ username: '', email: '', password: '', role: 'member' }); setShowAddUser(false); await loadUsers() } catch { /* ignore */ } }

@@ -171,13 +171,6 @@ export function Sidebar(props: SidebarProps) {
             />
           )}
           <div className="flex-1 overflow-y-auto">
-            <button
-              onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: true }); selectAllTasks() }}
-              className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${showAllTasks ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''}`}
-            >
-              <div className="font-medium text-sm">{t('tasks.allStores')}</div>
-              <div className="text-xs text-gray-500">{t('tasks.noStore')}</div>
-            </button>
             {stores.map(store => (
               <button
                 key={store.id}
@@ -191,6 +184,13 @@ export function Sidebar(props: SidebarProps) {
             {stores.length === 0 && (
               <div className="p-4 text-sm text-gray-400 text-center">{t('navigation.stores')}</div>
             )}
+            <button
+              onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: true }); selectAllTasks() }}
+              className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${showAllTasks ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''}`}
+            >
+              <div className="font-medium text-sm">{t('tasks.allStores')}</div>
+              <div className="text-xs text-gray-500">{t('tasks.noStore')}</div>
+            </button>
           </div>
         </>
       ) : appView === 'workspace' ? (

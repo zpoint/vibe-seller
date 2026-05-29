@@ -63,6 +63,7 @@
     "noStore": "无店铺",
     "filterByStore": "按店铺筛选",
     "allStores": "全部店铺",
+    "allStoresHint": "当前为通用任务列表，无法进入具体店铺的浏览器，适合执行读取邮件、发送企微消息等任务。如果需要进入店铺后台，请先点击左侧店铺再创建任务。",
     "noStoreTasks": "无店铺任务",
     "browser": "浏览器",
     "browserBackend": "浏览器后端",
