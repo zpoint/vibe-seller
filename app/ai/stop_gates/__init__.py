@@ -18,7 +18,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from app.ai.skill_gate_utils import find_skill_md, parse_skill_gates
 from app.config import DATA_DIR
+from app.plugins import registered_gates
 
 # Module-level attempt counter, keyed by (task_id, gate_name). Lost
 # on server restart, which is fine — the agent session would also be
@@ -148,12 +150,8 @@ def get_registered_gates() -> dict[str, object]:
     :mod:`app.plugins` registry (OSS gates via the builtin plugin;
     any customer gates via their own externally-installed plugin wheels) — core no longer
     hardcodes the gate list, so excising a customer is "don't install
-    its wheel", not "edit this dict". Read lazily to avoid a circular
-    import (gate modules import :class:`GateDeny` from this package, and
-    the builtin plugin imports those modules).
+    its wheel", not "edit this dict".
     """
-    from app.plugins import registered_gates  # noqa: PLC0415 — cycle
-
     return registered_gates()
 
 
@@ -169,10 +167,6 @@ def resolve_skill_gates(
     (a skill must not be able to break submits by typo). Order is
     deterministic (sorted by gate name) and duplicates collapse.
     """
-    from app.ai.claude_backend_utils import (  # noqa: PLC0415 — cycle
-        find_skill_md,
-        parse_skill_gates,
-    )
 
     registry = get_registered_gates()
     resolved: dict[str, object] = {}

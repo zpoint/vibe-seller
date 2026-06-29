@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from app.ai.claude_backend_manager import agent_backend
-from app.ai.claude_backend_utils import (
+from app.ai.skill_gate_utils import (
     parse_skill_gates,
     skill_name_from_read,
 )

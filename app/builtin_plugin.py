@@ -14,6 +14,22 @@ never from here.
 
 from __future__ import annotations
 
+from app.ai.bash_safety import (
+    check_bid_value_shape,
+    check_catalog_first,
+    check_dangerous_kill,
+    check_report_script_write,
+)
+from app.ai.stop_gates import (
+    ad_completeness_review,
+    ad_execution_fidelity,
+    ad_negation_allowlist,
+    review_completeness_review,
+    review_output_gate,
+)
+from app.browser.chrome import ChromeBackend
+from app.browser.winchrome import WinChromeBackend
+from app.browser.ziniao import ZiniaoBackend
 from app.plugins import ExtensionContext, Plugin
 
 
@@ -36,17 +52,6 @@ class BuiltinPlugin(Plugin):
 
     @staticmethod
     def _install_gates(ctx: ExtensionContext) -> None:
-        # Imported lazily so importing this module never drags in the
-        # whole gate graph (and to mirror the old lazy import that broke
-        # the GateDeny circular import).
-        from app.ai.stop_gates import (  # noqa: PLC0415
-            ad_completeness_review,
-            ad_execution_fidelity,
-            ad_negation_allowlist,
-            review_completeness_review,
-            review_output_gate,
-        )
-
         ctx.register_gate('ad_completeness_review', ad_completeness_review)
         ctx.register_gate('ad_negation_allowlist', ad_negation_allowlist)
         ctx.register_gate('ad_execution_fidelity', ad_execution_fidelity)
@@ -57,13 +62,6 @@ class BuiltinPlugin(Plugin):
 
     @staticmethod
     def _install_pretool_gates(ctx: ExtensionContext) -> None:
-        from app.ai.bash_safety import (  # noqa: PLC0415
-            check_bid_value_shape,
-            check_catalog_first,
-            check_dangerous_kill,
-            check_report_script_write,
-        )
-
         # Order matches the historical first_bash_deny chain:
         # kill → bid value → report-script → catalog-first.
         ctx.register_pretool_gate(
@@ -89,10 +87,6 @@ class BuiltinPlugin(Plugin):
 
     @staticmethod
     def _install_browser_backends(ctx: ExtensionContext) -> None:
-        from app.browser.chrome import ChromeBackend  # noqa: PLC0415
-        from app.browser.winchrome import WinChromeBackend  # noqa: PLC0415
-        from app.browser.ziniao import ZiniaoBackend  # noqa: PLC0415
-
         ctx.register_browser_backend('chrome', ChromeBackend)
         ctx.register_browser_backend('winchrome', WinChromeBackend)
         ctx.register_browser_backend('ziniao', ZiniaoBackend)
