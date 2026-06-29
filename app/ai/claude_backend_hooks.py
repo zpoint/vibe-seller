@@ -11,9 +11,9 @@ import json
 import logging
 
 from app.ai.bash_safety import (
-    check_catalog_first,
     check_catalog_first_tool_args,
-    check_dangerous_kill,
+    check_report_overwrite,
+    first_bash_deny,
     should_mark_catalog_read,
 )
 from app.ai.claude_backend_utils import (
@@ -27,8 +27,10 @@ from app.ai.claude_backend_utils import (
     check_skill_prereqs,
     find_skill_md,
     get_open_tasklist_items,
+    skill_name_from_read,
     validate_fanout_plan_text,
 )
+from app.ai.stop_gates import record_skill_load
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
@@ -39,6 +41,7 @@ from app.prompts import (
     SCHEDULED_WATERMARK_PROMPT,
     render_prompt,
 )
+from app.question_answers import expand_free_text_answers
 from app.task_states import TaskStatus
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -88,6 +91,19 @@ class _HookMixin:
             },
         }
         await self._send_stdin(response, label='hook_response')
+
+    async def _deny_pre_tool_use(self, request_id: str, reason: str):
+        """Deny a PreToolUse hook callback with *reason*."""
+        await self._send_hook_response(
+            request_id,
+            {
+                'hookSpecificOutput': {
+                    'hookEventName': 'PreToolUse',
+                    'permissionDecision': 'deny',
+                    'permissionDecisionReason': reason,
+                },
+            },
+        )
 
     async def _handle_control_request(self, msg: dict):
         """Handle a control_request from claude's stdout.
@@ -213,49 +229,20 @@ class _HookMixin:
             # Circuit breaker: detect degenerate tool loops
             inner_name = tool_input.get('tool_name', '')
             inner_input = tool_input.get('tool_input', {})
-            # Concurrent-task safety: reject unscoped pkill/killall
-            # before they can hit sibling tasks' processes.
             if inner_name == 'Bash':
                 cmd = inner_input.get('command', '')
-                deny_reason = check_dangerous_kill(cmd)
-                if deny_reason:
+                # Ordered Bash guards (first deny wins) live in
+                # bash_safety.first_bash_deny — see it for the chain.
+                deny = first_bash_deny(cmd, self.task_dir, self._catalog_read)
+                if deny:
+                    label, deny_reason = deny
                     logger.warning(
-                        'Bash safety: agent %s tried unscoped kill: %r',
+                        '%s: agent %s denied: %r',
+                        label,
                         self.task_id[:8],
                         cmd[:200],
                     )
-                    await self._send_hook_response(
-                        request_id,
-                        {
-                            'hookSpecificOutput': {
-                                'hookEventName': 'PreToolUse',
-                                'permissionDecision': 'deny',
-                                'permissionDecisionReason': deny_reason,
-                            },
-                        },
-                    )
-                    return
-                # Catalog-first guard: deny filesystem search of
-                # knowledge/ or stores/ until the agent has read a
-                # catalog file this session. The deny reason tells
-                # the agent which catalog to read.
-                deny_reason = check_catalog_first(cmd, self._catalog_read)
-                if deny_reason:
-                    logger.info(
-                        'Catalog-first: agent %s tried %r before reading catalog',
-                        self.task_id[:8],
-                        cmd[:120],
-                    )
-                    await self._send_hook_response(
-                        request_id,
-                        {
-                            'hookSpecificOutput': {
-                                'hookEventName': 'PreToolUse',
-                                'permissionDecision': 'deny',
-                                'permissionDecisionReason': deny_reason,
-                            },
-                        },
-                    )
+                    await self._deny_pre_tool_use(request_id, deny_reason)
                     return
             # Catalog-first guard for the Glob/Grep built-in tools.
             # Same intent as the Bash branch above: agents denied at
@@ -276,16 +263,7 @@ class _HookMixin:
                             if k in ('path', 'pattern')
                         },
                     )
-                    await self._send_hook_response(
-                        request_id,
-                        {
-                            'hookSpecificOutput': {
-                                'hookEventName': 'PreToolUse',
-                                'permissionDecision': 'deny',
-                                'permissionDecisionReason': deny_reason,
-                            },
-                        },
-                    )
+                    await self._deny_pre_tool_use(request_id, deny_reason)
                     return
             # Catalog-read tracker: flip the catalog-first guard off
             # once the agent issues a Read against any CATALOG.md —
@@ -294,8 +272,25 @@ class _HookMixin:
             # design rationale (fresh stores with no L3 catalog yet
             # were stuck in a deny loop, breaking DeepSeek thinking
             # mode in particular).
+            # Report-overwrite guard: Write may not replace an
+            # existing AD_AUDIT report (Edit-only; see bash_safety).
+            deny_reason = check_report_overwrite(
+                inner_name, inner_input, self.task_dir
+            )
+            if deny_reason:
+                logger.warning('Report-overwrite guard: %s', self.task_id[:8])
+                await self._deny_pre_tool_use(request_id, deny_reason)
+                return
             if should_mark_catalog_read(inner_name, inner_input):
                 self._catalog_read = True
+            # Skill-load tracking for skill-declared exit gates: a
+            # Read of skills/<name>/SKILL.md loads that skill (the
+            # Skill-tool path is tracked by the prereq hook below);
+            # record_skill_load makes the binding durable per task.
+            read_skill = skill_name_from_read(inner_name, inner_input)
+            if read_skill:
+                self._loaded_skills.add(read_skill)
+                record_skill_load(self.task_id, read_skill)
             if self._check_tool_loop(inner_name, inner_input):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
@@ -347,13 +342,9 @@ class _HookMixin:
                     )
                     return
                 # Only track skills we actually ship (a SKILL.md
-                # exists in the task workspace or global skills dir).
-                # Without this gate the agent could "satisfy" a
-                # prereq by calling ``Skill('<arbitrary-name>')`` —
-                # the hook would add the name to ``_loaded_skills``
-                # and let a dependent skill through even though no
-                # actual prerequisite content was loaded. Limiting
-                # the set to shipped skills closes that bypass.
+                # exists in workspace/global skills): otherwise
+                # ``Skill('<arbitrary-name>')`` would "satisfy" a
+                # prereq without loading any prerequisite content.
                 if (
                     skill_name
                     and find_skill_md(
@@ -362,6 +353,7 @@ class _HookMixin:
                     is not None
                 ):
                     self._loaded_skills.add(skill_name)
+                    record_skill_load(self.task_id, skill_name)
             # Auto-approve all other tools
             await self._send_hook_response(
                 request_id,
@@ -770,7 +762,6 @@ class _HookMixin:
             'questions': questions,
         }
         self._answer_events[request_id] = asyncio.Event()
-
         await event_bus.emit(
             'task_questions',
             {
@@ -779,14 +770,13 @@ class _HookMixin:
                 'questions': questions,
             },
         )
-
         await self._answer_events[request_id].wait()
         answers = self._answers.pop(request_id, {})
         self._answer_events.pop(request_id, None)
         self._pending_questions.pop(request_id, None)
-
         if not self.running or self._stopping:
             return
-
+        # Expand the UI free-text sentinel into per-question answers (#211).
+        answers = expand_free_text_answers(answers, questions)
         updated_input = {**tool_input, 'answers': answers}
         await self._send_control_response(request_id, 'allow', updated_input)

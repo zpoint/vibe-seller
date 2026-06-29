@@ -64,7 +64,7 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
       browser_backend: backend,
       browser_config: bc,
       platforms: initialValues?.platforms || ['amazon'],
-      countries: initialValues?.countries || ['SA'],
+      countries: initialValues?.countries || ['US'],
       platform_countries: initialValues?.platform_countries || {},
       ...(backend === 'ziniao' && ziniaoProps.selectedZiniaoAccountId ? {
         ziniao_account_id: ziniaoProps.selectedZiniaoAccountId,

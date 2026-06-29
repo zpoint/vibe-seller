@@ -1,0 +1,28 @@
+"""Write-once text templates for the local workspace."""
+
+WORKSPACE_CLAUDE_MD = (
+    '# Vibe Seller Workspace\n\n'
+    '## Symlinked directories\n\n'
+    '`knowledge/`, `stores/` and `store-data/` are symlinks.'
+    ' The Glob and Grep'
+    ' tools use ripgrep which cannot follow symlinks; use'
+    ' `Bash("find ...")` / `Bash("grep -r ...")` for them.\n'
+    '- `stores/<slug>/` holds curated store KNOWLEDGE only'
+    ' (profiles, notes, rules). Run artifacts (reports,'
+    ' captures, exports) go to `store-data/<slug>/...` —'
+    ' never into `stores/` or `knowledge/`.\n'
+    '- For `.claude/` and other directories: Glob and Grep'
+    ' work normally.\n\n'
+    '## browser-use\n\n'
+    '`browser-use` is a Bash CLI tool.'
+    ' Run it via `Bash("browser-use ...")`.\n'
+    'Do NOT use the Skill tool for browser-use'
+    ' — it is not a slash command.\n\n'
+    'Flags `--profile`, `--cdp-url`, `--connect` are managed'
+    ' by the per-store wrapper and must not be passed'
+    ' manually.\n\n'
+    '## Authenticated Pages\n\n'
+    'Pages requiring login or JavaScript (seller center, email'
+    ' providers, admin panels) MUST be accessed via'
+    ' `browser-use`, not WebFetch or curl.\n'
+)

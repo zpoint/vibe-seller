@@ -153,8 +153,8 @@ class TestInputJsonDeltaBumpsUpdatedAt:
         # and exercise the full path.
         for chunk in (
             '{"content": "# Audit\\n',
-            '\\n## Country 1: AE\\n',
-            '\\n## Country 2: SA\\n',
+            '\\n## Country 1: US\\n',
+            '\\n## Country 2: UK\\n',
             '\\n## Action checklist\\n',
             '"}',
         ):

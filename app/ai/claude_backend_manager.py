@@ -6,10 +6,12 @@ import logging
 from app.ai.base import AIAgentBackend
 from app.ai.claude_backend import AgentSession
 from app.ai.profiles import DEFAULT_PROFILE_ID
+from app.ai.stop_gates import recorded_skills
 from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
 from app.workspace.manager import workspace_manager
+from app.workspace.skills_sync import skills_sync
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,12 @@ class ClaudeCodeBackend(AIAgentBackend):
                     self._in_flight -= 1
                     self._semaphore.release()
                     return False
+
+            # Skill scripts may import their requirements — join the
+            # deferred boot-time dep install before the agent starts
+            # (no-op once installs finish; SERVING never waits, only
+            # task launches do).
+            await skills_sync.wait_deps_ready()
 
             # Prepare isolated per-task workspace.
             # Pass store_slug so browser-only skills are excluded
@@ -277,6 +285,25 @@ class ClaudeCodeBackend(AIAgentBackend):
             return False
         await session.reject_plan(feedback)
         return True
+
+    def loaded_skills_and_workspace(self, task_id: str):
+        """Return (loaded_skills, task_dir) for a task.
+
+        Used by ``set_task_result`` to resolve skill-declared exit
+        gates. Skills are the union of the live session's loads and
+        the task's durable bindings (``stop_gates.recorded_skills``):
+        a retry-resume session that edits the report without
+        re-Reading SKILL.md still faces the gates the original
+        session bound, across server restarts.
+        """
+        durable = recorded_skills(task_id)
+        session = self.get_session(task_id)
+        if session is None:
+            return durable, None
+        return (
+            durable | frozenset(getattr(session, '_loaded_skills', ()) or ()),
+            getattr(session, 'task_dir', None),
+        )
 
     def is_running(self, task_id: str) -> bool:
         session = self._sessions.get(task_id)

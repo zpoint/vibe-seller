@@ -25,6 +25,7 @@ from app.prompts import (
     WAITING_INSTRUCTION_PROMPT,
     render_prompt,
 )
+from app.question_answers import expand_free_text_answers
 from app.task_runner_context import (
     build_all_stores_context,
     build_store_context,
@@ -206,10 +207,39 @@ async def build_system_extra(
     # reusable plan that will run N times across M stores, so the
     # plan must not reference a specific store or per-store path.
     if task.is_plan_only:
+        # A store-bound schedule (store_id set → always phase_mode
+        # 'single') targets ONE specific store; every fire runs the
+        # plan directly as that single store's agent. It must NOT be
+        # authored as a multi-store / orchestrator plan. A store-less
+        # schedule runs across many stores (fanout, or the all-stores
+        # 'single' task), so it keeps the abstract framing.
+        store_bound = schedule is not None and schedule.store_id is not None
+        if store_bound:
+            scope_intro = (
+                'You are authoring a reusable plan for a schedule bound'
+                ' to a SINGLE specific store. Every fire runs this plan'
+                " directly as that one store's own browser agent."
+            )
+            scope_abstraction = (
+                '- Write the plan as the concrete, top-to-bottom steps'
+                ' ONE store-bound agent performs in this store, using'
+                " the store's L3 catalog / notes to find concrete"
+                ' paths. Per-store context is injected at fire time.\n'
+            )
+        else:
+            scope_intro = (
+                'You are authoring a reusable plan for a schedule that'
+                ' will run many times, potentially across many stores.'
+            )
+            scope_abstraction = (
+                '- Describe the procedure abstractly: what to do for'
+                ' each (store, platform, site), using the per-store'
+                ' L3 catalog to discover concrete paths.\n'
+                '- Do NOT reference a specific store slug, store name,'
+                ' or hard-coded file path from any one store.\n'
+            )
         plan_only_block = (
-            'You are authoring a reusable plan for a schedule that'
-            ' will run many times, potentially across many stores.'
-            '\n\nRequirements for this plan:\n'
+            scope_intro + '\n\nRequirements for this plan:\n'
             '- **You MUST call ExitPlanMode with your plan text.**'
             ' Not calling ExitPlanMode — even if the task seems'
             ' trivial, or you think "nothing to plan" — is a'
@@ -218,12 +248,8 @@ async def build_system_extra(
             ' `planning` state until a human intervenes. There is'
             ' always something to write: even a one-paragraph plan'
             ' is better than no plan.\n'
-            '- Describe the procedure abstractly: what to do for'
-            ' each (store, platform, site), using the per-store'
-            ' L3 catalog to discover concrete paths.\n'
-            '- Do NOT reference a specific store slug, store name,'
-            ' or hard-coded file path from any one store.\n'
-            '- Do NOT execute the task now — after ExitPlanMode the'
+            + scope_abstraction
+            + '- Do NOT execute the task now — after ExitPlanMode the'
             ' session terminates and the plan is frozen onto the'
             ' schedule. Each future fire re-injects per-store'
             ' context and runs the plan against that store.\n'
@@ -247,6 +273,19 @@ async def build_system_extra(
             ' convenient for you. Mixed-language plans are also'
             ' wrong.'
         )
+        # Store-bound schedule: the fire is ONE store-bound task that
+        # runs the plan directly. Forbid orchestrator/sub-task spawning
+        # so the plan doesn't enumerate stores or fan out — that is the
+        # all-stores ('fanout') schedule's job, not this one's.
+        if store_bound:
+            plan_only_block += (
+                '\n- This schedule is SINGLE-STORE: the fire runs this'
+                ' plan directly as one store-bound agent. Do NOT'
+                ' enumerate stores, do NOT call `vibe_seller_create_task`,'
+                ' do NOT design an orchestrator or parent/child'
+                ' sub-tasks, and do NOT reference or touch any other'
+                ' store. The plan is the direct steps for this one store.'
+            )
         # Fanout schedules (phase_mode='fanout') already spawn one
         # per-store child Task at fire time. If the plan tells the
         # agent to call `vibe_seller_create_task` from within it,
@@ -254,7 +293,7 @@ async def build_system_extra(
         # Forbid orchestrator-style spawning explicitly — the hook
         # (`_validate_fanout_plan_text` in claude_backend_hooks.py)
         # also enforces this at ExitPlanMode time.
-        if schedule is not None and schedule.phase_mode == 'fanout':
+        elif schedule is not None and schedule.phase_mode == 'fanout':
             plan_only_block += (
                 '\n- This schedule is FANOUT mode: the scheduler'
                 ' already creates one per-store Task per fire and'
@@ -264,6 +303,31 @@ async def build_system_extra(
                 ' parent_task_id or sub-task spawning. The plan'
                 ' should describe what ONE store-bound agent does'
                 ' — fanout handles the rest.'
+                '\n- FINALIZE ability: by default each store finishes'
+                ' independently and nothing runs afterward. If — and'
+                ' only if — this task needs ONE cross-store step AFTER'
+                ' every store finishes (combine all stores into a'
+                ' single PR / report / notification, or retry the'
+                ' failed stores), you MUST actually CALL the'
+                ' `vibe_seller_register_finalize` tool DURING this'
+                ' planning session, passing a natural-language'
+                ' description of that final step. This is the ONE'
+                ' planning-time side effect that is expected — writing'
+                ' the finalize step IS part of authoring the plan, so'
+                ' it does not count as "executing the task". Make the'
+                ' tool call (typically right before ExitPlanMode).'
+                ' **Merely describing the finalize in your plan text'
+                ' does NOT register it — only the tool call does;'
+                ' a plan that talks about a finalize step without'
+                ' calling the tool is a FAILED plan.** The framework'
+                ' then runs ONE finalize task once all per-store'
+                ' children are terminal, handed a batch_results.json'
+                " with every store's status + result + output"
+                ' location. Keep per-store work in the plan; put the'
+                ' cross-store combine ONLY in register_finalize —'
+                ' never as a per-store step (that would run the'
+                ' combine N times). If the work is fully independent'
+                ' per store, do not call it.'
             )
         parts.append(plan_only_block)
 
@@ -272,6 +336,12 @@ async def build_system_extra(
         parts.append(header_extra)
     if extra_context:
         parts.append(extra_context)
+
+    # Plugin extension seam: fragments registered for the 'system_extra'
+    # slot are appended to the end of the assembled system prompt.
+    from app.plugins import registered_prompt_fragments  # noqa: PLC0415
+
+    parts.extend(registered_prompt_fragments('system_extra'))
 
     result = '\n\n'.join(p.strip() for p in parts if p and p.strip())
     if store:
@@ -350,11 +420,21 @@ def format_answered_questions_prefix(
     Falls back to raw JSON when the shape doesn't match.
     """
     try:
+        # Expand the UI free-text sentinel onto the asked questions so
+        # 'Type freely instead' answers aren't dropped on resume (#211).
+        answers = expand_free_text_answers(answers, questions)
         lines = ['The operator answered your earlier AskUserQuestion:']
+        q_texts = []
         for q in questions:
             q_text = q.get('question', '') if isinstance(q, dict) else str(q)
+            q_texts.append(q_text)
             a_text = answers.get(q_text, '')
             lines.append(f'- {q_text} → {a_text}')
+        # Surface any answers not keyed to a listed question (e.g. free
+        # text submitted when the question list couldn't be recovered).
+        for key, value in answers.items():
+            if key not in q_texts and value:
+                lines.append(f'- {value}')
         lines.append('Please continue the task using those answers.')
         return '\n'.join(lines)
     except Exception:

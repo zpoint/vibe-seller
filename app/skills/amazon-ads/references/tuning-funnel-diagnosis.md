@@ -134,16 +134,16 @@ top-tile number does NOT reflect the current state of the campaign.
   bleeding") must be made off `active_roas`, not the top-tile.
 
 **Worked example — why this matters**: Campaign with 13 keyword
-rows; 11 are Paused (carrying old spend SAR 125, old sales SAR
+rows; 11 are Paused (carrying old spend USD 125, old sales USD
 60, ROAS 0.48 — these dragged the historical campaign-level ROAS
-to 1.35). The 2 active rows have spend SAR 3.50, sales SAR 53.99,
+to 0.89). The 2 active rows have spend USD 3.50, sales USD 53.99,
 1 order, active_roas = 15.43. The campaign top-tile shows ROAS
-1.35 — alarming if read at face value. But the active-only ROAS
+0.89 — alarming if read at face value. But the active-only ROAS
 is 15.43 — far above target. **Diagnosis**: the campaign is
 self-stabilized, the paused rows did the bleeding, and the
 remaining active rows are profitable. **Action**: leave alone,
 or only address the active rows individually. Do NOT recommend
-pausing the campaign on the basis of the 1.35 number — that
+pausing the campaign on the basis of the 0.89 number — that
 would destroy a 15.43-ROAS source.
 
 This rule composes with the row-level PROTECT rules in
@@ -159,8 +159,8 @@ negative within the window.
 - **Match type confound**: a broad-match keyword's CTR is naturally
   lower than exact's because broad shows on more queries, including
   irrelevant ones. Compare like-for-like (broad vs broad median).
-- **Category effect**: CTR / CVR norms vary by category. Apparel
-  CTR is much higher than Electronics CTR. Use the store's own
+- **Category effect**: CTR / CVR norms vary by category. Some categories'
+  CTR is much higher than others (fashion vs electronics, say). Use the store's own
   median, not industry averages.
 - **Halo / brand effect**: branded queries convert dramatically
   better than non-branded. If a campaign mixes both, the aggregate

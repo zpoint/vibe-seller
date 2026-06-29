@@ -73,19 +73,39 @@ entries from it.
    placement breakdown not sum to the campaign top-tile and leads
    to wrong recommendations.
 
-3. **Enumerate every campaign URL** on the list page in one
-   `eval` call. Match all three Sponsored-ads URL families:
-   `a[href*="/cm/sp/campaigns/"]` (Sponsored Products),
-   `a[href*="/cm/sb/campaigns/"]` (Sponsored Brands / SBV),
-   `a[href*="/cm/sd/campaigns/"]` (Sponsored Display). The
-   campaign-name column is pinned-left so the URLs are always in
-   the DOM regardless of horizontal scroll. **Do not** try to
-   scrape `[role=row]` / `row.innerText` — the campaign-list
-   ag-Grid virtualizes both rows and columns; at any horizontal
-   scroll position only ~6 of 17 columns are in the DOM. See
-   `mechanics.md § 8b`.
+3. **Clear any persisted search/filter, then read the true total —
+   BEFORE enumerating.** The "Find a campaign" search value and the
+   status/type filter chips persist in the *browser profile*, not the
+   URL: a term a previous task or a human left applied still filters
+   your list today, silently hiding every non-matching campaign. Clear
+   the search and confirm the grid's authoritative total
+   (`aria-rowcount − 1`) per `mechanics.md § 2a`. **Write that number
+   down — it is your completeness target for this (platform, country).**
+   Skipping this step has produced audits reporting "8 campaigns, 2
+   active" for an account that actually had 145.
 
-4. **For each URL, capture the top-tile** via the chart-toggle
+4. **Enumerate every campaign** on the list page. Match all three
+   Sponsored-ads URL families: `a[href*="/cm/sp/campaigns/"]`
+   (Sponsored Products), `a[href*="/cm/sb/campaigns/"]` (Sponsored
+   Brands / SBV), `a[href*="/cm/sd/campaigns/"]` (Sponsored Display).
+   The campaign-name column is pinned-left so the URLs are in the DOM
+   regardless of *horizontal* scroll. **Do not** scrape `[role=row]` /
+   `row.innerText` — the ag-Grid virtualizes both rows and columns
+   (`mechanics.md § 8b`).
+
+   ⚠️ **Row virtualization also caps the hrefs**: an `eval` of
+   `a[href*=…]` only returns the ~13 rows currently rendered, so for an
+   account above ~15 campaigns a single eval will silently under-count.
+   **Reconcile against the total from step 3.** If the distinct
+   campaign-id count you extracted is less than that total, you have an
+   incomplete manifest — do NOT proceed to Phase 2 on the partial set.
+   Either (a) scroll the grid in viewport-sized steps and re-eval,
+   unioning the hrefs until the distinct count equals the total, or
+   (b) switch to **bulk download** (`mechanics.md § 2d`), which returns
+   every campaign in one file. Bulk download is the default for any
+   account above ~25 campaigns.
+
+5. **For each campaign, capture the top-tile** via the chart-toggle
    `button[pressed]` snippet in `mechanics.md § 8b`. Each button's
    `innerText` carries the metric value — Total cost / Sales /
    ROAS / Purchases come back cleanly. Also capture: campaign
@@ -93,12 +113,12 @@ entries from it.
    Automatic`, `Sponsored Brands`, etc.), country (TLD), Status,
    Daily budget, Strategy, Created date.
 
-5. **Record into the manifest** one row per campaign:
+6. **Record into the manifest** one row per campaign:
    ```
    campaign_id   (Amazon ID — stable across runs)
    name
    type          (SP-Auto / SP-Manual-KW / SP-Manual-Product / SB / SBV / SD)
-   country       (SA / AE / US / ...)
+   country       (US / UK / <country-code>)
    status        (Delivering / Out of budget / Paused / Archived)
    daily_budget
    bidding_strategy
@@ -128,7 +148,7 @@ per-table Export buttons exist on the **ad-group Targeting tab**
 Surface these in the report header so the user can correct on the
 next round:
 
-- **Margin** — default **25%** for general apparel / accessories;
+- **Margin** — default **25%** for general merchandise / accessories;
   20% for commoditised generics; 35% for premium / branded; 15%
   for low-margin staples. Adjust by SKU category if the catalog
   makes that obvious. The store's own margin override (saved in
@@ -162,7 +182,7 @@ Specifically, **do NOT ask**:
 - "What's your goal?" — apply the standard playbook (see Inputs
   not gathered from the page above). The launch / scale / profit
   axis rarely changes the recommendations.
-- "What's your margin?" — use the category default (25% apparel,
+- "What's your margin?" — use the category default (25% general merchandise,
   etc.) and surface the assumption in the report header.
 
 The **only** question worth asking upfront is the **time range**,
@@ -242,7 +262,7 @@ active set is exhausted.
 > rules, and worked examples live in
 > [`tuning-history.md`](tuning-history.md).** Bid column
 > extraction MUST follow `mechanics.md § Canonical column layout`
-> — the SAR midpoint at position 2 is the *suggested* bid, not
+> — the currency midpoint at position 2 is the *suggested* bid, not
 > the keyword's bid; misreads here are the defect class this file
 > is designed to catch.
 
@@ -320,6 +340,22 @@ For one entry:
      candidates. Pattern: ≥ 3 search terms sharing a common
      irrelevant word ("free", "kids", competitor brand) → propose
      broad/phrase negative on that word.
+     - **Aggregate by term BEFORE you negate — never judge a row in
+       isolation.** A customer search term can surface on more than
+       one row (different source keyword / match type / page). A
+       search-term negative blocks the **query globally**, so if you
+       negate a 0-order row of "wireless mouse" while another row of
+       "wireless mouse" converted (5 orders, ROAS 8), the negative kills the
+       converting traffic too. Rule: sum orders/sales across **all
+       rows that share the same normalized term in this campaign**;
+       emit `否定搜索词` only when the term nets **0 orders across
+       every one of its rows**. If any row converts, do NOT negate —
+       mark `维持`, and if a specific source keyword is the bleeder,
+       trim that keyword's bid instead. A term you ever recommend
+       `维持`/`提高` for must never also carry `否定` — that
+       self-contradiction is rejected by the `ad_negation_allowlist`
+       gate (the term is dropped from the approved list, so execution
+       flags it as a stray).
    - **Harvest threshold** → list of exact-match harvest candidates.
      For each, propose `Add as keyword` exact match in the same ad
      group with bid at suggested-bid midpoint, AND `Add as negative
@@ -497,6 +533,20 @@ table equals the number of campaigns the campaign-list page
 showed. Both totals appear in the report header so the reader can
 verify at a glance.
 
+**Manifest / file-list claims come from disk, never from memory.**
+Any statement in the report about TSV files written (a "TSV
+Records" footer, a per-campaign file list, a count like "31 files")
+MUST be generated by listing the actual files
+(`ls stores/<slug>/ads/**/*.tsv`) at compose time — never asserted
+from intent or what you "planned" to write. Claiming a file or a
+count that `ls` doesn't confirm is fabricated content and a
+defect: it makes the next run's drift check load files that don't
+exist. Symmetrically, never write "pending drill" / "overview only"
+for a campaign whose per-campaign section above already contains
+real per-keyword data — the footer must agree with the body. If a
+required TSV is missing, write it (you have the data) before
+emitting the manifest; do not paper over the gap with a count.
+
 **Anomaly highlights** appear as the **second** block under the
 header table (capped at ~5 items) — what's bleeding most across
 all campaigns. These reference Action checklist IDs so the user
@@ -568,9 +618,9 @@ correction. Required actions for a Class B conversion:
 3. **Re-call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`**
    so the frontend file-viewer picks up the new content.
 4. **Reply in chat** with a short summary of *what changed in the
-   file* (e.g. "已把 A33333333 的 'women socks' Broad 改为 Trim
-   to SAR 2.55（−15% soft trim，仍高于 actual CPC SAR 2.44）；
-   Product-Y SBV campaign 整体改为 Hold，保留 'cotton underwear'
+   file* (e.g. "已把 A33333333 的 'wireless mouse' Broad 改为 Trim
+   to USD 2.55（−15% soft trim，仍高于 actual CPC USD 2.50）；
+   Product-Y SBV campaign 整体改为 Hold，保留 'usb-c cable'
    Exact 不动"). Do NOT just paste a re-analysis — point the user
    at the file changes.
 
@@ -647,7 +697,7 @@ exactly one of these classes; the agent dispatches mechanically:
 The user can reference rows by either:
 - **Action checklist ID** — `2a`, `3b all`, `1` (full campaign)
 - **Campaign ID** — `A059...` for an entire campaign
-- **Friendly name** — `SA5`, `womens socks 024 manual KSA`
+- **Friendly name** — `US5`, `wireless mouse 024 manual US`
 
 The campaign ID is the most stable handle (survives report re-
 runs). Always include it in each campaign-section heading so the

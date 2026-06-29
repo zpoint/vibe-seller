@@ -3,6 +3,7 @@
 import json
 import os
 
+from app.models.user import User
 from app.workspace.manager import VIBE_SELLER_DIR
 
 PROFILES_PATH = VIBE_SELLER_DIR / 'profiles.json'
@@ -41,47 +42,53 @@ PROVIDER_PRESETS = {
     },
     'minimax': {
         'name': 'MiniMax',
-        'description': 'MiniMax-M2.7',
+        'description': 'MiniMax-M3',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.minimaxi.com/anthropic',
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'MiniMax-M2.7',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'MiniMax-M2.7',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'MiniMax-M2.7',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'MiniMax-M2.7',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'MiniMax-M2.7',
+            'ANTHROPIC_MODEL': 'MiniMax-M3',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'MiniMax-M3',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'MiniMax-M3',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'MiniMax-M3',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'MiniMax-M3',
         },
     },
+    # GLM-5.2: the ``[1m]`` suffix selects the 1M-context variant (same
+    # convention as DeepSeek's ``[1m]``). CLAUDE_CODE_AUTO_COMPACT_WINDOW
+    # must be raised to 1M, else Claude Code auto-compacts long before the
+    # model's 1M window is reached. https://docs.bigmodel.cn/cn/guide/models/text/glm-5.2
     'glm': {
         'name': 'GLM (China)',
-        'description': 'GLM-5.1 via ZhiPu BigModel',
+        'description': 'GLM-5.2 (1M context) via ZhiPu BigModel',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://open.bigmodel.cn/api/anthropic',
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'glm-5.1',
+            'ANTHROPIC_MODEL': 'glm-5.2[1m]',
             'ANTHROPIC_SMALL_FAST_MODEL': 'glm-4.5-air',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'glm-5.1',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'glm-5.1',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'glm-5.2[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'glm-5.2[1m]',
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'glm-4.5-air',
+            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
         },
     },
     'glm_intl': {
         'name': 'GLM (International)',
-        'description': 'GLM-5.1 via Z.AI',
+        'description': 'GLM-5.2 (1M context) via Z.AI',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.z.ai/api/anthropic',
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'glm-5.1',
+            'ANTHROPIC_MODEL': 'glm-5.2[1m]',
             'ANTHROPIC_SMALL_FAST_MODEL': 'glm-4.5-air',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'glm-5.1',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'glm-5.1',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'glm-5.2[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'glm-5.2[1m]',
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'glm-4.5-air',
+            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
         },
     },
     # Env keys per DeepSeek's official integration doc:
@@ -280,3 +287,41 @@ def profile_kind_for_id(profile_id: str | None) -> str:
     if not profile_id or profile_id == DEFAULT_PROFILE_ID:
         return 'default'
     return profile_kind(ProfileManager.get_profile(profile_id))
+
+
+async def resolve_schedule_profile(sched, db) -> str:
+    """Resolve which AI profile a schedule's fired task should use.
+
+    Schedules used to snapshot the owner's ``default_profile_id`` at
+    creation time and treat that snapshot as authoritative forever.
+    That broke provider failover: switching the default (e.g. to
+    deepseek during a Claude outage) silently left every existing
+    schedule pinned to the old provider, so scheduled auto-fires kept
+    hitting Anthropic while manual tasks (which resolve the default
+    live) recovered.
+
+    The fix: an unpinned schedule follows the owner's *current*
+    ``default_profile_id``, resolved live at every fire. Both ``None``
+    and the literal ``'default'`` mean "inherit" — ``'default'`` is the
+    ``Schedule.ai_profile_id`` column default (so a freshly-created
+    unpinned schedule holds ``'default'``, never NULL) and was the
+    legacy creation-time snapshot, so treating it as inherit needs no
+    model/column change or data backfill. Any other non-empty value is
+    honored as an explicit per-schedule pin.
+
+    ``sched`` may be ``None`` (e.g. an ad-hoc cron job with no
+    schedule row); in that case there is no owner to resolve, so this
+    returns ``DEFAULT_PROFILE_ID`` (the global inherit sentinel) and the
+    caller applies its own default.
+    """
+    if (
+        sched
+        and sched.ai_profile_id
+        and sched.ai_profile_id != DEFAULT_PROFILE_ID
+    ):
+        return sched.ai_profile_id
+    if sched and sched.created_by:
+        owner = await db.get(User, sched.created_by)
+        if owner and owner.default_profile_id:
+            return owner.default_profile_id
+    return DEFAULT_PROFILE_ID

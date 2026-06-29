@@ -111,10 +111,9 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
     if 'telemetry_enabled' not in settings:
         settings['telemetry_enabled'] = 'true'
     if 'browser_headless' not in settings:
-        # Default: headless (works in every environment). Flip to
-        # 'false' in Settings → General to make agent browsers
-        # visible on a workstation.
-        settings['browser_headless'] = 'true'
+        # Default: visible (false). Flip to 'true' in Settings → General
+        # for server/headless environments.
+        settings['browser_headless'] = 'false'
     if 'skills_auto_sync_enabled' not in settings:
         settings['skills_auto_sync_enabled'] = SKILLS_AUTO_SYNC_DEFAULT
     # Reflect env-var opt-out in the value the frontend reads, so it

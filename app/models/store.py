@@ -26,7 +26,7 @@ class Store(Base):
         Text, nullable=False, default='["amazon"]'
     )
     countries: Mapped[str] = mapped_column(
-        Text, nullable=False, default='["SA"]'
+        Text, nullable=False, default='["US"]'
     )
     platform_countries: Mapped[str] = mapped_column(
         Text, nullable=False, default='{}'

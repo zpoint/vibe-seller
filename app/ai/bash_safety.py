@@ -20,6 +20,7 @@ negatives (an obscure form slips through) are fine; false positives
 would be bad.
 """
 
+from pathlib import Path
 import re
 
 # Match `pkill`/`killall` only in *command position* — not as an
@@ -238,6 +239,148 @@ def check_catalog_first_tool_args(
     return None
 
 
+# ── Report-script guard ────────────────────────────────────────────
+#
+# Ad-audit reports must be authored through Read+Edit, one campaign
+# at a time — the contract is that every 建议 row is the model's own
+# judgement of that campaign's data, not template output. Twice now
+# an agent under turn pressure wrote a ``build_report.py`` that
+# regenerated the whole report from TSVs, overwriting many sessions
+# of hand analysis. In-prompt prohibitions did not survive turn
+# pressure, so the contract lives here: any Bash command that would
+# have a script (or shell redirection) WRITE an AD_AUDIT file is
+# denied. Scripts remain free to READ the report or TSVs and print
+# analysis to stdout; ``sed -i`` style targeted in-place fixes are
+# deliberately not matched (tolerated for batch cleanup).
+
+_REPORT_TOKEN = 'AD_AUDIT'
+# Shell redirection or tee whose TARGET is an AD_AUDIT file.
+_REDIRECT_TO_REPORT_RE = re.compile(
+    r'(?:>>?\s*|\btee\s+(?:-a\s+)?)\S*AD_AUDIT\S*\.md'
+)
+# cp/mv landing ON an AD_AUDIT file from a non-AD_AUDIT source
+# (restoring AD_AUDIT_PREVIOUS.md over the report stays allowed).
+_COPY_TO_REPORT_RE = re.compile(
+    _COMMAND_PREFIX + r'(?:cp|mv)\s+(?:-\S+\s+)*'
+    r'(?!\S*AD_AUDIT)\S+\s+\S*AD_AUDIT\S*\.md'
+)
+# Interpreter invocation with a script-file argument.
+_SCRIPT_FILE_RE = re.compile(
+    _COMMAND_PREFIX
+    + r'(?:python3?|node|bash|sh)\s+[^;|&\n]*?(\S+\.(?:py|js|sh))\b'
+)
+# Code that opens a file for writing (inline ``python -c``/heredoc
+# bodies are part of the command text, so one regex serves both).
+_WRITE_HINT_RE = re.compile(
+    r"open\s*\([^)]*['\"][wax]b?\+?['\"]"
+    r'|\.write_text\s*\(|\.write\s*\(|writeFileSync|fs\.write'
+    r'|shutil\.(?:copy|move)|os\.rename|os\.replace'
+)
+
+_REPORT_SCRIPT_DENY = (
+    'BLOCKED — {label} would write the AD_AUDIT report from a '
+    'script. The report is hand-authored: scripts may READ TSVs '
+    'and print analysis to stdout, but every report change must '
+    'go through the Edit tool (one campaign at a time) so each '
+    '建议 stays your own judgement of that campaign. Read the '
+    'relevant TSV, then Edit the campaign section directly.'
+)
+
+
+def check_report_script_write(command: str, task_dir=None) -> str | None:
+    """Return a deny reason if *command* would script-write a report.
+
+    Three surfaces, mirroring the observed bypasses: shell
+    redirection/tee onto an ``AD_AUDIT*.md``; cp/mv landing on one
+    (from a non-AD_AUDIT source); and running a script whose code —
+    inline in the command or on disk under *task_dir* — both names
+    ``AD_AUDIT`` and opens a file for writing.
+    """
+    if not command or _REPORT_TOKEN not in command:
+        # Fast path; the script-file branch below re-checks content.
+        if not (command and _SCRIPT_FILE_RE.search(command)):
+            return None
+
+    if _REDIRECT_TO_REPORT_RE.search(command):
+        return _REPORT_SCRIPT_DENY.format(label='shell redirection')
+    if _COPY_TO_REPORT_RE.search(command):
+        return _REPORT_SCRIPT_DENY.format(label='cp/mv')
+    # Inline code (python -c, heredoc): body is in the command text.
+    if _REPORT_TOKEN in command and _WRITE_HINT_RE.search(command):
+        return _REPORT_SCRIPT_DENY.format(label='inline script')
+    # Script file on disk: read it and look for report writes.
+    for m in _SCRIPT_FILE_RE.finditer(command):
+        script = Path(m.group(1))
+        if not script.is_absolute():
+            if task_dir is None:
+                continue
+            script = Path(task_dir) / script
+        try:
+            src = script.read_text(encoding='utf-8', errors='ignore')
+        except OSError:
+            continue
+        if _REPORT_TOKEN in src and _WRITE_HINT_RE.search(src):
+            return _REPORT_SCRIPT_DENY.format(label=f'{m.group(1)}')
+    return None
+
+
+_REPORT_FILE_RE = re.compile(r'(?:^|/)AD_AUDIT[^/]*\.md$')
+
+_REPORT_OVERWRITE_DENY = (
+    'BLOCKED — Write would OVERWRITE the existing AD_AUDIT report '
+    'wholesale. That has twice replaced the report with a stale '
+    'transform and destroyed sessions of hand revisions. The report '
+    'is updated incrementally: use the Edit tool for every change '
+    '(block-level Edits are fine). Write is only allowed to CREATE '
+    'the report when no file exists yet (the scaffold step).'
+)
+
+
+def check_report_overwrite(
+    tool_name: str, tool_input: dict, task_dir=None
+) -> str | None:
+    """Deny a Write that overwrites OR forks the AD_AUDIT report.
+
+    Closes the Write-tool hop around ``check_report_script_write``:
+    a script may generate a "corrected" report in /tmp (allowed —
+    read-only analysis) and the agent then dumps it over the real
+    report with the built-in Write tool. Same wholesale-regeneration
+    bug class, different verb — observed live replacing a 334KB
+    report with a stale 298KB base.
+
+    The task dir holds ONE canonical report. Two denials enforce it:
+    - Write to the existing report path (wholesale overwrite).
+    - Write to a NEW ``AD_AUDIT_*.md`` while another already exists —
+      the fork workaround observed live: overwrite denied → agent
+      creates ``AD_AUDIT_<today>.md`` seeded from a stale temp copy
+      and burns a whole session fixing the zombie.
+    First-report scaffold creation stays allowed; Edit never touched.
+    """
+    if tool_name != 'Write':
+        return None
+    path = tool_input.get('file_path', '')
+    if not isinstance(path, str) or not _REPORT_FILE_RE.search(path):
+        return None
+    target = Path(path)
+    if not target.is_absolute():
+        if task_dir is None:
+            return None
+        target = Path(task_dir) / target
+    if target.exists():
+        return _REPORT_OVERWRITE_DENY
+    siblings = [
+        p for p in target.parent.glob('AD_AUDIT_*.md') if p.name != target.name
+    ]
+    if siblings:
+        return (
+            f'任务目录已有报告 {siblings[0].name} ——一个任务只有一份'
+            '报告，不要另建新的 AD_AUDIT 文件（fork 会从陈旧副本起步，'
+            '把已修复的问题全部带回来）。直接用 Edit 工具修改'
+            f' {siblings[0].name} 本身。'
+        )
+    return None
+
+
 # ── Ad-tuning reviewer-status guard ───────────────────────────────
 #
 # When an ads-tuning audit task is about to finalize its deliverable
@@ -263,6 +406,38 @@ def check_catalog_first_tool_args(
 _REVIEW_FILE_GLOB = 'REVIEW_*_iter*.md'
 _REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
 _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
+# Audits reviewed by a SERVER-side completeness gate at
+# set_task_result — the legacy REVIEW-file/subagent gate below must NOT
+# also fire for them (double-gating burns rounds on format polish; see
+# check_review_status). Amazon/Noon combo-section audits →
+# ``ad_completeness_review`` (mirror of its ``_COMBO_HEADER_RE``).
+# Plugins that ship their own server-side completeness gate add their own
+# audit markers via ``ExtensionContext.register_review_marker`` — see
+# ``_is_server_reviewed``, which ORs those in. Core names no customer.
+_SERVER_REVIEWED_RE = re.compile(
+    r'(?im)^##.*(amazon|noon)\s+(sa|ae|mx|us|eg|com)\b'
+)
+
+
+def _is_server_reviewed(audit_text: str) -> bool:
+    """True if a server-side completeness gate already reviews this audit.
+
+    Core's amazon/noon markers OR any plugin-registered marker. A bad
+    plugin pattern is skipped, never raised — a typo in one plugin must
+    not break the gate for everyone.
+    """
+    if _SERVER_REVIEWED_RE.search(audit_text):
+        return True
+    from app.plugins import registered_review_markers  # noqa: PLC0415
+
+    for pattern in registered_review_markers():
+        try:
+            if re.search(pattern, audit_text):
+                return True
+        except re.error:
+            continue
+    return False
+
 
 # Max iterations before we accept ``incomplete`` as a terminal state
 # (matches the loop cap documented in ``reviewer-loop.md``).
@@ -287,6 +462,23 @@ def check_review_status(task_dir) -> str | None:
         return None
     if not audit_files:
         return None  # Not an ads-tuning task; nothing to gate.
+
+    # amazon/noon audits are reviewed SERVER-SIDE at set_task_result
+    # (``ad_completeness_review`` — the constructive what's-missing
+    # loop). Running this legacy REVIEW-file gate on top of it forced
+    # the agent into redundant ``ads-format-review`` subagent
+    # iterations at every Stop attempt — burning rounds on format
+    # polish instead of drilling (the 1/46-stuck-on-review failure).
+    # Skip when the newest audit's content carries amazon/noon combo
+    # headers; platforms the server reviewer can't parse keep this gate
+    # as their only enforcement.
+    newest_audit = max(audit_files, key=lambda p: p.stat().st_mtime)
+    try:
+        audit_text = newest_audit.read_text(encoding='utf-8')
+    except OSError:
+        audit_text = ''
+    if _is_server_reviewed(audit_text):
+        return None
 
     try:
         review_files = sorted(task_dir.glob(_REVIEW_FILE_GLOB))
@@ -494,3 +686,92 @@ def check_exec_review_status(task_dir) -> str | None:
         f'Unknown execution-reviewer status {status!r} in '
         f'{latest.name}. Must be one of: ok | gaps | incomplete.'
     )
+
+
+# ── Pre-live bid-value sanity (the 10× / concatenation overspend bug) ────
+#
+# The Shadow-DOM bid input does not reliably clear, so a 1.30 target can
+# become 11.3 or 3.002.27 (a real-money overspend that shipped live, and
+# that the agent then rationalized as "≥ target"). The typed value is
+# visible in the ``browser-use input`` Bash command even though the
+# element index is semantically opaque, so we can deny the value-SHAPE
+# pathology before it goes live. This guard does NOT know the report
+# target (the index→keyword map isn't in the command) — catching the wrong
+# target value is the ``ad_execution_fidelity`` exit gate's job; this is
+# purely the absurd-magnitude / multi-decimal catch.
+_BID_INPUT_RE = re.compile(
+    r'browser-use\s+(?:input|type)\s+\d+\s+["\']?([0-9][0-9.,]*)',
+    re.IGNORECASE,
+)
+# Coarse ceiling: real SP/noon CPC bids are single-digit in their
+# currency; anything above this is almost certainly a clear-failure.
+_BID_SANITY_CEILING = 50.0
+
+
+def check_bid_value_shape(command: str) -> str | None:
+    """Deny a ``browser-use input`` bid that is a concatenation / absurd value.
+
+    Returns a deny reason for a value with >1 decimal point (``3.002.27``)
+    or above the sanity ceiling (``113.0`` from a 3.0 clear-failure typed
+    into a field still showing ``11``, concatenating into ``11`` + ``3.0``),
+    else None. Deny-only — never
+    auto-rewrites a live bid.
+    """
+    m = _BID_INPUT_RE.search(command)
+    if not m:
+        return None
+    raw = m.group(1).replace(',', '')
+    if raw.count('.') > 1:
+        return (
+            f'Bid value {raw!r} has more than one decimal point — a '
+            'concatenation: the Shadow-DOM bid input did not clear before '
+            'you typed. Clear it FULLY (keys "Control+a") , retype the exact '
+            'target, verify the cell shows exactly that value, then commit. '
+            'A concatenated bid is a real-money error.'
+        )
+    try:
+        val = float(raw)
+    except ValueError:
+        return None
+    if val > _BID_SANITY_CEILING:
+        return (
+            f'Bid value {raw} exceeds the {_BID_SANITY_CEILING:g} sanity '
+            'ceiling — almost certainly a clear-failure concatenation (e.g. '
+            'target 3.0 typed into a field still showing 11 → 113.0). Clear '
+            'the field FULLY (keys "Control+a"), retype the exact target, '
+            'verify, then commit. A real CPC bid is single-digit; if you '
+            'truly intend a bid this high, it is not in the audit report.'
+        )
+    return None
+
+
+# ── Ordered Bash deny chain ─────────────────────────────────────────
+
+
+def first_bash_deny(command, task_dir=None, catalog_read=False):
+    """Run the ordered Bash PreToolUse guards; first deny wins.
+
+    Returns ``(label, reason)`` for the first guard that denies
+    ``command``, else ``None``. The guard set comes from the
+    :mod:`app.plugins` registry (OSS guards via the builtin plugin;
+    any customer guards via their own externally-installed plugin
+    wheels) — so core no longer names a customer guard here. The builtin
+    registers the OSS guards in their historical order:
+
+      1. unscoped pkill/killall (sibling-task safety)
+      2. concatenated/oversized bid value (real-money typo)
+      3. Pix transfer to a key not in the store config (money-safety)
+      4. report-script guard (AD_AUDIT is hand-authored via Edit)
+      5. catalog-first (no fs search of knowledge/ or stores/ first)
+
+    Each registered guard has the uniform signature
+    ``check(command, task_dir, catalog_read)`` so the chain stays one
+    testable unit regardless of which args a guard actually uses.
+    """
+    from app.plugins import registered_pretool_gates  # noqa: PLC0415
+
+    for label, check in registered_pretool_gates():
+        reason = check(command, task_dir, catalog_read)
+        if reason:
+            return label, reason
+    return None

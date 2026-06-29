@@ -25,17 +25,17 @@ stores/<store-slug>/ads/<platform>/<country>/<campaign_id>.tsv
 ```
 
 - `<platform>` ∈ `amazon` / `noon`
-- `<country>` is the lowercase marketplace code: `sa`, `ae`, `mx`
+- `<country>` is the lowercase marketplace code (e.g. `us`, `uk`, `eg`)
 - `<campaign_id>` is the platform's canonical id (Amazon: `A33333333`,
   Noon: `C_FAKE0001`) — do NOT include the long prefix Amazon URLs
   attach (`A33333333LONGFORM` — only the first 9 chars are the
   stable id; the rest is a per-account scramble).
 
-Worked path: `stores/acme-store/ads/amazon/sa/A33333333.tsv`.
+Worked path: `stores/acme-store/ads/amazon/<country>/A33333333.tsv`.
 
 **Split threshold**: if a single campaign exceeds **200 keyword/target
 rows**, split per ad group:
-`stores/<slug>/ads/amazon/sa/A33333333/<ad_group_id>.tsv`. Most
+`stores/<slug>/ads/amazon/<country>/A33333333/<ad_group_id>.tsv`. Most
 campaigns have 30–60 rows and stay in the single-file form.
 
 ## Schema
@@ -55,8 +55,10 @@ row_id  status  match_type  bid  suggested_low  suggested_mid  suggested_high  r
 - `status`: `delivering` / `paused` / `archived` / `ineligible`.
 - `match_type`: `broad` / `phrase` / `exact` / `auto` / `category` /
   `asin` / `noon-target` / `noon-query`. Use `—` when not applicable.
-- `bid`: the actual keyword/target bid in marketplace currency, with
-  symbol (`SAR 3.00`, `AED 2.00`). For noon targets use `SAR 0.45`.
+- `bid`: the actual keyword/target bid in the campaign's marketplace
+  currency, with symbol (e.g. `USD 3.00`). Keep whatever currency the
+  marketplace renders — do NOT hardcode a currency. For noon targets
+  use the marketplace currency (e.g. `USD 0.45`).
   This is the cell at **column position 5** in Amazon's ag-Grid
   Targeting tab (see `mechanics.md § Canonical column layout`) — NOT
   the suggested-bid midpoint at position 2. Misreading this is the
@@ -96,10 +98,10 @@ NEVER appear in a commit.
 > window and the runtime compacts mid-run. **Anything sitting in
 > "I'll write all the TSVs at the end" is lost on compaction.**
 > Drilled-and-persisted campaigns survive; drilled-but-pending
-> ones disappear. Field-observed: an audit that drilled all 8
-> Amazon SA campaigns + all 5 Amazon AE campaigns + all 14 noon
-> campaigns wrote TSVs for the last platform (noon, ~30 minutes
-> before completion) but lost all 13 Amazon TSV writes when the
+> ones disappear. Field-observed: an audit that drilled every
+> campaign across multiple platforms wrote TSVs for the last
+> platform (~30 minutes before completion) but lost all the pending
+> TSV writes for the platforms it hadn't persisted yet when the
 > session was compacted at ~80% context.
 >
 > The contract is: **for each campaign you drill, the TSV write
@@ -128,7 +130,7 @@ After scraping each campaign:
 
       | row_id | field | was | now | last commit |
       |---|---|---|---|---|
-      | women socks | bid | SAR 3.00 | SAR 3.50 | apply: ... (2026-05-15) |
+      | wireless mouse | bid | USD 3.00 | USD 3.50 | apply: ... (2026-05-15) |
 
       Do NOT silently overwrite. The drift may be (a) the agent
       misreading the column layout (the bid-cliff defect class), (b)
@@ -226,7 +228,7 @@ state; an unverified action is not observed state.
   CLAUDE.md). Always use `vibe_seller_write_workspace_file`.
 - **Embedding TSV in the audit report** — the audit report is for
   human reading; the TSV is the structured ground truth. Reference
-  the file (`see stores/acme-store/ads/amazon/sa/A33333333.tsv`), don't
+  the file (`see stores/acme-store/ads/amazon/<country>/A33333333.tsv`), don't
   inline it.
 - **Multi-row commits in Phase 4** — one action = one commit. A
   multi-row commit hides which action caused which row to change.
@@ -236,25 +238,25 @@ state; an unverified action is not observed state.
 After Phase 2 drill on A33333333:
 
 ```
-stores/acme-store/ads/amazon/sa/A33333333.tsv  (new file)
+stores/acme-store/ads/amazon/<country>/A33333333.tsv  (new file)
 
 row_id	status	match_type	bid	suggested_low	suggested_mid	suggested_high	rule_id	clicks_30d	spend_30d	orders_30d	sales_30d	acos_30d	roas_30d	scraped_at
-cotton socks for women	delivering	broad	SAR 3.00	SAR 0.47	SAR 0.62	SAR 0.78	—	44	SAR 101.04	8	SAR 302.61	33.39%	2.99	2026-05-20T07:30:00Z
-جوارب نسائية	delivering	broad	SAR 2.00	SAR 0.61	SAR 0.70	SAR 0.78	—	3	SAR 5.24	1	SAR 33.29	15.74%	6.35	2026-05-20T07:30:00Z
-women socks	delivering	broad	SAR 3.00	SAR 0.45	SAR 0.60	SAR 0.75	—	259	SAR 631.75	37	SAR 1,485.40	42.53%	2.35	2026-05-20T07:30:00Z
+cable organizer	delivering	broad	USD 3.00	USD 0.47	USD 0.62	USD 0.78	—	44	USD 101.04	8	USD 302.61	33.39%	2.99	2026-05-20T07:30:00Z
+phone stand	delivering	broad	USD 2.00	USD 0.61	USD 0.70	USD 0.78	—	3	USD 5.24	1	USD 33.29	15.74%	6.35	2026-05-20T07:30:00Z
+wireless mouse	delivering	broad	USD 3.00	USD 0.45	USD 0.60	USD 0.75	—	200	USD 500.00	30	USD 1,200.00	41.67%	2.40	2026-05-20T07:30:00Z
 ... (13 paused rows omitted for brevity, sorted alphabetically)
 ```
 
-Note: `bid = SAR 3.00`, not `SAR 0.60`. The suggested midpoint
-(`SAR 0.60`) is in `suggested_mid`, where it belongs. This file is
+Note: `bid = USD 3.00`, not `USD 0.60`. The suggested midpoint
+(`USD 0.60`) is in `suggested_mid`, where it belongs. This file is
 the structural defense against the suggested-vs-bid confusion class.
 
 ## Worked example — next audit detects drift
 
 A week later (2026-05-27), an audit re-scrapes A33333333. Suppose
-the user had manually lowered `women socks` to SAR 1.50 in the
-Amazon UI but did not log it. The scrape returns `bid = SAR 1.50`.
-Phase 2 compares to the file's `bid = SAR 3.00` → OBSERVED_DRIFT.
+the user had manually lowered `wireless mouse` to USD 1.50 in the
+Amazon UI but did not log it. The scrape returns `bid = USD 1.50`.
+Phase 2 compares to the file's `bid = USD 3.00` → OBSERVED_DRIFT.
 
 The Phase 3 report includes:
 
@@ -263,15 +265,15 @@ The Phase 3 report includes:
 
 | row_id | field | was | now | last commit on file |
 |---|---|---|---|---|
-| women socks | bid | SAR 3.00 | SAR 1.50 | audit: acme-store amazon-sa A33333333 — 16 updates, 0 drift (2026-05-20) |
+| wireless mouse | bid | USD 3.00 | USD 1.50 | audit: acme-store amazon-<country> A33333333 — 16 updates, 0 drift (2026-05-20) |
 ```
 
 The "last commit on file" being an `audit:` (not `apply:`) commit
-tells the agent: *we recorded SAR 3.00 from a scrape last week; this
-week's SAR 1.50 was not applied by us, so it was either an external
+tells the agent: *we recorded USD 3.00 from a scrape last week; this
+week's USD 1.50 was not applied by us, so it was either an external
 change or our column-read was wrong*. Phase 3 also runs the recency
 check — the apparent change is recent (< 7 days), so any
-recommendation against `women socks` downgrades to `Hold (recent
+recommendation against `wireless mouse` downgrades to `Hold (recent
 external change — verify with user, then wait for 7-day data)`.
 
 After publishing the drift report, the TSV file gets updated to the

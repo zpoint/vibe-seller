@@ -131,6 +131,32 @@ Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `
 - **API**: `POST /api/workspace/skills/sync`, `GET /api/workspace/skills/sync-meta`, `POST /api/workspace/skill`
 - **Frontend**: skills panel in Workspace sidebar with sync button, builtin badges, and skill creation form
 
+## Run Data (`store-data/`)
+
+Per-store **run artifacts** (reports, captures, exports) live outside the
+knowledge tree so they never surface as knowledge (catalog injection, the
+UI knowledge tab, reflection writes):
+
+```
+~/.vibe-seller/
+├── stores/<slug>/                  # curated knowledge — flat files only
+└── store-data/<slug>/<area>/       # run data, git-tracked
+    ├── <YYYY-MM>/<dated file>      # dated artifacts, bucketed by run month
+    └── <working file>              # cross-run files (workbooks, cursors)
+```
+
+The layout contract is stated in `design_system.md` (every task's system
+prompt): dated outputs go to `store-data/<slug>/<area>/<YYYY-MM>/`; agents
+read prior runs' outputs from there before re-collecting. A boot-time,
+marker-gated migration (`app/workspace/store_data_migrate.py`, called from
+`ensure_init()` in the app lifespan) upgrades old workspaces in place:
+subdirectories found under `stores/<slug>/` are run data by definition and
+move to `store-data/<slug>/`; loose dated files bucket into the month
+derived from the file's own name. The UI mirrors the agent view — one
+entry per store with knowledge files plus a run-data section
+(`/api/workspace/structured`); binary artifacts are served via
+`/api/workspace/file/raw`.
+
 ## Per-Task Workspace Isolation
 
 Each task runs in an isolated working directory at `~/.vibe-seller/tasks/{task_id}/`. Shared resources are symlinked so agents can read/write them while task-specific files (downloads, scripts, temp data) stay isolated.
@@ -142,6 +168,7 @@ Each task runs in an isolated working directory at `~/.vibe-seller/tasks/{task_i
    - `.claude` — copied from `~/.vibe-seller/.claude` (skills, settings; excludes `.venv`, `__pycache__`). When `store_id is None` (non-store/orchestrator task), browser-only skills like `browser-use` are excluded from the copy.
    - `knowledge` → `~/.vibe-seller/knowledge`
    - `stores` → `~/.vibe-seller/stores`
+   - `store-data` → `~/.vibe-seller/store-data`
    - `CLAUDE.md` → `~/.vibe-seller/CLAUDE.md`
 3. If `clean=True`: wipes the task directory first (used on retry for a fresh start)
 

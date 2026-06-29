@@ -1,5 +1,6 @@
 """Unit tests for skills sync dependency installation."""
 
+import asyncio
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -563,3 +564,58 @@ async def test_auto_sync_enabled_defaults_true_on_db_error():
 
     with patch.object(ss, 'async_session', side_effect=_boom):
         assert await ss._auto_sync_enabled() is True
+
+
+# ── defer_deps (boot path) ─────────────────────────────
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_fetch_defer_deps_does_not_block_boot(
+    sync_mgr, tmp_path, monkeypatch
+):
+    """Boot path: fetch(defer_deps=True) returns while dep installs
+    still run — pip must never hold /api/health down."""
+    src = tmp_path / 'src'
+    _make_source_skill(src, 'skill-a', {'SKILL.md': '# a'})
+    monkeypatch.setattr(sync_mgr, '_get_local_source', lambda: src)
+
+    gate = asyncio.Event()
+    started = asyncio.Event()
+
+    async def slow_install():
+        started.set()
+        await gate.wait()
+
+    monkeypatch.setattr(sync_mgr, '_install_skill_deps', slow_install)
+
+    result = await sync_mgr.fetch(defer_deps=True)
+    # fetch returned while the install is still gated
+    assert result['synced'] is True
+    assert sync_mgr._deps_task is not None
+    assert not sync_mgr._deps_task.done()
+
+    # the task-launch join point blocks until installs finish
+    waiter = asyncio.create_task(sync_mgr.wait_deps_ready())
+    await asyncio.sleep(0)
+    assert not waiter.done()
+    gate.set()
+    await asyncio.wait_for(waiter, timeout=2)
+    assert started.is_set()
+    # once done, the join point is a no-op
+    await asyncio.wait_for(sync_mgr.wait_deps_ready(), timeout=1)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_fetch_default_still_awaits_deps(sync_mgr, tmp_path, monkeypatch):
+    """API sync path keeps blocking semantics (callers rely on deps
+    being ready when the route returns)."""
+    src = tmp_path / 'src'
+    _make_source_skill(src, 'skill-a', {'SKILL.md': '# a'})
+    monkeypatch.setattr(sync_mgr, '_get_local_source', lambda: src)
+
+    install = AsyncMock()
+    monkeypatch.setattr(sync_mgr, '_install_skill_deps', install)
+    await sync_mgr.fetch()
+    install.assert_awaited_once()

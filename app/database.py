@@ -32,9 +32,37 @@ async_session = async_sessionmaker(
 )
 
 
+def _ensure_added_columns(conn) -> None:
+    """Idempotently ADD columns introduced after a table first shipped.
+
+    ``create_all`` creates missing tables but never ALTERs an existing
+    one, so columns added to a model later don't appear on databases
+    created before the column existed. vibe-seller has no alembic, so
+    we run a tiny PRAGMA-guarded ALTER here on every boot. Each entry
+    is ``(table, column, sqlite_type)`` and is skipped when the column
+    is already present — safe to re-run forever.
+    """
+    added: list[tuple[str, str, str]] = [
+        ('schedules', 'finalize_description', 'TEXT'),
+        ('tasks', 'is_finalize', 'BOOLEAN NOT NULL DEFAULT 0'),
+    ]
+    for table, column, sqltype in added:
+        cols = {
+            row[1]
+            for row in conn.exec_driver_sql(
+                f'PRAGMA table_info({table})'
+            ).fetchall()
+        }
+        if column not in cols:
+            conn.exec_driver_sql(
+                f'ALTER TABLE {table} ADD COLUMN {column} {sqltype}'
+            )
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_ensure_added_columns)
 
     async with async_session() as session:
         # ── Seed app settings (first boot only) ──
@@ -49,13 +77,12 @@ async def init_db():
                 )
             )
 
-        # Default headless = true: works in every environment (CI,
-        # containers, headless servers, desktops). Workstation users
-        # flip to false in Settings → General. Demo runtime presets
-        # this row to 'false' in seed_demo for screen recording.
+        # Default headless = false: agent browsers show on the desktop
+        # so users see activity. Flip to true in Settings → General
+        # for server/headless environments.
         headless_setting = await session.get(AppSettings, 'browser_headless')
         if not headless_setting:
-            session.add(AppSettings(key='browser_headless', value='true'))
+            session.add(AppSettings(key='browser_headless', value='false'))
 
         # ── Seed admin user ──
         admin_creds_set = await session.get(

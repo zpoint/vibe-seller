@@ -21,6 +21,10 @@ class ScheduleCreate(BaseModel):
     # store-bound schedules always resolve to 'single'. When omitted,
     # the server reads the global default from AppSettings.
     phase_mode: str | None = None
+    # Optional parent reduce step: after every per-store child of a
+    # fanout batch is terminal, ONE no-store task runs this prompt,
+    # handed the children's results. See app/scheduler/finalize_reaper.
+    finalize_description: str | None = None
 
 
 class ScheduleUpdate(BaseModel):
@@ -41,6 +45,7 @@ class ScheduleUpdate(BaseModel):
     # toggle-off.
     plan_mode: bool | None = None
     ai_profile_id: str | None = None
+    finalize_description: str | None = None
     # Optimistic lock: clients pass the plan_version they last saw.
     # Router returns 412 if the server's version is higher.
     plan_version: int | None = None
@@ -66,6 +71,7 @@ class ScheduleResponse(BaseModel):
     phase_mode: str = 'fanout'
     staleness_check: str | None = None
     skip_reflection: bool = False
+    finalize_description: str | None = None
     plan_mode: bool
     ai_profile_id: str | None
     created_by: str
@@ -107,3 +113,5 @@ class SchedulePlanResponse(BaseModel):
     plan_error: str | None = None
     current_planning_task_id: str | None = None
     planning_task_history: list[SchedulePlanTaskSummary] = []
+    # Parent finalize/reduce step the plan agent registered (or null).
+    finalize_description: str | None = None

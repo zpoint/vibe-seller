@@ -303,6 +303,11 @@
     "createSkill": "创建技能",
     "storeFilesSection": "文件",
     "storeFilesHint": "店铺专属知识。AI 执行任务时只会看到对应店铺的文件。",
+    "truncatedRows": "仅显示前 {{shown}} 行（共 {{total}} 行），其余请下载文件查看。",
+    "viewerReadOnly": "只读",
+    "download": "下载",
+    "storeData": "运行数据",
+    "storeDataHint": "任务运行产物（报表/导出/抓取），位于 store-data/，与 AI 读写的目录一致；不属于知识库。",
     "noStoresInWorkspace": "暂无店铺 — 请在任务页面创建店铺",
     "hasContent": "有内容",
     "hintStoreProfile": "店铺资料 — 平台、地区、配置",
@@ -653,6 +658,10 @@
         "stale": "定时任务提示已修改 — 之前的计划不再使用。下次执行前请重新规划。",
         "failed": "规划失败。请点击重新规划再次尝试。",
         "none": "尚未生成计划。点击开始规划以创建一个。"
+      },
+      "finalize": {
+        "heading": "汇总步骤(由 AI 注册)",
+        "explainer": "所有店铺完成后,会自动运行一个汇总步骤来合并各店铺的结果。无需手动操作。"
       },
       "history": {
         "heading": "规划历史 ({{count}})",

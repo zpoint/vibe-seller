@@ -6,7 +6,7 @@
 > input ranges across the Amazon Ads + Coupons UIs.
 
 Every click path below was confirmed by hands-on browser-use testing on
-`advertising.amazon.sa` and `sellercentral.amazon.{sa,ae}`. The Chinese
+`advertising.amazon.<tld>` and `sellercentral.amazon.<tld>`. The Chinese
 labels are what the UI actually shows when the merchant account uses
 zh-CN; English labels are noted where the page is locale-mixed.
 
@@ -28,14 +28,14 @@ guess seller-central paths.
 
 | Purpose | Working URL | Notes |
 |---|---|---|
-| Campaign manager | `https://advertising.amazon.{sa,ae}/campaign-manager` | Bare URL works — Amazon resolves a default `entityId` from the signed-in account. The path `/aiv/overview` is a **stale redirect target** that 404s — do not document it. To deep-link to a specific campaign / ad-group, scrape `entityId=ENTITY[A-Z0-9]+` from the landing page's body innerHTML first, then build the deeper URL with that suffix. |
+| Campaign manager | `https://advertising.amazon.<tld>/campaign-manager` | Bare URL works — Amazon resolves a default `entityId` from the signed-in account. The path `/aiv/overview` is a **stale redirect target** that 404s — do not document it. To deep-link to a specific campaign / ad-group, scrape `entityId=ENTITY[A-Z0-9]+` from the landing page's body innerHTML first, then build the deeper URL with that suffix. |
 | Single campaign | `…/cm/sp/campaigns/<campaignId>?entityId=...` | Deep-link only — needs the `entityId` scraped from the campaign-manager landing. The first path leg after `cm/sp/` switches per ad type (`sp`, `sb`, `sd`). |
 | Ad group | `…/cm/sp/campaigns/<campId>/ad-groups/<agId>/<tab>?entityId=...` where tab ∈ `ads`/`targeting`/`negative-targeting`/`search-terms`/`history` |  |
 | Campaign tabs | `…/cm/sp/campaigns/<id>/<tab>` where tab ∈ `ad-groups`/`bid-adjustments`/`negative-targeting`/`budget-rules`/`settings`/`history` | |
 | Bulk operations | `…/bulk-operations?entityId=...` | NOT `/sp/bulk-operations` (404). |
 | Drafts | `…/cm/drafts?entityId=...` | NOT `/cm/sp/drafts/...` (only the inner path). |
-| Coupons dashboard | `https://sellercentral.amazon.{sa,ae}/coupons/dashboard` | NOT `/promotions/coupons` (redirects elsewhere) and NOT `/cppd/coupons` (404). |
-| Coupon create | `https://sellercentral.amazon.{sa,ae}/coupons/create-coupon` | |
+| Coupons dashboard | `https://sellercentral.amazon.<tld>/coupons/dashboard` | NOT `/promotions/coupons` (redirects elsewhere) and NOT `/cppd/coupons` (404). |
+| Coupon create | `https://sellercentral.amazon.<tld>/coupons/create-coupon` | |
 
 The ad console **redirects through Amazon sign-in on first hit per
 session** even though the seller-central session is good. Ziniao
@@ -68,10 +68,63 @@ params are silently ignored. To browse pages, click the bottom-right
 `Next Page` button. Easier: just use the "Find a campaign" search to
 jump straight to the campaigns you want.
 
+> ⚠️ **The search value persists across sessions** — it's stored in the
+> browser profile, not the URL. A `keyboard` you (or a previous task, or
+> a human) typed last week is *still applied* when you open the campaign
+> list today, silently hiding every campaign that doesn't match. This
+> has produced real audits that reported "8 campaigns, 2 active" for a
+> store that actually has 145 — the agent read the filtered list as if
+> it were the whole account.
+>
+> **Phase 1 (Discover) must enumerate the WHOLE account, so before you
+> read the list you must clear the search and confirm it's empty:**
+>
+> ```js
+> // browser-use eval — clear any persisted "Find a campaign" term
+> (function(){
+>   var inp=[...document.querySelectorAll('input')]
+>     .find(function(i){return /Find a campaign|查找广告活动/
+>       .test(i.getAttribute('placeholder')||'');});
+>   if(!inp) return 'NO_SEARCH_INPUT';
+>   var set=Object.getOwnPropertyDescriptor(
+>     window.HTMLInputElement.prototype,'value').set;
+>   set.call(inp,'');
+>   inp.dispatchEvent(new Event('input',{bubbles:true}));
+>   inp.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'Enter'}));
+>   return 'CLEARED';
+> })()
+> ```
+>
+> Then **verify the true total** before trusting any row count — the
+> grid's `aria-rowcount` (minus the header row) is authoritative and
+> reflects the full filtered set, not just the rendered rows:
+>
+> ```js
+> (function(){
+>   var g=document.querySelector('[role=grid],[role=treegrid]');
+>   var inp=[...document.querySelectorAll('input')]
+>     .find(function(i){return /Find a campaign|查找广告活动/
+>       .test(i.getAttribute('placeholder')||'');});
+>   return JSON.stringify({searchVal:inp?inp.value:null,
+>     totalRows:(+g.getAttribute('aria-rowcount'))-1});
+> })()
+> ```
+>
+> If `searchVal` is non-empty, you did not clear it — stop and clear
+> before reading. The grid **virtualizes** (≈13 DOM rows regardless of
+> total), so `querySelectorAll('.ag-center-cols-container [role=row]')`
+> NEVER gives you the full list once the account has >~15 campaigns. For
+> the full enumeration use **bulk download** (§2d) — it is the only
+> reliable way to capture every campaign's name/id/status/type/spend in
+> one shot. Treat any DOM-scrape of the campaign list as a spot-check,
+> never as the manifest.
+
 The default status filter is "Active : Enabled" (a removable chip
 near the table). The "Remove all" link near the top *doesn't* clear
 this chip — you have to click the chip's own × button (or its
-internal close action) to see paused/archived campaigns.
+internal close action) to see paused/archived campaigns. The same
+persistence caveat applies: a status/type filter left from a prior
+session stays applied — confirm the chips before enumerating.
 
 ### 2b. Reading a single campaign's settings tab
 
@@ -114,8 +167,11 @@ table doesn't always materialize the rest. The reliable way to get
 all rows is the per-page **Export** button (top-right of the targets
 table) which writes a CSV like `Sponsored_Products_Target_<date>.csv`
 to `~/.vibe-seller/downloads/<store>/`. CSV columns include `State`,
-`Keyword`, `Target match type`, `Status`, `Suggested bid (low|median|high)(SAR)`,
-`Bid (SAR)`, plus performance metrics. Per-table CSV export works for
+`Keyword`, `Target match type`, `Status`,
+`Suggested bid (low|median|high)(<marketplace currency>)`,
+`Bid (<marketplace currency>)`, plus performance metrics. The column
+header carries the marketplace currency code — do NOT hardcode one.
+Per-table CSV export works for
 keyword and category and auto-target groups.
 
 The "Total: N" cell in the table footer is the authoritative count.
@@ -187,18 +243,19 @@ DOM shapes verified live:
 
 ```text
 # A) multi-market account (one Amazon Ads entity registered for
-#    several marketplaces, e.g. SA + AE + AU under the same login)
+#    several marketplaces, e.g. multiple country marketplaces under
+#    the same login)
 <button aria-label="<current-country-name>">  # clickable trigger
   …click to open…
-  <button value="SA" role="option" selected="false">Saudi Arabia</button>
-  <button value="AE" role="option" selected="true">United Arab Emirates</button>
-  <button value="AU" role="option" selected="false">Australia</button>
+  <button value="<CC1>" role="option" selected="false">Country One</button>
+  <button value="<CC2>" role="option" selected="true">Country Two</button>
+  <button value="<CC3>" role="option" selected="false">Country Three</button>
 
 # B) single-market account (Amazon Ads entity registered for one
 #    marketplace only — typical when the seller signed up Amazon
 #    Ads for one country and never extended)
 <button aria-label="<country-name>" disabled="true">  # NOT clickable
-  Saudi Arabia
+  Country One
 ```
 
 Procedure:
@@ -216,10 +273,10 @@ Procedure:
 3. If the trigger is clickable (shape A): read its `aria-label`. If
    it doesn't already match the task's country, click the trigger,
    then click the option whose `value` equals the target ISO code
-   (`AE`, `SA`, etc.). Re-read the trigger's `aria-label` after the
+   (a 2-letter country code). Re-read the trigger's `aria-label` after the
    click to confirm the switch took.
 
-The URL TLD (`advertising.amazon.ae` vs `advertising.amazon.sa`)
+The URL TLD (e.g. `advertising.amazon.<tld>`)
 **does not** force the country in shape A — the modal dropdown
 overrides it. The TLD matters only as the entry point of an
 already-authenticated session: in shape B, the TLD typically
@@ -232,8 +289,8 @@ authoritative.
 Prefer `id`-based selectors below — they're stable across UI locale.
 The `placeholder` columns show the per-locale strings for context;
 do not rely on placeholder for selection. Currency-bearing inputs
-are dynamically labelled `enter amount in <CURRENCY>` (e.g. `AED` on
-amazon.ae, `SAR` on amazon.sa) — match by `id`, not currency.
+are dynamically labelled `enter amount in <CURRENCY>` with the
+marketplace's currency — match by `id`, not currency.
 
 | Field | id selector | Locale placeholder examples | Notes |
 |---|---|---|---|
@@ -241,7 +298,7 @@ amazon.ae, `SAR` on amazon.sa) — match by `id`, not currency.
 | Campaign name | `#fieldSet\.campaignSettingsFieldSet-AtlasCoreComponents\:CampaignName\:Input` | EN `Example: Holiday Favorites` / ZH `示例：假日最爱` | Pre-filled with `Campaign - <DD/MM/YYYY HH:MM:SS.mmm>`. **Setter on launch is unreliable** — see § 3h save-as-draft-then-rename workaround. The ad-group-name setter works the same way and persists. |
 | Product search | `#ucb-sp-ups\:ups-asin-search-input` | EN `Search by product name, ASIN, or SKU` / ZH `按商品名称、ASIN 或 SKU 搜索` | Set value via `input` event — typeahead fires automatically, no Enter required. **Must flip the All-products toggle first** (see Suggested-vs-All-products trap above) and **scroll the virtualised grid** to see all results. |
 | Default bid | `#sp-defaultBid` | dynamic `aria-label="enter amount in <CCY>"` | Pre-filled with Amazon's suggested bid (e.g. `0.64`); overwrite as needed. |
-| Daily budget | `#fieldSet\.campaignSettingsFieldSet-AtlasCoreComponents\:CurrencyInput\:Input` | dynamic `aria-label="enter amount in <CCY>"` | The **empty** currency input. Set the value as a plain number. Currency follows the campaign country (AED on AE, SAR on SA) — do NOT hardcode currency. |
+| Daily budget | `#fieldSet\.campaignSettingsFieldSet-AtlasCoreComponents\:CurrencyInput\:Input` | dynamic `aria-label="enter amount in <CCY>"` | The **empty** currency input. Set the value as a plain number. Currency follows the campaign's marketplace — do NOT hardcode a currency; read it from the campaign. |
 | Targeting type | `input[type=radio][name=targetingType][value=AUTO\|MANUAL]` |  |  |
 | Manual sub-type | `input[type=radio][name=manualTargetingType][value=KEYWORD\|PRODUCT]` |  |  |
 | Auto sub-type | `input[type=radio][name=automaticTargetingType][value=DEFAULT\|TARGETING_GROUP]` |  | `TARGETING_GROUP` reveals 4 per-group bid inputs. |
@@ -254,14 +311,16 @@ amazon.ae, `SAR` on amazon.sa) — match by `id`, not currency.
 After clicking the product search input + dispatching Enter, parse the
 left-pane suggestions: each row has an `添加` (Add) button. The right
 panel pinned to the screen shows `N 个商品` (N products selected) and
-each added item with brand, SAR price, ASIN, SKU. Use the surrounding
+each added item with brand, price (in the marketplace currency), ASIN,
+SKU. Use the surrounding
 row's text to disambiguate when multiple matches show — walk parents 8
 deep looking for the desired ASIN.
 
 **Suggested-vs-All-products toggle (recurring trap).** Above the
-results grid the form has two `role=switch` buttons: `Suggested` /
-`مقترح` (default, checked) and `All products` / `كل المنتجات`
-(unchecked). With the default `Suggested` toggle on, the results grid
+results grid the form has two `role=switch` buttons: the `Suggested`
+toggle (default, checked; its label is localized to the page locale)
+and the `All products` toggle (unchecked; likewise localized). With
+the default `Suggested` toggle on, the results grid
 shows other products from the seller and **ignores the search input**
 — a typed ASIN returns rows for unrelated SKUs and looks like the
 search "didn't work". Click the `All products` toggle *before*
@@ -304,6 +363,18 @@ anchor the regex to a known boundary: prefer
 `Eligibility` (`Eligible` / `Ineligible`) and `Status` (`In stock` /
 `Out of stock`) as separate fields rather than tail-of-SKU substrings.
 
+**Multi-campaign product-reuse trap (verified the hard way, 2026-06-23).** The right-pane added-product card **persists across
+campaign creations in the same session**: after you add a product and
+launch one campaign, opening the form for the NEXT campaign can keep
+that SAME product selected. So when creating several campaigns in a row
+(one per SKU), it is dangerously easy to change only the campaign NAME
+and KEYWORDS while the Product Ad silently stays the FIRST SKU —
+shipping, e.g., SKU-001 as the advertised product in all six
+campaigns. Before launch, re-confirm the right-pane added-product card
+(the panel pinned with "N 个商品") shows THIS campaign's intended
+SKU/ASIN (remove the carried-over product first if present), and verify
+again *after* launch (§ 3i).
+
 ### 3c. Date picker — the recurring trap
 
 The kat-date-picker accepts `value=MM/DD/YYYY` internally but its
@@ -326,8 +397,16 @@ If the day click doesn't take, try Tab out of the field after typing.
 
 Click the keyword section's `输入列表` (Input list) tab — there are
 **two** `输入列表` tabs on the page (one for the product search above,
-one for the keyword section below). The keyword one is at y≈1877; the
-product one is at y≈614. Filter by y to disambiguate.
+one for the keyword section below). The keyword one is the **lower**
+tab (larger y); the product one is higher. Don't hardcode y — collect
+both, sort by y descending, take the first. **The keyword textarea
+(`textarea#kwp\:kwp-enter-list-text-input-area`) is hidden
+(`getBoundingClientRect` width/height 0) until this tab is clicked**,
+so you MUST: `scrollIntoView({block:'center'})` the lower tab, then
+click it **by coordinate** (a JS `.click()` on the wrong span silently
+fails — this is the trap that strands the agent in a "textarea not
+visible" loop). After the click, re-read the textarea rect to confirm
+it is now visible before typing.
 
 The match-type checkboxes are at y≈1990 immediately *after* clicking
 the input-list tab, but **after one batch is added the page re-flows
@@ -349,18 +428,26 @@ even this gets stomped by auto-suggest. Realistic outcome: keywords
 go in with Amazon's suggested bids, and the user can tune in the
 dashboard later. Do not block the launch on bid mismatches.
 
-To enter the keywords themselves, set the value of
-`textarea#kwp\:kwp-enter-list-text-input-area`, dispatch `input`/
-`change`, then click the button labeled `添加关键词` (Add keyword).
-Newlines separate keywords. Pass them as a JSON array
-`["foo","bar"]` from your eval and `kws.join(String.fromCharCode(10))`
-inside the eval; bash quoting of literal newlines into JS strings is
-fragile.
+To enter the keywords themselves (verified): once the
+textarea is visible, **click it (by coordinate) and `type` each keyword
+with `Enter` between them** — real keystrokes, NOT a `.value` setter +
+dispatch (Amazon's React textarea reverts a programmatic set, the same
+class of bug as the bid cells). Then click the button labeled
+`添加关键词` (Add keywords). With all three match-type checkboxes
+(`广泛`/`词组`/`精准`) left checked, a single add created broad+phrase+
+exact rows for all keywords in one batch (≈3 kw → ~9 keyword rows +
+the auto group row). If you instead see duplicates/skips, fall back to
+the one-match-type-per-batch method below.
+
+If you must script the textarea programmatically anyway, use the
+`execCommand('insertText')` workaround in § 8d — a plain `.value =`
+assignment does not register with React.
 
 **Modal-blocker gotcha:** when *any* of the keywords being added
-"has no suggested bid" (e.g. some Arabic keywords for an exact match
-type), Amazon pops a modal: `<keyword>-精准 没有建议竞价 / 选择备选竞价`
-with a SAR-default fallback bid input and an `添加 个关键词` button.
+"has no suggested bid" (e.g. some long-tail keywords for an exact
+match type), Amazon pops a modal: `<keyword>-精准 没有建议竞价 / 选择备选竞价`
+with a fallback bid input (defaulted in the marketplace currency)
+and an `添加 个关键词` button.
 The modal **blocks subsequent adds** until dismissed. After every
 add-keywords batch, check for this modal and click `添加 个关键词`
 inside it (the regex `^添加\s*\d*\s*个?关键词$`). Only the keywords
@@ -382,13 +469,14 @@ category name"]`.
 
 Above the search input is a **bid-mode dropdown** — default
 `Suggested bid`. To use a fixed bid for all categories, click it and
-choose `Custom bid`; a SAR/AED input appears next to it. **Set this
+choose `Custom bid`; a currency input (in the marketplace currency)
+appears next to it. **Set this
 before searching** — adding a category captures the bid mode active
 at the time of click.
 
 Search the category name → click the `Add` button on the matching row.
-The search returns multiple matches (e.g. searching "Women's Athletic
-Socks" returns 17 categories including Men's Athletic Socks); the
+The search returns multiple matches (e.g. searching "Computer Mice"
+returns 17 categories including Gaming Mice); the
 category row whose breadcrumb ends in your exact target string is
 typically the first row in the result list, but verify before clicking.
 
@@ -421,7 +509,7 @@ For the new-product-launch plan-stop pattern, **always click 另存为
 sidebar link, screenshot it for the user, get explicit "proceed",
 then click `启动` from inside the draft.
 
-The drafts list is at `https://advertising.amazon.sa/cm/drafts?entityId=…`;
+The drafts list is at `https://advertising.amazon.<tld>/cm/drafts?entityId=…`;
 each draft row has an `编辑` (Edit) button. Reopening loads the same
 single-form view with all values populated. Make any final name/bid
 tweaks, then `启动`.
@@ -459,7 +547,71 @@ field's React state is initialized to a generated placeholder string
 re-hydrates it. Seek confirmation in upstream changelogs before
 removing this note.
 
-### 3i. Don't ship sister-store ad copy
+**Launch blocked by validation errors — the `修复` (Fix) flow (verified
+2026-06-03).** Clicking `启动` may not launch; instead a top banner
+appears: `在您修复 N 个或更多问题之前，我们无法创建您的广告活动` with a
+`修复` (Fix) button. Nothing is created and no spend happens until the
+error is cleared. **Do NOT loop-click 启动** — click the `修复` button
+(`button`/`a` whose text is exactly `修复`); it scrolls the offending
+row into view. The single most common blocker:
+
+**The "Keywords related to your product category" 0.00-bid group row.**
+When you add manual keywords, Amazon auto-inserts one or two suggested
+**keyword-group** rows (label `Keywords related to your product
+category`, match type label `GROUP匹配类型`/`关键词组`) with bid `0.00`.
+A 0.00 bid fails validation (`竞价必须至少为 <the marketplace
+currency> 0.10`) and blocks the whole launch.
+Fix it — do NOT try to JS-set the bid (`.value` + dispatch reverts to
+0.00 instantly) and do NOT click the tiny `input` directly (it's a
+~31px collapsed display cell with an overlay, so coordinate clicks land
+on `BODY`). The verified fix:
+
+1. Find the group bid input by aria-label regex `GROUP匹配类型` with
+   value `0.00`; `scrollIntoView({block:'center'})`.
+2. Click the input's **parent cell** (`inp.parentElement`, ~51px wide,
+   center it via `getBoundingClientRect`). This activates edit mode —
+   the input expands (~31px→~54px) and gains focus.
+3. Send **real keystrokes**: `Meta+a`, `type "2.00"` (a small
+   positive bid in the marketplace currency), `Enter`. Re-read the
+   value to confirm it stuck and the banner
+   `此列表存在一个或多个错误` cleared.
+4. Click `启动N个广告活动` again. Success → URL becomes
+   `…/cb/sp/summary?campaign=<NEW_ID>` and the draft leaves the drafts
+   list. (Launching a draft mints a NEW campaign id, distinct from the
+   draft id.)
+
+This pattern — *cell-click to enter edit mode, then real keystrokes* —
+is the reliable way to edit ANY bid cell that shows as a collapsed
+display; the `.value` setter is never reliable for these (Amazon's
+controlled inputs revert it). See also § 8d for the keyword textarea.
+
+### 3i. Verify the Product Ad SKU after launch (mandatory for multi-SKU batches)
+
+The campaign name and keywords are NOT proof of what's being
+advertised — the **Product Ad** (the SKU/ASIN actually shown) is a
+separate field, and the create form tends to carry it over between
+campaigns (see § 3b "Multi-campaign product-reuse trap"). After
+launching, open each new campaign's ad-group **Ads** tab
+(`…/cm/sp/campaigns/<campId>/ad-groups/<agId>/ads?entityId=…`,
+matching the deep-link table in § 2) and confirm the `SKU/ASIN`
+column is the SKU that campaign is meant to advertise.
+
+The tell-tale symptom: a campaign named "SKU-016 …" whose Ads tab
+shows SKU-001. That carry-over bug spends real budget showing the
+**wrong product against the right keywords** (guaranteed product↔query
+mismatch → near-zero conversion),
+and it silently **poisons later tuning analysis** — orders get
+attributed to the wrong SKU, and "conversion is the ceiling / it's the
+listing" conclusions get drawn from a product that was never shown. A
+product-ad mismatch dwarfs any bid or keyword tweak, so this check
+comes first.
+
+This is the same *verify-against-the-live-page* discipline the tuning
+flow already requires for bids (§ 4a0) and negatives — extend it to the
+Product Ad at creation. Fix a mismatch by **adding the correct product
+(Active) and pausing/removing the wrong one** in each affected ad group.
+
+### 3j. Don't ship sister-store ad copy
 
 The campaign creation form has no "ad copy" field directly — Amazon
 serves the listing's own title/bullets. So this rule is enforced by
@@ -467,6 +619,170 @@ serves the listing's own title/bullets. So this rule is enforced by
 ad run.
 
 ## 4. Bulk upload — when, when not, gotchas
+
+### 4a0. EXECUTION via browser-use: use TRUSTED events, not `eval`
+
+When *applying* audit changes to the live console, ag-Grid bid/state
+cells ARE editable via browser-use — this is how the store was
+tuned. The trap is using the wrong tool: a JS-injected event
+(`eval` → `element.click()` / `dispatchEvent` / native value-setter +
+`input`/`change`) has `isTrusted=false`, and React's synthetic event
+system ignores it, so the edit reverts on blur. That is NOT a
+browser-use limitation — it's an `eval` limitation.
+
+browser-use's `click` / `dblclick` / `keys` / `type` CLI actions
+dispatch **CDP `Input.dispatchMouseEvent` / `dispatchKeyEvent` /
+`insertText`** — *trusted* browser-level events that React accepts
+exactly like a real user. Use these, never `eval`, for edits.
+
+**Working ag-Grid bid-edit recipe (VERIFIED 2026-06-12 —
+charging station 3.08→4.00 persisted after refresh):**
+
+The bid input is a **Shadow-DOM `kat-number-input`** web component
+(Amazon's KatAL design system), NOT a plain `<input>` in the cell. The
+winning move is to target that inner element by its selector-map index,
+not by coordinate-clicking the outer ag-Grid cell:
+
+1. `state` → in the snapshot, find the `kat-number-input` element for
+   that keyword's bid (it carries the current value, e.g. `value=3.08`).
+   Note its **index**.
+2. `click <index>` → focus the shadow input (trusted ClickElementEvent).
+3. `keys "Control+a"` → **select-all the existing value first.** `input`
+   alone does NOT reliably clear the field — on `kat-number-input` it
+   sometimes appends, so typing `2.27` into a `3.00` field yields
+   `3.002.27` (or similar). A select-all before typing makes the
+   replace deterministic.
+4. `input <index> "4.00"` → ClickElementEvent + TypeTextEvent over CDP
+   (trusted). With the value selected, this overwrites it. React
+   captures it.
+5. `keys Enter` → **commit**. This is the step `eval` can't do — an
+   eval'd Enter is untrusted so React never fires its submit handler and
+   restores the old value on blur. A real `keys Enter` commits.
+6. Re-`state`/`screenshot` and confirm the cell shows the **exact** new
+   value (not a concatenation like `3.002.27`) before moving on.
+
+Pitfalls that produced the earlier false "can't be done" conclusion:
+- Coordinate-clicking the OUTER cell + `type` targets the wrong node
+  (the shadow input never gets the value) → reverts on blur.
+- `eval`-injected click/keydown/native-value-setter events are
+  `isTrusted=false` → React ignores them.
+- A stale element index (the DOM changes when edit mode opens) →
+  `input` returns "Element index N not found"; re-run `state` to refresh
+  the selector map, then act.
+- `input` appending instead of replacing (e.g. `3.00` + `2.27` →
+  `3.002.27`) → always `keys "Control+a"` to select the old value before
+  `input`, and verify the committed cell shows the exact target value.
+  On a production store a concatenated bid is a real-money error.
+
+Pause/enable a target or campaign: same — `click`/`dblclick` the state
+toggle (trusted), don't `eval` it. Extraction (new keyword) and ASIN
+negation are likewise UI-doable; only fall back to the bulk file
+(§4, §4c) if the UI flow is genuinely missing.
+
+**Working search-term negation recipe (VERIFIED 2026-06-12
+— "usb-c cable" → Negative exact, confirmed in Negative
+targeting tab):**
+
+The ad console loads in **English**; only the separate Bulk Operations
+page (`/campaign-manager/bulk-operations`) may render a localized error
+in a non-English language — that's a different broken path, NOT the
+console. Do NOT abandon the UI flow because of it.
+
+1. Open the campaign → click its ad group → you land on the ad group
+   view with tabs: `Ads | Targeting | Negative targeting | Search terms
+   | Ad group settings | History`.
+2. **These tabs are `<button>`s with NO selector-map index and NO href**
+   (JS-driven), so browser-use's `state` shows them as bare text. Click
+   them by **coordinates**: `eval` the button's
+   `getBoundingClientRect()` centre, then `browser-use click <X> <Y>`
+   (pass X and Y as **two separate args**, never a quoted `"X Y"`
+   string — that errors). Use this for the `Search terms` and
+   `Negative targeting` tabs.
+3. On the Search terms tab, each row has an `Add as` button
+   (`id=…:spSearchTerms:cell-actions-<N>:actions`). Unlike the tabs,
+   this button **HAS a selector-map index — click it by index, NOT by
+   coordinates** (coordinates are only for the index-less tabs in
+   step 2). `click <index>` → a dropdown of three `role=option`
+   buttons appears: `Add as keyword` (addAsKeyword),
+   `Add as negative exact` (addAsNegativeExact), `Add as negative
+   phrase` (addAsNegativePhrase). **ag-Grid virtualizes rows** — a term
+   below the viewport (y > ~839) is not in the DOM and has no index, so
+   `scroll` it into view first, re-`state` to get its fresh
+   `cell-actions-<N>` index, then index-click. Do not coordinate-click
+   an off-screen row; the dropdown won't open.
+4. `click` the negative-exact or negative-phrase option (per the
+   report's match type). It **commits immediately — no save step.** The
+   row's button label flips `Add as` → `Added as`.
+5. The negated row **stays in place** (it does not vanish on commit), so
+   you can walk straight down the visible list negating each waste term
+   by its own `Add as` button without the indices collapsing. (If you
+   re-`state` or the grid re-sorts, indices refresh — re-read then.)
+6. Verify: open the `Negative targeting` tab → `Negative keywords`
+   sub-tab; the term appears with its match type. (It's also fine to
+   trust the `Added as` flip for throughput and spot-check the tab.)
+
+This is all trusted `click` — **never `eval`-click the `Add as` button
+or the option.** An eval click is `isTrusted=false`, so the dropdown/
+commit may not fire and you'll log a false success on a live store.
+
+**Preferred path when you already know the terms — the "Add negative
+keyword" form (VERIFIED 2026-06-13; bypasses the dropdown
+entirely and BATCHES):** the `Add as` dropdown sometimes renders its
+options in a `#hmhFlyoverRoot` portal where `click` on the `role=option`
+doesn't fire React (button never flips to `Added as`). When you have the
+exact terms to negate (e.g. from a report-derived allowlist), skip the
+search-term grid and add them directly:
+1. Campaign → ad group → **Negative targeting** tab (coordinate-click —
+   it's an index-less button) → **Negative keywords** sub-tab.
+2. Click **Add negative Keyword** (coordinate-click).
+3. Pick the **Match type** radio — `NEGATIVE_EXACT` (default, safest:
+   blocks only that exact query) or `NEGATIVE_PHRASE`. Match-type is
+   per-batch, so group terms by the type you want.
+4. Type the term(s) into the textarea
+   (`…:kwp:kwp-enter-list-text-input-area`) — **one per line for a whole
+   batch at once** (`input <idx> "term a\nterm b\nterm c"`).
+5. Click **Add keywords** (stages them) → **Save** (commits). Both
+   buttons are **index-less → coordinate-click** them (eval the
+   `getBoundingClientRect()` centre → `browser-use click X Y`). **Never
+   `eval` `element.click()`** — untrusted, the Save won't commit and you
+   log a false success.
+6. Re-read the Negative keywords list to confirm they appear (only then
+   log ✅).
+This is far faster than per-row dropdowns (no scroll/virtualization, no
+portal) and is the right tool for executing an approved negation list.
+
+**Negating an ASIN / product (VERIFIED 2026-06-15) — a DIFFERENT UI from
+keyword negation.** The audit's `**否定该 ASIN**` rows (common on AUTO and
+self-promotion campaigns — the row's first column is a `B0…` ASIN, not a
+phrase) are NOT keywords and CANNOT be added via the Add-negative-keyword
+form. They are **negative product targets**:
+1. Campaign → ad group → Negative targeting tab → **Negative products**
+   sub-tab (coordinate-click — index-less).
+2. Click **Add negative product targets** (coordinate-click).
+3. Choose **Exclude products** → **Enter list** sub-tab.
+4. Paste the ASIN(s) into the list textarea (one per line) → **Add** →
+   **Save** (both coordinate-click; never `eval` `element.click()`).
+5. Re-read the Negative products list to confirm, then log ✅.
+**An approved-negation list mixes the two**: route each entry by shape —
+`B0`-prefixed 10-char token → negative *product* (this flow); anything
+else → negative *keyword* (the form above). Counting ASINs as keywords
+(or vice-versa) is how a campaign gets falsely marked "done" while its
+real negatives are still missing.
+
+**Self-verify before claiming a campaign done.** `browser-use input`/
+coordinate-Save can silently fail (a stale index, a portal, an
+untrusted-eval click that doesn't commit). After Save, ALWAYS re-read the
+live Negative keywords AND Negative products lists and confirm the
+count/terms match the approved set for that campaign BEFORE logging ✅ or
+reporting completion. Do not trust that a Save persisted — verify it.
+
+Search-terms gotcha: a prior campaign's search-box text **persists
+across campaigns** — clear the box on entering each campaign's
+Search-terms tab or you negate the wrong terms (or none).
+
+On a production store, verify each change persisted (re-read the cell)
+before moving on, and keep an EXECUTION_LOG so a capped session resumes
+without redoing or skipping.
 
 ### 4a. When to consider it
 
@@ -565,26 +881,24 @@ A SKU being Active and in stock is **not** sufficient for it to appear
 in the coupon-creation product search. Amazon's coupon eligibility
 gate is opaque and account-aware. Observed behavior:
 
-- **Saudi marketplace (`amazon.sa`)**: New listings (recently added,
-  no review history) are NOT eligible. The coupon search returns
-  `No eligible ASINs found` for **every** product including older
-  ones with running coupons, when the account is in a "no new
-  coupons" state. This may be account-level (e.g. recent program
+- **One marketplace**: New listings (recently added, no review
+  history) may NOT be eligible. The coupon search can return
+  `No eligible ASINs found` for **every** product — including older
+  ones with running coupons — when the account is in a "no new
+  coupons" state. This may be account-level (e.g. a recent program
   warning) or temporary.
-- **UAE marketplace (`amazon.ae`)**: The same SKU is often eligible
-  immediately after listing for MENA unified accounts (one
-  seller, two marketplaces).
+- **Another marketplace of the same unified account**: the same SKU
+  is often eligible immediately after listing.
 
-**Always try `amazon.ae` first** for new-product coupons on a MENA
-unified account, even when the user nominally talked in SAR. The
-user typically asks for "10 SAR/AED" → run the coupon at AED10 on
-`amazon.ae`.
+**On a multi-marketplace (unified) account, if one marketplace's
+coupon search returns no eligible ASINs, try the account's other
+marketplace(s)** before concluding the SKU can't run a coupon. Run
+the coupon in that marketplace's currency.
 
 ### 5b. Coupon dashboard URLs
 
 ```
-https://sellercentral.amazon.sa/coupons/dashboard
-https://sellercentral.amazon.ae/coupons/dashboard
+https://sellercentral.amazon.<tld>/coupons/dashboard
 ```
 
 The dashboard lists existing coupons with status pills, dates, budget,
@@ -669,8 +983,7 @@ review window before going live.
 
 Per the user's standing rule for new-product launches:
 
-- Discount: 10 (in marketplace currency: 10 AED on `amazon.ae`,
-  10 SAR on `amazon.sa`).
+- Discount: 10 (in the marketplace's currency).
 - Budget: 1000 (same currency).
 - Duration: 30 days from today (Amazon caps at 30; trying 31 fails).
 - Title: do NOT copy a sister coupon's exact title — Amazon flags
@@ -699,7 +1012,8 @@ section.
 ## 7. Per-store conventions to follow
 
 - **Naming:** existing campaigns on a store typically use
-  `<sku> <targeting type> <market>` where market is `KSA` or `UAE`.
+  `<sku> <targeting type> <market>` where market is the country code
+  (e.g. `US` or `UK`).
   When the agent creates a campaign, append ` - agent` (with surrounding
   spaces) so the user can filter for review. Add ` v2`/`v3` only when
   Amazon rejects for name conflict.
@@ -708,10 +1022,10 @@ section.
   user's standing preference.
 - **Placement adjustments:** all 0% by default. Only set non-zero
   when explicitly captured from a sister campaign.
-- **Budget/bid currency:** matches the marketplace (SAR on
-  `amazon.sa`, AED on `amazon.ae`). The form's
-  `aria-label="enter amount in SAR"` is misleading on AE pages —
-  ignore the label and trust the marketplace.
+- **Budget/bid currency:** matches the marketplace. The form's
+  `aria-label="enter amount in <CURRENCY>"` can show a different
+  currency than the active marketplace — ignore the label and trust
+  the marketplace.
 
 ## 8. Reading existing campaigns for tuning
 
@@ -722,24 +1036,24 @@ click paths verified.
 ### 8a. Marketplace switching (Seller Central)
 
 Multiple marketplaces under one seller account share a login. To
-switch from KSA to AE (or any pair):
+switch from one marketplace to another (any pair):
 
 1. From `sellercentral.amazon.<tld>/home`, click the **country pill**
    near the top-left of the header (next to the `amazon seller
-   central` logo). Text is the current country name (e.g. "Saudi
-   Arabia"). A small dropdown appears with `See all` link.
+   central` logo). Text is the current country name (e.g. "United
+   States"). A small dropdown appears with `See all` link.
 2. Click `See all` → navigates to
    `sellercentral.amazon.<tld>/account-switcher/default/merchantMarketplace`.
 3. The page lists all linked marketplaces. Click the destination
-   row (e.g. "United Arab Emirates") — row highlights with a
+   row (e.g. "United Kingdom") — row highlights with a
    checkmark.
 4. Click `Select account` button (bottom-right).
 5. Page redirects back to seller-central home with new
    `mons_sel_mkid=<mp-id>` query param. The page header pill now
    shows the new country.
-6. Some accounts have **separate ad entities per marketplace**. KSA
-   uses `merchantId=<X>` + `entityId=<Y>` while AE uses different
-   ones. The Campaign Manager menu link reads the active marketplace
+6. Some accounts have **separate ad entities per marketplace**. One
+   marketplace uses `merchantId=<X>` + `entityId=<Y>` while another
+   uses different ones. The Campaign Manager menu link reads the active marketplace
    and routes accordingly. **Do NOT** copy a campaign URL across
    marketplaces — the entityId won't match.
 
@@ -996,7 +1310,7 @@ subsequent rows from shell pipelines.
 After splitting the metric string on ` | `, the cell ordering is
 fixed and **must be indexed by position**, not by parsing currency
 symbols. Verified-in-the-wild defect: agents read the *first*
-`SAR x.xx` value (position 2) as the bid and recorded the
+`<ccy> x.xx` value (position 2) as the bid and recorded the
 suggested-bid midpoint as if it were the keyword's bid, then
 proposed bid changes "from the suggested midpoint" — which is a
 no-op.
@@ -1004,46 +1318,46 @@ no-op.
 ```
 position 0:  Status                 ("Delivering" | "Paused" | ...)
 position 1:  (empty spacer)         (always "")
-position 2:  Suggested bid + range  ("SAR 0.60 (SAR 0.45-SAR 0.75)")
+position 2:  Suggested bid + range  ("USD 0.60 (USD 0.45-USD 0.75)")
 position 3:  Apply button           ("Apply")
 position 4:  Rules indicator        ("—" when no rules)
-position 5:  Bid                    ("SAR 3.00")   ← THIS is the bid
-position 6:  Bid (duplicate)        ("SAR 3.00")   ← same value, alt render
-position 7:  Clicks                 ("259")
-position 8:  Spend                  ("SAR 631.75")
-position 9:  Orders                 ("37")
-position 10: Sales                  ("SAR 1,485.40")
-position 11: ACOS                   ("42.53%")
-position 12: ROAS                   ("2.35")
+position 5:  Bid                    ("USD 3.00")   ← THIS is the bid
+position 6:  Bid (duplicate)        ("USD 3.00")   ← same value, alt render
+position 7:  Clicks                 ("200")
+position 8:  Spend                  ("USD 500.00")
+position 9:  Orders                 ("30")
+position 10: Sales                  ("USD 1,200.00")
+position 11: ACOS                   ("41.67%")
+position 12: ROAS                   ("2.40")
 ```
 
-Worked example (verified 2026-05-20 against `A33333333` / women
-socks Broad): the row text returned by the merge eval is
+Worked example (verified against `A33333333` / wireless
+mouse Broad): the row text returned by the merge eval is
 
 ```
-women socks ||| Delivering |  | SAR 0.60 (SAR 0.45-SAR 0.75) | Apply | — | SAR 3.00 | SAR 3.00 | 259 | SAR 631.75 | 37 | SAR 1,485.40 | 42.53% | 2.35
+wireless mouse ||| Delivering |  | USD 0.60 (USD 0.45-USD 0.75) | Apply | — | USD 3.00 | USD 3.00 | 200 | USD 500.00 | 30 | USD 1,200.00 | 41.67% | 2.40
 ```
 
 Correct extraction:
-- `keyword = "women socks"` (left of `|||`)
+- `keyword = "wireless mouse"` (left of `|||`)
 - `cells = right.split(" | ")` (length 13)
 - `status = cells[0]`            → `"Delivering"`
-- `suggested = cells[2]`         → `"SAR 0.60 (SAR 0.45-SAR 0.75)"`
+- `suggested = cells[2]`         → `"USD 0.60 (USD 0.45-USD 0.75)"`
   - Parse: midpoint `0.60`, low `0.45`, high `0.75`
-- `bid = cells[5]`               → `"SAR 3.00"` (parse → `3.00`)
-- `clicks = cells[7]`            → `259`
-- `spend = cells[8]`             → `631.75`
-- `orders = cells[9]`            → `37`
-- `sales = cells[10]`            → `1485.40`
-- `acos = cells[11]`             → `0.4253`
-- `roas = cells[12]`             → `2.35`
-- `actual_cpc = spend / clicks`  → `2.44`
+- `bid = cells[5]`               → `"USD 3.00"` (parse → `3.00`)
+- `clicks = cells[7]`            → `200`
+- `spend = cells[8]`             → `500.00`
+- `orders = cells[9]`            → `30`
+- `sales = cells[10]`            → `1200.00`
+- `acos = cells[11]`             → `0.4167`
+- `roas = cells[12]`             → `2.40`
+- `actual_cpc = spend / clicks`  → `2.50`
 
-**Common defect pattern**: grabbing the first SAR value via regex
-(`/SAR ([\d.]+)/`) returns `0.60` because Suggested-bid appears
-before Bid in the row text. The midpoint of the suggested-bid
-range is NOT the keyword's current bid. Index by position, not by
-"first SAR".
+**Common defect pattern**: grabbing the first currency value via
+regex (`/<ccy> ([\d.]+)/`) returns `0.60` because Suggested-bid
+appears before Bid in the row text. The midpoint of the
+suggested-bid range is NOT the keyword's current bid. Index by
+position, not by "first currency value".
 
 If the row contains paused keywords with `0` clicks, positions
 7–12 may render as `—` instead of numeric values; the position
@@ -1086,20 +1400,24 @@ Paused rows with no impressions return `—` for clicks/spend/etc.
 — that's the correct truthy answer; preserve in the report as
 `—` rather than 0.
 
-**SA vs AE — Targeting tab metric column order differs.**
+**Targeting tab metric column ORDER can differ between marketplaces.**
 The center-container metric columns vary by marketplace for
-both SP-Manual and SP-Auto campaigns:
+both SP-Manual and SP-Auto campaigns — both the order AND which
+metrics are present (e.g. one marketplace may include
+**Impressions** and lead with ACOS; another may include **Sales**
+and lead with Clicks):
 
 | Marketplace | Metric column order (after Bid) |
 |---|---|
-| SA | `Clicks \| Total cost \| Purchases \| Sales \| ACOS \| ROAS` |
-| AE | `ACOS \| Clicks \| Purchases \| ROAS \| Impressions \| Total cost` |
+| `<marketplace A>` | `Clicks \| Total cost \| Purchases \| Sales \| ACOS \| ROAS` |
+| `<marketplace B>` | `ACOS \| Clicks \| Purchases \| ROAS \| Impressions \| Total cost` |
 
-AE includes **Impressions** and puts ACOS first; SA includes
-**Sales** and puts Clicks first. Column-index-based extraction
+**Do not assume a fixed column order. Read the header row and match
+columns by their header text** — column-index-based extraction
 (e.g. `cells.at(-7)`) produces **silently wrong data** when the
-script runs against the wrong marketplace. Use the `innerText`
-split approach or verify column headers before picking indices.
+script runs against a marketplace whose layout differs. Use the
+`innerText` split approach or verify column headers before picking
+indices.
 
 **New campaigns show "—" metrics when date range predates
 creation.** Campaign detail pages default to a date range set
@@ -1202,7 +1520,7 @@ Purchases) as `button[pressed]` toggles for the chart series
 (per § 8b step 2 above). SB's tiles are **static, with the label
 on its own line and the value on the next line concatenated with
 a `TOTAL` / `AVERAGE` suffix** — and the value embeds the
-currency prefix or `%` sign (`SAR96.00TOTAL`, `80.01%AVERAGE`).
+currency prefix or `%` sign (`USD96.00TOTAL`, `80.01%AVERAGE`).
 The pressed-button eval gets ~0–2 of these. Use a line-pair
 scan:
 
@@ -1222,7 +1540,7 @@ browser-use eval "
 "
 ```
 
-Returns e.g. `{"Total cost":"SAR96.00TOTAL", "Sales":"SAR119.98TOTAL",
+Returns e.g. `{"Total cost":"USD96.00TOTAL", "Sales":"USD119.98TOTAL",
 "ACOS":"80.01%AVERAGE", "Impressions":"6,090TOTAL"}`. Strip the
 trailing `TOTAL`/`AVERAGE` and currency prefix when assembling
 the report. The set of tiles SB shows varies by Goal / Cost type —
@@ -1307,8 +1625,8 @@ campaign).
    **Use coord-click on the "Add" button**, not JS `.click()` — the
    React form state may not register JS-triggered adds.
 3. **Default bid** — input `#sp-defaultBid`. Pre-filled with Amazon's
-   suggested bid (may be higher than expected, e.g. SAR 4.00 vs
-   target SAR 2.00).
+   suggested bid (may be higher than expected, e.g. USD 4.00 vs
+   target USD 2.00).
 4. **Targeting type** — **CRITICAL**: the form defaults to **product
    targeting** even in manual keyword campaigns. You MUST explicitly
    click the `manualTargetingType-KEYWORD` radio button via coord-click
@@ -1373,7 +1691,7 @@ exact same date range.**
 Reconciliation example (illustrative numbers): with the page-header
 date picker pinned to a 30-day window, summing the per-placement
 Purchases / Sales / Total cost columns yields the same totals as the
-campaign-detail top tiles (e.g. `<X> orders / <SAR Y.YY> sales /
+campaign-detail top tiles (e.g. `<X> orders / <ccy Y.YY> sales /
 <Z%> ACOS` matches to the cent). With a different date filter (or
 the default rolling window), the per-placement orders sum to less
 than the campaign top-tile and the analyst incorrectly concludes
@@ -1406,6 +1724,21 @@ recommendation by clicking it (or typing the value manually).
 ### 8f. Search terms report
 
 Reach via Ad group → `Search terms` left sidebar (use coord-click).
+
+**Full capture = Export CSV. Always.** The grid is virtualized — the
+DOM only ever holds ~13–16 rows of what is often 200+ terms, and
+scroll-capture misses rows (verified live: DOM showed 16, Export CSV
+held 213). Procedure:
+1. **Set the date range FIRST** (same 30-day window as the Targeting
+   tab — this is what makes the 对账 reconciliation line come out ✓).
+2. Click the **Export** button (top-right of the table) → CSV lands in
+   `~/.vibe-seller/downloads/<store>/Sponsored_Products_SearchTerm_*.csv`.
+3. Parse the CSV for ALL rows (every term with impressions). Sum
+   `Total cost` and `Clicks` and reconcile against the Targeting-tab
+   totals — match within ~15% or the windows are misaligned.
+4. Note: the CSV does NOT carry match type directly; join the
+   `Keywords` column against the Targeting table to attribute source
+   keyword + match type.
 
 Columns: `Actions`, `Added as`, `Customer search term`, `Keywords`
 (with match type below), `Target bid`, `Clicks`, `Total cost`,
@@ -1493,8 +1826,8 @@ pattern:
 <campaign-name-slug>-harvest-kw
 ```
 
-For example, if the auto campaign is named "product-abc auto KSA",
-the harvest ad group would be `product-abc-auto-ksa-harvest-kw`.
+For example, if the auto campaign is named "product-abc auto US",
+the harvest ad group would be `product-abc-auto-us-harvest-kw`.
 The `-harvest-kw` suffix distinguishes agent-managed harvest groups
 from human-created ones.
 
@@ -1560,7 +1893,7 @@ modal.
 ### 8h. Daily budget edit
 
 Campaign settings → **Budget** section → kat-numberinput showing
-e.g. `SAR 15`. Click the value, clear it, type new amount, then
+e.g. `<ccy> 15`. Click the value, clear it, type new amount, then
 click the **inline Save button** that appears below the input.
 The change does NOT auto-save on blur — the explicit Save click
 is required. Verified live: setting `value` + dispatching
@@ -1581,8 +1914,8 @@ out-of-range value (e.g. negative placement modifier) is a skill bug.
 | Field | Where | Range | Direction | Unit | Source |
 |---|---|---|---|---|---|
 | Placement bid adjustment | Campaign → Bid adjustments → cell | 0 to 900 | Increase only | % | Amazon popup: "Choose a percentage between 0 and 900%" |
-| Keyword bid | Ad group → Targeting → bid cell | marketplace min (~SAR/AED 0.50) to 1000 | Either | currency | Amazon documentation; varies by marketplace |
-| Daily budget | Campaign settings → Budget | marketplace min (~SAR/AED 5) to 21000 | Either | currency | Per Amazon SP docs |
+| Keyword bid | Ad group → Targeting → bid cell | marketplace min (~0.50 in the marketplace currency) to 1000 | Either | currency | Amazon documentation; varies by marketplace |
+| Daily budget | Campaign settings → Budget | marketplace min (~5 in the marketplace currency) to 21000 | Either | currency | Per Amazon SP docs |
 | Default bid (ad group) | Ad group settings | marketplace min to 1000 | Either | currency | |
 | Match type for keyword | keyword editor | Broad / Phrase / Exact | enum | n/a | |
 | Match type for negative | search terms `Add as ⌄` | Exact / Phrase | enum | n/a | **Negative-broad NOT supported** |
@@ -1664,8 +1997,8 @@ verify. This section documents the click path.
 
 ### Why ASIN-specific, not category
 
-Category reports return generic terms like *"socks men"* / *"ankle
-socks"* / *"cotton socks"* — high-volume but uncoupled from any
+Category reports return generic terms like *"computer mouse"* /
+*"wireless mouse"* / *"usb mouse"* — high-volume but uncoupled from any
 specific listing. The Pause-and-redirect decision is per-ASIN:
 *"this listing's auto-discovered traffic dried up; what queries
 would buyers use to find THIS listing?"* The ASIN-keyword report
@@ -1707,7 +2040,7 @@ Sub-page:  https://sellercentral.amazon.<tld>/brand-analytics/<report>
 ```
 
 The **ASIN reverse-lookup report** is the one Rule 15 cites. URL
-slug varies by locale rollout — in 2026 SA / AE it's typically
+slug varies by locale rollout — in many marketplaces it's typically
 labelled "Top Search Terms" with a tab/toggle for "Category" vs
 "ASIN". If the direct URL `/search-terms-asin` 404s for a given
 locale, navigate via:
@@ -1718,7 +2051,7 @@ locale, navigate via:
   → toggle: Category ↔ ASIN (or "ASIN Reverse Lookup")
 ```
 
-Click flow (verified URL pattern on Amazon SA 2026-05-24; AE/MX
+Click flow (verified URL pattern 2026-05-24; other marketplaces
 parallel):
 
 1. Open `https://sellercentral.amazon.<tld>/brand-analytics/dashboard`.
@@ -1789,7 +2122,7 @@ Don't paste raw file paths — use a readable reference name plus
 the file path in parens. The Evidence cell format:
 
 ```
-Amazon SA — Brand Analytics ASIN report for WIDGET-A
+Amazon <country> — Brand Analytics ASIN report for WIDGET-A
 (stores/acme-store/ads/brand-analytics/B0XXXXXXXX_2026-05-24.tsv
  row 5): query "<keyword>", rank <R>, click_share <X%>
 ```
@@ -1847,9 +2180,9 @@ all five failed:
 - Clipboard `execCommand('paste')` — React ignored
 - CDP `Input.insertText` / `Input.dispatchKeyEvent` — React ignored / timed out
 
-What actually works (verified 2026-05-24 against
+What actually works (verified against
 `UCM-SP-APP:ADGROUP_NEGATIVE_KEYWORDS:kwp:kwp-enter-list-text-input-area`
-on `advertising.amazon.sa`):
+on `advertising.amazon.<tld>`):
 
 ```javascript
 // Canonical React controlled-component workaround.
@@ -1862,8 +2195,8 @@ on `advertising.amazon.sa`):
 const ta = document.querySelector('textarea#<modal-textarea-id>');
 ta.focus();
 ta.select();  // wipe any pre-fill so insertText replaces, not appends
-const ok = document.execCommand('insertText', false, 'cotton socks\nankle socks');
-// ok === true, ta.value === 'cotton socks\nankle socks',
+const ok = document.execCommand('insertText', false, 'wireless mouse\nusb-c cable');
+// ok === true, ta.value === 'wireless mouse\nusb-c cable',
 // Add keywords button disabled === false
 ```
 
@@ -1884,7 +2217,7 @@ to update state — same code path it uses for real typing.
   multi-line input. The pattern is generic to React controlled
   components.
 
-### Procedure (verified end-to-end on both SA and AE)
+### Procedure (verified end-to-end)
 
 ```bash
 # 1. Open the modal (click the "Add keywords" or "Add negative Keyword" button)
@@ -1898,9 +2231,10 @@ browser-use eval "
 sleep 2  # let the modal render
 
 # 2. CLICK THE 'Enter list' TAB. The modal has 'Enter list' + 'Upload file'
-#    tabs at the top. The default tab varies by marketplace (SA defaults to
-#    Enter list; AE defaults to a different tab). If you skip this step on
-#    AE, the textarea exists in the DOM but is `visible: false` — execCommand
+#    tabs at the top. The default tab varies by marketplace (some default
+#    to Enter list; others default to a different tab). If you skip this
+#    step on a marketplace that does NOT default to Enter list, the textarea
+#    exists in the DOM but is `visible: false` — execCommand
 #    runs against an off-screen element and the Save button never enables.
 #    Always click 'Enter list' explicitly; it's a no-op when already selected.
 browser-use eval "
@@ -1936,8 +2270,9 @@ browser-use eval "
 
 # 5. Click the intermediate 'Add keywords' button (moves staging-list →
 #    confirmed-list). The 'Save' button enables AFTER this click — not
-#    after step 4. Marketplaces differ: SA may submit on a single 'Add
-#    keywords' click; AE has Add (intermediate) → Save (final) two-step.
+#    after step 4. The Add-keyword step can differ by marketplace: some
+#    submit on a single 'Add keywords' click; others have Add (intermediate)
+#    → Save (final) as a two-step. Read the live DOM to tell which applies.
 browser-use eval "
   document.querySelectorAll('button').forEach(function(b){
     if ((b.innerText||'').trim() === 'Add keywords' && !b.disabled) {
@@ -1991,6 +2326,63 @@ document.getElementById('UCM-SP-APP:ADGROUP_NEGATIVE_KEYWORDS:kwp:kwp-enter-list
 `getElementById` accepts colons literally — usually the cleaner
 choice for these compound ids.
 
+## 8a. Execution-completion contract (a task is NOT "done" until this holds)
+
+A partial run once passed as complete (~25 of 69 report bids
+applied, the rest never attempted) because nothing compared LIVE state to
+the full report. Three rules close that gap — follow all three:
+
+1. **Write `EXECUTION_LOG.md` to the TASK working directory** (`./EXECUTION_LOG.md`,
+   i.e. the task dir — NOT only the `store-data/.../EXECUTION_LOG_<date>.md`
+   tree). The `ad_execution_fidelity` stop-gate reads `<task_dir>/EXECUTION_LOG.md`.
+   One row per report (campaign, keyword/ASIN, match) you touched, with the
+   target, the live read-back, and the action.
+
+2. **Address EVERY report row in scope — apply OR explicitly skip with a
+   reason.** For each row the report names for your campaigns: either apply
+   it (and read the value back), or write a row marking it
+   `skipped — <reason>` (e.g. `live 2.87 ≥ target 1.77 (only-raise)`,
+   `keyword drifted / absent`, `ad-group paused`). A report row that appears
+   NOWHERE in the log = a forgotten/stopped-early row. The gate now DENIES a
+   submit whose log leaves in-scope report rows unaddressed, and lists them
+   ("INCOMPLETE: …"). Do not stop mid-batch; finish every row or log why not.
+
+3. **A self-reported log is NOT proof.** The gate checks the log against the
+   report, but the log is what the agent *says* it did — it cannot catch
+   "logged ✅ but the bid never actually changed." Before a platform/store is
+   called complete, a **READ-ONLY live re-verification** (debug-store: open
+   each campaign's live targeting table and read the actual bid/state) must
+   confirm every row is at target (or correctly skipped). Live is the only
+   ground truth; sampling a few campaigns is not enough for "all applied."
+
+DIRECTION RULE (this is the one that bit us — read carefully). Every bid
+recommendation carries a direction; obey it, do NOT apply "only-raise" to a
+lowering row:
+- **`提高至 / 上调至 X` (RAISE)**: set to X **only if live < X**; if live ≥ X,
+  skip and log `skipped — live ≥ target (only-raise)`. Never lower a raise row.
+- **`降至 / 下调至 / 调低至 X` (LOWER)**: set to X **if live > X** (these are
+  high-ACOS bids the report wants CUT — applying the cut saves spend); if live
+  ≤ X already, skip and log `skipped — already ≤ target`. **"only-raise" does
+  NOT apply to a 降至 row** — skipping a lowering row because "live ≥ target" is
+  exactly backwards and leaves the bid overspending. (An observed production
+  run executed "only-raise" and silently skipped all 18 降至 recommendations,
+  leaving high-ACOS terms overspending — a real gap caught only by live audit.)
+Mixed campaigns have BOTH raise and lower rows; process each by its own head.
+
+4. **NEVER un-pause / re-enable a live ad to satisfy a gate or "complete" a
+   row.** If a report bid row's keyword is currently **Paused** (or drifted /
+   on a paused ad-group / inapplicable), the bid change is **moot** — log it
+   `skipped — already-paused (bid moot)` and move on. Re-enabling a paused ad
+   is a state change the report did **not** request; turning spend back on for
+   a row someone paused can burn real money. If a stop-gate denies your submit
+   (INCOMPLETE / OVER-PAUSE / OFF-REPORT), the correct response is to **fix the
+   EXECUTION_LOG** (add the skip row + reason) or **flag for owner** — never to
+   change an ad's on/off state to make the deny go away. The only state change
+   you may safely undo is one **you yourself applied this run in error**. (A
+   production run once un-paused a live keyword trying to satisfy a buggy gate;
+   the gate was fixed to never instruct a re-enable, but the agent rule stands
+   regardless of the gate.)
+
 ## 9. Things that are NOT in this reference (intentionally)
 
 - The high-level "what to do for a new product launch" → that's the
@@ -2001,8 +2393,200 @@ choice for these compound ids.
   file is mechanics; the workflow + thinking is over there.
 - Listing creation/edit, FBA shipments, account onboarding → out of
   scope.
-- Sponsored Brands / Sponsored Display specifics — only Sponsored
-  Products is verified end-to-end here. Some patterns transfer
-  (URL shape, kat-component behavior, bulk Excel sheet structure
-  for `Sponsored Brands Campaigns`); the wizard is materially
-  different. Document SB/SD only when verified.
+- Sponsored Display specifics — not yet verified end-to-end here.
+- Sponsored Brands bid-edit, bid-lower, and pause are now fully
+  verified end-to-end; see §10 below.
+
+## 10. Sponsored Brands (SB / SBV) keyword bid-edit and pause recipe
+
+**VERIFIED 2026-06-15 — 5 keyword changes applied
+across 3 SB/SBV campaigns (HTTP 207 confirmed each time).**
+
+### 10a. Navigation — click-through only, never deep-link
+
+Deep-linking to `.../cm/sb/campaigns/<id>/keywords?entityId=…`
+leaves the keyword grid empty (no auth token for the SB grid XHR).
+Navigate by clicking through the SPA:
+
+```
+1. Open: https://advertising.amazon.<tld>/campaign-manager/all-campaigns?entityId=ENTITY…
+2. In the "Find a campaign" search box — use eval to set value + dispatch 'input' event
+   (the shadow DOM input at id=globalBetaAllCampaigns:quickFilter:input accepts
+   a native-setter approach; do NOT try browser-use type on it directly):
+
+   browser-use eval "
+   (function() {
+     const inp = document.getElementById('globalBetaAllCampaigns:quickFilter:input');
+     const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+     nativeSetter.call(inp, 'MY CAMPAIGN NAME');
+     inp.dispatchEvent(new Event('input', {bubbles:true}));
+   })()"
+
+3. After ~2s wait, find the campaign anchor by text and call .click():
+   browser-use eval "
+   [...document.querySelectorAll('a')]
+     .find(a => a.innerText.trim() === 'MY CAMPAIGN NAME' && a.getBoundingClientRect().y > 0)
+     ?.click()"
+
+4. This lands on the ad-groups list. Find the targeting link (the number-link
+   in the row that ends with '/targeting?entityId=…') and call .click() on it:
+   browser-use eval "
+   [...document.querySelectorAll('a')]
+     .find(a => a.href?.includes('/targeting') && a.getBoundingClientRect().y > 0)
+     ?.click()"
+
+5. Wait ~2-3s. Confirm: document.title should include 'Ad Group: …'
+   and URL should include '/targeting?entityId=…'.
+```
+
+Alternatively (step 3): if you are already inside a campaign and want to
+go back, click the **Campaigns** breadcrumb `<a aria-label="Campaigns.">` —
+browser-use `state` shows it near the top of the snapshot. Click its index.
+
+**SPA navigation via `window.history.pushState` does NOT work** — the
+React router does not pick up the popstate for URL changes initiated
+from `eval`; the page stays on the current route.
+
+### 10b. Reading all keyword rows
+
+The SB targeting tab uses a **ReactVirtualized dual-pane grid**, not ag-Grid:
+`grids[2]` = left pane (keyword text), `grids[3]` = right pane (metrics + bid).
+
+```javascript
+// Paste into browser-use eval "..." to read all visible rows
+(function() {
+  const grids = [...document.querySelectorAll('[role=grid]')];
+  const kwLines = (grids[2]?.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+  const metLines = (grids[3]?.innerText || '').split('\n').map(s => s.trim()).filter(Boolean);
+  const keywords = kwLines.filter(l => l !== 'select');
+  const MATCH = new Set(['Phrase', 'Exact', 'Broad']);
+  const rows = [];
+  let i = 0, rowNum = 0;
+  while (i < metLines.length && rowNum < 200) {
+    if (!MATCH.has(metLines[i])) { i++; continue; }
+    const mt = metLines[i++], st = metLines[i++];
+    if (metLines[i] === 'Details') i++;
+    if (metLines[i] === 'No current data') i++;
+    if (metLines[i] === 'adjust value') i++;
+    const bid = metLines[i++];
+    if (['SAR','AED','USD'].includes(metLines[i])) i++;
+    rows.push({kw: keywords[rowNum]||null, rowNum, mt, bid});
+    i += 7; rowNum++;
+  }
+  return JSON.stringify({kwCount: keywords.length, rows});
+})()
+```
+
+The **live bid** for each row is the `<ccy> x.xx` token in `bid`. The
+`currency_renderer_input` shadow input `value=` attribute may show a
+stale or default value — use the parsed `bid` field as ground truth.
+
+### 10c. Bid-edit recipe (SB — `currency_renderer_input` popover pattern)
+
+Unlike SP which uses `kat-number-input` (inline commit via Enter), SB/SBV
+uses `currency_renderer_input` with a **popover + Save button**:
+
+1. **Find the shadow input index** for the target row via `browser-use state`:
+   ```
+   |SHADOW(open)|[N]<input type=text id=CAMPAIGN_KEYWORDS:table_cell_<ROW>-3_keywordBid:currency_renderer_input .../>
+   ```
+   Note the index `N` for `table_cell_<ROW>-3_keywordBid`.
+
+2. **Click the shadow input** to open the popover:
+   ```bash
+   browser-use click N
+   ```
+   A popover (`AACChromePortal`) appears with:
+   - An editable `<input type=number>` (the real edit target)
+   - `Save` and `Cancel` buttons
+
+3. **Set the value** via eval + native setter (the number input inside the
+   portal does NOT have a stable selector-map index; use querySelector):
+   ```javascript
+   browser-use eval "
+   (function() {
+     const inp = document.querySelector('input[type=number]');
+     const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;
+     nativeSetter.call(inp, '1.33');
+     inp.dispatchEvent(new Event('input', {bubbles:true}));
+     inp.dispatchEvent(new Event('change', {bubbles:true}));
+     return 'set to ' + inp.value;
+   })()"
+   ```
+
+4. **Find and click the Save button** via `browser-use state` (it appears
+   in AACChromePortal near the top of the snapshot):
+   ```
+   [M]<button /> Save
+   ```
+   ```bash
+   browser-use click M
+   ```
+
+5. **Confirm via PATCH monitoring** (set up before step 1):
+   ```javascript
+   // Run once per page load to install monitoring
+   window._patches = [];
+   var origOpen = XMLHttpRequest.prototype.open;
+   var origSend = XMLHttpRequest.prototype.send;
+   XMLHttpRequest.prototype.open = function(m,u){this._url=u;this._method=m;return origOpen.apply(this,arguments);};
+   XMLHttpRequest.prototype.send = function(b){
+     if(this._method==='PATCH'){
+       var self=this;
+       this.addEventListener('load',function(){
+         window._patches.push({url:self._url,s:self.status,resp:self.responseText.substring(0,800)});
+       });
+     }
+     return origSend.apply(this,arguments);
+   };
+   ```
+   After clicking Save, check: `browser-use eval "JSON.stringify(window._patches)"`
+   Success = HTTP 207 + `"successfulCount":1` in the response body.
+
+   **The display cell does NOT update** after the PATCH — the ReactVirtualized
+   cell keeps showing the old `<ccy> x.xx` span. This is normal; the server
+   has the new value. Confirm only via the PATCH response, not the display.
+
+6. **Re-install monitoring** whenever `browser-use open` or a hard navigation
+   occurs — the monitoring is lost on page reload. Prefer in-app `.click()`
+   navigation over `browser-use open <url>` to preserve monitoring context.
+
+### 10d. Pause / Enable a keyword
+
+The state toggle per row is a `<button role=switch>` with id
+`CAMPAIGN_KEYWORDS:table_cell_<ROW>-1_state:state-switch-renderer`.
+
+Find it in `browser-use state` output:
+```
+[K]<button id=CAMPAIGN_KEYWORDS:table_cell_<ROW>-1_state:state-switch-renderer
+    role=switch aria-checked=true title=Enabled checked=true />
+```
+
+Click it to toggle:
+```bash
+browser-use click K
+```
+
+Confirm: re-read state and verify `aria-checked=false title=Paused`, AND
+check `window._patches` for a PATCH with `"state":"PAUSED"` in the request
+body and HTTP 207 + `successfulCount:1` in the response.
+
+### 10e. Campaign alphanumeric IDs
+
+Amazon SB URLs use an alphanumeric campaign ID (e.g. `A0EXAMPLE0000000000`)
+that differs from the numeric ID shown in bulk reports (e.g. `100000000000000`).
+To map from numeric → alphanumeric: navigate to the campaign list, search
+by campaign name, and read the `href` of the campaign anchor — it contains
+the alphanumeric ID. You cannot construct the URL from the numeric ID alone.
+
+### 10f. Grid virtualisation
+
+The ReactVirtualized grid renders only ~13 rows at a time. With 23+ keywords
+the Broad rows may be below the fold. All rows ARE included in `grids[2]/grids[3]
+.innerText` without scrolling — the eval above reads all rendered text nodes
+including those below the visible viewport, so a single eval call captures all
+rows. Scrolling is not required for the read step.
+
+For the **edit step**, the shadow input for a below-the-fold row appears in
+`browser-use state` even if the row is not visible on screen — click by
+index works regardless of scroll position.

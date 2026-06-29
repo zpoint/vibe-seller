@@ -1,0 +1,228 @@
+"""Workflow tests for the server-side email-watermark sweep.
+
+Backs the ``vibe_seller_get_new_emails`` MCP tool
+(``GET /api/tasks/{task_id}/new-emails``). This is the design fix for
+the watermark leak that ``tests/e2e/test_email_watermark_e2e.py`` pins
+with a live agent: the agent's "let me look at the inbox" reflex used
+to run an unfiltered ``SELECT`` that dragged already-processed email
+bodies into run 2's transcript. The contract now lives in code — the
+server filters by the cursor and never returns old rows — so this test
+guards that invariant deterministically, without an LLM.
+"""
+
+from datetime import UTC, datetime, timedelta
+import uuid
+
+import pytest
+import pytest_asyncio
+
+from app.email.db import db_path_for_account, init_email_db, store_emails
+from app.models.email_account import EmailAccount
+from app.models.schedule import Schedule
+from app.models.store import Store
+from app.models.store_email_link import StoreEmailLink
+from app.models.task import Task
+from app.task_states import TaskStatus
+
+pytestmark = pytest.mark.workflow
+
+SECRET_1 = 'sekret-alpha-42'
+SECRET_2 = 'sekret-bravo-99'
+
+
+def _iso_hours_ago(hours: float) -> str:
+    return (datetime.now(UTC) - timedelta(hours=hours)).isoformat()
+
+
+def _epoch_of(iso: str) -> int:
+    return int(datetime.fromisoformat(iso).timestamp())
+
+
+@pytest_asyncio.fixture
+async def email_env(override_async_session, admin_user):
+    """Schedule + store + linked email account, seeded with SECRET_1.
+
+    Yields the ids plus the run-1 email's ISO date. The per-account
+    SQLite file is removed on teardown so repeat runs start clean.
+    """
+    sched_id = str(uuid.uuid4())
+    store_id = str(uuid.uuid4())
+    acct_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+
+    async with override_async_session() as db:
+        db.add(
+            Schedule(
+                id=sched_id,
+                title='Daily email sweep',
+                schedule_type='days',
+                schedule_time='09:00',
+                interval_value=1,
+                created_by=admin_user.id,
+            )
+        )
+        db.add(
+            Store(
+                id=store_id,
+                name=f'mail-store-{store_id[:8]}',
+                browser_backend='chrome',
+                browser_config='{"headless": true}',
+                platforms='["amazon"]',
+                countries='["US"]',
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        db.add(
+            EmailAccount(
+                id=acct_id,
+                email=f'sweep-{acct_id[:8]}@example.test',
+                encrypted_password='x',
+                imap_host='imap.invalid',
+                created_by=admin_user.id,
+            )
+        )
+        db.add(
+            StoreEmailLink(
+                id=str(uuid.uuid4()),
+                store_id=store_id,
+                email_account_id=acct_id,
+            )
+        )
+        await db.commit()
+
+    init_email_db(acct_id)
+    date_1 = _iso_hours_ago(2)
+    store_emails(
+        acct_id,
+        [
+            {
+                'message_id': f'msg-1-{acct_id}@example.test',
+                'folder': 'INBOX',
+                'subject': 'Run1 inbound',
+                'sender': 'partner@example.test',
+                'date': date_1,
+                'body_text': f'The value is {SECRET_1}. Please confirm.',
+            }
+        ],
+    )
+
+    yield {
+        'schedule_id': sched_id,
+        'store_id': store_id,
+        'account_id': acct_id,
+        'date_1': date_1,
+    }
+
+    db_path_for_account(acct_id).unlink(missing_ok=True)
+
+
+async def _make_running_task(
+    override_async_session, admin_user, schedule_id, store_id
+) -> str:
+    now = datetime.now(UTC).isoformat()
+    task_id = str(uuid.uuid4())
+    async with override_async_session() as db:
+        db.add(
+            Task(
+                id=task_id,
+                title='Scheduled run',
+                schedule_id=schedule_id,
+                store_id=store_id,
+                created_by=admin_user.id,
+                status=TaskStatus.RUNNING,
+                created_at=now,
+                updated_at=now,
+                started_at=now,
+            )
+        )
+        await db.commit()
+    return task_id
+
+
+def _all_emails(body: dict) -> list[dict]:
+    return [e for acct in body['accounts'] for e in acct['new_emails']]
+
+
+class TestNewEmailsSweep:
+    async def test_first_run_returns_recent_then_cursor_filters(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """The core anti-leak contract across two runs.
+
+        Run 1 (no cursor) returns SECRET_1 within the lookback window.
+        After the cursor advances, run 2 returns ONLY SECRET_2 — the
+        already-processed SECRET_1 never comes back, so it can never
+        re-enter the agent's context.
+        """
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+
+        # ── Run 1: no cursor → 24h lookback returns SECRET_1 ──
+        r1 = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r1.status_code == 200
+        b1 = r1.json()
+        assert b1['first_run'] is True
+        assert b1['count'] == 1
+        emails1 = _all_emails(b1)
+        assert SECRET_1 in emails1[0]['body_text']
+        # next_watermark is a ready-to-persist epoch string at/after
+        # the email we just saw.
+        epoch_1 = _epoch_of(email_env['date_1'])
+        assert int(b1['next_watermark']) >= epoch_1
+
+        # Persist the cursor exactly as an agent would (goes through
+        # the typed-value epoch validation on the way in).
+        put = await admin_client.put(
+            f'/api/tasks/{task_id}/schedule-state/email_watermark',
+            json={'value': b1['next_watermark']},
+        )
+        assert put.status_code == 200
+
+        # ── SECRET_2 arrives, strictly newer than the cursor ──
+        date_2 = _iso_hours_ago(0.5)
+        store_emails(
+            email_env['account_id'],
+            [
+                {
+                    'message_id': f'msg-2-{uuid.uuid4()}@example.test',
+                    'folder': 'INBOX',
+                    'subject': 'Run2 inbound',
+                    'sender': 'partner@example.test',
+                    'date': date_2,
+                    'body_text': f'Follow-up: {SECRET_2}. Thanks.',
+                }
+            ],
+        )
+
+        # ── Run 2: cursor set → only SECRET_2, never SECRET_1 ──
+        r2 = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r2.status_code == 200
+        b2 = r2.json()
+        assert b2['first_run'] is False
+        assert b2['count'] == 1
+        emails2 = _all_emails(b2)
+        body2 = emails2[0]['body_text']
+        assert SECRET_2 in body2
+        # The whole point: the old secret cannot reappear.
+        blob2 = str(b2)
+        assert SECRET_1 not in blob2
+        assert int(b2['next_watermark']) >= _epoch_of(date_2)
+
+    async def test_non_scheduled_task_rejected(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """Non-scheduled tasks have no cursor scope → 400, same as the
+        other schedule-state endpoints."""
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            None,
+            email_env['store_id'],
+        )
+        r = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r.status_code == 400

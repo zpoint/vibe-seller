@@ -50,7 +50,7 @@ Required columns:
 |---|---|
 | `#` | **manifest row number** — assigned 1..N in display order across all manifest entries (active and inactive). Used for human reference in the report. The Action checklist's top-level numbering is **separate**: it numbers only campaigns that have at least one action, so the checklist's `1.` may be the header table's `#2` if `#1` is inactive. Always refer to a campaign by its `id` (Amazon campaign ID), not by `#`, when the reference must be stable across re-runs |
 | `Campaign` | friendly name + Amazon campaign ID in parens — `<name> (A059...)`. The ID is the stable handle for follow-ups |
-| `Country` | marketplace TLD (`SA`, `AE`, `US`, ...) — required for multi-country audits |
+| `Country` | marketplace TLD (`US`, `UK`, ...) — required for multi-country audits |
 | `Type` | `SP-Auto` / `SP-Manual-KW` / `SP-Manual-Product` / `SB` / `SBV` / `SD` |
 | `30d spend` | total cost in marketplace currency. For inactive campaigns: show the actual captured value (often 0; may be > 0 for `inactive — paused` if the campaign spent before being paused mid-window) |
 | `orders` | Purchases column. Same population convention as spend |
@@ -60,7 +60,7 @@ Required columns:
 | `Daily budget` | with currency |
 | `Strategy` | bidding strategy + plain-English diagnostic when relevant. E.g. `Rule-based ROAS≥2.00 (actual 1.50, target unmet)` not just `Rule-based ROAS≥1.80` |
 | `State` | mechanical state from the manifest (`active` / `inactive — paused` / `inactive — archived` / `inactive — ended` / `inactive — no impressions` / `inactive — too new` / `error: <message>`). See `tuning-workflow.md` § Mechanical state taxonomy. **There is no `skipped` state.** |
-| `Major issues found` | comma-separated, brief — e.g. `(a) "X" Phrase keyword at 99% ACOS; (b) Rest-of-search 0 orders / SAR 149 wasted; (c) 7 search terms with high ROAS not yet exact`. For inactive campaigns: `—` |
+| `Major issues found` | comma-separated, brief — e.g. `(a) "X" Phrase keyword at 99% ACOS; (b) Rest-of-search 0 orders / USD 149 wasted; (c) 7 search terms with high ROAS not yet exact`. For inactive campaigns: `—` |
 
 **Population convention for inactive rows**: show the real captured top-tile values (which may be 0 or > 0 — e.g. `inactive — paused` campaigns can have non-zero spend if they ran for part of the window before being paused). Use `—` only for derived metrics (`ACOS`, `ROAS`) when sales = 0 makes them undefined, and for `Major issues found` (since no drill was performed).
 
@@ -158,10 +158,10 @@ per-row action so the reader sees data + decision in one place.
 ```
 | Keyword (match)    | status     | clicks | spend       | orders | sales       | ROAS | ACOS       | bid      | actual CPC | suggested | recommendation                                      |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| "<kw-1>" (Phrase)  | Delivering | 119    | <ccy 250.00>| 6      | <ccy 260.00>| 1.00 | **100.0%** | <ccy 2>  | <ccy 2.10> | <ccy 1.50–2.20> | **Pause** — 100% ACOS, 119 clicks / 6 orders        |
-| "<kw-2>" (Broad)   | Delivering |  82    | <ccy 180.00>| 9      | <ccy 380.00>| 2.00 |  50.0%     | <ccy 2>  | <ccy 2.20> | <ccy 1.40–2.10> | **Trim to <ccy 1.55>** (−23%; floor <ccy 1.54>; Amazon rec 1.40–2.10) — 50% ACOS, 9 orders |
+| "<kw-1>" (Phrase)  | Delivering | 119    | <ccy 250.00>| 6      | <ccy 260.00>| 1.04 | **96.2%**  | <ccy 2>  | <ccy 2.10> | <ccy 1.50–2.20> | **Pause** — 96% ACOS, 119 clicks / 6 orders         |
+| "<kw-2>" (Broad)   | Delivering |  82    | <ccy 180.00>| 9      | <ccy 380.00>| 2.11 |  47.4%     | <ccy 2>  | <ccy 2.20> | <ccy 1.40–2.10> | **Trim to <ccy 1.55>** (−23%; floor <ccy 1.54>; Amazon rec 1.40–2.10) — 47% ACOS, 9 orders |
 | "<kw-3>" (Broad)   | **Paused** |  15    | <ccy  30.00>| 1      | <ccy  30.00>| 1.00 | 100.0%     | <ccy 2>  | <ccy 2.00> | <ccy 1.40–2.10> | Hold (Paused) — already paused, no action            |
-| "<kw-4>" (Broad)   | Delivering |   3    | <ccy   7.00>| 1      | <ccy  30.00>| 4.30 |  25.0%     | <ccy 3>  | <ccy 2.33> | <ccy 2.00–3.00> | **Scale** — 4.30 ROAS / 25% ACOS; raise bid +20%     |
+| "<kw-4>" (Broad)   | Delivering |   3    | <ccy   7.00>| 1      | <ccy  30.00>| 4.29 |  23.3%     | <ccy 3>  | <ccy 2.33> | <ccy 2.00–3.00> | **Scale** — 4.29 ROAS / 23% ACOS; raise bid +20%     |
 | "<kw-5>" (Phrase)  | Delivering |   4    | <ccy   8.00>| 1      | <ccy  40.00>| 5.00 |  20.0%     | <ccy 3>  | <ccy 2.00> | <ccy 1.80–2.80> | Hold — 4 clicks is small sample; watch 7d            |
 | (≤ 9 idle variants, 0–3 clicks, 0 orders)                                |        |        | <small>     |        | —           | —    | —          | <ccy 3>  | —          | <ccy 2.00–3.00> | **Pause** all idle — 80%+ kw with 0 clicks (clutter) |
 ```
@@ -316,10 +316,10 @@ recommendation. This is where most negate / harvest decisions live):
 ```
 | Search term      | matched via       | clicks | spend       | orders | sales       | ROAS | recommendation                                          |
 |---|---|---|---|---|---|---|---|
-| <high-roas-term> | "<kw-2>" Broad    | 14     | <ccy 30.00> | 3      | <ccy 160.00>| 5.00 | **Harvest** to Exact + back-negate from Broad parent    |
+| <high-roas-term> | "<kw-2>" Broad    | 14     | <ccy 30.00> | 3      | <ccy 160.00>| 5.33 | **Harvest** to Exact + back-negate from Broad parent    |
 | <wasteful-term>  | "<kw-1>" Phrase   | 19     | <ccy 40.00> | 0      | —           | —    | **Negate Exact** — 0 orders, spend > 1.5× AOV           |
 | <competitor-pdp> | (Product pages)   |  8     | <ccy 20.00> | 0      | —           | —    | **Negate ASIN** in campaign Negative-products tab       |
-| <converter-term> | "<kw-2>" Phrase   |  3     | <ccy  6.00> | 1      | <ccy  35.00>| 5.80 | Hold — already converting at this match level           |
+| <converter-term> | "<kw-2>" Phrase   |  3     | <ccy  6.00> | 1      | <ccy  35.00>| 5.83 | Hold — already converting at this match level           |
 ```
 
 **Placements table** (diagnostic context, with per-row recommendation):
@@ -327,10 +327,10 @@ recommendation. This is where most negate / harvest decisions live):
 ```
 | Placement                  | impressions | clicks | CTR  | spend       | orders | sales       | ACOS   | recommendation                                  |
 |---|---|---|---|---|---|---|---|---|
-| Top of search (first page) | 2,000       | 114    | 5.0% | <ccy 250.00>| 11     | <ccy 500.00>|  50.0% | Hold — best converter; modifier 0%, no change   |
-| Rest of search             | 9,000       |  70    | 1.0% | <ccy 150.00>|  5     | <ccy 180.00>|  80.0% | Refine via search-term negates (preserves 5 orders) |
-| Product pages              |30,000       |  45    | 0.2% | <ccy 100.00>|  2     | <ccy  75.00>| 120.0% | Add 5–10 negative-ASINs — 0.2% CTR, wrong-fit PDPs |
-| Total                      |41,000       | 229    | 0.6% | <ccy 500.00>| 18     | <ccy 750.00>|  65.0% | —                                                |
+| Top of search (first page) | 2,000       | 114    | 5.7% | <ccy 250.00>| 11     | <ccy 500.00>|  50.0% | Hold — best converter; modifier 0%, no change   |
+| Rest of search             | 9,000       |  70    | 0.8% | <ccy 150.00>|  5     | <ccy 180.00>|  83.3% | Refine via search-term negates (preserves 5 orders) |
+| Product pages              |30,000       |  45    | 0.2% | <ccy 100.00>|  2     | <ccy  75.00>| 133.3% | Add 5–10 negative-ASINs — 0.2% CTR, wrong-fit PDPs |
+| Total                      |41,000       | 229    | 0.6% | <ccy 500.00>| 18     | <ccy 755.00>|  66.2% | —                                                |
 ```
 
 The Total row must sum to the campaign top-tile values to the cent.
@@ -368,15 +368,15 @@ code>` subdivisions inside the checklist; see worked example.
    1a. Negate 7 wasteful search terms triggered by "<kw-A>" Phrase (113 of 119 clicks didn't convert)
    1b. Harvest 7 high-ROAS search terms to Exact + back-negate from Phrase parent
    1c. Add 5–10 negative ASINs for Product-pages waste (start with the worst-CTR competitor PDPs)
-   1d. Trim "<kw-B>" Broad bid SAR 3.00 → SAR 2.50
+   1d. Trim "<kw-B>" Broad bid USD 3.00 → USD 2.50
 
 2. **Campaign 2 (<campaign-name-2>)** — bid drift on top spender
    2a. Trim "<kw-C>" Phrase bid <ccy 4.00> → <ccy 2.50> (1.5× suggested midpoint, ROAS 1.00)
    2b. Pause "<kw-D>" — 1 order on <ccy 50.00> spend at ROAS 0.50
 
 3. **Campaign 3 (<campaign-name-3>)** — auto discovery campaign
-   3a. Trim default bid SAR 4.00 → SAR 1.80 (current bid 2.0× Amazon's suggested upper bound)
-   3b. Pause "Loose match" auto-target-group — 0 orders on SAR 20.00 spend
+   3a. Trim default bid USD 4.00 → USD 1.80 (current bid 2.0× Amazon's suggested upper bound)
+   3b. Pause "Loose match" auto-target-group — 0 orders on USD 20.00 spend
 ```
 
 Rules (mirror `noon-ads/references/ads-tuning.md § Action
@@ -406,9 +406,9 @@ checklist`):
 - Replace `(failing)` with: "Amazon is told to bid for ROAS 1.80 but
   actual ROAS is 1.50 — chasing a target it isn't hitting"
 - Replace `bid drift` with: "current bid is 1.5× Amazon's suggested
-  midpoint of SAR 0.90"
-- Replace `field range: positive currency, marketplace min ~SAR 0.50
-  to SAR 1000` with: omit unless the range is surprising. For
+  midpoint of USD 0.90"
+- Replace `field range: positive currency, marketplace min ~USD 0.50
+  to USD 1000` with: omit unless the range is surprising. For
   placement modifier — keep "(0% to +900%, increase only — Amazon
   doesn't allow negative modifiers)" because that's the
   non-obvious constraint.
@@ -457,15 +457,15 @@ the 3 rows shown on the campaign-list page for the chosen window.
 
 | # | Campaign | Country | Type | 30d spend | orders | sales | ACOS | ROAS | Daily budget | Strategy | State | Major issues found |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | <campaign-name-1> (A011AAA…) | SA | SP-Manual-KW | SAR 500.00 | 18 | SAR 750.00 | 65.0% | 1.50 | SAR 15 | Rule-based ROAS≥2.00 (actual 1.50, target unmet) | active | (a) "<kw-A>" Phrase at ACOS 100.0%; (b) Product-pages 120.0% ACOS / only 2 orders; (c) Rest-of-search  80.0% ACOS / 5 orders — refine, don't kill; (d) 7 search terms with high ROAS not yet exact |
-| 2 | <campaign-name-2> (A022BBB…) | SA | SP-Manual-KW | SAR 800.00 | 17 | SAR 1,500.00 | 50.0% | 1.90 | SAR 15 | Rule-based ROAS≥1.50 (matching) | active | (a) "<kw-B>" bid 1.5× over Amazon's suggested midpoint; (b) Product-pages CTR 0.3% (listing issue) |
-| 3 | <campaign-name-3> (A033CCC…) | SA | SP-Auto | SAR 0 | 0 | SAR 0 | — | — | SAR 15 | Dynamic — down only | inactive — paused | — |
+| 1 | <campaign-name-1> (A011AAA…) | US | SP-Manual-KW | USD 500.00 | 18 | USD 750.00 | 66.7% | 1.50 | USD 15 | Rule-based ROAS≥2.00 (actual 1.50, target unmet) | active | (a) "<kw-A>" Phrase at ACOS 96.2%; (b) Product-pages 133.3% ACOS / only 2 orders; (c) Rest-of-search  83.3% ACOS / 5 orders — refine, don't kill; (d) 7 search terms with high ROAS not yet exact |
+| 2 | <campaign-name-2> (A022BBB…) | US | SP-Manual-KW | USD 800.00 | 17 | USD 1,500.00 | 53.3% | 1.88 | USD 15 | Rule-based ROAS≥1.50 (matching) | active | (a) "<kw-B>" bid 1.5× over Amazon's suggested midpoint; (b) Product-pages CTR 0.3% (listing issue) |
+| 3 | <campaign-name-3> (A033CCC…) | US | SP-Auto | USD 0 | 0 | USD 0 | — | — | USD 15 | Dynamic — down only | inactive — paused | — |
 
 **Defaults applied**: margin 40% (placeholder — confirm), goal scale → target ACOS 28%, target ROAS 3.57. Waste threshold: search-term cost ≥ 1.5 × AOV with 0 orders. Harvest threshold: ≥ 1 order AND ROAS ≥ 5.0.
 
 **Anomaly highlights** (top bleeders, mapped to checklist IDs):
-1. "<kw-A>" Phrase at 100.0% ACOS, 119 clicks → see **1a / 1b**
-2. Product-pages 120.0% ACOS, 0.2% CTR → see **1c**
+1. "<kw-A>" Phrase at 96.2% ACOS, 119 clicks → see **1a / 1b**
+2. Product-pages 133.3% ACOS, 0.2% CTR → see **1c**
 3. "<kw-B>" bid 1.5× suggested midpoint → see **2a**
 
 **Recommended sequence**: Campaign 1 actions 1a + 1b first → wait 7-14d → Campaign 2 action 2a → re-run for the rest.
@@ -498,7 +498,7 @@ the 3 rows shown on the campaign-list page for the chosen window.
 | Top of search (first page) | 2,000       | 114    | 5.0% | <ccy 250.00>| 11     | <ccy 500.00>|  50.0% | Hold — best converter; modifier 0%, no change |
 | Rest of search             | 9,000       |  70    | 1.0% | <ccy 150.00>|  5     | <ccy 180.00>|  80.0% | Refine via search-term negates (preserves 5 orders) |
 | Product pages              |30,000       |  45    | 0.2% | <ccy 100.00>|  2     | <ccy  75.00>| 120.0% | Add 5–10 negative-ASINs — 0.2% CTR, wrong-fit PDPs |
-| Total                      |41,000       | 229    | 0.6% | <ccy 500.00>| 18     | <ccy 750.00>|  65.0% | — |
+| Total                      |41,000       | 229    | 0.6% | <ccy 500.00>| 18     | <ccy 755.00>|  66.2% | — |
 
 (reconciles to campaign top-tile to the cent)
 
@@ -513,7 +513,7 @@ columns; one section per entity table.)
 
 # Campaign 3 (id: A033CCC…): <campaign-name-3>
 
-inactive — paused. Status=Paused; window clicks=0; spend=SAR 0.
+inactive — paused. Status=Paused; window clicks=0; spend=USD 0.
 No drill performed.
 
 ---

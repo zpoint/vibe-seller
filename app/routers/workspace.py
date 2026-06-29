@@ -1,4 +1,7 @@
+import mimetypes
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 
 from app.auth import get_current_user
 from app.models.user import User
@@ -8,6 +11,7 @@ from app.schemas.workspace import (
     SkillCreateRequest,
     StoreProfileCreateRequest,
 )
+from app.workspace.catalog_validation import reject_wrong_stubs
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
 from app.workspace.skills_sync import skills_sync
@@ -41,6 +45,42 @@ async def read_file(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# Inline rendering is restricted to types that can't script under the
+# app origin (NOT text/html, NOT image/svg+xml) — anything else is a
+# stored-XSS vector via agent/merchant-written workspace files and is
+# served as an attachment instead.
+_INLINE_SAFE_TYPES = {
+    'application/pdf',
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+}
+
+
+@router.get('/file/raw')
+async def read_file_raw(
+    path: str = Query(...), _user: User = Depends(get_current_user)
+):
+    """Raw bytes with a guessed content type — for binary viewers
+    (xlsx/pdf/zip) and text the JSON endpoint can't decode."""
+    try:
+        file_path = workspace_manager.resolve_file(path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f'File not found: {path}')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    media_type, _ = mimetypes.guess_type(file_path.name)
+    media_type = media_type or 'application/octet-stream'
+    disposition = 'inline' if media_type in _INLINE_SAFE_TYPES else 'attachment'
+    return FileResponse(
+        file_path,
+        media_type=media_type,
+        filename=file_path.name,
+        content_disposition_type=disposition,
+    )
+
+
 @router.put('/file')
 async def write_file(
     path: str = Query(...),
@@ -48,6 +88,12 @@ async def write_file(
     _user: User = Depends(get_current_user),
 ):
     try:
+        # Enforce the catalog stub contract at the write boundary: a
+        # CATALOG.md that marks a substantive file "Empty/stub" is
+        # rejected so the sync agent must summarize it (catalog-first
+        # navigation depends on real summaries). See catalog_validation.
+        if path.endswith('CATALOG.md'):
+            reject_wrong_stubs(body.content, workspace_manager.resolve_file)
         await workspace_manager.write_file(path, body.content)
         return {'path': path, 'status': 'ok'}
     except ValueError as e:

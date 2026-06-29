@@ -723,16 +723,21 @@ async def retry_task(
     )
     # If this child was retried, revert parent to WAITING
     await reopen_parent_if_child_active(task, db)
-    # Wipe per-task workspace for a clean start (best-effort)
+    # Refresh per-task workspace WITHOUT wiping it (best-effort).
+    # Retry is the resume path for incremental tasks (ad audits
+    # bank a growing report + TSVs across sessions); `clean=True`
+    # here rmtree'd the task dir and silently destroyed that
+    # banked progress on every retry. prepare_task_workspace with
+    # clean=False still refreshes infra (symlinks, .claude copy)
+    # while task-authored files persist.
     try:
         await workspace_manager.prepare_task_workspace(
             task_id,
             store_id=task.store_id,
-            clean=True,
         )
     except Exception:
         logger.exception(
-            'Failed to clean workspace for task %s on retry',
+            'Failed to refresh workspace for task %s on retry',
             task_id,
         )
     # If plan was re-seeded from the schedule, skip planning: route

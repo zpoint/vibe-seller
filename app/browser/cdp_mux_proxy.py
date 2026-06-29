@@ -89,6 +89,7 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         max_clients: int = DEFAULT_MAX_CLIENTS,
         cleanup_grace: float = DEFAULT_CLEANUP_GRACE,
         download_dir: str | None = None,
+        keep_last_page: bool = False,
     ):
         self.listen_port = listen_port
         self.target_port = target_port
@@ -96,6 +97,12 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         self.max_clients = max_clients
         self.cleanup_grace = cleanup_grace
         self.download_dir = download_dir
+        # When True, the startup orphan-tab cleanup never closes the
+        # final page. Required for Ziniao: its env opens on a single
+        # launcher page that IS the environment's window — closing the
+        # last page closes the browser and tears the whole env down
+        # (6.26.x: network SDK aborts with 'ContainerId is missing').
+        self.keep_last_page = keep_last_page
 
         # Upstream connection to browser
         self._upstream: websockets.ClientConnection | None = None

@@ -241,7 +241,13 @@ def get_existing_docs() -> str:
 
 
 def get_pr_diff(repo: str, pr_number: str, token: str) -> str:
-    """Fetch PR diff from GitHub API."""
+    """Fetch PR diff from GitHub API.
+
+    GitHub returns 406 Not Acceptable for the diff media type when the
+    diff is too large to generate (very large PRs — e.g. an initial bulk
+    sync). The doc-review bot is advisory, so treat that as "nothing to
+    review" and skip rather than failing the whole check.
+    """
     headers = {
         'Authorization': f'token {token}',
         'Accept': 'application/vnd.github.v3.diff',
@@ -249,6 +255,12 @@ def get_pr_diff(repo: str, pr_number: str, token: str) -> str:
     diff_url = f'https://api.github.com/repos/{repo}/pulls/{pr_number}'
 
     response = requests.get(diff_url, headers=headers, timeout=30)
+    if response.status_code == 406:
+        print(
+            'PR diff too large for the GitHub diff API (406) — '
+            'skipping doc review.'
+        )
+        return ''
     response.raise_for_status()
     return response.text
 

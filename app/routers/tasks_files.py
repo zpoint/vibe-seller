@@ -1,5 +1,6 @@
 """Task file browser endpoints."""
 
+import asyncio
 from datetime import UTC, datetime
 import mimetypes
 import os
@@ -11,7 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from app.ai.stop_gates.ad_rules import resolve_rules
 from app.auth import get_current_user
+from app.browser.manager import store_slug
+from app.models.store import Store
 from app.models.user import User
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -52,6 +56,132 @@ def _safe_task_file(task_id: str, filename: str) -> Path:
     if (task_dir / rel_parts[0]).is_symlink():
         raise HTTPException(status_code=404, detail='File not found')
     return resolved
+
+
+def resolve_workspace_result_path(raw: str, task_root: Path) -> Path | None:
+    """Return the file ``raw`` points to inside ``task_root``, else None.
+
+    File-pointer mode for ``set_task_result``: the agent composes a long
+    report with the built-in ``Write`` tool (streamed, fast) and passes
+    only its path to ``set_task_result`` — avoiding the multi-minute
+    stalls some providers hit when packing a 25KB result into a single
+    MCP tool input. This resolves that path so the *content* is stored
+    (and rendered inline by the UI) rather than the literal path string.
+
+    Only short, single-line strings that look like a path are
+    considered: either slash-bearing / ``./``-prefixed, OR a bare
+    document filename (e.g. ``AD_AUDIT_2026-06-10.md``) — the
+    bare-filename case is intentional and must stay consistent with
+    ``looks_like_result_path`` (see the shape pre-check below). Any
+    other value is direct content and returns None. Both interpretations
+    are tried and whichever lands on a real file inside ``task_root``
+    wins:
+
+    * absolute path (the agent built it from cwd — e.g. a path echoed
+      back by browser-use or the ``Write`` tool) — resolve as-is;
+    * relative path (``./AD_AUDIT.md``, ``AD_AUDIT.md``) — join to
+      ``task_root``.
+
+    The earlier implementation only handled the relative case: it
+    stripped a leading ``/`` from an absolute path and joined the
+    remainder onto ``task_root``, producing a nonexistent nested path.
+    An absolute path that *did* point at the report therefore fell
+    through and the literal path string was stored as the result — so
+    the UI showed a path instead of the rendered report.
+    """
+    if not (isinstance(raw, str) and 0 < len(raw) <= 512 and '\n' not in raw):
+        return None
+    # Agents sometimes pass the path wrapped in literal quotes (the MCP
+    # arg shows up as '"./AD_AUDIT.md"'). Strip one layer of matching
+    # quotes + whitespace FIRST so the shape check sees the real value.
+    raw = raw.strip()
+    if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in ('"', "'"):
+        raw = raw[1:-1].strip()
+    # Shape pre-check: a pointer carries a path separator / ``./`` prefix,
+    # OR is a bare document filename (e.g. ``AD_AUDIT_2026-06-10.md``).
+    # The bare-filename case MUST be accepted to stay consistent with
+    # ``looks_like_result_path`` (which flags a bare ``*.md`` as a
+    # pointer). Without it, a bare filename that DOES exist in task_root
+    # resolved to None here yet was treated as a dangling pointer there,
+    # so ``set_task_result`` 400'd a perfectly valid report. Anything
+    # else is direct content.
+    if not (
+        '/' in raw
+        or '\\' in raw
+        or raw.startswith('./')
+        or raw.lower().endswith(_DOC_EXTS)
+    ):
+        return None
+    if Path(raw).is_absolute():
+        candidate = Path(raw)
+    else:
+        # Strip a single leading `./`. NOT `lstrip('./')` — that treats
+        # the argument as a *set* of characters and would eat things
+        # like `.claude/...` down to `claude/...`.
+        rel = raw[2:] if raw.startswith('./') else raw
+        candidate = task_root / rel
+    try:
+        target = candidate.resolve()
+        # `is_relative_to` is the canonical containment check — same as
+        # the task-file endpoints above.
+        if target.is_file() and target.is_relative_to(task_root):
+            return target
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+async def resolve_store_rules(db, store_id: str | None) -> dict | None:
+    """Effective ad-rule thresholds for a task's store, or None.
+
+    Defaults from ``ad_rules.DEFAULT_RULES`` overlaid with any override
+    lines found in ``stores/<slug>/notes.md`` (e.g. ``scale_roas: 6``).
+    Used by ``set_task_result`` so the completeness reviewer and the
+    folded-in bid-rule gates honor per-store tuning.
+    """
+    if not store_id:
+        return None
+    store = await db.get(Store, store_id)
+    if not store:
+        return None
+    slug = store_slug(store.name, store.id)
+    notes_path = VIBE_SELLER_DIR / 'stores' / slug / 'notes.md'
+    try:
+        notes_text = await asyncio.to_thread(
+            notes_path.read_text, encoding='utf-8'
+        )
+    except OSError:
+        notes_text = None
+    return resolve_rules(notes_text)
+
+
+_DOC_EXTS = ('.md', '.txt', '.html', '.csv', '.tsv', '.json')
+
+
+def looks_like_result_path(raw: str) -> bool:
+    """True when ``raw`` is unmistakably a file POINTER, not content.
+
+    Used by ``set_task_result`` to REJECT a dangling pointer (path-like
+    value whose file doesn't exist) instead of falling through to
+    direct-content mode. Without this, a malformed pointer (e.g. the
+    path wrapped in quotes before quote-stripping existed, or a typo'd
+    filename) sails through every content gate vacuously — a 26-char
+    string has no ad sections to check — and the task "completes" with
+    a useless literal path as its result.
+
+    Deliberately stricter than the resolver's shape pre-check so real
+    one-line content containing a slash (e.g. "ACOS 30%/ROAS 3.33") is
+    never rejected: a pointer has no spaces and either carries a known
+    document extension or starts with ``./`` / ``/``.
+    """
+    if not (isinstance(raw, str) and 0 < len(raw) <= 512 and '\n' not in raw):
+        return False
+    s = raw.strip()
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ('"', "'"):
+        s = s[1:-1].strip()
+    if not s or ' ' in s:
+        return False
+    return s.lower().endswith(_DOC_EXTS) or s.startswith(('./', '/'))
 
 
 def _walk_task_files(task_dir: Path):

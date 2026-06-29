@@ -256,7 +256,7 @@ class TestTaskQueuing:
     ):
         """Tasks for different platforms on same store run concurrently.
 
-        E.g. Amazon SA + Noon SA should NOT queue — they use
+        E.g. Amazon EG + Noon EG should NOT queue — they use
         different seller portals in separate browser tabs.
         """
         gate = asyncio.Event()
@@ -266,27 +266,27 @@ class TestTaskQueuing:
         )
         store_id = r.json()['id']
 
-        # Task 1: Amazon SA
+        # Task 1: Amazon EG
         r1 = await admin_client.post(
             '/api/tasks',
             json={
-                'title': 'Amazon SA task',
+                'title': 'Amazon EG task',
                 'store_id': store_id,
                 'platform': 'amazon',
-                'country': 'SA',
+                'country': 'EG',
             },
         )
         t1_id = r1.json()['id']
         await install_fake_agent.wait_started(t1_id)
 
-        # Task 2: Noon SA (different platform, same country)
+        # Task 2: Noon EG (different platform, same country)
         r2 = await admin_client.post(
             '/api/tasks',
             json={
-                'title': 'Noon SA task',
+                'title': 'Noon EG task',
                 'store_id': store_id,
                 'platform': 'noon',
-                'country': 'SA',
+                'country': 'EG',
             },
         )
         t2_id = r2.json()['id']
@@ -335,7 +335,7 @@ class TestStoreUpdate:
         sid = r.json()['id']
         assert r.json()['platform_countries'] == {}
 
-        pc = {'amazon': ['SA', 'AE'], 'noon': ['SA']}
+        pc = {'amazon': ['US', 'UK'], 'noon': ['EG']}
         r = await admin_client.put(
             f'/api/stores/{sid}',
             json={'platform_countries': pc},
@@ -344,7 +344,7 @@ class TestStoreUpdate:
         assert r.json()['platform_countries'] == pc
         # platforms/countries derived from platform_countries
         assert sorted(r.json()['platforms']) == ['amazon', 'noon']
-        assert sorted(r.json()['countries']) == ['AE', 'SA']
+        assert sorted(r.json()['countries']) == ['EG', 'UK', 'US']
 
     async def test_update_name_blocked_active_task_409(
         self, admin_client, install_fake_agent
@@ -592,7 +592,7 @@ class TestStoreMetadata:
             '/api/stores',
             json={
                 'name': 'Meta Store',
-                'platform_countries': {'amazon': ['SA']},
+                'platform_countries': {'amazon': ['US']},
             },
         )
         sid = r.json()['id']
@@ -600,7 +600,7 @@ class TestStoreMetadata:
         # Write metadata.json to workspace
         store_dir = mock_workspace.root / 'stores' / 'meta-store'
         store_dir.mkdir(parents=True, exist_ok=True)
-        meta = {'platforms': {'amazon': ['SA', 'AE'], 'noon': ['SA']}}
+        meta = {'platforms': {'amazon': ['US', 'UK'], 'noon': ['EG']}}
         (store_dir / 'metadata.json').write_text(json.dumps(meta))
 
         async_session_maker = tasks_mod.async_session
@@ -611,9 +611,9 @@ class TestStoreMetadata:
         r = await admin_client.get(f'/api/stores/{sid}')
         pc = r.json()['platform_countries']
         assert 'amazon' in pc
-        assert sorted(pc['amazon']) == ['AE', 'SA']
+        assert sorted(pc['amazon']) == ['UK', 'US']
         assert 'noon' in pc
-        assert pc['noon'] == ['SA']
+        assert pc['noon'] == ['EG']
 
     async def test_metadata_sync_skips_malformed(
         self, admin_client, mock_workspace
@@ -646,7 +646,7 @@ class TestStoreMetadata:
 
         store_dir = mock_workspace.root / 'stores' / 'sanitize-store'
         store_dir.mkdir(parents=True, exist_ok=True)
-        meta = {'platforms': {'Amazon': ['sa', 'ae'], ' NOON ': ['Sa']}}
+        meta = {'platforms': {'Amazon': ['us', 'uk'], ' NOON ': ['Eg']}}
         (store_dir / 'metadata.json').write_text(json.dumps(meta))
 
         async with tasks_mod.async_session() as db:
@@ -655,6 +655,6 @@ class TestStoreMetadata:
         r = await admin_client.get(f'/api/stores/{sid}')
         pc = r.json()['platform_countries']
         assert 'amazon' in pc
-        assert sorted(pc['amazon']) == ['AE', 'SA']
+        assert sorted(pc['amazon']) == ['UK', 'US']
         assert 'noon' in pc
-        assert pc['noon'] == ['SA']
+        assert pc['noon'] == ['EG']

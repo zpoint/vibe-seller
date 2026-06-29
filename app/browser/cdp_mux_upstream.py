@@ -8,6 +8,7 @@ import json
 import logging
 import time
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
 import websockets
@@ -150,6 +151,11 @@ class _UpstreamMixin:
         Uses a recv-loop that matches on the request ``id`` so
         unsolicited CDP events arriving before the response don't
         get silently consumed.
+
+        When ``keep_last_page`` is True (Ziniao), one page is always
+        left open: closing the final page closes the whole browser
+        window, which tears down the Ziniao environment (its env opens
+        on a single launcher page). Extra orphan tabs are still reaped.
         """
         try:
             gid = self._next_global_id()
@@ -172,19 +178,28 @@ class _UpstreamMixin:
                     break
                 # else: unsolicited event — discard
 
+            # Only actual web pages (http/https). Extension, devtools,
+            # chrome:// pages are kept.
+            pages = [
+                t
+                for t in targets
+                if t.get('type') == 'page'
+                and t.get('url', '').startswith(('http://', 'https://'))
+            ]
+            # Never close the env's last page — closing the final page
+            # closes the browser window (fatal for Ziniao). Reap extras.
+            if getattr(self, 'keep_last_page', False) and pages:
+                logger.info(
+                    'CDPMuxProxy startup: keeping last page open: %s',
+                    pages[-1].get('url', '')[:80],
+                )
+                pages = pages[:-1]
+
             closed = 0
-            for t in targets:
-                url = t.get('url', '')
-                ttype = t.get('type', '')
-                if ttype != 'page':
-                    continue
-                # Only close actual web pages (http/https).
-                # Extension, devtools, chrome:// pages are kept.
-                if not url.startswith(('http://', 'https://')):
-                    continue
+            for t in pages:
                 logger.info(
                     'CDPMuxProxy startup: closing orphan tab: %s (target=%s)',
-                    url[:80],
+                    t.get('url', '')[:80],
                     t['targetId'],
                 )
                 cid = self._next_global_id()
@@ -262,7 +277,108 @@ class _UpstreamMixin:
             )
 
     # ------------------------------------------------------------------
-    # HTTP handler (for /json/version, /json/list)
+    # Wedged-tab recovery
+    # ------------------------------------------------------------------
+
+    async def reset_orphan_page_tabs(
+        self, requesting_client: str | None = None
+    ) -> int:
+        """Close orphan ``http(s)`` page tabs to recover a wedged tab.
+
+        A page renderer can hang — unresponsive to the CDP
+        ``Page``/``Runtime`` startup handshake — while the browser
+        *process* stays alive.  When that happens ``/json/version``
+        keeps returning 200 (it is a browser-level endpoint), so the
+        per-store browser looks healthy, but a freshly-spawned
+        browser-use daemon's ``BrowserStartEvent`` times out attaching
+        to the wedged tab and every ``open`` retry fails identically.
+        This is exactly the failure mode that stranded one store’s
+        run (CDP "connection timeout" was a symptom, not the cause).
+
+        Closing the orphan web tab(s) lets the next ``open`` create a
+        clean tab.  ``Target.closeTarget`` is handled by the browser
+        process and kills the renderer even when the page is hung.
+
+        Scoping: the proxy serves multiple concurrent tasks per store,
+        so this must never close a sibling task's healthy tabs.  A tab
+        is closed only if it is *unowned* (a true orphan — e.g. a tab
+        the browser opened itself, or a leftover from a crash; these
+        never went through proxy ``Target.createTarget``) or owned by
+        ``requesting_client``.  The requester's own wedged tab stays
+        matchable because ``_target_to_client`` entries survive the
+        daemon's death through the deferred-cleanup grace window.
+        Tabs owned by any *other* client — connected or in grace —
+        are skipped.
+
+        Fire-and-forget: the responses arrive in ``_read_upstream`` and
+        are dropped (no request mapping for our gid), so this is safe to
+        call while the proxy read loop is running.  The target list is
+        fetched over the independent HTTP ``/json/list`` shim, never by
+        racing the WebSocket recv loop.
+
+        Returns the number of tabs closed.
+        """
+        data = await self._fetch_upstream_http('/json/list')
+        if not data:
+            return 0
+        closed = 0
+        skipped = 0
+        for t in data:
+            if t.get('type') != 'page':
+                continue
+            url = t.get('url', '')
+            if not url.startswith(('http://', 'https://')):
+                continue
+            target_id = t.get('id') or t.get('targetId')
+            if not target_id:
+                continue
+            owner = self._target_to_client.get(target_id)
+            if owner is not None and owner != requesting_client:
+                # Owned by another task (live or in its reconnect
+                # grace window) — closing it would break isolation.
+                skipped += 1
+                continue
+            try:
+                gid = self._next_global_id()
+                await self._send_upstream({
+                    'id': gid,
+                    'method': 'Target.closeTarget',
+                    'params': {'targetId': target_id},
+                })
+                # Drop any client ownership so the next daemon starts clean.
+                self._target_to_client.pop(target_id, None)
+                self._pending_attached.pop(target_id, None)
+                self._pending_created.pop(target_id, None)
+                if owner is not None:
+                    # Also drop the id from the owner's ClientState so
+                    # a reconnect doesn't "recover" a dead target.
+                    live = self._clients.get(owner)
+                    if live:
+                        live.target_ids.discard(target_id)
+                    deferred = self._deferred_cleanups.get(owner)
+                    if deferred:
+                        deferred[1].target_ids.discard(target_id)
+                closed += 1
+                logger.info(
+                    'CDPMuxProxy reset: closing wedged tab %s (target=%s)',
+                    url[:80],
+                    target_id,
+                )
+            except Exception:
+                logger.warning(
+                    'CDPMuxProxy reset: closeTarget failed', exc_info=True
+                )
+        logger.info(
+            'CDPMuxProxy reset: closed %d orphan page tab(s), '
+            'skipped %d owned by other clients (requester=%s)',
+            closed,
+            skipped,
+            requesting_client or '<none>',
+        )
+        return closed
+
+    # ------------------------------------------------------------------
+    # HTTP handler (for /json/version, /json/list, /vibe/reset-tabs)
     # ------------------------------------------------------------------
 
     async def _process_http(
@@ -296,6 +412,26 @@ class _UpstreamMixin:
                 )
             return Response(
                 HTTPStatus.BAD_GATEWAY, 'Bad Gateway', websockets.Headers(), b''
+            )
+
+        if path.split('?', 1)[0] == '/vibe/reset-tabs':
+            # Wedged-tab recovery hook for the wrapper's self-healing
+            # ``open``.  Closes orphan web tabs so the next daemon
+            # attaches to a clean tab instead of hanging on a dead one.
+            # ``?client=<id>`` scopes the reset to that client's tabs
+            # (plus true orphans) so sibling tasks are never touched.
+            query = parse_qs(urlsplit(path).query)
+            requesting = (query.get('client') or [''])[0] or None
+            closed = await self.reset_orphan_page_tabs(requesting)
+            body = json.dumps({'closed': closed}).encode()
+            return Response(
+                HTTPStatus.OK,
+                'OK',
+                websockets.Headers({
+                    'Content-Type': 'application/json',
+                    'Content-Length': str(len(body)),
+                }),
+                body,
             )
 
         if path == '/json/list':

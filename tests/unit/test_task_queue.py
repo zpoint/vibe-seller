@@ -216,7 +216,7 @@ class TestCanSchedule:
     async def test_no_running_tasks_returns_run(
         self, db_session, store_and_task
     ):
-        await store_and_task(platform='amazon', country='SA')
+        await store_and_task(platform='amazon', country='US')
         scheduler = TaskQueueScheduler()
 
         with patch('app.scheduler.task_queue.async_session', db_session):
@@ -238,7 +238,7 @@ class TestCanSchedule:
         await store_and_task(
             task_id='new-1',
             platform='amazon',
-            country='SA',
+            country='US',
         )
         scheduler = TaskQueueScheduler()
         scheduler._running_tasks['store-1'] = {'running-1'}
@@ -255,12 +255,12 @@ class TestCanSchedule:
             task_id='running-1',
             status=TaskStatus.RUNNING,
             platform='amazon',
-            country='SA',
+            country='US',
         )
         await store_and_task(
             task_id='new-1',
             platform='amazon',
-            country='SA',
+            country='US',
         )
         # Create a browser session with matching platform/country
         async with db_session() as db:
@@ -269,7 +269,7 @@ class TestCanSchedule:
                 store_id='store-1',
                 status='running',
                 current_platform='amazon',
-                current_country='SA',
+                current_country='US',
             )
             db.add(bs)
             await db.commit()
@@ -289,12 +289,12 @@ class TestCanSchedule:
             task_id='running-1',
             status=TaskStatus.RUNNING,
             platform='amazon',
-            country='SA',
+            country='US',
         )
         await store_and_task(
             task_id='new-1',
             platform='amazon',
-            country='AE',
+            country='UK',
         )
         async with db_session() as db:
             bs = BrowserSession(
@@ -302,7 +302,7 @@ class TestCanSchedule:
                 store_id='store-1',
                 status='running',
                 current_platform='amazon',
-                current_country='SA',
+                current_country='US',
             )
             db.add(bs)
             await db.commit()
