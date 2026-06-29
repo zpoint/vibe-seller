@@ -11,6 +11,7 @@ Tools provided:
   - list_cron_jobs: List scheduled cron jobs
   - add_cron_job: Add a new cron job
   - email_info: Get email DB paths + schema for a store
+  - get_new_emails: Scheduled sweep — only emails since the cursor
   - send_email: Send email via configured account
   - sync_email_now: Trigger immediate IMAP sync for one account
   - write_workspace_file: Write file via relative path (stores/, knowledge/)
@@ -131,6 +132,39 @@ TOOLS = [
                 },
             },
             'required': ['store_id'],
+        },
+    },
+    {
+        'name': 'vibe_seller_get_new_emails',
+        'description': (
+            'Scheduled email tasks: fetch ONLY the emails that arrived '
+            'since the last run. The server reads the email_watermark '
+            'cursor for your schedule, filters the email DB by it, and '
+            'returns {count, first_run, watermark_used, next_watermark, '
+            'accounts:[{email, new_emails:[{message_id, subject, '
+            'sender, date, epoch, body_text}]}]}. **This is the one '
+            'call to make for a "new since last run" sweep — do NOT '
+            'query the email DB with raw sqlite3 for it.** An '
+            'unfiltered SELECT drags already-processed emails into your '
+            'context and leaks them into this run. After reporting the '
+            'returned bodies, persist the cursor verbatim: '
+            "vibe_seller_set_schedule_state('email_watermark', "
+            'next_watermark). On the first run (no cursor) it returns '
+            'the last 24h. Scope (store + cursor) is resolved '
+            'server-side from your task.'
+        ),
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'lookback_hours': {
+                    'type': 'integer',
+                    'description': (
+                        'First-run window when no cursor exists yet '
+                        '(default 24). Ignored once a cursor is set.'
+                    ),
+                },
+            },
+            'required': [],
         },
     },
     {
@@ -313,6 +347,41 @@ TOOLS = [
         },
     },
     {
+        'name': 'vibe_seller_register_finalize',
+        'description': (
+            'PLAN PHASE, all-stores fanout schedules only. Register a '
+            'parent FINALIZE step. A fanout schedule runs this plan '
+            'once per store in parallel; normally each store finishes '
+            'on its own and nothing happens after. Call this tool if — '
+            'and only if — the task needs a SINGLE cross-store step '
+            'AFTER every store finishes: e.g. combine all stores into '
+            'ONE pull request / report / notification, or retry the '
+            'stores that failed. Pass a natural-language `description` '
+            'of what that final step should do; at run time ONE extra '
+            'task runs it, handed a batch_results.json listing every '
+            "store's status + result + output location. If the task is "
+            'fully independent per store (no combine, no cross-store '
+            'summary), do NOT call this. You never pass a schedule_id — '
+            'it is resolved from the current planning task.'
+        ),
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'description': {
+                    'type': 'string',
+                    'description': (
+                        'Natural-language instruction for the finalize '
+                        'step, e.g. "After all stores finish, bundle '
+                        'every store and open ONE PR + send ONE WeCom — '
+                        'never one per store." Required, non-empty.'
+                    ),
+                    'minLength': 1,
+                },
+            },
+            'required': ['description'],
+        },
+    },
+    {
         'name': 'vibe_seller_list_wecom_bots',
         'description': (
             'List configured WeChat Work (企业微信) group bots. '
@@ -352,6 +421,32 @@ TOOLS = [
                 },
             },
             'required': ['bot_id', 'content'],
+        },
+    },
+    {
+        'name': 'vibe_seller_send_wecom_file',
+        'description': (
+            'Send a local file (PDF, image, xlsx, …) to a WeChat '
+            'Work group via its configured bot — e.g. a payment '
+            'receipt (comprovante) or a report. Pass the bot_id and '
+            'an absolute path on this host (task captures under '
+            '/tmp, browser downloads under ~/.vibe-seller/downloads). '
+            'Limit: 20 MB. The webhook secret stays on the server.'
+        ),
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'bot_id': {
+                    'type': 'string',
+                    'description': ('Bot ID from vibe_seller_list_wecom_bots.'),
+                },
+                'path': {
+                    'type': 'string',
+                    'description': ('Absolute path to the file on this host.'),
+                    'minLength': 1,
+                },
+            },
+            'required': ['bot_id', 'path'],
         },
     },
     {
@@ -484,6 +579,14 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 'GET',
                 f'/api/email-accounts/info-by-store/{store_id}',
             )
+        elif name == 'vibe_seller_get_new_emails':
+            qs = ''
+            if arguments.get('lookback_hours') is not None:
+                qs = f'?lookback_hours={int(arguments["lookback_hours"])}'
+            result = await call_api(
+                'GET',
+                f'/api/tasks/{_config["task_id"]}/new-emails{qs}',
+            )
         elif name == 'vibe_seller_send_email':
             account_email = arguments['account_email']
             # Look up account by email to get its ID
@@ -543,6 +646,12 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 f'/api/tasks/{_config["task_id"]}/schedule-state/{key}',
                 {'value': arguments.get('value')},
             )
+        elif name == 'vibe_seller_register_finalize':
+            result = await call_api(
+                'POST',
+                f'/api/tasks/{_config["task_id"]}/register-finalize',
+                {'description': arguments['description']},
+            )
         elif name == 'vibe_seller_list_wecom_bots':
             # API returns masked URLs; strip them so the agent only
             # sees {id, name} and never a webhook secret.
@@ -560,6 +669,12 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 'POST',
                 f'/api/wecom-bots/{arguments["bot_id"]}/send',
                 send_body,
+            )
+        elif name == 'vibe_seller_send_wecom_file':
+            result = await call_api(
+                'POST',
+                f'/api/wecom-bots/{arguments["bot_id"]}/send-file',
+                {'path': arguments['path']},
             )
         elif name == 'vibe_seller_set_task_result':
             # Save-result-only. Does NOT transition task status —

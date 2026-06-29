@@ -32,8 +32,8 @@ know to succeed on the first try. Concretely:
    for the same URL / selector / step. If it's there, do not restate it.
    Skills already document URLs, report types, CSV schemas, hover navigation,
    download behavior, etc. — do not duplicate.
-3. **Restatements of store metadata.** "Ziniao required for amazon.sa",
-   "platform is Amazon SA" — already in `browser-routing.md` and
+3. **Restatements of store metadata.** "Ziniao required for amazon.<tld>",
+   "platform is Amazon <country>" — already in `browser-routing.md` and
    `metadata.json`. Do not repeat in notes.md.
 4. **Section headers labeled by date or task** (e.g. "ACOS Summary Apr 3-9").
    Notes are organized by topic, not chronology.
@@ -119,7 +119,7 @@ file — do not create a new file for a single gotcha.
 
 Read `stores/<slug>/metadata.json` (create `{"platforms": {}}` if missing).
 If this task used a platform+country combo not listed, append it.
-Format: `{"platforms": {"amazon": ["SA", "AE"], "noon": ["SA"]}}`.
+Format: `{"platforms": {"amazon": ["US", "UK"], "noon": ["EG"]}}`.
 Lowercase platforms, uppercase country codes. Never remove existing entries.
 
 ## Environment

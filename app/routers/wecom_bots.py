@@ -9,6 +9,8 @@ caller just supplied it).
 
 from datetime import UTC, datetime
 import logging
+import os
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,13 +18,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
+from app.config import DOWNLOADS_DIR
 from app.database import get_db
 from app.models.user import User
 from app.models.wecom_bot import WeComBot
-from app.notifiers.wecom import send_webhook
+from app.notifiers.wecom import send_file_webhook, send_webhook
 from app.schemas.wecom_bot import (
     WeComBotCreate,
     WeComBotResponse,
+    WeComBotSendFileRequest,
     WeComBotSendRequest,
     WeComBotSummary,
     WeComBotTestRequest,
@@ -34,6 +38,42 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=['wecom-bots'])
 
 DEFAULT_TEST_MESSAGE = 'Vibe Seller: WeCom bot connection test ✅'
+
+# A file sent through a bot must live under one of these roots. The
+# agent supplies the path, so we expand ~, resolve symlinks, and confirm
+# the real location is inside a known-safe tree — task captures land in
+# /tmp and browser downloads under ~/.vibe-seller/downloads. We allow
+# ONLY those, NOT the whole ~/.vibe-seller runtime dir (which holds the
+# DB, jwt_secret, store notes) — that would let the agent exfiltrate
+# secrets through a bot. This also blocks reads like ~/.ssh.
+_ALLOWED_FILE_ROOTS = (
+    Path('/tmp').resolve(),
+    Path('/private/tmp').resolve(),
+    DOWNLOADS_DIR.resolve(),
+)
+
+
+def _resolve_safe_file(raw_path: str) -> Path:
+    """Resolve a caller-supplied path, rejecting anything outside the
+    allowed roots. Expands ``~`` and requires an absolute path so the
+    documented ``~/.vibe-seller/downloads/...`` usage works. Raises
+    HTTPException(400) on traversal."""
+    expanded = os.path.expanduser(raw_path)
+    if not os.path.isabs(expanded):
+        raise HTTPException(
+            status_code=400, detail='File path must be absolute'
+        )
+    try:
+        resolved = Path(expanded).resolve()
+    except (OSError, RuntimeError):
+        raise HTTPException(status_code=400, detail='Invalid file path')
+    for root in _ALLOWED_FILE_ROOTS:
+        if resolved == root or root in resolved.parents:
+            return resolved
+    raise HTTPException(
+        status_code=400,
+        detail='File path is outside the allowed directories',
+    )
 
 
 def _mask_webhook_url(url: str) -> str:
@@ -216,3 +256,29 @@ async def send_wecom_message(
 
     ok, err = await send_webhook(bot.webhook_url, content, msgtype=data.msgtype)
     return {'ok': ok, 'message': err or 'Message sent'}
+
+
+@router.post('/api/wecom-bots/{bot_id}/send-file')
+async def send_wecom_file(
+    bot_id: str,
+    data: WeComBotSendFileRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Upload a local file and post it to the group via the bot.
+
+    The webhook secret never leaves the server; the caller passes only
+    the bot id and a server-local file path (validated against the
+    allowed roots).
+    """
+    bot = await db.get(WeComBot, bot_id)
+    if not bot:
+        raise HTTPException(status_code=404, detail='Bot not found')
+
+    raw = (data.path or '').strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail='path cannot be blank')
+    safe_path = _resolve_safe_file(raw)
+
+    ok, err = await send_file_webhook(bot.webhook_url, str(safe_path))
+    return {'ok': ok, 'message': err or 'File sent'}

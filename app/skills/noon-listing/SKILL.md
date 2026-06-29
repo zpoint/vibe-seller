@@ -20,7 +20,7 @@ barcode, content, visibility status).
 
 ### Step 1 — Category
 
-Hierarchical tree (Apparel > Socks & Tights > Socks, etc.). Click
+Hierarchical tree (e.g. Electronics > Accessories > Cables). Click
 down to a leaf; it shows "Selected" badge.
 
 The "Next" button is often **off-screen** at bottom-right. Use JS:
@@ -152,17 +152,17 @@ Click `rc-tabs-0-tab-content`. Left sub-nav: **Basic Content** /
 - **Product Image**: "You need to upload atleast 1 product image"
   with "Add Image" button (opens file picker)
 - **English Content Status**: Shows attribute completion (e.g. "0/7 Attributes")
-- **Arabic Content Status**: Same for Arabic
+- **Local-language Content Status**: Same for the marketplace's local language
 
 The page shows fine-grained status like "Product Title Missing" with
 a direct "Add Product Title" button that scrolls to the field.
 
-#### Basic Content fields (verified list, each has English + Arabic)
+#### Basic Content fields (verified list, each has English + local language)
 
 | Field | Required | Notes |
 |-------|----------|-------|
 | Product Title | Yes | maxlength 1000 |
-| Product Fulltype | Auto-filled | From category (e.g. "Apparel Socks & Tights Socks") |
+| Product Fulltype | Auto-filled | From category (e.g. "Electronics Accessories Cables") |
 | Brand | Yes | Pre-filled from create step |
 | Gender | Optional | Dropdown |
 | Long Description | Optional | Rich text editor |
@@ -172,14 +172,14 @@ a direct "Add Product Title" button that scrolls to the field.
 
 #### Detailed Content fields
 
-| Field | English | Arabic |
+| Field | English | Local language |
 |-------|---------|--------|
 | Colour Name | Yes | Yes |
 | Fabric Care Instructions | Optional | Optional |
 | HS Code | Optional | Optional |
 | Material Composition | Optional | Optional |
 | Model Height / Name / Number | Optional | Optional |
-| MSRP AE / EG / SA | Optional | Optional |
+| MSRP (per marketplace) | Optional | Optional |
 | Size / Year / MPN | Optional | Optional |
 | What's In The Box | Optional | Optional |
 | Shipping Height/Length/Weight/Width/Depth | Optional | Optional |
@@ -194,7 +194,7 @@ browser-use eval "
 var nsetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
 var inputs = document.querySelectorAll('input[placeholder=\"Product Title *\"]');
 inputs.forEach(function(inp, i) {
-  nsetter.call(inp, i === 0 ? 'English title' : 'العربية title');
+  nsetter.call(inp, i === 0 ? 'English title' : 'local-language title');
   inp.dispatchEvent(new Event('input', {bubbles: true}));
 });
 "

@@ -16,6 +16,9 @@ fix, then the second call is allowed through.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
+
+from app.config import DATA_DIR
 
 # Module-level attempt counter, keyed by (task_id, gate_name). Lost
 # on server restart, which is fine — the agent session would also be
@@ -58,3 +61,127 @@ def reset_attempts(task_id: str) -> None:
 # user explicitly asked for "let agent fix once but not mandatory" —
 # 1 is the smallest value that still gives the agent feedback.
 SOFT_GATE_MAX_DENIALS = 1
+
+
+# ── Durable per-task skill bindings ──────────────────────────────────
+#
+# Skill loads are tracked per SESSION (claude_backend hooks), but the
+# gate contract is per TASK: a retry-resume session that goes straight
+# to editing the report without re-Reading SKILL.md must still face
+# the gates the original session bound. (The hole this closes: a
+# surgical fix session submitted with ZERO skill gates because nothing
+# in that session had Read the skill file — gate coverage depended on
+# a runtime accident.) Bindings persist as one newline-separated file
+# per task under ``data/gate_bindings/`` — server-owned space the
+# agent never touches (unlike the task dir, which the workspace-
+# hygiene step tells the agent to clean before the final submit).
+
+GATE_BINDINGS_DIR = DATA_DIR / 'gate_bindings'
+_TASK_ID_SAFE_RE = re.compile(r'[^A-Za-z0-9_-]')
+
+
+def _bindings_path(task_id: str):
+    safe = _TASK_ID_SAFE_RE.sub('_', task_id)
+    return GATE_BINDINGS_DIR / safe
+
+
+def record_skill_load(task_id: str, skill: str) -> None:
+    """Durably bind ``skill`` to ``task_id`` (idempotent, best-effort).
+
+    Called from the PreToolUse hook when a session loads a skill; IO
+    errors are swallowed — a failed write degrades to the old
+    session-only behaviour, never blocks the agent.
+    """
+    if not task_id or not skill:
+        return
+    try:
+        path = _bindings_path(task_id)
+        existing = recorded_skills(task_id)
+        if skill in existing:
+            return
+        GATE_BINDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        with path.open('a', encoding='utf-8') as f:
+            f.write(skill + '\n')
+    except OSError:  # pragma: no cover — best-effort persistence
+        pass
+
+
+def recorded_skills(task_id: str) -> frozenset[str]:
+    """All skills ever bound to ``task_id``, across sessions/restarts."""
+    try:
+        text = _bindings_path(task_id).read_text(encoding='utf-8')
+    except OSError:
+        return frozenset()
+    return frozenset(s.strip() for s in text.splitlines() if s.strip())
+
+
+def clear_skill_bindings(task_id: str) -> None:
+    """Remove the binding file (task deletion)."""
+    try:
+        _bindings_path(task_id).unlink(missing_ok=True)
+    except OSError:  # pragma: no cover
+        pass
+
+
+# ── Skill-declared gate registry ────────────────────────────────────
+#
+# Generic gates (markdown_format, result_language) run for EVERY task.
+# Domain gates run only when a skill the session loaded DECLARES them
+# in its SKILL.md frontmatter (``gates: [ad_completeness_review]``).
+# This keeps ``set_task_result`` free of task-type special cases: a
+# listing skill, an email skill, etc. each bring their own reviewers,
+# and a task that loaded no gate-declaring skill gets only the
+# generic checks. Names below are the public contract skills use.
+
+
+def get_registered_gates() -> dict[str, object]:
+    """Name → gate module for every skill-declarable gate.
+
+    Gate modules MUST expose exactly
+    ``check(result_text, task_id=None, rules=None) -> GateDeny | None``.
+    ``set_task_result`` always calls it positionally with all three args
+    (``gate.check(final_result, task_id, rules)``); a gate that ignores
+    ``task_id``/``rules`` keeps them as defaulted params rather than
+    dropping them, so the positional call can never raise ``TypeError``.
+
+    The set is populated by plugins through the
+    :mod:`app.plugins` registry (OSS gates via the builtin plugin;
+    any customer gates via their own externally-installed plugin wheels) — core no longer
+    hardcodes the gate list, so excising a customer is "don't install
+    its wheel", not "edit this dict". Read lazily to avoid a circular
+    import (gate modules import :class:`GateDeny` from this package, and
+    the builtin plugin imports those modules).
+    """
+    from app.plugins import registered_gates  # noqa: PLC0415 — cycle
+
+    return registered_gates()
+
+
+def resolve_skill_gates(
+    loaded_skills,
+    workspace_dir,
+) -> list:
+    """Return (name, module) for every gate declared by a loaded skill.
+
+    Reads each loaded skill's SKILL.md frontmatter ``gates:`` list
+    (same inline-list format as ``requires:``) and maps the names
+    through :func:`get_registered_gates`. Unknown names are ignored
+    (a skill must not be able to break submits by typo). Order is
+    deterministic (sorted by gate name) and duplicates collapse.
+    """
+    from app.ai.claude_backend_utils import (  # noqa: PLC0415 — cycle
+        find_skill_md,
+        parse_skill_gates,
+    )
+
+    registry = get_registered_gates()
+    resolved: dict[str, object] = {}
+    for skill in sorted(loaded_skills):
+        skill_md = find_skill_md(workspace_dir, skill)
+        if skill_md is None:
+            continue
+        for gate_name in parse_skill_gates(skill_md):
+            module = registry.get(gate_name)
+            if module is not None:
+                resolved[gate_name] = module
+    return sorted(resolved.items())

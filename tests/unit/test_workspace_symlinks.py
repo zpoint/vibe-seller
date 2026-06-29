@@ -29,9 +29,15 @@ async def test_prepare_creates_symlinks(ws):
     assert not (task_dir / '.claude' / 'skills').is_symlink()
     assert (task_dir / 'knowledge').is_symlink()
     assert (task_dir / 'stores').is_symlink()
+    # Per-store run data (reports/captures) lives outside stores/ so
+    # it never surfaces as knowledge; tasks reach it via this symlink.
+    assert (task_dir / 'store-data').is_symlink()
     assert (task_dir / 'CLAUDE.md').is_symlink()
     assert (task_dir / 'knowledge').resolve() == (
         ws.root / 'knowledge'
+    ).resolve()
+    assert (task_dir / 'store-data').resolve() == (
+        ws.root / 'store-data'
     ).resolve()
 
 

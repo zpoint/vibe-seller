@@ -541,31 +541,54 @@ install_lsof() {
 # Dependency: claude CLI (optional)
 # ============================================================
 check_claude() {
-    if _check claude; then
-        _success "claude CLI found"
+    # Specifically check for the project-local install — that's what
+    # the daemon's resolve_claude_binary() prefers, and the whole
+    # point of this design is to pin the version vibe-seller uses
+    # regardless of any global claude. Returning true on "global
+    # exists" would skip install_claude() for every existing user
+    # and they'd silently stay on the broken global version. The
+    # daemon's PATH fallback is a runtime safety net, NOT a signal
+    # that we don't need the local install. Use VIBE_HOME for the
+    # same reason — must match the daemon (see app/config.py).
+    local data_dir="${VIBE_HOME:-$HOME/.vibe-seller}"
+    if [[ -x "$data_dir/node_modules/.bin/claude" ]]; then
+        _success "claude CLI found (project-local, $data_dir/node_modules/.bin/claude)"
         return 0
+    fi
+    # System claude on PATH is acknowledged but does NOT satisfy the
+    # check — install_claude() still runs to lay down the pinned
+    # project-local copy. Logged only as info so the user
+    # understands why the install runs.
+    if _check claude; then
+        _info "system claude on PATH detected — installing project-local pinned version alongside (does not affect global)"
     fi
     return 1
 }
 
 install_claude() {
-    _info "Installing Claude Code CLI..."
+    _info "Installing Claude Code CLI (project-local)..."
     if ! _check npm; then
         _warn "npm not available — skipping claude CLI install"
         return 1
     fi
-    # Pin to 2.1.153 — the last release before Claude Code started
-    # emitting messages[N].role="system" entries that strict
-    # Anthropic-compatible endpoints (DeepSeek, etc.) reject with
-    # HTTP 400 "invalid message role: system". 2.1.154+ break the
-    # whole DeepSeek integration; bump this pin only after the
-    # upstream regression is resolved and re-verified end-to-end.
-    # npm global prefix is user-writable after fix_npm_permissions.
-    npm install -g @anthropic-ai/claude-code@2.1.153 || {
+    # Install Claude Code into ~/.vibe-seller/node_modules/, NOT
+    # globally. The daemon resolves <VIBE_SELLER_DIR>/node_modules/.bin/
+    # claude before the system PATH, so the version we install here is
+    # the one every agent task uses — independent of whatever the user
+    # has globally (which may be auto-updated to a broken release).
+    #
+    # Match the daemon's resolver (VIBE_HOME — see app/config.py). If
+    # this env var name drifts apart from the Python side, installer
+    # and daemon disagree on the location and the project-local pin
+    # silently doesn't apply.
+    local data_dir="${VIBE_HOME:-$HOME/.vibe-seller}"
+    mkdir -p "$data_dir"
+    npm install --prefix "$data_dir" --no-save \
+        @anthropic-ai/claude-code || {
         _warn "Claude CLI install failed (non-fatal)"
         return 1
     }
-    _success "claude CLI installed (pinned 2.1.153)"
+    _success "claude CLI installed (project-local)"
 }
 
 # ============================================================
@@ -738,6 +761,25 @@ main() {
         require_sudo
     fi
 
+    # Bootstrap PATH with common user-local binary dirs so check_* functions
+    # find tools installed by previous runs even in non-interactive shells
+    # (e.g. SSH sessions, WSL launched from Windows, CI runners).
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    local _npm_bin
+    _npm_bin="$(npm config get prefix 2>/dev/null)/bin"
+    if [[ -d "$_npm_bin" && ":$PATH:" != *":$_npm_bin:"* ]]; then
+        export PATH="$_npm_bin:$PATH"
+    fi
+    # In GitHub Actions, PATH exports inside a script don't persist to
+    # subsequent steps. When we find tools via the bootstrap above and skip
+    # their installers (which would normally write to $GITHUB_PATH), register
+    # the paths ourselves so the next step can find them.
+    if [[ -n "${GITHUB_PATH:-}" ]]; then
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        [[ -d "$_npm_bin" ]] && echo "$_npm_bin" >> "$GITHUB_PATH"
+    fi
+
     # Required dependencies
     local FAILED=0
     local DEPS=(curl git uv node pnpm sqlite3 lsof)
@@ -766,7 +808,7 @@ main() {
     if ! check_claude; then
         if [[ "$CHECK_ONLY" == true ]]; then
             _warn "claude CLI not found — AI agent features will not work"
-            _warn "Install: ./install.sh  or  npm install -g @anthropic-ai/claude-code"
+            _warn "Install: ./install.sh (installs project-local pinned version)"
         else
             _info "Claude CLI is optional (needed for AI agent features)"
             # Auto-install only if npm is available; don't prompt

@@ -28,6 +28,8 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `knowledge/` | Project knowledge files (synced to workspace) |
 | `skills/` | Built-in skills (synced to workspace) |
 | `prompts/` | LLM system prompts (loaded at import time) |
+| `plugins.py` | Plugin framework (IoC registry) — core reads gates/guards/backends/skills/services from here instead of hardcoding them. See [Plugin Framework](#plugin-framework). |
+| `builtin_plugin.py` | The OSS "builtin plugin" — registers every core contribution through the plugin API. |
 | `utils/` | Shared utilities (crypto, etc.) |
 
 ## Request Flow
@@ -102,6 +104,53 @@ Detects when an external tool (e.g. cc-switch — https://github.com/farion1231/
 
 - `tests/unit/test_external_config.py` — detection across no-settings / no-env / malformed JSON / non-`ANTHROPIC` keys / single + multiple overrides; default-profile escape hatch; load-bearing pieces of the user message; future-key prefix-match.
 - `tests/workflow/test_wf_external_config_override.py` — end-to-end across the profile router (409) and the task runner (fail-fast).
+
+## Plugin Framework
+
+`app/plugins.py` is the inversion-of-control seam: **core knows no
+customer.** Instead of importing customer gates/guards/backends, core
+reads them from an `ExtensionContext` that plugins populate at startup.
+Removing a customer = not installing its wheel — zero core edits,
+nothing to re-leak. This is PR-1 of the public-OSS / private-plugin split
+(design-of-record: `plugin_design_v2.md`).
+
+### Contract
+
+| Symbol | Purpose |
+|---|---|
+| `Plugin` (ABC) | A plugin subclasses this and implements `install(ctx)`. Optional `load_contexts`, `name`, `version`. |
+| `ExtensionContext` | What `install` writes to. `register_gate`, `register_pretool_gate`, `register_browser_backend`, `register_skill_source`, `register_prompt_fragment`, `register_service`, `register_router`, `register_frontend_bundle`. |
+| `load_plugins(ctx)` | Loads the builtin (direct import, **fail-closed** — a missing builtin aborts startup) then external plugins (logged-and-skipped on failure — **fail-open** so one bad wheel can't take the server down). |
+| `get_extension_context()` | Process-wide singleton; loads plugins once, lazily (so app-less unit tests that hit the gate path still see a populated registry). |
+| `registered_gates()` / `registered_pretool_gates()` / `registered_browser_backends()` / `registered_skill_sources()` | Convenience accessors core call sites read. |
+
+Registration is **declarative** — `install` only records into `ctx`; it
+never touches the live FastAPI app. App-level effects are applied
+separately: `main._wire_plugins` mounts plugin routers / frontend-bundle
+routes at module load; the lifespan starts/stops background services.
+
+### Discovery & isolation
+
+Per-customer isolation is at **pack/install** time: each customer's
+deployment installs only that customer's plugin wheels, so other
+customers' code is absent on the box. The on-box loader then just loads
+whatever is installed:
+
+- the OSS **builtin** (`app/builtin_plugin.py:BuiltinPlugin`) by direct
+  import — always present, no entry point / reinstall needed;
+- external plugins via the `vibe_seller.plugins` entry-point group
+  their wheels declare (sorted by name; deterministic order).
+
+### What it replaced
+
+`stop_gates.get_registered_gates`, `bash_safety.first_bash_deny`, and
+`BrowserManager._get_backend` previously hardcoded their lists (and
+imported customer gates / a money-transfer guard / browser-backend
+classes directly). They now read from the registry. The `BuiltinPlugin`
+registers only core's own, customer-agnostic contributions; customer
+gates/guards/skills arrive via externally-installed plugin wheels.
+
+Test surface: `tests/unit/test_plugins.py`.
 
 ## Configuration
 

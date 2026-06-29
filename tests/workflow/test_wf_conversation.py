@@ -913,6 +913,49 @@ class TestRetryCleanState:
         assert data['session_id'] is None
 
 
+class TestRetryPreservesWorkspaceFiles:
+    async def test_retry_keeps_banked_task_artifacts(
+        self, admin_client, install_fake_agent, mock_workspace
+    ):
+        """Retry must NOT wipe the per-task workspace.
+
+        Retry is the resume path for incremental tasks: ad audits
+        bank a growing report (AD_AUDIT_*.md) and TSVs in the task
+        dir across sessions. The endpoint used to call
+        ``prepare_task_workspace(clean=True)`` which rmtree'd the
+        dir — every retry silently destroyed that banked progress
+        (observed live: a 256KB 12-iteration audit report wiped).
+        """
+        store_id = await _make_store(admin_client, 'Retry keep store')
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            result='First run result',
+        )
+        r = await admin_client.post(
+            '/api/tasks',
+            json={'title': 'Retry keep-files test', 'store_id': store_id},
+        )
+        task_id = r.json()['id']
+        await wait_for_task(admin_client, task_id)
+
+        # Simulate banked progress from the first session.
+        task_dir = mock_workspace.root / 'tasks' / task_id
+        task_dir.mkdir(parents=True, exist_ok=True)
+        banked = task_dir / 'AD_AUDIT_2026-06-10.md'
+        banked.write_text('# 广告优化建议\n(12 iterations of work)\n')
+
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            result='Second run result',
+        )
+        r2 = await admin_client.post(f'/api/tasks/{task_id}/retry')
+        assert r2.status_code == 200
+
+        assert banked.exists(), (
+            'retry wiped the task workspace — banked incremental '
+            'artifacts (report/TSVs) must survive retry'
+        )
+        await wait_for_task(admin_client, task_id)
+
+
 class TestTaskResponseExposesSessionId:
     """Regression guard: TaskResponse must expose `session_id`.
 

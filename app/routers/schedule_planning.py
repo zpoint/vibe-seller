@@ -18,11 +18,13 @@ from datetime import UTC, datetime
 import logging
 import re
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
 from app.database import async_session
 from app.models.schedule import Schedule
+from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
 from app.models.user import User
 from app.plan_states import PlanStatus
@@ -33,6 +35,30 @@ logger = logging.getLogger(__name__)
 
 
 _WHITESPACE_RE = re.compile(r'\s+')
+
+
+def validate_finalize_description(
+    finalize_description: str | None,
+    store_id: str | None,
+    phase_mode: str,
+) -> None:
+    """Reject finalize_description on a non-fanout schedule.
+
+    It only drives an all-stores fanout batch (a reduce task after the
+    per-store children finish); on a store-bound or single-phase
+    schedule there is no batch, so it would silently never fire. Shared
+    by schedule create + update. See app/scheduler/finalize_reaper.py.
+    """
+    if finalize_description and (
+        store_id is not None or phase_mode != PhaseMode.FANOUT
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'finalize_description is only valid for all-stores '
+                'fanout schedules (store_id null + phase_mode=fanout).'
+            ),
+        )
 
 
 def normalize_prompt(text: str | None) -> str:

@@ -113,6 +113,16 @@ WS_STRUCTURED_KEYS = {
     'local_knowledge',
     'root_files',
 }
+WS_STORE_PROFILE_KEYS = {
+    'slug',
+    'path',
+    'files',
+    'file_count',
+    'has_content',
+    'data_path',
+    'data_files',
+    'data_file_count',
+}
 
 
 # ── Store contracts ──────────────────────────────────
@@ -299,6 +309,10 @@ class TestWorkspaceContracts:
         assert WS_STRUCTURED_KEYS <= set(r.json().keys()), (
             f'Missing: {WS_STRUCTURED_KEYS - set(r.json().keys())}'
         )
+        for store in r.json()['store_profiles']:
+            assert WS_STORE_PROFILE_KEYS <= set(store.keys()), (
+                f'Missing: {WS_STORE_PROFILE_KEYS - set(store.keys())}'
+            )
 
     async def test_skill_has_source_field(self, admin_client):
         """User-created skills must have source='user'."""

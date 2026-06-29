@@ -5,8 +5,21 @@ When an agent's upstream SSE stream goes silent with no stop event
 (observed with Z.AI GLM-4.7 after a successful tool_result), the
 Task row stays in ``status=RUNNING`` indefinitely because nothing
 else ever writes a terminal status. This reaper scans for that
-state and flips the Task to FAILED so clients + tests observe a
-terminal status within bounded time.
+state and flips the Task to a terminal status so clients + tests
+observe one within bounded time.
+
+The terminal status depends on WHEN the stream died:
+
+- **After the deliverable was declared** (the agent set a result
+  via ``vibe_seller_set_task_result`` with no error recorded, or
+  the CLI emitted its final ``result`` event) → ``COMPLETED``.
+  The stall is a transport failure, not a task failure — the work
+  is done and presenting it as FAILED ("Re-run to retry") tells
+  the user to redo a finished job. (Observed: a daily ads audit
+  whose md + review + PDF + reflection all completed, then the
+  provider dropped the SSE stream post-completion.)
+- **Mid-work** (no declared result) → ``FAILED``, preserving the
+  last substantial assistant message as a PARTIAL result.
 
 The signal we key off is ``Task.updated_at``: every streamed event,
 tool call, and hook callback already bumps it (see
@@ -56,7 +69,11 @@ _STALL_ERROR_MESSAGE = (
 
 
 async def reap_stalled_running_tasks() -> None:
-    """Fail RUNNING tasks whose last activity is older than the cutoff.
+    """Terminate RUNNING tasks whose last activity is past the cutoff.
+
+    COMPLETED when the deliverable was already declared (result set
+    with no error, or a final ``result`` event recovered from the
+    message log); FAILED otherwise — see the module docstring.
 
     Idempotent and race-safe:
 
@@ -66,8 +83,10 @@ async def reap_stalled_running_tasks() -> None:
     - Best-effort ``agent_manager.stop(task.id)`` BEFORE the status
       flip so any still-listening stream iterator doesn't try to
       write a conflicting status after us.
-    - Emits ``task_update`` + ``task_failed`` SSE so subscribed
-      clients (tests, UI) see the terminal status without polling.
+    - Emits ``task_update`` (+ ``task_failed`` for the FAILED
+      outcome) SSE so subscribed clients (tests, UI) see the
+      terminal status without polling — only for tasks this pass
+      actually flipped.
     """
     cutoff = datetime.now(UTC) - _STALL_THRESHOLD
     cutoff_iso = cutoff.isoformat()
@@ -97,6 +116,10 @@ async def reap_stalled_running_tasks() -> None:
         if not stalled:
             return
 
+        # (task_id, terminal_status) actually written this pass —
+        # tasks the re-check skipped must NOT get events emitted.
+        outcomes: list[tuple[str, str]] = []
+
         for task in stalled:
             logger.warning(
                 'Reaping stalled task %s (updated_at=%s, threshold=%s)',
@@ -118,6 +141,14 @@ async def reap_stalled_running_tasks() -> None:
             fresh = await db.get(Task, task.id)
             if fresh is None or fresh.status != TaskStatus.RUNNING:
                 continue
+
+            # Did the agent explicitly declare its deliverable done
+            # before the stream died? vibe_seller_set_task_result's
+            # contract: setting a result declares success (failures
+            # must call set_task_error). An error recorded alongside
+            # wins — that's the documented partial-output-on-failure
+            # combination.
+            deliverable_done = bool(fresh.result) and not fresh.error
 
             # Preserve the last substantial assistant message as
             # the result so the user's work isn't lost.
@@ -144,6 +175,7 @@ async def reap_stalled_running_tasks() -> None:
                     # rather than a misleading PARTIAL banner.
                     if last_msg.role == 'result':
                         fresh.result = last_msg.content
+                        deliverable_done = not fresh.error
                     else:
                         fresh.result = (
                             '[PARTIAL — stream stalled before '
@@ -151,24 +183,38 @@ async def reap_stalled_running_tasks() -> None:
                         )
 
             now_iso = datetime.now(UTC).isoformat()
-            fresh.status = TaskStatus.FAILED
-            fresh.error = _STALL_ERROR_MESSAGE
-            fresh.error_category = 'agent_stream_stalled'
+            if deliverable_done:
+                # Post-completion stream drop: the work is done, the
+                # transport died. COMPLETED — never tell the user to
+                # re-run a finished job.
+                logger.warning(
+                    'Task %s stalled AFTER its deliverable was '
+                    'declared — marking COMPLETED (stream drop, not '
+                    'a task failure)',
+                    task.id,
+                )
+                fresh.status = TaskStatus.COMPLETED
+            else:
+                fresh.status = TaskStatus.FAILED
+                fresh.error = _STALL_ERROR_MESSAGE
+                fresh.error_category = 'agent_stream_stalled'
             fresh.updated_at = now_iso
             fresh.completed_at = now_iso
+            outcomes.append((task.id, fresh.status))
 
         await db.commit()
 
-    for task in stalled:
+    for task_id, status in outcomes:
         await event_bus.emit(
             'task_update',
-            {'task_id': task.id, 'status': TaskStatus.FAILED},
+            {'task_id': task_id, 'status': status},
         )
-        await event_bus.emit(
-            'task_failed',
-            {
-                'task_id': task.id,
-                'error': _STALL_ERROR_MESSAGE,
-                'error_category': 'agent_stream_stalled',
-            },
-        )
+        if status == TaskStatus.FAILED:
+            await event_bus.emit(
+                'task_failed',
+                {
+                    'task_id': task_id,
+                    'error': _STALL_ERROR_MESSAGE,
+                    'error_category': 'agent_stream_stalled',
+                },
+            )

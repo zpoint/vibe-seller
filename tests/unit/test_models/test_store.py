@@ -34,7 +34,7 @@ class TestStoreModel:
         """Test store JSON fields work correctly."""
         config = {'headless': True, 'args': ['--no-sandbox']}
         platforms = ['amazon', 'noon']
-        countries = ['US', 'AE']
+        countries = ['US', 'UK']
 
         store = Store(
             name='Multi-Platform Store',

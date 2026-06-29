@@ -32,6 +32,7 @@ from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
+from app.plugins import get_extension_context
 from app.routers.app_settings import router as app_settings_router
 from app.routers.attachments import router as attachments_router
 from app.routers.auth import router as auth_router
@@ -72,6 +73,7 @@ from app.scheduler.email_sync import sync_all_email_accounts
 from app.scheduler.task_queue import task_queue_scheduler
 from app.telemetry_events import TelemetryEvent
 from app.workspace.knowledge_sync import knowledge_sync
+from app.workspace.manager import workspace_manager
 from app.workspace.skills_sync import skills_sync
 
 log_file = LOG_DIR / f'backend_{BACKEND_PORT}.log'
@@ -138,6 +140,11 @@ async def _apply_persisted_browser_headless() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Load plugins (OSS builtin + any externally-installed plugin wheels)
+    # before
+    # anything reads gates / browser backends / skill sources. Idempotent
+    # — module-load route wiring may have triggered it already.
+    plugin_ctx = get_extension_context()
     # Apply persisted concurrency setting (overrides env default)
     await _apply_persisted_concurrency()
     await _apply_persisted_telemetry_flag()
@@ -150,9 +157,21 @@ async def lifespan(app: FastAPI):
     await rebuild_schedule_jobs()
     await _refresh_dida365_token()
     await task_queue_scheduler.start()
-    # Sync built-in knowledge + skills from package (local, no network)
+    # Workspace init at boot: dirs/symlinks + one-shot store-data
+    # layout migration (old run artifacts → store-data/<YYYY-MM>/).
+    # create_venv=False: a cold `uv venv` + tool bootstrap can take
+    # minutes and must NOT block /api/health (it was hanging server
+    # startup past the boot health-check window). The venv is built in
+    # the background below; agent runs await it via their own
+    # ensure_init() before launching, so nothing runs without it.
+    await workspace_manager.ensure_init(create_venv=False)
+    # Sync built-in knowledge + skills from package (local, no network).
+    # Skill dep installs are deferred to a background task — cold pip
+    # installs must not delay /api/health past CI/user boot windows.
     await knowledge_sync.fetch()
-    await skills_sync.fetch()
+    await skills_sync.fetch(defer_deps=True)
+    # Build the shared agent venv in the background (see above).
+    venv_task = asyncio.create_task(workspace_manager.ensure_shared_venv())
     # Enrich app_started with rough install scale.
     try:
         async with async_session() as db_counts:
@@ -186,9 +205,31 @@ async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(sync_all_email_accounts())
     # Start periodic daemon reaper (kills orphaned browser-use)
     reaper_task = asyncio.create_task(start_reaper_loop())
+    # Start any plugin-registered background services (e.g. a customer
+    # alerting/monitoring service). Core ships none, so this is a no-op
+    # in an OSS-only install. A done-callback surfaces a crashing service
+    # (otherwise the exception sits unretrieved on the task until the
+    # shutdown await, effectively swallowed).
+
+    def _log_service_done(name):
+        def _cb(task: asyncio.Task) -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                logger.error('Plugin service %r crashed', name, exc_info=exc)
+
+        return _cb
+
+    service_tasks = []
+    for svc_name, factory in plugin_ctx.services:
+        logger.info('Starting plugin service: %s', svc_name)
+        svc_task = asyncio.create_task(factory())
+        svc_task.add_done_callback(_log_service_done(svc_name))
+        service_tasks.append(svc_task)
     yield
     # Cancel background tasks
-    for t in [sync_task, reaper_task]:
+    for t in [sync_task, reaper_task, venv_task, *service_tasks]:
         if not t.done():
             t.cancel()
             try:
@@ -248,6 +289,40 @@ app.include_router(system_router)
 @app.get('/api/health')
 async def health():
     return {'status': 'ok'}
+
+
+# Plugin wiring: mount any plugin-registered backend routers + frontend
+# bundle routes BEFORE the catch-all static mount (else the SPA mount
+# shadows them). Done at module load so route order is deterministic.
+# OSS-only installs register none of these, so this is inert.
+def _wire_plugins(fastapi_app: FastAPI) -> None:
+    ctx = get_extension_context()
+    for router, prefix in ctx.routers:
+        if prefix:
+            fastapi_app.include_router(router, prefix=prefix)
+        else:
+            fastapi_app.include_router(router)
+    for route, handler, _early in ctx.frontend_bundles:
+        fastapi_app.add_api_route(route, handler, methods=['GET'])
+
+
+_wire_plugins(app)
+
+
+@app.get('/api/plugins')
+async def list_plugins():
+    """List active plugins' frontend bundles for the dashboard loader.
+
+    The OSS React shell fetches this and dynamically loads each
+    ``js_extension_path``; ``requires_early_init`` plugins resolve before
+    the app makes API calls. Returns ``[]`` in an OSS-only install (no
+    frontend plugins) — the contract is live, the payload is empty.
+    """
+    ctx = get_extension_context()
+    return [
+        {'js_extension_path': route, 'requires_early_init': early}
+        for route, _handler, early in ctx.frontend_bundles
+    ]
 
 
 # Serve frontend static files (after API routes)

@@ -166,6 +166,102 @@ class TestWriteBrowserUseWrapper:
         assert (tmp_path / 'bin' / 'test-store' / 'browser-use').exists()
         assert (tmp_path / 'bin' / 'storeb' / 'browser-use').exists()
 
+    def test_cleans_stale_pre_slug_guard_dirs(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Regen removes raw-name wrapper/download dirs left by old code.
+
+        Non-ASCII store names used to produce ``bin/<raw name>/``
+        before ``store_slug`` gained the id-fallback. Regenerating
+        the wrapper must delete the stale wrapper dir (when it
+        carries our auto-generation header) and the stale downloads
+        dir (when empty), so agents stop watching the wrong paths.
+        """
+        monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
+        monkeypatch.setattr(
+            'app.browser.wrapper.DOWNLOADS_DIR', tmp_path / 'downloads'
+        )
+        monkeypatch.setattr(
+            'app.browser.wrapper.shutil.which',
+            lambda x: '/usr/local/bin/browser-use',
+        )
+        name = '云帆科技'
+        stale_bin = tmp_path / 'bin' / name
+        stale_bin.mkdir(parents=True)
+        (stale_bin / 'browser-use').write_text(
+            f'#!/usr/bin/env bash\n'
+            f'# Auto-generated browser-use wrapper for store: {name}\n'
+        )
+        stale_dl_empty = tmp_path / 'downloads' / name
+        stale_dl_empty.mkdir(parents=True)
+
+        write_browser_use_wrapper(name, 'ziniao', 9222, store_id='abcd1234ef')
+
+        assert (tmp_path / 'bin' / 'store-abcd1234' / 'browser-use').exists()
+        assert not stale_bin.exists()
+        assert not stale_dl_empty.exists()
+
+    def test_keeps_nonempty_downloads_and_foreign_dirs(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Cleanup never touches user files or non-wrapper dirs."""
+        monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
+        monkeypatch.setattr(
+            'app.browser.wrapper.DOWNLOADS_DIR', tmp_path / 'downloads'
+        )
+        monkeypatch.setattr(
+            'app.browser.wrapper.shutil.which',
+            lambda x: '/usr/local/bin/browser-use',
+        )
+        name = '云帆科技'
+        # bin dir without our auto-generation header → not ours, keep
+        foreign_bin = tmp_path / 'bin' / name
+        foreign_bin.mkdir(parents=True)
+        (foreign_bin / 'browser-use').write_text('#!/bin/sh\necho hi\n')
+        # downloads dir with a user file → keep
+        stale_dl = tmp_path / 'downloads' / name
+        stale_dl.mkdir(parents=True)
+        (stale_dl / 'report.csv').write_text('data')
+
+        write_browser_use_wrapper(name, 'ziniao', 9222, store_id='abcd1234ef')
+
+        assert foreign_bin.exists()
+        assert (stale_dl / 'report.csv').exists()
+
+    def test_cleanup_rejects_dot_and_separator_names(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Cleanup never targets the base dirs or traverses paths.
+
+        ``.``/``..``/separator-bearing store names would resolve
+        outside the per-store dir layout — the guards must bail
+        before any filesystem mutation.
+        """
+        bin_dir = tmp_path / 'bin'
+        bin_dir.mkdir(parents=True)
+        monkeypatch.setattr('app.browser.wrapper._BIN_DIR', bin_dir)
+        monkeypatch.setattr(
+            'app.browser.wrapper.DOWNLOADS_DIR', tmp_path / 'downloads'
+        )
+        monkeypatch.setattr(
+            'app.browser.wrapper.shutil.which',
+            lambda x: '/usr/local/bin/browser-use',
+        )
+        # Bait: a header-matching script in the bin dir's PARENT —
+        # exactly what a '..' store name would resolve to and rmtree.
+        (tmp_path / 'browser-use').write_text(
+            '# Auto-generated browser-use wrapper for store: ..\n'
+        )
+
+        for name in ('.', '..', 'a/b', '../store-abcd1234'):
+            write_browser_use_wrapper(
+                name, 'ziniao', 9222, store_id='abcd1234ef'
+            )
+
+        assert tmp_path.exists()
+        assert bin_dir.exists()
+        assert (tmp_path / 'browser-use').exists()
+
     def test_fallback_when_binary_not_found(self, tmp_path: Path, monkeypatch):
         """Uses 'browser-use' as fallback if binary not found."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')

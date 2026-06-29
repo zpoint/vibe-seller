@@ -58,6 +58,7 @@ ASYNC_SESSION_MODULES = [
     'app.scheduler.cron',
     'app.scheduler.fanout',
     'app.scheduler.plan_reaper',
+    'app.scheduler.finalize_reaper',
     'app.routers.workspace_assistant',
     'app.browser.daemon_reaper',
     'app.telemetry_tasks',
@@ -415,6 +416,7 @@ def mock_workspace(monkeypatch, tmp_path):
     monkeypatch.setattr('app.task_runner.workspace_manager', mock)
     monkeypatch.setattr('app.task_runner_auto.workspace_manager', mock)
     monkeypatch.setattr('app.task_runner_exec.workspace_manager', mock)
+    monkeypatch.setattr('app.scheduler.finalize_reaper.workspace_manager', mock)
     return mock
 
 

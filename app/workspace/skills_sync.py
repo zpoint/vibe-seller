@@ -77,6 +77,34 @@ class SkillsSyncManager:
     def __init__(self):
         self._dest_dir = VIBE_SELLER_DIR / '.claude' / 'skills'
         self._lock = asyncio.Lock()
+        # Strong ref to the deferred boot-time dep install (see fetch).
+        self._deps_task: asyncio.Task | None = None
+
+    @staticmethod
+    def _log_deps_result(task: asyncio.Task) -> None:
+        """Surface failures from the deferred install — background
+        task exceptions are otherwise silently dropped."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error('Deferred skill dep install failed: %s', exc)
+
+    async def wait_deps_ready(self) -> None:
+        """Join point for the deferred boot-time dep install.
+
+        Task launches await this so skill scripts can rely on their
+        requirements being installed; SERVING never waits (that is
+        the whole point of defer_deps). Install failures are logged
+        by the done-callback and are non-fatal here — matching the
+        pre-existing per-skill best-effort semantics.
+        """
+        task = self._deps_task
+        if task is not None and not task.done():
+            try:
+                await asyncio.shield(task)
+            except Exception:
+                pass
 
     # ── Local package sync ──────────────────────────────
 
@@ -93,33 +121,70 @@ class SkillsSyncManager:
     def source_dir(self) -> Path | None:
         return self._get_local_source()
 
-    async def fetch(self) -> dict:
-        """Sync local package skills/ to workspace.
+    def _get_source_dirs(self) -> list[Path]:
+        """Skill source dirs to sync: core's ``app/skills`` + plugins'.
 
-        Each built-in skill directory is replaced atomically:
+        ``app/skills`` is core's own bundled source (public OSS skills
+        stay there — it is NOT a plugin contribution), so it stays the
+        primary/first source. Plugins (e.g. external customer
+        wheels) register ADDITIONAL skill dirs via :mod:`app.plugins`,
+        appended here. De-duped on resolved path, order preserved, so a
+        plugin can't double-sync an already-listed skill dir.
+        """
+        from app.plugins import registered_skill_sources  # noqa: PLC0415
+
+        sources: list[Path] = []
+        local = self._get_local_source()
+        if local:
+            sources.append(local)
+        sources.extend(registered_skill_sources())
+        seen: set[Path] = set()
+        ordered: list[Path] = []
+        for s in sources:
+            rp = s.resolve()
+            if s.is_dir() and rp not in seen:
+                seen.add(rp)
+                ordered.append(s)
+        return ordered
+
+    async def fetch(self, *, defer_deps: bool = False) -> dict:
+        """Sync built-in + plugin skill dirs to the workspace.
+
+        Each skill directory is replaced atomically:
         copy source → temp dir (unique name), rename old → backup,
         rename temp → dest, delete backup.  User-created skills
         (no matching source dir) are left untouched.
 
         Serialized with an asyncio.Lock so concurrent task launches
         don't race.
+
+        ``defer_deps=True`` (the boot path) runs the per-skill pip
+        installs as a background task instead of blocking the caller
+        — cold installs can take tens of seconds and must never keep
+        the health endpoint down.
         """
-        src = self._get_local_source()
-        if not src:
+        srcs = self._get_source_dirs()
+        if not srcs:
             return {
                 'synced': False,
                 'reason': 'No skills/ in installed package',
             }
 
         async with self._lock:
-            return await self._fetch_locked(src)
+            return await self._fetch_locked(srcs, defer_deps=defer_deps)
 
-    async def _fetch_locked(self, src: Path) -> dict:
+    async def _fetch_locked(
+        self, srcs: list[Path], *, defer_deps: bool = False
+    ) -> dict:
         """Inner fetch, called under lock."""
         self._dest_dir.mkdir(parents=True, exist_ok=True)
         replaced = 0
         skipped = 0
         synced_names: list[str] = []
+        # First source wins on a skill-NAME collision: core's app/skills
+        # (always srcs[0]) must not be silently shadowed by a same-named
+        # skill from a later plugin source. Dedup on name, not path.
+        seen_names: set[str] = set()
 
         _ignore = shutil.ignore_patterns(
             '__pycache__',
@@ -128,73 +193,90 @@ class SkillsSyncManager:
             '.venv',
         )
 
-        for src_skill in sorted(src.iterdir()):
-            if not src_skill.is_dir():
-                continue
-            if src_skill.name.startswith(('.', '_')):
-                continue
+        for src in srcs:
+            for src_skill in sorted(src.iterdir()):
+                if not src_skill.is_dir():
+                    continue
+                if src_skill.name.startswith(('.', '_')):
+                    continue
+                if src_skill.name in seen_names:
+                    logger.warning(
+                        'Skill %r from %s shadowed by an earlier source; '
+                        'skipping',
+                        src_skill.name,
+                        src,
+                    )
+                    continue
+                seen_names.add(src_skill.name)
 
-            synced_names.append(src_skill.name)
-            dest_skill = self._dest_dir / src_skill.name
+                synced_names.append(src_skill.name)
+                dest_skill = self._dest_dir / src_skill.name
 
-            # Quick content check: skip if unchanged
-            if (
-                dest_skill.is_dir()
-                and not dest_skill.is_symlink()
-                and self._skill_unchanged(src_skill, dest_skill)
-            ):
-                skipped += 1
-                continue
+                # Quick content check: skip if unchanged
+                if (
+                    dest_skill.is_dir()
+                    and not dest_skill.is_symlink()
+                    and self._skill_unchanged(src_skill, dest_skill)
+                ):
+                    skipped += 1
+                    continue
 
-            # Atomic replace: unique temp dir, swap via backup
-            tmp = Path(
-                tempfile.mkdtemp(
-                    dir=str(self._dest_dir),
-                    prefix=f'.tmp_{src_skill.name}_',
+                # Atomic replace: unique temp dir, swap via backup
+                tmp = Path(
+                    tempfile.mkdtemp(
+                        dir=str(self._dest_dir),
+                        prefix=f'.tmp_{src_skill.name}_',
+                    )
                 )
-            )
-            try:
-                # mkdtemp creates the dir; copy into it with
-                # dirs_exist_ok so it can populate the existing
-                # empty temp dir.
-                shutil.copytree(
-                    src_skill, tmp, ignore=_ignore, dirs_exist_ok=True
-                )
-                backup = self._dest_dir / f'.bak_{src_skill.name}'
-                if dest_skill.exists():
-                    # Guard against symlinks — unlink, don't rmtree
-                    if dest_skill.is_symlink() or dest_skill.is_file():
-                        dest_skill.unlink()
-                    else:
-                        # Safe rmtree: dest is a real directory
-                        shutil.rmtree(dest_skill)
-                tmp.rename(dest_skill)
-                # Cleanup backup from any prior interrupted sync
-                if backup.exists():
-                    if backup.is_symlink():
-                        backup.unlink()
-                    elif backup.is_dir():
-                        shutil.rmtree(backup)
-                    else:
-                        backup.unlink()
-            except Exception:
-                # Rollback: if rename succeeded, dest is fine;
-                # if not, restore from backup
-                if tmp.exists():
-                    if tmp.is_symlink():
-                        tmp.unlink()
-                    elif tmp.is_dir():
-                        shutil.rmtree(tmp)
-                    else:
-                        tmp.unlink()
-                raise
-            replaced += 1
+                try:
+                    # mkdtemp creates the dir; copy into it with
+                    # dirs_exist_ok so it can populate the existing
+                    # empty temp dir.
+                    shutil.copytree(
+                        src_skill, tmp, ignore=_ignore, dirs_exist_ok=True
+                    )
+                    backup = self._dest_dir / f'.bak_{src_skill.name}'
+                    if dest_skill.exists():
+                        # Guard against symlinks — unlink, don't rmtree
+                        if dest_skill.is_symlink() or dest_skill.is_file():
+                            dest_skill.unlink()
+                        else:
+                            # Safe rmtree: dest is a real directory
+                            shutil.rmtree(dest_skill)
+                    tmp.rename(dest_skill)
+                    # Cleanup backup from any prior interrupted sync
+                    if backup.exists():
+                        if backup.is_symlink():
+                            backup.unlink()
+                        elif backup.is_dir():
+                            shutil.rmtree(backup)
+                        else:
+                            backup.unlink()
+                except Exception:
+                    # Rollback: if rename succeeded, dest is fine;
+                    # if not, restore from backup
+                    if tmp.exists():
+                        if tmp.is_symlink():
+                            tmp.unlink()
+                        elif tmp.is_dir():
+                            shutil.rmtree(tmp)
+                        else:
+                            tmp.unlink()
+                    raise
+                replaced += 1
 
         # Track synced skills from source dirs (not dest contents)
         self._update_synced_skills(synced_names)
 
-        # Auto-install skill Python deps into shared workspace venv
-        await self._install_skill_deps()
+        # Auto-install skill Python deps into shared workspace venv.
+        # On the boot path this is deferred to a background task so
+        # serving (incl. /api/health) starts immediately; task
+        # launches join it via wait_deps_ready().
+        if defer_deps:
+            self._deps_task = asyncio.create_task(self._install_skill_deps())
+            self._deps_task.add_done_callback(self._log_deps_result)
+        else:
+            await self._install_skill_deps()
 
         logger.info(
             'Skills sync (local): %d replaced, %d unchanged',

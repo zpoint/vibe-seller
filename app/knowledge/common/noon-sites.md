@@ -40,8 +40,10 @@ into both placeholders.
 
 | Country | Suffix | Example |
 |---------|--------|---------|
-| Saudi Arabia | NSA | `STR123456-NSA` |
-| UAE | NAE | `STR123456-NAE` |
+| (per marketplace) | `N{CC}` | `STR123456-N{CC}` |
+
+where `{CC}` is the marketplace's ISO country code (so the suffix is
+`N` + the code, e.g. the value you read from the live store selector).
 
 ### Catalog
 
@@ -121,7 +123,8 @@ https://admanager.noon.partners/en-{cc}/{page}?mpCode=noon&project=PRJ{project_i
 https://vantage.noon.partners/en/?project=PRJ{project_id}
 ```
 
-First-time visit shows country selector (UAE/KSA/EGY) and account picker.
+First-time visit shows a country selector (one option per marketplace)
+and an account picker.
 
 ## Country Switching
 
@@ -129,8 +132,8 @@ First-time visit shows country selector (UAE/KSA/EGY) and account picker.
 
 The sales page at `reports.noon.partners` uses a **"My Stores"
 dropdown** at the bottom-left of the page to switch countries. It
-shows flag icons for each store (SA and AE). Clicking the other
-store switches all data to that country.
+shows one flag icon per marketplace the account operates in. Clicking
+another store switches all data to that country.
 
 This is NOT the "Destination" filter in the toolbar — the Destination
 column in the table just shows where orders shipped. The actual data
@@ -138,23 +141,23 @@ scope is controlled by the store selector.
 
 ### FBN
 
-Change the path prefix from `en-sa` to `en-ae` (or vice versa) and
-reload. The project ID stays the same.
+Change the path prefix from one marketplace code to another (e.g.
+`en-{cc}`) and reload. The project ID stays the same.
 
 ### Ad Manager
 
-Change the path prefix from `en-sa` to `en-ae`. The Ad Manager also
+Change the path prefix from one marketplace code to another (`en-{cc}`).
+The Ad Manager also
 has a country selector at the bottom-left of its left nav.
 
 ### Payments / Transaction View
 
-The transaction view page shows a country flag icon (`img alt=ae` or
-`img alt=sa`) next to the page title. The "Contracts" dropdown shows
-contracts per country (e.g. "Noon AE", "Noon SA").
+The transaction view page shows a country flag icon (`img alt={cc}`) next to the page title. The
+"Contracts" dropdown shows contracts per country (e.g. "Noon {CC}").
 
 ### Store Dashboard
 
-Change the URL suffix from `-NSA` to `-NAE` (or vice versa).
+Change the URL suffix from one marketplace code to another (`-N{CC}`).
 
 ## Login Flow — OTP via Email MCP, User Only as Fallback
 

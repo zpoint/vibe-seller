@@ -16,6 +16,7 @@ Cross-store scheduling. Three recurring task patterns:
   - `phase_mode='fanout'` (back-compat default): `_run_fanout_job` creates one per-store task fired in parallel, no prerequisite.
   - `phase_mode='single'`: `_run_single_job` creates exactly one `store_id=None` task per tick. Intended for shared work (IMAP sweeps, account health checks, housekeeping) where per-store fanout is wasteful or semantically wrong.
   - `phase_mode='two_phase'` (system-only, currently only the catalog-sync schedule; never client-selectable): Phase 1 creates a single no-store prerequisite task (e.g. global L2 catalog) and awaits completion, then Phase 2 fans out one per-store task (e.g. L3 catalogs).
+- **Finalize / parent-reduce step** (the *join*, mirror of two_phase's prerequisite): an all-stores fanout schedule may set `Schedule.finalize_description`. When set, `app/scheduler/finalize_reaper.py` (a periodic single-writer reaper, mirrors `plan_reaper`/`stall_reaper`) fires **one** no-store task (`Task.is_finalize=True`) after **every** per-store child of a batch is terminal — handing it a `batch_results.json` (per child: status, result, error, store_slug, task_dir). The framework decides nothing past fire-once-after-all-terminal; the prompt (`finalize_description`) drives retry/summarize/publish. It's agent-authored at plan time via the `vibe_seller_register_finalize` MCP tool and shown in the plan-review panel. `finalize_description` is only valid for all-stores fanout schedules (create/update + the MCP endpoint reject it otherwise). `is_finalize` (not "store_id IS NULL") disambiguates the finalize task from a two_phase L2 prereq task, which is also no-store.
 - **Mode resolution on create**: store-bound → forced `single`; else client-supplied value (rejects `two_phase`); else `AppSettings.default_schedule_phase_mode`; else `fanout`. `phase_mode` and `store_id` are immutable after creation — `ScheduleUpdate` uses `extra='forbid'` so mutation attempts return 422.
 - **No-store tasks**: L2 catalog tasks have `store_id=None`. They go through `TaskQueueScheduler` but bypass browser config, session tracking, and CDP proxy — pure file operations.
 - **Task grouping**: `Task.batch_id` UUID groups tasks from same fan-out trigger
@@ -305,3 +306,58 @@ Some backends (notably DeepSeek under certain compaction conditions) never emit 
 3. Add a unit test under `tests/unit/test_stop_gates.py`.
 
 The dispatch loop deliberately runs gates in declaration order and short-circuits on the first deny — so put cheaper / more important gates first.
+
+## Plugin Architecture
+
+The codebase is split into a **public OSS core** (`vibe-seller`, knows no
+customer) and **private per-customer plugins** (external wheels, on top of
+core). `app/plugins.py` is the inversion-of-control seam that makes this
+possible: core reads its gates, PreToolUse guards, browser backends,
+skill sources, prompt fragments, and background services from a registry
+that plugins populate at startup, rather than importing customer code
+directly. Removing a customer = not installing its wheel — zero core
+edits, nothing to re-leak. (Design-of-record: `plugin_design_v2.md`;
+module reference: [backend.md § Plugin Framework](backend.md#plugin-framework).)
+
+### The contract
+
+A plugin subclasses `Plugin` and implements `install(ctx)`, calling the
+`ExtensionContext.register_*` methods. Registration is **declarative** —
+`install` records contributions into `ctx` and never touches the live
+FastAPI app, so the registry can be built lazily in app-less unit tests.
+App-level effects are applied separately by reading the populated
+context: `main._wire_plugins` mounts plugin routers / frontend-bundle
+routes; the lifespan starts/stops background services.
+
+| Contribution | Registry method | Read by |
+|---|---|---|
+| Stop-gate (`set_task_result` reviewer) | `register_gate` | `stop_gates.get_registered_gates` → `resolve_skill_gates` (see [Soft Stop-Gates](#soft-stop-gates)) |
+| PreToolUse Bash guard | `register_pretool_gate` | `bash_safety.first_bash_deny` |
+| Browser backend | `register_browser_backend` | `BrowserManager._get_backend` |
+| Skill directory | `register_skill_source` | `skills_sync` (core `app/skills` is always first; first-source-wins on a name collision so a plugin can't shadow a core skill) |
+| System-prompt fragment | `register_prompt_fragment` | prompt assembly (forward-looking) |
+| Background service | `register_service` | lifespan (started as a task, cancelled on shutdown) |
+| Server-reviewed audit marker | `register_review_marker` | `bash_safety.check_review_status` (a plugin with its own server-side completeness gate suppresses core's legacy REVIEW-file Stop gate for its audits — no double-gating) |
+| Backend router / frontend JS bundle | `register_router` / `register_frontend_bundle` | `main._wire_plugins` + `GET /api/plugins` |
+
+### OSS builtin vs plugins
+
+The OSS core registers itself as **the builtin plugin**
+(`app/builtin_plugin.py:BuiltinPlugin`) through the exact same API a plugin uses — dogfood, and the registry is never empty. It is loaded by
+direct import (always present, no entry point needed) and **fail-closed**:
+if it can't load, startup aborts rather than running with no safety
+gates. External plugins are discovered via the `vibe_seller.plugins`
+entry-point group their wheels declare, loaded after the builtin in
+deterministic (name-sorted) order, and **fail-open** (a bad wheel is
+logged and skipped). Per-customer isolation is at **pack/install** time:
+a customer's box installs only that customer's plugin wheels, so other
+customers' code is absent at the wheel boundary.
+
+### Frontend extension
+
+A plugin can add dashboard UI without forking the OSS frontend: it
+registers a compiled JS bundle (`register_frontend_bundle`), `GET /api/plugins`
+lists the active bundles, and the OSS React shell dynamically loads each
+one (`requires_early_init` bundles resolve before the app makes API
+calls). Ships inert in PR-1 (empty list in an OSS-only install); the
+React loader lands when the first plugin UI does.

@@ -20,7 +20,10 @@ import time
 import git as gitlib
 
 from app.config import VIBE_SELLER_DIR
+from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_seed import write_catalog_stub
+from app.workspace.structured_stores import collect_store_entries
+from app.workspace.templates import WORKSPACE_CLAUDE_MD
 
 logger = logging.getLogger(__name__)
 
@@ -33,40 +36,30 @@ class WorkspaceManager:
         self._repo: gitlib.Repo | None = None
         # Serialise git subprocesses; concurrent tasks race on index.lock.
         self._git_lock = asyncio.Lock()
+        # Serialise shared-venv creation (boot build vs agent ensure_init).
+        self._venv_lock = asyncio.Lock()
 
-    async def ensure_init(self):
-        """Ensure workspace directory exists and is a git repo."""
+    async def ensure_init(self, *, create_venv: bool = True):
+        """Ensure workspace directory exists and is a git repo.
+
+        ``create_venv=False`` skips the slow cold venv build so server
+        boot never blocks ``/api/health`` — it's built in the background
+        (``ensure_shared_venv``); agent runs use the default and await
+        the venv before launching, so nothing runs without it.
+        """
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / '.claude' / 'skills').mkdir(parents=True, exist_ok=True)
         (self.root / 'knowledge').mkdir(parents=True, exist_ok=True)
         (self.root / 'stores').mkdir(parents=True, exist_ok=True)
+        # Per-store RUN DATA lives outside stores/ (never surfaces as
+        # knowledge, still git-tracked). First boot after a layout bump
+        # relocates old artifacts → store-data/<YYYY-MM>/; then O(1).
+        migrate_store_data(self.root)
 
         # Generate workspace CLAUDE.md (write-once)
         claude_md = self.root / 'CLAUDE.md'
         if not claude_md.exists():
-            claude_md.write_text(
-                '# Vibe Seller Workspace\n\n'
-                '## Symlinked directories\n\n'
-                '`knowledge/` and `stores/` are symlinks. The Glob and Grep'
-                ' tools use ripgrep which cannot follow symlinks.\n\n'
-                '- For `knowledge/` and `stores/`: use'
-                ' `Bash("find knowledge/ ...")`, `Bash("ls stores/*/")`,'
-                ' or `Bash("grep -r ... stores/")` instead of Glob/Grep.\n'
-                '- For `.claude/` and other directories: Glob and Grep'
-                ' work normally.\n\n'
-                '## browser-use\n\n'
-                '`browser-use` is a Bash CLI tool.'
-                ' Run it via `Bash("browser-use ...")`.\n'
-                'Do NOT use the Skill tool for browser-use'
-                ' — it is not a slash command.\n\n'
-                'Flags `--profile`, `--cdp-url`, `--connect` are managed'
-                ' by the per-store wrapper and must not be passed'
-                ' manually.\n\n'
-                '## Authenticated Pages\n\n'
-                'Pages requiring login or JavaScript (seller center, email'
-                ' providers, admin panels) MUST be accessed via'
-                ' `browser-use`, not WebFetch or curl.\n'
-            )
+            claude_md.write_text(WORKSPACE_CLAUDE_MD)
 
         git_dir = self.root / '.git'
         if not git_dir.exists():
@@ -75,7 +68,7 @@ class WorkspaceManager:
             if not gitignore.exists():
                 gitignore.write_text(
                     '*.pyc\n__pycache__/\n.DS_Store\n'
-                    '.venv/\nconfig/\ntask_history/\n'
+                    '.venv/\nnode_modules/\nconfig/\ntask_history/\n'
                     'data/\n*.db-journal\n*.db-wal\n*.db-shm\n'
                 )
             await self._run_git('add', '-A')
@@ -91,6 +84,7 @@ class WorkspaceManager:
                 'data/',
                 '*.db-journal',
                 'tasks/',
+                'node_modules/',
             ):
                 if entry not in content:
                     additions.append(entry)
@@ -99,17 +93,25 @@ class WorkspaceManager:
                     content.rstrip() + '\n' + '\n'.join(additions) + '\n'
                 )
 
-        # Ensure shared agent venv exists
+        # Ensure shared agent venv exists (slow on a cold first boot —
+        # skipped at server startup, built in the background instead).
+        if create_venv:
+            await self._ensure_venv()
+
+    async def ensure_shared_venv(self):
+        """Build the shared agent venv (run as a boot background task so a
+        cold ``uv venv`` doesn't block readiness; idempotent + lock-
+        guarded, races safely with an agent run's ``ensure_init()``)."""
         await self._ensure_venv()
 
     async def _ensure_venv(self):
-        """Create shared agent venv at ~/.vibe-seller/.venv/.
+        """Create the shared agent venv at ~/.vibe-seller/.venv/ (uv venv
+        + pip/uv bootstrap; re-bootstraps if tools are missing).
+        Lock-guarded against concurrent ``uv venv`` invocations."""
+        async with self._venv_lock:
+            await self._ensure_venv_locked()
 
-        Creates the venv with uv and bootstraps pip + uv inside
-        it so agents can install packages immediately.
-        Also re-bootstraps if pip/uv are missing from an
-        existing venv.
-        """
+    async def _ensure_venv_locked(self):
         venv_dir = self.root / '.venv'
         if venv_dir.exists():
             if await self._venv_tools_ok(venv_dir):
@@ -248,6 +250,25 @@ class WorkspaceManager:
         viewable in the UI. Every other tree keeps the strict
         ``_safe_path`` guard.
         """
+        file_path = self.resolve_file(rel_path)
+        try:
+            return file_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            # Platform exports (csv/tsv) may be GB18030.
+            try:
+                return file_path.read_text(encoding='gb18030')
+            except UnicodeDecodeError:
+                raise ValueError(
+                    f'Binary file (use /api/workspace/file/raw): {rel_path}'
+                )
+
+    def resolve_file(self, rel_path: str) -> Path:
+        """Validated absolute path for a workspace file.
+
+        Skill paths (``.claude/skills/<slug>``) use a lax check that
+        follows symlinks so maintainer-installed external skills are
+        viewable in the UI; every other tree keeps ``_safe_path``.
+        """
         p = Path(rel_path)
         if p.parts[:2] == ('.claude', 'skills'):
             if p.is_absolute() or any(part == '..' for part in p.parts):
@@ -257,7 +278,7 @@ class WorkspaceManager:
             file_path = self._safe_path(rel_path)
         if not file_path.is_file():
             raise FileNotFoundError(f'File not found: {rel_path}')
-        return file_path.read_text(encoding='utf-8')
+        return file_path
 
     def _reject_l1_write(self, rel_path: str) -> None:
         """Raise if rel_path targets read-only L1 knowledge."""
@@ -364,7 +385,6 @@ class WorkspaceManager:
         """Return workspace organized by section for the UI."""
         await self.ensure_init()
 
-        stores_dir = self.root / 'stores'
         knowledge_dir = self.root / 'knowledge'
         skills_dir = self.root / '.claude' / 'skills'
 
@@ -431,29 +451,9 @@ class WorkspaceManager:
                     origin_url = ''
                 skills.append(_collect_skill(skill_path, source, origin_url))
 
-        # Collect store profiles
-        store_profiles = []
-        if stores_dir.is_dir():
-            for store_path in sorted(stores_dir.iterdir()):
-                if not store_path.is_dir() or store_path.name.startswith('.'):
-                    continue
-                files = []
-                for f in sorted(store_path.rglob('*')):
-                    if f.is_file() and '.git' not in f.parts:
-                        rel = f.relative_to(self.root)
-                        files.append({
-                            'path': str(rel),
-                            'name': f.name,
-                            'size': f.stat().st_size,
-                            'has_content': f.stat().st_size > 50,
-                        })
-                store_profiles.append({
-                    'slug': store_path.name,
-                    'path': str(store_path.relative_to(self.root)),
-                    'files': files,
-                    'file_count': len(files),
-                    'has_content': any(f['has_content'] for f in files),
-                })
+        # One entry per store: stores/ (knowledge) + store-data/ (run
+        # data) joined by slug in the backend — see structured_stores.
+        store_profiles = collect_store_entries(self.root)
 
         # Collect knowledge files, split into project (synced from repo) and local
         project_knowledge_dir = knowledge_dir / 'project'
@@ -746,6 +746,7 @@ browser: {backend}
         links: dict[str, Path] = {
             'knowledge': self.root / 'knowledge',
             'stores': self.root / 'stores',
+            'store-data': self.root / 'store-data',
             'CLAUDE.md': self.root / 'CLAUDE.md',
         }
         for name, target in links.items():

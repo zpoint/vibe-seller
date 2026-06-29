@@ -213,7 +213,7 @@ class TestMultipleResults:
         store_id = await self._create_store(admin_client)
         install_fake_agent.default_scenario = FakeAgentScenario(
             result=(
-                'Task Complete\nScraped 32 markdown files from SA help docs.'
+                'Task Complete\nScraped 32 markdown files from US help docs.'
             ),
             extra_results=[
                 'Background task done. No action needed.',
