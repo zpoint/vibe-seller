@@ -259,8 +259,6 @@ _BUILTIN_PLUGIN = 'app.builtin_plugin:BuiltinPlugin'
 
 def _load_builtin(ctx: ExtensionContext) -> str | None:
     module_path, class_name = _BUILTIN_PLUGIN.split(':')
-    import importlib  # noqa: PLC0415 — local to keep top imports light
-
     module = importlib.import_module(module_path)
     plugin_cls = getattr(module, class_name)
     if not (isinstance(plugin_cls, type) and issubclass(plugin_cls, Plugin)):

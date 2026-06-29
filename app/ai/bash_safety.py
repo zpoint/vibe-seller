@@ -23,6 +23,11 @@ would be bad.
 from pathlib import Path
 import re
 
+from app.plugins import (
+    registered_pretool_gates,
+    registered_review_markers,
+)
+
 # Match `pkill`/`killall` only in *command position* — not as an
 # argument (``grep pkill file``) or inside a string (``echo "pkill -f
 # x"``). Command position = start of input, after a shell separator
@@ -428,7 +433,6 @@ def _is_server_reviewed(audit_text: str) -> bool:
     """
     if _SERVER_REVIEWED_RE.search(audit_text):
         return True
-    from app.plugins import registered_review_markers  # noqa: PLC0415
 
     for pattern in registered_review_markers():
         try:
@@ -768,7 +772,6 @@ def first_bash_deny(command, task_dir=None, catalog_read=False):
     ``check(command, task_dir, catalog_read)`` so the chain stays one
     testable unit regardless of which args a guard actually uses.
     """
-    from app.plugins import registered_pretool_gates  # noqa: PLC0415
 
     for label, check in registered_pretool_gates():
         reason = check(command, task_dir, catalog_read)
