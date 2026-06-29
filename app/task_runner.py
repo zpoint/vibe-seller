@@ -16,6 +16,7 @@ from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
 from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
+from app.plugins import registered_prompt_fragments
 from app.prompts import (
     CATALOG_RESTRICTION_PROMPT_L2,
     CATALOG_RESTRICTION_PROMPT_L3,
@@ -339,7 +340,6 @@ async def build_system_extra(
 
     # Plugin extension seam: fragments registered for the 'system_extra'
     # slot are appended to the end of the assembled system prompt.
-    from app.plugins import registered_prompt_fragments  # noqa: PLC0415
 
     parts.extend(registered_prompt_fragments('system_extra'))
 

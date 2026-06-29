@@ -25,11 +25,10 @@ from app.ai.claude_backend_utils import (
     check_exec_review_status_for_stop,
     check_review_status_for_stop,
     check_skill_prereqs,
-    find_skill_md,
     get_open_tasklist_items,
-    skill_name_from_read,
     validate_fanout_plan_text,
 )
+from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
 from app.database import async_session
 from app.events.bus import event_bus

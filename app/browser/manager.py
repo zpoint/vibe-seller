@@ -29,6 +29,7 @@ from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.store import Store
 from app.models.ziniao_account import ZiniaoAccount
+from app.plugins import registered_browser_backends
 from app.utils.crypto import decrypt_password
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -260,10 +261,6 @@ class BrowserManager:
         multiplexing and shared cookie context.
         """
         if store_id not in self._backends:
-            from app.plugins import (  # noqa: PLC0415 — avoid import cycle
-                registered_browser_backends,
-            )
-
             backends = registered_browser_backends()
             cls = backends.get(backend_type)
             if cls is None:

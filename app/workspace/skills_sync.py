@@ -32,6 +32,7 @@ from app.config import AI_BOT_USER_ID, SKILLS_REPO_URL
 from app.database import async_session
 from app.models.app_settings import AppSettings
 from app.models.event import Event
+from app.plugins import registered_skill_sources
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -131,7 +132,6 @@ class SkillsSyncManager:
         appended here. De-duped on resolved path, order preserved, so a
         plugin can't double-sync an already-listed skill dir.
         """
-        from app.plugins import registered_skill_sources  # noqa: PLC0415
 
         sources: list[Path] = []
         local = self._get_local_source()
