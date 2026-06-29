@@ -150,7 +150,7 @@ function ChatInput({
 describe('QuestionBanner', () => {
   const twoQuestions: Question[] = [
     { question: 'Which platform?', options: [{ label: 'Amazon' }, { label: 'Noon' }] },
-    { question: 'Which country?', options: [{ label: 'US' }, { label: 'AE' }] },
+    { question: 'Which country?', options: [{ label: 'US' }, { label: 'UK' }] },
   ]
 
   it('does NOT submit when only one option is clicked', () => {
@@ -167,13 +167,13 @@ describe('QuestionBanner', () => {
     render(<QuestionBanner questions={twoQuestions} onSubmit={onSubmit} />)
 
     fireEvent.click(screen.getByTestId('option-0-0')) // Amazon
-    fireEvent.click(screen.getByTestId('option-1-1')) // AE
+    fireEvent.click(screen.getByTestId('option-1-1')) // UK
 
     expect(screen.getByTestId('submit-all')).not.toBeDisabled()
     fireEvent.click(screen.getByTestId('submit-all'))
     expect(onSubmit).toHaveBeenCalledWith({
       'Which platform?': 'Amazon',
-      'Which country?': 'AE',
+      'Which country?': 'UK',
     })
   })
 

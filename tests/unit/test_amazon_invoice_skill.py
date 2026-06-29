@@ -7,7 +7,7 @@ Covers the calculation engine (``compute_financials``) and PDF rendering
 * Refund present — page subtotal/total are inconsistent (subtotal is
   pre-refund, total is post-refund on Amazon's order page), so the script
   recomputes gross from ``items + shipping - promotion - refund``.
-* Inclusive (e.g. SA/UK) vs exclusive (e.g. MX) tax models with refund.
+* Inclusive (e.g. ZA/UK) vs exclusive (e.g. MX) tax models with refund.
 * Multiple items plus an order-level refund.
 * PDF file generation (sanity check — file exists and is non-empty).
 
@@ -50,7 +50,7 @@ class TestSafeFloat:
         assert safe_float('12.34') == 12.34
 
     def test_currency_prefix_with_space(self):
-        assert safe_float('SAR 1,234.56') == 1234.56
+        assert safe_float('USD 1,234.56') == 1234.56
 
     def test_currency_prefix_with_dollar(self):
         assert safe_float('MX$99.50') == 99.50
@@ -76,7 +76,7 @@ class TestComputeFinancialsRefund:
     """The critical path: a refund must be subtracted from the gross."""
 
     def test_inclusive_tax_country_with_refund_recomputes_gross(self):
-        """SA (15% VAT-inclusive): gross ignores page subtotal/total and
+        """ZA (15% VAT-inclusive): gross ignores page subtotal/total and
         is derived from items + shipping − promotion − refund.
 
         Fabricated numbers (chosen to land on round values):
@@ -89,26 +89,26 @@ class TestComputeFinancialsRefund:
             subtotal  = 100 - 13.04 = 86.96
         """
         data = {
-            'country': 'SA',
-            'currency': 'SAR',
+            'country': 'ZA',
+            'currency': 'USD',
             'items': [
                 {
                     'description': 'Widget',
                     'quantity': 10,
-                    'amount': 'SAR 200.00',
+                    'amount': 'USD 200.00',
                 }
             ],
-            'shipping_total': 'SAR 5.00',
-            'promotion': 'SAR 5.00',
-            'refund': 'SAR 100.00',
+            'shipping_total': 'USD 5.00',
+            'promotion': 'USD 5.00',
+            'refund': 'USD 100.00',
             # These page values are intentionally WRONG (disagreeing
             # with both the pre-refund and post-refund figures) so that
             # a regression that silently trusts page_subtotal / page_tax
             # / page_total instead of recomputing from components would
             # fail the assertions below.
-            'subtotal': 'SAR 200.00',
-            'tax': 'SAR 50.00',
-            'total': 'SAR 180.00',
+            'subtotal': 'USD 200.00',
+            'tax': 'USD 50.00',
+            'total': 'USD 180.00',
         }
 
         result = compute_financials(data)
@@ -186,7 +186,7 @@ class TestComputeFinancialsRefund:
         """Refund is at the order level, not per-item; items table is
         unchanged, but gross drops by the refund.
 
-        Fabricated numbers (SA, 15% inclusive):
+        Fabricated numbers (ZA, 15% inclusive):
             item A = 2 * 50.00 = 100.00
             item B = 3 * 20.00 =  60.00
             shipping           =   5.00
@@ -196,22 +196,22 @@ class TestComputeFinancialsRefund:
             sub    = 135 - 17.61 = 117.39
         """
         data = {
-            'country': 'SA',
-            'currency': 'SAR',
+            'country': 'ZA',
+            'currency': 'USD',
             'items': [
                 {
                     'description': 'Product A',
                     'quantity': 2,
-                    'amount': 'SAR 100.00',
+                    'amount': 'USD 100.00',
                 },
                 {
                     'description': 'Product B',
                     'quantity': 3,
-                    'amount': 'SAR 60.00',
+                    'amount': 'USD 60.00',
                 },
             ],
-            'shipping_total': 'SAR 5.00',
-            'refund': 'SAR 30.00',
+            'shipping_total': 'USD 5.00',
+            'refund': 'USD 30.00',
         }
 
         result = compute_financials(data)
@@ -235,18 +235,18 @@ class TestComputeFinancialsNoRefund:
         is no refund, the script must use them verbatim (no recompute).
         """
         data = {
-            'country': 'SA',
-            'currency': 'SAR',
+            'country': 'ZA',
+            'currency': 'USD',
             'items': [
                 {
                     'description': 'Item',
                     'quantity': 1,
-                    'amount': 'SAR 115.00',
+                    'amount': 'USD 115.00',
                 }
             ],
-            'subtotal': 'SAR 100.00',
-            'tax': 'SAR 15.00',
-            'total': 'SAR 115.00',
+            'subtotal': 'USD 100.00',
+            'tax': 'USD 15.00',
+            'total': 'USD 115.00',
         }
 
         result = compute_financials(data)
@@ -259,16 +259,16 @@ class TestComputeFinancialsNoRefund:
 
     def test_no_refund_derivation_matches_legacy(self):
         """No refund, no page subtotal/tax — must match the legacy
-        inclusive-tax back-calculation (SA 15%).
+        inclusive-tax back-calculation (ZA 15%).
         """
         data = {
-            'country': 'SA',
-            'currency': 'SAR',
+            'country': 'ZA',
+            'currency': 'USD',
             'items': [
                 {
                     'description': 'Item',
                     'quantity': 1,
-                    'amount': 'SAR 115.00',
+                    'amount': 'USD 115.00',
                 }
             ],
         }
@@ -293,8 +293,8 @@ class TestBuildPdf:
         but a non-empty file and no exception is a solid smoke check.
         """
         data = {
-            'country': 'SA',
-            'currency': 'SAR',
+            'country': 'ZA',
+            'currency': 'USD',
             'invoice_number': 'TEST-ORDER-001',
             'date': '2026-04-20',
             'bill_to': {'name': 'Alice'},
@@ -303,12 +303,12 @@ class TestBuildPdf:
                 {
                     'description': 'Widget',
                     'quantity': 10,
-                    'amount': 'SAR 200.00',
+                    'amount': 'USD 200.00',
                 }
             ],
-            'shipping_total': 'SAR 5.00',
-            'promotion': 'SAR 5.00',
-            'refund': 'SAR 100.00',
+            'shipping_total': 'USD 5.00',
+            'promotion': 'USD 5.00',
+            'refund': 'USD 100.00',
         }
         data = compute_financials(data)
 
@@ -321,8 +321,8 @@ class TestBuildPdf:
     def test_generates_pdf_without_refund(self, tmp_path):
         """No refund key must not break PDF generation (regression)."""
         data = {
-            'country': 'SA',
-            'currency': 'SAR',
+            'country': 'ZA',
+            'currency': 'USD',
             'invoice_number': 'TEST-ORDER-002',
             'date': '2026-04-20',
             'bill_to': {'name': 'Bob'},
@@ -331,12 +331,12 @@ class TestBuildPdf:
                 {
                     'description': 'Sample',
                     'quantity': 1,
-                    'amount': 'SAR 115.00',
+                    'amount': 'USD 115.00',
                 }
             ],
-            'subtotal': 'SAR 100.00',
-            'tax': 'SAR 15.00',
-            'total': 'SAR 115.00',
+            'subtotal': 'USD 100.00',
+            'tax': 'USD 15.00',
+            'total': 'USD 115.00',
         }
         data = compute_financials(data)
 

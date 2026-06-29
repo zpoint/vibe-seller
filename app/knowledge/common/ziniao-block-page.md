@@ -57,7 +57,7 @@ browser-use click <button-index>
 
 # Wait for approval and retry
 sleep 3
-browser-use open "https://sellercentral.amazon.sa/home"
+browser-use open "https://sellercentral.amazon.<tld>/home"
 ```
 
 ### Option 2: Report to User
@@ -74,8 +74,8 @@ If self-whitelist is not available for the URL, inform the user:
   without user action
 - **Do NOT assume slow loading** — "Empty DOM tree" after 5+ seconds with a
   `chrome-extension://` URL means a block, not a slow page
-- **Do NOT try alternative URLs** — if `sellercentral.amazon.sa` is blocked,
-  trying `sellercentral.amazon.com.sa` or other wrong domains won't help
+- **Do NOT try alternative URLs** — if `sellercentral.amazon.<tld>` is blocked,
+  trying `sellercentral.amazon.com.<tld>` or other wrong domains won't help
 
 ## Quick Diagnostic Flowchart
 

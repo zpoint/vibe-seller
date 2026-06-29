@@ -57,6 +57,12 @@ class FakeAgentScenario:
         None  # additional results emitted as 'assistant' (post-dedup)
     )
     gate: asyncio.Event | None = None  # if set, _do_work waits on it
+    # If set, called as result_fn(task_id) to compute the result text
+    # (and run side effects — e.g. read this task's batch_results.json
+    # and write gathered outputs). Lets a finalize-task fake do the
+    # real parent-reduce deterministically. Overrides `result` when
+    # present. Used by execute/auto mode (_do_execute).
+    result_fn: object | None = None
     # Simulate `claude --resume <stale_id>` rejection on the FIRST
     # session for this task: subprocess exits rc=1 with no result
     # text, session.resume_session_id is set.  The orchestrator
@@ -605,7 +611,15 @@ class FakeAgent(AIAgentBackend):
         if scenario.execute_delay > 0:
             await _real_sleep(scenario.execute_delay)
 
-        result_text = scenario.error_result or scenario.result
+        if scenario.result_fn is not None:
+            if not callable(scenario.result_fn):
+                raise TypeError(
+                    'FakeAgentScenario.result_fn must be callable '
+                    f'(got {type(scenario.result_fn).__name__})'
+                )
+            result_text = scenario.result_fn(task_id)
+        else:
+            result_text = scenario.error_result or scenario.result
         async with _db.async_session() as db:
             task = await db.get(Task, task_id)
             if not task:

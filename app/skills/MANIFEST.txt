@@ -11,6 +11,9 @@ amazon-invoice/SKILL.md
 amazon-invoice/generate_invoice.py
 amazon-invoice/requirements.txt
 amazon-reports/SKILL.md
+review-collect/SKILL.md
+review-collect/references/output-spec.md
+review-collect/references/collect-quickref.md
 browser-use/SKILL.md
 noon-shared/SKILL.md
 noon-listing/SKILL.md

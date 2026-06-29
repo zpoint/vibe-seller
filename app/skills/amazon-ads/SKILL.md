@@ -3,6 +3,7 @@ name: amazon-ads
 description: "Amazon Sponsored Products / Sponsored Brands / Sponsored Display ads + Coupons on Seller Central / advertising console. ONE catalog covering BOTH mechanics (URLs, click paths, modal patterns, kat-* component gotchas, field input ranges) AND workflows (tuning existing campaigns, weekly review, search-term harvest, ACOS improvement). Load this skill BEFORE any browser-use action that creates, edits, captures, archives, or downloads campaigns / ad-groups / keywords / product targets / coupons on amazon.<tld> or advertising.amazon.<tld>. The catalog below points to topical references — load whichever ones the task needs. Defaults to last 30 days for tuning analysis but accepts any user-specified window."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
+gates: [ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
 ---
 
 # Amazon Ads — Catalog
@@ -16,36 +17,39 @@ references in `references/`. Load whichever ones apply to the task.
 
 ## What this skill produces
 
-For tuning tasks ("review the ads", "improve ACOS", "audit"):
-**one Markdown report** (`AD_AUDIT_<YYYY-MM-DD>.md`) plus **one
-TSV per active campaign** (`stores/<slug>/ads/<platform>/<country>/<id>.tsv`,
-auto-committed by the workspace). The Markdown's exact shape is
-fixed by **[`format-anchor.md`](references/format-anchor.md)** —
-read it before composing any audit; deviating from the anchor
-fails the reviewer-loop gate at Stop.
+For tuning / audit tasks ("review the ads", "improve ACOS", "audit"):
+**one Markdown report** (`AD_AUDIT_<YYYY-MM-DD>.md`) + **two TSVs per
+active campaign** (`stores/<slug>/ads/<platform>/<country>/<id>.tsv`
+targets + `<id>.searchterms.tsv` full customer-query set). Every
+campaign is drilled in TWO layers on the same date window — targets AND
+search terms — proven by a `搜索词对账` reconciliation line the server
+reviewer parses.
 
-Phases:
+**START HERE — do NOT pre-read every reference (it buries the model and
+causes shortcutting). Just two files, then run:**
 
-```
-Phase 1: Discover    →  manifest of every campaign + state
-Phase 2: Drill       →  per-campaign data section + per-campaign TSV
-Phase 3: Compose     →  full Markdown report following format-anchor.md
-Phase 3.5: Review    →  spawn ads-format-review subagent, loop until ok
-Phase 4: Apply       →  on user reply: execute approved rows
-```
+1. **[`output-spec.md`](references/output-spec.md)** — the report
+   contract (what "done" looks like).
+2. **[`audit-quickref.md`](references/audit-quickref.md)** — the entire
+   procedure on one page. Load a heavy reference only when a step there
+   tells you to.
 
-Phase 1–3.5 are read-only against the live store. Phase 3.5 is
-**mandatory** — the Stop-hook gate denies finalization until the
-reviewer subagent has written ``REVIEW_<date>_iter<N>.md`` with
-``Status: ok`` (or ``Status: incomplete`` at iter ≥ 5). The loop
-mechanics are in **[`reviewer-loop.md`](references/reviewer-loop.md)**.
+Then write the report and call
+`vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`. The server's
+**completeness reviewer** replies with a short "what's still missing"
+list (under-drilled countries + bid-rule violations) and converges over
+rounds — **partial is accepted each round**, just fix the top gaps and
+re-submit until it returns nothing. No separate reviewer subagent or
+Stop-hook needed.
 
 ## Workflow references — the "what to do" thinking
 
 | Reference | Load when |
 |---|---|
-| [`format-anchor.md`](references/format-anchor.md) | **Required for every audit.** Canonical Markdown structure: per-campaign sections with inline Recommendation column on every Targeting / Search-terms / Targets / Customer-Queries row. Single bid-change rule (≤ 25 % per session). PROTECT = two simple cases. The reviewer subagent checks against this file. |
-| [`reviewer-loop.md`](references/reviewer-loop.md) | **Required at end of Phase 3.** How to spawn the `ads-format-review` subagent, the loop mechanics, the `REVIEW_<date>_iter<N>.md` output format the Stop-hook gate reads. Hard-cap: 5 iterations before accepting `Status: incomplete`. |
+| [`output-spec.md`](references/output-spec.md) | **Read first for every audit.** The report contract the server completeness reviewer checks against — per-(platform,country) 进度 line, header table, per-campaign drills, the 4 bid rules, TSV-per-campaign. |
+| [`audit-quickref.md`](references/audit-quickref.md) | **The procedure, one page.** Run this top-to-bottom; it points to heavy refs on demand. |
+| [`format-anchor.md`](references/format-anchor.md) | _Legacy detail._ Per-campaign table column shape; load only if you need the exact table layout. (The mandatory subagent reviewer-loop is superseded by the server completeness reviewer — partial is accepted, it lists gaps each round.) |
+| [`reviewer-loop.md`](references/reviewer-loop.md) | Phase-4 **execution review** only (`EXEC_REVIEW_*`, Stop-hook enforced). For audit reports its Phase-3 format loop is superseded by the server completeness reviewer — don't spawn a review subagent for amazon/noon audits. |
 | [`tuning-workflow.md`](references/tuning-workflow.md) | User asks to tune ads, improve ACOS, "review last month's ads", harvest search terms, lower bids on losers, weekly ad review, "why is X campaign burning money", or any ongoing-campaign refinement task. |
 | [`tuning-campaign-types.md`](references/tuning-campaign-types.md) | A campaign isn't SP-Manual-Keyword. The skill defaults to SP-Manual-Keyword; for SP-Auto / SP-Manual-Product / Sponsored Brands / Sponsored Brands Video / Sponsored Display, this reference has the per-type sidebar tabs, Targeting-tab columns, and lever-applicability matrix observed on a live merchant account. Pair with `tuning-workflow.md` Phase 3 — that phase branches on type. |
 | [`tuning-thresholds.md`](references/tuning-thresholds.md) | Need to derive per-store thresholds (breakeven ACOS = margin %, target ACOS = 0.7 × breakeven, protect-zone, waste/harvest cutoffs). Always heuristic, never hardcoded. |

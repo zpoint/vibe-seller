@@ -47,3 +47,14 @@ class WeComBotTestRequest(BaseModel):
 class WeComBotSendRequest(BaseModel):
     content: str
     msgtype: str = 'text'
+
+
+class WeComBotSendFileRequest(BaseModel):
+    """Send a local file through the bot.
+
+    `path` is an absolute path on the server host (same host as the
+    agent task). The server reads it and uploads to WeCom — the agent
+    never handles the webhook secret.
+    """
+
+    path: str

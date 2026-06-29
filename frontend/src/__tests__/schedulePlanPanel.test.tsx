@@ -32,6 +32,7 @@ function sched(overrides: Partial<Schedule> = {}): Schedule {
     is_active: true,
     phase_mode: 'fanout',
     plan_mode: true,
+    finalize_description: null,
     ai_profile_id: 'default',
     created_by: 'u',
     created_at: new Date().toISOString(),
@@ -295,6 +296,38 @@ describe('SchedulePlanPanel', () => {
       expect(list.textContent).toContain('completed')
       expect(list.textContent).toContain('failed')
       expect(list.textContent).toContain('boom')
+    })
+  })
+
+  describe('finalize step', () => {
+    it('renders the finalize card when the agent registered one', async () => {
+      mockGet.mockResolvedValue({
+        plan_status: 'ready',
+        plan_version: 1,
+        plan_text: '## plan',
+        plan_error: null,
+        current_planning_task_id: null,
+        planning_task_history: [],
+        finalize_description: 'Combine all stores into ONE PR + WeCom.',
+      })
+      renderPanel(sched({ plan_status: 'ready' }))
+      const card = await screen.findByTestId('schedule-finalize-step')
+      expect(card.textContent).toContain('Combine all stores into ONE PR')
+    })
+
+    it('hides the finalize card when none is registered', async () => {
+      mockGet.mockResolvedValue({
+        plan_status: 'ready',
+        plan_version: 1,
+        plan_text: '## plan',
+        plan_error: null,
+        current_planning_task_id: null,
+        planning_task_history: [],
+        finalize_description: null,
+      })
+      renderPanel(sched({ plan_status: 'ready' }))
+      await screen.findByTestId('plan-history-toggle')
+      expect(screen.queryByTestId('schedule-finalize-step')).toBeNull()
     })
   })
 })

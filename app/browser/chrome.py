@@ -7,11 +7,16 @@ Same architecture as ZiniaoBackend — one browser per store, isolated
 per-task tabs via the proxy.
 
 Cookie/localStorage persists in ``~/.vibe-seller/browser_profiles/{slug}/``
-across browser restarts.
+across browser restarts — including SESSION cookies: see
+``_enable_session_restore`` (without it, Chromium wipes session
+cookies on every launch and Taobao-style logins die with the browser
+process even though the profile dir persists).
 """
 
 import asyncio
+import json
 import logging
+import pathlib
 import socket
 
 import aiohttp
@@ -41,6 +46,48 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _enable_session_restore(user_data_dir: pathlib.Path) -> None:
+    """Make SESSION cookies survive browser restarts for this profile.
+
+    Store logins like Taobao/Tmall are carried by session cookies
+    (``cookie2`` / ``_tb_token_`` / ``unb`` … all ``is_persistent=0``,
+    verified live 2026-06-06). Chromium deletes session cookies at
+    profile startup UNLESS the profile is in "continue where you left
+    off" mode (``session.restore_on_startup == 1``). Without this
+    pref, every browser restart (server restart, stop_session, crash)
+    silently logged the store out even though the profile directory
+    persisted — the login only lived as long as the chrome process.
+
+    Called before every launch: Chrome rewrites Preferences from its
+    in-memory copy on exit, so a one-time write would be clobbered by
+    the first clean shutdown after it.
+    """
+    prefs_path = user_data_dir / 'Default' / 'Preferences'
+    prefs: dict = {}
+    if prefs_path.is_file():
+        try:
+            prefs = json.loads(prefs_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            logger.warning(
+                'Unreadable Preferences at %s — rewriting minimal file',
+                prefs_path,
+            )
+            prefs = {}
+    session = prefs.setdefault('session', {})
+    if session.get('restore_on_startup') == 1:
+        return
+    session['restore_on_startup'] = 1
+    prefs_path.parent.mkdir(parents=True, exist_ok=True)
+    prefs_path.write_text(
+        json.dumps(prefs, ensure_ascii=False), encoding='utf-8'
+    )
+    logger.info(
+        'Enabled session-cookie persistence (restore_on_startup=1) '
+        'for profile %s',
+        user_data_dir.name,
+    )
+
+
 class ChromeBackend(BrowserBackend):
     """Launch Chromium + CDPMuxProxy for a store."""
 
@@ -63,6 +110,9 @@ class ChromeBackend(BrowserBackend):
         # Managed by stores.py (rename/delete on store CRUD).
         user_data_dir = PROFILES_DIR / store_slug
         user_data_dir.mkdir(parents=True, exist_ok=True)
+        # Must run before EVERY launch (Chrome clobbers Preferences on
+        # exit) so Taobao-style session-cookie logins survive restarts.
+        _enable_session_restore(user_data_dir)
 
         # Allocate a free port for Chrome's CDP debugging endpoint.
         debug_port = _free_port()

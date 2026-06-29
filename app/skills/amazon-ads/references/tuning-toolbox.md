@@ -76,9 +76,9 @@ metrics moved.
 - **Single-step delta cap — HARD RULE**: `|proposed_bid − current_bid|
   / current_bid ≤ 0.25`. Bid changes are not "set to a target"; they
   are **stepped over multiple sessions** so you can observe traffic
-  before the next step. A SAR 3.00 → SAR 0.80 jump (−73%) is a bid
+  before the next step. A USD 3.00 → USD 0.80 jump (−73%) is a bid
   *collapse*, not a trim — even when Amazon's suggested midpoint is
-  SAR 0.60. **Never use Amazon's suggested bid as the proposed value
+  USD 0.60. **Never use Amazon's suggested bid as the proposed value
   in one step if the current bid is more than 1.33× the suggested
   upper.** Instead: propose `max(current × 0.75, suggested_upper)`
   for the first step, then re-audit after 7d before stepping further.
@@ -95,37 +95,38 @@ metrics moved.
   `≥ 50%` of campaign orders, cap delta at `−15%` (overrides the
   general 25% cap) and pause is forbidden. Mirrors
   `format-anchor.md § PROTECT — two simple cases`.
-- **Range**: positive currency, ≥ marketplace minimum bid (typically
-  SAR 0.50 / AED 0.50 / USD 0.10 depending on marketplace).
+- **Range**: positive currency, ≥ the marketplace minimum bid (the
+  exact floor depends on the marketplace currency — do NOT hardcode a
+  currency; read it from the campaign).
 - **Pitfall**: Amazon's auto-bid (rule-based, dynamic strategies)
   may revise the bid back up after you set it; verify by reading
   back the cell after a few minutes.
 - **Worked example — the "bid cliff" you must avoid**: keyword
-  `women socks` Broad, current bid SAR 3.00, clicks 259, spend
-  SAR 631.75, orders 37 (80% of campaign orders), ROAS 2.35,
-  Amazon suggested 0.45–0.75. Actual CPC = 631.75 / 259 = SAR
-  2.44. Wrong proposal: SAR 0.80 (−73%, below actual CPC, kills
-  the workhorse). Correct first step: SAR 2.55 (−15% Soft trim;
+  `wireless mouse` Broad, current bid USD 3.00, clicks 200, spend
+  USD 500.00, orders 30 (80% of campaign orders), ROAS 2.40,
+  Amazon suggested 0.45–0.75. Actual CPC = 500.00 / 200 = USD
+  2.50. Wrong proposal: USD 0.80 (−73%, below actual CPC, kills
+  the workhorse). Correct first step: USD 2.55 (−15% Soft trim;
   workhorse + ≥ 50% order share triggers the order-share
-  guardrail; still well above actual CPC SAR 2.44). Re-audit
+  guardrail; still well above actual CPC USD 2.50). Re-audit
   after 7d; if traffic holds and ROAS improves, step again.
 
 - **Worked example — promote to Pause when clamped (Lever 2 fallback)**:
-  keyword `women's socks` Broad (AE), current bid AED 2.00,
-  clicks 30, spend AED 97.82, orders 1, ROAS 0.38, ACOS 264%,
-  Amazon suggested 0.61–1.01. Actual CPC = 97.82 / 30 = AED 3.26
+  keyword `usb-c cable` Broad, current bid USD 2.00,
+  clicks 30, spend USD 98.10, orders 1, ROAS 0.38, ACOS 265%,
+  Amazon suggested 0.61–1.01. Actual CPC = 98.10 / 30 = USD 3.27
   (higher than the bid — Amazon's dynamic bidding is paying a
   premium). Floors:
-    floor          = 3.26 × 0.7 = AED 2.28
-    step_cap_floor = 2.00 × 0.5 = AED 1.00
-    proposed       = max(2.28, 1.00) = AED 2.28
-  But `proposed (2.28) ≥ current (2.00)` → **no room to trim**.
+    floor          = 3.27 × 0.7 = USD 2.29
+    step_cap_floor = 2.00 × 0.5 = USD 1.00
+    proposed       = max(2.29, 1.00) = USD 2.29
+  But `proposed (2.29) ≥ current (2.00)` → **no room to trim**.
   Per `tuning-recommendation-format.md § Bid-trim cell` step 4,
   promote to `Pause` (Lever 2) — a single-order workhorse-less
-  row at ACOS 264% is a bleeder by any reasonable definition,
+  row at ACOS 265% is a bleeder by any reasonable definition,
   even if it has 1 order rather than 0. Cell text:
-  `**Pause** — 264% ACOS, 30 clicks / 1 order; bid trim has no
-  safe headroom (floor AED 2.28 ≥ current AED 2.00)`.
+  `**Pause** — 265% ACOS, 30 clicks / 1 order; bid trim has no
+  safe headroom (floor USD 2.29 ≥ current USD 2.00)`.
 
 ### 4. Negative ASIN / product target
 
@@ -244,8 +245,9 @@ metrics moved.
     either; lower budget reduces exposure but doesn't fix the ACOS.
   - Generally prefer fixing the campaign (negatives, bid trims) over
     starving it.
-- **Range**: positive currency, marketplace-specific minimum (often
-  SAR 5 / AED 5 / USD 1).
+- **Range**: positive currency, marketplace-specific minimum (the
+  floor depends on the marketplace currency — do NOT hardcode a
+  currency; read it from the campaign).
 - **Pitfall**: Amazon allows up to ~25% overspend on a single day,
   averaged across the month. So `daily_actual ≈ 1.0-1.25 × budget`
   is normal; "actual = exactly budget" doesn't mean throttled.

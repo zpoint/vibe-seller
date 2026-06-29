@@ -162,6 +162,9 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | POST | `/api/workspace/skills/sync` | Sync built-in skills (local + remote) |
 | GET | `/api/workspace/skills/sync-meta` | Get skills sync metadata |
 | POST | `/api/workspace/skill` | Create a new user skill |
+| GET | `/api/workspace/structured` | Workspace grouped for the UI. One entry per store joining `stores/<slug>/` knowledge `files` with `store-data/<slug>/` run-data `data_files`/`data_path` (run-data sorted newest-first) |
+| GET | `/api/workspace/file` | Read a text file (`{path, content}`); decodes utf-8 with GB18030 fallback; 400 with a pointer to `/file/raw` for binary |
+| GET | `/api/workspace/file/raw` | Raw bytes with guessed content type. `Content-Disposition: inline` only for non-scriptable types (pdf, png/jpeg/gif/webp); everything else `attachment` (stored-XSS guard) |
 | GET | `/api/stores/{id}/bookmarks` | Read Chrome profile bookmarks |
 
 ## `workspace_assistant.py` — Workspace AI Assistant
@@ -200,8 +203,9 @@ the full URL for the edit form.
 | DELETE | `/api/wecom-bots/{id}` | Delete bot |
 | POST | `/api/wecom-bots/{id}/test` | Post a test message to the webhook; optional `{content}` (blank/whitespace → default) |
 | POST | `/api/wecom-bots/{id}/send` | Post a real message: `{content, msgtype?}`. `msgtype` is `text` (default) or `markdown`. Blank `content` → 400; unknown `msgtype` → 400. Used by agents via the MCP bridge (see `docs/workspace.md`). |
+| POST | `/api/wecom-bots/{id}/send-file` | Upload a local file and post it as a `file` message: `{path}`. `path` is expanded (`~`) and must be absolute under an allowed root (`/tmp`, `/private/tmp`, or `~/.vibe-seller/downloads`) — anything else → 400 (blocks exfiltrating the DB/secrets/`~/.ssh`). File must be 6 B–20 MB (WeCom limit). Returns `{ok, message}`. Used by agents via the MCP tool `vibe_seller_send_wecom_file`. |
 
-Backend sender: `app/notifiers/wecom.py::send_webhook(url, content, msgtype='text'|'markdown')`. Errors are logged server-side; the response message never echoes the URL back to the client.
+Backend senders: `app/notifiers/wecom.py::send_webhook(url, content, msgtype='text'|'markdown')` and `send_file_webhook(url, file_path)` (two-step `upload_media` → `media_id` → `msgtype=file`). Errors are logged server-side; the response message never echoes the URL back to the client.
 
 ## `sse.py` — Server-Sent Events
 
@@ -268,3 +272,10 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 | DELETE | `/api/ziniao-accounts/{id}` | Delete account |
 | GET | `/api/ziniao-accounts/{id}/browsers` | List browser profiles (returns structured status JSON on error) |
 | POST | `/api/ziniao-accounts/{id}/restart` | Kill + relaunch Ziniao in WebDriver mode (Mac only, requires `running_normal` state) |
+
+## `main.py` — App-level Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Liveness probe (`{"status": "ok"}`) |
+| GET | `/api/plugins` | List active plugins' frontend bundles for the dashboard loader: `[{js_extension_path, requires_early_init}]`. Returns `[]` in an OSS-only install (no frontend plugins). See [backend.md § Plugin Framework](backend.md#plugin-framework). |

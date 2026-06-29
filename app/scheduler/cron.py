@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
+from app.ai.profiles import resolve_schedule_profile
 from app.config import DEFAULT_USER_ID
 from app.database import async_session
 from app.events.bus import event_bus
@@ -26,6 +27,7 @@ from app.scheduler.fanout import (
     run_fanout_job,
     run_single_job,
 )
+from app.scheduler.finalize_reaper import reap_finalized_batches
 from app.scheduler.plan_reaper import reap_stuck_planning_tasks
 from app.scheduler.stall_reaper import reap_stalled_running_tasks
 from app.scheduler.task_cleanup import cleanup_old_tasks
@@ -55,6 +57,7 @@ def start_scheduler():
     _register_email_sync()
     _register_plan_reaper()
     _register_stall_reaper()
+    _register_finalize_reaper()
     _register_task_cleanup()
 
 
@@ -141,6 +144,26 @@ def _register_stall_reaper():
     logger.info('Stall-reaper job registered (every 1 min)')
 
 
+def _register_finalize_reaper():
+    """Fire a fanout batch's parent finalize step once children are done.
+
+    1-min interval mirrors the stall reaper: a batch whose last child
+    just went terminal gets its finalize task within ~1 min. Cheap —
+    a couple of indexed counts per active batch. ``max_instances=1`` +
+    ``coalesce`` make it the single writer, so finalize fires once.
+    """
+    scheduler.add_job(
+        reap_finalized_batches,
+        'interval',
+        minutes=1,
+        id='finalize_reaper',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info('Finalize-reaper job registered (every 1 min)')
+
+
 def stop_scheduler():
     """Shutdown the scheduler. Called during app lifespan."""
     if scheduler.running:
@@ -178,6 +201,9 @@ async def _run_task_job(
     saved_plan_version: int | None = None
     platform = None
     country = None
+    # Inherit the owner's current default unless the schedule
+    # explicitly pins a provider (see resolve_schedule_profile).
+    resolved_profile: str = ai_profile_id or 'default'
     if schedule_id:
         async with async_session() as db:
             sched = await db.get(Schedule, schedule_id)
@@ -207,6 +233,7 @@ async def _run_task_job(
                 saved_plan_version = sched.plan_version
                 platform = sched.platform
                 country = sched.country
+                resolved_profile = await resolve_schedule_profile(sched, db)
 
     async with async_session() as db:
         if schedule_id:
@@ -224,7 +251,7 @@ async def _run_task_job(
             country=country,
             status=TaskStatus.PENDING,
             plan_mode=plan_mode,
-            ai_profile_id=ai_profile_id or 'default',
+            ai_profile_id=resolved_profile,
         )
         # If the schedule has a saved plan, pre-load it so the
         # child task can skip the design phase.

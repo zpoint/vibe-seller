@@ -262,8 +262,14 @@ class TestStallReaperPartialResult:
         assert '[PARTIAL — stream stalled' in t.result
         assert 'ads-tuning report' in t.result
 
-    async def test_prefers_result_over_assistant(self, reaper_env):
-        """When both result and assistant exist, uses result."""
+    async def test_result_event_means_completed_not_failed(self, reaper_env):
+        """A recovered `result` event = the deliverable is done.
+
+        The session's main loop finished and only the stop event was
+        lost — a transport failure, not a task failure. The task must
+        land COMPLETED with the result saved verbatim, never FAILED
+        with a "Re-run to retry" banner over finished work.
+        """
         maker, fake = reaper_env
         task_id = await _seed(
             maker, status=TaskStatus.RUNNING, minutes_since_update=10
@@ -289,8 +295,48 @@ class TestStallReaperPartialResult:
         await _reaper.reap_stalled_running_tasks()
 
         t = await _get(maker, task_id)
-        assert t.status == TaskStatus.FAILED
+        assert t.status == TaskStatus.COMPLETED
+        assert t.error is None
         assert 'tuning report' in t.result
+        assert '[PARTIAL' not in t.result
+
+    async def test_declared_result_means_completed(self, reaper_env):
+        """Task.result already set (vibe_seller_set_task_result) and
+        no error recorded → the agent declared success before the
+        stream died → COMPLETED."""
+        maker, fake = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=10
+        )
+        async with maker() as db:
+            t = await db.get(Task, task_id)
+            t.result = 'AD_AUDIT_2026-06-05.md — full audit, review ok'
+            await db.commit()
+
+        await _reaper.reap_stalled_running_tasks()
+
+        t = await _get(maker, task_id)
+        assert t.status == TaskStatus.COMPLETED
+        assert t.error is None
+        assert t.result == 'AD_AUDIT_2026-06-05.md — full audit, review ok'
+
+    async def test_result_plus_error_still_fails(self, reaper_env):
+        """result + error together is the documented partial-output-
+        on-failure combination — the error wins, task FAILED."""
+        maker, fake = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=10
+        )
+        async with maker() as db:
+            t = await db.get(Task, task_id)
+            t.result = 'Partial output before the browser died'
+            t.error = 'browser cannot start'
+            await db.commit()
+
+        await _reaper.reap_stalled_running_tasks()
+
+        t = await _get(maker, task_id)
+        assert t.status == TaskStatus.FAILED
 
     async def test_no_result_when_only_tool_use_messages(self, reaper_env):
         """Tool-use messages aren't useful as partial results."""

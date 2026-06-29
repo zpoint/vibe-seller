@@ -123,13 +123,13 @@ Tabs: All Warehouses, Saleable, Non-Saleable.
 Export button triggers direct CSV download (no modal).
 
 ```bash
-browser-use open "https://fbn.noon.partners/en-sa/inventory?project=PRJ{project_id}"
+browser-use open "https://fbn.noon.partners/en-<cc>/inventory?project=PRJ{project_id}"
 browser-use state
 browser-use click <export-btn>
 ```
 
 Warehouse codes follow a `<CITY-ABBR><NN><OPTIONAL-SUFFIX>` shape
-(e.g. Riyadh `RUH##S`, Jeddah `JED##`). Read the exact code from
+(e.g. a 3-letter city code like `XYZ##S`). Read the exact code from
 the page; don't hardcode.
 
 ## 7. Print Barcodes

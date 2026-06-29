@@ -24,6 +24,7 @@ import uuid
 from sqlalchemy import select
 
 from app import telemetry
+from app.ai.profiles import resolve_schedule_profile
 from app.browser.manager import store_slug as _store_slug
 from app.config import DEFAULT_USER_ID
 from app.database import async_session
@@ -143,6 +144,7 @@ async def run_fanout_job(
     two_phase = False
     is_catalog = False
     skip_reflection = False
+    resolved_profile: str = ai_profile_id or 'default'
     async with async_session() as db:
         sched = await db.get(Schedule, schedule_id)
         if not sched:
@@ -171,6 +173,7 @@ async def run_fanout_job(
         skip_reflection = sched.skip_reflection
         schedule_type = sched.schedule_type
         phase_mode_value = sched.phase_mode
+        resolved_profile = await resolve_schedule_profile(sched, db)
 
     # Get all active stores
     async with async_session() as db:
@@ -202,7 +205,7 @@ async def run_fanout_job(
             schedule_id=schedule_id,
             task_title=task_title,
             plan_mode=plan_mode,
-            ai_profile_id=ai_profile_id,
+            ai_profile_id=resolved_profile,
             saved_plan=saved_plan,
             batch_id=batch_id,
             skip_reflection=skip_reflection,
@@ -237,7 +240,7 @@ async def run_fanout_job(
                     status=TaskStatus.PENDING,
                     plan_mode=plan_mode,
                     skip_reflection=skip_reflection,
-                    ai_profile_id=ai_profile_id or 'default',
+                    ai_profile_id=resolved_profile,
                     batch_id=batch_id,
                 )
                 if saved_plan:
@@ -306,6 +309,7 @@ async def run_single_job(
     saved_plan = None
     saved_plan_version: int | None = None
     skip_reflection = False
+    resolved_profile: str = ai_profile_id or 'default'
     async with async_session() as db:
         sched = await db.get(Schedule, schedule_id)
         if not sched:
@@ -330,6 +334,7 @@ async def run_single_job(
         saved_plan_version = sched.plan_version
         skip_reflection = sched.skip_reflection
         single_schedule_type = sched.schedule_type
+        resolved_profile = await resolve_schedule_profile(sched, db)
 
     telemetry.send(
         TelemetryEvent.SCHEDULE_FIRED,
@@ -358,7 +363,7 @@ async def run_single_job(
             status=TaskStatus.PENDING,
             plan_mode=plan_mode,
             skip_reflection=skip_reflection,
-            ai_profile_id=ai_profile_id or 'default',
+            ai_profile_id=resolved_profile,
         )
         if saved_plan:
             task.plan = saved_plan

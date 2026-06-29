@@ -31,6 +31,12 @@ ARTIFACTS_DIR = Path(__file__).parent / 'artifacts'
 
 logger = logging.getLogger('e2e')
 
+# Questions whose text carries this tag are owned by a UI test that
+# answers them itself (issue #211 free-text click-through); the
+# session-wide auto-answer must NOT race it. Kept in sync with the
+# mock CLI's ASK_QUESTION (tests/e2e/mock_cli.py).
+MANUAL_ANSWER_TAG = '(free-text-e2e)'
+
 
 def pytest_report_header(config):
     """Show planned worker-to-provider mapping in test header."""
@@ -201,6 +207,17 @@ def _sse_auto_answer():
                         request_id = event.get('request_id', '')
                         if task_id and request_id:
                             questions = event.get('questions', [])
+                            # Defer questions a UI test owns (issue #211
+                            # free-text click-through) — answering them
+                            # here would beat the operator to it. Tag
+                            # kept in sync with mock_cli.ASK_QUESTION.
+                            if any(
+                                isinstance(q, dict)
+                                and MANUAL_ANSWER_TAG
+                                in str(q.get('question') or '')
+                                for q in questions
+                            ):
+                                continue
                             logger.info(
                                 '[%s] SSE auto-answering question %s',
                                 task_id[:8],

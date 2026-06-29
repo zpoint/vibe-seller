@@ -210,11 +210,11 @@ CREATE TABLE users (
 -- Stores (e-commerce store = browser profile)
 CREATE TABLE stores (
     id              TEXT PRIMARY KEY,       -- UUID
-    name            TEXT NOT NULL,          -- "SA-Store1", "AE-Store2"
+    name            TEXT NOT NULL,          -- "US-Store1", "UK-Store2"
     browser_backend TEXT NOT NULL DEFAULT 'ziniao',  -- ziniao | chrome | custom
     browser_config  TEXT NOT NULL,          -- JSON: backend-specific config (see below)
     platforms       TEXT NOT NULL,          -- JSON: ["amazon", "noon"]
-    countries       TEXT NOT NULL,          -- JSON: ["SA", "AE", "MX"]
+    countries       TEXT NOT NULL,          -- JSON: ["US", "UK", "MX"]
     config          TEXT,                   -- JSON: store-specific settings
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL
@@ -229,7 +229,7 @@ CREATE TABLE store_credentials (
     id              TEXT PRIMARY KEY,       -- UUID
     store_id        TEXT NOT NULL,
     platform        TEXT NOT NULL,          -- amazon | noon
-    country         TEXT,                   -- SA | AE | MX | null (all countries)
+    country         TEXT,                   -- US | UK | MX | null (all countries)
     username        TEXT,                   -- login username/email (encrypted)
     password        TEXT,                   -- login password (encrypted)
     otp_secret      TEXT,                   -- TOTP secret for 2FA (encrypted)
@@ -250,7 +250,7 @@ CREATE TABLE browser_sessions (
     proxy_pid       INTEGER,               -- CDP proxy process ID
     status          TEXT NOT NULL DEFAULT 'idle',  -- idle | occupied | starting | stopping | error
     current_platform TEXT,                  -- amazon | noon | null
-    current_country  TEXT,                  -- SA | AE | MX | null
+    current_country  TEXT,                  -- US | UK | MX | null
     current_url      TEXT,                  -- last known browser URL
     active_tab_count INTEGER DEFAULT 0,    -- number of active tabs
     started_at      TEXT,
@@ -283,7 +283,7 @@ CREATE TABLE tasks (
     title           TEXT NOT NULL,
     description     TEXT,
     platform        TEXT,                  -- amazon | noon
-    country         TEXT,                  -- SA | AE | MX
+    country         TEXT,                  -- US | UK | MX
     status          TEXT NOT NULL DEFAULT 'pending',
         -- pending | queued | designing | planned | running | waiting | completed | failed
     priority        INTEGER DEFAULT 0,     -- higher = more urgent
@@ -518,7 +518,7 @@ Store3 (chrome)            ──→ browser-use CLI (--session, no proxy needed
 
 ### Per-Store Task Queuing
 
-Multiple tasks for the **same store** run concurrently via CDPMuxProxy, except when tasks share the same platform but target different countries (e.g. Amazon SA vs Amazon AE) — those queue because Ziniao needs to switch country. Different platforms (e.g. Amazon + Noon) always run concurrently. Tasks for different stores always run concurrently.
+Multiple tasks for the **same store** run concurrently via CDPMuxProxy, except when tasks share the same platform but target different countries (i.e. the same platform in two different country marketplaces) — those queue because Ziniao needs to switch country. Different platforms (e.g. Amazon + Noon) always run concurrently. Tasks for different stores always run concurrently.
 
 ### Ziniao Guard (Account Conflict Detection)
 
@@ -704,7 +704,7 @@ The main differentiating UI component:
 ```
 ┌─────────────────────────────────────────────┐
 │ Task: Create Listing for SKU-001            │
-│ Store: SA-Store1 | Platform: Amazon         │
+│ Store: US-Store1 | Platform: Amazon         │
 │ Status: Running (Step 3/7)                  │
 ├─────────────────────────────────────────────┤
 │                                             │

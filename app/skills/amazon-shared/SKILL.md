@@ -19,8 +19,6 @@ in URLs — paths are usually identical.
 
 | Marketplace | Seller Central | Advertising console |
 |---|---|---|
-| Saudi Arabia | `sellercentral.amazon.sa` | `advertising.amazon.sa` |
-| UAE | `sellercentral.amazon.ae` | `advertising.amazon.ae` |
 | US | `sellercentral.amazon.com` | `advertising.amazon.com` |
 | UK | `sellercentral.amazon.co.uk` | `advertising.amazon.co.uk` |
 | (others) | `sellercentral.amazon.<tld>` | `advertising.amazon.<tld>` |
@@ -30,12 +28,12 @@ For the canonical per-country base URLs and path table, read
 of truth for seller-central paths (inventory, listings, orders,
 performance, etc.). Don't guess seller-central paths.
 
-**MENA unified accounts (SA + AE):** one Amazon seller-id, two
+**Unified multi-marketplace accounts:** one Amazon seller-id, multiple
 marketplaces. Inventory differs (~10–20% of ASINs are listed on one
-but not the other). Listing-status enums differ (e.g. SA omits
-`DetailPageRemoved` from filter dropdowns; AE includes it). Custom
-Reports's All-Listings TSV is byte-identical between sa/ae subdomains
-(account-level). Stranded Inventory is a single pool. When debugging
+but not the others). Listing-status enums differ (e.g. one marketplace
+omits `DetailPageRemoved` from a filter dropdown while another includes
+it — read the live dropdown). Custom Reports's All-Listings TSV is
+byte-identical across the marketplaces' subdomains (account-level). Stranded Inventory is a single pool. When debugging
 a specific listing, always specify which marketplace; "the inventory
 for store X" is ambiguous.
 

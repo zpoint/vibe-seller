@@ -4,14 +4,14 @@
 Reads order JSON from stdin, computes taxes/totals, outputs an A4 PDF.
 
 The agent extracts RAW values from the Amazon order page (strings like
-"AED 1,234.56") and passes them here.  This script handles:
-  - Currency-string -> float parsing  ("AED 1,234.56" -> 1234.56)
+"USD 1,234.56") and passes them here.  This script handles:
+  - Currency-string -> float parsing  ("USD 1,234.56" -> 1234.56)
   - Per-item amount calculation       (quantity x unit_price)
   - Tax derivation by country rules   (inclusive/exclusive per country)
   - Subtotal / total reconciliation
   - PDF rendering via ReportLab
 
-Required input field: "country" (2-letter ISO code, e.g. "AE").
+Required input field: "country" (2-letter ISO code, e.g. "US").
 The agent always knows the country from store metadata
 (platform_countries) or the task_country parameter.
 
@@ -215,7 +215,7 @@ for _cc, _info in COUNTRY_TAX.items():
 def safe_float(value) -> float:
     """Parse a currency string to float.
 
-    Handles formats like "AED 1,234.56", "$1,000.00", "-1.33", plain
+    Handles formats like "USD 1,234.56", "$1,000.00", "-1.33", plain
     numbers, None, and 'null'.
     """
     if value is None:
@@ -763,7 +763,7 @@ def main():
     # Validate required field
     if not data.get('country'):
         print(
-            'Error: "country" field is required (2-letter ISO code, e.g. "SA")',
+            'Error: "country" field is required (2-letter ISO code, e.g. "US")',
             file=sys.stderr,
         )
         sys.exit(1)

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LanguageSwitcher, WsFileItem } from './ui'
+import { StoreFilesSection } from './WorkspaceStoreSections'
 import { api } from '../api'
 import { sendEvent } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
@@ -103,8 +104,36 @@ export function Sidebar(props: SidebarProps) {
     syncBuiltinSkills, wsSkillsSyncing,
   } = props
 
+  /* Resizable sidebar: drag the right edge; width persists locally. */
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('vs.sidebarWidth'))
+    return saved >= 200 && saved <= 560 ? saved : 256
+  })
+  const startSidebarResize = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = sidebarWidth
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.min(560, Math.max(200, startW + ev.clientX - startX))
+      setSidebarWidth(w)
+    }
+    const onUp = (ev: MouseEvent) => {
+      const w = Math.min(560, Math.max(200, startW + ev.clientX - startX))
+      localStorage.setItem('vs.sidebarWidth', String(w))
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
   return (
-    <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
+    <div className="relative bg-white border-r border-gray-200 flex flex-col flex-shrink-0" style={{ width: sidebarWidth }}>
+      <div
+        onMouseDown={startSidebarResize}
+        className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-10 hover:bg-blue-200/60 active:bg-blue-300/60"
+        title="drag to resize"
+      />
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-baseline gap-1"><h1 className="text-lg font-bold leading-tight">Vibe Seller</h1>{serverVersion && <span className="text-[10px] text-gray-400" title={`Server: ${serverVersion}`}>v{serverVersion.slice(0, 14)}</span>}</div>
@@ -744,57 +773,7 @@ function WorkspaceSidebar(props: {
         )}
       </div>
 
-      {/* Store Memories section */}
-      <div>
-        <div className="px-3 pt-2 pb-1">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('workspace.files')}</p>
-        </div>
-        <p className="px-3 pb-2 text-[10px] text-gray-400 leading-tight">{t('workspace.storeFilesHint')}</p>
-        {p.wsStructured?.store_profiles.map(store => (
-          <div key={store.slug} className="border-b border-gray-50">
-            <button
-              onClick={() => p.toggleStoreExpanded(store.slug)}
-              className="w-full text-left px-3 py-1.5 flex items-center gap-2 hover:bg-gray-50 text-sm"
-            >
-              <span className={`text-[10px] text-gray-400 transition-transform ${p.wsExpandedStores.has(store.slug) ? 'rotate-90' : ''}`}>&#9654;</span>
-              <span className="font-medium text-gray-700 text-xs">{store.slug}</span>
-              {store.has_content && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" title={t('workspace.hasContent')} />}
-              <span className="text-[10px] text-gray-400 ml-auto">{store.file_count}</span>
-            </button>
-            {p.wsExpandedStores.has(store.slug) && (
-              <div className="ml-3">
-                <div className="flex items-center px-3 py-0.5">
-                  <button
-                    onClick={() => p.setWsNewFileSection(p.wsNewFileSection === store.path ? null : store.path)}
-                    className="text-[10px] text-gray-400 hover:text-blue-600"
-                  >+ {t('workspace.newFile')}</button>
-                </div>
-                {p.wsNewFileSection === store.path && (
-                  <div className="px-3 pb-1 flex gap-1">
-                    <input
-                      value={p.wsNewFileName}
-                      onChange={e => p.setWsNewFileName(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') p.createWsFile(store.path, p.wsNewFileName); if (e.key === 'Escape') p.setWsNewFileSection(null) }}
-                      placeholder="filename.md"
-                      className="flex-1 px-2 py-0.5 border border-gray-300 rounded text-xs"
-                      autoFocus
-                    />
-                  </div>
-                )}
-                {store.files.map(f => (
-                  <WsFileItem key={f.path} file={f} selected={p.wsSelectedFile === f.path} onSelect={p.openWsFile} onDelete={p.deleteWsFile} />
-                ))}
-                {store.files.length === 0 && (
-                  <div className="px-4 py-1 text-[10px] text-gray-400 italic">{t('common.noData')}</div>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        {p.wsStructured && p.wsStructured.store_profiles.length === 0 && (
-          <div className="px-4 py-2 text-xs text-gray-400 italic">{t('workspace.noStoresInWorkspace')}</div>
-        )}
-      </div>
+      <StoreFilesSection {...p} />
     </div>
   )
 }

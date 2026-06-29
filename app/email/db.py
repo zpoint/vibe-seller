@@ -125,6 +125,60 @@ def store_emails(account_id: str, emails: list[dict]) -> int:
     return new_count
 
 
+def get_new_emails_since(
+    account_id: str,
+    since_epoch: int,
+    folder: str = 'INBOX',
+    limit: int = 200,
+) -> tuple[list[dict], int]:
+    """Return emails strictly newer than ``since_epoch`` + the max epoch.
+
+    Server-side watermark filter for the scheduled email sweep. Agents
+    must NOT hand-write a raw ``SELECT`` for this: an unfiltered query
+    pulls already-processed email bodies into the agent's context and
+    leaks them into the current run (see
+    ``tests/e2e/test_email_watermark_e2e.py`` — the run-2
+    ``SECRET_1 not in transcript`` assertion). Filtering here moves the
+    cursor contract from prose into code, so the bug class cannot recur
+    from the agent surface.
+
+    Each row carries an ``epoch`` column
+    (``CAST(strftime('%s', date) AS INTEGER)``) so the caller never has
+    to translate ISO → epoch (a known year-off footgun). The second
+    tuple element is the max epoch among returned rows, or
+    ``since_epoch`` when nothing is new — so the caller can persist a
+    monotonic, never-regressing watermark.
+    """
+    path = db_path_for_account(account_id)
+    if not path.exists():
+        return [], since_epoch
+
+    conn = sqlite3.connect(str(path))
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            'SELECT message_id, folder, subject, sender, recipient,'
+            ' date, body_text,'
+            " CAST(strftime('%s', date) AS INTEGER) AS epoch"
+            ' FROM emails'
+            ' WHERE folder = ?'
+            "   AND CAST(strftime('%s', date) AS INTEGER) > ?"
+            ' ORDER BY epoch ASC'
+            ' LIMIT ?',
+            (folder, since_epoch, limit),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    emails = [dict(r) for r in rows]
+    max_epoch = since_epoch
+    for em in emails:
+        ep = em.get('epoch')
+        if ep is not None and ep > max_epoch:
+            max_epoch = ep
+    return emails, max_epoch
+
+
 def get_sync_state(account_id: str, folder: str) -> dict:
     """Read the sync watermark for *folder*."""
     path = db_path_for_account(account_id)

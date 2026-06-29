@@ -296,7 +296,7 @@ echo "$TASK_ID"
 | Field | Required | Notes |
 |---|---|---|
 | `title` | yes | Short imperative; this becomes the agent's primary instruction. |
-| `description` | no | Free-form context — country (`NOON AE`, `Amazon SA`), date range, prior-task references. |
+| `description` | no | Free-form context — country (`NOON EG`, `Amazon US`), date range, prior-task references. |
 | `store_id` | no\* | Required for store-scoped work. Omit for non-store tasks (always plan mode). |
 | `ai_profile_id` | no | Defaults to the user's `default_profile_id`. Override per-run (e.g. `claude_code`, `minimax`, `kimi`) — check `app/ai/profiles.py` for the live list. |
 | `plan_mode` | no | `false` (default) = auto-run. `true` = plan-then-execute (PENDING → DESIGNING → PLANNED → wait for `/run`). |
@@ -380,12 +380,12 @@ Ad rows):
 ```bash
 # Get parent SKU for an ASIN — use the inventory page UI
 ~/.vibe-seller/bin/<slug>/browser-use open \
-  "https://sellercentral.amazon.sa/myinventory/inventory?searchKey=<ASIN>&status=all"
+  "https://sellercentral.amazon.com/myinventory/inventory?searchKey=<ASIN>&status=all"
 # The "Parent SKU:" label in the page text is the parent SKU.
 
 # Get child SKUs by drilling down to SKU central
 ~/.vibe-seller/bin/<slug>/browser-use open \
-  "https://sellercentral.amazon.sa/skucentral?mSku=<parent-sku>&condition=New"
+  "https://sellercentral.amazon.com/skucentral?mSku=<parent-sku>&condition=New"
 # This page has Sales/Pricing/Inventory tabs. The variations expand
 # is in the "Inventory" tab on most SKUs.
 ```
@@ -432,18 +432,18 @@ what worked, not the per-run captures.
   column may have spaces or non-ascii. They are NOT the same string
   for some stores. The slug is what `bin/` and `downloads/` use.
 
-- **MENA unified accounts (SA + AE):** one Amazon seller-id, two
+- **Unified multi-marketplace accounts:** one Amazon seller-id, several
   marketplaces. Inventory differs (~10–20% of ASINs are listed on
-  one but not the other). Listing-status enums differ (e.g. SA omits
-  `DetailPageRemoved` from filter dropdowns; AE includes it). Custom
-  Reports's All-Listings TSV is byte-identical between sa/ae subdomains
-  (account-level). Stranded Inventory is a single pool. When debugging
+  some but not others). Listing-status enums differ between marketplaces
+  (read the live filter dropdown — one marketplace may omit a value
+  another includes). Custom Reports's All-Listings TSV is byte-identical
+  across the marketplaces' subdomains (account-level). Stranded Inventory is a single pool. When debugging
   a specific listing, always specify which marketplace; "the inventory
   for store X" is ambiguous.
 
 - **Two Amazon accounts per store:** the seller-central account
-  (sellercentral.amazon.sa) and the advertising account
-  (advertising.amazon.sa) can be on different underlying Amazon
+  (sellercentral.amazon.com) and the advertising account
+  (advertising.amazon.com) can be on different underlying Amazon
   accounts with different emails — even though SSO usually bridges
   them. When debugging an "I logged in but it shows the wrong
   account" issue, check the email in the Ziniao password-fill dialog
@@ -458,7 +458,7 @@ what worked, not the per-run captures.
   running"; trust DB for "what task-queue-scheduler will do next".
 
 - **The `aux` session for non-seller-center sites:** when you need to
-  visit `amazon.sa/dp/<ASIN>` (public product page) for a probe
+  visit `amazon.com/dp/<ASIN>` (public product page) for a probe
   without disrupting the main seller-central session, use
   `--session <slug>-aux`. It's a Chrome-direct (no CDP proxy) session
   that the wrapper allows even in task-mode.

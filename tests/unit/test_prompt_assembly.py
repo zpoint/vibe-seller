@@ -111,7 +111,7 @@ def store():
         browser_backend='chrome',
         browser_config='{"headless": true}',
         platforms='["amazon"]',
-        countries='["SA"]',
+        countries='["US"]',
     )
 
 
@@ -120,7 +120,7 @@ def task(store):
     return Task(
         id='task-1',
         title='Check inventory levels',
-        description='Check SA inventory for all SKUs',
+        description='Check US inventory for all SKUs',
         store_id=store.id,
         created_by='user-1',
         status='pending',
@@ -134,7 +134,7 @@ def plan_task(store):
     return Task(
         id='task-2',
         title='Setup logistics',
-        description='Configure SA logistics settings',
+        description='Configure US logistics settings',
         store_id=store.id,
         created_by='user-1',
         status='pending',
@@ -176,7 +176,7 @@ def execute_task(store):
     return Task(
         id='task-4',
         title='Ship orders',
-        description='Process pending SA shipments',
+        description='Process pending US shipments',
         store_id=store.id,
         created_by='user-1',
         status='planned',
@@ -235,6 +235,30 @@ class TestAutoStoreTask:
         # policy — they have their own store dir as a home and
         # the policy would contradict that.
         assert 'Write policy (no-store task)' not in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_plugin_prompt_fragment_is_appended(
+        self, _patch_async_session, task, store
+    ):
+        """A plugin-registered 'system_extra' fragment must reach the
+        assembled prompt — guards the extension seam against
+        regressing to a dead hook (declared but never consumed)."""
+        from app import plugins as _plugins  # noqa: PLC0415
+
+        marker = 'PLUGIN-FRAGMENT-MARKER-7Z9'
+        _plugins.get_extension_context().register_prompt_fragment(
+            'system_extra', marker
+        )
+        try:
+            bundle = await build_system_extra(
+                task,
+                store,
+                header=TaskHeader.AUTO,
+                store_emails=TEST_EMAILS,
+            )
+            assert marker in bundle.system_extra
+        finally:
+            _plugins.reset_for_tests()
 
     @pytest.mark.asyncio
     async def test_contains_reflection_reminder(
@@ -767,6 +791,8 @@ class TestPlanOnlyBlock:
     ):
         scheduled_task.is_plan_only = True
         scheduled_task.plan_mode = True
+        # Store-LESS single schedule = one task covering all stores;
+        # it may legitimately orchestrate, so no single-store bullet.
         single_sched = Schedule(
             id='single-sched',
             title='Single',
@@ -782,5 +808,39 @@ class TestPlanOnlyBlock:
             header=TaskHeader.DESIGN,
             schedule=single_sched,
         )
-        # Single-mode plans may legitimately orchestrate — no bullet.
         assert 'FANOUT mode' not in bundle.system_extra
+        assert 'SINGLE-STORE' not in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_store_bound_schedule_gets_single_store_restriction(
+        self, _patch_async_session, scheduled_task, store
+    ):
+        """A store-bound schedule (store_id set) must author a direct,
+        single-store plan — no orchestrator / sub-task spawning, and no
+        multi-store abstraction language."""
+        scheduled_task.is_plan_only = True
+        scheduled_task.plan_mode = True
+        store_sched = Schedule(
+            id='store-sched',
+            store_id=store.id,
+            title='Store withdraw',
+            schedule_type='days',
+            schedule_time='19:00',
+            plan_mode=True,
+            phase_mode=PhaseMode.SINGLE.value,
+            created_by='user-1',
+        )
+        bundle = await build_system_extra(
+            scheduled_task,
+            None,
+            header=TaskHeader.DESIGN,
+            schedule=store_sched,
+        )
+        # Single-store directness bullet present; no fanout, no
+        # multi-store "do NOT reference a specific store" framing.
+        assert 'SINGLE-STORE' in bundle.system_extra
+        assert 'bound to a SINGLE specific store' in bundle.system_extra
+        assert 'FANOUT mode' not in bundle.system_extra
+        assert (
+            'Do NOT reference a specific store slug' not in bundle.system_extra
+        )

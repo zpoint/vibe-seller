@@ -2,8 +2,8 @@
 
 Documents which commands the cross-task safety hook blocks vs allows.
 The deny patterns exist because in production a pkill -f from one
-fanout sub-task killed bash subprocesses in two sibling tasks (real
-incident on 2026-05-07).
+fanout sub-task killed bash subprocesses in two sibling tasks (a real
+incident).
 """
 
 import pytest
@@ -12,6 +12,8 @@ from app.ai.bash_safety import (
     check_catalog_first,
     check_catalog_first_tool_args,
     check_dangerous_kill,
+    check_report_overwrite,
+    check_report_script_write,
     is_catalog_path,
     should_mark_catalog_read,
 )
@@ -314,3 +316,157 @@ class TestShouldMarkCatalogRead:
     def test_empty_input_does_not_flip(self):
         assert not should_mark_catalog_read('Read', {})
         assert not should_mark_catalog_read('Read', {'file_path': ''})
+
+
+class TestReportScriptGuard:
+    """The AD_AUDIT report is hand-authored via Edit. Twice an agent
+    under turn pressure script-regenerated the whole report from
+    TSVs, wiping sessions of hand analysis — the prose prohibition
+    didn't hold, so the contract is enforced here."""
+
+    def test_python_script_that_writes_report_blocked(self, tmp_path):
+        script = tmp_path / 'build_report.py'
+        script.write_text(
+            'OUTPUT = "AD_AUDIT_2026-06-10.md"\nopen(OUTPUT, "w").write(body)\n'
+        )
+        deny = check_report_script_write('python3 build_report.py', tmp_path)
+        assert deny is not None and 'Edit' in deny
+
+    def test_renamed_script_still_blocked(self, tmp_path):
+        # Guard reads script content, so renaming doesn't evade it.
+        script = tmp_path / 'helper.py'
+        script.write_text("p = 'AD_AUDIT_x.md'\nPath(p).write_text(data)\n")
+        assert check_report_script_write('python3 helper.py', tmp_path)
+
+    def test_readonly_analysis_script_allowed(self, tmp_path):
+        script = tmp_path / 'analyze.py'
+        script.write_text(
+            "text = open('AD_AUDIT_2026-06-10.md').read()\nprint(len(text))\n"
+        )
+        assert check_report_script_write('python3 analyze.py', tmp_path) is None
+
+    def test_inline_python_write_blocked(self):
+        cmd = "python3 -c \"open('AD_AUDIT_2026-06-10.md', 'w').write(x)\""
+        assert check_report_script_write(cmd) is not None
+
+    def test_redirect_onto_report_blocked(self):
+        assert check_report_script_write(
+            'cat /tmp/built.md > AD_AUDIT_2026-06-10.md'
+        )
+        assert check_report_script_write(
+            'echo "| row |" >> ./AD_AUDIT_2026-06-10.md'
+        )
+
+    def test_redirect_from_report_allowed(self):
+        # Reading the report into a pipe/file is fine.
+        assert (
+            check_report_script_write(
+                'grep 对账 AD_AUDIT_2026-06-10.md > /tmp/recon.txt'
+            )
+            is None
+        )
+
+    def test_cp_onto_report_blocked_but_previous_restore_allowed(self):
+        assert check_report_script_write(
+            'cp /tmp/generated.md AD_AUDIT_2026-06-10.md'
+        )
+        assert (
+            check_report_script_write(
+                'cp AD_AUDIT_PREVIOUS.md AD_AUDIT_2026-06-10.md'
+            )
+            is None
+        )
+
+    def test_sed_in_place_fix_allowed(self):
+        # Targeted in-place batch fixes are tolerated by design.
+        assert (
+            check_report_script_write(
+                "sed -i '' 's/维持或提高/提高出价/' AD_AUDIT_2026-06-10.md"
+            )
+            is None
+        )
+
+    def test_unrelated_commands_allowed(self, tmp_path):
+        assert check_report_script_write('ls -la', tmp_path) is None
+        assert check_report_script_write('', None) is None
+        assert check_report_script_write('python3 missing.py', tmp_path) is None
+
+
+class TestReportOverwriteGuard:
+    """Write may not replace an existing AD_AUDIT report — the
+    Write-tool hop around the report-script guard (script builds a
+    'corrected' file in /tmp, agent Write-dumps it over the report)
+    replaced 334KB of revisions with a stale 298KB base live."""
+
+    def test_write_over_existing_report_denied(self, tmp_path):
+        f = tmp_path / 'AD_AUDIT_2026-06-10.md'
+        f.write_text('# report')
+        deny = check_report_overwrite('Write', {'file_path': str(f)}, tmp_path)
+        assert deny is not None and 'Edit' in deny
+
+    def test_write_creates_new_report_allowed(self, tmp_path):
+        # Scaffold creation: no file yet → Write is the right tool.
+        assert (
+            check_report_overwrite(
+                'Write',
+                {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-12.md')},
+                tmp_path,
+            )
+            is None
+        )
+
+    def test_relative_path_resolved_against_task_dir(self, tmp_path):
+        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('x')
+        assert check_report_overwrite(
+            'Write', {'file_path': 'AD_AUDIT_2026-06-10.md'}, tmp_path
+        )
+
+    def test_other_tools_and_files_ignored(self, tmp_path):
+        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('x')
+        assert (
+            check_report_overwrite(
+                'Edit',
+                {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-10.md')},
+                tmp_path,
+            )
+            is None
+        )
+        assert (
+            check_report_overwrite(
+                'Write', {'file_path': str(tmp_path / 'notes.md')}, tmp_path
+            )
+            is None
+        )
+
+
+class TestReportForkGuard:
+    """One canonical report per task dir: with AD_AUDIT_A.md present,
+    creating AD_AUDIT_B.md is the fork workaround (observed live:
+    overwrite denied → agent created AD_AUDIT_<today>.md seeded from
+    a stale temp and burned a session fixing the zombie)."""
+
+    def test_fork_to_new_dated_report_denied(self, tmp_path):
+        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('# r')
+        deny = check_report_overwrite(
+            'Write',
+            {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-12.md')},
+            tmp_path,
+        )
+        assert deny is not None and 'AD_AUDIT_2026-06-10.md' in deny
+
+    def test_first_report_scaffold_still_allowed(self, tmp_path):
+        assert (
+            check_report_overwrite(
+                'Write',
+                {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-12.md')},
+                tmp_path,
+            )
+            is None
+        )
+
+    def test_fork_via_relative_path_denied(self, tmp_path):
+        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('# r')
+        deny = check_report_overwrite(
+            'Write', {'file_path': 'AD_AUDIT_2026-06-12.md'}, tmp_path
+        )
+        assert deny is not None

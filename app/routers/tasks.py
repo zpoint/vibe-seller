@@ -10,17 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
-from app.ai.bash_safety import (
-    check_exec_review_status,
-    check_review_status,
-)
+from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
 from app.ai.stop_gates import (
     SOFT_GATE_MAX_DENIALS,
+    clear_skill_bindings,
     markdown_format as md_format_gate,
     record_attempt,
     reset_attempts,
+    resolve_skill_gates,
     result_language as language_gate,
 )
 from app.auth import get_current_user
@@ -31,6 +30,11 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
 from app.models.user import User
+from app.routers.tasks_files import (
+    looks_like_result_path,
+    resolve_store_rules,
+    resolve_workspace_result_path,
+)
 from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
 from app.schemas.user import TaskModeToggle
@@ -256,10 +260,10 @@ async def delete_task(
         await delete_task_record(db, task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    # Drop any soft-gate attempt counters for this task — same
-    # rationale as the success path: stop the in-memory map from
-    # accumulating stale entries over a long-running server.
+    # Drop the gate-attempt counters and the durable skill→gate
+    # binding file with the task (bounded server state).
     reset_attempts(task_id)
+    clear_skill_bindings(task_id)
     return {'ok': True}
 
 
@@ -620,61 +624,51 @@ async def set_task_result(
             detail=(f'Cannot set result on task in status {task.status}'),
         )
 
-    # Ad-tuning reviewer gates. The Stop-hook variants are unreliable
-    # (some agent backends — e.g. deepseek-v4-pro — never emit a Stop
-    # event), so the gates live at the MCP tool the agent always calls.
-    # Both are quiet no-ops for non-ads tasks (no ``AD_AUDIT_*.md``
-    # / ``EXECUTION_LOG.md`` in the workspace). See
-    # ``amazon-ads/references/reviewer-loop.md`` for the contract.
     task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
-    deny = check_review_status(task_root)
-    if deny:
-        raise HTTPException(status_code=400, detail=deny)
+
+    # Phase-4 execution review gate (no-op unless an ``EXECUTION_LOG.md``
+    # exists in the workspace). The audit-report reviewer is no longer a
+    # separate subagent loop gated here — it's the constructive
+    # completeness reviewer below (``ad_completeness_review``), which
+    # lists what's missing each round and converges. See
+    # ``amazon-ads/references/output-spec.md``.
     deny = check_exec_review_status(task_root)
     if deny:
         raise HTTPException(status_code=400, detail=deny)
 
-    # File-pointer mode: if `body.result` is a relative path that
-    # exists inside this task's workspace, read the file and use
-    # its contents. This lets the agent compose long reports via
-    # the built-in `Write` tool (streamed, fast) and then pass
-    # only the filename to set_task_result — avoiding the
-    # multi-minute composition stalls some providers hit when
-    # packing a 25KB result into a single MCP tool input. Only
-    # short, single-line, slash-prefixed strings under ~512 chars
-    # are even considered for resolution; anything else is
-    # treated as direct content.
+    # File-pointer mode: if `body.result` points at a file inside this
+    # task's workspace, read the file and use its contents (see
+    # ``resolve_workspace_result_path`` for the path-resolution
+    # contract). Otherwise treat the value as direct content.
     raw = body.result
     resolved_content: str | None = None
-    if (
-        isinstance(raw, str)
-        and 0 < len(raw) <= 512
-        and '\n' not in raw
-        and ('/' in raw or '\\' in raw or raw.startswith('./'))
-    ):
-        # Strip a single leading `./` or `/`. NOT `lstrip('./')` —
-        # that treats the argument as a *set* of characters and would
-        # eat things like `.claude/...` down to `claude/...`.
-        if raw.startswith('./'):
-            candidate = raw[2:]
-        elif raw.startswith('/'):
-            candidate = raw.lstrip('/')
-        else:
-            candidate = raw
+    target = resolve_workspace_result_path(raw, task_root)
+    if target is not None:
+        # File reads are blocking; offload so the event loop stays
+        # responsive when an agent saves a multi-100KB report.
         try:
-            target = (task_root / candidate).resolve()
-            # `is_relative_to` is the canonical containment check —
-            # mirrors what `app/routers/tasks_files.py` uses for the
-            # task-file endpoints.
-            if target.is_file() and target.is_relative_to(task_root):
-                # File reads are blocking; offload so the event loop
-                # stays responsive when an agent saves a multi-100KB
-                # report.
-                resolved_content = await asyncio.to_thread(
-                    target.read_text, encoding='utf-8'
-                )
-        except (OSError, ValueError):
+            resolved_content = await asyncio.to_thread(
+                target.read_text, encoding='utf-8'
+            )
+        except OSError:
             resolved_content = None
+
+    # A DANGLING pointer must be rejected, never demoted to content: a
+    # path-like string that resolves to no file would sail through every
+    # content gate vacuously (no ad sections to check) and complete the
+    # task with a literal path as its "result" — the bypass that let a
+    # quoted pointer end a 3/46 audit. Tell the agent exactly what to do.
+    if resolved_content is None and looks_like_result_path(raw):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f'result looks like a file path but no such file exists '
+                f'in this task workspace: {raw!r}. Write the report file '
+                'first (built-in Write/Edit), then call set_task_result '
+                'with its path (e.g. "./AD_AUDIT_<date>.md") — or pass '
+                'the full report content directly.'
+            ),
+        )
 
     final_result = resolved_content if resolved_content is not None else raw
 
@@ -707,13 +701,42 @@ async def set_task_result(
             deny.reason[:200],
         )
 
+    # Skill-declared domain gates: the session's loaded skills name
+    # WHICH reviewers apply (``gates: [...]`` in SKILL.md frontmatter
+    # → stop_gates.get_registered_gates). Tasks that loaded no
+    # gate-declaring skill get only the generic gates above.
+    rules = await resolve_store_rules(db, task.store_id)
+    loaded, workspace = agent_manager.loaded_skills_and_workspace(task_id)
+    skill_gates = resolve_skill_gates(loaded, workspace or VIBE_SELLER_DIR)
+
+    for gate_name, gate in skill_gates:
+        deny = gate.check(final_result, task_id, rules)
+        if not deny:
+            continue
+        # Fail open only on STALL when the gate tracks one (see
+        # ad_completeness_review for the stall design).
+        is_stalled = getattr(gate, 'is_stalled', None)
+        if is_stalled is None or not is_stalled(task_id):
+            raise HTTPException(status_code=400, detail=deny.reason)
+        logger.warning(
+            'Gate %s stalled for task %s — accepting best result. Gaps: %s',
+            gate_name,
+            task_id,
+            deny.reason[:200],
+        )
+
     task.result = final_result
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
 
-    # Result persisted — drop the per-task gate-attempt counters
-    # so a long-running server doesn't accumulate stale entries.
+    # Result persisted — drop the per-task gate-attempt counters and
+    # any gate-owned progress state so a long-running server doesn't
+    # accumulate stale entries (and a later retry starts fresh).
     reset_attempts(task_id)
+    for _name, gate in skill_gates:
+        reset = getattr(gate, 'reset_progress', None)
+        if reset is not None:
+            reset(task_id)
 
     # Emit a result message so the frontend conversation stream
     # renders the Result section immediately via SSE. Don't

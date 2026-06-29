@@ -37,13 +37,32 @@ class TestAnsweredQuestionsPrefix:
                 {'question': 'Include suppressed listings?'},
             ],
             {
-                'Which site?': 'SA + AE',
+                'Which site?': 'US + UK',
                 'Include suppressed listings?': 'Yes',
             },
         )
-        assert 'Which site? → SA + AE' in prefix
+        assert 'Which site? → US + UK' in prefix
         assert 'Include suppressed listings? → Yes' in prefix
         assert 'Please continue the task' in prefix
+
+    def test_renders_free_text_answer(self):
+        """Issue #211: the 'Type freely instead' mode submits
+        ``{'_free_text': '<text>'}`` — keyed by no question text. On
+        the resume path the prefix must still surface that text rather
+        than rendering empty answers and dropping the operator input.
+        """
+        prefix = format_answered_questions_prefix(
+            [
+                {'question': 'Which site?'},
+                {'question': 'Include suppressed listings?'},
+            ],
+            {'_free_text': 'Just US, and skip the suppressed ones'},
+        )
+        assert 'Just US, and skip the suppressed ones' in prefix
+        # The buggy render produced empty answers ('Which site? → ').
+        assert not any(
+            line.rstrip().endswith('→') for line in prefix.splitlines()
+        )
 
     def test_falls_back_to_json_when_shape_wrong(self):
         # Agent SDK variant where questions list isn't dicts
@@ -152,7 +171,7 @@ async def test_inject_answers_prepends_prefix_and_clears_wait_condition(
             'request_id': 'req-123',
             'questions': [{'question': 'Which site?'}],
         },
-        'answers': {'Which site?': 'SA + AE'},
+        'answers': {'Which site?': 'US + UK'},
         'answered_at': '2026-04-20T01:30:00+00:00',
     })
     db = _DBSession(task)
@@ -170,7 +189,7 @@ async def test_inject_answers_prepends_prefix_and_clears_wait_condition(
     new_bundle = await maybe_inject_pending_answers('task-xyz', bundle)
 
     assert new_bundle is not bundle
-    assert 'Which site? → SA + AE' in new_bundle.prompt
+    assert 'Which site? → US + UK' in new_bundle.prompt
     assert new_bundle.prompt.endswith('Original user turn')
     assert new_bundle.system_extra == 'sys'
     assert new_bundle.mode == 'auto'

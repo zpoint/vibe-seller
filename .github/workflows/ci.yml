@@ -201,7 +201,14 @@ jobs:
             > logs/mock_server_stdout.log 2>&1 &
           SERVER_PID=$!
           echo "Mock CLI server PID: $SERVER_PID"
-          for i in {1..15}; do
+          # 90s window (matches the e2e-test job): the cold first-boot
+          # creates the shared agent venv, installs skill deps, and runs
+          # the full skills+knowledge sync + DB init. On a contended
+          # runner this regularly crossed 30s and false-failed while the
+          # server was still in "Waiting for application startup" — the
+          # loop exits early the instant /api/health responds, so the
+          # larger ceiling only matters on the slowest cold boots.
+          for i in {1..90}; do
             sleep 1
             if ! kill -0 $SERVER_PID 2>/dev/null; then
               echo "ERROR: Server died on iteration $i"
@@ -271,6 +278,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Kill leftover server
+        run: lsof -ti:7777 | xargs kill -9 2>/dev/null || true
+
+      # Clean BEFORE install: install.sh writes claude CLI to
+      # ~/.vibe-seller/node_modules/.bin/claude. If we clean after,
+      # the server starts with no claude and all tasks fail with
+      # FileNotFoundError. Previous order only worked because old
+      # containers had an accumulated global claude in ~/.npm-global/
+      # from prior runs; clean images have no such fallback.
+      - name: Clean stale data from previous runs
+        run: rm -rf ~/.vibe-seller
+
       # Dogfood install.sh --dev so this job catches install.sh
       # regressions (missing claude/sqlite3/playwright/etc.) the
       # moment they land — same script every end user runs. --dev
@@ -295,12 +314,6 @@ jobs:
           git config --local user.email "ci@vibe-seller.test"
           git config --local user.name "CI Bot"
 
-      - name: Kill leftover server
-        run: lsof -ti:7777 | xargs kill -9 2>/dev/null || true
-
-      - name: Clean stale data from previous runs
-        run: rm -rf ~/.vibe-seller
-
       - name: Start server
         # Use the documented user command, not raw uvicorn — that
         # way `_cmd_start`'s PATH augmentation (which makes claude
@@ -321,7 +334,10 @@ jobs:
           echo "=== Starting server via vibe-seller CLI ==="
           echo "Claude CLI location: $(which claude || echo not-on-shell-PATH)"
           vibe-seller start --port 7777
-          for i in $(seq 1 30); do
+          # 90s: cold first-boot (rm -rf ~/.vibe-seller above) runs the
+          # full skills+knowledge sync + DB init, which crosses 30s on a
+          # contended runner. Loop exits the instant /api/health responds.
+          for i in $(seq 1 90); do
             if curl -fsS http://127.0.0.1:7777/api/health > /dev/null 2>&1; then
               echo "Server healthy after ${i}s"
               exit 0
@@ -361,6 +377,7 @@ jobs:
             --only-rerun 'API Error: 529' \
             --only-rerun 'overloaded_error' \
             --only-rerun 'Agent stream stalled' \
+            --only-rerun 'Connection closed mid-response' \
             --maxfail=1 \
             $XDIST_ARGS \
             --ignore=tests/e2e/test_chrome_backend.py

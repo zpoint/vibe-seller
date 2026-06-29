@@ -61,13 +61,13 @@ def test_returns_browseruse_profile_bookmarks(profile_dirs):
     _write_bookmarks(
         bu_root,
         'demo-alpha',
-        [{'name': 'Seller Central', 'url': 'https://sellercentral.amazon.sa'}],
+        [{'name': 'Seller Central', 'url': 'https://sellercentral.amazon.com'}],
     )
 
     result = read_bookmarks('demo-alpha')
 
     assert result == [
-        {'name': 'Seller Central', 'url': 'https://sellercentral.amazon.sa'}
+        {'name': 'Seller Central', 'url': 'https://sellercentral.amazon.com'}
     ]
 
 

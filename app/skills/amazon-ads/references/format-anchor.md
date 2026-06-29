@@ -1,10 +1,16 @@
 # Audit format — canonical anchor
 
+> **LEGACY for amazon/noon audits.** The binding contract is now
+> [`output-spec.md`](output-spec.md), enforced by the server
+> completeness reviewer at `set_task_result` (no `ads-format-review`
+> subagent for amazon/noon). Load this file only for the exact table
+> column layouts in the example below. Platforms without the server
+> reviewer still use this anchor with `reviewer-loop.md`.
+
 The deliverable for any ad-tuning audit is one Markdown file plus
 one TSV per active campaign. The Markdown's shape is fixed by
-this anchor; deviations are caught by the `ads-format-review`
-reviewer subagent and the Stop-hook review gate. **Do not invent
-your own structure.** When in doubt, mirror the example below.
+this anchor. **Do not invent your own structure.** When in doubt,
+mirror the example below.
 
 ## Why the Recommendation column lives in the table
 
@@ -163,8 +169,8 @@ of these:
 | 11 | 汇总建议 priority table exists with ≥ 1 row | Section missing |
 | 12 | TSV records block at the end with one entry per active campaign | Block missing or incomplete |
 | 13 | No invented jargon (e.g., `机械状态`, `precedence matrix`, `bidding strategy precedence`) | Any of those terms present |
-| 14 | **No placeholder rows on active campaigns.** Every Targeting / Search Terms / Targets / Customer Queries table for an active campaign must show real data rows, NOT excuses like *"drill skipped this cycle"*, *"small campaign — skipped"*, *"virtualized grid — per-row extraction blocked"*, *"data not captured"*. Small spend is not a skip reason; React-Virtualized grids extract row by row via scroll-and-eval. The only acceptable empty case is *"0 search terms in this period"* with a concrete count of 0. | A row that reads "Search terms drill skipped this cycle (small campaign, AED 30 spend)" — defect |
-| 15 | **Pause recommendations include alternatives, each row backed by a verifiable evidence file.** See § "Rule 15 — Alternatives source structure" below for the full source list, evidence file paths, and "honest empty" acceptance criterion. **Fabricated rows (citing data the agent did not actually capture) are the worst class of defect — they look authoritative but mislead.** A Pause without Alternatives is also a defect. | `Amazon Brand Analytics (AE) | "socks 24" | category result` — fabricated row (WIDGET-A is an internal SKU code, not a customer query) — defect |
+| 14 | **No placeholder rows on active campaigns.** Every Targeting / Search Terms / Targets / Customer Queries table for an active campaign must show real data rows, NOT excuses like *"drill skipped this cycle"*, *"small campaign — skipped"*, *"virtualized grid — per-row extraction blocked"*, *"data not captured"*. Small spend is not a skip reason; React-Virtualized grids extract row by row via scroll-and-eval. The only acceptable empty case is *"0 search terms in this period"* with a concrete count of 0. | A row that reads "Search terms drill skipped this cycle (small campaign, USD 30 spend)" — defect |
+| 15 | **Pause recommendations include alternatives, each row backed by a verifiable evidence file.** See § "Rule 15 — Alternatives source structure" below for the full source list, evidence file paths, and "honest empty" acceptance criterion. **Fabricated rows (citing data the agent did not actually capture) are the worst class of defect — they look authoritative but mislead.** A Pause without Alternatives is also a defect. | `Amazon Brand Analytics (<country>) | "phone stand 24" | category result` — fabricated row (WIDGET-A is an internal SKU code, not a customer query) — defect |
 | 16 | **SB-Video / virtualized-grid campaigns drilled like everyone else.** SB-Video (Sponsored Brands Video) uses React-Virtualized for its keyword grid; the agent must extract row-by-row by scrolling the grid, not give up with "extraction blocked". The Targeting table for an SB-Video campaign must have real keyword rows. Excuses like "React Virtualized grid — per-row extraction blocked" fail this rule. See `mechanics.md § virtualized-grid extraction`. | A row reading "13 keywords (React Virtualized grid — per-row extraction blocked)" — defect |
 
 ## Rule 15 — Alternatives source structure
@@ -205,8 +211,8 @@ Used when the agent has actually opened
 Terms** report, ASIN tab — NOT the legacy `brandanalytics.amazon`
 host, which 404s), filtered to the SKU's specific ASIN (not the
 category), and captured the result to the file path above. **Category-broad queries are
-forbidden** — they produce terms like *"socks men"* or *"ankle
-socks"* that are too generic to act on without ASIN-level
+forbidden** — they produce terms like *"usb cable"* or *"phone
+accessories"* that are too generic to act on without ASIN-level
 evidence; rows citing such terms get rejected even with a capture
 file, because the file's filtered-ASIN column won't match.
 
@@ -221,7 +227,7 @@ keywords appear as rows in the file.
 
 ### Readable evidence references — names first, paths second
 
-Raw file paths like `stores/acme-store/ads/noon/sa/C_FAKE0002.tsv`
+Raw file paths like `stores/acme-store/ads/noon/<country>/C_FAKE0002.tsv`
 mean nothing to the reader at a glance. Every Evidence cell
 opens with a **readable reference name** (platform + country +
 campaign name + canonical ID), then the file path in parens for
@@ -229,15 +235,15 @@ the reviewer to verify against, then the cited keyword and row
 data:
 
 ```
-Noon SA — Brand-X KSA WIDGET-B manual keyword (C_FAKE0002):
-"white socks" Exact, ROAS 18.73, 3 orders
-[file: stores/acme-store/ads/noon/sa/C_FAKE0002.tsv row 5]
+Noon EG — Brand-X manual keyword (C_FAKE0002):
+"matte phone stand" Exact, ROAS 18.73, 3 orders
+[file: stores/acme-store/ads/noon/<country>/C_FAKE0002.tsv row 5]
 ```
 
 vs the unreadable form (rejected by reviewer):
 
 ```
-stores/acme-store/ads/noon/sa/C_FAKE0002.tsv row: ROAS 18.73, 3 orders
+stores/acme-store/ads/noon/<country>/C_FAKE0002.tsv row: ROAS 18.73, 3 orders
 ```
 
 The shape is consistent across all three sources:
@@ -269,8 +275,8 @@ were genuinely empty. The block must prove the searches happened:
 
 | Source | Evidence | Result |
 |---|---|---|
-| Cross-platform same-SKU | `stores/<slug>/ads/noon/sa/` — no campaign targets ASIN B0XXXXXXXX (single-platform store) | 0 keywords |
-| Same-platform other-campaign | `stores/<slug>/ads/amazon/sa/` — no other campaign targets ASIN B0XXXXXXXX | 0 keywords |
+| Cross-platform same-SKU | `stores/<slug>/ads/noon/<country>/` — no campaign targets ASIN B0XXXXXXXX (single-platform store) | 0 keywords |
+| Same-platform other-campaign | `stores/<slug>/ads/amazon/<country>/` — no other campaign targets ASIN B0XXXXXXXX | 0 keywords |
 | Brand Analytics ASIN-keyword | `stores/<slug>/ads/brand-analytics/B0XXXXXXXX_2026-05-23.tsv` (captured this session) | 0 rows returned for this ASIN |
 ```
 
@@ -328,7 +334,7 @@ actually appear there.
 
 | Anti-pattern | Why it fails |
 |---|---|
-| `Source: Brand Analytics; Evidence: "Top in Socks category"` | No file path cited; reviewer has nothing to verify; likely fabricated |
+| `Source: Brand Analytics; Evidence: "Top in <category>"` | No file path cited; reviewer has nothing to verify; likely fabricated |
 | `Source: Brand Analytics; Evidence: "<file_path>"; Keyword: "widget a"` | "widget a" is the internal SKU code (WIDGET-A), not a customer search term — category-broad / SKU-derived hallucination |
 | `Source: cross-platform; Evidence: "noon does well"` | No specific file or keyword cited |
 | `Source: cross-platform; Evidence: "stores/.../noon/.../X.tsv row: ROAS X"` (path only, no readable name) | Hard to read; agent must lead with platform + country + campaign name + id |
@@ -403,9 +409,9 @@ SKU's manual campaigns** — not just the immediate target ad group:
 2. For each keyword you intend to harvest, grep ALL these TSVs for
    the keyword and its obvious variants (token reorderings, plural/
    singular, prefix/suffix). Examples:
-   - `cotton socks women` matches `women cotton socks`,
-     `100 cotton socks women`, `cotton socks for women`.
-   - `ankle socks` matches `socks ankle`, `women's ankle socks`.
+   - `braided usb-c cable` matches `usb-c cable braided`,
+     `2m braided usb-c cable`, `braided usb-c cable for phone`.
+   - `phone stand` matches `stand phone`, `aluminum phone stand`.
 3. **Cross-campaign Delivering variant exists** anywhere in the
    sweep → skip harvest as `already_present` with Notes citing the
    other campaign: "Variant '<X>' already Delivering at bid <Y> in
@@ -425,7 +431,7 @@ SKU's manual campaigns** — not just the immediate target ad group:
 
 This rule turns ~15 % of Harvest attempts from `failed` /
 API-rejected into clean `applied` reactivations. The audit's source
-ROAS data (e.g. `cotton socks women` ROAS 18.6 from the auto
+ROAS data (e.g. `braided usb-c cable` ROAS 18.6 from the auto
 campaign) is still actioned — just via the variant that already
 exists in the manual campaign, not by adding a duplicate.
 

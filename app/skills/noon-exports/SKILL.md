@@ -47,7 +47,7 @@ URL reflects dates: `?from_date=2026-03-01&to_date=2026-03-31`.
 
 ### Both Countries
 
-After SA export, close modal, switch "My Stores" to AE, repeat.
+After the first country's export, close modal, switch "My Stores" to the next country, repeat.
 
 ## 2. Transaction View Export
 
@@ -62,8 +62,8 @@ Legacy Exports.
    A single Transaction View export for a project that has multiple
    country contracts produces **one CSV with rows for every
    contract** — identifiable by the `Contract` / `Contract Title`
-   columns (e.g. `MPXXXXXXXXSA,Noon SA` and `MPXXXXXXXXAE,Noon
-   AE`). See "Transaction CSV Structure" below. **Do not run one
+   columns (e.g. `MPXXXXXXXXEG,Noon EG` and `MPXXXXXXXXKW,Noon
+   KW`). See "Transaction CSV Structure" below. **Do not run one
    export per country** — run one, then split locally with pandas /
    awk. To limit the export to a single country, filter the
    Contracts dropdown to that country's contract *before* clicking
@@ -179,10 +179,10 @@ Non-Order Subsidies including VAT,Others including VAT,Total
 ```
 
 - **`Contract`** is the contract code — 12 chars, `MP` prefix,
-  country-code suffix (e.g. `MPXXXXXXXXSA`, `MPXXXXXXXXAE`,
-  `MPXXXXXXXXEG`). Use the last 2 chars to bucket by country.
-- **`Contract Title`** is the human-readable name (`Noon SA`,
-  `Noon AE`, …).
+  country-code suffix (e.g. `MPXXXXXXXXEG`, `MPXXXXXXXXKW`,
+  `MPXXXXXXXXOM`). Use the last 2 chars to bucket by country.
+- **`Contract Title`** is the human-readable name (`Noon EG`,
+  `Noon KW`, …).
 - Use either column to split a mixed-country export locally:
 
 ```python
@@ -221,8 +221,8 @@ Status shows "Completed" (1-10 minutes depending on size).
 ## Tips
 
 - **Transaction View export covers all contracts by default** —
-  one click produces one CSV with both SA and AE rows. Don't
-  export twice (see § 2).
+  one click produces one CSV with rows from every country contract.
+  Don't export twice (see § 2).
 - **Transaction View status enum is `Requested → Exporting →
   Processed`**, not "Processing → Completed". Click the Export
   button on the panel only after it reads `Processed`.

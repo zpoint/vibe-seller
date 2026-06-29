@@ -126,16 +126,16 @@ describe('buildFileTree', () => {
 
   it('builds nested subdirectories', () => {
     const files: TaskFileEntry[] = [
-      { name: 'invoices/SA/INV-SA-001.pdf', size: 500, type: 'application/pdf', modified_at: '' },
-      { name: 'invoices/AE/INV-AE-001.pdf', size: 600, type: 'application/pdf', modified_at: '' },
+      { name: 'invoices/US/INV-US-001.pdf', size: 500, type: 'application/pdf', modified_at: '' },
+      { name: 'invoices/UK/INV-UK-001.pdf', size: 600, type: 'application/pdf', modified_at: '' },
     ]
     const tree = buildFileTree(files)
     expect(tree).toHaveLength(1)
     const invoices = tree[0]
     expect(invoices.children).toHaveLength(2)
-    expect(invoices.children[0].name).toBe('SA')
+    expect(invoices.children[0].name).toBe('US')
     expect(invoices.children[0].isDir).toBe(true)
-    expect(invoices.children[0].children[0].name).toBe('INV-SA-001.pdf')
+    expect(invoices.children[0].children[0].name).toBe('INV-US-001.pdf')
   })
 
   it('mixes top-level files and directories', () => {
@@ -192,16 +192,16 @@ describe('FileTree rendering', () => {
 
   it('renders nested directories', () => {
     const files: TaskFileEntry[] = [
-      { name: 'invoices/SA/INV-001.pdf', size: 500, type: 'application/pdf', modified_at: '' },
-      { name: 'invoices/AE/INV-002.pdf', size: 600, type: 'application/pdf', modified_at: '' },
+      { name: 'invoices/US/INV-001.pdf', size: 500, type: 'application/pdf', modified_at: '' },
+      { name: 'invoices/UK/INV-002.pdf', size: 600, type: 'application/pdf', modified_at: '' },
     ]
     render(<TestTaskFiles taskId={TASK_ID} files={files} />)
 
     expect(screen.getByTestId('folder-invoices')).toBeInTheDocument()
-    expect(screen.getByTestId('folder-invoices/SA')).toBeInTheDocument()
-    expect(screen.getByTestId('folder-invoices/AE')).toBeInTheDocument()
-    expect(screen.getByTestId('file-invoices/SA/INV-001.pdf')).toBeInTheDocument()
-    expect(screen.getByTestId('file-invoices/AE/INV-002.pdf')).toBeInTheDocument()
+    expect(screen.getByTestId('folder-invoices/US')).toBeInTheDocument()
+    expect(screen.getByTestId('folder-invoices/UK')).toBeInTheDocument()
+    expect(screen.getByTestId('file-invoices/US/INV-001.pdf')).toBeInTheDocument()
+    expect(screen.getByTestId('file-invoices/UK/INV-002.pdf')).toBeInTheDocument()
   })
 
   it('encodes path segments in download URL', () => {

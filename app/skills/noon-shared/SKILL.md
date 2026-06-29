@@ -114,15 +114,15 @@ browser-use click <maybe-later-btn>  # dismiss passkey prompt
 (`stores/<slug>/STORE.md`) doesn't have it. Read it from the post-
 login URL — the welcome / store-home page always carries
 `?project=PRJ{project_id}` (e.g. `NNNNNN`). Capture it once, then
-reuse for the rest of the task. SA and AE share the same numeric
-project ID; only URL country suffixes (`/en-sa/` vs `/en-ae/`) differ.
+reuse for the rest of the task. A project's countries share the same
+numeric project ID; only the URL country suffix (`/en-<cc>/`) differs.
 
 Optionally persist what you learned back to the store profile:
 
 ```
 vibe_seller_write_workspace_file(
   path="stores/<slug>/metadata.json",
-  content='{"platform_countries": {"noon": ["SA", "AE"]}, "noon_project_id": "<project_id>"}'
+  content='{"platform_countries": {"noon": ["EG", "KW"]}, "noon_project_id": "<project_id>"}'
 )
 ```
 

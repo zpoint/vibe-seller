@@ -156,17 +156,12 @@ browser-use click <download-btn>
 
 ### Monthly Storage Fees — publication latency
 
-**Verified observation (2026-05-07, both `sellercentral.amazon.sa`
-and `.ae`):** requesting Monthly Storage Fees for the previous
+**Observed behavior:** requesting Monthly Storage Fees for the previous
 month early in the new month returns `No Data Available` on the
-detail page even though the request itself is accepted.
-
-Concrete data points captured by driving the wrapper directly:
-- April 2026 (range 01/04/26-30/04/26) requested May 7 → status
-  `No Data Available` on both SA and AE.
-- March 2026 storage was successfully requested April 13.
-- February and January 2026 storage successfully requested
-  April 14.
+detail page even though the request itself is accepted. The same
+month's range re-requested about a week later returns a Download
+button within ~30s. Older months (M-2, M-3) request successfully
+right away.
 
 So Storage Fees for month M is **not** available on day 7 of M+1
 but **is** available by day 13-14 of M+1. The exact day Amazon
@@ -220,6 +215,57 @@ If `No Data Available` shows for an **older** month (≥ ~30 days
 old), that's unexpected — investigate normally; do not wave away,
 and do call `set_task_error`.
 
+### FBA Customer Returns — Exact dates flow (MANDATORY for month ranges)
+
+**Direct URL**: `https://sellercentral.amazon.{tld}/reportcentral/CUSTOMER_RETURNS/1`
+
+The date control is NOT a From/To pair like other reports. It is a
+**preset dropdown** (initial title `last day (yesterday)`) whose
+options are last 1/3/7/14/30/90/180 days — **plus an `Exact dates`
+option (`kat-option value=-1`)** at the bottom. Presets are anchored
+to *today*, so "last 30 days" does NOT equal a calendar month: on
+June 3 it covers May 4 → June 3, silently dropping May 1–3 and
+mixing in June rows. **Never use a preset when the task asks for a
+calendar month.**
+
+Correct flow:
+
+```bash
+browser-use open "https://sellercentral.amazon.{tld}/reportcentral/CUSTOMER_RETURNS/1"
+browser-use state                  # find preset dropdown (title="last day (yesterday)")
+browser-use click <preset-dropdown>
+browser-use state                  # options list; "Exact dates" is value=-1
+browser-use click <exact-dates-option>
+browser-use state                  # TWO plain inputs appear:
+                                   #   aria-label="Start date", aria-label="End date"
+                                   #   placeholder DD/MM/YYYY
+browser-use input <start-idx> "01/01/2026"
+browser-use input <end-idx>   "31/01/2026"
+browser-use click <request-csv-btn>   # "Request .csv Download"
+# ~30s; first row of the history table shows the range + Download
+browser-use state
+browser-use click <download-btn>
+```
+
+**Anti-pattern — do NOT do this:** after clicking `Exact dates`,
+do not try to set the `kat-date-picker` values via `browser-use
+eval` / shadow-DOM JS. Setting `.value` on kat-date-picker silently
+fails (one observed run burned ~100 steps this way and fell back to
+a wrong preset). After clicking the option, just re-run
+`browser-use state` — the Start/End fields surface as ordinary
+indexed `<input>` elements and `browser-use input <idx> <text>`
+works directly. (Note the CLI verb is `input`, not `type` — `type`
+does not take an element index.)
+
+**UTC edge rows are normal:** the date filter is marketplace-local,
+but the CSV's `return-date` column is UTC. A row dated the last day
+of the *previous* month at ~21:00–23:59 UTC is the 1st of the
+requested month in local time — keep it, don't re-request.
+
+The download lands as a numeric report id (e.g. `51901234567.csv`)
+in the store downloads dir; rename to `return.csv` when the task
+asks for that exact name.
+
 ---
 
 ## 3. Tax Document Library
@@ -253,7 +299,7 @@ Supplier Name | Supplier Registration | Marketplace | Start Date | End Date | Ac
 
 `{CC}-{ENTITY}-INV-{YEAR}-{SEQ}` (invoices) or `{CC}-{ENTITY}-CN-{YEAR}-{SEQ}` (credit notes)
 
-Where `{CC}` = country code (e.g. `AE`), `{ENTITY}` = Amazon entity code, `{SEQ}` = sequence number.
+Where `{CC}` = country code (e.g. `US`), `{ENTITY}` = Amazon entity code, `{SEQ}` = sequence number.
 
 ### Export Flow
 
@@ -428,9 +474,9 @@ Header lines (skip first 7 lines when parsing):
 | sku | string | `PROD-001` | Your SKU |
 | description | string | Product title | Full product name |
 | quantity | int | `2` | Units in transaction |
-| marketplace | string | `amazon.ae` | Marketplace domain |
+| marketplace | string | `amazon.<tld>` | Marketplace domain |
 | fulfillment | string | `Amazon` | `Amazon` (FBA) or `Seller` |
-| order city | string | City name (may be Arabic) | Buyer's city |
+| order city | string | City name (may be in the local language) | Buyer's city |
 | order state | string | State/region | Buyer's state |
 | order postal | string | Postal code | May be empty |
 | product sales | decimal | `89.00` | Product revenue |
@@ -577,7 +623,7 @@ Action buttons:
 
 The Ziniao download dir (`~/.vibe-seller/downloads/<slug>/`) is
 PERSISTENT across tasks — files from previous runs accumulate
-there. Real incident (iteration 6, 2026-05-07): an agent saw
+there. Observed (iteration 6): an agent saw
 `Sponsored_Products_Advertised_product_report_Apr_SA.xlsx`
 already in the slug's downloads dir and `cp`'d it directly into
 the task workspace, bypassing the entire reports-page Time-unit
@@ -620,7 +666,7 @@ Multiple reports can share the same name (e.g., separate one-time runs
 of "Sponsored Products Advertised product report"). Identify the correct
 one by matching the **Report period** column in the right panel.
 
-**Time-unit gate for reuse — verified 2026-05-07.** The list page
+**Time-unit gate for reuse.** The list page
 exposes a `[col-id=timeUnit]` cell per row containing the literal
 "Summary" / "Daily" string (or `摘要` / `每日` on a Chinese UI). Before
 clicking through to download an existing report, READ this column on
@@ -848,7 +894,7 @@ browser-use click <confirm-btn>   # button#aac-chrome-change-country-button
 ```
 
 Available country buttons follow the pattern `id=aac-chrome-{CODE}`
-where CODE is the 2-letter country code (AE, AU, etc.).
+where CODE is the 2-letter country code (US, UK, etc.).
 Cancel button: `id=aac-chrome-cancel-button`.
 
 **Note**: This switcher is DIFFERENT from Seller Central's
@@ -897,17 +943,17 @@ Sales,ACOS,ROAS
 | Targeting | enum | `MANUAL`, `AUTO` |
 | Campaign start date | date | `01/15/2026` |
 | Campaign end date | date | Empty if ongoing |
-| Campaign budget amount (converted) | currency | `AED 50.00` |
-| Campaign budget amount | currency | `AED 50.00` |
+| Campaign budget amount (converted) | currency | `USD 50.00` |
+| Campaign budget amount | currency | `USD 50.00` |
 | Clicks | int | `24` |
 | CTR | decimal | `0.0312` (click-through rate) |
-| Total cost (converted) | currency | `AED 65.80` |
-| Total cost | currency | `AED 65.80` |
-| CPC (converted) | currency | `AED 2.74` |
-| CPC | currency | `AED 2.74` (cost per click) |
+| Total cost (converted) | currency | `USD 65.80` |
+| Total cost | currency | `USD 65.80` |
+| CPC (converted) | currency | `USD 2.74` |
+| CPC | currency | `USD 2.74` (cost per click) |
 | Purchases | int | `1` |
-| Sales (converted) | currency | `AED 54.99` |
-| Sales | currency | `AED 54.99` |
+| Sales (converted) | currency | `USD 54.99` |
+| Sales | currency | `USD 54.99` |
 | ACOS | decimal | `0.4520` (ad cost / sales) |
 | ROAS | decimal | `2.2125` (return on ad spend) |
 
@@ -998,10 +1044,10 @@ files from every run. When copying to the task workspace:
 ls -lt "$DLDIR/"
 
 # Copy specific file to task workspace
-cp "$DLDIR/INV-2026-100880.pdf" workspace/invoices/
+cp "$DLDIR/INV-001.pdf" workspace/invoices/
 
 # If only "(N)" versions exist, copy the latest and rename:
-cp "$DLDIR/INV-2026-100880 (2).pdf" workspace/invoices/INV-2026-100880.pdf
+cp "$DLDIR/INV-001 (2).pdf" workspace/invoices/INV-001.pdf
 ```
 
 ### Download Mechanism by Report

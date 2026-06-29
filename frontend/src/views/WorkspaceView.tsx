@@ -1,4 +1,10 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  BinaryDownload, DelimitedTable, ImageViewer, MarkdownView,
+  PdfViewer, SpreadsheetViewer,
+} from '../components/FileViewers'
+import { fileKind, isRawKind, rawUrl } from '../lib/fileKind'
 import type { WsStructured } from '../types'
 
 interface WorkspaceViewProps {
@@ -56,7 +62,9 @@ export function WorkspaceView({
     const prefix = s.path.endsWith('/') ? s.path : s.path + '/'
     return wsSelectedFile?.startsWith(prefix) ?? false
   }) ?? false
-  const isReadOnly = isProjectKnowledge || isBuiltinSkill
+  const kind = wsSelectedFile ? fileKind(wsSelectedFile) : 'text'
+  const isViewerOnly = kind === 'sheet' || kind === 'pdf' || kind === 'image' || kind === 'binary' || kind === 'delimited'
+  const isReadOnly = isProjectKnowledge || isBuiltinSkill || isViewerOnly
 
   if (!wsSelectedFile) {
     return (
@@ -81,12 +89,22 @@ export function WorkspaceView({
           {wsEditorDirty && <span className="text-xs text-amber-500 bg-amber-50 px-2 py-0.5 rounded-full flex-shrink-0">{t('workspace.readOnly')}</span>}
         </div>
         <div className="flex gap-2 flex-shrink-0">
-          <button
-            onClick={() => { if (!wsShowHistory) { loadFileHistory(wsSelectedFile); setWsShowHistory(true); setWsPreviewCommit(null) } else { setWsShowHistory(false); setWsPreviewCommit(null) } }}
-            className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${wsShowHistory ? 'bg-gray-200 text-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
+          <a
+            href={rawUrl(wsSelectedFile)}
+            download={wsSelectedFile.split('/').pop()}
+            className="px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            {t('workspace.history')}
-          </button>
+            {t('workspace.download')}
+          </a>
+          {/* git history previews decode as text — hide for raw kinds */}
+          {!isRawKind(kind) && (
+            <button
+              onClick={() => { if (!wsShowHistory) { loadFileHistory(wsSelectedFile); setWsShowHistory(true); setWsPreviewCommit(null) } else { setWsShowHistory(false); setWsPreviewCommit(null) } }}
+              className={`px-3 py-1.5 text-xs rounded-lg transition-colors ${wsShowHistory ? 'bg-gray-200 text-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
+            >
+              {t('workspace.history')}
+            </button>
+          )}
           {!isReadOnly && (
             <>
               <button
@@ -178,16 +196,79 @@ export function WorkspaceView({
             )}
           </div>
         </div>
+      ) : kind === 'sheet' ? (
+        <SpreadsheetViewer path={wsSelectedFile} />
+      ) : kind === 'pdf' ? (
+        <PdfViewer path={wsSelectedFile} />
+      ) : kind === 'image' ? (
+        <ImageViewer path={wsSelectedFile} />
+      ) : kind === 'binary' ? (
+        <BinaryDownload path={wsSelectedFile} />
+      ) : kind === 'delimited' ? (
+        <DelimitedTable content={wsFileContent} path={wsSelectedFile} />
       ) : (
-        <textarea
-          value={wsEditorContent}
-          onChange={e => { if (isReadOnly) return; setWsEditorContent(e.target.value); setWsEditorDirty(e.target.value !== wsFileContent) }}
-          onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (!isReadOnly) saveWsFile() } }}
-          className={`flex-1 p-4 font-mono text-sm border-0 resize-none focus:outline-none leading-relaxed ${isReadOnly ? 'bg-gray-50 text-gray-600 cursor-default' : 'bg-white'}`}
-          spellCheck={false}
-          readOnly={isReadOnly}
+        /* key resets the md preview/edit toggle on file switch — the
+           React-recommended state-reset pattern (no effect, no
+           render-time setState) */
+        <TextFileBody
+          key={wsSelectedFile}
+          kind={kind}
+          isReadOnly={isReadOnly}
+          wsEditorContent={wsEditorContent}
+          wsFileContent={wsFileContent}
+          setWsEditorContent={setWsEditorContent}
+          setWsEditorDirty={setWsEditorDirty}
+          saveWsFile={saveWsFile}
         />
       )}
+    </div>
+  )
+}
+
+/** md (rendered ⇄ raw editor) and plain-text bodies. Owns the
+ *  preview/edit toggle; mounted with key=<file> so it resets per file. */
+function TextFileBody({ kind, isReadOnly, wsEditorContent, wsFileContent, setWsEditorContent, setWsEditorDirty, saveWsFile }: {
+  kind: string
+  isReadOnly: boolean
+  wsEditorContent: string
+  wsFileContent: string
+  setWsEditorContent: (v: string) => void
+  setWsEditorDirty: (v: boolean) => void
+  saveWsFile: () => void
+}) {
+  const { t } = useTranslation()
+  const [editing, setEditing] = useState(false)
+  if (kind === 'md' && !editing) {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {!isReadOnly && (
+          <div className="flex justify-end px-3 py-1 border-b border-gray-100 bg-white">
+            <button onClick={() => setEditing(true)} className="px-3 py-1 text-xs text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">
+              {t('common.edit')}
+            </button>
+          </div>
+        )}
+        <MarkdownView content={wsEditorContent || wsFileContent} />
+      </div>
+    )
+  }
+  return (
+    <div className="flex-1 flex flex-col overflow-hidden">
+      {kind === 'md' && (
+        <div className="flex justify-end px-3 py-1 border-b border-gray-100 bg-white">
+          <button onClick={() => setEditing(false)} className="px-3 py-1 text-xs bg-gray-200 text-gray-700 rounded-lg transition-colors">
+            {t('workspace.preview')}
+          </button>
+        </div>
+      )}
+      <textarea
+        value={wsEditorContent}
+        onChange={e => { if (isReadOnly) return; setWsEditorContent(e.target.value); setWsEditorDirty(e.target.value !== wsFileContent) }}
+        onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (!isReadOnly) saveWsFile() } }}
+        className={`flex-1 p-4 font-mono text-sm border-0 resize-none focus:outline-none leading-relaxed ${isReadOnly ? 'bg-gray-50 text-gray-600 cursor-default' : 'bg-white'}`}
+        spellCheck={false}
+        readOnly={isReadOnly}
+      />
     </div>
   )
 }
