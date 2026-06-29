@@ -22,6 +22,7 @@ export interface SchedulePlanResponse {
   plan_error: string | null
   current_planning_task_id: string | null
   planning_task_history: PlanningTaskSummary[]
+  finalize_description?: string | null
 }
 
 interface Props {
@@ -106,6 +107,8 @@ export function SchedulePlanPanel({ schedule, onOpenTask, onReplan }: Props) {
   const planningTaskId =
     plan?.current_planning_task_id ?? schedule.current_planning_task_id
   const history = plan?.planning_task_history ?? []
+  const finalizeDescription =
+    plan?.finalize_description ?? schedule.finalize_description ?? null
 
   const cta = renderCta({
     status,
@@ -184,6 +187,32 @@ export function SchedulePlanPanel({ schedule, onOpenTask, onReplan }: Props) {
               <Markdown remarkPlugins={[remarkGfm]}>{planText}</Markdown>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Finalize step the plan agent registered — gives the user
+      visibility that, after all per-store children finish, one extra
+      combine/reduce step runs (e.g. a single PR). No action needed. */}
+      {finalizeDescription && (
+        <div
+          className="border-t border-gray-100 px-4 py-3"
+          data-testid="schedule-finalize-step"
+        >
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-green-800">
+            <span aria-hidden="true">✅</span>
+            {t('schedules.plan.finalize.heading')}
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            {t('schedules.plan.finalize.explainer')}
+          </div>
+          <div
+            className={`mt-2 text-sm text-gray-700 ${PROSE}`}
+            data-testid="schedule-finalize-text"
+          >
+            <Markdown remarkPlugins={[remarkGfm]}>
+              {finalizeDescription}
+            </Markdown>
+          </div>
         </div>
       )}
 

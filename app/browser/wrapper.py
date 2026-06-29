@@ -13,7 +13,12 @@ import stat
 import sys
 import textwrap
 
-from app.config import BACKEND_PORT, BROWSER_USE_BIN_DIR, LOCALHOST
+from app.config import (
+    BACKEND_PORT,
+    BROWSER_USE_BIN_DIR,
+    DOWNLOADS_DIR,
+    LOCALHOST,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +214,115 @@ def write_browser_use_wrapper(
         ' "${PASSTHROUGH[@]}"'
     )
 
+    # Self-healing for proxy-backed sessions.
+    # ----------------------------------------------------------------
+    # A page renderer can wedge (hang on the CDP startup handshake) while
+    # the browser process stays alive — the daemon's ``BrowserStartEvent``
+    # then times out and EVERY command the agent issues against that
+    # daemon hangs or fails identically, with no recovery path. This is
+    # what stranded one store’s run: ``open`` looped 6+ times, and once
+    # an ``eval``/``state`` hung the harness backgrounded the command and
+    # the agent fought a wedged daemon for dozens of steps.
+    #
+    # We bound every proxy-session command with a hard timeout (perl
+    # alarm; macOS has no GNU ``timeout``) and recover on a wedge. The
+    # recovery + retry policy differs by command class, because retrying
+    # is only safe when the command is idempotent:
+    #
+    #   nav  (open|navigate) : kill THIS session's daemon + close the
+    #                          wedged tab via the proxy, then retry once.
+    #                          Navigation is idempotent and ``open`` must
+    #                          be a one-shot that always succeeds.
+    #   read (state|get)     : kill the daemon (do NOT reset the tab — the
+    #                          agent wants to read the CURRENT page), then
+    #                          retry once. Pure reads have no side effects.
+    #   eval                 : kill the daemon, and retry ONLY when the
+    #                          failure proves the daemon never connected
+    #                          (so the JS never ran) — agent ``eval``s
+    #                          routinely mutate the DOM (click/set value),
+    #                          so a blind retry could double-apply. A bare
+    #                          alarm-timeout is ambiguous → recover but do
+    #                          NOT retry.
+    #   other (click|type|…) : plain exec, untouched. Mutating and unsafe
+    #                          to retry; a wedge here surfaces on the next
+    #                          read/open, which self-heals.
+    #
+    # The daemon kill is always scoped to the unique per-task session
+    # token, so it can never touch a sibling task's daemon. ``-aux`` is
+    # Chrome-direct (no proxy) and is never self-healed.
+    selfheal_block = textwrap.dedent(f"""\
+        # First non-flag token = browser-use subcommand.
+        _vs_cmd=""
+        for _vs_tok in ${{PASSTHROUGH[@]+"${{PASSTHROUGH[@]}}"}}; do
+          case "$_vs_tok" in -*) ;; *) _vs_cmd="$_vs_tok"; break ;; esac
+        done
+
+        # Map subcommand → self-heal policy (proxy/non-aux sessions only).
+        _vs_policy="none"
+        if [ "$SESSION" != "{slug}-aux" ]; then
+          case "$_vs_cmd" in
+            open|navigate) _vs_policy="nav" ;;
+            state|get)     _vs_policy="read" ;;
+            eval)          _vs_policy="eval" ;;
+          esac
+        fi
+
+        if [ "$_vs_policy" != "none" ]; then
+          _vs_run() {{
+            perl -e 'alarm shift; exec @ARGV' 60 \\
+              "$REAL_BU" {headed_flag}--session "$SESSION" \\
+              ${{CDP_ARGS[@]+"${{CDP_ARGS[@]}}"}} "${{PASSTHROUGH[@]}}" 2>&1
+          }}
+          set +e
+          _vs_out="$(_vs_run)"
+          _vs_rc=$?
+          set -e
+          if [ "$_vs_rc" -ne 0 ]; then
+            # connfail = the daemon could not connect/start, so any JS in
+            # an eval never ran (safe to retry). alarm = our 60s hard kill
+            # (ambiguous for eval).
+            _vs_connfail=0
+            printf '%s' "$_vs_out" | grep -qiE \\
+              'BrowserStartEvent.*timed out|connect\\(\\) timed out|CDP connection to ws.*(too slow|unresponsive)|Client is stopping|Browser.*not.*(start|connect)' \\
+              && _vs_connfail=1
+            _vs_alarm=0; [ "$_vs_rc" -eq 142 ] && _vs_alarm=1
+            if [ "$_vs_connfail" = "1" ] || [ "$_vs_alarm" = "1" ]; then
+              echo "[wrapper] '$_vs_cmd' wedged (rc=$_vs_rc, policy=$_vs_policy) — recovering daemon" >&2
+              # Scoped to this task's session token — never a sibling.
+              # browser-use traps SIGTERM and hangs when its CDP socket
+              # is dead, so -9.
+              pkill -9 -f "browser_use.skill_cli.daemon.*$SESSION" 2>/dev/null || true
+              # Only nav closes the wedged tab — a read/eval wants the
+              # CURRENT page preserved. Scoped to OUR client id (the
+              # daemon connects as /client-$CLIENT_ID): the proxy only
+              # closes tabs we own or true orphans, never a sibling
+              # task's tabs.
+              if [ "$_vs_policy" = "nav" ]; then
+                curl -sf -o /dev/null --max-time 15 \\
+                  "{cdp_http_url}/vibe/reset-tabs?client=${{CLIENT_ID:-}}" 2>/dev/null || true
+              fi
+              # Retry policy: nav/read always (idempotent); eval only when
+              # the JS provably never ran (connfail, not a bare alarm).
+              _vs_retry=0
+              case "$_vs_policy" in
+                nav|read) _vs_retry=1 ;;
+                eval)     [ "$_vs_connfail" = "1" ] && _vs_retry=1 ;;
+              esac
+              if [ "$_vs_retry" = "1" ]; then
+                echo "[wrapper] retrying '$_vs_cmd' once" >&2
+                sleep 2
+                set +e
+                _vs_out="$(_vs_run)"
+                _vs_rc=$?
+                set -e
+              fi
+            fi
+          fi
+          printf '%s\\n' "$_vs_out"
+          exit "$_vs_rc"
+        fi
+    """)
+
     script = textwrap.dedent(f"""\
         #!/usr/bin/env bash
         # Auto-generated browser-use wrapper for store: {store_name}
@@ -337,6 +451,9 @@ def write_browser_use_wrapper(
     if cdp_inject:
         script += cdp_inject + '\n'
 
+    # Self-healing path runs first (and exits) for nav/read/eval on
+    # proxy sessions; otherwise fall through to a plain exec.
+    script += selfheal_block + '\n'
     script += exec_line + '\n'
 
     wrapper_path.write_text(script)
@@ -347,6 +464,73 @@ def write_browser_use_wrapper(
         backend,
         proxy_port,
     )
+    _cleanup_legacy_store_dirs(store_name, slug)
+
+
+def _cleanup_legacy_store_dirs(store_name: str, slug: str) -> None:
+    """Remove pre-slug-guard artifacts named after the raw store name.
+
+    Before ``store_slug`` gained the ASCII guard, non-ASCII store
+    names (e.g. Chinese) produced wrapper/download dirs named after
+    the raw name (``bin/云帆科技/``). The fixed slug regenerates
+    everything under the id-fallback dir (``bin/store-<id8>/``) but
+    the stale dirs survive — and mislead agents into watching an
+    empty downloads dir while real downloads land in the slug dir.
+    Delete them whenever the raw name differs from the active slug.
+
+    The stale wrapper dir is only removed when its ``browser-use``
+    script carries our auto-generation header for this store, so a
+    user-created dir that happens to share the name is never touched.
+    The stale downloads dir is only removed when empty.
+    """
+    if store_name == slug:
+        return
+    if store_name in ('.', '..'):
+        return  # would resolve to the base dir itself or its parent
+    legacy_bin = _BIN_DIR / store_name
+    if legacy_bin.parent != _BIN_DIR:
+        return  # name contains path separators — never traverse
+    try:
+        if legacy_bin.exists() and legacy_bin.samefile(_BIN_DIR / slug):
+            # Case-insensitive filesystem (macOS default): the "legacy"
+            # dir IS the active slug dir — deleting it would destroy
+            # the wrapper we just wrote.
+            return
+    except OSError:
+        return
+    legacy_wrapper = legacy_bin / 'browser-use'
+    if legacy_wrapper.is_file():
+        try:
+            head = legacy_wrapper.read_text(errors='replace')[:512]
+        except OSError:
+            head = ''
+        if f'wrapper for store: {store_name}' in head:
+            shutil.rmtree(legacy_bin, ignore_errors=True)
+            logger.info(
+                'Removed stale pre-slug-guard wrapper dir: %s '
+                '(active slug: %s)',
+                legacy_bin,
+                slug,
+            )
+    legacy_downloads = DOWNLOADS_DIR / store_name
+    if legacy_downloads.is_dir():
+        slug_downloads = DOWNLOADS_DIR / slug
+        try:
+            if slug_downloads.exists() and legacy_downloads.samefile(
+                slug_downloads
+            ):
+                return  # case-insensitive FS — same dir as active slug
+        except OSError:
+            return
+        try:
+            legacy_downloads.rmdir()  # only succeeds when empty
+            logger.info(
+                'Removed stale empty downloads dir: %s (active slug: %s)',
+                legacy_downloads,
+                slug,
+            )
+        except OSError:
+            pass  # non-empty — leave user files alone
 
 
 def remove_browser_use_wrapper(store_name: str, store_id: str | None = None):

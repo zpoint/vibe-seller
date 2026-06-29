@@ -170,6 +170,67 @@ class TestConversationStreamUI:
             page.locator('text=/completed successfully/').first
         ).to_be_visible(timeout=5000)
 
+    def test_free_text_answer_reaches_agent(self, authenticated_page):
+        """Issue #211: full click-through — agent asks a question, the
+        operator uses 'Type freely instead', and the free text must
+        reach the agent (not arrive empty).
+
+        The mock CLI (gated by a prompt marker) asks one
+        AskUserQuestion, then echoes back the answer it received from
+        the backend's control_response. The whole stack runs:
+        QuestionBanner → POST /questions/answer → submit_answer →
+        _handle_ask_user_question (the fix) → control_response → mock
+        renders by question text → conversation. Before the fix the
+        echo is empty; after it, the typed text comes back.
+        """
+        page = authenticated_page
+        tag = int(time.time())
+        # Marker tells the mock CLI to run the AskUserQuestion flow.
+        # Keep the marker out of the free text so the echo assertion
+        # below can't accidentally match the title.
+        title = f'[[MOCK_ASK_FREE_TEXT]] free text test {tag}'
+        free_text = f'Audit US only and skip everything else {tag}'
+        task_id = _create_task_api(self.api, title)
+
+        # Wait until the agent has emitted the question server-side.
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            pend = self.api.get(
+                f'{BASE_URL}/api/tasks/{task_id}/questions/pending'
+            ).json()
+            if pend.get('pending'):
+                break
+            time.sleep(1)
+        else:
+            raise TimeoutError('agent never asked the question')
+
+        # Open the task; the QuestionBanner renders from pending Qs.
+        self._select_task_in_browser(page, title)
+
+        # Switch to free-text mode, type, submit.
+        page.get_by_role('button', name='Type freely instead').click(
+            timeout=10000
+        )
+        textarea = page.get_by_placeholder('Type your response...')
+        textarea.wait_for(timeout=10000)
+        textarea.fill(free_text)
+        page.get_by_role('button', name='Submit Answers').click()
+
+        # The banner clears once the answer is submitted.
+        expect(page.get_by_placeholder('Type your response...')).to_have_count(
+            0, timeout=10000
+        )
+
+        # The mock echoes the answer it received as
+        # '<question> => <free text>'. The ' => ' separator only ever
+        # appears in the agent's rendered echo — never in the task
+        # title or the (now-cleared) textarea — so this assertion fails
+        # exactly when the sentinel arrives untranslated (the empty
+        # 'You answered: .' render from issue #211).
+        expect(page.locator(f'text=/=> {free_text}/').first).to_be_visible(
+            timeout=20000
+        )
+
     def test_page_refresh_preserves_conversation(self, authenticated_page):
         """After refresh, conversation shows tool calls + plan."""
         page = authenticated_page

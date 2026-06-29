@@ -15,8 +15,8 @@ Capture goes to `/tmp/<run-slug>/`, never under
 The audit reads two data sources and produces the canonical report
 below.
 
-**One country per report block** — en-ae and en-sa are separate
-auctions; don't mix in the same header table. When the user asks for
+**One country per report block** — each `en-<cc>` country is a
+separate auction; don't mix in the same header table. When the user asks for
 multiple countries (e.g. "review all noon ads"), produce one full
 report block per country under top-level headings `## Country 1:
 <code>` / `## Country 2: <code>` / … (see *Multi-country audits*
@@ -79,11 +79,23 @@ Detail page (`../SKILL.md § 3`) and capture:
   full table. The Export Data → CSV path is unreliable in this
   environment — see `../SKILL.md § 4`.
 - **Customer Queries**: same scroll+eval default
-  (`../SKILL.md § 6`).
+  (`../SKILL.md § 6`). REQUIRED for Manual AND Auto — this is the
+  search-term layer; a campaign without it is not drilled.
 
-Sums of clicks/spend/orders should reconcile to the campaign
-top-tile. If they don't, the date range is misaligned; fix before
-drawing conclusions.
+**Reconcile, then write the proof line.** Sums of clicks/spend
+across the Customer Queries rows must reconcile to the Targets
+table (Manual) or the campaign top-tile (Auto) within ~15% — both
+read on the SAME date window. Write the machine-checkable line
+into the campaign's report block (the server reviewer parses it):
+
+`搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B (✓)`
+
+If they don't reconcile, the date range is misaligned (e.g. 7d
+queries vs 30d targets) — re-pin both and recapture; never submit
+a ✗. Every query with impressions gets its own row (no `其余 N 个`
+collapse; all-zero filler may collapse but must say `0 展示`).
+Write the full query set to
+`stores/<slug>/ads/noon/<country>/<id>.searchterms.tsv`.
 
 **No drill = no recommendation.** A "PROTECT — healthy" verdict
 on a campaign you didn't open is not acceptable — *you don't
@@ -102,8 +114,8 @@ If audit time is genuinely tight, drill in *priority order*:
    above breakeven. Verify they really are healthy by reading
    their keywords/queries.
 3. **Expansion candidates** — highest-ROAS campaigns regardless
-   of spend level. A high-ROAS campaign spending AED 2/day
-   against a AED 15/day cap is the highest-ROI budget move in
+   of spend level. A high-ROAS campaign spending USD 2/day
+   against a USD 15/day cap is the highest-ROI budget move in
    the portfolio; budget-raise decisions require verified
    Customer Queries data, not overview metrics.
 
@@ -118,10 +130,10 @@ that gap to the user.
 
 **Time-budget reality.** Each drill takes ~45–60 s (navigate +
 tab click + eval + a Customer-Queries eval). For a portfolio of
-~12 active campaigns across AE+SA, expect 9–12 minutes for data
-capture alone, plus 10–15 minutes for analysis and writing. If
+~12 active campaigns across two countries, expect 9–12 minutes for
+data capture alone, plus 10–15 minutes for analysis and writing. If
 the combined portfolio exceeds ~15 active campaigns, split into
-separate AE and SA tasks rather than racing both in one.
+separate per-country tasks rather than racing both in one.
 
 **Vague action items are evidence the drill was skipped.**
 Phrases like *"Open Targets tab and trim any keyword bid
@@ -167,7 +179,7 @@ and target bids in the recommendation.
   same match type across 2+ campaigns = internal bid war* — all
   of them clear at the same auction price. Surface this in the
   header table's *Major issues* column (e.g.
-  `(d) 3 campaigns competing on "socks for women" Phrase`) and
+  `(d) 3 campaigns competing on "usb-c cable" Phrase`) and
   resolve in the relevant per-campaign Problem subsections (the
   trim must be coordinated across all conflicting campaigns;
   trimming one in isolation just shifts the win to another).
@@ -243,7 +255,7 @@ ROAS):
 |---|---|
 | `#` | session number |
 | `Campaign` | full name (the trailing `- agent` flag stays) |
-| `30d spend` | total cost in marketplace currency (AED for AE, SAR for SA) |
+| `30d spend` | total cost in the marketplace currency (do NOT hardcode a currency; read it from the campaign) |
 | `orders` | from the campaign top-tile |
 | `revenue` | not "sales" — noon labels this Revenue |
 | `ROAS` | bold if PROTECT-tier; bold if **0.00** |
@@ -256,7 +268,7 @@ ROAS):
 Below the table:
 - **Defaults applied** — margin (assumed; user can correct on
   next round), target ROAS, waste/harvest cutoffs. Default
-  margin **25%** for general apparel / accessories; adjust by
+  margin **25%** for general merchandise / accessories; adjust by
   category when the catalog makes that obvious. Don't ask the
   user upfront; surface the assumption here. Formulas in
   `app/skills/amazon-ads/references/tuning-thresholds.md`.
@@ -297,7 +309,7 @@ decision in one place.
 | Target (match)   | Status     | Bid (ccy) | eCPC | Recommended (range) | SOI    | Views | Clicks | CTR    | Orders | ROAS | recommendation                                       |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | `<kw-1>` (Exact) | Delivering | 1.00      | 1.00 | 0.80 (0.70–1.00)    | 10.0%  | 200   | 10     |  5.00% | 1      | 4.00 | Hold — at recommended midpoint, 1 order, ROAS 4.00   |
-| `<kw-2>` (Exact) | Delivering | 2.00      | 2.00 | 1.00 (0.50–1.50)    | 30.0%  |  31   |  2     |  5.00% | 0      | 0.00 | Trim to 1.50 — bid 2× rec midpoint, 0 orders         |
+| `<kw-2>` (Exact) | Delivering | 2.00      | 2.00 | 1.00 (0.50–1.50)    | 30.0%  |  31   |  2     |  6.45% | 0      | 0.00 | Trim to 1.50 — bid 2× rec midpoint, 0 orders         |
 | `<kw-3>` (Phrase)| Delivering | 1.00      | —    | —                   |  —     |   0   |  0     | —      | 0      | —    | Hold — 0 views, no signal yet                         |
 ```
 
@@ -311,7 +323,7 @@ Last column is **`recommendation`** — Negate / Harvest / Hold per row):
 ```
 | Query             | Matched via    | Views | Clicks | CTR    | Spend (ccy) | Orders | recommendation                                  |
 |---|---|---|---|---|---|---|---|
-| `<wasteful-1>`    | `<kw>` Phrase  | 28    | 3      | 10.0%  | 3.00        | 0      | **Negate Phrase** — 3 clicks, 0 orders          |
+| `<wasteful-1>`    | `<kw>` Phrase  | 28    | 3      | 10.71% | 3.00        | 0      | **Negate Phrase** — 3 clicks, 0 orders          |
 | `<harvest-cand>`  | `<kw>` Phrase  | 12    | 2      | 16.7%  | 2.00        | 1      | **Harvest** to Exact + back-negate from Phrase  |
 | `<competitor>`    | `<kw>` Exact   |  1    | 1      | 100%   | 1.00        | 0      | **Negate Phrase** — competitor-brand searcher   |
 ```
@@ -468,7 +480,7 @@ when drafting the report. Compare your draft against this example
 before submitting; if a piece is missing or out of order, fix it.
 
 ```markdown
-# Campaign 3: <Generic Manual Sock Campaign>
+# Campaign 3: <Generic Manual Campaign>
 
 ## Campaign data
 
@@ -490,7 +502,7 @@ before submitting; if a piece is missing or out of order, fix it.
 |---|---|---|---|---|---|---|---|---|---|---|
 | `<kw-1>/` (Exact) | Delivering | 1.00 | 1.00 | 0.80 (0.70–1.00) | 10.0% | 200 | 10 | 5.00% | **1** | **4.00** | Hold (PROTECT) — 1 order, ROAS 4.00, at recommended midpoint |
 | `<kw-2>/` (Phrase)| Delivering | 1.00 | 1.00 | 1.00 (0.80–1.20) | 40.0% |  60 |  3 | 5.00% | 0     | 0.00     | Hold — 3 clicks small sample, watch 7d                       |
-| `<kw-3>/` (Exact) | Delivering | 2.00 | 2.00 | 1.00 (0.50–1.50) | 30.0% |  33 |  2 | 5.0%  | 0     | 0.00     | **Trim to 1.50** — bid 2× rec midpoint, 0 orders             |
+| `<kw-3>/` (Exact) | Delivering | 2.00 | 2.00 | 1.00 (0.50–1.50) | 30.0% |  33 |  2 | 6.06% | 0     | 0.00     | **Trim to 1.50** — bid 2× rec midpoint, 0 orders             |
 | `<kw-4>/` (Exact) | Delivering | 1.00 | —    | 0.80 (0.70–0.90) | —     |   0 |  0 | —     | 0     | —        | Hold — 0 views, no signal                                    |
 | (10 idle keywords, 0 views) | Delivering | 0.50–1.50 | — | varies | — | 0 | 0 | — | 0 | — | **Pause all idle** — clutter, 0 views                  |
 
@@ -501,7 +513,7 @@ before submitting; if a piece is missing or out of order, fix it.
 | Query             | Matched via         | Views | Clicks | CTR    | Spend (<ccy>) | Orders | recommendation                                    |
 |---|---|---|---|---|---|---|---|
 | `<query-1>`       | `<kw-1>/` Exact     | 200   | 10     | 5.00%  | 10.00         | 1      | Hold — converter at this match level              |
-| `<query-2>`       | `<kw-3>/` Exact     |  31   |  2     | 5.0%   |  4.00         | 0      | **Negate Phrase** — 2 clicks, 0 orders            |
+| `<query-2>`       | `<kw-3>/` Exact     |  31   |  2     | 6.45%  |  4.00         | 0      | **Negate Phrase** — 2 clicks, 0 orders            |
 | `<query-3>`       | `<kw-4>/` Phrase    |   4   |  2     | 50.0%  |  2.00         | 0      | Hold — small sample (4 views)                     |
 | `<competitor>` … | `<kw-1>/` Exact     |   1   |  1     | 100%   |  1.00         | 0      | **Negate Phrase** — competitor-brand searcher     |
 ```
@@ -518,3 +530,123 @@ Notes on the structure:
 - **PROTECT keywords / campaigns** (≥ 1 order in window) get
   `Hold (PROTECT)` in the recommendation cell with the converting
   metric cited (`ROAS 4.00 / 1 order`).
+
+## Applying changes — live execution surfaces (VERIFIED 2026-06-15)
+
+End-to-end verified on noon: a keyword bid raise, two keyword
+pauses, and six Exact negatives applied to one campaign and
+independently re-read live. Mechanisms:
+
+- **Navigate by campaign CODE, not name.** The audit report's
+  campaign name often differs from the live UI name (same `C_ID`).
+  Open `…/en-<cc>/campaign/details/<C_ID>?mpCode=noon&project=<PRJ>`;
+  the Targets grid is `…&tab=target&target_filter=all`.
+- **Keyword bid edit** — each target row has a bid `<button
+  class=performanceSectionTabs_editWrapper…>` showing the current
+  bid. Click it → a shadow-DOM `<input type=number>` appears.
+  **The shadow input does NOT reliably clear with Control+a/Delete
+  — it silently concatenates, turning a 1.30 target into 11.3 (a
+  10× overspend that shipped live). Clear it with the React native
+  setter and VERIFY EMPTY before typing:**
+  1. focus the input; set its value to `''` via the prototype
+     `value` native-setter + dispatch an `input` event;
+  2. **read the value back and confirm it is exactly empty** (`""`);
+  3. type the target; **read it back and confirm the field reads
+     EXACTLY the report's target number** (e.g. `1.30`, not `11.3`,
+     `1.301`, `11.30`). If it is anything else, the clear failed —
+     clear and redo; do NOT commit;
+  4. commit (Enter), then **reload the Targets tab and re-read the
+     row** — confirm the live bid equals the exact target.
+  **The target is an EXACT value, not a floor.** `提高至 1.30`
+  means set the bid to 1.30 — NEVER accept a higher value (e.g.
+  11.3) "because it's ≥ the target / satisfies only-raise". Only-
+  raise means: if the *current* live bid already ≥ target, skip;
+  otherwise set it to exactly the target. Bid rules still hold:
+  ROAS > 3.33 (⇔ ACOS < 30 %) = raise/hold only, never lower;
+  new bid ≥ actual CPC × 1.1.
+- **Keyword pause** — each row's last cell is a `<button
+  role=switch class="ant-switch …">`; `ant-switch-checked` =
+  Active, unchecked = Paused. Click to toggle; re-read to confirm.
+  **Pause ONLY the exact (keyword, match-type) rows the report
+  marks `暂停定向词`. NEVER pause a row marked `维持`/Hold — not
+  even a zero-impression one.** After pausing, count newly-paused
+  rows; it MUST equal the number the report listed for this
+  campaign. A prior run swept the whole keyword list (paused 45 of
+  49 when only 2 were intended) — if your paused count exceeds the
+  report's, you over-paused: un-pause the extras.
+- **Scope discipline (all edits):** touch ONLY the specific
+  (keyword, match-type) rows the report names. The same keyword
+  text often has multiple rows (Phrase / Exact / Broad / a longer
+  variant) — match BOTH the text and the match type, and leave
+  every other row untouched. (A prior run 10×'d an Exact row the
+  report never mentioned because it only matched on text.)
+- **Negative keywords** — NOT inline. Open the campaign →
+  **Edit Campaign** (`<button alt=editCampaign>`) →
+  `…/en-<cc>/campaign/v2?campaignCode=<C_ID>&mode=edit` →
+  **Section 4 Negative Targeting**: two `<input type=search>`
+  fields — Exact (`id=rc_select_0`) and Phrase (`id=rc_select_1`).
+  Type each term + Enter (verify a `.ant-select-selection-item`
+  tag appears). **Limit is 20 Exact + 20 Phrase** (older docs say
+  30/30 — the live cap is 20). The edit page is a **single-page
+  form** (no per-section save); the bottom has three controls:
+  `Cancel & Go Back`, `Save and Pause`, `Save and Launch`.
+  **Click the one that MATCHES the campaign's current status** —
+  `Save and Launch` for a Live campaign (it preserves Live),
+  `Save and Pause` only for an already-Paused one. NEVER click the
+  one that flips status. The save persists ONLY the negatives;
+  budget/name/dates/strategy/status are untouched (verified).
+  **The TOS field's "Top bid percentage must be between 10% and
+  900%" text is a STATIC HINT, not an error — leave TOS empty;
+  it does NOT block the save.** Re-open the edit form to confirm
+  the tags persisted. If `Save and Launch` ever raises a REAL
+  active validation error (`.ant-form-item-explain-error`, not the
+  static hint — can happen on Draft / Product-Ad campaigns), do
+  NOT enter a TOS/other value to force it: `Cancel & Go Back`
+  (changes nothing) and log that campaign's negatives as deferred.
+- **Use browser-use trusted clicks for Save/Apply/toggle actions**
+  (eval `.click()` is ignored by the React handlers); eval is fine
+  for navigation and reading only.
+- **Only negate clean keyword/query terms.** Skip the audit's
+  collapsed summary rows (`…（含变体 N 条）`, `… 等 ASIN 匹配`)
+  and noon product ids (`z…`/truncated) — those are not single
+  negative keywords. And never negate a term the report also marks
+  Hold/raise in the same campaign (it converts).
+- **Ambiguous row → SKIP and LOG; never block on a question.** You
+  run autonomously — there is no human to answer mid-task. If a
+  report row cannot be matched to a live row with confidence (e.g.
+  the report's column got shifted, the named bid/value doesn't
+  appear live, or a category label is unclear), do NOT call
+  `AskUserQuestion` or any tool that waits for user input — that
+  hangs the task forever. Instead **skip that one row, write it to
+  EXECUTION_LOG as `skipped-ambiguous` with the reason, finish every
+  other row, and list all skipped rows in the result.** The
+  orchestrator reads skipped rows and re-tasks them with a corrected
+  instruction. A clean partial run that flags what it skipped is far
+  better than a run frozen on a prompt. (Real case: a charger
+  campaign's only targeting row was labeled `charging station类/电子
+  类目` with a shifted column; the agent called AskUserQuestion and
+  stalled. Correct move: skip + log, keep going.)
+
+### Execution-completion contract (a task is NOT "done" until this holds)
+
+A partial run once passed as complete (~25 of 69 report bids
+applied) because nothing compared LIVE state to the FULL report. Three rules:
+
+1. **Write `EXECUTION_LOG.md` to the TASK working dir** (`./EXECUTION_LOG.md`),
+   not only the `store-data/.../EXECUTION_LOG_<date>.md` tree — the
+   `ad_execution_fidelity` stop-gate reads `<task_dir>/EXECUTION_LOG.md`.
+2. **Address EVERY report row in scope — apply OR log `skipped — reason`**
+   (e.g. live ≥ target / category-sibling not targeted / drifted). A report
+   row absent from the log = forgotten. The gate now DENIES a submit that
+   leaves in-scope rows unaddressed and lists them ("INCOMPLETE: …"). Finish
+   every row or record why not — never stop mid-batch and call it done.
+3. **The self-reported log is not proof.** Before a platform is called
+   complete, a READ-ONLY live re-verify (open each campaign's live targets
+   table) must confirm every row at target or correctly skipped — the gate
+   can't catch "logged ✅ but never applied"; live is the only ground truth.
+4. **Never re-enable a paused ad to satisfy a gate.** If a report bid row is
+   on a Paused target/campaign, the bid is moot → log `skipped — already-paused`
+   and move on. A stop-gate deny (INCOMPLETE / OVER-PAUSE / OFF-REPORT) is
+   fixed by correcting the EXECUTION_LOG or flagging for owner — NEVER by
+   turning an ad's on/off state on to make the deny disappear. Only undo a
+   state change you yourself made this run in error.

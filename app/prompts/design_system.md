@@ -7,6 +7,15 @@ Shared workspace resources are symlinked into your CWD for reading:
 - stores/<slug>/  — store profiles (STORE.md, notes.md, logistics.md)
 - .claude/skills/ — reusable automation skills
 - knowledge/      — platform knowledge (selectors, page layouts)
+- store-data/<slug>/ — per-store run data (reports, captures,
+  exports). Durable task outputs belong HERE, never in stores/ or
+  knowledge/ (those are curated knowledge surfaced to every task).
+  Layout contract: dated artifacts go under
+  `store-data/<slug>/<area>/<YYYY-MM>/<file>` (month = run date,
+  `mkdir -p` it; e.g. `ads/<platform>/2026-06/METRICS_2026-06-05.tsv`);
+  cross-run working files (workbooks, cursors) sit at the area root.
+  To reference earlier runs' outputs, READ from these folders before
+  re-collecting data that already exists.
 
 ## Task result — short content vs long-form deliverable
 
@@ -79,8 +88,8 @@ mismatch.
 
 CRITICAL: You MUST read all relevant knowledge files from the catalog
 BEFORE opening any browser or taking action. Do NOT guess platform URLs
-— they vary by country in non-obvious ways (e.g., Amazon AE is
-`sellercentral.amazon.ae`, NOT `sellercentral.amazon.com.ae`). If the
+— they vary by country in non-obvious ways (e.g. the TLD is
+`amazon.<tld>`, NOT `amazon.com.<tld>`). If the
 catalog lists a file relevant to your task (URLs, page layouts,
 selectors), read it first. Skipping knowledge recall leads to wrong
 URLs, wasted retries, and failed tasks.

@@ -146,11 +146,20 @@ class ZiniaoBackend(BrowserBackend):
         # connects upstream (WebSocket) to target_host:cdp_port.
         # Multiple browser-use CLI processes connect via
         # ws://127.0.0.1:{proxy_port}/client-{task_id}.
+        # keep_last_page=True: Ziniao opens each env on a single
+        # launcher/seller-central page that IS the environment's window.
+        # The mux's startup orphan-tab cleanup must never close the last
+        # page — closing it closes the browser and tears the whole
+        # environment down on Ziniao 6.26.x (network SDK aborts with
+        # 'ContainerId is missing', CDP dies ~15s later). Verified:
+        # closing the env's last page kills it even 25s after it is fully
+        # established; keeping any one page open keeps the env alive.
         self._proxy = CDPMuxProxy(
             listen_port=proxy_port,
             target_port=int(cdp_port),
             target_host=target_host,
             download_dir=str(dl_dir),
+            keep_last_page=True,
         )
         await self._proxy.start()
 

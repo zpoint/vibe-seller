@@ -100,8 +100,10 @@ what. Diagnosis requires per-campaign isolation. Switch to Shared
 only after the campaign is proven and you want portfolio-level
 allocation.
 
-Maximum daily budget: minimum is **SAR 10**. For a diagnostic
-manual campaign, **SAR 30–50/day** validates keyword performance
+Maximum daily budget: the minimum is the marketplace floor (read it
+from the form — do NOT hardcode a currency). For a diagnostic manual
+campaign, a small budget of ~30–50/day in the marketplace currency
+validates keyword performance
 within a week. Higher budgets just mean you waste money faster
 if the diagnosis was wrong.
 
@@ -133,9 +135,9 @@ Use the same scheme across stores so dashboards stay sortable:
 ```
 
 Synthesized examples:
-- `STORE-101 Manual KSA - agent`
-- `STORE-102 Auto UAE - agent`
-- `STORE-103-mix Manual KSA - agent` (mixed-variant SKU)
+- `STORE-101 Manual US - agent`
+- `STORE-102 Auto UK - agent`
+- `STORE-103-mix Manual US - agent` (mixed-variant SKU)
 
 The trailing `- agent` flag distinguishes agent-created campaigns
 from human-created ones in the campaigns list. Keep the country

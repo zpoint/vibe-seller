@@ -65,6 +65,15 @@ class Task(Base):
     batch_id: Mapped[str | None] = mapped_column(
         String, nullable=True, index=True
     )
+    # The single "finalize" task of a fanout batch: created by
+    # finalize_reaper after every per-store child is terminal. It
+    # carries the batch's batch_id but no store_id. The explicit flag
+    # (rather than "store_id IS NULL") disambiguates it from a
+    # two_phase L2 prereq task, which is ALSO store_id=None+batch_id.
+    # See app/scheduler/finalize_reaper.py.
+    is_finalize: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     ai_profile_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default='default'
     )

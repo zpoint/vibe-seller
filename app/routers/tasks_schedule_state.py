@@ -7,6 +7,7 @@ MCP tools used by scheduled tasks to hand off cursor values between
 runs.
 """
 
+import asyncio
 from datetime import UTC, datetime
 import re
 from typing import Annotated
@@ -19,9 +20,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.database import get_db
+from app.email.db import get_new_emails_since, init_email_db
+from app.models.email_account import EmailAccount
+from app.models.schedule import Schedule
+from app.models.schedule_constants import PhaseMode
 from app.models.schedule_state import NO_STORE_SCOPE, ScheduleState
+from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.models.user import User
+
+# Canonical cursor key for the scheduled email sweep. Kept in sync
+# with scheduled_pretask.md and _EPOCH_TYPED_KEYS below.
+_EMAIL_WATERMARK_KEY = 'email_watermark'
+# Default first-run lookback when no cursor exists yet.
+_DEFAULT_LOOKBACK_HOURS = 24
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 
@@ -145,6 +157,58 @@ async def _load_scheduled_task(db: AsyncSession, task_id: str) -> Task:
     return task
 
 
+class RegisterFinalizeRequest(BaseModel):
+    # Non-empty NL instruction for the gather/reduce step. Same
+    # strip+min_length contract as schedule-state so the MCP boundary
+    # 422s on null/empty/whitespace rather than registering a blank
+    # finalize the reaper would then fire with no guidance.
+    description: Annotated[
+        str,
+        StringConstraints(strip_whitespace=True, min_length=1),
+    ]
+
+
+@router.post('/{task_id}/register-finalize')
+async def register_finalize(
+    task_id: str,
+    body: RegisterFinalizeRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Register the parent finalize step for this task's schedule.
+
+    Backs the ``vibe_seller_register_finalize`` MCP tool. The
+    plan-phase agent calls it when it judges the task needs a
+    cross-store gather/combine AFTER all per-store children finish.
+    Writes ``Schedule.finalize_description`` — the existing
+    ``finalize_reaper`` then fires one finalize task per batch once
+    every child is terminal.
+
+    Only valid for all-stores fanout schedules (``store_id IS NULL``
+    + ``phase_mode='fanout'``): a single-store or single-phase
+    schedule has no batch to reduce, so registering a finalize would
+    silently never fire.
+    """
+    task = await _load_scheduled_task(db, task_id)
+    sched = await db.get(Schedule, task.schedule_id)
+    if sched is None:
+        raise HTTPException(status_code=404, detail='Schedule not found')
+    if sched.store_id is not None or sched.phase_mode != PhaseMode.FANOUT:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'register-finalize only applies to all-stores fanout '
+                'schedules (the finalize step reduces a per-store batch). '
+                f'This schedule is store_id={sched.store_id!r}, '
+                f'phase_mode={sched.phase_mode!r}.'
+            ),
+        )
+    sched.finalize_description = body.description
+    sched.updated_at = datetime.now(UTC).isoformat()
+    await db.commit()
+    return {'ok': True, 'finalize_description': body.description}
+
+
 @router.get('/{task_id}/schedule-state/{key}')
 async def get_schedule_state(
     task_id: str,
@@ -260,4 +324,111 @@ async def set_schedule_state(
         'value': body.value,
         'updated_at': now,
         'updated_by_task_id': task_id,
+    }
+
+
+@router.get('/{task_id}/new-emails')
+async def get_new_emails(
+    task_id: str,
+    lookback_hours: int = _DEFAULT_LOOKBACK_HOURS,
+    folder: str = 'INBOX',
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Return only the emails that arrived since this schedule's cursor.
+
+    The watermark sweep, done server-side. Reads the
+    ``email_watermark`` cursor for the calling task's schedule+store
+    scope, queries each linked account's SQLite DB for emails strictly
+    newer than it, and returns them with a ready-to-persist
+    ``next_watermark``.
+
+    This exists so a scheduled email agent never has to hand-write a
+    raw ``SELECT`` against the email DB. An unfiltered query (the
+    natural "let me see the inbox" first move) drags
+    already-processed email bodies into the agent's transcript and
+    leaks them into the current run — the exact failure
+    ``tests/e2e/test_email_watermark_e2e.py`` pins. Moving the filter
+    into code makes that bug class unreachable from the agent surface;
+    the prose contract in ``scheduled_pretask.md`` becomes a pointer to
+    this one call instead of a SQL template the model can run too early.
+
+    Scope is resolved server-side from the task (never trust an
+    agent-supplied store id): the cursor is read for the task's own
+    store, and only that store's linked accounts are queried.
+    """
+    task = await _load_scheduled_task(db, task_id)
+    if not task.store_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'new-emails requires a store-scoped scheduled task; this'
+                ' task has no store_id.'
+            ),
+        )
+    store_scope = task.store_id
+
+    now_epoch = int(datetime.now(UTC).timestamp())
+    state = await db.get(
+        ScheduleState,
+        (task.schedule_id, store_scope, _EMAIL_WATERMARK_KEY),
+    )
+    if state is not None and state.value:
+        # Cursor is epoch-validated on write (see _validate_typed_value),
+        # so int() is safe here.
+        since_epoch = int(state.value)
+        first_run = False
+    else:
+        lookback = max(1, lookback_hours) * 3600
+        since_epoch = now_epoch - lookback
+        first_run = True
+
+    link_rows = (
+        (
+            await db.execute(
+                select(EmailAccount)
+                .join(
+                    StoreEmailLink,
+                    StoreEmailLink.email_account_id == EmailAccount.id,
+                )
+                .where(StoreEmailLink.store_id == store_scope)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    accounts_out: list[dict] = []
+    total = 0
+    next_watermark = since_epoch
+    for acct in link_rows:
+        # init guards the case where sync has not created the file yet.
+        await asyncio.to_thread(init_email_db, acct.id)
+        emails, acct_max = await asyncio.to_thread(
+            get_new_emails_since, acct.id, since_epoch, folder
+        )
+        next_watermark = max(next_watermark, acct_max)
+        total += len(emails)
+        accounts_out.append({
+            'account_id': acct.id,
+            'email': acct.email,
+            'new_emails': emails,
+        })
+
+    return {
+        'key': _EMAIL_WATERMARK_KEY,
+        'first_run': first_run,
+        'watermark_used': since_epoch,
+        'now_epoch': now_epoch,
+        'count': total,
+        # Persist this verbatim once you have reported the bodies:
+        # set_schedule_state('email_watermark', next_watermark).
+        'next_watermark': str(next_watermark),
+        'accounts': accounts_out,
+        'next_action': (
+            'Report each new_emails body verbatim, then call '
+            "vibe_seller_set_schedule_state('email_watermark', "
+            'next_watermark). Do NOT query the email DB with a raw '
+            'sqlite SELECT for this sweep.'
+        ),
     }

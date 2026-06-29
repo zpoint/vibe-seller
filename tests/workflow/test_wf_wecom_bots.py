@@ -16,9 +16,14 @@ from httpx import ASGITransport, AsyncClient
 import pytest
 from sqlalchemy import select
 
+from app.config import VIBE_SELLER_DIR
 from app.main import app
 from app.models.wecom_bot import WeComBot
-from app.notifiers.wecom import send_webhook
+from app.notifiers.wecom import (
+    send_file_webhook,
+    send_webhook,
+    webhook_key,
+)
 
 pytestmark = pytest.mark.workflow
 
@@ -361,6 +366,138 @@ class TestWeComBotSend:
         assert 'invalid webhook url' in body['message']
 
 
+class TestWeComBotSendFile:
+    async def test_send_file_success(self, admin_client, monkeypatch):
+        calls = []
+
+        async def _fake_send_file(url, path):
+            calls.append((url, path))
+            return True, ''
+
+        monkeypatch.setattr(
+            'app.routers.wecom_bots.send_file_webhook', _fake_send_file
+        )
+        created = (
+            await admin_client.post(
+                '/api/wecom-bots',
+                json={'name': 'Bot', 'webhook_url': WEBHOOK},
+            )
+        ).json()
+
+        # A path under an allowed root (need not exist — the guard only
+        # checks the location; existence is the notifier's job, mocked).
+        path = str(VIBE_SELLER_DIR / 'downloads' / 't2-brml' / 'receipt.pdf')
+        r = await admin_client.post(
+            f'/api/wecom-bots/{created["id"]}/send-file',
+            json={'path': path},
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()['ok'] is True
+        assert len(calls) == 1
+        assert calls[0][0] == WEBHOOK
+
+    async def test_send_file_rejects_path_outside_roots(self, admin_client):
+        created = (
+            await admin_client.post(
+                '/api/wecom-bots',
+                json={'name': 'Bot', 'webhook_url': WEBHOOK},
+            )
+        ).json()
+        r = await admin_client.post(
+            f'/api/wecom-bots/{created["id"]}/send-file',
+            json={'path': '/etc/passwd'},
+        )
+        assert r.status_code == 400
+        assert 'allowed' in r.json()['detail']
+
+    async def test_send_file_rejects_traversal_escape(self, admin_client):
+        # A path that starts under an allowed root but climbs out via
+        # `..` must resolve and be rejected.
+        created = (
+            await admin_client.post(
+                '/api/wecom-bots',
+                json={'name': 'Bot', 'webhook_url': WEBHOOK},
+            )
+        ).json()
+        r = await admin_client.post(
+            f'/api/wecom-bots/{created["id"]}/send-file',
+            json={'path': '/tmp/../etc/passwd'},
+        )
+        assert r.status_code == 400
+
+    async def test_send_file_rejects_blank_path(self, admin_client):
+        created = (
+            await admin_client.post(
+                '/api/wecom-bots',
+                json={'name': 'Bot', 'webhook_url': WEBHOOK},
+            )
+        ).json()
+        r = await admin_client.post(
+            f'/api/wecom-bots/{created["id"]}/send-file',
+            json={'path': '   '},
+        )
+        assert r.status_code == 400
+
+    async def test_send_file_missing_bot_returns_404(self, admin_client):
+        r = await admin_client.post(
+            '/api/wecom-bots/missing/send-file',
+            json={'path': '/tmp/x.pdf'},
+        )
+        assert r.status_code == 404
+
+    async def test_send_file_failure_surfaces_error(
+        self, admin_client, monkeypatch
+    ):
+        async def _fake_send_file(url, path):
+            return False, 'File too large for WeCom: 30.0 MB > 20 MB.'
+
+        monkeypatch.setattr(
+            'app.routers.wecom_bots.send_file_webhook', _fake_send_file
+        )
+        created = (
+            await admin_client.post(
+                '/api/wecom-bots',
+                json={'name': 'Bot', 'webhook_url': WEBHOOK},
+            )
+        ).json()
+        path = str(VIBE_SELLER_DIR / 'downloads' / 'big.pdf')
+        r = await admin_client.post(
+            f'/api/wecom-bots/{created["id"]}/send-file',
+            json={'path': path},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body['ok'] is False
+        assert '20 MB' in body['message']
+
+
+class TestSendFileNotifierGuards:
+    """send_file_webhook pre-network validation (no WeCom call)."""
+
+    def test_webhook_key_extraction(self):
+        assert webhook_key(WEBHOOK) == 'abcdefgh1234'
+        assert webhook_key('https://x.test/send') == ''
+
+    async def test_missing_key_fails_clean(self, tmp_path):
+        f = tmp_path / 'a.txt'
+        f.write_text('content here')
+        ok, msg = await send_file_webhook('https://x.test/send', str(f))
+        assert ok is False
+        assert 'key' in msg
+
+    async def test_nonexistent_file_fails(self):
+        ok, msg = await send_file_webhook(WEBHOOK, '/tmp/nope-xyz-123.pdf')
+        assert ok is False
+        assert 'not found' in msg.lower()
+
+    async def test_too_small_file_fails(self, tmp_path):
+        f = tmp_path / 'tiny.txt'
+        f.write_text('x')  # 1 byte < 6
+        ok, msg = await send_file_webhook(WEBHOOK, str(f))
+        assert ok is False
+        assert 'too small' in msg.lower()
+
+
 class TestNotifierNoLeak:
     """send_webhook must never echo the URL/key back to callers."""
 
@@ -382,6 +519,21 @@ class TestNotifierNoLeak:
 
         monkeypatch.setattr(httpx.AsyncClient, 'post', _raise)
         ok, msg = await send_webhook(WEBHOOK, 'hi')
+        assert ok is False
+        assert WEBHOOK not in msg
+        assert 'abcdefgh1234' not in msg
+
+    async def test_send_file_http_error_does_not_leak_url(
+        self, monkeypatch, tmp_path
+    ):
+        f = tmp_path / 'report.pdf'
+        f.write_bytes(b'%PDF-1.5 fake content here')
+
+        async def _raise(*a, **kw):
+            raise httpx.RequestError(f'upload failed to {WEBHOOK}')
+
+        monkeypatch.setattr(httpx.AsyncClient, 'post', _raise)
+        ok, msg = await send_file_webhook(WEBHOOK, str(f))
         assert ok is False
         assert WEBHOOK not in msg
         assert 'abcdefgh1234' not in msg

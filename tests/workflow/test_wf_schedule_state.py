@@ -516,7 +516,7 @@ class TestScheduleStateEndpoints:
 class TestPerStoreScoping:
     """Fanout-schedule sibling tasks must NOT see each other's cursor.
 
-    Real incident on 2026-05-07: schedule_state had PK
+    Real incident: schedule_state had PK
     (schedule_id, key) only. A fanout schedule's demo-northshore
     sub-task wrote ``last_report_date=2026-04-30`` and
     demo-meadowbrook's sibling task on the same schedule then read

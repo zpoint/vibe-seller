@@ -303,6 +303,11 @@
     "createSkill": "Create skill",
     "storeFilesSection": "Files",
     "storeFilesHint": "Per-store knowledge. Agents see only the relevant store's files when running a task.",
+    "truncatedRows": "Showing first {{shown}} of {{total}} rows — open the file for the rest.",
+    "viewerReadOnly": "read-only",
+    "download": "Download",
+    "storeData": "Run Data",
+    "storeDataHint": "Per-store task outputs (reports, exports, captures) under store-data/. Same tree the agent reads/writes; not knowledge.",
     "noStoresInWorkspace": "No stores yet — create a store in Tasks view",
     "hasContent": "Has content",
     "hintStoreProfile": "Store profile — platform, region, config",
@@ -653,6 +658,10 @@
         "stale": "The schedule prompt changed — the previous plan is no longer used. Re-plan before the next fire.",
         "failed": "The planner failed. Re-plan to try again.",
         "none": "No plan has been authored yet. Start planning to create one."
+      },
+      "finalize": {
+        "heading": "Finalize step (registered by the agent)",
+        "explainer": "After all stores finish, one extra step runs to combine their results. No action needed."
       },
       "history": {
         "heading": "Planning history ({{count}})",

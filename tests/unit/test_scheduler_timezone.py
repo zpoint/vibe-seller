@@ -2,7 +2,7 @@
 
 Guards against regressing the server-default resolution and the
 timezone plumbing in build_trigger, since the function signature
-defaults were the source of the original hardcoded 'Asia/Riyadh' bug.
+defaults were the source of the original hardcoded-timezone bug.
 """
 
 from datetime import datetime
@@ -102,12 +102,12 @@ class TestWeeklyFireDay:
     def test_weekly_fires_on_correct_iso_day(
         self, schedule_day, expected_weekday
     ):
-        tz = ZoneInfo('Asia/Shanghai')
+        tz = ZoneInfo('Asia/Tokyo')
         trig = cron_mod.build_trigger(
             'weekly',
             '07:00',
             schedule_day=schedule_day,
-            timezone='Asia/Shanghai',
+            timezone='Asia/Tokyo',
         )
         # Reference is a Thursday — far enough back to land on the
         # next occurrence of any weekday without ambiguity.
@@ -128,5 +128,5 @@ class TestWeeklyFireDay:
                 'weekly',
                 '07:00',
                 schedule_day=bad_day,
-                timezone='Asia/Shanghai',
+                timezone='Asia/Tokyo',
             )

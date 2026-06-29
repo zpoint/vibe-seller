@@ -82,7 +82,7 @@ A row is **protected from cuts** if ANY of these hold:
    AND `row_orders ≥ 0.05 × total_row_orders` (same two-filter rule as
    campaign-level, applied within the campaign's row set).
 2. **Efficiency PROTECT**: `row_orders ≥ 1` AND `row_roas ≥ target_roas × 2`.
-   A keyword with ROAS = 35.99 on SAR 1.50 / 1 order isn't a volume
+   A keyword with ROAS = 35.99 on USD 1.50 / 1 order isn't a volume
    driver, but it's an efficiency outlier — pausing it loses pure
    margin. The ≥ 1 order filter excludes noise (0-click rows with
    undefined ROAS).
@@ -140,6 +140,81 @@ current_bid < 0.5 × suggested_bid_midpoint
 
 Amazon shows a `Suggested bid` range for each keyword on the Targeting
 tab. The midpoint is a decent proxy for competitive market price.
+
+### ACOS bid-direction lock (HARD RULE — overrides bid drift)
+
+A keyword with a **measurable ACOS below 30 %** may only have its bid
+**raised or held — NEVER lowered**, no matter how far `current_bid`
+sits above `suggested_bid_midpoint`. Rationale: ACOS < 30 % means the
+keyword is converting profitably and is usually carrying real order
+volume; the bid is a *ceiling*, not spend — Amazon's second-price
+auction already charges the actual CPC, which is typically far below
+the bid. Lowering the ceiling on such a keyword discards profitable
+volume for no real saving. **Bid drift alone (`current_bid > 1.5 ×
+suggested`) is NOT a trim trigger** — it only justifies a trim when the
+keyword is *also* inefficient (ACOS ≥ 30 %).
+
+- **ACOS < 30 %** → `Hold`, or `Raise` if under-bidding
+  (`current_bid < suggested_low` and the keyword is volume-constrained).
+  Never `下调` / lower.
+- **ACOS ≥ 30 %** → a bid trim is allowed (step cap −25 %/session),
+  but the proposed new bid must **never be ≤ actual CPC** — floor it at
+  `max(actual_CPC × 1.1, suggested_low)`, else you kill the volume the
+  keyword currently wins.
+- **noon tables report ROAS, not ACOS.** `ROAS > 3.33` is exactly
+  `ACOS < 30 %` → same lock: raise/hold only.
+- Zero-order waste is handled by **negation** of the search term, not
+  by cutting a converting keyword's bid.
+
+This is enforced server-side at `set_task_result`: a report containing
+a bid-lowering recommendation on any row whose ACOS < 30 % (ROAS > 3.33)
+is **rejected** until fixed. See `app/ai/stop_gates/ad_bid_floor.py`.
+Every per-keyword trim cell must state the ACOS (or ROAS) it was based
+on so the rule is auditable.
+
+### Scale winners (raise-bid) — the upside side of the lock
+
+The lock above forbids *cutting* a profitable keyword; this rule is the
+**positive** obligation: a high-ROAS keyword that is volume-constrained
+should be **raised**, not parked on `Hold`. "Hold everything that's
+good" leaves money on the table — a keyword with ROAS 24 on 2 clicks is
+not "protected", it is **under-bid**: you are winning a sliver of
+obviously-profitable demand.
+
+> **Bid-rule thresholds — single source of truth.** The two enforced
+> numbers live in ONE place: `app/ai/stop_gates/ad_rules.py`
+> (`DEFAULT_RULES`): `scale_roas = 5` (raise-or-justify above this) and
+> `acos_no_lower = 30` (never lower a bid below this ACOS%). Don't
+> restate them elsewhere — cite this. A **store may override** either by
+> writing a line in `stores/<slug>/notes.md` (matched anywhere,
+> case-insensitive): `scale_roas: 6` or `acos_no_lower: 28`. The
+> `set_task_result` gates resolve defaults-then-notes per audit.
+
+A keyword is a **scale (raise-bid) candidate** when ALL hold:
+
+- `row_roas > scale_roas` (default 5, or the store's notes.md override;
+  noon reports ROAS directly, Amazon: `1 / ACOS`) — harvest-grade
+  efficiency,
+- `row_orders ≥ 1` — a proven converter, not 0-click noise,
+- it is **volume-constrained** — ANY of: `current_bid ≤ suggested_bid_high`,
+  actual CPC sitting at/below the bid with low clicks, low impression
+  share, OR the campaign is NOT `Out of budget`.
+
+For a scale candidate, recommend **Raise** (≈ +15–25 %/session toward
+`suggested_bid_high`, or one bid step), NOT `Hold`.
+
+**Efficiency-PROTECT (ROAS ≥ 2 × target) means "never CUT" — it does
+NOT mean "never raise".** A 2×-target ROAS row is the *best* raise
+candidate, not an untouchable `Hold`. Re-read the PROTECT section in
+that light: PROTECT blocks pauses and cuts, not growth.
+
+Legitimate reasons to `Hold` a high-ROAS keyword — **state the reason
+in the cell**: bid already at/above `suggested_bid_high` (no profitable
+headroom), impression share already high (little volume left to win),
+campaign budget-capped (raise the *budget* instead), or genuinely low
+search volume for the term. A bare `Hold` / `保持不动（受保护）` on a
+`ROAS > scale_roas` converter with none of these reasons is a defect —
+enforced server-side by `app/ai/stop_gates/ad_scale_winners.py`.
 
 ### Budget headroom (spend-cap detection)
 

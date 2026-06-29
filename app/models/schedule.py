@@ -65,6 +65,17 @@ class Schedule(Base):
     skip_reflection: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # Optional parent "reduce" step for a fanout schedule. When set,
+    # after EVERY per-store child of a fired batch reaches a terminal
+    # status, finalize_reaper creates ONE no-store task whose
+    # description is this text, handed a batch_results.json describing
+    # each child. The framework makes no decision about what to do
+    # with the results — retry/summarize/publish/notify is entirely
+    # the prompt's job. Null ⇒ no finalize step (default fanout).
+    # See app/scheduler/finalize_reaper.py.
+    finalize_description: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
     # Plan lifecycle — see app/plan_states.py for the state machine.
     plan_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default='none'

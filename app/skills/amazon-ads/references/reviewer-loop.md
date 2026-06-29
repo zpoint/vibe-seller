@@ -1,5 +1,17 @@
 # Reviewer loop — Phase 3 self-check + Phase 4 execution review
 
+> **SCOPE (read first).** For **amazon/noon AUDIT reports**, Phase 3
+> below is **superseded** by the server completeness reviewer at
+> `set_task_result` (`ad_completeness_review.py`) — do NOT spawn a
+> format-review subagent or write `REVIEW_*.md` for those audits.
+> This file still applies to:
+> - **Phase 4 execution review** (`EXEC_REVIEW_*` — enforced by the
+>   Stop-hook via `bash_safety.check_exec_review_status`), all
+>   platforms.
+> - **Phase 3 format review on platforms the server reviewer does not
+>   cover** (sections that don't match the amazon|noon headers the
+>   server gate parses).
+
 This file documents **two reviewer subagents**:
 - **Phase 3 (`ads-format-review`)** — checks the audit Markdown
   against `format-anchor.md`. Runs before the audit is delivered.
@@ -108,7 +120,7 @@ the most common "agent took a shortcut" failures:
   skipped this cycle", "small campaign — skipped", "React
   Virtualized grid — extraction blocked", "data not captured",
   "see TSV for full detail" as a SUBSTITUTE for actual rows, or
-  similar excuse phrasings = a gap. Small spend (e.g. AED 30) is
+  similar excuse phrasings = a gap. Small spend (e.g. USD 30) is
   not a skip reason. Mention each campaign ID separately so the
   agent knows which to drill.
 
@@ -340,16 +352,16 @@ For each actionable row, run the rule-E1..E8 checks from
   Bid column reflects the same value (it should, since the agent
   was supposed to sync them).
 
-  **Critical incident (2026-05-24):** an earlier reviewer iteration
+  **Critical incident:** an earlier reviewer iteration
   only cross-checked EXECUTION_LOG target == TSV Bid column. Both
   were written by the agent. They matched each other but the live
   page showed the old bid. The user's independent live sweep found
   3 confirmed mismatches:
-  - A44444444 row 78 "applied" negate of women's cotton socks —
+  - A44444444 row 78 "applied" negate of cable organizer —
     live shows only 3 unrelated negatives, the term was never added
   - A55555555 row 77 "applied" negate — same: not on live page
-  - A66666666 row 79 "applied" reactivate at SAR 2.50 — live
-    shows AED 2.00
+  - A66666666 row 79 "applied" reactivate at USD 2.50 — live
+    shows USD 2.00
 
   Cross-checking agent-written artifacts against each other does
   not catch this defect class. The reviewer MUST navigate the live
@@ -374,11 +386,11 @@ For each actionable row, run the rule-E1..E8 checks from
   rule catches.
 
   Concrete example of a stale-TSV defect (from a real run):
-    EXECUTION_LOG row 9: "Trim Close match bid SAR 2.80 (was 3.50,
+    EXECUTION_LOG row 9: "Trim Close match bid USD 2.80 (was 3.50,
                           −20%) | applied | Verification: page bid
-                          field shows SAR 2.80"
-    TSV row: "Close match | Delivering | SAR 3.50 | ... |
-              Recommendation: Trim to SAR 2.80 (−20%)"
+                          field shows USD 2.80"
+    TSV row: "Close match | Delivering | USD 3.50 | ... |
+              Recommendation: Trim to USD 2.80 (−20%)"
     → INCORRECT_APPLICATION: Bid column shows 3.50, expected 2.80.
 
   Mismatch → gap INCORRECT_APPLICATION with the file path,

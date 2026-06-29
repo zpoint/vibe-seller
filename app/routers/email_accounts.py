@@ -507,6 +507,12 @@ async def email_info_by_store(
             'raw_headers, attachments, flags, fetched_at, '
             'email_account)'
         ),
+        # Metadata-only samples (subject/sender/date — never body_text
+        # or SELECT *). For a "new since last run" sweep, do NOT widen
+        # these into an unfiltered body query: it pulls
+        # already-processed emails into the agent context and leaks them
+        # into the run (see tests/e2e/test_email_watermark_e2e.py). Use
+        # vibe_seller_get_new_emails instead — see watermark_note.
         'sample_queries': [
             'sqlite3 <db_path> "SELECT subject, sender, '
             "date FROM emails WHERE folder='INBOX' "
@@ -514,9 +520,15 @@ async def email_info_by_store(
             'sqlite3 <db_path> "SELECT subject, recipient, '
             "date FROM emails WHERE folder='Sent' "
             'ORDER BY date DESC LIMIT 10"',
-            'sqlite3 <db_path> "SELECT * FROM emails '
-            "WHERE subject LIKE '%keyword%'\"",
+            'sqlite3 <db_path> "SELECT subject, sender, date '
+            "FROM emails WHERE subject LIKE '%keyword%'\"",
         ],
+        'watermark_note': (
+            'For a scheduled "new emails since the last run" sweep, do '
+            'NOT query here — call vibe_seller_get_new_emails. It reads '
+            'the email_watermark cursor and filters server-side, so '
+            'already-processed emails never enter your context.'
+        ),
         'sync_interval': '5 minutes (automatic)',
     }
 

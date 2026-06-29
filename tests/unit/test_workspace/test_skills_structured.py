@@ -132,6 +132,41 @@ class TestSkillsSyncOverwritesAllFiles:
         assert (skill_dest / 'script.py').read_text() == 'print("new")'
 
 
+class TestSkillsSyncSourcePrecedence:
+    """Core's app/skills wins on a name collision with a plugin source."""
+
+    async def test_first_source_wins_on_name_collision(
+        self, tmp_path, monkeypatch
+    ):
+        # Core source (first) and a plugin source (second) both ship a
+        # skill named 'dup'. Core's content must survive — a plugin must
+        # not silently shadow a core skill.
+        core = tmp_path / 'core' / 'skills' / 'dup'
+        core.mkdir(parents=True)
+        (core / 'SKILL.md').write_text('# CORE dup')
+
+        plugin = tmp_path / 'plugin-skills' / 'dup'
+        plugin.mkdir(parents=True)
+        (plugin / 'SKILL.md').write_text('# PLUGIN dup')
+
+        dest = tmp_path / 'dest'
+        dest.mkdir(parents=True)
+
+        mgr = SkillsSyncManager()
+        mgr._dest_dir = dest
+        monkeypatch.setattr(
+            mgr, '_get_local_source', lambda: tmp_path / 'core' / 'skills'
+        )
+        monkeypatch.setattr(
+            'app.plugins.registered_skill_sources',
+            lambda: [tmp_path / 'plugin-skills'],
+        )
+
+        await mgr.fetch()
+
+        assert (dest / 'dup' / 'SKILL.md').read_text() == '# CORE dup'
+
+
 class TestSkillsSyncNoConfigAutoInit:
     """Config.md auto-init was removed — skills use stores/ for config."""
 

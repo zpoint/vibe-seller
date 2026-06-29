@@ -76,7 +76,7 @@ the bridge.
   and replayable.
 - **Multi-store from day one.** Each store keeps its own platform,
   data, SOPs, accumulated knowledge. Store A on Amazon US with its
-  own listing strategy, Store B on Noon AE with totally different
+  own listing strategy, Store B on Noon EG with totally different
   SOPs, Store C on Shopify DTC — they coexist without cross-talk.
 
 ## Install

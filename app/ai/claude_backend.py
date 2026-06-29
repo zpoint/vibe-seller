@@ -40,6 +40,7 @@ from app.ai.claude_backend_utils import (
     SIGNAL_TIMEOUT,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
+    resolve_claude_binary,
 )
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
@@ -282,7 +283,7 @@ class AgentSession(_HookMixin, _StreamMixin):
             ]
         else:
             cmd = [
-                'claude',
+                resolve_claude_binary(),
                 '-p',
                 '--output-format',
                 'stream-json',

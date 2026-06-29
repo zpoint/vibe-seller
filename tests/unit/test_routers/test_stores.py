@@ -161,7 +161,7 @@ class TestBrowserStartForce:
             browser_config='{}',
             ziniao_account_id=account.id,
             platforms='["amazon"]',
-            countries='["SA"]',
+            countries='["US"]',
         )
         async_db_session.add(store)
         await async_db_session.commit()

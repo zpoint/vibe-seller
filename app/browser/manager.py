@@ -12,14 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import create_token
 from app.browser.base import BrowserBackend, BrowserSessionInfo
-from app.browser.chrome import ChromeBackend
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.browser.wrapper import (
     remove_browser_use_wrapper,
     store_slug,
     write_browser_use_wrapper,
 )
-from app.browser.ziniao import ZiniaoBackend
 from app.browser.ziniao_utils import ensure_ziniao_running
 from app.config import (
     AI_BOT_USER_ID,
@@ -262,12 +260,15 @@ class BrowserManager:
         multiplexing and shared cookie context.
         """
         if store_id not in self._backends:
-            if backend_type == 'chrome':
-                self._backends[store_id] = ChromeBackend()
-            elif backend_type == 'ziniao':
-                self._backends[store_id] = ZiniaoBackend()
-            else:
+            from app.plugins import (  # noqa: PLC0415 — avoid import cycle
+                registered_browser_backends,
+            )
+
+            backends = registered_browser_backends()
+            cls = backends.get(backend_type)
+            if cls is None:
                 raise ValueError(f'Unsupported browser backend: {backend_type}')
+            self._backends[store_id] = cls()
         return self._backends[store_id]
 
     def _allocate_proxy_port(
@@ -303,7 +304,14 @@ class BrowserManager:
 
     @staticmethod
     async def _read_headless_setting(db: AsyncSession) -> bool:
-        """Read the system-wide browser_headless app setting."""
+        """Read the system-wide browser_headless app setting.
+
+        The CI=true env var (set automatically by GitHub Actions) always
+        forces headless regardless of the DB value, so CI never needs a
+        virtual display and runs at full headless speed.
+        """
+        if os.environ.get('CI') == 'true':
+            return True
         row = await db.get(AppSettings, 'browser_headless')
         return bool(row and row.value == 'true')
 
@@ -415,8 +423,11 @@ class BrowserManager:
         # URLs) reads `headless` from this dict. Per-store override is
         # still respected — only inject if the store didn't set one.
         if 'headless' not in browser_config:
-            row = await db.get(AppSettings, 'browser_headless')
-            browser_config['headless'] = bool(row and row.value == 'true')
+            if os.environ.get('CI') == 'true':
+                browser_config['headless'] = True
+            else:
+                row = await db.get(AppSettings, 'browser_headless')
+                browser_config['headless'] = bool(row and row.value == 'true')
 
         backend = self._get_backend(store.id, store.browser_backend)
 
@@ -441,7 +452,7 @@ class BrowserManager:
             proxy_port,
             api_token=token,
             store_id=store.id,
-            headless=bool(browser_config.get('headless', True)),
+            headless=bool(browser_config.get('headless', False)),
         )
 
         now = datetime.now(UTC).isoformat()

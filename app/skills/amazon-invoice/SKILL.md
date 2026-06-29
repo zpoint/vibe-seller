@@ -29,7 +29,7 @@ Generate professional tax invoices for Amazon orders by extracting data from Sel
 
 You **always know the country** before generating an invoice. Get it from:
 
-1. **Store metadata** — the `platform_countries` field in your store context tells you which countries this store operates in (e.g., `amazon: SA, AE`). If the task targets a specific country, use `task_country`.
+1. **Store metadata** — the `platform_countries` field in your store context tells you which countries this store operates in (e.g., `amazon: US, UK`). If the task targets a specific country, use `task_country`.
 2. **Current Seller Central session** — you know which country/marketplace you are browsing because you selected it (Seller Central lets you toggle between countries within the same session).
 
 The `country` field (2-letter ISO code) is **required** in the JSON you pass to the script. The script uses it to look up the correct tax rate and tax rules.
@@ -80,11 +80,11 @@ Make sure you are on the correct country/marketplace within Seller Central befor
 
 ### Step 2: Extract Order Data
 
-From the order detail page, extract the data into this JSON structure. Pass **raw strings** exactly as shown on the page (e.g., `"AED 1,234.56"`) — the script parses them automatically.
+From the order detail page, extract the data into this JSON structure. Pass **raw strings** exactly as shown on the page (e.g., `"USD 1,234.56"`) — the script parses them automatically.
 
 ```json
 {
-  "country": "AE",
+  "country": "US",
   "invoice_number": "<Order ID>",
   "date": "<order date, YYYY-MM-DD>",
   "bill_to": {
@@ -92,7 +92,7 @@ From the order detail page, extract the data into this JSON structure. Pass **ra
     "entity": "<business name if present>",
     "vat": "<buyer VAT number if shown>",
     "rfc": "<buyer RFC if shown (Mexico)>",
-    "trn": "<buyer TRN if shown (UAE/SA)>",
+    "trn": "<buyer TRN if shown, where applicable>",
     "address": "<full billing address>"
   },
   "ship_to": "<full shipping address>",
@@ -100,17 +100,17 @@ From the order detail page, extract the data into this JSON structure. Pass **ra
     {
       "description": "<product title>",
       "quantity": 1,
-      "amount": "<total amount for this line item, e.g. 'AED 299.00'>"
+      "amount": "<total amount for this line item, e.g. 'USD 299.00'>"
     }
   ],
   "subtotal": "<if shown on page, else omit>",
   "tax": "<if shown on page, else omit>",
   "shipping_total": "<if shown, else omit>",
   "promotion": "<if shown, else omit>",
-  "refund": "<refund amount shown on the order page as an absolute value (e.g. a row labeled 'Refund: -AED 12.00' becomes '12.00'); omit if none>",
+  "refund": "<refund amount shown on the order page as an absolute value (e.g. a row labeled 'Refund: -USD 12.00' becomes '12.00'); omit if none>",
   "total": "<total as shown on page>",
   "amount_paid": "<if shown, else omit>",
-  "currency": "AED",
+  "currency": "USD",
   "seller_entity": "<from store knowledge, if available>",
   "seller_vat": "<from store knowledge, if available>",
   "seller_rfc": "<from store knowledge, if available for Mexico>",
@@ -128,7 +128,7 @@ All other fields are optional — the script derives what's missing.
 
 **You do NOT need to calculate tax yourself.** The `generate_invoice.py` script:
 
-1. **Parses currency strings** — `"AED 1,234.56"` → `1234.56`
+1. **Parses currency strings** — `"USD 1,234.56"` → `1234.56`
 2. **Looks up tax rules by country code** — the `country` field you provide
 3. **Prioritizes page values** — if the order page shows explicit subtotal + tax + total **and no refund is present**, the script uses those instead of calculating
 4. **Handles refunds** — if a refund is provided, the script always recomputes from components (`items + shipping − promotion − refund`) because Amazon's order page shows subtotal **before** refund and total **after** refund, so those page values are mutually inconsistent when a refund exists. The derived gross matches the Item total line the customer actually paid.

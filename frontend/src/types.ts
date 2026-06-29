@@ -45,6 +45,9 @@ export interface WsStoreProfile {
   files: WsFile[];
   file_count: number;
   has_content: boolean;
+  data_path: string;
+  data_files: WsFile[];
+  data_file_count: number;
 }
 export interface WsSkill {
   slug: string;
@@ -149,6 +152,9 @@ export interface Schedule {
   is_active: boolean
   phase_mode: SchedulePhaseMode
   plan_mode: boolean
+  // Parent finalize/reduce step registered by the plan agent for an
+  // all-stores fanout schedule (null = none). See finalize_reaper.
+  finalize_description: string | null
   ai_profile_id: string | null
   created_by: string
   created_at: string

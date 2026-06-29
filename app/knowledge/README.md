@@ -27,7 +27,7 @@ knowledge/project/
 `~/.vibe-seller/knowledge/notes.md` — minimal, user/AI-editable.
 
 Contains ONLY cross-store relationships:
-- "Store B is 跟卖 of Store A on Amazon SA"
+- "Store B is 跟卖 of Store A on Amazon <country>"
 - "Store A and Store C share the same brand X"
 - "Store D and Store E use the same supplier"
 

@@ -31,7 +31,7 @@ recent searches by buyers in this country*. This is the gold-
 standard signal.
 
 ```
-https://www.noon.com/{country-slug}/   (e.g. saudi-en, uae-en)
+https://www.noon.com/{country-slug}/   (e.g. egypt-en)
 ```
 
 Workflow:
@@ -50,32 +50,35 @@ Workflow:
 Manual campaign — Manual Targeting allows dozens of keywords but
 each one dilutes budget attention.
 
-## Step 2 — Storefront autocomplete (Arabic)
+## Step 2 — Storefront autocomplete (local language)
 
-For KSA / UAE, **a substantial fraction of buyers search in Arabic**
-on noon — often a higher Arabic-share than the same buyers' Arabic
-share on Amazon. Skipping Arabic on noon means missing real volume.
+In any marketplace whose buyers don't search primarily in English,
+**a substantial fraction of buyers search in the local language**
+on noon — often a higher local-language share than the same buyers'
+share on the equivalent Amazon marketplace. Skipping the local
+language on noon means missing real volume.
 
 Switch the storefront language via the toggle (top-right; varies
-by country page). Autocomplete will now reflect Arabic buyer
-searches.
+by country page). Autocomplete will now reflect local-language
+buyer searches.
 
 Two important conventions on noon:
 
-- **Colloquial > Modern Standard Arabic**. Buyers type how they
+- **Colloquial > formal/literary forms**. Buyers type how they
   talk, not how they read a newspaper. Common patterns:
-  - colloquial spelling without the formal taa marbuta variation
-    where buyers commonly drop it
+  - colloquial spelling that drops formal diacritics/endings buyers
+    commonly omit
   - shorter, dialectal forms over textbook plurals
-  - the English transliteration `ladies` is also widely searched
-    and appears in autocomplete; worth bidding even though it
-    "looks" English.
-- **Plural / dialectal forms vary by country.** KSA buyers and
-  UAE buyers don't always use the same plural. Re-do autocomplete
+  - English transliterations of common terms are also widely
+    searched and appear in autocomplete; worth bidding even though
+    they "look" English.
+- **Plural / dialectal forms vary by country.** Buyers in different
+  countries don't always use the same plural. Re-do autocomplete
   per country.
 
-Validate each Arabic candidate the same way as English: type into
-search, see if results match your category, record only if so.
+Validate each local-language candidate the same way as English:
+type into search, see if results match your category, record only
+if so.
 
 ## Step 3 — Peer-listing reading
 
@@ -96,7 +99,7 @@ Workflow:
    keyword no peer's title or autocomplete reflects.
 
 This catches false positives from your own seller-side bias.
-"Cotton" might feel like a strong term for an apparel listing,
+"Cotton" might feel like a strong term for a product listing,
 but if every selling peer says "soft" or "breathable" instead,
 the buyer doesn't search "cotton" — they search the use-case.
 
@@ -130,7 +133,7 @@ While doing buyer-side keyword research, log everything that's
 |---|---|---|
 | Storefront autocomplete suggesting your seed word into adjacent category | "kitchen knife block" when your listing is cookware | `knife`, `block` |
 | Search results showing wrong product type | "cookware" returns 5 cooking books | `book`, `recipe` |
-| Peer-listing titles using opposite gender / age | Peer titles say "kids" or "men's" when yours is adult women's | `kids`, `men`, `mens` |
+| Peer-listing titles for a different variant / age | Peer titles say "kids" when your listing is the standard adult version | `kids`, `mini` |
 | Country-specific dialect collision | A word that means a different category in another country | The dialect-specific token |
 
 Negatives are as important as positives. Every wasted Click on a
@@ -164,7 +167,7 @@ Keywords (Phrase unless noted):
     <category + use-case>
     <category + audience>
     ...
-  Arabic (4 terms):
+  Local language (4 terms):
     <colloquial term 1>
     <colloquial term 2>
     ...
@@ -175,7 +178,7 @@ Negatives:
   Phrase (10):
     <multi-word negatives>
 
-Per-keyword bid: <X> SAR (high end of suggested range)
+Per-keyword bid: <X> <marketplace currency> (high end of suggested range)
 TOS boost: <Y>%
 ```
 

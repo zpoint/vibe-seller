@@ -2,6 +2,7 @@
 name: noon-ads
 description: "Noon Ad Manager — campaigns (Auto / Manual / Brand), tuning audits, keyword research, negatives, Vantage analytics. Covers Targets / Customer Queries / Export Data flows. Load for any noon ads work — review, audit, tune, create. References under references/ for the tuning playbook (ads-tuning.md), creation guide (ads-creation.md), and keyword research (ads-keyword-research.md)."
 requires: [noon-shared]
+gates: [ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
 ---
 
 # Noon — Ad Manager
@@ -59,9 +60,51 @@ underscore, e.g. `C_XXXXXXXXXX`).
 browser-use eval "var links = document.querySelectorAll('a[href*=\"/campaign/details/\"]'); var data = []; links.forEach(function(l) { var m = l.href.match(/\/campaign\/details\/([^?]+)/); if (m) data.push({name: l.textContent.trim(), id: m[1]}); }); JSON.stringify(data);"
 ```
 
+> ⚠️ **The campaign list is PAGINATED (~15 per page) — that eval only
+> returns the CURRENT page.** The footer reads `Showing 15 items per
+> page` and a pager (`1 2 3 4 5 →`) sits bottom-right. A single eval
+> captures ~15 campaigns; an account with 70 campaigns across 5 pages
+> will be silently under-reported by ~80% if you stop at page 1. This
+> has produced a real audit that reported "12 active campaigns (all
+> manual targeting)" for a noon account that actually had **~70
+> campaigns across 5 pages, including Auto-targeting and Product-Ad
+> campaigns** the page-1-only read never saw.
+>
+> **Phase 1 (Discover) MUST enumerate every page before concluding the
+> campaign set:**
+>
+> 1. Read the pager to learn the last page number, then **page through
+>    all of them**, unioning campaign IDs into one set. The pager is an
+>    **Ant Design** component — click the explicit **page-number anchor**
+>    `li.ant-pagination-item-N a` (verified reliable 2026-06-08); the
+>    generic next-chevron snippet below is an unreliable fallback (the
+>    `/next|›|→/` match returns `no-next` on this paginator):
+>    ```bash
+>    # RELIABLE: jump to each page by its number, 1..last
+>    browser-use eval "var a=document.querySelector('li.ant-pagination-item-2 a'); if(a){a.click(); 'page-2';} else 'no-page-2';"
+>    # how many pages exist:
+>    browser-use eval "JSON.stringify([...document.querySelectorAll('li.ant-pagination-item')].map(function(li){return li.getAttribute('title')||li.textContent.trim();}));"
+>    # fallback chevron (often fails on Ant Design — prefer the anchor):
+>    # browser-use eval "var b=[...document.querySelectorAll('button,a,[role=button]')].find(function(e){return /next|›|→|>/.test(e.getAttribute('aria-label')||e.textContent||'') && !e.disabled;}); if(b){b.click(); 'clicked-next';} else 'no-next';"
+>    ```
+>    Re-extract `a[href*="/campaign/details/"]` after each page and
+>    merge into a de-duped set (IDs repeat if you re-read the same page).
+> 2. **Establish the true total** before trusting any count: the last
+>    pager number × page-size (minus the short last page) is your
+>    completeness target. If the distinct campaign-id count you
+>    collected is less than `(last_page − 1) × 15`, you have NOT read
+>    every page — keep going. Many noon list footers also expose a
+>    page-size selector; bumping it (e.g. 15 → 100) collapses the
+>    account to a single page and is the most reliable read when
+>    available.
+> 3. Only after the union is complete (count stable, all pages visited)
+>    do you have the manifest. Treat a single-page read as a spot-check,
+>    never as the full campaign set. The same caveat applies per
+>    country — re-paginate after every country switch.
+
 **Campaign names can be misleading.** Verify actual products via
 the **Products tab** — do not trust the campaign name. A campaign
-named "widget004 Auto" may target women's underwear SKUs, not widgets.
+named "mouse004 Auto" may target keyboard SKUs, not a mouse.
 
 Header shows: campaign name, Status badge, Budget, **Top-of-Search
 boost** (displayed as `Top Slot: N%` between Budget and Bidding
@@ -292,7 +335,7 @@ When creating a new campaign, use step 4 "Negative Targeting" above.
 
 **URL**: `https://vantage.noon.partners/en/?project=PRJ{project_id}`
 
-First visit asks to select country (UAE / KSA / EGY) and account.
+First visit asks to select the marketplace country and account.
 Provides deeper analytics across campaigns.
 
 ## 11. Reference catalog — "what to do" thinking
@@ -303,17 +346,18 @@ one, how to research keywords — lives in three reference files:
 
 | Reference | Load when |
 |---|---|
-| [`../amazon-ads/references/format-anchor.md`](../amazon-ads/references/format-anchor.md) | **Required for every audit** (shared across noon + Amazon). Canonical Markdown structure: per-campaign sections with inline Recommendation column on every Targets / Customer-Queries row. Single bid-change rule (≤ 25 % per session). The reviewer subagent checks against this file. |
-| [`../amazon-ads/references/reviewer-loop.md`](../amazon-ads/references/reviewer-loop.md) | **Required at end of audit.** How to spawn the `ads-format-review` subagent and write `REVIEW_<date>_iter<N>.md`. The Stop-hook reads the latest review file and denies stop until `Status: ok`. Hard-cap 5 iterations. |
+| [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | **The report contract for every audit** (shared across noon + Amazon — same shape for both platforms). 进度 line, per-campaign drill blocks (Targets table + Customer-Queries table + `搜索词对账` reconciliation line, same date window), bid rules, TSV naming. The **server completeness reviewer** at `set_task_result` checks against it and lists what's missing each round — no reviewer subagent, no REVIEW files. |
+| [`../amazon-ads/references/audit-quickref.md`](../amazon-ads/references/audit-quickref.md) | **The audit procedure, one page** (shared). Enumerate ALL pages → two-layer drill per campaign (Targets + Customer Queries, same window, reconcile) → build the report with Read+Edit via INSERT markers → converge with the server reviewer. |
+| [`../amazon-ads/references/format-anchor.md`](../amazon-ads/references/format-anchor.md) | _Legacy detail._ Exact per-campaign table layouts; load only if you need the precise column shape. Superseded as a contract by `output-spec.md`. |
 | [`references/ads-creation.md`](references/ads-creation.md) | Creating a new campaign. Covers targeting choice, bidding strategy, per-keyword bid heuristic, match-type strategy, negative scoping, TOS boost rules, budget choice, the Save-as-Draft → Launch UI quirk, naming convention, post-launch verification cadence. |
-| [`references/ads-tuning.md`](references/ads-tuning.md) | **Any task that reads existing campaigns and proposes changes** — phrasings like "review all ads", "audit the campaigns", "give me an improvement plan", "weekly ad review", "tune ads", "fix ACOS / ROAS". Defines the steps and noon-specific click paths (Customer Queries tab, Targets tab, etc.); the **output format itself** lives in `format-anchor.md` (shared with Amazon — same shape for both platforms). |
+| [`references/ads-tuning.md`](references/ads-tuning.md) | **Any task that reads existing campaigns and proposes changes** — phrasings like "review all ads", "audit the campaigns", "give me an improvement plan", "weekly ad review", "tune ads", "fix ACOS / ROAS". Defines the steps and noon-specific click paths (Customer Queries tab, Targets tab, etc.); the **output contract** lives in `output-spec.md` (shared with Amazon — same shape for both platforms). |
 | [`references/ads-keyword-research.md`](references/ads-keyword-research.md) | Building the initial keyword list for a Manual campaign. Covers buyer-vs-seller language, storefront autocomplete (English + Arabic), peer-listing reading, cross-checking against existing campaigns to avoid self-competition, parallel negative-list build, match-type assignment. |
 
 Safety rails:
 
-- **Compare same-country with same-country.** KSA and UAE buyers
-  behave differently; UAE peer data isn't a fair baseline for a
-  KSA campaign or vice versa.
+- **Compare same-country with same-country.** Buyers in different
+  countries behave differently; one country's peer data isn't a fair
+  baseline for another country's campaign.
 - **Surface, don't auto-execute.** Recommendations are presented
   to the user with current value, proposed value, and reason. The
   user confirms before any state-changing click.
@@ -322,7 +366,7 @@ Safety rails:
 
 ## Tips
 
-- **Ad Manager is per country** (`/en-sa/` vs `/en-ae/`).
+- **Ad Manager is per country** (e.g. `/en-<cc1>/` vs `/en-<cc2>/`).
 - **Campaign Detail tabs**: Products / Placements / Targets / Customer Queries.
 - **ROAS** = Revenue / Spends, target > 1.0 minimum (but real
   scale-target depends on margin — see `ads-tuning.md`).

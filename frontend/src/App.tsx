@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { ProfileModal } from './components/ProfileModal'
 import { LoginPage } from './components/LoginPage'
 import { Sidebar } from './components/Sidebar'
+import { useWsFiles } from './hooks/useWsFiles'
 import { CreateTaskModal } from './components/CreateTaskModal'
 import { CreateScheduleModal } from './components/CreateScheduleModal'
 import { TasksView } from './views/TasksView'
@@ -182,12 +183,11 @@ export default function App() {
 
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
-  // Login default: first store else all-stores. Refs guard against a click landing during in-flight loadStores.
-  const selRef = useRef(selectedStore), allRef = useRef(showAllTasks); selRef.current = selectedStore; allRef.current = showAllTasks
+  const userActedRef = useRef(false)  // Login default-select guard: flips true on any manual selectStore/selectAllTasks. A plain state ref wouldn't distinguish "clicked All Stores" from initial state (same values).
   useEffect(() => {
     if (!currentUser) return
-    loadZiniaoAccounts(); loadProfiles()
-    loadStores().then(f => { if (selRef.current || !allRef.current) return; if (f?.length) selectStore(f[0]); else selectAllTasks() })
+    userActedRef.current = false; loadZiniaoAccounts(); loadProfiles()
+    loadStores().then(f => { if (userActedRef.current) return; if (f?.length) selectStore(f[0]); else selectAllTasks() })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser])
 
@@ -343,13 +343,13 @@ export default function App() {
   }
 
   const selectStore = async (store: Store) => {
-    setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
+    userActedRef.current = true; setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([])
     setTasks(await api.get(`/api/tasks?store_id=${store.id}`))
     loadSchedules()
   }
   const selectAllTasks = async () => {
-    setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
+    userActedRef.current = true; setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([])
     setTasks(await api.get('/api/tasks?store_id=__none__'))
     loadSchedules()
@@ -566,24 +566,12 @@ export default function App() {
     setWsAssistantRunning(false)
   }
 
-  const openWsFile = async (path: string) => {
-    try {
-      const data = await api.get(`/api/workspace/file?path=${encodeURIComponent(path)}`)
-      setWsSelectedFile(path); setWsFileContent(data.content); setWsEditorContent(data.content); setWsEditorDirty(false); setWsShowHistory(false); setWsPreviewCommit(null)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      setWsSelectedFile(path); setWsFileContent(''); setWsEditorContent(''); setWsEditorDirty(false); setWsShowHistory(false); setWsPreviewCommit(null)
-      alert(`Failed to load file: ${msg}`)
-    }
-  }
-  const saveWsFile = async () => { if (!wsSelectedFile || wsSaving) return; setWsSaving(true); try { await api.put(`/api/workspace/file?path=${encodeURIComponent(wsSelectedFile)}`, { content: wsEditorContent }); setWsFileContent(wsEditorContent); setWsEditorDirty(false); await loadWsStructured() } finally { setWsSaving(false) } }
-  const syncProjectKnowledge = async () => { setWsSyncing(true); try { await api.post('/api/workspace/knowledge/sync'); await loadWsStructured(); try { setWsSyncMeta(await api.get('/api/workspace/knowledge/sync-meta')) } catch { /* ignore */ } } catch { /* ignore */ }; setWsSyncing(false) }
-  const syncBuiltinSkills = async () => { setWsSkillsSyncing(true); try { await api.post('/api/workspace/skills/sync'); await loadWsStructured() } catch { /* ignore */ }; setWsSkillsSyncing(false) }
-  const loadFileHistory = async (path: string) => { try { const data = await api.get(`/api/workspace/file/history?path=${encodeURIComponent(path)}`) as { commits: Array<{sha: string, message: string, date: string, author: string}> }; setWsFileHistory(data.commits || []) } catch { setWsFileHistory([]) } }
-  const previewVersion = async (path: string, sha: string) => { try { const data = await api.get(`/api/workspace/file/version?path=${encodeURIComponent(path)}&commit=${encodeURIComponent(sha)}`) as { content: string }; setWsPreviewCommit(sha); setWsPreviewContent(data.content) } catch { /* ignore */ } }
-  const resetFileToVersion = async (path: string, sha: string) => { if (!confirm(t('workspace.resetConfirm', { sha }))) return; try { await api.post('/api/workspace/file/reset', { path, commit: sha }); setWsPreviewCommit(null); setWsPreviewContent(''); await openWsFile(path); await loadFileHistory(path) } catch { /* ignore */ } }
-  const createWsFile = async (section: string, fileName: string) => { if (!fileName.trim()) return; const name = fileName.trim().endsWith('.md') ? fileName.trim() : fileName.trim() + '.md'; const path = section === 'knowledge' ? `knowledge/${name}` : `${section}/${name}`; await api.put(`/api/workspace/file?path=${encodeURIComponent(path)}`, { content: `# ${name.replace('.md', '')}\n\n` }); await loadWsStructured(); await openWsFile(path); setWsNewFileName(''); setWsNewFileSection(null) }
-  const deleteWsFile = async (path: string) => { await api.del(`/api/workspace/file?path=${encodeURIComponent(path)}`); if (wsSelectedFile === path) { setWsSelectedFile(null); setWsFileContent(''); setWsEditorContent(''); setWsEditorDirty(false) }; await loadWsStructured() }
+  const { openWsFile, saveWsFile, syncProjectKnowledge, syncBuiltinSkills, loadFileHistory, previewVersion, resetFileToVersion, createWsFile, deleteWsFile } = useWsFiles({
+    t, wsSelectedFile, wsEditorContent, wsSaving,
+    setWsSelectedFile, setWsFileContent, setWsEditorContent, setWsEditorDirty, setWsShowHistory,
+    setWsPreviewCommit, setWsPreviewContent, setWsSaving, setWsSyncing, setWsSyncMeta,
+    setWsSkillsSyncing, setWsFileHistory, setWsNewFileName, setWsNewFileSection, loadWsStructured,
+  })
   const toggleStoreExpanded = (slug: string) => { setWsExpandedStores(prev => { const next = new Set(prev); if (next.has(slug)) next.delete(slug); else next.add(slug); return next }) }
   const toggleSkillExpanded = (slug: string) => { setWsExpandedSkills(prev => { const next = new Set(prev); if (next.has(slug)) next.delete(slug); else next.add(slug); return next }) }
 

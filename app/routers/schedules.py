@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.profiles import resolve_schedule_profile
 from app.auth import get_current_user
 from app.database import async_session, get_db
 from app.events.bus import event_bus
@@ -33,6 +34,7 @@ from app.routers.schedule_planning import (
     normalize_prompt,
     schedule_needs_plan,
     spawn_planning_task,
+    validate_finalize_description,
 )
 from app.scheduler.cron import (
     add_schedule_job,
@@ -243,11 +245,13 @@ async def create_schedule(
 
     phase_mode = await _resolve_phase_mode(db, data.store_id, data.phase_mode)
 
+    validate_finalize_description(
+        data.finalize_description, data.store_id, phase_mode
+    )
+
     # Force plan_mode=True for all user-created schedules — the
-    # plan-at-creation lifecycle is the only UX. Only system-seeded
-    # schedules (is_system=True, seeded in database.py) are allowed
-    # to stay plan_mode=False; clients cannot create those.
-    # See app/plan_states.py for the lifecycle.
+    # plan-at-creation lifecycle is the only UX (system seeds stay
+    # plan_mode=False). See app/plan_states.py.
     effective_plan_mode = True
 
     schedule = Schedule(
@@ -262,16 +266,15 @@ async def create_schedule(
         interval_value=data.interval_value,
         timezone=data.timezone,
         phase_mode=phase_mode,
+        finalize_description=data.finalize_description,
         plan_mode=effective_plan_mode,
         plan_status=PlanStatus.PLANNING.value,
-        # Mirror task-creation fallback: if the client didn't pick a
-        # profile, use the user's default_profile_id rather than the
-        # literal 'default'. Without this fallback, schedules silently
-        # bypass the user's chosen provider (deepseek/glm/etc.) and
-        # send traffic to the real Anthropic API instead.
-        ai_profile_id=(
-            data.ai_profile_id or current_user.default_profile_id or 'default'
-        ),
+        # Inherit the owner's default at fire time, not at creation:
+        # store the client value as-is and resolve the owner's CURRENT
+        # default live via resolve_schedule_profile() (no snapshot of
+        # current_user.default_profile_id — that freeze was the bug).
+        # 'default'/None means inherit; any other value is a pin.
+        ai_profile_id=data.ai_profile_id,
         created_by=current_user.id,
     )
     db.add(schedule)
@@ -400,6 +403,11 @@ async def update_schedule(
         _validate_schedule_time(update_data['schedule_time'])
     if 'timezone' in update_data:
         _validate_timezone(update_data['timezone'])
+    validate_finalize_description(
+        update_data.get('finalize_description'),
+        schedule.store_id,
+        schedule.phase_mode,
+    )
 
     # Detect prompt change BEFORE applying (normalized compare so
     # whitespace-only edits don't spuriously invalidate).
@@ -642,6 +650,7 @@ async def get_schedule_plan(
         plan_error=schedule.plan_error,
         current_planning_task_id=schedule.current_planning_task_id,
         planning_task_history=history,
+        finalize_description=schedule.finalize_description,
     )
 
 
@@ -707,7 +716,7 @@ async def trigger_schedule(
         country=schedule.country,
         status=TaskStatus.PENDING,
         plan_mode=schedule.plan_mode,
-        ai_profile_id=schedule.ai_profile_id or 'default',
+        ai_profile_id=await resolve_schedule_profile(schedule, db),
     )
     if schedule.plan:
         task.plan = schedule.plan
