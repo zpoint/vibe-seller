@@ -56,11 +56,21 @@ def pytest_addoption(parser):
         default=False,
         help='Run e2e tests (requires running server + LLM secrets)',
     )
+    parser.addoption(
+        '--windows',
+        action='store_true',
+        default=False,
+        help=('Run Windows-specific tests (auto-enabled on Windows)'),
+    )
 
 
 def pytest_collection_modifyitems(config, items):
     if not config.getoption('--e2e'):
         items[:] = [item for item in items if 'e2e' not in item.keywords]
+
+    run_windows = config.getoption('--windows') or os.name == 'nt'
+    if not run_windows:
+        items[:] = [i for i in items if 'windows' not in i.keywords]
 
 
 # Test database URL - in-memory SQLite for fast tests

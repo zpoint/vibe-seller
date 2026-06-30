@@ -55,6 +55,11 @@ from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
 from app.models.user import User
+from app.platform import (
+    IS_WINDOWS,
+    find_processes_by_pattern,
+    prepend_to_path,
+)
 from app.workspace.manager import (
     VIBE_SELLER_DIR,
     workspace_manager,
@@ -214,7 +219,9 @@ class AgentSession(_HookMixin, _StreamMixin):
         pair — accepted as a known limitation for best-effort
         cleanup.
 
-        NOTE: Uses ``pgrep``/``os.kill`` (Unix-only).
+        Uses ``find_processes_by_pattern`` (psutil) so it works on
+        all platforms — the old ``pgrep``/``os.kill`` path was
+        Unix-only.
         """
         if not self.task_id:
             return
@@ -222,28 +229,16 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Pattern 2: 8-char prefix in --session arg (Chrome),
         #   scoped to --session to avoid overbroad matches
         tid8 = self.task_id[:8]
-        patterns = [
-            f'browser_use.skill_cli.daemon.*{self.task_id}',
-            f'browser_use.skill_cli.daemon.*--session.*-{tid8}',
-        ]
-        pids: set[int] = set()
         try:
-            for pattern in patterns:
-                proc = await asyncio.create_subprocess_exec(
-                    'pgrep',
-                    '-f',
-                    pattern,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-                stdout, _ = await proc.communicate()
-                for line in stdout.decode().strip().split('\n'):
-                    line = line.strip()
-                    if line:
-                        try:
-                            pids.add(int(line))
-                        except ValueError:
-                            continue
+            daemons = await find_processes_by_pattern(
+                'browser_use.skill_cli.daemon',
+            )
+            pids: set[int] = set()
+            for pid, cmdline in daemons.items():
+                if self.task_id in cmdline:
+                    pids.add(pid)
+                elif '--session' in cmdline and f'-{tid8}' in cmdline:
+                    pids.add(pid)
             for pid in pids:
                 await kill_with_escalation(pid)
             if pids:
@@ -397,7 +392,7 @@ class AgentSession(_HookMixin, _StreamMixin):
         # shadow the per-store wrapper prepended below.
         daemon_bin = Path(sys.executable).parent
         if daemon_bin.is_dir():
-            env['PATH'] = f'{daemon_bin}:{env.get("PATH", "")}'
+            prepend_to_path(env, daemon_bin)
             env['VIRTUAL_ENV'] = str(daemon_bin.parent)
 
         # Per-store browser-use wrapper. MUST be prepended last so
@@ -407,7 +402,7 @@ class AgentSession(_HookMixin, _StreamMixin):
         if self.store_slug:
             store_bin = VIBE_SELLER_DIR / 'bin' / self.store_slug
             if store_bin.is_dir():
-                env['PATH'] = f'{store_bin}:{env.get("PATH", "")}'
+                prepend_to_path(env, store_bin)
 
         # start_new_session=True puts claude and every descendant into
         # a fresh POSIX session/process group. We do not rely on this
@@ -621,12 +616,18 @@ class AgentSession(_HookMixin, _StreamMixin):
         enough to race the next agent's startup. ``os.killpg`` is
         POSIX-only; on platforms without it (Windows) we fall back to
         signalling just the leader.
+
+        On Windows there is no process group to signal and
+        ``send_signal(SIGINT)`` raises ``ValueError`` for a
+        non-console subprocess, so we skip the SIGINT/SIGTERM phase
+        and go straight to ``kill()`` (TerminateProcess) below.
         """
         if not self._proc or self._proc.returncode is not None:
             return
         pid = self._proc.pid
         use_killpg = hasattr(os, 'killpg')
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        escalation = [] if IS_WINDOWS else [signal.SIGINT, signal.SIGTERM]
+        for sig in escalation:
             try:
                 if use_killpg:
                     os.killpg(pid, sig)

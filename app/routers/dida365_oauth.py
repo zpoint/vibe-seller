@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import secrets
 import time
 from urllib.parse import quote, urlencode
@@ -15,6 +14,7 @@ from pydantic import BaseModel
 from app.auth import get_current_user
 from app.browser.manager import atomic_write_json, read_mcp_config
 from app.events_system.syncer import load_backend_config, save_backend_config
+from app.platform import safe_chmod, venv_python
 from app.utils.crypto import decrypt_password, encrypt_password
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -101,7 +101,7 @@ async def ensure_ticktick_mcp() -> str:
         '-e',
         mcp_dir,
         '--python',
-        str(TICKTICK_MCP_DIR / '.venv' / 'bin' / 'python'),
+        str(venv_python(TICKTICK_MCP_DIR / '.venv')),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -144,7 +144,7 @@ def _register_ticktick_mcp(config: dict) -> None:
     mcp_json_path = VIBE_SELLER_DIR / '.mcp.json'
     atomic_write_json(mcp_json_path, mcp_data)
     try:
-        os.chmod(str(mcp_json_path), 0o600)
+        safe_chmod(mcp_json_path, 0o600)
     except OSError:
         pass
 
@@ -490,7 +490,7 @@ async def disconnect(
         mcp_json_path = VIBE_SELLER_DIR / '.mcp.json'
         atomic_write_json(mcp_json_path, mcp_data)
         try:
-            os.chmod(str(mcp_json_path), 0o600)
+            safe_chmod(mcp_json_path, 0o600)
         except OSError:
             pass
 

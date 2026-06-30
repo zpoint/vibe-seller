@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-import signal as _signal
 import tempfile
 
 from sqlalchemy import select
@@ -29,6 +28,7 @@ from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.store import Store
 from app.models.ziniao_account import ZiniaoAccount
+from app.platform import find_processes_by_pattern, kill_process
 from app.plugins import registered_browser_backends
 from app.utils.crypto import decrypt_password
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -45,37 +45,21 @@ _BASE_PROXY_PORT = 9322 if DEMO_MODE else 9222
 
 
 async def kill_aux_daemons() -> int:
-    """SIGTERM every browser-use daemon whose --session ends in
-    ``-aux``. Returns the count killed."""
+    """Terminate every browser-use daemon whose --session ends in
+    ``-aux``. Returns the count killed.
+
+    Uses ``find_processes_by_pattern`` + ``kill_process`` (psutil) so
+    it works on all platforms — the old ``ps ax`` / ``os.kill`` path
+    was Unix-only.
+    """
     daemons: list[int] = []
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            'ps',
-            'ax',
-            '-o',
-            'pid,command',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, _ = await proc.communicate()
-    except FileNotFoundError:
-        return 0
-    for line in stdout.decode().splitlines():
-        if 'browser_use.skill_cli.daemon' not in line:
-            continue
+    procs = await find_processes_by_pattern('browser_use.skill_cli.daemon')
+    for pid, cmdline in procs.items():
         # Match aux session names — any session ending in "-aux".
-        if not re.search(r'--session[= ][^ ]*-aux\b', line):
-            continue
-        parts = line.strip().split(None, 1)
-        try:
-            daemons.append(int(parts[0]))
-        except (ValueError, IndexError):
-            continue
+        if re.search(r'--session[= ][^ ]*-aux\b', cmdline):
+            daemons.append(pid)
     for pid in daemons:
-        try:
-            os.kill(pid, _signal.SIGTERM)
-        except ProcessLookupError:
-            pass
+        await kill_process(pid)
     if daemons:
         logger.info(
             'Killed %d aux browser-use daemon(s) on settings change: %s',
@@ -93,38 +77,19 @@ async def _kill_all_browser_daemons() -> int:
     Returns the number of processes killed.
     """
     try:
-        proc = await asyncio.create_subprocess_exec(
-            'pgrep',
-            '-f',
+        daemons = await find_processes_by_pattern(
             'browser_use.skill_cli.daemon',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
         )
-        stdout, _ = await proc.communicate()
-        pids = []
-        for line in stdout.decode().strip().split('\n'):
-            line = line.strip()
-            if line:
-                try:
-                    pids.append(int(line))
-                except ValueError:
-                    continue
-        for pid in pids:
-            try:
-                os.kill(pid, _signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-        if pids:
+        for pid in daemons:
+            await kill_process(pid)
+        if daemons:
             logger.info(
                 'Startup: killed %d browser-use daemon(s) '
                 'from previous run: %s',
-                len(pids),
-                pids,
+                len(daemons),
+                list(daemons.keys()),
             )
-        return len(pids)
-    except FileNotFoundError:
-        # pgrep not available (e.g. Windows)
-        return 0
+        return len(daemons)
     except Exception:
         return 0
 

@@ -19,13 +19,10 @@ import httpx
 
 from app import telemetry
 from app.config import LOCALHOST
+from app.platform import IS_LINUX, IS_MAC, IS_WINDOWS
 from app.telemetry_events import BrowserFailureReason, TelemetryEvent
 
 logger = logging.getLogger(__name__)
-
-IS_WINDOWS = platform.system() == 'Windows'
-IS_MAC = platform.system() == 'Darwin'
-IS_LINUX = platform.system() == 'Linux'
 
 
 class ZiniaoNormalModeError(RuntimeError):
