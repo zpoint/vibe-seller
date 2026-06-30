@@ -37,7 +37,7 @@ import webbrowser
 from PIL import Image, ImageDraw
 import pystray
 
-from app import windows_update
+from app import netinfo, windows_update
 from app.version import get_version
 
 PORT = int(os.environ.get('VIBE_SELLER_PORT', '7777'))
@@ -83,22 +83,29 @@ _STRINGS = {
         'open': 'Open Vibe Seller',
         'restart': 'Restart server',
         'update': 'Check for updates',
+        'lan': 'Copy LAN address',
         'quit': 'Quit',
         'latest': "You're on the latest version ({v}).",
         'updating': 'Downloading v{v} — the installer will open to '
         'finish the update.',
         'fail_title': 'Vibe Seller — update failed',
         'fail': '{err}\n\nDownload manually:\n{url}',
+        'lan_title': 'Vibe Seller — LAN address',
+        'lan_body': 'Open from other devices on this network:\n\n{name}\n'
+        '{ip}\n\n(copied to clipboard)',
     },
     'zh': {
         'open': '打开 Vibe Seller',
         'restart': '重启服务',
         'update': '检查更新',
+        'lan': '复制局域网地址',
         'quit': '退出',
         'latest': '已是最新版本（{v}）。',
         'updating': '正在下载 v{v} —— 安装程序将打开以完成更新。',
         'fail_title': 'Vibe Seller —— 更新失败',
         'fail': '{err}\n\n请手动下载：\n{url}',
+        'lan_title': 'Vibe Seller —— 局域网地址',
+        'lan_body': '局域网内其他设备可访问：\n\n{name}\n{ip}\n\n（已复制到剪贴板）',
     },
 }
 _LANG = 'zh' if _system_is_chinese() else 'en'
@@ -249,6 +256,23 @@ def _on_check_updates(icon, item):  # noqa: ARG001
         )
 
 
+def _copy_to_clipboard(text: str) -> None:
+    """Copy *text* to the clipboard (Windows `clip`; no-op elsewhere)."""
+    if sys.platform != 'win32':
+        return
+    try:
+        subprocess.run(['clip'], input=text, text=True, check=False, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        logger.warning('clipboard copy failed', exc_info=True)
+
+
+def _on_lan_address(icon, item):  # noqa: ARG001
+    name_url = netinfo.lan_hostname_url(PORT)
+    ip_url = netinfo.lan_url(PORT)
+    _copy_to_clipboard(ip_url)
+    _msgbox(_t('lan_title'), _t('lan_body', name=name_url, ip=ip_url))
+
+
 def _on_quit(icon, item):  # noqa: ARG001
     _stop_server()
     icon.stop()
@@ -291,6 +315,7 @@ def main() -> int:
         title,
         menu=pystray.Menu(
             pystray.MenuItem(_t('open'), _on_open, default=True),
+            pystray.MenuItem(_t('lan'), _on_lan_address),
             pystray.MenuItem(_t('restart'), _on_restart),
             pystray.MenuItem(_t('update'), _on_check_updates),
             pystray.MenuItem(_t('quit'), _on_quit),

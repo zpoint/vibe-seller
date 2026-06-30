@@ -36,6 +36,7 @@ dependencies = [
     "bcrypt",
     "cryptography",
     "gitpython",
+    "packaging",
     "playwright",
     "psutil>=5.9.0",
     "posthog>=4.0",
