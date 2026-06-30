@@ -10,6 +10,7 @@ import shutil
 
 import pytest
 
+from app.platform import venv_bin_dir, venv_executable, venv_python
 from app.workspace.manager import WorkspaceManager
 
 
@@ -27,17 +28,17 @@ class TestEnsureVenv:
             pytest.skip('uv not installed')
         await ws._ensure_venv()
 
-        pip3 = tmp_path / '.venv' / 'bin' / 'pip3'
-        assert pip3.exists(), 'pip3 binary missing'
+        pip = venv_executable(tmp_path / '.venv', 'pip')
+        assert pip.exists(), f'pip binary missing at {pip}'
 
         proc = await asyncio.create_subprocess_exec(
-            str(pip3),
+            str(pip),
             '--version',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         await proc.wait()
-        assert proc.returncode == 0, 'pip3 --version failed'
+        assert proc.returncode == 0, 'pip --version failed'
 
     async def test_venv_has_working_uv(self, ws, tmp_path):
         """uv must be installed and runnable in the venv."""
@@ -45,8 +46,8 @@ class TestEnsureVenv:
             pytest.skip('uv not installed')
         await ws._ensure_venv()
 
-        uv = tmp_path / '.venv' / 'bin' / 'uv'
-        assert uv.exists(), 'uv binary missing'
+        uv = venv_executable(tmp_path / '.venv', 'uv')
+        assert uv.exists(), f'uv binary missing at {uv}'
 
         proc = await asyncio.create_subprocess_exec(
             str(uv),
@@ -64,7 +65,8 @@ class TestEnsureVenv:
         await ws._ensure_venv()
         await ws._ensure_venv()  # second call is a no-op
 
-        assert (tmp_path / '.venv' / 'bin' / 'pip3').exists()
+        pip = venv_executable(tmp_path / '.venv', 'pip')
+        assert pip.exists()
 
     async def test_rebootstraps_existing_venv_missing_tools(self, ws, tmp_path):
         """If venv exists but pip/uv are missing, re-bootstrap."""
@@ -73,46 +75,48 @@ class TestEnsureVenv:
         await ws._ensure_venv()
 
         # Simulate a pre-existing broken venv by removing tools
-        venv_bin = tmp_path / '.venv' / 'bin'
-        (venv_bin / 'pip3').unlink()
-        (venv_bin / 'uv').unlink()
+        pip = venv_executable(tmp_path / '.venv', 'pip')
+        uv = venv_executable(tmp_path / '.venv', 'uv')
+        pip.unlink()
+        uv.unlink()
 
         # Should detect missing tools and re-bootstrap
         await ws._ensure_venv()
 
-        assert (venv_bin / 'pip3').exists()
-        assert (venv_bin / 'uv').exists()
+        assert pip.exists()
+        assert uv.exists()
 
-    async def test_venv_has_working_python3(self, ws, tmp_path):
-        """python3 must be runnable in the venv."""
+    async def test_venv_has_working_python(self, ws, tmp_path):
+        """python must be runnable in the venv."""
         if not shutil.which('uv'):
             pytest.skip('uv not installed')
         await ws._ensure_venv()
 
-        python3 = tmp_path / '.venv' / 'bin' / 'python3'
-        assert python3.exists(), 'python3 binary missing'
+        py = venv_python(tmp_path / '.venv')
+        assert py.exists(), f'python binary missing at {py}'
 
         proc = await asyncio.create_subprocess_exec(
-            str(python3),
+            str(py),
             '--version',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
         assert proc.returncode == 0, (
-            f'python3 --version failed: {stderr.decode()}'
+            f'python --version failed: {stderr.decode()}'
         )
 
     async def test_broken_venv_python_recreated(self, ws, tmp_path):
-        """Broken python3 binary triggers venv recreation."""
+        """Broken python binary triggers venv recreation."""
         if not shutil.which('uv'):
             pytest.skip('uv not installed')
         await ws._ensure_venv()
 
-        # Corrupt python3: replace with a 0-byte file
-        python3 = tmp_path / '.venv' / 'bin' / 'python3'
-        python_link = tmp_path / '.venv' / 'bin' / 'python'
-        for p in (python3, python_link):
+        # Corrupt python: replace with a 0-byte file
+        py = venv_python(tmp_path / '.venv')
+        venv_bin = venv_bin_dir(tmp_path / '.venv')
+        python_link = venv_bin / 'python'
+        for p in (py, python_link):
             if p.is_symlink() or p.exists():
                 p.unlink()
             p.write_bytes(b'')
@@ -121,28 +125,31 @@ class TestEnsureVenv:
         # _ensure_venv should detect broken python and recreate
         await ws._ensure_venv()
 
-        # python3 must now work
+        # python must now work
         proc = await asyncio.create_subprocess_exec(
-            str(python3),
+            str(py),
             '--version',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
         assert proc.returncode == 0, (
-            f'python3 still broken after recreation: {stderr.decode()}'
+            f'python still broken after recreation: {stderr.decode()}'
         )
 
     async def test_recreated_venv_uses_symlinks(self, ws, tmp_path):
         """Recreated venv should use symlinks, not copies."""
         if not shutil.which('uv'):
             pytest.skip('uv not installed')
+        if os.name == 'nt':
+            pytest.skip('Windows venvs use copies, not symlinks')
         await ws._ensure_venv()
 
-        # Corrupt python3
-        python3 = tmp_path / '.venv' / 'bin' / 'python3'
-        python_link = tmp_path / '.venv' / 'bin' / 'python'
-        for p in (python3, python_link):
+        # Corrupt python
+        venv_bin = venv_bin_dir(tmp_path / '.venv')
+        py = venv_python(tmp_path / '.venv')
+        python_link = venv_bin / 'python'
+        for p in (py, python_link):
             if p.is_symlink() or p.exists():
                 p.unlink()
             p.write_bytes(b'')
@@ -152,8 +159,8 @@ class TestEnsureVenv:
         await ws._ensure_venv()
 
         # python and python3 should be symlinks (uv venv default)
-        python_bin = tmp_path / '.venv' / 'bin' / 'python'
-        python3_bin = tmp_path / '.venv' / 'bin' / 'python3'
+        python_bin = venv_bin / 'python'
+        python3_bin = venv_bin / 'python3'
         assert os.path.islink(str(python_bin)), (
             f'python is not a symlink: {python_bin}'
         )

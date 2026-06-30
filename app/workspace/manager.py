@@ -20,6 +20,7 @@ import time
 import git as gitlib
 
 from app.config import VIBE_SELLER_DIR
+from app.platform import venv_executable, venv_python
 from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_seed import write_catalog_stub
 from app.workspace.structured_stores import collect_store_entries
@@ -167,21 +168,22 @@ class WorkspaceManager:
 
     @staticmethod
     async def _venv_tools_ok(venv_dir: Path) -> bool:
-        """Check python3 runs and pip/uv exist in the venv."""
-        venv_bin = venv_dir / 'bin'
-        if not ((venv_bin / 'pip3').exists() and (venv_bin / 'uv').exists()):
+        """Check python runs and pip/uv exist in the venv."""
+        pip = venv_executable(venv_dir, 'pip')
+        uv = venv_executable(venv_dir, 'uv')
+        if not (pip.exists() and uv.exists()):
             return False
         return await WorkspaceManager._python_runnable(venv_dir)
 
     @staticmethod
     async def _python_runnable(venv_dir: Path) -> bool:
-        """Check if python3 in the venv is executable."""
-        venv_python = venv_dir / 'bin' / 'python3'
-        if not venv_python.exists():
+        """Check if python in the venv is executable."""
+        py = venv_python(venv_dir)
+        if not py.exists():
             return False
         try:
             proc = await asyncio.create_subprocess_exec(
-                str(venv_python),
+                str(py),
                 '--version',
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -200,7 +202,7 @@ class WorkspaceManager:
     @staticmethod
     async def _bootstrap_venv_tools(venv_dir: Path):
         """Install pip and uv into the venv."""
-        python = str(venv_dir / 'bin' / 'python3')
+        python = str(venv_python(venv_dir))
         proc = await asyncio.create_subprocess_exec(
             'uv',
             'pip',

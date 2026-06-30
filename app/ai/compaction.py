@@ -8,10 +8,10 @@ history file before proceeding.
 """
 
 import logging
-import os
 from pathlib import Path
 
 from app.browser.manager import atomic_write_json
+from app.platform import safe_chmod
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ def dump_history_file(
 
     atomic_write_json(path, entries)
     try:
-        os.chmod(path, 0o600)
+        safe_chmod(path, 0o600)
     except OSError:
         logger.warning('Failed to set permissions on history file %s', path)
     logger.info('Dumped %d history messages to %s', len(entries), path)

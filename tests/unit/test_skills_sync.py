@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.models.app_settings import AppSettings
+from app.platform import venv_bin_dir, venv_executable, venv_python
 from app.workspace import skills_sync as ss
 from app.workspace.skills_sync import SkillsSyncManager
 
@@ -70,8 +71,8 @@ async def test_fetch_replaces_builtin_skill_atomically(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
@@ -112,8 +113,8 @@ async def test_fetch_skips_unchanged_skill(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
@@ -146,8 +147,8 @@ async def test_fetch_preserves_user_created_skills(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
@@ -181,8 +182,8 @@ async def test_fetch_detects_stale_files_as_changed(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
@@ -279,8 +280,8 @@ async def test_fetch_uses_unique_temp_dirs(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
@@ -317,8 +318,8 @@ async def test_fetch_handles_symlink_dest(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     with (
         patch.object(sync_mgr, '_get_local_source', return_value=src),
@@ -348,8 +349,8 @@ async def test_synced_skills_derived_from_source(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     meta_path = sync_mgr._dest_dir / '.sync_meta.json'
     with (
@@ -382,9 +383,9 @@ async def test_install_skill_deps_triggers_on_new_requirements(
     # Create a fake shared venv
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
-    (venv / 'bin' / 'uv').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
+    venv_executable(venv, 'uv').write_text('fake')
 
     with (
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
@@ -423,8 +424,8 @@ async def test_install_skill_deps_skips_unchanged(sync_mgr, tmp_path):
 
     venv = tmp_path / '.venv'
     venv.mkdir()
-    (venv / 'bin').mkdir()
-    (venv / 'bin' / 'python').write_text('fake')
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
 
     with (
         patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
