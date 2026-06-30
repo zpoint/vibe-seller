@@ -6,7 +6,6 @@ Git-managed, contains ``.claude/skills/`` (auto-discovered via
 """
 
 import asyncio
-import contextlib
 from datetime import UTC, datetime
 import json
 import logging
@@ -20,7 +19,7 @@ import time
 import git as gitlib
 
 from app.config import VIBE_SELLER_DIR
-from app.platform import venv_executable, venv_python
+from app.workspace import venv_bootstrap
 from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_seed import write_catalog_stub
 from app.workspace.structured_stores import collect_store_entries
@@ -115,10 +114,10 @@ class WorkspaceManager:
     async def _ensure_venv_locked(self):
         venv_dir = self.root / '.venv'
         if venv_dir.exists():
-            if await self._venv_tools_ok(venv_dir):
+            if await venv_bootstrap.venv_tools_ok(venv_dir):
                 return
             # Is python3 itself broken (not just missing tools)?
-            if not await self._python_runnable(venv_dir):
+            if not await venv_bootstrap.python_runnable(venv_dir):
                 logger.warning(
                     'Venv python3 broken, recreating: %s',
                     venv_dir,
@@ -139,7 +138,7 @@ class WorkspaceManager:
                 # Fall through to create fresh venv
             else:
                 logger.info('Venv missing tools, bootstrapping pip/uv')
-                await self._bootstrap_venv_tools(venv_dir)
+                await venv_bootstrap.bootstrap_venv_tools(venv_dir)
                 return
         logger.info('Creating shared agent venv at %s', venv_dir)
         proc = await asyncio.create_subprocess_exec(
@@ -156,74 +155,15 @@ class WorkspaceManager:
             # Race: another task may have created it concurrently
             if venv_dir.exists():
                 logger.info('Venv appeared concurrently, reusing')
-                if not await self._venv_tools_ok(venv_dir):
-                    await self._bootstrap_venv_tools(venv_dir)
+                if not await venv_bootstrap.venv_tools_ok(venv_dir):
+                    await venv_bootstrap.bootstrap_venv_tools(venv_dir)
                 return
             stderr = stderr_bytes.decode() if stderr_bytes else ''
             raise RuntimeError(
                 f'Failed to create agent venv at {venv_dir}: {stderr}'
             )
 
-        await self._bootstrap_venv_tools(venv_dir)
-
-    @staticmethod
-    async def _venv_tools_ok(venv_dir: Path) -> bool:
-        """Check python runs and pip/uv exist in the venv."""
-        pip = venv_executable(venv_dir, 'pip')
-        uv = venv_executable(venv_dir, 'uv')
-        if not (pip.exists() and uv.exists()):
-            return False
-        return await WorkspaceManager._python_runnable(venv_dir)
-
-    @staticmethod
-    async def _python_runnable(venv_dir: Path) -> bool:
-        """Check if python in the venv is executable."""
-        py = venv_python(venv_dir)
-        if not py.exists():
-            return False
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                str(py),
-                '--version',
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=2)
-            return proc.returncode == 0
-        except TimeoutError:
-            # Kill the hung process to avoid leaking it.
-            with contextlib.suppress(ProcessLookupError):
-                proc.kill()
-            await proc.wait()
-            return False
-        except OSError:
-            return False
-
-    @staticmethod
-    async def _bootstrap_venv_tools(venv_dir: Path):
-        """Install pip and uv into the venv."""
-        python = str(venv_python(venv_dir))
-        proc = await asyncio.create_subprocess_exec(
-            'uv',
-            'pip',
-            'install',
-            'pip',
-            'uv',
-            '--reinstall',
-            '--python',
-            python,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr_bytes = await proc.communicate()
-        if proc.returncode != 0:
-            stderr = stderr_bytes.decode() if stderr_bytes else ''
-            logger.warning(
-                'Failed to bootstrap pip/uv in venv: %s',
-                stderr,
-            )
-        else:
-            logger.info('Bootstrapped pip and uv into agent venv')
+        await venv_bootstrap.bootstrap_venv_tools(venv_dir)
 
     async def list_tree(self) -> list[dict]:
         """Return a flat list of all files in the workspace."""
