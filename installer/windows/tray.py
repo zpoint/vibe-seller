@@ -149,10 +149,22 @@ def _stop_server() -> None:
 
 
 def _icon_image() -> Image.Image:
-    """Minimal generated icon (no external asset to bundle/sign)."""
-    img = Image.new('RGB', (64, 64), (24, 24, 27))
+    """The shared brand icon (bundled vibe-seller.ico) so the tray
+    matches the web favicon; a drawn fallback if the asset is absent."""
+    ico = INSTALL_DIR / 'vibe-seller.ico'
+    if ico.is_file():
+        try:
+            return Image.open(ico)
+        except OSError:
+            pass
+    img = Image.new('RGB', (64, 64), (99, 102, 241))
     draw = ImageDraw.Draw(img)
-    draw.ellipse((12, 12, 52, 52), fill=(99, 102, 241))
+    draw.line(
+        [(18, 16), (32, 48), (46, 16)],
+        fill=(255, 255, 255),
+        width=6,
+        joint='curve',
+    )
     return img
 
 
