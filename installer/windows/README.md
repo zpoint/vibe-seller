@@ -14,7 +14,9 @@ server on login.
 | **uv** | [astral-sh/uv](https://github.com/astral-sh/uv) | Fast venv + offline install on the target |
 | **MinGit** | [git-for-windows MinGit](https://gitforwindows.org/mingit.html) | `git` **and** `bash` — Claude Code runs its Bash tool through Git Bash on Windows, so the existing **bash** browser-use wrapper works unchanged |
 | **claude CLI** | Anthropic native installer | The agent runtime |
-| **tray.py** | this dir | Login launcher: Open / Restart / Quit, runs via the bundled `pythonw.exe` |
+| **tray.py** | this dir | Login launcher: Open / Restart / Quit / Check for updates, runs via the bundled `pythonw.exe`. Menu + popups follow the OS language (en/zh). `--open` (used by the finish step) waits for health then opens the browser. |
+| **vibe-seller.ico** | `make_icon.py` | Shared brand mark (matches the web favicon); installer/Start-Menu/tray icon |
+| **ChineseSimplified.isl** | fetched by `build.ps1` (best-effort) | Chinese wizard strings; auto-selected on Chinese systems, English fallback |
 
 **Browser engine: Playwright Chromium**, downloaded at install via
 `playwright install chromium` (so the first install needs network). It

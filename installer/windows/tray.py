@@ -22,6 +22,7 @@ NOT runtime dependencies of the core package.
 from __future__ import annotations
 
 import ctypes
+import locale
 import logging
 import os
 from pathlib import Path
@@ -60,6 +61,51 @@ logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s',
 )
 logger = logging.getLogger('vibe-seller-tray')
+
+
+def _system_is_chinese() -> bool:
+    """True if the OS UI language is Chinese (so the tray matches it)."""
+    try:
+        if sys.platform == 'win32':
+            lid = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+            return (lid & 0x3FF) == 0x04  # LANG_CHINESE
+    except Exception:  # noqa: BLE001 — fall back to locale
+        pass
+    try:
+        loc = (locale.getlocale()[0] or '').lower()
+    except (ValueError, TypeError):
+        loc = ''
+    return 'zh' in loc or 'chinese' in loc
+
+
+_STRINGS = {
+    'en': {
+        'open': 'Open Vibe Seller',
+        'restart': 'Restart server',
+        'update': 'Check for updates',
+        'quit': 'Quit',
+        'latest': "You're on the latest version ({v}).",
+        'updating': 'Downloading v{v} — the installer will open to '
+        'finish the update.',
+        'fail_title': 'Vibe Seller — update failed',
+        'fail': '{err}\n\nDownload manually:\n{url}',
+    },
+    'zh': {
+        'open': '打开 Vibe Seller',
+        'restart': '重启服务',
+        'update': '检查更新',
+        'quit': '退出',
+        'latest': '已是最新版本（{v}）。',
+        'updating': '正在下载 v{v} —— 安装程序将打开以完成更新。',
+        'fail_title': 'Vibe Seller —— 更新失败',
+        'fail': '{err}\n\n请手动下载：\n{url}',
+    },
+}
+_LANG = 'zh' if _system_is_chinese() else 'en'
+
+
+def _t(key: str, **kw: object) -> str:
+    return _STRINGS[_LANG][key].format(**kw)
 
 
 def _vibe_seller_exe() -> str:
@@ -193,27 +239,29 @@ def _on_check_updates(icon, item):  # noqa: ARG001
     res = windows_update.upgrade(silent=False)
     status = res.get('status')
     if status == 'up-to-date':
-        _msgbox(
-            'Vibe Seller',
-            f"You're on the latest version ({res.get('version')}).",
-        )
+        _msgbox('Vibe Seller', _t('latest', v=res.get('version')))
     elif status == 'updating':
-        _msgbox(
-            'Vibe Seller',
-            f'Downloading v{res.get("version")} — the installer will '
-            'open to finish the update.',
-        )
+        _msgbox('Vibe Seller', _t('updating', v=res.get('version')))
     else:
         _msgbox(
-            'Vibe Seller — update failed',
-            f'{res.get("error")}\n\nDownload manually:\n'
-            f'{res.get("manual_url")}',
+            _t('fail_title'),
+            _t('fail', err=res.get('error'), url=res.get('manual_url')),
         )
 
 
 def _on_quit(icon, item):  # noqa: ARG001
     _stop_server()
     icon.stop()
+
+
+def _wait_then_open(deadline_s: float = 90.0) -> None:
+    """Open the browser once the server is healthy (for `--open`)."""
+    start = time.monotonic()
+    while time.monotonic() - start < deadline_s:
+        if _server_healthy():
+            webbrowser.open(URL)
+            return
+        time.sleep(1.0)
 
 
 def main() -> int:
@@ -227,6 +275,12 @@ def main() -> int:
         os.environ['VIBE_SELLER_BUNDLED_PYTHON'] = str(bundled_py)
     threading.Thread(target=_start_server, daemon=True).start()
 
+    # `--open` (used by the installer's "Open now" finish step): once the
+    # server is up, open the browser. NOT set by the login auto-start
+    # shortcut, so reboots don't pop a browser window.
+    if '--open' in sys.argv:
+        threading.Thread(target=_wait_then_open, daemon=True).start()
+
     try:
         title = f'Vibe Seller {get_version()}'
     except Exception:  # noqa: BLE001 — tooltip is cosmetic
@@ -236,10 +290,10 @@ def main() -> int:
         _icon_image(),
         title,
         menu=pystray.Menu(
-            pystray.MenuItem('Open Vibe Seller', _on_open, default=True),
-            pystray.MenuItem('Restart server', _on_restart),
-            pystray.MenuItem('Check for updates', _on_check_updates),
-            pystray.MenuItem('Quit', _on_quit),
+            pystray.MenuItem(_t('open'), _on_open, default=True),
+            pystray.MenuItem(_t('restart'), _on_restart),
+            pystray.MenuItem(_t('update'), _on_check_updates),
+            pystray.MenuItem(_t('quit'), _on_quit),
         ),
     )
     logger.info('Tray starting (install_dir=%s, port=%d)', INSTALL_DIR, PORT)

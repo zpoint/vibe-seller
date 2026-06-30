@@ -137,6 +137,23 @@ function Get-ClaudeCli {
 
 # -- 6. Tray app + compile installer ----------------------------------
 
+function Get-ChineseLang {
+  # Best-effort: fetch the (unofficial) Simplified Chinese wizard
+  # translation next to the .iss so the installer shows a Chinese
+  # wizard on Chinese systems (the .iss includes it via #if FileExists).
+  # On any failure we delete it and the wizard stays English-only — the
+  # build still succeeds.
+  Step 'Fetching Simplified Chinese wizard translation (best-effort)'
+  $dest = "$PSScriptRoot\ChineseSimplified.isl"
+  $url = 'https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl'
+  try {
+    Invoke-WebRequest -Uri $url -OutFile $dest
+  } catch {
+    Write-Warning "ChineseSimplified.isl fetch failed; wizard stays English: $_"
+    if (Test-Path $dest) { Remove-Item $dest -Force }
+  }
+}
+
 function Copy-TrayAndIcon {
   Copy-Item "$PSScriptRoot\tray.py" "$StagingDir\tray.py"
   if (Test-Path "$PSScriptRoot\vibe-seller.ico") {
@@ -183,5 +200,6 @@ Get-Python
 Get-Uv
 Get-MinGit
 Get-ClaudeCli
+Get-ChineseLang
 Copy-TrayAndIcon
 Invoke-Inno

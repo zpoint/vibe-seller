@@ -41,9 +41,22 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Auto-pick the wizard language from the OS (Chinese if available).
+ShowLanguageDialog=auto
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+; Chinese is added only when build.ps1 fetched ChineseSimplified.isl
+; (best-effort); otherwise the wizard is English-only.
+#if FileExists(AddBackslash(SourcePath) + "ChineseSimplified.isl")
+Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
+#endif
+
+[CustomMessages]
+english.OpenNow=Open Vibe Seller now
+#if FileExists(AddBackslash(SourcePath) + "ChineseSimplified.isl")
+chinesesimp.OpenNow=现在打开 Vibe Seller
+#endif
 
 [Files]
 ; Relocatable CPython, app wheels, fast installer, git+bash, claude CLI.
@@ -78,9 +91,10 @@ Filename: "{app}\.venv\Scripts\playwright.exe"; \
   StatusMsg: "Downloading browser engine (first run only)..."; \
   Flags: runhidden waituntilterminated
 
-; Launch the tray now so the user lands on a running app.
-Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"""; \
-  Description: "Start {#AppName}"; \
+; Finish-page "Open now" (checked by default): starts the server and
+; opens the browser to the UI (tray --open waits for health first).
+Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"" --open"; \
+  Description: "{cm:OpenNow}"; \
   Flags: nowait postinstall skipifsilent
 
 [Icons]
