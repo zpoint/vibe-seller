@@ -63,13 +63,36 @@ def is_newer(latest: str, current: str) -> bool:
         return False
 
 
+def _is_url(s: str) -> bool:
+    return s.startswith(('http://', 'https://', 'file://'))
+
+
+def _fetch_release() -> dict:
+    """Read the latest-release JSON from the configured source.
+
+    Accepts an http(s)/file:// URL or a plain local filesystem path
+    (the latter is what tests/CI use for a mock release — avoids
+    fragile file:// URI construction across shells)."""
+    src = _releases_url()
+    if not _is_url(src):
+        return json.loads(Path(src).read_text(encoding='utf-8'))
+    with _open(src, timeout=15) as resp:
+        return json.loads(resp.read().decode())
+
+
 def check_for_update() -> dict | None:
     """Return ``{'version', 'url'}`` for a newer release, else ``None``."""
-    with _open(_releases_url(), timeout=15) as resp:
-        rel = json.loads(resp.read().decode())
+    rel = _fetch_release()
     tag = (rel.get('tag_name') or '').lstrip('v')
+    assets = rel.get('assets') or []
+    if isinstance(assets, dict):  # PowerShell may unwrap a 1-item array
+        assets = [assets]
     asset = next(
-        (a for a in rel.get('assets', []) if a.get('name') == ASSET_NAME),
+        (
+            a
+            for a in assets
+            if isinstance(a, dict) and a.get('name') == ASSET_NAME
+        ),
         None,
     )
     if not tag or not asset or not asset.get('browser_download_url'):
@@ -80,6 +103,10 @@ def check_for_update() -> dict | None:
 
 
 def download_installer(url: str, dest: Path) -> Path:
+    # Plain local path (tests/CI) → copy; http(s)/file:// → fetch.
+    if not _is_url(url):
+        shutil.copyfile(url, dest)
+        return dest
     with _open(url, timeout=600) as resp, open(dest, 'wb') as f:
         shutil.copyfileobj(resp, f)
     return dest
