@@ -234,14 +234,19 @@ jobs:
         env:
           VIBE_SELLER_RELEASES_URL: ${{ github.workspace }}\release.json
         run: |
-          # Literal JSON via string concat (forward-slash path → no
-          # escaping, no ConvertTo-Json single-element-array quirk, no
-          # here-string indentation fragility); written UTF-8 no BOM.
-          $exeB = "$env:GITHUB_WORKSPACE/installer/windows/outB/VibeSeller-Setup.exe"
+          # Literal JSON via string concat. Forward-slash the WHOLE path
+          # (incl. GITHUB_WORKSPACE, which has backslashes) so the JSON
+          # has no invalid \escapes; UTF-8 no BOM.
+          $ws = $env:GITHUB_WORKSPACE -replace '\\','/'
+          $exeB = "$ws/installer/windows/outB/VibeSeller-Setup.exe"
           $rel = '{"tag_name":"v0.0.2","assets":[{"name":"VibeSeller-Setup.exe","browser_download_url":"' + $exeB + '"}]}'
           [System.IO.File]::WriteAllText($env:VIBE_SELLER_RELEASES_URL, $rel)
           Write-Host "RELEASES_URL=$env:VIBE_SELLER_RELEASES_URL"
           Get-Content $env:VIBE_SELLER_RELEASES_URL | Write-Host
+          # Run from a neutral cwd (NOT the repo root) so `from app` and
+          # importlib.metadata resolve the INSTALLED 0.0.1 package, not the
+          # source tree (which the 0.0.2 build left metadata for).
+          Set-Location $env:TEMP
           & "$env:VS_INSTALL\.venv\Scripts\python.exe" -c "import os; from pathlib import Path; import tempfile; from app import windows_update as w; print('VER', w.get_version()); print('REL', w._fetch_release()); u = w.check_for_update(); print('UPD', u); assert u and u['version'] == '0.0.2', u; p = w.download_installer(u['url'], Path(tempfile.gettempdir()) / 'dl.exe'); assert p.stat().st_size > 0; print('detected + downloaded', u['version'])"
 
       - name: Stop OLD server (release file locks)
