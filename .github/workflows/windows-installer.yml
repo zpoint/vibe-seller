@@ -18,6 +18,9 @@ on:
       - 'app/**'
       - 'frontend/**'
       - 'tests/releases/**'
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       app_version:
@@ -30,7 +33,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Per-PR validation: build the installer, install it, smoke + agent e2e.
+  # Skips on tag pushes (release.yml builds + attaches the release .exe).
   build:
+    if: github.event_name != 'push'
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -165,7 +171,11 @@ jobs:
   # old one, point the updater at a LOCAL mock release (no real GitHub
   # release), upgrade, and assert the running server reports the NEW
   # version + a smoke passes on the upgraded build.
+  #
+  # RELEASE-ONLY: this is heavy (two full installer builds), so it runs
+  # on release (v* tag push) + manual dispatch, NOT on every PR.
   upgrade:
+    if: github.event_name != 'pull_request'
     name: Upgrade old -> new (in-place)
     runs-on: windows-latest
     timeout-minutes: 60
