@@ -21,6 +21,7 @@ NOT runtime dependencies of the core package.
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import os
 from pathlib import Path
@@ -34,6 +35,9 @@ import webbrowser
 
 from PIL import Image, ImageDraw
 import pystray
+
+from app import windows_update
+from app.version import get_version
 
 PORT = int(os.environ.get('VIBE_SELLER_PORT', '7777'))
 URL = f'http://127.0.0.1:{PORT}'
@@ -178,6 +182,35 @@ def _on_restart(icon, item):  # noqa: ARG001
     _start_server()
 
 
+def _msgbox(title: str, text: str) -> None:
+    if sys.platform == 'win32':
+        ctypes.windll.user32.MessageBoxW(0, text, title, 0x40)
+    else:
+        logger.info('%s: %s', title, text)
+
+
+def _on_check_updates(icon, item):  # noqa: ARG001
+    res = windows_update.upgrade(silent=False)
+    status = res.get('status')
+    if status == 'up-to-date':
+        _msgbox(
+            'Vibe Seller',
+            f"You're on the latest version ({res.get('version')}).",
+        )
+    elif status == 'updating':
+        _msgbox(
+            'Vibe Seller',
+            f'Downloading v{res.get("version")} — the installer will '
+            'open to finish the update.',
+        )
+    else:
+        _msgbox(
+            'Vibe Seller — update failed',
+            f'{res.get("error")}\n\nDownload manually:\n'
+            f'{res.get("manual_url")}',
+        )
+
+
 def _on_quit(icon, item):  # noqa: ARG001
     _stop_server()
     icon.stop()
@@ -194,13 +227,18 @@ def main() -> int:
         os.environ['VIBE_SELLER_BUNDLED_PYTHON'] = str(bundled_py)
     threading.Thread(target=_start_server, daemon=True).start()
 
+    try:
+        title = f'Vibe Seller {get_version()}'
+    except Exception:  # noqa: BLE001 — tooltip is cosmetic
+        title = 'Vibe Seller'
     icon = pystray.Icon(
         'vibe-seller',
         _icon_image(),
-        'Vibe Seller',
+        title,
         menu=pystray.Menu(
             pystray.MenuItem('Open Vibe Seller', _on_open, default=True),
             pystray.MenuItem('Restart server', _on_restart),
+            pystray.MenuItem('Check for updates', _on_check_updates),
             pystray.MenuItem('Quit', _on_quit),
         ),
     )

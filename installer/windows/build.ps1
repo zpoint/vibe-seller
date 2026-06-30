@@ -164,6 +164,21 @@ function Invoke-Inno {
 
 Reset-Dir $StagingDir
 Build-Wheels
+
+# Derive the installer version from the built wheel unless one was
+# passed. The wheel version reflects setuptools-scm: a SHA-based dev
+# string (e.g. 0.0.7.dev2+g<sha>), a release tag, or an explicit
+# SETUPTOOLS_SCM_PRETEND_VERSION (used by the release + upgrade jobs).
+# Keeps the Start-Menu / Add-Remove entry in sync with /api/version.
+if ($AppVersion -eq '0.0.0') {
+  $whl = Get-ChildItem "$StagingDir\wheels\vibe_seller-*.whl" |
+    Select-Object -First 1
+  if ($whl -and $whl.Name -match '^vibe_seller-(.+?)-py3-none-any\.whl$') {
+    $AppVersion = $Matches[1]
+    Step "Derived installer version: $AppVersion"
+  }
+}
+
 Get-Python
 Get-Uv
 Get-MinGit
