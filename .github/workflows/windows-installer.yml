@@ -1,0 +1,62 @@
+name: Windows Installer
+
+# Builds the native Windows installer (VibeSeller-Setup.exe) on a
+# GitHub-hosted windows-latest runner — the only place this can be
+# built/validated, since wheels are win_amd64, python-build-standalone
+# is per-OS, and Inno Setup compiles on Windows. See
+# installer/windows/README.md.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'installer/windows/**'
+      - '.github/workflows/windows-installer.yml'
+      - 'pyproject.toml'
+      - 'app/**'
+      - 'frontend/**'
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: 'Installer version string'
+        required: false
+        default: '0.0.0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ver = "${{ github.event.inputs.app_version }}"
+          if ([string]::IsNullOrWhiteSpace($ver)) { $ver = "0.0.0" }
+          .\installer\windows\build.ps1 -AppVersion $ver
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeSeller-Setup
+          path: installer/windows/out/VibeSeller-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
