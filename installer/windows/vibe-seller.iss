@@ -5,7 +5,9 @@
 ; uv (fast installer), MinGit (git + bash for Claude Code's Bash tool),
 ; and the Anthropic claude CLI. A system-tray launcher (tray.py, run via
 ; the bundled pythonw.exe) starts the server on login and offers
-; Open / Restart / Quit. No bundled browser — uses the user's Chrome.
+; Open / Restart / Quit. Browser engine is Playwright Chromium,
+; downloaded at install (needs network); driving the user's system
+; Chrome/Edge is a planned follow-up.
 ;
 ; The staging tree is assembled by build.ps1 on a Windows CI runner and
 ; passed in via:  ISCC /DStagingDir=<path>  /DAppVersion=<x.y.z>

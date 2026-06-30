@@ -33,6 +33,11 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 45
+    env:
+      # Fork PRs don't get repo secrets — gate the model-dependent
+      # agent e2e on this so PR CI (build + install + smoke) stays
+      # reliable for forks; the e2e still runs on same-repo branches.
+      HAS_DEEPSEEK: ${{ secrets.DEEPSEEK_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -102,6 +107,7 @@ jobs:
           bash tests/releases/verify_install.sh ""
 
       - name: Install pytest deps into the bundled venv (for agent e2e)
+        if: env.HAS_DEEPSEEK == 'true'
         shell: pwsh
         run: |
           $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
@@ -109,6 +115,7 @@ jobs:
             pytest pytest-asyncio httpx pytest-playwright
 
       - name: Light agent e2e against the installed daemon
+        if: env.HAS_DEEPSEEK == 'true'
         shell: pwsh
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
@@ -128,6 +135,7 @@ jobs:
             --e2e -v --log-cli-level=INFO
 
       - name: Verify the agent venv reused the bundled Python
+        if: env.HAS_DEEPSEEK == 'true'
         shell: pwsh
         run: |
           # The e2e task created ~/.vibe-seller/.venv. Its pyvenv.cfg must

@@ -84,7 +84,7 @@ the bridge.
 ### Prerequisites
 
 - One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- Google Chrome installed (Vibe Seller drives it) — or Ziniao, optional, for browser-fingerprint isolation
+- A browser engine — set up automatically (Playwright Chromium, downloaded on first install; needs network). Ziniao optional, for browser-fingerprint isolation
 
 ### Quick start — pick your OS
 
@@ -99,7 +99,7 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 
 Or download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
 
-A per-user install (no admin) that bundles its own Python, **`git` + `bash`** (so you do **not** need to install [Git for Windows](https://git-scm.com/downloads/win) separately), and the `claude` CLI. It adds a system-tray launcher (Open / Restart / Quit) that starts the server on login and drives your installed Chrome. Then open <http://localhost:7777>. Details: [installer/windows/README.md](installer/windows/README.md).
+A per-user install (no admin) that bundles its own Python, **`git` + `bash`** (so you do **not** need to install [Git for Windows](https://git-scm.com/downloads/win) separately), and the `claude` CLI. It adds a system-tray launcher (Open / Restart / Quit) that starts the server on login. The browser engine (Playwright Chromium) is downloaded during install, so the first install needs network. Then open <http://localhost:7777>. Details: [installer/windows/README.md](installer/windows/README.md).
 
 </details>
 

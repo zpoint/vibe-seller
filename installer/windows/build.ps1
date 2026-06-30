@@ -107,14 +107,26 @@ function Get-MinGit {
 # LEAST-CERTAIN STEP: verify the install mechanism + resulting binary
 # path on the first CI run, then pin it here.
 function Get-ClaudeCli {
+  # Supply-chain note: this runs Anthropic's official installer
+  # (irm | iex) — the documented native-install path. It is NOT
+  # pinned/checksummed because Anthropic doesn't publish a stable
+  # versioned binary URL; revisit and pin + verify a checksum once one
+  # is available. Isolated in this function so it can be hardened on
+  # its own without touching the rest of the build.
   Step "Installing claude CLI (native) and bundling the binary"
   $claudeHome = "$env:TEMP\claude-home"
   Reset-Dir $claudeHome
-  # Official native installer drops claude.exe under the user profile.
-  # Redirect HOME/USERPROFILE so we can capture it into staging.
-  $env:USERPROFILE = $claudeHome
-  Invoke-RestMethod -Uri "https://claude.ai/install.ps1" | Invoke-Expression
-  $bin = Get-ChildItem -Path $claudeHome -Recurse -Filter "claude.exe" `
+  # The native installer drops claude.exe under the user profile, so
+  # redirect USERPROFILE to capture it — restore it afterwards so the
+  # override can't leak into later build steps in this session.
+  $origProfile = $env:USERPROFILE
+  try {
+    $env:USERPROFILE = $claudeHome
+    Invoke-RestMethod -Uri 'https://claude.ai/install.ps1' | Invoke-Expression
+  } finally {
+    $env:USERPROFILE = $origProfile
+  }
+  $bin = Get-ChildItem -Path $claudeHome -Recurse -Filter 'claude.exe' `
     -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $bin) {
     throw "claude.exe not found after install — inspect $claudeHome layout"

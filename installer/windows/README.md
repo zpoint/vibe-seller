@@ -16,9 +16,11 @@ server on login.
 | **claude CLI** | Anthropic native installer | The agent runtime |
 | **tray.py** | this dir | Login launcher: Open / Restart / Quit, runs via the bundled `pythonw.exe` |
 
-**No browser is bundled.** This PR uses the `chrome` backend's Playwright
-Chromium (installed at setup). A follow-up issue switches the backend to
-drive the user's installed Chrome/Edge and drops that step.
+**Browser engine: Playwright Chromium**, downloaded at install via
+`playwright install chromium` (so the first install needs network). It
+is not the user's system Chrome — a follow-up issue switches the
+`chrome` backend to drive the user's installed Chrome/Edge and drops the
+download step.
 
 ## Architecture (why no Windows Service / no PyInstaller)
 
