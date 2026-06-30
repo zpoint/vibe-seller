@@ -361,3 +361,35 @@ lists the active bundles, and the OSS React shell dynamically loads each
 one (`requires_early_init` bundles resolve before the app makes API
 calls). Ships inert in PR-1 (empty list in an OSS-only install); the
 React loader lands when the first plugin UI does.
+
+## Cross-platform support (native Windows)
+
+Vibe Seller runs on macOS, Linux, **and natively on Windows** (no WSL
+required). Every platform difference is centralised in `app/platform.py`
+(see [backend.md](backend.md#modules)) so the rest of the code stays
+platform-agnostic:
+
+- **Process management** — `kill_process`, `is_process_alive`,
+  `find_processes_by_pattern` use `psutil` instead of `pgrep`/`ps`/
+  `os.kill` (Unix-only). The agent's `_force_kill` signals the POSIX
+  process group via `os.killpg` where available and falls back to
+  `terminate()`/`kill()` on Windows (where `send_signal(SIGINT)` raises).
+- **Paths** — `venv_python`/`venv_executable`/`venv_bin_dir` resolve
+  `Scripts/` on Windows vs `bin/` on POSIX; `prepend_to_path` joins with
+  `os.pathsep` (`;` on Windows). `safe_chmod` is a no-op on Windows.
+- **Agent shell** — the agent invokes `browser-use` through Claude
+  Code's Bash tool, which uses **Git Bash** on Windows. So the existing
+  **bash** per-store wrapper (`app/browser/wrapper.py`) works unchanged
+  on every platform — there is no PowerShell wrapper.
+
+### Native Windows installer
+
+`installer/windows/` builds a self-contained `VibeSeller-Setup.exe`
+(Ollama-style: per-user install + a system-tray launcher that starts the
+server on login). It bundles a relocatable CPython
+(python-build-standalone), the app + deps as offline wheels, `uv`,
+**MinGit** (git + the bash Claude Code needs), and the `claude` CLI. It
+drives the user's installed Chrome — no bundled browser. Built on a
+GitHub-hosted `windows-latest` runner
+(`.github/workflows/windows-installer.yml`); see
+`installer/windows/README.md`.
