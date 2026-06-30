@@ -88,6 +88,9 @@ jobs:
           # subprocess can find the bundled claude + git/bash.
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
                       "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
+          # Reuse the bundled interpreter for the agent venv (the tray
+          # sets this on a real install).
+          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
           & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
 
       - name: Smoke test (verify_install.sh — health + store/profile API)
@@ -123,6 +126,24 @@ jobs:
           & "$install\.venv\Scripts\python.exe" -m pytest `
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage `
             --e2e -v --log-cli-level=INFO
+
+      - name: Verify the agent venv reused the bundled Python
+        shell: pwsh
+        run: |
+          # The e2e task created ~/.vibe-seller/.venv. Its pyvenv.cfg must
+          # point back at the bundled interpreter — proving `uv venv`
+          # reused it instead of downloading a second Python.
+          $cfg = "$env:USERPROFILE\.vibe-seller\.venv\pyvenv.cfg"
+          if (-not (Test-Path $cfg)) {
+            throw "agent venv not created — cannot verify Python reuse"
+          }
+          $text = Get-Content $cfg -Raw
+          Write-Host $text
+          $bundled = "$env:VS_INSTALL\python"
+          if ($text -notmatch [regex]::Escape($bundled)) {
+            throw "agent venv did NOT reuse the bundled Python (no '$bundled' in pyvenv.cfg)"
+          }
+          Write-Host "OK: agent venv reused the bundled Python ($bundled)"
 
       - name: Stop server + dump logs
         if: always()

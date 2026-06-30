@@ -53,6 +53,22 @@ def venv_executable(venv: Path, name: str) -> Path:
     return venv / 'bin' / name
 
 
+def agent_venv_python() -> str:
+    """The ``--python`` value for building the agent workspace venv.
+
+    On a packaged install the installer/tray sets
+    ``VIBE_SELLER_BUNDLED_PYTHON`` to the bundled interpreter — reuse
+    it so ``uv venv`` does NOT download a second Python (we already
+    shipped one). Everywhere else (curl / dev install) fall back to
+    the version string ``'3.11'``, which uv resolves and fetches if
+    absent — unchanged behaviour.
+    """
+    bundled = os.environ.get('VIBE_SELLER_BUNDLED_PYTHON', '')
+    if bundled and Path(bundled).is_file():
+        return bundled
+    return '3.11'
+
+
 # -- PATH helpers -----------------------------------------------------
 
 

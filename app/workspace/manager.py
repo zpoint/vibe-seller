@@ -19,6 +19,7 @@ import time
 import git as gitlib
 
 from app.config import VIBE_SELLER_DIR
+from app.platform import agent_venv_python
 from app.workspace import venv_bootstrap
 from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_seed import write_catalog_stub
@@ -146,7 +147,7 @@ class WorkspaceManager:
             'venv',
             str(venv_dir),
             '--python',
-            '3.11',
+            agent_venv_python(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
