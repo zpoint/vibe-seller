@@ -14,15 +14,17 @@ daemonization is the equivalent for the wheel-installed path.
 """
 
 import argparse
+import asyncio
 from contextlib import suppress
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 import os
 from pathlib import Path
 import shutil
-import signal
 import subprocess
 import sys
 import time
+
+from app.platform import is_process_alive, kill_process
 
 
 def _resolve_version() -> str:
@@ -68,14 +70,9 @@ def _log_file_for(port: int) -> Path:
 
 
 def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # PID exists but we can't signal it — still alive from our pov.
-        return True
-    return True
+    # psutil.pid_exists — cross-platform (os.kill(pid, 0) raises
+    # WinError 87 on Windows, where signal 0 is not a valid argument).
+    return is_process_alive(pid)
 
 
 def _read_pid(port: int) -> int | None:
@@ -226,6 +223,13 @@ def _cmd_start(args: argparse.Namespace) -> int:
     # actually try to do anything. Prepending here makes the daemon
     # find claude regardless of shell rc state.
     env = os.environ.copy()
+    # Force UTF-8 text I/O for the daemon and every child it spawns
+    # (agent, browser-use). Windows defaults to cp1252, which raises
+    # UnicodeEncodeError on the non-ASCII (e.g. '→') in prompts and the
+    # generated browser-use wrapper. This makes open()/write_text/
+    # read_text default to UTF-8 process-wide, fixing the bug class
+    # rather than one call site at a time.
+    env['PYTHONUTF8'] = '1'
     npm_global_bin = Path.home() / '.npm-global' / 'bin'
     if npm_global_bin.is_dir():
         env['PATH'] = f'{npm_global_bin}{os.pathsep}{env.get("PATH", "")}'
@@ -286,23 +290,10 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         print(f'No vibe-seller process tracked on port {port}.')
         return 0
 
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        print(f'PID {pid} not found (already exited).')
-        _pid_file_for(port).unlink(missing_ok=True)
-        return 0
-
-    # Wait briefly for graceful shutdown.
-    for _ in range(20):
-        if not _pid_alive(pid):
-            break
-        time.sleep(0.25)
-    else:
-        # Still alive — escalate.
-        with suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
-
+    # kill_process (psutil): terminate → poll → kill, cross-platform.
+    # The old os.kill(SIGTERM)→SIGKILL path was Unix-only — signal.SIGKILL
+    # doesn't even exist on Windows.
+    asyncio.run(kill_process(pid))
     _pid_file_for(port).unlink(missing_ok=True)
     print(f'Stopped vibe-seller on port {port} (PID {pid}).')
     return 0
