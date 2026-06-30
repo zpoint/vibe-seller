@@ -55,11 +55,7 @@ from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
 from app.models.user import User
-from app.platform import (
-    IS_WINDOWS,
-    find_processes_by_pattern,
-    prepend_to_path,
-)
+from app.platform import IS_WINDOWS, find_processes_by_pattern, prepend_to_path
 from app.workspace.manager import (
     VIBE_SELLER_DIR,
     workspace_manager,
