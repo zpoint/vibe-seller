@@ -3,8 +3,10 @@ name: Windows Installer
 # Builds the native Windows installer (VibeSeller-Setup.exe) on a
 # GitHub-hosted windows-latest runner — the only place this can be
 # built/validated, since wheels are win_amd64, python-build-standalone
-# is per-OS, and Inno Setup compiles on Windows. See
-# installer/windows/README.md.
+# is per-OS, and Inno Setup compiles on Windows. Then silently installs
+# the built package and runs the SAME smoke + light agent e2e the
+# release pipeline runs on Linux, proving the server works on Windows.
+# See installer/windows/README.md.
 
 on:
   pull_request:
@@ -15,6 +17,7 @@ on:
       - 'pyproject.toml'
       - 'app/**'
       - 'frontend/**'
+      - 'tests/releases/**'
   workflow_dispatch:
     inputs:
       app_version:
@@ -29,7 +32,7 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -60,3 +63,71 @@ jobs:
           path: installer/windows/out/VibeSeller-Setup.exe
           if-no-files-found: error
           retention-days: 14
+
+      # --- Verify the BUILT PACKAGE works on Windows -----------------
+      - name: Silent-install the built package
+        shell: pwsh
+        run: |
+          $exe = "installer\windows\out\VibeSeller-Setup.exe"
+          # Inno silent flags; post-install [Run] builds the venv +
+          # installs wheels + playwright. The tray launch is skipifsilent.
+          $p = Start-Process -FilePath $exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
+          if (-not (Test-Path "$install\.venv\Scripts\vibe-seller.exe")) {
+            throw "vibe-seller.exe not found under $install after install"
+          }
+          echo "VS_INSTALL=$install" >> $env:GITHUB_ENV
+
+      - name: Start server (background)
+        shell: pwsh
+        run: |
+          $install = $env:VS_INSTALL
+          # Replicate the tray's PATH augmentation so the agent
+          # subprocess can find the bundled claude + git/bash.
+          $env:PATH = "$install\.venv\Scripts;$install\claude;" +
+                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
+          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
+
+      - name: Smoke test (verify_install.sh — health + store/profile API)
+        shell: bash
+        run: |
+          export PATH="$VS_INSTALL/.venv/Scripts:$PATH"
+          # Empty version arg → skip the version-match check (this is a
+          # dev build, not a published release).
+          bash tests/releases/verify_install.sh ""
+
+      - name: Install pytest deps into the bundled venv (for agent e2e)
+        shell: pwsh
+        run: |
+          $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
+          & "$env:VS_INSTALL\uv.exe" pip install --python $py `
+            pytest pytest-asyncio httpx pytest-playwright
+
+      - name: Light agent e2e against the installed daemon
+        shell: pwsh
+        env:
+          E2E_BASE_URL: http://127.0.0.1:7777
+          E2E_PROVIDER_MAP: deepseek
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          API_TIMEOUT_MS: '3000000'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+          VIBE_SELLER_TELEMETRY: '0'
+        run: |
+          $install = $env:VS_INSTALL
+          $env:PATH = "$install\.venv\Scripts;$install\claude;" +
+                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
+          & "$install\.venv\Scripts\python.exe" -m pytest `
+            tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage `
+            --e2e -v --log-cli-level=INFO
+
+      - name: Stop server + dump logs
+        if: always()
+        shell: pwsh
+        run: |
+          & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777
+          $log = "$env:USERPROFILE\.vibe-seller\logs\backend_7777.log"
+          if (Test-Path $log) { Get-Content -Tail 40 $log }

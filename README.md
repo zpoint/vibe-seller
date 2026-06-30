@@ -83,9 +83,9 @@ the bridge.
 
 ### Prerequisites
 
-- OS — **macOS** *or* **Windows 11+ with WSL2**
+- OS — **macOS**, **Linux**, or **Windows 11+** (native installer, or WSL2)
 
-  <sub><b>For Windows users:</b> WSL and the Windows-side browser need to talk to each other, so WSL must start in <b>mirrored networking mode</b>, which only Windows 11+ supports.</sub>
+  <sub><b>For Windows users:</b> the native installer (<code>VibeSeller-Setup.exe</code>, see below) needs no WSL. If you instead run under WSL2, WSL and the Windows-side browser must talk to each other, so WSL must start in <b>mirrored networking mode</b>, which only Windows 11+ supports.</sub>
 - Python 3.11+ (auto-installed by [`uv`](https://docs.astral.sh/uv/) if missing)
 - Node.js 22+
 - One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
@@ -107,6 +107,18 @@ Upgrade: `vibe-seller upgrade`. Uninstall: `uv tool uninstall vibe-seller`.
 > (Claude Code, Codex, opencode, Cursor) and tell it "read the
 > README and install this." The README is written so any agent can
 > follow it; most environment issues take one or two commands to fix.
+
+<details>
+<summary>Native Windows (no WSL)</summary>
+
+Download `VibeSeller-Setup.exe` from the [latest release](https://github.com/zpoint/vibe-seller/releases)
+and run it — a per-user install that bundles its own Python, `git`, and
+the `claude` CLI, and adds a system-tray launcher (Open / Restart /
+Quit) that starts the server on login. Drives your installed Chrome; no
+WSL, no networking setup. See
+[installer/windows/README.md](installer/windows/README.md).
+
+</details>
 
 <details>
 <summary>From source (for contributors)</summary>
