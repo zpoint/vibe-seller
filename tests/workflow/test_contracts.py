@@ -407,3 +407,22 @@ class TestEmailAccountContracts:
         assert EMAIL_INFO_KEYS <= set(r.json().keys()), (
             f'Missing: {EMAIL_INFO_KEYS - set(r.json().keys())}'
         )
+
+
+# ── Version contract ─────────────────────────────────
+
+
+class TestVersionContracts:
+    async def test_version_endpoint(self, admin_client):
+        r = await admin_client.get('/api/version')
+        assert r.status_code == 200
+        body = r.json()
+        assert 'version' in body
+        assert isinstance(body['version'], str) and body['version']
+
+    async def test_health_includes_version(self, admin_client):
+        r = await admin_client.get('/api/health')
+        assert r.status_code == 200
+        body = r.json()
+        assert body.get('status') == 'ok'
+        assert 'version' in body

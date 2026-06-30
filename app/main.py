@@ -72,6 +72,7 @@ from app.scheduler.cron import (
 from app.scheduler.email_sync import sync_all_email_accounts
 from app.scheduler.task_queue import task_queue_scheduler
 from app.telemetry_events import TelemetryEvent
+from app.version import get_version
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
 from app.workspace.skills_sync import skills_sync
@@ -241,7 +242,7 @@ async def lifespan(app: FastAPI):
     telemetry.shutdown()
 
 
-app = FastAPI(title='Vibe Seller', version='0.1.0', lifespan=lifespan)
+app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -288,7 +289,15 @@ app.include_router(system_router)
 
 @app.get('/api/health')
 async def health():
-    return {'status': 'ok'}
+    return {'status': 'ok', 'version': get_version()}
+
+
+@app.get('/api/version')
+async def version():
+    """The running server's version — used by the UI footer and the
+    Windows updater (to tell whether a newer release is available, and
+    to confirm an upgrade actually took effect)."""
+    return {'version': get_version()}
 
 
 # Plugin wiring: mount any plugin-registered backend routers + frontend
