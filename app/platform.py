@@ -98,14 +98,19 @@ async def kill_process(
     Windows), polls for *timeout* seconds, then ``kill()`` (SIGKILL
     on Unix, same TerminateProcess on Windows).
 
-    Returns ``True`` if the signal was sent (or the process was
-    already dead).
+    Best-effort: returns ``True`` if the signal was sent (or the
+    process was already dead), ``False`` if we lacked permission to
+    signal it. Never raises on the expected psutil errors, so callers
+    (CLI stop, daemon cleanup) don't abort on a stale/foreign PID.
     """
     try:
         proc = psutil.Process(pid)
         proc.terminate()
     except psutil.NoSuchProcess:
         return True
+    except psutil.AccessDenied:
+        logger.warning('No permission to terminate PID %d', pid)
+        return False
 
     elapsed = 0.0
     while elapsed < timeout:
@@ -125,6 +130,9 @@ async def kill_process(
         )
     except psutil.NoSuchProcess:
         pass
+    except psutil.AccessDenied:
+        logger.warning('No permission to kill PID %d', pid)
+        return False
     return True
 
 
@@ -134,18 +142,24 @@ async def find_processes_by_pattern(
     """Return ``{pid: cmdline_string}`` for processes whose command
     line contains *pattern*.
 
-    Uses ``psutil.process_iter`` which works on all platforms.
+    ``psutil.process_iter`` works on all platforms but is a blocking
+    scan (slow with many processes / slow /proc access), so run it in
+    a worker thread to avoid stalling the event loop.
     """
-    result: dict[int, str] = {}
-    for proc in psutil.process_iter(['pid', 'cmdline']):
-        try:
-            cmdline = proc.info.get('cmdline') or []
-            full = ' '.join(cmdline)
-            if pattern in full:
-                result[proc.info['pid']] = full
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return result
+
+    def _scan() -> dict[int, str]:
+        result: dict[int, str] = {}
+        for proc in psutil.process_iter(['pid', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline') or []
+                full = ' '.join(cmdline)
+                if pattern in full:
+                    result[proc.info['pid']] = full
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return result
+
+    return await asyncio.to_thread(_scan)
 
 
 # -- File permissions -------------------------------------------------

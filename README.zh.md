@@ -78,7 +78,7 @@ Vibe Seller 就是补这一块。
 ### 环境要求
 
 - 任意一个 LLM API Key：Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- 装好 Google Chrome（Vibe Seller 驱动它）——或紫鸟（可选，用于浏览器指纹隔离）
+- 浏览器引擎——自动准备（Playwright Chromium，首次安装时联网下载）。紫鸟可选，用于浏览器指纹隔离
 
 ### 快速开始 —— 选你的系统
 
@@ -93,7 +93,7 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 
 或从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
-按用户安装（无需管理员），自带 Python、**`git` + `bash`**（所以**不用**再单独装 [Git for Windows](https://git-scm.com/downloads/win)）和 `claude` CLI；并装一个系统托盘启动器（打开 / 重启 / 退出），开机自动起服务，驱动你已装的 Chrome。然后打开 <http://localhost:7777>。详见 [installer/windows/README.md](installer/windows/README.md)。
+按用户安装（无需管理员），自带 Python、**`git` + `bash`**（所以**不用**再单独装 [Git for Windows](https://git-scm.com/downloads/win)）和 `claude` CLI；并装一个系统托盘启动器（打开 / 重启 / 退出），开机自动起服务。浏览器引擎（Playwright Chromium）在安装时下载，所以首次安装需要联网。然后打开 <http://localhost:7777>。详见 [installer/windows/README.md](installer/windows/README.md)。
 
 </details>
 
