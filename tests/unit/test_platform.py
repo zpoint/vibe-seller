@@ -71,6 +71,29 @@ class TestVenvExecutable:
         )
 
 
+class TestAgentVenvPython:
+    """The agent venv must reuse the bundled interpreter when one is
+    declared, instead of letting `uv venv` download a second Python."""
+
+    def test_reuses_bundled_python_when_set(self, monkeypatch, tmp_path):
+        bundled = tmp_path / 'python' / 'python.exe'
+        bundled.parent.mkdir(parents=True)
+        bundled.write_text('')  # must exist on disk
+        monkeypatch.setenv('VIBE_SELLER_BUNDLED_PYTHON', str(bundled))
+        assert plat.agent_venv_python() == str(bundled)
+
+    def test_falls_back_to_version_when_unset(self, monkeypatch):
+        monkeypatch.delenv('VIBE_SELLER_BUNDLED_PYTHON', raising=False)
+        assert plat.agent_venv_python() == '3.11'
+
+    def test_falls_back_when_path_missing(self, monkeypatch, tmp_path):
+        # Declared but the file does not exist → don't trust it.
+        monkeypatch.setenv(
+            'VIBE_SELLER_BUNDLED_PYTHON', str(tmp_path / 'nope.exe')
+        )
+        assert plat.agent_venv_python() == '3.11'
+
+
 # -- PATH helpers -----------------------------------------------------
 
 

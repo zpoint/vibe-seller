@@ -174,6 +174,12 @@ def _on_quit(icon, item):  # noqa: ARG001
 def main() -> int:
     # Start the server in the background, then bring up the tray.
     _augment_path()
+    # Reuse the bundled interpreter for the agent venv instead of
+    # letting `uv venv` download a second Python. The daemon inherits
+    # this env var.
+    bundled_py = INSTALL_DIR / 'python' / 'python.exe'
+    if bundled_py.is_file():
+        os.environ['VIBE_SELLER_BUNDLED_PYTHON'] = str(bundled_py)
     threading.Thread(target=_start_server, daemon=True).start()
 
     icon = pystray.Icon(
