@@ -283,7 +283,12 @@ jobs:
         shell: bash
         run: |
           export PATH="$VS_INSTALL/.venv/Scripts:$PATH"
-          bash tests/releases/verify_install.sh "0.0.2"
+          # Pass "" to skip verify_install.sh's `vibe-seller --version`
+          # check (fragile under Git Bash with a Windows-path PATH). The
+          # version-after-upgrade is already asserted authoritatively via
+          # /api/version == 0.0.2 in the previous step; this step is the
+          # API round-trip smoke on the upgraded build.
+          bash tests/releases/verify_install.sh ""
 
       - name: Stop server + dump logs
         if: always()
