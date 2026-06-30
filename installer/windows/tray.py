@@ -95,15 +95,22 @@ def _run_cli(*args: str) -> int:
 
 
 def _augment_path() -> None:
-    """Prepend bundled MinGit (git + bash) and claude to PATH.
+    """Prepend the bundled toolchain to PATH for the daemon.
 
-    The server spawns ``claude`` (Anthropic CLI), which on Windows
-    resolves its Bash tool through Git Bash — so both the bundled
-    ``claude`` and MinGit's ``git.exe``/``bash.exe`` must be on PATH
-    of the daemon the tray launches. The daemon inherits os.environ,
-    so prepending here is enough.
+    The daemon (and its children) must find, by name:
+    - ``uv`` — the workspace manager runs ``uv venv``/``uv pip`` to
+      build the agent venv (bundled at the install root as uv.exe)
+    - ``browser-use`` / ``playwright`` — in the venv's Scripts dir;
+      the per-store wrapper resolves ``shutil.which('browser-use')``
+    - ``claude`` — the agent CLI
+    - ``git`` / ``bash`` — MinGit; Claude Code runs its Bash tool
+      through Git Bash on Windows
+
+    The daemon inherits os.environ, so prepending here is enough.
     """
     extra = [
+        INSTALL_DIR / '.venv' / 'Scripts',
+        INSTALL_DIR,
         INSTALL_DIR / 'claude',
         INSTALL_DIR / 'mingit' / 'cmd',
         INSTALL_DIR / 'mingit' / 'usr' / 'bin',
