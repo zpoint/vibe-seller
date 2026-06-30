@@ -229,15 +229,18 @@ jobs:
 
       - name: Updater detects + downloads NEW release (local mock)
         shell: pwsh
+        # Set via the step env: key (not in-script $env:) so it reliably
+        # reaches the python child. Plain local paths — no file:// URIs.
+        env:
+          VIBE_SELLER_RELEASES_URL: ${{ github.workspace }}\release.json
         run: |
           $exeB = "$env:GITHUB_WORKSPACE\installer\windows\outB\VibeSeller-Setup.exe"
           $rel = @{
             tag_name = 'v0.0.2'
-            assets = @(@{ name = 'VibeSeller-Setup.exe'; browser_download_url = ([System.Uri]$exeB).AbsoluteUri })
+            assets = @(@{ name = 'VibeSeller-Setup.exe'; browser_download_url = $exeB })
           } | ConvertTo-Json -Depth 5
-          $relPath = "$env:GITHUB_WORKSPACE\release.json"
-          Set-Content -Path $relPath -Value $rel -Encoding utf8
-          $env:VIBE_SELLER_RELEASES_URL = ([System.Uri]$relPath).AbsoluteUri
+          Set-Content -Path $env:VIBE_SELLER_RELEASES_URL -Value $rel -Encoding utf8
+          Write-Host "RELEASES_URL=$env:VIBE_SELLER_RELEASES_URL"
           & "$env:VS_INSTALL\.venv\Scripts\python.exe" -c "from app import windows_update as w; from pathlib import Path; import tempfile; u = w.check_for_update(); assert u and u['version'] == '0.0.2', u; p = w.download_installer(u['url'], Path(tempfile.gettempdir()) / 'dl.exe'); assert p.stat().st_size > 0; print('detected + downloaded', u['version'])"
 
       - name: Stop OLD server (release file locks)

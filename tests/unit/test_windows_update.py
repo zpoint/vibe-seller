@@ -5,7 +5,7 @@ prove the version comparison + flow without touching the network.
 """
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -31,13 +31,6 @@ class TestIsNewer:
         assert not wu.is_newer('not-a-version', '0.0.1')
 
 
-def _fake_open(payload: dict) -> MagicMock:
-    """A context-manager mock matching `with _open(...) as resp:`."""
-    cm = MagicMock()
-    cm.__enter__.return_value.read.return_value = json.dumps(payload).encode()
-    return cm
-
-
 _ASSET = {
     'name': 'VibeSeller-Setup.exe',
     'browser_download_url': 'http://x/VibeSeller-Setup.exe',
@@ -45,32 +38,41 @@ _ASSET = {
 
 
 class TestCheckForUpdate:
+    def _check(self, payload, current='0.1.0'):
+        with (
+            patch.object(wu, '_fetch_release', return_value=payload),
+            patch.object(wu, 'get_version', return_value=current),
+        ):
+            return wu.check_for_update()
+
     def test_newer_release_found(self):
         payload = {'tag_name': 'v0.2.0', 'assets': [_ASSET]}
-        with (
-            patch.object(wu, '_open', return_value=_fake_open(payload)),
-            patch.object(wu, 'get_version', return_value='0.1.0'),
-        ):
-            assert wu.check_for_update() == {
-                'version': '0.2.0',
-                'url': _ASSET['browser_download_url'],
-            }
+        assert self._check(payload) == {
+            'version': '0.2.0',
+            'url': _ASSET['browser_download_url'],
+        }
 
     def test_same_version_returns_none(self):
-        payload = {'tag_name': 'v0.1.0', 'assets': [_ASSET]}
-        with (
-            patch.object(wu, '_open', return_value=_fake_open(payload)),
-            patch.object(wu, 'get_version', return_value='0.1.0'),
-        ):
-            assert wu.check_for_update() is None
+        assert self._check({'tag_name': 'v0.1.0', 'assets': [_ASSET]}) is None
 
     def test_missing_asset_returns_none(self):
-        payload = {'tag_name': 'v0.2.0', 'assets': []}
-        with (
-            patch.object(wu, '_open', return_value=_fake_open(payload)),
-            patch.object(wu, 'get_version', return_value='0.1.0'),
-        ):
-            assert wu.check_for_update() is None
+        assert self._check({'tag_name': 'v0.2.0', 'assets': []}) is None
+
+    def test_assets_unwrapped_to_object_still_works(self):
+        # PowerShell ConvertTo-Json may emit a 1-item array as an object.
+        assert self._check({'tag_name': 'v0.2.0', 'assets': _ASSET}) == {
+            'version': '0.2.0',
+            'url': _ASSET['browser_download_url'],
+        }
+
+
+class TestFetchReleaseLocalPath:
+    def test_reads_plain_local_path(self, tmp_path, monkeypatch):
+        rel = {'tag_name': 'v0.2.0', 'assets': [_ASSET]}
+        p = tmp_path / 'release.json'
+        p.write_text(json.dumps(rel), encoding='utf-8')
+        monkeypatch.setenv('VIBE_SELLER_RELEASES_URL', str(p))
+        assert wu._fetch_release() == rel
 
 
 class TestUpgrade:
