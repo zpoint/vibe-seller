@@ -234,14 +234,15 @@ jobs:
         env:
           VIBE_SELLER_RELEASES_URL: ${{ github.workspace }}\release.json
         run: |
-          $exeB = "$env:GITHUB_WORKSPACE\installer\windows\outB\VibeSeller-Setup.exe"
-          $rel = @{
-            tag_name = 'v0.0.2'
-            assets = @(@{ name = 'VibeSeller-Setup.exe'; browser_download_url = $exeB })
-          } | ConvertTo-Json -Depth 5
-          Set-Content -Path $env:VIBE_SELLER_RELEASES_URL -Value $rel -Encoding utf8
+          # Literal JSON via string concat (forward-slash path → no
+          # escaping, no ConvertTo-Json single-element-array quirk, no
+          # here-string indentation fragility); written UTF-8 no BOM.
+          $exeB = "$env:GITHUB_WORKSPACE/installer/windows/outB/VibeSeller-Setup.exe"
+          $rel = '{"tag_name":"v0.0.2","assets":[{"name":"VibeSeller-Setup.exe","browser_download_url":"' + $exeB + '"}]}'
+          [System.IO.File]::WriteAllText($env:VIBE_SELLER_RELEASES_URL, $rel)
           Write-Host "RELEASES_URL=$env:VIBE_SELLER_RELEASES_URL"
-          & "$env:VS_INSTALL\.venv\Scripts\python.exe" -c "from app import windows_update as w; from pathlib import Path; import tempfile; u = w.check_for_update(); assert u and u['version'] == '0.0.2', u; p = w.download_installer(u['url'], Path(tempfile.gettempdir()) / 'dl.exe'); assert p.stat().st_size > 0; print('detected + downloaded', u['version'])"
+          Get-Content $env:VIBE_SELLER_RELEASES_URL | Write-Host
+          & "$env:VS_INSTALL\.venv\Scripts\python.exe" -c "import os; from pathlib import Path; import tempfile; from app import windows_update as w; print('VER', w.get_version()); print('REL', w._fetch_release()); u = w.check_for_update(); print('UPD', u); assert u and u['version'] == '0.0.2', u; p = w.download_installer(u['url'], Path(tempfile.gettempdir()) / 'dl.exe'); assert p.stat().st_size > 0; print('detected + downloaded', u['version'])"
 
       - name: Stop OLD server (release file locks)
         shell: pwsh
