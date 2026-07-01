@@ -64,13 +64,17 @@ chinesesimp.OpenNow=现在打开 Vibe Seller
 ; upgrade the same-named shortcut is overwritten, not duplicated.
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
+[InstallDelete]
+; Pre-rename builds bundled the git toolchain under {app}\mingit; drop it
+; on upgrade so the renamed {app}\git dir doesn't leave a stale duplicate.
+Type: filesandordirs; Name: "{app}\mingit"
+
 [Files]
 ; Relocatable CPython, app wheels, fast installer, git+bash, claude CLI.
 Source: "{#StagingDir}\python\*";  DestDir: "{app}\python";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\wheels\*";  DestDir: "{app}\wheels";  Flags: recursesubdirs createallsubdirs ignoreversion
-; Full Git for Windows (PortableGit); dir kept named `mingit` for
-; path-compat with the tray + workflow PATH entries.
-Source: "{#StagingDir}\mingit\*";  DestDir: "{app}\mingit";  Flags: recursesubdirs createallsubdirs ignoreversion
+; Full Git for Windows (PortableGit) — git + bash + curl/perl/sleep.
+Source: "{#StagingDir}\git\*";  DestDir: "{app}\git";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\claude\*";  DestDir: "{app}\claude";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\uv.exe";    DestDir: "{app}";         Flags: ignoreversion
 Source: "{#StagingDir}\tray.py";   DestDir: "{app}";         Flags: ignoreversion

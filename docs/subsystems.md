@@ -388,7 +388,9 @@ platform-agnostic:
 (Ollama-style: per-user install + a system-tray launcher that starts the
 server on login). It bundles a relocatable CPython
 (python-build-standalone), the app + deps as offline wheels, `uv`,
-**MinGit** (git + the bash Claude Code needs), and the `claude` CLI. It
+full **Git for Windows** (git + the `bash.exe` Claude Code's Bash tool
+needs, plus `curl`/`perl` for the browser-use wrapper), and the `claude`
+CLI. It
 drives the user's installed Chrome — no bundled browser. Built on a
 GitHub-hosted `windows-latest` runner
 (`.github/workflows/windows-installer.yml`); see
