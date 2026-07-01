@@ -92,7 +92,7 @@ scratch.
 ### Prerequisites
 
 - One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- A browser engine — Chrome or Ziniao (Ziniao is optional, for browser-fingerprint isolation — needs to already be installed and logged in on your machine)
+- A browser engine — Chrome or Ziniao
 
 ### Quick start — pick your OS
 
