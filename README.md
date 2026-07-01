@@ -180,9 +180,7 @@ work), paste your API key, save. Keys are encrypted at rest.
 
 `Settings → Stores → Add Ziniao account`, fill in the account, pick
 the right Ziniao profile for each store, save. Skip the Ziniao bit
-and pick plain Chrome instead if you prefer. On native Windows, Vibe
-Seller restarts Ziniao into developer mode for you automatically —
-no separate launcher needed (that's only for the WSL2 path).
+and pick plain Chrome instead if you prefer.
 
 <img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
