@@ -92,7 +92,7 @@ scratch.
 ### Prerequisites
 
 - One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- A browser engine — set up automatically (Playwright Chromium, downloaded on first install; needs network). Ziniao optional, for browser-fingerprint isolation
+- A browser engine — Chrome or Ziniao. Chrome is set up automatically (Playwright Chromium, downloaded on first install; needs network). Ziniao is optional, for browser-fingerprint isolation — needs to already be installed and logged in on your machine
 
 ### Quick start — pick your OS
 
