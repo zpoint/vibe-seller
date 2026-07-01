@@ -68,6 +68,14 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Pre-rename builds bundled the git toolchain under {app}\mingit; drop it
 ; on upgrade so the renamed {app}\git dir doesn't leave a stale duplicate.
 Type: filesandordirs; Name: "{app}\mingit"
+; Wheels accumulate across upgrades: Inno's ignoreversion COPIES each
+; build's wheel but never deletes older ones, and every build shares the
+; same public version (0.0.1.dev1) differing only in the +dev.g<sha>
+; local tag. `uv pip install vibe-seller` then resolves to the
+; lexically-highest sha — an arbitrary OLD build — not this one. Clear
+; the dir so only THIS build's wheels remain and the resolve is
+; unambiguous.
+Type: filesandordirs; Name: "{app}\wheels"
 
 [Files]
 ; Relocatable CPython, app wheels, fast installer, git+bash, claude CLI.
@@ -85,14 +93,20 @@ Source: "{#StagingDir}\vibe-seller.ico"; DestDir: "{app}"; Flags: ignoreversion 
 ; Build the runtime venv on the target machine so all paths are correct.
 ; (python-build-standalone is relocatable; the venv references it under
 ;  the fixed install dir.)
+; --clear so an upgrade rebuilds the venv fresh instead of reusing a
+; stale one (which would keep old app code even after new wheels land).
 Filename: "{app}\uv.exe"; \
-  Parameters: "venv ""{app}\.venv"" --python ""{app}\python\python.exe"""; \
+  Parameters: "venv --clear ""{app}\.venv"" --python ""{app}\python\python.exe"""; \
   StatusMsg: "Creating Python environment..."; \
   Flags: runhidden waituntilterminated
 
 ; Install the app + deps from the bundled wheels (fully offline).
+; --reinstall-package vibe-seller forces the app code to be replaced even
+; when the public version (0.0.1.dev1) is unchanged across builds — the
+; belt to the --clear/wheel-clear suspenders, so upgrades never strand
+; stale code.
 Filename: "{app}\uv.exe"; \
-  Parameters: "pip install --python ""{app}\.venv\Scripts\python.exe"" --no-index --find-links ""{app}\wheels"" vibe-seller pystray pillow"; \
+  Parameters: "pip install --python ""{app}\.venv\Scripts\python.exe"" --reinstall-package vibe-seller --no-index --find-links ""{app}\wheels"" vibe-seller pystray pillow"; \
   StatusMsg: "Installing Vibe Seller..."; \
   Flags: runhidden waituntilterminated
 
