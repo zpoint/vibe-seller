@@ -60,8 +60,18 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: |
+          # Give every build a unique, monotonic version. CI does a
+          # shallow checkout, so setuptools_scm can't derive one and every
+          # build ends up 0.0.1.dev1 — which the UI shows identically for
+          # all of them and which lets pip/uv treat different builds as the
+          # same package. Pin it explicitly, like release.yml does. The run
+          # number is monotonic per workflow; the short sha aids tracing.
           $ver = "${{ github.event.inputs.app_version }}"
-          if ([string]::IsNullOrWhiteSpace($ver)) { $ver = "0.0.0" }
+          if ([string]::IsNullOrWhiteSpace($ver) -or $ver -eq "0.0.0") {
+            $sha = "${{ github.sha }}".Substring(0, 8)
+            $ver = "0.0.1.dev${{ github.run_number }}+g$sha"
+          }
+          $env:SETUPTOOLS_SCM_PRETEND_VERSION = $ver
           .\installer\windows\build.ps1 -AppVersion $ver
 
       - name: Upload installer artifact
