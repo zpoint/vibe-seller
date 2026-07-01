@@ -40,6 +40,7 @@ from app.ai.claude_backend_utils import (
     SIGNAL_TIMEOUT,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
+    apply_agent_venv_path,
     resolve_claude_binary,
 )
 from app.ai.compaction import build_history_prompt, dump_history_file
@@ -55,7 +56,7 @@ from app.database import async_session
 from app.env_options import Options
 from app.models.task import Task
 from app.models.user import User
-from app.platform import IS_WINDOWS, find_processes_by_pattern, prepend_to_path
+from app.platform import IS_WINDOWS, find_processes_by_pattern
 from app.workspace.manager import (
     VIBE_SELLER_DIR,
     workspace_manager,
@@ -380,25 +381,13 @@ class AgentSession(_HookMixin, _StreamMixin):
         env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller Agent')
         env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
 
-        # Inject the daemon's venv bin so child bash resolves
-        # binaries from the same interpreter that runs the server.
-        # Do NOT .resolve(): uv tool / `uv venv` symlink the
-        # interpreter to a base Python (pyenv/homebrew/conda); the
-        # resolved bin often ships its own `browser-use` that would
-        # shadow the per-store wrapper prepended below.
-        daemon_bin = Path(sys.executable).parent
-        if daemon_bin.is_dir():
-            prepend_to_path(env, daemon_bin)
-            env['VIRTUAL_ENV'] = str(daemon_bin.parent)
-
-        # Per-store browser-use wrapper. MUST be prepended last so
-        # it sits ahead of daemon_bin — daemon_bin's `browser-use`
-        # would otherwise bypass proxy stripping, --cdp-url
-        # injection, per-task session naming, and URL validation.
-        if self.store_slug:
-            store_bin = VIBE_SELLER_DIR / 'bin' / self.store_slug
-            if store_bin.is_dir():
-                prepend_to_path(env, store_bin)
+        # Wire the agent's PATH + VIRTUAL_ENV: store wrapper first, then
+        # the shared agent venv (python/pip), then the server venv. The
+        # agent's python/pip MUST be the shared venv — the server venv is
+        # built without pip on packaged installs, so `pip install` there
+        # fails and the agent falls back to a stray system Python. See
+        # apply_agent_venv_path.
+        apply_agent_venv_path(env, self.store_slug)
 
         # start_new_session=True puts claude and every descendant into
         # a fresh POSIX session/process group. We do not rely on this
