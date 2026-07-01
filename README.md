@@ -616,21 +616,6 @@ it's the cheaper option once you count failed runs.
 </details>
 
 <details>
-<summary><b>Do I really need Ziniao?</b></summary>
-
-Depends on what you're protecting against. Fingerprint isolation
-matters when the same machine logs into multiple seller accounts on
-the same platform (e.g. several Amazon storefronts) and the
-platform risk-flags accounts that share a browser fingerprint —
-that's the case Ziniao solves. If every store you run is on a
-different platform, or the platform doesn't do fingerprint
-matching, plain Chrome works fine and skips the Ziniao setup
-entirely. Already using Ziniao for other reasons? Just plug it in
-here too — no extra cost.
-
-</details>
-
-<details>
 <summary><b>How does Ziniao integration actually work? Developer mode vs normal mode / credentials needed / where they're stored</b></summary>
 
 Ziniao runs in exactly one mode at a time:
@@ -645,9 +630,10 @@ Ziniao runs in exactly one mode at a time:
 The two modes share one Ziniao process, so they can't run side by
 side. Switching requires restarting Ziniao.
 
-- **macOS**: Vibe Seller handles the swap itself — kills any
-  normal-mode instance and relaunches with `--run_type=web_driver`
-  when you open a store.
+- **macOS / native Windows**: Vibe Seller handles the swap itself —
+  kills any normal-mode instance and relaunches with
+  `--run_type=web_driver` when you open a store. Same automatic
+  handling on both platforms, nothing for you to do.
 - **Windows (WSL)**: WSL can't restart a Windows-side app across
   the VM boundary, so the Windows side runs a one-line `.bat`
   launcher (downloadable from `Settings → Stores → Download
@@ -729,10 +715,13 @@ WebDriver login goes through on the next refresh.
 <details>
 <summary><b>Can I run it on a headless server?</b></summary>
 
-Not quite. Vibe Seller itself is a server, but Ziniao needs a
-desktop GUI to render. The standard setup is a small desktop machine
-sitting on a desk — a Mac mini, a mini-PC running Windows + WSL, or
-a spare laptop — that the team connects to over LAN.
+Yes — you'll just need to solve the browser/GUI part yourself.
+Vibe Seller itself runs fine on a headless server; Ziniao (and the
+Chrome backend, if you want to watch it work) needs somewhere to
+render into — a virtual display (Xvfb), a cloud desktop VM, or VNC
+into a real GUI session all work. The simpler common setup, though,
+is a small always-on desktop machine — a Mac mini, a mini-PC, a
+spare laptop — that the team connects to over LAN.
 
 </details>
 
