@@ -51,10 +51,13 @@ flowchart LR
     end
 ```
 
-One always-on machine (Mac, Linux, or Windows) hosts the server
-and runs Ziniao in dev mode — or just use your own computer, either
-works. You and your team open the web UI from any device on the
-same LAN.
+Either deployment works:
+
+- **One always-on machine** (Mac, Linux, or Windows) hosts the
+  server and runs Ziniao in dev mode
+- **Or just use your own computer**
+
+You and your team open the web UI from any device on the same LAN.
 
 ## Why Vibe Seller?
 
