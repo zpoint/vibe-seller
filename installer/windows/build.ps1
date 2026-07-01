@@ -156,6 +156,7 @@ function Get-ChineseLang {
 
 function Copy-TrayAndIcon {
   Copy-Item "$PSScriptRoot\tray.py" "$StagingDir\tray.py"
+  Copy-Item "$PSScriptRoot\dialogs.py" "$StagingDir\dialogs.py"
   if (Test-Path "$PSScriptRoot\vibe-seller.ico") {
     Copy-Item "$PSScriptRoot\vibe-seller.ico" "$StagingDir\vibe-seller.ico"
   }

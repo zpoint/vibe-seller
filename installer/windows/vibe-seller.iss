@@ -58,6 +58,11 @@ english.OpenNow=Open Vibe Seller now
 chinesesimp.OpenNow=现在打开 Vibe Seller
 #endif
 
+[Tasks]
+; Desktop icon, checked by default (the user can uncheck it). On
+; upgrade the same-named shortcut is overwritten, not duplicated.
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+
 [Files]
 ; Relocatable CPython, app wheels, fast installer, git+bash, claude CLI.
 Source: "{#StagingDir}\python\*";  DestDir: "{app}\python";  Flags: recursesubdirs createallsubdirs ignoreversion
@@ -66,6 +71,7 @@ Source: "{#StagingDir}\mingit\*";  DestDir: "{app}\mingit";  Flags: recursesubdi
 Source: "{#StagingDir}\claude\*";  DestDir: "{app}\claude";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\uv.exe";    DestDir: "{app}";         Flags: ignoreversion
 Source: "{#StagingDir}\tray.py";   DestDir: "{app}";         Flags: ignoreversion
+Source: "{#StagingDir}\dialogs.py"; DestDir: "{app}";        Flags: ignoreversion
 Source: "{#StagingDir}\vibe-seller.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Run]
@@ -98,10 +104,15 @@ Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"" --open"; \
   Flags: nowait postinstall skipifsilent
 
 [Icons]
-; Start-menu + login auto-start, both launching the tray via pythonw.
+; Clickable shortcuts (Start Menu + optional desktop) launch with
+; --open so double-clicking starts the server AND opens the browser.
 Name: "{group}\{#AppName}"; Filename: "{#AppExeTray}"; \
-  Parameters: """{app}\tray.py"""; WorkingDir: "{app}"; \
+  Parameters: """{app}\tray.py"" --open"; WorkingDir: "{app}"; \
   IconFilename: "{app}\vibe-seller.ico"
+Name: "{autodesktop}\{#AppName}"; Filename: "{#AppExeTray}"; \
+  Parameters: """{app}\tray.py"" --open"; WorkingDir: "{app}"; \
+  IconFilename: "{app}\vibe-seller.ico"; Tasks: desktopicon
+; Login auto-start (no --open, so reboots don't pop a browser window).
 Name: "{userstartup}\{#AppName}"; Filename: "{#AppExeTray}"; \
   Parameters: """{app}\tray.py"""; WorkingDir: "{app}"; \
   IconFilename: "{app}\vibe-seller.ico"
@@ -117,3 +128,24 @@ Filename: "{app}\.venv\Scripts\vibe-seller.exe"; Parameters: "stop"; \
 ; remove it explicitly. User data under %LOCALAPPDATA%\vibe-seller is
 ; left intact on uninstall.
 Type: filesandordirs; Name: "{app}\.venv"
+
+[Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  // On upgrade, a running server (uvicorn python) + tray (pythonw) hold
+  // locks on files under {app}, so the file-copy fails and the built-in
+  // "close applications / force close" often can't kill a background
+  // Python. Proactively stop the daemon and kill anything launched from
+  // the install dir so the overwrite succeeds. No-ops on a fresh install.
+  Exec(ExpandConstant('{app}\.venv\Scripts\vibe-seller.exe'), 'stop',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec('powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance ' +
+    'Win32_Process | Where-Object { $_.ExecutablePath -like ' +
+    '''*\VibeSeller\*'' } | ForEach-Object { Stop-Process -Id ' +
+    '$_.ProcessId -Force -ErrorAction SilentlyContinue }"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Result := '';
+end;
