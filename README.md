@@ -152,10 +152,10 @@ For anyone who just ran the [native installer](#install).
 
 ### 1. Install
 
-Run `VibeSeller-Setup.exe` (or the PowerShell one-liner from
-[Install](#install)). It starts the server for you — check
-**Open Vibe Seller now** at the end of the wizard, or open
-<http://localhost:7777> yourself.
+Run [`VibeSeller-Setup.exe`](https://github.com/zpoint/vibe-seller/releases/latest)
+(or the PowerShell one-liner from [Install](#install)). It starts
+the server for you — check **Open Vibe Seller now** at the end of
+the wizard, or open <http://localhost:7777> yourself.
 
 ### 2. Add your LLM key
 

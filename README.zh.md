@@ -146,7 +146,7 @@ vibe-seller start
 
 ### 1. 装上
 
-跑 `VibeSeller-Setup.exe`（或上面 PowerShell 那行一键命令）。装完
+跑 [`VibeSeller-Setup.exe`](https://github.com/zpoint/vibe-seller/releases/latest)（或上面 PowerShell 那行一键命令）。装完
 会自动起服务——安装向导最后勾选**「现在打开 Vibe Seller」**，或者
 自己打开 <http://localhost:7777>。
 
