@@ -18,9 +18,6 @@ on:
       - 'app/**'
       - 'frontend/**'
       - 'tests/releases/**'
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
     inputs:
       app_version:
@@ -34,9 +31,9 @@ concurrency:
 
 jobs:
   # Per-PR validation: build the installer, install it, smoke + agent e2e.
-  # Skips on tag pushes (release.yml builds + attaches the release .exe).
+  # (The heavy in-place upgrade test lives in windows-upgrade.yml and
+  # runs on release only — kept separate so it's not a skipped PR check.)
   build:
-    if: github.event_name != 'push'
     runs-on: windows-latest
     timeout-minutes: 45
     env:
@@ -158,147 +155,6 @@ jobs:
             throw "agent venv did NOT reuse the bundled Python (no '$bundled' in pyvenv.cfg)"
           }
           Write-Host "OK: agent venv reused the bundled Python ($bundled)"
-
-      - name: Stop server + dump logs
-        if: always()
-        shell: pwsh
-        run: |
-          & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777
-          $log = "$env:USERPROFILE\.vibe-seller\logs\backend_7777.log"
-          if (Test-Path $log) { Get-Content -Tail 40 $log }
-
-  # Prove the in-place upgrade works: build two versions, install the
-  # old one, point the updater at a LOCAL mock release (no real GitHub
-  # release), upgrade, and assert the running server reports the NEW
-  # version + a smoke passes on the upgraded build.
-  #
-  # RELEASE-ONLY: this is heavy (two full installer builds), so it runs
-  # on release (v* tag push) + manual dispatch, NOT on every PR.
-  upgrade:
-    if: github.event_name != 'pull_request'
-    name: Upgrade old -> new (in-place)
-    runs-on: windows-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
-
-      - name: Build OLD installer (0.0.1)
-        shell: pwsh
-        env:
-          SETUPTOOLS_SCM_PRETEND_VERSION: '0.0.1'
-        run: |
-          .\installer\windows\build.ps1 -AppVersion 0.0.1 `
-            -StagingDir "$env:GITHUB_WORKSPACE\installer\windows\stagingA" `
-            -OutputDir  "$env:GITHUB_WORKSPACE\installer\windows\outA"
-
-      - name: Build NEW installer (0.0.2)
-        shell: pwsh
-        env:
-          SETUPTOOLS_SCM_PRETEND_VERSION: '0.0.2'
-        run: |
-          .\installer\windows\build.ps1 -AppVersion 0.0.2 `
-            -StagingDir "$env:GITHUB_WORKSPACE\installer\windows\stagingB" `
-            -OutputDir  "$env:GITHUB_WORKSPACE\installer\windows\outB"
-
-      - name: Install OLD (0.0.1)
-        shell: pwsh
-        run: |
-          $exe = "$env:GITHUB_WORKSPACE\installer\windows\outA\VibeSeller-Setup.exe"
-          $p = Start-Process -FilePath $exe -Wait -PassThru `
-            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
-          if ($p.ExitCode -ne 0) { throw "old installer exited $($p.ExitCode)" }
-          echo "VS_INSTALL=$env:LOCALAPPDATA\Programs\VibeSeller" >> $env:GITHUB_ENV
-
-      - name: Start OLD server, assert version 0.0.1
-        shell: pwsh
-        run: |
-          $install = $env:VS_INSTALL
-          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
-          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
-          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
-          $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            try {
-              $v = (Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version
-              Write-Host "version=$v"; if ($v -eq '0.0.1') { $ok = $true; break }
-            } catch { }
-            Start-Sleep 2
-          }
-          if (-not $ok) { throw "OLD server did not report 0.0.1" }
-
-      - name: Updater detects + downloads NEW release (local mock)
-        shell: pwsh
-        # Set via the step env: key (not in-script $env:) so it reliably
-        # reaches the python child. Plain local paths — no file:// URIs.
-        env:
-          VIBE_SELLER_RELEASES_URL: ${{ github.workspace }}\release.json
-        run: |
-          # Literal JSON via string concat. Forward-slash the WHOLE path
-          # (incl. GITHUB_WORKSPACE, which has backslashes) so the JSON
-          # has no invalid \escapes; UTF-8 no BOM.
-          $ws = $env:GITHUB_WORKSPACE -replace '\\','/'
-          $exeB = "$ws/installer/windows/outB/VibeSeller-Setup.exe"
-          $rel = '{"tag_name":"v0.0.2","assets":[{"name":"VibeSeller-Setup.exe","browser_download_url":"' + $exeB + '"}]}'
-          [System.IO.File]::WriteAllText($env:VIBE_SELLER_RELEASES_URL, $rel)
-          Write-Host "RELEASES_URL=$env:VIBE_SELLER_RELEASES_URL"
-          Get-Content $env:VIBE_SELLER_RELEASES_URL | Write-Host
-          # Run from a neutral cwd (NOT the repo root) so `from app` and
-          # importlib.metadata resolve the INSTALLED 0.0.1 package, not the
-          # source tree (which the 0.0.2 build left metadata for).
-          Set-Location $env:TEMP
-          & "$env:VS_INSTALL\.venv\Scripts\python.exe" -c "import os; from pathlib import Path; import tempfile; from app import windows_update as w; print('VER', w.get_version()); print('REL', w._fetch_release()); u = w.check_for_update(); print('UPD', u); assert u and u['version'] == '0.0.2', u; p = w.download_installer(u['url'], Path(tempfile.gettempdir()) / 'dl.exe'); assert p.stat().st_size > 0; print('detected + downloaded', u['version'])"
-
-      - name: Stop OLD server (release file locks)
-        shell: pwsh
-        run: '& "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777'
-
-      - name: Upgrade in place (silent-install NEW)
-        shell: pwsh
-        run: |
-          $exe = "$env:GITHUB_WORKSPACE\installer\windows\outB\VibeSeller-Setup.exe"
-          $p = Start-Process -FilePath $exe -Wait -PassThru `
-            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
-          if ($p.ExitCode -ne 0) { throw "new installer exited $($p.ExitCode)" }
-
-      - name: Start UPGRADED server, assert version 0.0.2
-        shell: pwsh
-        run: |
-          $install = $env:VS_INSTALL
-          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
-          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
-          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
-          $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            try {
-              $v = (Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version
-              Write-Host "version=$v"; if ($v -eq '0.0.2') { $ok = $true; break }
-            } catch { }
-            Start-Sleep 2
-          }
-          if (-not $ok) { throw "UPGRADED server did not report 0.0.2 (upgrade failed)" }
-
-      - name: Basic e2e on the UPGRADED build (health + store/profile API)
-        shell: bash
-        run: |
-          export PATH="$VS_INSTALL/.venv/Scripts:$PATH"
-          # Pass "" to skip verify_install.sh's `vibe-seller --version`
-          # check (fragile under Git Bash with a Windows-path PATH). The
-          # version-after-upgrade is already asserted authoritatively via
-          # /api/version == 0.0.2 in the previous step; this step is the
-          # API round-trip smoke on the upgraded build.
-          bash tests/releases/verify_install.sh ""
 
       - name: Stop server + dump logs
         if: always()
