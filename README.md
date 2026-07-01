@@ -57,11 +57,14 @@ any device on the same LAN.
 
 ## Why Vibe Seller?
 
-The big AI/automation tools — OpenClaw, n8n, 影刀 (RPA /
-workflow-automation tools some sellers already use) — all stop at
-plain Chrome. None of them can drive Ziniao, which is the
-fingerprint browser most cross-border sellers actually live in.
-Vibe Seller is the bridge.
+Compared to existing automation tools, Vibe Seller is built around
+what cross-border sellers actually need and what today's AI models
+can actually do well: AI-driven by design, with built-in Skills,
+per-store isolation, and fully local deployment. Browser control
+runs on [browser-use](https://github.com/browser-use/browser-use)
+instead of blind screenshot-clicking — faster, and far cheaper in
+tokens, than an agent that has to feel out every page from
+scratch.
 
 - **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
   not UI-coordinate clicks. Lower risk-control risk, more stable.

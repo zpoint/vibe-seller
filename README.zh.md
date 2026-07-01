@@ -54,9 +54,12 @@ flowchart LR
 
 ## 为什么用 Vibe Seller
 
-跨境卖家几乎都在紫鸟里工作，但现有的 AI/自动化工具
-（OpenClaw、n8n、影刀等 RPA / 工作流自动化工具）都只能玩普通
-Chrome，没一个能驱动紫鸟。Vibe Seller 就是补这一块。
+比起现有的自动化工具，Vibe Seller 更贴近跨境卖家的实际需求，也
+更贴近当下 AI 技术真正能做到的水平：从设计上就是 AI 驱动——内
+置 Skill、多店铺隔离、全程本地部署。浏览器操作基于
+[browser-use](https://github.com/browser-use/browser-use)，而不
+是靠截图瞎点——比让 Agent 从零摸索页面快得多，也省 token 得
+多。
 
 - **原生紫鸟支持**——通过 CDP 直接控制紫鸟，不是裸 Chrome 跑
   Playwright，也不是 UI 坐标点击，所以风控风险低、稳定。
