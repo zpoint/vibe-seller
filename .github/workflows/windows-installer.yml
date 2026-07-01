@@ -1,0 +1,224 @@
+name: Windows Installer
+
+# Builds the native Windows installer (VibeSeller-Setup.exe) on a
+# GitHub-hosted windows-latest runner — the only place this can be
+# built/validated, since wheels are win_amd64, python-build-standalone
+# is per-OS, and Inno Setup compiles on Windows. Then silently installs
+# the built package and runs the SAME smoke + light agent e2e the
+# release pipeline runs on Linux, proving the server works on Windows.
+# See installer/windows/README.md.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'installer/windows/**'
+      - '.github/workflows/windows-installer.yml'
+      - 'pyproject.toml'
+      - 'app/**'
+      - 'frontend/**'
+      - 'tests/releases/**'
+  workflow_dispatch:
+    inputs:
+      app_version:
+        description: 'Installer version string'
+        required: false
+        default: '0.0.0'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Per-PR validation: build the installer, install it, smoke + agent e2e.
+  # (The heavy in-place upgrade test lives in windows-upgrade.yml and
+  # runs on release only — kept separate so it's not a skipped PR check.)
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    env:
+      # Fork PRs don't get repo secrets — gate the model-dependent
+      # agent e2e on this so PR CI (build + install + smoke) stays
+      # reliable for forks; the e2e still runs on same-repo branches.
+      HAS_DEEPSEEK: ${{ secrets.DEEPSEEK_API_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          # Give every build a unique, monotonic version. CI does a
+          # shallow checkout, so setuptools_scm can't derive one and every
+          # build ends up 0.0.1.dev1 — which the UI shows identically for
+          # all of them and which lets pip/uv treat different builds as the
+          # same package. Pin it explicitly, like release.yml does. The run
+          # number is monotonic per workflow; the short sha aids tracing.
+          $ver = "${{ github.event.inputs.app_version }}"
+          if ([string]::IsNullOrWhiteSpace($ver) -or $ver -eq "0.0.0") {
+            $sha = "${{ github.sha }}".Substring(0, 8)
+            $ver = "0.0.1.dev${{ github.run_number }}+g$sha"
+          }
+          $env:SETUPTOOLS_SCM_PRETEND_VERSION = $ver
+          .\installer\windows\build.ps1 -AppVersion $ver
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeSeller-Setup
+          path: installer/windows/out/VibeSeller-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      # --- Verify the BUILT PACKAGE works on Windows -----------------
+      - name: Silent-install the built package
+        shell: pwsh
+        run: |
+          $exe = "installer\windows\out\VibeSeller-Setup.exe"
+          # Inno silent flags; post-install [Run] builds the venv +
+          # installs wheels + playwright. The tray launch is skipifsilent.
+          $p = Start-Process -FilePath $exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
+          $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
+          if (-not (Test-Path "$install\.venv\Scripts\vibe-seller.exe")) {
+            throw "vibe-seller.exe not found under $install after install"
+          }
+          echo "VS_INSTALL=$install" >> $env:GITHUB_ENV
+
+      - name: Start server (background)
+        shell: pwsh
+        run: |
+          $install = $env:VS_INSTALL
+          # Strip the runner's pre-installed Git for Windows from PATH so
+          # the daemon — and the agent it spawns, which inherits THIS
+          # step's env — can only use the BUNDLED toolchain. Without this,
+          # Claude Code finds the runner's C:\Program Files\Git bash and CI
+          # is a false green that never exercises the shipped bundle a real
+          # user gets.
+          $clean = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notlike 'C:\Program Files\Git\*' -and $_ -ne 'C:\Program Files\Git' }) -join ';'
+          # Replicate the tray's PATH augmentation so the agent subprocess
+          # finds the bundled claude + git/bash/curl/perl.
+          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
+                      "$install\git\cmd;$install\git\bin;" +
+                      "$install\git\usr\bin;$install\git\mingw64\bin;$clean"
+          # Pin Claude Code's Bash tool at the bundled bash.exe (it needs a
+          # file literally named bash.exe, else falls back to PowerShell —
+          # which can't run the extensionless bash browser-use wrapper).
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
+          # Reuse the bundled interpreter for the agent venv (the tray
+          # sets this on a real install).
+          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
+          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
+
+      - name: Smoke test (verify_install.sh — health + store/profile API)
+        shell: bash
+        run: |
+          export PATH="$VS_INSTALL/.venv/Scripts:$PATH"
+          # Empty version arg → skip the version-match check (this is a
+          # dev build, not a published release).
+          bash tests/releases/verify_install.sh ""
+
+      - name: Verify bundled bash runs the extensionless wrapper shape
+        shell: pwsh
+        run: |
+          # The per-store browser-use wrapper is an extensionless bash
+          # script — the exact shape that fails under Claude Code's
+          # PowerShell fallback on a machine without bash.exe (the user's
+          # "Select an app to open 'browser-use'" dialog). Prove the
+          # BUNDLED bash resolves + executes one by bare name off PATH,
+          # exactly as the agent's Bash tool does. No LLM, so this guards
+          # every PR (incl. forks where the agent e2e is gated off), and a
+          # regression to a bundle without bash.exe fails right here.
+          $bash = "$env:VS_INSTALL\git\bin\bash.exe"
+          if (-not (Test-Path $bash)) { throw "bundled bash.exe missing: $bash" }
+          $prog = 'set -e; d="$(mktemp -d)"; printf ''#!/usr/bin/env bash\necho VS_WRAPPER_OK\n'' > "$d/browser-use"; chmod +x "$d/browser-use"; export PATH="$d:$PATH"; browser-use'
+          $out = & $bash --login -c $prog
+          if ("$out" -notmatch 'VS_WRAPPER_OK') {
+            throw "bundled bash could not execute an extensionless wrapper (out: $out)"
+          }
+          Write-Host "OK: bundled bash executes extensionless shebang wrappers"
+
+      - name: Tray dialog test (responsive dialog + clipboard, headless)
+        shell: pwsh
+        run: |
+          # Verifies the fix for the unresponsive dialog + Copy-to-clipboard
+          # on a real desktop session — no manual clicking. Uses the
+          # bundled python's tkinter; dialogs.py has no pystray dep.
+          $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
+          # pytest-asyncio is needed because the repo's tests/conftest.py
+          # imports it at collection time (even for this sync test).
+          & "$env:VS_INSTALL\uv.exe" pip install --python $py `
+            pytest pytest-asyncio
+          & $py -m pytest tests\unit\test_tray_dialog.py -v
+
+      - name: Install pytest deps into the bundled venv (for agent e2e)
+        if: env.HAS_DEEPSEEK == 'true'
+        shell: pwsh
+        run: |
+          $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
+          & "$env:VS_INSTALL\uv.exe" pip install --python $py `
+            pytest pytest-asyncio httpx pytest-playwright
+
+      - name: Light agent e2e against the installed daemon
+        if: env.HAS_DEEPSEEK == 'true'
+        shell: pwsh
+        env:
+          E2E_BASE_URL: http://127.0.0.1:7777
+          E2E_PROVIDER_MAP: deepseek
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          API_TIMEOUT_MS: '3000000'
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+          VIBE_SELLER_TELEMETRY: '0'
+        run: |
+          $install = $env:VS_INSTALL
+          # NOTE: the agent runs under the daemon started in the "Start
+          # server" step and inherits THAT step's env (bundled bash, no
+          # runner git). This PATH only affects the pytest client here.
+          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
+                      "$install\git\cmd;$install\git\bin;" +
+                      "$install\git\usr\bin;$install\git\mingw64\bin;$env:PATH"
+          & "$install\.venv\Scripts\python.exe" -m pytest `
+            tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage `
+            --e2e -v --log-cli-level=INFO
+
+      - name: Verify the agent venv reused the bundled Python
+        if: env.HAS_DEEPSEEK == 'true'
+        shell: pwsh
+        run: |
+          # The e2e task created ~/.vibe-seller/.venv. Its pyvenv.cfg must
+          # point back at the bundled interpreter — proving `uv venv`
+          # reused it instead of downloading a second Python.
+          $cfg = "$env:USERPROFILE\.vibe-seller\.venv\pyvenv.cfg"
+          if (-not (Test-Path $cfg)) {
+            throw "agent venv not created — cannot verify Python reuse"
+          }
+          $text = Get-Content $cfg -Raw
+          Write-Host $text
+          $bundled = "$env:VS_INSTALL\python"
+          if ($text -notmatch [regex]::Escape($bundled)) {
+            throw "agent venv did NOT reuse the bundled Python (no '$bundled' in pyvenv.cfg)"
+          }
+          Write-Host "OK: agent venv reused the bundled Python ($bundled)"
+
+      - name: Stop server + dump logs
+        if: always()
+        shell: pwsh
+        run: |
+          & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777
+          $log = "$env:USERPROFILE\.vibe-seller\logs\backend_7777.log"
+          if (Test-Path $log) { Get-Content -Tail 40 $log }

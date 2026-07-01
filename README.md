@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>Multi-store browser-automation framework for cross-border sellers.</b><br/>
-  Runs on macOS or Windows (WSL). Drives real browsers — Ziniao for fingerprint isolation, plain Chrome otherwise. Bring your own LLM API key — Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax all work.
+  Runs on macOS, Linux, or Windows (native installer). Drives real browsers — Ziniao for fingerprint isolation, plain Chrome otherwise. Bring your own LLM API key — Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax all work.
 </p>
 
 <p align="center">
@@ -50,7 +50,7 @@ flowchart LR
     end
 ```
 
-One always-on machine (Mac, or Windows running WSL) hosts the server
+One always-on machine (Mac, Linux, or Windows) hosts the server
 and runs Ziniao in dev mode. You and your team open the web UI from
 any device on the same LAN.
 
@@ -83,30 +83,52 @@ the bridge.
 
 ### Prerequisites
 
-- OS — **macOS** *or* **Windows 11+ with WSL2**
-
-  <sub><b>For Windows users:</b> WSL and the Windows-side browser need to talk to each other, so WSL must start in <b>mirrored networking mode</b>, which only Windows 11+ supports.</sub>
-- Python 3.11+ (auto-installed by [`uv`](https://docs.astral.sh/uv/) if missing)
-- Node.js 22+
 - One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- Ziniao (optional but recommended — plain Chrome works if you skip it)
+- A browser engine — set up automatically (Playwright Chromium, downloaded on first install; needs network). Ziniao optional, for browser-fingerprint isolation
 
-### Quick start (one-liner)
+### Quick start — pick your OS
+
+<details open>
+<summary><b>🪟 Windows — native installer (recommended)</b></summary>
+
+No WSL, no Python setup. In **PowerShell**:
+
+```powershell
+irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/install.ps1 | iex
+```
+
+Or download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
+
+A per-user install (no admin) that bundles its own Python, **`git` + `bash`** (so you do **not** need to install [Git for Windows](https://git-scm.com/downloads/win) separately), and the `claude` CLI. It adds a system-tray launcher (Open / Restart / Quit / Check for updates) that starts the server on login. The browser engine (Playwright Chromium) is downloaded during install, so the first install needs network. The installer's final step has an **Open Vibe Seller now** option that starts the server and opens your browser to <http://localhost:7777>. The wizard and the UI follow your system language (English / 中文). Details: [installer/windows/README.md](installer/windows/README.md).
+
+</details>
+
+<details open>
+<summary><b>🍎 macOS / 🐧 Linux</b></summary>
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
 
-Open <http://localhost:7777>.
+Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade`. Uninstall: `uv tool uninstall vibe-seller`.
 
-Upgrade: `vibe-seller upgrade`. Uninstall: `uv tool uninstall vibe-seller`.
+<sub>Prerequisites (auto-handled by <code>install.sh</code>): Python 3.11+ via <a href="https://docs.astral.sh/uv/"><code>uv</code></a>, Node.js 22+.</sub>
 
-> If `install.sh` fails, paste the repo URL
-> <https://github.com/zpoint/vibe-seller> into any coding agent
-> (Claude Code, Codex, opencode, Cursor) and tell it "read the
-> README and install this." The README is written so any agent can
-> follow it; most environment issues take one or two commands to fix.
+</details>
+
+<details>
+<summary>🪟 Windows via WSL2 (advanced)</summary>
+
+Prefer the native installer above. The WSL2 path runs the server inside Ubuntu/WSL with the browser on the Windows host — it needs **mirrored networking** (Windows 11+). Full setup lives in the [developer guide](docs/dev-guide.md).
+
+```bash
+# inside WSL2 Ubuntu
+curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
+vibe-seller start
+```
+
+</details>
 
 <details>
 <summary>From source (for contributors)</summary>
@@ -120,6 +142,12 @@ cd vibe-seller
 
 </details>
 
+> If install fails, paste the repo URL
+> <https://github.com/zpoint/vibe-seller> into any coding agent
+> (Claude Code, Codex, opencode, Cursor) and tell it "read the
+> README and install this." The README is written so any agent can
+> follow it; most environment issues take one or two commands to fix.
+
 ## First run
 
 <details>
@@ -129,9 +157,8 @@ For anyone who hasn't used a terminal before. Eight steps:
 
 ### 1. Open a terminal
 
+- **Windows**: you don't need a terminal — use the [native installer](#install) (run `VibeSeller-Setup.exe`), then skip to **step 4**.
 - **Mac**: ⌘ + Space, type "Terminal", hit return.
-- **Windows**: Install WSL2 first (search "Install WSL2 on Windows"
-  for a tutorial), then open Ubuntu.
 
 A black window appears with a blinking cursor.
 

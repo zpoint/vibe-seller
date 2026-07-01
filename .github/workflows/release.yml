@@ -344,9 +344,37 @@ jobs:
           echo "--- last 30 lines of server log ---"
           tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
 
+  build-windows-installer:
+    name: Build Windows installer (for the release)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # setuptools-scm needs tag history for the version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build installer (version from tag)
+        shell: pwsh
+        run: |
+          $ver = "${env:GITHUB_REF_NAME}".TrimStart('v')
+          .\installer\windows\build.ps1 -AppVersion $ver
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VibeSeller-Setup
+          path: installer/windows/out/VibeSeller-Setup.exe
+          if-no-files-found: error
+
   github-release:
     name: Create GitHub Release
-    needs: verify-pypi
+    needs: [verify-pypi, build-windows-installer]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -359,6 +387,12 @@ jobs:
           name: dist-pypi
           path: dist/
 
+      - name: Download Windows installer
+        uses: actions/download-artifact@v4
+        with:
+          name: VibeSeller-Setup
+          path: dist-win/
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -366,4 +400,4 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            dist/*
+            dist/* dist-win/VibeSeller-Setup.exe

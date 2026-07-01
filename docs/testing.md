@@ -48,6 +48,7 @@ tests/
 - `integration` — Integration tests (database, API)
 - `e2e` — End-to-end tests (browser + LLM, gated by `--e2e` flag)
 - `ai` — AI integration tests (requires API keys)
+- `windows` — Windows-specific tests (process management, venv wrappers). **Deselected by default**; run with `pytest --windows` or automatically on Windows (`os.name == 'nt'`). Cross-platform logic also has plain `unit` tests (`tests/unit/test_platform.py`) that run everywhere. The native Windows installer is built + smoke-tested on a `windows-latest` runner (`.github/workflows/windows-installer.yml`).
 
 ## Guidelines
 

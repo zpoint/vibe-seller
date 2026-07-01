@@ -31,6 +31,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `plugins.py` | Plugin framework (IoC registry) — core reads gates/guards/backends/skills/services from here instead of hardcoding them. See [Plugin Framework](#plugin-framework). |
 | `builtin_plugin.py` | The OSS "builtin plugin" — registers every core contribution through the plugin API. |
 | `utils/` | Shared utilities (crypto, etc.) |
+| `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
 
 ## Request Flow
 

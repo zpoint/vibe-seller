@@ -32,6 +32,7 @@ from app.config import AI_BOT_USER_ID, SKILLS_REPO_URL
 from app.database import async_session
 from app.models.app_settings import AppSettings
 from app.models.event import Event
+from app.platform import venv_executable, venv_python
 from app.plugins import registered_skill_sources
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -648,8 +649,8 @@ class SkillsSyncManager:
         on the target venv, so concurrent calls are safe.
         """
         venv = VIBE_SELLER_DIR / '.venv'
-        venv_python = venv / 'bin' / 'python'
-        if not venv_python.exists():
+        py = venv_python(venv)
+        if not py.exists():
             return
 
         meta = self._read_sync_meta()
@@ -676,20 +677,20 @@ class SkillsSyncManager:
                 skill_dir.name,
             )
             try:
-                uv = venv / 'bin' / 'uv'
-                if uv.exists():
+                uv_bin = venv_executable(venv, 'uv')
+                if uv_bin.exists():
                     cmd = [
-                        str(uv),
+                        str(uv_bin),
                         'pip',
                         'install',
                         '-r',
                         str(req),
                         '--python',
-                        str(venv_python),
+                        str(py),
                     ]
                 else:
                     cmd = [
-                        str(venv_python),
+                        str(py),
                         '-m',
                         'pip',
                         'install',
