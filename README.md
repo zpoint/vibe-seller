@@ -204,14 +204,14 @@ before execution.
 </details>
 
 <details>
-<summary><b>🍎 macOS / 🐧 Linux / WSL — first run (8 steps)</b></summary>
+<summary><b>🍎 macOS / 🐧 Linux — first run (8 steps)</b></summary>
 
 For anyone who hasn't used a terminal before. Eight steps:
 
 ### 1. Open a terminal
 
-⌘ + Space, type "Terminal", hit return (Mac). On Linux/WSL, open
-your usual terminal app.
+⌘ + Space, type "Terminal", hit return (Mac). On Linux, open your
+usual terminal app.
 
 A black window appears with a blinking cursor.
 
@@ -292,15 +292,135 @@ work), paste your API key, save. Keys are encrypted at rest.
 the right Ziniao profile for each store, save. Skip the Ziniao bit
 and pick plain Chrome instead if you prefer.
 
-**Mac**:
-
 <img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
-**Windows (WSL)** — Ziniao runs on the Windows side, Vibe Seller
-runs inside WSL. Ziniao only runs one mode at a time, and Vibe
-Seller needs developer mode (that's what exposes CDP). WSL can't
-restart Windows-side Ziniao itself, so a launcher does it from
-Windows:
+### 7. (Optional) Wire up email / WeCom
+
+Want the agent to do daily email triage and push critical items to a
+group chat? `Settings → Integrations`:
+
+- **Email**: enter the mailbox address for each store; the IMAP
+  server fields auto-populate (gmail, outlook, self-hosted all
+  supported), so all you fill in is the secret (an app password
+  usually). Not sure how to generate one? Ask any AI with the name
+  of your email provider. Agent scans daily afterwards.
+- **WeCom (企业微信)**: set up a group bot, paste the webhook URL.
+  High-priority anomalies post automatically.
+- **TickTick / Google Workspace**: connect here if you want results
+  synced into a calendar or Doc.
+
+Skipping is fine — come back after your first task.
+
+### 8. Create your first task
+
+Home page → **New task** → pick a store → write one sentence:
+
+- "Check ads and pause any keyword with ACOS over 30%."
+- "Export the past 7 days of sales reports."
+- "Review inventory and estimate next month's restock SKUs."
+
+The agent plans the steps, drives the browser, and writes you a
+report. Auto mode is the default — just run it. The toggle in the
+task footer can flip to Plan mode if you want to review the plan
+before execution.
+
+</details>
+
+<details>
+<summary><b>🐧 Windows via WSL2 — first run (8 steps)</b></summary>
+
+For anyone who hasn't used a terminal before. Eight steps. Assumes
+you already installed via the [WSL2 path](#install) (mirrored
+networking, Windows 11+).
+
+### 1. Open a terminal
+
+Open your WSL Ubuntu terminal — search "Ubuntu" in the Start menu,
+or run `wsl` from PowerShell.
+
+A black window appears with a blinking cursor.
+
+### 2. Install
+
+Copy this **entire line**, paste into the terminal, hit return:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
+```
+
+Takes a few minutes (downloads the Python toolchain, installs
+Vibe Seller, fetches Chromium). When the output ends with
+`Vibe Seller installed!` you're set.
+
+Stuck or hitting an error? Drop the repo URL
+<https://github.com/zpoint/vibe-seller> into any coding agent
+(Claude Code, Codex, opencode, Cursor) and say "read the README and
+install this." The agent will work through it for you.
+
+### 3. Start the server
+
+```bash
+vibe-seller start
+```
+
+The server daemonizes — the CLI prints the PID and log path and
+exits. You can close the terminal; the server keeps running. To
+stop it later: `vibe-seller stop`.
+
+### 4. Open the web UI
+
+In your browser:
+
+```
+http://localhost:7777
+```
+
+When the Vibe Seller home page loads, you're done (no login by
+default).
+
+### 5. Add your LLM key
+
+`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
+Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
+work), paste your API key, save. Keys are encrypted at rest.
+
+> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
+> the path of least resistance — sign up, top up $2–3,
+> pay-as-you-go per token (cost per task scales with task size).
+> The other providers usually sell prepaid monthly token packs;
+> pick a plan that fits your usage.
+
+> Already signed in to Anthropic via Claude Code on this machine?
+> Vibe Seller reuses that session — skip this step.
+
+> **Using cc-switch or a similar tool? Pick the default here.**
+>
+> Tools like cc-switch edit `~/.claude/settings.json`, which
+> conflicts with Vibe Seller's AI picker. Just pick the default
+> and let cc-switch manage which AI you use.
+>
+> If you'd rather Vibe Seller manage it: quit cc-switch, then
+> **copy-paste this line into a terminal** and hit return to
+> clear what cc-switch wrote into `settings.json`:
+>
+> ```bash
+> python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
+> ```
+
+<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+
+<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+
+### 6. Connect your stores
+
+`Settings → Stores → Add Ziniao account`, fill in the account, pick
+the right Ziniao profile for each store, save. Skip the Ziniao bit
+and pick plain Chrome instead if you prefer.
+
+Ziniao runs on the Windows side, Vibe Seller runs inside WSL. Ziniao
+only runs one mode at a time, and Vibe Seller needs developer mode
+(that's what exposes CDP). WSL can't restart Windows-side Ziniao
+itself, so a launcher does it from Windows:
 
 1. Download `ziniao_webdriver.bat` from
    `Settings → Stores → Download launcher`.
