@@ -75,29 +75,31 @@ export function UpdateAvailableModal({ result, onClose }: Props) {
           ) : null}
         </div>
 
-        {result.releases && result.releases.length > 0 && (
+        {result.releases_page_url && (
           <div className="overflow-y-auto p-6 pt-4 space-y-4">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
               {t('updateCheck.whatsNew')}
             </h3>
-            {result.releases.map(rel => (
-              <div key={rel.version} className="border-l-2 border-indigo-200 pl-3">
-                <div className="text-sm font-medium text-gray-800">v{rel.version}</div>
-                <div className={`text-gray-600 ${PROSE}`}>
-                  <Markdown remarkPlugins={[remarkGfm]}>{rel.body || t('updateCheck.noReleaseNotes')}</Markdown>
+            {result.releases && result.releases.length > 0 ? (
+              result.releases.map(rel => (
+                <div key={rel.version} className="border-l-2 border-indigo-200 pl-3">
+                  <div className="text-sm font-medium text-gray-800">v{rel.version}</div>
+                  <div className={`text-gray-600 ${PROSE}`}>
+                    <Markdown remarkPlugins={[remarkGfm]}>{rel.body || t('updateCheck.noReleaseNotes')}</Markdown>
+                  </div>
                 </div>
-              </div>
-            ))}
-            {result.releases_page_url && (
-              <a
-                href={result.releases_page_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-block text-sm text-indigo-600 hover:underline"
-              >
-                {t('updateCheck.viewFullChangelog')}
-              </a>
+              ))
+            ) : (
+              <p className="text-sm text-gray-500">{t('updateCheck.noReleaseNotes')}</p>
             )}
+            <a
+              href={result.releases_page_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block text-sm text-indigo-600 hover:underline"
+            >
+              {t('updateCheck.viewFullChangelog')}
+            </a>
           </div>
         )}
 

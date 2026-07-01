@@ -107,6 +107,21 @@ class TestFetchReleaseNotes:
         assert [n['version'] for n in notes] == ['0.7.0', '0.6.5']
 
     @pytest.mark.asyncio
+    async def test_skips_drafts_and_prereleases(self):
+        releases = [
+            {**_RELEASES[0], 'draft': True},
+            {**_RELEASES[1], 'prerelease': True},
+            _RELEASES[2],
+        ]
+
+        async def handler(request):
+            return httpx.Response(200, json=releases)
+
+        async with _client(handler) as client:
+            notes = await uc.fetch_release_notes(client, '0.0.0')
+        assert [n['version'] for n in notes] == ['0.6.0']
+
+    @pytest.mark.asyncio
     async def test_caps_at_max_releases(self, monkeypatch):
         monkeypatch.setattr(uc, '_MAX_RELEASES', 1)
 

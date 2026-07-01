@@ -26,6 +26,17 @@ RELEASES_PAGE_URL = f'https://github.com/{REPO}/releases/latest'
 # user many versions behind doesn't get a wall of changelog text.
 _MAX_RELEASES = 5
 
+# GitHub (and sometimes PyPI) is frequently just *slow* rather than
+# blocked from behind the Great Firewall — a short timeout would treat
+# "would have succeeded in 8s" the same as "actually unreachable" and
+# silently hide real updates from exactly the users least likely to
+# find out about them another way. Favor patience: this call never
+# blocks page render (the frontend fetches it independently) or any
+# other request (asyncio runs it concurrently with everything else),
+# and the caller (system.update_check) caches the outcome, so a slow
+# network pays this cost once per cache TTL, not on every page load.
+_FETCH_TIMEOUT_SECONDS = 15
+
 
 def is_dev_version(v: str) -> bool:
     """True for dev builds / dirty or untagged checkouts.
@@ -56,7 +67,7 @@ async def fetch_latest_pypi_version(
 ) -> str | None:
     """Latest version per PyPI's JSON API, or None on any failure."""
     try:
-        resp = await client.get(PYPI_JSON_URL, timeout=5)
+        resp = await client.get(PYPI_JSON_URL, timeout=_FETCH_TIMEOUT_SECONDS)
         resp.raise_for_status()
         return resp.json()['info']['version']
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
@@ -77,7 +88,7 @@ async def fetch_release_notes(
             GITHUB_RELEASES_URL,
             params={'per_page': 10},
             headers={'User-Agent': 'vibe-seller'},
-            timeout=5,
+            timeout=_FETCH_TIMEOUT_SECONDS,
         )
         resp.raise_for_status()
         releases = resp.json()
@@ -86,6 +97,13 @@ async def fetch_release_notes(
 
     notes = []
     for rel in releases:
+        # Drafts/prereleases aren't what `vibe-seller upgrade` or the
+        # Windows installer will actually fetch (PyPI's "latest" and
+        # GitHub's installer asset both track full releases only), so
+        # listing them as "what's new" would advertise a version the
+        # user's upgrade path can't reach yet.
+        if rel.get('draft') or rel.get('prerelease'):
+            continue
         tag = (rel.get('tag_name') or '').lstrip('v')
         if not tag or not is_newer(tag, current):
             continue
