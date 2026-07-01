@@ -34,6 +34,12 @@ import urllib.error
 import urllib.request
 import webbrowser
 
+try:
+    import tkinter as tk
+except Exception:  # noqa: BLE001 — dialogs fall back to a message box
+    tk = None
+
+import dialogs  # local sibling module (bundled alongside tray.py)
 from PIL import Image, ImageDraw
 import pystray
 
@@ -91,8 +97,10 @@ _STRINGS = {
         'fail_title': 'Vibe Seller — update failed',
         'fail': '{err}\n\nDownload manually:\n{url}',
         'lan_title': 'Vibe Seller — LAN address',
-        'lan_body': 'Open from other devices on this network:\n\n{name}\n'
-        '{ip}\n\n(copied to clipboard)',
+        'lan_intro': 'Open from other devices on this network\n'
+        '(hostname copied to clipboard):',
+        'copy': 'Copy',
+        'ok': 'OK',
     },
     'zh': {
         'open': '打开 Vibe Seller',
@@ -105,7 +113,9 @@ _STRINGS = {
         'fail_title': 'Vibe Seller —— 更新失败',
         'fail': '{err}\n\n请手动下载：\n{url}',
         'lan_title': 'Vibe Seller —— 局域网地址',
-        'lan_body': '局域网内其他设备可访问：\n\n{name}\n{ip}\n\n（已复制到剪贴板）',
+        'lan_intro': '局域网内其他设备可访问\n（主机名已复制到剪贴板）：',
+        'copy': '复制',
+        'ok': '确定',
     },
 }
 _LANG = 'zh' if _system_is_chinese() else 'en'
@@ -225,67 +235,96 @@ def _icon_image() -> Image.Image:
     return img
 
 
-def _on_open(icon, item):  # noqa: ARG001
+def _open_browser() -> None:
+    """Open the UI in the default browser. os.startfile is the most
+    reliable way under pythonw (no console); webbrowser as fallback."""
+    try:
+        if sys.platform == 'win32':
+            os.startfile(URL)  # noqa: S606 — fixed localhost URL
+            return
+    except OSError:
+        logger.warning('os.startfile failed; trying webbrowser')
     webbrowser.open(URL)
 
 
-def _on_restart(icon, item):  # noqa: ARG001
-    _stop_server()
-    time.sleep(1.0)
+def _open_when_ready(deadline_s: float = 90.0) -> None:
+    """Ensure the server is up, then open the browser. Used by the
+    'Open' menu item AND the installer's --open finish action, so
+    starting Vibe Seller always lands the user on a working page."""
     _start_server()
+    start = time.monotonic()
+    while time.monotonic() - start < deadline_s:
+        if _server_healthy():
+            _open_browser()
+            return
+        time.sleep(1.0)
+    logger.warning('server not healthy after %ss; opening anyway', deadline_s)
+    _open_browser()
 
 
-def _msgbox(title: str, text: str) -> None:
-    if sys.platform == 'win32':
-        ctypes.windll.user32.MessageBoxW(0, text, title, 0x40)
-    else:
-        logger.info('%s: %s', title, text)
+def _on_open(icon, item):  # noqa: ARG001
+    threading.Thread(target=_open_when_ready, daemon=True).start()
+
+
+def _on_restart(icon, item):  # noqa: ARG001
+    def _do() -> None:
+        _stop_server()
+        time.sleep(1.0)
+        _start_server()
+
+    threading.Thread(target=_do, daemon=True).start()
+
+
+def _dialog(
+    title: str,
+    message: str,
+    copy_rows: list[tuple[str, str]] | None = None,
+    auto_copy: str | None = None,
+) -> None:
+    """Show a responsive dialog (per-value Copy buttons) — delegates to
+    the unit-tested dialogs module, passing the localized labels."""
+    dialogs.show_dialog(
+        tk,
+        title,
+        message,
+        copy_rows=copy_rows,
+        auto_copy=auto_copy,
+        copy_label=_t('copy'),
+        ok_label=_t('ok'),
+    )
 
 
 def _on_check_updates(icon, item):  # noqa: ARG001
-    res = windows_update.upgrade(silent=False)
-    status = res.get('status')
-    if status == 'up-to-date':
-        _msgbox('Vibe Seller', _t('latest', v=res.get('version')))
-    elif status == 'updating':
-        _msgbox('Vibe Seller', _t('updating', v=res.get('version')))
-    else:
-        _msgbox(
-            _t('fail_title'),
-            _t('fail', err=res.get('error'), url=res.get('manual_url')),
-        )
+    def _do() -> None:
+        res = windows_update.upgrade(silent=False)
+        status = res.get('status')
+        if status == 'up-to-date':
+            _dialog('Vibe Seller', _t('latest', v=res.get('version')))
+        elif status == 'updating':
+            _dialog('Vibe Seller', _t('updating', v=res.get('version')))
+        else:
+            _dialog(
+                _t('fail_title'),
+                _t('fail', err=res.get('error'), url=res.get('manual_url')),
+            )
 
-
-def _copy_to_clipboard(text: str) -> None:
-    """Copy *text* to the clipboard (Windows `clip`; no-op elsewhere)."""
-    if sys.platform != 'win32':
-        return
-    try:
-        subprocess.run(['clip'], input=text, text=True, check=False, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        logger.warning('clipboard copy failed', exc_info=True)
+    threading.Thread(target=_do, daemon=True).start()
 
 
 def _on_lan_address(icon, item):  # noqa: ARG001
     name_url = netinfo.lan_hostname_url(PORT)
     ip_url = netinfo.lan_url(PORT)
-    _copy_to_clipboard(ip_url)
-    _msgbox(_t('lan_title'), _t('lan_body', name=name_url, ip=ip_url))
+    _dialog(
+        _t('lan_title'),
+        _t('lan_intro'),
+        copy_rows=[('hostname', name_url), ('ip', ip_url)],
+        auto_copy=name_url,  # default: copy the hostname (.local) URL
+    )
 
 
 def _on_quit(icon, item):  # noqa: ARG001
     _stop_server()
     icon.stop()
-
-
-def _wait_then_open(deadline_s: float = 90.0) -> None:
-    """Open the browser once the server is healthy (for `--open`)."""
-    start = time.monotonic()
-    while time.monotonic() - start < deadline_s:
-        if _server_healthy():
-            webbrowser.open(URL)
-            return
-        time.sleep(1.0)
 
 
 def main() -> int:
@@ -297,13 +336,13 @@ def main() -> int:
     bundled_py = INSTALL_DIR / 'python' / 'python.exe'
     if bundled_py.is_file():
         os.environ['VIBE_SELLER_BUNDLED_PYTHON'] = str(bundled_py)
-    threading.Thread(target=_start_server, daemon=True).start()
-
-    # `--open` (used by the installer's "Open now" finish step): once the
-    # server is up, open the browser. NOT set by the login auto-start
-    # shortcut, so reboots don't pop a browser window.
+    # `--open` (installer "Open now" finish step): start the server and
+    # open the browser once it's healthy. NOT set by the login
+    # auto-start shortcut, so reboots don't pop a browser window.
     if '--open' in sys.argv:
-        threading.Thread(target=_wait_then_open, daemon=True).start()
+        threading.Thread(target=_open_when_ready, daemon=True).start()
+    else:
+        threading.Thread(target=_start_server, daemon=True).start()
 
     try:
         title = f'Vibe Seller {get_version()}'

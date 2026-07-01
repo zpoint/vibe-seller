@@ -109,6 +109,16 @@ jobs:
           # dev build, not a published release).
           bash tests/releases/verify_install.sh ""
 
+      - name: Tray dialog test (responsive dialog + clipboard, headless)
+        shell: pwsh
+        run: |
+          # Verifies the fix for the unresponsive dialog + Copy-to-clipboard
+          # on a real desktop session — no manual clicking. Uses the
+          # bundled python's tkinter; dialogs.py has no pystray dep.
+          $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
+          & "$env:VS_INSTALL\uv.exe" pip install --python $py pytest
+          & $py -m pytest tests\unit\test_tray_dialog.py -v
+
       - name: Install pytest deps into the bundled venv (for agent e2e)
         if: env.HAS_DEEPSEEK == 'true'
         shell: pwsh
