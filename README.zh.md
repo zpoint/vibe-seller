@@ -59,8 +59,8 @@ Vibe Seller 就是补这一块。
 
 - **原生紫鸟支持**——通过 CDP 直接控制紫鸟，不是裸 Chrome 跑
   Playwright，也不是 UI 坐标点击，所以风控风险低、稳定。
-- **不挑浏览器**——除了紫鸟，普通 Chrome 也是一等公民；理论上
-  任何能开 CDP 的浏览器都能接，写一个浏览器后端类就行。
+- **不挑浏览器**——除了紫鸟，普通 Chrome 也是一等公民，按店铺
+  各自挑选。
 - **支持大部分模型**——底层走 Claude Code CLI，凡是兼容
   Anthropic 协议的供应商都能接：Claude、DeepSeek、Kimi、MiniMax、
   智谱 GLM、通义千问。设置里切一下就行，不用改代码。Key 是你自
