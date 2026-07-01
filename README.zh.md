@@ -171,9 +171,7 @@ Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key
 ### 3. 绑定店铺
 
 `设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档
-案、保存。不用紫鸟可以选普通 Chrome。原生 Windows 装法下，Vibe
-Seller 会自动帮你把紫鸟切到开发者模式重启——不需要额外的启动器
-（那个只有 WSL2 方案才要）。
+案、保存。不用紫鸟可以选普通 Chrome。
 
 <img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
