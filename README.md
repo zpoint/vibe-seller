@@ -64,8 +64,7 @@ the bridge.
 - **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
   not UI-coordinate clicks. Lower risk-control risk, more stable.
 - **Multi-browser by design.** Plain Chrome is a first-class backend
-  alongside Ziniao — pick per store. Any browser that exposes CDP can
-  be plugged in by writing a backend class.
+  alongside Ziniao — pick per store.
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
   any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
   MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
