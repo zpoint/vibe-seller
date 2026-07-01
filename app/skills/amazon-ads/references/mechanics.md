@@ -620,6 +620,13 @@ ad run.
 
 ## 4. Bulk upload — when, when not, gotchas
 
+> **Default path moved.** Creating a campaign and re-bidding across
+> keywords/campaigns now go through the export → edit → import flow in
+> [`bulk-operations.md`](bulk-operations.md) (with `scripts/ads_bulk.py`).
+> This section is the **fallback + reference**: the trusted-event recipe
+> for single live edits (§4a0), when to avoid bulk (§4b), and the 52-col
+> schema (§4c) the script writes against.
+
 ### 4a0. EXECUTION via browser-use: use TRUSTED events, not `eval`
 
 When *applying* audit changes to the live console, ag-Grid bid/state
@@ -675,9 +682,12 @@ Pitfalls that produced the earlier false "can't be done" conclusion:
   On a production store a concatenated bid is a real-money error.
 
 Pause/enable a target or campaign: same — `click`/`dblclick` the state
-toggle (trusted), don't `eval` it. Extraction (new keyword) and ASIN
-negation are likewise UI-doable; only fall back to the bulk file
-(§4, §4c) if the UI flow is genuinely missing.
+toggle (trusted), don't `eval` it. This trusted-event path is the right
+tool for a **single** live edit. For creating a campaign or re-bidding
+**many** keywords at once, prefer the bulk round trip
+([`bulk-operations.md`](bulk-operations.md)) — it's the default; drop to
+these clicks when a bulk import fails twice or the field has no bulk
+column.
 
 **Working search-term negation recipe (VERIFIED 2026-06-12
 — "usb-c cable" → Negative exact, confirmed in Negative
