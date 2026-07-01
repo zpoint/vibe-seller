@@ -26,7 +26,8 @@
 
 A local-first **browser-automation framework**. AI agents drive your
 real browser — Ziniao for fingerprint isolation, or plain Chrome —
-through CDP, the same way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
+through CDP (Chrome's low-level remote-control protocol), the same
+way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
 returns, warehouse setup, logistics lookup — whatever you can do in
 a browser, the agent can do too.
 
@@ -56,10 +57,11 @@ any device on the same LAN.
 
 ## Why Vibe Seller?
 
-The big AI/automation tools — OpenClaw, n8n, 影刀 — all stop at plain
-Chrome. None of them can drive Ziniao, which is the fingerprint
-browser most cross-border sellers actually live in. Vibe Seller is
-the bridge.
+The big AI/automation tools — OpenClaw, n8n, 影刀 (RPA /
+workflow-automation tools some sellers already use) — all stop at
+plain Chrome. None of them can drive Ziniao, which is the
+fingerprint browser most cross-border sellers actually live in.
+Vibe Seller is the bridge.
 
 - **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
   not UI-coordinate clicks. Lower risk-control risk, more stable.
@@ -270,15 +272,19 @@ work), paste your API key, save. Keys are encrypted at rest.
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
 
-> **Using cc-switch or a similar tool? Pick the default here.**
+> **Using cc-switch or a similar Claude-account-switcher tool? Pick
+> the default here.**
 >
-> Tools like cc-switch edit `~/.claude/settings.json`, which
-> conflicts with Vibe Seller's AI picker. Just pick the default
-> and let cc-switch manage which AI you use.
+> Those tools manage your AI provider by editing
+> `~/.claude/settings.json` directly, which conflicts with Vibe
+> Seller's own AI picker. Just pick the default here and let
+> cc-switch keep managing which AI you use.
 >
-> If you'd rather Vibe Seller manage it: quit cc-switch, then
-> **copy-paste this line into a terminal** and hit return to
-> clear what cc-switch wrote into `settings.json`:
+> If you'd rather Vibe Seller manage it instead: quit cc-switch,
+> then **copy-paste this line into a terminal** and hit return —
+> it edits your global Claude Code config
+> (`~/.claude/settings.json`) to remove the `ANTHROPIC_*`
+> environment variables cc-switch wrote there:
 >
 > ```bash
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
@@ -395,15 +401,19 @@ work), paste your API key, save. Keys are encrypted at rest.
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
 
-> **Using cc-switch or a similar tool? Pick the default here.**
+> **Using cc-switch or a similar Claude-account-switcher tool? Pick
+> the default here.**
 >
-> Tools like cc-switch edit `~/.claude/settings.json`, which
-> conflicts with Vibe Seller's AI picker. Just pick the default
-> and let cc-switch manage which AI you use.
+> Those tools manage your AI provider by editing
+> `~/.claude/settings.json` directly, which conflicts with Vibe
+> Seller's own AI picker. Just pick the default here and let
+> cc-switch keep managing which AI you use.
 >
-> If you'd rather Vibe Seller manage it: quit cc-switch, then
-> **copy-paste this line into a terminal** and hit return to
-> clear what cc-switch wrote into `settings.json`:
+> If you'd rather Vibe Seller manage it instead: quit cc-switch,
+> then **copy-paste this line into a terminal** and hit return —
+> it edits your global Claude Code config
+> (`~/.claude/settings.json`) to remove the `ANTHROPIC_*`
+> environment variables cc-switch wrote there:
 >
 > ```bash
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
@@ -421,8 +431,9 @@ and pick plain Chrome instead if you prefer.
 
 Ziniao runs on the Windows side, Vibe Seller runs inside WSL. Ziniao
 only runs one mode at a time, and Vibe Seller needs developer mode
-(that's what exposes CDP). WSL can't restart Windows-side Ziniao
-itself, so a launcher does it from Windows:
+(a.k.a. WebDriver mode — that's what exposes CDP). WSL can't
+restart Windows-side Ziniao itself, so a launcher does it from
+Windows:
 
 1. Download `ziniao_webdriver.bat` from
    `Settings → Stores → Download launcher`.
@@ -573,8 +584,8 @@ the task:
 
 | Task type | Recommended |
 |---|---|
-| **Simple** — email classification, fixed-flow data entry, structured extraction | MiniMax, DeepSeek, Claude, Kimi — pick whatever's cheapest |
-| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | **DeepSeek, Claude, or other SOTA models. Don't use cheap models here.** |
+| **Simple** — email classification, fixed-flow data entry, structured extraction | MiniMax, Kimi, GLM, or Qwen — pick whatever's cheapest |
+| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | **Claude or DeepSeek. Don't use the cheap models here.** |
 
 Why? Complex tasks ask the agent to read the Skill, judge page
 state, call tools, and take notes — all in the same context window.
@@ -600,10 +611,15 @@ it's the cheaper option once you count failed runs.
 <details>
 <summary><b>Do I really need Ziniao?</b></summary>
 
-No — plain Chrome works fine for stores that don't need fingerprint
-isolation. But if you already run Ziniao for cross-border, that's the
-recommended path: per-store profile separation matches the way you
-already work.
+Depends on what you're protecting against. Fingerprint isolation
+matters when the same machine logs into multiple seller accounts on
+the same platform (e.g. several Amazon storefronts) and the
+platform risk-flags accounts that share a browser fingerprint —
+that's the case Ziniao solves. If every store you run is on a
+different platform, or the platform doesn't do fingerprint
+matching, plain Chrome works fine and skips the Ziniao setup
+entirely. Already using Ziniao for other reasons? Just plug it in
+here too — no extra cost.
 
 </details>
 
@@ -646,25 +662,27 @@ sessions.
 
 The **BOSS account** also needs to enable developer mode for your
 company on the Ziniao Open Platform (one-time admin setup, see
-<https://open.ziniao.com/docSupport?docId=99>). Without it the
-Ziniao API rejects requests with `statusCode: -10003`.
+<https://open.ziniao.com/docSupport?docId=99>). Without it, Ziniao
+rejects the login (`statusCode: -10003` — Ziniao's own error for
+"developer mode isn't enabled for this company").
 
 **Where credentials are stored** — all at
 `~/.vibe-seller/data/vibe_seller.db` (local SQLite). No upload, no
 telemetry path carries credentials out.
 
-- **Password** is Fernet-encrypted at rest (key derived via SHA256
-  from your local `JWT_SECRET`) and never returned by any HTTP
-  endpoint — decrypted in memory only when Vibe Seller calls the
-  Ziniao HTTP API. See `app/utils/crypto.py` and
-  `app/routers/ziniao_accounts.py`.
+- **Password** is encrypted at rest with a key derived from your
+  local install, and never returned by any HTTP endpoint —
+  decrypted in memory only when Vibe Seller calls the Ziniao HTTP
+  API.
 - **Company** and **username** are plain strings — identifiers, not
   secrets (same shape as an email address).
 
 Asking for the password is the necessary trade-off: developer-mode
 auth requires it, no OAuth / token flow exists on the Ziniao side
 today. If that's a deal-breaker, use plain Chrome instead
-(`Settings → Stores → Add Chrome store`).
+(`Settings → Stores → Add Chrome store`). Contributors curious about
+the exact encryption implementation can check
+[`docs/dev-guide.md`](docs/dev-guide.md).
 
 </details>
 
