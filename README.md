@@ -52,8 +52,9 @@ flowchart LR
 ```
 
 One always-on machine (Mac, Linux, or Windows) hosts the server
-and runs Ziniao in dev mode. You and your team open the web UI from
-any device on the same LAN.
+and runs Ziniao in dev mode — or just use your own computer, either
+works. You and your team open the web UI from any device on the
+same LAN.
 
 ## Why Vibe Seller?
 
