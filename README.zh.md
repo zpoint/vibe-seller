@@ -93,8 +93,6 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 
 或从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
-按用户安装（无需管理员），自带 Python、**`git` + `bash`**（所以**不用**再单独装 [Git for Windows](https://git-scm.com/downloads/win)）和 `claude` CLI；并装一个系统托盘启动器（打开 / 重启 / 退出 / 检查更新），开机自动起服务。浏览器引擎（Playwright Chromium）在安装时下载，首次安装需联网。安装最后一步勾选 **「现在打开 Vibe Seller」** 即可启动服务并自动打开浏览器到 <http://localhost:7777>。安装向导与界面语言会自动跟随系统（中文 / 英文）。详见 [installer/windows/README.md](installer/windows/README.md)。
-
 </details>
 
 <details open>
@@ -124,17 +122,14 @@ vibe-seller start
 
 </details>
 
-<details>
-<summary>从源码 clone（贡献/二次开发用）</summary>
-
-```bash
-git clone https://github.com/zpoint/vibe-seller
-cd vibe-seller
-./install.sh --dev   # 装系统依赖 + venv + 编前端 + Playwright
-./start.sh           # :7777 起服务
-```
-
-</details>
+> **从源码 clone（贡献/二次开发用）：**
+>
+> ```bash
+> git clone https://github.com/zpoint/vibe-seller
+> cd vibe-seller
+> ./install.sh --dev   # 装系统依赖 + venv + 编前端 + Playwright
+> ./start.sh           # :7777 起服务
+> ```
 
 > `install.sh` 报错？把 GitHub 项目链接
 > <https://github.com/zpoint/vibe-seller> 丢给任意 Coding Agent
