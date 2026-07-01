@@ -48,23 +48,26 @@ async def get_current_user(
         if auth_header.startswith('Bearer '):
             token = auth_header[7:]
 
-    # If a token is present, authenticate via JWT directly
+    auth_on = await is_auth_required(db)
+
+    # A valid token authenticates as that user.
     if token:
         try:
             payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
-            user_id: str = payload.get('sub', '')
+            user = await db.get(User, payload.get('sub', ''))
+            if user and user.is_active:
+                return user
         except jwt.PyJWTError:
+            user = None
+        # Token present but invalid/expired/user-gone. Only reject when
+        # auth is required; otherwise fall through to the default admin.
+        # (JWT_SECRET is per-install, so a stale cookie from a prior
+        # install would otherwise force login on a no-auth server.)
+        if auth_on:
             raise HTTPException(status_code=401, detail='Invalid token')
-        user = await db.get(User, user_id)
-        if not user or not user.is_active:
-            raise HTTPException(
-                status_code=401,
-                detail='User not found or inactive',
-            )
-        return user
 
-    # No token — when auth is disabled, return default admin
-    if not await is_auth_required(db):
+    # No usable token — when auth is disabled, act as the default admin.
+    if not auth_on:
         user = await db.get(User, DEFAULT_USER_ID)
         if user:
             return user
