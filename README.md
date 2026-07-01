@@ -127,14 +127,17 @@ vibe-seller start
 
 </details>
 
-> **From source (for contributors):**
->
-> ```bash
-> git clone https://github.com/zpoint/vibe-seller
-> cd vibe-seller
-> ./install.sh --dev   # system deps + venv + frontend build + Playwright
-> ./start.sh           # serves :7777
-> ```
+<details>
+<summary>From source (for contributors)</summary>
+
+```bash
+git clone https://github.com/zpoint/vibe-seller
+cd vibe-seller
+./install.sh --dev   # system deps + venv + frontend build + Playwright
+./start.sh           # serves :7777
+```
+
+</details>
 
 > If install fails, paste the repo URL
 > <https://github.com/zpoint/vibe-seller> into any coding agent

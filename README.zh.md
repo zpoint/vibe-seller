@@ -122,14 +122,17 @@ vibe-seller start
 
 </details>
 
-> **从源码 clone（贡献/二次开发用）：**
->
-> ```bash
-> git clone https://github.com/zpoint/vibe-seller
-> cd vibe-seller
-> ./install.sh --dev   # 装系统依赖 + venv + 编前端 + Playwright
-> ./start.sh           # :7777 起服务
-> ```
+<details>
+<summary>从源码 clone（贡献/二次开发用）</summary>
+
+```bash
+git clone https://github.com/zpoint/vibe-seller
+cd vibe-seller
+./install.sh --dev   # 装系统依赖 + venv + 编前端 + Playwright
+./start.sh           # :7777 起服务
+```
+
+</details>
 
 > `install.sh` 报错？把 GitHub 项目链接
 > <https://github.com/zpoint/vibe-seller> 丢给任意 Coding Agent
