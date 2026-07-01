@@ -26,7 +26,8 @@
 
 A local-first **browser-automation framework**. AI agents drive your
 real browser — Ziniao for fingerprint isolation, or plain Chrome —
-through CDP, the same way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
+through CDP (Chrome's low-level remote-control protocol), the same
+way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
 returns, warehouse setup, logistics lookup — whatever you can do in
 a browser, the agent can do too.
 
@@ -50,22 +51,29 @@ flowchart LR
     end
 ```
 
-One always-on machine (Mac, Linux, or Windows) hosts the server
-and runs Ziniao in dev mode. You and your team open the web UI from
-any device on the same LAN.
+Either deployment works:
+
+- **One always-on machine** (Mac, Linux, or Windows) hosts the
+  server
+- **Or just use your own computer**
+
+You and your team open the web UI from any device on the same LAN.
 
 ## Why Vibe Seller?
 
-The big AI/automation tools — OpenClaw, n8n, 影刀 — all stop at plain
-Chrome. None of them can drive Ziniao, which is the fingerprint
-browser most cross-border sellers actually live in. Vibe Seller is
-the bridge.
+Compared to existing automation tools, Vibe Seller is built around
+what cross-border sellers actually need and what today's AI models
+can actually do well: AI-driven by design, with built-in Skills,
+per-store isolation, and fully local deployment. Browser control
+runs on [browser-use](https://github.com/browser-use/browser-use)
+instead of blind screenshot-clicking — faster, and far cheaper in
+tokens, than an agent that has to feel out every page from
+scratch.
 
 - **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
   not UI-coordinate clicks. Lower risk-control risk, more stable.
 - **Multi-browser by design.** Plain Chrome is a first-class backend
-  alongside Ziniao — pick per store. Any browser that exposes CDP can
-  be plugged in by writing a backend class.
+  alongside Ziniao — pick per store.
 - **Multi-LLM by design.** Built on top of the Claude Code CLI, so
   any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
   MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
@@ -84,7 +92,7 @@ the bridge.
 ### Prerequisites
 
 - One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- A browser engine — set up automatically (Playwright Chromium, downloaded on first install; needs network). Ziniao optional, for browser-fingerprint isolation
+- A browser engine — Chrome or Ziniao
 
 ### Quick start — pick your OS
 
@@ -98,8 +106,6 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 ```
 
 Or download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
-
-A per-user install (no admin) that bundles its own Python, **`git` + `bash`** (so you do **not** need to install [Git for Windows](https://git-scm.com/downloads/win) separately), and the `claude` CLI. It adds a system-tray launcher (Open / Restart / Quit / Check for updates) that starts the server on login. The browser engine (Playwright Chromium) is downloaded during install, so the first install needs network. The installer's final step has an **Open Vibe Seller now** option that starts the server and opens your browser to <http://localhost:7777>. The wizard and the UI follow your system language (English / 中文). Details: [installer/windows/README.md](installer/windows/README.md).
 
 </details>
 
@@ -151,14 +157,72 @@ cd vibe-seller
 ## First run
 
 <details>
-<summary><b>📖 Beginner walkthrough (8 steps from zero to your first task, with screenshots)</b></summary>
+<summary><b>🪟 Windows — first run (4 steps)</b></summary>
+
+For anyone who just ran the [native installer](#install).
+
+### 1. Install
+
+Run [`VibeSeller-Setup.exe`](https://github.com/zpoint/vibe-seller/releases/latest)
+(or the PowerShell one-liner from [Install](#install)). It starts
+the server for you — check **Open Vibe Seller now** at the end of
+the wizard, or open <http://localhost:7777> yourself.
+
+### 2. Add your LLM key
+
+`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
+Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
+work), paste your API key, save. Keys are encrypted at rest.
+
+> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
+> the path of least resistance — sign up, top up $2–3,
+> pay-as-you-go per token (cost per task scales with task size).
+> The other providers usually sell prepaid monthly token packs;
+> pick a plan that fits your usage.
+
+> Already signed in to Anthropic via Claude Code on this machine?
+> Vibe Seller reuses that session — skip this step.
+
+<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+
+<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+
+### 3. Connect your stores
+
+`Settings → Stores → Add Ziniao account`, fill in the account, pick
+the right Ziniao profile for each store, save. Skip the Ziniao bit
+and pick plain Chrome instead if you prefer.
+
+<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
+
+### 4. Create your first task
+
+Home page → **New task** → pick a store → write one sentence:
+
+- "Check ads and pause any keyword with ACOS over 30%."
+- "Export the past 7 days of sales reports."
+- "Review inventory and estimate next month's restock SKUs."
+
+The agent plans the steps, drives the browser, and writes you a
+report. Auto mode is the default — just run it. The toggle in the
+task footer can flip to Plan mode if you want to review the plan
+before execution.
+
+> Want email / WeCom / TickTick / Google Workspace hooked up too?
+> `Settings → Integrations`, any time after install — optional, and
+> doesn't block your first task.
+
+</details>
+
+<details>
+<summary><b>🍎 macOS / 🐧 Linux — first run (8 steps)</b></summary>
 
 For anyone who hasn't used a terminal before. Eight steps:
 
 ### 1. Open a terminal
 
-- **Windows**: you don't need a terminal — use the [native installer](#install) (run `VibeSeller-Setup.exe`), then skip to **step 4**.
-- **Mac**: ⌘ + Space, type "Terminal", hit return.
+⌘ + Space, type "Terminal", hit return (Mac). On Linux, open your
+usual terminal app.
 
 A black window appears with a blinking cursor.
 
@@ -215,15 +279,19 @@ work), paste your API key, save. Keys are encrypted at rest.
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
 
-> **Using cc-switch or a similar tool? Pick the default here.**
+> **Using cc-switch or a similar Claude-account-switcher tool? Pick
+> the default here.**
 >
-> Tools like cc-switch edit `~/.claude/settings.json`, which
-> conflicts with Vibe Seller's AI picker. Just pick the default
-> and let cc-switch manage which AI you use.
+> Those tools manage your AI provider by editing
+> `~/.claude/settings.json` directly, which conflicts with Vibe
+> Seller's own AI picker. Just pick the default here and let
+> cc-switch keep managing which AI you use.
 >
-> If you'd rather Vibe Seller manage it: quit cc-switch, then
-> **copy-paste this line into a terminal** and hit return to
-> clear what cc-switch wrote into `settings.json`:
+> If you'd rather Vibe Seller manage it instead: quit cc-switch,
+> then **copy-paste this line into a terminal** and hit return —
+> it edits your global Claude Code config
+> (`~/.claude/settings.json`) to remove the `ANTHROPIC_*`
+> environment variables cc-switch wrote there:
 >
 > ```bash
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
@@ -239,13 +307,138 @@ work), paste your API key, save. Keys are encrypted at rest.
 the right Ziniao profile for each store, save. Skip the Ziniao bit
 and pick plain Chrome instead if you prefer.
 
-**Mac**:
-
 <img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
-**Windows (WSL)** — Ziniao runs on the Windows side, Vibe Seller
-runs inside WSL. Ziniao only runs one mode at a time, and Vibe
-Seller needs developer mode (that's what exposes CDP). WSL can't
+### 7. (Optional) Wire up email / WeCom
+
+Want the agent to do daily email triage and push critical items to a
+group chat? `Settings → Integrations`:
+
+- **Email**: enter the mailbox address for each store; the IMAP
+  server fields auto-populate (gmail, outlook, self-hosted all
+  supported), so all you fill in is the secret (an app password
+  usually). Not sure how to generate one? Ask any AI with the name
+  of your email provider. Agent scans daily afterwards.
+- **WeCom (企业微信)**: set up a group bot, paste the webhook URL.
+  High-priority anomalies post automatically.
+- **TickTick / Google Workspace**: connect here if you want results
+  synced into a calendar or Doc.
+
+Skipping is fine — come back after your first task.
+
+### 8. Create your first task
+
+Home page → **New task** → pick a store → write one sentence:
+
+- "Check ads and pause any keyword with ACOS over 30%."
+- "Export the past 7 days of sales reports."
+- "Review inventory and estimate next month's restock SKUs."
+
+The agent plans the steps, drives the browser, and writes you a
+report. Auto mode is the default — just run it. The toggle in the
+task footer can flip to Plan mode if you want to review the plan
+before execution.
+
+</details>
+
+<details>
+<summary><b>🐧 Windows via WSL2 — first run (8 steps)</b></summary>
+
+For anyone who hasn't used a terminal before. Eight steps. Assumes
+you already installed via the [WSL2 path](#install) (mirrored
+networking, Windows 11+).
+
+### 1. Open a terminal
+
+Open your WSL Ubuntu terminal — search "Ubuntu" in the Start menu,
+or run `wsl` from PowerShell.
+
+A black window appears with a blinking cursor.
+
+### 2. Install
+
+Copy this **entire line**, paste into the terminal, hit return:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
+```
+
+Takes a few minutes (downloads the Python toolchain, installs
+Vibe Seller, fetches Chromium). When the output ends with
+`Vibe Seller installed!` you're set.
+
+Stuck or hitting an error? Drop the repo URL
+<https://github.com/zpoint/vibe-seller> into any coding agent
+(Claude Code, Codex, opencode, Cursor) and say "read the README and
+install this." The agent will work through it for you.
+
+### 3. Start the server
+
+```bash
+vibe-seller start
+```
+
+The server daemonizes — the CLI prints the PID and log path and
+exits. You can close the terminal; the server keeps running. To
+stop it later: `vibe-seller stop`.
+
+### 4. Open the web UI
+
+In your browser:
+
+```
+http://localhost:7777
+```
+
+When the Vibe Seller home page loads, you're done (no login by
+default).
+
+### 5. Add your LLM key
+
+`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
+Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
+work), paste your API key, save. Keys are encrypted at rest.
+
+> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
+> the path of least resistance — sign up, top up $2–3,
+> pay-as-you-go per token (cost per task scales with task size).
+> The other providers usually sell prepaid monthly token packs;
+> pick a plan that fits your usage.
+
+> Already signed in to Anthropic via Claude Code on this machine?
+> Vibe Seller reuses that session — skip this step.
+
+> **Using cc-switch or a similar Claude-account-switcher tool? Pick
+> the default here.**
+>
+> Those tools manage your AI provider by editing
+> `~/.claude/settings.json` directly, which conflicts with Vibe
+> Seller's own AI picker. Just pick the default here and let
+> cc-switch keep managing which AI you use.
+>
+> If you'd rather Vibe Seller manage it instead: quit cc-switch,
+> then **copy-paste this line into a terminal** and hit return —
+> it edits your global Claude Code config
+> (`~/.claude/settings.json`) to remove the `ANTHROPIC_*`
+> environment variables cc-switch wrote there:
+>
+> ```bash
+> python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
+> ```
+
+<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+
+<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+
+### 6. Connect your stores
+
+`Settings → Stores → Add Ziniao account`, fill in the account, pick
+the right Ziniao profile for each store, save. Skip the Ziniao bit
+and pick plain Chrome instead if you prefer.
+
+Ziniao runs on the Windows side, Vibe Seller runs inside WSL. Ziniao
+only runs one mode at a time, and Vibe Seller needs developer mode
+(a.k.a. WebDriver mode — that's what exposes CDP). WSL can't
 restart Windows-side Ziniao itself, so a launcher does it from
 Windows:
 
@@ -398,8 +591,8 @@ the task:
 
 | Task type | Recommended |
 |---|---|
-| **Simple** — email classification, fixed-flow data entry, structured extraction | MiniMax, DeepSeek, Claude, Kimi — pick whatever's cheapest |
-| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | **DeepSeek, Claude, or other SOTA models. Don't use cheap models here.** |
+| **Simple** — email classification, fixed-flow data entry, structured extraction | MiniMax, Kimi, GLM, or Qwen — pick whatever's cheapest |
+| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | **Claude or DeepSeek. Don't use the cheap models here.** |
 
 Why? Complex tasks ask the agent to read the Skill, judge page
 state, call tools, and take notes — all in the same context window.
@@ -423,16 +616,6 @@ it's the cheaper option once you count failed runs.
 </details>
 
 <details>
-<summary><b>Do I really need Ziniao?</b></summary>
-
-No — plain Chrome works fine for stores that don't need fingerprint
-isolation. But if you already run Ziniao for cross-border, that's the
-recommended path: per-store profile separation matches the way you
-already work.
-
-</details>
-
-<details>
 <summary><b>How does Ziniao integration actually work? Developer mode vs normal mode / credentials needed / where they're stored</b></summary>
 
 Ziniao runs in exactly one mode at a time:
@@ -447,9 +630,10 @@ Ziniao runs in exactly one mode at a time:
 The two modes share one Ziniao process, so they can't run side by
 side. Switching requires restarting Ziniao.
 
-- **macOS**: Vibe Seller handles the swap itself — kills any
-  normal-mode instance and relaunches with `--run_type=web_driver`
-  when you open a store.
+- **macOS / native Windows**: Vibe Seller handles the swap itself —
+  kills any normal-mode instance and relaunches with
+  `--run_type=web_driver` when you open a store. Same automatic
+  handling on both platforms, nothing for you to do.
 - **Windows (WSL)**: WSL can't restart a Windows-side app across
   the VM boundary, so the Windows side runs a one-line `.bat`
   launcher (downloadable from `Settings → Stores → Download
@@ -471,25 +655,27 @@ sessions.
 
 The **BOSS account** also needs to enable developer mode for your
 company on the Ziniao Open Platform (one-time admin setup, see
-<https://open.ziniao.com/docSupport?docId=99>). Without it the
-Ziniao API rejects requests with `statusCode: -10003`.
+<https://open.ziniao.com/docSupport?docId=99>). Without it, Ziniao
+rejects the login (`statusCode: -10003` — Ziniao's own error for
+"developer mode isn't enabled for this company").
 
 **Where credentials are stored** — all at
 `~/.vibe-seller/data/vibe_seller.db` (local SQLite). No upload, no
 telemetry path carries credentials out.
 
-- **Password** is Fernet-encrypted at rest (key derived via SHA256
-  from your local `JWT_SECRET`) and never returned by any HTTP
-  endpoint — decrypted in memory only when Vibe Seller calls the
-  Ziniao HTTP API. See `app/utils/crypto.py` and
-  `app/routers/ziniao_accounts.py`.
+- **Password** is encrypted at rest with a key derived from your
+  local install, and never returned by any HTTP endpoint —
+  decrypted in memory only when Vibe Seller calls the Ziniao HTTP
+  API.
 - **Company** and **username** are plain strings — identifiers, not
   secrets (same shape as an email address).
 
 Asking for the password is the necessary trade-off: developer-mode
 auth requires it, no OAuth / token flow exists on the Ziniao side
 today. If that's a deal-breaker, use plain Chrome instead
-(`Settings → Stores → Add Chrome store`).
+(`Settings → Stores → Add Chrome store`). Contributors curious about
+the exact encryption implementation can check
+[`docs/dev-guide.md`](docs/dev-guide.md).
 
 </details>
 
@@ -529,10 +715,13 @@ WebDriver login goes through on the next refresh.
 <details>
 <summary><b>Can I run it on a headless server?</b></summary>
 
-Not quite. Vibe Seller itself is a server, but Ziniao needs a
-desktop GUI to render. The standard setup is a small desktop machine
-sitting on a desk — a Mac mini, a mini-PC running Windows + WSL, or
-a spare laptop — that the team connects to over LAN.
+Yes — you'll just need to solve the browser/GUI part yourself.
+Vibe Seller itself runs fine on a headless server; Ziniao (and the
+Chrome backend, if you want to watch it work) needs somewhere to
+render into — a virtual display (Xvfb), a cloud desktop VM, or VNC
+into a real GUI session all work. The simpler common setup, though,
+is a small always-on desktop machine — a Mac mini, a mini-PC, a
+spare laptop — that the team connects to over LAN.
 
 </details>
 
