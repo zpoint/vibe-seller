@@ -92,15 +92,22 @@ jobs:
         shell: pwsh
         run: |
           $install = $env:VS_INSTALL
-          # Replicate the tray's PATH augmentation so the agent
-          # subprocess can find the bundled claude + git/bash/curl/perl.
+          # Strip the runner's pre-installed Git for Windows from PATH so
+          # the daemon — and the agent it spawns, which inherits THIS
+          # step's env — can only use the BUNDLED toolchain. Without this,
+          # Claude Code finds the runner's C:\Program Files\Git bash and CI
+          # is a false green that never exercises the shipped bundle a real
+          # user gets.
+          $clean = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notlike 'C:\Program Files\Git\*' -and $_ -ne 'C:\Program Files\Git' }) -join ';'
+          # Replicate the tray's PATH augmentation so the agent subprocess
+          # finds the bundled claude + git/bash/curl/perl.
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\bin;" +
-                      "$install\mingit\usr\bin;$install\mingit\mingw64\bin;$env:PATH"
-          # Force the agent to use the BUNDLED bash (not the runner's own
-          # pre-installed Git for Windows) so CI validates the shipped
-          # toolchain — a clean user machine has no other bash.
-          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\mingit\bin\bash.exe"
+                      "$install\git\cmd;$install\git\bin;" +
+                      "$install\git\usr\bin;$install\git\mingw64\bin;$clean"
+          # Pin Claude Code's Bash tool at the bundled bash.exe (it needs a
+          # file literally named bash.exe, else falls back to PowerShell —
+          # which can't run the extensionless bash browser-use wrapper).
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
           # Reuse the bundled interpreter for the agent venv (the tray
           # sets this on a real install).
           $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
@@ -113,6 +120,26 @@ jobs:
           # Empty version arg → skip the version-match check (this is a
           # dev build, not a published release).
           bash tests/releases/verify_install.sh ""
+
+      - name: Verify bundled bash runs the extensionless wrapper shape
+        shell: pwsh
+        run: |
+          # The per-store browser-use wrapper is an extensionless bash
+          # script — the exact shape that fails under Claude Code's
+          # PowerShell fallback on a machine without bash.exe (the user's
+          # "Select an app to open 'browser-use'" dialog). Prove the
+          # BUNDLED bash resolves + executes one by bare name off PATH,
+          # exactly as the agent's Bash tool does. No LLM, so this guards
+          # every PR (incl. forks where the agent e2e is gated off), and a
+          # regression to a bundle without bash.exe fails right here.
+          $bash = "$env:VS_INSTALL\git\bin\bash.exe"
+          if (-not (Test-Path $bash)) { throw "bundled bash.exe missing: $bash" }
+          $prog = 'set -e; d="$(mktemp -d)"; printf ''#!/usr/bin/env bash\necho VS_WRAPPER_OK\n'' > "$d/browser-use"; chmod +x "$d/browser-use"; export PATH="$d:$PATH"; browser-use'
+          $out = & $bash --login -c $prog
+          if ("$out" -notmatch 'VS_WRAPPER_OK') {
+            throw "bundled bash could not execute an extensionless wrapper (out: $out)"
+          }
+          Write-Host "OK: bundled bash executes extensionless shebang wrappers"
 
       - name: Tray dialog test (responsive dialog + clipboard, headless)
         shell: pwsh
@@ -149,12 +176,12 @@ jobs:
           VIBE_SELLER_TELEMETRY: '0'
         run: |
           $install = $env:VS_INSTALL
+          # NOTE: the agent runs under the daemon started in the "Start
+          # server" step and inherits THAT step's env (bundled bash, no
+          # runner git). This PATH only affects the pytest client here.
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\bin;" +
-                      "$install\mingit\usr\bin;$install\mingit\mingw64\bin;$env:PATH"
-          # Force the agent onto the BUNDLED bash so this e2e proves the
-          # shipped Git for Windows works, not the runner's own.
-          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\mingit\bin\bash.exe"
+                      "$install\git\cmd;$install\git\bin;" +
+                      "$install\git\usr\bin;$install\git\mingw64\bin;$env:PATH"
           & "$install\.venv\Scripts\python.exe" -m pytest `
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage `
             --e2e -v --log-cli-level=INFO

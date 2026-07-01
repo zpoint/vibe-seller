@@ -185,10 +185,10 @@ def _augment_path() -> None:
         INSTALL_DIR / '.venv' / 'Scripts',
         INSTALL_DIR,
         INSTALL_DIR / 'claude',
-        INSTALL_DIR / 'mingit' / 'cmd',
-        INSTALL_DIR / 'mingit' / 'bin',
-        INSTALL_DIR / 'mingit' / 'usr' / 'bin',
-        INSTALL_DIR / 'mingit' / 'mingw64' / 'bin',
+        INSTALL_DIR / 'git' / 'cmd',
+        INSTALL_DIR / 'git' / 'bin',
+        INSTALL_DIR / 'git' / 'usr' / 'bin',
+        INSTALL_DIR / 'git' / 'mingw64' / 'bin',
     ]
     dirs = [str(p) for p in extra if p.is_dir()]
     if dirs:
@@ -201,7 +201,7 @@ def _augment_path() -> None:
     # Pin Claude Code's Bash tool to the bundled Git Bash explicitly
     # (belt-and-suspenders on top of PATH) so it never falls back to
     # PowerShell on a machine that has no Git for Windows of its own.
-    bash_exe = INSTALL_DIR / 'mingit' / 'bin' / 'bash.exe'
+    bash_exe = INSTALL_DIR / 'git' / 'bin' / 'bash.exe'
     if bash_exe.is_file():
         os.environ['CLAUDE_CODE_GIT_BASH_PATH'] = str(bash_exe)
         logger.info('CLAUDE_CODE_GIT_BASH_PATH=%s', bash_exe)

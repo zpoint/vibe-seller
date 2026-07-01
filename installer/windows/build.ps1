@@ -102,14 +102,13 @@ function Get-GitForWindows {
   #     user gets a Windows "Select an app to open 'browser-use'" dialog).
   #   * The per-store browser-use wrapper is a bash script that shells
   #     out to curl (proxy auto-start), perl (command timeout), sleep.
-  # Extracted into the (historically named) `mingit` dir so the .iss
-  # bundle rule and runtime PATH entries stay unchanged.
+  # Extracted into the `git` staging dir (bundled to {app}\git).
   Step "Fetching Git for Windows (PortableGit) $GitVersion"
   $sfx = "$env:TEMP\PortableGit.7z.exe"
   $tag = "v$GitVersion.windows.1"
   $url = "https://github.com/git-for-windows/git/releases/download/$tag/PortableGit-$GitVersion-64-bit.7z.exe"
   Invoke-WebRequest -Uri $url -OutFile $sfx
-  $dest = "$StagingDir\mingit"
+  $dest = "$StagingDir\git"
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
   # Self-extracting 7z archive: -o"<dir>" output dir, -y assume-yes.
   # Start-Process -Wait blocks until the SFX finishes (a bare `&` would
@@ -124,9 +123,19 @@ function Get-GitForWindows {
   }
   # bash.exe is the whole reason we switched off MinGit — fail loudly if
   # it's missing so a broken bundle can never ship an installer that
-  # looks fine but falls back to PowerShell on the user's machine.
+  # looks fine but falls back to PowerShell on the user's machine. Same
+  # for curl (proxy auto-start) and perl (command timeout), which the
+  # browser-use wrapper shells out to. These asserts mean a regression
+  # back to MinGit (which has none of them) fails the BUILD, not the
+  # user's first task.
   if (-not (Test-Path "$dest\bin\bash.exe")) {
     throw "PortableGit layout unexpected: no bin\bash.exe"
+  }
+  if (-not (Test-Path "$dest\mingw64\bin\curl.exe")) {
+    throw "PortableGit layout unexpected: no mingw64\bin\curl.exe"
+  }
+  if (-not (Test-Path "$dest\usr\bin\perl.exe")) {
+    throw "PortableGit layout unexpected: no usr\bin\perl.exe"
   }
 }
 
