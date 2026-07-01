@@ -1,24 +1,30 @@
 name: Release to PyPI
 
-# Triggered by a `v*` tag. Six stages, fail-fast:
+# Triggered by a `v*` tag. Seven stages, fail-fast:
 #
-#   1. build              Produces TWO wheels in the same checkout:
+#   1. windows-upgrade-test  Calls windows-upgrade.yml (reusable). Proves
+#                         the native Windows in-place upgrade works
+#                         end-to-end. Gates publish-testpypi — nothing
+#                         is published anywhere, not even TestPyPI, if
+#                         the Windows upgrade path is broken.
+#   2. build              Produces TWO wheels in the same checkout:
 #                         - dist-pypi/      canonical (version from tag)
 #                         - dist-testpypi/  dev-versioned (`<tag>.devYYYYMMDDHHMMSS`)
 #                         so the TestPyPI verification stage can iterate
 #                         across runs without colliding with previous
 #                         uploads (PyPI/TestPyPI versions are immutable).
-#   2. publish-testpypi   Publish the dev-versioned wheel.
-#   3. verify-testpypi    Fresh runner: install via `install.sh --test-pypi
+#   3. publish-testpypi   Publish the dev-versioned wheel. Needs both
+#                         `build` and `windows-upgrade-test`.
+#   4. verify-testpypi    Fresh runner: install via `install.sh --test-pypi
 #                         --version <dev>`, start server, run
 #                         `tests/releases/verify_install.sh <dev>` — asserts
 #                         `vibe-seller --version` matches, /api/health is
 #                         200, and POST/GET round-trips on /api/stores +
 #                         /api/profiles. Gates the production publish.
-#   4. publish-pypi       Publish the canonical wheel.
-#   5. verify-pypi        Re-run the same smoke against PyPI (post-publish
+#   5. publish-pypi       Publish the canonical wheel.
+#   6. verify-pypi        Re-run the same smoke against PyPI (post-publish
 #                         audit; same script, different version + source).
-#   6. github-release     Draft a GitHub Release with auto-generated notes.
+#   7. github-release     Draft a GitHub Release with auto-generated notes.
 #
 # Prerequisites (one-time, per index):
 #
@@ -41,6 +47,10 @@ permissions:
   contents: read
 
 jobs:
+  windows-upgrade-test:
+    name: Windows Upgrade Test (gate)
+    uses: ./.github/workflows/windows-upgrade.yml
+
   build:
     name: Build wheels (canonical + testpypi-dev)
     runs-on: ubuntu-latest
@@ -135,7 +145,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (dev-versioned)
-    needs: build
+    needs: [build, windows-upgrade-test]
     runs-on: ubuntu-latest
     environment:
       name: test-pypi

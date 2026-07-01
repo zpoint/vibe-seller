@@ -1,15 +1,16 @@
 name: Windows Upgrade Test
 
 # Release-only: proves the native Windows in-place upgrade works
-# end-to-end. Heavy (two full installer builds), so it runs on a v* tag
-# push (release) + manual dispatch — NOT on pull requests. Kept in its
-# own workflow (no pull_request trigger) so it never shows up as a
-# skipped check on PRs. See installer/windows/README.md.
+# end-to-end. Heavy (two full installer builds), so it's called as a
+# gate from release.yml (must pass before publish-testpypi) rather
+# than triggered on pull requests — kept in its own file (no
+# pull_request trigger) so it never shows up as a skipped check on
+# PRs. `workflow_call` lets release.yml depend on it via `needs:`;
+# `workflow_dispatch` keeps ad-hoc manual runs available. See
+# installer/windows/README.md.
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
   workflow_dispatch:
 
 jobs:
