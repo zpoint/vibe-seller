@@ -20,6 +20,7 @@ from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.ziniao_utils import (
     ensure_ziniao_running,
     is_wsl,
+    kill_and_relaunch_ziniao,
     try_connect_ziniao,
     ziniao_host,
 )
@@ -74,66 +75,111 @@ class ZiniaoBackend(BrowserBackend):
         else:
             start_data['browserOauth'] = browser_oauth
 
-        logger.info(
-            'Starting ziniao browser (oauth=%s, port=%d)',
-            browser_oauth,
-            socket_port,
-        )
-        # Use try_connect_ziniao to handle both mirrored (127.0.0.1)
-        # and NAT (gateway IP) modes on WSL.
-        result, host_used = await try_connect_ziniao(
-            socket_port, start_data, timeout=60
-        )
-        if not result or str(result.get('statusCode')) != '0':
-            # startBrowser can fail if Chrome was killed but
-            # Ziniao control app is still alive (stale browser
-            # state).  Try stopBrowser to clean up, then retry.
-            logger.warning(
-                'startBrowser failed (%s), attempting stopBrowser + retry',
-                json.dumps(result, ensure_ascii=False)
-                if result
-                else 'no response',
+        # After long uptime Ziniao can enter a stale state where
+        # startBrowser returns statusCode 0 + a fresh debuggingPort but
+        # never actually launches Chrome, so that port is unreachable.
+        # A plain stopBrowser/startBrowser retry does NOT clear it (the
+        # status IS 0) — only a full client restart does. So we probe the
+        # raw port after each startBrowser; on an unreachable port we
+        # kill+relaunch Ziniao and retry, bounded to MAX_ZINIAO_ATTEMPTS
+        # to avoid an infinite loop, then surface a clear error.
+        MAX_ZINIAO_ATTEMPTS = 3
+        cdp_port = None
+        target_host = None
+        for attempt in range(1, MAX_ZINIAO_ATTEMPTS + 1):
+            logger.info(
+                'Starting ziniao browser (oauth=%s, port=%d, attempt %d/%d)',
+                browser_oauth,
+                socket_port,
+                attempt,
+                MAX_ZINIAO_ATTEMPTS,
             )
-            stop_data = {
-                'action': 'stopBrowser',
-                **user_info,
-            }
-            if browser_oauth.isdigit():
-                stop_data['browserId'] = browser_oauth
-            else:
-                stop_data['browserOauth'] = browser_oauth
-            await try_connect_ziniao(socket_port, stop_data, timeout=10)
-            # Retry startBrowser
+            # try_connect_ziniao handles mirrored (127.0.0.1) and NAT
+            # (gateway IP) modes on WSL.
             result, host_used = await try_connect_ziniao(
                 socket_port, start_data, timeout=60
             )
             if not result or str(result.get('statusCode')) != '0':
-                detail = (
+                # Chrome killed but control app alive (stale browser
+                # state): stopBrowser to clean up, then retry once.
+                logger.warning(
+                    'startBrowser failed (%s), attempting stopBrowser + retry',
                     json.dumps(result, ensure_ascii=False)
                     if result
-                    else 'no response'
+                    else 'no response',
                 )
-                raise RuntimeError(
-                    f'Ziniao startBrowser failed after '
-                    f'stopBrowser retry: {detail}'
+                stop_data = {
+                    'action': 'stopBrowser',
+                    **user_info,
+                }
+                if browser_oauth.isdigit():
+                    stop_data['browserId'] = browser_oauth
+                else:
+                    stop_data['browserOauth'] = browser_oauth
+                await try_connect_ziniao(socket_port, stop_data, timeout=10)
+                result, host_used = await try_connect_ziniao(
+                    socket_port, start_data, timeout=60
                 )
-        logger.info('Connected to Ziniao via %s', host_used)
+                if not result or str(result.get('statusCode')) != '0':
+                    detail = (
+                        json.dumps(result, ensure_ascii=False)
+                        if result
+                        else 'no response'
+                    )
+                    raise RuntimeError(
+                        f'Ziniao startBrowser failed after '
+                        f'stopBrowser retry: {detail}'
+                    )
+            logger.info('Connected to Ziniao via %s', host_used)
 
-        cdp_port = result.get('debuggingPort')
-        if not cdp_port:
-            raise RuntimeError(
-                f'Ziniao response missing debuggingPort: {result}'
+            cdp_port = result.get('debuggingPort')
+            if not cdp_port:
+                raise RuntimeError(
+                    f'Ziniao response missing debuggingPort: {result}'
+                )
+            # Resolve the host where Ziniao's CDP is listening: 127.0.0.1
+            # in mirrored mode, else the gateway IP (NAT mode).
+            target_host = LOCALHOST if host_used == LOCALHOST else ziniao_host()
+            logger.info(
+                'Ziniao browser started, CDP port: %s (host %s)',
+                cdp_port,
+                target_host,
             )
 
-        logger.info('Ziniao browser started, CDP port: %s', cdp_port)
+            # Verify the browser ACTUALLY came up on that port before we
+            # build the proxy against it.
+            if await self._cdp_port_reachable(target_host, int(cdp_port)):
+                break
 
-        # Resolve the host where Ziniao's CDP is listening.
-        # If we connected via 127.0.0.1 (mirrored mode), use that.
-        # Otherwise fall back to the gateway IP (NAT mode).
-        if host_used == LOCALHOST:
-            target_host = LOCALHOST
-        else:
-            target_host = ziniao_host()
+            logger.warning(
+                'Ziniao reported startBrowser success but CDP %s:%s is '
+                'unreachable (stale launch) — attempt %d/%d.',
+                target_host,
+                cdp_port,
+                attempt,
+                MAX_ZINIAO_ATTEMPTS,
+            )
+            if attempt >= MAX_ZINIAO_ATTEMPTS:
+                raise RuntimeError(
+                    f'Ziniao reported a browser on {target_host}:{cdp_port} '
+                    f'but nothing is reachable there after '
+                    f'{MAX_ZINIAO_ATTEMPTS} attempts (including a client '
+                    f'restart). The Ziniao client is likely wedged — open '
+                    f'it in the GUI and check the environment '
+                    f'(proxy / login / quota).'
+                )
+            # A full client restart clears the stale state; then retry.
+            try:
+                await kill_and_relaunch_ziniao(
+                    socket_port, client_path, user_info
+                )
+            except Exception as e:
+                logger.warning(
+                    'kill_and_relaunch_ziniao failed (%s); '
+                    'retrying startBrowser anyway',
+                    e,
+                )
+        # cdp_port / target_host now point at a reachable browser.
 
         # Stable per-store download directory so every browser-use
         # CLI invocation saves files to the same place (instead of
@@ -225,6 +271,38 @@ class ZiniaoBackend(BrowserBackend):
         return BrowserSessionInfo(
             cdp_port=int(cdp_port),
         )
+
+    @staticmethod
+    async def _cdp_port_reachable(
+        host: str,
+        port: int,
+        *,
+        attempts: int = 4,
+        delay: float = 2.0,
+    ) -> bool:
+        """True if Chrome's CDP endpoint answers on host:port.
+
+        Retries a few times over ~6s so a slow-but-healthy launch is not
+        mistaken for the stale-launch state (which never binds the port
+        at all). Probes the RAW Ziniao port directly, before the mux
+        proxy is built against it.
+        """
+        url = f'http://{host}:{port}/json/version'
+        for i in range(attempts):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        data = await resp.json()
+                        if data.get('webSocketDebuggerUrl'):
+                            return True
+            except Exception:
+                pass
+            if i < attempts - 1:
+                await asyncio.sleep(delay)
+        return False
 
     @staticmethod
     async def _wait_for_target_stability(
