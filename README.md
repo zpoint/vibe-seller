@@ -146,14 +146,74 @@ vibe-seller start
 ## First run
 
 <details>
-<summary><b>📖 Beginner walkthrough (8 steps from zero to your first task, with screenshots)</b></summary>
+<summary><b>🪟 Windows — first run (4 steps)</b></summary>
+
+For anyone who just ran the [native installer](#install).
+
+### 1. Install
+
+Run `VibeSeller-Setup.exe` (or the PowerShell one-liner from
+[Install](#install)). It starts the server for you — check
+**Open Vibe Seller now** at the end of the wizard, or open
+<http://localhost:7777> yourself.
+
+### 2. Add your LLM key
+
+`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
+Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
+work), paste your API key, save. Keys are encrypted at rest.
+
+> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
+> the path of least resistance — sign up, top up $2–3,
+> pay-as-you-go per token (cost per task scales with task size).
+> The other providers usually sell prepaid monthly token packs;
+> pick a plan that fits your usage.
+
+> Already signed in to Anthropic via Claude Code on this machine?
+> Vibe Seller reuses that session — skip this step.
+
+<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+
+<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+
+### 3. Connect your stores
+
+`Settings → Stores → Add Ziniao account`, fill in the account, pick
+the right Ziniao profile for each store, save. Skip the Ziniao bit
+and pick plain Chrome instead if you prefer. On native Windows, Vibe
+Seller restarts Ziniao into developer mode for you automatically —
+no separate launcher needed (that's only for the WSL2 path).
+
+<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
+
+### 4. Create your first task
+
+Home page → **New task** → pick a store → write one sentence:
+
+- "Check ads and pause any keyword with ACOS over 30%."
+- "Export the past 7 days of sales reports."
+- "Review inventory and estimate next month's restock SKUs."
+
+The agent plans the steps, drives the browser, and writes you a
+report. Auto mode is the default — just run it. The toggle in the
+task footer can flip to Plan mode if you want to review the plan
+before execution.
+
+> Want email / WeCom / TickTick / Google Workspace hooked up too?
+> `Settings → Integrations`, any time after install — optional, and
+> doesn't block your first task.
+
+</details>
+
+<details>
+<summary><b>🍎 macOS / 🐧 Linux / WSL — first run (8 steps)</b></summary>
 
 For anyone who hasn't used a terminal before. Eight steps:
 
 ### 1. Open a terminal
 
-- **Windows**: you don't need a terminal — use the [native installer](#install) (run `VibeSeller-Setup.exe`), then skip to **step 4**.
-- **Mac**: ⌘ + Space, type "Terminal", hit return.
+⌘ + Space, type "Terminal", hit return (Mac). On Linux/WSL, open
+your usual terminal app.
 
 A black window appears with a blinking cursor.
 

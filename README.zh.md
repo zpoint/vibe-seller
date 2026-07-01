@@ -140,14 +140,69 @@ vibe-seller start
 ## 首次配置
 
 <details>
-<summary><b>📖 新手安装指南（8 步从零到第一个任务，含截图）</b></summary>
+<summary><b>🪟 Windows —— 首次配置（4 步）</b></summary>
+
+刚用[原生安装包](#安装)装完的话，跟着这 4 步走：
+
+### 1. 装上
+
+跑 `VibeSeller-Setup.exe`（或上面 PowerShell 那行一键命令）。装完
+会自动起服务——安装向导最后勾选**「现在打开 Vibe Seller」**，或者
+自己打开 <http://localhost:7777>。
+
+### 2. 填 LLM Key
+
+`设置 → AI Agent` → 选一个供应商（DeepSeek 支持按 token 付费、
+Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key
+本地加密存储。
+
+> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)
+> ——官网注册、充 10 块就能跑，按 token 付费（pay-as-you-go），
+> 单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己
+> 习惯买对应 plan 即可。
+
+> 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller
+> 会直接复用那个会话，跳过这一步。
+
+<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+
+<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+
+### 3. 绑定店铺
+
+`设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档
+案、保存。不用紫鸟可以选普通 Chrome。原生 Windows 装法下，Vibe
+Seller 会自动帮你把紫鸟切到开发者模式重启——不需要额外的启动器
+（那个只有 WSL2 方案才要）。
+
+<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
+
+### 4. 创建第一个任务
+
+首页「新建任务」→ 挑店铺 → 写一句话告诉 Agent 干嘛：
+
+- 「检查广告，把 ACOS 超过 30% 的关键词暂停掉」
+- 「把过去 7 天销售报表导出来」
+- 「看看库存，估算下个月要补哪些 SKU」
+
+Agent 自己规划步骤、操作浏览器、最后给你一份结果报告。默认 Auto
+模式，直接跑就行；任务详情底部可以切到 Plan 模式让它先把计划交
+给你审。
+
+> 还想接邮件 / 企业微信 / TickTick / Google Workspace？`设置 →
+> 集成` 里随时都能配，不影响你先把第一个任务跑通。
+
+</details>
+
+<details>
+<summary><b>🍎 macOS / 🐧 Linux / WSL —— 首次配置（8 步）</b></summary>
 
 完全没碰过命令行也能跟着做。一共 8 步：
 
 ### 1. 打开终端
 
-- **Windows**：不用终端——直接用[原生安装包](#安装)（运行 `VibeSeller-Setup.exe`），然后跳到**第 4 步**。
-- **Mac**：按 ⌘ + 空格，输入「终端」，回车。
+Mac 按 ⌘ + 空格，输入「终端」，回车。Linux / WSL 打开你平时用的
+终端应用即可。
 
 会出现一个黑底白字的窗口，里面有光标在闪——就是终端。
 
