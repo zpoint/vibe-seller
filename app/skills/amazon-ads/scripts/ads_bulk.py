@@ -132,8 +132,10 @@ ENTITY = {
     'product_ad': ('Product Ad', '商品广告'),
     'keyword': ('Keyword', '关键词'),
     'negative_keyword': ('Negative Keyword', '否定关键词'),
-    'campaign_negative_keyword':
-        ('Campaign Negative Keyword', '广告活动否定关键词'),
+    'campaign_negative_keyword': (
+        'Campaign Negative Keyword',
+        '广告活动否定关键词',
+    ),
     'product_targeting': ('Product Targeting', '商品定向'),
 }
 
@@ -170,22 +172,28 @@ def find_sp_sheet(wb):
     for ws in wb.worksheets:
         if ws.max_column == NUM_COLS and ws.max_row > 1:
             return ws
-    sys.exit('error: could not locate the Sponsored Products sheet '
-             '(known names: %s, none 52-col wide)' % ', '.join(SHEET_NAMES))
+    sys.exit(
+        'error: could not locate the Sponsored Products sheet '
+        '(known names: {}, none 52-col wide)'.format(', '.join(SHEET_NAMES))
+    )
 
 
 def validate_header(header):
     """Warn (do not fail) if the positional header looks unexpected."""
     if len(header) < NUM_COLS:
-        print('warning: header has %d cols, expected %d -- positional '
-              'mapping may be wrong' % (len(header), NUM_COLS),
-              file=sys.stderr)
+        print(
+            f'warning: header has {len(header)} cols, expected '
+            f'{NUM_COLS} -- positional mapping may be wrong',
+            file=sys.stderr,
+        )
     for idx, accepted in HEADER_CHECK.items():
         got = str(header[idx]).strip() if idx < len(header) else ''
         if got not in accepted:
-            print('warning: col %d header %r not in known set %s '
-                  '(new locale? parsing still positional)'
-                  % (idx, got, accepted), file=sys.stderr)
+            print(
+                f'warning: col {idx} header {got!r} not in known set '
+                f'{accepted} (new locale? parsing still positional)',
+                file=sys.stderr,
+            )
 
 
 def load(path):
@@ -194,7 +202,7 @@ def load(path):
     ws = find_sp_sheet(wb)
     rows = list(ws.iter_rows(values_only=True))
     if not rows:
-        sys.exit('error: SP sheet %r is empty' % ws.title)
+        sys.exit(f'error: SP sheet {ws.title!r} is empty')
     header, data = rows[0], [list(r) for r in rows[1:]]
     validate_header(header)
     return wb, ws, header, data
@@ -207,37 +215,43 @@ def is_entity(row, kind):
 
 def campaign_name_of(row, id_to_name):
     """Resolve a row's campaign name (child rows use the info column)."""
-    return (row[Col.CAMPAIGN_NAME]
-            or row[Col.CAMPAIGN_NAME_INFO]
-            or id_to_name.get(row[Col.CAMPAIGN_ID]))
+    return (
+        row[Col.CAMPAIGN_NAME]
+        or row[Col.CAMPAIGN_NAME_INFO]
+        or id_to_name.get(row[Col.CAMPAIGN_ID])
+    )
 
 
 def build_campaign_index(data):
     """Map campaign id -> campaign name from Campaign rows."""
-    return {r[Col.CAMPAIGN_ID]: r[Col.CAMPAIGN_NAME]
-            for r in data if is_entity(r, 'campaign')}
+    return {
+        r[Col.CAMPAIGN_ID]: r[Col.CAMPAIGN_NAME]
+        for r in data
+        if is_entity(r, 'campaign')
+    }
 
 
 # --- inspect ------------------------------------------------------------
 def cmd_inspect(args):
     _wb, ws, _header, data = load(args.file)
-    print('sheet: %s   rows: %d' % (ws.title, len(data)))
+    print(f'sheet: {ws.title}   rows: {len(data)}')
     counts = {}
     for r in data:
         counts[str(r[Col.ENTITY])] = counts.get(str(r[Col.ENTITY]), 0) + 1
     print('\nentity counts:')
     for k, v in sorted(counts.items(), key=lambda kv: -kv[1]):
-        print('  %-24s %d' % (k, v))
+        print(f'  {k:<24} {v}')
 
     id_to_name = build_campaign_index(data)
     print('\ncampaigns:')
     for r in data:
         if not is_entity(r, 'campaign'):
             continue
-        print('  %-45s state=%-10s budget=%-6s spend=%-8s '
-              'sales=%-8s acos=%s' % (
-                  r[Col.CAMPAIGN_NAME], r[Col.STATE], r[Col.DAILY_BUDGET],
-                  r[Col.SPEND], r[Col.SALES], r[Col.ACOS]))
+        print(
+            f'  {r[Col.CAMPAIGN_NAME]:<45} state={r[Col.STATE]!s:<10} '
+            f'budget={r[Col.DAILY_BUDGET]!s:<6} spend={r[Col.SPEND]!s:<8} '
+            f'sales={r[Col.SALES]!s:<8} acos={r[Col.ACOS]}'
+        )
 
     # SKU naming scheme (Product Ad rows) -- the §4d canonical source.
     print('\nProduct Ad SKUs (Entity=Product Ad):')
@@ -245,9 +259,10 @@ def cmd_inspect(args):
     for r in data:
         if is_entity(r, 'product_ad') and r[Col.SKU] not in seen:
             seen.add(r[Col.SKU])
-            print('  camp=%-40s SKU=%-24s ASIN=%s' % (
-                campaign_name_of(r, id_to_name), r[Col.SKU],
-                r[Col.ASIN_INFO]))
+            print(
+                f'  camp={campaign_name_of(r, id_to_name)!s:<40} '
+                f'SKU={r[Col.SKU]!s:<24} ASIN={r[Col.ASIN_INFO]}'
+            )
 
 
 # --- shared upload-sheet writer ----------------------------------------
@@ -269,16 +284,18 @@ def write_upload(wb_template_path, ws_title, header, out_rows, out_path):
     for r in out_rows:
         ws.append(r)
     out.save(out_path)
-    print('wrote %d data row(s) -> %s' % (len(out_rows), out_path))
+    print(f'wrote {len(out_rows)} data row(s) -> {out_path}')
 
 
 # --- clone-campaign -----------------------------------------------------
 def cmd_clone_campaign(args):
     if looks_like_asin(args.sku):
-        sys.exit('error: --sku %r looks like an ASIN. The Product Ad SKU '
-                 'must be the real seller SKU, or Amazon silently drops '
-                 'the entire ad group (mechanics §4b). Pass the seller '
-                 'SKU; use --asin for the ASIN column.' % args.sku)
+        sys.exit(
+            f'error: --sku {args.sku!r} looks like an ASIN. The Product Ad SKU '
+            'must be the real seller SKU, or Amazon silently drops '
+            'the entire ad group (mechanics §4b). Pass the seller '
+            'SKU; use --asin for the ASIN column.'
+        )
 
     _wb, ws, header, data = load(args.file)
     id_to_name = build_campaign_index(data)
@@ -291,8 +308,10 @@ def cmd_clone_campaign(args):
         if campaign_name_of(r, id_to_name) == args.src:
             src_keywords.append(r)
     if not src_keywords:
-        sys.exit('error: no keyword rows found for source campaign %r '
-                 '(check the exact name via `inspect`)' % args.src)
+        sys.exit(
+            f'error: no keyword rows found for source campaign {args.src!r} '
+            '(check the exact name via `inspect`)'
+        )
 
     new = args.new
     ag = args.ad_group or new
@@ -351,10 +370,11 @@ def cmd_clone_campaign(args):
         k[Col.MATCH_TYPE] = r[Col.MATCH_TYPE]
         out_rows.append(k)
 
-    print('cloning %d keyword(s) from %r into new campaign %r '
-          '(paused, budget=%s, sku=%s)'
-          % (len(src_keywords), args.src, new, args.daily_budget,
-             args.sku))
+    print(
+        f'cloning {len(src_keywords)} keyword(s) from {args.src!r} into '
+        f'new campaign {new!r} (paused, budget={args.daily_budget}, '
+        f'sku={args.sku})'
+    )
     out_path = args.out or 'bulk_create_upload.xlsx'
     write_upload(args.file, ws.title, header, out_rows, out_path)
 
@@ -397,10 +417,8 @@ def cmd_bid_update(args):
 
     if not out_rows:
         sys.exit('error: no keyword bids matched / changed')
-    print('bid update: %d keyword row(s)%s' % (
-        len(out_rows),
-        ' scale x%s' % args.scale if args.scale else
-        ' set=%s' % args.set_bid))
+    how = f'scale x{args.scale}' if args.scale else f'set={args.set_bid}'
+    print(f'bid update: {len(out_rows)} keyword row(s) {how}')
     out_path = args.out or 'bulk_bid_update.xlsx'
     write_upload(args.file, ws.title, header, out_rows, out_path)
 
@@ -413,19 +431,24 @@ def main():
     p.add_argument('file')
     p.set_defaults(func=cmd_inspect)
 
-    p = sub.add_parser('clone-campaign',
-                       help='emit Create rows for a new manual campaign')
+    p = sub.add_parser(
+        'clone-campaign', help='emit Create rows for a new manual campaign'
+    )
     p.add_argument('file')
-    p.add_argument('--src', required=True,
-                   help='exact source campaign name (keyword source)')
+    p.add_argument(
+        '--src',
+        required=True,
+        help='exact source campaign name (keyword source)',
+    )
     p.add_argument('--new', required=True, help='new campaign name')
     p.add_argument('--ad-group', help='ad group name (default: new name)')
     p.add_argument('--sku', required=True, help='real seller SKU')
     p.add_argument('--asin', help='ASIN (informational only)')
     p.add_argument('--daily-budget', type=float, default=1.0)
     p.add_argument('--default-bid', type=float, default=0.75)
-    p.add_argument('--keyword-bid', type=float,
-                   help='override bid for all cloned keywords')
+    p.add_argument(
+        '--keyword-bid', type=float, help='override bid for all cloned keywords'
+    )
     p.add_argument('--bidding-strategy', default='Dynamic bids - down only')
     p.add_argument('--out')
     p.set_defaults(func=cmd_clone_campaign)
