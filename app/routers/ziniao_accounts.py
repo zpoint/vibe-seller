@@ -245,9 +245,9 @@ async def restart_ziniao(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Kill Ziniao and relaunch in WebDriver mode (Mac and WSL).
+    """Kill Ziniao and relaunch in WebDriver mode.
 
-    Mac: kills and relaunches automatically.
+    Mac / native Windows: kills and relaunches automatically.
     WSL: kills only (user must relaunch via .bat script).
 
     Safe because this is only callable from the Force Restart /

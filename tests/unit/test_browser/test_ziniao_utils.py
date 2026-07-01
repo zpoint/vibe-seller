@@ -1,11 +1,13 @@
 """Tests for Ziniao browser utility functions."""
 
+import os
 from unittest import mock
 
 import pytest
 
 from app.browser.ziniao_utils import (
     build_launch_cmd,
+    find_ziniao_exe_windows,
     force_kill_ziniao,
     get_platform,
     get_ziniao_host,
@@ -216,6 +218,32 @@ class TestBuildLaunchCmd:
             '--port=8080',
         ]
 
+    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', True)
+    @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
+    @mock.patch('app.browser.ziniao_utils.IS_LINUX', False)
+    @mock.patch(
+        'app.browser.ziniao_utils.find_ziniao_exe_windows',
+        return_value='C:\\Program Files\\ziniao\\ziniao.exe',
+    )
+    def test_windows_bare_name_resolved(self, mock_find):
+        """Default bare 'ziniao' should resolve to a real install path."""
+        result = build_launch_cmd('ziniao', 8080)
+        assert result[0] == 'C:\\Program Files\\ziniao\\ziniao.exe'
+        assert '--run_type=web_driver' in result
+
+    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', True)
+    @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
+    @mock.patch('app.browser.ziniao_utils.IS_LINUX', False)
+    @mock.patch(
+        'app.browser.ziniao_utils.find_ziniao_exe_windows',
+        return_value=None,
+    )
+    def test_windows_not_found_raises(self, mock_find):
+        """Windows should raise a clear error when ziniao.exe is absent."""
+        with pytest.raises(RuntimeError) as exc_info:
+            build_launch_cmd('ziniao', 8080)
+        assert 'Could not find ziniao.exe' in str(exc_info.value)
+
     @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', False)
     @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
     @mock.patch('app.browser.ziniao_utils.IS_LINUX', False)
@@ -274,6 +302,26 @@ class TestBuildLaunchCmd:
             build_launch_cmd('/path/to/ziniao', 8080)
 
         assert 'Unsupported platform' in str(exc_info.value)
+
+
+class TestFindZiniaoExeWindows:
+    """Tests for find_ziniao_exe_windows()."""
+
+    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', False)
+    def test_returns_none_off_windows(self):
+        """Should return None on non-Windows platforms."""
+        assert find_ziniao_exe_windows() is None
+
+    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', True)
+    @mock.patch.dict(
+        'os.environ', {'ProgramFiles': 'C:\\Program Files'}, clear=True
+    )
+    @mock.patch('os.path.isfile')
+    def test_finds_in_program_files(self, mock_isfile):
+        """Should resolve the standard Program Files install path."""
+        expected = os.path.join('C:\\Program Files', 'ziniao', 'ziniao.exe')
+        mock_isfile.side_effect = lambda p: p == expected
+        assert find_ziniao_exe_windows() == expected
 
 
 class TestIsZiniaoInstalledMac:
@@ -446,12 +494,25 @@ class TestForceKillZiniao:
         assert 'WSL interop' in str(exc_info.value)
 
     @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
+    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', True)
+    @mock.patch('subprocess.run')
+    def test_windows_uses_taskkill(self, mock_run):
+        """Native Windows should use taskkill /F /IM ziniao.exe."""
+        force_kill_ziniao()
+        mock_run.assert_called_once_with(
+            ['taskkill', '/F', '/IM', 'ziniao.exe'],
+            capture_output=True,
+            timeout=10,
+        )
+
+    @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
+    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', False)
     @mock.patch('app.browser.ziniao_utils.is_wsl', return_value=False)
     def test_unsupported_platform_raises(self, mock_is_wsl):
         """Should raise on unsupported platform."""
         with pytest.raises(RuntimeError) as exc_info:
             force_kill_ziniao()
-        assert 'only supported on Mac and WSL' in str(exc_info.value)
+        assert 'only supported on Mac, Windows and WSL' in str(exc_info.value)
 
 
 @pytest.mark.unit
@@ -554,6 +615,42 @@ class TestKillAndRelaunchWSL:
         # pkill was called
         mock_run.assert_called_once_with(
             ['pkill', '-9', '-f', 'ziniao.app/Contents/MacOS'],
+            capture_output=True,
+            timeout=10,
+        )
+        # Popen (relaunch) WAS called
+        mock_popen.assert_called_once()
+
+    @pytest.mark.asyncio
+    @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
+    @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', True)
+    @mock.patch('app.browser.ziniao_utils.is_wsl', return_value=False)
+    @mock.patch('subprocess.run')
+    @mock.patch('subprocess.Popen')
+    @mock.patch(
+        'app.browser.ziniao_utils.is_ziniao_process_running',
+        return_value=False,
+    )
+    @mock.patch('app.browser.ziniao_utils.try_connect_ziniao')
+    @mock.patch('asyncio.sleep', return_value=None)
+    async def test_windows_kills_and_relaunches(
+        self,
+        mock_sleep,
+        mock_connect,
+        mock_proc_running,
+        mock_popen,
+        mock_run,
+        mock_is_wsl,
+    ):
+        """Native Windows: kills via taskkill, relaunches, polls API."""
+        mock_connect.return_value = ({'statusCode': '0'}, '127.0.0.1')
+        result = await kill_and_relaunch_ziniao(
+            16851, 'C:\\Program Files\\ziniao\\ziniao.exe', self.USER_INFO
+        )
+        assert result is True
+        # taskkill was called (native Windows, not WSL interop path)
+        mock_run.assert_called_once_with(
+            ['taskkill', '/F', '/IM', 'ziniao.exe'],
             capture_output=True,
             timeout=10,
         )

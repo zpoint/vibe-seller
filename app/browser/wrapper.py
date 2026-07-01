@@ -19,6 +19,7 @@ from app.config import (
     DOWNLOADS_DIR,
     LOCALHOST,
 )
+from app.platform import safe_chmod
 
 logger = logging.getLogger(__name__)
 
@@ -456,8 +457,10 @@ def write_browser_use_wrapper(
     script += selfheal_block + '\n'
     script += exec_line + '\n'
 
-    wrapper_path.write_text(script)
-    wrapper_path.chmod(stat.S_IRWXU)  # 700 — owner-only (contains token)
+    # encoding='utf-8': the script contains non-ASCII (e.g. '→' in
+    # validation messages); Windows' default cp1252 can't encode it.
+    wrapper_path.write_text(script, encoding='utf-8')
+    safe_chmod(wrapper_path, stat.S_IRWXU)  # 700 — owner-only (contains token)
     logger.info(
         'Wrote browser-use wrapper: %s (backend=%s, proxy=%s)',
         wrapper_path,

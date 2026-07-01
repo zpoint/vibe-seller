@@ -3,12 +3,18 @@ import { initReactI18next } from 'react-i18next';
 import enTranslation from './locales/en/translation.json';
 import zhTranslation from './locales/zh/translation.json';
 
-// Get saved language preference from localStorage
+// Resolve the initial language: an explicit saved choice wins;
+// otherwise auto-detect from the browser/OS language (so a Chinese
+// system opens straight into Chinese). Falls back to English.
 const getSavedLanguage = (): string => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('vibe-seller-language');
-    if (saved && (saved === 'en' || saved === 'zh')) {
+    if (saved === 'en' || saved === 'zh') {
       return saved;
+    }
+    const nav = (navigator.language || '').toLowerCase();
+    if (nav.startsWith('zh')) {
+      return 'zh';
     }
   }
   return 'en';

@@ -36,7 +36,9 @@ dependencies = [
     "bcrypt",
     "cryptography",
     "gitpython",
+    "packaging",
     "playwright",
+    "psutil>=5.9.0",
     "posthog>=4.0",
     # GFM-strict markdown parser. Used by the set_task_result gate to
     # detect malformed tables (header/separator/body column-count

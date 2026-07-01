@@ -1,0 +1,10 @@
+# Build artifacts produced by build.ps1 (CI / local Windows builds).
+staging/
+stagingA/
+stagingB/
+out/
+outA/
+outB/
+# Fetched at build time (best-effort Simplified Chinese wizard strings).
+ChineseSimplified.isl
+release.json

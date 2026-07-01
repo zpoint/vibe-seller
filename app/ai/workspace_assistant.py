@@ -13,6 +13,7 @@ import logging
 from app.ai.claude_backend import AgentSession
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.events.bus import event_bus
+from app.platform import prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR, workspace_manager
 
 logger = logging.getLogger(__name__)
@@ -217,9 +218,9 @@ class WorkspaceAgentSession(AgentSession):
         )
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
-        venv_bin = VIBE_SELLER_DIR / '.venv' / 'bin'
+        venv_bin = venv_bin_dir(VIBE_SELLER_DIR / '.venv')
         if venv_bin.is_dir():
-            env['PATH'] = f'{venv_bin}:{env.get("PATH", "")}'
+            prepend_to_path(env, venv_bin)
             env['VIRTUAL_ENV'] = str(VIBE_SELLER_DIR / '.venv')
 
         self._proc = await asyncio.create_subprocess_exec(

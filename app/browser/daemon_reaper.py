@@ -8,8 +8,7 @@ Two identification methods (both backends now use ``--cdp-url``):
 1. Full UUID from ``--cdp-url client-{UUID}`` (primary, used by both Chrome and Ziniao)
 2. 8-char prefix from ``--session {slug}-{id[:8]}`` (legacy fallback, kept for backward compat)
 
-NOTE: Uses ``pgrep``/``os.kill`` (Unix-only).  If Windows support
-is needed, replace with ``psutil`` or ``wmic``.
+Uses ``psutil`` for cross-platform process discovery and killing.
 """
 
 import asyncio
@@ -22,6 +21,7 @@ from sqlalchemy import select
 from app.browser.process_utils import kill_with_escalation
 from app.database import async_session
 from app.models.task import Task
+from app.platform import find_processes_by_pattern
 from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
@@ -56,47 +56,27 @@ class DaemonInfo:
 
     # Full UUID from --cdp-url (both Chrome and Ziniao), or None
     full_task_id: str | None = None
-    # 8-char prefix from --session (legacy fallback for backward compat), or None
+    # 8-char prefix from --session (legacy fallback), or None
     task_id_prefix: str | None = None
 
 
 async def _get_daemon_pids() -> dict[int, DaemonInfo]:
     """Return {pid: DaemonInfo} for all daemons."""
-    try:
-        # Use ps instead of pgrep to get full command lines
-        proc = await asyncio.create_subprocess_exec(
-            'ps',
-            'ax',
-            '-o',
-            'pid,command',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        stdout, _ = await proc.communicate()
-    except FileNotFoundError:
-        return {}
+    procs = await find_processes_by_pattern(
+        'browser_use.skill_cli.daemon',
+    )
 
     result: dict[int, DaemonInfo] = {}
-    for line in stdout.decode().splitlines():
-        if 'browser_use.skill_cli.daemon' not in line:
-            continue
-        parts = line.strip().split(None, 1)
-        if len(parts) < 2:
-            continue
-        try:
-            pid = int(parts[0])
-        except ValueError:
-            continue
-
+    for pid, cmdline in procs.items():
         info = DaemonInfo()
 
-        # Primary: full UUID from --cdp-url (Ziniao)
-        m = _UUID_RE.search(parts[1])
+        # Primary: full UUID from --cdp-url
+        m = _UUID_RE.search(cmdline)
         if m:
             info.full_task_id = m.group(1)
         else:
-            # Fallback: 8-char prefix from --session (Chrome)
-            m2 = _SESSION_ID_RE.search(parts[1])
+            # Fallback: 8-char prefix from --session
+            m2 = _SESSION_ID_RE.search(cmdline)
             if m2:
                 info.task_id_prefix = m2.group(1)
 
@@ -142,9 +122,9 @@ async def reap_orphaned_daemons() -> int:
         # else: no identifiable task ID — skip (e.g. manual
         # sessions without VIBE_TASK_ID)
 
-    # Kill with SIGTERM → poll → SIGKILL escalation.
-    # browser-use daemons trap SIGTERM and can hang indefinitely
-    # when the CDP WebSocket is dead, so SIGKILL is needed.
+    # Terminate -> poll -> kill escalation.
+    # browser-use daemons can hang indefinitely when the CDP
+    # WebSocket is dead.
     # Run concurrently to avoid N * timeout serial blocking.
     await asyncio.gather(*(kill_with_escalation(pid) for pid, _ in orphans))
 
