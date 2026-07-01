@@ -496,6 +496,38 @@ def cmd_bid_update(args):
     write_upload(args.file, ws.title, header, out_rows, out_path)
 
 
+# --- archive-campaign ---------------------------------------------------
+def cmd_archive_campaign(args):
+    """Emit an Archive row for a campaign (Config: Archive Campaign needs
+    only the real Campaign Id). Archiving the campaign cascades to its ad
+    groups / ads / keywords. Use this to disable + clean up a campaign.
+
+    The campaign must exist in the export, so its real Campaign Id can be
+    read. A paused/zero-impression campaign only appears when the export
+    was taken with the zero-impression box checked (see bulk-operations
+    §download)."""
+    _wb, ws, header, data = load(args.file)
+    cid = None
+    for r in data:
+        if is_entity(r, 'campaign') and r[Col.CAMPAIGN_NAME] == args.campaign:
+            cid = r[Col.CAMPAIGN_ID]
+            break
+    if not cid:
+        sys.exit(
+            f'error: campaign {args.campaign!r} not found in the export '
+            '(a paused/zero-impression campaign needs a zero-impression '
+            'export to appear). Check the exact name via `inspect`.'
+        )
+    a = blank_row()
+    a[Col.PRODUCT] = 'Sponsored Products'
+    a[Col.ENTITY] = ENTITY['campaign'][0]
+    a[Col.OPERATION] = 'Archive'
+    a[Col.CAMPAIGN_ID] = cid
+    print(f'archiving campaign {args.campaign!r} (id={cid})')
+    out_path = args.out or 'bulk_archive.xlsx'
+    write_upload(args.file, ws.title, header, [a], out_path)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -538,6 +570,14 @@ def main():
     p.add_argument('--set-bid', type=float, help='set every bid to V')
     p.add_argument('--out')
     p.set_defaults(func=cmd_bid_update)
+
+    p = sub.add_parser(
+        'archive-campaign', help='emit an Archive row to disable a campaign'
+    )
+    p.add_argument('file')
+    p.add_argument('--campaign', required=True, help='exact campaign name')
+    p.add_argument('--out')
+    p.set_defaults(func=cmd_archive_campaign)
 
     args = ap.parse_args()
     args.func(args)
