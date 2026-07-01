@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import sys
 
 from sqlalchemy import func, select
 
@@ -18,6 +19,7 @@ from app.env_options import Options
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
+from app.platform import prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,58 @@ def resolve_claude_binary() -> str:
     if local.is_file() and os.access(local, os.X_OK):
         return str(local)
     return 'claude'
+
+
+def apply_agent_venv_path(
+    env: dict,
+    store_slug: str | None,
+    *,
+    vibe_home: Path = VIBE_SELLER_DIR,
+    server_bin: Path | None = None,
+) -> None:
+    """Wire the task agent's ``PATH`` and ``VIRTUAL_ENV``.
+
+    PATH priority (highest first):
+      1. per-store browser-use wrapper (``bin/<slug>``) — must win so
+         every ``browser-use`` call goes through session/CDP injection.
+      2. shared agent venv (``~/.vibe-seller/.venv``) — the agent's
+         ``python`` / ``pip``.
+      3. server/install venv (``sys.executable``'s dir) — fallback for
+         ``browser-use.exe`` and app deps.
+
+    The agent's ``python``/``pip`` MUST be the shared agent venv, not the
+    server venv. The server venv is built by ``uv pip install`` with no
+    pip seeded (packaged installs), so an agent ``pip install X`` there
+    fails and the agent falls back to a stray system Python — installing
+    into a different interpreter than it runs (the Windows symptom:
+    landing on ``...\\Programs\\Python\\Python313``). The shared venv is
+    created once, reused across tasks, bootstrapped WITH pip, and is
+    where skill deps land. Mirrors ``workspace_assistant.py``.
+
+    Do NOT ``.resolve()`` the server bin: uv-created venvs symlink the
+    interpreter to a base Python whose bin often ships its own
+    ``browser-use`` that would shadow the wrapper.
+    """
+    if server_bin is None:
+        server_bin = Path(sys.executable).parent
+    # 3. server venv (lowest of ours) — browser-use.exe / app fallback.
+    if server_bin.is_dir():
+        prepend_to_path(env, server_bin)
+    # 2. shared agent venv — the agent's python/pip (has pip; reused).
+    agent_venv = vibe_home / '.venv'
+    agent_venv_bin = venv_bin_dir(agent_venv)
+    if agent_venv_bin.is_dir():
+        prepend_to_path(env, agent_venv_bin)
+        env['VIRTUAL_ENV'] = str(agent_venv)
+    elif server_bin.is_dir():
+        # Shared venv not ready (should not happen after ensure_init) —
+        # fall back to the server venv as the active env.
+        env['VIRTUAL_ENV'] = str(server_bin.parent)
+    # 1. per-store browser-use wrapper — must sit ahead of both venvs.
+    if store_slug:
+        store_bin = vibe_home / 'bin' / store_slug
+        if store_bin.is_dir():
+            prepend_to_path(env, store_bin)
 
 
 # Graceful shutdown timeouts (seconds)
