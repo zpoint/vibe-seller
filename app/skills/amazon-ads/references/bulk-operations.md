@@ -111,12 +111,54 @@ script is built to not care:
   stable English labels, then confirm the positional path still holds
   in the original language.
 
-**Known open item:** keyword `Match Type` and campaign `State` are
-copied through from the export verbatim, which means a localised token
-(e.g. a non-English match-type string) is written back on Create. Amazon
-accepts what it exported for the *same* account/locale, but a
-cross-locale sheet may need these normalised to `broad`/`phrase`/`exact`
-and `enabled`/`paused`. Verify on first import for a new locale.
+### Upload wants ENGLISH API tokens — the export only DISPLAYS localised ones (VERIFIED LIVE)
+
+This is the single biggest gotcha, and it's counter-intuitive. The
+export *shows* localised enum values (a zh_CN account shows
+`商品推广`, `已启用`, `自动`, `广泛`, `动态竞价 - 提高和降低`), but the
+**uploader requires the English API tokens**. Writing the localised
+display value back gets the row rejected. Verified live on a zh_CN
+account: an upload carrying `广泛` match tokens returned **"0 of 6
+uploaded"**.
+
+The authority is the **`Config` sheet inside every export** — it lists
+the exact valid upload tokens, and they are English:
+
+| Field | Config key | Valid tokens |
+|---|---|---|
+| Product | `SponsoredProductsProductNames` | `Sponsored Products` |
+| Operation | `…OperationNames` | `Create` / `Update` / `Archive` |
+| State | `…Create/Update…States` | `enabled` / `paused` / `archived` |
+| Targeting Type | `…CreateCampaignTargetingTypes` | `AUTO` / `MANUAL` (uppercase) |
+| Match Type | `…CreateKeywordMatchTypes` | `broad` / `phrase` / `exact` |
+| Bidding Strategy | `…CreateCampaignStrategys` | `Dynamic bids - down only` / `… up and down` / `Fixed bid` |
+
+`ads_bulk.py` normalises copied display tokens to the API token
+(`match_type_api`, `state_api`) and writes English enums throughout.
+Add new localisations to those maps as you meet them.
+
+### Required fields for Create/Update (from the `Config` sheet — VERIFIED LIVE)
+
+The `Config` sheet's `*RequiredHeaders` rows are authoritative. The
+non-obvious ones that cause **all-rows-fail** ("0 of N uploaded"):
+
+- **`Start Date`** (YYYYMMDD) is required on a Create Campaign row.
+  Omitting it fails the campaign, which cascades to every child row.
+- **`Campaign Id` / `Ad Group Id` are required on Create rows** — as
+  **placeholder** ids you invent (any unique string; the script reuses
+  the names). Amazon assigns real ids on creation and uses these only to
+  link parent→child *within the sheet*. Linking by Campaign **Name**
+  alone is NOT enough. This was the difference between "0 of 6" and
+  "5 of 6" in live testing.
+- **`State`** is required on Update rows (e.g. a bid change) — preserve
+  the entity's current state as the API token.
+
+Read the failure count precisely: **"0 of N"** = a structural/global
+problem (wrong enum, missing required field on the campaign, cascade);
+**"K of N"** with K>0 = per-row problems on the N−K that failed. The
+downloaded result report on this account only echoes the input (no
+per-row annotation), so the count in the status tooltip is your main
+signal — plus a re-export to see what actually committed.
 
 ## The ASIN-as-SKU trap (guarded in code)
 

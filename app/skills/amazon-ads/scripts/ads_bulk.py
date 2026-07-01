@@ -54,6 +54,7 @@ Requires: openpyxl.
 """
 
 import argparse
+import datetime
 import re
 import sys
 
@@ -139,10 +140,58 @@ ENTITY = {
     'product_targeting': ('Product Targeting', '商品定向'),
 }
 
-# State enum values by locale (we write English on Create/Update; Amazon
-# accepts English state tokens regardless of console language).
-STATE_ENABLED = ('enabled', '已启用')
-STATE_PAUSED = ('paused', '已暂停')
+# IMPORTANT — upload uses ENGLISH API tokens, NOT the localised strings
+# the export DISPLAYS. The export's own `Config` sheet lists the valid
+# upload values (SponsoredProducts*States/OperationNames/TargetingTypes/
+# MatchTypes/Strategys) and they are all English. So a keyword the export
+# shows as `广泛` / `精准` must be written back as `broad` / `exact`, or
+# Amazon rejects the row. Verified live: a zh_CN account rejected an
+# upload carrying localised match tokens with "0 of N uploaded".
+STATE_ENABLED = 'enabled'
+STATE_PAUSED = 'paused'
+
+# Config: SponsoredProductsCreateCampaignTargetingTypes = AUTO | MANUAL.
+TARGETING_MANUAL = 'MANUAL'
+TARGETING_AUTO = 'AUTO'
+
+# Config: SponsoredProductsCreateKeywordMatchTypes = exact|phrase|broad.
+# Map the localised DISPLAY tokens seen in exports -> the API token.
+MATCH_TYPE_API = {
+    'broad': 'broad',
+    'phrase': 'phrase',
+    'exact': 'exact',
+    '广泛': 'broad',
+    '词组': 'phrase',
+    '精准': 'exact',
+}
+
+
+def match_type_api(display):
+    """Normalise an export's (possibly localised) match type to the API
+    token Amazon's uploader accepts. Falls back to a lowercased value."""
+    if display is None:
+        return None
+    key = str(display).strip()
+    return MATCH_TYPE_API.get(key, key.lower())
+
+
+# Config: *States = enabled|paused|archived. Map localised display -> API.
+STATE_API = {
+    'enabled': 'enabled',
+    'paused': 'paused',
+    'archived': 'archived',
+    '已启用': 'enabled',
+    '已暂停': 'paused',
+    '已归档': 'archived',
+}
+
+
+def state_api(display):
+    """Normalise an export's (possibly localised) state to the API token."""
+    if display is None:
+        return None
+    return STATE_API.get(str(display).strip(), str(display).strip().lower())
+
 
 # Header row validation dictionary (position -> accepted labels). Only a
 # few load-bearing columns; parsing never depends on this.
@@ -315,7 +364,17 @@ def cmd_clone_campaign(args):
 
     new = args.new
     ag = args.ad_group or new
-    paused = STATE_PAUSED[0]  # write the English token
+    paused = STATE_PAUSED  # English API token (Config: enabled|paused)
+    # Start Date is REQUIRED for a Create Campaign row (Config:
+    # SponsoredProductsCreateCampaignRequiredHeaders). Format YYYYMMDD.
+    start_date = args.start_date or datetime.date.today().strftime('%Y%m%d')
+    # Create rows require Campaign Id / Ad Group Id (Config
+    # *CreateRequiredHeaders). For NEW entities these are PLACEHOLDER
+    # ids: Amazon assigns real ids on creation and uses these only to
+    # link parent->child rows within the sheet. Any unique string works;
+    # we reuse the names so the linkage is human-readable.
+    camp_id = new
+    ag_id = ag
     out_rows = []
 
     # Campaign
@@ -323,8 +382,10 @@ def cmd_clone_campaign(args):
     c[Col.PRODUCT] = 'Sponsored Products'
     c[Col.ENTITY] = ENTITY['campaign'][0]
     c[Col.OPERATION] = 'Create'
+    c[Col.CAMPAIGN_ID] = camp_id
     c[Col.CAMPAIGN_NAME] = new
-    c[Col.TARGETING_TYPE] = 'Manual'
+    c[Col.START_DATE] = start_date
+    c[Col.TARGETING_TYPE] = TARGETING_MANUAL
     c[Col.STATE] = paused
     c[Col.DAILY_BUDGET] = args.daily_budget
     c[Col.BIDDING_STRATEGY] = args.bidding_strategy
@@ -335,6 +396,8 @@ def cmd_clone_campaign(args):
     g[Col.PRODUCT] = 'Sponsored Products'
     g[Col.ENTITY] = ENTITY['ad_group'][0]
     g[Col.OPERATION] = 'Create'
+    g[Col.CAMPAIGN_ID] = camp_id
+    g[Col.AD_GROUP_ID] = ag_id
     g[Col.CAMPAIGN_NAME] = new
     g[Col.AD_GROUP_NAME] = ag
     g[Col.STATE] = paused
@@ -346,6 +409,8 @@ def cmd_clone_campaign(args):
     p[Col.PRODUCT] = 'Sponsored Products'
     p[Col.ENTITY] = ENTITY['product_ad'][0]
     p[Col.OPERATION] = 'Create'
+    p[Col.CAMPAIGN_ID] = camp_id
+    p[Col.AD_GROUP_ID] = ag_id
     p[Col.CAMPAIGN_NAME] = new
     p[Col.AD_GROUP_NAME] = ag
     p[Col.STATE] = paused
@@ -360,6 +425,8 @@ def cmd_clone_campaign(args):
         k[Col.PRODUCT] = 'Sponsored Products'
         k[Col.ENTITY] = ENTITY['keyword'][0]
         k[Col.OPERATION] = 'Create'
+        k[Col.CAMPAIGN_ID] = camp_id
+        k[Col.AD_GROUP_ID] = ag_id
         k[Col.CAMPAIGN_NAME] = new
         k[Col.AD_GROUP_NAME] = ag
         k[Col.STATE] = paused
@@ -367,7 +434,9 @@ def cmd_clone_campaign(args):
         k[Col.KEYWORD_TEXT] = r[Col.KEYWORD_TEXT]
         k[Col.NATIVE_LANGUAGE_KEYWORD] = r[Col.NATIVE_LANGUAGE_KEYWORD]
         k[Col.NATIVE_LANGUAGE_LOCALE] = r[Col.NATIVE_LANGUAGE_LOCALE]
-        k[Col.MATCH_TYPE] = r[Col.MATCH_TYPE]
+        # Normalise the export's DISPLAY match token (e.g. 广泛) to the
+        # English API token (broad) the uploader requires.
+        k[Col.MATCH_TYPE] = match_type_api(r[Col.MATCH_TYPE])
         out_rows.append(k)
 
     print(
@@ -411,7 +480,11 @@ def cmd_bid_update(args):
         u[Col.KEYWORD_ID] = r[Col.KEYWORD_ID]
         u[Col.CAMPAIGN_NAME] = campaign_name_of(r, id_to_name)
         u[Col.KEYWORD_TEXT] = r[Col.KEYWORD_TEXT]
-        u[Col.MATCH_TYPE] = r[Col.MATCH_TYPE]
+        # State is REQUIRED for an Update Keyword row (Config); preserve
+        # the keyword's current state as the API token. Match type
+        # normalised to the API token too.
+        u[Col.STATE] = state_api(r[Col.STATE]) or STATE_ENABLED
+        u[Col.MATCH_TYPE] = match_type_api(r[Col.MATCH_TYPE])
         u[Col.BID] = new_bid
         out_rows.append(u)
 
@@ -450,6 +523,11 @@ def main():
         '--keyword-bid', type=float, help='override bid for all cloned keywords'
     )
     p.add_argument('--bidding-strategy', default='Dynamic bids - down only')
+    p.add_argument(
+        '--start-date',
+        help='campaign start date YYYYMMDD (required by Amazon; '
+        'default: today)',
+    )
     p.add_argument('--out')
     p.set_defaults(func=cmd_clone_campaign)
 

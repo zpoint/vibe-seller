@@ -145,7 +145,7 @@ class TestCloneCampaign:
             sku='WIDGET-006-Blue-M', asin='B0BBBBBBBB', daily_budget=1.0,
             default_bid=0.75, keyword_bid=None,
             bidding_strategy='Dynamic bids - down only',
-            out=str(tmp_path / 'create.xlsx'))
+            start_date='20260701', out=str(tmp_path / 'create.xlsx'))
         base.update(over)
         return argparse.Namespace(**base)
 
@@ -165,14 +165,23 @@ class TestCloneCampaign:
         assert ents == ['Campaign', 'Ad Group', 'Product Ad',
                         'Keyword', 'Keyword']
         assert all(r[Col.OPERATION] == 'Create' for r in rows)
+        # State is the English API token, never the localised display one.
         assert all(r[Col.STATE] == 'paused' for r in rows)
-        # Campaign budget honoured; Product Ad SKU is the seller SKU.
+        # Every Create row carries the placeholder Campaign Id linker, and
+        # child rows the Ad Group Id, or Amazon rejects them.
+        assert all(r[Col.CAMPAIGN_ID] for r in rows)
+        assert all(r[Col.AD_GROUP_ID] for r in rows[1:])  # all but campaign
+        # Campaign row: required Start Date + uppercase MANUAL targeting.
+        assert rows[0][Col.START_DATE] == '20260701'
+        assert rows[0][Col.TARGETING_TYPE] == 'MANUAL'
         assert rows[0][Col.DAILY_BUDGET] == 1.0
+        # Product Ad SKU is the seller SKU (not the ASIN).
         assert rows[2][Col.SKU] == 'WIDGET-006-Blue-M'
-        # Keyword text + match type cloned from source.
+        # Keyword match type NORMALISED to the English API token
+        # (源 广泛/精准 -> broad/exact), not the localised display value.
         kw = [(r[Col.KEYWORD_TEXT], r[Col.MATCH_TYPE], r[Col.BID])
               for r in rows if r[Col.ENTITY] == 'Keyword']
-        assert kw == [('widget', '广泛', 2.0), ('blue widget', '精准', 3.0)]
+        assert kw == [('widget', 'broad', 2.0), ('blue widget', 'exact', 3.0)]
 
     def test_missing_source_campaign_exits(self, tmp_path):
         _make_export(tmp_path / 'export.xlsx')
@@ -195,6 +204,9 @@ class TestBidUpdate:
         ads_bulk.cmd_bid_update(self._args(tmp_path, scale=0.5))
         _title, _header, rows = _read_rows(tmp_path / 'bid.xlsx')
         assert all(r[Col.OPERATION] == 'Update' for r in rows)
+        # State is REQUIRED on Update rows, normalised to the API token
+        # (source 已启用 -> enabled), never left blank or localised.
+        assert all(r[Col.STATE] == 'enabled' for r in rows)
         bids = sorted(r[Col.BID] for r in rows)
         assert bids == [1.0, 1.5]  # 2.0*0.5, 3.0*0.5
 
@@ -208,3 +220,25 @@ class TestBidUpdate:
         _make_export(tmp_path / 'export.xlsx')
         with pytest.raises(SystemExit):
             ads_bulk.cmd_bid_update(self._args(tmp_path))
+
+
+@pytest.mark.unit
+class TestTokenNormalisation:
+    """Upload needs English API tokens; exports DISPLAY localised ones.
+    Verified live: a zh_CN account rejected localised tokens ('0 of N')."""
+
+    def test_match_type_localised_to_api(self):
+        assert ads_bulk.match_type_api('广泛') == 'broad'
+        assert ads_bulk.match_type_api('词组') == 'phrase'
+        assert ads_bulk.match_type_api('精准') == 'exact'
+
+    def test_match_type_english_passthrough(self):
+        assert ads_bulk.match_type_api('broad') == 'broad'
+        assert ads_bulk.match_type_api('EXACT') == 'exact'
+        assert ads_bulk.match_type_api(None) is None
+
+    def test_state_localised_to_api(self):
+        assert ads_bulk.state_api('已启用') == 'enabled'
+        assert ads_bulk.state_api('已暂停') == 'paused'
+        assert ads_bulk.state_api('已归档') == 'archived'
+        assert ads_bulk.state_api('enabled') == 'enabled'
