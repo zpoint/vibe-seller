@@ -116,7 +116,10 @@ jobs:
           # on a real desktop session — no manual clicking. Uses the
           # bundled python's tkinter; dialogs.py has no pystray dep.
           $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
-          & "$env:VS_INSTALL\uv.exe" pip install --python $py pytest
+          # pytest-asyncio is needed because the repo's tests/conftest.py
+          # imports it at collection time (even for this sync test).
+          & "$env:VS_INSTALL\uv.exe" pip install --python $py `
+            pytest pytest-asyncio
           & $py -m pytest tests\unit\test_tray_dialog.py -v
 
       - name: Install pytest deps into the bundled venv (for agent e2e)
