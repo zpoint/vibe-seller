@@ -51,23 +51,41 @@ EXPORT=~/.vibe-seller/downloads/<slug>/<the-export>.xlsx
 $PY "$S" inspect "$EXPORT"
 
 # CREATE a new manual-keyword campaign by cloning an existing one's
-# keywords onto a new product. Emitted paused + minimal budget.
+# keywords onto a new product. Emitted paused. NOTE: --daily-budget must
+# be >= the marketplace minimum or the Campaign row is rejected and the
+# whole upload fails (verified: 1 SAR rejected on KSA; use the store's
+# existing floor, e.g. 10). "min budget" means the store's min, not 1.
 $PY "$S" clone-campaign "$EXPORT" \
     --src "acme widgets 004 manual keyword US" \
     --new "acme widgets 006 manual keyword US" \
     --sku WIDGET-006-Blue-M --asin B0EXAMPLE1 \
-    --daily-budget 1 --default-bid 0.75 \
+    --daily-budget 10 --default-bid 0.75 \
     --out /tmp/<slug>/bulk_create.xlsx
 
 # BID UPDATE: re-bid every keyword in a campaign (scale or set).
 $PY "$S" bid-update "$EXPORT" \
     --campaign "acme widgets 004 manual keyword US" --scale 0.85 \
     --out /tmp/<slug>/bulk_bid_update.xlsx
+
+# ARCHIVE (disable + clean up) a campaign — needs only its Campaign Id,
+# read from the export.
+$PY "$S" archive-campaign "$EXPORT" \
+    --campaign "acme widgets 006 manual keyword US" \
+    --out /tmp/<slug>/bulk_archive.xlsx
 ```
 
-The output XLSX contains **only** the rows to act on (Create / Update),
-with `Operation` set accordingly. It reuses the exact header row and
-sheet name from the export you fed it (see locale note below).
+The output XLSX contains **only** the rows to act on (Create / Update /
+Archive), with `Operation` set accordingly. It reuses the exact header
+row and sheet name from the export you fed it (see locale note below).
+
+> **Editing a paused campaign (bid-update / archive) needs its real
+> IDs**, which only appear in an export taken with **"zero-impression
+> items" checked** (and **"terminated campaigns" checked** to see an
+> archived one). A freshly-created paused campaign is otherwise dropped
+> from the export (§ download / mechanics §2d), so you can't get its
+> Campaign Id / Keyword Ids. Full verified lifecycle: create (budget ≥
+> floor) → zero-impression export → bid-update → archive → zero-impression
+> + terminated export to confirm.
 
 ### 3. Import (Upload campaigns)
 

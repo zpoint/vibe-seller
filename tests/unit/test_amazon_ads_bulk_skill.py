@@ -242,3 +242,31 @@ class TestTokenNormalisation:
         assert ads_bulk.state_api('已暂停') == 'paused'
         assert ads_bulk.state_api('已归档') == 'archived'
         assert ads_bulk.state_api('enabled') == 'enabled'
+
+
+@pytest.mark.unit
+class TestArchiveCampaign:
+    def _args(self, tmp_path, **over):
+        base = dict(
+            file=str(tmp_path / 'export.xlsx'), campaign=SRC_CAMPAIGN,
+            out=str(tmp_path / 'archive.xlsx'))
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def test_emits_archive_row_with_campaign_id(self, tmp_path):
+        _make_export(tmp_path / 'export.xlsx')
+        ads_bulk.cmd_archive_campaign(self._args(tmp_path))
+        _title, _header, rows = _read_rows(tmp_path / 'archive.xlsx')
+        assert len(rows) == 1
+        r = rows[0]
+        assert r[Col.ENTITY] == 'Campaign'
+        assert r[Col.OPERATION] == 'Archive'
+        # Archive keys off the REAL campaign id (from the export), the
+        # only required field per Config.
+        assert r[Col.CAMPAIGN_ID] == 'C1'
+
+    def test_unknown_campaign_exits(self, tmp_path):
+        _make_export(tmp_path / 'export.xlsx')
+        with pytest.raises(SystemExit):
+            ads_bulk.cmd_archive_campaign(
+                self._args(tmp_path, campaign='no such campaign'))
