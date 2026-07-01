@@ -751,5 +751,18 @@
     "title": "语言",
     "english": "English",
     "chinese": "中文"
+  },
+  "updateCheck": {
+    "title": "有可用更新",
+    "versionLine": "当前版本 v{{current}} 已过时，最新版本为 v{{latest}}。",
+    "macLinuxInstructions": "在终端中运行：",
+    "windowsInstructions": "下载最新安装包并运行，将原地升级：",
+    "downloadButton": "下载最新版本",
+    "copyCommand": "复制",
+    "copied": "已复制！",
+    "whatsNew": "更新内容",
+    "noReleaseNotes": "本次发布未提供说明。",
+    "viewFullChangelog": "在 GitHub 查看完整更新日志",
+    "remindLater": "稍后提醒"
   }
 }

@@ -751,5 +751,18 @@
     "title": "Language",
     "english": "English",
     "chinese": "中文"
+  },
+  "updateCheck": {
+    "title": "Update available",
+    "versionLine": "v{{current}} is out of date — v{{latest}} is now available.",
+    "macLinuxInstructions": "Run this in your terminal:",
+    "windowsInstructions": "Download the latest installer and run it — it upgrades in place:",
+    "downloadButton": "Download latest release",
+    "copyCommand": "Copy",
+    "copied": "Copied!",
+    "whatsNew": "What's new",
+    "noReleaseNotes": "No release notes provided.",
+    "viewFullChangelog": "View full changelog on GitHub",
+    "remindLater": "Remind me later"
   }
 }
