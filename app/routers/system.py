@@ -8,10 +8,18 @@ them from error payloads or stale env vars.
 import subprocess
 
 from fastapi import APIRouter
+import httpx
 
 from app.browser.ziniao_utils import get_platform
 from app.config import BASE_DIR
 from app.telemetry import APP_VERSION
+from app.update_check import (
+    RELEASES_PAGE_URL,
+    fetch_latest_pypi_version,
+    fetch_release_notes,
+    is_dev_version,
+    is_newer,
+)
 
 router = APIRouter(prefix='/api/system', tags=['system'])
 
@@ -66,4 +74,49 @@ async def system_info() -> dict:
         'platform': get_platform(),
         'version': APP_VERSION,
         'commit': _GIT_COMMIT_SHORT,
+    }
+
+
+@router.get('/update-check')
+async def update_check() -> dict:
+    """Check PyPI for a release newer than the one running here.
+
+    Dev/local checkouts (see ``update_check.is_dev_version``) always
+    get ``{'dev': True}`` — there's no PyPI release that corresponds
+    to an arbitrary in-between commit, so any comparison would be
+    misleading.
+
+    Otherwise returns ``update_available`` plus, when true, the
+    platform-appropriate upgrade instructions (``vibe-seller
+    upgrade`` on macOS/Linux/WSL, a releases-page link on native
+    Windows — matching the two install paths in the README) and
+    GitHub release notes for every version newer than the installed
+    one.
+    """
+    current = APP_VERSION
+    if is_dev_version(current):
+        return {'dev': True}
+
+    async with httpx.AsyncClient() as client:
+        latest = await fetch_latest_pypi_version(client)
+        if not latest or not is_newer(latest, current):
+            return {
+                'dev': False,
+                'update_available': False,
+                'current_version': current,
+            }
+        releases = await fetch_release_notes(client, current)
+
+    platform = get_platform()
+    is_windows = platform == 'windows'
+    return {
+        'dev': False,
+        'update_available': True,
+        'current_version': current,
+        'latest_version': latest,
+        'platform': platform,
+        'upgrade_command': None if is_windows else 'vibe-seller upgrade',
+        'download_url': RELEASES_PAGE_URL if is_windows else None,
+        'releases_page_url': RELEASES_PAGE_URL,
+        'releases': releases,
     }
