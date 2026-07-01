@@ -9,7 +9,7 @@ the upgrade flow can be tested with a local mock — no real release.
 
 What an upgrade replaces: the **whole bundle**. Each installer is
 self-contained, so running a newer one overwrites the install dir's
-pinned Python, MinGit, claude, uv, and dependency wheels, then rebuilds
+pinned Python, Git for Windows, claude, uv, and dependency wheels, then rebuilds
 the runtime venv from the new wheels. It is NOT a code-only patch — you
 get exactly what that release pinned. User data under
 ``%LOCALAPPDATA%\\vibe-seller`` (DB, stores, logs) is left untouched.

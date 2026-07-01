@@ -65,7 +65,9 @@ jobs:
         run: |
           $install = $env:VS_INSTALL
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
+                      "$install\mingit\cmd;$install\mingit\bin;" +
+                      "$install\mingit\usr\bin;$install\mingit\mingw64\bin;$env:PATH"
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\mingit\bin\bash.exe"
           $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
           & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
           $ok = $false
@@ -117,7 +119,9 @@ jobs:
         run: |
           $install = $env:VS_INSTALL
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
+                      "$install\mingit\cmd;$install\mingit\bin;" +
+                      "$install\mingit\usr\bin;$install\mingit\mingw64\bin;$env:PATH"
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\mingit\bin\bash.exe"
           $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
           & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
           $ok = $false

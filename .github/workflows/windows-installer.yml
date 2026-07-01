@@ -93,9 +93,14 @@ jobs:
         run: |
           $install = $env:VS_INSTALL
           # Replicate the tray's PATH augmentation so the agent
-          # subprocess can find the bundled claude + git/bash.
+          # subprocess can find the bundled claude + git/bash/curl/perl.
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
+                      "$install\mingit\cmd;$install\mingit\bin;" +
+                      "$install\mingit\usr\bin;$install\mingit\mingw64\bin;$env:PATH"
+          # Force the agent to use the BUNDLED bash (not the runner's own
+          # pre-installed Git for Windows) so CI validates the shipped
+          # toolchain — a clean user machine has no other bash.
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\mingit\bin\bash.exe"
           # Reuse the bundled interpreter for the agent venv (the tray
           # sets this on a real install).
           $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
@@ -145,7 +150,11 @@ jobs:
         run: |
           $install = $env:VS_INSTALL
           $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\mingit\cmd;$install\mingit\usr\bin;$env:PATH"
+                      "$install\mingit\cmd;$install\mingit\bin;" +
+                      "$install\mingit\usr\bin;$install\mingit\mingw64\bin;$env:PATH"
+          # Force the agent onto the BUNDLED bash so this e2e proves the
+          # shipped Git for Windows works, not the runner's own.
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\mingit\bin\bash.exe"
           & "$install\.venv\Scripts\python.exe" -m pytest `
             tests/e2e/test_llm_browser.py::TestLLMBrowserAPI::test_agent_reads_homepage `
             --e2e -v --log-cli-level=INFO

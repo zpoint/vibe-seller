@@ -416,7 +416,7 @@ function ZiniaoSection(props: {
           try { if (encoded) message = decodeURIComponent(escape(atob(encoded))) } catch { /* leave empty */ }
           return { status, message }
         })() : null
-        const isMac = p.serverPlatform === 'mac', isWsl = p.serverPlatform === 'wsl', isWindowsLike = p.serverPlatform === 'windows' || isWsl
+        const isMac = p.serverPlatform === 'mac', isWsl = p.serverPlatform === 'wsl', isWindows = p.serverPlatform === 'windows'
         const editSelected = () => { const a = p.ziniaoAccounts.find(x => x.id === p.selectedZiniaoAccountId); if (a) { p.setNewAccount({ name: a.name, company: a.company, username: a.username, password: '' }); p.setEditingAccountId(a.id); p.setShowAddAccount(true) } }
 
         return p.fetchingBrowsers ? (
@@ -424,8 +424,8 @@ function ZiniaoSection(props: {
             <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
             <p className="text-sm font-medium text-blue-700">{t('settings.ziniaoLoading')}</p>
           </div>
-        ) : zs?.status === 'running_normal' && (isMac || isWsl) ? (
-          // Mac/WSL: Ziniao running in normal mode
+        ) : zs?.status === 'running_normal' && (isMac || isWsl || isWindows) ? (
+          // Mac/Windows/WSL: Ziniao running in normal mode
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
             <p className="text-sm font-medium text-amber-700 mb-2">{p.ziniaoRetried ? t('settings.ziniaoStillRunning') : t('settings.ziniaoRunningNormalMode')}</p>
             <p className="text-xs text-amber-600 mb-3">{p.ziniaoRetried ? '' : t('settings.ziniaoNormalModeHint')}</p>
@@ -466,9 +466,9 @@ function ZiniaoSection(props: {
           // Fallback connect error. Platform UI keys off serverPlatform.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-2">{isMac ? t('settings.ziniaoConnectErrorMac') : t('settings.ziniaoConnectError')}</p>
-            {isWindowsLike && <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoLaunchHint')}</p>}
+            {isWsl && <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoLaunchHint')}</p>}
             <div className="flex gap-2">
-              {isWindowsLike && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadLauncher')}</a>}
+              {isWsl && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadLauncher')}</a>}
               <button onClick={editSelected} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.editZiniaoAccount')}</button>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
