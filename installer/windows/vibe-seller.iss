@@ -2,7 +2,8 @@
 ;
 ; Ollama-style, per-user install (no admin): bundles a relocatable
 ; CPython (python-build-standalone), the app + deps as offline wheels,
-; uv (fast installer), MinGit (git + bash for Claude Code's Bash tool),
+; uv (fast installer), Git for Windows (git + bash + curl/perl for
+; Claude Code's Bash tool and the browser-use wrapper),
 ; and the Anthropic claude CLI. A system-tray launcher (tray.py, run via
 ; the bundled pythonw.exe) starts the server on login and offers
 ; Open / Restart / Quit. Browser engine is Playwright Chromium,
@@ -67,6 +68,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 ; Relocatable CPython, app wheels, fast installer, git+bash, claude CLI.
 Source: "{#StagingDir}\python\*";  DestDir: "{app}\python";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\wheels\*";  DestDir: "{app}\wheels";  Flags: recursesubdirs createallsubdirs ignoreversion
+; Full Git for Windows (PortableGit); dir kept named `mingit` for
+; path-compat with the tray + workflow PATH entries.
 Source: "{#StagingDir}\mingit\*";  DestDir: "{app}\mingit";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\claude\*";  DestDir: "{app}\claude";  Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "{#StagingDir}\uv.exe";    DestDir: "{app}";         Flags: ignoreversion

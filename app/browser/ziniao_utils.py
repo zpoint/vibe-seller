@@ -152,21 +152,123 @@ async def try_connect_ziniao(
     return result, gateway
 
 
+def find_ziniao_exe_windows() -> str | None:
+    """Best-effort resolution of the ziniao.exe full path on Windows.
+
+    Native Windows can launch Ziniao directly (unlike WSL, where the
+    server is a Linux process that cannot spawn a Windows Electron app
+    with custom flags). But the launch needs the real executable path —
+    the stored ``client_path`` defaults to the bare name ``ziniao``,
+    which only resolves on macOS via ``open -a``.
+
+    Tries, in order: common install directories (fast, no subprocess),
+    the running process's ExecutablePath, then the registry uninstall
+    entries. Returns an absolute path, or None if Ziniao can't be found.
+    """
+    if not IS_WINDOWS:
+        return None
+
+    # 1. Common install locations (no subprocess — fast path).
+    for env_var in ('ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA'):
+        base = os.environ.get(env_var)
+        if base:
+            candidate = os.path.join(base, 'ziniao', 'ziniao.exe')
+            if os.path.isfile(candidate):
+                return candidate
+
+    # 2. Running process — most authoritative when Ziniao is already up.
+    try:
+        result = subprocess.run(
+            [
+                'powershell',
+                '-NoProfile',
+                '-Command',
+                'Get-CimInstance Win32_Process -Filter '
+                '"name=\'ziniao.exe\'" | Select-Object -First 1 '
+                '-ExpandProperty ExecutablePath',
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        path = result.stdout.strip()
+        if path and os.path.isfile(path):
+            return path
+    except Exception as e:
+        logger.debug('Ziniao process-path lookup failed: %s', e)
+
+    # 3. Registry uninstall entry (DisplayIcon points at the exe).
+    try:
+        result = subprocess.run(
+            [
+                'powershell',
+                '-NoProfile',
+                '-Command',
+                '$roots='
+                "'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
+                "\\Uninstall',"
+                "'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows"
+                "\\CurrentVersion\\Uninstall',"
+                "'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion"
+                "\\Uninstall';"
+                'Get-ChildItem $roots -ErrorAction SilentlyContinue | '
+                "ForEach-Object { $_.GetValue('DisplayIcon') } | "
+                "Where-Object { $_ -match 'ziniao' } | Select-Object -First 1",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        icon = result.stdout.strip()
+        if icon:
+            # DisplayIcon is often "C:\...\ziniao.exe,0".
+            icon = icon.split(',')[0].strip().strip('"')
+            if os.path.isfile(icon):
+                return icon
+    except Exception as e:
+        logger.debug('Ziniao registry lookup failed: %s', e)
+
+    return None
+
+
+def _resolve_windows_client_path(client_path: str) -> str:
+    """Resolve a launchable ziniao.exe path on Windows.
+
+    A caller-supplied ``.exe`` path is trusted as-is (covers a
+    user-configured client_path). Otherwise — notably the default bare
+    ``ziniao`` — discover the install via ``find_ziniao_exe_windows``.
+    Raises RuntimeError with an actionable message when Ziniao can't be
+    located.
+    """
+    if client_path and client_path.lower().endswith('.exe'):
+        return client_path
+    found = find_ziniao_exe_windows()
+    if found:
+        return found
+    raise RuntimeError(
+        'Could not find ziniao.exe. Please make sure Ziniao is '
+        'installed (default: C:\\Program Files\\ziniao\\ziniao.exe).'
+    )
+
+
 def build_launch_cmd(client_path: str, socket_port: int) -> list[str]:
     """Build platform-specific command to launch Ziniao client.
 
     Mac: tested and working (client_path="ziniao" launches
          from /Applications).
-    Windows: client_path should be full path like
-             "D:\\path\\to\\ziniao.exe".
+    Windows: launches ziniao.exe directly. The default bare name
+             "ziniao" is resolved to a real install path via
+             find_ziniao_exe_windows(); a caller-supplied full path
+             ("D:\\path\\to\\ziniao.exe") is used as-is.
     Linux: client_path should be like "/opt/ziniao/ziniaobrowser".
     WSL: cannot launch Electron apps with custom args due to
          Node.js V8 flag rejection. Users must run the launcher
          batch file on Windows first.
     """
     if IS_WINDOWS:
+        exe = _resolve_windows_client_path(client_path)
         return [
-            client_path,
+            exe,
             '--run_type=web_driver',
             '--ipc_type=http',
             f'--port={socket_port}',
@@ -350,10 +452,11 @@ async def get_ziniao_status(
 
 
 def force_kill_ziniao() -> None:
-    """Kill all Ziniao processes (Mac and WSL).
+    """Kill all Ziniao processes (Mac, native Windows, and WSL).
 
     Mac: SIGKILL via pkill (Ziniao may auto-restart after
     SIGTERM, so -9 is required).
+    Windows: taskkill /F /IM ziniao.exe (native).
     WSL: taskkill.exe /F via Windows interop.
 
     Raises RuntimeError on unsupported platforms or if
@@ -363,6 +466,12 @@ def force_kill_ziniao() -> None:
         if IS_MAC:
             subprocess.run(
                 ['pkill', '-9', '-f', 'ziniao.app/Contents/MacOS'],
+                capture_output=True,
+                timeout=10,
+            )
+        elif IS_WINDOWS:
+            subprocess.run(
+                ['taskkill', '/F', '/IM', 'ziniao.exe'],
                 capture_output=True,
                 timeout=10,
             )
@@ -380,7 +489,9 @@ def force_kill_ziniao() -> None:
                 cwd='/mnt/c/',
             )
         else:
-            raise RuntimeError('Force kill is only supported on Mac and WSL')
+            raise RuntimeError(
+                'Force kill is only supported on Mac, Windows and WSL'
+            )
     except RuntimeError:
         raise
     except Exception as e:
@@ -394,10 +505,10 @@ async def kill_and_relaunch_ziniao(
 ) -> bool:
     """Kill Ziniao and relaunch in WebDriver mode.
 
-    Mac: kills and relaunches automatically, polls for API
-    readiness.
-    WSL: kills only (cannot auto-relaunch due to Electron
-    V8 flag rejection via WSL interop). Caller handles the
+    Mac / native Windows: kills and relaunches automatically,
+    polls for API readiness.
+    WSL / native Linux: kills only (WSL cannot auto-relaunch due
+    to Electron V8 flag rejection via interop). Caller handles the
     post-kill state.
 
     Safe to call when Ziniao is in normal mode (no active
@@ -405,7 +516,7 @@ async def kill_and_relaunch_ziniao(
 
     Returns True on success, raises RuntimeError on failure.
     """
-    if IS_MAC:
+    if IS_MAC or IS_WINDOWS:
         logger.info('Killing Ziniao for WebDriver relaunch...')
     else:
         logger.info('Killing Ziniao (manual relaunch required)...')
@@ -424,11 +535,11 @@ async def kill_and_relaunch_ziniao(
             f'Please close it manually via {hint}.'
         )
 
-    # WSL: kill-only (cannot auto-relaunch)
-    if not IS_MAC:
+    # WSL / native Linux: kill-only (cannot auto-relaunch)
+    if not (IS_MAC or IS_WINDOWS):
         return True
 
-    # Relaunch in WebDriver mode (Mac only)
+    # Relaunch in WebDriver mode (Mac / native Windows)
     logger.info(
         'Relaunching Ziniao in WebDriver mode (client_path=%s, port=%d)',
         client_path,
@@ -569,7 +680,9 @@ async def ensure_ziniao_running(
 
     # Check if Ziniao process exists but API unreachable
     if is_ziniao_process_running():
-        if IS_MAC:
+        if IS_MAC or IS_WINDOWS:
+            # Server-launched platforms: surface normal mode so the UI
+            # offers a Force Restart (kill + relaunch in WebDriver).
             _fire_failed(BrowserFailureReason.NORMAL_MODE, 1)
             raise ZiniaoNormalModeError(
                 'Ziniao is running but not in WebDriver '

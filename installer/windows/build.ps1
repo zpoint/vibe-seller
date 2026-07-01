@@ -4,8 +4,9 @@
 
 .DESCRIPTION
   Runs on a Windows runner (GitHub-hosted windows-latest). Produces
-  staging\ (relocatable CPython, offline wheels, uv, MinGit, claude CLI,
-  tray.py) then invokes Inno Setup to build VibeSeller-Setup.exe.
+  staging\ (relocatable CPython, offline wheels, uv, Git for Windows,
+  claude CLI, tray.py) then invokes Inno Setup to build
+  VibeSeller-Setup.exe.
 
   Nothing here builds on macOS — this is driven by
   .github/workflows/windows-installer.yml. See README.md.
@@ -24,8 +25,8 @@ param(
   # python-build-standalone (Astral) — relocatable CPython.
   [string]$PbsTag     = "20250115",
   [string]$PyVersion  = "3.11.11",
-  # Git for Windows MinGit (git + bash).
-  [string]$MinGitVersion = "2.47.1",
+  # Git for Windows (PortableGit) — git + bash + curl/perl/sleep.
+  [string]$GitVersion = "2.47.1",
   # uv release containing uv.exe.
   [string]$UvVersion  = "0.5.18"
 )
@@ -89,17 +90,43 @@ function Get-Uv {
   Copy-Item "$env:TEMP\uv\uv.exe" "$StagingDir\uv.exe"
 }
 
-# -- 4. MinGit (git + bash for Claude Code's Bash tool) ---------------
+# -- 4. Git for Windows (PortableGit): git + bash + curl/perl/sleep ---
 
-function Get-MinGit {
-  Step "Fetching MinGit $MinGitVersion"
-  $zip = "$env:TEMP\mingit.zip"
-  $tag = "v$MinGitVersion.windows.1"
-  $url = "https://github.com/git-for-windows/git/releases/download/$tag/MinGit-$MinGitVersion-64-bit.zip"
-  Invoke-WebRequest -Uri $url -OutFile $zip
-  Expand-Archive -Path $zip -DestinationPath "$StagingDir\mingit" -Force
-  if (-not (Test-Path "$StagingDir\mingit\cmd\git.exe")) {
-    throw "MinGit layout unexpected: no cmd\git.exe"
+function Get-GitForWindows {
+  # Bundle FULL Git for Windows (PortableGit), NOT MinGit. MinGit ships
+  # only git.exe and omits bash.exe plus the MSYS userland (curl, perl,
+  # sleep). Two hard requirements need them:
+  #   * Claude Code's Bash tool requires a file literally named bash.exe
+  #     — with only sh.exe it silently falls back to the PowerShell tool,
+  #     which can't run the extensionless bash browser-use wrapper (the
+  #     user gets a Windows "Select an app to open 'browser-use'" dialog).
+  #   * The per-store browser-use wrapper is a bash script that shells
+  #     out to curl (proxy auto-start), perl (command timeout), sleep.
+  # Extracted into the (historically named) `mingit` dir so the .iss
+  # bundle rule and runtime PATH entries stay unchanged.
+  Step "Fetching Git for Windows (PortableGit) $GitVersion"
+  $sfx = "$env:TEMP\PortableGit.7z.exe"
+  $tag = "v$GitVersion.windows.1"
+  $url = "https://github.com/git-for-windows/git/releases/download/$tag/PortableGit-$GitVersion-64-bit.7z.exe"
+  Invoke-WebRequest -Uri $url -OutFile $sfx
+  $dest = "$StagingDir\mingit"
+  New-Item -ItemType Directory -Force -Path $dest | Out-Null
+  # Self-extracting 7z archive: -o"<dir>" output dir, -y assume-yes.
+  # Start-Process -Wait blocks until the SFX finishes (a bare `&` would
+  # return immediately for a GUI-subsystem exe).
+  $p = Start-Process -FilePath $sfx -ArgumentList "-o`"$dest`"", "-y" `
+    -Wait -PassThru
+  if ($p.ExitCode -ne 0) {
+    throw "PortableGit self-extract failed ($($p.ExitCode))"
+  }
+  if (-not (Test-Path "$dest\cmd\git.exe")) {
+    throw "PortableGit layout unexpected: no cmd\git.exe"
+  }
+  # bash.exe is the whole reason we switched off MinGit — fail loudly if
+  # it's missing so a broken bundle can never ship an installer that
+  # looks fine but falls back to PowerShell on the user's machine.
+  if (-not (Test-Path "$dest\bin\bash.exe")) {
+    throw "PortableGit layout unexpected: no bin\bash.exe"
   }
 }
 
@@ -199,7 +226,7 @@ if ($AppVersion -eq '0.0.0') {
 
 Get-Python
 Get-Uv
-Get-MinGit
+Get-GitForWindows
 Get-ClaudeCli
 Get-ChineseLang
 Copy-TrayAndIcon

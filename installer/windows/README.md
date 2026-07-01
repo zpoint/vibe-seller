@@ -12,7 +12,7 @@ server on login.
 | **CPython (relocatable)** | [python-build-standalone](https://github.com/astral-sh/python-build-standalone) | Run the server with no system Python |
 | **App + deps (offline wheels)** | `pip wheel` in CI | Offline install; the `vibe-seller` wheel carries the built web UI in `app/static` |
 | **uv** | [astral-sh/uv](https://github.com/astral-sh/uv) | Fast venv + offline install on the target |
-| **MinGit** | [git-for-windows MinGit](https://gitforwindows.org/mingit.html) | `git` **and** `bash` — Claude Code runs its Bash tool through Git Bash on Windows, so the existing **bash** browser-use wrapper works unchanged |
+| **Git for Windows (PortableGit)** | [git-for-windows releases](https://github.com/git-for-windows/git/releases) | `git`, `bash.exe`, and the MSYS userland (`curl`, `perl`, `sleep`). Claude Code's Bash tool **requires a file named `bash.exe`** (with only `sh.exe` it silently falls back to the PowerShell tool, which can't run the extensionless bash wrapper). The browser-use wrapper also shells out to `curl`/`perl`/`sleep`. **MinGit is insufficient** — it ships none of these. |
 | **claude CLI** | Anthropic native installer | The agent runtime |
 | **tray.py** | this dir | Login launcher: Open / Restart / Quit / Check for updates, runs via the bundled `pythonw.exe`. Menu + popups follow the OS language (en/zh). `--open` (used by the finish step) waits for health then opens the browser. |
 | **vibe-seller.ico** | `make_icon.py` | Shared brand mark (matches the web favicon); installer/Start-Menu/tray icon |
@@ -31,8 +31,9 @@ download step.
   tray calls `start`/`stop` — one daemon code path on every platform.
 - The tray runs via the bundled venv's `pythonw.exe` (`pystray` +
   `Pillow` from the wheel bundle) — no separately-frozen exe to sign.
-- The tray prepends bundled `claude` + MinGit to `PATH` before starting
-  the server, so the agent subprocess finds them.
+- The tray prepends bundled `claude` + Git for Windows to `PATH` before
+  starting the server, and pins `CLAUDE_CODE_GIT_BASH_PATH` at the
+  bundled `bash.exe`, so the agent subprocess finds them.
 - Install lands under `%LOCALAPPDATA%\Programs\VibeSeller`; user data
   under `%LOCALAPPDATA%\vibe-seller` (left intact on uninstall).
 
@@ -51,7 +52,7 @@ Locally on a Windows box:
 ```
 
 `build.ps1` parameters pin every third-party version (CPython, uv,
-MinGit) for reproducible, reviewable bumps.
+Git for Windows) for reproducible, reviewable bumps.
 
 ## Verification status
 

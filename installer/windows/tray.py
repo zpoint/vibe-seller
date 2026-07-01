@@ -170,17 +170,25 @@ def _augment_path() -> None:
     - ``browser-use`` / ``playwright`` — in the venv's Scripts dir;
       the per-store wrapper resolves ``shutil.which('browser-use')``
     - ``claude`` — the agent CLI
-    - ``git`` / ``bash`` — MinGit; Claude Code runs its Bash tool
-      through Git Bash on Windows
+    - ``git`` / ``bash`` / ``curl`` / ``perl`` — bundled Git for Windows
+      (PortableGit). Claude Code runs its Bash tool through Git Bash on
+      Windows, and the browser-use wrapper is a bash script that shells
+      out to curl/perl/sleep.
 
-    The daemon inherits os.environ, so prepending here is enough.
+    Also pins ``CLAUDE_CODE_GIT_BASH_PATH`` at the bundled bash.exe:
+    Claude Code requires a file literally named ``bash.exe`` and
+    otherwise silently falls back to the PowerShell tool, which can't
+    run the extensionless bash wrapper. The daemon inherits os.environ,
+    so setting these here is enough.
     """
     extra = [
         INSTALL_DIR / '.venv' / 'Scripts',
         INSTALL_DIR,
         INSTALL_DIR / 'claude',
         INSTALL_DIR / 'mingit' / 'cmd',
+        INSTALL_DIR / 'mingit' / 'bin',
         INSTALL_DIR / 'mingit' / 'usr' / 'bin',
+        INSTALL_DIR / 'mingit' / 'mingw64' / 'bin',
     ]
     dirs = [str(p) for p in extra if p.is_dir()]
     if dirs:
@@ -189,6 +197,14 @@ def _augment_path() -> None:
             os.environ.get('PATH', ''),
         ])
         logger.info('PATH augmented with bundled tools: %s', dirs)
+
+    # Pin Claude Code's Bash tool to the bundled Git Bash explicitly
+    # (belt-and-suspenders on top of PATH) so it never falls back to
+    # PowerShell on a machine that has no Git for Windows of its own.
+    bash_exe = INSTALL_DIR / 'mingit' / 'bin' / 'bash.exe'
+    if bash_exe.is_file():
+        os.environ['CLAUDE_CODE_GIT_BASH_PATH'] = str(bash_exe)
+        logger.info('CLAUDE_CODE_GIT_BASH_PATH=%s', bash_exe)
 
 
 def _server_healthy(timeout: float = 1.5) -> bool:
