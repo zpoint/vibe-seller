@@ -86,7 +86,7 @@ flowchart LR
 ### 环境要求
 
 - 任意一个 LLM API Key：Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- 浏览器引擎——Chrome 或紫鸟（紫鸟可选，用于浏览器指纹隔离，需要你电脑上已经装好并登录）
+- 浏览器引擎——Chrome 或紫鸟
 
 ### 快速开始 —— 选你的系统
 
