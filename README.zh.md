@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>跨境卖家专用的多店铺浏览器自动化框架</b><br/>
-  本地部署 · 紫鸟、Chrome 多浏览器后端 · 自配 LLM API Key（支持 Claude / DeepSeek / GLM / Qwen / Kimi / MiniMax 等主流模型）
+  支持 macOS、Linux、Windows（原生安装包）· 紫鸟、Chrome 多浏览器后端 · 自配 LLM API Key（支持 Claude / DeepSeek / GLM / Qwen / Kimi / MiniMax 等主流模型）
 </p>
 
 <p align="center">
