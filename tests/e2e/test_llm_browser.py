@@ -217,8 +217,7 @@ class TestLLMBrowserAPI:
             f'Email not found in messages: {all_text[:500]}'
         )
         norm_hyphens = (
-            normalized
-            .replace('\u2010', '-')
+            normalized.replace('\u2010', '-')
             .replace('\u2011', '-')
             .replace('\u2012', '-')
             .replace('\u2013', '-')
@@ -380,8 +379,7 @@ class TestLLMWebBrowserNoStore:
             f'Email not found in messages: {all_text[:500]}'
         )
         norm_hyphens = (
-            normalized
-            .replace('‐', '-')
+            normalized.replace('‐', '-')
             .replace('‑', '-')
             .replace('‒', '-')
             .replace('–', '-')
@@ -504,8 +502,7 @@ class TestGUITaskExecution:
             f'Email not found in agent chat: {chat_text[:500]}'
         )
         norm_hyphens = (
-            normalized
-            .replace('\u2010', '-')
+            normalized.replace('\u2010', '-')
             .replace('\u2011', '-')
             .replace('\u2012', '-')
             .replace('\u2013', '-')

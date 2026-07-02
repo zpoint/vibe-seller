@@ -22,7 +22,7 @@ from app.browser.manager import (
     store_slug,
     write_browser_use_wrapper,
 )
-from app.browser.wrapper import write_web_browser_use_wrapper
+from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.config import WEB_BROWSER_SLUG
 
 
@@ -427,7 +427,7 @@ def _generate_web_wrapper(tmp_path: Path) -> Path:
     """Generate the store-less orchestrator web wrapper, REAL_BU/curl
     stubbed so it runs offline (mirrors ``_generate_wrapper``)."""
     bin_dir = tmp_path / 'bin'
-    with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+    with mock.patch('app.browser.web_wrapper._BIN_DIR', bin_dir):
         write_web_browser_use_wrapper(9222, api_token='t0ken')
     wrapper = bin_dir / WEB_BROWSER_SLUG / 'browser-use'
     content = wrapper.read_text()
@@ -462,7 +462,7 @@ class TestWebWrapper:
 
     def test_cdp_url_injected(self, tmp_path: Path):
         bin_dir = tmp_path / 'bin'
-        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+        with mock.patch('app.browser.web_wrapper._BIN_DIR', bin_dir):
             write_web_browser_use_wrapper(9222, api_token='t0ken')
         content = (bin_dir / WEB_BROWSER_SLUG / 'browser-use').read_text()
         assert 'CDP_ARGS' in content
