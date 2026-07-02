@@ -122,12 +122,30 @@ script is built to not care:
 - **Bulk Operations table headers + Status enum + row "Download" links
   render in English regardless of locale** — match those by their
   English text.
-- When you must locate an element by label in the UI, match by stable
-  **id / structural selector** or dual-language label
-  (`Find a campaign|查找广告活动`), never by one language's text alone.
-- Option when testing: switch the ad console to English to capture
-  stable English labels, then confirm the positional path still holds
-  in the original language.
+### The Bulk Operations UI: drive it by language-INDEPENDENT selectors
+
+**Do not match localized button/label text** to drive this page. The
+displayed language can be anything, and on an anti-detect browser
+(Ziniao) it is **pinned by the browser env's locale** — the account's
+own language preference does NOT change the rendered language (verified:
+switching the ad-console language to English left a zh-pinned env still
+rendering Chinese). So every step below uses a stable id / element type /
+structure / the always-English status strings — never a localized label:
+
+| Step | Language-independent anchor |
+|---|---|
+| The bulk page component | custom element `<bulk-storm-dashboard>` |
+| Upload vs Download buttons | the dashboard's two header buttons, in **fixed order: 1st = Upload, 2nd = Download**. Confirm by the modal each opens (Upload → a file input; Download → a date-range picker + checkboxes). |
+| Upload file picker | **`input[type=file][accept=.xlsx]`** inside the upload modal — fully language-independent; `upload <idx> <file>` sets it. |
+| Modal submit / cancel | the modal's **two footer buttons, order: 1st = Cancel, 2nd = submit** (Upload/Download). Click the 2nd. |
+| Download-modal checkboxes | **fixed order**: Terminated, Paused, Zero-impression, Placement, SP, SB, SB-multi-adgroup, SD, SP-guide, SP-search-terms, SB-search-terms, Budget-rules. Select by position, not label. (Check *Zero-impression* to include a paused new campaign; *Terminated* to include an archived one.) |
+| History table | **column headers + `Status` enum render in English regardless of locale** — match `Success` / `Failed` / `File not uploaded` / `Downloading` by that English text. |
+| A row's result-report link | the link element in the **Download column** (English header) of that row — match by column, not the link's (localized) text. |
+| A row's result summary | the info-tooltip text is `"K of N uploaded"` — **numeric**, language-independent. `0 of N` = structural failure; `K of N` (K>0) = per-row. |
+| Console language switch | `button[name=aac-select-language]` (if you ever need it) |
+
+When a genuinely text-only match is unavoidable, use a dual-language
+set (`Find a campaign|查找广告活动`) — but prefer the anchors above.
 
 ### Upload wants ENGLISH API tokens — the export only DISPLAYS localised ones (VERIFIED LIVE)
 
