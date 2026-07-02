@@ -2,6 +2,18 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { RefObject } from 'react'
 import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
+// Agents write question text with single "\n" line breaks (bullets,
+// bilingual sections, etc.). Markdown treats a single newline as a soft
+// break — it collapses to a space — so the text renders as one run-on
+// wall. Promote each newline to a hard break (two trailing spaces) so
+// the author's line structure survives. (Bold/italic/lists/hr are plain
+// CommonMark; remark-gfm below adds the GFM extensions — tables,
+// strikethrough, task lists, autolinks.)
+function preserveBreaks(text: string): string {
+  return (text || '').replace(/\n/g, '  \n')
+}
 
 interface Question {
   header?: string
@@ -55,7 +67,9 @@ export function QuestionBanner({
                     </span>
                   )}
                   <div className="text-sm font-medium text-gray-800 prose prose-sm max-w-none prose-p:my-1 prose-li:my-0.5 prose-ul:my-1 prose-headings:text-sm prose-headings:my-1">
-                    <Markdown>{q.question}</Markdown>
+                    <Markdown remarkPlugins={[remarkGfm]}>
+                      {preserveBreaks(q.question)}
+                    </Markdown>
                   </div>
                 </div>
                 {/* Options */}
