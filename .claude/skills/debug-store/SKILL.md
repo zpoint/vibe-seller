@@ -403,7 +403,7 @@ Files downloaded by Ziniao (CSV, XLSX, PDF) land in either:
 - the Ziniao-managed native dir (persistent) —
   `~/Library/Application Support/ziniaobrowserdatas/ziniao browser/<slug>/`
   on macOS; under `%LOCALAPPDATA%\ziniaobrowser` / Chrome's default
-  `~/Downloads` on native-Windows — or
+  `%USERPROFILE%\Downloads` on native-Windows — or
 - `~/.vibe-seller/downloads/<slug>/` (per-store, the reliable one).
 
 Recent bulk-export XLSX files land in the second path because the CDP
