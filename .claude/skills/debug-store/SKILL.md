@@ -400,18 +400,32 @@ flow; the resulting file lands in `~/.vibe-seller/downloads/<slug>/`.
 
 Files downloaded by Ziniao (CSV, XLSX, PDF) land in either:
 
-- `~/Library/Application Support/ziniaobrowserdatas/ziniao browser/<slug>/`
-  (Ziniao-managed, persistent), or
-- `~/.vibe-seller/downloads/<slug>/` (vibe-seller-monitored, more
-  reliable).
+- the Ziniao-managed native dir (persistent) —
+  `~/Library/Application Support/ziniaobrowserdatas/ziniao browser/<slug>/`
+  on macOS; under `%LOCALAPPDATA%\ziniaobrowser` / Chrome's default
+  `~/Downloads` on native-Windows — or
+- `~/.vibe-seller/downloads/<slug>/` (per-store, the reliable one).
 
-Recent bulk-export XLSX files always land in the second path because
-the project monitors a Chrome download dir and copies in. List most
-recent first:
+Recent bulk-export XLSX files land in the second path because the CDP
+mux proxy pins Chrome's download path there via `Browser.setDownloadBehavior`
+(`cdp_mux_proxy.py` / `cdp_mux_upstream.py`) — **verified working on
+native-Windows too**, not just macOS. List most recent first:
 
 ```bash
 ls -lt ~/.vibe-seller/downloads/<slug>/ | head -10
 ```
+
+**Download-trigger gotcha (verified 2026-07-02, Ziniao/native-Windows).**
+The pinned path works, but a page's *visible* download link is often a
+`<p>`/label, not the clickable `<a>` — a coordinate/element click on the
+label silently fires **no** download and the dir stays empty, which reads
+as "the download dir is broken" when it isn't. Trigger the real anchor by
+`href` (JS `.click()` on `a[href*="…/download/…"]`, or `browser-use open
+<href>` — the latter returns a benign `net::ERR_ABORTED` but the file
+still lands). See `amazon-ads` mechanics § 2d for the worked example.
+Downloaded files carry Amazon's real name (`bulk-<entity>-<dates>-<ts>.xlsx`),
+never a fixed `BulkSheetExport.xlsx` — glob the newest `*.xlsx`, don't
+assume a name.
 
 ## Capturing data → temp dir, never knowledge
 
