@@ -24,7 +24,11 @@ import subprocess
 import sys
 import time
 
-from app.platform import is_process_alive, kill_process
+from app.platform import (
+    find_pid_listening_on_port,
+    is_process_alive,
+    kill_process,
+)
 
 
 def _resolve_version() -> str:
@@ -286,8 +290,18 @@ def _cmd_start(args: argparse.Namespace) -> int:
 def _cmd_stop(args: argparse.Namespace) -> int:
     port: int = args.port
     pid = _read_pid(port)
+    via = 'pid file'
     if pid is None:
-        print(f'No vibe-seller process tracked on port {port}.')
+        # Pid file missing or stale — fall back to whatever is actually
+        # LISTENING on the port (like stop.sh's `lsof -ti:PORT`). Without
+        # this, a lost/mismatched pid file makes `stop` a silent no-op, so
+        # the tray 'restart' (stop → start) leaves the old server — and the
+        # old code — running. The port, not the pid file, is authoritative
+        # for "is a server here".
+        pid = find_pid_listening_on_port(port)
+        via = 'port'
+    if pid is None:
+        print(f'No vibe-seller process running on port {port}.')
         return 0
 
     # kill_process (psutil): terminate → poll → kill, cross-platform.
@@ -295,7 +309,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     # doesn't even exist on Windows.
     asyncio.run(kill_process(pid))
     _pid_file_for(port).unlink(missing_ok=True)
-    print(f'Stopped vibe-seller on port {port} (PID {pid}).')
+    print(f'Stopped vibe-seller on port {port} (PID {pid}, via {via}).')
     return 0
 
 
