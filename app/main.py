@@ -239,6 +239,15 @@ async def lifespan(app: FastAPI):
                 pass
     await task_queue_scheduler.stop()
     stop_scheduler()
+    # Reap running task agents so a graceful (SIGTERM) shutdown never
+    # orphans a `claude -p` subtree — an orphan keeps calling
+    # `browser/start` on the next server and thrashes the shared Ziniao
+    # client. (stop.sh SIGTERMs first to reach this path; it also kills
+    # any leftover agents as a -9 fallback.)
+    try:
+        await agent_manager.stop_all()
+    except Exception as e:
+        logger.warning('stop_all during shutdown failed: %s', e)
     telemetry.shutdown()
 
 
