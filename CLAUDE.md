@@ -110,6 +110,8 @@ checklist and worked examples.
 
 Existing backends: `chrome` (Playwright Chromium, macOS/Linux/WSLg), `ziniao` (anti-detect, talks to the Ziniao client over HTTP), `winchrome` (native Windows Chrome via Task Scheduler — for WSL2-on-Windows where a headed window can't render under systemd; see [docs/windows-setup.md](docs/windows-setup.md#7-browser-automation--native-windows-chrome-winchrome-backend)).
 
+> **Store-less `web` browser**: no-store (orchestrator) tasks get a generic Chrome browser (not tied to any store) for neutral public web work — wrapper at `bin/_web/browser-use`, sessions `web`/`web-{task[:8]}`, lazy-started via `POST /api/browser/web/start`. Seller-center work still delegates to a per-store sub-task. Distinct from the per-store `{slug}-aux` session. See [docs/browser.md](docs/browser.md#store-less-web-browser).
+
 ### Adding an AI Agent Backend
 
 1. Create `app/ai/mybackend.py` implementing `AIAgentBackend` from `base.py`
