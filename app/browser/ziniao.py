@@ -169,6 +169,18 @@ class ZiniaoBackend(BrowserBackend):
                     f'(proxy / login / quota).'
                 )
             # A full client restart clears the stale state; then retry.
+            # On WSL, kill_and_relaunch is kill-only (Electron flag
+            # rejection blocks auto-relaunch), so restarting there would
+            # leave NO client to retry against — worse than the stale
+            # state. Bail with clear guidance instead of killing.
+            if is_wsl():
+                raise RuntimeError(
+                    f'Ziniao reported a browser on '
+                    f'{target_host}:{cdp_port} but it is unreachable '
+                    f'(stale launch), and WSL cannot auto-restart the '
+                    f'client. Close Ziniao on Windows and relaunch it '
+                    f'with the ziniao_webdriver.bat launcher, then retry.'
+                )
             try:
                 await kill_and_relaunch_ziniao(
                     socket_port, client_path, user_info
