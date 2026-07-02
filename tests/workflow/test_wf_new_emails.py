@@ -38,6 +38,10 @@ def _epoch_of(iso: str) -> int:
     return int(datetime.fromisoformat(iso).timestamp())
 
 
+def _iso_from_epoch(epoch: int) -> str:
+    return datetime.fromtimestamp(epoch, UTC).isoformat()
+
+
 @pytest_asyncio.fixture
 async def email_env(override_async_session, admin_user):
     """Schedule + store + linked email account, seeded with SECRET_1.
@@ -102,6 +106,12 @@ async def email_env(override_async_session, admin_user):
                 'subject': 'Run1 inbound',
                 'sender': 'partner@example.test',
                 'date': date_1,
+                # Pin fetched_at (the cursor axis) explicitly. Left to
+                # default it would be `now()` for both emails and, in a
+                # fast test, collide at 1-second epoch granularity —
+                # run-2 would then filter SECRET_2 out. Seeding it equal
+                # to `date` keeps the two emails distinctly ordered.
+                'fetched_at': date_1,
                 'body_text': f'The value is {SECRET_1}. Please confirm.',
             }
         ],
@@ -194,6 +204,7 @@ class TestNewEmailsSweep:
                     'subject': 'Run2 inbound',
                     'sender': 'partner@example.test',
                     'date': date_2,
+                    'fetched_at': date_2,
                     'body_text': f'Follow-up: {SECRET_2}. Thanks.',
                 }
             ],
@@ -212,6 +223,62 @@ class TestNewEmailsSweep:
         blob2 = str(b2)
         assert SECRET_1 not in blob2
         assert int(b2['next_watermark']) >= _epoch_of(date_2)
+
+    async def test_backdated_but_newly_fetched_is_returned(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """Cursor axis is fetch time, not the sender's Date header.
+
+        Pins the bug class the live-agent e2e caught on MiniMax: run 1
+        left the watermark at ~wall-clock ``now`` (a fumbled sweep that
+        fell back to raw sqlite), then a genuinely-new email arrived
+        carrying a ``Date`` header *older* than that watermark — a
+        late-delivered / backdated / clock-skewed message. Filtering by
+        ``date`` dropped it forever; filtering by ``fetched_at`` returns
+        it because it arrived (was stored) after the cursor. This test
+        would fail on the old date-based query, so it guards the fix.
+        """
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+
+        # Watermark parked at "now" — as a fumbled sweep would leave it.
+        now_epoch = int(datetime.now(UTC).timestamp())
+        put = await admin_client.put(
+            f'/api/tasks/{task_id}/schedule-state/email_watermark',
+            json={'value': str(now_epoch)},
+        )
+        assert put.status_code == 200
+
+        # A new email arrives AFTER the cursor (fetched_at ahead of it)
+        # but with a Date header from an hour BEFORE it.
+        secret_late = 'sekret-late-77'
+        store_emails(
+            email_env['account_id'],
+            [
+                {
+                    'message_id': f'msg-late-{uuid.uuid4()}@example.test',
+                    'folder': 'INBOX',
+                    'subject': 'Backdated but freshly delivered',
+                    'sender': 'partner@example.test',
+                    'date': _iso_from_epoch(now_epoch - 3600),
+                    'fetched_at': _iso_from_epoch(now_epoch + 60),
+                    'body_text': f'Delayed delivery: {secret_late}.',
+                }
+            ],
+        )
+
+        r = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r.status_code == 200
+        body = r.json()
+        assert body['count'] == 1, (
+            'a newly-fetched email with a past Date header must be swept'
+            ' — the cursor keys off fetch time, not the sender clock'
+        )
+        assert secret_late in _all_emails(body)[0]['body_text']
 
     async def test_non_scheduled_task_rejected(
         self, admin_client, override_async_session, admin_user, email_env
