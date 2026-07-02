@@ -31,7 +31,30 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `plugins.py` | Plugin framework (IoC registry) — core reads gates/guards/backends/skills/services from here instead of hardcoding them. See [Plugin Framework](#plugin-framework). |
 | `builtin_plugin.py` | The OSS "builtin plugin" — registers every core contribution through the plugin API. |
 | `utils/` | Shared utilities (crypto, etc.) |
-| `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
+| `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`, `reap_task_agents`, `collect_agent_descendants`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
+
+### Shutdown cleanup — reaping task agents
+
+A running task is a `claude -p` subprocess tree (claude → MCP server →
+`skill_cli.daemon` → browser-use). Stopping the server must take that
+whole tree down; a survivor keeps calling `POST /stores/<id>/browser/start`
+on the next server and, because the anti-detect browser client is a
+single shared process, competing survivors thrash it. Two layers ensure
+no orphans:
+
+- **`ClaudeCodeBackend.stop_all()`** (`ai/claude_backend_manager.py`) —
+  stops every running `AgentSession` (each `stop()` killpg's its subtree;
+  Windows uses `taskkill /F /T` via `process_utils.taskkill_tree`).
+  Wired into `main.py`'s `lifespan` shutdown so a graceful SIGTERM never
+  orphans an agent.
+- **`platform.reap_task_agents(pids=None)`** — a process-level backstop
+  for the paths that bypass graceful shutdown (a SIGKILL of the server;
+  Windows `TerminateProcess` from `vibe-seller stop` / the tray
+  quit-restart). Matches the headless-agent, `skill_cli.daemon`, and
+  running-wrapper signatures and kills each with its child tree.
+  `vibe-seller stop` scopes it with `collect_agent_descendants(server_pid)`
+  (snapshotted before the kill) so a second server instance's agents are
+  left alone.
 
 ## Request Flow
 
