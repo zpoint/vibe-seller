@@ -4,8 +4,10 @@ import { ProfileModal } from './components/ProfileModal'
 import { LoginPage } from './components/LoginPage'
 import { Sidebar } from './components/Sidebar'
 import { useWsFiles } from './hooks/useWsFiles'
+import { useUpdateCheck } from './hooks/useUpdateCheck'
 import { CreateTaskModal } from './components/CreateTaskModal'
 import { CreateScheduleModal } from './components/CreateScheduleModal'
+import { UpdateAvailableModal } from './components/UpdateAvailableModal'
 import { TasksView } from './views/TasksView'
 import { WorkspaceView } from './views/WorkspaceView'
 import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
@@ -180,6 +182,8 @@ export default function App() {
       })
       .catch(() => { setCurrentUser(null); setAuthChecked(true) })
   }, [])
+
+  const { updateCheck, dismissUpdateCheck } = useUpdateCheck(currentUser)
 
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
@@ -782,6 +786,9 @@ export default function App() {
           }}
           editingProfile={editingProfile}
         />
+      )}
+      {updateCheck && (
+        <UpdateAvailableModal result={updateCheck} onClose={dismissUpdateCheck} />
       )}
     </div>
   )

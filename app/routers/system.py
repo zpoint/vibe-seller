@@ -6,14 +6,34 @@ them from error payloads or stale env vars.
 """
 
 import subprocess
+import time
 
 from fastapi import APIRouter
+import httpx
 
 from app.browser.ziniao_utils import get_platform
 from app.config import BASE_DIR
 from app.telemetry import APP_VERSION
+from app.update_check import (
+    RELEASES_PAGE_URL,
+    fetch_latest_pypi_version,
+    fetch_release_notes,
+    is_dev_version,
+    is_newer,
+)
 
 router = APIRouter(prefix='/api/system', tags=['system'])
+
+# The frontend calls /update-check on every page load, but PyPI/GitHub
+# don't need to be hit that often — GitHub's unauthenticated rate limit
+# is 60 req/hr per IP, and a slow/blocked network (see
+# update_check._FETCH_TIMEOUT_SECONDS) shouldn't cost every single page
+# load its full timeout. One in-process slot is enough: APP_VERSION is
+# fixed for the process lifetime, so there's only ever one possible
+# "current version" to cache a result for.
+_UPDATE_CHECK_CACHE_TTL_SECONDS = 3600
+_update_check_cache: dict | None = None
+_update_check_cache_at: float = 0.0
 
 
 def _git_commit_short() -> str | None:
@@ -67,3 +87,67 @@ async def system_info() -> dict:
         'version': APP_VERSION,
         'commit': _GIT_COMMIT_SHORT,
     }
+
+
+async def _compute_update_check() -> dict:
+    current = APP_VERSION
+    if is_dev_version(current):
+        return {'dev': True}
+
+    async with httpx.AsyncClient() as client:
+        latest = await fetch_latest_pypi_version(client)
+        if not latest or not is_newer(latest, current):
+            return {
+                'dev': False,
+                'update_available': False,
+                'current_version': current,
+            }
+        releases = await fetch_release_notes(client, current)
+
+    platform = get_platform()
+    is_windows = platform == 'windows'
+    return {
+        'dev': False,
+        'update_available': True,
+        'current_version': current,
+        'latest_version': latest,
+        'platform': platform,
+        'upgrade_command': None if is_windows else 'vibe-seller upgrade',
+        'download_url': RELEASES_PAGE_URL if is_windows else None,
+        'releases_page_url': RELEASES_PAGE_URL,
+        'releases': releases,
+    }
+
+
+@router.get('/update-check')
+async def update_check() -> dict:
+    """Check PyPI for a release newer than the one running here.
+
+    Dev/local checkouts (see ``update_check.is_dev_version``) always
+    get ``{'dev': True}`` — there's no PyPI release that corresponds
+    to an arbitrary in-between commit, so any comparison would be
+    misleading.
+
+    Otherwise returns ``update_available`` plus, when true, the
+    platform-appropriate upgrade instructions (``vibe-seller
+    upgrade`` on macOS/Linux/WSL, a releases-page link on native
+    Windows — matching the two install paths in the README) and
+    GitHub release notes for every version newer than the installed
+    one.
+
+    Cached in-process for ``_UPDATE_CHECK_CACHE_TTL_SECONDS`` (success
+    *or* failure) — see the module docstring comment above the cache
+    globals for why.
+    """
+    global _update_check_cache, _update_check_cache_at
+    now = time.monotonic()
+    if (
+        _update_check_cache is not None
+        and now - _update_check_cache_at < _UPDATE_CHECK_CACHE_TTL_SECONDS
+    ):
+        return _update_check_cache
+
+    result = await _compute_update_check()
+    _update_check_cache = result
+    _update_check_cache_at = now
+    return result

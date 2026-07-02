@@ -5,6 +5,20 @@ export interface ServerInfo {
   version: string
   commit: string | null
 }
+export interface ReleaseNote {
+  version: string; name: string; body: string; url: string; published_at: string | null;
+}
+export interface UpdateCheckResult {
+  dev: boolean
+  update_available?: boolean
+  current_version?: string
+  latest_version?: string
+  platform?: ServerPlatform
+  upgrade_command?: string | null
+  download_url?: string | null
+  releases_page_url?: string
+  releases?: ReleaseNote[]
+}
 export interface Store {
   id: string; name: string; browser_backend: string; browser_config: Record<string, unknown>;
   ziniao_account_id: string | null; browser_oauth: string | null;
