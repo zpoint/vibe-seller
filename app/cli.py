@@ -329,9 +329,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     _pid_file_for(port).unlink(missing_ok=True)
     via = 'port' if listener is not None else 'pid file'
     suffix = f' (+{reaped} task agent(s) reaped)' if reaped else ''
-    print(
-        f'Stopped vibe-seller on port {port} (PID {pid}, via {via}).{suffix}'
-    )
+    print(f'Stopped vibe-seller on port {port} (PID {pid}, via {via}).{suffix}')
     return 0
 
 
