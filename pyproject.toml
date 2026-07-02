@@ -65,6 +65,8 @@ dev = [
     "pytest-rerunfailures>=14.0",
     "httpx>=0.27.0",
     "ruff>=0.6.0",
+    # amazon-ads skill's ads_bulk.py (bulk sheet parse/emit) + its test.
+    "openpyxl>=3.1",
 ]
 
 [project.scripts]
@@ -166,6 +168,7 @@ classmethod-decorators = ["classmethod"]
 "app/events_system/backends/google_calendar.py" = ["E402"]
 "app/cli.py" = ["T20"]  # CLI uses print for user-facing output
 "app/skills/**/generate_invoice.py" = ["T20"]
+"app/skills/**/scripts/*.py" = ["T20"]  # skill CLI tools print output
 "scripts/**/*.py" = ["T20"]
 "tests/**" = ["N", "B", "SIM"]
 "tests/e2e/**" = ["T20", "E402", "PLC0415"]
