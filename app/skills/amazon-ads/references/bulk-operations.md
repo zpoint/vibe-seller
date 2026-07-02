@@ -122,15 +122,19 @@ script is built to not care:
 - **Bulk Operations table headers + Status enum + row "Download" links
   render in English regardless of locale** — match those by their
   English text.
+
 ### The Bulk Operations UI: drive it by language-INDEPENDENT selectors
 
 **Do not match localized button/label text** to drive this page. The
-displayed language can be anything, and on an anti-detect browser
-(Ziniao) it is **pinned by the browser env's locale** — the account's
-own language preference does NOT change the rendered language (verified:
-switching the ad-console language to English left a zh-pinned env still
-rendering Chinese). So every step below uses a stable id / element type /
-structure / the always-English status strings — never a localized label:
+displayed language can be anything and the user can change it at any time
+(account menu → *Your preferences* → *Language* dropdown → the *Change
+Language* apply button — note that apply button is **disabled until you
+pick a different language**, which is easy to miss). So a run may open in
+`zh_CN`, `en_US`, `العربية`, etc. Every step below therefore uses a
+stable id / element type / structure / the always-English status strings
+— never a localized label. **Verified in both zh_CN and en_US**: the same
+structural anchors below (button order, checkbox order,
+`input[type=file]`, English `Status` enum) hold identically in each.
 
 | Step | Language-independent anchor |
 |---|---|
@@ -145,7 +149,16 @@ structure / the always-English status strings — never a localized label:
 | Console language switch | `button[name=aac-select-language]` (if you ever need it) |
 
 When a genuinely text-only match is unavoidable, use a dual-language
-set (`Find a campaign|查找广告活动`) — but prefer the anchors above.
+set — but prefer the anchors above. Confirmed labels (`en_US` | `zh_CN`),
+for reference / fallback only:
+
+- `Upload campaigns` | `上传广告活动`  ·  `Download campaigns` | `下载广告活动`
+- `Cancel` | `取消`  ·  submit `Upload`/`Download` | `上传`/`下载`
+- Download-modal checkboxes: `Terminated campaigns` | `已终止的广告活动`,
+  `Paused campaigns` | `已暂停的广告活动`,
+  `Campaign items with zero impressions` | `展示量为零的广告活动项目`
+- Status enum is English in every locale: `Success` / `Failed` /
+  `File not uploaded` / `Downloading`.
 
 ### Upload wants ENGLISH API tokens — the export only DISPLAYS localised ones (VERIFIED LIVE)
 
