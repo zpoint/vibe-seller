@@ -113,10 +113,17 @@ def send(event: str, properties: dict | None = None) -> None:
     if not is_enabled() or _install_id is None or _client is None:
         return
     try:
+        # Merge base properties (app_version, os, python_version, …) into
+        # EVERY event, not just app_started, so any event can be
+        # segmented by release version or platform. Caller-supplied keys
+        # win over the base defaults.
+        props = base_properties()
+        if properties:
+            props.update(properties)
         _client.capture(
             distinct_id=_install_id,
             event=event,
-            properties=properties or {},
+            properties=props,
         )
     except Exception:
         logger.debug('Telemetry send failed for %s', event, exc_info=True)
