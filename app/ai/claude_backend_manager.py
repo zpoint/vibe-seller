@@ -253,6 +253,35 @@ class ClaudeCodeBackend(AIAgentBackend):
         await session.stop()
         return True
 
+    async def stop_all(self) -> int:
+        """Stop every running task agent (used on server shutdown).
+
+        Each session's ``stop()`` killpg's the whole ``claude -p`` subtree
+        (MCP server, skill_cli.daemon, browser-use), so this prevents
+        agents being orphaned across a restart — orphans keep calling
+        ``browser/start`` on the next server and thrash the shared Ziniao
+        client. Best-effort: a failure on one session never blocks the
+        others or shutdown.
+        """
+        running = [
+            (tid, s)
+            for tid, s in list(self._sessions.items())
+            if s and s.running
+        ]
+        if not running:
+            return 0
+        logger.info(
+            'Stopping %d running task agent(s) on shutdown', len(running)
+        )
+        results = await asyncio.gather(
+            *(s.stop() for _tid, s in running),
+            return_exceptions=True,
+        )
+        for (tid, _s), res in zip(running, results, strict=True):
+            if isinstance(res, Exception):
+                logger.warning('stop_all: session %s stop failed: %s', tid, res)
+        return len(running)
+
     async def submit_answer(
         self, task_id: str, request_id: str, answers: dict
     ) -> bool:

@@ -50,7 +50,7 @@ from app.browser.manager import (
     atomic_write_json,
     read_mcp_config,
 )
-from app.browser.process_utils import kill_with_escalation
+from app.browser.process_utils import kill_with_escalation, taskkill_tree
 from app.config import BACKEND_PORT, BASE_DIR
 from app.database import async_session
 from app.env_options import Options
@@ -627,11 +627,16 @@ class AgentSession(_HookMixin, _StreamMixin):
                 return
             except TimeoutError:
                 continue
-        # Final escalation: SIGKILL the group, then the leader as a
-        # cross-platform fallback if killpg isn't available.
+        # Final escalation: SIGKILL the group; on Windows (no process
+        # group) taskkill_tree kills the whole tree so the MCP server +
+        # skill_cli.daemon + browser-use children die too — killing only
+        # the leader would orphan the browser daemon, which then keeps
+        # driving browser/start on the shared Ziniao.
         try:
             if use_killpg:
                 os.killpg(pid, signal.SIGKILL)
+            elif IS_WINDOWS:
+                await taskkill_tree(pid, timeout=SIGNAL_TIMEOUT)
             else:
                 self._proc.kill()
         except ProcessLookupError:
