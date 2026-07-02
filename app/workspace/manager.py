@@ -20,7 +20,7 @@ import git as gitlib
 
 from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
-from app.workspace import venv_bootstrap
+from app.workspace import task_links, venv_bootstrap
 from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_seed import write_catalog_stub
 from app.workspace.structured_stores import collect_store_entries
@@ -666,11 +666,14 @@ browser: {backend}
         *,
         clean: bool = False,
     ) -> Path:
-        """Create a per-task working directory with symlinks.
+        """Create a per-task working directory linked to shared dirs.
 
         Returns the absolute path to ``tasks/{task_id}/``. Shared
-        resources (knowledge, stores, skills, CLAUDE.md) are
-        symlinked; task-specific files stay isolated.
+        resources (knowledge, stores, store-data, CLAUDE.md) are linked
+        to the shared root — POSIX symlinks, or Windows directory
+        junctions plus a CLAUDE.md copy, since ``os.symlink`` needs a
+        privilege stock Windows lacks (see ``app/workspace/task_links``).
+        Task-specific files stay isolated.
 
         The ``browser-use`` skill is copied for every task, including
         no-store (orchestrator) tasks — they now have the store-less
@@ -680,7 +683,7 @@ browser: {backend}
         await self.ensure_init()
         task_dir = self.root / 'tasks' / task_id
         if clean and task_dir.exists():
-            shutil.rmtree(task_dir)
+            task_links.remove_task_workspace(task_dir)
         task_dir.mkdir(parents=True, exist_ok=True)
 
         links: dict[str, Path] = {
@@ -691,15 +694,9 @@ browser: {backend}
         }
         for name, target in links.items():
             link_path = task_dir / name
-            if link_path.is_symlink():
-                link_path.unlink()
-            elif link_path.exists():
-                if link_path.is_dir():
-                    shutil.rmtree(link_path)
-                else:
-                    link_path.unlink()
+            task_links._clear_workspace_link(link_path)
             if target.exists():
-                link_path.symlink_to(target)
+                task_links._link_shared_into_task(link_path, target)
 
         # .claude is copied (not symlinked) because Claude Code's
         # Glob doesn't follow symlinks when traversing ** patterns.
@@ -712,10 +709,7 @@ browser: {backend}
 
         claude_src = self.root / '.claude'
         claude_dst = task_dir / '.claude'
-        if claude_dst.is_symlink():
-            claude_dst.unlink()
-        elif claude_dst.exists():
-            shutil.rmtree(claude_dst)
+        task_links._clear_workspace_link(claude_dst)
         if claude_src.is_dir():
             shutil.copytree(
                 claude_src,

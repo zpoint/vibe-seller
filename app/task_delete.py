@@ -12,7 +12,6 @@ disk, and finally drops the row.
 import asyncio
 import logging
 from pathlib import Path
-import shutil
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +25,7 @@ from app.models.task_message import TaskMessage
 from app.models.task_step import TaskStep
 from app.task_states import ACTIVE
 from app.workspace.manager import VIBE_SELLER_DIR
+from app.workspace.task_links import remove_task_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,19 @@ async def delete_task(
         except ValueError:
             continue
         if task_dir.exists():
-            await asyncio.to_thread(shutil.rmtree, task_dir, ignore_errors=True)
+            # remove_task_workspace clears the shared-resource links
+            # (POSIX symlinks / Windows junctions) before rmtree, so a
+            # junction can never be followed into shared knowledge/stores.
+            # Best-effort: the task rows are already committed above, so a
+            # workspace-removal error must not bubble up as a 500.
+            try:
+                await asyncio.to_thread(remove_task_workspace, task_dir)
+            except OSError:
+                logger.warning(
+                    'Failed to remove task workspace %s',
+                    task_dir,
+                    exc_info=True,
+                )
     return True
 
 
