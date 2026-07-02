@@ -101,6 +101,15 @@ LOG_DIR.mkdir(exist_ok=True)
 BROWSER_USE_BIN_DIR = VIBE_SELLER_DIR / 'bin'
 BROWSER_USE_BIN_DIR.mkdir(parents=True, exist_ok=True)
 
+# Orchestrator (no-store) "web" browser. A single generic Chrome
+# session, not tied to any store, that no-store tasks use for neutral
+# public web work (search, tracking/logistics pages, research). Distinct
+# from a store's per-store ``{slug}-aux`` session — hence a reserved slug
+# that ``store_slug()`` can never produce for a real store (it strips
+# leading dashes, so no store slug starts with ``_``). Doubles as the
+# in-memory BrowserManager key and the wrapper/profile/downloads dir name.
+WEB_BROWSER_SLUG = '_web'
+
 # Per-store download directory (used by CDP proxy to override
 # browser-use's random /tmp dirs with a stable path).
 DOWNLOADS_DIR = VIBE_SELLER_DIR / 'downloads'

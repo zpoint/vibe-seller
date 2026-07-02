@@ -16,12 +16,14 @@ from app.browser.wrapper import (
     remove_browser_use_wrapper,
     store_slug,
     write_browser_use_wrapper,
+    write_web_browser_use_wrapper,
 )
 from app.browser.ziniao_utils import ensure_ziniao_running
 from app.config import (
     AI_BOT_USER_ID,
     DEMO_MODE,
     LOCALHOST,
+    WEB_BROWSER_SLUG,
 )
 from app.database import async_session
 from app.models.app_settings import AppSettings
@@ -42,6 +44,12 @@ logger = logging.getLogger(__name__)
 # "is the proxy alive?" probe would silently glue the demo agent into
 # whichever backend won the bind.
 _BASE_PROXY_PORT = 9322 if DEMO_MODE else 9222
+
+# app_settings key holding the orchestrator web browser's proxy port,
+# so it survives server restarts (the store equivalent lives on
+# BrowserSession.proxy_port; the store-less web browser has no such row
+# and uses this kv entry instead).
+_WEB_PROXY_PORT_KEY = 'web_browser_proxy_port'
 
 
 async def kill_aux_daemons() -> int:
@@ -522,6 +530,81 @@ class BrowserManager:
                 store_id=store.id,
                 headless=headless,
             )
+
+    async def _web_proxy_port(self, db: AsyncSession) -> int:
+        """Allocate (and persist) the web browser's proxy port.
+
+        Reuses the kv-persisted port across restarts, mirroring how
+        stores reuse ``BrowserSession.proxy_port``.
+        """
+        row = await db.get(AppSettings, _WEB_PROXY_PORT_KEY)
+        existing = int(row.value) if row and row.value.isdigit() else None
+        proxy_port = self._allocate_proxy_port(WEB_BROWSER_SLUG, existing)
+        if existing != proxy_port:
+            if row:
+                row.value = str(proxy_port)
+            else:
+                db.add(
+                    AppSettings(key=_WEB_PROXY_PORT_KEY, value=str(proxy_port))
+                )
+            await db.commit()
+        return proxy_port
+
+    async def write_web_browser_config(self, db: AsyncSession) -> None:
+        """Generate the store-less orchestrator ``web`` browser wrapper.
+
+        Creates ``~/.vibe-seller/bin/_web/browser-use``. No browser is
+        started here — the wrapper lazy-starts it via
+        ``POST /api/browser/web/start`` on first use, so no-store tasks
+        that never touch the browser pay nothing.
+        """
+        async with self._lock:
+            proxy_port = await self._web_proxy_port(db)
+            token = create_token(AI_BOT_USER_ID, 'ai_bot')
+            headless = await self._read_headless_setting(db)
+            write_web_browser_use_wrapper(
+                proxy_port,
+                api_token=token,
+                headless=headless,
+            )
+
+    async def start_web_session(self, db: AsyncSession) -> None:
+        """Start (or reuse) the store-less orchestrator ``web`` browser.
+
+        A single generic Chrome instance shared by all no-store tasks;
+        per-task tab isolation is provided by CDPMuxProxy keyed on
+        ``VIBE_TASK_ID`` (same as stores). Serialized via the lock so
+        concurrent orchestrator tasks racing the lazy auto-start can't
+        launch two Chromes.
+        """
+        async with self._lock:
+            proxy_port = await self._web_proxy_port(db)
+            if (
+                WEB_BROWSER_SLUG in self._active_sessions
+                and await self._cdp_alive_with_retry(proxy_port)
+            ):
+                return  # already up
+            # Tear down any stale backend before a fresh launch.
+            if WEB_BROWSER_SLUG in self._backends:
+                try:
+                    await self._backends[WEB_BROWSER_SLUG].stop(
+                        BrowserSessionInfo()
+                    )
+                except Exception as e:
+                    logger.warning('Error stopping stale web backend: %s', e)
+                del self._backends[WEB_BROWSER_SLUG]
+                self._active_sessions.pop(WEB_BROWSER_SLUG, None)
+
+            headless = await self._read_headless_setting(db)
+            browser_config = {
+                'proxy_port': proxy_port,
+                'store_slug': WEB_BROWSER_SLUG,
+                'headless': headless,
+            }
+            backend = self._get_backend(WEB_BROWSER_SLUG, 'chrome')
+            logger.info('Starting orchestrator web browser (chrome)')
+            info = await backend.start(browser_config)
+            self._active_sessions[WEB_BROWSER_SLUG] = info
 
     async def check_ziniao_reachable(
         self, store: Store, db: AsyncSession

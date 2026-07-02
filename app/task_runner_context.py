@@ -467,7 +467,8 @@ async def build_system_context(task: Task) -> str:
         'email providers, admin panels) require JavaScript '
         'and login cookies. Do NOT use WebFetch or curl — '
         'store tasks should use browser-use via Bash; '
-        'orchestrator tasks should delegate to store '
+        'orchestrator tasks should use their "web" browser for '
+        'public pages and delegate seller-center work to store '
         'sub-tasks.',
     ])
 
@@ -502,20 +503,33 @@ async def build_all_stores_context(
         # no-store task would otherwise get no guidance about
         # where to put its artifacts.
         return '\n'.join([
-            'You are a cross-store orchestrator. '
-            'You do NOT have a browser '
-            '— you cannot open web pages directly.',
+            'You are a cross-store orchestrator with a general-purpose '
+            '"web" browser (Chrome, not tied to any store) for neutral '
+            'public web work — web search, tracking/logistics/carrier '
+            'pages, public research. Run `browser-use` via Bash (load '
+            'the /browser-use skill first for exact CLI syntax).',
             '',
-            'No stores are configured yet. Any request that needs '
-            'browser work must wait until a store is created.',
+            'The web browser has NO store login/cookies and no per-store '
+            'IP isolation. NEVER open a seller/merchant center or log '
+            'into any store or platform account on it.',
+            '',
+            'No stores are configured yet, so no seller-center sub-tasks '
+            'are possible until a store is created.',
             '',
             *_NO_STORE_WRITE_POLICY,
         ])
 
     lines = [
-        'You are a cross-store orchestrator. '
-        'You do NOT have a browser '
-        '— you cannot open web pages directly.',
+        'You are a cross-store orchestrator with a general-purpose '
+        '"web" browser (Chrome, not tied to any store) for neutral '
+        'public web work — web search, tracking/logistics/carrier '
+        'pages, public research. Run `browser-use` via Bash (load the '
+        '/browser-use skill first for exact CLI syntax).',
+        '',
+        'The web browser has NO store login/cookies and no per-store IP '
+        'isolation. NEVER open a seller/merchant center or log into any '
+        'store or platform account on it — create a store sub-task for '
+        'anything that touches a store backend.',
         '',
         'Available stores:',
     ]
@@ -554,13 +568,17 @@ async def build_all_stores_context(
         'switching within the same browser session — '
         'do NOT create separate sub-tasks per country.',
         '',
-        'You CAN: read/write workspace files, '
-        'create sub-tasks, list stores/tasks.',
-        'You CANNOT: use browser-use CLI in orchestrator mode.',
-        'Do NOT use WebFetch or curl for seller center or '
-        'other authenticated pages — they require JavaScript '
-        'and login cookies. Delegate to a store sub-task '
-        'instead.',
+        'You CAN: use the "web" browser (`browser-use`) for neutral '
+        'public web work, read/write workspace files, create '
+        'sub-tasks, list stores/tasks.',
+        "You CANNOT: reach any store's seller center or authenticated "
+        'merchant pages from the web browser — those live behind the '
+        "store's own isolated (Ziniao/Chrome) session. Delegate that "
+        'work to a store sub-task.',
+        'Do NOT use WebFetch or curl for authenticated pages (they '
+        'need JavaScript + login cookies) — use the web browser for '
+        'public pages and delegate seller-center work to a store '
+        'sub-task.',
         '',
         'IMPORTANT: You cannot wait for sub-task results '
         'in this session. Create sub-tasks with clear '

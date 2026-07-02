@@ -14,6 +14,7 @@ from app.ai.bash_safety import (
     check_review_status,
 )
 from app.ai.skill_gate_utils import find_skill_md
+from app.config import WEB_BROWSER_SLUG
 from app.database import async_session
 from app.env_options import Options
 from app.models.schedule import Schedule
@@ -57,8 +58,11 @@ def apply_agent_venv_path(
     """Wire the task agent's ``PATH`` and ``VIRTUAL_ENV``.
 
     PATH priority (highest first):
-      1. per-store browser-use wrapper (``bin/<slug>``) — must win so
-         every ``browser-use`` call goes through session/CDP injection.
+      1. browser-use wrapper (``bin/<slug>``) — must win so every
+         ``browser-use`` call goes through session/CDP injection. Store
+         tasks use their per-store slug; no-store (orchestrator) tasks
+         fall back to the shared ``bin/_web`` wrapper for the store-less
+         web browser.
       2. shared agent venv (``~/.vibe-seller/.venv``) — the agent's
          ``python`` / ``pip``.
       3. server/install venv (``sys.executable``'s dir) — fallback for
@@ -92,11 +96,13 @@ def apply_agent_venv_path(
         # Shared venv not ready (should not happen after ensure_init) —
         # fall back to the server venv as the active env.
         env['VIRTUAL_ENV'] = str(server_bin.parent)
-    # 1. per-store browser-use wrapper — must sit ahead of both venvs.
-    if store_slug:
-        store_bin = vibe_home / 'bin' / store_slug
-        if store_bin.is_dir():
-            prepend_to_path(env, store_bin)
+    # 1. browser-use wrapper — must sit ahead of both venvs. Store tasks
+    #    use bin/<slug>; no-store (orchestrator) tasks fall back to the
+    #    shared bin/_web wrapper. Only prepended if the dir exists, so an
+    #    agent-less/store-less caller with no wrapper is unaffected.
+    wrapper_bin = vibe_home / 'bin' / (store_slug or WEB_BROWSER_SLUG)
+    if wrapper_bin.is_dir():
+        prepend_to_path(env, wrapper_bin)
 
 
 # Graceful shutdown timeouts (seconds)

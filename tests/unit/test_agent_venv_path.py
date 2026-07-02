@@ -72,6 +72,47 @@ class TestAgentVenvPath:
             < parts.index(str(server_bin))
         )
 
+    def test_no_store_task_gets_web_wrapper(self, tmp_path):
+        """A no-store (orchestrator) task falls back to the shared
+        ``bin/_web`` wrapper so its `browser-use` calls go through
+        session/CDP injection for the store-less web browser."""
+        vibe_home = tmp_path / 'vibe'
+        shared_bin = _mkvenv(vibe_home / '.venv')
+        server_bin = _mkvenv(tmp_path / 'server' / '.venv')
+        web_bin = vibe_home / 'bin' / '_web'
+        web_bin.mkdir(parents=True)
+
+        env = {'PATH': '/usr/bin'}
+        apply_agent_venv_path(
+            env,
+            store_slug=None,
+            vibe_home=vibe_home,
+            server_bin=server_bin,
+        )
+
+        parts = env['PATH'].split(os.pathsep)
+        assert (
+            parts.index(str(web_bin))
+            < parts.index(str(shared_bin))
+            < parts.index(str(server_bin))
+        )
+
+    def test_no_store_task_without_web_wrapper_is_safe(self, tmp_path):
+        """No-store task with no `bin/_web` dir yet: PATH is untouched by
+        the wrapper step (no crash, nothing prepended)."""
+        vibe_home = tmp_path / 'vibe'
+        _mkvenv(vibe_home / '.venv')
+        server_bin = _mkvenv(tmp_path / 'server' / '.venv')
+
+        env = {'PATH': '/usr/bin'}
+        apply_agent_venv_path(
+            env,
+            store_slug=None,
+            vibe_home=vibe_home,
+            server_bin=server_bin,
+        )
+        assert str(vibe_home / 'bin' / '_web') not in env['PATH']
+
     def test_regression_agent_not_pinned_to_server_venv(self, tmp_path):
         """The exact bug: the active env must NOT be the server venv.
 

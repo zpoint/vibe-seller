@@ -113,6 +113,13 @@ async def auto_run_task(task_id: str, store: Store | None):
             async with async_session() as db:
                 await browser_manager.write_browser_config_for_store(store, db)
                 store_emails = await get_store_emails(db, store.id)
+        else:
+            # No-store (orchestrator) task: drop the store-less "web"
+            # browser wrapper on disk so the agent can do neutral public
+            # web work (search, tracking/logistics). Lazy-started on
+            # first use, so tasks that never browse pay nothing.
+            async with async_session() as db:
+                await browser_manager.write_web_browser_config(db)
 
         # 1. Check remote for updates (async, non-blocking).
         # Local package sync runs once at startup (main.py lifespan).

@@ -16,7 +16,14 @@ allowed-tools: Bash(browser-use:*)
 > The flags `--profile`, `--cdp-url`, and `--connect` are **blocked** by the
 > wrapper — do not use them. Use the default session for the store's seller
 > center, or `--session <slug>-aux` for non-seller-center sites.
-> These flags only work in non-store contexts (workspace assistant, no-store tasks).
+>
+> **No-store (orchestrator) Tasks:** `browser-use` is wrapped by the store-less
+> `web` browser script (`bin/_web`). Use it only for neutral public web work
+> (search, tracking/logistics, research) — NEVER for a store's seller center or
+> to log into store/platform accounts (create a store sub-task for those). The
+> same flags are blocked here.
+>
+> These flags only work in the workspace assistant (raw `browser-use`, no wrapper).
 
 # Browser Automation with browser-use CLI
 
