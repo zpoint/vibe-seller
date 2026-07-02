@@ -220,6 +220,7 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/ziniao/launcher` | Download ziniao_webdriver.bat |
+| POST | `/api/browser/web/start` | Start (or reuse) the store-less orchestrator `web` browser. Lazy-called by the `bin/_web` wrapper on first use; parallels `POST /api/stores/{id}/browser/start`. Accepts `force` for parity (no-op). |
 
 ## `system.py` — Server Runtime Metadata
 

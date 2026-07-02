@@ -161,11 +161,11 @@ entry per store with knowledge files plus a run-data section
 
 Each task runs in an isolated working directory at `~/.vibe-seller/tasks/{task_id}/`. Shared resources are symlinked so agents can read/write them while task-specific files (downloads, scripts, temp data) stay isolated.
 
-**`prepare_task_workspace(task_id, *, store_id=None, clean=False)`** in `app/workspace/manager.py`:
+**`prepare_task_workspace(task_id, *, clean=False)`** in `app/workspace/manager.py`:
 
 1. Creates `~/.vibe-seller/tasks/{task_id}/`
 2. Symlinks shared resources into the task directory:
-   - `.claude` — copied from `~/.vibe-seller/.claude` (skills, settings; excludes `.venv`, `__pycache__`). When `store_id is None` (non-store/orchestrator task), browser-only skills like `browser-use` are excluded from the copy.
+   - `.claude` — copied from `~/.vibe-seller/.claude` (skills, settings; excludes `.venv`, `__pycache__`). The `browser-use` skill is copied for **every** task, including no-store (orchestrator) tasks — they now have the store-less `web` browser (see [docs/browser.md](browser.md)) and need the skill's CLI reference.
    - `knowledge` → `~/.vibe-seller/knowledge`
    - `stores` → `~/.vibe-seller/stores`
    - `store-data` → `~/.vibe-seller/store-data`

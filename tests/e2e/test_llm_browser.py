@@ -25,6 +25,8 @@ from playwright.sync_api import Page, expect
 import pytest
 
 from tests.e2e.e2e_helpers import (
+    BASE_URL,
+    PIPELINE_TIMEOUT,
     create_store,
     create_task,
     get_messages,
@@ -291,6 +293,99 @@ class TestLLMBrowserAPI:
             'Stop hook should emit reflection_completed after the '
             'retry approves; got only '
             f'{event_names}.'
+        )
+
+
+@pytest.mark.e2e
+class TestLLMWebBrowserNoStore:
+    """No-store (orchestrator) task drives the store-less ``web``
+    browser against the static test site — the mirror of
+    ``TestLLMBrowserAPI`` but with ``store_id=None``.
+
+    Proves the whole store-less browser path is wired end to end:
+    the ``browser-use`` skill is present in the no-store workspace,
+    the ``bin/_web`` wrapper is on PATH, its auto-start route brings
+    up Chrome + the CDP proxy, and the agent extracts real content.
+    """
+
+    def _run_no_store_task(self, api_client, prompt: str) -> dict:
+        """Create a no-store task and drive it to a terminal state.
+
+        Non-store tasks are forced into plan mode, so accept the
+        ``planned`` → execute-plan → ``completed`` path (and the
+        plan-skip shortcut where the agent completes directly). See
+        ``test_task_execution.test_task_without_store_completes``.
+        """
+        data = create_task(api_client, prompt)
+        assert data['store_id'] is None
+        assert data['plan_mode'] is True
+        result = poll_task_status(
+            api_client,
+            data['id'],
+            target_statuses={'planned', 'completed', 'waiting'},
+            fail_statuses={'failed'},
+            timeout=PIPELINE_TIMEOUT,
+        )
+        if result['status'] == 'planned':
+            r = api_client.post(
+                f'{BASE_URL}/api/tasks/{data["id"]}/execute-plan'
+            )
+            assert r.status_code == 200
+            result = poll_task_status(
+                api_client,
+                data['id'],
+                target_statuses={'completed', 'waiting'},
+                fail_statuses={'failed'},
+                timeout=PIPELINE_TIMEOUT,
+            )
+        assert result['status'] in ('completed', 'waiting'), (
+            f'Task failed: {result.get("error")}'
+        )
+        return data
+
+    def test_web_browser_reads_homepage(self, api_client, test_site):
+        """Agent uses the web browser to identify the company name."""
+        data = self._run_no_store_task(
+            api_client,
+            f'Use the browser-use CLI (your general web browser) to '
+            f'navigate to {test_site}. Read the page and report the '
+            f'company name. Include the company name in your result.',
+        )
+        msgs = get_messages(api_client, data['id'])
+        all_text = ' '.join(
+            m['content'] for m in msgs if m['role'] in ('assistant', 'result')
+        ).lower()
+        assert 'acme' in all_text, (
+            f'Expected "acme" in messages: {all_text[:500]}'
+        )
+
+    def test_web_browser_extracts_contact_details(self, api_client, test_site):
+        """Agent uses the web browser to reach the contact page and
+        extract the email + phone."""
+        data = self._run_no_store_task(
+            api_client,
+            f'Use the browser-use CLI (your general web browser) to '
+            f'navigate to {test_site} and find the contact page. '
+            f'Extract the contact details (email, phone, address) '
+            f'and report them.',
+        )
+        msgs = get_messages(api_client, data['id'])
+        all_text = ' '.join(
+            m['content'] for m in msgs if m['role'] in ('assistant', 'result')
+        )
+        normalized = unicodedata.normalize('NFKC', all_text)
+        norm_lower = normalized.lower()
+        assert 'hello@acme-corp.test' in norm_lower, (
+            f'Email not found in messages: {all_text[:500]}'
+        )
+        norm_hyphens = (
+            normalized.replace('‐', '-')
+            .replace('‑', '-')
+            .replace('‒', '-')
+            .replace('–', '-')
+        )
+        assert '555-0123' in norm_hyphens, (
+            f'Phone not found in messages: {all_text[:500]}'
         )
 
 

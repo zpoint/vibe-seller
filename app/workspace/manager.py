@@ -660,25 +660,22 @@ browser: {backend}
                 raise RuntimeError(f'git {" ".join(args)} failed: {err}')
             return proc
 
-    # Skills that require a browser session.  Excluded from
-    # non-store (orchestrator) task workspaces so the agent
-    # doesn't discover them and mistakenly plan browser actions.
-    _BROWSER_SKILLS: set[str] = {'browser-use'}
-
     async def prepare_task_workspace(
         self,
         task_id: str,
         *,
-        store_id: str | None = None,
         clean: bool = False,
     ) -> Path:
         """Create a per-task working directory with symlinks.
 
         Returns the absolute path to ``tasks/{task_id}/``. Shared
         resources (knowledge, stores, skills, CLAUDE.md) are
-        symlinked; task-specific files stay isolated. When
-        *store_id* is ``None`` (orchestrator / non-store task),
-        browser-only skills are excluded from the copy.
+        symlinked; task-specific files stay isolated.
+
+        The ``browser-use`` skill is copied for every task, including
+        no-store (orchestrator) tasks — they now have the store-less
+        ``web`` browser for neutral public web work, so they need the
+        skill's CLI reference too.
         """
         await self.ensure_init()
         task_dir = self.root / 'tasks' / task_id
@@ -708,20 +705,10 @@ browser: {backend}
         # Glob doesn't follow symlinks when traversing ** patterns.
         # Exclude __pycache__ and stale .venv dirs (skills use the
         # shared workspace venv at ~/.vibe-seller/.venv/ instead).
-        skip_skills = self._BROWSER_SKILLS if store_id is None else set()
-
         def _ignore(directory: str, contents: list[str]) -> set[str]:
-            ignored = set()
-            for name in contents:
-                if name in ('__pycache__', '.venv'):
-                    ignored.add(name)
-                if (
-                    skip_skills
-                    and Path(directory).name == 'skills'
-                    and name in skip_skills
-                ):
-                    ignored.add(name)
-            return ignored
+            return {
+                name for name in contents if name in ('__pycache__', '.venv')
+            }
 
         claude_src = self.root / '.claude'
         claude_dst = task_dir / '.claude'
