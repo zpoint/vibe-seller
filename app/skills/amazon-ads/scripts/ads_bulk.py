@@ -319,7 +319,7 @@ def blank_row():
     return [None] * NUM_COLS
 
 
-def write_upload(wb_template_path, ws_title, header, out_rows, out_path):
+def write_upload(ws_title, header, out_rows, out_path):
     """Write an upload workbook: cloned header + Create/Update data rows.
 
     Reusing the downloaded header row verbatim is what makes the upload
@@ -415,6 +415,10 @@ def cmd_clone_campaign(args):
     p[Col.AD_GROUP_NAME] = ag
     p[Col.STATE] = paused
     p[Col.SKU] = args.sku
+    # ASIN column is informational (the uploader keys on SKU), but write
+    # it when given so the generated sheet is self-documenting / verifiable.
+    if args.asin:
+        p[Col.ASIN_INFO] = args.asin
     out_rows.append(p)
 
     # Keywords, copied from source (text + match type; bid = source bid
@@ -445,7 +449,7 @@ def cmd_clone_campaign(args):
         f'sku={args.sku})'
     )
     out_path = args.out or 'bulk_create_upload.xlsx'
-    write_upload(args.file, ws.title, header, out_rows, out_path)
+    write_upload(ws.title, header, out_rows, out_path)
 
 
 # --- bid-update ---------------------------------------------------------
@@ -490,10 +494,14 @@ def cmd_bid_update(args):
 
     if not out_rows:
         sys.exit('error: no keyword bids matched / changed')
-    how = f'scale x{args.scale}' if args.scale else f'set={args.set_bid}'
+    how = (
+        f'scale x{args.scale}'
+        if args.scale is not None
+        else f'set={args.set_bid}'
+    )
     print(f'bid update: {len(out_rows)} keyword row(s) {how}')
     out_path = args.out or 'bulk_bid_update.xlsx'
-    write_upload(args.file, ws.title, header, out_rows, out_path)
+    write_upload(ws.title, header, out_rows, out_path)
 
 
 # --- archive-campaign ---------------------------------------------------
@@ -525,7 +533,7 @@ def cmd_archive_campaign(args):
     a[Col.CAMPAIGN_ID] = cid
     print(f'archiving campaign {args.campaign!r} (id={cid})')
     out_path = args.out or 'bulk_archive.xlsx'
-    write_upload(args.file, ws.title, header, [a], out_path)
+    write_upload(ws.title, header, [a], out_path)
 
 
 def main():
