@@ -8,7 +8,9 @@ import remarkGfm from 'remark-gfm'
 // bilingual sections, etc.). Markdown treats a single newline as a soft
 // break — it collapses to a space — so the text renders as one run-on
 // wall. Promote each newline to a hard break (two trailing spaces) so
-// the author's line structure survives, while GFM handles bold/lists/hr.
+// the author's line structure survives. (Bold/italic/lists/hr are plain
+// CommonMark; remark-gfm below adds the GFM extensions — tables,
+// strikethrough, task lists, autolinks.)
 function preserveBreaks(text: string): string {
   return (text || '').replace(/\n/g, '  \n')
 }
