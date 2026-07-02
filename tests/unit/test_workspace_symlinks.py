@@ -150,6 +150,11 @@ async def test_clean_and_remove_preserve_shared_data(ws):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.name == 'nt',
+    reason='POSIX-only: uses os.symlink as a junction stand-in, which '
+    'itself needs the privilege this scenario simulates missing',
+)
 async def test_windows_strategy_avoids_privileged_symlink(ws, monkeypatch):
     """Regression guard for WinError 1314.
 

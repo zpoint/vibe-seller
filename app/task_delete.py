@@ -143,7 +143,16 @@ async def delete_task(
             # remove_task_workspace clears the shared-resource links
             # (POSIX symlinks / Windows junctions) before rmtree, so a
             # junction can never be followed into shared knowledge/stores.
-            await asyncio.to_thread(remove_task_workspace, task_dir)
+            # Best-effort: the task rows are already committed above, so a
+            # workspace-removal error must not bubble up as a 500.
+            try:
+                await asyncio.to_thread(remove_task_workspace, task_dir)
+            except OSError:
+                logger.warning(
+                    'Failed to remove task workspace %s',
+                    task_dir,
+                    exc_info=True,
+                )
     return True
 
 

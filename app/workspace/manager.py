@@ -666,11 +666,14 @@ browser: {backend}
         *,
         clean: bool = False,
     ) -> Path:
-        """Create a per-task working directory with symlinks.
+        """Create a per-task working directory linked to shared dirs.
 
         Returns the absolute path to ``tasks/{task_id}/``. Shared
-        resources (knowledge, stores, skills, CLAUDE.md) are
-        symlinked; task-specific files stay isolated.
+        resources (knowledge, stores, store-data, CLAUDE.md) are linked
+        to the shared root — POSIX symlinks, or Windows directory
+        junctions plus a CLAUDE.md copy, since ``os.symlink`` needs a
+        privilege stock Windows lacks (see ``app/workspace/task_links``).
+        Task-specific files stay isolated.
 
         The ``browser-use`` skill is copied for every task, including
         no-store (orchestrator) tasks — they now have the store-less

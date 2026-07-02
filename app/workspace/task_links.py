@@ -83,9 +83,14 @@ def remove_task_workspace(task_dir: Path) -> None:
     Clears the shared-resource links first so the final ``rmtree`` can
     never descend a junction into shared knowledge/stores, then removes
     the task-local files. Safe to call on POSIX (symlinks) too.
+
+    Raises on failure (e.g. a locked file) rather than swallowing it, so
+    ``clean=True`` callers surface the error as they did before this
+    helper existed; best-effort callers (task deletion) wrap it in
+    try/except.
     """
     if not task_dir.exists() and not task_dir.is_symlink():
         return
     for name in _SHARED_LINK_NAMES:
         _clear_workspace_link(task_dir / name)
-    shutil.rmtree(task_dir, ignore_errors=True)
+    shutil.rmtree(task_dir)
