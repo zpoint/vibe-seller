@@ -190,10 +190,51 @@ has these checkboxes (default all checked for "Enabled & Paused"):
 - Sponsored brands search term data
 - Budget Rules Data
 
-Click `Download` (`下载`) in the modal. The job takes **5–15 min** for
-~150 campaigns. The status table polls infrequently — refresh the
-page to update. When status flips to `Success` (`成功`), click the row's
-`Download` link; the file lands in `~/.vibe-seller/downloads/<store>/BulkSheetExport.xlsx`.
+Click `Download` (`下载` / `下載` / localized) in the modal to submit.
+The job takes **5–15 min** for ~150 campaigns and the status table polls
+infrequently — re-`open` the bulk-operations URL to refresh. When the
+row's Status flips to `Success`, trigger the download by its **anchor,
+matched by href** — this is the one method that works on **both macOS
+and native-Windows**. Do NOT click the visible link text: the
+"下载 / 下載 / Download" cell content is a `<p>` label, not the clickable
+`<a>`. A coordinate/element click on that label happened to work on
+macOS but **silently no-ops on Ziniao / native-Windows** (nothing
+downloads, the dir stays empty — the failure this section fixes). The
+real link is an `<a download href="…/bulk-operations/download/…xlsx">`
+in that cell; match it **by href, not by button text** (the label is
+localized — 下载 / 下載 / Download — and the ag-Grid column *header* also
+reads "Download"):
+
+```bash
+# Preferred: click the real <a download> via JS (the grid is an ag-Grid
+# inside a web-component shadow root, so walk shadow roots to find it).
+browser-use eval "
+(function(){
+  function walk(root,acc){root.querySelectorAll('*').forEach(function(e){
+    if(e.shadowRoot)walk(e.shadowRoot,acc);
+    if(e.tagName==='A'&&/bulk-operations\/download\//.test(e.href||''))acc.push(e);
+  });return acc;}
+  var a=walk(document,[]);
+  if(!a.length)return 'NO_LINK';   // newest job is a[0]
+  a[0].click();                    // real <a download> click → fires the download
+  return 'CLICKED '+a[0].href.slice(-48);
+})()"
+# Alternative: capture a[0].href and `browser-use open <href>`. Chrome
+# aborts the 'navigation' to start a download, so open returns a benign
+# `Error: Navigation failed: net::ERR_ABORTED` — the file still lands.
+```
+
+The file lands in `~/.vibe-seller/downloads/<slug>/` (the CDP mux proxy
+pins Chrome's download path there via `setDownloadBehavior` — verified on
+native-Windows too, not just macOS). Its name is Amazon's real export
+name `bulk-<entity>-<YYYYMMDD>-<YYYYMMDD>-<epochms>.xlsx`
+(e.g. `bulk-a1b2c3d4e5-20250101-20250131-1700000000000.xlsx`), **NOT** a
+fixed `BulkSheetExport.xlsx`. Don't hard-code the name — grab the newest
+xlsx and wait for any in-progress `*.crdownload` to disappear first:
+
+```bash
+ls -t ~/.vibe-seller/downloads/<slug>/*.xlsx 2>/dev/null | head -1
+```
 
 The XLSX has 9 sheets; the meaningful ones for SP are
 `Sponsored Products Campaigns` (one row per entity: Campaign /
