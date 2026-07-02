@@ -102,7 +102,7 @@ bite immediately:
    WU_WIN='C:\Users\<WinUser>\.vibe-seller\bin\<slug>\browser-use'   # native path, backslashes
    TASK_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
    run(){ "$BASHEXE" -c "export VIBE_TASK_ID='$TASK_ID'; export PYTHONIOENCODING=utf-8 PYTHONUTF8=1; '$WU_WIN' $1"; }
-   run "open https://sellercentral.amazon.sa/home"
+   run "open https://sellercentral.amazon.<tld>/home"
    run "state"
    ```
 
