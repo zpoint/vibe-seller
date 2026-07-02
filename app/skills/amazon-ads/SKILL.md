@@ -62,7 +62,8 @@ Stop-hook needed.
 
 | Reference | Load when |
 |---|---|
-| [`mechanics.md`](references/mechanics.md) | Any time you're about to issue a `browser-use` call against Amazon Ads or Coupons. Sections: § 0 preconditions, § 1 URLs, § 2 reading existing campaigns, § 3 creating a new campaign, § 4 bulk download / upload, § 5 coupons, § 6 wedged-daemon recovery, § 7 per-store conventions, § 8 reading playbook for tuning (Bid Adjustments date-range alignment rule, Search terms tab, bidding-strategy edit, daily-budget edit), § 9 scope. |
+| [`bulk-operations.md`](references/bulk-operations.md) | **DEFAULT for creating a campaign or applying bids across keywords/campaigns.** Export → edit with `scripts/ads_bulk.py` → import → verify. Locale-general (positional 52-col schema, template-cloned headers) and guards the ASIN-as-SKU trap in code. The click paths below are the **fallback** — a single tweak, a field with no bulk column, or two failed imports. |
+| [`mechanics.md`](references/mechanics.md) | Any time you're about to issue a `browser-use` call against Amazon Ads or Coupons. Sections: § 0 preconditions, § 1 URLs, § 2 reading existing campaigns, § 3 creating a new campaign, § 4 bulk download / upload, § 5 coupons, § 6 wedged-daemon recovery, § 7 per-store conventions, § 8 reading playbook for tuning (Bid Adjustments date-range alignment rule, Search terms tab, bidding-strategy edit, daily-budget edit), § 9 scope. **§3 (UI create) and §4a0 (ag-Grid edits) are the fallback to `bulk-operations.md`.** |
 
 ## Safety rails
 

@@ -7,6 +7,9 @@ amazon-ads/references/tuning-toolbox.md
 amazon-ads/references/tuning-funnel-diagnosis.md
 amazon-ads/references/tuning-recommendation-format.md
 amazon-ads/references/tuning-campaign-types.md
+amazon-ads/references/bulk-operations.md
+amazon-ads/scripts/ads_bulk.py
+amazon-ads/requirements.txt
 amazon-invoice/SKILL.md
 amazon-invoice/generate_invoice.py
 amazon-invoice/requirements.txt
