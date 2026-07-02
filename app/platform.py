@@ -188,6 +188,151 @@ def find_pid_listening_on_port(port: int) -> int | None:
     return None
 
 
+# Signature of a vibe-seller headless task agent (`claude -p` with the
+# bidirectional stream-json protocol) — a combo interactive Claude Code
+# never uses, so matching it can't hit an unrelated Claude session. Plus
+# the browser daemon it spawns.
+_AGENT_CMDLINE_PATTERN = 'output-format stream-json --input-format stream-json'
+_BROWSER_DAEMON_PATTERN = 'skill_cli.daemon'
+# The per-store wrapper. An agent that died ungracefully (a bare -9
+# instead of a process-group kill) can orphan a `bash .../browser-use
+# eval …` poll-loop — reparented to init/launchd — that keeps hammering
+# browser/start. Match the wrapper path AND a browser-use subcommand, so
+# a *running* wrapper is reaped but a mere reference to the path (e.g. an
+# editor viewing `~/.vibe-seller/bin/<slug>/browser-use`) is not.
+_WRAPPER_PATH = '.vibe-seller/bin/'
+_WRAPPER_VERBS = (
+    'eval',
+    'open',
+    'state',
+    'click',
+    'close',
+    'screenshot',
+    'type',
+    'input',
+    'keys',
+    'sessions',
+    'get',
+    'extract',
+    'scroll',
+    'wait',
+    'hover',
+    'dblclick',
+    'rightclick',
+    'select',
+    'upload',
+    'back',
+)
+
+
+def _is_task_process(cmdline: str) -> bool:
+    """True if the command line is a vibe-seller task agent, its browser
+    daemon, or a running per-store browser-use wrapper (not an editor
+    merely referencing the wrapper path)."""
+    if _AGENT_CMDLINE_PATTERN in cmdline or _BROWSER_DAEMON_PATTERN in cmdline:
+        return True
+    if _WRAPPER_PATH in cmdline and '/browser-use' in cmdline:
+        return any(f'browser-use {v}' in cmdline for v in _WRAPPER_VERBS)
+    return False
+
+
+def collect_agent_descendants(pid: int) -> set[int]:
+    """PIDs of task-agent processes descended from ``pid`` (a server).
+
+    Used by ``vibe-seller stop`` to scope reaping to the stopped server's
+    own agents. Must be called BEFORE the server is killed — once it
+    exits, its agents reparent to init/launchd and are no longer its
+    descendants. Best-effort; returns an empty set on any error.
+    """
+    try:
+        kids = psutil.Process(pid).children(recursive=True)
+    except (psutil.NoSuchProcess, psutil.AccessDenied):
+        return set()
+    out: set[int] = set()
+    for child in kids:
+        try:
+            if _is_task_process(' '.join(child.cmdline() or [])):
+                out.add(child.pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return out
+
+
+async def reap_task_agents(pids: set[int] | None = None) -> int:
+    """Kill orphaned task-agent process trees. Cross-platform.
+
+    A stopped/restarted server can leave `claude -p` agents (and their
+    MCP server / skill_cli.daemon / browser-use children) alive. An
+    orphan keeps calling ``browser/start`` on the next server and
+    thrashes the shared Ziniao client. The graceful in-process path
+    (``agent_manager.stop_all``) only runs on a clean SIGTERM shutdown —
+    Windows ``TerminateProcess`` (what ``vibe-seller stop`` / the tray
+    quit-restart use) bypasses it — so the stop command calls this as a
+    process-level backstop that works on every OS.
+
+    ``pids``: when given, only these root PIDs are considered (used by
+    ``vibe-seller stop`` to scope the reap to the *stopped server's own*
+    agent subtree — collected before the server is killed — so a second
+    server instance's agents are never touched). When ``None``, scans all
+    processes for the task signatures.
+
+    Kills each matched process together with its whole child tree via
+    psutil (``children(recursive=True)``), which needs no ``killpg`` /
+    ``taskkill`` and behaves identically on Windows and Unix. Best-effort:
+    never raises; returns the number of root processes reaped.
+    """
+    own = os.getpid()
+
+    def _reap() -> int:
+        roots: dict[int, psutil.Process] = {}
+        if pids is not None:
+            for pid in pids:
+                if pid == own:
+                    continue
+                try:
+                    roots[pid] = psutil.Process(pid)
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        else:
+            for proc in psutil.process_iter(['pid', 'cmdline']):
+                try:
+                    if proc.info['pid'] == own:
+                        continue
+                    full = ' '.join(proc.info.get('cmdline') or [])
+                    if _is_task_process(full):
+                        roots[proc.info['pid']] = proc
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
+        if not roots:
+            return 0
+        # Gather each root + its descendants, then terminate → kill.
+        victims: dict[int, psutil.Process] = {}
+        for root in roots.values():
+            victims[root.pid] = root
+            try:
+                for child in root.children(recursive=True):
+                    victims[child.pid] = child
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        for p in victims.values():
+            try:
+                p.terminate()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        _gone, alive = psutil.wait_procs(list(victims.values()), timeout=3)
+        for p in alive:
+            try:
+                p.kill()
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return len(roots)
+
+    reaped = await asyncio.to_thread(_reap)
+    if reaped:
+        logger.info('Reaped %d orphaned task agent(s)/daemon(s)', reaped)
+    return reaped
+
+
 # -- File permissions -------------------------------------------------
 
 
