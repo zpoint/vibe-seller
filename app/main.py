@@ -192,15 +192,15 @@ async def lifespan(app: FastAPI):
             user_count = (
                 await db_counts.execute(select(func.count(User.id)))
             ).scalar() or 0
-        props = telemetry.base_properties()
-        props.update({
+        props = {
             'store_count': store_count,
             'total_task_count': task_count,
             'active_schedule_count': schedule_count,
             'user_count': user_count,
-        })
+        }
     except Exception:
-        props = telemetry.base_properties()
+        props = {}
+    # base_properties() (app_version, os, …) is merged in by send().
     telemetry.send(TelemetryEvent.APP_STARTED, props)
     # Trigger initial email sync in background
     sync_task = asyncio.create_task(sync_all_email_accounts())
