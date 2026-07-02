@@ -731,10 +731,7 @@ async def retry_task(
     # clean=False still refreshes infra (symlinks, .claude copy)
     # while task-authored files persist.
     try:
-        await workspace_manager.prepare_task_workspace(
-            task_id,
-            store_id=task.store_id,
-        )
+        await workspace_manager.prepare_task_workspace(task_id)
     except Exception:
         logger.exception(
             'Failed to refresh workspace for task %s on retry',

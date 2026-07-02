@@ -81,12 +81,11 @@ class ClaudeCodeBackend(AIAgentBackend):
             # task launches do).
             await skills_sync.wait_deps_ready()
 
-            # Prepare isolated per-task workspace.
-            # Pass store_slug so browser-only skills are excluded
-            # from orchestrator (no-store) workspaces.
+            # Prepare isolated per-task workspace. All skills (including
+            # browser-use) are copied regardless of store — no-store
+            # tasks now have the store-less web browser.
             task_dir = await workspace_manager.prepare_task_workspace(
                 task_id,
-                store_id=store_slug,
             )
 
             session = AgentSession(

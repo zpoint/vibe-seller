@@ -22,6 +22,8 @@ from app.browser.manager import (
     store_slug,
     write_browser_use_wrapper,
 )
+from app.browser.web_wrapper import write_web_browser_use_wrapper
+from app.config import WEB_BROWSER_SLUG
 
 
 def _generate_wrapper(
@@ -419,6 +421,67 @@ class TestWrapperUrlValidation:
             assert result.returncode == 0, (
                 f'{argv} should not trip URL check: stderr={result.stderr!r}'
             )
+
+
+def _generate_web_wrapper(tmp_path: Path) -> Path:
+    """Generate the store-less orchestrator web wrapper, REAL_BU/curl
+    stubbed so it runs offline (mirrors ``_generate_wrapper``)."""
+    bin_dir = tmp_path / 'bin'
+    with mock.patch('app.browser.web_wrapper._BIN_DIR', bin_dir):
+        write_web_browser_use_wrapper(9222, api_token='t0ken')
+    wrapper = bin_dir / WEB_BROWSER_SLUG / 'browser-use'
+    content = wrapper.read_text()
+    content = re.sub(r'REAL_BU="[^"]*"', 'REAL_BU="echo"', content)
+    content = content.replace('curl ', '/usr/bin/true ')
+    wrapper.write_text(content)
+    return wrapper
+
+
+@pytest.mark.unit
+class TestWebWrapper:
+    """The store-less orchestrator ``web`` browser wrapper."""
+
+    def test_default_session_is_web(self, tmp_path: Path):
+        wrapper = _generate_web_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'state')
+        assert result.returncode == 0, result.stderr
+        assert '--session web' in result.stdout
+
+    def test_per_task_session_allowed(self, tmp_path: Path):
+        wrapper = _generate_web_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, '--session', 'web-a1b2c3d4', 'state')
+        assert result.returncode == 0, result.stderr
+
+    def test_store_session_blocked(self, tmp_path: Path):
+        """A store-shaped session must NOT be accepted by the web
+        wrapper — the web browser is store-less."""
+        wrapper = _generate_web_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, '--session', 'mystore', 'state')
+        assert result.returncode == 1
+        assert 'not allowed' in result.stderr
+
+    def test_cdp_url_injected(self, tmp_path: Path):
+        bin_dir = tmp_path / 'bin'
+        with mock.patch('app.browser.web_wrapper._BIN_DIR', bin_dir):
+            write_web_browser_use_wrapper(9222, api_token='t0ken')
+        content = (bin_dir / WEB_BROWSER_SLUG / 'browser-use').read_text()
+        assert 'CDP_ARGS' in content
+        assert '--cdp-url' in content
+        # Auto-start hits the store-less web route, never /api/stores/.
+        assert '/api/browser/web/start' in content
+        assert '/api/stores/' not in content
+
+    def test_cdp_url_flag_blocked(self, tmp_path: Path):
+        wrapper = _generate_web_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, '--cdp-url', 'http://evil', 'state')
+        assert result.returncode == 1
+        assert '--cdp-url' in result.stderr
+
+    def test_open_missing_url_is_loud(self, tmp_path: Path):
+        wrapper = _generate_web_wrapper(tmp_path)
+        result = _run_wrapper(wrapper, 'open')
+        assert result.returncode == 2
+        assert 'http' in result.stderr.lower()
 
 
 def _generate_raw_wrapper(

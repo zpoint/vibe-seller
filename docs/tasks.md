@@ -54,7 +54,7 @@ On re-dispatch, `auto_run_task` calls `maybe_inject_pending_answers()` which com
 
 ## Parent / Sub-Task Hierarchy
 
-Orchestrator (non-store) tasks can create per-store sub-tasks via `parent_task_id`. This enables cross-store workflows where a single parent task fans out work to individual stores.
+Orchestrator (non-store) tasks can create per-store sub-tasks via `parent_task_id`. This enables cross-store workflows where a single parent task fans out work to individual stores. The parent also has a store-less `web` browser (see [docs/browser.md](browser.md#store-less-web-browser)) for neutral public web work (search, tracking/logistics) it can do directly; anything touching a store's seller center still goes to a sub-task.
 
 - **Parent task**: A non-store task (`store_id=None`) that coordinates the overall workflow
 - **Sub-tasks**: Per-store tasks linked via `parent_task_id`. Each sub-task must have a `store_id`
@@ -75,7 +75,8 @@ POST /api/tasks → status: "pending"
     Fanout L2 tasks are the exception: submitted to queue with store_id=None, bypass browser/session
   → Queue dispatch infers launcher: plan exists → _execute_planned_task, woken → _execute_woken_task, else → _auto_run_task
   → _auto_run_task():
-    1. browser_manager.write_browser_config_for_store()
+    1. browser_manager.write_browser_config_for_store() (store tasks) /
+       write_web_browser_config() (no-store tasks → bin/_web wrapper)
     2. knowledge_sync.fetch()
     3. agent.run(mode="auto") — bypassPermissions from start:
        a. Agent starts with --permission-mode bypassPermissions
@@ -166,7 +167,7 @@ Assembly order (fixed for all task types):
 
 `start_agent()` (ad-hoc) intentionally skips full context — it's for raw interaction.
 
-**Task dispatch**: All task launch paths (create, retry, continue, execute-plan, scheduled) route through `TaskQueueScheduler`. Store tasks are gated by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, `QUEUE`). No-store tasks (`store_id=None`, e.g., L2 catalog sync) always dispatch immediately — they bypass browser config, session tracking, and CDP proxy. Per-store tasks can run concurrently when sharing the same platform/country, with CDP-level isolation provided by `CDPMuxProxy`.
+**Task dispatch**: All task launch paths (create, retry, continue, execute-plan, scheduled) route through `TaskQueueScheduler`. Store tasks are gated by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, `QUEUE`). No-store tasks (`store_id=None`) always dispatch immediately — they bypass the *per-store* browser config, session tracking, and store CDP proxy. They still get the store-less `web` browser wrapper (`bin/_web`), which lazy-starts its own Chrome + CDP proxy on first use via `POST /api/browser/web/start` (so a no-store task that never browses pays nothing). Per-store tasks can run concurrently when sharing the same platform/country, with CDP-level isolation provided by `CDPMuxProxy`.
 
 ## Event Flow During Execution
 

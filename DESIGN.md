@@ -851,6 +851,7 @@ Store-level email connections with IMAP auto-discovery and watermark tracking.
 
 - **Persistent profiles**: Managed by browser-use daemon per session. Chrome stores use `--session {slug}` for profile isolation. Cookies, localStorage, and login sessions survive across tasks.
 - **Ziniao aux sessions**: Ziniao stores also get an auxiliary Chrome session (`{slug}-aux`) for non-seller-center URLs (Google, logistics sites, etc.). The aux session starts lazily on first use — zero overhead if unused.
+- **Store-less `web` browser**: No-store (orchestrator) tasks get a single generic Chrome browser (not tied to any store, wrapper at `bin/_web`, sessions `web`/`web-{task[:8]}`) for neutral public web work; seller-center work still delegates to a per-store sub-task. Distinct from the per-store `{slug}-aux`. See [docs/browser.md](docs/browser.md#store-less-web-browser).
 - **Proxy config**: Only relevant for Chrome stores in UI.
 - **Bookmarks**: `read_bookmarks(slug)` reads `Default/Bookmarks` JSON from the profile dir. Auto-injected into agent context when knowledge files are sparse.
 
