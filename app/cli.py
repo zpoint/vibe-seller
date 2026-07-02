@@ -24,7 +24,12 @@ import subprocess
 import sys
 import time
 
-from app.platform import is_process_alive, kill_process
+from app.platform import (
+    collect_agent_descendants,
+    is_process_alive,
+    kill_process,
+    reap_task_agents,
+)
 
 
 def _resolve_version() -> str:
@@ -290,12 +295,29 @@ def _cmd_stop(args: argparse.Namespace) -> int:
         print(f'No vibe-seller process tracked on port {port}.')
         return 0
 
+    # Collect THIS server's task-agent descendants BEFORE killing it, so
+    # the reap is scoped to its own agents — a second vibe-seller server
+    # on another port keeps its agents. (Agents are spawned with
+    # start_new_session but remain descendants of the server until it
+    # exits; once it's killed they reparent to init/launchd, so we must
+    # snapshot them first.)
+    agent_pids = collect_agent_descendants(pid)
+
     # kill_process (psutil): terminate → poll → kill, cross-platform.
     # The old os.kill(SIGTERM)→SIGKILL path was Unix-only — signal.SIGKILL
     # doesn't even exist on Windows.
+    #
+    # Then reap those agents. On Unix a SIGTERM'd server runs its graceful
+    # shutdown (agent_manager.stop_all) and reaps its own agents; on
+    # Windows terminate()=TerminateProcess kills the server WITHOUT that
+    # handler, so we reap at the process level here as a backstop —
+    # otherwise orphaned `claude -p` agents keep driving browser/start on
+    # the next server and thrash the shared Ziniao client.
     asyncio.run(kill_process(pid))
+    reaped = asyncio.run(reap_task_agents(pids=agent_pids)) if agent_pids else 0
     _pid_file_for(port).unlink(missing_ok=True)
-    print(f'Stopped vibe-seller on port {port} (PID {pid}).')
+    suffix = f' (+{reaped} task agent(s) reaped)' if reaped else ''
+    print(f'Stopped vibe-seller on port {port} (PID {pid}).{suffix}')
     return 0
 
 
