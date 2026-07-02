@@ -5,7 +5,9 @@ They mock IS_WINDOWS to test both code paths regardless of
 the actual OS.
 """
 
+import os
 from pathlib import Path
+import socket
 from unittest.mock import AsyncMock, patch
 
 import psutil
@@ -178,6 +180,29 @@ class TestFindProcessesByPattern:
                 'browser_use.skill_cli.daemon'
             )
             assert len(result) == 0
+
+
+class TestFindPidListeningOnPort:
+    """Port-based lookup is what makes `vibe-seller stop` (and the tray
+    'restart') reliable when the pid file is missing/stale."""
+
+    def test_finds_own_listener(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('127.0.0.1', 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+        try:
+            assert plat.find_pid_listening_on_port(port) == os.getpid()
+        finally:
+            s.close()
+
+    def test_none_when_nobody_listening(self):
+        # Bind to grab a free port, then close so no LISTEN socket remains.
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+        s.close()
+        assert plat.find_pid_listening_on_port(port) is None
 
 
 # -- File permissions -------------------------------------------------
