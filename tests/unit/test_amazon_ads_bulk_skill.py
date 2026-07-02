@@ -47,19 +47,58 @@ NUM_COLS = ads_bulk.NUM_COLS
 # Localised (zh_CN) header row + sheet name — the stress case for the
 # positional parser. Only positions matter; labels are decorative.
 ZH_HEADER = [
-    '产品', '实体层级', '操作', '广告活动编号', '广告组编号',
-    '广告组合编号', '广告编号', '关键词编号', '商品投放 ID',
-    '广告活动名称', '广告组名称', '广告活动名称（仅供参考）',
-    '广告组名称（仅供参考）', '广告组合名称（仅供参考）', '开始日期',
-    '结束日期', '投放类型', '状态', '广告活动状态（仅供参考）',
-    '广告组状态（仅供参考）', '每日预算', 'SKU', 'ASIN（仅供参考）',
-    '资格状态（仅供参考）', '不符合条件的原因（仅供参考）',
-    '广告组默认竞价', '广告组默认竞价（仅供参考）', '竞价', '关键词文本',
-    '母语关键词', '母语区域', '匹配类型', '竞价方案', '广告位', '百分比',
-    '拓展商品投放编号', '拓展商品投放名称（仅供参考）', '受众编号',
-    '购物者群体占比', '购物者群体类型', '站点名称（仅供参考）', '展示量',
-    '点击量', '点击率', '花费', '销量', '订单数量', '商品数量', '转化率',
-    'ACOS', 'CPC', 'ROAS',
+    '产品',
+    '实体层级',
+    '操作',
+    '广告活动编号',
+    '广告组编号',
+    '广告组合编号',
+    '广告编号',
+    '关键词编号',
+    '商品投放 ID',
+    '广告活动名称',
+    '广告组名称',
+    '广告活动名称（仅供参考）',
+    '广告组名称（仅供参考）',
+    '广告组合名称（仅供参考）',
+    '开始日期',
+    '结束日期',
+    '投放类型',
+    '状态',
+    '广告活动状态（仅供参考）',
+    '广告组状态（仅供参考）',
+    '每日预算',
+    'SKU',
+    'ASIN（仅供参考）',
+    '资格状态（仅供参考）',
+    '不符合条件的原因（仅供参考）',
+    '广告组默认竞价',
+    '广告组默认竞价（仅供参考）',
+    '竞价',
+    '关键词文本',
+    '母语关键词',
+    '母语区域',
+    '匹配类型',
+    '竞价方案',
+    '广告位',
+    '百分比',
+    '拓展商品投放编号',
+    '拓展商品投放名称（仅供参考）',
+    '受众编号',
+    '购物者群体占比',
+    '购物者群体类型',
+    '站点名称（仅供参考）',
+    '展示量',
+    '点击量',
+    '点击率',
+    '花费',
+    '销量',
+    '订单数量',
+    '商品数量',
+    '转化率',
+    'ACOS',
+    'CPC',
+    'ROAS',
 ]
 assert len(ZH_HEADER) == NUM_COLS
 
@@ -81,21 +120,60 @@ def _make_export(path):
     ws = wb.active
     ws.title = ZH_SHEET
     ws.append(ZH_HEADER)
-    ws.append(_row(ENTITY='广告活动', CAMPAIGN_ID='C1',
-                   CAMPAIGN_NAME=SRC_CAMPAIGN, STATE='已启用',
-                   DAILY_BUDGET=15.0, SPEND=100.0, SALES=250.0, ACOS=0.4))
-    ws.append(_row(ENTITY='广告组', CAMPAIGN_ID='C1',
-                   CAMPAIGN_NAME_INFO=SRC_CAMPAIGN, AD_GROUP_NAME='ag1',
-                   STATE='已启用', AD_GROUP_DEFAULT_BID=0.8))
-    ws.append(_row(ENTITY='商品广告', CAMPAIGN_ID='C1',
-                   CAMPAIGN_NAME_INFO=SRC_CAMPAIGN, STATE='已启用',
-                   SKU='WIDGET-004-Blue', ASIN_INFO='B0AAAAAAAA'))
-    ws.append(_row(ENTITY='关键词', CAMPAIGN_ID='C1',
-                   CAMPAIGN_NAME_INFO=SRC_CAMPAIGN, STATE='已启用',
-                   BID=2.0, KEYWORD_TEXT='widget', MATCH_TYPE='广泛'))
-    ws.append(_row(ENTITY='关键词', CAMPAIGN_ID='C1',
-                   CAMPAIGN_NAME_INFO=SRC_CAMPAIGN, STATE='已启用',
-                   BID=3.0, KEYWORD_TEXT='blue widget', MATCH_TYPE='精准'))
+    ws.append(
+        _row(
+            ENTITY='广告活动',
+            CAMPAIGN_ID='C1',
+            CAMPAIGN_NAME=SRC_CAMPAIGN,
+            STATE='已启用',
+            DAILY_BUDGET=15.0,
+            SPEND=100.0,
+            SALES=250.0,
+            ACOS=0.4,
+        )
+    )
+    ws.append(
+        _row(
+            ENTITY='广告组',
+            CAMPAIGN_ID='C1',
+            CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+            AD_GROUP_NAME='ag1',
+            STATE='已启用',
+            AD_GROUP_DEFAULT_BID=0.8,
+        )
+    )
+    ws.append(
+        _row(
+            ENTITY='商品广告',
+            CAMPAIGN_ID='C1',
+            CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+            STATE='已启用',
+            SKU='WIDGET-004-Blue',
+            ASIN_INFO='B0AAAAAAAA',
+        )
+    )
+    ws.append(
+        _row(
+            ENTITY='关键词',
+            CAMPAIGN_ID='C1',
+            CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+            STATE='已启用',
+            BID=2.0,
+            KEYWORD_TEXT='widget',
+            MATCH_TYPE='广泛',
+        )
+    )
+    ws.append(
+        _row(
+            ENTITY='关键词',
+            CAMPAIGN_ID='C1',
+            CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+            STATE='已启用',
+            BID=3.0,
+            KEYWORD_TEXT='blue widget',
+            MATCH_TYPE='精准',
+        )
+    )
     wb.save(path)
 
 
@@ -130,30 +208,42 @@ class TestLocaleGeneralParsing:
         p = tmp_path / 'export.xlsx'
         _make_export(p)
         _wb, _ws, _hdr, data = ads_bulk.load(str(p))
-        kinds = {k: sum(1 for r in data if ads_bulk.is_entity(r, k))
-                 for k in ('campaign', 'ad_group', 'product_ad', 'keyword')}
-        assert kinds == {'campaign': 1, 'ad_group': 1,
-                         'product_ad': 1, 'keyword': 2}
+        kinds = {
+            k: sum(1 for r in data if ads_bulk.is_entity(r, k))
+            for k in ('campaign', 'ad_group', 'product_ad', 'keyword')
+        }
+        assert kinds == {
+            'campaign': 1,
+            'ad_group': 1,
+            'product_ad': 1,
+            'keyword': 2,
+        }
 
 
 @pytest.mark.unit
 class TestCloneCampaign:
     def _args(self, tmp_path, **over):
         base = dict(
-            file=str(tmp_path / 'export.xlsx'), src=SRC_CAMPAIGN,
-            new='acme widgets 006 manual keyword US', ad_group=None,
-            sku='WIDGET-006-Blue-M', asin='B0BBBBBBBB', daily_budget=1.0,
-            default_bid=0.75, keyword_bid=None,
+            file=str(tmp_path / 'export.xlsx'),
+            src=SRC_CAMPAIGN,
+            new='acme widgets 006 manual keyword US',
+            ad_group=None,
+            sku='WIDGET-006-Blue-M',
+            asin='B0BBBBBBBB',
+            daily_budget=1.0,
+            default_bid=0.75,
+            keyword_bid=None,
             bidding_strategy='Dynamic bids - down only',
-            start_date='20260701', out=str(tmp_path / 'create.xlsx'))
+            start_date='20260701',
+            out=str(tmp_path / 'create.xlsx'),
+        )
         base.update(over)
         return argparse.Namespace(**base)
 
     def test_refuses_asin_as_sku(self, tmp_path):
         _make_export(tmp_path / 'export.xlsx')
         with pytest.raises(SystemExit):
-            ads_bulk.cmd_clone_campaign(
-                self._args(tmp_path, sku='B0ABCD1234'))
+            ads_bulk.cmd_clone_campaign(self._args(tmp_path, sku='B0ABCD1234'))
 
     def test_emits_paused_create_rows_with_cloned_keywords(self, tmp_path):
         _make_export(tmp_path / 'export.xlsx')
@@ -162,8 +252,13 @@ class TestCloneCampaign:
         # Header cloned verbatim (locale-preserving upload).
         assert list(header) == ZH_HEADER
         ents = [r[Col.ENTITY] for r in rows]
-        assert ents == ['Campaign', 'Ad Group', 'Product Ad',
-                        'Keyword', 'Keyword']
+        assert ents == [
+            'Campaign',
+            'Ad Group',
+            'Product Ad',
+            'Keyword',
+            'Keyword',
+        ]
         assert all(r[Col.OPERATION] == 'Create' for r in rows)
         # State is the English API token, never the localised display one.
         assert all(r[Col.STATE] == 'paused' for r in rows)
@@ -179,23 +274,31 @@ class TestCloneCampaign:
         assert rows[2][Col.SKU] == 'WIDGET-006-Blue-M'
         # Keyword match type NORMALISED to the English API token
         # (源 广泛/精准 -> broad/exact), not the localised display value.
-        kw = [(r[Col.KEYWORD_TEXT], r[Col.MATCH_TYPE], r[Col.BID])
-              for r in rows if r[Col.ENTITY] == 'Keyword']
+        kw = [
+            (r[Col.KEYWORD_TEXT], r[Col.MATCH_TYPE], r[Col.BID])
+            for r in rows
+            if r[Col.ENTITY] == 'Keyword'
+        ]
         assert kw == [('widget', 'broad', 2.0), ('blue widget', 'exact', 3.0)]
 
     def test_missing_source_campaign_exits(self, tmp_path):
         _make_export(tmp_path / 'export.xlsx')
         with pytest.raises(SystemExit):
             ads_bulk.cmd_clone_campaign(
-                self._args(tmp_path, src='no such campaign'))
+                self._args(tmp_path, src='no such campaign')
+            )
 
 
 @pytest.mark.unit
 class TestBidUpdate:
     def _args(self, tmp_path, **over):
         base = dict(
-            file=str(tmp_path / 'export.xlsx'), campaign=SRC_CAMPAIGN,
-            scale=None, set_bid=None, out=str(tmp_path / 'bid.xlsx'))
+            file=str(tmp_path / 'export.xlsx'),
+            campaign=SRC_CAMPAIGN,
+            scale=None,
+            set_bid=None,
+            out=str(tmp_path / 'bid.xlsx'),
+        )
         base.update(over)
         return argparse.Namespace(**base)
 
@@ -248,8 +351,10 @@ class TestTokenNormalisation:
 class TestArchiveCampaign:
     def _args(self, tmp_path, **over):
         base = dict(
-            file=str(tmp_path / 'export.xlsx'), campaign=SRC_CAMPAIGN,
-            out=str(tmp_path / 'archive.xlsx'))
+            file=str(tmp_path / 'export.xlsx'),
+            campaign=SRC_CAMPAIGN,
+            out=str(tmp_path / 'archive.xlsx'),
+        )
         base.update(over)
         return argparse.Namespace(**base)
 
@@ -269,4 +374,5 @@ class TestArchiveCampaign:
         _make_export(tmp_path / 'export.xlsx')
         with pytest.raises(SystemExit):
             ads_bulk.cmd_archive_campaign(
-                self._args(tmp_path, campaign='no such campaign'))
+                self._args(tmp_path, campaign='no such campaign')
+            )
