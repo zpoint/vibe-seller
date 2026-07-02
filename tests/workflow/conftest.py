@@ -173,6 +173,9 @@ def mock_browser_wf(monkeypatch):
         async def write_web_browser_config(self, db):
             self.config_calls.append('_web')
 
+        async def write_task_browser_config(self, store, db):
+            self.config_calls.append(store.id if store else '_web')
+
         async def start_web_session(self, db):
             pass
 

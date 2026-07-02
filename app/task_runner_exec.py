@@ -81,14 +81,12 @@ async def execute_planned_task(task_id: str, store: Store | None):
     session. Either way, the agent session is held during execution.
     """
     try:
-        # Write browser config (needed for retry — server may
-        # have restarted since the task was originally created).
-        if store:
-            async with async_session() as db_mcp:
-                await browser_manager.write_browser_config_for_store(
-                    store,
-                    db_mcp,
-                )
+        # Write browser config (needed for retry — server may have
+        # restarted since the task was created; no-store tasks get the
+        # store-less web wrapper with a fresh token so the execute phase
+        # can browse even though planning ran in a separate session).
+        async with async_session() as db_mcp:
+            await browser_manager.write_task_browser_config(store, db_mcp)
 
         # Plan-only tasks (is_plan_only=True): the hook commits plan
         # + Task DESIGNING/PLANNED → COMPLETED + sends control deny.
@@ -576,9 +574,9 @@ async def execute_woken_task(task_id: str, store: Store | None):
 
         # Build system prompt (MCP config only — no browser start)
         store_emails: list[str] = []
-        if store:
-            async with async_session() as db:
-                await browser_manager.write_browser_config_for_store(store, db)
+        async with async_session() as db:
+            await browser_manager.write_task_browser_config(store, db)
+            if store:
                 store_emails = await get_store_emails(db, store.id)
 
         bundle = await build_system_extra(

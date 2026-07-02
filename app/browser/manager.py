@@ -12,11 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import create_token
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.daemon_reaper import reap_orphaned_daemons
+from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
     remove_browser_use_wrapper,
     store_slug,
     write_browser_use_wrapper,
-    write_web_browser_use_wrapper,
 )
 from app.browser.ziniao_utils import ensure_ziniao_running
 from app.config import (
@@ -567,6 +567,21 @@ class BrowserManager:
                 api_token=token,
                 headless=headless,
             )
+
+    async def write_task_browser_config(
+        self, store: Store | None, db: AsyncSession
+    ) -> None:
+        """Write the right browser-use wrapper for a task.
+
+        The single entry point every launch path (auto-run, execute-plan,
+        woken) uses so a fresh, correctly-scoped wrapper (per-store or the
+        store-less web browser) is always on disk with a current token —
+        regardless of which path runs the task.
+        """
+        if store:
+            await self.write_browser_config_for_store(store, db)
+        else:
+            await self.write_web_browser_config(db)
 
     async def start_web_session(self, db: AsyncSession) -> None:
         """Start (or reuse) the store-less orchestrator ``web`` browser.
