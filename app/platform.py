@@ -172,7 +172,9 @@ def find_pid_listening_on_port(port: int) -> int | None:
     user without elevation on Windows and Linux.
     """
     try:
-        conns = psutil.net_connections(kind='inet')
+        # kind='tcp' (not 'inet') — LISTEN is TCP-only, and scanning
+        # fewer sockets keeps `vibe-seller stop` responsive on busy hosts.
+        conns = psutil.net_connections(kind='tcp')
     except (psutil.AccessDenied, OSError):
         return None
     for conn in conns:
@@ -180,7 +182,7 @@ def find_pid_listening_on_port(port: int) -> int | None:
             conn.status == psutil.CONN_LISTEN
             and conn.laddr
             and conn.laddr.port == port
-            and conn.pid
+            and conn.pid is not None  # explicit: PID 0 is still valid
         ):
             return conn.pid
     return None

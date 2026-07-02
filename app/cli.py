@@ -289,17 +289,17 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 def _cmd_stop(args: argparse.Namespace) -> int:
     port: int = args.port
-    pid = _read_pid(port)
-    via = 'pid file'
-    if pid is None:
-        # Pid file missing or stale — fall back to whatever is actually
-        # LISTENING on the port (like stop.sh's `lsof -ti:PORT`). Without
-        # this, a lost/mismatched pid file makes `stop` a silent no-op, so
-        # the tray 'restart' (stop → start) leaves the old server — and the
-        # old code — running. The port, not the pid file, is authoritative
-        # for "is a server here".
-        pid = find_pid_listening_on_port(port)
-        via = 'port'
+    # The PORT is authoritative for "which process is the server": kill
+    # whatever is LISTENING on it (like stop.sh's `lsof -ti:PORT`); the
+    # pid file is only a fallback for a server that somehow isn't holding
+    # the port. This closes two failure modes: (a) a missing/stale pid
+    # file making stop a silent no-op — which left the Windows tray
+    # 'restart' (stop → start) running the OLD server and old code; and
+    # (b) a pid file pointing at the WRONG live PID (reuse, or a restart
+    # outside the CLI), where we'd kill an innocent process and leave the
+    # real listener up.
+    listener = find_pid_listening_on_port(port)
+    pid = listener if listener is not None else _read_pid(port)
     if pid is None:
         print(f'No vibe-seller process running on port {port}.')
         return 0
@@ -309,6 +309,7 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     # doesn't even exist on Windows.
     asyncio.run(kill_process(pid))
     _pid_file_for(port).unlink(missing_ok=True)
+    via = 'port' if listener is not None else 'pid file'
     print(f'Stopped vibe-seller on port {port} (PID {pid}, via {via}).')
     return 0
 
