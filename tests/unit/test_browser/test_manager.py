@@ -89,11 +89,12 @@ class TestWriteBrowserUseWrapper:
         assert 'SESSION="test-store-${VIBE_TASK_ID:0:8}"' in content
         # Prefix-based session validation (not allowlist)
         assert 'test-store|test-store-*)' in content
-        assert '--cdp-url' in content
+        # 0.13 injects the CDP endpoint via BU_CDP_WS env, not --cdp-url.
+        assert 'export BU_CDP_WS="ws://' in content
         assert '9222' in content
 
     def test_creates_wrapper_chrome(self, tmp_path: Path, monkeypatch):
-        """Chrome wrapper now has --cdp-url injection (same as Ziniao)."""
+        """Chrome wrapper injects BU_CDP_WS (both backends use the proxy)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
@@ -104,16 +105,16 @@ class TestWriteBrowserUseWrapper:
         wrapper = tmp_path / 'bin' / 'storec' / 'browser-use'
         assert wrapper.exists()
         content = wrapper.read_text()
-        # CDP injection present (both backends use CDPMuxProxy)
-        assert 'CDP_ARGS' in content
-        assert '--cdp-url' in content
+        # 0.13 env injection present (both backends use CDPMuxProxy)
+        assert 'export BU_NAME="$SESSION"' in content
+        assert 'export BU_CDP_WS="ws://' in content
         # Per-task session + strict validation (regex pattern)
         assert 'VIBE_TASK_ID' in content
         # Bash regex validation for {slug}, {slug}-aux, or {slug}-{8hex}
         assert '=~ ^storec(-aux|-[0-9a-fA-F]{8})?$' in content
 
     def test_blocks_cdp_url_flag(self, tmp_path: Path, monkeypatch):
-        """Wrapper script blocks --cdp-url flag."""
+        """Wrapper script blocks the --cdp-url flag."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
@@ -124,7 +125,8 @@ class TestWriteBrowserUseWrapper:
         )
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
-        assert '--cdp-url is managed by the wrapper' in content
+        assert '--cdp-url|--cdp-url=*|--cdp-ws|--cdp-ws=*)' in content
+        assert 'the CDP endpoint is managed by the wrapper' in content
 
     def test_blocks_mcp_flag(self, tmp_path: Path, monkeypatch):
         """Wrapper script blocks --mcp flag."""
@@ -311,9 +313,10 @@ class TestWriteBrowserUseWrapper:
         assert 'curl' in content
         assert '/json/version' in content
 
-    def test_ziniao_aux_probe_and_recycle(self, tmp_path: Path, monkeypatch):
-        """Ziniao wrapper probes the aux daemon before exec and
-        closes a wedged one so the real command relaunches fresh."""
+    def test_ziniao_aux_is_chrome_direct(self, tmp_path: Path, monkeypatch):
+        """Ziniao -aux is Chrome-direct: it gets a BU_NAME but no
+        BU_CDP_WS (it must NOT be routed through the store CDP proxy),
+        and it is excluded from the timeout/reload self-heal path."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
@@ -322,22 +325,15 @@ class TestWriteBrowserUseWrapper:
         write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
-        # Probe block present for aux
-        assert 'Probe + recycle for aux session' in content
-        assert '"$SESSION" = "test-store-aux"' in content
-        # Probes state with a short alarm (perl fallback for macOS)
-        assert 'alarm 10' in content
-        # Only probes when daemon already exists
-        assert '"$REAL_BU" sessions' in content
-        # Recycles (close) when probe fails
-        assert '"$REAL_BU" --session "$SESSION" close' in content
-        # Skips probe for recovery commands that should work on a
-        # stuck daemon — otherwise we'd infinitely recurse.
-        assert 'close|sessions|shutdown' in content
+        # Ziniao gets a dedicated aux case-arm (Chrome direct, no proxy).
+        assert 'test-store-aux)' in content
+        # aux is excluded from the wedge-recovery (timeout/reload) branch.
+        assert '[ "$SESSION" != "test-store-aux" ]' in content
 
-    def test_chrome_has_no_aux_probe(self, tmp_path: Path, monkeypatch):
-        """Chrome stores route everything through CDPMuxProxy —
-        there's no aux daemon to probe."""
+    def test_chrome_has_no_aux_case(self, tmp_path: Path, monkeypatch):
+        """Chrome stores route everything through CDPMuxProxy — there is
+        no Chrome-direct aux case-arm (a -aux session is a normal proxy
+        session for Chrome)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
@@ -346,7 +342,8 @@ class TestWriteBrowserUseWrapper:
         write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
 
         content = (tmp_path / 'bin' / 'storec' / 'browser-use').read_text()
-        assert 'Probe + recycle for aux session' not in content
+        # No dedicated Chrome-direct aux case-arm.
+        assert 'storec-aux)\n' not in content
 
 
 class TestRemoveBrowserUseWrapper:

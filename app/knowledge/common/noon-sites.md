@@ -206,10 +206,9 @@ for m in re.findall(r'>\s*(\d{6})\s*<', sys.stdin.read()):
 "
 ```
 
-Fill with `browser-use input <idx> "<code>"` (`input` targets an
-element by index; `type` types into the focused element instead,
-so the two take different argument shapes). Click Continue →
-dismiss "Set up a passkey" with Maybe Later.
+Type the extracted code into the OTP field via browser-use (see the
+browser-use skill for exact commands). Click Continue → dismiss "Set
+up a passkey" with Maybe Later.
 
 ### Case B — Ask the user
 
@@ -240,25 +239,23 @@ items are rendered by the toolbar, and clicking them navigates the
 **parent page** to the target URL.
 
 **Important**: Sidebar sub-items (e.g. "Ad Manager" under "Ads") are
-text nodes inside the iframe without clickable element indices in
-`browser-use state`.
+text nodes inside the iframe without clickable element indices when you
+inspect the page — so they can't be clicked by index.
 
 ### Clicking Iframe Sidebar Items
 
-1. Open the hamburger via `div role=button` near the iframe logo
+1. Open the hamburger (a `div role=button` near the iframe logo) via
+   browser-use.
 2. Click the parent category (e.g. "Ads") to expand — this one IS
-   clickable via element index
-3. Use `browser-use get bbox <category-idx>` to get its position
-4. Click below it at offset y+~50px per sub-item, x+offset for indent
+   clickable by element index.
+3. Read the category's bounding box via browser-use to get its
+   position (returns `{x, y, width, height}`).
+4. The sub-items appear below the category (each ~24px tall). Do a
+   coordinate click below it — offset y+~50px per sub-item, x+offset
+   for indent — to hit the desired sub-item.
 
-Example:
-```bash
-browser-use click <hamburger>        # opens sidebar
-browser-use click <ads-category>     # expands submenu
-browser-use get bbox <ads-category>  # returns {x, y, width, height}
-# Sub-items appear below the category, each ~24px tall
-browser-use click 70 614             # estimated Ad Manager position
-```
+See the browser-use skill for the exact commands to open elements,
+read a bounding box, and coordinate-click.
 
 Prefer **direct URL navigation** whenever possible (see URL Patterns
 above).

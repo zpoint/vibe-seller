@@ -46,6 +46,7 @@ from app.ai.claude_backend_utils import (
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.auth import create_token
+from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.manager import (
     atomic_write_json,
     read_mcp_config,
@@ -208,28 +209,23 @@ class AgentSession(_HookMixin, _StreamMixin):
     async def _cleanup_browser_daemons(self):
         """Kill browser-use daemons spawned for this task.
 
-        Two patterns are checked:
-        1. Full UUID in ``--cdp-url`` (Ziniao daemons)
-        2. 8-char prefix in ``--session`` (Chrome daemons)
+        0.13 daemons are found by pid file — ``BU_NAME`` ends in the
+        task's 8-char id (``bu-{slug}-{id8}.pid`` / ``bu-web-{id8}.pid``).
+        Legacy 0.12 daemons (kept for one upgrade cycle) are found by
+        argv: full UUID in ``--cdp-url`` (Ziniao) or the 8-char prefix in
+        ``--session`` (Chrome). The 8-char prefix has ~1/4 billion
+        collision chance per pair — accepted for best-effort cleanup.
 
-        The 8-char prefix has ~1/4 billion collision chance per
-        pair — accepted as a known limitation for best-effort
-        cleanup.
-
-        Uses ``find_processes_by_pattern`` (psutil) so it works on
-        all platforms — the old ``pgrep``/``os.kill`` path was
-        Unix-only.
+        All psutil-based, so it works on every platform.
         """
         if not self.task_id:
             return
-        # Pattern 1: full UUID in --cdp-url (Ziniao)
-        # Pattern 2: 8-char prefix in --session arg (Chrome),
-        #   scoped to --session to avoid overbroad matches
         tid8 = self.task_id[:8]
         try:
-            daemons = await find_processes_by_pattern(
-                'browser_use.skill_cli.daemon',
-            )
+            # 0.13: pid-file BU_NAME ending in this task's id8.
+            await kill_bh_daemons(lambda name: name.endswith(f'-{tid8}'))
+            # Legacy 0.12: match by argv.
+            daemons = await find_processes_by_pattern(LEGACY_DAEMON_PATTERN)
             pids: set[int] = set()
             for pid, cmdline in daemons.items():
                 if self.task_id in cmdline:
@@ -240,7 +236,7 @@ class AgentSession(_HookMixin, _StreamMixin):
                 await kill_with_escalation(pid)
             if pids:
                 logger.info(
-                    '[%s] Cleaned up %d browser-use daemon(s): %s',
+                    '[%s] Cleaned up %d legacy browser-use daemon(s): %s',
                     self.task_id[:8],
                     len(pids),
                     sorted(pids),

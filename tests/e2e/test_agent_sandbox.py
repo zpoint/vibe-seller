@@ -35,7 +35,9 @@ pytestmark = [pytest.mark.e2e]
 # required; anything outside the allowed set is a real isolation leak.
 REQUIRED_MCP_SERVERS = {'vibe-seller'}
 ALLOWED_MCP_SERVERS = {'vibe-seller', 'ticktick'}
-EXPECTED_SKILLS = {'browser-use', 'amazon-invoice'}
+# browser-use 0.13: the flagship browser skill is `browser-harness`
+# (renamed from `browser-use`; see docs/browser-use-0.13-migration.md).
+EXPECTED_SKILLS = {'browser-harness', 'amazon-invoice'}
 
 # MCP servers injected by the CI model-provider GATEWAY (the GLM /
 # MiniMax proxy used so e2e doesn't need a real Claude key), NOT by our

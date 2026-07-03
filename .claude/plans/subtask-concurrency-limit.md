@@ -53,7 +53,12 @@ Before creating the task, if `data.parent_task_id` is present:
 active_count = await db.scalar(
     select(func.count(Task.id)).where(
         Task.parent_task_id == data.parent_task_id,
-        Task.status.in_([TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.DESIGNING, TaskStatus.RUNNING]),
+        Task.status.in_([
+            TaskStatus.PENDING,
+            TaskStatus.QUEUED,
+            TaskStatus.DESIGNING,
+            TaskStatus.RUNNING,
+        ]),
     )
 )
 limit = Options.MAX_SUBTASK_CONCURRENCY.get_int()
