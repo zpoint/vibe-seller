@@ -279,19 +279,26 @@ jobs:
           #
           # First prove the interpreter runs and PIL imports SYNCHRONOUSLY,
           # so a broken venv/holder fails here with a real error instead of
-          # silently as "no process". This also prints the real
-          # sys.executable — `uv venv`'s .venv\Scripts\python.exe is a
-          # redirector to the bundled interpreter under {app}\python, so the
-          # long-lived process's path/name is discovered empirically below,
-          # not assumed.
+          # silently as "no process". The dump below also confirms the
+          # long-lived process's real name/path (python.exe under
+          # .venv\Scripts) rather than assuming it.
           & $py -c "import sys; print('sys.executable=', sys.executable); print('sys.prefix=', sys.prefix)"
           & $py -c "from PIL import Image, _imaging; print('PIL _imaging at', _imaging.__file__)"
           if ($LASTEXITCODE -ne 0) { throw "venv python cannot import Pillow C ext (exit $LASTEXITCODE)" }
 
-          $proc = Start-Process -FilePath $py -PassThru `
-            -ArgumentList '-c','from PIL import Image, _imaging; import time; time.sleep(900)'
+          # Launch the long-lived holder from a SCRIPT FILE, not `-c`:
+          # Start-Process mangles a `-c` string full of spaces/commas/
+          # parens, so python got a broken program and exited instantly
+          # (observed: launcher HasExited=True, zero python left). A file
+          # path has no such quoting hazard.
+          $holder = Join-Path $env:RUNNER_TEMP 'hold_venv.py'
+          Set-Content -LiteralPath $holder -Encoding ascii -Value @(
+            'from PIL import Image, _imaging',
+            'import time',
+            'time.sleep(900)')
+          $proc = Start-Process -FilePath $py -ArgumentList $holder -PassThru
           Start-Sleep 6
-          Write-Host "Start-Process launcher pid=$($proc.Id) HasExited=$($proc.HasExited)"
+          Write-Host "launcher pid=$($proc.Id) HasExited=$($proc.HasExited)"
           Write-Host "--- python-family processes now running ---"
           Get-CimInstance Win32_Process | Where-Object {
             $_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe' } |
