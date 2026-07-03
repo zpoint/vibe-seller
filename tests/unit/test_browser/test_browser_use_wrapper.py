@@ -304,7 +304,14 @@ class TestWrapperWedgeRecovery:
             )
         content = (bin_dir / 'test-store' / 'browser-use').read_text()
         # Hard timeout via perl alarm (macOS has no GNU timeout).
-        assert "perl -e 'alarm shift; exec @ARGV' 120" in content
+        # MUST use the explicit-program form `exec {$ARGV[0]} @ARGV`:
+        # a bare `exec @ARGV` with an empty PASSTHROUGH (the primary
+        # heredoc usage) is a single-element list, which makes perl
+        # fall back to `/bin/sh -c`. On Windows the backslash $REAL_BU
+        # path is then mangled by sh ("command not found"). The block
+        # form always uses execvp, never the shell.
+        assert "perl -e 'alarm shift; exec {$ARGV[0]} @ARGV' 120" in content
+        assert 'exec @ARGV' not in content  # never the shell-fallback form
         # On a 142 (SIGALRM) timeout, reload this session's daemon.
         assert '_vs_rc" -eq 142' in content
         assert 'BU_NAME="$SESSION" "$REAL_BU" --reload' in content

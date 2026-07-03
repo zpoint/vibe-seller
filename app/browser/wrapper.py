@@ -223,8 +223,17 @@ def write_browser_use_wrapper(
     # reported error against a fresh daemon.
     #
     # aux (Ziniao, Chrome-direct) is never self-healed — matches 0.12.
+    # exec {$ARGV[0]} @ARGV (explicit-program form), NOT bare
+    # `exec @ARGV`. With an empty PASSTHROUGH (the primary heredoc
+    # usage: `browser-use <<'PY' … PY`) @ARGV holds a single element,
+    # and perl's `exec LIST` falls back to `/bin/sh -c` because the
+    # Windows $REAL_BU path contains backslashes (a shell
+    # metacharacter). sh then strips the backslashes and the exec dies
+    # with "command not found". The explicit-program form always uses
+    # execvp and never consults the shell — robust for any arg count
+    # or path (backslashes, spaces like C:\Program Files\…).
     run_line = (
-        'perl -e \'alarm shift; exec @ARGV\' 120 "$REAL_BU"'
+        'perl -e \'alarm shift; exec {$ARGV[0]} @ARGV\' 120 "$REAL_BU"'
         ' ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}'
     )
     selfheal_block = textwrap.dedent(f"""\
