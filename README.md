@@ -74,13 +74,13 @@ flowchart LR
 <details open>
 <summary><b>🪟 Windows —— 原生安装包（推荐）</b></summary>
 
-无需 WSL，无需配置 Python。在 **PowerShell** 里：
+无需 WSL，无需配置 Python。从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
+
+或在 **PowerShell** 里：
 
 ```powershell
 irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/install.ps1 | iex
 ```
-
-或从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
 </details>
 
