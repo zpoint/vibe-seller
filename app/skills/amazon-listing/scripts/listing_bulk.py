@@ -51,6 +51,7 @@ Requires: openpyxl.
 """
 
 import argparse
+import csv
 import json
 import shutil
 import sys
@@ -218,6 +219,60 @@ def _load_valid_values(wb):
     return out
 
 
+def _valid_value_case(wb):
+    """Map field API name -> {lowercased token: template's exact-case token}.
+
+    Amazon rejects a case-mismatched enum on some fields (verified live:
+    `apparel_size_system` accepts `UAE/KSA` but rejects `uae/ksa`), so a
+    spec value must be written in the template's own case. This mirrors
+    `_load_valid_values` but keeps the original casing as the value.
+    """
+    if DROPDOWN_SHEET not in wb.sheetnames:
+        return {}
+    ws = wb[DROPDOWN_SHEET]
+    rows = list(ws.iter_rows(values_only=True))
+    if len(rows) < 4:
+        return {}
+    hdr_idx = None
+    for i in range(min(5, len(rows))):
+        if rows[i] and OP_COLUMN in [str(c) for c in rows[i] if c]:
+            hdr_idx = i
+            break
+    if hdr_idx is None:
+        return {}
+    out = {}
+    for ci, name in enumerate(rows[hdr_idx]):
+        if not name:
+            continue
+        m = {}
+        for ri in range(hdr_idx + 1, len(rows)):
+            v = rows[ri][ci] if ci < len(rows[ri]) else None
+            if v not in (None, ''):
+                m[str(v).strip().lower()] = str(v).strip()
+        if m:
+            out[str(name).strip()] = m
+    return out
+
+
+def _export_tsv(ws, path):
+    """Write the Template sheet as a tab-delimited .txt (the upload file).
+
+    Amazon's flat-file processor rejects an openpyxl-saved `.xlsm` with a
+    90502 FATAL ("worksheet template type not supported for Excel
+    upload") because the re-save alters the macro-workbook structure it
+    validates. Its own remedy is to upload a tab-delimited text file, so
+    this is the artefact you actually upload -- keyed by the row-3 field
+    names, uniform column count so nothing shifts.
+    """
+    max_c = ws.max_column
+    with open(path, 'w', newline='', encoding='utf-8') as fh:
+        w = csv.writer(fh, delimiter='\t', lineterminator='\n')
+        for row in ws.iter_rows():
+            w.writerow(
+                ['' if c.value is None else c.value for c in row][:max_c]
+            )
+
+
 def cmd_inspect(args):
     wb = openpyxl.load_workbook(
         args.file, read_only=False, keep_vba=_keep_vba(args.file)
@@ -318,6 +373,7 @@ def cmd_fill(args):
     cols = _field_columns(ws, header_row)
     required = _load_required_fields(wb)
     valid = _load_valid_values(wb)
+    case = _valid_value_case(wb)
 
     unknown_fields = set()
     warnings = []
@@ -376,9 +432,18 @@ def cmd_fill(args):
             if fname not in cols:
                 unknown_fields.add(fname)
                 continue
-            target[cols[fname][0] - 1].value = fval
+            # Canonicalise to the template's exact-case enum token when
+            # this field has a known valid set -- some fields are
+            # case-strict on Amazon's side (e.g. UAE/KSA vs uae/ksa).
+            canon = case.get(fname, {}).get(str(fval).strip().lower())
+            target[cols[fname][0] - 1].value = canon if canon else fval
 
     wb.save(args.out)
+    # The upload artefact is a tab-delimited .txt, NOT this .xlsm (an
+    # openpyxl-saved .xlsm triggers Amazon's 90502 FATAL). Write it next
+    # to the .xlsm so the caller uploads the .txt.
+    txt_path = args.out.rsplit('.', 1)[0] + '.txt'
+    _export_tsv(ws, txt_path)
 
     for w in warnings:
         print(f'warning: {w}', file=sys.stderr)
@@ -389,6 +454,10 @@ def cmd_fill(args):
             file=sys.stderr,
         )
     print(f'wrote {len(rows)} data row(s) -> {args.out}')
+    print(
+        f'UPLOAD THIS (tab-delimited) -> {txt_path}  '
+        '(uploading the Excel file itself triggers a 90502 FATAL)'
+    )
 
 
 def _iter_report_rows(path):
@@ -408,6 +477,54 @@ def _iter_report_rows(path):
         fh.seek(0)
         for line in fh:
             yield line.rstrip('\n').split(delim)
+
+
+def _template_cell_errors(path):
+    """Per-field errors from a processing report's Template tab.
+
+    Amazon writes the precise, field-level fix as CELL COMMENTS (批注) on
+    the report's Template tab: the summary table gives code + message,
+    but the comment pins the exact column (field) to change. read_only
+    mode does not load comments, so open the workbook normally. Yields
+    (sku, field_api_name, comment_text) -- the self-correction targets.
+    """
+    if not path.lower().endswith(('.xlsm', '.xlsx')):
+        return
+    wb = openpyxl.load_workbook(path, data_only=True)
+    try:
+        if TEMPLATE_SHEET not in wb.sheetnames:
+            return
+        ws = wb[TEMPLATE_SHEET]
+        try:
+            header_row = _find_header_row(ws)
+        except ValueError:
+            return
+        names = {
+            c.column: str(c.value).strip() for c in ws[header_row] if c.value
+        }
+        sku_col = next(
+            (col for col, n in names.items() if n == IDENTITY_FIELD), None
+        )
+        for row in ws.iter_rows(min_row=header_row + 1):
+            sku = ''
+            if sku_col is not None:
+                cell = next((c for c in row if c.column == sku_col), None)
+                sku = cell.value if cell and cell.value else ''
+            for c in row:
+                if not (c.comment and c.comment.text):
+                    continue
+                field = names.get(c.column, f'col{c.column}')
+                # A cell comment can stack several messages, separated by
+                # Excel's literal carriage-return marker `_x000d_`. Split
+                # into individual ERROR/WARNING lines so each is one
+                # actionable item.
+                raw = str(c.comment.text).replace('_x000d_', '\n')
+                for line in raw.split('\n'):
+                    line = ' '.join(line.split())
+                    if line:
+                        yield (str(sku or '?'), field, line)
+    finally:
+        wb.close()
 
 
 def cmd_parse_feedback(args):
@@ -469,6 +586,29 @@ def cmd_parse_feedback(args):
             if 'error' in ' '.join(row).lower():
                 print('  ' + ' | '.join(row))
                 n_err += 1
+
+    # The precise, field-level fixes live in the Template-tab cell
+    # comments (批注). Print them as (sku, field, message) -- for each,
+    # set that field to a valid value (see `inspect`) and re-upload. The
+    # error set is category-specific and unbounded, so extract it from
+    # the report rather than hardcode fixes.
+    cell_errs = list(_template_cell_errors(args.file))
+    if cell_errs:
+        print(
+            '\nper-field cell comments (批注) -- fix the exact field each names:'
+        )
+        for sku, field, msg in cell_errs:
+            print(f'  sku={sku} field={field}: {msg}')
+        # The 批注 are the authoritative per-field verdict; the summary
+        # table above is often mislocated, so count from these instead.
+        c_err = sum(
+            1 for _, _, m in cell_errs if m.lstrip().upper().startswith('ERROR')
+        )
+        c_warn = sum(
+            1 for _, _, m in cell_errs if m.lstrip().upper().startswith('WARN')
+        )
+        if c_err or c_warn:
+            n_err, n_warn = c_err, c_warn
 
     print(f'\nsummary: {n_err} error(s), {n_warn} warning(s)')
     if n_err:
