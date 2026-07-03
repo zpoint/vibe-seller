@@ -163,6 +163,63 @@ async def test_fetch_preserves_user_created_skills(sync_mgr, tmp_path):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_fetch_removes_superseded_browser_use_skill(sync_mgr, tmp_path):
+    """In-place-upgrade cleanup: when the source ships browser-harness
+    (the 0.13 rename) and not browser-use, a stale 0.12 browser-use skill
+    left in the workspace is removed — while browser-harness and any
+    user-created skill are kept."""
+    src = tmp_path / 'source_skills'
+    _make_source_skill(src, 'browser-harness', {'SKILL.md': '# 0.13'})
+
+    # Stale 0.12 skill + a user skill already in dest.
+    stale = sync_mgr._dest_dir / 'browser-use'
+    stale.mkdir()
+    (stale / 'SKILL.md').write_text('# 0.12 subcommands')
+    sync_mgr._update_synced_skills(['browser-use'])  # we synced it before
+    user_skill = sync_mgr._dest_dir / 'user-skill'
+    user_skill.mkdir()
+    (user_skill / 'SKILL.md').write_text('# user')
+
+    venv = tmp_path / '.venv'
+    venv.mkdir()
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
+
+    with (
+        patch.object(sync_mgr, '_get_local_source', return_value=src),
+        patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
+    ):
+        await sync_mgr.fetch()
+
+    assert not stale.exists(), 'stale browser-use skill must be removed'
+    assert (sync_mgr._dest_dir / 'browser-harness' / 'SKILL.md').exists()
+    assert (user_skill / 'SKILL.md').read_text() == '# user'
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_fetch_keeps_browser_use_when_still_in_source(sync_mgr, tmp_path):
+    """The legacy tree still ships browser-use — it must NOT be removed
+    (the cleanup only fires on the harness rename)."""
+    src = tmp_path / 'source_skills'
+    _make_source_skill(src, 'browser-use', {'SKILL.md': '# 0.12 legacy'})
+
+    venv = tmp_path / '.venv'
+    venv.mkdir()
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
+
+    with (
+        patch.object(sync_mgr, '_get_local_source', return_value=src),
+        patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
+    ):
+        await sync_mgr.fetch()
+
+    assert (sync_mgr._dest_dir / 'browser-use' / 'SKILL.md').exists()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_fetch_detects_stale_files_as_changed(sync_mgr, tmp_path):
     """Dest with extra files (stale) is detected as changed."""
     src = tmp_path / 'source_skills'
