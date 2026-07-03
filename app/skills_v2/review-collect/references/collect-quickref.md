@@ -158,7 +158,7 @@ canonical key — do not invent variants.
 - `../amazon-reports/SKILL.md` — All Listings Report nav + download.
 - `../noon-shared/SKILL.md` / `../noon-listing/SKILL.md` — noon login,
   page structure, catalog enumeration.
-- `../browser-use/SKILL.md` — the heredoc interface: `new_tab`,
+- `../browser-harness/SKILL.md` — the heredoc interface: `new_tab`,
   `wait_for_load`, `page_info`, `js`, `fill_input`, `type_text`,
   `press_key`, `click_at_xy`, `capture_screenshot`; extraction via
   `js("return …")` returning JSON.

@@ -512,7 +512,7 @@ async def build_all_stores_context(
             '"web" browser (Chrome, not tied to any store) for neutral '
             'public web work — web search, tracking/logistics/carrier '
             'pages, public research. Run `browser-use` via Bash (load '
-            'the /browser-use skill first for exact CLI syntax).',
+            'the /browser-harness skill first for exact CLI syntax).',
             '',
             'The web browser has NO store login/cookies and no per-store '
             'IP isolation. NEVER open a seller/merchant center or log '
@@ -529,7 +529,7 @@ async def build_all_stores_context(
         '"web" browser (Chrome, not tied to any store) for neutral '
         'public web work — web search, tracking/logistics/carrier '
         'pages, public research. Run `browser-use` via Bash (load the '
-        '/browser-use skill first for exact CLI syntax).',
+        '/browser-harness skill first for exact CLI syntax).',
         '',
         'The web browser has NO store login/cookies and no per-store IP '
         'isolation. NEVER open a seller/merchant center or log into any '
