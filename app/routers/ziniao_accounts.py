@@ -198,11 +198,15 @@ async def list_browsers(
         )
 
     status_code = str(result.get('statusCode', ''))
-    # Surface Ziniao's own error message ("err" field) verbatim. The
-    # statusCode is not 1:1 with a single failure mode — Ziniao reuses
-    # -10003 for both "BOSS account hasn't enabled WebDriver" and
-    # "wrong company name", and other codes have similar overlap. So
-    # whatever Ziniao says, pass it through.
+    # Default: surface Ziniao's own error message ("err" field)
+    # verbatim. The statusCode is not 1:1 with a single failure mode —
+    # Ziniao reuses -10003 for both "BOSS account hasn't enabled
+    # WebDriver" and "wrong company name", and other codes have similar
+    # overlap. So whatever Ziniao says, pass it through — EXCEPT for a
+    # few signatures below (new-device login check) that we deliberately
+    # map to structured statuses so the UI can show a localized,
+    # actionable hint instead of a raw Chinese string. Keep those
+    # mappings when refactoring.
     if status_code != '0':
         err_msg = (result.get('err') or '').strip()
         if '新终端登录' in err_msg:
