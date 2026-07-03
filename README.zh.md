@@ -54,6 +54,7 @@ flowchart LR
 
 比起现有的自动化工具，Vibe Seller 更贴近跨境卖家的实际需求，也更贴近当下 AI 技术真正能做到的水平：从设计上就是 AI 驱动——内置 Skill、多店铺隔离、全程本地部署。浏览器操作基于 [browser-use](https://github.com/browser-use/browser-use)，而不是靠截图瞎点——比让 Agent 从零摸索页面快得多，也省 token 得多。
 
+- **开箱即用，无需引导**——亚马逊（全站点）、Noon 等平台内置 Skill，覆盖卖家真正要干的活：报表 / 对账单导出、Listing 上架与更新、广告调优。创建任务后，系统自动打开浏览器（紫鸟或普通 Chrome），Agent 直接上手操作——通常一次就成，不用一步步引导。
 - **原生紫鸟支持**——通过 CDP 直接控制紫鸟，不是裸 Chrome 跑 Playwright，也不是 UI 坐标点击，所以风控风险低、稳定。
 - **不挑浏览器**——除了紫鸟，普通 Chrome 也是一等公民，按店铺各自挑选。
 - **支持大部分模型**——底层走 Claude Code CLI，凡是兼容 Anthropic 协议的供应商都能接：Claude、DeepSeek、Kimi、MiniMax、智谱 GLM、通义千问。设置里切一下就行，不用改代码。Key 是你自己充的。
