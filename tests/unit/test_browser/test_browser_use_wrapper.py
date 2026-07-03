@@ -326,6 +326,60 @@ class TestWrapperWedgeRecovery:
         content = (bin_dir / 'test-store' / 'browser-use').read_text()
         assert '[ "$SESSION" != "test-store-aux" ]' in content
 
+    def test_perl_exec_reaches_real_bu_with_metachar_path(self, tmp_path: Path):
+        """Executable regression guard: the timeout trampoline must reach
+        ``$REAL_BU`` even when its path holds a shell metacharacter AND
+        PASSTHROUGH is empty — the bare-heredoc usage ``browser-use
+        <<'PY' … PY`` that produces a single-element ``@ARGV``.
+
+        A bare ``exec @ARGV`` on a single element makes perl fall back to
+        ``/bin/sh -c``; the shell then mangles the path. On Windows the
+        backslash ``browser-use.EXE`` path became "command not found" and
+        browser-use was unusable via the documented heredoc interface.
+        A SPACE in the path triggers the exact same sh-fallback on POSIX,
+        so this reproduces the bug on the fast Linux unit CI (where the
+        agent-e2e that missed it does not run, and forks have no LLM key).
+        The explicit-program form ``exec {$ARGV[0]} @ARGV`` always uses
+        execvp and never consults the shell.
+        """
+        # Stub browser-use at a path containing a space (a shell
+        # metacharacter), so a shell-fallback exec would fail to find it.
+        stub_dir = tmp_path / 'dir with space'
+        stub_dir.mkdir(parents=True)
+        stub = stub_dir / 'browser-use'
+        stub.write_text(
+            '#!/usr/bin/env bash\ncat >/dev/null\necho WRAP_EXEC_OK\n'
+        )
+        stub.chmod(0o755)
+
+        # Real generated wrapper; point REAL_BU at the space-path stub and
+        # neutralise curl so the offline auto-start check passes.
+        bin_dir = tmp_path / 'bin'
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+            write_browser_use_wrapper(
+                'test-store', 'ziniao', 9222, store_id='s1'
+            )
+        wrapper = bin_dir / store_slug('test-store') / 'browser-use'
+        content = wrapper.read_text()
+        content = re.sub(r'REAL_BU="[^"]*"', f'REAL_BU="{stub}"', content)
+        content = content.replace('curl ', '/usr/bin/true ')
+        wrapper.write_text(content)
+
+        # No CLI args → empty PASSTHROUGH (the trigger); code on stdin.
+        result = subprocess.run(
+            [str(wrapper)],
+            input='print("hi")\n',
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=_env_without_task(),
+        )
+        assert 'WRAP_EXEC_OK' in result.stdout, (
+            'perl exec never reached $REAL_BU with a metachar path + empty '
+            'PASSTHROUGH — the bare `exec @ARGV` shell-fallback regressed. '
+            f'stdout={result.stdout!r} stderr={result.stderr!r}'
+        )
+
 
 @pytest.mark.unit
 class TestWrapperAutoStartFailure:
