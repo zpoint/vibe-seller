@@ -289,6 +289,25 @@ async def send_task_message(
     is_plan_feedback = task.status == TaskStatus.PLANNED
     has_resumable_session = bool(task.session_id) and not is_profile_switch
 
+    # Plan approval is a ONE-WAY exit from plan mode (like Claude Code:
+    # an approved ExitPlanMode leaves the session in normal mode for
+    # good). ``started_at`` is stamped at approval and only reset by a
+    # full task retry (which also clears the plan and resets status to
+    # PENDING), so a task is still "planning" only if it hasn't started
+    # executing AND is in a pre-execution status. Past that a follow-up
+    # behaves like one on a non-plan task — resume and keep executing,
+    # never re-plan. (Bug: approved plan tasks sit in DESIGNING/COMPLETED
+    # between turns and used to re-plan every turn.) ``is_plan_only``
+    # schedule tasks only ever plan; PLANNED plan-feedback routes above.
+    plan_phase_active = task.plan_mode and (
+        task.is_plan_only
+        or (
+            task.started_at is None
+            and task.status
+            in (TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.DESIGNING)
+        )
+    )
+
     # When resuming, skip conversation reconstruction — the CLI
     # session already has all prior context. Only inject mode
     # switch instructions and the plan feedback instruction.
@@ -445,13 +464,17 @@ async def send_task_message(
         if task.error:
             task.error = None
             task.error_category = None
-        if task.plan_mode:
-            # Plan mode follow-up
+        if plan_phase_active:
+            # Plan-mode task whose plan was never approved/executed —
+            # a follow-up on it is still plan feedback: keep planning.
             assert_transition(task.status, TaskStatus.DESIGNING)
             task.status = TaskStatus.DESIGNING
             follow_up_mode = 'plan_then_execute'
         else:
-            # Auto mode follow-up: clear stale run-scoped state
+            # Non-plan task, OR a plan-mode task whose plan was already
+            # approved and executed. A follow-up continues execution
+            # with full context, identical to a non-plan task — no
+            # re-plan. Clear stale run-scoped state and resume.
             task.result = None
             task.todos = None
             task.wait_condition = None
@@ -502,24 +525,20 @@ async def send_task_message(
         # COMPLETED / FAILED. The remaining states are PENDING /
         # QUEUED / DESIGNING / PLANNED / RUNNING.
         #
-        # For plan-mode tasks, follow-ups during the DESIGN phase
-        # (including PENDING/QUEUED before the agent even started,
-        # and DESIGNING after a crash/interrupt) must continue in
-        # plan_then_execute so the resumed session stays in plan
-        # mode — otherwise the agent gets ``--permission-mode
-        # bypassPermissions`` and ExitPlanMode returns "You are
-        # not in plan mode". Only PLANNED / RUNNING are past the
-        # plan phase and legitimately want ``execute`` mode.
-        # (PLANNED follow-ups actually route through the
-        # is_plan_feedback path above, so they don't land here.)
-        if not task.plan_mode:
-            follow_up_mode = 'auto'
-        elif task.status in (
-            TaskStatus.PENDING,
-            TaskStatus.QUEUED,
-            TaskStatus.DESIGNING,
-        ):
+        # Still in the plan phase (``plan_phase_active``) → keep
+        # plan_then_execute so the resumed session stays in plan mode
+        # (otherwise ExitPlanMode returns "You are not in plan mode").
+        # Covers PENDING/QUEUED before the agent starts, DESIGNING after
+        # a crash/interrupt, and is_plan_only tasks.
+        #
+        # Non-plan task → auto. Plan-mode task past its plan phase
+        # (approved: RUNNING, or DESIGNING with started_at set) →
+        # execute: bypassPermissions, continues with context, no
+        # re-plan — exactly like a non-plan follow-up.
+        if plan_phase_active:
             follow_up_mode = 'plan_then_execute'
+        elif not task.plan_mode:
+            follow_up_mode = 'auto'
         else:
             follow_up_mode = 'execute'
         # Spawn off the request path so the POST returns before

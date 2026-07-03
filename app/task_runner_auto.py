@@ -440,7 +440,11 @@ async def finalize_followup_session(task_id: str, store: Store | None):
         if agent_manager.get_session(task_id) is not my_session:
             return
 
-        await _finalize_terminal_state(task_id, my_session)
+        # This follow-up finalize IS the owner of the terminal
+        # transition — the /messages follow-up path has no
+        # execute_planned_task — so tell _finalize_terminal_state not to
+        # defer plan-mode completion to that (absent) owner.
+        await _finalize_terminal_state(task_id, my_session, is_followup=True)
     except Exception as e:
         logger.exception(
             'Follow-up finalize failed for task %s: %s',
@@ -470,7 +474,9 @@ async def finalize_followup_session(task_id: str, store: Store | None):
             )
 
 
-async def _finalize_terminal_state(task_id: str, my_session):
+async def _finalize_terminal_state(
+    task_id: str, my_session, *, is_followup: bool = False
+):
     """Shared terminal-state writer.
 
     Called by both `auto_run_task` (post-wait section) and
@@ -631,11 +637,15 @@ async def _finalize_terminal_state(task_id: str, my_session):
             )
             return
 
-        # Interactive plan mode and the plan is saved: `execute_planned_task`
-        # owns the task from here (possibly already in RUNNING after a
-        # concurrent /execute-plan).  Do not fall through.
+        # Interactive plan mode with a saved plan: normally
+        # `execute_planned_task` owns the terminal transition from here
+        # (possibly already RUNNING after a concurrent /execute-plan),
+        # so auto_run_task must NOT fall through. But a /messages
+        # follow-up has no execute_planned_task — this finalize IS the
+        # owner — so it must fall through and complete the task.
         if (
-            task.plan_mode
+            not is_followup
+            and task.plan_mode
             and not task.schedule_id
             and task.plan
             and task.status in (TaskStatus.PLANNED, TaskStatus.RUNNING)
