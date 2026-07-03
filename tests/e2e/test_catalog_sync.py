@@ -250,16 +250,37 @@ class TestCatalogSystem:
         slug_b = _store_slug(store_b['name'])
 
         # ── Setup: write knowledge + store files ──
-        # Use a UUID-derived token (not a timestamp) so the L2 file
+        # Enforce the invariant "exactly one verification secret exists".
+        # This test writes into the SHARED ~/.vibe-seller/knowledge; a
+        # prior run (or a rerun after a failure) leaves its PL-*.md secret
+        # file behind, so the find-secret agent below sees TWO secrets and
+        # can report the wrong one (observed flake: two tokens present,
+        # agent returned the first-listed). Delete stale verification
+        # stubs first so the invariant is guaranteed, not hoped for.
+        _amazon_dir = KNOWLEDGE_DIR / FAKE_PLATFORM
+        for stale in _amazon_dir.glob(f'{FAKE_COUNTRY}-*.md'):
+            try:
+                if 'VERIFY-CATALOG' in stale.read_text(encoding='utf-8'):
+                    stale.unlink()
+            except OSError:
+                pass
+
+        # File path keeps a UUID-derived token (not a timestamp) so the L2
         # path can't share a numeric suffix with a same-second
-        # ``cat-store-a-<ts>`` slug. When tokens collide, the agent
-        # writing the L2 catalog has been observed (GLM-4.7) to
-        # hallucinate that the L2 file is "for" the store sharing
-        # the suffix and surface the slug in the L2 summary, which
-        # then trips the L2-isolation assertion below.
-        tok = uuid.uuid4().hex[:12]
-        secret = f'VERIFY-CATALOG-XYZ-{tok}'
-        l2_file = f'{FAKE_PLATFORM}/{FAKE_COUNTRY}-{tok}.md'
+        # ``cat-store-a-<ts>`` slug — a collision has made the L2-catalog
+        # agent (GLM-4.7) surface the store slug in the L2 summary and trip
+        # the L2-isolation assertion below.
+        #
+        # The SECRET the find-secret agent must transcribe is SHORT and
+        # hyphen-grouped: a weak CI model drops a char when copying a long
+        # run-on random token (observed: 12-hex ...96068 returned as
+        # ...9608, failing the exact-match assert). Grouped 4-4 uppercase
+        # hex copies reliably, and the cleanup above guarantees it is the
+        # only secret present, so it needs no extra length for uniqueness.
+        file_tok = uuid.uuid4().hex[:12]
+        s = uuid.uuid4().hex[:8].upper()
+        secret = f'VERIFY-CATALOG-{s[:4]}-{s[4:]}'
+        l2_file = f'{FAKE_PLATFORM}/{FAKE_COUNTRY}-{file_tok}.md'
         # Give the file a describable topic — a real knowledge file has
         # one, and the L2 catalog sync only writes a useful summary for
         # non-near-empty files (a bare `SECRET: <token>` line is
