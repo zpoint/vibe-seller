@@ -37,3 +37,11 @@ noon-ads/SKILL.md
 noon-ads/references/ads-creation.md
 noon-ads/references/ads-tuning.md
 noon-ads/references/ads-keyword-research.md
+qianniu-shared/SKILL.md
+qianniu-listing/SKILL.md
+qianniu-listing/scripts/listing_bulk.py
+qianniu-listing/requirements.txt
+qianniu-ads/SKILL.md
+qianniu-ads/references/mechanics.md
+qianniu-ads/scripts/ads_report.py
+qianniu-ads/requirements.txt

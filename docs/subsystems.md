@@ -164,6 +164,8 @@ Skills can declare `requires: [<prereq-skill-name>]` in their YAML frontmatter. 
 
 Several skills are layered: e.g. `noon-ads` needs `noon-shared`'s login flow and URL map before any ad work makes sense. A prose `> **PREREQUISITE:** Read ../noon-shared/SKILL.md` line in the dependent's SKILL.md is the *spec*, but non-Claude models (and Claude under load) sometimes skip it and run with a partial context. The hook turns that prose into a mechanism.
 
+Each e-commerce platform ships as one such family: `amazon-shared` + `amazon-{ads,listing}`, `noon-shared` + `noon-{ads,…}`, and — for Taobao/Tmall — `qianniu-shared` + `qianniu-{listing,ads}`. Qianniu differs from the Amazon/Noon (Ziniao) families in its browser layer: it runs on the **chrome** backend with a **human-in-the-loop login** (QR scan or slider-captcha + SMS — no auto-captcha), a wrong-account hard gate, and a promo/公告 popup-close loop; its exports are GB18030-encoded CSV. All writes (Excel `批量导入`, ad-plan changes) are surfaced for human review, never auto-executed.
+
 ### Frontmatter format
 
 ```yaml
