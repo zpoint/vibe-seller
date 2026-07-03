@@ -288,6 +288,7 @@ jobs:
           $p = Start-Process -FilePath $u -Wait -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
           Write-Host "uninstall exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "uninstall exited $($p.ExitCode) — scenario not exercised" }
           Start-Sleep 3
           # The uninstall fix kills venv python/pythonw, so nothing should
           # linger holding a lock on .venv.

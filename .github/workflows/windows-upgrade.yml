@@ -170,7 +170,9 @@ jobs:
           }
           $p = Start-Process -FilePath "$install\unins000.exe" -Wait -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
-          Write-Host "uninstall exit=$($p.ExitCode)"; Start-Sleep 3
+          Write-Host "uninstall exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "uninstall exited $($p.ExitCode) — scenario not exercised" }
+          Start-Sleep 3
           if (Get-CimInstance Win32_Process | Where-Object {
             ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
             $_.ExecutablePath -like '*\VibeSeller\*' }) {
