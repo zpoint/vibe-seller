@@ -33,15 +33,17 @@ Seller Central → **Catalogue → Add Products via Upload**
 (`sellercentral.amazon.<tld>/listing/upload` → `/product-search/bulk`).
 Open **Spreadsheet → Download Blank Template → Download Product
 Spreadsheet**, search the product type (e.g. "socks" → **Select**
-"Sock"), choose the language + target marketplaces, then **Generate
+"Sock"), choose the language, then **select the store's own single
+marketplace only** (uncheck the others — the picker defaults to several,
+and multi-marketplace disables Listing Preferences), then **Generate
 Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
 
 > **Product-Type search gotcha (Beta modal):** the search box is a
-> locked `kat-input` — typing the keyword alone (`fill_input(...)` /
-> `type_text(...)`) does **not** open the candidate list. You must click the
-> **search icon** at the right of the input row to trigger the
-> suggestions, then click **Select** on the matched product type.
+> locked `kat-input` — setting its value via `js(...)` alone does **not**
+> open the candidate list. `click_at_xy` the **search icon** at the right
+> of the input row to trigger the suggestions, then `click_at_xy` the
+> **Select** button on the matched product type.
 
 > **The create template generates asynchronously** — "Generate
 > Spreadsheet" does not always land a direct download. If it doesn't
@@ -86,14 +88,21 @@ fields.
     { "sku": "WIDGET-001-WHT", "operation": "create", "parentage": "Child",
       "parent_sku": "WIDGET-001", "variation_theme": "Color",
       "fields": { "relationship_type": "Variation", "color_name": "White",
-                  "main_image_url": "https://.../white.jpg",
+                  "item_name": "ACME ... (White)", "target_gender": "Male",
+                  "age_range_description": "Adult",
+                  "recommended_browse_nodes": "<from Browse data>",
                   "fulfillment_availability#1.fulfillment_channel_code": "DEFAULT",
                   "fulfillment_availability#1.quantity": "100",
-                  "purchasable_offer[marketplace_id=<SA>]#1.our_price#1.schedule#1.value_with_tax": "29.00",
-                  "purchasable_offer[marketplace_id=<AE>]#1.our_price#1.schedule#1.value_with_tax": "29.00" } }
+                  "purchasable_offer[marketplace_id=<OWN_MKT>]#1.our_price#1.schedule#1.value_with_tax": "29.00" } }
   ]
 }
 ```
+
+> Fill only the store's **own** marketplace offer block (one
+> `purchasable_offer[marketplace_id=…]`), and omit `main_image_url` when
+> the only image you have is a hotlinked supplier URL (add images later
+> via the image flow). Give each child its category's full required set,
+> not just the differentiator (see the Parent-vs-Child note below).
 
 ### Parent vs Child — what goes where
 
@@ -111,17 +120,19 @@ fields.
 a Parent row, and suppresses battery/hazmat required-field warnings when
 the row declares no batteries.
 
-> **Child rows inherit the parent's catalogue attributes.** A child
-> legitimately omits `item_name`, `product_description`,
-> `recommended_browse_nodes`, gender/department/size/material/weight,
-> etc. — Amazon fills them from the parent. So `fill` WILL print
-> "missing required field(s)" warnings for those on child rows; that is
-> **expected noise, not an error** (verified live: a create with minimal
-> children — only `parent_sku`, the differentiator, offer + image —
-> returned 0 errors / 0 warnings from Amazon). Likewise
-> `external_product_id` is not needed when the brand is **GTIN-exempt**.
-> Treat child-row required warnings as informational; trust Amazon's
-> processing report for the real verdict.
+> **Children are NOT minimal — fill each child's full required set.**
+> On a real socks create, minimal children (only `parent_sku` + colour +
+> offer) were rejected: Amazon required `item_name`, `target_gender`,
+> `age_range_description`, `apparel_size_system`, and the compound
+> `apparel_body_type` / `apparel_height_type` **on every child row**. So
+> put the shared required attributes on the children too, not just the
+> parent. `fill`'s "missing required field(s)" warnings on child rows
+> are worth heeding, but the authoritative list is what the **processing
+> report** flags per SKU — read it and add exactly those fields.
+> `external_product_id` is the exception: a **GTIN-exempt** brand leaves
+> it blank (set `brand_name`); the feed may still print an `8560` on
+> children, yet the ASINs create under the exemption — verify in
+> inventory, not the feed count.
 
 ### The operation column
 
@@ -142,29 +153,77 @@ this template — so an unseen-but-valid token from a new category still
 uploads. Read the warnings; they are the same errors Amazon would
 reject on.
 
-## 4. Upload + read the processing report
+## 4. Upload the `.txt` + read the processing report
 
-Upload the `.xlsm` on the same page. Amazon processes asynchronously;
-**Check Upload Status** shows the result and a downloadable **processing
-report**. Save it to `/tmp/<slug>/` and parse it:
+**Upload the tab-delimited `.txt` that `fill` wrote, NOT the `.xlsm`.**
+An openpyxl-saved `.xlsm` is rejected with a **90502 FATAL** ("the file
+does not contain a worksheet with a template type that is supported for
+Excel upload") — the re-save alters the macro-workbook structure Amazon
+validates, and its own remedy is to upload a tab-delimited text file.
+The `.txt` reaches real content validation, which is what you want.
+
+On the upload page, the file input lives in a `kat-file-upload` **open
+shadow root** (light-DOM `input[type=file]` count is 0). Locate the input
+node with `js(...)` (pierce the shadow root) and set the file on it via
+`cdp('DOM.setFileInputFiles', ...)` (see the `browser-use` skill), then
+`click_at_xy` **Submit products**. Amazon processes asynchronously; the batch row on
+**Check Upload Status** shows `SKUs successful / submitted` and a
+**Download Processing Summary** link. Save it and parse it:
 
 ```bash
-$PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-report.xlsm
+$PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-summary.xlsm
 ```
 
-It prints per-SKU `[Error|Warning] sku=… code=…: message` and a summary
-count (exit code 1 if any error). Fix the flagged rows in the spec and
-re-fill / re-upload. Iterate until zero errors, then verify the family
-in the catalogue (parent with its children, prices, images).
+It prints per-SKU `[Error|Warning] sku=… code=…: message`. Fix the
+flagged fields and re-upload.
 
-### First-upload gotchas (verified on a socks template)
+> **The status page lists many past batches — download the report from
+> the row whose filename matches THIS upload**, or you'll parse a stale
+> report (confirm the report's `timestamp=` in row 1 is recent).
+
+**Done = the family is in inventory, not "0 errors".** Verify on Manage
+Inventory (or `skucentral?mSku=<sku>` **without** `&condition=New`):
+each SKU has an ASIN and the parent shows **"Variations (N)"**. The feed
+count under-reports — records with errors still create stubs, and later
+re-uploads can complete them.
+
+### First-upload gotchas (verified on a socks template — priors, not a checklist)
 
 - **`recommended_browse_nodes`** is a **gated set** per category — a
-  guessed id is rejected. Pick one from the template's Valid Values /
-  `Browse data` sheet.
-- **`external_product_id` (GTIN/UPC/EAN)** is required per child. An
-  own-brand product with no barcode needs a **GTIN exemption** (applied
-  once per brand+category in Seller Central) before the create will pass.
+  guessed id is rejected. Pick one from the template's `Browse data`
+  sheet. Put it on **every** row (parent + children).
+- **Enum case is exact** (`apparel_size_system` = `UAE/KSA`, not
+  `uae/ksa`). `fill` canonicalises to the template's casing, but if you
+  hand-edit, match the Valid Values sheet exactly.
+- **Compound attributes arrive as a set.** Apparel Size needs
+  `apparel_size_class` + `apparel_size_system` + `apparel_body_type` +
+  `apparel_height_type` together — a partial set errors 99001/99022.
+- **`8560` on a buyable child ("doesn't match any ASINs … include
+  standard_product_id")** — Amazon won't mint a new ASIN. Decide by
+  whether that child's ASIN already exists:
+  - **Exists** (re-submit, or a prior create left a catalog ASIN — a
+    `delete` removes the SKU/offer, **not** the catalog ASIN): **match**
+    it — `operation: update`, `external_product_id` = the ASIN,
+    `external_product_id_type: asin`. This is what lets a stuck variation
+    child join its family (verified fix).
+  - **Genuinely new, GTIN-exempt brand:** leave `external_product_id`
+    blank + set `brand_name`, and fill the **key defining attributes the
+    report names as missing** (e.g. `material_type`, `pattern_name`) so
+    the ASIN can be minted. The exemption alone is not enough. Exemptions
+    are per brand+category+**marketplace**.
+  Set `update_delete` on every row, children included.
+- **Offer/price is per-marketplace; verify in that marketplace's Pricing
+  view.** Fill one offer block —
+  `purchasable_offer[marketplace_id=<MKT>]#1.our_price#1.schedule#1.value_with_tax`
+  (`our_price` is the only price column that matters) +
+  `fulfillment_availability#1.quantity`. The feed count doesn't reflect
+  price; quantity can apply while Pricing shows `--` if you set a
+  different marketplace's column. On a bundled multi-marketplace
+  template, fill only the intended marketplace's block.
+- **`main_image_url`:** by default not uploaded here (seller adds images)
+  — a `18320` image error is *expected*, not a blocker. Never hotlink a
+  supplier CDN URL (1688/alibaba `cbu01.alicdn.com`, tmall) — Amazon
+  can't fetch a referer-protected image, so the listing is suppressed.
 - Many **battery / lithium / hazmat** fields are marked Required but are
   only *conditionally* required — leave them blank for a non-battery
   product (set `batteries_required: No`, `are_batteries_included: No`).
