@@ -150,8 +150,8 @@ jobs:
       # pythonw.exe left running at uninstall locks .venv\Scripts\pythonw.exe,
       # so uninstall leaves a partial .venv and the next install's `uv venv`
       # refuses it (browser-engine step then fails "playwright.exe not
-      # found"). Reproduce with a held-open venv pythonw and assert the
-      # rebuild. Reuses the NEW (outB) installer already built above.
+      # found"). Reproduce with a held-open venv python (native ext loaded)
+      # and assert the rebuild. Reuses the NEW (outB) installer built above.
       - name: Uninstall (python running) -> reinstall rebuilds the venv
         shell: pwsh
         run: |
@@ -162,18 +162,25 @@ jobs:
           Start-Sleep 3
           # Hold a python process from the install alive with a native venv
           # extension loaded == a running tray locking a file inside .venv.
-          # uv's .venv\Scripts\python(w).exe are redirectors to the bundled
-          # {app}\python (venvlauncher ignores the pythonw variant), so the
-          # live process is a base python.exe — match either name under the
-          # install dir. Importing Pillow's C ext locks a .venv .pyd so the
-          # partial-.venv bug is actually reproduced. (See
-          # windows-installer.yml for the full rationale.)
-          Start-Process -FilePath "$install\.venv\Scripts\python.exe" `
-            -ArgumentList '-c','from PIL import Image; import time; time.sleep(900)'
+          # Importing Pillow's C ext locks .venv\Lib\site-packages\PIL\
+          # _imaging*.pyd so the partial-.venv bug is actually reproduced; a
+          # bare time.sleep would lock nothing in .venv. Launch from a SCRIPT
+          # FILE (Start-Process mangles a spaces/commas/parens `-c` string,
+          # so python would get broken source and exit instantly), and match
+          # python.exe|pythonw.exe under the install dir (both the venv
+          # python.exe and the bundled {app}\python\python.exe show up). See
+          # windows-installer.yml for the full rationale.
+          $py = "$install\.venv\Scripts\python.exe"
+          $holder = Join-Path $env:RUNNER_TEMP 'hold_venv.py'
+          Set-Content -LiteralPath $holder -Encoding ascii -Value @(
+            'from PIL import Image, _imaging',
+            'import time',
+            'time.sleep(900)')
+          Start-Process -FilePath $py -ArgumentList $holder | Out-Null
           Start-Sleep 6
           if (-not (Get-CimInstance Win32_Process | Where-Object {
             ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
-            $_.ExecutablePath -like '*\VibeSeller\*' })) {
+            $_.ExecutablePath -and $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) })) {
             throw "precondition failed: no venv python holding the lock"
           }
           $p = Start-Process -FilePath "$install\unins000.exe" -Wait -PassThru `
