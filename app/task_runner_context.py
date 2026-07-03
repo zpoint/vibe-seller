@@ -104,7 +104,7 @@ def build_store_context(
             f'Drive the browser by piping Python to the '
             f'`browser-use` CLI via a heredoc (0.13 has no '
             f'subcommands — e.g. '
-            f'`browser-use <<PY` / `new_tab(url)` / `PY`).\n'
+            f"`browser-use <<'PY'` / `new_tab(url)` / `PY`).\n"
             f'Your store slug is `{slug}` — this exact string, '
             f'NOT the display name. The wrapper is '
             f'`~/.vibe-seller/bin/{slug}/browser-use` and browser '
@@ -151,7 +151,7 @@ def build_store_context(
             f'Drive the browser by piping Python to the '
             f'`browser-use` CLI via a heredoc (0.13 has no '
             f'subcommands — e.g. '
-            f'`browser-use <<PY` / `new_tab(url)` / `PY`).\n'
+            f"`browser-use <<'PY'` / `new_tab(url)` / `PY`).\n"
             f'Your store slug is `{slug}` — this exact string, '
             f'NOT the display name. The wrapper is '
             f'`~/.vibe-seller/bin/{slug}/browser-use` and browser '
