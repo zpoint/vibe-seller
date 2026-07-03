@@ -40,16 +40,22 @@ fixed recipe from memory. Run the loop a human runs:
    stale one.
 2. **`inspect` it.** The field set / required fields / valid values for
    THIS category are the ground truth, not this doc.
-3. **Fill, upload, then download the processing report.**
-   `parse-feedback` summarises the report's **Feed Processing Summary**
-   tables into per-SKU error codes + messages. The richest field-level
-   detail lives in **cell comments on the report's `Template` tab**
-   (the orange-highlighted cells) — read those directly when a summary
-   message is terse about which field to fix.
-4. **For each error: reason about it, search the error code/message if
-   unfamiliar, fix that one field, re-upload.**
-5. **Repeat until the listing APPEARS IN INVENTORY** — that, not the
-   feed's "N/N successful" count, is done.
+3. **Fill, upload, then download the processing report** and run
+   `parse-feedback REPORT.xlsm`. It reads the summary tables **and the
+   per-cell comments (批注) on the report's `Template` tab** — where
+   Amazon writes the precise, field-level verdict per SKU — and prints
+   `sku=… field=… : MESSAGE`.
+4. **For each ERROR line, fix exactly the field it names** — set it to a
+   value from the template's own valid set (`inspect --field NAME`). Do
+   not reinterpret or theorise a root cause; act on the report's words.
+   (If a WARNING names a key defining attribute like material/pattern,
+   fix it too — that's often what unblocks new-ASIN creation.)
+5. **Re-upload and repeat until only expected noise remains** (see the
+   main-image rule below).
+6. **Final verify — the two sources of truth, not the feed count:** the
+   **downloaded report** shows 0 blocking errors, AND the **Manage
+   Inventory page** shows the family (parent's "Variations (N)", each
+   child a real ASIN — not `-` — with title / description / bullets).
 
 The fixes listed below are **examples this loop surfaced on real
 templates** — priors that speed up diagnosis, not a checklist that
@@ -83,14 +89,20 @@ a family that the parent shows **"Variations (N)"**.
 - **Own-country only** — in the generator, select the store's **single**
   marketplace (multi-marketplace disables Listing Preferences and adds
   offer blocks you don't need). Fill only that marketplace's offer.
-- **Don't hotlink a supplier image URL** into `main_image_url` — Amazon
-  can't fetch a referer-protected 1688/alibaba CDN URL, so the listing
-  is created but suppressed. Leave it blank (listing lands as "needs
-  image") and add images via the proper image flow.
-- **GTIN-exempt brand** — leave `external_product_id` blank and set
-  `brand_name`; the feed may report an `8560` on children, but the ASINs
-  still create under the brand exemption. Verify in inventory, not the
-  feed count.
+- **Main image is not required by default** — we do **not** upload
+  images from here (the seller adds them separately). So a `18320`
+  ("main image is missing") error is *expected noise*, not a blocker;
+  don't chase it, and don't hotlink a supplier CDN URL into
+  `main_image_url` (Amazon can't fetch a referer-protected 1688/alibaba
+  URL anyway). "Done" = every error resolved **except** the image one.
+- **GTIN-exempt brand + a buyable child that `8560`s** — leaving
+  `external_product_id` blank is correct for an exempt brand, but the
+  `8560` ("doesn't match any ASINs … include standard_product_id") means
+  Amazon can't *mint a new ASIN* from what you gave it. Do **not** assume
+  the exemption alone suffices: the report will also warn which **key
+  defining attributes are missing** (e.g. `material_type`,
+  `pattern_name`) — fill exactly those (from the template's valid values)
+  so a new child ASIN can be created. Read the report; don't theorise.
 
 ## The two scripts
 
@@ -111,8 +123,10 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
     parent/child rows, set the operation column per row, validate enums
     and required fields against the template's own metadata sheets, and
     preserve the workbook (macros, signature row) verbatim.
-  - `parse-feedback REPORT` — summarise Amazon's processing report into
-    per-SKU errors / warnings.
+  - `parse-feedback REPORT` — extract Amazon's verdict: the summary
+    tables **and the per-cell comments (批注) on the report's `Template`
+    tab**, emitted as `sku=… field=… : MESSAGE`. The 批注 are the
+    precise, field-level fixes — the engine of the self-correct loop.
 - **`ocr_1688.py`** — local, GPU-free OCR (rapidocr-onnxruntime) of the
   supplier's detail images, where the spec table / size chart live.
 
