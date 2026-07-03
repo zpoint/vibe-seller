@@ -105,13 +105,13 @@ scratch.
 <details open>
 <summary><b>🪟 Windows — native installer (recommended)</b></summary>
 
-No WSL, no Python setup. In **PowerShell**:
+No WSL, no Python setup. Download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
+
+Or, in **PowerShell**:
 
 ```powershell
 irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/install.ps1 | iex
 ```
-
-Or download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
 
 </details>
 
