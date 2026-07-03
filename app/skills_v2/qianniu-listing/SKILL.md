@@ -13,8 +13,8 @@ requires: [qianniu-shared]
 
 千牛 **商品管理** has a first-class **Excel bulk** surface — the batch
 equivalent of the per-item 发布/编辑 wizard, and the default for touching
-more than one 商品. Entry point (verified live 2026-07-03): 商品管理 (`https://
-myseller.taobao.com/home.htm/SellManage/on_sale`) → **更多批量操作** →
+more than one 商品. Entry point (verified live 2026-07-03): 商品管理
+(`https://myseller.taobao.com/home.htm/SellManage/on_sale`) → **更多批量操作** →
 
 | Menu item | Purpose |
 |---|---|
@@ -87,5 +87,6 @@ CLI (`click_at_xy` after a screenshot; `js(...)` to read state) per
 ## What this skill is NOT
 
 - Not ads — that's `qianniu-ads` (万相台无界).
-- Not 生意参谋 reports — that's `qianniu-reports`.
+- Not 生意参谋 (sycm) retail reports — a separate concern (no skill ships for
+  it yet).
 - Never auto-imports or publishes; the human reviews every write.

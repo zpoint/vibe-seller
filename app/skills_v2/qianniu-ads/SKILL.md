@@ -61,5 +61,6 @@ plan table, and export the 报表 for the same window.
 ## What this skill is NOT
 
 - Not listings — that's `qianniu-listing` (商品 Excel round trip).
-- Not 生意参谋 retail reports — that's `qianniu-reports`.
+- Not 生意参谋 (sycm) retail reports — a separate concern (no skill ships for
+  it yet).
 - Never applies a 计划 change; the human reviews and executes every write.

@@ -1,6 +1,6 @@
 ---
 name: qianniu-shared
-description: "Common Taobao/Tmall 千牛 (Qianniu) seller mechanics — chrome-backend login (QR scan or slider-captcha + SMS is a HUMAN step; NO auto-captcha), wrong-account guard (verify the logged-in 店铺名 matches the bound store, else ask), promo/公告/安全提示 popup detect-and-close on every page load, the 千牛 / 生意参谋 (sycm) / 万相台无界 (one.alimama.com) page map + SSO, per-store download dir, and GB18030 CSV caveat. Prerequisite: every other qianniu-* skill (qianniu-listing, qianniu-ads, qianniu-reports) expects this loaded for auth + navigation. Load before any browser-use action on a Taobao/Tmall (千牛) store."
+description: "Common Taobao/Tmall 千牛 (Qianniu) seller mechanics — chrome-backend login (QR scan or slider-captcha + SMS is a HUMAN step; NO auto-captcha), wrong-account guard (verify the logged-in 店铺名 matches the bound store, else ask), promo/公告/安全提示 popup detect-and-close on every page load, the 千牛 / 生意参谋 (sycm) / 万相台无界 (one.alimama.com) page map + SSO, per-store download dir, and GB18030 CSV caveat. Prerequisite: every other qianniu-* skill (qianniu-listing, qianniu-ads) expects this loaded for auth + navigation. Load before any browser-use action on a Taobao/Tmall (千牛) store."
 ---
 
 # Qianniu (Taobao/Tmall) — Shared (auth, navigation, common patterns)
@@ -8,7 +8,7 @@ description: "Common Taobao/Tmall 千牛 (Qianniu) seller mechanics — chrome-b
 What every 千牛 seller task needs: the workbench login (chrome backend,
 human-in-the-loop), the 生意参谋 / 万相台无界 page map + SSO, the per-store
 download directory, and the CSV encoding caveat. Operation-specific skills
-(`qianniu-listing`, `qianniu-ads`, `qianniu-reports`) load this first.
+(`qianniu-listing`, `qianniu-ads`) load this first.
 
 > These stores run on the **chrome** browser backend (not Ziniao) — check
 > `stores.browser_backend`. There is **no auto-captcha** here: the slider
