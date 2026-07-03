@@ -476,3 +476,34 @@ def test_enum_value_canonicalised_to_template_case(template, tmp_path):
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
     rows = _read_rows(out)
     assert rows[0]['variation_theme'] == 'Color'
+
+
+def test_parse_feedback_extracts_cell_comments(tmp_path):
+    """parse-feedback's extractor surfaces the per-cell 批注 (the
+    field-level verdict) from the report's Template tab, split into
+    individual ERROR/WARNING lines with Excel's _x000d_ marker cleaned.
+    This is the engine of the self-correct loop."""
+    from openpyxl.comments import Comment
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = listing_bulk.TEMPLATE_SHEET
+    ws.append(['signature'])                     # row 1
+    ws.append(['Seller SKU', 'Colour'])          # row 2 localised labels
+    ws.append(['item_sku', 'color_name'])        # row 3 field API names
+    ws.append(['W-1', 'White'])                  # row 4 data
+    # Amazon stacks several messages in one comment, split by _x000d_.
+    ws.cell(row=4, column=1).comment = Comment(
+        'ERROR : missing standard_product_id_x000d_WARNING : missing material',
+        'Amazon',
+    )
+    p = tmp_path / 'report.xlsx'
+    wb.save(str(p))
+
+    errs = list(listing_bulk._template_cell_errors(str(p)))
+    msgs = [m for _, _, m in errs]
+    assert all(sku == 'W-1' for sku, _, _ in errs)
+    assert any(m.startswith('ERROR') and 'standard_product_id' in m for m in msgs)
+    assert any(m.startswith('WARNING') and 'material' in m for m in msgs)
+    # _x000d_ artifact must be cleaned (split into separate lines).
+    assert not any('_x000d_' in m for m in msgs)

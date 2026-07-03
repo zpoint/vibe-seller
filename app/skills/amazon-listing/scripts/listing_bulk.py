@@ -479,6 +479,54 @@ def _iter_report_rows(path):
             yield line.rstrip('\n').split(delim)
 
 
+def _template_cell_errors(path):
+    """Per-field errors from a processing report's Template tab.
+
+    Amazon writes the precise, field-level fix as CELL COMMENTS (批注) on
+    the report's Template tab: the summary table gives code + message,
+    but the comment pins the exact column (field) to change. read_only
+    mode does not load comments, so open the workbook normally. Yields
+    (sku, field_api_name, comment_text) -- the self-correction targets.
+    """
+    if not path.lower().endswith(('.xlsm', '.xlsx')):
+        return
+    wb = openpyxl.load_workbook(path, data_only=True)
+    try:
+        if TEMPLATE_SHEET not in wb.sheetnames:
+            return
+        ws = wb[TEMPLATE_SHEET]
+        try:
+            header_row = _find_header_row(ws)
+        except ValueError:
+            return
+        names = {
+            c.column: str(c.value).strip() for c in ws[header_row] if c.value
+        }
+        sku_col = next(
+            (col for col, n in names.items() if n == IDENTITY_FIELD), None
+        )
+        for row in ws.iter_rows(min_row=header_row + 1):
+            sku = ''
+            if sku_col is not None:
+                cell = next((c for c in row if c.column == sku_col), None)
+                sku = cell.value if cell and cell.value else ''
+            for c in row:
+                if not (c.comment and c.comment.text):
+                    continue
+                field = names.get(c.column, f'col{c.column}')
+                # A cell comment can stack several messages, separated by
+                # Excel's literal carriage-return marker `_x000d_`. Split
+                # into individual ERROR/WARNING lines so each is one
+                # actionable item.
+                raw = str(c.comment.text).replace('_x000d_', '\n')
+                for line in raw.split('\n'):
+                    line = ' '.join(line.split())
+                    if line:
+                        yield (str(sku or '?'), field, line)
+    finally:
+        wb.close()
+
+
 def cmd_parse_feedback(args):
     """Summarise Amazon's processing report: per-SKU errors/warnings.
 
@@ -538,6 +586,29 @@ def cmd_parse_feedback(args):
             if 'error' in ' '.join(row).lower():
                 print('  ' + ' | '.join(row))
                 n_err += 1
+
+    # The precise, field-level fixes live in the Template-tab cell
+    # comments (批注). Print them as (sku, field, message) -- for each,
+    # set that field to a valid value (see `inspect`) and re-upload. The
+    # error set is category-specific and unbounded, so extract it from
+    # the report rather than hardcode fixes.
+    cell_errs = list(_template_cell_errors(args.file))
+    if cell_errs:
+        print(
+            '\nper-field cell comments (批注) -- fix the exact field each names:'
+        )
+        for sku, field, msg in cell_errs:
+            print(f'  sku={sku} field={field}: {msg}')
+        # The 批注 are the authoritative per-field verdict; the summary
+        # table above is often mislocated, so count from these instead.
+        c_err = sum(
+            1 for _, _, m in cell_errs if m.lstrip().upper().startswith('ERROR')
+        )
+        c_warn = sum(
+            1 for _, _, m in cell_errs if m.lstrip().upper().startswith('WARN')
+        )
+        if c_err or c_warn:
+            n_err, n_warn = c_err, c_warn
 
     print(f'\nsummary: {n_err} error(s), {n_warn} warning(s)')
     if n_err:
