@@ -269,25 +269,40 @@ jobs:
         shell: pwsh
         run: |
           $install = $env:VS_INSTALL
+          $py = "$install\.venv\Scripts\python.exe"
           # Mimic the running tray at uninstall time: keep a python process
           # from the install alive with a NATIVE venv extension loaded, so a
           # file *inside* .venv stays locked (the real tray does this via
-          # pystray/PIL). Two Windows-specific facts drive the exact shape:
-          #   1. `uv venv` makes .venv\Scripts\python(w).exe thin redirectors
-          #      to the bundled interpreter under {app}\python, and the
-          #      venvlauncher ignores the pythonw variant — so the LONG-LIVED
-          #      process is a base python.exe, never a venv pythonw.exe.
-          #      Match either name anywhere under the install dir.
-          #   2. A bare `time.sleep` touches no .venv file, so it would NOT
-          #      reproduce the partial-.venv bug. Import Pillow's C extension
-          #      (installed by the .iss) to lock
-          #      .venv\Lib\site-packages\PIL\_imaging*.pyd.
-          Start-Process -FilePath "$install\.venv\Scripts\python.exe" `
-            -ArgumentList '-c','from PIL import Image; import time; time.sleep(900)'
+          # pystray/PIL). A bare `time.sleep` touches no .venv file and would
+          # not reproduce the partial-.venv bug; importing Pillow's C ext
+          # locks .venv\Lib\site-packages\PIL\_imaging*.pyd.
+          #
+          # First prove the interpreter runs and PIL imports SYNCHRONOUSLY,
+          # so a broken venv/holder fails here with a real error instead of
+          # silently as "no process". This also prints the real
+          # sys.executable — `uv venv`'s .venv\Scripts\python.exe is a
+          # redirector to the bundled interpreter under {app}\python, so the
+          # long-lived process's path/name is discovered empirically below,
+          # not assumed.
+          & $py -c "import sys; print('sys.executable=', sys.executable); print('sys.prefix=', sys.prefix)"
+          & $py -c "from PIL import Image, _imaging; print('PIL _imaging at', _imaging.__file__)"
+          if ($LASTEXITCODE -ne 0) { throw "venv python cannot import Pillow C ext (exit $LASTEXITCODE)" }
+
+          $proc = Start-Process -FilePath $py -PassThru `
+            -ArgumentList '-c','from PIL import Image, _imaging; import time; time.sleep(900)'
           Start-Sleep 6
+          Write-Host "Start-Process launcher pid=$($proc.Id) HasExited=$($proc.HasExited)"
+          Write-Host "--- python-family processes now running ---"
+          Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe' } |
+            ForEach-Object { Write-Host "  $($_.Name) pid=$($_.ProcessId) path=$($_.ExecutablePath)" }
+
+          # The uninstall fix kills python/pythonw whose ExecutablePath is
+          # under {app}; the precondition asserts exactly that population is
+          # non-empty (match by the real install path, any subdir).
           $running = Get-CimInstance Win32_Process | Where-Object {
             ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
-            $_.ExecutablePath -like '*\VibeSeller\*' }
+            $_.ExecutablePath -and $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) }
           if (-not $running) { throw "precondition failed: no venv python holding the lock" }
           Write-Host "holding python pid(s): $($running.ProcessId -join ',')"
 
