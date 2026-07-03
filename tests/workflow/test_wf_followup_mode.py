@@ -27,7 +27,12 @@ pytestmark = pytest.mark.workflow
 
 
 async def _seed_task(
-    *, status: str, plan_mode: bool, is_plan_only: bool = False
+    *,
+    status: str,
+    plan_mode: bool,
+    is_plan_only: bool = False,
+    started_at: str | None = None,
+    plan: str | None = None,
 ):
     task_id = str(uuid.uuid4())
     sched_id = None
@@ -58,6 +63,8 @@ async def _seed_task(
                 plan_mode=plan_mode,
                 is_plan_only=is_plan_only,
                 schedule_id=sched_id,
+                started_at=started_at,
+                plan=plan,
                 created_by=u.id,
             )
         )
@@ -133,6 +140,65 @@ class TestFollowUpMode:
         assert r.status_code == 200
         run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
         assert run_calls and run_calls[-1].mode == 'auto'
+
+    async def test_approved_plan_designing_followup_does_not_replan(
+        self, admin_client, install_fake_agent
+    ):
+        """The core bug: an APPROVED plan-mode task (``started_at``
+        set) that settled back into DESIGNING between turns must NOT
+        re-plan on follow-up. Plan approval is a one-way exit — the
+        follow-up continues execution (``execute``), never
+        ``plan_then_execute``."""
+        install_fake_agent.default_scenario = FakeAgentScenario(plan='## p')
+        task_id = await _seed_task(
+            status='designing',
+            plan_mode=True,
+            started_at='2026-07-03T03:41:46+00:00',
+            plan='## already approved plan',
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'C:/Users/Administrator/Desktop/out.xlsx'},
+        )
+        assert r.status_code == 200
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls, 'FakeAgent.run was not invoked'
+        assert run_calls[-1].mode == 'execute', (
+            f'Approved plan task re-planned: mode={run_calls[-1].mode!r}; '
+            "expected 'execute' (continue), never 'plan_then_execute'."
+        )
+
+    async def test_approved_plan_completed_followup_continues(
+        self, admin_client, install_fake_agent
+    ):
+        """A follow-up on a COMPLETED plan-mode task whose plan was
+        approved+executed continues like a non-plan task (RUNNING +
+        'auto'), instead of resetting to DESIGNING and re-planning."""
+        install_fake_agent.default_scenario = FakeAgentScenario()
+        task_id = await _seed_task(
+            status='completed',
+            plan_mode=True,
+            started_at='2026-07-03T03:41:46+00:00',
+            plan='## already approved plan',
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'also compute the May totals'},
+        )
+        assert r.status_code == 200
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls, 'FakeAgent.run was not invoked'
+        assert run_calls[-1].mode == 'auto', (
+            f'Completed plan task re-planned: mode={run_calls[-1].mode!r}; '
+            "expected 'auto' (continue like a non-plan task)."
+        )
+        # And the task should be executing again, not back in DESIGNING.
+        async with _db.async_session() as db:
+            t = await db.get(Task, task_id)
+            assert t.status == 'running', (
+                f'status={t.status!r}; a continued follow-up must not '
+                'drop an approved task back into DESIGNING.'
+            )
 
 
 class TestFollowUpKwargs:

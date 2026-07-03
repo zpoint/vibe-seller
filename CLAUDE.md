@@ -106,7 +106,7 @@ checklist and worked examples.
 
 1. Create `app/browser/mybackend.py` implementing `BrowserBackend` from `base.py`
 2. Register in `BrowserManager._get_backend()` in `manager.py`
-3. `BrowserManager` generates per-store wrapper scripts at `~/.vibe-seller/bin/{store-slug}/browser-use` that inject the correct `--session` and `--cdp-url` flags (with `VIBE_TASK_ID` for multi-client CDP proxy isolation)
+3. `BrowserManager` generates per-store wrapper scripts at `~/.vibe-seller/bin/{store-slug}/browser-use` that inject the correct session + CDP endpoint as **env vars** — `BU_NAME` and `BU_CDP_WS` (browser-use 0.13 dropped the `--session`/`--cdp-url` flags for a heredoc/env interface; `VIBE_TASK_ID` still keys multi-client CDP proxy isolation). Daemon state lives under `BH_RUNTIME_DIR` as `bu-<BU_NAME>.pid`, which the reaper keys off. See [docs/browser-use-0.13-migration.md](docs/browser-use-0.13-migration.md).
 
 Existing backends: `chrome` (Playwright Chromium, macOS/Linux/WSLg), `ziniao` (anti-detect, talks to the Ziniao client over HTTP), `winchrome` (native Windows Chrome via Task Scheduler — for WSL2-on-Windows where a headed window can't render under systemd; see [docs/windows-setup.md](docs/windows-setup.md#7-browser-automation--native-windows-chrome-winchrome-backend)).
 
@@ -135,12 +135,31 @@ Existing backends: `chrome` (Playwright Chromium, macOS/Linux/WSLg), `ziniao` (a
 
 ### Adding a Built-in Skill
 
-1. Create `app/skills/my-skill/SKILL.md` with YAML frontmatter (`name`, `description`)
+Current skills live in **`app/skills_v2/`** (see "Skill hosting across release lines" below). To add one:
+
+1. Create `app/skills_v2/my-skill/SKILL.md` with YAML frontmatter (`name`, `description`)
 2. Add implementation files (scripts, `requirements.txt`)
-3. Update `app/skills/MANIFEST.txt` with relative paths to all files
+3. Update `app/skills_v2/MANIFEST.txt` with relative paths to all files
 4. Sync copies files to `~/.vibe-seller/.claude/skills/my-skill/`
 
-> **Built-in browser-use skill**: `app/skills/browser-use/SKILL.md` documents the full browser-use CLI reference (commands, flags, workflows). Agents load it automatically for browser automation tasks.
+> **Built-in browser-use skill**: `app/skills_v2/browser-harness/SKILL.md` documents the browser-use 0.13 heredoc/helper reference (helpers, env-injection contract, workflows). Agents load it automatically for browser automation tasks.
+
+### Skill hosting across release lines
+
+`app/skills/` is **frozen** as the legacy tree for clients on browser-use
+0.12.x. It is the path every released binary up to v0.0.7 hardcodes for
+sync (`config.py` `SKILLS_REPO_URL`, `skills_sync.py` commit-poll
+`path=app/skills`) — **never repurpose it**, and never add files there that
+assume a newer runtime (clients before v0.0.3 lack the local-precedence
+guard in `skills_sync._do_remote_sync` and would pull anything added
+there). Current skills live in **`app/skills_v2/`**; new releases point
+`SKILLS_SUBDIR` (`app/config.py`) at it, so `_get_local_source`,
+`SKILLS_REPO_URL`, and the commit-poll path all resolve to `app/skills_v2`.
+For any future breaking runtime change, **freeze the current tree and add
+`app/skills_vN+1/`** rather than editing in place. `app/knowledge/` (synced
+the same way) is instead kept **version-neutral** — it describes actions in
+prose and points at the skill for exact CLI, so one tree serves every
+client. See [docs/browser-use-0.13-migration.md](docs/browser-use-0.13-migration.md).
 
 > **Optional integration bundles** (e.g., Google Workspace) install at runtime via Settings → Integrations rather than `app/skills/`. See [docs/workspace.md § Optional Integration Bundles](docs/workspace.md#optional-integration-bundles).
 

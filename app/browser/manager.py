@@ -1,5 +1,6 @@
 import asyncio
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError, version
 import json
 import logging
 import os
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import create_token
 from app.browser.base import BrowserBackend, BrowserSessionInfo
+from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
@@ -21,6 +23,7 @@ from app.browser.wrapper import (
 from app.browser.ziniao_utils import ensure_ziniao_running
 from app.config import (
     AI_BOT_USER_ID,
+    BROWSER_USE_BIN_DIR,
     DEMO_MODE,
     LOCALHOST,
     WEB_BROWSER_SLUG,
@@ -53,53 +56,119 @@ _WEB_PROXY_PORT_KEY = 'web_browser_proxy_port'
 
 
 async def kill_aux_daemons() -> int:
-    """Terminate every browser-use daemon whose --session ends in
+    """Terminate every browser-use daemon whose session ends in
     ``-aux``. Returns the count killed.
 
-    Uses ``find_processes_by_pattern`` + ``kill_process`` (psutil) so
-    it works on all platforms — the old ``ps ax`` / ``os.kill`` path
-    was Unix-only.
+    0.13 daemons are found by their pid file (``BU_NAME`` ends in
+    ``-aux``); legacy 0.12 daemons by ``--session …-aux`` in argv (kept
+    for one upgrade cycle). Both paths are psutil-based, cross-platform.
     """
-    daemons: list[int] = []
-    procs = await find_processes_by_pattern('browser_use.skill_cli.daemon')
+    killed = await kill_bh_daemons(lambda name: name.endswith('-aux'))
+    # Legacy 0.12: --session ...-aux in argv.
+    legacy: list[int] = []
+    procs = await find_processes_by_pattern(LEGACY_DAEMON_PATTERN)
     for pid, cmdline in procs.items():
-        # Match aux session names — any session ending in "-aux".
         if re.search(r'--session[= ][^ ]*-aux\b', cmdline):
-            daemons.append(pid)
-    for pid in daemons:
+            legacy.append(pid)
+    for pid in legacy:
         await kill_process(pid)
-    if daemons:
+    total = killed + len(legacy)
+    if total:
         logger.info(
-            'Killed %d aux browser-use daemon(s) on settings change: %s',
-            len(daemons),
-            daemons,
+            'Killed %d aux browser-use daemon(s) on settings change',
+            total,
         )
-    return len(daemons)
+    return total
 
 
 async def _kill_all_browser_daemons() -> int:
     """Kill all browser-use daemon processes (startup only).
 
-    Intended for server startup when no tasks are running yet.
-    Kills every ``browser_use.skill_cli.daemon`` process found.
-    Returns the number of processes killed.
+    Intended for server startup when no tasks are running yet. Kills
+    every 0.13 (pid-file) and legacy 0.12 daemon found. Returns the
+    number of processes killed.
     """
     try:
-        daemons = await find_processes_by_pattern(
-            'browser_use.skill_cli.daemon',
-        )
-        for pid in daemons:
+        killed = await kill_bh_daemons(lambda _name: True)
+        legacy = await find_processes_by_pattern(LEGACY_DAEMON_PATTERN)
+        for pid in legacy:
             await kill_process(pid)
-        if daemons:
+        total = killed + len(legacy)
+        if total:
             logger.info(
-                'Startup: killed %d browser-use daemon(s) '
-                'from previous run: %s',
-                len(daemons),
-                list(daemons.keys()),
+                'Startup: killed %d browser-use daemon(s) from previous run',
+                total,
             )
-        return len(daemons)
+        return total
     except Exception:
         return 0
+
+
+def _wipe_generated_wrappers() -> int:
+    """Delete auto-generated browser-use wrapper scripts on boot.
+
+    In-place-upgrade safety (docs/browser-use-0.13-migration.md §8.4a):
+    a wrapper left on disk by a previous (possibly pre-0.13) version
+    drives the OLD CLI shape and would fail if invoked out-of-band
+    before the next task launch regenerates it. Wiping here guarantees
+    that never happens — ``write_task_browser_config`` rewrites the
+    correct wrapper (with a fresh token) on the next launch. User-created
+    wrappers (without our auto-generation header) are left untouched.
+    """
+    removed = 0
+    if not BROWSER_USE_BIN_DIR.is_dir():
+        return 0
+    for sub in BROWSER_USE_BIN_DIR.iterdir():
+        wrapper = sub / 'browser-use'
+        if not wrapper.is_file():
+            continue
+        try:
+            head = wrapper.read_text(errors='replace')[:200]
+        except OSError:
+            continue
+        if 'Auto-generated browser-use wrapper' in head:
+            try:
+                wrapper.unlink()
+                removed += 1
+            except OSError:
+                pass
+    if removed:
+        logger.info('Boot: wiped %d stale browser-use wrapper(s)', removed)
+    return removed
+
+
+def warn_on_browser_use_version_mismatch() -> str | None:
+    """Warn loudly if the installed browser-use can't drive our wrappers.
+
+    In-place-upgrade safety (§8.4c): this code emits the 0.13
+    (heredoc/env-var) wrapper shape. If a skewed upgrade left an older
+    browser-use installed (user-pinned, offline), the wrappers would
+    fail silently. We surface it at boot rather than at first task.
+    Returns the detected version string (or None if undetectable). Never
+    raises — a version probe must not keep the server from starting.
+    """
+    try:
+        try:
+            ver = version('browser-use')
+        except PackageNotFoundError:
+            logger.error(
+                'browser-use is not installed — browser tasks will fail. '
+                'Install browser-use>=0.13.'
+            )
+            return None
+        parts = ver.split('.')
+        major, minor = int(parts[0]), int(parts[1])
+        if (major, minor) < (0, 13):
+            logger.error(
+                'browser-use %s is too old for this build (needs >=0.13, '
+                'the heredoc/env-var CLI). Browser wrappers will fail — '
+                'upgrade browser-use. See '
+                'docs/browser-use-0.13-migration.md.',
+                ver,
+            )
+        return ver
+    except Exception:
+        return None
 
 
 def atomic_write_json(path, data):
@@ -200,12 +269,22 @@ class BrowserManager:
         Called on server startup — in-memory state is empty so
         any DB session still marked 'running' is stale.
         Also kills any orphaned browser-use daemons from the
-        previous server run.
+        previous server run, wipes stale wrapper scripts, and warns
+        on a browser-use version mismatch (in-place-upgrade safety —
+        see docs/browser-use-0.13-migration.md §8.4).
         Returns the number of sessions cleaned up.
         """
-        # Kill orphaned daemons using the same logic as the
-        # periodic reaper — preserves daemons for active tasks
-        # (e.g. WAITING tasks that survive server restart).
+        # In-place-upgrade safety, in order:
+        #  (c) warn if the installed browser-use can't drive the wrapper
+        #      shape this code emits (>=0.13),
+        #  (a) wipe stale wrapper scripts so a pre-upgrade (0.12-shaped)
+        #      wrapper is never invoked before it self-heals on the next
+        #      task launch,
+        #  (b) reap orphaned daemons (both 0.13 pid-file + legacy 0.12
+        #      cmdline) — preserves daemons for active tasks (e.g. WAITING
+        #      tasks that survive a restart).
+        warn_on_browser_use_version_mismatch()
+        _wipe_generated_wrappers()
         await reap_orphaned_daemons()
 
         async with async_session() as db:
