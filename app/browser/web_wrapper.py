@@ -213,8 +213,12 @@ def write_web_browser_use_wrapper(
         # daemon and surface the error — no blind retry (a 0.13 heredoc
         # may mutate the page, so re-running is unsafe; the agent
         # re-issues against the fresh daemon).
+        # exec explicit-program form (see wrapper.py): a bare
+        # `exec @ARGV` with a single element routes perl through
+        # `/bin/sh -c`, which strips backslashes from the Windows
+        # $REAL_BU path. The BLOCK form always uses execvp, no shell.
         set +e
-        perl -e 'alarm shift; exec @ARGV' 120 "$REAL_BU" ${{PASSTHROUGH[@]+"${{PASSTHROUGH[@]}}"}}
+        perl -e 'alarm shift; exec {{$ARGV[0]}} @ARGV' 120 "$REAL_BU" ${{PASSTHROUGH[@]+"${{PASSTHROUGH[@]}}"}}
         _vs_rc=$?
         set -e
         if [ "$_vs_rc" -eq 142 ]; then
