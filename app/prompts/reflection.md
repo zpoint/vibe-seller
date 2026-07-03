@@ -47,7 +47,7 @@ Ask, in order:
 3. Is it already in a skill, L1 file, L2 file, or L3 file I read this task?
    If yes → drop (or UPDATE the existing file if your version is more accurate).
 4. Can a future agent derive it by reading the existing skill/knowledge and
-   running one `browser-use state`? If yes → drop.
+   running one `browser-use` page check (e.g. `page_info()`)? If yes → drop.
 
 If a candidate learning survives all four, write it. Otherwise don't.
 

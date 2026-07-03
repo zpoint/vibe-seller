@@ -201,3 +201,94 @@ class TestDaemonReaper:
             assert _is_alive(proc), 'Daemon without task ID should be skipped'
         finally:
             _ensure_dead(proc)
+
+
+def _spawn_bh_daemon() -> subprocess.Popen:
+    """Spawn a process whose cmdline matches the browser-use 0.13 daemon
+    (``browser_harness.daemon``). Identity is carried in a pid file, not
+    argv — so the reaper maps it via ``bu-<BU_NAME>.pid``."""
+    return subprocess.Popen(
+        [
+            sys.executable,
+            '-c',
+            'import time; time.sleep(300)',
+            '-m',
+            'browser_harness.daemon',  # marker for find_processes_by_pattern
+        ],
+    )
+
+
+class TestDaemonReaperPidFile:
+    """browser-use 0.13 daemons: reaped via pid files keyed on BU_NAME.
+
+    Also covers the resume-from-process-kill upgrade scenario: on boot
+    the reaper kills orphans (dead tasks) but spares active-task daemons.
+    """
+
+    async def test_reaper_kills_orphaned_013_daemon(
+        self, monkeypatch, override_async_session, tmp_path, fake_task_id
+    ):
+        monkeypatch.setattr('app.browser.bh_daemons.BH_RUNTIME_DIR', tmp_path)
+        proc = _spawn_bh_daemon()
+        bu_name = f'acme-store-{fake_task_id[:8]}'
+        pf = tmp_path / f'bu-{bu_name}.pid'
+        sock = tmp_path / f'bu-{bu_name}.sock'
+        pf.write_text(str(proc.pid))
+        sock.touch()
+        try:
+            killed = await reap_orphaned_daemons()
+            assert _wait_for_death(proc), 'orphaned 0.13 daemon must die'
+            assert killed >= 1
+            # Runtime files for the reaped daemon are cleaned up.
+            assert not pf.exists()
+            assert not sock.exists()
+        finally:
+            _ensure_dead(proc)
+
+    async def test_reaper_spares_active_013_daemon(
+        self, monkeypatch, active_task_id, tmp_path
+    ):
+        monkeypatch.setattr('app.browser.bh_daemons.BH_RUNTIME_DIR', tmp_path)
+        proc = _spawn_bh_daemon()
+        bu_name = f'acme-store-{active_task_id[:8]}'
+        pf = tmp_path / f'bu-{bu_name}.pid'
+        pf.write_text(str(proc.pid))
+        try:
+            await reap_orphaned_daemons()
+            await asyncio.sleep(0.5)
+            assert _is_alive(proc), 'active-task 0.13 daemon must survive'
+            assert pf.exists(), 'active daemon pid file must be kept'
+        finally:
+            _ensure_dead(proc)
+
+    async def test_reaper_cleans_stale_pidfile_no_live_daemon(
+        self, monkeypatch, override_async_session, tmp_path, fake_task_id
+    ):
+        """A pid file whose PID is not a live browser_harness.daemon is
+        stale (crash / PID reuse) — deleted, nothing killed."""
+        monkeypatch.setattr('app.browser.bh_daemons.BH_RUNTIME_DIR', tmp_path)
+        bu_name = f'acme-store-{fake_task_id[:8]}'
+        pf = tmp_path / f'bu-{bu_name}.pid'
+        sock = tmp_path / f'bu-{bu_name}.sock'
+        # A PID that is (almost certainly) not a live bh daemon.
+        pf.write_text('999999')
+        sock.touch()
+        await reap_orphaned_daemons()
+        assert not pf.exists(), 'stale pid file must be cleaned up'
+        assert not sock.exists()
+
+    async def test_reaper_ignores_013_daemon_without_task_suffix(
+        self, monkeypatch, override_async_session, tmp_path
+    ):
+        """A bare-slug / aux BU_NAME (no -{8hex} task suffix) is a
+        manual/aux session and must be skipped."""
+        monkeypatch.setattr('app.browser.bh_daemons.BH_RUNTIME_DIR', tmp_path)
+        proc = _spawn_bh_daemon()
+        pf = tmp_path / 'bu-acme-store-aux.pid'
+        pf.write_text(str(proc.pid))
+        try:
+            await reap_orphaned_daemons()
+            await asyncio.sleep(0.5)
+            assert _is_alive(proc), 'aux 0.13 daemon must be skipped'
+        finally:
+            _ensure_dead(proc)

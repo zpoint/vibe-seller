@@ -117,8 +117,9 @@ Local package knowledge is synced before every agent run. Remote sync (from GitH
 ### Skills System (Reusable Agent Procedures)
 
 ```
-PACKAGE (app/skills/)                    LOCAL (~/.vibe-seller/)
+PACKAGE (app/skills_v2/)                 LOCAL (~/.vibe-seller/)
   MANIFEST.txt                             .claude/skills/
+  browser-harness/SKILL.md                   browser-harness/  ← flagship (0.13 heredoc CLI)
   amazon-invoice/SKILL.md                    amazon-invoice/  ← synced from package + remote
   amazon-invoice/generate_invoice.py           SKILL.md
   amazon-invoice/requirements.txt              generate_invoice.py
@@ -126,7 +127,7 @@ PACKAGE (app/skills/)                    LOCAL (~/.vibe-seller/)
                                              my-custom-skill/  ← user-created, never synced
 ```
 
-Skills are reusable procedures that agents load automatically. Three-tier sync mirrors the knowledge system: local package sync via `importlib.resources`, remote GitHub sync via `MANIFEST.txt` with 24h cooldown, and on-demand sync before tasks.
+Skills are reusable procedures that agents load automatically. Skills now ship from **`app/skills_v2/`** (pinned by `SKILLS_SUBDIR` in `app/config.py`); the flagship skill is `browser-harness`, which documents the browser-use 0.13 heredoc/env-var interface. The old `app/skills/` tree is **frozen legacy** — kept only for clients still on browser-use 0.12.x (the subcommand CLI), never edited for the new runtime; future breaking runtime changes freeze the current tree and add `app/skills_vN+1` rather than editing in place. `app/knowledge/` is version-neutral (shared across runtimes). Three-tier sync mirrors the knowledge system: local package sync via `importlib.resources`, remote GitHub sync via `MANIFEST.txt` with 24h cooldown, and on-demand sync before tasks.
 
 **Optional integration bundles** skip this sync pipeline entirely. The Google Workspace bundle is installed out-of-band at runtime:
 
@@ -140,7 +141,7 @@ Skills are reusable procedures that agents load automatically. Three-tier sync m
                                              .claude/skills/gws/  (single entry)
 ```
 
-The toggle lives in Settings → Integrations; `skills_sync.fetch()` never touches the `gws/` folder because it has no package source under `app/skills/`. See `app/workspace/gws_integration.py`.
+The toggle lives in Settings → Integrations; `skills_sync.fetch()` never touches the `gws/` folder because it has no package source under `app/skills_v2/`. See `app/workspace/gws_integration.py`.
 
 Key design decisions:
 - **Shared venv**: skill `requirements.txt` deps are auto-installed into `~/.vibe-seller/.venv/` during sync — no per-skill `.venv/`
@@ -442,21 +443,26 @@ class BrowserBackend(ABC):
         """Stop browser."""
         ...
 
+
 # app/browser/ziniao.py
 class ZiniaoBackend(BrowserBackend):
     """Ziniao anti-detect browser."""
+
     # One instance per store (not shared)
     # Uses HTTP API on configurable socket_port (default 16851)
     # Each startBrowser call returns a unique debuggingPort
     # CDPProxy relays from stable proxy_port → dynamic debuggingPort
     # On WSL, proxy target is Windows gateway IP (not 127.0.0.1)
 
+
 # app/browser/chrome.py
 class ChromeBackend(BrowserBackend):
     """Standard Chrome via browser-use CLI."""
+
     # No dedicated backend — Chrome stores use browser-use CLI directly
-    # with --session flag for persistent profile isolation
-    # Persistent profiles: managed by browser-use daemon per session
+    # with the BU_NAME env var (0.13; was --session) for profile isolation
+    # Persistent profiles: managed by browser-use (browser_harness) daemon
+    #   per session
     #   - Cookies, localStorage, login sessions survive restarts
     # Bookmarks: read_bookmarks(slug) parses Chrome Bookmarks JSON
     #   - Auto-injected into agent context for stores with sparse knowledge
@@ -513,7 +519,7 @@ Each store = separate browser instance with its own CDP port and proxy. We run *
 ```
 Store1 (ziniao, profile A) ──→ ziniao :debugPort1 ──→ CDPProxy :9222
 Store2 (ziniao, profile B) ──→ ziniao :debugPort2 ──→ CDPProxy :9223
-Store3 (chrome)            ──→ browser-use CLI (--session, no proxy needed)
+Store3 (chrome)            ──→ browser-use CLI (BU_NAME env var, no proxy needed)
 ```
 
 ### Per-Store Task Queuing
@@ -526,20 +532,27 @@ Only one Ziniao account can be active per machine (one Ziniao process). The `Bro
 
 ### Per-Store Browser-Use Wrapper Isolation
 
-Each store gets a dedicated wrapper script at `~/.vibe-seller/bin/{slug}/browser-use` that enforces session isolation. The wrapper:
-- Validates `--session` against allowed sessions for the store
-- Blocks `--cdp-url` and `--mcp` flags (prevents escaping isolation)
-- Injects store-specific `--session` and (for Ziniao) `--cdp-url` flags
-- Auto-starts the Ziniao CDP proxy if needed
+Each store gets a dedicated wrapper script at `~/.vibe-seller/bin/{slug}/browser-use` that enforces session isolation. browser-use 0.13 removed the subcommand CLI (`open`/`state`/`click`) — the agent drives the browser by piping Python helpers via a heredoc, and connection identity moved from flags to **env vars**. The wrapper:
+- Auto-assigns the per-task session and validates the session name against the store's allowed set; only `--session {slug}-aux` may override (mapped to `BU_NAME`)
+- Blocks `--cdp-url`/`--mcp`/`--connect`/`--profile` flags and agent-supplied `BU_*` env vars (prevents escaping isolation)
+- Injects the session name as `BU_NAME` (was `--session`) and, for proxy sessions, the CDP endpoint as `BU_CDP_WS` (was `--cdp-url`), plus `BH_RUNTIME_DIR`/`BH_RUNTIME_DIR_SHARED` for daemon state
+- Auto-starts the CDP proxy if needed
 
 Ziniao stores get **dual-session** support — a main session (`{slug}`) for seller center and an auxiliary session (`{slug}-aux`) for non-seller-center URLs:
 
 ```bash
-# Main session (Ziniao — seller center, routed via CDP proxy)
-~/.vibe-seller/bin/test-store/browser-use --session test-store open https://seller.example.com
+# Main session (Ziniao — seller center, routed via CDP proxy; BU_NAME + BU_CDP_WS injected by wrapper)
+~/.vibe-seller/bin/acme-store/browser-use <<'PY'
+new_tab("https://seller.example.com")   # first navigation is new_tab()
+wait_for_load()
+print(page_info())
+PY
 
-# Aux session (Chrome — everything else, no CDP proxy)
-~/.vibe-seller/bin/test-store/browser-use --session test-store-aux open https://google.com
+# Aux session (Chrome direct — everything else, no BU_CDP_WS)
+~/.vibe-seller/bin/acme-store/browser-use --session acme-store-aux <<'PY'
+new_tab("https://example.com")
+print(page_info())
+PY
 ```
 
 Agent routing (seller center → Ziniao session, everything else → Chrome aux session) is driven by `app/prompts/dual_browser.md`. Chrome-only stores get a single session.
@@ -626,9 +639,12 @@ vibe-seller/
 │   ├── scheduler/                # Task scheduling
 │   │   ├── cron.py               # APScheduler cron jobs
 │   │   └── task_queue.py         # Per-store concurrent task scheduler
-│   ├── skills/                   # Bundled skills (synced to workspace)
+│   ├── skills_v2/                # Bundled skills, active (browser-use 0.13)
 │   │   ├── MANIFEST.txt          # File list for remote sync
+│   │   ├── browser-harness/      # Flagship skill (0.13 heredoc CLI)
 │   │   └── amazon-invoice/       # Example skill (invoice generation)
+│   ├── skills/                   # Frozen legacy skills (browser-use 0.12.x)
+│   ├── knowledge/                # Version-neutral bundled knowledge
 │   ├── workspace/                # Workspace management (~/.vibe-seller/)
 │   │   ├── manager.py            # Init workspace, venv, store profiles
 │   │   ├── knowledge_sync.py     # Sync knowledge/ → workspace
@@ -849,8 +865,8 @@ Store-level email connections with IMAP auto-discovery and watermark tracking.
 
 ### Chrome Persistent Profiles & Bookmarks
 
-- **Persistent profiles**: Managed by browser-use daemon per session. Chrome stores use `--session {slug}` for profile isolation. Cookies, localStorage, and login sessions survive across tasks.
-- **Ziniao aux sessions**: Ziniao stores also get an auxiliary Chrome session (`{slug}-aux`) for non-seller-center URLs (Google, logistics sites, etc.). The aux session starts lazily on first use — zero overhead if unused.
+- **Persistent profiles**: Managed by the browser-use (0.13 `browser_harness`) daemon per session. Chrome stores use the `BU_NAME={slug}` env var (0.13; was `--session {slug}`) for profile isolation. Cookies, localStorage, and login sessions survive across tasks.
+- **Ziniao aux sessions**: Ziniao stores also get an auxiliary Chrome session (`{slug}-aux`, still requested via a `--session {slug}-aux` shim the wrapper maps to `BU_NAME`) for non-seller-center URLs (Google, logistics sites, etc.). The aux session starts lazily on first use — zero overhead if unused.
 - **Store-less `web` browser**: No-store (orchestrator) tasks get a single generic Chrome browser (not tied to any store, wrapper at `bin/_web`, sessions `web`/`web-{task[:8]}`) for neutral public web work; seller-center work still delegates to a per-store sub-task. Distinct from the per-store `{slug}-aux`. See [docs/browser.md](docs/browser.md#store-less-web-browser).
 - **Proxy config**: Only relevant for Chrome stores in UI.
 - **Bookmarks**: `read_bookmarks(slug)` reads `Default/Bookmarks` JSON from the profile dir. Auto-injected into agent context when knowledge files are sparse.
@@ -877,4 +893,4 @@ If Ziniao is already running with the correct port, everything works automatical
 
 ### CDP Proxy Architecture
 
-Each Ziniao store gets a stable CDP proxy (`app/browser/cdp_proxy.py`) that listens on `127.0.0.1:{proxy_port}` and relays to the actual Ziniao `debuggingPort` (which changes on each `startBrowser` call). On WSL, the proxy relays to the Windows gateway IP instead of localhost. The browser-use wrapper's `--cdp-url` always points to the stable proxy port.
+Each Ziniao store gets a stable CDP proxy (`app/browser/cdp_proxy.py`) that listens on `127.0.0.1:{proxy_port}` and relays to the actual Ziniao `debuggingPort` (which changes on each `startBrowser` call). On WSL, the proxy relays to the Windows gateway IP instead of localhost. The browser-use wrapper's `BU_CDP_WS` env var (0.13; was `--cdp-url`) always points to the stable proxy port.
