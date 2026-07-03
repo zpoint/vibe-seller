@@ -197,16 +197,32 @@ re-uploads can complete them.
 - **Compound attributes arrive as a set.** Apparel Size needs
   `apparel_size_class` + `apparel_size_system` + `apparel_body_type` +
   `apparel_height_type` together — a partial set errors 99001/99022.
-- **`external_product_id` (GTIN/UPC/EAN):** an own-brand item with no
-  barcode needs a **GTIN exemption** (per brand+category+**marketplace**
-  in Seller Central). With it, leave the id blank + set `brand_name`; the
-  feed may print `8560` on children yet the ASINs still create — verify
-  in inventory. Exemptions are marketplace-scoped: an exemption on one
-  marketplace does not cover another.
-- **`main_image_url`:** never a hotlinked supplier CDN URL (1688/alibaba
-  `cbu01.alicdn.com`, tmall) — Amazon can't fetch a referer-protected
-  image, so the listing is created but suppressed. Leave it blank and add
-  images through the proper image flow.
+- **`8560` on a buyable child ("doesn't match any ASINs … include
+  standard_product_id")** — Amazon won't mint a new ASIN. Decide by
+  whether that child's ASIN already exists:
+  - **Exists** (re-submit, or a prior create left a catalog ASIN — a
+    `delete` removes the SKU/offer, **not** the catalog ASIN): **match**
+    it — `operation: update`, `external_product_id` = the ASIN,
+    `external_product_id_type: asin`. This is what lets a stuck variation
+    child join its family (verified fix).
+  - **Genuinely new, GTIN-exempt brand:** leave `external_product_id`
+    blank + set `brand_name`, and fill the **key defining attributes the
+    report names as missing** (e.g. `material_type`, `pattern_name`) so
+    the ASIN can be minted. The exemption alone is not enough. Exemptions
+    are per brand+category+**marketplace**.
+  Set `update_delete` on every row, children included.
+- **Offer/price is per-marketplace; verify in that marketplace's Pricing
+  view.** Fill one offer block —
+  `purchasable_offer[marketplace_id=<MKT>]#1.our_price#1.schedule#1.value_with_tax`
+  (`our_price` is the only price column that matters) +
+  `fulfillment_availability#1.quantity`. The feed count doesn't reflect
+  price; quantity can apply while Pricing shows `--` if you set a
+  different marketplace's column. On a bundled multi-marketplace
+  template, fill only the intended marketplace's block.
+- **`main_image_url`:** by default not uploaded here (seller adds images)
+  — a `18320` image error is *expected*, not a blocker. Never hotlink a
+  supplier CDN URL (1688/alibaba `cbu01.alicdn.com`, tmall) — Amazon
+  can't fetch a referer-protected image, so the listing is suppressed.
 - Many **battery / lithium / hazmat** fields are marked Required but are
   only *conditionally* required — leave them blank for a non-battery
   product (set `batteries_required: No`, `are_batteries_included: No`).

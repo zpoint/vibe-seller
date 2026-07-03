@@ -95,14 +95,35 @@ a family that the parent shows **"Variations (N)"**.
   don't chase it, and don't hotlink a supplier CDN URL into
   `main_image_url` (Amazon can't fetch a referer-protected 1688/alibaba
   URL anyway). "Done" = every error resolved **except** the image one.
-- **GTIN-exempt brand + a buyable child that `8560`s** — leaving
-  `external_product_id` blank is correct for an exempt brand, but the
-  `8560` ("doesn't match any ASINs … include standard_product_id") means
-  Amazon can't *mint a new ASIN* from what you gave it. Do **not** assume
-  the exemption alone suffices: the report will also warn which **key
-  defining attributes are missing** (e.g. `material_type`,
-  `pattern_name`) — fill exactly those (from the template's valid values)
-  so a new child ASIN can be created. Read the report; don't theorise.
+- **A buyable child that `8560`s ("doesn't match any ASINs … include
+  standard_product_id")** — Amazon is refusing to *mint a new ASIN* for
+  it. Two cases, decided by whether that child's ASIN already exists:
+  - **ASIN already exists** (you're re-submitting, or a prior create left
+    a catalog ASIN — note a `delete` removes your SKU/offer but **not**
+    the catalog ASIN): don't try to create — **match** it. Set
+    `operation: update`, `external_product_id` = the existing ASIN,
+    `external_product_id_type: asin`. This is the reliable fix and what
+    resolves a variation child that won't join its family.
+  - **Genuinely new ASIN, GTIN-exempt brand** (leave `external_product_id`
+    blank): the exemption alone is not enough — the report also warns
+    which **key defining attributes are missing** (e.g. `material_type`,
+    `pattern_name`); fill exactly those from the template's valid values
+    so the ASIN can be minted.
+  Either way, set `update_delete` on **every** row including children —
+  never leave a child's operation blank.
+- **Offer/price is per-marketplace, and only `our_price` matters.** The
+  buyable offer is one block per marketplace:
+  `purchasable_offer[marketplace_id=<MKT>]#1.our_price#1.schedule#1.value_with_tax`
+  (+ `fulfillment_availability#1.quantity`). Of the many price columns
+  only `our_price` is needed. Fill the block for the marketplace you're
+  selling on; **verify it in THAT marketplace's Pricing view** — the feed
+  "N/N successful" count does not reflect price, and quantity can apply
+  while price shows `--` if you set a different marketplace's column.
+- **A multi-marketplace account's template bundles every marketplace's
+  offer columns** (e.g. a Europe account yields both SA + AE columns even
+  when you select one) — a truly single-country template may not be
+  downloadable there. "Clean single-country" then means: fill only the
+  intended marketplace's offer block, leave the others blank.
 
 ## The two scripts
 
@@ -141,10 +162,11 @@ The operation is **chosen per row in the sheet**, not inferred:
 | `partialupdate` | `partialupdate` | change only the fields present; leave others as-is. |
 | `delete` | `delete` | remove the SKU. Needs only `sku` + `operation`. |
 
-Rule of thumb the user gave: **no ASIN filled → create; ASIN filled →
-update** — but the sheet's operation column is authoritative, so always
-set `operation` explicitly. For update/partialupdate by ASIN, put the
-ASIN in `external_product_id` with `external_product_id_type: asin`.
+Rule of thumb: **no ASIN yet → create; the ASIN already exists → update
+and match it** (put the ASIN in `external_product_id` with
+`external_product_id_type: asin`). The operation column is authoritative,
+so set it **explicitly on every row, children included** — a blank child
+operation is a common cause of a child failing to join its family.
 
 ## End-to-end flow (product link → live listing)
 
@@ -160,11 +182,11 @@ ASIN in `external_product_id` with `external_product_id_type: asin`.
 4. **Download** the category template for the product type (into
    `~/.vibe-seller/downloads/<slug>/`), `inspect` it.
 5. **Fill** a spec (parent + children) and produce the `.xlsm`.
-6. **Upload** it and **read the processing report**; fix row-level
-   errors from the report and re-upload. Common first-timers: an
-   invalid `recommended_browse_nodes` (pick from the template's valid
-   values) and a missing `external_product_id` (own-brand items need a
-   real barcode or a **GTIN exemption**).
+6. **Upload the `.txt` and run the self-correct loop** (see "Work it
+   like a human" above): `parse-feedback` the report, fix exactly the
+   field each 批注 names, re-upload, repeat, and **verify on Manage
+   Inventory + the Pricing view** — not the feed count. Stop when the
+   only remaining error is the image (`18320`).
 
 ## Sourcing login
 
