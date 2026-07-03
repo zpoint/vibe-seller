@@ -1,9 +1,13 @@
-"""Store-less orchestrator "web" browser-use wrapper generation.
+"""Store-less orchestrator "web" browser-use wrapper generation (0.13).
 
 Generates ``$VIBE_HOME/bin/_web/browser-use`` — the wrapper for no-store
 (orchestrator) tasks. Split out of ``wrapper.py`` (per-store wrapper) so
-each stays a focused, readable module; keep the shared self-heal +
-URL-shape guard logic in sync between the two.
+each stays a focused, readable module; keep the shared env-injection +
+wedge-recovery logic in sync between the two.
+
+Like the per-store wrapper, this targets browser-use 0.13: connection
+identity is injected via ``BU_NAME``/``BU_CDP_WS`` env vars (not flags),
+and the agent drives the browser by piping Python via a heredoc/`-c`.
 """
 
 import logging
@@ -15,6 +19,8 @@ import textwrap
 
 from app.config import (
     BACKEND_PORT,
+    BH_RUNTIME_DIR,
+    BH_TMP_DIR,
     BROWSER_USE_BIN_DIR,
     LOCALHOST,
     WEB_BROWSER_SLUG,
@@ -33,13 +39,13 @@ def write_web_browser_use_wrapper(
     api_token: str | None = None,
     headless: bool = True,
 ) -> None:
-    """Generate the orchestrator "web" browser-use wrapper.
+    """Generate the orchestrator "web" browser-use wrapper (0.13).
 
     Creates ``~/.vibe-seller/bin/_web/browser-use`` for no-store
     (orchestrator) tasks. Unlike the per-store wrapper this browser is
     NOT tied to any store: it's a single generic Chrome session for
     neutral public web work (search, tracking/logistics pages,
-    research). It is Chrome-only — there is no Ziniao routing and no
+    research). It is Chrome-only — no Ziniao routing and no
     ``{slug}-aux`` split — so this is a deliberately simpler sibling of
     :func:`write_browser_use_wrapper`.
 
@@ -48,11 +54,9 @@ def write_web_browser_use_wrapper(
     multiplexed through CDPMuxProxy by ``VIBE_TASK_ID``). Auto-start
     hits ``POST /api/browser/web/start`` (no store id).
 
-    NOTE: the self-heal + URL-shape guard here mirror
-    :func:`write_browser_use_wrapper`; keep the two in sync. They are
-    kept as separate generators because the store wrapper's Ziniao/aux
-    routing does not apply to the store-less web browser, and coupling
-    them would put that battle-tested store path at risk.
+    ``headless`` is accepted for signature compatibility but unused: 0.13
+    attaches to the Chrome our backend launched (via the CDP proxy), so
+    window visibility is the backend's concern, not a browser-use flag.
     """
     wrapper_dir = _BIN_DIR / WEB_BROWSER_SLUG
     wrapper_dir.mkdir(parents=True, exist_ok=True)
@@ -61,7 +65,8 @@ def write_web_browser_use_wrapper(
     # Same binary-resolution rationale as write_browser_use_wrapper:
     # prefer the browser-use next to the daemon interpreter, never
     # .resolve() (uv venvs symlink to a base Python with its own,
-    # possibly older, browser-use).
+    # possibly older, browser-use). 0.13 keeps the `browser-use` entry
+    # point, so this path resolves the same after an in-place upgrade.
     daemon_bin = Path(sys.executable).parent
     candidate = daemon_bin / 'browser-use'
     real_bu = (
@@ -83,8 +88,6 @@ def write_web_browser_use_wrapper(
             f'\n                  -H "Authorization: Bearer {api_token}" \\'
         )
 
-    headed_flag = '--headed ' if not headless else ''
-
     script = textwrap.dedent(f"""\
         #!/usr/bin/env bash
         # Auto-generated browser-use wrapper for the orchestrator web
@@ -97,6 +100,22 @@ def write_web_browser_use_wrapper(
 
         REAL_BU="{real_bu}"
 
+        # Reject agent attempts to hijack the managed connection.
+        for _v in BU_NAME BU_CDP_URL BU_CDP_WS BU_AUTOSPAWN; do
+          if [ -n "${{!_v:-}}" ]; then
+            echo "ERROR: $_v is managed by the wrapper — do not set it." >&2
+            exit 1
+          fi
+        done
+        unset BROWSER_USE_API_KEY BU_AUTOSPAWN 2>/dev/null || true
+
+        # Isolate browser_harness daemon state under vibe-seller (SHARED so
+        # each daemon file carries its BU_NAME for the reaper).
+        export BH_RUNTIME_DIR="{BH_RUNTIME_DIR}"
+        export BH_RUNTIME_DIR_SHARED=1
+        export BH_TMP_DIR="{BH_TMP_DIR}"
+        export BH_TMP_DIR_SHARED=1
+
         # Per-task session: each task gets its own daemon so concurrent
         # orchestrator tasks never collide on one session config.
         if [ -n "${{VIBE_TASK_ID:-}}" ]; then
@@ -105,6 +124,8 @@ def write_web_browser_use_wrapper(
           SESSION="web"
         fi
 
+        # 0.13 has no subcommands — the agent pipes Python via stdin
+        # (heredoc) or -c. Intercept only the isolation-relevant flags.
         PASSTHROUGH=()
         while [ $# -gt 0 ]; do
           case "$1" in
@@ -119,12 +140,8 @@ def write_web_browser_use_wrapper(
               fi
               SESSION="$_REQ_SESSION"
               ;;
-            --cdp-url|--cdp-url=*)
-              echo "ERROR: --cdp-url is managed by the wrapper" >&2
-              exit 1
-              ;;
-            --headed|--headed=*)
-              echo "ERROR: --headed is managed by the wrapper" >&2
+            --cdp-url|--cdp-url=*|--cdp-ws|--cdp-ws=*)
+              echo "ERROR: the CDP endpoint is managed by the wrapper" >&2
               exit 1
               ;;
             --mcp|--mcp=*)
@@ -150,36 +167,6 @@ def write_web_browser_use_wrapper(
         if [[ ! "$SESSION" =~ ^web(-[0-9a-fA-F]{{8}})?$ ]]; then
             echo "ERROR: session '$SESSION' not allowed. Allowed: web, web-{{8-hex-chars}}" >&2
             exit 1
-        fi
-
-        # URL-shape validation for `open` (mirrors the store wrapper):
-        # a shell that ate '?'/'&' before we ran leaves a mangled URL;
-        # fail loudly on the first call instead of silently no-op'ing.
-        _bu_subcmd=""
-        _bu_url=""
-        for ((i=0; i<${{#PASSTHROUGH[@]}}; i++)); do
-          case "${{PASSTHROUGH[$i]}}" in
-            open|navigate)
-              _bu_subcmd="${{PASSTHROUGH[$i]}}"
-              _bu_url="${{PASSTHROUGH[$((i+1))]:-}}"
-              break
-              ;;
-          esac
-        done
-        if [ -n "$_bu_subcmd" ]; then
-          case "$_bu_url" in
-            http://*|https://*) : ;;
-            about:*|file://*)   : ;;
-            *)
-              echo "ERROR: 'browser-use $_bu_subcmd' expects an http(s)://, about:, or file:// URL." >&2
-              echo "       Got: ${{_bu_url:-<missing>}}" >&2
-              echo "" >&2
-              echo "Likely cause: the calling shell parsed special characters" >&2
-              echo "in your URL. URLs with '?', '&', or '#' MUST be quoted:" >&2
-              echo "  browser-use open 'https://example.com/page?a=1&b=2'" >&2
-              exit 2
-              ;;
-          esac
         fi
 
         # Auto-start: ensure the web CDP proxy is responding.
@@ -214,69 +201,27 @@ def write_web_browser_use_wrapper(
           exit 1
         fi
 
-        # Inject --cdp-url so each task connects via CDPMuxProxy under
-        # its own client id (VIBE_TASK_ID) for tab isolation.
-        CDP_ARGS=()
+        # Inject the CDP endpoint + daemon identity as env vars. Each task
+        # connects via CDPMuxProxy under its own client id (VIBE_TASK_ID)
+        # for tab isolation.
+        export BU_NAME="$SESSION"
         CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}"
-        CDP_ARGS+=("--cdp-url" "ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}")
+        export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}"
 
-        # Self-heal wedged daemons (mirrors the store wrapper; all web
-        # sessions go through the proxy so the policy applies to all).
-        _vs_cmd=""
-        for _vs_tok in ${{PASSTHROUGH[@]+"${{PASSTHROUGH[@]}}"}}; do
-          case "$_vs_tok" in -*) ;; *) _vs_cmd="$_vs_tok"; break ;; esac
-        done
-        _vs_policy="none"
-        case "$_vs_cmd" in
-          open|navigate) _vs_policy="nav" ;;
-          state|get)     _vs_policy="read" ;;
-          eval)          _vs_policy="eval" ;;
-        esac
-
-        if [ "$_vs_policy" != "none" ]; then
-          _vs_run() {{
-            perl -e 'alarm shift; exec @ARGV' 60 \\
-              "$REAL_BU" {headed_flag}--session "$SESSION" \\
-              ${{CDP_ARGS[@]+"${{CDP_ARGS[@]}}"}} "${{PASSTHROUGH[@]}}" 2>&1
-          }}
-          set +e
-          _vs_out="$(_vs_run)"
-          _vs_rc=$?
-          set -e
-          if [ "$_vs_rc" -ne 0 ]; then
-            _vs_connfail=0
-            printf '%s' "$_vs_out" | grep -qiE \\
-              'BrowserStartEvent.*timed out|connect\\(\\) timed out|CDP connection to ws.*(too slow|unresponsive)|Client is stopping|Browser.*not.*(start|connect)' \\
-              && _vs_connfail=1
-            _vs_alarm=0; [ "$_vs_rc" -eq 142 ] && _vs_alarm=1
-            if [ "$_vs_connfail" = "1" ] || [ "$_vs_alarm" = "1" ]; then
-              echo "[web-wrapper] '$_vs_cmd' wedged (rc=$_vs_rc) — recovering daemon" >&2
-              pkill -9 -f "browser_use.skill_cli.daemon.*$SESSION" 2>/dev/null || true
-              if [ "$_vs_policy" = "nav" ]; then
-                curl -sf -o /dev/null --max-time 15 \\
-                  "{cdp_http_url}/vibe/reset-tabs?client=${{CLIENT_ID:-}}" 2>/dev/null || true
-              fi
-              _vs_retry=0
-              case "$_vs_policy" in
-                nav|read) _vs_retry=1 ;;
-                eval)     [ "$_vs_connfail" = "1" ] && _vs_retry=1 ;;
-              esac
-              if [ "$_vs_retry" = "1" ]; then
-                echo "[web-wrapper] retrying '$_vs_cmd' once" >&2
-                sleep 2
-                set +e
-                _vs_out="$(_vs_run)"
-                _vs_rc=$?
-                set -e
-              fi
-            fi
-          fi
-          printf '%s\\n' "$_vs_out"
-          exit "$_vs_rc"
+        # Wedge recovery: bound each call with a hard timeout (perl alarm;
+        # macOS has no GNU timeout). On a wedge, reload this session's
+        # daemon and surface the error — no blind retry (a 0.13 heredoc
+        # may mutate the page, so re-running is unsafe; the agent
+        # re-issues against the fresh daemon).
+        set +e
+        perl -e 'alarm shift; exec @ARGV' 120 "$REAL_BU" ${{PASSTHROUGH[@]+"${{PASSTHROUGH[@]}}"}}
+        _vs_rc=$?
+        set -e
+        if [ "$_vs_rc" -eq 142 ]; then
+          echo "[web-wrapper] browser-use timed out (120s) — reloading daemon '$SESSION'" >&2
+          BU_NAME="$SESSION" "$REAL_BU" --reload >/dev/null 2>&1 || true
         fi
-
-        exec "$REAL_BU" {headed_flag}--session "$SESSION" \\
-          ${{CDP_ARGS[@]+"${{CDP_ARGS[@]}}"}} "${{PASSTHROUGH[@]}}"
+        exit "$_vs_rc"
     """)
 
     wrapper_path.write_text(script, encoding='utf-8')

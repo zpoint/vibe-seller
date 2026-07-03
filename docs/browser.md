@@ -47,42 +47,30 @@ Singleton that orchestrates browser sessions across all stores:
 - `get_cdp_port(store_id)` — Returns CDP port if available
 - `remove_wrapper(store_name)` — Removes a store's browser-use wrapper
 
-**Per-store isolation**: Each store gets its own browser-use wrapper script at `~/.vibe-seller/bin/{slug}/browser-use`. The wrapper enforces session isolation: validates `--session` starts with the store slug, blocks `--cdp-url` and `--mcp` flags, and injects store-specific arguments. An asyncio lock serializes `start/stop`.
+**Per-store isolation**: Each store gets its own browser-use wrapper script at `~/.vibe-seller/bin/{slug}/browser-use`. browser-use 0.13 removed the subcommand CLI (`open`/`state`/`click`) — the agent now drives the browser by piping Python helpers via a heredoc (`browser-use <<'PY' … PY`), and connection identity moved from flags to **environment variables**. The wrapper enforces session isolation: it auto-assigns the per-task session, accepts only `--session {slug}-aux` as an override (mapped to `BU_NAME`), blocks `--cdp-url`/`--mcp`/`--connect`/`--profile` flags plus any agent-supplied `BU_*` env var, and injects the session name (`BU_NAME`, was `--session`) and CDP endpoint (`BU_CDP_WS`, was `--cdp-url`) as env vars — along with `BH_RUNTIME_DIR`/`BH_RUNTIME_DIR_SHARED` for daemon state. An asyncio lock serializes `start/stop`.
 
-**ASCII-only slug**: `store_slug(name, store_id)` in `app/browser/manager.py` strips any character outside `[A-Za-z0-9_-]` and collapses separators. Pure-ASCII names keep their existing slug; names that reduce to empty (e.g. entirely CJK) fall back to `store-<store_id[:8]>`. This constraint comes from browser-use's upstream `validate_session_name` (regex `^[A-Za-z0-9_-]+$`) — a non-ASCII `--session` is rejected before the daemon ever starts. Callers that have a `Store` object must pass `store.id` as the second argument so the fallback is available. The one-shot `scripts/migrate_store_slugs.py` renames any on-disk directory whose legacy slug differs from the new one.
+**ASCII-only slug**: `store_slug(name, store_id)` in `app/browser/manager.py` strips any character outside `[A-Za-z0-9_-]` and collapses separators. Pure-ASCII names keep their existing slug; names that reduce to empty (e.g. entirely CJK) fall back to `store-<store_id[:8]>`. This constraint comes from browser-use 0.13's `BU_NAME` validation (`browser_harness` `_check`, regex `[A-Za-z0-9_-]{1,64}`) — a non-ASCII session name is rejected before the daemon ever starts. Callers that have a `Store` object must pass `store.id` as the second argument so the fallback is available. The one-shot `scripts/migrate_store_slugs.py` renames any on-disk directory whose legacy slug differs from the new one.
 
 **Per-task session names**: Each task gets its own browser-use daemon session: `{slug}-{VIBE_TASK_ID[:8]}` (e.g., `my-store-a1b2c3d4`). Combined with CDPMuxProxy isolation (request ID rewriting, session-based event routing, target filtering), this enables concurrent tasks within a single shared browser. Without `VIBE_TASK_ID` (e.g. manual use), falls back to the bare slug.
 
 **Ziniao guard**: Only one Ziniao account can be active per machine. `_start_session_locked` checks `_active_ziniao_account_id` — if a different account is already active, it raises `RuntimeError` with the names of conflicting stores. Chrome stores have no such account restriction (but still use CDPMuxProxy for shared browser and cookie persistence).
 
-**Wrapper script generation**: `_write_browser_use_wrapper()` generates a bash script per store. Session validation uses a prefix check (`case $SESSION in {slug}|{slug}-*)`). For both Chrome and Ziniao stores, the wrapper auto-starts the CDP proxy and injects `--cdp-url` pointing at CDPMuxProxy. For Ziniao stores, aux sessions (`{slug}-aux`) are exempt from auto-start and CDP injection (they use Chrome directly). For Chrome stores, all sessions go through the proxy — no aux exemption. The auto-start block checks the browser start API's HTTP status and exits with a clear error on non-2xx responses. A final CDP readiness check after the poll loop catches cases where the browser started but the proxy isn't ready.
+**Wrapper script generation**: `write_browser_use_wrapper()` in `app/browser/wrapper.py` generates a bash script per store. Session validation uses a regex check (`^{slug}(-aux|-{8hex})?$`). For both Chrome and Ziniao stores, the wrapper auto-starts the CDP proxy and injects `BU_CDP_WS=ws://…/client-{task_id}` (the 0.13 replacement for `--cdp-url`) pointing at CDPMuxProxy. For Ziniao stores, aux sessions (`{slug}-aux`) are exempt from auto-start and CDP injection (they use Chrome directly — no `BU_CDP_WS`, so `browser_harness` discovers the local Chrome). For Chrome stores, all sessions go through the proxy — no aux exemption. The auto-start block checks the browser start API's HTTP status and exits with a clear error on non-2xx responses. A final CDP readiness check after the poll loop catches cases where the browser started but the proxy isn't ready.
 
-**Dual browser (Ziniao)**: Ziniao stores get dual-session support in their wrapper — main session (`{slug}-{task[:8]}`) routes to Ziniao via CDP proxy, aux session (`{slug}-aux`) uses Chrome directly. No separate backend instance for aux — browser-use manages Chrome sessions natively. (This per-store `{slug}-aux` is distinct from the store-less `web` browser below.)
+**Dual browser (Ziniao)**: Ziniao stores get dual-session support in their wrapper — main session (`{slug}-{task[:8]}`) routes to Ziniao via CDP proxy (`BU_CDP_WS`), aux session uses Chrome directly. Aux is still requested via a `--session {slug}-aux` shim that the wrapper maps to `BU_NAME`; because it stays Chrome-direct it gets no `BU_CDP_WS`. No separate backend instance for aux — browser-use manages Chrome sessions natively. (This per-store `{slug}-aux` is distinct from the store-less `web` browser below.)
 
 ### Store-less web browser
 
 No-store (orchestrator) tasks — those created in the general/all-stores task list with `store_id=None` — get a single generic Chrome browser that is **not tied to any store**, for neutral public web work (search, tracking/logistics/carrier pages, research). Store-specific seller-center work still requires delegating to a per-store sub-task.
 
-- **Wrapper**: `write_web_browser_use_wrapper()` in `app/browser/wrapper.py` generates `~/.vibe-seller/bin/_web/browser-use` (reserved slug `_web` = `config.WEB_BROWSER_SLUG`, which `store_slug()` can never produce for a real store). Session names are `web` / `web-{VIBE_TASK_ID[:8]}`. It is Chrome-only — no Ziniao routing, no `{slug}-aux` split — so it is a deliberately simpler sibling of the per-store wrapper (they share the self-heal + URL-shape guard logic conceptually; keep them in sync).
+- **Wrapper**: `write_web_browser_use_wrapper()` in `app/browser/web_wrapper.py` generates `~/.vibe-seller/bin/_web/browser-use` (reserved slug `_web` = `config.WEB_BROWSER_SLUG`, which `store_slug()` can never produce for a real store). Session names are `web` / `web-{VIBE_TASK_ID[:8]}`. Like the per-store wrapper it targets browser-use 0.13 — it injects `BU_NAME`/`BU_CDP_WS` env vars (not flags) and the agent drives it by piping Python via a heredoc. It is Chrome-only — no Ziniao routing, no `{slug}-aux` split — so it is a deliberately simpler sibling of the per-store wrapper (they share the env-injection + wedge-recovery logic conceptually; keep them in sync).
 - **PATH**: `apply_agent_venv_path()` prepends `bin/_web` for no-store tasks (store tasks use `bin/{slug}`).
 - **Lifecycle**: `BrowserManager.start_web_session()` launches one shared Chrome (`ChromeBackend`, keyed on `_web`) + CDPMuxProxy; per-task tab isolation is by `VIBE_TASK_ID` exactly like stores. The proxy port persists across restarts in `AppSettings['web_browser_proxy_port']` (stores use `BrowserSession.proxy_port`; the web browser has no such row). Started lazily by the wrapper via `POST /api/browser/web/start` on first use.
 - **Isolation caveat**: the `_web` profile is shared and has no per-store IP masking or store login — the agent prompt hard-forbids opening any seller center or logging into store/platform accounts on it.
 
-**Aux daemon probe + recycle**: The aux daemon is launched lazily by browser-use itself on the first command, and occasionally wedges after a heavy page load (Chromium watchdog racing in-flight dispatches) — the socket keeps accepting connects but subsequent `sock.recv` calls block for the full CLI timeout. To recover without operator intervention, the Ziniao wrapper runs a short probe (`timeout 3 browser-use --session {slug}-aux state >/dev/null`) before exec; if the probe fails, it calls `browser-use --session {slug}-aux close` so the real command below relaunches a fresh daemon. The probe is skipped when the real command is itself `close`, `sessions`, or `shutdown` so recovery paths still work on a stuck daemon. `state` is read-only and the 3-second cap means a wedged daemon can't eat more than a few seconds on the healthy-path. Chrome wrappers don't emit the block (Chrome has no aux daemon — everything routes through CDPMuxProxy).
+**Wedge recovery (timeout-bounded)**: A renderer can wedge (hang on the CDP handshake) while the browser process stays alive — every subsequent call against that daemon then hangs identically. browser-use 0.13 removed the subcommands the old self-heal relied on (`state`/`close`), so the wrapper no longer classifies calls or probes with a read-only subcommand. Instead, every proxy (non-aux) call is bounded by a hard timeout (perl `alarm` — macOS has no GNU `timeout`; the interval timer survives `execve` and `SIGALRM` kills the exec'd browser-use). On a wedge (rc 142) the wrapper reloads *this* session's daemon via `browser-use --reload` (scoped by `BU_NAME` → `browser_harness` `restart_daemon()`) and surfaces the failure — it does **not** auto-retry, because a 0.13 heredoc can mutate the page (click/type), so blindly re-running could double-apply. The agent re-issues on the reported error against the fresh daemon. Aux (Ziniao, Chrome-direct) sessions are plain-exec'd and not wedge-recovered (matching prior behaviour).
 
-**URL-shape guard for `open` / `navigate`**: An agent's `browser-use open https://x.com/page?a=1&b=2` is silently destructive under any common shell: zsh treats `?` as a glob and `&` as a background operator BEFORE the wrapper sees the command, so the URL arrives truncated (or absent entirely) and `browser-use open` quietly "navigates" to nothing — the next `state` call returns the previous page and the agent assumes success. The wrapper can't fix the calling shell, but it CAN detect the shape that proves shell-mangling already happened. After argument parsing, the wrapper walks `PASSTHROUGH[@]` for an `open` or `navigate` subcommand; if the next positional arg doesn't start with `http://`, `https://`, `about:` (legitimate for session-recovery navigations to `about:blank`), or `file://` (legitimate for opening local artifacts the agent generated), the wrapper exits 2 with a stderr message pointing at the quoting fix:
-
-```
-ERROR: 'browser-use open' expects an http(s)://, about:, or file:// URL.
-       Got: <missing>
-
-Likely cause: the calling shell (zsh/bash) parsed special
-characters in your URL before the wrapper saw it. URLs
-containing '?', '&', or '#' MUST be quoted, e.g.:
-  browser-use open 'https://example.com/page?a=1&b=2'
-```
-
-This converts a silent failure into a loud one on the first call instead of compounding through retries. Tests in `tests/unit/test_browser/test_browser_use_wrapper.py::TestWrapperUrlValidation` exercise the generated bash directly with good/bad URL shapes.
+> **No URL-shape guard in 0.13**: under the old subcommand CLI, `browser-use open https://x.com/page?a=1&b=2` was silently destructive because the calling shell (zsh) parsed `?`/`&` before the wrapper saw it, so the URL arrived truncated; the wrapper detected that shape and errored. In 0.13 there is no `open`/`navigate` subcommand — the agent passes the URL *inside* the piped Python (a quoted string in the heredoc body), so the shell never sees the URL as a bare argument and this mangling class can't occur. The guard has been removed.
 
 ### `cdp_mux_proxy.py` — Multi-Client CDP Proxy (primary)
 
@@ -126,7 +114,7 @@ Anti-detect browser with HTTP API (getBrowserList, startBrowser, stopBrowser). E
 - One Ziniao process per machine, multiple profiles (different `browserOauth`) on same account
 - Auto-launches Ziniao client if not running (via `ziniao_utils.py`), except on WSL
 - Each `startBrowser` call returns a unique `debuggingPort` → CDPProxy relays to it
-- The browser-use wrapper connects to the proxy via `--cdp-url`, not directly to Ziniao
+- The browser-use wrapper connects to the proxy via the `BU_CDP_WS` env var (0.13; was `--cdp-url`), not directly to Ziniao
 
 **API Documentation**: https://open.ziniao.com/docSupport?docId=147
 
@@ -177,29 +165,47 @@ cleans up orphaned `browser-use` daemon processes.
 
 Browser-use daemons fully detach from their parent process
 (`ppid=1`, own `pgid`), so they are not killed when a task
-stops or the server restarts.  The reaper runs every 5 minutes:
+stops or the server restarts.
 
-1. Lists all `browser_use.skill_cli.daemon` processes via `ps`
-2. Extracts task IDs via two methods:
-   - Full UUID from `--cdp-url client-{UUID}` (Ziniao daemons)
-   - 8-char prefix from `--session {slug}-{id[:8]}` (Chrome daemons)
-3. Queries DB for active tasks (pending/designing/running/etc.)
-4. Kills any daemon whose task ID is not in the active set
-5. Skips daemons without identifiable task ID (e.g. manual sessions)
+browser-use 0.13 (`browser_harness`) spawns each daemon as
+`python -m browser_harness.daemon` and records its identity in a
+**PID FILE** — `<BH_RUNTIME_DIR>/bu-<BU_NAME>.pid` (+ `.sock`) — with the
+session name in the `BU_NAME` env var, **not** in argv. So the reaper
+reads identity from the pid files (portable; avoids macOS
+`psutil.environ()` `AccessDenied`). It runs every 5 minutes:
 
-Uses `DaemonInfo` dataclass with `full_task_id` and `task_id_prefix`
-fields (no magic sentinel strings).  8-char prefix matching has
-~1/4B collision chance per pair — accepted as known limitation.
+1. Enumerates `bu-*.pid` files under `BH_RUNTIME_DIR` (via
+   `iter_pidfiles()` in `bh_daemons.py`), each keyed on
+   `BU_NAME = {slug}-{task_id[:8]}`
+2. Cross-checks each pid file against the set of live
+   `browser_harness.daemon` processes (guards PID reuse); deletes stale
+   files whose daemon is gone
+3. Extracts the 8-char task-id suffix from `BU_NAME`
+   (`bu-{slug}-{id8}.pid`)
+4. Queries DB for active tasks (pending/designing/running/etc.)
+5. Kills any daemon whose task ID is not in the active set and removes
+   its pid/sock files
+6. Skips daemons without an identifiable task ID — bare `{slug}` /
+   `{slug}-aux` / manual sessions
+
+**Legacy 0.12 compat**: daemons from the old `browser_use.skill_cli.daemon`
+(carrying identity in argv — full UUID from `--cdp-url client-{UUID}`,
+8-char prefix from `--session {slug}-{id8}`) are still recognised for
+**one in-place-upgrade cycle**, so the first boot after an upgrade reaps
+the pre-upgrade daemons instead of orphaning them. `DaemonInfo` carries
+`full_task_id`, `task_id_prefix`, and the 0.13 `cleanup_paths` (pid +
+sock). 8-char prefix matching has ~1/4B collision chance per pair —
+accepted as known limitation.
 
 **Three-layer cleanup**:
-1. **Per-task** (`_cleanup_browser_daemons()` in `claude_backend.py`): kills task-specific daemons on agent **stop** (not start, to avoid race conditions with fast retries). Uses two `pgrep` patterns — full UUID in `--cdp-url` (Ziniao) and 8-char prefix scoped to `--session` arg (Chrome)
+1. **Per-task** (`_cleanup_browser_daemons()` in `claude_backend.py`): kills task-specific daemons on agent **stop** (not start, to avoid race conditions with fast retries). Calls `kill_bh_daemons(lambda name: name.endswith(f'-{tid8}'))` — matching the pid-file `BU_NAME` for this task's id8 (legacy `pgrep` on `browser_use.skill_cli.daemon` argv kept for upgrade compat)
 2. **Periodic reaper** (`start_reaper_loop()` in `daemon_reaper.py`): background loop every 5 minutes, uses same orphan detection logic
-3. **Server startup** (`cleanup_stale_sessions()` in `manager.py`): calls `reap_orphaned_daemons()` to clean up daemons from the previous run while preserving daemons for active tasks (e.g. WAITING tasks that survive restart)
+3. **Server startup** (`cleanup_stale_sessions()` in `manager.py`): in-place-upgrade safety — warns if the installed browser-use is `< 0.13` (`warn_on_browser_use_version_mismatch()`), wipes stale auto-generated wrapper scripts (`_wipe_generated_wrappers()`, so a pre-upgrade 0.12-shaped wrapper is never invoked before the next task regenerates it), then calls `reap_orphaned_daemons()` to clean up daemons from the previous run (both 0.13 pid-file and legacy 0.12 argv) while preserving daemons for active tasks (e.g. WAITING tasks that survive restart)
 
 **Design Rationale**:
 Cleanup at `start()` was removed because it caused a race condition: if a task was retried quickly, the new session could start its daemon, then the cleanup from the new `start()` would kill the freshly-started daemon. Cleanup now only happens at `stop()` (guaranteed to kill the old daemon) and via the periodic reaper (for orphaned daemons when server restarts).
 
-**Note**: Uses `pgrep`/`os.kill` (Unix-only).
+**Note**: Live-process discovery goes through `find_processes_by_pattern` and killing through `kill_with_escalation` (`process_utils.py`), both `psutil`-backed for cross-platform support.
 
 ## Adding a New Backend
 

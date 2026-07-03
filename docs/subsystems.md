@@ -227,7 +227,7 @@ Persistent per-account email storage with background sync and SMTP send capabili
 
 ## Chrome Persistent Profiles & Bookmarks
 
-- **Persistent profiles**: Managed by browser-use daemon per session. Chrome stores use `--session {slug}` for profile isolation. Cookies, localStorage, and login sessions survive across tasks.
+- **Persistent profiles**: Managed by the browser-use (0.13 `browser_harness`) daemon per session. Chrome stores use the `BU_NAME={slug}` env var (0.13; was `--session {slug}`) for profile isolation. Cookies, localStorage, and login sessions survive across tasks.
 - **Ziniao aux sessions**: Ziniao stores also get an auxiliary Chrome session (`{slug}-aux`) for non-seller-center URLs (Google, logistics sites, etc.). The aux session starts lazily on first use — zero overhead if unused.
 - **Proxy config**: Only relevant for Chrome stores in UI.
 - **Bookmarks**: `read_bookmarks(slug)` reads `Default/Bookmarks` JSON from the profile dir. Auto-injected into agent context when knowledge files are sparse.
@@ -238,7 +238,7 @@ Persistent per-account email storage with background sync and SMTP send capabili
 
 **Dispatch**: All store-task launch paths (create, retry, continue, execute-plan) route through `_schedule_or_run()` which submits to `TaskQueueScheduler` when it's running.  No-store tasks launch directly.  The scheduler uses `can_schedule()` to gate by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, or `QUEUE`).
 
-**Per-task daemon sessions**: Each task gets its own browser-use daemon session: `{slug}-{VIBE_TASK_ID[:8]}`. CDPMuxProxy is the primary isolation mechanism — each task connects with a unique client ID (`/client-{task_id}`) and receives isolated CDP sessions via request ID rewriting and session-based event routing. The wrapper validates sessions via prefix check (`{slug}|{slug}-*`).
+**Per-task daemon sessions**: Each task gets its own browser-use daemon session, named via the `BU_NAME` env var (0.13): `{slug}-{VIBE_TASK_ID[:8]}`. CDPMuxProxy is the primary isolation mechanism — each task connects with a unique client ID (`/client-{task_id}`, injected as `BU_CDP_WS`) and receives isolated CDP sessions via request ID rewriting and session-based event routing. The wrapper validates the session name via regex (`^{slug}(-aux|-{8hex})?$`).
 
 **Ziniao guard (account conflict)**: Only one Ziniao account can be active per machine (one Ziniao process). Multiple *profiles* (different `browserOauth`) on the same account work fine — each gets a unique `debuggingPort` and CDP proxy. But if store A uses Ziniao account #1 and store B uses account #2, store B's task will fail with a clear error: "Store(s) [Store A] are using a different Ziniao account. Stop the browser session first." Chrome stores have no such account restriction (but still use CDPMuxProxy for shared browser and cookie persistence).
 
@@ -268,7 +268,7 @@ If Ziniao is already running with the correct port, everything works automatical
 
 ## CDP Proxy Architecture
 
-Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_proxy.py`) that listens on `127.0.0.1:{proxy_port}` and connects upstream (WebSocket) to the actual Ziniao `debuggingPort` (which changes on each `startBrowser` call). On WSL, the proxy connects to the Windows gateway IP instead of localhost. The browser-use wrapper's `--cdp-url` always points to the stable proxy port with a per-task client ID.
+Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_proxy.py`) that listens on `127.0.0.1:{proxy_port}` and connects upstream (WebSocket) to the actual Ziniao `debuggingPort` (which changes on each `startBrowser` call). On WSL, the proxy connects to the Windows gateway IP instead of localhost. The browser-use wrapper's `BU_CDP_WS` env var (0.13; was `--cdp-url`) always points to the stable proxy port with a per-task client ID.
 
 **Multi-client support**: Multiple browser-use CLI processes connect simultaneously, each via `ws://127.0.0.1:{proxy_port}/client-{task_id}`. The proxy multiplexes all clients onto a single upstream WebSocket to the browser, using:
 - **Request ID rewriting**: Client request IDs are remapped to globally unique IDs; responses are routed back to the originating client

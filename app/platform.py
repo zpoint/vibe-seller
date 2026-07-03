@@ -193,7 +193,13 @@ def find_pid_listening_on_port(port: int) -> int | None:
 # never uses, so matching it can't hit an unrelated Claude session. Plus
 # the browser daemon it spawns.
 _AGENT_CMDLINE_PATTERN = 'output-format stream-json --input-format stream-json'
-_BROWSER_DAEMON_PATTERN = 'skill_cli.daemon'
+# The browser daemon the agent spawns: browser-use 0.13
+# (``browser_harness.daemon``) plus the legacy 0.12 daemon
+# (``skill_cli.daemon``), kept for one in-place-upgrade cycle.
+_BROWSER_DAEMON_PATTERNS = (
+    'browser_harness.daemon',
+    'skill_cli.daemon',
+)
 # The per-store wrapper. An agent that died ungracefully (a bare -9
 # instead of a process-group kill) can orphan a `bash .../browser-use
 # eval …` poll-loop — reparented to init/launchd — that keeps hammering
@@ -229,8 +235,14 @@ def _is_task_process(cmdline: str) -> bool:
     """True if the command line is a vibe-seller task agent, its browser
     daemon, or a running per-store browser-use wrapper (not an editor
     merely referencing the wrapper path)."""
-    if _AGENT_CMDLINE_PATTERN in cmdline or _BROWSER_DAEMON_PATTERN in cmdline:
+    if _AGENT_CMDLINE_PATTERN in cmdline or any(
+        p in cmdline for p in _BROWSER_DAEMON_PATTERNS
+    ):
         return True
+    # Legacy 0.12 wrappers carried a subcommand verb (browser-use open …);
+    # 0.13 wrappers pipe code via stdin so there is no verb in argv. The
+    # persistent process worth reaping is the daemon (matched above); this
+    # verb match only still catches a mid-upgrade 0.12 wrapper poll-loop.
     if _WRAPPER_PATH in cmdline and '/browser-use' in cmdline:
         return any(f'browser-use {v}' in cmdline for v in _WRAPPER_VERBS)
     return False

@@ -28,7 +28,7 @@ import tempfile
 
 import httpx
 
-from app.config import AI_BOT_USER_ID, SKILLS_REPO_URL
+from app.config import AI_BOT_USER_ID, SKILLS_REPO_URL, SKILLS_SUBDIR
 from app.database import async_session
 from app.models.app_settings import AppSettings
 from app.models.event import Event
@@ -111,9 +111,15 @@ class SkillsSyncManager:
     # ── Local package sync ──────────────────────────────
 
     def _get_local_source(self) -> Path | None:
-        """Find bundled skills/ via importlib.resources."""
+        """Find bundled skills tree via importlib.resources.
+
+        The subdir (``skills`` legacy vs ``skills_v2``) is pinned by
+        :data:`app.config.SKILLS_SUBDIR` — the one place that decides which
+        skill tree this release line ships and syncs. See
+        docs/browser-use-0.13-migration.md.
+        """
         try:
-            ref = importlib.resources.files('app') / 'skills'
+            ref = importlib.resources.files('app') / SKILLS_SUBDIR
             p = Path(str(ref))
             return p if p.is_dir() else None
         except Exception:
@@ -389,10 +395,10 @@ class SkillsSyncManager:
     async def _fetch_remote_commit(
         self, client: httpx.AsyncClient
     ) -> str | None:
-        """Fetch latest commit hash for app/skills/ on main."""
+        """Fetch latest commit hash for this line's skill tree on main."""
         api_url = (
             'https://api.github.com/repos/zpoint/vibe-seller'
-            '/commits?path=app/skills&per_page=1&sha=main'
+            f'/commits?path=app/{SKILLS_SUBDIR}&per_page=1&sha=main'
         )
         try:
             resp = await client.get(

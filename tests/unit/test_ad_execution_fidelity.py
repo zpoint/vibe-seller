@@ -347,11 +347,21 @@ def test_gate_allows_lower_applied_or_already_below(tmp_path, monkeypatch):
     ],
 )
 def test_check_bid_value_shape(value, denied):
-    cmd = f'browser-use input 47 "{value}"'
-    result = check_bid_value_shape(cmd)
-    assert (result is not None) is denied
+    # The guard must catch the pathology regardless of how the bid is
+    # typed: the legacy 0.12 subcommand, the 0.13 heredoc typing helpers,
+    # or a JS value assignment.
+    for cmd in (
+        f'browser-use input 47 "{value}"',  # legacy 0.12
+        f'type_text("{value}")',  # 0.13 helper
+        f'fill_input("#bid", "{value}")',  # 0.13 helper
+        f'js("el.value = \'{value}\'")',  # 0.13 JS assignment
+    ):
+        result = check_bid_value_shape(cmd)
+        assert (result is not None) is denied, cmd
 
 
 def test_check_bid_value_shape_ignores_non_bid_commands():
+    # 0.13 navigation heredoc + a plain shell command carry no bid value.
+    assert check_bid_value_shape('new_tab("https://x/y")') is None
     assert check_bid_value_shape('browser-use open https://x/y') is None
     assert check_bid_value_shape('ls -la') is None
