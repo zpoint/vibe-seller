@@ -162,6 +162,32 @@ async def find_processes_by_pattern(
     return await asyncio.to_thread(_scan)
 
 
+def find_pid_listening_on_port(port: int) -> int | None:
+    """Return the PID LISTENING on *port*, or ``None``.
+
+    Pid-file-independent — mirrors ``stop.sh``'s ``lsof -ti:PORT`` so
+    the CLI can terminate a server whose pid file was lost, or one
+    started outside the CLI (the case the Windows tray 'restart' relied
+    on). ``psutil.net_connections`` returns owning PIDs for the current
+    user without elevation on Windows and Linux.
+    """
+    try:
+        # kind='tcp' (not 'inet') — LISTEN is TCP-only, and scanning
+        # fewer sockets keeps `vibe-seller stop` responsive on busy hosts.
+        conns = psutil.net_connections(kind='tcp')
+    except (psutil.AccessDenied, OSError):
+        return None
+    for conn in conns:
+        if (
+            conn.status == psutil.CONN_LISTEN
+            and conn.laddr
+            and conn.laddr.port == port
+            and conn.pid is not None  # explicit: PID 0 is still valid
+        ):
+            return conn.pid
+    return None
+
+
 # Signature of a vibe-seller headless task agent (`claude -p` with the
 # bidirectional stream-json protocol) — a combo interactive Claude Code
 # never uses, so matching it can't hit an unrelated Claude session. Plus

@@ -36,11 +36,6 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 45
-    env:
-      # Fork PRs don't get repo secrets — gate the model-dependent
-      # agent e2e on this so PR CI (build + install + smoke) stays
-      # reliable for forks; the e2e still runs on same-repo branches.
-      HAS_DEEPSEEK: ${{ secrets.DEEPSEEK_API_KEY != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -121,6 +116,10 @@ jobs:
           # Reuse the bundled interpreter for the agent venv (the tray
           # sets this on a real install).
           $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
+          # AGENT_DEBUG makes backend_7777.log capture the agent's
+          # thinking + tool calls, so the uploaded log artifact is
+          # actually useful when the agent e2e fails or hangs.
+          $env:AGENT_DEBUG = '1'
           & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
 
       - name: Smoke test (verify_install.sh — health + store/profile API)
@@ -165,7 +164,6 @@ jobs:
           & $py -m pytest tests\unit\test_tray_dialog.py -v
 
       - name: Install pytest deps into the bundled venv (for agent e2e)
-        if: env.HAS_DEEPSEEK == 'true'
         shell: pwsh
         run: |
           $py = "$env:VS_INSTALL\.venv\Scripts\python.exe"
@@ -173,14 +171,13 @@ jobs:
             pytest pytest-asyncio httpx pytest-playwright
 
       - name: Light agent e2e against the installed daemon
-        if: env.HAS_DEEPSEEK == 'true'
         shell: pwsh
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
-          E2E_PROVIDER_MAP: deepseek
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
-          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          E2E_PROVIDER_MAP: minimax
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          MINIMAX_BASE_URL: ${{ secrets.MINIMAX_BASE_URL }}
+          MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
           API_TIMEOUT_MS: '3000000'
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
           VIBE_SELLER_TELEMETRY: '0'
@@ -197,7 +194,6 @@ jobs:
             --e2e -v --log-cli-level=INFO
 
       - name: Verify the agent venv reused the bundled Python
-        if: env.HAS_DEEPSEEK == 'true'
         shell: pwsh
         run: |
           # The e2e task created ~/.vibe-seller/.venv. Its pyvenv.cfg must
@@ -215,10 +211,25 @@ jobs:
           }
           Write-Host "OK: agent venv reused the bundled Python ($bundled)"
 
-      - name: Stop server + dump logs
+      - name: Stop server + stage logs
         if: always()
         shell: pwsh
         run: |
           & "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe" stop --port 7777
           $log = "$env:USERPROFILE\.vibe-seller\logs\backend_7777.log"
           if (Test-Path $log) { Get-Content -Tail 40 $log }
+          # Stage logs under the workspace so a failing/hanging agent
+          # e2e is debuggable from the artifact, not just this tail.
+          $dst = "$env:GITHUB_WORKSPACE\ci-logs"
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          $logs = "$env:USERPROFILE\.vibe-seller\logs"
+          if (Test-Path $logs) { Copy-Item -Recurse -Force $logs "$dst\logs" }
+
+      - name: Upload server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-e2e-server-logs
+          path: ci-logs/
+          if-no-files-found: warn
+          retention-days: 14
