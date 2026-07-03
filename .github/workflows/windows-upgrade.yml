@@ -160,13 +160,21 @@ jobs:
           # Stop the server started above so only OUR pythonw holds a lock.
           & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7777
           Start-Sleep 3
-          # Hold a venv pythonw.exe open == a running tray at uninstall time.
-          Start-Process -FilePath "$install\.venv\Scripts\pythonw.exe" `
-            -ArgumentList '-c','import time; time.sleep(900)'
+          # Hold a python process from the install alive with a native venv
+          # extension loaded == a running tray locking a file inside .venv.
+          # uv's .venv\Scripts\python(w).exe are redirectors to the bundled
+          # {app}\python (venvlauncher ignores the pythonw variant), so the
+          # live process is a base python.exe — match either name under the
+          # install dir. Importing Pillow's C ext locks a .venv .pyd so the
+          # partial-.venv bug is actually reproduced. (See
+          # windows-installer.yml for the full rationale.)
+          Start-Process -FilePath "$install\.venv\Scripts\python.exe" `
+            -ArgumentList '-c','from PIL import Image; import time; time.sleep(900)'
           Start-Sleep 6
           if (-not (Get-CimInstance Win32_Process | Where-Object {
-            $_.Name -eq 'pythonw.exe' -and $_.ExecutablePath -like '*\VibeSeller\*' })) {
-            throw "precondition failed: no venv pythonw holding the lock"
+            ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+            $_.ExecutablePath -like '*\VibeSeller\*' })) {
+            throw "precondition failed: no venv python holding the lock"
           }
           $p = Start-Process -FilePath "$install\unins000.exe" -Wait -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
