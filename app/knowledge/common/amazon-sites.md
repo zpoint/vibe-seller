@@ -94,13 +94,12 @@ for accounts that have multiple marketplaces linked (e.g. SA + AE).
 The country switcher button is near the store name at the top of the page
 (`button aria-label=Switch Accounts`). It shows the current country name.
 
-```bash
-browser-use state   # look for "Switch Accounts" button
-browser-use click <switch-accounts-btn>
-browser-use state   # find country options
-browser-use click <country-option>
-# Page reloads with the new country context
-```
+Workflow (see the browser-use skill for exact commands):
+1. Inspect the page to find the "Switch Accounts" button.
+2. Click it.
+3. Inspect the page again to find the country options.
+4. Click the target country option — the page reloads with the new
+   country context.
 
 After switching, all pages load data for the new country automatically.
 You do NOT need separate login sessions for different countries under the
@@ -112,10 +111,13 @@ try clicking on the store name / country text area to reveal it.
 
 ## Order Search URL Patterns
 
-```bash
+Navigate to these URLs with the browser-use skill (see it for exact
+commands):
+
+```
 # Direct order detail page
-browser-use open "https://sellercentral.amazon.sa/orders-v3/order/{orderId}"
+https://sellercentral.amazon.sa/orders-v3/order/{orderId}
 
 # Order list with search
-browser-use open "https://sellercentral.amazon.sa/orders-v3?searchTerm={orderId}"
+https://sellercentral.amazon.sa/orders-v3?searchTerm={orderId}
 ```

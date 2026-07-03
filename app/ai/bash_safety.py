@@ -697,14 +697,24 @@ def check_exec_review_status(task_dir) -> str | None:
 # The Shadow-DOM bid input does not reliably clear, so a 1.30 target can
 # become 11.3 or 3.002.27 (a real-money overspend that shipped live, and
 # that the agent then rationalized as "≥ target"). The typed value is
-# visible in the ``browser-use input`` Bash command even though the
-# element index is semantically opaque, so we can deny the value-SHAPE
-# pathology before it goes live. This guard does NOT know the report
-# target (the index→keyword map isn't in the command) — catching the wrong
-# target value is the ``ad_execution_fidelity`` exit gate's job; this is
-# purely the absurd-magnitude / multi-decimal catch.
+# visible in the Bash command, so we can deny the value-SHAPE pathology
+# before it goes live. This guard does NOT know the report target (the
+# index→keyword map isn't in the command) — catching the wrong target
+# value is the ``ad_execution_fidelity`` exit gate's job; this is purely
+# the absurd-magnitude / multi-decimal catch.
+#
+# The value appears in one of:
+#   * legacy 0.12 subcommand:  ``browser-use input <idx> "1.30"``
+#   * 0.13 heredoc typing helper: ``type_text("1.30")`` /
+#     ``fill_input(<sel>, "1.30")``
+#   * a JS value assignment: ``el.value = "1.30"``
 _BID_INPUT_RE = re.compile(
-    r'browser-use\s+(?:input|type)\s+\d+\s+["\']?([0-9][0-9.,]*)',
+    r'(?:'
+    r'browser-use\s+(?:input|type)\s+\d+\s+["\']?'
+    r'|\btype_text\(\s*["\']'
+    r'|\bfill_input\([^)]*["\']\s*,\s*["\']'
+    r'|\.value\s*=\s*["\']'
+    r')([0-9][0-9.,]*)',
     re.IGNORECASE,
 )
 # Coarse ceiling: real SP/noon CPC bids are single-digit in their

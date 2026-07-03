@@ -19,16 +19,15 @@ dependencies = [
     "pydantic-settings",
     "sse-starlette",
     "httpx[socks]",
-    # Cap below 0.13: browser-use 0.13.3 (the "CLI 3.0" rewrite, commit
-    # f768a06c, released 2026-07-01) deleted the subcommand CLI
-    # (`open`/`state`/`click`) and the `--session`/`--cdp-url` flags in
-    # favour of a browser-harness heredoc code-eval interface, silently
-    # breaking the per-store wrapper (app/browser/wrapper.py) and the
-    # browser-use skill, which both drive the 0.12.x subcommand API.
-    # Migrating to CLI 3.0 (env vars BU_CDP_URL/BU_CDP_WS/BU_NAME +
-    # heredoc helpers) is tracked separately. Until then, stay on the
-    # last subcommand-CLI line (0.12.x).
-    "browser-use>=0.12.5,<0.13",
+    # browser-use 0.13 ("CLI 3.0", commit f768a06c) replaced the
+    # subcommand CLI (`open`/`state`/`click`) and `--session`/`--cdp-url`
+    # flags with a browser_harness heredoc code-eval interface driven by
+    # env vars (BU_NAME / BU_CDP_WS / BU_CDP_URL). The per-store wrapper
+    # (app/browser/wrapper.py), the reaper (pid-file identity), and the
+    # skills_v2 tree are all migrated to it. The `browser-use` entry point
+    # is unchanged, so the wrapper still resolves after an in-place
+    # upgrade. See docs/browser-use-0.13-migration.md.
+    "browser-use>=0.13.3",
     "python-multipart",
     # apscheduler 3.x exposes `apscheduler.schedulers.asyncio` which
     # is what `app/scheduler/cron.py` imports. 4.x rearranged the
@@ -178,6 +177,8 @@ classmethod-decorators = ["classmethod"]
 "app/cli.py" = ["T20"]  # CLI uses print for user-facing output
 "app/skills/**/generate_invoice.py" = ["T20"]
 "app/skills/**/scripts/*.py" = ["T20"]  # skill CLI tools print output
+"app/skills_v2/**/generate_invoice.py" = ["T20"]
+"app/skills_v2/**/scripts/*.py" = ["T20"]  # skill CLI tools print output
 "scripts/**/*.py" = ["T20"]
 "tests/**" = ["N", "B", "SIM"]
 "tests/e2e/**" = ["T20", "E402", "PLC0415"]
