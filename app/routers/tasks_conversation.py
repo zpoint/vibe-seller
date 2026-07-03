@@ -291,14 +291,14 @@ async def send_task_message(
 
     # Plan approval is a ONE-WAY exit from plan mode (like Claude Code:
     # an approved ExitPlanMode leaves the session in normal mode for
-    # good). ``started_at`` is stamped at approval and never cleared, so
-    # a task is only still "planning" if it hasn't started executing AND
-    # is in a pre-execution status. Past that, a follow-up must behave
-    # exactly like one on a non-plan task — resume and keep executing,
-    # never re-enter plan mode. (The bug: approved plan tasks sit in
-    # DESIGNING/COMPLETED between turns and used to be re-planned every
-    # follow-up.) ``is_plan_only`` schedule tasks only ever plan, so they
-    # always stay in plan mode; PLANNED plan-feedback routes above.
+    # good). ``started_at`` is stamped at approval and only reset by a
+    # full task retry (which also clears the plan and resets status to
+    # PENDING), so a task is still "planning" only if it hasn't started
+    # executing AND is in a pre-execution status. Past that a follow-up
+    # behaves like one on a non-plan task — resume and keep executing,
+    # never re-plan. (Bug: approved plan tasks sit in DESIGNING/COMPLETED
+    # between turns and used to re-plan every turn.) ``is_plan_only``
+    # schedule tasks only ever plan; PLANNED plan-feedback routes above.
     plan_phase_active = task.plan_mode and (
         task.is_plan_only
         or (
