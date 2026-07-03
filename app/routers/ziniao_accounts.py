@@ -205,6 +205,15 @@ async def list_browsers(
     # whatever Ziniao says, pass it through.
     if status_code != '0':
         err_msg = (result.get('err') or '').strip()
+        if '新终端登录' in err_msg:
+            # Ziniao's new-device security check. Not a WebDriver /
+            # credentials problem — the user must approve the device by
+            # logging into Ziniao manually once. Surface a structured
+            # status so the UI shows a localized, actionable hint.
+            raise HTTPException(
+                status_code=502,
+                detail=json.dumps({'status': 'new_terminal_login'}),
+            )
         if status_code == '-10003':
             # Keep the structured "no_permission" status so the UI can
             # still show the "enable WebDriver" link, but include the
