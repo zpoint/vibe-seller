@@ -364,6 +364,7 @@
     "ziniaoDownloadZiniao": "下载紫鸟",
     "ziniaoNoPermission": "此账号未开通 WebDriver 权限。",
     "ziniaoNoPermissionHint": "需要由 BOSS 主账号在开发者控制台中开启 WebDriver。",
+    "ziniaoNewTerminalLogin": "系统检测到您在新终端登录，请人工打开紫鸟进行登录验证后回到本系统重试。",
     "ziniaoEnableWebDriver": "如何开通 WebDriver",
     "ziniaoRestartFailed": "重启失败，请手动关闭紫鸟后重试。",
     "ziniaoConnectErrorMac": "无法连接紫鸟，请检查是否已安装。",
