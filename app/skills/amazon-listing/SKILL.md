@@ -40,10 +40,12 @@ fixed recipe from memory. Run the loop a human runs:
    stale one.
 2. **`inspect` it.** The field set / required fields / valid values for
    THIS category are the ground truth, not this doc.
-3. **Fill, upload, then download the processing report.** Read the
-   per-SKU error for **each** row (errors live in cell comments on the
-   report's `Template` tab, keyed by field — `parse-feedback` extracts
-   them).
+3. **Fill, upload, then download the processing report.**
+   `parse-feedback` summarises the report's **Feed Processing Summary**
+   tables into per-SKU error codes + messages. The richest field-level
+   detail lives in **cell comments on the report's `Template` tab**
+   (the orange-highlighted cells) — read those directly when a summary
+   message is terse about which field to fix.
 4. **For each error: reason about it, search the error code/message if
    unfamiliar, fix that one field, re-upload.**
 5. **Repeat until the listing APPEARS IN INVENTORY** — that, not the

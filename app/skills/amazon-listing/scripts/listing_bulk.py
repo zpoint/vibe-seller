@@ -456,7 +456,7 @@ def cmd_fill(args):
     print(f'wrote {len(rows)} data row(s) -> {args.out}')
     print(
         f'UPLOAD THIS (tab-delimited) -> {txt_path}  '
-        '(uploading the .xlsm triggers a 90502 FATAL)'
+        '(uploading the Excel file itself triggers a 90502 FATAL)'
     )
 
 
