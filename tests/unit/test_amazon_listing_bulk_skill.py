@@ -420,3 +420,59 @@ def test_parse_feedback(tmp_path, capsys):
     out = capsys.readouterr().out
     assert 'W-1' in out and 'external_product_id' in out
     assert '1 error(s), 1 warning(s)' in out
+
+
+def test_fill_emits_tsv_upload_file(template, tmp_path):
+    """fill writes a tab-delimited .txt sibling (the upload artefact) with
+    a uniform column count. Uploading the .xlsm triggers Amazon's 90502
+    FATAL; the .txt is what reaches content validation."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
+                'fields': {'item_name': 'ACME Thing'},
+            },
+            {
+                'sku': 'W-2',
+                'operation': 'create',
+                'fields': {'item_name': 'ACME Thing 2'},
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    txt = tmp_path / 'out.txt'
+    assert txt.exists()
+    lines = [ln for ln in txt.read_text(encoding='utf-8').split('\n') if ln]
+    grid = [ln.split('\t') for ln in lines]
+    # Uniform width -> no ragged rows -> no column drift on Amazon's side.
+    assert len({len(r) for r in grid}) == 1
+    names = grid[2]  # row 3 = field API names
+    assert 'item_sku' in names
+    sku_col = names.index('item_sku')
+    assert {'W-1', 'W-2'} <= {r[sku_col] for r in grid[3:]}
+
+
+def test_enum_value_canonicalised_to_template_case(template, tmp_path):
+    """A spec enum value in the wrong case is written in the template's
+    exact case. Amazon is case-strict on some fields (verified live:
+    apparel_size_system accepts UAE/KSA but rejects uae/ksa)."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
+                'variation_theme': 'color',  # lowercase; template has 'Color'
+                'fields': {'item_name': 'ACME Thing'},
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    rows = _read_rows(out)
+    assert rows[0]['variation_theme'] == 'Color'
