@@ -147,7 +147,9 @@ def cmd_fill(args):
             spec_row.get('商品ID') or spec_row.get(id_name) or ''
         ).strip()
         if not ident:
-            raise SystemExit(f'error: spec row {i} has no 商品ID')
+            raise SystemExit(
+                f'error: spec row {i} has no {id_name} (identity value)'
+            )
         r = row_of.get(ident)
         if not r:
             warnings.append(f'row {i}: {id_name}={ident} not in the export')
