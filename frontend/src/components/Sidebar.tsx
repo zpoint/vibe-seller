@@ -462,6 +462,12 @@ function ZiniaoSection(props: {
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>
+        ) : zs?.status === 'new_terminal_login' ? (
+          // Ziniao new-device security check: manual login approval needed.
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-amber-50 rounded-lg border border-amber-200">
+            <p className="text-sm font-medium text-amber-700 mb-3 break-words text-center">{t('settings.ziniaoNewTerminalLogin')}</p>
+            <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-amber-600 text-white rounded text-xs hover:bg-amber-700">{t('common.refresh')}</button>
+          </div>
         ) : p.browserFetchError === 'connect_error' || (zs && !['no_profiles'].includes(zs.status)) ? (
           // Fallback connect error. Platform UI keys off serverPlatform.
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">

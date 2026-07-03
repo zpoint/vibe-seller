@@ -364,6 +364,7 @@
     "ziniaoDownloadZiniao": "Download Ziniao",
     "ziniaoNoPermission": "WebDriver is not enabled for this account.",
     "ziniaoNoPermissionHint": "The BOSS account must enable WebDriver in the developer console.",
+    "ziniaoNewTerminalLogin": "Ziniao detected a login from a new device. Please open Ziniao manually to complete login verification, then come back and retry.",
     "ziniaoEnableWebDriver": "How to enable WebDriver",
     "ziniaoRestartFailed": "Failed to restart. Please close Ziniao manually and try again.",
     "ziniaoConnectErrorMac": "Cannot connect to Ziniao. Please check if Ziniao is installed.",
