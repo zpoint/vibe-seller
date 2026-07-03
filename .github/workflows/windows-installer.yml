@@ -265,20 +265,31 @@ jobs:
           }
           echo "VS_INSTALL=$install" >> $env:GITHUB_ENV
 
-      - name: Hold a venv pythonw.exe open (locks .venv, like the tray)
+      - name: Hold a venv python open (locks .venv, like the tray)
         shell: pwsh
         run: |
           $install = $env:VS_INSTALL
-          # Bare sleep (not tray.py) so it's reliable headless — the point
-          # is only to keep .venv\Scripts\pythonw.exe locked, exactly as a
-          # running tray would at uninstall time.
-          Start-Process -FilePath "$install\.venv\Scripts\pythonw.exe" `
-            -ArgumentList '-c','import time; time.sleep(900)'
+          # Mimic the running tray at uninstall time: keep a python process
+          # from the install alive with a NATIVE venv extension loaded, so a
+          # file *inside* .venv stays locked (the real tray does this via
+          # pystray/PIL). Two Windows-specific facts drive the exact shape:
+          #   1. `uv venv` makes .venv\Scripts\python(w).exe thin redirectors
+          #      to the bundled interpreter under {app}\python, and the
+          #      venvlauncher ignores the pythonw variant — so the LONG-LIVED
+          #      process is a base python.exe, never a venv pythonw.exe.
+          #      Match either name anywhere under the install dir.
+          #   2. A bare `time.sleep` touches no .venv file, so it would NOT
+          #      reproduce the partial-.venv bug. Import Pillow's C extension
+          #      (installed by the .iss) to lock
+          #      .venv\Lib\site-packages\PIL\_imaging*.pyd.
+          Start-Process -FilePath "$install\.venv\Scripts\python.exe" `
+            -ArgumentList '-c','from PIL import Image; import time; time.sleep(900)'
           Start-Sleep 6
           $running = Get-CimInstance Win32_Process | Where-Object {
-            $_.Name -eq 'pythonw.exe' -and $_.ExecutablePath -like '*\VibeSeller\*' }
-          if (-not $running) { throw "precondition failed: no venv pythonw.exe holding the lock" }
-          Write-Host "holding pythonw pid(s): $($running.ProcessId -join ',')"
+            ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+            $_.ExecutablePath -like '*\VibeSeller\*' }
+          if (-not $running) { throw "precondition failed: no venv python holding the lock" }
+          Write-Host "holding python pid(s): $($running.ProcessId -join ',')"
 
       - name: Uninstall WHILE the pythonw is running
         shell: pwsh
