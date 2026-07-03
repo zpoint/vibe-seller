@@ -51,6 +51,7 @@ Requires: openpyxl.
 """
 
 import argparse
+import csv
 import json
 import shutil
 import sys
@@ -218,6 +219,60 @@ def _load_valid_values(wb):
     return out
 
 
+def _valid_value_case(wb):
+    """Map field API name -> {lowercased token: template's exact-case token}.
+
+    Amazon rejects a case-mismatched enum on some fields (verified live:
+    `apparel_size_system` accepts `UAE/KSA` but rejects `uae/ksa`), so a
+    spec value must be written in the template's own case. This mirrors
+    `_load_valid_values` but keeps the original casing as the value.
+    """
+    if DROPDOWN_SHEET not in wb.sheetnames:
+        return {}
+    ws = wb[DROPDOWN_SHEET]
+    rows = list(ws.iter_rows(values_only=True))
+    if len(rows) < 4:
+        return {}
+    hdr_idx = None
+    for i in range(min(5, len(rows))):
+        if rows[i] and OP_COLUMN in [str(c) for c in rows[i] if c]:
+            hdr_idx = i
+            break
+    if hdr_idx is None:
+        return {}
+    out = {}
+    for ci, name in enumerate(rows[hdr_idx]):
+        if not name:
+            continue
+        m = {}
+        for ri in range(hdr_idx + 1, len(rows)):
+            v = rows[ri][ci] if ci < len(rows[ri]) else None
+            if v not in (None, ''):
+                m[str(v).strip().lower()] = str(v).strip()
+        if m:
+            out[str(name).strip()] = m
+    return out
+
+
+def _export_tsv(ws, path):
+    """Write the Template sheet as a tab-delimited .txt (the upload file).
+
+    Amazon's flat-file processor rejects an openpyxl-saved `.xlsm` with a
+    90502 FATAL ("worksheet template type not supported for Excel
+    upload") because the re-save alters the macro-workbook structure it
+    validates. Its own remedy is to upload a tab-delimited text file, so
+    this is the artefact you actually upload -- keyed by the row-3 field
+    names, uniform column count so nothing shifts.
+    """
+    max_c = ws.max_column
+    with open(path, 'w', newline='', encoding='utf-8') as fh:
+        w = csv.writer(fh, delimiter='\t', lineterminator='\n')
+        for row in ws.iter_rows():
+            w.writerow(
+                ['' if c.value is None else c.value for c in row][:max_c]
+            )
+
+
 def cmd_inspect(args):
     wb = openpyxl.load_workbook(
         args.file, read_only=False, keep_vba=_keep_vba(args.file)
@@ -318,6 +373,7 @@ def cmd_fill(args):
     cols = _field_columns(ws, header_row)
     required = _load_required_fields(wb)
     valid = _load_valid_values(wb)
+    case = _valid_value_case(wb)
 
     unknown_fields = set()
     warnings = []
@@ -376,9 +432,18 @@ def cmd_fill(args):
             if fname not in cols:
                 unknown_fields.add(fname)
                 continue
-            target[cols[fname][0] - 1].value = fval
+            # Canonicalise to the template's exact-case enum token when
+            # this field has a known valid set -- some fields are
+            # case-strict on Amazon's side (e.g. UAE/KSA vs uae/ksa).
+            canon = case.get(fname, {}).get(str(fval).strip().lower())
+            target[cols[fname][0] - 1].value = canon if canon else fval
 
     wb.save(args.out)
+    # The upload artefact is a tab-delimited .txt, NOT this .xlsm (an
+    # openpyxl-saved .xlsm triggers Amazon's 90502 FATAL). Write it next
+    # to the .xlsm so the caller uploads the .txt.
+    txt_path = args.out.rsplit('.', 1)[0] + '.txt'
+    _export_tsv(ws, txt_path)
 
     for w in warnings:
         print(f'warning: {w}', file=sys.stderr)
@@ -389,6 +454,10 @@ def cmd_fill(args):
             file=sys.stderr,
         )
     print(f'wrote {len(rows)} data row(s) -> {args.out}')
+    print(
+        f'UPLOAD THIS (tab-delimited) -> {txt_path}  '
+        '(uploading the .xlsm triggers a 90502 FATAL)'
+    )
 
 
 def _iter_report_rows(path):

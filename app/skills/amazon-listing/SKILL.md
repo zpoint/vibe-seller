@@ -29,6 +29,67 @@ Two references, load what the task needs:
   AI-generated copy, the **bilingual review** step, and image handling.
   Load when the task starts from a **product link**.
 
+## Work it like a human: upload → read the report → fix → repeat
+
+The template, its required fields, valid values, and even the upload
+mechanics **change per product type and over time**. Do not follow a
+fixed recipe from memory. Run the loop a human runs:
+
+1. **Download a FRESH template** for the exact product type — Amazon's
+   own error messages say "download the latest template". Never reuse a
+   stale one.
+2. **`inspect` it.** The field set / required fields / valid values for
+   THIS category are the ground truth, not this doc.
+3. **Fill, upload, then download the processing report.** Read the
+   per-SKU error for **each** row (errors live in cell comments on the
+   report's `Template` tab, keyed by field — `parse-feedback` extracts
+   them).
+4. **For each error: reason about it, search the error code/message if
+   unfamiliar, fix that one field, re-upload.**
+5. **Repeat until the listing APPEARS IN INVENTORY** — that, not the
+   feed's "N/N successful" count, is done.
+
+The fixes listed below are **examples this loop surfaced on real
+templates** — priors that speed up diagnosis, not a checklist that
+replaces reading the actual report.
+
+### Verification: trust inventory, not the feed count
+
+The report's "records processed / 0 errors" means the **feed was
+accepted**, not that a live listing exists. A record *with* errors can
+still create an incomplete stub; a clean feed can leave a suppressed
+listing. **Always confirm on Manage Inventory** (or
+`skucentral?mSku=<sku>` **without** `&condition=New` — that param
+false-negates incomplete listings). Confirm the SKU has an ASIN, and for
+a family that the parent shows **"Variations (N)"**.
+
+### Priors that recur across categories
+
+- **Upload a tab-delimited `.txt`, not the `.xlsm`.** `fill` writes the
+  `.txt` next to the `.xlsm` for you — upload that. An openpyxl-saved
+  `.xlsm` triggers a **90502 FATAL** ("worksheet template type not
+  supported for Excel upload").
+- **Children are NOT minimal.** Each child needs the full required set
+  its category asks for (e.g. `item_name`, `target_gender`,
+  `age_range_description`, and any compound-attribute sub-fields), plus
+  its differentiator + offer — not just `parent_sku` + colour.
+- **Enum case is exact** (`UAE/KSA`, not `uae/ksa`). `fill` canonicalises
+  a value to the template's own casing when the field has a valid set.
+- **Compound attributes come as a set** — e.g. Apparel Size needs
+  `apparel_size_class` + `apparel_size_system` + `apparel_body_type` +
+  `apparel_height_type` together; a partial set errors (99001/99022).
+- **Own-country only** — in the generator, select the store's **single**
+  marketplace (multi-marketplace disables Listing Preferences and adds
+  offer blocks you don't need). Fill only that marketplace's offer.
+- **Don't hotlink a supplier image URL** into `main_image_url` — Amazon
+  can't fetch a referer-protected 1688/alibaba CDN URL, so the listing
+  is created but suppressed. Leave it blank (listing lands as "needs
+  image") and add images via the proper image flow.
+- **GTIN-exempt brand** — leave `external_product_id` blank and set
+  `brand_name`; the feed may report an `8560` on children, but the ASINs
+  still create under the brand exemption. Verify in inventory, not the
+  feed count.
+
 ## The two scripts
 
 ```bash
