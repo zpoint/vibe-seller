@@ -1,13 +1,13 @@
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Chrome and other browsers). Freely connect any LLM.</b><br/>
-  Runs on macOS, Linux, or Windows (native installer). Local-first — code on your machine, data on your disk. Works with Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax — any Anthropic-compatible provider.
+  <b>跨境卖家的 AI 自动化框架（支持亚马逊、Noon、美客多、千牛等平台，紫鸟、Chrome 等浏览器），自由接入任意大模型</b><br/>
+  支持 macOS、Linux、Windows（原生安装包）· 全程本地部署，代码和数据都在你自己机器上 · 兼容 Claude / DeepSeek / GLM / Qwen / Kimi / MiniMax 等主流模型
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> ·
-  <a href="README.zh.md">中文</a>
+  <a href="README_en.md">English</a> ·
+  <a href="README.md">中文</a>
 </p>
 
 
@@ -22,96 +22,65 @@
 
 ---
 
-## What is Vibe Seller?
+## 这是什么
 
-A local-first **browser-automation framework**. AI agents drive your
-real browser — Ziniao for fingerprint isolation, or plain Chrome —
-through CDP (Chrome's low-level remote-control protocol), the same
-way you'd click through pages yourself. Ad tuning, listing launches, inventory checks, invoicing,
-returns, warehouse setup, logistics lookup — whatever you can do in
-a browser, the agent can do too.
+Vibe Seller 是给跨境卖家用的**浏览器自动化框架**，本地部署。Agent 通过 CDP（Chrome 底层远程控制协议）驱动紫鸟（或普通 Chrome），跟你手动点页面一样——广告调优、上架、Listing 巡检、库存检查、税票下载、建仓入库、物流跟踪……凡是浏览器里能做的事，都能让 Agent 干。
 
-Each store gets its own agent — **think of it as hiring a different
-ops person for each store**. The Store A agent only sees Store A's
-profile, has its own memory and workspace, can't touch the other
-stores' agents.
+每个店铺各跑各的——**就像你请了几个独立的运营**：店铺 A 的 Agent 只看店铺 A 的紫鸟档案，有它自己的记忆和工作区，跟店铺 B、店铺 C 的 Agent 互不打扰、互不串数据。
 
 ```mermaid
 flowchart LR
-    U1[You] -.LAN.-> S
-    U2[Teammates] -.LAN.-> S
-    subgraph OfficeHost["Office host — Mac or Windows (always on)"]
-        S[Vibe Seller server<br/>web UI on :7777]
-        S --> A1[Agent for Store A]
-        S --> A2[Agent for Store B]
-        S --> A3[Agent for Store C]
-        A1 -->|CDP| Z1[Ziniao profile A]
-        A2 -->|CDP| Z2[Ziniao profile B]
-        A3 -->|CDP| Z3[plain Chrome]
+    U1[你] -.内网.-> S
+    U2[同事] -.内网.-> S
+    subgraph OfficeHost["办公电脑（Mac、Linux 或 Windows，常开）"]
+        S[Vibe Seller 服务<br/>网页后台 :7777]
+        S --> A1[店铺A 的 Agent]
+        S --> A2[店铺B 的 Agent]
+        S --> A3[店铺C 的 Agent]
+        A1 -->|CDP| Z1[紫鸟店铺A]
+        A2 -->|CDP| Z2[紫鸟店铺B]
+        A3 -->|CDP| C1[普通 Chrome]
     end
 ```
 
-Either deployment works:
+两种部署方式都可以：
 
-- **One always-on machine** (Mac, Linux, or Windows) hosts the
-  server
-- **Or just use your own computer**
+- **一台办公电脑常开着**，跑 Vibe Seller 服务
+- **或者就用自己的电脑**
 
-You and your team open the web UI from any device on the same LAN.
+你和同事在内网里用任意设备打开网页后台。
 
-## Why Vibe Seller?
+## 为什么用 Vibe Seller
 
-Compared to existing automation tools, Vibe Seller is built around
-what cross-border sellers actually need and what today's AI models
-can actually do well: AI-driven by design, with built-in Skills,
-per-store isolation, and fully local deployment. Browser control
-runs on [browser-use](https://github.com/browser-use/browser-use)
-instead of blind screenshot-clicking — faster, and far cheaper in
-tokens, than an agent that has to feel out every page from
-scratch.
+比起现有的自动化工具，Vibe Seller 更贴近跨境卖家的实际需求，也更贴近当下 AI 技术真正能做到的水平：从设计上就是 AI 驱动——内置 Skill、多店铺隔离、全程本地部署。浏览器操作基于 [browser-use](https://github.com/browser-use/browser-use)，而不是靠截图瞎点——比让 Agent 从零摸索页面快得多，也省 token 得多。
 
-- **Batteries-included, no hand-holding.** Amazon (every marketplace),
-  Noon, and more ship with built-in Skills for the jobs sellers
-  actually do — report / statement export, listing creation & updates,
-  ad tuning. Create a task and the system opens the browser (Ziniao or
-  Chrome) and the agent operates it directly — usually right on the
-  first try, no step-by-step guidance needed.
-- **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
-  not UI-coordinate clicks. Lower risk-control risk, more stable.
-- **Multi-browser by design.** Plain Chrome is a first-class backend
-  alongside Ziniao — pick per store.
-- **Multi-LLM by design.** Built on top of the Claude Code CLI, so
-  any Anthropic-compatible provider works — Claude, DeepSeek, Kimi,
-  MiniMax, GLM, Qwen. Switch in Settings, no code changes. Your key,
-  your bill.
-- **No SaaS lock-in.** Code on your machine, data on your disk, no
-  account required.
-- **Auditable.** Every step, every prompt, every screenshot is logged
-  and replayable.
-- **Multi-store from day one.** Each store keeps its own platform,
-  data, SOPs, accumulated knowledge. Store A on Amazon US with its
-  own listing strategy, Store B on Noon EG with totally different
-  SOPs, Store C on Shopify DTC — they coexist without cross-talk.
+- **开箱即用，无需引导**——亚马逊（全站点）、Noon 等平台内置 Skill，覆盖卖家真正要干的活：报表 / 对账单导出、Listing 上架与更新、广告调优。创建任务后，系统自动打开浏览器（紫鸟或普通 Chrome），Agent 直接上手操作——通常一次就成，不用一步步引导。
+- **原生紫鸟支持**——通过 CDP 直接控制紫鸟，不是裸 Chrome 跑 Playwright，也不是 UI 坐标点击，所以风控风险低、稳定。
+- **不挑浏览器**——除了紫鸟，普通 Chrome 也是一等公民，按店铺各自挑选。
+- **支持大部分模型**——底层走 Claude Code CLI，凡是兼容 Anthropic 协议的供应商都能接：Claude、DeepSeek、Kimi、MiniMax、智谱 GLM、通义千问。设置里切一下就行，不用改代码。Key 是你自己充的。
+- **没有 SaaS 绑定**——代码在你机器上，数据在你硬盘里，不用注册账号。
+- **可审计**——每一步操作、每条 Prompt、每张截图都有日志，可回放，出问题能溯源。
+- **天然多店隔离**——每个店铺各有自己的平台、数据、SOP、积累下来的经验。店铺 A 跑 Amazon US，店铺 B 跑 Noon EG，店铺 C 跑 Shopify 独立站——三个并行跑，互不串通。
 
-## Install
+## 安装
 
-### Prerequisites
+### 环境要求
 
-- One LLM API key: Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
-- A browser engine — Chrome or Ziniao
+- 任意一个 LLM API Key：Claude / DeepSeek / Kimi / MiniMax / GLM / Qwen
+- 浏览器引擎——Chrome 或紫鸟
 
-### Quick start — pick your OS
+### 快速开始 —— 选你的系统
 
 <details open>
-<summary><b>🪟 Windows — native installer (recommended)</b></summary>
+<summary><b>🪟 Windows —— 原生安装包（推荐）</b></summary>
 
-No WSL, no Python setup. In **PowerShell**:
+无需 WSL，无需配置 Python。在 **PowerShell** 里：
 
 ```powershell
 irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/install.ps1 | iex
 ```
 
-Or download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
+或从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
 </details>
 
@@ -123,19 +92,19 @@ curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh |
 vibe-seller start
 ```
 
-Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade`. Uninstall: `uv tool uninstall vibe-seller`.
+打开 <http://localhost:7777>。升级：`vibe-seller upgrade`。卸载：`uv tool uninstall vibe-seller`。
 
-<sub>Prerequisites (auto-handled by <code>install.sh</code>): Python 3.11+ via <a href="https://docs.astral.sh/uv/"><code>uv</code></a>, Node.js 22+.</sub>
+<sub>环境要求（<code>install.sh</code> 自动处理）：Python 3.11+（经 <a href="https://docs.astral.sh/uv/"><code>uv</code></a>）、Node.js 22+。</sub>
 
 </details>
 
 <details>
-<summary>🪟 Windows via WSL2 (advanced)</summary>
+<summary>🪟 Windows 走 WSL2（进阶）</summary>
 
-Prefer the native installer above. The WSL2 path runs the server inside Ubuntu/WSL with the browser on the Windows host — it needs **mirrored networking** (Windows 11+). Full setup lives in the [developer guide](docs/dev-guide.md).
+优先用上面的原生安装包。WSL2 方案是服务跑在 Ubuntu/WSL 里、浏览器在 Windows 宿主侧——需要 **mirrored 网络模式**（仅 Windows 11+ 支持）。完整步骤见 [开发者指南](docs/dev-guide.md)。
 
 ```bash
-# inside WSL2 Ubuntu
+# 在 WSL2 Ubuntu 里
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
@@ -143,161 +112,116 @@ vibe-seller start
 </details>
 
 <details>
-<summary>From source (for contributors)</summary>
+<summary>从源码 clone（贡献/二次开发用）</summary>
 
 ```bash
 git clone https://github.com/zpoint/vibe-seller
 cd vibe-seller
-./install.sh --dev   # system deps + venv + frontend build + Playwright
-./start.sh           # serves :7777
+./install.sh --dev   # 装系统依赖 + venv + 编前端 + Playwright
+./start.sh           # :7777 起服务
 ```
 
 </details>
 
-> If install fails, paste the repo URL
-> <https://github.com/zpoint/vibe-seller> into any coding agent
-> (Claude Code, Codex, opencode, Cursor) and tell it "read the
-> README and install this." The README is written so any agent can
-> follow it; most environment issues take one or two commands to fix.
+> `install.sh` 报错？把 GitHub 项目链接 <https://github.com/zpoint/vibe-seller> 丢给任意 Coding Agent（Claude Code / Codex / opencode / Cursor 都行），让它「读一下 README 帮我装」——它会自己看完文档、跑命令、绝大多数环境问题一两条就能修好。
 
-## First run
+## 首次配置
 
 <details>
-<summary><b>🪟 Windows — first run (4 steps)</b></summary>
+<summary><b>🪟 Windows —— 首次配置（4 步）</b></summary>
 
-For anyone who just ran the [native installer](#install).
+刚用[原生安装包](#安装)装完的话，跟着这 4 步走：
 
-### 1. Install
+### 1. 装上
 
-Run [`VibeSeller-Setup.exe`](https://github.com/zpoint/vibe-seller/releases/latest)
-(or the PowerShell one-liner from [Install](#install)). It starts
-the server for you — check **Open Vibe Seller now** at the end of
-the wizard, or open <http://localhost:7777> yourself.
+跑 [`VibeSeller-Setup.exe`](https://github.com/zpoint/vibe-seller/releases/latest)（或上面 PowerShell 那行一键命令）。装完会自动起服务——安装向导最后勾选**「现在打开 Vibe Seller」**，或者自己打开 <http://localhost:7777>。
 
-### 2. Add your LLM key
+### 2. 填 LLM Key
 
-`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+`设置 → AI Agent` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
 
-> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
-> the path of least resistance — sign up, top up $2–3,
-> pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
 
-> Already signed in to Anthropic via Claude Code on this machine?
-> Vibe Seller reuses that session — skip this step.
+> 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
 <img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
 
 <img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
 
-### 3. Connect your stores
+### 3. 绑定店铺
 
-`Settings → Stores → Add Ziniao account`, fill in the account, pick
-the right Ziniao profile for each store, save. Skip the Ziniao bit
-and pick plain Chrome instead if you prefer.
+`设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档案、保存。不用紫鸟可以选普通 Chrome。
 
 <img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
-### 4. Create your first task
+### 4. 创建第一个任务
 
-Home page → **New task** → pick a store → write one sentence:
+首页「新建任务」→ 挑店铺 → 写一句话告诉 Agent 干嘛：
 
-- "Check ads and pause any keyword with ACOS over 30%."
-- "Export the past 7 days of sales reports."
-- "Review inventory and estimate next month's restock SKUs."
+- 「检查广告，把 ACOS 超过 30% 的关键词暂停掉」
+- 「把过去 7 天销售报表导出来」
+- 「看看库存，估算下个月要补哪些 SKU」
 
-The agent plans the steps, drives the browser, and writes you a
-report. Auto mode is the default — just run it. The toggle in the
-task footer can flip to Plan mode if you want to review the plan
-before execution.
+Agent 自己规划步骤、操作浏览器、最后给你一份结果报告。默认 Auto 模式，直接跑就行；任务详情底部可以切到 Plan 模式让它先把计划交给你审。
 
-> Want email / WeCom / TickTick / Google Workspace hooked up too?
-> `Settings → Integrations`, any time after install — optional, and
-> doesn't block your first task.
+> 还想接邮件 / 企业微信 / TickTick / Google Workspace？`设置 → 集成` 里随时都能配，不影响你先把第一个任务跑通。
 
 </details>
 
 <details>
-<summary><b>🍎 macOS / 🐧 Linux — first run (8 steps)</b></summary>
+<summary><b>🍎 macOS / 🐧 Linux —— 首次配置（8 步）</b></summary>
 
-For anyone who hasn't used a terminal before. Eight steps:
+完全没碰过命令行也能跟着做。一共 8 步：
 
-### 1. Open a terminal
+### 1. 打开终端
 
-⌘ + Space, type "Terminal", hit return (Mac). On Linux, open your
-usual terminal app.
+Mac 按 ⌘ + 空格，输入「终端」，回车。Linux 打开你平时用的终端应用即可。
 
-A black window appears with a blinking cursor.
+会出现一个黑底白字的窗口，里面有光标在闪——就是终端。
 
-### 2. Install
+### 2. 装上
 
-Copy this **entire line**, paste into the terminal, hit return:
+把下面整行**原样**复制，粘进终端，回车：
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 ```
 
-Takes a few minutes (downloads the Python toolchain, installs
-Vibe Seller, fetches Chromium). When the output ends with
-`Vibe Seller installed!` you're set.
+会自动跑几分钟（下载 Python 工具链、装 Vibe Seller、拉 Chromium）。看到最后写 `Vibe Seller installed!` 就成了。
 
-Stuck or hitting an error? Drop the repo URL
-<https://github.com/zpoint/vibe-seller> into any coding agent
-(Claude Code, Codex, opencode, Cursor) and say "read the README and
-install this." The agent will work through it for you.
+中途卡住或者报错？把 GitHub 项目链接 <https://github.com/zpoint/vibe-seller> 丢给任意一个 Coding Agent（Claude Code、Codex、opencode、Cursor 都行），告诉它「读 README 装一下这个」，它会自己跑命令帮你修。
 
-### 3. Start the server
+### 3. 启动
 
 ```bash
 vibe-seller start
 ```
 
-The server daemonizes — the CLI prints the PID and log path and
-exits. You can close the terminal; the server keeps running. To
-stop it later: `vibe-seller stop`.
+服务会在后台跑起来，终端打印 PID 和日志路径就完事——可以关掉终端窗口，服务不会停。需要停掉的时候用 `vibe-seller stop`。
 
-### 4. Open the web UI
+### 4. 打开网页
 
-In your browser:
+浏览器输入：
 
 ```
 http://localhost:7777
 ```
 
-When the Vibe Seller home page loads, you're done (no login by
-default).
+看到 Vibe Seller 首页就是装成功了（默认不需要登录）。
 
-### 5. Add your LLM key
+### 5. 填 LLM Key
 
-`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+`设置 → AI Agent` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
 
-> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
-> the path of least resistance — sign up, top up $2–3,
-> pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
 
-> Already signed in to Anthropic via Claude Code on this machine?
-> Vibe Seller reuses that session — skip this step.
+> 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
-> **Using cc-switch or a similar Claude-account-switcher tool? Pick
-> the default here.**
+> **装了 cc-switch 之类的 Claude 账号切换工具？这里请选默认。**
 >
-> Those tools manage your AI provider by editing
-> `~/.claude/settings.json` directly, which conflicts with Vibe
-> Seller's own AI picker. Just pick the default here and let
-> cc-switch keep managing which AI you use.
+> 这类工具直接改你的全局配置文件 `~/.claude/settings.json` 来切换 AI 供应商，跟本项目自己的 AI 选择器会冲突。直接选默认就行，AI 切换交给 cc-switch 管。
 >
-> If you'd rather Vibe Seller manage it instead: quit cc-switch,
-> then **copy-paste this line into a terminal** and hit return —
-> it edits your global Claude Code config
-> (`~/.claude/settings.json`) to remove the `ANTHROPIC_*`
-> environment variables cc-switch wrote there:
+> 想反过来让本项目管的话：退出 cc-switch，然后在终端里**原样复制粘贴**下面这一行回车——它会改你的 Claude Code 全局配置（`~/.claude/settings.json`），清掉 cc-switch 写进去的 `ANTHROPIC_*` 环境变量：
 >
 > ```bash
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
@@ -307,126 +231,88 @@ work), paste your API key, save. Keys are encrypted at rest.
 
 <img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
 
-### 6. Connect your stores
+### 6. 绑定店铺
 
-`Settings → Stores → Add Ziniao account`, fill in the account, pick
-the right Ziniao profile for each store, save. Skip the Ziniao bit
-and pick plain Chrome instead if you prefer.
+`设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档案、保存。不用紫鸟可以选普通 Chrome。
 
 <img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
-### 7. (Optional) Wire up email / WeCom
+### 7. （可选）配置邮件 / 企业微信
 
-Want the agent to do daily email triage and push critical items to a
-group chat? `Settings → Integrations`:
+想让 Agent 每天出邮件巡检报告、把异常推到企业微信群？`设置 → 集成` 里加：
 
-- **Email**: enter the mailbox address for each store; the IMAP
-  server fields auto-populate (gmail, outlook, self-hosted all
-  supported), so all you fill in is the secret (an app password
-  usually). Not sure how to generate one? Ask any AI with the name
-  of your email provider. Agent scans daily afterwards.
-- **WeCom (企业微信)**: set up a group bot, paste the webhook URL.
-  High-priority anomalies post automatically.
-- **TickTick / Google Workspace**: connect here if you want results
-  synced into a calendar or Doc.
+- **邮件**：填店铺对应邮箱地址，IMAP 服务器会自动识别（gmail / outlook / 自建都支持），你只用填 secrets（应用密码 / app password）。不知道怎么生成？把邮箱供应商名字问任意 AI 就行。保存后 Agent 每天自动扫一遍。
+- **企业微信**：建群机器人，把 webhook URL 粘进来。重要异常自动推到群。
+- **TickTick / Google Workspace**：要把结果同步到日程或文档的话，这里也能接。
 
-Skipping is fine — come back after your first task.
+跳过没关系，先把第一个任务跑通再说。
 
-### 8. Create your first task
+### 8. 创建第一个任务
 
-Home page → **New task** → pick a store → write one sentence:
+首页「新建任务」→ 挑店铺 → 写一句话告诉 Agent 干嘛：
 
-- "Check ads and pause any keyword with ACOS over 30%."
-- "Export the past 7 days of sales reports."
-- "Review inventory and estimate next month's restock SKUs."
+- 「检查广告，把 ACOS 超过 30% 的关键词暂停掉」
+- 「把过去 7 天销售报表导出来」
+- 「看看库存，估算下个月要补哪些 SKU」
 
-The agent plans the steps, drives the browser, and writes you a
-report. Auto mode is the default — just run it. The toggle in the
-task footer can flip to Plan mode if you want to review the plan
-before execution.
+Agent 自己规划步骤、操作浏览器、最后给你一份结果报告。默认 Auto 模式，直接跑就行；任务详情底部可以切到 Plan 模式让它先把计划交给你审。
 
 </details>
 
 <details>
-<summary><b>🐧 Windows via WSL2 — first run (8 steps)</b></summary>
+<summary><b>🐧 Windows 走 WSL2 —— 首次配置（8 步）</b></summary>
 
-For anyone who hasn't used a terminal before. Eight steps. Assumes
-you already installed via the [WSL2 path](#install) (mirrored
-networking, Windows 11+).
+完全没碰过命令行也能跟着做。一共 8 步。前提是你已经按 [WSL2 方案](#安装)装好了（需要 mirrored 网络模式，仅 Windows 11+ 支持）。
 
-### 1. Open a terminal
+### 1. 打开终端
 
-Open your WSL Ubuntu terminal — search "Ubuntu" in the Start menu,
-or run `wsl` from PowerShell.
+打开 WSL 里的 Ubuntu 终端——在开始菜单搜索「Ubuntu」，或者在 PowerShell 里输入 `wsl`。
 
-A black window appears with a blinking cursor.
+会出现一个黑底白字的窗口，里面有光标在闪——就是终端。
 
-### 2. Install
+### 2. 装上
 
-Copy this **entire line**, paste into the terminal, hit return:
+把下面整行**原样**复制，粘进终端，回车：
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 ```
 
-Takes a few minutes (downloads the Python toolchain, installs
-Vibe Seller, fetches Chromium). When the output ends with
-`Vibe Seller installed!` you're set.
+会自动跑几分钟（下载 Python 工具链、装 Vibe Seller、拉 Chromium）。看到最后写 `Vibe Seller installed!` 就成了。
 
-Stuck or hitting an error? Drop the repo URL
-<https://github.com/zpoint/vibe-seller> into any coding agent
-(Claude Code, Codex, opencode, Cursor) and say "read the README and
-install this." The agent will work through it for you.
+中途卡住或者报错？把 GitHub 项目链接 <https://github.com/zpoint/vibe-seller> 丢给任意一个 Coding Agent（Claude Code、Codex、opencode、Cursor 都行），告诉它「读 README 装一下这个」，它会自己跑命令帮你修。
 
-### 3. Start the server
+### 3. 启动
 
 ```bash
 vibe-seller start
 ```
 
-The server daemonizes — the CLI prints the PID and log path and
-exits. You can close the terminal; the server keeps running. To
-stop it later: `vibe-seller stop`.
+服务会在后台跑起来，终端打印 PID 和日志路径就完事——可以关掉终端窗口，服务不会停。需要停掉的时候用 `vibe-seller stop`。
 
-### 4. Open the web UI
+### 4. 打开网页
 
-In your browser:
+浏览器输入：
 
 ```
 http://localhost:7777
 ```
 
-When the Vibe Seller home page loads, you're done (no login by
-default).
+看到 Vibe Seller 首页就是装成功了（默认不需要登录）。
 
-### 5. Add your LLM key
+### 5. 填 LLM Key
 
-`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+`设置 → AI Agent` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
 
-> **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
-> the path of least resistance — sign up, top up $2–3,
-> pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
 
-> Already signed in to Anthropic via Claude Code on this machine?
-> Vibe Seller reuses that session — skip this step.
+> 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
-> **Using cc-switch or a similar Claude-account-switcher tool? Pick
-> the default here.**
+> **装了 cc-switch 之类的 Claude 账号切换工具？这里请选默认。**
 >
-> Those tools manage your AI provider by editing
-> `~/.claude/settings.json` directly, which conflicts with Vibe
-> Seller's own AI picker. Just pick the default here and let
-> cc-switch keep managing which AI you use.
+> 这类工具直接改你的全局配置文件 `~/.claude/settings.json` 来切换 AI 供应商，跟本项目自己的 AI 选择器会冲突。直接选默认就行，AI 切换交给 cc-switch 管。
 >
-> If you'd rather Vibe Seller manage it instead: quit cc-switch,
-> then **copy-paste this line into a terminal** and hit return —
-> it edits your global Claude Code config
-> (`~/.claude/settings.json`) to remove the `ANTHROPIC_*`
-> environment variables cc-switch wrote there:
+> 想反过来让本项目管的话：退出 cc-switch，然后在终端里**原样复制粘贴**下面这一行回车——它会改你的 Claude Code 全局配置（`~/.claude/settings.json`），清掉 cc-switch 写进去的 `ANTHROPIC_*` 环境变量：
 >
 > ```bash
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
@@ -436,342 +322,230 @@ work), paste your API key, save. Keys are encrypted at rest.
 
 <img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
 
-### 6. Connect your stores
+### 6. 绑定店铺
 
-`Settings → Stores → Add Ziniao account`, fill in the account, pick
-the right Ziniao profile for each store, save. Skip the Ziniao bit
-and pick plain Chrome instead if you prefer.
+`设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档案、保存。不用紫鸟可以选普通 Chrome。
 
-Ziniao runs on the Windows side, Vibe Seller runs inside WSL. Ziniao
-only runs one mode at a time, and Vibe Seller needs developer mode
-(a.k.a. WebDriver mode — that's what exposes CDP). WSL can't
-restart Windows-side Ziniao itself, so a launcher does it from
-Windows:
+紫鸟装在 Windows 侧，Vibe Seller 跑在 WSL 里。紫鸟同一时间只能跑一种模式，Vibe Seller 需要开发者模式（也叫 WebDriver 模式，这个模式才会开 CDP）。WSL 这边没法直接重启 Windows 上的紫鸟，所以要在 Windows 侧用启动器：
 
-1. Download `ziniao_webdriver.bat` from
-   `Settings → Stores → Download launcher`.
-2. Double-click it on Windows.
-3. Back in WSL, hit **Refresh** on the Ziniao page in Vibe Seller —
-   your accounts pop in automatically, no manual fields to fill.
+1. 从 `设置 → 店铺 → 下载启动器` 下载 `ziniao_webdriver.bat`。
+2. 在 Windows 上双击运行。
+3. 回到 WSL 里的 Vibe Seller，紫鸟页面点「**刷新**」按钮，账号自动出现，不用手填字段。
 
 <img width="906" height="1251" alt="ziniao_wsl" src="docs/images/ziniao_wsl.png" />
 
-### 7. (Optional) Wire up email / WeCom
+### 7. （可选）配置邮件 / 企业微信
 
-Want the agent to do daily email triage and push critical items to a
-group chat? `Settings → Integrations`:
+想让 Agent 每天出邮件巡检报告、把异常推到企业微信群？`设置 → 集成` 里加：
 
-- **Email**: enter the mailbox address for each store; the IMAP
-  server fields auto-populate (gmail, outlook, self-hosted all
-  supported), so all you fill in is the secret (an app password
-  usually). Not sure how to generate one? Ask any AI with the name
-  of your email provider. Agent scans daily afterwards.
-- **WeCom (企业微信)**: set up a group bot, paste the webhook URL.
-  High-priority anomalies post automatically.
-- **TickTick / Google Workspace**: connect here if you want results
-  synced into a calendar or Doc.
+- **邮件**：填店铺对应邮箱地址，IMAP 服务器会自动识别（gmail / outlook / 自建都支持），你只用填 secrets（应用密码 / app password）。不知道怎么生成？把邮箱供应商名字问任意 AI 就行。保存后 Agent 每天自动扫一遍。
+- **企业微信**：建群机器人，把 webhook URL 粘进来。重要异常自动推到群。
+- **TickTick / Google Workspace**：要把结果同步到日程或文档的话，这里也能接。
 
-Skipping is fine — come back after your first task.
+跳过没关系，先把第一个任务跑通再说。
 
-### 8. Create your first task
+### 8. 创建第一个任务
 
-Home page → **New task** → pick a store → write one sentence:
+首页「新建任务」→ 挑店铺 → 写一句话告诉 Agent 干嘛：
 
-- "Check ads and pause any keyword with ACOS over 30%."
-- "Export the past 7 days of sales reports."
-- "Review inventory and estimate next month's restock SKUs."
+- 「检查广告，把 ACOS 超过 30% 的关键词暂停掉」
+- 「把过去 7 天销售报表导出来」
+- 「看看库存，估算下个月要补哪些 SKU」
 
-The agent plans the steps, drives the browser, and writes you a
-report. Auto mode is the default — just run it. The toggle in the
-task footer can flip to Plan mode if you want to review the plan
-before execution.
+Agent 自己规划步骤、操作浏览器、最后给你一份结果报告。默认 Auto 模式，直接跑就行；任务详情底部可以切到 Plan 模式让它先把计划交给你审。
 
 </details>
 
-## What you can do with it
+## 能干什么
 
-Vibe Seller is an **AI agent framework** — the browser is one of
-its tools, not the only one. The agent can browse pages, read your
-email, send WeCom messages, write to TickTick / Dida365, update
-Google Docs. Anything that fits *observe → decide → act* — whether
-a browser is involved or not.
+Vibe Seller 是个 **AI Agent 框架**，浏览器只是它的工具之一。Agent 能浏览页面、读你的邮件、发企业微信、写滴答清单、改 Google Doc ——只要符合「看了 → 判断 → 操作」的活，能用浏览器就走浏览器，能用集成接口就直接调接口。
 
-A few cross-border scenarios it's commonly used for:
+跨境圈常见的几类场景：
 
-| Task | What happens |
+| 任务 | Agent 干啥 |
 |---|---|
-| **Ad tuning** | Reads Campaign Manager, finds under- and over-spenders, proposes bid / budget changes, applies them with your approval. |
-| **Listing publication** | Creates new listings from a template — title, bullets, photos, A+ content, variations. |
-| **Listing audit** | Walks every store's catalog, flags suppressed / out-of-stock / inactive items. |
-| **Inventory check** | Pulls stock levels; low-stock SKUs get pushed to WeCom automatically. |
-| **Warehouse / inbound setup** | Creates inbound shipments, allocates SKUs to FBA / FBN, prints box labels. |
-| **Logistics lookup** | Tracks in-transit shipments, freight delivery, customs clearance; flagged shipments get filed as TickTick todos. |
-| **Invoices & reports** | Crawls tax docs, business reports, advertising reports; downloads are archived to Google Drive. |
-| **Email handling** | Sorts buyer messages, forwards important ones to WeCom, drafts replies. |
-| **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. |
+| **广告调优** | 翻 Campaign Manager，找出花钱过多 / 不够的 Campaign，提出调价、调预算的建议，审批后一键应用。|
+| **上架 Listing** | 按模板创建新 Listing：标题、卖点、图片、A+、变体一条龙。|
+| **Listing 巡检** | 遍历所有店铺，标出下架 / 断货 / 异常的 SKU。|
+| **库存检查** | 拉实时库存，低库存 SKU 直接推企微提醒。|
+| **建仓 / 入库** | 创建入库单，分配 FBA / FBN，打印箱唛。|
+| **物流数据查询** | 跟踪在途、查头程到货、清关进度；异常单自动写进滴答清单待办。|
+| **税票 & 报表** | 抓税票库、Business Reports、广告报表；下完自动归档到 Google Drive。|
+| **邮件处理** | 给买家邮件分类，重要的转企微，起草回复草稿。|
+| **你想到的** | 写个 Skill（markdown 步骤说明），或者带 Agent 做一遍——它会自己记笔记，下次按你的习惯来。|
 
-A single ad-tuning run is ≈ 3–5 minutes and costs ≈ ¥1 in LLM tokens
-(rough — depends on provider and campaign volume).
+一次广告调优大概 3–5 分钟，LLM 费用约 ¥1（DeepSeek，看具体广告数量浮动）。
 
-## Integrations
+## 集成的服务
 
-Beyond the browser, the agent can call these external services
-directly (hook up permissions in First run — no code):
+除了浏览器，Agent 还能直接调用下面这些外部服务（首次配置里挂上权限就行，不用写代码）：
 
-| Service | What it does |
+| 服务 | 干啥 |
 |---|---|
-| **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies |
-| **WeCom** (企业微信) | Push important events, cross-group notifications, forward buyer inquiries |
-| **TickTick / Dida365** | Auto-create todos (follow-ups, order tracking, periodic checks) |
-| **Google Workspace** | Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit |
+| **邮件**（IMAP/SMTP） | 读你绑定的店铺邮箱，分类、转发、起草回复 |
+| **企业微信**（WeCom） | 推送重要事件、跨群通知、买家询盘转发 |
+| **滴答清单 / TickTick** | 自动建待办（追单、跟进、定期检查） |
+| **Google Workspace** | Gmail、Drive、Docs、Sheets、Slides、Calendar——读、写、改都行 |
 
-A single task can mix browser + service calls. e.g. *"Find all
-slow-moving SKUs across stores"* → browser pulls inventory →
-generates a Google Sheet → posts a WeCom summary → drops a "price
-review next week" todo into TickTick.
+一个任务可以同时用浏览器 + 这些服务。比如「找出所有店铺滞销的 SKU」可以这样跑：浏览器抓库存 → 生成 Google Sheet 报表 → 把摘要发企微 → 在滴答清单里给你建个「下周降价」的待办。
 
-## Platforms
+## 支持的平台
 
-### Built-in Skills
+### 内置 Skill 的平台
 
-- **Amazon Seller Central** (every marketplace — US / EU / MENA, etc.)
+- **Amazon Seller Central**（US / EU / MENA 全部站点）
 - **Noon Seller Lab**
 
-These are the platforms the project was dogfooded against. The
-Skills capture page mechanics, navigation paths, UI gotchas. With
-the Skill in hand, the agent typically completes common operations
-(view ads, export reports, adjust bids, launch listings, ...) **on
-the first try**.
+这两个平台开发者亲自跑过、踩过坑，Skill 里把页面机制、导航路径、UI 陷阱都写清楚了。Agent 读完 Skill + 你的任务 Prompt，常见操作（查看广告、导出报表、调价、上架……）基本**一次就能跑通**。
 
-### Anything else browser-based
+### 其他浏览器能打开的电商后台
 
-- Mercado Libre (美客多), AliExpress (速卖通), Shopify
-- Lazada, Shopee, TikTok Shop
-- … and any other browser-accessible seller portal.
+- 美客多（Mercado Libre）、速卖通（AliExpress）、Shopify
+- Lazada、Shopee、TikTok Shop
+- ……以及任何浏览器能打开的卖家后台。
 
-No pre-written Skill for these — the maintainers don't have test
-accounts, so the mechanics aren't documented upfront. The agent
-will fumble its first runs and need a few attempts to find the full
-flow.
+开发者没有这些平台的测试账号，没法预先把机制写成 Skill。Agent 第一次在新平台上跑会有点跌跌撞撞，可能要试错几次才能摸清流程。
 
-**The framework's built-in self-learning handles most of this on
-its own.** As it runs, the agent takes notes — which button didn't
-work, which path succeeded, which dead ends to avoid — and saves
-them to that store's local knowledge. This happens **without you
-needing to supervise**; the agent records its own mistakes as it
-goes. Optional human hints get recorded too if you happen to drop
-any. Next run, prior experience is pulled in automatically, so it
-doesn't hit the same wall. After a few rounds, common operations
-on a new platform stabilize.
+**但框架内置了「自我学习」**：Agent 在跑的过程中会自己做笔记——点错的按钮、走通的路径、踩过的坑，都会自动存到该店铺的本地知识库。整个过程**不需要你盯着**，Agent 自己跑、自己记。你要是顺手给两句人工提示，那也一起记下。下次同样的任务，之前的经验直接调用，不会再撞同一面墙。跑几轮之后，新平台的常见操作也能稳定下来。
 
-Once you've ironed something out, please consider upstreaming it as
-a proper Skill — see *Contributing* below.
+跑通之后欢迎你把经验整理成正式 Skill 反哺给项目（PR 通道见下面「贡献代码」）。
 
-## Running
+## 服务管理
 
 ```bash
-./start.sh          # default :7777
-./start.sh 8080     # custom port
-./stop.sh           # stop
-./restart.sh        # restart
+./start.sh          # 默认 :7777
+./start.sh 8080     # 指定端口
+./stop.sh           # 停止
+./restart.sh        # 重启
 ```
 
-To let teammates use the same instance, they open
-`http://<your-host-ip>:7777` on the same LAN.
+要让同事在内网访问？让他们打开 `http://<你的电脑IP>:7777`。
 
-## FAQ
+## 常见问题
 
 <details>
-<summary><b>How much does it cost?</b></summary>
+<summary><b>要花多少钱？</b></summary>
 
-Vibe Seller is free and open source. You pay your LLM provider
-directly. Rough scale: one ad-tuning run ≈ ¥1 in DeepSeek tokens.
+Vibe Seller 本身免费开源，花钱的只有你自己的 LLM API Key——直接给供应商付费。粗略量级：用 DeepSeek 跑一次广告调优大概 ¥1。
 
 </details>
 
 <details>
-<summary><b>Which LLM should I pick?</b></summary>
+<summary><b>该选哪个 LLM？</b></summary>
 
-Different tasks need different model strength. Match the model to
-the task:
+不同任务对模型推理能力的需求差很多，建议按任务类型挑：
 
-| Task type | Recommended |
+| 任务类型 | 推荐模型 |
 |---|---|
-| **Simple** — email classification, fixed-flow data entry, structured extraction | MiniMax, Kimi, GLM, or Qwen — pick whatever's cheapest |
-| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | **Claude or DeepSeek. Don't use the cheap models here.** |
+| **简单任务** —— 邮件分类、固定流程数据抽取、按字段填表 | MiniMax、Kimi、智谱 GLM、通义千问都行，挑便宜的 |
+| **复杂任务** —— 探索新平台（没有内置 Skill）、广告优化、库存策略、跨页面长流程 | **建议 Claude 或 DeepSeek，别用便宜模型** |
 
-Why? Complex tasks ask the agent to read the Skill, judge page
-state, call tools, and take notes — all in the same context window.
-Cheap models (the low-tier MiniMax tiers especially) commonly:
+为什么？复杂任务里 Agent 要边读 Skill、边判断页面状态、边调用工具、边记笔记。便宜模型（比如 MiniMax 的低端档）在这种场景下经常出现：
 
-- Skip Skill steps or run them out of order
-- Garble tool-call arguments
-- Forget earlier decisions once the context grows
+- 不按 Skill 步骤来，跳着走
+- 工具调用参数错乱
+- 长上下文里把前面的判断忘掉
 
-One often-overlooked factor: **context window size.** Claude and
-DeepSeek v4 ship with 1M context windows; most other models sit
-around 200k. On a long task (multi-page tables, cross-flow
-conversation history, accumulated notes), 200k fills up fast — the
-model starts forgetting earlier decisions, dropping details, or
-breaking outright. 1M handles the same task with room to spare.
+另外一个常被忽视的点：**上下文窗口大小**。Claude 和 DeepSeek v4 都是 1M 上下文，大多数其他模型在 200k 左右。跑一个复杂任务时（多页表格、跨流程对话历史、累积下来的笔记），200k 很容易爆——模型开始忘掉前面的判断、丢失细节，甚至直接出错。1M 上下文跑同样的任务从容得多。
 
-For simple tasks, model choice barely matters; save tokens with a
-cheap one. For hard tasks, paying for a SOTA model isn't a luxury —
-it's the cheaper option once you count failed runs.
+简单任务用什么模型差别不大，能省 token 就用便宜的；难任务上贵模型不是奢侈、是必要——一次失败的复杂任务消耗的 token + 时间，比直接用 SOTA 模型一次跑通要多得多。
 
 </details>
 
 <details>
-<summary><b>How does Ziniao integration actually work? Developer mode vs normal mode / credentials needed / where they're stored</b></summary>
+<summary><b>紫鸟接入是怎么回事？开发者模式 vs 普通模式 / 需要的凭据 / 存哪</b></summary>
 
-Ziniao runs in exactly one mode at a time:
+紫鸟同一时间只能跑一种模式：
 
-- **Normal mode** — what you get when you double-click the Ziniao
-  icon. UI-only, designed for manual daily work. No remote control.
-- **Developer mode (WebDriver)** — same Ziniao install, launched
-  with extra flags so it exposes an HTTP API on
-  `127.0.0.1:16851`. This is the only mode Vibe Seller (or any
-  external tool) can drive.
+- **普通模式**——你双击紫鸟图标启动的就是这个。只有 UI，给你日常手动用，外部程序进不来。
+- **开发者模式（WebDriver）**——同一个紫鸟，启动时带了额外参数，会在 `127.0.0.1:16851` 开一个 HTTP API。这是 Vibe Seller（或者任何外部工具）能驱动紫鸟的**唯一**入口。
 
-The two modes share one Ziniao process, so they can't run side by
-side. Switching requires restarting Ziniao.
+两个模式共用同一个紫鸟进程，不能同时跑。切换模式 = 重启紫鸟：
 
-- **macOS / native Windows**: Vibe Seller handles the swap itself —
-  kills any normal-mode instance and relaunches with
-  `--run_type=web_driver` when you open a store. Same automatic
-  handling on both platforms, nothing for you to do.
-- **Windows (WSL)**: WSL can't restart a Windows-side app across
-  the VM boundary, so the Windows side runs a one-line `.bat`
-  launcher (downloadable from `Settings → Stores → Download
-  launcher`) that does the kill + relaunch. Double-click it once;
-  Vibe Seller picks the developer-mode session up via Refresh.
+- **macOS / 原生 Windows**：Vibe Seller 自己来——打开店铺时它会先把普通模式的紫鸟杀掉，然后带 `--run_type=web_driver` 重新拉起，两个平台都一样自动接管，不用你操心。
+- **Windows（WSL）**：WSL 这边没法跨虚拟机边界重启 Windows 上的紫鸟，所以 Windows 侧需要跑一个一行的 `.bat` 启动器（从 `设置 → 店铺 → 下载启动器` 里下载）来完成杀掉 + 重启。双击跑一次就行，之后 Vibe Seller 通过「**刷新**」按钮就能识别到开发者模式的会话。
 
-**Credentials needed** — `Settings → Stores → Add Ziniao account`,
-three fields:
+**需要的凭据**——在 `设置 → 店铺` 里加一个「紫鸟账号」，填三个字段：
 
-| Field | What it is |
+| 字段 | 是什么 |
 |---|---|
-| **Company** (公司名称) | Your Ziniao enterprise company identifier |
-| **Username** (企业用户名) | Sub-account username under that company |
-| **Password** | That sub-account's password |
+| **公司名称** | 你的紫鸟企业账号公司标识 |
+| **企业用户名** | 公司下面那个子账号的用户名 |
+| **密码** | 那个子账号的密码 |
 
-Same credentials you use to log into Ziniao — Vibe Seller passes
-them to the developer-mode HTTP API to list your browsers and start
-sessions.
+跟你平时登紫鸟用的是同一套——Vibe Seller 把这三个字段传给开发者模式的 HTTP API，用来列出你的浏览器档案、启动会话。
 
-The **BOSS account** also needs to enable developer mode for your
-company on the Ziniao Open Platform (one-time admin setup, see
-<https://open.ziniao.com/docSupport?docId=99>). Without it, Ziniao
-rejects the login (`statusCode: -10003` — Ziniao's own error for
-"developer mode isn't enabled for this company").
+**主账号（BOSS 账号）需要先在紫鸟开放平台开通开发者模式**（一次性管理员配置，见 <https://open.ziniao.com/docSupport?docId=99>）。没开通的话紫鸟会拒绝登录（报错 `statusCode: -10003`——紫鸟自己的错误码，意思就是「这个公司没开通开发者模式」）。
 
-**Where credentials are stored** — all at
-`~/.vibe-seller/data/vibe_seller.db` (local SQLite). No upload, no
-telemetry path carries credentials out.
+**凭据存在哪**——全部在你本地 `~/.vibe-seller/data/vibe_seller.db`（SQLite）。没有上传，遥测通道也不带走。
 
-- **Password** is encrypted at rest with a key derived from your
-  local install, and never returned by any HTTP endpoint —
-  decrypted in memory only when Vibe Seller calls the Ziniao HTTP
-  API.
-- **Company** and **username** are plain strings — identifiers, not
-  secrets (same shape as an email address).
+- **密码**：落盘前加密，密钥从你本地安装派生，任何 HTTP 接口都不会把密码返回给前端——只在 Vibe Seller 要调紫鸟 HTTP API 那一刻才在内存里解密。
+- **公司名称** 和 **用户名**：明文存储——这俩是身份标识，跟邮箱地址一个性质。
 
-Asking for the password is the necessary trade-off: developer-mode
-auth requires it, no OAuth / token flow exists on the Ziniao side
-today. If that's a deal-breaker, use plain Chrome instead
-(`Settings → Stores → Add Chrome store`). Contributors curious about
-the exact encryption implementation can check
-[`docs/dev-guide.md`](docs/dev-guide.md).
+让你填密码这件事是没办法的：紫鸟开发者模式的 HTTP API 走的就是账号密码，没有 OAuth / token 替代。不能接受就走普通 Chrome：`设置 → 店铺 → 添加 Chrome 店铺`。想看具体加密实现的可以翻 [`docs/dev-guide.md`](docs/dev-guide.md)。
 
 </details>
 
 <details>
-<summary><b>Ziniao says "无权限通过 webdriver 登录" when I bind a store. How do I fix it?</b></summary>
+<summary><b>绑定店铺时紫鸟提示「无权限通过 webdriver 登录」怎么办？</b></summary>
 
-The BOSS (admin) account hasn't enabled WebDriver login for your
-sub-account yet. Follow [Ziniao's official guide](https://open.ziniao.com/docSupport?docId=99#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E7%99%BB%E5%BD%95%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0%E6%8E%A7%E5%88%B6%E5%8F%B00)
-and tick the WebDriver-login option in the Open Platform console:
+主账号（BOSS）还没给子账号开通 WebDriver 登录权限。按[紫鸟官方指南](https://open.ziniao.com/docSupport?docId=99#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E7%99%BB%E5%BD%95%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0%E6%8E%A7%E5%88%B6%E5%8F%B00)，在开放平台控制台里把 WebDriver 登录选项勾上：
 
-<img width="1857" height="903" alt="Ziniao Open Platform — enable WebDriver login" src="https://github.com/user-attachments/assets/c6066eff-f877-470e-a061-6abd73b6d2f8" />
+<img width="1857" height="903" alt="紫鸟开放平台——勾选 WebDriver 登录" src="https://github.com/user-attachments/assets/c6066eff-f877-470e-a061-6abd73b6d2f8" />
 
-The admin (BOSS) account has to do this once. After it's saved,
-your sub-account can log in via WebDriver and Vibe Seller will
-bind the store on the next refresh.
+只需要主账号操作一次，保存之后子账号就能通过 WebDriver 登录，回到 Vibe Seller 点「刷新」就能绑上店铺。
 
 </details>
 
 <details>
-<summary><b>Ziniao says "检测到您在新终端登录" and won't let me bind the store. How do I fix it?</b></summary>
+<summary><b>绑定店铺时紫鸟提示「检测到您在新终端登录」怎么办？</b></summary>
 
-This is Ziniao's new-device security check, not a Vibe Seller bug.
-The first time a given machine logs into an account, Ziniao requires
-a one-time manual approval:
+这是紫鸟的新设备安全检测，不是 Vibe Seller 的问题。同一个账号第一次在某台机器上登录时，紫鸟要求人工审批一次：
 
-1. Open Ziniao on this machine and log in manually (normal mode, not
-   WebDriver) with the same sub-account credentials.
-2. Ziniao will show a new-device prompt — submit the approval request.
-3. Have the admin (BOSS) account approve the device in the Ziniao
-   backend.
+1. 在这台机器上手动打开紫鸟（普通模式，不是 WebDriver），用同一个子账号登录。
+2. 紫鸟会弹出新设备提示——按提示提交审批申请。
+3. 主账号（BOSS）到紫鸟后台批准这台设备。
 
-After that one-time approval the device is trusted, and Vibe Seller's
-WebDriver login goes through on the next refresh.
+批准之后这台设备就被信任了，回到 Vibe Seller 点「刷新」，WebDriver 登录就能直接通过。
 
 </details>
 
 <details>
-<summary><b>Can I run it on a headless server?</b></summary>
+<summary><b>能不能跑在云服务器上？</b></summary>
 
-Yes — you'll just need to solve the browser/GUI part yourself.
-Vibe Seller itself runs fine on a headless server; Ziniao (and the
-Chrome backend, if you want to watch it work) needs somewhere to
-render into — a virtual display (Xvfb), a cloud desktop VM, or VNC
-into a real GUI session all work. The simpler common setup, though,
-is a small always-on desktop machine — a Mac mini, a mini-PC, a
-spare laptop — that the team connects to over LAN.
+可以，需要自己解决浏览器和 GUI 的问题。Vibe Seller 本身跑在无 GUI 的服务器上没问题；紫鸟（以及想看操作过程的 Chrome 后端）需要有地方渲染画面——虚拟显示（Xvfb）、云桌面 VM，或者 VNC 进一个真实 GUI 会话都行。不过更省事的常见做法还是本地摆一台常开的小机器——Mac mini、装了 WSL 的迷你 Windows 主机、或者一台闲置笔记本——团队通过内网连上去用。
 
 </details>
 
 <details>
-<summary><b>What happens to my store data?</b></summary>
+<summary><b>我的店铺数据会不会泄露？</b></summary>
 
-Everything — database, screenshots, logs — stays on your disk under
-`~/.vibe-seller/`. The only outbound traffic is the prompts you send
-to your LLM provider (which include whatever page snippets the agent
-reads).
+数据库、截图、日志全在你硬盘上的 `~/.vibe-seller/` 目录里。唯一出本地的流量是你发给 LLM 供应商的 Prompt（包含 Agent 要读的页面片段），其他什么都不外发。
 
 </details>
 
 <details>
-<summary><b>Where does the agent's "memory" live?</b></summary>
+<summary><b>Agent 的「记忆」存哪？</b></summary>
 
-Per-store knowledge accumulates in `~/.vibe-seller/stores/<slug>/`
-as plain markdown — you can read it, edit it, copy it between
-machines. Skills are markdown too. Nothing is locked inside a
-binary blob.
+每个店铺的知识积累在 `~/.vibe-seller/stores/<店铺 slug>/` 下的纯 markdown 文件里——你能看、能改、能在不同机器之间拷贝。Skill 也是 markdown。没有任何东西锁在二进制里。
 
 </details>
 
-## Docs
+## 文档
 
-- [`docs/dev-guide.md`](docs/dev-guide.md) — full feature reference,
-  API, project structure, testing
-- [`DESIGN.md`](DESIGN.md) — architecture
-- [`docs/`](docs/) — subsystem deep-dives (browser, events,
-  scheduling, workspace, etc.)
-- [`CLAUDE.md`](CLAUDE.md) — contributor guide for Claude Code
+- [`docs/dev-guide.md`](docs/dev-guide.md) —— 完整功能说明、API、项目结构、测试流程
+- [`DESIGN.md`](DESIGN.md) —— 架构设计
+- [`docs/`](docs/) —— 各子系统的深入说明（浏览器、事件、调度、workspace 等）
+- [`CLAUDE.md`](CLAUDE.md) —— Claude Code 在本仓库的协作规范
 
-## Contributing
+## 贡献代码
 
-PRs welcome — whether you write the code yourself or let Claude
-Code / Cursor / your coding agent do it. Python side is Google
-style (ruff-enforced); frontend is TypeScript strict + ESLint.
-[`CLAUDE.md`](CLAUDE.md) is the project conventions doc — it's
-written for AI agents and reads cleanly as a contributor guide.
+欢迎 PR——自己写代码、或者让 Claude Code / Cursor / 你顺手的编程 Agent 来写都行。Python 侧 Google 风格（ruff 强制），前端 TypeScript 严格模式 + ESLint。[`CLAUDE.md`](CLAUDE.md) 是项目规范文档——写给 AI Agent 看的，人读起来也清楚。
 
 ## License
 
-[Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE)。
 
-## Contact
+## 联系作者
 
-Questions or issues? Email the author at <zp0int@qq.com>.
+有问题欢迎邮件联系：<zp0int@qq.com>。
