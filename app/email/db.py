@@ -131,7 +131,7 @@ def get_new_emails_since(
     folder: str = 'INBOX',
     limit: int = 200,
 ) -> tuple[list[dict], int]:
-    """Return emails strictly newer than ``since_epoch`` + the max epoch.
+    """Return emails fetched after ``since_epoch`` + the max epoch.
 
     Server-side watermark filter for the scheduled email sweep. Agents
     must NOT hand-write a raw ``SELECT`` for this: an unfiltered query
@@ -142,27 +142,46 @@ def get_new_emails_since(
     cursor contract from prose into code, so the bug class cannot recur
     from the agent surface.
 
+    The cursor axis is ``fetched_at`` (when *we* stored the row), NOT
+    the sender-controlled ``date`` header. "New messages that have
+    arrived since the last run" means arrived in *our* store, and
+    ``fetched_at`` is the only column monotonic with that. Filtering by
+    ``date`` silently drops any email whose ``Date`` header predates the
+    last sweep's watermark — a late-delivered, backdated, or
+    clock-skewed message, or anything the sync job backfills after
+    downtime — even though it arrived *after* the cursor. It also made
+    the watermark handoff hostage to the agent persisting the exact
+    server-computed value: a model that fumbled the sweep tool and set
+    the cursor to wall-clock ``now`` would skip every genuinely-new but
+    past-dated email (the flake this test caught on the MiniMax
+    provider). ``fetched_at`` makes the invariant hold for *any*
+    watermark the agent persists. ``COALESCE(fetched_at, date)`` keeps
+    pre-``fetched_at`` rows swept instead of dropped.
+
     Each row carries an ``epoch`` column
-    (``CAST(strftime('%s', date) AS INTEGER)``) so the caller never has
-    to translate ISO → epoch (a known year-off footgun). The second
-    tuple element is the max epoch among returned rows, or
-    ``since_epoch`` when nothing is new — so the caller can persist a
-    monotonic, never-regressing watermark.
+    (``CAST(strftime('%s', COALESCE(fetched_at, date)) AS INTEGER)``) so
+    the caller never has to translate ISO → epoch (a known year-off
+    footgun). The second tuple element is the max epoch among returned
+    rows, or ``since_epoch`` when nothing is new — so the caller can
+    persist a monotonic, never-regressing watermark.
     """
     path = db_path_for_account(account_id)
     if not path.exists():
         return [], since_epoch
 
+    # Fetch-time cursor: filter + order + returned epoch all key off
+    # COALESCE(fetched_at, date) so the axis is consistent end to end.
+    epoch_expr = "CAST(strftime('%s', COALESCE(fetched_at, date)) AS INTEGER)"
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(
             'SELECT message_id, folder, subject, sender, recipient,'
             ' date, body_text,'
-            " CAST(strftime('%s', date) AS INTEGER) AS epoch"
+            f' {epoch_expr} AS epoch'
             ' FROM emails'
             ' WHERE folder = ?'
-            "   AND CAST(strftime('%s', date) AS INTEGER) > ?"
+            f'   AND {epoch_expr} > ?'
             ' ORDER BY epoch ASC'
             ' LIMIT ?',
             (folder, since_epoch, limit),

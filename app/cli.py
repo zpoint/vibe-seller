@@ -26,6 +26,7 @@ import time
 
 from app.platform import (
     collect_agent_descendants,
+    find_pid_listening_on_port,
     is_process_alive,
     kill_process,
     reap_task_agents,
@@ -290,9 +291,19 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 def _cmd_stop(args: argparse.Namespace) -> int:
     port: int = args.port
-    pid = _read_pid(port)
+    # The PORT is authoritative for "which process is the server": kill
+    # whatever is LISTENING on it (like stop.sh's `lsof -ti:PORT`); the
+    # pid file is only a fallback for a server that somehow isn't holding
+    # the port. This closes two failure modes: (a) a missing/stale pid
+    # file making stop a silent no-op — which left the Windows tray
+    # 'restart' (stop → start) running the OLD server and old code; and
+    # (b) a pid file pointing at the WRONG live PID (reuse, or a restart
+    # outside the CLI), where we'd kill an innocent process and leave the
+    # real listener up.
+    listener = find_pid_listening_on_port(port)
+    pid = listener if listener is not None else _read_pid(port)
     if pid is None:
-        print(f'No vibe-seller process tracked on port {port}.')
+        print(f'No vibe-seller process running on port {port}.')
         return 0
 
     # Collect THIS server's task-agent descendants BEFORE killing it, so
@@ -316,8 +327,9 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     asyncio.run(kill_process(pid))
     reaped = asyncio.run(reap_task_agents(pids=agent_pids)) if agent_pids else 0
     _pid_file_for(port).unlink(missing_ok=True)
+    via = 'port' if listener is not None else 'pid file'
     suffix = f' (+{reaped} task agent(s) reaped)' if reaped else ''
-    print(f'Stopped vibe-seller on port {port} (PID {pid}).{suffix}')
+    print(f'Stopped vibe-seller on port {port} (PID {pid}, via {via}).{suffix}')
     return 0
 
 
