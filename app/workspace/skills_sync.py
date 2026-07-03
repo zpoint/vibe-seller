@@ -272,6 +272,26 @@ class SkillsSyncManager:
                     raise
                 replaced += 1
 
+        # In-place-upgrade cleanup: the browser skill was renamed
+        # browser-use -> browser-harness in the browser-use 0.13
+        # migration (docs/browser-use-0.13-migration.md). On a client
+        # upgraded in place, the stale 0.12 ``browser-use`` skill lingers
+        # in the workspace next to the new ``browser-harness`` and could
+        # be auto-discovered / loaded instead — feeding the agent 0.12
+        # subcommand syntax against a 0.13 binary. Remove it whenever the
+        # current source ships ``browser-harness`` and not ``browser-use``.
+        # Scoped to that exact rename, so it can never touch a
+        # user-created skill or a legitimately-shipped ``browser-use``.
+        if 'browser-harness' in seen_names and 'browser-use' not in seen_names:
+            stale = self._dest_dir / 'browser-use'
+            if stale.is_dir() and not stale.is_symlink():
+                shutil.rmtree(stale, ignore_errors=True)
+                replaced += 1
+                logger.info(
+                    'Removed superseded browser-use skill '
+                    '(renamed to browser-harness in the 0.13 migration)'
+                )
+
         # Track synced skills from source dirs (not dest contents)
         self._update_synced_skills(synced_names)
 
