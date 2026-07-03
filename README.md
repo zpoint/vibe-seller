@@ -70,6 +70,12 @@ instead of blind screenshot-clicking — faster, and far cheaper in
 tokens, than an agent that has to feel out every page from
 scratch.
 
+- **Batteries-included, no hand-holding.** Amazon (every marketplace),
+  Noon, and more ship with built-in Skills for the jobs sellers
+  actually do — report / statement export, listing creation & updates,
+  ad tuning. Create a task and the system opens the browser (Ziniao or
+  Chrome) and the agent operates it directly — usually right on the
+  first try, no step-by-step guidance needed.
 - **Native Ziniao control.** CDP, not Playwright on vanilla Chrome,
   not UI-coordinate clicks. Lower risk-control risk, more stable.
 - **Multi-browser by design.** Plain Chrome is a first-class backend
