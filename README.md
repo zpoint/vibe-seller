@@ -1,8 +1,8 @@
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
-  <b>Multi-store browser-automation framework for cross-border sellers.</b><br/>
-  Runs on macOS, Linux, or Windows (native installer). Drives real browsers — Ziniao for fingerprint isolation, plain Chrome otherwise. Bring your own LLM API key — Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax all work.
+  <b>AI automation framework for cross-border sellers (supports Amazon, Noon, Mercado Libre, Qianniu and more; Ziniao, Chrome and other browsers). Freely connect any LLM.</b><br/>
+  Runs on macOS, Linux, or Windows (native installer). Local-first — code on your machine, data on your disk. Works with Claude, DeepSeek, GLM, Qwen, Kimi, MiniMax — any Anthropic-compatible provider.
 </p>
 
 <p align="center">
