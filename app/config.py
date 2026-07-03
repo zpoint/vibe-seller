@@ -115,6 +115,25 @@ WEB_BROWSER_SLUG = '_web'
 DOWNLOADS_DIR = VIBE_SELLER_DIR / 'downloads'
 DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
+# browser-harness (browser-use 0.13) daemon runtime + tmp dirs.
+#
+# The 0.13 CLI backs onto the ``browser_harness`` package, which spawns a
+# per-``BU_NAME`` daemon and records it as ``bu-<BU_NAME>.pid`` +
+# ``bu-<BU_NAME>.sock`` under its runtime dir. The wrapper points that dir
+# here (with ``BH_RUNTIME_DIR_SHARED=1``) so every daemon file carries its
+# ``BU_NAME`` — the reaper enumerates them to map daemons back to tasks
+# without any cmdline/env scraping (portable; avoids macOS's
+# ``psutil.environ()`` AccessDenied).
+#
+# Kept SHORT on purpose: macOS caps AF_UNIX ``sun_path`` at 104 bytes and
+# the socket path is ``<BH_RUNTIME_DIR>/bu-<BU_NAME>.sock``. The
+# browser-harness default (~/.config/browser-harness/runtime) is long
+# enough to overflow that for longer store slugs, so we override it.
+BH_RUNTIME_DIR = VIBE_SELLER_DIR / 'r'
+BH_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+BH_TMP_DIR = VIBE_SELLER_DIR / 'bh-tmp'
+BH_TMP_DIR.mkdir(parents=True, exist_ok=True)
+
 # Knowledge sync
 KNOWLEDGE_REPO_URL = (
     Options.KNOWLEDGE_REPO_URL.get()
@@ -122,7 +141,22 @@ KNOWLEDGE_REPO_URL = (
 )
 
 # Skills sync
+#
+# ``SKILLS_SUBDIR`` is the single source of truth for WHICH skill tree this
+# release line ships and pulls. It is baked into every released binary, so it
+# also decides which GitHub dir an installed client polls/syncs from.
+#
+# ``app/skills`` is FROZEN as the legacy (browser-use 0.12.x subcommand-CLI)
+# tree — every client released up to v0.0.7 hardcodes it and keeps pulling
+# it, so its content must never assume a newer runtime (pre-v0.0.3 clients
+# lack the local-precedence guard in skills_sync and would pull anything
+# added there). This line ships the browser-use 0.13 (heredoc/env-var)
+# tree at ``app/skills_v2``. For any future breaking runtime change, freeze
+# the current tree and add ``app/skills_vN+1`` rather than editing in place.
+# See docs/browser-use-0.13-migration.md.
+SKILLS_SUBDIR = 'skills_v2'
 SKILLS_REPO_URL = (
     Options.SKILLS_REPO_URL.get()
-    or 'https://raw.githubusercontent.com/zpoint/vibe-seller/main/app/skills'
+    or 'https://raw.githubusercontent.com/zpoint/vibe-seller/main/app/'
+    + SKILLS_SUBDIR
 )

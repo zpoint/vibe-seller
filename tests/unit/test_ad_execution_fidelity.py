@@ -347,11 +347,38 @@ def test_gate_allows_lower_applied_or_already_below(tmp_path, monkeypatch):
     ],
 )
 def test_check_bid_value_shape(value, denied):
-    cmd = f'browser-use input 47 "{value}"'
-    result = check_bid_value_shape(cmd)
-    assert (result is not None) is denied
+    # The guard must catch the pathology regardless of how the bid is
+    # typed: the legacy 0.12 subcommand, the 0.13 heredoc typing helpers,
+    # or a JS value assignment. The 0.13 helpers are generic, so a bid
+    # context ("bid" in the command) is required for them to be checked.
+    for cmd in (
+        f'browser-use input 47 "{value}"',  # legacy 0.12 (bid-specific)
+        f'fill_input("input.bid-input", "{value}")',  # 0.13 helper
+        f'type_text("{value}")  # into the bid cell',  # 0.13 helper
+        f"js(\"q('.bid-input').value = '{value}'\")",  # 0.13 JS assign
+    ):
+        result = check_bid_value_shape(cmd)
+        assert (result is not None) is denied, cmd
 
 
 def test_check_bid_value_shape_ignores_non_bid_commands():
+    # 0.13 navigation heredoc + a plain shell command carry no bid value.
+    assert check_bid_value_shape('new_tab("https://x/y")') is None
     assert check_bid_value_shape('browser-use open https://x/y') is None
     assert check_bid_value_shape('ls -la') is None
+
+
+def test_check_bid_value_shape_ignores_generic_numeric_fields():
+    """The 0.13 typing helpers set ANY field. Without a bid context the
+    guard must NOT fire — otherwise it falsely denies dates, OTP codes,
+    quantities, etc. (this gate runs on every Bash command)."""
+    # No "bid" in the command → not treated as a bid, even if absurd.
+    assert check_bid_value_shape('type_text("2026-03-31")') is None
+    assert check_bid_value_shape('fill_input("#otp", "123456")') is None
+    assert check_bid_value_shape('js("el.value = \'999\'")') is None
+    assert check_bid_value_shape('type_text("100234")  # quantity') is None
+    # ...but the SAME absurd value IS denied in a bid context.
+    assert (
+        check_bid_value_shape('fill_input("input.bid-input", "999")')
+        is not None
+    )
