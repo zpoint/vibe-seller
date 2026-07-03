@@ -8,6 +8,11 @@ amazon-ads/references/tuning-funnel-diagnosis.md
 amazon-ads/references/tuning-recommendation-format.md
 amazon-ads/references/tuning-campaign-types.md
 amazon-ads/references/bulk-operations.md
+amazon-ads/references/audit-quickref.md
+amazon-ads/references/format-anchor.md
+amazon-ads/references/output-spec.md
+amazon-ads/references/reviewer-loop.md
+amazon-ads/references/tuning-history.md
 amazon-ads/scripts/ads_bulk.py
 amazon-ads/requirements.txt
 amazon-listing/SKILL.md
