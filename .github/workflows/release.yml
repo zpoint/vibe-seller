@@ -1,4 +1,4 @@
-name: Release to PyPI
+name: Release
 
 # Triggered by a `v*` tag. Seven stages, fail-fast:
 #
