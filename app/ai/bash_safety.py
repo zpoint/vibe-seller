@@ -734,18 +734,12 @@ def check_bid_value_shape(command: str) -> str | None:
     m = _BID_INPUT_RE.search(command)
     if not m:
         return None
-    # The 0.13 typing helpers (type_text / fill_input / ``.value =``) are
-    # GENERIC — they set any field: dates ("2026-03-31" → "2026"), OTP
-    # codes, quantities. Applying the bid-shape ceiling to those would
-    # falsely deny unrelated numeric input (this gate runs on every Bash
-    # command). So for the generic forms, only treat the value as a bid
-    # when the command is actually about a bid. The legacy 0.12
-    # ``browser-use input/type`` form was already bid-entry-specific, so
-    # it stays unconditionally checked.
-    is_legacy_bid_cmd = bool(
-        re.search(r'browser-use\s+(?:input|type)\s', command, re.IGNORECASE)
-    )
-    if not is_legacy_bid_cmd and 'bid' not in command.lower():
+    # The 0.13 helpers (type_text/fill_input/.value=) set ANY field —
+    # dates, OTP, quantities — and this gate runs on every Bash command,
+    # so only treat their value as a bid when the command mentions "bid".
+    # The legacy 0.12 input/type form was already bid-specific.
+    legacy = re.search(r'browser-use\s+(?:input|type)\s', command, re.I)
+    if not legacy and 'bid' not in command.lower():
         return None
     raw = m.group(1).replace(',', '')
     if raw.count('.') > 1:

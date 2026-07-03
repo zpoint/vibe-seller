@@ -355,7 +355,7 @@ def test_check_bid_value_shape(value, denied):
         f'browser-use input 47 "{value}"',  # legacy 0.12 (bid-specific)
         f'fill_input("input.bid-input", "{value}")',  # 0.13 helper
         f'type_text("{value}")  # into the bid cell',  # 0.13 helper
-        f'js("q(\'.bid-input\').value = \'{value}\'")',  # 0.13 JS assign
+        f"js(\"q('.bid-input').value = '{value}'\")",  # 0.13 JS assign
     ):
         result = check_bid_value_shape(cmd)
         assert (result is not None) is denied, cmd
