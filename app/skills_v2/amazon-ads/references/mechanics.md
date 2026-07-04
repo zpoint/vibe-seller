@@ -188,12 +188,14 @@ brand-new export. The bulk-operations page keeps recent completed jobs
 with live download links, and the shadow-root walk below finds those
 `<a download>` links for *already-generated* files too. So the default
 first action on this page is: run the download-link walk (the code block
-below), and **if `a[0]` exists and its filename date range covers your
-audit window, just click it — you are done.** The filename encodes the
-range: `bulk-<entity>-<START>-<END>-<epoch>.xlsx` (e.g.
-`…-20260602-20260702-…` = Jun 2–Jul 2). Generating a fresh export (a
-5–15 min job) is the **fallback**, only when no recent file covers your
-window. This avoids the flaky `下载广告活动` modal entirely.
+below). It clicks the newest link (`a[0]`) and **returns its filename** —
+then **verify that filename's date range covers your audit window**; if
+it does, you are done. The filename encodes the range:
+`bulk-<entity>-<START>-<END>-<epoch>.xlsx` (e.g. `…-20260602-20260702-…`
+= Jun 2–Jul 2). If `a[0]` is `NO_LINK`, or its range does **not** cover
+your window, generate a fresh export (the 5–15 min job below) — that is
+the **fallback**. Reusing a recent file avoids the flaky `下载广告活动`
+modal entirely.
 
 **Only if there is no recent export**, generate one: click
 `Download campaigns` (`下载广告活动`) to open the modal. ⚠️ **This trigger
