@@ -106,42 +106,32 @@ def drill_incomplete_reason(
     result_text: str,
     task_id: str | None = None,
 ) -> str | None:
-    """Stop-path backstop: deny reason if the audit isn't fully drilled.
+    """Stop-path backstop: deny reason if the audit isn't complete.
 
     Unifies the two completion paths. ``set_task_result`` runs the full
     :func:`check`; but an agent can also finish by simply ENDING ITS TURN,
     which persists the streaming result WITHOUT that gate (the 3/24 bypass
     — see ``claude_backend_stream._save_result``). The Stop hook calls
-    this so ending the turn is gated by the SAME "drill everything" rule.
+    this so ending the turn is gated by the SAME contract as
+    ``set_task_result``.
 
-    Deliberately lightweight — it only enforces the core completeness
-    invariant (every ``## <Platform> <Country>`` section reports
-    ``drilled A/A``), NOT the per-block format/reconcile checks that
-    :func:`check` runs. Running the heavy review at every Stop attempt
-    burned rounds on format polish instead of drilling; this asks only
-    "did you drill them all?".
+    Delegates to :func:`check` with ``task_id=None`` — that path is PURE
+    (it mutates no ``_max_drilled`` / stall state), so calling it on every
+    Stop attempt can't perturb the ``set_task_result`` convergence
+    accounting. This enforces the FULL contract (not just the ``D==A``
+    count but the two-layer per-campaign completeness), closing the hole
+    where a report with ``进度 D==A`` but missing search-term / targeting
+    layers slipped through the count-only check on the ending-turn path.
 
     Bounded: after ``STALL_CAP`` blocks for a task it fails open, so an
-    agent that genuinely cannot drill more is not trapped. Returns None
-    when complete, when there are no combo sections, or once stalled.
+    agent that genuinely cannot finish is not trapped. Returns None when
+    :func:`check` passes, or once this task has been blocked ``STALL_CAP``
+    times.
     """
     if not result_text or not isinstance(result_text, str):
         return None
-    under: list[str] = []
-    for part in re.split(r'(?m)^##\s+', result_text)[1:]:
-        if not part.strip():
-            continue
-        head = part.splitlines()[0].strip()
-        if not _COMBO_HEADER_RE.search(head):
-            continue
-        m = _PROGRESS_RE.search(part)
-        if not m:
-            under.append(f'「{head}」缺少 进度 行')
-            continue
-        drilled, active = int(m.group(1)), int(m.group(2))
-        if drilled < active:
-            under.append(f'「{head}」只 drill 了 {drilled}/{active}')
-    if not under:
+    deny = check(result_text, None, None)  # pure: task_id=None → no mutation
+    if deny is None:
         return None
     if task_id is not None:
         n = _stop_blocks.get(task_id, 0) + 1
@@ -149,12 +139,9 @@ def drill_incomplete_reason(
         if n > STALL_CAP:
             return None  # fail open — don't trap a stuck agent
     return (
-        '还不能结束：审计尚未 drill 完所有 active campaign——'
-        + '；'.join(under)
-        + '。每个 combo 的 进度 必须达到 A/A（把尚未 drill 的 campaign '
-        '逐个打开、把表格 APPEND 进 AD_AUDIT_*.md），全部 drill 完再结束。'
-        '不要留待“下一轮/下次审计”。补完后继续（或调用 '
-        'vibe_seller_set_task_result 复核）。'
+        '还不能结束：审计报告尚未完成（未 drill 完所有 active campaign，'
+        '或部分 campaign 缺少定向/搜索词层）。请补齐下列缺口后再结束；'
+        '不要留待“下一轮/下次审计”：\n' + deny.reason
     )
 
 
