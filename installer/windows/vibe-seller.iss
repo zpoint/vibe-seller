@@ -76,6 +76,17 @@ Type: filesandordirs; Name: "{app}\mingit"
 ; the dir so only THIS build's wheels remain and the resolve is
 ; unambiguous.
 Type: filesandordirs; Name: "{app}\wheels"
+; Force-remove the post-install venv on every install. It's built by
+; [Run] and never tracked by [Files], so a prior install can leave it
+; partial/broken: if a tray pythonw.exe was still running at uninstall
+; time, the locked .venv\Scripts\pythonw.exe survives with no
+; pyvenv.cfg. `uv venv --clear` then REFUSES to overwrite it ("exists
+; but is not a virtual environment"), so the partial dir permanently
+; breaks reinstall. PrepareToInstall has already killed anything holding
+; it, so removing it here guarantees uv builds a fresh venv. This is what
+; makes uninstall -> reinstall reliable (regression-tested in
+; windows-installer.yml / windows-upgrade.yml).
+Type: filesandordirs; Name: "{app}\.venv"
 
 [Files]
 ; Relocatable CPython, app wheels, fast installer, git+bash, claude CLI.
@@ -151,6 +162,28 @@ Filename: "{app}\.venv\Scripts\vibe-seller.exe"; Parameters: "stop"; \
 Type: filesandordirs; Name: "{app}\.venv"
 
 [Code]
+// Kill processes whose executable lives under the ACTUAL install dir
+// ({app}). The dir-selection page is enabled, so a user can install
+// somewhere other than ...\VibeSeller — matching a hard-coded
+// '\VibeSeller\' substring would then miss the processes, leaving
+// python/pythonw running and reintroducing the partial-.venv
+// uninstall/reinstall failure. NameClause (may be empty) is an extra
+// Where-Object predicate ending in ' -and '; on uninstall it restricts
+// the kill to python/pythonw so the uninstaller (unins000.exe, also
+// under {app}) is never killed.
+procedure KillAppProcesses(NameClause: String);
+var
+  ResultCode: Integer;
+begin
+  Exec('powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance ' +
+    'Win32_Process | Where-Object { ' + NameClause +
+    '$_.ExecutablePath -like ''' + ExpandConstant('{app}') + '\*'' } | ' +
+    'ForEach-Object { Stop-Process -Id $_.ProcessId -Force ' +
+    '-ErrorAction SilentlyContinue }"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
@@ -162,11 +195,19 @@ begin
   // the install dir so the overwrite succeeds. No-ops on a fresh install.
   Exec(ExpandConstant('{app}\.venv\Scripts\vibe-seller.exe'), 'stop',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec('powershell.exe',
-    '-NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance ' +
-    'Win32_Process | Where-Object { $_.ExecutablePath -like ' +
-    '''*\VibeSeller\*'' } | ForEach-Object { Stop-Process -Id ' +
-    '$_.ProcessId -Force -ErrorAction SilentlyContinue }"',
-    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  KillAppProcesses('');
   Result := '';
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  // Kill the tray + server BEFORE files are removed. The [UninstallRun]
+  // `vibe-seller stop` only stops the uvicorn server; the tray is a
+  // SEPARATE pythonw.exe. If it keeps .venv\Scripts\pythonw.exe locked,
+  // that file survives uninstall, leaving a partial .venv that breaks the
+  // next install's `uv venv`. Restrict to python/pythonw so we never kill
+  // the uninstaller (unins000.exe also lives under {app}).
+  if CurUninstallStep = usUninstall then
+    KillAppProcesses('($_.Name -eq ''pythonw.exe'' -or ' +
+      '$_.Name -eq ''python.exe'') -and ');
 end;
