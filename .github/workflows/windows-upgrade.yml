@@ -146,6 +146,69 @@ jobs:
           # API round-trip smoke on the upgraded build.
           bash tests/releases/verify_install.sh ""
 
+      # Release-gate coverage for the uninstall->reinstall failure: a tray
+      # pythonw.exe left running at uninstall locks .venv\Scripts\pythonw.exe,
+      # so uninstall leaves a partial .venv and the next install's `uv venv`
+      # refuses it (browser-engine step then fails "playwright.exe not
+      # found"). Reproduce with a held-open venv python (native ext loaded)
+      # and assert the rebuild. Reuses the NEW (outB) installer built above.
+      - name: Uninstall (python running) -> reinstall rebuilds the venv
+        shell: pwsh
+        run: |
+          $install = $env:VS_INSTALL
+          $exe = "$env:GITHUB_WORKSPACE\installer\windows\outB\VibeSeller-Setup.exe"
+          # Stop the server started above so only OUR pythonw holds a lock.
+          & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7777
+          Start-Sleep 3
+          # Hold a python process from the install alive with a native venv
+          # extension loaded == a running tray locking a file inside .venv.
+          # Importing Pillow's C ext locks .venv\Lib\site-packages\PIL\
+          # _imaging*.pyd so the partial-.venv bug is actually reproduced; a
+          # bare time.sleep would lock nothing in .venv. Launch from a SCRIPT
+          # FILE (Start-Process mangles a spaces/commas/parens `-c` string,
+          # so python would get broken source and exit instantly), and match
+          # python.exe|pythonw.exe under the install dir (both the venv
+          # python.exe and the bundled {app}\python\python.exe show up). See
+          # windows-installer.yml for the full rationale.
+          $py = "$install\.venv\Scripts\python.exe"
+          $holder = Join-Path $env:RUNNER_TEMP 'hold_venv.py'
+          Set-Content -LiteralPath $holder -Encoding ascii -Value @(
+            'from PIL import Image, _imaging',
+            'import time',
+            'time.sleep(900)')
+          Start-Process -FilePath $py -ArgumentList $holder | Out-Null
+          Start-Sleep 6
+          if (-not (Get-CimInstance Win32_Process | Where-Object {
+            ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+            $_.ExecutablePath -and $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) })) {
+            throw "precondition failed: no venv python holding the lock"
+          }
+          $p = Start-Process -FilePath "$install\unins000.exe" -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          Write-Host "uninstall exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "uninstall exited $($p.ExitCode) — scenario not exercised" }
+          Start-Sleep 3
+          if (Get-CimInstance Win32_Process | Where-Object {
+            ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
+            $_.ExecutablePath -like '*\VibeSeller\*' }) {
+            throw "venv python still running after uninstall"
+          }
+          $p = Start-Process -FilePath $exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          if ($p.ExitCode -ne 0) { throw "reinstall exited $($p.ExitCode)" }
+          foreach ($f in @('.venv\Scripts\python.exe','.venv\Scripts\playwright.exe','.venv\Scripts\vibe-seller.exe')) {
+            if (-not (Test-Path "$install\$f")) { throw "missing after reinstall: $f (venv rebuild failed)" }
+          }
+          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            try { if ((Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version) { $ok = $true; break } } catch { }
+            Start-Sleep 2
+          }
+          & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7777
+          if (-not $ok) { throw "reinstalled server never became healthy" }
+          Write-Host "OK: uninstall (python running) -> reinstall rebuilds the venv"
+
       - name: Stop server + dump logs
         if: always()
         shell: pwsh

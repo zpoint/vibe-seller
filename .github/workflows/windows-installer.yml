@@ -233,3 +233,126 @@ jobs:
           path: ci-logs/
           if-no-files-found: warn
           retention-days: 14
+
+  # Regression guard: a user who uninstalls WITHOUT quitting the tray
+  # leaves a running pythonw.exe that locks .venv\Scripts\pythonw.exe, so
+  # the uninstaller can't fully remove .venv; the next install's `uv venv`
+  # then refuses the partial dir and the browser-engine step dies with
+  # "playwright.exe ... cannot find the file specified". Reproduce it
+  # deterministically and assert the venv rebuilds. No LLM/secrets, so it
+  # guards every PR (incl. forks).
+  uninstall-reinstall:
+    name: Uninstall (python running) -> reinstall
+    runs-on: windows-latest
+    needs: build
+    timeout-minutes: 30
+    steps:
+      - name: Download the built installer
+        uses: actions/download-artifact@v4
+        with:
+          name: VibeSeller-Setup
+          path: installer-dl
+
+      - name: Install
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          if ($p.ExitCode -ne 0) { throw "install exited $($p.ExitCode)" }
+          $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
+          if (-not (Test-Path "$install\.venv\Scripts\playwright.exe")) {
+            throw "first install did not build the venv"
+          }
+          echo "VS_INSTALL=$install" >> $env:GITHUB_ENV
+
+      - name: Hold a venv python open (locks .venv, like the tray)
+        shell: pwsh
+        run: |
+          $install = $env:VS_INSTALL
+          $py = "$install\.venv\Scripts\python.exe"
+          # Mimic the running tray at uninstall time: keep a python process
+          # from the install alive with a NATIVE venv extension loaded, so a
+          # file *inside* .venv stays locked (the real tray does this via
+          # pystray/PIL). A bare `time.sleep` touches no .venv file and would
+          # not reproduce the partial-.venv bug; importing Pillow's C ext
+          # locks .venv\Lib\site-packages\PIL\_imaging*.pyd.
+          #
+          # First prove the interpreter runs and PIL imports SYNCHRONOUSLY,
+          # so a broken venv/holder fails here with a real error instead of
+          # silently as "no process". The dump below also confirms the
+          # long-lived process's real name/path (python.exe under
+          # .venv\Scripts) rather than assuming it.
+          & $py -c "import sys; print('sys.executable=', sys.executable); print('sys.prefix=', sys.prefix)"
+          & $py -c "from PIL import Image, _imaging; print('PIL _imaging at', _imaging.__file__)"
+          if ($LASTEXITCODE -ne 0) { throw "venv python cannot import Pillow C ext (exit $LASTEXITCODE)" }
+
+          # Launch the long-lived holder from a SCRIPT FILE, not `-c`:
+          # Start-Process mangles a `-c` string full of spaces/commas/
+          # parens, so python got a broken program and exited instantly
+          # (observed: launcher HasExited=True, zero python left). A file
+          # path has no such quoting hazard.
+          $holder = Join-Path $env:RUNNER_TEMP 'hold_venv.py'
+          Set-Content -LiteralPath $holder -Encoding ascii -Value @(
+            'from PIL import Image, _imaging',
+            'import time',
+            'time.sleep(900)')
+          $proc = Start-Process -FilePath $py -ArgumentList $holder -PassThru
+          Start-Sleep 6
+          Write-Host "launcher pid=$($proc.Id) HasExited=$($proc.HasExited)"
+          Write-Host "--- python-family processes now running ---"
+          Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe' } |
+            ForEach-Object { Write-Host "  $($_.Name) pid=$($_.ProcessId) path=$($_.ExecutablePath)" }
+
+          # The uninstall fix kills python/pythonw whose ExecutablePath is
+          # under {app}; the precondition asserts exactly that population is
+          # non-empty (match by the real install path, any subdir).
+          $running = Get-CimInstance Win32_Process | Where-Object {
+            ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and
+            $_.ExecutablePath -and $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) }
+          if (-not $running) { throw "precondition failed: no venv python holding the lock" }
+          Write-Host "holding python pid(s): $($running.ProcessId -join ',')"
+
+      - name: Uninstall WHILE the pythonw is running
+        shell: pwsh
+        run: |
+          $u = "$env:VS_INSTALL\unins000.exe"
+          if (-not (Test-Path $u)) { throw "uninstaller missing: $u" }
+          $p = Start-Process -FilePath $u -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+          Write-Host "uninstall exit=$($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { throw "uninstall exited $($p.ExitCode) — scenario not exercised" }
+          Start-Sleep 3
+          # The uninstall fix kills venv python/pythonw, so nothing should
+          # linger holding a lock on .venv.
+          $left = Get-CimInstance Win32_Process | Where-Object {
+            ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
+            $_.ExecutablePath -like '*\VibeSeller\*' }
+          if ($left) { throw "venv python still running after uninstall: $($left.ProcessId -join ',')" }
+
+      - name: Reinstall
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          if ($p.ExitCode -ne 0) { throw "reinstall exited $($p.ExitCode)" }
+
+      - name: Assert the venv rebuilt + server healthy
+        shell: pwsh
+        run: |
+          $install = $env:VS_INSTALL
+          foreach ($f in @('.venv\Scripts\python.exe','.venv\Scripts\playwright.exe','.venv\Scripts\vibe-seller.exe')) {
+            if (-not (Test-Path "$install\$f")) { throw "missing after reinstall: $f (venv rebuild failed)" }
+          }
+          $env:PATH = "$install\.venv\Scripts;$install;$install\git\bin;$install\git\usr\bin;$env:PATH"
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
+          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
+          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            try { if ((Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version) { $ok = $true; break } } catch { }
+            Start-Sleep 2
+          }
+          & "$install\.venv\Scripts\vibe-seller.exe" stop --port 7777
+          if (-not $ok) { throw "reinstalled server never became healthy" }
+          Write-Host "OK: uninstall (python running) -> reinstall rebuilds the venv"
