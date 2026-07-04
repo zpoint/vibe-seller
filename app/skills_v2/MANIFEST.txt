@@ -14,6 +14,7 @@ amazon-ads/references/output-spec.md
 amazon-ads/references/reviewer-loop.md
 amazon-ads/references/tuning-history.md
 amazon-ads/scripts/ads_bulk.py
+amazon-ads/scripts/md_to_pdf.py
 amazon-ads/requirements.txt
 amazon-listing/SKILL.md
 amazon-listing/references/template-round-trip.md

@@ -188,6 +188,22 @@ report — don't burn them on cosmetics).
   *completes onto the last*; you only start a fresh report on a task
   retry, never mid-task.
 
+## Step 5 — export the PDF (once the report is complete)
+
+After every combo is `drilled A/A` and the server accepts the result,
+render the report to a PDF for the user (better than reading raw
+markdown):
+
+```bash
+PY=<project-venv>/bin/python3            # needs `markdown` (requirements.txt)
+S=<skills>/amazon-ads/scripts/md_to_pdf.py
+$PY "$S" ./AD_AUDIT_<date>.md            # writes AD_AUDIT_<date>.pdf next to it
+```
+
+It renders CJK + tables via headless Chrome (throwaway profile — safe to
+run while the store browser is up) and fails loudly if the PDF has no
+pages. Mention the `.pdf` path in your result summary.
+
 ## Reference index (load on demand only)
 
 - `output-spec.md` — the report contract (read first).
