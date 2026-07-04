@@ -44,9 +44,14 @@ set before drilling.
 - **Amazon**: open Campaign Manager via the in-page menu (not a typed
   URL). **Clear the "Find a campaign" search box** (a stale term hides
   most campaigns) and set the date to 30 days. The grid virtualizes —
-  do NOT count DOM rows; use **Bulk Operations → Download campaigns**
-  (set the date range to 30 days, it defaults to 2), then parse the
-  XLSX for the full list. Details/selectors: load `mechanics.md` §2.
+  do NOT count DOM rows; use **Bulk Operations**. On that page, **reuse
+  the newest existing export first** — walk shadow roots for the
+  `<a download …/bulk-operations/download/…xlsx>` links and, if the
+  newest one's filename date range covers your window, just click it
+  (no modal, no 5–15 min wait). Only generate a fresh export
+  (`Download campaigns` — a shadow-DOM button, not a plain `<button>`)
+  when no recent file covers the window. Then parse the XLSX for the
+  full list. Selectors + the reuse/shadow-DOM details: `mechanics.md` §2d.
 - **noon**: open the Ad Manager home. The list is **paginated ~15/page**
   — page through ALL pages and union the campaign ids. Click the
   page-number anchor with dispatched events (the chevron doesn't work):
