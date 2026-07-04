@@ -295,7 +295,10 @@ low-performing queries (add as negatives).
 Both Targets tab and Customer Queries tab have **Export Data** button
 at top-right. Triggers CSV download of the current filtered view.
 **Unreliable in this environment** — see § 4 caveat. Prefer DOM eval
-extraction.
+extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT re-click
+or retry** — a no-op export button is an environment quirk, not a
+transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
+retrying just burns steps.
 
 ```bash
 browser-use <<'PY'

@@ -57,8 +57,10 @@ browser-use --doctor    # verify installation / CDP connectivity
 
 ## Core Workflow
 
-1. **Navigate**: `new_tab(url)` for the first page (then `page.goto(url)` /
-   click to move around).
+1. **Navigate**: `new_tab(url)` — for the first page **and every later
+   navigation**. There is **no `page` object** in the heredoc scope, so
+   `page.goto(url)` raises `NameError`; use `new_tab(url)` (or click a link)
+   to move around.
 2. **Understand visible state**: `capture_screenshot()` — screenshot first.
 3. **Inspect / extract**: `page_info()` for a structured summary; `js("...")`
    for DOM queries when coordinates are the wrong tool.
@@ -72,7 +74,7 @@ browser-use --doctor    # verify installation / CDP connectivity
 Helpers are pre-imported into the heredoc namespace:
 
 ```python
-new_tab(url)  # open a new tab and navigate (first navigation)
+new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
 capture_screenshot()  # screenshot the visible viewport (understand state)
 click_at_xy(x, y)  # click at pixel coordinates
@@ -81,6 +83,14 @@ ensure_real_tab()  # switch off a stale/internal (chrome://) tab
 js('<javascript>')  # run JS in the page; returns the result
 cdp('Domain.method', ...)  # raw Chrome DevTools Protocol call
 ```
+
+Only the helpers above (plus Python builtins) are in scope — the heredoc
+runs as a plain Python script. **`time`, `json`, `re`, etc. are NOT
+pre-imported; `import` them yourself.** Bare `sleep 3` is a `SyntaxError`
+and `time.sleep(3)` without `import time` is a `NameError`. **Prefer
+`wait_for_load()` over sleeping** — reach for `import time; time.sleep(n)`
+only when you must wait on something `wait_for_load()` can't observe (e.g.
+an async in-page render after a click).
 
 Multiple statements run in one heredoc (this replaces `&&` chaining):
 
@@ -125,9 +135,14 @@ The wrapper rejects these — do not use them:
 
 1. **Screenshot first**, then act on what you see — `capture_screenshot()`
    before `click_at_xy`.
-2. **`new_tab(url)` is the first navigation**, not `goto`.
+2. **`new_tab(url)` is how you navigate — every time**, not `goto` (there
+   is no `page` object in the heredoc scope).
 3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
 4. **CLI aliases**: `bu` and `browser` also invoke the wrapper.
+5. **Raw-string your `js()` when it contains backslashes** (regex like
+   `/foo\/bar/`, `\d`, `\.`): `js(r"""…""")`. A plain triple-quoted string
+   makes Python emit `SyntaxWarning: invalid escape sequence` and can
+   corrupt the JS before it reaches the page.
 
 ## Troubleshooting
 

@@ -182,8 +182,35 @@ The "Total: N" cell in the table footer is the authoritative count.
 
 ### 2d. Bulk download (cross-campaign capture)
 
-Bulk Operations → `Download campaigns` (`下载广告活动`). The modal
-has these checkboxes (default all checked for "Enabled & Paused"):
+**FIRST, reuse the newest existing export — do NOT generate a fresh job
+by default.** For a read-only audit you need a recent snapshot, not a
+brand-new export. The bulk-operations page keeps recent completed jobs
+with live download links, and the shadow-root walk below finds those
+`<a download>` links for *already-generated* files too. So the default
+first action on this page is: run the download-link walk (the code block
+below). It clicks the newest link (`a[0]`) and **returns its filename** —
+then **verify that filename's date range covers your audit window**; if
+it does, you are done. The filename encodes the range:
+`bulk-<entity>-<START>-<END>-<epoch>.xlsx` (e.g. `…-20260602-20260702-…`
+= Jun 2–Jul 2). If `a[0]` is `NO_LINK`, or its range does **not** cover
+your window, generate a fresh export (the 5–15 min job below) — that is
+the **fallback**. Reusing a recent file avoids the flaky `下载广告活动`
+modal entirely.
+
+**Only if there is no recent export**, generate one: click
+`Download campaigns` (`下载广告活动`) to open the modal. ⚠️ **This trigger
+button is inside the `<bulk-storm-dashboard>` custom element's shadow
+DOM** — a top-level `document.querySelector('button')` / text match will
+**not find it**, and a coordinate/`.click()` on a look-alike top-level
+element **silently no-ops** (the common failure: repeated click attempts,
+"let me try a more reliable click", switching strategies). It is the
+dashboard's **2nd header button** (fixed order: 1st = Upload,
+2nd = Download); find it by **walking shadow roots** (same `walk()` as
+below) and click the shadow element directly (`el.click()`), or
+`click_at_xy` on its `getBoundingClientRect()` centre. See
+`bulk-operations.md` → "drive it by language-INDEPENDENT selectors" for
+the full structural anchor table. The modal then has these checkboxes
+(default all checked for "Enabled & Paused"):
 
 - Terminated campaigns
 - Paused campaigns
@@ -213,7 +240,7 @@ reads "Download"):
 # Preferred: click the real <a download> via JS (the grid is an ag-Grid
 # inside a web-component shadow root, so walk shadow roots to find it).
 browser-use <<'PY'
-js("""
+js(r"""
 (function(){
   function walk(root,acc){root.querySelectorAll('*').forEach(function(e){
     if(e.shadowRoot)walk(e.shadowRoot,acc);
