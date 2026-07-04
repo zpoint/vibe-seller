@@ -74,7 +74,7 @@ browser-use --doctor    # verify installation / CDP connectivity
 Helpers are pre-imported into the heredoc namespace:
 
 ```python
-new_tab(url)  # open a new tab and navigate (first navigation)
+new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
 capture_screenshot()  # screenshot the visible viewport (understand state)
 click_at_xy(x, y)  # click at pixel coordinates
@@ -135,7 +135,8 @@ The wrapper rejects these — do not use them:
 
 1. **Screenshot first**, then act on what you see — `capture_screenshot()`
    before `click_at_xy`.
-2. **`new_tab(url)` is the first navigation**, not `goto`.
+2. **`new_tab(url)` is how you navigate — every time**, not `goto` (there
+   is no `page` object in the heredoc scope).
 3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
 4. **CLI aliases**: `bu` and `browser` also invoke the wrapper.
 5. **Raw-string your `js()` when it contains backslashes** (regex like
