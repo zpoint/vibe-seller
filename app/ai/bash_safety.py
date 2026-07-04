@@ -467,32 +467,20 @@ def check_review_status(task_dir) -> str | None:
     if not audit_files:
         return None  # Not an ads-tuning task; nothing to gate.
 
-    # amazon/noon audits are reviewed SERVER-SIDE at set_task_result
-    # (``ad_completeness_review`` — the constructive what's-missing
-    # loop). Running this legacy REVIEW-file gate on top of it forced
-    # the agent into redundant ``ads-format-review`` subagent
-    # iterations at every Stop attempt — burning rounds on format
-    # polish instead of drilling (the 1/46-stuck-on-review failure).
-    # Skip when the newest audit's content carries amazon/noon combo
-    # headers; platforms the server reviewer can't parse keep this gate
-    # as their only enforcement.
+    # amazon/noon audits are reviewed SERVER-SIDE (``ad_completeness_review``),
+    # not by the legacy REVIEW-file/format loop below. But an agent can finish
+    # by ENDING ITS TURN (streaming result persisted ungated) instead of
+    # calling set_task_result — the 3/24 bypass. So run the completeness
+    # backstop on this path too, gating the ending-turn under the same
+    # contract (bounded fail-open). Other platforms keep the REVIEW loop.
     newest_audit = max(audit_files, key=lambda p: p.stat().st_mtime)
     try:
         audit_text = newest_audit.read_text(encoding='utf-8')
     except OSError:
         audit_text = ''
     if _is_server_reviewed(audit_text):
-        # amazon/noon audits are reviewed server-side at set_task_result,
-        # so we skip the legacy REVIEW-file/format loop here. But an agent
-        # can finish by ENDING ITS TURN (persisting the streaming result
-        # ungated) instead of calling set_task_result — the 3/24 bypass.
-        # Enforce the core "drill everything" invariant on this path too,
-        # so ending the turn is gated by the same rule (bounded fail-open).
-        # Lazy import: bash_safety is imported by the stop_gates package
-        # chain, so a top-level import here would cycle.
-        from app.ai.stop_gates import (  # noqa: PLC0415
-            ad_completeness_review,
-        )
+        # Lazy import: a top-level import would cycle (stop_gates → here).
+        from app.ai.stop_gates import ad_completeness_review  # noqa: PLC0415
 
         return ad_completeness_review.drill_incomplete_reason(
             audit_text, task_dir.name
