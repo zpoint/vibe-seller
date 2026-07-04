@@ -74,6 +74,12 @@ _total_high: dict[str, int] = {}
 _last_len: dict[str, int] = {}
 _stall_rounds: dict[str, int] = {}
 
+# Stop-path backstop: how many times we've blocked an end-of-turn while
+# the audit was still under-drilled, per task. Bounds the stop-path deny
+# so a genuinely-stuck agent (can't drill more) isn't trapped forever —
+# fails open after STALL_CAP blocks, mirroring the set_task_result stall.
+_stop_blocks: dict[str, int] = {}
+
 
 def reset_progress(task_id: str) -> None:
     """Drop the per-task progress/stall state (call on terminal success)."""
@@ -82,6 +88,7 @@ def reset_progress(task_id: str) -> None:
     _total_high.pop(task_id, None)
     _last_len.pop(task_id, None)
     _stall_rounds.pop(task_id, None)
+    _stop_blocks.pop(task_id, None)
 
 
 def is_stalled(task_id: str) -> bool:
@@ -93,6 +100,62 @@ def is_stalled(task_id: str) -> bool:
     use this to accept the best report instead of denying forever.
     """
     return _stall_rounds.get(task_id, 0) >= STALL_CAP
+
+
+def drill_incomplete_reason(
+    result_text: str,
+    task_id: str | None = None,
+) -> str | None:
+    """Stop-path backstop: deny reason if the audit isn't fully drilled.
+
+    Unifies the two completion paths. ``set_task_result`` runs the full
+    :func:`check`; but an agent can also finish by simply ENDING ITS TURN,
+    which persists the streaming result WITHOUT that gate (the 3/24 bypass
+    — see ``claude_backend_stream._save_result``). The Stop hook calls
+    this so ending the turn is gated by the SAME "drill everything" rule.
+
+    Deliberately lightweight — it only enforces the core completeness
+    invariant (every ``## <Platform> <Country>`` section reports
+    ``drilled A/A``), NOT the per-block format/reconcile checks that
+    :func:`check` runs. Running the heavy review at every Stop attempt
+    burned rounds on format polish instead of drilling; this asks only
+    "did you drill them all?".
+
+    Bounded: after ``STALL_CAP`` blocks for a task it fails open, so an
+    agent that genuinely cannot drill more is not trapped. Returns None
+    when complete, when there are no combo sections, or once stalled.
+    """
+    if not result_text or not isinstance(result_text, str):
+        return None
+    under: list[str] = []
+    for part in re.split(r'(?m)^##\s+', result_text)[1:]:
+        if not part.strip():
+            continue
+        head = part.splitlines()[0].strip()
+        if not _COMBO_HEADER_RE.search(head):
+            continue
+        m = _PROGRESS_RE.search(part)
+        if not m:
+            under.append(f'「{head}」缺少 进度 行')
+            continue
+        drilled, active = int(m.group(1)), int(m.group(2))
+        if drilled < active:
+            under.append(f'「{head}」只 drill 了 {drilled}/{active}')
+    if not under:
+        return None
+    if task_id is not None:
+        n = _stop_blocks.get(task_id, 0) + 1
+        _stop_blocks[task_id] = n
+        if n > STALL_CAP:
+            return None  # fail open — don't trap a stuck agent
+    return (
+        '还不能结束：审计尚未 drill 完所有 active campaign——'
+        + '；'.join(under)
+        + '。每个 combo 的 进度 必须达到 A/A（把尚未 drill 的 campaign '
+        '逐个打开、把表格 APPEND 进 AD_AUDIT_*.md），全部 drill 完再结束。'
+        '不要留待“下一轮/下次审计”。补完后继续（或调用 '
+        'vibe_seller_set_task_result 复核）。'
+    )
 
 
 # A "## <Platform> <Country>" combo section header, e.g.
@@ -330,8 +393,11 @@ def check(
         if drilled < active:
             gaps.append(
                 f'[完整性] 「{head}」仅 drill {drilled}/{active} 个 active，'
-                f'还差 {active - drilled} 个未逐 campaign drill（缺失可接受，'
-                '本轮尽量补；逐轮收敛）'
+                f'还差 {active - drilled} 个未逐 campaign drill——必须把这 '
+                f'{active - drilled} 个全部逐一 drill 完（进度达到 '
+                f'{active}/{active}）才能结束本任务；本轮尽量多补，未 drill 完'
+                '不可提交完成，也不可结束本轮对话（server 会拦截）。不要留待'
+                '“下一轮/下次审计”——没有下一轮。'
             )
         elif drilled > active:
             # Over-report: more drills than the active set. The model
@@ -522,7 +588,9 @@ def check(
     body = '\n'.join('- ' + g for g in gaps[:12])
     extra = '' if len(gaps) <= 12 else f'\n…还有 {len(gaps) - 12} 项'
     reason = (
-        '本轮审计报告仍有缺口（缺失可接受——逐轮补全即可，不必一次做完）。\n'
+        '本轮审计报告仍有缺口——逐轮补全，直到每个 combo 的 进度 都达到 '
+        'D==A（所有 active campaign 全部 drill 完）才算完成；未 drill 完不可'
+        '结束任务（server 会拦截提交与结束对话）。\n'
         '**这是续作（RESUME，不是重做）**：你已经 drill 的数据、已写的 '
         'AD_AUDIT 报告和 per-campaign TSV 都还在——保留它们，只去补下面列出的'
         '缺失部分（打开尚未 drill 的 campaign 详情页、把它们的表格 APPEND 进报告）。'

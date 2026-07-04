@@ -482,7 +482,21 @@ def check_review_status(task_dir) -> str | None:
     except OSError:
         audit_text = ''
     if _is_server_reviewed(audit_text):
-        return None
+        # amazon/noon audits are reviewed server-side at set_task_result,
+        # so we skip the legacy REVIEW-file/format loop here. But an agent
+        # can finish by ENDING ITS TURN (persisting the streaming result
+        # ungated) instead of calling set_task_result — the 3/24 bypass.
+        # Enforce the core "drill everything" invariant on this path too,
+        # so ending the turn is gated by the same rule (bounded fail-open).
+        # Lazy import: bash_safety is imported by the stop_gates package
+        # chain, so a top-level import here would cycle.
+        from app.ai.stop_gates import (  # noqa: PLC0415
+            ad_completeness_review,
+        )
+
+        return ad_completeness_review.drill_incomplete_reason(
+            audit_text, task_dir.name
+        )
 
     try:
         review_files = sorted(task_dir.glob(_REVIEW_FILE_GLOB))
