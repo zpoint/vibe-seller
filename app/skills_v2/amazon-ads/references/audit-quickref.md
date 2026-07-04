@@ -8,12 +8,21 @@ then run this.
 
 ## Loop shape (important)
 
-You do NOT have to produce a perfect report in one pass. Do your best,
-call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`, and the
+You build the report **across several rounds**, not in one pass: do a
+batch, call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`, and the
 server's completeness reviewer replies with a short **"what's still
 missing"** list. Fix the top gaps, write to the file, call
-set_task_result again. Repeat — the report converges. Missing is
-acceptable each round.
+set_task_result again. Repeat — the report converges.
+
+**But the task is NOT done until EVERY active campaign is drilled** — the
+`进度` line of every `## <Platform> <Country>` section must read
+`drilled <A>/<A>` (D == A). The server **blocks finishing while any
+active campaign is still un-drilled** — this includes simply ending your
+turn, not just `set_task_result`. So keep drilling and re-submitting
+until D == A for every combo. **Do NOT stop early, and never defer
+campaigns to a "next round" / "next audit"** — there is no next round;
+finish them now. "Missing this round" is fine only as an *intermediate*
+state on the way to a full drill, never as the final report.
 
 ## Step 0 — scope + scaffold with append-markers
 

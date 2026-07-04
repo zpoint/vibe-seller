@@ -21,14 +21,29 @@ class TestReviewStopGate:
         assert check_review_status(tmp_path) is None
 
     def test_amazon_noon_audit_skips_legacy_gate(self, tmp_path):
-        # Server-reviewed report (amazon/noon combo headers): the Stop
-        # hook must NOT demand a REVIEW file / format-review subagent.
+        # Server-reviewed report (amazon/noon combo headers) that is
+        # FULLY drilled (D==A): the Stop hook must NOT demand a REVIEW
+        # file / format-review subagent, and must allow the stop.
+        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text(
+            '# 广告优化建议\n\n## Amazon US\n\n**进度**: drilled 31/31 active\n'
+            '\n## noon EG\n\n**进度**: drilled 39/39 active\n',
+            encoding='utf-8',
+        )
+        assert check_review_status(tmp_path) is None
+
+    def test_amazon_noon_audit_underdrilled_blocks(self, tmp_path):
+        # The 3/24 bypass: an under-drilled amazon/noon audit must block
+        # the stop (drill-completeness backstop), NOT via the legacy
+        # ads-format-review path.
         (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text(
             '# 广告优化建议\n\n## Amazon US\n\n**进度**: drilled 4/31 active\n'
             '\n## noon EG\n\n**进度**: drilled 2/39 active\n',
             encoding='utf-8',
         )
-        assert check_review_status(tmp_path) is None
+        deny = check_review_status(tmp_path)
+        assert deny is not None
+        assert 'ads-format-review' not in deny
+        assert '4/31' in deny and '2/39' in deny
 
     def test_unrecognized_audit_keeps_gate(self, tmp_path):
         # An audit no server gate recognizes (some other platform) still
