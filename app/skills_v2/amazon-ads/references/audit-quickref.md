@@ -72,6 +72,27 @@ Then write the **进度 line** for that section (the reviewer reads it):
 `**进度**: drilled <D>/<A> active (<T> total, <P> pages)` — `<A>` is the
 true active count you just enumerated.
 
+**Also persist the authoritative active set to `./AUDIT_SCOPE.json`** (task
+root) as you enumerate each combo — this is the ground truth the server
+checks report coverage against (you cannot pass by shrinking `<A>`; every
+listed id must get a drill block). Append one entry per combo:
+
+```json
+{"combos": [
+  {"platform": "amazon", "country": "SA",
+   "active_ids": ["600000000001", "600000000002"]},
+  {"platform": "noon", "country": "AE", "active_ids": ["C_DEMO0001"]}
+]}
+```
+
+`active_ids` = every **active** campaign id you enumerated (Amazon: the
+`state=enabled` Campaign ids from the bulk export — `ads_bulk.py scope
+<export>.xlsx` prints them; noon: the campaign ids unioned across all
+pages). `<A>` in the 进度 line must equal `len(active_ids)` for that
+combo. If you never establish a scope (a one-off "create/investigate a
+single ad" task), just omit the file — the server won't demand a full
+drill.
+
 ## Step 2 — drill EACH active campaign, build the report with `Edit`
 
 You process **one active campaign at a time**, and for each one you do
