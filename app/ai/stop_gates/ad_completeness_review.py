@@ -30,6 +30,7 @@ from app.ai.stop_gates import (
     ad_bid_floor,
     ad_explicit_actions,
     ad_scale_winners,
+    ad_scope,
 )
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
 
@@ -115,13 +116,14 @@ def drill_incomplete_reason(
     this so ending the turn is gated by the SAME contract as
     ``set_task_result``.
 
-    Delegates to :func:`check` with ``task_id=None`` — that path is PURE
-    (it mutates no ``_max_drilled`` / stall state), so calling it on every
-    Stop attempt can't perturb the ``set_task_result`` convergence
-    accounting. This enforces the FULL contract (not just the ``D==A``
-    count but the two-layer per-campaign completeness), closing the hole
-    where a report with ``进度 D==A`` but missing search-term / targeting
-    layers slipped through the count-only check on the ending-turn path.
+    Delegates to :func:`check` with ``track=False`` — passing ``task_id``
+    so the AUDIT_SCOPE ground-truth (#1/#2) still loads, but suppressing
+    the ``_max_drilled`` / stall mutation, so calling it on every Stop
+    attempt can't perturb the ``set_task_result`` convergence accounting.
+    This enforces the FULL contract (authoritative combo + active-id
+    coverage, two-layer per-campaign completeness), closing the hole where
+    a report with ``进度 D==A`` but missing campaigns/layers slipped
+    through the count-only check on the ending-turn path.
 
     Bounded: after ``STALL_CAP`` blocks for a task it fails open, so an
     agent that genuinely cannot finish is not trapped. Returns None when
@@ -130,7 +132,7 @@ def drill_incomplete_reason(
     """
     if not result_text or not isinstance(result_text, str):
         return None
-    deny = check(result_text, None, None)  # pure: task_id=None → no mutation
+    deny = check(result_text, task_id, None, track=False)  # no mutation
     if deny is None:
         return None
     if task_id is not None:
@@ -333,6 +335,8 @@ def check(
     result_text: str,
     task_id: str | None = None,
     rules: dict[str, float] | None = None,
+    scope: dict | None = None,
+    track: bool = True,
 ) -> GateDeny | None:
     """Return a structured gap diff, or None when the report is complete.
 
@@ -341,9 +345,22 @@ def check(
     is rejected as a lossy rewrite. ``rules`` carries the resolved
     bid-rule thresholds (defaults + per-store notes.md override),
     forwarded to the folded-in ``ad_bid_floor`` / ``ad_scale_winners``.
+
+    ``scope`` is the parsed ``AUDIT_SCOPE.json`` (auto-loaded from
+    ``task_id`` when not passed). When present it grounds completeness in
+    the authoritative combo + active-id list instead of the agent's
+    self-reported ``进度`` line; when absent the gate falls back to the
+    self-reported behaviour (the escape hatch for first-time / narrow
+    single-ad tasks). ``track`` gates the per-task mutation of the
+    anti-regression / stall state, so the stop-path can run this as a
+    pure check (``track=False``) without perturbing set_task_result's
+    convergence accounting.
     """
     if not result_text or not isinstance(result_text, str):
         return None
+
+    if scope is None:
+        scope = ad_scope.load_audit_scope(task_id)
 
     gaps: list[str] = []
     round_total = 0  # sum of drilled across all combos this round
@@ -403,7 +420,7 @@ def check(
         # rounds. If a prior round already had more drilled, the model
         # rewrote the report from (compacted) memory and clobbered done
         # work — reject and tell it to restore from the on-disk TSVs.
-        if task_id is not None:
+        if task_id is not None and track:
             key = (task_id, head)
             prev = _max_drilled.get(key, 0)
             if drilled < prev:
@@ -429,6 +446,17 @@ def check(
                 'active campaign 给出 产品/广告组、逐关键词或逐 target 的表格'
                 '(含 出价/eCPC/ROAS/建议)，而不是只列 活动ID|花费|ROAS。'
             )
+        elif active > 0 and drilled > 0:
+            # #3: the section LOOKS like real drills by the (format-locked)
+            # 建议-column count — confirm semantically. Only here (regex
+            # passed), cached per section, fail-open (None → trust regex).
+            if ad_scope.llm_is_real_drill(part) is False:
+                gaps.append(
+                    f'[内容] 「{head}」语义判断为页面清单(manifest)而非逐活动 '
+                    'drill：表格看似达标，但缺少每个 active campaign 的逐关键词/'
+                    '逐 target 明细（出价/eCPC/ROAS/建议）。请为每个活动补出真实的'
+                    '逐-target drill 表，而不是只有汇总指标。'
+                )
         # Per-campaign search-term layer: each drilled campaign block
         # must carry the 搜索词对账 reconciliation line (same-window
         # proof) or an explicit no-search-terms token. Only meaningful
@@ -445,6 +473,41 @@ def check(
                 else None
             )
             _check_campaign_blocks(part, head, tol, gaps, floor=floor)
+
+    # 1a') Ground-truth coverage (#1 + #2) — only when an AUDIT_SCOPE.json
+    #      baseline exists. The authoritative combo list closes the
+    #      "new platform silently passes" hole (a combo the store audits
+    #      but the report never opened), and the authoritative active-id
+    #      set closes the "agent shrinks its own denominator" hole (a real
+    #      active campaign with no ``### <id>`` block). Absent scope →
+    #      skip entirely (escape hatch: first-time / narrow single-ad
+    #      tasks fall back to the self-reported checks above).
+    combos = ad_scope.scope_combos(scope)
+    if combos:
+        sections = {
+            p.splitlines()[0].strip(): p for p in parts[1:] if p.strip()
+        }
+        for combo in combos:
+            label = f'{combo["platform"]} {combo["country"]}'
+            sec = ad_scope.find_combo_section(sections, combo)
+            if sec is None:
+                gaps.append(
+                    f'[完整性] combo 「{label}」尚未开始——报告里没有对应的 '
+                    f'`## {label}` 小节（本店按 AUDIT_SCOPE 需要审计该 combo）。'
+                    '补上该小节并逐个 drill 其 active campaign。'
+                )
+                continue
+            missing = ad_scope.missing_active_ids(sec, combo['active_ids'])
+            if missing:
+                n_active = len(combo['active_ids'])
+                sample = '、'.join(missing[:8])
+                more = '' if len(missing) <= 8 else f' 等共 {len(missing)} 个'
+                gaps.append(
+                    f'[完整性] 「{label}」按权威 active 名单（共 {n_active} 个）'
+                    f'还缺 {len(missing)} 个未 drill 的 campaign：{sample}{more}。'
+                    '这些 id 来自枚举时落盘的 AUDIT_SCOPE，不能靠改小 进度 分母'
+                    '规避——为每个缺失 id 补出逐-campaign drill 块。'
+                )
 
     # 1b') Duplicate drill blocks — the same campaign id heading twice
     #     means a block was appended instead of edited in place. Review
@@ -559,7 +622,7 @@ def check(
     # round that re-submits an essentially unchanged report counts
     # toward the cap. Only meaningful when there are gaps (a complete
     # report returned above and never reaches here).
-    if task_id is not None:
+    if task_id is not None and track:
         best = _total_high.get(task_id, 0)
         prev_len = _last_len.get(task_id)
         moved = prev_len is None or (
