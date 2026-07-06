@@ -37,7 +37,7 @@ from app.routers.schedule_planning import (
     validate_finalize_description,
 )
 from app.scheduler.cron import (
-    add_schedule_job,
+    add_schedule_job_for,
     get_schedule_next_run,
     pause_schedule_job,
     remove_schedule_job,
@@ -283,21 +283,7 @@ async def create_schedule(
 
     # Register APScheduler job
     try:
-        add_schedule_job(
-            schedule_id=schedule.id,
-            task_title=schedule.title,
-            schedule_type=schedule.schedule_type,
-            schedule_time=schedule.schedule_time,
-            schedule_day=schedule.schedule_day,
-            interval_value=schedule.interval_value,
-            timezone=schedule.timezone,
-            store_id=schedule.store_id,
-            description=schedule.description,
-            plan_mode=schedule.plan_mode,
-            ai_profile_id=schedule.ai_profile_id,
-            phase_mode=schedule.phase_mode,
-            created_at=schedule.created_at,
-        )
+        add_schedule_job_for(schedule)
     except Exception as e:
         logger.exception(
             'Failed to add APScheduler job for schedule %s',
@@ -458,21 +444,7 @@ async def update_schedule(
     remove_schedule_job(schedule.id)
     if schedule.is_active:
         try:
-            add_schedule_job(
-                schedule_id=schedule.id,
-                task_title=schedule.title,
-                schedule_type=schedule.schedule_type,
-                schedule_time=schedule.schedule_time,
-                schedule_day=schedule.schedule_day,
-                interval_value=schedule.interval_value,
-                timezone=schedule.timezone,
-                store_id=schedule.store_id,
-                description=schedule.description,
-                plan_mode=schedule.plan_mode,
-                ai_profile_id=schedule.ai_profile_id,
-                phase_mode=schedule.phase_mode,
-                created_at=schedule.created_at,
-            )
+            add_schedule_job_for(schedule)
         except Exception as e:
             logger.exception(
                 'Failed to recreate job for schedule %s',
@@ -555,21 +527,7 @@ async def resume_schedule(
     # Re-add the job (in case it was removed rather than paused)
     remove_schedule_job(schedule.id)
     try:
-        add_schedule_job(
-            schedule_id=schedule.id,
-            task_title=schedule.title,
-            schedule_type=schedule.schedule_type,
-            schedule_time=schedule.schedule_time,
-            schedule_day=schedule.schedule_day,
-            interval_value=schedule.interval_value,
-            timezone=schedule.timezone,
-            store_id=schedule.store_id,
-            description=schedule.description,
-            plan_mode=schedule.plan_mode,
-            ai_profile_id=schedule.ai_profile_id,
-            phase_mode=schedule.phase_mode,
-            created_at=schedule.created_at,
-        )
+        add_schedule_job_for(schedule)
     except Exception as e:
         logger.exception('Failed to resume job for schedule %s', schedule.id)
         raise HTTPException(

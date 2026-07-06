@@ -112,7 +112,7 @@ class TestFiresAtConfiguredCadence:
         fires = _fires_in_window(trig, start, timedelta(days=28))
 
         assert len(fires) == 4, fires
-        assert all(f.strftime('%A') == 'Monday' for f in fires), fires
+        assert all(f.isoweekday() == 1 for f in fires), fires  # Monday
         assert all(f.hour == 4 for f in fires), fires
         gaps = {(b - a) for a, b in zip(fires, fires[1:])}
         assert gaps == {timedelta(days=7)}, gaps
@@ -144,7 +144,7 @@ class TestWeeklyMonthlyInterval:
         gaps = [b - a for a, b in zip(fires, fires[1:])]
         assert min(gaps) >= timedelta(days=14), gaps
         assert set(gaps) == {timedelta(days=14)}, gaps
-        assert all(f.strftime('%A') == 'Monday' for f in fires), fires
+        assert all(f.isoweekday() == 1 for f in fires), fires  # Monday
         assert all(f.hour == 4 and f.minute == 0 for f in fires), fires
 
     def test_every_3_weeks_fires_21_days_apart(self):
@@ -163,7 +163,7 @@ class TestWeeklyMonthlyInterval:
         assert {b - a for a, b in zip(fires, fires[1:])} == {
             timedelta(days=21)
         }, fires
-        assert all(f.strftime('%A') == 'Wednesday' for f in fires), fires
+        assert all(f.isoweekday() == 3 for f in fires), fires  # Wednesday
 
     def test_weekly_interval_1_still_fires_every_7_days(self):
         trig = cron_mod.build_trigger(
@@ -200,6 +200,32 @@ class TestWeeklyMonthlyInterval:
         # Consecutive fires advance by exactly N calendar months.
         idx = [f.year * 12 + f.month for f in fires]
         assert {b - a for a, b in zip(idx, idx[1:])} == {n}, fires
+
+    def test_every_n_months_anchors_month_in_schedule_tz_not_utc(self):
+        """Month grid is anchored in the schedule tz, not stored UTC.
+
+        A schedule created 2026-06-30 23:00Z is already 2026-07-01 in
+        Asia/Shanghai. The every-2-months grid must anchor to July
+        (odd months) — anchoring to the UTC month (June) would fire on
+        the wrong months. Regression for the tz-vs-UTC anchor bug.
+        """
+        utc_anchor = datetime(2026, 6, 30, 23, 0, tzinfo=ZoneInfo('UTC'))
+        assert utc_anchor.astimezone(TZ).month == 7  # sanity: local July
+        trig = cron_mod.build_trigger(
+            'monthly',
+            '04:00',
+            schedule_day=15,
+            interval_value=2,
+            timezone=TZ_NAME,
+            anchor=utc_anchor,
+        )
+        start = datetime(2026, 7, 1, 0, 0, tzinfo=TZ)
+        fires = _fires_in_window(trig, start, timedelta(days=400))
+
+        assert len(fires) >= 3, fires
+        # July-anchored every-2-months → odd months only.
+        assert all(f.month % 2 == 1 for f in fires), [f.month for f in fires]
+        assert fires[0].month == 7 and fires[0].day == 15, fires
 
     def test_monthly_interval_1_still_fires_every_month(self):
         trig = cron_mod.build_trigger(
