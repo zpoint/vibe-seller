@@ -212,12 +212,54 @@ class ZiniaoBackend(BrowserBackend):
         # 'ContainerId is missing', CDP dies ~15s later). Verified:
         # closing the env's last page kills it even 25s after it is fully
         # established; keeping any one page open keeps the env alive.
+        async def _relaunch_upstream() -> tuple[int, str] | None:
+            """Self-heal hook for the mux proxy.
+
+            Ziniao's ``debuggingPort`` rotates on every relaunch and dies
+            on a client restart, so a proxy that only ever retries the
+            original port serves 502 forever after the browser goes away
+            (e.g. a server restart tore down the in-process proxy and the
+            upstream port is now stale). This kill+relaunches the Ziniao
+            client and returns the FRESH reachable ``(port, host)`` so the
+            proxy can repoint itself. Returns None when it cannot recover
+            (WSL can't auto-relaunch the client; anything unreachable).
+            """
+            if is_wsl():
+                return None
+            try:
+                await kill_and_relaunch_ziniao(
+                    socket_port, client_path, user_info
+                )
+                result, host_used = await try_connect_ziniao(
+                    socket_port, start_data, timeout=60
+                )
+                if not result or str(result.get('statusCode')) != '0':
+                    return None
+                new_port = result.get('debuggingPort')
+                if not new_port:
+                    return None
+                new_host = (
+                    LOCALHOST if host_used == LOCALHOST else ziniao_host()
+                )
+                if not await self._cdp_port_reachable(new_host, int(new_port)):
+                    return None
+                logger.info(
+                    'Ziniao upstream self-healed: fresh CDP %s:%s',
+                    new_host,
+                    new_port,
+                )
+                return int(new_port), new_host
+            except Exception as e:
+                logger.warning('Ziniao upstream self-heal failed: %s', e)
+                return None
+
         self._proxy = CDPMuxProxy(
             listen_port=proxy_port,
             target_port=int(cdp_port),
             target_host=target_host,
             download_dir=str(dl_dir),
             keep_last_page=True,
+            relaunch_upstream=_relaunch_upstream,
         )
         await self._proxy.start()
 
