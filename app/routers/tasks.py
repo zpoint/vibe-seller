@@ -701,10 +701,9 @@ async def set_task_result(
             deny.reason[:200],
         )
 
-    # Skill-declared domain gates: the session's loaded skills name
-    # WHICH reviewers apply (``gates: [...]`` in SKILL.md frontmatter
-    # → stop_gates.get_registered_gates). Tasks that loaded no
-    # gate-declaring skill get only the generic gates above.
+    # Skill-declared domain gates: the session's loaded skills name WHICH
+    # reviewers apply (``gates: [...]`` in SKILL.md → get_registered_gates).
+    # A session that loaded no gate-declaring skill gets only the generics.
     rules = await resolve_store_rules(db, task.store_id)
     loaded, workspace = agent_manager.loaded_skills_and_workspace(task_id)
     skill_gates = resolve_skill_gates(loaded, workspace or VIBE_SELLER_DIR)

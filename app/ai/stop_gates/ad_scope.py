@@ -6,15 +6,19 @@ how much (the self-reported ``**进度**: drilled D/A`` line — the agent
 wrote BOTH numbers, so it could shrink the denominator to match its
 effort). This module supplies an authoritative alternative:
 
-- ``AUDIT_SCOPE.json`` (written by the skill's enumeration step at the
-  task-workspace root) lists the real (platform, country) combos and the
-  authoritative active campaign-id set per combo. The gate checks report
-  COVERAGE against this instead of the agent's claim — closing the
-  "new platform silently passes" hole (#1) and the "lie about the
-  denominator" hole (#2).
-- ``llm_is_real_drill`` is a bounded, fail-open semantic check (#3) that
-  judges "real per-campaign drill vs page manifest" without depending on
-  the format-locked ``建议``-column regex.
+``AUDIT_SCOPE.json`` (written by the skill's enumeration step at the
+task-workspace root) lists the real (platform, country) combos and the
+authoritative active campaign-id set per combo. The gate checks report
+COVERAGE against this instead of the agent's claim — closing the
+"new platform silently passes" hole (#1) and the "lie about the
+denominator" hole (#2).
+
+Everything here is **deterministic** — no LLM, no API key. Semantic
+"real drill vs page manifest" judgment (#3) is left to the AGENT: the
+configured backend can spawn a review subagent (see
+``amazon-ads/references/reviewer-loop.md``) with no extra credential.
+The server gate keeps the fast, countable checks; the manifest heuristic
+(``建议``-column count) lives in ``ad_completeness_review``.
 
 Escape hatch: when ``AUDIT_SCOPE.json`` is ABSENT, none of this runs and
 the gate falls back to its self-reported behaviour — so a first-time run
@@ -24,20 +28,12 @@ task is never blocked by ground-truth enforcement.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 
 from app.config import VIBE_SELLER_DIR
-from app.env_options import Options
 
 SCOPE_FILENAME = 'AUDIT_SCOPE.json'
-
-# Truthy values for the opt-in LLM-manifest flag.
-_TRUTHY = frozenset({'1', 'true', 'yes', 'on'})
-# Cap the semantic-check cache so a long-running server can't grow it
-# without bound (one entry per unique section text).
-_LLM_CACHE_MAX = 512
 
 
 def scope_path(task_id: str):
@@ -142,79 +138,3 @@ def missing_active_ids(section_text: str, active_ids: list[str]) -> list[str]:
         ln for ln in section_text.splitlines() if ln.lstrip().startswith('###')
     )
     return [cid for cid in active_ids if cid and cid not in headings]
-
-
-# ── #3: LLM semantic manifest check (bounded, fail-open) ──────────────
-#
-# The deterministic detector counts tables whose header carries a
-# ``建议``/``recommendation`` column. That is format-locked — a
-# differently-formatted (or English, or new-platform) real drill can be
-# misread as a manifest, and vice-versa. This asks an LLM the semantic
-# question instead, and is used ONLY to confirm sections the deterministic
-# check already passed. It NEVER blocks on its own unavailability: no API
-# key / any error / an unclear answer all return None, and the caller then
-# trusts the deterministic result.
-
-_MANIFEST_SYSTEM = (
-    'You judge one section of an e-commerce ad-audit report. Decide '
-    'whether it contains REAL per-campaign drill detail — i.e. for the '
-    'campaigns it covers, per-keyword or per-target rows with bids / '
-    'metrics / recommendations — or whether it is only a MANIFEST: a '
-    'list of campaigns with summary metrics and no per-target breakdown. '
-    "Answer with exactly one word: 'real' or 'manifest'."
-)
-
-# section-text sha1 -> True(real) / False(manifest). Bounds cost across
-# the many set_task_result submits of one converging audit.
-_llm_cache: dict[str, bool] = {}
-
-
-def llm_is_real_drill(section_text: str) -> bool | None:
-    """True=real drill, False=manifest, None=unknown (fail open).
-
-    Reuses the event-extractor's Anthropic client pattern. Any failure
-    path (SDK missing, no key, API error, unparseable answer) returns
-    None so the gate falls back to the deterministic heuristic.
-    """
-    if not section_text or not section_text.strip():
-        return None
-    # Opt-in only. Off by default so no synchronous LLM network call ever
-    # enters the request path (``check`` runs inside the async
-    # set_task_result handler); a deployer enables it deliberately and
-    # accepts the bounded (timeout + cache) cost.
-    if Options.AD_AUDIT_LLM_MANIFEST.get().strip().lower() not in _TRUTHY:
-        return None
-    key = hashlib.sha1(section_text.encode('utf-8')).hexdigest()
-    if key in _llm_cache:
-        return _llm_cache[key]
-    try:
-        import anthropic  # noqa: PLC0415 — optional; fail open if absent
-
-        api_key = Options.ANTHROPIC_API_KEY.get() or None
-        if not api_key:
-            return None
-        # Configurable model; bounded timeout so a stuck call can't block
-        # the event loop indefinitely.
-        model = Options.ANTHROPIC_MODEL.get() or 'claude-haiku-4-5-20251001'
-        client = anthropic.Anthropic(api_key=api_key, timeout=8.0)
-        resp = client.messages.create(
-            model=model,
-            max_tokens=8,
-            system=_MANIFEST_SYSTEM,
-            messages=[{'role': 'user', 'content': section_text[:12000]}],
-        )
-        answer = (resp.content[0].text or '').strip().lower()
-    except Exception:
-        return None
-    verdict = None
-    if 'manifest' in answer:
-        verdict = False
-    elif 'real' in answer:
-        verdict = True
-    if verdict is not None:
-        # Bound the cache; simplest safe policy is to drop it wholesale
-        # once it grows past the cap (entries are cheap to recompute).
-        if len(_llm_cache) >= _LLM_CACHE_MAX:
-            _llm_cache.clear()
-        _llm_cache[key] = verdict
-    return verdict
