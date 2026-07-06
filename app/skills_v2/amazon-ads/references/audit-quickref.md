@@ -61,6 +61,15 @@ set before drilling.
   (`Download campaigns` — a shadow-DOM button, not a plain `<button>`)
   when no recent file covers the window. Then parse the XLSX for the
   full list. Selectors + the reuse/shadow-DOM details: `mechanics.md` §2d.
+  - **⚠️ VERIFY the export's window before trusting its metrics.** The
+    filename is `bulk-<entity>-<START>-<END>-<epoch>.xlsx`; `<START>-<END>`
+    is the metric window. **A 2-day export (e.g. `…-20260701-20260702-…`)
+    is NOT a 30-day analysis** — on a short window sales haven't attributed
+    yet, so `spend > 0, sales = 0, ACOS = 0`, which reads as "great" but is
+    just "no data yet". Confirm `<START>-<END>` spans your requested window
+    (≥ ~28 days for "30 天"); if it doesn't, generate a fresh 30-day export
+    (Campaign Manager date picker defaults to **2 days** — set it to 30
+    first). Never label the report "最近30天" off a 2-day file.
 - **noon**: open the Ad Manager home. The list is **paginated ~15/page**
   — page through ALL pages and union the campaign ids. Click the
   page-number anchor with dispatched events (the chevron doesn't work):
@@ -161,13 +170,18 @@ dumped non-active campaigns and the server rejects it ([越界]).
 > campaigns — do them; it is not "too long". Don't sample, don't
 > batch-generate — the reviewer counts D vs A and names the shortfall.
 
-## Step 3 — recommendations (the 4 bid rules)
+## Step 3 — recommendations (the bid rules)
 
 The recommendation column MUST obey (thresholds `acos_no_lower` default
 30, `scale_roas` default 5 — the single source is `ad_rules.py`; a
 store's `notes.md` may override, e.g. `scale_roas: 6`):
-1. **ACOS < `acos_no_lower`% → never lower the bid.** Only Hold or
-   raise. High bid-vs-suggested is not a trim reason.
+0. **⚠️ `ACOS = 0`/blank means ZERO SALES, not "good".** `spend > 0` +
+   `orders = 0` ⇒ Amazon prints `ACOS = 0.00` — worst case (effective
+   ACOS ∞), a money-loser → `降价/暂停`, never `维持/表现良好/<5%`. The
+   rules below apply ONLY when `orders ≥ 1`. Compute ACOS = spend÷sales;
+   sales=0 ⇒ write `0 转化，花费全部浪费`, never a `<5%` placeholder.
+1. **ACOS < `acos_no_lower`% (and `orders ≥ 1`) → never lower the bid.**
+   Only Hold or raise. High bid-vs-suggested is not a trim reason.
 2. **ACOS ≥ `acos_no_lower`% → trim allowed**, but new bid never ≤
    actual CPC.
 3. **ROAS > `scale_roas` converter → raise** (or state why not: bid at

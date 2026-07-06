@@ -124,7 +124,20 @@ not a substitute for it.
 are the single source in `ad_rules.py`; a store's `notes.md` may
 override — see tuning-thresholds.md.)
 
-- **ACOS < `acos_no_lower`% → never LOWER the bid.** Only `Hold` or
+- **⚠️ `ACOS = 0` / blank, when `spend > 0`, is NOT "low ACOS = good" —
+  it means ZERO SALES.** (With `spend = 0`, `ACOS = 0` is a benign zero.)
+  When `spend > 0` but `orders = 0` / `sales = 0`, Amazon prints
+  `ACOS = 0.00` (and `ROAS = 0`). That is the WORST case — spend with no
+  return, effective ACOS **∞** — not a healthy sub-threshold campaign.
+  **The `ACOS < threshold` rule below does NOT apply when `orders = 0`.**
+  Such a campaign is a money-loser: verdict is `降价/暂停` (or negate the
+  wasted search terms), never `维持/表现良好`. Compute ACOS as
+  `spend ÷ sales`; if `sales = 0`, write it as **`0 转化，花费 <币> X 全部
+  浪费 (ACOS ∞)`**, never `<5%` or any placeholder. **Every ACOS value in
+  the report must trace to captured `spend` AND `sales`** — a qualitative
+  guess like `<5%` is a gap, not a metric.
+- **ACOS < `acos_no_lower`% → never LOWER the bid** (only when
+  `orders ≥ 1` — see the zero-sales rule above). Only `Hold` or
   `提高/raise`. Bid-above-suggested alone is NOT a reason to trim.
 - **ACOS ≥ `acos_no_lower`% → a trim is allowed**, but the new bid must
   never be ≤ actual CPC (floor = `max(actualCPC×1.1, suggested_low)`).
