@@ -96,6 +96,8 @@
     "running": "运行中...",
     "designing": "规划中...",
     "retry": "重试",
+    "continue": "继续",
+    "retryConfirm": "这将清空该任务的历史记录并从头重新开始，确定吗？",
     "rerun": "重新运行",
     "error_agent_loop": "AI 代理陷入重复循环，已自动停止。请重试该任务。",
     "copyAll": "全部复制",
