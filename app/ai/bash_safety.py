@@ -697,19 +697,14 @@ def check_exec_review_status(task_dir) -> str | None:
 # ── Pre-live bid-value sanity (the 10× / concatenation overspend bug) ────
 #
 # The Shadow-DOM bid input does not reliably clear, so a 1.30 target can
-# become 11.3 or 3.002.27 (a real-money overspend that shipped live, and
-# that the agent then rationalized as "≥ target"). The typed value is
-# visible in the Bash command, so we can deny the value-SHAPE pathology
-# before it goes live. This guard does NOT know the report target (the
-# index→keyword map isn't in the command) — catching the wrong target
-# value is the ``ad_execution_fidelity`` exit gate's job; this is purely
-# the absurd-magnitude / multi-decimal catch.
-#
-# The value appears in one of:
-#   * legacy 0.12 subcommand:  ``browser-use input <idx> "1.30"``
-#   * 0.13 heredoc typing helper: ``type_text("1.30")`` /
-#     ``fill_input(<sel>, "1.30")``
-#   * a JS value assignment: ``el.value = "1.30"``
+# become 11.3 or 3.002.27 (a real-money overspend that shipped live). The
+# typed value is visible in the Bash command, so we deny the value-SHAPE
+# pathology before it goes live. This guard does NOT know the report
+# target (index→keyword map isn't in the command) — catching the wrong
+# target is the ``ad_execution_fidelity`` exit gate's job; this is purely
+# the absurd-magnitude / multi-decimal catch. The value appears in a
+# legacy ``browser-use input <idx> "1.30"``, a 0.13 helper
+# (``type_text``/``fill_input``), or a JS ``el.value = "1.30"`` assign.
 _BID_INPUT_RE = re.compile(
     r'(?:'
     r'browser-use\s+(?:input|type)\s+\d+\s+["\']?'
@@ -756,16 +751,10 @@ def check_bid_value_shape(command: str) -> str | None:
         val = float(raw)
     except ValueError:
         return None
-    # The magnitude ceiling is BID-shaped reasoning: a real CPC bid is a
-    # currency value, i.e. it has a decimal point (``1.30``, ``113.0``).
-    # The legacy ``browser-use input <idx>`` form is ALSO how the agent
-    # types OTP codes, postal codes, and quantities — all integers, many
-    # legitimately > 50 (a 6-digit OTP is always > 50 000). Applying the
-    # ceiling to those is a false positive that has blocked live OTP entry
-    # (observed on two stores). So only fire the ceiling on a value that
-    # looks like a bid (has a ``.``); integers bypass it. The concatenation
-    # bugs this guards against were all decimal-shaped (``113.0`` from
-    # ``11`` + ``3.0``); the multi-decimal check above catches ``3.002.27``.
+    # Gate the ceiling on a decimal: a CPC bid is a currency decimal, but
+    # the legacy input form also types integer OTP/postal/quantity (firing
+    # on a 6-digit OTP blocked live login on two stores). Shipped bugs were
+    # decimal (113.0), so decimals still hit the ceiling.
     if '.' in raw and val > _BID_SANITY_CEILING:
         return (
             f'Bid value {raw} exceeds the {_BID_SANITY_CEILING:g} sanity '
