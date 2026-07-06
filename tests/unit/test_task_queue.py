@@ -54,6 +54,8 @@ async def store_and_task(db_session):
         plan=None,
         platform=None,
         country=None,
+        schedule_id=None,
+        store_id='store-1',
     ):
         async with db_session() as db:
             # Only create store if it doesn't exist yet
@@ -76,7 +78,8 @@ async def store_and_task(db_session):
                 plan=plan,
                 platform=platform,
                 country=country,
-                store_id='store-1',
+                schedule_id=schedule_id,
+                store_id=store_id,
                 created_by='test-user',
                 created_at=datetime.now(UTC).isoformat(),
                 updated_at=datetime.now(UTC).isoformat(),
@@ -208,6 +211,65 @@ class TestRecovery:
             await scheduler._recover_from_db()
 
         assert 'task-1' in scheduler._queues.get('store-1', [])
+
+    async def test_planned_scheduled_re_enqueued(
+        self, db_session, store_and_task
+    ):
+        # A scheduled plan-mode task left PLANNED (frozen plan, awaiting a
+        # slot) must resume across a restart — else it's orphaned forever.
+        await store_and_task(
+            status=TaskStatus.PLANNED,
+            plan_mode=True,
+            plan='## frozen plan',
+            schedule_id='sched-1',
+        )
+        scheduler = TaskQueueScheduler()
+
+        with patch('app.scheduler.task_queue.async_session', db_session):
+            await scheduler._recover_from_db()
+
+        assert 'task-1' in scheduler._queues.get('store-1', [])
+
+    async def test_planned_interactive_not_re_enqueued(
+        self, db_session, store_and_task
+    ):
+        # An interactive (non-scheduled) plan-mode task waits for the user
+        # to press Run — it must NOT auto-resume on restart.
+        await store_and_task(
+            status=TaskStatus.PLANNED,
+            plan_mode=True,
+            plan='## user plan',
+            schedule_id=None,
+        )
+        scheduler = TaskQueueScheduler()
+
+        with patch('app.scheduler.task_queue.async_session', db_session):
+            await scheduler._recover_from_db()
+
+        assert 'task-1' not in scheduler._queues.get('store-1', [])
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            assert task.status == TaskStatus.PLANNED  # untouched
+
+    async def test_planned_scheduled_no_store_re_enqueued(
+        self, db_session, store_and_task
+    ):
+        # A no-store scheduled task (store_id=None, e.g. phase_mode
+        # 'single') left PLANNED must also resume — the queue uses None
+        # as a valid lane key, so it must not be skipped by a store guard.
+        await store_and_task(
+            status=TaskStatus.PLANNED,
+            plan_mode=True,
+            plan='## frozen plan',
+            schedule_id='sched-1',
+            store_id=None,
+        )
+        scheduler = TaskQueueScheduler()
+
+        with patch('app.scheduler.task_queue.async_session', db_session):
+            await scheduler._recover_from_db()
+
+        assert 'task-1' in scheduler._queues.get(None, [])
 
 
 class TestCanSchedule:
