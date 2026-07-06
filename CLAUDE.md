@@ -237,6 +237,7 @@ pytest --e2e tests/e2e        # E2E only (requires running server)
 - [docs/api.md](docs/api.md) — all API routes by router
 - [docs/testing.md](docs/testing.md) — test tiers, fixtures, FakeAgent
 - [docs/browser.md](docs/browser.md) — browser backends, Ziniao, WSL, CDP proxy
+- [docs/ziniao-concurrency.md](docs/ziniao-concurrency.md) — Ziniao WebDriver mechanism, multi-store concurrency, the "browsers kill each other" root cause + per-store-recovery fix
 - [docs/events.md](docs/events.md) — SSE event bus, event types, business events
 - [docs/windows-setup.md](docs/windows-setup.md) — Windows+WSL2 deployment: SSH bootstrap, WSL2 mirrored networking (MUST be Win 11 25H2/build 26200+ for external port access), `winchrome` native-Chrome backend, systemd service, Tailscale, auto-start, full troubleshooting cheatsheet
 - [docs/macos-setup.md](docs/macos-setup.md) — macOS deployment: `launchd` LaunchAgent for auto-start on login + crash-restart, the `EX_CONFIG`/TCC/PATH gotchas, deploy flow, troubleshooting cheatsheet
