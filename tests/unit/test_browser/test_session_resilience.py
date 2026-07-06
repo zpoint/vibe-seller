@@ -95,6 +95,51 @@ class TestCdpAlive:
             server.shutdown()
 
 
+# ── wrapper-safety: never leave the agent wrapper-less ──
+
+
+@pytest.mark.unit
+class TestWrapperWrittenBeforeStart:
+    """The per-store browser-use wrapper must exist even when the browser
+    fails to start. If a stale/failed launch left NO wrapper, the agent's
+    bare ``browser-use`` falls through PATH to the REAL binary and attaches
+    to a LOCAL Chrome (the user's own browser). Regression guard — see
+    docs/ziniao-concurrency.md."""
+
+    @pytest.mark.asyncio
+    async def test_wrapper_written_even_when_start_fails(self):
+        mgr = BrowserManager()
+        store = _make_fake_store()  # no active session → fresh-start path
+
+        fake_db = mock.AsyncMock()
+        fake_db.execute = mock.AsyncMock(
+            return_value=mock.MagicMock(
+                scalar_one_or_none=mock.MagicMock(return_value=None)
+            )
+        )
+        fake_db.get = mock.AsyncMock(return_value=None)
+
+        failing_backend = mock.AsyncMock()
+        failing_backend.start = mock.AsyncMock(
+            side_effect=RuntimeError('stale launch: nothing reachable')
+        )
+
+        with (
+            mock.patch.object(
+                mgr, '_get_backend', return_value=failing_backend
+            ),
+            mock.patch('app.browser.manager.write_browser_use_wrapper') as wrap,
+            mock.patch('app.browser.manager.create_token', return_value='tok'),
+        ):
+            with pytest.raises(RuntimeError, match='stale launch'):
+                await mgr._start_session_locked(store, fake_db)
+
+        # Wrapper written despite the start failure → the agent's
+        # `browser-use` still resolves to the safe wrapper, never a
+        # local Chrome.
+        wrap.assert_called_once()
+
+
 # ── start_session resilience tests ───────────────────
 
 
