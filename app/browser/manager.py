@@ -22,7 +22,11 @@ from app.browser.wrapper import (
     store_slug,
     write_browser_use_wrapper,
 )
-from app.browser.ziniao_utils import ensure_ziniao_running
+from app.browser.ziniao_utils import (
+    ZiniaoNormalModeError,
+    ensure_ziniao_running,
+    kill_and_relaunch_ziniao,
+)
 from app.config import (
     AI_BOT_USER_ID,
     BROWSER_USE_BIN_DIR,
@@ -115,17 +119,11 @@ def _wipe_generated_wrappers() -> int:
     format version is BELOW the current ``WRAPPER_FORMAT_VERSION`` (and
     unmarked/pre-versioning ones, treated as version 0).
 
-    We deliberately KEEP wrappers at the current-or-higher version:
-      - current-version wrappers survive a restart, so there is no
-        wrapper-less window in which the agent's ``browser-use`` could
-        fall through PATH to the real binary and attach to a local Chrome
-        (see docs/ziniao-concurrency.md);
-      - a running vN never deletes a wrapper written by a newer vN+1
-        (rollback / mixed-process safety).
-
-    User-created wrappers (without our auto-generation header) are left
-    untouched. See docs/browser-use-0.13-migration.md § wrapper-format
-    versioning.
+    We KEEP wrappers at the current-or-higher version: current ones
+    survive a restart (no wrapper-less window → no local-Chrome fallback,
+    see docs/ziniao-concurrency.md), and a running vN never deletes a
+    newer vN+1's (rollback safety). User-created wrappers (no auto-gen
+    header) are untouched. See docs/browser-use-0.13-migration.md.
     """
     removed = 0
     if not BROWSER_USE_BIN_DIR.is_dir():
@@ -497,16 +495,11 @@ class BrowserManager:
 
         backend = self._get_backend(store.id, store.browser_backend)
 
-        # Write the browser-use wrapper BEFORE starting the browser. The
-        # wrapper is the ONLY safe entrypoint: it injects BU_CDP_WS (the
-        # store's CDP proxy), blocks manual CDP overrides, and its auto-start
-        # block (re)launches the store session on demand. If we only wrote it
-        # AFTER a successful start, a failed/stale launch would leave NO
-        # wrapper — the agent then falls back to raw `browser-use`, which
-        # attaches to a LOCAL Chrome (the user's own browser). Writing it
-        # first guarantees the agent always goes through the wrapper: on a
-        # drop it re-triggers browser/start, and if the browser truly can't
-        # start it fails cleanly (never the local Chrome).
+        # Write the wrapper BEFORE backend.start(): the wrapper is the ONLY
+        # safe entrypoint, so a failed/stale launch must still leave one —
+        # else the agent's bare `browser-use` falls through PATH to the real
+        # binary → the user's local Chrome. See docs/browser.md § Wrapper
+        # safety.
         token = create_token(AI_BOT_USER_ID, 'ai_bot')
         write_browser_use_wrapper(
             store.name,
@@ -751,11 +744,34 @@ class BrowserManager:
             'username': account.username,
             'password': decrypt_password(account.encrypted_password),
         }
-        await ensure_ziniao_running(
+        client_path = account.client_path or 'ziniao'
+        kwargs = dict(
             socket_port=account.socket_port,
-            client_path=account.client_path or 'ziniao',
+            client_path=client_path,
             user_info=user_info,
         )
+        try:
+            await ensure_ziniao_running(**kwargs)
+        except ZiniaoNormalModeError:
+            # Ziniao in GUI/normal mode (e.g. just after an upgrade). The
+            # platform needs WebDriver mode — relaunch into it instead of
+            # failing the task. Serialized on the manager lock so a
+            # concurrent fanout does ONE relaunch and peers just re-check
+            # (WSL is kill-only → its relaunch raises, guidance propagates).
+            async with self._lock:
+                try:
+                    await ensure_ziniao_running(**kwargs)
+                    return  # a peer already relaunched into WebDriver
+                except ZiniaoNormalModeError:
+                    pass
+                logger.info(
+                    'Ziniao normal mode for %s — relaunching WebDriver',
+                    store.name,
+                )
+                await kill_and_relaunch_ziniao(
+                    account.socket_port, client_path, user_info
+                )
+            await ensure_ziniao_running(**kwargs)
 
     async def ensure_session(
         self, store: Store, db: AsyncSession
