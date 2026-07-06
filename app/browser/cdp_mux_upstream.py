@@ -180,17 +180,34 @@ class _UpstreamMixin:
         )
         self.target_host = new_host
         self.target_port = new_port
-        try:
-            await self._connect_upstream()
-        except Exception as e:
-            logger.warning('CDPMuxProxy reconnect after relaunch failed: %s', e)
-            return False
-        logger.info(
-            'CDPMuxProxy upstream self-healed on %s:%d',
+        # A freshly-relaunched browser's debugging port is not accepting
+        # connections the instant startBrowser returns — connecting once
+        # races the port coming up ("fresh port not up yet") and would
+        # 502 forever. Retry with backoff so the fresh port has time.
+        last_err: Exception | None = None
+        for attempt in range(1, 7):
+            if not self._running:
+                return False
+            try:
+                await self._connect_upstream()
+                logger.info(
+                    'CDPMuxProxy upstream self-healed on %s:%d (attempt %d)',
+                    self.target_host,
+                    self.target_port,
+                    attempt,
+                )
+                return True
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(min(attempt * 1.5, 6.0))
+        logger.warning(
+            'CDPMuxProxy reconnect after relaunch failed (fresh port %s:%d '
+            'never came up): %s',
             self.target_host,
             self.target_port,
+            last_err,
         )
-        return True
+        return False
 
     # ------------------------------------------------------------------
     # Startup cleanup

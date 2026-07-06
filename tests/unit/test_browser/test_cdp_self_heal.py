@@ -97,13 +97,22 @@ class TestRelaunchAndReconnect:
     async def test_reconnect_failure_after_relaunch_reports_unhealed(self):
         relaunch = mock.AsyncMock(return_value=(NEW_PORT, '127.0.0.1'))
         proxy = _make_proxy(relaunch)
+        # Reconnect keeps failing (fresh port never comes up): the proxy
+        # retries with backoff, then reports unhealed. Patch sleep so the
+        # bounded retry loop doesn't wait for real.
         proxy._connect_upstream = mock.AsyncMock(
             side_effect=ConnectionError('fresh port not up yet')
         )
 
-        healed = await proxy._relaunch_and_reconnect_upstream()
+        with mock.patch(
+            'app.browser.cdp_mux_upstream.asyncio.sleep',
+            new=mock.AsyncMock(),
+        ):
+            healed = await proxy._relaunch_and_reconnect_upstream()
 
         assert healed is False
+        # Retried more than once before giving up.
+        assert proxy._connect_upstream.await_count > 1
 
     async def test_hook_exception_is_swallowed(self):
         relaunch = mock.AsyncMock(side_effect=RuntimeError('client wedged'))
