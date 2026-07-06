@@ -170,7 +170,7 @@ dumped non-active campaigns and the server rejects it ([越界]).
 > campaigns — do them; it is not "too long". Don't sample, don't
 > batch-generate — the reviewer counts D vs A and names the shortfall.
 
-## Step 3 — recommendations (the 4 bid rules)
+## Step 3 — recommendations (the bid rules)
 
 The recommendation column MUST obey (thresholds `acos_no_lower` default
 30, `scale_roas` default 5 — the single source is `ad_rules.py`; a
