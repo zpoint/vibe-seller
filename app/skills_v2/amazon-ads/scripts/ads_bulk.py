@@ -55,6 +55,7 @@ Requires: openpyxl.
 
 import argparse
 import datetime
+import json
 import re
 import sys
 
@@ -536,6 +537,34 @@ def cmd_archive_campaign(args):
     write_upload(ws.title, header, [a], out_path)
 
 
+def cmd_scope(args):
+    """Print the ACTIVE (state=enabled) Campaign ids for AUDIT_SCOPE.json.
+
+    The completeness gate checks report coverage against this
+    authoritative set (see audit-quickref Step 1), so the agent cannot
+    pass by shrinking its own denominator. With --platform/--country it
+    prints a ready combo object; otherwise just the id array.
+    """
+    _wb, _ws, _header, data = load(args.file)
+    active_ids = [
+        str(r[Col.CAMPAIGN_ID]).strip()
+        for r in data
+        if is_entity(r, 'campaign')
+        and state_api(r[Col.STATE]) == STATE_ENABLED
+        and r[Col.CAMPAIGN_ID] not in (None, '')
+    ]
+    active_ids = list(dict.fromkeys(active_ids))  # de-dupe, preserve order
+    if args.platform and args.country:
+        out = {
+            'platform': args.platform,
+            'country': args.country,
+            'active_ids': active_ids,
+        }
+    else:
+        out = active_ids
+    print(json.dumps(out, ensure_ascii=False, indent=2))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -543,6 +572,14 @@ def main():
     p = sub.add_parser('inspect', help='summarise a bulk export')
     p.add_argument('file')
     p.set_defaults(func=cmd_inspect)
+
+    p = sub.add_parser(
+        'scope', help='print active Campaign ids for AUDIT_SCOPE.json'
+    )
+    p.add_argument('file')
+    p.add_argument('--platform', help='e.g. amazon (emit a full combo obj)')
+    p.add_argument('--country', help='e.g. SA (emit a full combo obj)')
+    p.set_defaults(func=cmd_scope)
 
     p = sub.add_parser(
         'clone-campaign', help='emit Create rows for a new manual campaign'
