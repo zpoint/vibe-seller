@@ -26,11 +26,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from app.config import VIBE_SELLER_DIR
 from app.env_options import Options
 
 SCOPE_FILENAME = 'AUDIT_SCOPE.json'
+
+# Truthy values for the opt-in LLM-manifest flag.
+_TRUTHY = frozenset({'1', 'true', 'yes', 'on'})
+# Cap the semantic-check cache so a long-running server can't grow it
+# without bound (one entry per unique section text).
+_LLM_CACHE_MAX = 512
 
 
 def scope_path(task_id: str):
@@ -72,7 +79,14 @@ def scope_combos(scope: dict | None) -> list[dict]:
         country = str(c.get('country') or '').strip()
         if not platform or not country:
             continue
-        ids = [str(i).strip() for i in (c.get('active_ids') or []) if i]
+        raw_ids = c.get('active_ids')
+        # Guard the type: a stray string would otherwise iterate into
+        # single characters and produce a bogus id list.
+        ids = (
+            [str(i).strip() for i in raw_ids if i]
+            if isinstance(raw_ids, list)
+            else []
+        )
         out.append({
             'platform': platform,
             'country': country,
@@ -81,15 +95,31 @@ def scope_combos(scope: dict | None) -> list[dict]:
     return out
 
 
+def _token_in(token: str, text: str) -> bool:
+    """True if ``token`` appears in ``text`` as a whole word (case-insens).
+
+    Whole-word so a short country code can't match inside another word —
+    e.g. ``US`` must NOT match ``business``, ``AE`` must NOT match
+    ``header``. Boundaries are alphanumeric-aware (not ``\\b``) so tokens
+    next to CJK/punctuation in a header like ``## Amazon SA — 广告审核``
+    still match.
+    """
+    if not token:
+        return False
+    pat = rf'(?<![0-9a-z]){re.escape(token.lower())}(?![0-9a-z])'
+    return re.search(pat, text.lower()) is not None
+
+
 def section_matches_combo(header: str, combo: dict) -> bool:
     """True if a ``## ...`` header names this combo's platform + country.
 
-    Case-insensitive token match (``## Amazon SA — 广告审核`` ↔
-    ``{amazon, SA}``), so it is robust to trailing prose and to any
-    platform, not just the hardcoded amazon/noon set.
+    Whole-word token match (``## Amazon SA — 广告审核`` ↔ ``{amazon, SA}``),
+    robust to trailing prose and to any platform, not just the hardcoded
+    amazon/noon set — and not fooled by a token embedded in another word.
     """
-    h = header.lower()
-    return combo['platform'].lower() in h and combo['country'].lower() in h
+    return _token_in(combo['platform'], header) and _token_in(
+        combo['country'], header
+    )
 
 
 def find_combo_section(sections: dict[str, str], combo: dict) -> str | None:
@@ -101,13 +131,17 @@ def find_combo_section(sections: dict[str, str], combo: dict) -> str | None:
 
 
 def missing_active_ids(section_text: str, active_ids: list[str]) -> list[str]:
-    """Active ids from the authoritative set with no block in the section.
+    """Active ids from the authoritative set with no DRILL BLOCK.
 
-    Coverage = the id appears anywhere in the section (it belongs in a
-    ``### <id> ...`` heading). Substring presence is sufficient because
-    campaign ids are long and distinctive (``600000000001`` / ``C_...``).
+    Coverage requires the id to appear in a ``### ...`` drill-block heading
+    — NOT merely somewhere in the section. Checking only headings closes
+    the gaming hole where an agent pastes the id list into prose / a footer
+    / a summary table without providing the per-campaign drill block.
     """
-    return [cid for cid in active_ids if cid and cid not in section_text]
+    headings = '\n'.join(
+        ln for ln in section_text.splitlines() if ln.lstrip().startswith('###')
+    )
+    return [cid for cid in active_ids if cid and cid not in headings]
 
 
 # ── #3: LLM semantic manifest check (bounded, fail-open) ──────────────
@@ -144,6 +178,12 @@ def llm_is_real_drill(section_text: str) -> bool | None:
     """
     if not section_text or not section_text.strip():
         return None
+    # Opt-in only. Off by default so no synchronous LLM network call ever
+    # enters the request path (``check`` runs inside the async
+    # set_task_result handler); a deployer enables it deliberately and
+    # accepts the bounded (timeout + cache) cost.
+    if Options.AD_AUDIT_LLM_MANIFEST.get().strip().lower() not in _TRUTHY:
+        return None
     key = hashlib.sha1(section_text.encode('utf-8')).hexdigest()
     if key in _llm_cache:
         return _llm_cache[key]
@@ -153,9 +193,12 @@ def llm_is_real_drill(section_text: str) -> bool | None:
         api_key = Options.ANTHROPIC_API_KEY.get() or None
         if not api_key:
             return None
-        client = anthropic.Anthropic(api_key=api_key)
+        # Configurable model; bounded timeout so a stuck call can't block
+        # the event loop indefinitely.
+        model = Options.ANTHROPIC_MODEL.get() or 'claude-haiku-4-5-20251001'
+        client = anthropic.Anthropic(api_key=api_key, timeout=8.0)
         resp = client.messages.create(
-            model='claude-haiku-4-5-20251001',
+            model=model,
             max_tokens=8,
             system=_MANIFEST_SYSTEM,
             messages=[{'role': 'user', 'content': section_text[:12000]}],
@@ -163,10 +206,15 @@ def llm_is_real_drill(section_text: str) -> bool | None:
         answer = (resp.content[0].text or '').strip().lower()
     except Exception:
         return None
+    verdict = None
     if 'manifest' in answer:
-        _llm_cache[key] = False
-        return False
-    if 'real' in answer:
-        _llm_cache[key] = True
-        return True
-    return None
+        verdict = False
+    elif 'real' in answer:
+        verdict = True
+    if verdict is not None:
+        # Bound the cache; simplest safe policy is to drop it wholesale
+        # once it grows past the cap (entries are cheap to recompute).
+        if len(_llm_cache) >= _LLM_CACHE_MAX:
+            _llm_cache.clear()
+        _llm_cache[key] = verdict
+    return verdict

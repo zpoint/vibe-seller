@@ -151,3 +151,54 @@ class TestLLMManifestFailOpen:
 
     def test_empty_section_none(self):
         assert ad_scope.llm_is_real_drill('') is None
+
+
+@pytest.mark.unit
+class TestReviewFixes:
+    """Regression tests for the PR-review fixes."""
+
+    def test_word_boundary_combo_match(self):
+        # #5: short country codes must match whole-word, not as substrings.
+        us = {'platform': 'amazon', 'country': 'US'}
+        assert ad_scope.section_matches_combo('## Amazon US — 广告审核', us)
+        # 'US' inside 'business' / 'Houston' must NOT match.
+        assert not ad_scope.section_matches_combo(
+            '## Amazon business unit review', us
+        )
+        assert not ad_scope.section_matches_combo('## Houston amazon', us)
+        ae = {'platform': 'amazon', 'country': 'AE'}
+        assert not ad_scope.section_matches_combo('## amazon header', ae)
+        assert ad_scope.section_matches_combo('## Amazon AE 市场', ae)
+
+    def test_coverage_requires_drill_heading_not_prose(self):
+        # #2: an id pasted in prose/footer must NOT count as covered —
+        # only an id in a '### ...' drill heading does.
+        ids = ['600000000001', '600000000002']
+        prose_only = (
+            'we reviewed 600000000001 and 600000000002 in a footer table\n'
+            '| id | spend |\n| 600000000001 | 5 |\n| 600000000002 | 6 |\n'
+        )
+        assert ad_scope.missing_active_ids(prose_only, ids) == ids
+        drilled = (
+            '### 600000000001 | acme widgets 004 | SP\n(table...)\n'
+            'summary mentions 600000000002 but no block\n'
+        )
+        assert ad_scope.missing_active_ids(drilled, ids) == ['600000000002']
+
+    def test_active_ids_non_list_is_empty(self):
+        # #1: a stray string active_ids must not iterate into characters.
+        scope = {
+            'combos': [
+                {'platform': 'amazon', 'country': 'SA', 'active_ids': 'oops'},
+            ]
+        }
+        combos = ad_scope.scope_combos(scope)
+        assert combos[0]['active_ids'] == []
+
+    def test_llm_manifest_off_by_default(self, monkeypatch):
+        # #3: even WITH an API key, the check is off unless opted in, so no
+        # network call enters the request path by default.
+        monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-test')
+        monkeypatch.delenv('AD_AUDIT_LLM_MANIFEST', raising=False)
+        ad_scope._llm_cache.clear()
+        assert ad_scope.llm_is_real_drill('### 1 | x |\n| kw | 建议 |') is None
