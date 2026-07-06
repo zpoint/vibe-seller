@@ -369,10 +369,10 @@ def _monthly_months(anchor: datetime | None, interval_value: int) -> str:
     and firing every month.
     """
     base = anchor.month if anchor else 1
-    months = sorted(
-        {((base - 1 + k * interval_value) % 12) + 1
-         for k in range(0, (11 // interval_value) + 1)}
-    )
+    months = sorted({
+        ((base - 1 + k * interval_value) % 12) + 1
+        for k in range(0, (11 // interval_value) + 1)
+    })
     return ','.join(str(m) for m in months)
 
 
