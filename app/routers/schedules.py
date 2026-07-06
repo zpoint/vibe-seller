@@ -296,6 +296,7 @@ async def create_schedule(
             plan_mode=schedule.plan_mode,
             ai_profile_id=schedule.ai_profile_id,
             phase_mode=schedule.phase_mode,
+            created_at=schedule.created_at,
         )
     except Exception as e:
         logger.exception(
@@ -470,6 +471,7 @@ async def update_schedule(
                 plan_mode=schedule.plan_mode,
                 ai_profile_id=schedule.ai_profile_id,
                 phase_mode=schedule.phase_mode,
+                created_at=schedule.created_at,
             )
         except Exception as e:
             logger.exception(
@@ -566,6 +568,7 @@ async def resume_schedule(
             plan_mode=schedule.plan_mode,
             ai_profile_id=schedule.ai_profile_id,
             phase_mode=schedule.phase_mode,
+            created_at=schedule.created_at,
         )
     except Exception as e:
         logger.exception('Failed to resume job for schedule %s', schedule.id)
