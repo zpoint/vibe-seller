@@ -152,59 +152,6 @@ async def try_connect_ziniao(
     return result, gateway
 
 
-# Whether ``updateCore`` has completed since the current client launch.
-# The official Ziniao webdriver demo calls ``updateCore`` (download ALL
-# browser kernels) once after launching the client and before opening any
-# store, so a browser never waits on a kernel download mid-launch. Reset
-# whenever the client is (re)started.
-_core_updated = False
-
-
-def reset_core_updated() -> None:
-    """Mark kernels as needing a fresh ``updateCore`` (after a restart)."""
-    global _core_updated
-    _core_updated = False
-
-
-async def update_ziniao_core(
-    socket_port: int, user_info: dict, *, max_attempts: int = 60
-) -> None:
-    """Download all browser kernels before opening stores (idempotent).
-
-    Mirrors the official demo's ``update_core``: loop the ``updateCore``
-    action until it reports success (statusCode 0). Once cores are present
-    this returns fast. ``-10003``/missing statusCode means the client is
-    too old to support the action — skip rather than block. Runs at most
-    once per client launch (see ``_core_updated``). Best-effort: never
-    raises, so a flaky updateCore can't block browser starts.
-    """
-    global _core_updated
-    if _core_updated:
-        return
-    data = {
-        'action': 'updateCore',
-        'requestId': str(uuid.uuid4()),
-        **user_info,
-    }
-    for _ in range(max_attempts):
-        result, _host = await try_connect_ziniao(socket_port, data, timeout=120)
-        if result is None:
-            await asyncio.sleep(2)
-            continue
-        code = result.get('statusCode')
-        if code is None or str(code) == '-10003':
-            logger.info('Ziniao updateCore unsupported — skipping')
-            _core_updated = True
-            return
-        if str(code) == '0':
-            logger.info('Ziniao updateCore complete (kernels ready)')
-            _core_updated = True
-            return
-        logger.info('Ziniao updateCore in progress: %s', json.dumps(result))
-        await asyncio.sleep(2)
-    logger.warning('Ziniao updateCore did not finish — proceeding anyway')
-
-
 async def graceful_exit_ziniao(socket_port: int, user_info: dict) -> bool:
     """Ask the Ziniao client to quit via its ``exit`` API action.
 
@@ -592,9 +539,6 @@ async def kill_and_relaunch_ziniao(
 
     Returns True on success, raises RuntimeError on failure.
     """
-    # Kernels must be re-fetched after a client restart.
-    reset_core_updated()
-
     # Prefer a GRACEFUL shutdown (exit action) over SIGKILL: pkill -9 can
     # leave the client degraded so later startBrowser calls stale-launch
     # (see docs/ziniao-concurrency.md). Fall back to force-kill only if the

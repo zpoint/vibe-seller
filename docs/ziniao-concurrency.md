@@ -140,7 +140,7 @@ Implemented in `app/browser/ziniao.py` + `app/browser/ziniao_utils.py`:
 2. **Graceful-first client restart.** `kill_and_relaunch_ziniao` (still
    used by the *user-initiated* force-restart endpoints) now tries the
    `exit` action first and only falls back to `pkill -9` if the client
-   ignores it. It also resets the `updateCore` flag.
+   ignores it.
 3. **`updateCore` up front.** `start()` calls `update_ziniao_core()` once
    after the client is confirmed running, mirroring the demo, so a
    per-store launch never blocks on a kernel download.

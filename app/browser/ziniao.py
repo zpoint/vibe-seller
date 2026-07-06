@@ -21,12 +21,46 @@ from app.browser.ziniao_utils import (
     ensure_ziniao_running,
     is_wsl,
     try_connect_ziniao,
-    update_ziniao_core,
     ziniao_host,
 )
 from app.config import DOWNLOADS_DIR, LOCALHOST
 
 logger = logging.getLogger(__name__)
+
+# updateCore downloads all browser kernels. Run it once per process,
+# serialized so concurrent fan-out starts don't each loop the API, and
+# best-effort/bounded so a slow or unreachable client can't block a start
+# (kernels missing → startBrowser stales → per-store retry handles it).
+_core_updated = False
+_core_lock = asyncio.Lock()
+
+
+async def update_ziniao_core(socket_port: int, user_info: dict) -> None:
+    """Download browser kernels once before opening stores (best-effort).
+
+    Mirrors the official demo's ``update_core``. Bounded and serialized so
+    it can never multi-minute-block concurrent starts; see
+    docs/ziniao-concurrency.md.
+    """
+    global _core_updated
+    async with _core_lock:
+        if _core_updated:
+            return
+        data = {
+            'action': 'updateCore',
+            'requestId': str(uuid.uuid4()),
+            **user_info,
+        }
+        for _ in range(6):
+            result, _h = await try_connect_ziniao(socket_port, data, timeout=15)
+            if result is None:
+                await asyncio.sleep(2)
+                continue
+            code = str(result.get('statusCode'))
+            if code in ('0', '-10003'):
+                _core_updated = True  # done, or client too old to support it
+                return
+            await asyncio.sleep(2)
 
 
 class ZiniaoBackend(BrowserBackend):
