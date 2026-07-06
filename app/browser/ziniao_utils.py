@@ -18,6 +18,7 @@ import uuid
 import httpx
 
 from app import telemetry
+from app.browser.proxy_env import browser_launch_env
 from app.config import LOCALHOST
 from app.platform import IS_LINUX, IS_MAC, IS_WINDOWS
 from app.telemetry_events import BrowserFailureReason, TelemetryEvent
@@ -153,11 +154,9 @@ async def try_connect_ziniao(
 
 
 async def graceful_exit_ziniao(socket_port: int, user_info: dict) -> bool:
-    """Ask the Ziniao client to quit via its ``exit`` API action.
+    """Quit the Ziniao client via its ``exit`` action (clean, vs SIGKILL).
 
-    A clean shutdown, unlike ``pkill -9`` (which can leave the client in a
-    degraded state where subsequent ``startBrowser`` calls stale-launch —
-    see docs/ziniao-concurrency.md). Returns True if the client terminated.
+    True if it terminated. See docs/ziniao-concurrency.md.
     """
     try:
         await try_connect_ziniao(
@@ -167,10 +166,9 @@ async def graceful_exit_ziniao(socket_port: int, user_info: dict) -> bool:
         )
     except Exception as e:
         logger.debug('Ziniao graceful exit call failed: %s', e)
-    for i in range(16):
+    for _ in range(16):
         await asyncio.sleep(0.5)
         if not is_ziniao_process_running():
-            logger.info('Ziniao exited gracefully after %.1fs', (i + 1) * 0.5)
             return True
     return False
 
@@ -272,40 +270,6 @@ def _resolve_windows_client_path(client_path: str) -> str:
         'Could not find ziniao.exe. Please make sure Ziniao is '
         'installed (default: C:\\Program Files\\ziniao\\ziniao.exe).'
     )
-
-
-# System-proxy env vars (e.g. a user's Clash on 127.0.0.1:7890). A browser
-# client must NEVER inherit these from our server: Ziniao reaches its own
-# (domestic) servers directly and drives per-store residential proxies
-# itself, so a leaked system proxy can (a) break its browser launches —
-# the client↔browser CDP handshake gets routed through the dead/loopback-
-# hostile proxy and the debuggingPort comes up unreachable ("stale
-# launch") — and (b) reset the OS proxy config, dropping the user's VPN.
-# Chrome/other backends manage their own proxying too. See
-# docs/ziniao-concurrency.md.
-_PROXY_ENV_VARS = (
-    'http_proxy',
-    'https_proxy',
-    'all_proxy',
-    'ftp_proxy',
-    'HTTP_PROXY',
-    'HTTPS_PROXY',
-    'ALL_PROXY',
-    'FTP_PROXY',
-)
-
-
-def browser_launch_env() -> dict[str, str]:
-    """Process env with system-proxy vars stripped, for spawning browsers.
-
-    Our infra must never force the user's HTTP proxy onto a browser
-    subprocess (Ziniao/Chrome). Strips the proxy vars and pins NO_PROXY so
-    any residual config bypasses the proxy entirely.
-    """
-    env = {k: v for k, v in os.environ.items() if k not in _PROXY_ENV_VARS}
-    env['NO_PROXY'] = '*'
-    env['no_proxy'] = '*'
-    return env
 
 
 def build_launch_cmd(client_path: str, socket_port: int) -> list[str]:
