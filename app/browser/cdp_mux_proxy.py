@@ -42,6 +42,7 @@ Download path override (``download_dir``):
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 import json
 import logging
 import time
@@ -90,10 +91,20 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         cleanup_grace: float = DEFAULT_CLEANUP_GRACE,
         download_dir: str | None = None,
         keep_last_page: bool = False,
+        relaunch_upstream: Callable[[], Awaitable[tuple[int, str] | int | None]]
+        | None = None,
     ):
         self.listen_port = listen_port
         self.target_port = target_port
         self.target_host = target_host
+        # Self-heal hook: when reconnecting to the current upstream fails
+        # for good (the browser died / its debugging port rotated — e.g.
+        # after a Ziniao restart), this relaunches the upstream browser
+        # and returns its fresh (port, host) (or just a port). Without it
+        # an exhausted reconnect stops the proxy and every /json/version
+        # then 502s until a task re-triggers browser/start. Injected by
+        # the backend so this stays decoupled + unit-testable.
+        self._relaunch_upstream = relaunch_upstream
         self.max_clients = max_clients
         self.cleanup_grace = cleanup_grace
         self.download_dir = download_dir
