@@ -124,7 +124,8 @@ not a substitute for it.
 are the single source in `ad_rules.py`; a store's `notes.md` may
 override — see tuning-thresholds.md.)
 
-- **⚠️ `ACOS = 0` / 空白 is NOT "low ACOS = good" — it means ZERO SALES.**
+- **⚠️ `ACOS = 0` / blank, when `spend > 0`, is NOT "low ACOS = good" —
+  it means ZERO SALES.** (With `spend = 0`, `ACOS = 0` is a benign zero.)
   When `spend > 0` but `orders = 0` / `sales = 0`, Amazon prints
   `ACOS = 0.00` (and `ROAS = 0`). That is the WORST case — spend with no
   return, effective ACOS **∞** — not a healthy sub-threshold campaign.
