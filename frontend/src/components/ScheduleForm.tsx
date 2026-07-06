@@ -129,8 +129,8 @@ export function ScheduleForm({
             <option value="minutes">{t('schedules.minutes')}</option>
             <option value="hours">{t('schedules.hours')}</option>
             <option value="days">{t('schedules.days')}</option>
-            <option value="weekly">{t('schedules.weekly')}</option>
-            <option value="monthly">{t('schedules.monthly')}</option>
+            <option value="weekly">{t('schedules.weeks')}</option>
+            <option value="monthly">{t('schedules.months')}</option>
           </select>
         </div>
       </div>
