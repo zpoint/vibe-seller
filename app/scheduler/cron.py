@@ -354,7 +354,9 @@ def _weekly_start(
     return start
 
 
-def _monthly_months(anchor: datetime | None, interval_value: int) -> str:
+def _monthly_months(
+    anchor: datetime | None, tz: ZoneInfo, interval_value: int
+) -> str:
     """Cron ``month`` field for an every-N-months schedule.
 
     Months have no fixed length, so an IntervalTrigger can't express
@@ -367,8 +369,13 @@ def _monthly_months(anchor: datetime | None, interval_value: int) -> str:
     year-boundary gap differs from N — an accepted, documented limit for
     a rare case, still far better than the old behaviour of ignoring N
     and firing every month.
+
+    The anchor month is taken in the schedule's ``tz`` (the CronTrigger
+    fires there), not in ``created_at``'s stored UTC — otherwise a
+    schedule created near a month boundary would anchor to the wrong
+    month (e.g. 2026-06-30 23:00Z is already July in Asia/Shanghai).
     """
-    base = anchor.month if anchor else 1
+    base = anchor.astimezone(tz).month if anchor else 1
     months = sorted({
         ((base - 1 + k * interval_value) % 12) + 1
         for k in range(0, (11 // interval_value) + 1)
@@ -462,8 +469,8 @@ def build_trigger(
             kwargs['day'] = schedule_day
         if interval_value > 1:
             # Every N months: restrict the cron month field to the
-            # N-step grid anchored at the creation month.
-            kwargs['month'] = _monthly_months(anchor, interval_value)
+            # N-step grid anchored at the creation month (in tz).
+            kwargs['month'] = _monthly_months(anchor, tz, interval_value)
         return CronTrigger(**kwargs)
 
     # Fallback: daily
@@ -620,6 +627,31 @@ def add_schedule_job(
     )
 
 
+def add_schedule_job_for(sched: Schedule) -> None:
+    """Register the APScheduler job for a Schedule row.
+
+    Thin adapter over :func:`add_schedule_job` that maps every field
+    from the ORM object. The single mapping point for create / update /
+    activate / rebuild, so the argument list can't drift between paths
+    (it once did — ``interval_value`` was silently dropped on update).
+    """
+    add_schedule_job(
+        schedule_id=sched.id,
+        task_title=sched.title,
+        schedule_type=sched.schedule_type,
+        schedule_time=sched.schedule_time,
+        schedule_day=sched.schedule_day,
+        interval_value=sched.interval_value,
+        timezone=sched.timezone,
+        store_id=sched.store_id,
+        description=sched.description,
+        plan_mode=sched.plan_mode,
+        ai_profile_id=sched.ai_profile_id,
+        phase_mode=sched.phase_mode,
+        created_at=sched.created_at,
+    )
+
+
 def remove_schedule_job(schedule_id: str) -> bool:
     """Remove the APScheduler job for a schedule."""
     job_id = f'schedule_{schedule_id}'
@@ -678,21 +710,7 @@ async def rebuild_schedule_jobs():
     count = 0
     for sched in schedules:
         try:
-            add_schedule_job(
-                schedule_id=sched.id,
-                task_title=sched.title,
-                schedule_type=sched.schedule_type,
-                schedule_time=sched.schedule_time,
-                schedule_day=sched.schedule_day,
-                interval_value=sched.interval_value,
-                timezone=sched.timezone,
-                store_id=sched.store_id,
-                description=sched.description,
-                plan_mode=sched.plan_mode,
-                ai_profile_id=sched.ai_profile_id,
-                phase_mode=sched.phase_mode,
-                created_at=sched.created_at,
-            )
+            add_schedule_job_for(sched)
             count += 1
         except Exception:
             logger.exception('Failed to rebuild job for schedule %s', sched.id)
