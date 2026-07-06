@@ -388,10 +388,11 @@ class TaskQueueScheduler:
                 .order_by(Task.created_at)
             )
             for task in planned.scalars().all():
-                if task.store_id:
-                    self._queues.setdefault(task.store_id, []).append(
-                        task.id
-                    )
+                # store_id may be None (no-store / phase_mode='single'
+                # schedule); the queue uses None as a valid lane key, so
+                # append unconditionally — else a no-store scheduled task
+                # is left orphaned at PLANNED across a restart.
+                self._queues.setdefault(task.store_id, []).append(task.id)
 
             # Reset all browser sessions to idle
             result = await db.execute(select(BrowserSession))
