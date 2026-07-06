@@ -751,11 +751,12 @@ def check_bid_value_shape(command: str) -> str | None:
         val = float(raw)
     except ValueError:
         return None
-    # Gate the ceiling on a decimal: a CPC bid is a currency decimal, but
-    # the legacy input form also types integer OTP/postal/quantity (firing
-    # on a 6-digit OTP blocked live login on two stores). Shipped bugs were
-    # decimal (113.0), so decimals still hit the ceiling.
-    if '.' in raw and val > _BID_SANITY_CEILING:
+    # Fire the ceiling on a decimal (a CPC bid is a currency decimal, so
+    # 113.0 is caught in any context) OR in an explicit bid context ("bid"
+    # in the command → an integer bid like 999 is still caught). The legacy
+    # input form WITHOUT "bid" is OTP/postal/quantity-ambiguous — integers
+    # there pass (firing on a 6-digit OTP blocked live login on two stores).
+    if val > _BID_SANITY_CEILING and ('.' in raw or 'bid' in command.lower()):
         return (
             f'Bid value {raw} exceeds the {_BID_SANITY_CEILING:g} sanity '
             'ceiling — almost certainly a clear-failure concatenation (e.g. '

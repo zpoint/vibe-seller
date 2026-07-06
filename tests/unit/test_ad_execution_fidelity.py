@@ -345,18 +345,17 @@ def test_gate_allows_lower_applied_or_already_below(tmp_path, monkeypatch):
         ('1.301.30', True),  # concatenation
         ('113.0', True),  # decimal, > ceiling — the shipped real-money bug
         ('999.0', True),  # absurd magnitude, decimal-shaped (> ceiling)
-        # An INTEGER above the ceiling is NOT a bid shape (a CPC bid is a
-        # currency decimal) — it is an OTP / postal code / quantity, so the
-        # shape guard must NOT deny it. See
-        # test_check_bid_value_shape_allows_integer_otp_and_quantities.
-        ('446770', False),  # 6-digit OTP — integer, not a bid
+        # NOTE: only DECIMAL-shaped values go here — they behave the same
+        # in every form below. Integer magnitudes are context-dependent
+        # (denied in a bid context, allowed as OTP/postal via the legacy
+        # form), so they are tested separately in the two functions below.
     ],
 )
 def test_check_bid_value_shape(value, denied):
     # The guard must catch the pathology regardless of how the bid is
     # typed: the legacy 0.12 subcommand, the 0.13 heredoc typing helpers,
-    # or a JS value assignment. The 0.13 helpers are generic, so a bid
-    # context ("bid" in the command) is required for them to be checked.
+    # or a JS value assignment. All four forms below are bid contexts, so
+    # a decimal-shaped pathology denies identically across them.
     for cmd in (
         f'browser-use input 47 "{value}"',  # legacy 0.12 (bid-specific)
         f'fill_input("input.bid-input", "{value}")',  # 0.13 helper
@@ -383,7 +382,18 @@ def test_check_bid_value_shape_ignores_generic_numeric_fields():
     assert check_bid_value_shape('fill_input("#otp", "123456")') is None
     assert check_bid_value_shape('js("el.value = \'999\'")') is None
     assert check_bid_value_shape('type_text("100234")  # quantity') is None
-    # ...but a decimal-shaped absurd value IS denied in a bid context.
+
+
+def test_check_bid_value_shape_denies_absurd_integer_in_bid_context():
+    """A currency can be entered without a decimal, so an absurd INTEGER
+    bid in an explicit bid context ("bid" in the command) must still be
+    denied — the decimal gate alone would let it through."""
+    assert (
+        check_bid_value_shape('fill_input("input.bid-input", "999")')
+        is not None
+    )
+    assert check_bid_value_shape('type_text("999")  # bid cell') is not None
+    # Decimal-shaped absurd value is denied in a bid context too.
     assert (
         check_bid_value_shape('fill_input("input.bid-input", "999.0")')
         is not None
@@ -391,12 +401,12 @@ def test_check_bid_value_shape_ignores_generic_numeric_fields():
 
 
 def test_check_bid_value_shape_allows_integer_otp_and_quantities():
-    """The legacy ``browser-use input <idx>`` form is bid-specific, but the
-    agent ALSO types OTP codes / postal codes / quantities through it —
-    all integers, many legitimately > 50. The magnitude ceiling is
-    bid-shaped reasoning (a real CPC bid is a currency decimal), so an
-    integer above the ceiling must pass. Regression: firing on a 6-digit
-    OTP blocked live login on two stores."""
+    """The legacy ``browser-use input <idx>`` form (no "bid" in the
+    command) is OTP/postal/quantity-ambiguous — the agent types 6-digit
+    OTP codes through it. Integers there must pass the magnitude ceiling
+    (a real CPC bid is a currency decimal). Regression: firing on a
+    6-digit OTP blocked live login on two stores. The exit gate
+    (ad_execution_fidelity) is what validates a bid's actual value."""
     # 6-digit OTPs through the legacy form — must be allowed.
     assert check_bid_value_shape('browser-use input 47 "446770"') is None
     assert check_bid_value_shape('browser-use input 12 "875765"') is None
