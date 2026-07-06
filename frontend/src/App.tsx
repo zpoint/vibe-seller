@@ -21,6 +21,7 @@ import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedu
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
 import { retryTask as retryTaskHandler } from './handlers/retryTask'
+import { continueTask as continueTaskHandler } from './handlers/continueTask'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
   ServerPlatform,
@@ -476,6 +477,16 @@ export default function App() {
         setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({})
       },
     })
+  // Continue (继续): non-destructive resume — keep the task's context
+  // (plan / history / session) and re-run via the /messages path.
+  const continueTask = (taskId: string) =>
+    continueTaskHandler(taskId, {
+      api,
+      profileId: selectedProfileId,
+      setTasks,
+      setSelectedTask,
+      setScheduleTasks,
+    })
   const deleteTask = async (taskId: string) => {
     // Probe for children so the confirm warns about cascade.
     let childCount = 0
@@ -689,7 +700,7 @@ export default function App() {
           profiles={profiles} selectedProfileId={selectedProfileId} setSelectedProfileId={setSelectedProfileId}
           currentUser={currentUser} showAllTasks={showAllTasks}
           openCreateModal={() => setShowCreateTask(true)} selectTask={selectTask}
-          stopAgent={stopAgent} retryTask={retryTask} deleteTask={deleteTask}
+          stopAgent={stopAgent} retryTask={retryTask} continueTask={continueTask} deleteTask={deleteTask}
           selectAnswer={selectAnswer} toggleOtherInput={toggleOtherInput}
           setOtherAnswer={setOtherAnswer} submitAllAnswers={submitAllAnswers} sendChatMessage={sendChatMessage}
           setSelectedTask={setSelectedTask} setTasks={setTasks} setCurrentUser={setCurrentUser}
