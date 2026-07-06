@@ -16,6 +16,8 @@ from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
+    WRAPPER_FORMAT_MARKER,
+    WRAPPER_FORMAT_VERSION,
     remove_browser_use_wrapper,
     store_slug,
     write_browser_use_wrapper,
@@ -105,15 +107,25 @@ async def _kill_all_browser_daemons() -> int:
 
 
 def _wipe_generated_wrappers() -> int:
-    """Delete auto-generated browser-use wrapper scripts on boot.
+    """Delete OUTDATED auto-generated browser-use wrappers on boot.
 
-    In-place-upgrade safety (docs/browser-use-0.13-migration.md §8.4a):
-    a wrapper left on disk by a previous (possibly pre-0.13) version
-    drives the OLD CLI shape and would fail if invoked out-of-band
-    before the next task launch regenerates it. Wiping here guarantees
-    that never happens — ``write_task_browser_config`` rewrites the
-    correct wrapper (with a fresh token) on the next launch. User-created
-    wrappers (without our auto-generation header) are left untouched.
+    In-place-upgrade safety: a wrapper left by an OLDER version drives a
+    stale CLI/env contract and would misbehave if invoked before the next
+    task launch regenerates it. So we remove wrappers whose embedded
+    format version is BELOW the current ``WRAPPER_FORMAT_VERSION`` (and
+    unmarked/pre-versioning ones, treated as version 0).
+
+    We deliberately KEEP wrappers at the current-or-higher version:
+      - current-version wrappers survive a restart, so there is no
+        wrapper-less window in which the agent's ``browser-use`` could
+        fall through PATH to the real binary and attach to a local Chrome
+        (see docs/ziniao-concurrency.md);
+      - a running vN never deletes a wrapper written by a newer vN+1
+        (rollback / mixed-process safety).
+
+    User-created wrappers (without our auto-generation header) are left
+    untouched. See docs/browser-use-0.13-migration.md § wrapper-format
+    versioning.
     """
     removed = 0
     if not BROWSER_USE_BIN_DIR.is_dir():
@@ -123,17 +135,22 @@ def _wipe_generated_wrappers() -> int:
         if not wrapper.is_file():
             continue
         try:
-            head = wrapper.read_text(errors='replace')[:200]
+            head = wrapper.read_text(errors='replace')[:400]
         except OSError:
             continue
-        if 'Auto-generated browser-use wrapper' in head:
-            try:
-                wrapper.unlink()
-                removed += 1
-            except OSError:
-                pass
+        if 'Auto-generated browser-use wrapper' not in head:
+            continue  # user-created wrapper — never touch
+        m = re.search(rf'{re.escape(WRAPPER_FORMAT_MARKER)}\s*(\d+)', head)
+        version = int(m.group(1)) if m else 0
+        if version >= WRAPPER_FORMAT_VERSION:
+            continue  # current or newer — keep (no wrapper-less window)
+        try:
+            wrapper.unlink()
+            removed += 1
+        except OSError:
+            pass
     if removed:
-        logger.info('Boot: wiped %d stale browser-use wrapper(s)', removed)
+        logger.info('Boot: wiped %d outdated browser-use wrapper(s)', removed)
     return removed
 
 

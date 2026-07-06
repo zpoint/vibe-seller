@@ -12,6 +12,7 @@ venv ``~/.vibe-seller/.venv`` (mirroring the workspace assistant).
 
 import os
 from pathlib import Path
+import subprocess
 
 import pytest
 
@@ -130,3 +131,64 @@ class TestAgentVenvPath:
             env, store_slug=None, vibe_home=vibe_home, server_bin=server_bin
         )
         assert env['VIRTUAL_ENV'] != str(server_venv)
+
+
+class TestBrowserUseGuardNeverFallsBackToLocalChrome:
+    """Failure point 2: if the store wrapper is missing, bare `browser-use`
+    must hit a guard that ERRORS — never fall through PATH to the real
+    binary and attach to the user's local Chrome."""
+
+    def test_guard_ahead_of_venvs_when_wrapper_absent(self, tmp_path):
+        vibe_home = tmp_path / 'vibe'
+        shared_bin = _mkvenv(vibe_home / '.venv')
+        server_bin = _mkvenv(tmp_path / 'server' / '.venv')
+        # No store wrapper dir created (the failure condition).
+
+        env = {'PATH': '/usr/bin'}
+        apply_agent_venv_path(
+            env, store_slug='ghost', vibe_home=vibe_home, server_bin=server_bin
+        )
+
+        parts = env['PATH'].split(os.pathsep)
+        guard_bin = str(vibe_home / 'bin' / '_guard')
+        assert guard_bin in parts, 'guard dir must be on PATH'
+        # Guard must resolve `browser-use` BEFORE either venv (real binary).
+        assert parts.index(guard_bin) < parts.index(str(shared_bin))
+        assert parts.index(guard_bin) < parts.index(str(server_bin))
+
+    def test_guard_script_errors_not_silent(self, tmp_path):
+        vibe_home = tmp_path / 'vibe'
+        _mkvenv(vibe_home / '.venv')
+        apply_agent_venv_path(
+            env={'PATH': '/usr/bin'},
+            store_slug='ghost',
+            vibe_home=vibe_home,
+            server_bin=_mkvenv(tmp_path / 'srv' / '.venv'),
+        )
+        guard = vibe_home / 'bin' / '_guard' / 'browser-use'
+        assert guard.is_file(), 'guard browser-use must be written'
+        r = subprocess.run(['bash', str(guard)], capture_output=True, text=True)
+        assert r.returncode != 0, (
+            'guard must EXIT NON-ZERO (error, not fallback)'
+        )
+        assert 'local Chrome' in r.stderr
+
+    def test_real_wrapper_wins_over_guard(self, tmp_path):
+        vibe_home = tmp_path / 'vibe'
+        _mkvenv(vibe_home / '.venv')
+        server_bin = _mkvenv(tmp_path / 'server' / '.venv')
+        store_bin = vibe_home / 'bin' / 'mystore'
+        store_bin.mkdir(parents=True)
+
+        env = {'PATH': '/usr/bin'}
+        apply_agent_venv_path(
+            env,
+            store_slug='mystore',
+            vibe_home=vibe_home,
+            server_bin=server_bin,
+        )
+
+        parts = env['PATH'].split(os.pathsep)
+        guard_bin = str(vibe_home / 'bin' / '_guard')
+        # Wrapper must sit AHEAD of the guard (real wrapper wins).
+        assert parts.index(str(store_bin)) < parts.index(guard_bin)
