@@ -5,6 +5,7 @@ Uses MemoryJobStore — the Schedule DB table is the source of truth;
 APScheduler jobs are rebuilt on startup via rebuild_schedule_jobs().
 """
 
+from datetime import datetime, timedelta
 import logging
 from zoneinfo import ZoneInfo
 
@@ -283,24 +284,138 @@ async def _run_task_job(
                 )
 
 
+def _interval_start(
+    anchor: datetime | None,
+    tz: ZoneInfo,
+    hour: int | None = None,
+    minute: int | None = None,
+) -> datetime | None:
+    """Compute a stable ``start_date`` for an IntervalTrigger.
+
+    APScheduler's IntervalTrigger, given no ``start_date``, anchors its
+    first fire to ``now + interval`` at the moment the job is *added*.
+    Because the job store is in-memory and every server start rebuilds
+    all jobs (:func:`rebuild_schedule_jobs`), that makes the next-fire
+    time a function of process-start time: each restart re-anchors the
+    countdown, so an interval longer than the restart cadence never
+    elapses and the schedule never fires. See the fire-cadence tests.
+
+    Anchoring ``start_date`` to a fixed reference (the schedule's
+    ``created_at``) instead makes the fire grid ``start + k*interval``
+    a pure function of the schedule definition — identical on every
+    rebuild, so restarts no longer reset the clock. When ``hour``/
+    ``minute`` are given (day-granularity schedules) the anchor's
+    time-of-day is pinned to the configured HH:MM so fires land at the
+    wall-clock time the user chose, not at whatever minute the anchor
+    happened to carry.
+
+    Returns ``None`` when no anchor is available, preserving the legacy
+    floating behaviour for direct callers that don't supply one.
+    """
+    if anchor is None:
+        return None
+    start = anchor.astimezone(tz)
+    if hour is not None:
+        start = start.replace(
+            hour=hour, minute=minute or 0, second=0, microsecond=0
+        )
+    return start
+
+
+def _weekly_start(
+    anchor: datetime | None,
+    tz: ZoneInfo,
+    schedule_day: int | None,
+    hour: int,
+    minute: int,
+) -> datetime | None:
+    """``start_date`` for an every-N-weeks IntervalTrigger.
+
+    Cron cannot express "every N weeks" (its day-of-week field has no
+    multi-week stride), so weekly schedules with ``interval_value > 1``
+    use an IntervalTrigger of ``weeks=N``. Its grid must be pinned to
+    the chosen ISO weekday at HH:MM and anchored to a fixed reference
+    (``created_at``) so it neither drifts off the weekday nor resets on
+    restart — same rationale as :func:`_interval_start`.
+
+    Returns ``None`` when no anchor is available (legacy floating
+    fallback for direct callers).
+    """
+    if anchor is None:
+        return None
+    start = anchor.astimezone(tz).replace(
+        hour=hour, minute=minute, second=0, microsecond=0
+    )
+    if schedule_day is not None:
+        # Shift within the anchor's own week onto the target ISO weekday
+        # (Mon=1..Sun=7). Any such date is a valid grid origin; the
+        # N-week stride then keeps every fire on that weekday.
+        start += timedelta(days=schedule_day - start.isoweekday())
+    return start
+
+
+def _monthly_months(
+    anchor: datetime | None, tz: ZoneInfo, interval_value: int
+) -> str:
+    """Cron ``month`` field for an every-N-months schedule.
+
+    Months have no fixed length, so an IntervalTrigger can't express
+    "every N months". Instead we emit a CronTrigger whose ``month``
+    field lists the months on the N-step grid anchored at the schedule's
+    creation month, within a single 12-month cycle. This is wall-clock
+    anchored (hence restart-safe by construction) and gives an exact
+    N-month cadence whenever ``N`` divides 12 (2, 3, 4, 6, 12). For
+    other ``N`` the pattern repeats each calendar year, so the
+    year-boundary gap differs from N — an accepted, documented limit for
+    a rare case, still far better than the old behaviour of ignoring N
+    and firing every month.
+
+    The anchor month is taken in the schedule's ``tz`` (the CronTrigger
+    fires there), not in ``created_at``'s stored UTC — otherwise a
+    schedule created near a month boundary would anchor to the wrong
+    month (e.g. 2026-06-30 23:00Z is already July in Asia/Shanghai).
+    """
+    base = anchor.astimezone(tz).month if anchor else 1
+    months = sorted({
+        ((base - 1 + k * interval_value) % 12) + 1
+        for k in range(0, (11 // interval_value) + 1)
+    })
+    return ','.join(str(m) for m in months)
+
+
 def build_trigger(
     schedule_type: str,
     schedule_time: str,
     schedule_day: int | None = None,
     interval_value: int = 1,
     timezone: str | None = None,
+    anchor: datetime | None = None,
 ) -> CronTrigger | IntervalTrigger:
     """Build an APScheduler trigger from schedule params.
 
-    Returns CronTrigger for weekly/monthly, IntervalTrigger for
-    minutes/hours/days.
+    Trigger selection:
+    - minutes / hours / days>1 / weeks>1 → IntervalTrigger, anchored via
+      ``anchor`` (the schedule's ``created_at``) so the fire grid is a
+      function of the schedule definition, not process-start time.
+    - daily / weekly (N=1) / monthly → CronTrigger, wall-clock anchored
+      and thus restart-safe by construction. ``interval_value`` for
+      monthly is honoured by restricting the cron ``month`` field
+      (see :func:`_monthly_months`).
     """
     tz = ZoneInfo(timezone or get_server_timezone())
 
     if schedule_type == 'minutes':
-        return IntervalTrigger(minutes=max(1, interval_value), timezone=tz)
+        return IntervalTrigger(
+            minutes=max(1, interval_value),
+            start_date=_interval_start(anchor, tz),
+            timezone=tz,
+        )
     if schedule_type == 'hours':
-        return IntervalTrigger(hours=max(1, interval_value), timezone=tz)
+        return IntervalTrigger(
+            hours=max(1, interval_value),
+            start_date=_interval_start(anchor, tz),
+            timezone=tz,
+        )
     if schedule_type == 'days':
         parts = schedule_time.split(':')
         hour = int(parts[0])
@@ -308,26 +423,37 @@ def build_trigger(
         if interval_value == 1:
             # Exact daily at HH:MM via cron
             return CronTrigger(hour=hour, minute=minute, timezone=tz)
-        return IntervalTrigger(days=interval_value, timezone=tz)
+        return IntervalTrigger(
+            days=interval_value,
+            start_date=_interval_start(anchor, tz, hour, minute),
+            timezone=tz,
+        )
     if schedule_type == 'weekly':
         parts = schedule_time.split(':')
         hour = int(parts[0])
         minute = int(parts[1]) if len(parts) > 1 else 0
-        kwargs: dict = {
-            'hour': hour,
-            'minute': minute,
-            'timezone': tz,
-        }
+        if schedule_day is not None and not 1 <= schedule_day <= 7:
+            # DB stores ISO weekday (Mon=1..Sun=7). Range-check explicitly
+            # so bad input fails loudly instead of being silently wrapped
+            # to a different weekday.
+            raise ValueError(
+                f'weekly schedule_day must be 1..7 (ISO weekday, '
+                f'Mon=1..Sun=7); got {schedule_day}'
+            )
+        if interval_value > 1:
+            # Every N weeks: cron has no N-week stride, so anchor an
+            # IntervalTrigger to the chosen weekday at HH:MM.
+            return IntervalTrigger(
+                weeks=interval_value,
+                start_date=_weekly_start(
+                    anchor, tz, schedule_day, hour, minute
+                ),
+                timezone=tz,
+            )
+        # Every week: CronTrigger fires at local HH:MM (DST-safe).
+        kwargs: dict = {'hour': hour, 'minute': minute, 'timezone': tz}
         if schedule_day is not None:
-            # DB stores ISO weekday (Mon=1..Sun=7) but APScheduler's
-            # CronTrigger uses Mon=0..Sun=6 — translate at the boundary.
-            # Range-check explicitly so bad input fails loudly instead of
-            # being silently wrapped to a different weekday.
-            if not 1 <= schedule_day <= 7:
-                raise ValueError(
-                    f'weekly schedule_day must be 1..7 (ISO weekday, '
-                    f'Mon=1..Sun=7); got {schedule_day}'
-                )
+            # APScheduler's CronTrigger uses Mon=0..Sun=6 — translate.
             kwargs['day_of_week'] = schedule_day - 1
         return CronTrigger(**kwargs)
     if schedule_type == 'monthly':
@@ -341,6 +467,10 @@ def build_trigger(
         }
         if schedule_day is not None:
             kwargs['day'] = schedule_day
+        if interval_value > 1:
+            # Every N months: restrict the cron month field to the
+            # N-step grid anchored at the creation month (in tz).
+            kwargs['month'] = _monthly_months(anchor, tz, interval_value)
         return CronTrigger(**kwargs)
 
     # Fallback: daily
@@ -412,6 +542,7 @@ def add_schedule_job(
     plan_mode: bool = False,
     ai_profile_id: str | None = 'default',
     phase_mode: str = 'fanout',
+    created_at: str | None = None,
 ) -> None:
     """Add an APScheduler job for a Schedule record.
 
@@ -420,13 +551,29 @@ def add_schedule_job(
       (two_phase handled inside the fanout runner).
     - ``'single'``: route to ``run_single_job`` — one no-store task
       per tick, no fan-out.
+
+    ``created_at`` (the schedule's ISO creation timestamp) anchors
+    interval triggers so their fire grid survives restarts — always
+    pass it from the Schedule row. See :func:`_interval_start`.
     """
+    anchor: datetime | None = None
+    if created_at:
+        try:
+            anchor = datetime.fromisoformat(created_at)
+        except ValueError:
+            logger.warning(
+                'Schedule %s: unparseable created_at %r; interval fires '
+                'will float from process-start time',
+                schedule_id,
+                created_at,
+            )
     trigger = build_trigger(
         schedule_type,
         schedule_time,
         schedule_day,
         interval_value,
         timezone or get_server_timezone(),
+        anchor=anchor,
     )
 
     job_id = f'schedule_{schedule_id}'
@@ -477,6 +624,31 @@ def add_schedule_job(
         schedule_type,
         interval_value,
         schedule_time,
+    )
+
+
+def add_schedule_job_for(sched: Schedule) -> None:
+    """Register the APScheduler job for a Schedule row.
+
+    Thin adapter over :func:`add_schedule_job` that maps every field
+    from the ORM object. The single mapping point for create / update /
+    activate / rebuild, so the argument list can't drift between paths
+    (it once did — ``interval_value`` was silently dropped on update).
+    """
+    add_schedule_job(
+        schedule_id=sched.id,
+        task_title=sched.title,
+        schedule_type=sched.schedule_type,
+        schedule_time=sched.schedule_time,
+        schedule_day=sched.schedule_day,
+        interval_value=sched.interval_value,
+        timezone=sched.timezone,
+        store_id=sched.store_id,
+        description=sched.description,
+        plan_mode=sched.plan_mode,
+        ai_profile_id=sched.ai_profile_id,
+        phase_mode=sched.phase_mode,
+        created_at=sched.created_at,
     )
 
 
@@ -538,20 +710,7 @@ async def rebuild_schedule_jobs():
     count = 0
     for sched in schedules:
         try:
-            add_schedule_job(
-                schedule_id=sched.id,
-                task_title=sched.title,
-                schedule_type=sched.schedule_type,
-                schedule_time=sched.schedule_time,
-                schedule_day=sched.schedule_day,
-                interval_value=sched.interval_value,
-                timezone=sched.timezone,
-                store_id=sched.store_id,
-                description=sched.description,
-                plan_mode=sched.plan_mode,
-                ai_profile_id=sched.ai_profile_id,
-                phase_mode=sched.phase_mode,
-            )
+            add_schedule_job_for(sched)
             count += 1
         except Exception:
             logger.exception('Failed to rebuild job for schedule %s', sched.id)
