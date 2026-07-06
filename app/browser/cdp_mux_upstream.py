@@ -166,10 +166,25 @@ class _UpstreamMixin:
             return False
         if not fresh:
             return False
-        if isinstance(fresh, tuple):
-            new_port, new_host = int(fresh[0]), fresh[1]
-        else:
-            new_port, new_host = int(fresh), self.target_host
+        # Validate the hook's return shape. A backend may hand back a
+        # (port, host) tuple or a bare port; anything else (wrong-arity
+        # tuple, non-int port) is a buggy hook, not a live upstream —
+        # treat it as unhealed rather than raising out of the reconnect
+        # coroutine and leaving the proxy half-repointed.
+        try:
+            if isinstance(fresh, (tuple, list)):
+                if len(fresh) != 2:
+                    raise ValueError(f'expected (port, host), got {fresh!r}')
+                new_port, new_host = int(fresh[0]), fresh[1]
+            else:
+                new_port, new_host = int(fresh), self.target_host
+        except (TypeError, ValueError, IndexError) as e:
+            logger.warning(
+                'CDPMuxProxy relaunch hook returned an invalid target %r: %s',
+                fresh,
+                e,
+            )
+            return False
         logger.info(
             'CDPMuxProxy self-heal: relaunched upstream, repointing '
             '%s:%d -> %s:%d',
