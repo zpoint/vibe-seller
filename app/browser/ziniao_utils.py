@@ -274,6 +274,40 @@ def _resolve_windows_client_path(client_path: str) -> str:
     )
 
 
+# System-proxy env vars (e.g. a user's Clash on 127.0.0.1:7890). A browser
+# client must NEVER inherit these from our server: Ziniao reaches its own
+# (domestic) servers directly and drives per-store residential proxies
+# itself, so a leaked system proxy can (a) break its browser launches —
+# the client↔browser CDP handshake gets routed through the dead/loopback-
+# hostile proxy and the debuggingPort comes up unreachable ("stale
+# launch") — and (b) reset the OS proxy config, dropping the user's VPN.
+# Chrome/other backends manage their own proxying too. See
+# docs/ziniao-concurrency.md.
+_PROXY_ENV_VARS = (
+    'http_proxy',
+    'https_proxy',
+    'all_proxy',
+    'ftp_proxy',
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'ALL_PROXY',
+    'FTP_PROXY',
+)
+
+
+def browser_launch_env() -> dict[str, str]:
+    """Process env with system-proxy vars stripped, for spawning browsers.
+
+    Our infra must never force the user's HTTP proxy onto a browser
+    subprocess (Ziniao/Chrome). Strips the proxy vars and pins NO_PROXY so
+    any residual config bypasses the proxy entirely.
+    """
+    env = {k: v for k, v in os.environ.items() if k not in _PROXY_ENV_VARS}
+    env['NO_PROXY'] = '*'
+    env['no_proxy'] = '*'
+    return env
+
+
 def build_launch_cmd(client_path: str, socket_port: int) -> list[str]:
     """Build platform-specific command to launch Ziniao client.
 
@@ -577,7 +611,7 @@ async def kill_and_relaunch_ziniao(
     )
     try:
         cmd = build_launch_cmd(client_path, socket_port)
-        subprocess.Popen(cmd)
+        subprocess.Popen(cmd, env=browser_launch_env())
     except Exception as e:
         raise RuntimeError(f'Failed to relaunch Ziniao: {e}')
 
@@ -734,7 +768,7 @@ async def ensure_ziniao_running(
     )
     try:
         cmd = build_launch_cmd(client_path, socket_port)
-        subprocess.Popen(cmd)
+        subprocess.Popen(cmd, env=browser_launch_env())
     except Exception as e:
         _fire_failed(BrowserFailureReason.LAUNCH_FAILED, 1)
         raise RuntimeError(f'Failed to launch Ziniao client: {e}')
