@@ -86,6 +86,24 @@ async def test_stale_launch_recovers_per_store_no_global_kill(cfg, tmp_path):
     assert 'startBrowser' in calls
 
 
+def test_clear_singleton_locks_removes_stale_files(tmp_path):
+    """Stale Chrome Singleton* files (left by a crash/SIGKILL) are removed;
+    a missing dir / None is a safe no-op."""
+    for name in ('SingletonLock', 'SingletonSocket', 'SingletonCookie'):
+        (tmp_path / name).write_text('stale')
+    (tmp_path / 'Cookies').write_text('keep')  # unrelated file must survive
+
+    zmod._clear_singleton_locks(str(tmp_path))
+
+    assert not (tmp_path / 'SingletonLock').exists()
+    assert not (tmp_path / 'SingletonSocket').exists()
+    assert not (tmp_path / 'SingletonCookie').exists()
+    assert (tmp_path / 'Cookies').exists()  # untouched
+    # None + nonexistent dir must not raise.
+    zmod._clear_singleton_locks(None)
+    zmod._clear_singleton_locks(str(tmp_path / 'does-not-exist'))
+
+
 async def test_all_attempts_stale_fails_only_this_store(cfg, tmp_path):
     """If every attempt stale-launches, start() raises for THIS store
     (isolated failure) — still no global kill."""
