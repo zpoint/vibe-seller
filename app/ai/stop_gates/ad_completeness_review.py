@@ -446,17 +446,6 @@ def check(
                 'active campaign 给出 产品/广告组、逐关键词或逐 target 的表格'
                 '(含 出价/eCPC/ROAS/建议)，而不是只列 活动ID|花费|ROAS。'
             )
-        elif active > 0 and drilled > 0:
-            # #3: the section LOOKS like real drills by the (format-locked)
-            # 建议-column count — confirm semantically. Only here (regex
-            # passed), cached per section, fail-open (None → trust regex).
-            if ad_scope.llm_is_real_drill(part) is False:
-                gaps.append(
-                    f'[内容] 「{head}」语义判断为页面清单(manifest)而非逐活动 '
-                    'drill：表格看似达标，但缺少每个 active campaign 的逐关键词/'
-                    '逐 target 明细（出价/eCPC/ROAS/建议）。请为每个活动补出真实的'
-                    '逐-target drill 表，而不是只有汇总指标。'
-                )
         # Per-campaign search-term layer: each drilled campaign block
         # must carry the 搜索词对账 reconciliation line (same-window
         # proof) or an explicit no-search-terms token. Only meaningful

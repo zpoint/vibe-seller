@@ -138,22 +138,6 @@ class TestEscapeHatch:
 
 
 @pytest.mark.unit
-class TestLLMManifestFailOpen:
-    def test_no_api_key_returns_none(self, monkeypatch):
-        # #3: with no ANTHROPIC_API_KEY the semantic check must fail open
-        # (return None) rather than raise or block.
-        monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
-        ad_scope._llm_cache.clear()
-        assert (
-            ad_scope.llm_is_real_drill('| kw | bid | 建议 |\n| a | 1 | x |')
-            is None
-        )
-
-    def test_empty_section_none(self):
-        assert ad_scope.llm_is_real_drill('') is None
-
-
-@pytest.mark.unit
 class TestReviewFixes:
     """Regression tests for the PR-review fixes."""
 
@@ -194,11 +178,3 @@ class TestReviewFixes:
         }
         combos = ad_scope.scope_combos(scope)
         assert combos[0]['active_ids'] == []
-
-    def test_llm_manifest_off_by_default(self, monkeypatch):
-        # #3: even WITH an API key, the check is off unless opted in, so no
-        # network call enters the request path by default.
-        monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-test')
-        monkeypatch.delenv('AD_AUDIT_LLM_MANIFEST', raising=False)
-        ad_scope._llm_cache.clear()
-        assert ad_scope.llm_is_real_drill('### 1 | x |\n| kw | 建议 |') is None

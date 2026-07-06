@@ -42,10 +42,6 @@ class Options(enum.Enum):
     ANTHROPIC_MODEL = ('ANTHROPIC_MODEL', '')
     MAX_AGENT_CONCURRENCY = ('MAX_AGENT_CONCURRENCY', '2')
     ANTHROPIC_API_KEY = ('ANTHROPIC_API_KEY', '')
-    # Opt-in: run the fail-open LLM manifest check (#3) in the ad-audit
-    # gate. Off by default so no synchronous LLM network call ever enters
-    # the request path unless a deployer explicitly enables it.
-    AD_AUDIT_LLM_MANIFEST = ('AD_AUDIT_LLM_MANIFEST', 'false')
     MAX_REPEAT_TOOL_CALLS = ('VIBE_MAX_REPEAT_TOOL_CALLS', '6')
 
     # Sync
