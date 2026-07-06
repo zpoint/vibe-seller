@@ -464,31 +464,24 @@ export default function App() {
     }
   }
 
-  // ─── Agent helpers ─────────────────────────────────
   const stopAgent = async () => { if (!selectedTask) return; try { await api.post(`/api/tasks/${selectedTask.id}/agent/stop`) } catch { /* ignore */ }; setPendingQuestions(null) }
+  const handlerDeps = {
+    api,
+    profileId: selectedProfileId,
+    setTasks,
+    setSelectedTask,
+    setScheduleTasks,
+  }
   const retryTask = (taskId: string) =>
     retryTaskHandler(taskId, {
-      api,
-      profileId: selectedProfileId,
-      setTasks,
-      setSelectedTask,
-      setScheduleTasks,
+      ...handlerDeps,
       onCleared: () => {
         setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({})
       },
     })
-  // Continue (继续): non-destructive resume — keep the task's context
-  // (plan / history / session) and re-run via the /messages path.
   const continueTask = (taskId: string) =>
-    continueTaskHandler(taskId, {
-      api,
-      profileId: selectedProfileId,
-      setTasks,
-      setSelectedTask,
-      setScheduleTasks,
-    })
+    continueTaskHandler(taskId, handlerDeps)
   const deleteTask = async (taskId: string) => {
-    // Probe for children so the confirm warns about cascade.
     let childCount = 0
     try {
       const kids = await api.get(`/api/tasks?parent_task_id=${encodeURIComponent(taskId)}`) as Task[]
