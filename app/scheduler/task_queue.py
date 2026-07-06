@@ -369,6 +369,31 @@ class TaskQueueScheduler:
                         self._queues[task.store_id] = []
                     self._queues[task.store_id].append(task.id)
 
+            # Scheduled plan-mode tasks left in PLANNED (frozen plan
+            # copied by the fanout/cron fire, awaiting a concurrency
+            # slot) must ALSO resume — the dispatcher routes
+            # PLANNED → execute_planned_task. Without this they were
+            # ORPHANED across a restart: the in-memory queue is gone and
+            # PLANNED wasn't otherwise recovered, so a scheduled task sat
+            # at PLANNED forever. Only auto-executing SCHEDULED tasks
+            # (schedule_id set) qualify; an interactive plan-mode task
+            # (schedule_id NULL) is waiting for the user to press Run and
+            # MUST stay PLANNED.
+            planned = await db.execute(
+                select(Task)
+                .where(
+                    Task.status == TaskStatus.PLANNED,
+                    Task.schedule_id.is_not(None),
+                )
+                .order_by(Task.created_at)
+            )
+            for task in planned.scalars().all():
+                # store_id may be None (no-store / phase_mode='single'
+                # schedule); the queue uses None as a valid lane key, so
+                # append unconditionally — else a no-store scheduled task
+                # is left orphaned at PLANNED across a restart.
+                self._queues.setdefault(task.store_id, []).append(task.id)
+
             # Reset all browser sessions to idle
             result = await db.execute(select(BrowserSession))
             for session in result.scalars().all():
