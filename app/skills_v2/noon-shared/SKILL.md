@@ -87,8 +87,26 @@ js("Array.from(document.querySelectorAll('button')).find(b=>/maybe later/i.test(
 PY
 ```
 
-> **Don't ask the user at all in Case A.** The whole point of the
-> binding is that the agent can finish login unattended.
+> **Anti-bot OTP input — verify Continue actually enables.** On some
+> builds the OTP field is a React **controlled component with anti-bot
+> protection**: it renders into the DOM only after a *physical* click in
+> the input area, and it rejects programmatic input entirely —
+> `fill_input`, the native `HTMLInputElement.value` setter, React-fiber
+> `onChange`, and CDP `Input.insertText` / `dispatchKeyEvent` all fail
+> (the field clears or vanishes right after the event and the
+> **Continue button stays disabled**). This has blocked automated login
+> across ~10 independent attempts. **Do not loop retrying** — after
+> filling, check that Continue is enabled (or that `page_info()` still
+> shows the OTP value); if it isn't, treat this build as
+> automation-blocked and fall back to **Case B** (have the user type the
+> OTP in the Ziniao browser). A session established that way persists,
+> so later tasks reuse the cookie and skip OTP entirely. If you later
+> discover a working automated path, update this note.
+
+> **Don't ask the user at all in Case A** *when the automated fill
+> succeeds*. The whole point of the binding is that the agent can finish
+> login unattended — but if the anti-bot input above blocks the fill,
+> escalating to Case B is correct, not a failure.
 
 ### Case B — Ask the user (only when Case A doesn't apply)
 
