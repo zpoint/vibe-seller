@@ -71,6 +71,26 @@ class TestRelaunchAndReconnect:
         assert proxy.target_port == NEW_PORT
         assert proxy.target_host == original_host
 
+    async def test_invalid_hook_return_shape_gives_up(self):
+        # A buggy hook (wrong-arity tuple, non-int port) must be treated
+        # as unhealed — not raise out of the reconnect coroutine and
+        # leave the proxy half-repointed.
+        for bad in [
+            (NEW_PORT,),
+            (NEW_PORT, '127.0.0.1', 'extra'),
+            'not-a-port',
+        ]:
+            relaunch = mock.AsyncMock(return_value=bad)
+            proxy = _make_proxy(relaunch)
+            proxy._connect_upstream = mock.AsyncMock()
+
+            healed = await proxy._relaunch_and_reconnect_upstream()
+
+            assert healed is False, f'{bad!r} should not self-heal'
+            # Target untouched, no reconnect attempted.
+            assert proxy.target_port == OLD_PORT
+            proxy._connect_upstream.assert_not_awaited()
+
     async def test_no_hook_cannot_self_heal(self):
         proxy = _make_proxy(relaunch=None)
         proxy._connect_upstream = mock.AsyncMock()
