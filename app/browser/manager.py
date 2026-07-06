@@ -480,6 +480,26 @@ class BrowserManager:
 
         backend = self._get_backend(store.id, store.browser_backend)
 
+        # Write the browser-use wrapper BEFORE starting the browser. The
+        # wrapper is the ONLY safe entrypoint: it injects BU_CDP_WS (the
+        # store's CDP proxy), blocks manual CDP overrides, and its auto-start
+        # block (re)launches the store session on demand. If we only wrote it
+        # AFTER a successful start, a failed/stale launch would leave NO
+        # wrapper — the agent then falls back to raw `browser-use`, which
+        # attaches to a LOCAL Chrome (the user's own browser). Writing it
+        # first guarantees the agent always goes through the wrapper: on a
+        # drop it re-triggers browser/start, and if the browser truly can't
+        # start it fails cleanly (never the local Chrome).
+        token = create_token(AI_BOT_USER_ID, 'ai_bot')
+        write_browser_use_wrapper(
+            store.name,
+            store.browser_backend,
+            proxy_port,
+            api_token=token,
+            store_id=store.id,
+            headless=bool(browser_config.get('headless', False)),
+        )
+
         logger.info(
             'Starting browser for store %s (backend=%s)',
             store.name,
@@ -492,17 +512,6 @@ class BrowserManager:
         if store.browser_backend == 'ziniao' and store.ziniao_account_id:
             self._active_ziniao_account_id = store.ziniao_account_id
             self._ziniao_stores[store.id] = store.name
-
-        # Generate browser-use wrapper script
-        token = create_token(AI_BOT_USER_ID, 'ai_bot')
-        write_browser_use_wrapper(
-            store.name,
-            store.browser_backend,
-            proxy_port,
-            api_token=token,
-            store_id=store.id,
-            headless=bool(browser_config.get('headless', False)),
-        )
 
         now = datetime.now(UTC).isoformat()
         if session:
