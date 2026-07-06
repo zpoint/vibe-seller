@@ -40,6 +40,21 @@ logger = logging.getLogger(__name__)
 # Directory for per-store browser-use wrapper scripts
 _BIN_DIR = BROWSER_USE_BIN_DIR
 
+# Monotonic wrapper-format version. BUMP on any BREAKING change to the
+# generated wrapper's contract (env vars, CLI shape, PATH assumptions).
+#   1 = pre-0.13 (0.12 subcommand CLI: open/click/state)
+#   2 = 0.13 heredoc + BU_CDP_WS env-injection (current)
+# Boot cleanup (BrowserManager._wipe_generated_wrappers) deletes wrappers
+# with a version BELOW this and never touches equal-or-higher ones. So:
+#   - a stale pre-0.13 wrapper (v1 / unmarked) is removed on upgrade;
+#   - the current version's own wrappers SURVIVE a restart (no wrapper-less
+#     window → the agent can't fall through to a local Chrome);
+#   - a running vN never nukes a wrapper written by a newer vN+1
+#     (rollback / mixed-process safety).
+# See docs/browser-use-0.13-migration.md § wrapper-format versioning.
+WRAPPER_FORMAT_VERSION = 2
+WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
+
 
 def store_slug(name: str, store_id: str | None = None) -> str:
     """Slugify a store name for use in paths and sessions.
@@ -255,6 +270,7 @@ def write_browser_use_wrapper(
     script = textwrap.dedent(f"""\
         #!/usr/bin/env bash
         # Auto-generated browser-use wrapper for store: {store_name}
+        # {WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}
         # Do not edit — regenerated on session start.
         set -euo pipefail
 

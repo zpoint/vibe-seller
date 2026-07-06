@@ -107,6 +107,7 @@ checklist and worked examples.
 1. Create `app/browser/mybackend.py` implementing `BrowserBackend` from `base.py`
 2. Register in `BrowserManager._get_backend()` in `manager.py`
 3. `BrowserManager` generates per-store wrapper scripts at `~/.vibe-seller/bin/{store-slug}/browser-use` that inject the correct session + CDP endpoint as **env vars** — `BU_NAME` and `BU_CDP_WS` (browser-use 0.13 dropped the `--session`/`--cdp-url` flags for a heredoc/env interface; `VIBE_TASK_ID` still keys multi-client CDP proxy isolation). Daemon state lives under `BH_RUNTIME_DIR` as `bu-<BU_NAME>.pid`, which the reaper keys off. See [docs/browser-use-0.13-migration.md](docs/browser-use-0.13-migration.md).
+   - **The wrapper is the ONLY safe entrypoint** — bare `browser-use` must never reach the real binary (it would attach to the user's local Chrome). It's written *before* `backend.start()`, boot only wipes *older* wrappers (monotonic `WRAPPER_FORMAT_VERSION` — bump on any breaking wrapper change), and a guard `browser-use` (`bin/_guard`) errors if the wrapper is ever missing. See [docs/browser.md § Wrapper safety](docs/browser.md).
 
 Existing backends: `chrome` (Playwright Chromium, macOS/Linux/WSLg), `ziniao` (anti-detect, talks to the Ziniao client over HTTP), `winchrome` (native Windows Chrome via Task Scheduler — for WSL2-on-Windows where a headed window can't render under systemd; see [docs/windows-setup.md](docs/windows-setup.md#7-browser-automation--native-windows-chrome-winchrome-backend)).
 
@@ -237,6 +238,7 @@ pytest --e2e tests/e2e        # E2E only (requires running server)
 - [docs/api.md](docs/api.md) — all API routes by router
 - [docs/testing.md](docs/testing.md) — test tiers, fixtures, FakeAgent
 - [docs/browser.md](docs/browser.md) — browser backends, Ziniao, WSL, CDP proxy
+- [docs/ziniao-concurrency.md](docs/ziniao-concurrency.md) — Ziniao WebDriver mechanism, multi-store concurrency, the "browsers kill each other" root cause + per-store-recovery fix
 - [docs/events.md](docs/events.md) — SSE event bus, event types, business events
 - [docs/windows-setup.md](docs/windows-setup.md) — Windows+WSL2 deployment: SSH bootstrap, WSL2 mirrored networking (MUST be Win 11 25H2/build 26200+ for external port access), `winchrome` native-Chrome backend, systemd service, Tailscale, auto-start, full troubleshooting cheatsheet
 - [docs/macos-setup.md](docs/macos-setup.md) — macOS deployment: `launchd` LaunchAgent for auto-start on login + crash-restart, the `EX_CONFIG`/TCC/PATH gotchas, deploy flow, troubleshooting cheatsheet

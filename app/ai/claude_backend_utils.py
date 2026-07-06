@@ -48,6 +48,40 @@ def resolve_claude_binary() -> str:
     return 'claude'
 
 
+# A `browser-use` that always ERRORS — sits on the agent PATH just below
+# the per-store wrapper. If the wrapper dir is empty (a failed/stale launch,
+# or a boot wipe before the next task rewrites it), bare `browser-use` hits
+# this guard and fails LOUDLY instead of falling through to the real binary
+# in the venv — which would attach to the user's LOCAL Chrome (wrong,
+# unisolated browser). See docs/ziniao-concurrency.md.
+_GUARD_HEADER = '# Auto-generated browser-use guard (vibe-seller)'
+_BROWSER_USE_GUARD = f"""#!/usr/bin/env bash
+{_GUARD_HEADER} — do not edit.
+echo "ERROR: no browser-use wrapper on PATH — the managed browser session" >&2
+echo "is not ready. This is NOT a browser-use syntax issue, and you must" >&2
+echo "NOT run raw browser-use or attach to a local Chrome. Retry the task;" >&2
+echo "the wrapper (re)starts the browser session on demand." >&2
+exit 1
+"""
+
+
+def _ensure_browser_use_guard(vibe_home: Path) -> Path | None:
+    """Write (idempotently) the guard ``browser-use`` and return its dir."""
+    try:
+        guard_dir = vibe_home / 'bin' / '_guard'
+        guard = guard_dir / 'browser-use'
+        if not guard.is_file() or _GUARD_HEADER not in guard.read_text(
+            errors='replace'
+        ):
+            guard_dir.mkdir(parents=True, exist_ok=True)
+            guard.write_text(_BROWSER_USE_GUARD)
+            os.chmod(guard, 0o755)
+        return guard_dir
+    except OSError as e:
+        logger.warning('Could not write browser-use guard: %s', e)
+        return None
+
+
 def apply_agent_venv_path(
     env: dict,
     store_slug: str | None,
@@ -96,10 +130,17 @@ def apply_agent_venv_path(
         # Shared venv not ready (should not happen after ensure_init) —
         # fall back to the server venv as the active env.
         env['VIRTUAL_ENV'] = str(server_bin.parent)
-    # 1. browser-use wrapper — must sit ahead of both venvs. Store tasks
-    #    use bin/<slug>; no-store (orchestrator) tasks fall back to the
-    #    shared bin/_web wrapper. Only prepended if the dir exists, so an
-    #    agent-less/store-less caller with no wrapper is unaffected.
+    # 1b. Guard — a `browser-use` that ERRORS, just below the wrapper and
+    #     ABOVE both venvs. If the wrapper is missing, bare `browser-use`
+    #     hits this and fails loudly instead of falling through to the real
+    #     binary → the user's local Chrome. See docs/ziniao-concurrency.md.
+    guard_bin = _ensure_browser_use_guard(vibe_home)
+    if guard_bin is not None:
+        prepend_to_path(env, guard_bin)
+    # 1a. browser-use wrapper — must sit ahead of the guard + both venvs.
+    #     Store tasks use bin/<slug>; no-store (orchestrator) tasks fall
+    #     back to the shared bin/_web wrapper. Only prepended if the dir
+    #     exists; when absent the guard above catches bare `browser-use`.
     wrapper_bin = vibe_home / 'bin' / (store_slug or WEB_BROWSER_SLUG)
     if wrapper_bin.is_dir():
         prepend_to_path(env, wrapper_bin)

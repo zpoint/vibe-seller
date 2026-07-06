@@ -18,6 +18,7 @@ import uuid
 import httpx
 
 from app import telemetry
+from app.browser.proxy_env import browser_launch_env
 from app.config import LOCALHOST
 from app.platform import IS_LINUX, IS_MAC, IS_WINDOWS
 from app.telemetry_events import BrowserFailureReason, TelemetryEvent
@@ -150,6 +151,26 @@ async def try_connect_ziniao(
     )
     result = await send_http(port, data, timeout=timeout, host=gateway)
     return result, gateway
+
+
+async def graceful_exit_ziniao(socket_port: int, user_info: dict) -> bool:
+    """Quit the Ziniao client via its ``exit`` action (clean, vs SIGKILL).
+
+    True if it terminated. See docs/ziniao-concurrency.md.
+    """
+    try:
+        await try_connect_ziniao(
+            socket_port,
+            {'action': 'exit', 'requestId': str(uuid.uuid4()), **user_info},
+            timeout=10,
+        )
+    except Exception as e:
+        logger.debug('Ziniao graceful exit call failed: %s', e)
+    for _ in range(16):
+        await asyncio.sleep(0.5)
+        if not is_ziniao_process_running():
+            return True
+    return False
 
 
 def find_ziniao_exe_windows() -> str | None:
@@ -516,11 +537,18 @@ async def kill_and_relaunch_ziniao(
 
     Returns True on success, raises RuntimeError on failure.
     """
-    if IS_MAC or IS_WINDOWS:
-        logger.info('Killing Ziniao for WebDriver relaunch...')
+    # Prefer a GRACEFUL shutdown (exit action) over SIGKILL: pkill -9 can
+    # leave the client degraded so later startBrowser calls stale-launch
+    # (see docs/ziniao-concurrency.md). Fall back to force-kill only if the
+    # client ignores the graceful request.
+    if await graceful_exit_ziniao(socket_port, user_info):
+        pass
     else:
-        logger.info('Killing Ziniao (manual relaunch required)...')
-    force_kill_ziniao()
+        if IS_MAC or IS_WINDOWS:
+            logger.info('Killing Ziniao for WebDriver relaunch...')
+        else:
+            logger.info('Killing Ziniao (manual relaunch required)...')
+        force_kill_ziniao()
 
     # Poll for process termination (up to 10 seconds)
     for i in range(20):
@@ -547,7 +575,7 @@ async def kill_and_relaunch_ziniao(
     )
     try:
         cmd = build_launch_cmd(client_path, socket_port)
-        subprocess.Popen(cmd)
+        subprocess.Popen(cmd, env=browser_launch_env())
     except Exception as e:
         raise RuntimeError(f'Failed to relaunch Ziniao: {e}')
 
@@ -704,7 +732,7 @@ async def ensure_ziniao_running(
     )
     try:
         cmd = build_launch_cmd(client_path, socket_port)
-        subprocess.Popen(cmd)
+        subprocess.Popen(cmd, env=browser_launch_env())
     except Exception as e:
         _fire_failed(BrowserFailureReason.LAUNCH_FAILED, 1)
         raise RuntimeError(f'Failed to launch Ziniao client: {e}')

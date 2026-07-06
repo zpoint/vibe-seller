@@ -11,6 +11,7 @@ and passed in through the browser_config dict from BrowserManager.
 import asyncio
 import json
 import logging
+from pathlib import Path
 import uuid
 
 import aiohttp
@@ -20,13 +21,69 @@ from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.ziniao_utils import (
     ensure_ziniao_running,
     is_wsl,
-    kill_and_relaunch_ziniao,
     try_connect_ziniao,
     ziniao_host,
 )
 from app.config import DOWNLOADS_DIR, LOCALHOST
 
 logger = logging.getLogger(__name__)
+
+# updateCore downloads all browser kernels. Run it once per process,
+# serialized so concurrent fan-out starts don't each loop the API, and
+# best-effort/bounded so a slow or unreachable client can't block a start
+# (kernels missing → startBrowser stales → per-store retry handles it).
+_core_updated = False
+_core_lock = asyncio.Lock()
+
+
+async def update_ziniao_core(socket_port: int, user_info: dict) -> None:
+    """Download browser kernels once before opening stores (best-effort).
+
+    Mirrors the official demo's ``update_core``. Bounded and serialized so
+    it can never multi-minute-block concurrent starts; see
+    docs/ziniao-concurrency.md.
+    """
+    global _core_updated
+    async with _core_lock:
+        if _core_updated:
+            return
+        data = {
+            'action': 'updateCore',
+            'requestId': str(uuid.uuid4()),
+            **user_info,
+        }
+        for _ in range(6):
+            result, _h = await try_connect_ziniao(socket_port, data, timeout=15)
+            if result is None:
+                await asyncio.sleep(2)
+                continue
+            code = str(result.get('statusCode'))
+            if code in ('0', '-10003'):
+                _core_updated = True  # done, or client too old to support it
+                return
+            await asyncio.sleep(2)
+
+
+def _clear_singleton_locks(userdata_dir: str | None) -> None:
+    """Remove stale Chrome Singleton* files from a store's user-data dir.
+
+    A crash or SIGKILL leaves ``SingletonLock``/``SingletonSocket``/
+    ``SingletonCookie`` behind; the next Chrome launch then comes up without
+    binding its remote-debugging port (the "stale launch"). Safe only when
+    no Chrome is using the dir — callers invoke this after stopBrowser.
+    Best-effort: never raises. See docs/ziniao-concurrency.md.
+    """
+    if not userdata_dir:
+        return
+    try:
+        base = Path(userdata_dir)
+        for name in ('SingletonLock', 'SingletonSocket', 'SingletonCookie'):
+            f = base / name
+            if f.exists() or f.is_symlink():
+                f.unlink(missing_ok=True)
+                logger.info('Cleared stale Chrome %s in %s', name, base.name)
+    except Exception as e:
+        logger.debug('Singleton-lock cleanup skipped (%s)', e)
 
 
 class ZiniaoBackend(BrowserBackend):
@@ -54,6 +111,11 @@ class ZiniaoBackend(BrowserBackend):
         # Ensure ziniao is running, launch if needed
         await ensure_ziniao_running(socket_port, client_path, user_info)
 
+        # Download all browser kernels once (before opening any store) so a
+        # per-store startBrowser never blocks on a kernel download. Mirrors
+        # the official ziniao_webdriver demo. Best-effort.
+        await update_ziniao_core(socket_port, user_info)
+
         # Start browser profile via ziniao API
         start_data = {
             'action': 'startBrowser',
@@ -75,15 +137,20 @@ class ZiniaoBackend(BrowserBackend):
         else:
             start_data['browserOauth'] = browser_oauth
 
-        # After long uptime Ziniao can enter a stale state where
-        # startBrowser returns statusCode 0 + a fresh debuggingPort but
-        # never actually launches Chrome, so that port is unreachable.
-        # A plain stopBrowser/startBrowser retry does NOT clear it (the
-        # status IS 0) — only a full client restart does. So we probe the
-        # raw port after each startBrowser; on an unreachable port we
-        # kill+relaunch Ziniao and retry, bounded to MAX_ZINIAO_ATTEMPTS
-        # to avoid an infinite loop, then surface a clear error.
-        MAX_ZINIAO_ATTEMPTS = 3
+        # Ziniao's startBrowser is flaky: it can return statusCode 0 + a
+        # debuggingPort whose DevTools never initialises ("stale launch").
+        # This is NONDETERMINISTIC and PER-STORE (verified — see
+        # docs/ziniao-concurrency.md). Recover per store: stopBrowser this
+        # env and retry startBrowser. NEVER restart the shared Ziniao client
+        # here — a client kill destroys every OTHER store's live browser and
+        # cascades into a machine-wide outage. We probe the raw port after
+        # each startBrowser, bounded to MAX_ZINIAO_ATTEMPTS.
+        stop_data: dict = {'action': 'stopBrowser', **user_info}
+        if browser_oauth.isdigit():
+            stop_data['browserId'] = browser_oauth
+        else:
+            stop_data['browserOauth'] = browser_oauth
+        MAX_ZINIAO_ATTEMPTS = 4
         cdp_port = None
         target_host = None
         for attempt in range(1, MAX_ZINIAO_ATTEMPTS + 1):
@@ -108,14 +175,6 @@ class ZiniaoBackend(BrowserBackend):
                     if result
                     else 'no response',
                 )
-                stop_data = {
-                    'action': 'stopBrowser',
-                    **user_info,
-                }
-                if browser_oauth.isdigit():
-                    stop_data['browserId'] = browser_oauth
-                else:
-                    stop_data['browserOauth'] = browser_oauth
                 await try_connect_ziniao(socket_port, stop_data, timeout=10)
                 result, host_used = await try_connect_ziniao(
                     socket_port, start_data, timeout=60
@@ -163,34 +222,21 @@ class ZiniaoBackend(BrowserBackend):
                 raise RuntimeError(
                     f'Ziniao reported a browser on {target_host}:{cdp_port} '
                     f'but nothing is reachable there after '
-                    f'{MAX_ZINIAO_ATTEMPTS} attempts (including a client '
-                    f'restart). The Ziniao client is likely wedged — open '
-                    f'it in the GUI and check the environment '
-                    f'(proxy / login / quota).'
+                    f'{MAX_ZINIAO_ATTEMPTS} startBrowser attempts. This '
+                    f'store failed to launch; other stores are unaffected. '
+                    f'Retry the task — if it persists, the Ziniao client may '
+                    f'need a manual restart (Settings → Ziniao).'
                 )
-            # A full client restart clears the stale state; then retry.
-            # On WSL, kill_and_relaunch is kill-only (Electron flag
-            # rejection blocks auto-relaunch), so restarting there would
-            # leave NO client to retry against — worse than the stale
-            # state. Bail with clear guidance instead of killing.
-            if is_wsl():
-                raise RuntimeError(
-                    f'Ziniao reported a browser on '
-                    f'{target_host}:{cdp_port} but it is unreachable '
-                    f'(stale launch), and WSL cannot auto-restart the '
-                    f'client. Close Ziniao on Windows and relaunch it '
-                    f'with the ziniao_webdriver.bat launcher, then retry.'
-                )
-            try:
-                await kill_and_relaunch_ziniao(
-                    socket_port, client_path, user_info
-                )
-            except Exception as e:
-                logger.warning(
-                    'kill_and_relaunch_ziniao failed (%s); '
-                    'retrying startBrowser anyway',
-                    e,
-                )
+            # Per-store recovery: close THIS env and let the loop retry
+            # startBrowser. Deliberately no shared-client restart — that
+            # would tear down every other store's live browser.
+            await try_connect_ziniao(socket_port, stop_data, timeout=10)
+            # A common cause of stale launches: an earlier unclean shutdown
+            # (crash / SIGKILL) left stale Chrome SingletonLock/Socket/Cookie
+            # files in this store's user-data dir, so Chrome comes up without
+            # binding its debug port. stopBrowser closed the env, so it's now
+            # safe to clear them before retrying. See docs/ziniao-concurrency.md.
+            _clear_singleton_locks(result.get('userData'))
         # cdp_port / target_host now point at a reachable browser.
 
         # Stable per-store download directory so every browser-use
@@ -213,23 +259,21 @@ class ZiniaoBackend(BrowserBackend):
         # closing the env's last page kills it even 25s after it is fully
         # established; keeping any one page open keeps the env alive.
         async def _relaunch_upstream() -> tuple[int, str] | None:
-            """Self-heal hook for the mux proxy.
+            """Self-heal hook for the mux proxy — re-open THIS store only.
 
-            Ziniao's ``debuggingPort`` rotates on every relaunch and dies
-            on a client restart, so a proxy that only ever retries the
-            original port serves 502 forever after the browser goes away
-            (e.g. a server restart tore down the in-process proxy and the
-            upstream port is now stale). This kill+relaunches the Ziniao
-            client and returns the FRESH reachable ``(port, host)`` so the
-            proxy can repoint itself. Returns None when it cannot recover
-            (WSL can't auto-relaunch the client; anything unreachable).
+            Ziniao's ``debuggingPort`` rotates on every startBrowser and
+            dies when the browser goes away (e.g. a server restart tore down
+            the in-process proxy and the upstream port is now stale), so a
+            proxy that only retries the original port serves 502 forever.
+            This re-opens *this store's* env (stopBrowser + startBrowser) and
+            returns the FRESH reachable ``(port, host)`` so the proxy can
+            repoint. It deliberately does NOT restart the shared Ziniao
+            client — that would tear down every OTHER store's live browser
+            and cascade (see docs/ziniao-concurrency.md). Returns None when
+            it cannot recover.
             """
-            if is_wsl():
-                return None
             try:
-                await kill_and_relaunch_ziniao(
-                    socket_port, client_path, user_info
-                )
+                await try_connect_ziniao(socket_port, stop_data, timeout=10)
                 result, host_used = await try_connect_ziniao(
                     socket_port, start_data, timeout=60
                 )
@@ -244,7 +288,7 @@ class ZiniaoBackend(BrowserBackend):
                 if not await self._cdp_port_reachable(new_host, int(new_port)):
                     return None
                 logger.info(
-                    'Ziniao upstream self-healed: fresh CDP %s:%s',
+                    'Ziniao upstream self-healed (per-store): fresh CDP %s:%s',
                     new_host,
                     new_port,
                 )
