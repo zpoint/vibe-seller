@@ -130,6 +130,13 @@ class _UpstreamMixin:
                 except Exception as e:
                     logger.warning('CDPMuxProxy reconnect failed: %s', e)
                     delay = min(delay * 2, max_delay)
+            # Reconnecting to the CURRENT upstream is hopeless: the browser
+            # is gone or its debugging port rotated (classic after a Ziniao
+            # restart — the old port serves nothing). Before giving up (and
+            # 502-ing every /json/version forever), self-heal by relaunching
+            # the upstream browser and reconnecting to its FRESH port.
+            if self._running and await self._relaunch_and_reconnect_upstream():
+                return
             logger.error(
                 'CDPMuxProxy gave up reconnecting after %d attempts',
                 max_attempts,
@@ -137,6 +144,85 @@ class _UpstreamMixin:
             asyncio.create_task(self.stop())
         finally:
             self._reconnecting = False
+
+    async def _relaunch_and_reconnect_upstream(self) -> bool:
+        """Self-heal: relaunch the upstream browser, reconnect to its
+        fresh port. Returns True iff the proxy is healthy again.
+
+        The injected ``relaunch_upstream`` hook re-launches the backing
+        browser (e.g. a fresh Ziniao ``startBrowser`` after a client
+        restart) and returns its new ``(port, host)`` — or just a port,
+        or None if it cannot recover. On success we repoint the proxy at
+        the new target and re-establish the upstream WebSocket, so
+        re-dispatched tasks get a live browser instead of a 502.
+        """
+        relaunch = getattr(self, '_relaunch_upstream', None)
+        if relaunch is None:
+            return False
+        try:
+            fresh = await relaunch()
+        except Exception as e:
+            logger.warning('CDPMuxProxy upstream relaunch failed: %s', e)
+            return False
+        if not fresh:
+            return False
+        # Validate the hook's return shape. A backend may hand back a
+        # (port, host) tuple or a bare port; anything else (wrong-arity
+        # tuple, non-int port) is a buggy hook, not a live upstream —
+        # treat it as unhealed rather than raising out of the reconnect
+        # coroutine and leaving the proxy half-repointed.
+        try:
+            if isinstance(fresh, tuple | list):
+                if len(fresh) != 2:
+                    raise ValueError(f'expected (port, host), got {fresh!r}')
+                new_port, new_host = int(fresh[0]), fresh[1]
+            else:
+                new_port, new_host = int(fresh), self.target_host
+        except (TypeError, ValueError, IndexError) as e:
+            logger.warning(
+                'CDPMuxProxy relaunch hook returned an invalid target %r: %s',
+                fresh,
+                e,
+            )
+            return False
+        logger.info(
+            'CDPMuxProxy self-heal: relaunched upstream, repointing '
+            '%s:%d -> %s:%d',
+            self.target_host,
+            self.target_port,
+            new_host,
+            new_port,
+        )
+        self.target_host = new_host
+        self.target_port = new_port
+        # A freshly-relaunched browser's debugging port is not accepting
+        # connections the instant startBrowser returns — connecting once
+        # races the port coming up ("fresh port not up yet") and would
+        # 502 forever. Retry with backoff so the fresh port has time.
+        last_err: Exception | None = None
+        for attempt in range(1, 7):
+            if not self._running:
+                return False
+            try:
+                await self._connect_upstream()
+                logger.info(
+                    'CDPMuxProxy upstream self-healed on %s:%d (attempt %d)',
+                    self.target_host,
+                    self.target_port,
+                    attempt,
+                )
+                return True
+            except Exception as e:
+                last_err = e
+                await asyncio.sleep(min(attempt * 1.5, 6.0))
+        logger.warning(
+            'CDPMuxProxy reconnect after relaunch failed (fresh port %s:%d '
+            'never came up): %s',
+            self.target_host,
+            self.target_port,
+            last_err,
+        )
+        return False
 
     # ------------------------------------------------------------------
     # Startup cleanup
