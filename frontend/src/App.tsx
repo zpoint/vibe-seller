@@ -21,6 +21,7 @@ import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedu
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
 import { retryTask as retryTaskHandler } from './handlers/retryTask'
+import { continueTask as continueTaskHandler } from './handlers/continueTask'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
   ServerPlatform,
@@ -463,21 +464,24 @@ export default function App() {
     }
   }
 
-  // ─── Agent helpers ─────────────────────────────────
   const stopAgent = async () => { if (!selectedTask) return; try { await api.post(`/api/tasks/${selectedTask.id}/agent/stop`) } catch { /* ignore */ }; setPendingQuestions(null) }
+  const handlerDeps = {
+    api,
+    profileId: selectedProfileId,
+    setTasks,
+    setSelectedTask,
+    setScheduleTasks,
+  }
   const retryTask = (taskId: string) =>
     retryTaskHandler(taskId, {
-      api,
-      profileId: selectedProfileId,
-      setTasks,
-      setSelectedTask,
-      setScheduleTasks,
+      ...handlerDeps,
       onCleared: () => {
         setSteps([]); setScreenshots({}); setAgentMessages([]); setTodoItems([]); setLogs([]); setConversationItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({})
       },
     })
+  const continueTask = (taskId: string) =>
+    continueTaskHandler(taskId, handlerDeps)
   const deleteTask = async (taskId: string) => {
-    // Probe for children so the confirm warns about cascade.
     let childCount = 0
     try {
       const kids = await api.get(`/api/tasks?parent_task_id=${encodeURIComponent(taskId)}`) as Task[]
@@ -689,7 +693,7 @@ export default function App() {
           profiles={profiles} selectedProfileId={selectedProfileId} setSelectedProfileId={setSelectedProfileId}
           currentUser={currentUser} showAllTasks={showAllTasks}
           openCreateModal={() => setShowCreateTask(true)} selectTask={selectTask}
-          stopAgent={stopAgent} retryTask={retryTask} deleteTask={deleteTask}
+          stopAgent={stopAgent} retryTask={retryTask} continueTask={continueTask} deleteTask={deleteTask}
           selectAnswer={selectAnswer} toggleOtherInput={toggleOtherInput}
           setOtherAnswer={setOtherAnswer} submitAllAnswers={submitAllAnswers} sendChatMessage={sendChatMessage}
           setSelectedTask={setSelectedTask} setTasks={setTasks} setCurrentUser={setCurrentUser}
