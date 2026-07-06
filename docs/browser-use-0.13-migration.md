@@ -339,10 +339,10 @@ out-of-band (debug-store skill, a lingering daemon's self-heal). Close it in
 
 ### 8.4 Recommended boot-time safety measures (small, not a separate script)
 Fold into the existing `cleanup_stale_sessions()` boot path:
-- **(a) Wipe stale wrapper scripts** — on boot, delete
-  `~/.vibe-seller/bin/*/browser-use` and `bin/_web/browser-use`. They are
-  regenerated per-task anyway; deleting eliminates the §8.2 window and any
-  chance of exec-ing a wrapper that points at a removed binary.
+- **(a) Wipe OUTDATED wrapper scripts (version-aware)** — on boot,
+  `_wipe_generated_wrappers()` deletes only auto-generated wrappers whose
+  embedded format version is **below** the current one. See "Wrapper-format
+  versioning" below.
 - **(b) Reaper recognizes old+new signatures** — see §8.3 (also reaps
   pre-upgrade 0.12 daemons one last time).
 - **(c) Startup version assertion** — read the installed browser-use version
@@ -353,6 +353,50 @@ Fold into the existing `cleanup_stale_sessions()` boot path:
 
 These live in the installed package (not synced), so they only affect the
 upgrading install — never an old client.
+
+#### Wrapper-format versioning (why the boot wipe is version-aware)
+
+Every generated wrapper embeds a monotonic format version in its header:
+
+```
+# Auto-generated browser-use wrapper for store: <name>
+# vibe-seller-wrapper-format: 2
+```
+
+`WRAPPER_FORMAT_VERSION` (in `app/browser/wrapper.py`) is **bumped on any
+breaking change** to the wrapper's contract (env vars, CLI shape, PATH
+assumptions): `1` = pre-0.13 (0.12 subcommand CLI), `2` = 0.13 heredoc +
+`BU_CDP_WS` env-injection.
+
+Boot cleanup deletes a wrapper **iff its version < current**, and never
+touches equal-or-higher ones:
+
+| Wrapper on disk | Running v2 boot |
+|---|---|
+| v1 / unmarked (pre-versioning → 0) | **deleted** (stale contract) |
+| v2 (current) | **kept** |
+| v3 (a newer version, e.g. after a rollback) | **kept** |
+| user-created (no auto-gen header) | **untouched** |
+
+Two bugs this fixes (both have CI coverage):
+
+1. **No wrapper-less window (local-Chrome fallback).** The old code wiped
+   *all* wrappers on boot and relied on the next task launch to rewrite
+   them. In the gap — or for an agent orphaned across a restart — the
+   store had no wrapper, so the agent's `browser-use` (PATH prepends the
+   store `bin/<slug>`) fell through to the **real** binary in the venv and
+   attached to the user's **local Chrome**. Keeping current-version
+   wrappers removes that window.
+2. **Defense in depth: the fallback now ERRORS.** Even if a wrapper is
+   somehow missing, `apply_agent_venv_path` puts a guard `browser-use`
+   (`bin/_guard`) on PATH *below* the store wrapper but *above* both venvs.
+   A missing wrapper → the guard runs and exits non-zero with a clear
+   message — it can never reach the real binary / a local Chrome.
+
+**Future upgrades (0.14, 0.15, …):** if the wrapper contract changes,
+bump `WRAPPER_FORMAT_VERSION`. A running vN boot will clean out the old
+vN-1 wrappers and leave its own (and any newer) alone — no coordination
+needed.
 
 ### 8.5 Multiplatform (macOS + Windows) — the upgrade must work on both
 The codebase already centralizes platform differences in `app/platform.py`
