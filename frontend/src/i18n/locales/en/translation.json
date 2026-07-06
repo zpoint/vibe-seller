@@ -617,6 +617,8 @@
     "minutes": "minutes",
     "hours": "hours",
     "days": "days",
+    "weeks": "weeks",
+    "months": "months",
     "daily": "Daily",
     "weekly": "Weekly",
     "monthly": "Monthly",

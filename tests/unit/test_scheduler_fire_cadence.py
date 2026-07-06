@@ -118,6 +118,104 @@ class TestFiresAtConfiguredCadence:
         assert gaps == {timedelta(days=7)}, gaps
 
 
+class TestWeeklyMonthlyInterval:
+    """``interval_value`` must be honoured for weekly/monthly.
+
+    Regression: weekly/monthly ignored ``interval_value`` entirely, so a
+    schedule the user set to "every 2 weeks" fired every *1* week — more
+    often than the configured interval. These pin the actual cadence.
+    """
+
+    def test_every_2_weeks_does_not_fire_more_often_than_14_days(self):
+        # 2026-06-22 is a Monday; schedule_day=1 → Monday.
+        trig = cron_mod.build_trigger(
+            'weekly',
+            '04:00',
+            schedule_day=1,
+            interval_value=2,
+            timezone=TZ_NAME,
+            anchor=ANCHOR,
+        )
+        start = datetime(2026, 6, 23, 9, 0, tzinfo=TZ)
+        fires = _fires_in_window(trig, start, timedelta(days=70))
+
+        assert len(fires) >= 4, fires
+        # The whole point: no two fires closer than the 2-week interval.
+        gaps = [b - a for a, b in zip(fires, fires[1:])]
+        assert min(gaps) >= timedelta(days=14), gaps
+        assert set(gaps) == {timedelta(days=14)}, gaps
+        assert all(f.strftime('%A') == 'Monday' for f in fires), fires
+        assert all(f.hour == 4 and f.minute == 0 for f in fires), fires
+
+    def test_every_3_weeks_fires_21_days_apart(self):
+        trig = cron_mod.build_trigger(
+            'weekly',
+            '04:00',
+            schedule_day=3,  # Wednesday
+            interval_value=3,
+            timezone=TZ_NAME,
+            anchor=ANCHOR,
+        )
+        start = datetime(2026, 6, 23, 9, 0, tzinfo=TZ)
+        fires = _fires_in_window(trig, start, timedelta(days=90))
+
+        assert len(fires) >= 3, fires
+        assert {b - a for a, b in zip(fires, fires[1:])} == {
+            timedelta(days=21)
+        }, fires
+        assert all(f.strftime('%A') == 'Wednesday' for f in fires), fires
+
+    def test_weekly_interval_1_still_fires_every_7_days(self):
+        trig = cron_mod.build_trigger(
+            'weekly',
+            '04:00',
+            schedule_day=1,
+            interval_value=1,
+            timezone=TZ_NAME,
+            anchor=ANCHOR,
+        )
+        start = datetime(2026, 6, 23, 9, 0, tzinfo=TZ)
+        fires = _fires_in_window(trig, start, timedelta(days=35))
+        assert {b - a for a, b in zip(fires, fires[1:])} == {
+            timedelta(days=7)
+        }, fires
+
+    @pytest.mark.parametrize('n', [2, 3, 4, 6])
+    def test_every_n_months_steps_by_n_months(self, n):
+        # anchor month = June (6). N that divide 12 give an exact,
+        # seam-free N-month cadence including across the year boundary.
+        trig = cron_mod.build_trigger(
+            'monthly',
+            '04:00',
+            schedule_day=15,
+            interval_value=n,
+            timezone=TZ_NAME,
+            anchor=ANCHOR,
+        )
+        start = datetime(2026, 6, 1, 0, 0, tzinfo=TZ)
+        fires = _fires_in_window(trig, start, timedelta(days=800))
+
+        assert len(fires) >= 3, fires
+        assert all(f.day == 15 and f.hour == 4 for f in fires), fires
+        # Consecutive fires advance by exactly N calendar months.
+        idx = [f.year * 12 + f.month for f in fires]
+        assert {b - a for a, b in zip(idx, idx[1:])} == {n}, fires
+
+    def test_monthly_interval_1_still_fires_every_month(self):
+        trig = cron_mod.build_trigger(
+            'monthly',
+            '04:00',
+            schedule_day=15,
+            interval_value=1,
+            timezone=TZ_NAME,
+            anchor=ANCHOR,
+        )
+        start = datetime(2026, 6, 1, 0, 0, tzinfo=TZ)
+        fires = _fires_in_window(trig, start, timedelta(days=200))
+        idx = [f.year * 12 + f.month for f in fires]
+        assert {b - a for a, b in zip(idx, idx[1:])} == {1}, fires
+
+
 class TestRestartInvariance:
     """Rebuilding the job (== a server restart) must not move next-fire.
 
@@ -136,6 +234,22 @@ class TestRestartInvariance:
             (
                 'weekly',
                 {'schedule_type': 'weekly', 'schedule_day': 1},
+            ),
+            (
+                'every_2_weeks',
+                {
+                    'schedule_type': 'weekly',
+                    'schedule_day': 1,
+                    'interval_value': 2,
+                },
+            ),
+            (
+                'every_2_months',
+                {
+                    'schedule_type': 'monthly',
+                    'schedule_day': 15,
+                    'interval_value': 2,
+                },
             ),
         ],
     )
