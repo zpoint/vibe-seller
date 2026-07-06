@@ -150,12 +150,14 @@ browser-use <<'PY'
 print(js(r"""
 var rp = document.querySelector('kat-date-range-picker');
 if (!rp) return 'no kat-date-range-picker on page';
+// Use ONE format for both the attribute and the nested input — it MUST
+// match the input's own placeholder (see note below; here DD/MM/YYYY).
+var vals = ['01/06/2026', '30/06/2026'];
 // Simplest path: the range picker accepts start/end value attributes.
-rp.setAttribute('start-value', '01/06/2026');   // match the input's own format
-rp.setAttribute('end-value',   '30/06/2026');
+rp.setAttribute('start-value', vals[0]);
+rp.setAttribute('end-value',   vals[1]);
 // Robust path: also drive the nested <input> so React/Katal state commits.
 var pickers = rp.shadowRoot.querySelectorAll('kat-date-picker');
-var vals = ['2026/6/1', '2026/6/30'];   // YYYY/M/D here; format varies by site
 for (var i = 0; i < pickers.length; i++) {
   pickers[i].setAttribute('value', vals[i]);
   var inp = pickers[i].shadowRoot.querySelector('kat-input')
