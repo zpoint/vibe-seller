@@ -51,8 +51,6 @@ export function formatScheduleBadge(s: BadgeFields, t: TFunc): string {
         ? `${t('schedules.monthly')} ${dom} ${time}`
         : `${every} ${n} ${t('schedules.months')} ${dom} ${time}`
     }
-    case 'daily':
-      return `${t('schedules.daily')} ${time}`
     default:
       return `${s.schedule_type} ${time}`
   }
