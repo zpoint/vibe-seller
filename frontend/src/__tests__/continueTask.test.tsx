@@ -1,15 +1,16 @@
 /**
- * continueTask handler: the 继续 (Continue) button.
+ * continueTask handler: the Continue button.
  *
  * Contract (contrasts with retryTask, which wipes context):
- *  - POSTs /api/tasks/{id}/messages with the canned CONTINUE_MESSAGE
- *    (the same resume path the chat send-box uses) — NOT /retry.
+ *  - POSTs /api/tasks/{id}/messages with the canned continue message
+ *    (from i18n `tasks.continueMessage`, the same resume path the chat
+ *    send-box uses) — NOT /retry.
  *  - The optimistic patch advances status only; it must NOT clear
  *    error / plan / plan_history, so the task keeps its context while
  *    the resumed run streams in.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { continueTask, CONTINUE_MESSAGE } from '../handlers/continueTask'
+import { continueTask, continueMessage } from '../handlers/continueTask'
 import type { Task } from '../types'
 
 function makeTask(extra: Partial<Task> = {}): Task {
@@ -35,7 +36,7 @@ function makeTask(extra: Partial<Task> = {}): Task {
   } as Task
 }
 
-describe('continueTask (继续 — non-destructive resume)', () => {
+describe('continueTask (Continue — non-destructive resume)', () => {
   it('posts the canned message to /messages, not /retry', async () => {
     const api = {
       post: vi.fn().mockResolvedValue({}),
@@ -49,7 +50,7 @@ describe('continueTask (继续 — non-destructive resume)', () => {
       setScheduleTasks: vi.fn(),
     })
     expect(api.post).toHaveBeenCalledWith('/api/tasks/t1/messages', {
-      content: CONTINUE_MESSAGE,
+      content: continueMessage(),
       profile_id: 'p1',
     })
     expect(api.post).not.toHaveBeenCalledWith(

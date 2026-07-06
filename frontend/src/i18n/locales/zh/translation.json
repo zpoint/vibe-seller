@@ -98,6 +98,7 @@
     "retry": "重试",
     "continue": "继续",
     "retryConfirm": "这将清空该任务的历史记录并从头重新开始，确定吗？",
+    "continueMessage": "继续之前的任务，现在重试；复用磁盘上已有的进度和数据，不要从头重写。",
     "rerun": "重新运行",
     "error_agent_loop": "AI 代理陷入重复循环，已自动停止。请重试该任务。",
     "copyAll": "全部复制",

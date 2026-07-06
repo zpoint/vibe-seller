@@ -1,9 +1,9 @@
-"""继续 (Continue) vs 重试 (Retry) contract.
+"""Continue vs Retry contract.
 
 The task-detail panel shows both on a failed task:
-  - 继续 posts /messages → RESUME the same task, preserving context
+  - Continue posts /messages → RESUME the same task, preserving context
     (plan / plan_history stay; only stale run-error is cleared).
-  - 重试 posts /retry → DESTRUCTIVE fresh restart (plan / plan_history /
+  - Retry posts /retry → DESTRUCTIVE fresh restart (plan / plan_history /
     error wiped, prior messages deleted, back to PENDING).
 
 These tests pin that split so a future change can't silently make
@@ -79,14 +79,14 @@ class TestContinueVsRetry:
     async def test_continue_resumes_and_preserves_context(
         self, admin_client, install_fake_agent
     ):
-        """继续: /messages on a FAILED task resumes (mode=auto), keeps the
-        plan + plan_history, clears only the stale error."""
+        """Continue: /messages on a FAILED task resumes (mode=auto), keeps
+        the plan + plan_history, clears only the stale error."""
         install_fake_agent.default_scenario = FakeAgentScenario()
         task_id = await _seed_failed_task()
 
         r = await admin_client.post(
             f'/api/tasks/{task_id}/messages',
-            json={'content': '继续之前的任务，现在重试；复用已有进度。'},
+            json={'content': 'continue the previous task, reuse progress'},
         )
         assert r.status_code == 200
 
@@ -106,7 +106,7 @@ class TestContinueVsRetry:
         assert await _msg_count(task_id) >= 2
 
     async def test_retry_clears_context(self, admin_client):
-        """重试: /retry wipes plan/plan_history/error, deletes prior
+        """Retry: /retry wipes plan/plan_history/error, deletes prior
         messages, and resets to PENDING (fresh restart)."""
         task_id = await _seed_failed_task()
 
