@@ -169,9 +169,48 @@ recovery can ever tear down a peer.
   pytest tests/e2e/test_ziniao_concurrency_recovery.py --e2e -v -m ziniao
   ```
 
-## Operational note
+## Runbook: recovering a wedged Ziniao client ("stale launch" everywhere)
 
-If the Ziniao client gets into a degraded state (most launches stale — can
-happen after heavy `pkill -9` churn), the reliable reset is a **clean
-restart**: `exit` action (or quit from the GUI), wait, relaunch. A single
-graceful cycle restores concurrent launches; SIGKILL loops do not.
+**Symptom:** `startBrowser` returns `statusCode 0` + a `debuggingPort`, but
+that port never binds (`/json/version` unreachable), so every task fails at
+browser launch. Chrome may even spawn (process visible) yet its
+remote-debugging port never comes up. The official `ziniao_webdriver_demo`
+fails identically — a fast way to confirm it's the client, not our code.
+
+**Root cause (the real one):** `pkill -9` on a Ziniao Chrome leaves stale
+**`SingletonLock` / `SingletonSocket` / `SingletonCookie`** files in that
+store's user-data dir
+(`~/Library/Application Support/ziniaobrowser/userdata/chrome_*`). On the
+next launch Chrome sees the stale singleton and comes up **without binding
+`--remote-debugging-port`**. A plain restart does **not** clear this — the
+lock files persist on disk. (This is *why* the fix above replaces the
+global `pkill -9` with per-store `stopBrowser` + graceful `exit`: a clean
+shutdown lets Chrome remove its own singleton files.)
+
+**Recovery (macOS; adapt paths for Windows/Linux):**
+
+```bash
+# 1. Stop Ziniao + all its Chrome cleanly (graceful exit, then hard-stop
+#    any stragglers so nothing holds the user-data dirs).
+python3 -c "import asyncio; from app.browser import ziniao_utils as zu; \
+  asyncio.run(zu.graceful_exit_ziniao(16851, {'company':..., 'username':..., 'password':...}))"
+pkill -9 -f 'env-kit/Core/chrome' ; pkill -9 -f 'ziniaobrowser' ; pkill -9 -f 'ziniao.app'
+sleep 6
+
+# 2. Clear the stale singleton locks from ALL profiles (safe only when no
+#    Chrome is running — step 1 guarantees that).
+find ~/Library/Application\ Support/ziniaobrowser/userdata \
+  -maxdepth 2 -name 'Singleton*' -print -delete
+
+# 3. Relaunch in WebDriver mode (or just let the next browser/start do it).
+open -a ziniao --args --run_type=web_driver --ipc_type=http --port=16851
+
+# 4. Verify: one startBrowser should now bind its debuggingPort.
+#    (statusCode 0 AND the reported port actually LISTENS.)
+```
+
+**Prevention:** never `pkill -9` Ziniao's Chrome in normal operation — use
+the `exit` action / per-store `stopBrowser`. If a hard kill or crash *does*
+happen, clearing the singleton locks (step 2) is the fix — not a reboot,
+reinstall, or account reset. A machine reboot works only because it wipes
+the locks too.

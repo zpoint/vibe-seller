@@ -11,6 +11,7 @@ and passed in through the browser_config dict from BrowserManager.
 import asyncio
 import json
 import logging
+from pathlib import Path
 import uuid
 
 import aiohttp
@@ -61,6 +62,28 @@ async def update_ziniao_core(socket_port: int, user_info: dict) -> None:
                 _core_updated = True  # done, or client too old to support it
                 return
             await asyncio.sleep(2)
+
+
+def _clear_singleton_locks(userdata_dir: str | None) -> None:
+    """Remove stale Chrome Singleton* files from a store's user-data dir.
+
+    A crash or SIGKILL leaves ``SingletonLock``/``SingletonSocket``/
+    ``SingletonCookie`` behind; the next Chrome launch then comes up without
+    binding its remote-debugging port (the "stale launch"). Safe only when
+    no Chrome is using the dir — callers invoke this after stopBrowser.
+    Best-effort: never raises. See docs/ziniao-concurrency.md.
+    """
+    if not userdata_dir:
+        return
+    try:
+        base = Path(userdata_dir)
+        for name in ('SingletonLock', 'SingletonSocket', 'SingletonCookie'):
+            f = base / name
+            if f.exists() or f.is_symlink():
+                f.unlink(missing_ok=True)
+                logger.info('Cleared stale Chrome %s in %s', name, base.name)
+    except Exception as e:
+        logger.debug('Singleton-lock cleanup skipped (%s)', e)
 
 
 class ZiniaoBackend(BrowserBackend):
@@ -206,10 +229,14 @@ class ZiniaoBackend(BrowserBackend):
                 )
             # Per-store recovery: close THIS env and let the loop retry
             # startBrowser. Deliberately no shared-client restart — that
-            # would tear down every other store's live browser. The stale
-            # launch is a nondeterministic Ziniao flake that a fresh
-            # startBrowser usually clears on the next attempt.
+            # would tear down every other store's live browser.
             await try_connect_ziniao(socket_port, stop_data, timeout=10)
+            # A common cause of stale launches: an earlier unclean shutdown
+            # (crash / SIGKILL) left stale Chrome SingletonLock/Socket/Cookie
+            # files in this store's user-data dir, so Chrome comes up without
+            # binding its debug port. stopBrowser closed the env, so it's now
+            # safe to clear them before retrying. See docs/ziniao-concurrency.md.
+            _clear_singleton_locks(result.get('userData'))
         # cdp_port / target_host now point at a reachable browser.
 
         # Stable per-store download directory so every browser-use
