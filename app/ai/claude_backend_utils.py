@@ -57,10 +57,10 @@ def resolve_claude_binary() -> str:
 _GUARD_HEADER = '# Auto-generated browser-use guard (vibe-seller)'
 _BROWSER_USE_GUARD = f"""#!/usr/bin/env bash
 {_GUARD_HEADER} — do not edit.
-echo "ERROR: no per-store browser-use wrapper on PATH — the store browser" >&2
-echo "is not ready. This is NOT a browser-use syntax issue. Do NOT run raw" >&2
-echo "browser-use or attach to a local Chrome. Retry the task (the wrapper" >&2
-echo "auto-starts the store browser) or check the Ziniao client." >&2
+echo "ERROR: no browser-use wrapper on PATH — the managed browser session" >&2
+echo "is not ready. This is NOT a browser-use syntax issue, and you must" >&2
+echo "NOT run raw browser-use or attach to a local Chrome. Retry the task;" >&2
+echo "the wrapper (re)starts the browser session on demand." >&2
 exit 1
 """
 
