@@ -49,6 +49,7 @@ interface TasksViewProps {
   selectTask: (task: Task) => void
   stopAgent: () => void
   retryTask: (taskId: string) => void
+  continueTask: (taskId: string) => void
   deleteTask: (taskId: string) => void
   selectAnswer: (questionText: string, answer: string) => void
   toggleOtherInput: (questionText: string) => void
@@ -156,6 +157,7 @@ export function TasksView({
   selectTask,
   stopAgent,
   retryTask,
+  continueTask,
   deleteTask,
   selectAnswer,
   toggleOtherInput,
@@ -470,9 +472,28 @@ export function TasksView({
                     </button>
                   )}
                   {getUI(selectedTask.status).canRetry && (
-                    <button onClick={() => retryTask(selectedTask.id)} className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100">
-                      {selectedTask.status === 'completed' ? t('tasks.rerun') : t('tasks.retry')}
-                    </button>
+                    <>
+                      {/* Continue: non-destructive resume — keeps context. */}
+                      <button
+                        onClick={() => continueTask(selectedTask.id)}
+                        className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+                      >
+                        {t('tasks.continue')}
+                      </button>
+                      {/* Retry: destructive fresh restart — confirm first. */}
+                      <button
+                        onClick={() => {
+                          if (confirm(t('tasks.retryConfirm'))) {
+                            retryTask(selectedTask.id)
+                          }
+                        }}
+                        className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+                      >
+                        {selectedTask.status === 'completed'
+                          ? t('tasks.rerun')
+                          : t('tasks.retry')}
+                      </button>
+                    </>
                   )}
                   {!getUI(selectedTask.status).isActive && !selectedTask.is_plan_only && (
                     <button
