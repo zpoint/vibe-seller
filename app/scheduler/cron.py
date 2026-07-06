@@ -5,7 +5,7 @@ Uses MemoryJobStore — the Schedule DB table is the source of truth;
 APScheduler jobs are rebuilt on startup via rebuild_schedule_jobs().
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from zoneinfo import ZoneInfo
 
@@ -322,6 +322,60 @@ def _interval_start(
     return start
 
 
+def _weekly_start(
+    anchor: datetime | None,
+    tz: ZoneInfo,
+    schedule_day: int | None,
+    hour: int,
+    minute: int,
+) -> datetime | None:
+    """``start_date`` for an every-N-weeks IntervalTrigger.
+
+    Cron cannot express "every N weeks" (its day-of-week field has no
+    multi-week stride), so weekly schedules with ``interval_value > 1``
+    use an IntervalTrigger of ``weeks=N``. Its grid must be pinned to
+    the chosen ISO weekday at HH:MM and anchored to a fixed reference
+    (``created_at``) so it neither drifts off the weekday nor resets on
+    restart — same rationale as :func:`_interval_start`.
+
+    Returns ``None`` when no anchor is available (legacy floating
+    fallback for direct callers).
+    """
+    if anchor is None:
+        return None
+    start = anchor.astimezone(tz).replace(
+        hour=hour, minute=minute, second=0, microsecond=0
+    )
+    if schedule_day is not None:
+        # Shift within the anchor's own week onto the target ISO weekday
+        # (Mon=1..Sun=7). Any such date is a valid grid origin; the
+        # N-week stride then keeps every fire on that weekday.
+        start += timedelta(days=schedule_day - start.isoweekday())
+    return start
+
+
+def _monthly_months(anchor: datetime | None, interval_value: int) -> str:
+    """Cron ``month`` field for an every-N-months schedule.
+
+    Months have no fixed length, so an IntervalTrigger can't express
+    "every N months". Instead we emit a CronTrigger whose ``month``
+    field lists the months on the N-step grid anchored at the schedule's
+    creation month, within a single 12-month cycle. This is wall-clock
+    anchored (hence restart-safe by construction) and gives an exact
+    N-month cadence whenever ``N`` divides 12 (2, 3, 4, 6, 12). For
+    other ``N`` the pattern repeats each calendar year, so the
+    year-boundary gap differs from N — an accepted, documented limit for
+    a rare case, still far better than the old behaviour of ignoring N
+    and firing every month.
+    """
+    base = anchor.month if anchor else 1
+    months = sorted(
+        {((base - 1 + k * interval_value) % 12) + 1
+         for k in range(0, (11 // interval_value) + 1)}
+    )
+    return ','.join(str(m) for m in months)
+
+
 def build_trigger(
     schedule_type: str,
     schedule_time: str,
@@ -332,11 +386,14 @@ def build_trigger(
 ) -> CronTrigger | IntervalTrigger:
     """Build an APScheduler trigger from schedule params.
 
-    Returns CronTrigger for weekly/monthly (both wall-clock anchored and
-    thus restart-safe by construction), IntervalTrigger for
-    minutes/hours/days>1. ``anchor`` (the schedule's ``created_at``) is
-    used as the interval ``start_date`` so the fire grid is independent
-    of process-start time — see :func:`_interval_start`.
+    Trigger selection:
+    - minutes / hours / days>1 / weeks>1 → IntervalTrigger, anchored via
+      ``anchor`` (the schedule's ``created_at``) so the fire grid is a
+      function of the schedule definition, not process-start time.
+    - daily / weekly (N=1) / monthly → CronTrigger, wall-clock anchored
+      and thus restart-safe by construction. ``interval_value`` for
+      monthly is honoured by restricting the cron ``month`` field
+      (see :func:`_monthly_months`).
     """
     tz = ZoneInfo(timezone or get_server_timezone())
 
@@ -368,21 +425,28 @@ def build_trigger(
         parts = schedule_time.split(':')
         hour = int(parts[0])
         minute = int(parts[1]) if len(parts) > 1 else 0
-        kwargs: dict = {
-            'hour': hour,
-            'minute': minute,
-            'timezone': tz,
-        }
+        if schedule_day is not None and not 1 <= schedule_day <= 7:
+            # DB stores ISO weekday (Mon=1..Sun=7). Range-check explicitly
+            # so bad input fails loudly instead of being silently wrapped
+            # to a different weekday.
+            raise ValueError(
+                f'weekly schedule_day must be 1..7 (ISO weekday, '
+                f'Mon=1..Sun=7); got {schedule_day}'
+            )
+        if interval_value > 1:
+            # Every N weeks: cron has no N-week stride, so anchor an
+            # IntervalTrigger to the chosen weekday at HH:MM.
+            return IntervalTrigger(
+                weeks=interval_value,
+                start_date=_weekly_start(
+                    anchor, tz, schedule_day, hour, minute
+                ),
+                timezone=tz,
+            )
+        # Every week: CronTrigger fires at local HH:MM (DST-safe).
+        kwargs: dict = {'hour': hour, 'minute': minute, 'timezone': tz}
         if schedule_day is not None:
-            # DB stores ISO weekday (Mon=1..Sun=7) but APScheduler's
-            # CronTrigger uses Mon=0..Sun=6 — translate at the boundary.
-            # Range-check explicitly so bad input fails loudly instead of
-            # being silently wrapped to a different weekday.
-            if not 1 <= schedule_day <= 7:
-                raise ValueError(
-                    f'weekly schedule_day must be 1..7 (ISO weekday, '
-                    f'Mon=1..Sun=7); got {schedule_day}'
-                )
+            # APScheduler's CronTrigger uses Mon=0..Sun=6 — translate.
             kwargs['day_of_week'] = schedule_day - 1
         return CronTrigger(**kwargs)
     if schedule_type == 'monthly':
@@ -396,6 +460,10 @@ def build_trigger(
         }
         if schedule_day is not None:
             kwargs['day'] = schedule_day
+        if interval_value > 1:
+            # Every N months: restrict the cron month field to the
+            # N-step grid anchored at the creation month.
+            kwargs['month'] = _monthly_months(anchor, interval_value)
         return CronTrigger(**kwargs)
 
     # Fallback: daily

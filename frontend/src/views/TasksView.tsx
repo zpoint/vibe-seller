@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { sendEvent, ageBucket } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
+import { formatScheduleBadge } from '../lib/scheduleBadge'
 import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { ScheduleList } from '../components/ScheduleList'
@@ -243,18 +244,7 @@ export function TasksView({
     } catch { /* ignore */ }
   }
 
-  const DAYS = [t('schedules.mon'), t('schedules.tue'), t('schedules.wed'), t('schedules.thu'), t('schedules.fri'), t('schedules.sat'), t('schedules.sun')]
-  const getScheduleBadge = (s: Schedule) => {
-    const time = s.schedule_time?.slice(0, 5) || '00:00'
-    const n = s.interval_value || 1
-    if (s.schedule_type === 'minutes') return `${t('schedules.every')} ${n} ${t('schedules.minutes')}`
-    if (s.schedule_type === 'hours') return `${t('schedules.every')} ${n} ${t('schedules.hours')}`
-    if (s.schedule_type === 'days') return n === 1 ? `${t('schedules.daily')} ${time}` : `${t('schedules.every')} ${n} ${t('schedules.days')} ${time}`
-    if (s.schedule_type === 'weekly') return `${t('schedules.weekly')} ${DAYS[(s.schedule_day || 1) - 1]} ${time}`
-    if (s.schedule_type === 'monthly') return `${t('schedules.monthly')} ${s.schedule_day || 1} ${time}`
-    if (s.schedule_type === 'daily') return `${t('schedules.daily')} ${time}`
-    return `${s.schedule_type} ${time}`
-  }
+  const getScheduleBadge = (s: Schedule) => formatScheduleBadge(s, t)
 
   const onetimeTasks = tasks.filter(task => !task.schedule_id)
 
