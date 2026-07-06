@@ -756,7 +756,17 @@ def check_bid_value_shape(command: str) -> str | None:
         val = float(raw)
     except ValueError:
         return None
-    if val > _BID_SANITY_CEILING:
+    # The magnitude ceiling is BID-shaped reasoning: a real CPC bid is a
+    # currency value, i.e. it has a decimal point (``1.30``, ``113.0``).
+    # The legacy ``browser-use input <idx>`` form is ALSO how the agent
+    # types OTP codes, postal codes, and quantities — all integers, many
+    # legitimately > 50 (a 6-digit OTP is always > 50 000). Applying the
+    # ceiling to those is a false positive that has blocked live OTP entry
+    # (observed on two stores). So only fire the ceiling on a value that
+    # looks like a bid (has a ``.``); integers bypass it. The concatenation
+    # bugs this guards against were all decimal-shaped (``113.0`` from
+    # ``11`` + ``3.0``); the multi-decimal check above catches ``3.002.27``.
+    if '.' in raw and val > _BID_SANITY_CEILING:
         return (
             f'Bid value {raw} exceeds the {_BID_SANITY_CEILING:g} sanity '
             'ceiling — almost certainly a clear-failure concatenation (e.g. '

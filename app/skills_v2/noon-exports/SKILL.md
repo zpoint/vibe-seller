@@ -74,6 +74,18 @@ Legacy Exports.
    click the **Export** button on the right of that row — that is
    what actually writes the CSV. The first Download click only
    queues the export job.
+2b. **There are TWO "Export" buttons — do not confuse them.** The
+   **main** button (top of the page, near the Contracts / Transaction
+   Type controls) *initiates* the job and its text flips to
+   `Exporting`, then reverts to `Export` when done — clicking it again
+   just queues a **second** job, it does NOT download. The button that
+   actually downloads is a **separate** one inside the results panel
+   (`ExportBox_content__*`) that renders **below the transaction
+   table** after the job completes. Because both read "Export", a bare
+   `find(b => /^export$/.test(b.textContent))` matches the MAIN button
+   first — always scope the panel click to the `ExportBox_content`
+   container (see step 4). The reverting main button is easy to
+   misread as "done, file saved" when nothing downloaded.
 3. **Exports can take several minutes**, occasionally >5. Do not
    re-click Download while a previous export is still `Exporting` —
    each click queues a *new* `EXP{…}` job that competes for the
@@ -108,11 +120,13 @@ fill_input("input[name=end_date]",   "YYYY-MM-DD")   # End date input
 print(page_info())
 PY
 
-# 2. Click Download ONCE. NEVER re-click — each click queues a
-#    new export job on Noon's backend, backing up the queue and
-#    making every subsequent attempt take longer.
+# 2. Click the MAIN Export/Download button ONCE to queue the job.
+#    (It is labelled "Export" on the current build — text flips to
+#    "Exporting" — or "Download" on older builds.) NEVER re-click —
+#    each click queues a new export job on Noon's backend, backing up
+#    the queue and making every subsequent attempt take longer.
 browser-use <<'PY'
-js("Array.from(document.querySelectorAll('button')).find(b=>/download/i.test(b.textContent))?.click()")
+print(js("var b=Array.from(document.querySelectorAll('button')).find(b=>/^(export|download)$/i.test(b.textContent.trim())); if(b){b.click(); 'clicked: '+b.textContent.trim();} else 'main export button not found';"))
 PY
 
 # 3. Poll for Processed status. Exports can take up to 35 min
@@ -125,11 +139,14 @@ print(page_info())
 PY
 done
 
-# 4. Click the Export button on the panel row (labelled "Export"
-#    with a download icon, right of the export code). This is the
-#    click that actually writes the file.
+# 4. Click the Export button INSIDE the results panel — the one that
+#    actually writes the file. Scope the search to the ExportBox_content
+#    container so it does NOT match the main Export button (which would
+#    queue another job — see critical fact 2b). Scroll down first; the
+#    panel renders below the transaction table.
 browser-use <<'PY'
-js("Array.from(document.querySelectorAll('button')).find(b=>/^export$/i.test(b.textContent.trim()))?.click()")
+js("window.scrollTo(0, document.body.scrollHeight)")
+print(js("var p=document.querySelector('[class*=ExportBox_content]'); if(!p) 'panel not rendered yet — poll longer'; else {var b=Array.from(p.querySelectorAll('button')).find(b=>/export/i.test(b.textContent)); if(b){b.click(); 'clicked panel export';} else 'no export button inside ExportBox panel';}"))
 PY
 ```
 
