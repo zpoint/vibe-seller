@@ -1,13 +1,14 @@
 /**
- * The failed-task action row shows THREE buttons: 继续 · 重试 · 删除.
- *  - 继续 (Continue) fires immediately, NO confirm dialog.
- *  - 重试 (Retry) is destructive → must confirm; only fires on OK.
- *  - 删除 (Delete) unchanged (its own confirm lives in App.tsx).
+ * The failed-task action row shows THREE buttons: Continue / Retry / Delete.
+ *  - Continue fires immediately, NO confirm dialog.
+ *  - Retry is destructive → must confirm; only fires on OK.
+ *  - Delete unchanged (its own confirm lives in App.tsx).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { TasksView } from '../views/TasksView'
 import type { Task } from '../types'
+import i18n from '../i18n'
 
 function failedTask(): Task {
   return {
@@ -95,34 +96,34 @@ function makeProps(over: Record<string, unknown> = {}) {
   }
 }
 
-describe('failed-task action buttons: 继续 · 重试 · 删除', () => {
+describe('failed-task action buttons: Continue / Retry / Delete', () => {
   afterEach(() => vi.restoreAllMocks())
 
-  it('继续 resumes immediately with no confirm', () => {
+  it('Continue resumes immediately with no confirm', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const props = makeProps()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     render(<TasksView {...(props as any)} />)
-    fireEvent.click(screen.getByRole('button', { name: /Continue|继续/ }))
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('tasks.continue') }))
     expect(props.continueTask).toHaveBeenCalledWith('task-fail-1')
     expect(confirmSpy).not.toHaveBeenCalled()
   })
 
-  it('重试 does NOT fire when confirm is cancelled', () => {
+  it('Retry does NOT fire when confirm is cancelled', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false)
     const props = makeProps()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     render(<TasksView {...(props as any)} />)
-    fireEvent.click(screen.getByRole('button', { name: /^Retry$|^重试$/ }))
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('tasks.retry') }))
     expect(props.retryTask).not.toHaveBeenCalled()
   })
 
-  it('重试 fires only after the confirm is accepted', () => {
+  it('Retry fires only after the confirm is accepted', () => {
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
     const props = makeProps()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     render(<TasksView {...(props as any)} />)
-    fireEvent.click(screen.getByRole('button', { name: /^Retry$|^重试$/ }))
+    fireEvent.click(screen.getByRole('button', { name: i18n.t('tasks.retry') }))
     expect(confirmSpy).toHaveBeenCalledTimes(1)
     expect(props.retryTask).toHaveBeenCalledWith('task-fail-1')
   })

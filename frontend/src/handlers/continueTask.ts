@@ -1,5 +1,5 @@
 /**
- * Handler for the "Continue" (继续) button on a failed / completed task.
+ * Handler for the Continue button on a failed / completed task.
  *
  * NON-destructive resume, in contrast to `retryTask` (which wipes the
  * plan / error / history and restarts from scratch). Continue behaves
@@ -16,11 +16,12 @@
  * resumed run streams in. The backend clears the stale error itself and
  * the post-POST refetch/merge reconciles the rest.
  */
+import i18n from '../i18n'
 import type { Task } from '../types'
 
-/** Canned message the Continue button sends — resume, don't restart. */
-export const CONTINUE_MESSAGE =
-  '继续之前的任务，现在重试；复用磁盘上已有的进度和数据，不要从头重写。'
+/** Canned message the Continue button sends — resume, don't restart.
+ *  Text lives in the i18n layer (`tasks.continueMessage`), never inline. */
+export const continueMessage = () => i18n.t('tasks.continueMessage')
 
 export interface ContinueTaskApi {
   post(url: string, body: unknown): Promise<unknown>
@@ -56,7 +57,7 @@ export async function continueTask(
 
   try {
     await deps.api.post(`/api/tasks/${taskId}/messages`, {
-      content: CONTINUE_MESSAGE,
+      content: continueMessage(),
       profile_id: deps.profileId,
     })
   } catch {

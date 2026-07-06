@@ -473,14 +473,14 @@ export function TasksView({
                   )}
                   {getUI(selectedTask.status).canRetry && (
                     <>
-                      {/* 继续: non-destructive resume — keeps context. */}
+                      {/* Continue: non-destructive resume — keeps context. */}
                       <button
                         onClick={() => continueTask(selectedTask.id)}
                         className="px-3 py-1 text-xs text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
                       >
                         {t('tasks.continue')}
                       </button>
-                      {/* 重试: destructive fresh restart — confirm first. */}
+                      {/* Retry: destructive fresh restart — confirm first. */}
                       <button
                         onClick={() => {
                           if (confirm(t('tasks.retryConfirm'))) {

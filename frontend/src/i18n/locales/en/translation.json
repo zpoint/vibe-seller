@@ -98,6 +98,7 @@
     "retry": "Retry",
     "continue": "Continue",
     "retryConfirm": "This clears the task’s history and restarts it from scratch. Are you sure?",
+    "continueMessage": "Continue the previous task — resume now, reuse the progress and data already on disk, and do not restart from scratch.",
     "rerun": "Re-run",
     "error_agent_loop": "The AI agent got stuck in a repeated loop and was automatically stopped. Please retry the task.",
     "copyAll": "Copy All",
