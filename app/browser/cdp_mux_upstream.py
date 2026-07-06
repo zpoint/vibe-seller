@@ -172,7 +172,7 @@ class _UpstreamMixin:
         # treat it as unhealed rather than raising out of the reconnect
         # coroutine and leaving the proxy half-repointed.
         try:
-            if isinstance(fresh, (tuple, list)):
+            if isinstance(fresh, tuple | list):
                 if len(fresh) != 2:
                     raise ValueError(f'expected (port, host), got {fresh!r}')
                 new_port, new_host = int(fresh[0]), fresh[1]
