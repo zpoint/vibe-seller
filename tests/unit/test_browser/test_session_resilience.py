@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import (
 
 from app.browser.base import BrowserSessionInfo
 from app.browser.manager import BrowserManager
+from app.browser.ziniao_utils import ZiniaoNormalModeError
 from app.models.base import Base
 from app.models.browser_session import BrowserSession
 from app.models.store import Store
@@ -93,6 +94,51 @@ class TestCdpAlive:
             assert await BrowserManager._cdp_alive(port) is True
         finally:
             server.shutdown()
+
+
+# ── wrapper-safety: never leave the agent wrapper-less ──
+
+
+@pytest.mark.unit
+class TestWrapperWrittenBeforeStart:
+    """The per-store browser-use wrapper must exist even when the browser
+    fails to start. If a stale/failed launch left NO wrapper, the agent's
+    bare ``browser-use`` falls through PATH to the REAL binary and attaches
+    to a LOCAL Chrome (the user's own browser). Regression guard — see
+    docs/ziniao-concurrency.md."""
+
+    @pytest.mark.asyncio
+    async def test_wrapper_written_even_when_start_fails(self):
+        mgr = BrowserManager()
+        store = _make_fake_store()  # no active session → fresh-start path
+
+        fake_db = mock.AsyncMock()
+        fake_db.execute = mock.AsyncMock(
+            return_value=mock.MagicMock(
+                scalar_one_or_none=mock.MagicMock(return_value=None)
+            )
+        )
+        fake_db.get = mock.AsyncMock(return_value=None)
+
+        failing_backend = mock.AsyncMock()
+        failing_backend.start = mock.AsyncMock(
+            side_effect=RuntimeError('stale launch: nothing reachable')
+        )
+
+        with (
+            mock.patch.object(
+                mgr, '_get_backend', return_value=failing_backend
+            ),
+            mock.patch('app.browser.manager.write_browser_use_wrapper') as wrap,
+            mock.patch('app.browser.manager.create_token', return_value='tok'),
+        ):
+            with pytest.raises(RuntimeError, match='stale launch'):
+                await mgr._start_session_locked(store, fake_db)
+
+        # Wrapper written despite the start failure → the agent's
+        # `browser-use` still resolves to the safe wrapper, never a
+        # local Chrome.
+        wrap.assert_called_once()
 
 
 # ── start_session resilience tests ───────────────────
@@ -324,3 +370,83 @@ class TestCleanupStaleSessions:
                 assert s.proxy_port is None
 
         await mem_engine.dispose()
+
+
+@pytest.mark.unit
+class TestZiniaoNormalModeRecovery:
+    """Failure point (post-upgrade): a fanout that finds Ziniao in GUI/
+    normal mode must relaunch it into WebDriver mode — once, coordinated —
+    instead of failing the task. See docs/ziniao-concurrency.md."""
+
+    def _acct(self):
+        a = mock.MagicMock()
+        a.company, a.username, a.encrypted_password = 'c', 'u', 'enc'
+        a.socket_port, a.client_path = 16851, 'ziniao'
+        return a
+
+    @pytest.mark.asyncio
+    async def test_normal_mode_relaunches_webdriver_not_fail(self):
+        mgr = BrowserManager()
+        store = _make_fake_store()
+        store.ziniao_account_id = 'acct-1'
+        db = mock.AsyncMock()
+        db.get = mock.AsyncMock(return_value=self._acct())
+
+        calls = {'n': 0}
+
+        async def fake_ensure(**kw):
+            calls['n'] += 1
+            if calls['n'] <= 2:  # initial + re-check-under-lock still normal
+                raise ZiniaoNormalModeError('normal mode')
+            # 3rd call (after relaunch) succeeds
+
+        with (
+            mock.patch(
+                'app.browser.manager.ensure_ziniao_running',
+                side_effect=fake_ensure,
+            ),
+            mock.patch(
+                'app.browser.manager.kill_and_relaunch_ziniao',
+                new=mock.AsyncMock(),
+            ) as kar,
+            mock.patch(
+                'app.browser.manager.decrypt_password', return_value='pw'
+            ),
+        ):
+            # Must NOT raise — recovers by relaunching into WebDriver.
+            await mgr.check_ziniao_reachable(store, db)
+
+        kar.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_peer_already_relaunched_no_double_kill(self):
+        mgr = BrowserManager()
+        store = _make_fake_store()
+        store.ziniao_account_id = 'acct-1'
+        db = mock.AsyncMock()
+        db.get = mock.AsyncMock(return_value=self._acct())
+
+        calls = {'n': 0}
+
+        async def fake_ensure(**kw):
+            calls['n'] += 1
+            if calls['n'] == 1:  # initial: normal; a peer fixes it before lock
+                raise ZiniaoNormalModeError('normal mode')
+            # re-check under lock succeeds → no relaunch needed
+
+        with (
+            mock.patch(
+                'app.browser.manager.ensure_ziniao_running',
+                side_effect=fake_ensure,
+            ),
+            mock.patch(
+                'app.browser.manager.kill_and_relaunch_ziniao',
+                new=mock.AsyncMock(),
+            ) as kar,
+            mock.patch(
+                'app.browser.manager.decrypt_password', return_value='pw'
+            ),
+        ):
+            await mgr.check_ziniao_reachable(store, db)
+
+        kar.assert_not_awaited()  # peer already relaunched — no double kill

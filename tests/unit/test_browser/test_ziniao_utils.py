@@ -526,6 +526,10 @@ class TestKillAndRelaunchWSL:
     }
 
     @pytest.mark.asyncio
+    @mock.patch(
+        'app.browser.ziniao_utils.graceful_exit_ziniao',
+        new=mock.AsyncMock(return_value=False),
+    )
     @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
     @mock.patch('app.browser.ziniao_utils.is_wsl', return_value=True)
     @mock.patch('os.path.isfile', return_value=True)
@@ -588,6 +592,10 @@ class TestKillAndRelaunchWSL:
         assert 'Activity Monitor' not in str(exc_info.value)
 
     @pytest.mark.asyncio
+    @mock.patch(
+        'app.browser.ziniao_utils.graceful_exit_ziniao',
+        new=mock.AsyncMock(return_value=False),
+    )
     @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
     @mock.patch('subprocess.run')
     @mock.patch('subprocess.Popen')
@@ -622,6 +630,10 @@ class TestKillAndRelaunchWSL:
         mock_popen.assert_called_once()
 
     @pytest.mark.asyncio
+    @mock.patch(
+        'app.browser.ziniao_utils.graceful_exit_ziniao',
+        new=mock.AsyncMock(return_value=False),
+    )
     @mock.patch('app.browser.ziniao_utils.IS_MAC', False)
     @mock.patch('app.browser.ziniao_utils.IS_WINDOWS', True)
     @mock.patch('app.browser.ziniao_utils.is_wsl', return_value=False)
@@ -655,4 +667,37 @@ class TestKillAndRelaunchWSL:
             timeout=10,
         )
         # Popen (relaunch) WAS called
+        mock_popen.assert_called_once()
+
+    @pytest.mark.asyncio
+    @mock.patch(
+        'app.browser.ziniao_utils.graceful_exit_ziniao',
+        new=mock.AsyncMock(return_value=True),
+    )
+    @mock.patch('app.browser.ziniao_utils.IS_MAC', True)
+    @mock.patch('subprocess.run')
+    @mock.patch('subprocess.Popen')
+    @mock.patch(
+        'app.browser.ziniao_utils.is_ziniao_process_running',
+        return_value=False,
+    )
+    @mock.patch('app.browser.ziniao_utils.try_connect_ziniao')
+    @mock.patch('asyncio.sleep', return_value=None)
+    async def test_graceful_exit_skips_sigkill(
+        self,
+        mock_sleep,
+        mock_connect,
+        mock_proc_running,
+        mock_popen,
+        mock_run,
+    ):
+        """When the client exits gracefully, no SIGKILL/pkill is issued —
+        only the graceful path + relaunch. Prevents the pkill -9 churn that
+        degrades the client (see docs/ziniao-concurrency.md)."""
+        mock_connect.return_value = ({'statusCode': '0'}, '127.0.0.1')
+        result = await kill_and_relaunch_ziniao(16851, 'ziniao', self.USER_INFO)
+        assert result is True
+        # No pkill/taskkill (subprocess.run) — graceful exit handled it.
+        mock_run.assert_not_called()
+        # Relaunch still happens.
         mock_popen.assert_called_once()

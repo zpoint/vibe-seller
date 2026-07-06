@@ -15,7 +15,11 @@ import pytest
 
 from app.browser import manager
 from app.browser.manager import warn_on_browser_use_version_mismatch
-from app.browser.wrapper import write_browser_use_wrapper
+from app.browser.wrapper import (
+    WRAPPER_FORMAT_MARKER,
+    WRAPPER_FORMAT_VERSION,
+    write_browser_use_wrapper,
+)
 
 _wipe_generated_wrappers = manager._wipe_generated_wrappers
 
@@ -106,3 +110,66 @@ class TestVersionAssertion:
                 ver = warn_on_browser_use_version_mismatch()
         assert ver is None
         assert any('not installed' in r.message for r in caplog.records)
+
+
+def _write_versioned_wrapper(bin_dir: Path, slug: str, version) -> Path:
+    """Auto-generated wrapper carrying (or missing) a format-version tag.
+    version=None → unmarked (pre-versioning, treated as 0)."""
+    d = bin_dir / slug
+    d.mkdir(parents=True, exist_ok=True)
+    w = d / 'browser-use'
+    tag = '' if version is None else f'# {WRAPPER_FORMAT_MARKER} {version}\n'
+    w.write_text(
+        '#!/usr/bin/env bash\n'
+        f'# Auto-generated browser-use wrapper for store: {slug}\n'
+        f'{tag}exec "$REAL_BU" "$@"\n'
+    )
+    return w
+
+
+class TestVersionAwareWipe:
+    """Failure point 1 (mid-restart): boot must delete only OUTDATED
+    wrappers — never the current version's own (else there's a
+    wrapper-less window) and never a newer version's (rollback safety)."""
+
+    def test_deletes_lower_keeps_current_and_future(self, tmp_path: Path):
+        bin_dir = tmp_path / 'bin'
+        older = _write_versioned_wrapper(
+            bin_dir, 's-old', WRAPPER_FORMAT_VERSION - 1
+        )
+        unmarked = _write_versioned_wrapper(bin_dir, 's-unmarked', None)
+        current = _write_versioned_wrapper(
+            bin_dir, 's-cur', WRAPPER_FORMAT_VERSION
+        )
+        future = _write_versioned_wrapper(
+            bin_dir, 's-future', WRAPPER_FORMAT_VERSION + 1
+        )
+        ud = bin_dir / 's-user'
+        ud.mkdir(parents=True)
+        user = ud / 'browser-use'
+        user.write_text('#!/usr/bin/env bash\necho hi\n')
+
+        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+            removed = _wipe_generated_wrappers()
+
+        assert not older.exists(), 'older-version wrapper must be wiped'
+        assert not unmarked.exists(), 'unmarked (pre-versioning) wiped'
+        assert current.exists(), 'current wrapper must survive (no gap)'
+        assert future.exists(), 'newer wrapper untouched (rollback safety)'
+        assert user.exists(), 'user wrapper untouched'
+        assert removed == 2
+
+    def test_freshly_generated_wrapper_survives_boot(self, tmp_path: Path):
+        """A wrapper written by the CURRENT generator carries the current
+        format version and must NOT be wiped on the next boot."""
+        bin_dir = tmp_path / 'bin'
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+            write_browser_use_wrapper('acme', 'ziniao', 9222, store_id='s1')
+        w = bin_dir / 'acme' / 'browser-use'
+        assert (
+            f'{WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}' in w.read_text()
+        )
+        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+            removed = _wipe_generated_wrappers()
+        assert removed == 0
+        assert w.exists(), 'current generated wrapper must survive boot'

@@ -175,9 +175,20 @@ def _sse_auto_answer():
     Scope: session — one SSE thread for the entire pytest run.
     """
     sse_client = httpx.Client(timeout=None)
-    _login_client(sse_client)
     answer_client = httpx.Client(timeout=30)
-    _login_client(answer_client)
+    try:
+        _login_client(sse_client)
+        _login_client(answer_client)
+    except (httpx.HTTPStatusError, httpx.ConnectError) as exc:
+        # No default admin / server not up (e.g. a customized local box).
+        # The auto-answer only matters for LLM tests, which need auth
+        # anyway — let non-LLM tests run/skip on their own terms rather
+        # than erroring the whole session at setup.
+        logger.warning('SSE auto-answer disabled (login failed): %s', exc)
+        sse_client.close()
+        answer_client.close()
+        yield
+        return
 
     stop = threading.Event()
 
