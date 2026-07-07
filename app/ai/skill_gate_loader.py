@@ -1,4 +1,4 @@
-"""Load skill-bundled gate scripts, with mtime-gated hot-reload.
+"""Load skill-bundled gate scripts, with content-hash-gated hot-reload.
 
 A skill declares its exit gates in SKILL.md frontmatter
 (``gates: [name]``) and ships each as ``<skill>/gates/<name>.py``
@@ -7,10 +7,10 @@ None`` — the same contract as the core gates in ``app.ai.stop_gates``.
 
 Unlike the core gates (imported once by ``builtin_plugin`` at boot),
 skill-bundled gates are loaded from the file at resolve time and
-**hot-reloaded**: each gate is cached by its file mtime and re-executed
-only when the file changed. So a gate update delivered by ``skills_sync``
-(which rewrites the runtime skills dir) takes effect on the next
-``set_task_result`` **without a server restart** — matching the
+**hot-reloaded**: each gate is cached by its **content hash** and
+re-executed only when the file's bytes change. So a gate update delivered
+by ``skills_sync`` (which rewrites the runtime skills dir) takes effect on
+the next ``set_task_result`` **without a server restart** — matching the
 hot-update cadence of the skill markdown.
 
 Why re-exec, not ``importlib.reload``: ``reload`` fails on a
@@ -56,11 +56,15 @@ _module_cache: dict[str, tuple[str, object]] = {}
 
 
 class HotGate:
-    """Registry-compatible gate proxy that hot-reloads its module file.
+    """Transparent gate proxy that hot-reloads its module file.
 
-    Exposes ``check(result_text, task_id=None, rules=None)`` — the exact
-    signature ``set_task_result`` calls positionally — and re-execs the
-    backing file whenever its mtime changes.
+    Delegates every attribute to the current (content-hash-cached)
+    module, so it is a drop-in for a real gate module: ``check`` is the
+    one ``set_task_result`` calls, but the gate machinery also uses
+    ``is_stalled(task_id)`` (fail-open) and ``reset_progress(task_id)``
+    (cleanup), plus ``GATE_NAME`` etc. — all resolved via ``__getattr__``
+    against the live module. Re-execs the backing file whenever its bytes
+    change.
     """
 
     def __init__(self, name: str, path: Path):
@@ -91,6 +95,19 @@ class HotGate:
         if mod is None or not hasattr(mod, 'check'):
             return None
         return mod.check(result_text, task_id, rules)
+
+    def __getattr__(self, attr):
+        # Delegate anything not defined on the proxy (is_stalled,
+        # reset_progress, GATE_NAME, STALL_CAP, …) to the live module, so
+        # the gate machinery sees the same surface as a real gate module.
+        # (__getattr__ only fires for misses, so _name/_path/check/_module
+        # never recurse here.) Underscore-dunders stay AttributeError.
+        if attr.startswith('__'):
+            raise AttributeError(attr)
+        mod = self._module()
+        if mod is None:
+            raise AttributeError(attr)
+        return getattr(mod, attr)
 
 
 def discover_skill_gates(skills_root: Path | None = None) -> dict[str, Path]:

@@ -66,22 +66,44 @@ def test_hot_reload_on_content_change(tmp_path):
 
 
 def test_no_reexec_when_file_unchanged(tmp_path):
-    # A counter that increments on each module execution proves we only
-    # re-exec when the file actually changed (mtime-gated).
+    # Module IDENTITY is the reliable signal: an unchanged file returns
+    # the same cached module object (no re-exec); a content change returns
+    # a new one. (A module-level counter can't test this — module state
+    # resets on every exec, so it always looks fresh.)
+    path = _write_gate(
+        tmp_path, 's', 'stable', 'def check(r, t=None, ru=None): return None\n'
+    )
+    gate = load_skill_gate('stable', tmp_path)
+    first = gate._module()
+    assert gate._module() is first  # unchanged → cached, not re-exec'd
+    path.write_text('def check(r, t=None, ru=None): return 1\n')
+    assert gate._module() is not first  # content changed → re-exec'd
+
+
+def test_proxy_delegates_gate_api_to_module(tmp_path):
+    # set_task_result uses is_stalled()/reset_progress()/GATE_NAME beyond
+    # check() — the proxy must expose them via the live module.
     _write_gate(
         tmp_path,
         's',
-        'counted',
+        'apis',
         (
-            'import itertools\n'
-            '_n = next(itertools.count())  # 0 at import time\n'
-            'def check(r, t=None, ru=None): return _n\n'
+            'GATE_NAME = "apis"\n'
+            'STALL_CAP = 2\n'
+            'def is_stalled(task_id): return task_id == "stuck"\n'
+            'def reset_progress(task_id): return "reset:" + task_id\n'
+            'def check(r, t=None, ru=None): return None\n'
         ),
     )
-    gate = load_skill_gate('counted', tmp_path)
-    first = gate.check('')
-    # Unchanged file → cache hit → same module → same _n (no re-exec).
-    assert gate.check('') == first
+    gate = load_skill_gate('apis', tmp_path)
+    assert gate.GATE_NAME == 'apis'
+    assert gate.STALL_CAP == 2
+    assert gate.is_stalled('stuck') is True
+    assert gate.is_stalled('ok') is False
+    assert gate.reset_progress('t1') == 'reset:t1'
+    # A missing attribute still raises AttributeError (not silently None).
+    with pytest.raises(AttributeError):
+        _ = gate.nonexistent_attr
 
 
 def test_shared_gate_resolves_from_its_canonical_owner(tmp_path):
