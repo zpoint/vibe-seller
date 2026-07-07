@@ -769,15 +769,27 @@ of the session.
 > registration flow AFTER** you enter through the menu (see the
 > report-applicability rule near the top).
 
-### The ad account is often UNIFIED across marketplaces
+### The ad *console* spans marketplaces, but each *export* is PER-MARKETPLACE
 
-Many accounts run **one advertising account spanning several
-marketplaces** (verified on a MENA account 2026-07: the console banner
-reads "ads across **multiple countries/regions**", a single `entityId`,
-a Country column). Its Sponsored Products Advertised Product report is
-**account-level** — a single export already contains every marketplace
-in that account. Knowing this avoids re-generating "a separate report
-per marketplace" when one account report already holds them all.
+The ad console may show several countries under one `entityId` ("ads
+across multiple countries/regions"), but the **exported** Sponsored
+Products Advertised Product report is **scoped to the marketplace the
+console is currently on** — each country has its OWN campaigns **and its
+own currency** (e.g. `sa` rows are SAR, `ae` rows are AED). A single
+export does **NOT** contain every marketplace.
+
+So **export each marketplace separately** (switch the console's
+marketplace, export again) into that country's folder — and **never copy
+one marketplace's report into another's folder.** Verified 2026-07: a
+store's SA and AE ad reports are distinct files with different countries
+(`沙特阿拉伯` vs `阿联酋`) and currencies; reusing the SA file for AE
+misattributes SA's spend to AE.
+
+**Verify content, not just that a file exists:** open the report and
+confirm its `国家/地区` (Country/Region) column matches the marketplace
+you meant to export (`sa`→`沙特阿拉伯`, `ae`→`阿联酋`). If an "AE" file
+contains only `沙特阿拉伯` rows, it's the wrong (SA) export — redo it for
+AE; do not save it as the AE report.
 
 ### Page Structure
 
