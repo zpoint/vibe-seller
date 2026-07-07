@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from app.ai.skill_gate_loader import load_skill_gate
 from app.ai.skill_gate_utils import find_skill_md, parse_skill_gates
 from app.config import DATA_DIR
 from app.plugins import registered_gates
@@ -167,10 +168,6 @@ def resolve_skill_gates(
     (a skill must not be able to break submits by typo). Order is
     deterministic (sorted by gate name) and duplicates collapse.
     """
-
-    # Lazy import: skill_gate_loader pulls workspace.manager, which would
-    # cycle if imported at module top.
-    from app.ai.skill_gate_loader import load_skill_gate  # noqa: PLC0415
 
     registry = get_registered_gates()
     resolved: dict[str, object] = {}

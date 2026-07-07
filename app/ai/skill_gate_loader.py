@@ -34,7 +34,12 @@ import hashlib
 from pathlib import Path
 import types
 
-from app.workspace.manager import VIBE_SELLER_DIR
+# Import the path constant from the LEAF app.config (not
+# app.workspace.manager, which pulls the DB/models/stop_gates and would
+# make this module non-importable from stop_gates). Keeping this a leaf
+# — stdlib + app.config only, like skill_gate_utils — is what lets
+# stop_gates import it at module top with no cycle.
+from app.config import VIBE_SELLER_DIR
 
 # Runtime skills tree that skills_sync keeps current. All skills live
 # here (not just the ones a given task loaded), so a gate declared by
