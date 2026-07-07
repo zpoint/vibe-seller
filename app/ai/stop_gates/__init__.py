@@ -18,6 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
+from app.ai.skill_gate_loader import discover_skill_gates, load_gate_from_path
 from app.ai.skill_gate_utils import find_skill_md, parse_skill_gates
 from app.config import DATA_DIR
 from app.plugins import registered_gates
@@ -169,13 +170,23 @@ def resolve_skill_gates(
     """
 
     registry = get_registered_gates()
+    # Scan the skill tree ONCE per resolve (not once per declared gate) —
+    # gate name -> file for every skill-bundled gate.
+    skill_gate_files = discover_skill_gates()
     resolved: dict[str, object] = {}
     for skill in sorted(loaded_skills):
         skill_md = find_skill_md(workspace_dir, skill)
         if skill_md is None:
             continue
         for gate_name in parse_skill_gates(skill_md):
-            module = registry.get(gate_name)
+            # Prefer a skill-bundled gate (loaded once from its file at
+            # startup; restart to update); else a core/plugin registry gate.
+            path = skill_gate_files.get(gate_name)
+            module = (
+                load_gate_from_path(gate_name, path)
+                if path
+                else registry.get(gate_name)
+            )
             if module is not None:
                 resolved[gate_name] = module
     return sorted(resolved.items())

@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 
 from app import telemetry
 from app.ai.claude_backend_manager import agent_manager
+from app.ai.skill_gate_loader import preload_skill_gates
 from app.browser.daemon_reaper import start_reaper_loop
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
@@ -171,6 +172,11 @@ async def lifespan(app: FastAPI):
     # installs must not delay /api/health past CI/user boot windows.
     await knowledge_sync.fetch()
     await skills_sync.fetch(defer_deps=True)
+    # Load skill-bundled exit gates ONCE from the just-synced tree. Gates
+    # never hot-reload — a restart is the only way to pick up changed gate
+    # code, so synced (possibly remote) Python can't inject into a running
+    # server. See app/ai/skill_gate_loader.py.
+    preload_skill_gates()
     # Build the shared agent venv in the background (see above).
     venv_task = asyncio.create_task(workspace_manager.ensure_shared_venv())
     # Enrich app_started with rough install scale.
