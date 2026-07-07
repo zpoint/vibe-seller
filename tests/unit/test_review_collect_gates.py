@@ -7,14 +7,33 @@ tests stub the task→slug DB lookup and point the reviews root at a
 tmp_path, then exercise the manifest/product-file contract directly.
 """
 
+import importlib.util
 import json
 
 import pytest
 
 import app.ai.review_manifest as rm
+from app.ai.skill_gate_loader import discover_skill_gates
 from app.ai.stop_gates import get_registered_gates
-import app.ai.stop_gates.review_completeness_review as completeness
-import app.ai.stop_gates.review_output_gate as output_gate
+from app.config import BASE_DIR
+
+# The review gates now ship in the skill dir (review-collect/gates/) and
+# are discovered by the skill-gate loader, not imported as core modules.
+# Load them by path here to exercise their internals directly.
+_GATES_SRC = BASE_DIR / 'app' / 'skills_v2' / 'review-collect' / 'gates'
+
+
+def _load_gate_module(name):
+    spec = importlib.util.spec_from_file_location(
+        f'test_{name}', _GATES_SRC / f'{name}.py'
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+completeness = _load_gate_module('review_completeness_review')
+output_gate = _load_gate_module('review_output_gate')
 
 pytestmark = pytest.mark.unit
 
@@ -267,7 +286,12 @@ class TestOutputGate:
 
 
 class TestRegistry:
-    def test_both_gates_registered(self):
+    def test_gates_are_skill_bundled_not_core_registered(self):
+        # Discovered from the skill dir by the loader...
+        discovered = discover_skill_gates(BASE_DIR / 'app' / 'skills_v2')
+        assert 'review_completeness_review' in discovered
+        assert 'review_output_gate' in discovered
+        # ...and no longer in the core plugin registry.
         reg = get_registered_gates()
-        assert reg['review_completeness_review'] is completeness
-        assert reg['review_output_gate'] is output_gate
+        assert 'review_completeness_review' not in reg
+        assert 'review_output_gate' not in reg
