@@ -77,6 +77,56 @@ This applies to ALL report types:
 Only request/generate a new report if no existing one covers the needed
 date range.
 
+## An empty export is a SUCCESS; "N/A" must be proven on the page
+
+Two rules that together stop the biggest false-failure pattern (a store
+was marked FAILED for reports it "doesn't have" — decided from metadata,
+never checked on the page):
+
+**1. Store metadata does NOT tell you which reports apply.** The store's
+`platforms` / `countries` (e.g. `{"amazon": ["SA"]}`) only say which
+marketplaces it sells on. They encode **nothing** about FBA enrollment
+or whether an Advertising account exists. **Never** conclude "no FBA →
+skip storage/returns" or "no Ads → skip the ad report" from metadata.
+You must open the actual page and let *it* tell you.
+
+**2. A report that exports with zero data rows is DOWNLOADED, not
+missing.** Request each report on its page:
+
+- **Ads report:** enter the ad console via **Campaign Manager in the
+  Seller Central menu** (NOT a direct `advertising.amazon.{tld}` URL —
+  cold, that gives a "Sign in / Register" marketing page, see §6). Once
+  in the console, request the report — Amazon **exports it even with zero
+  campaigns** (headers, 0 rows) → download that empty file, it's a
+  completed deliverable. The ad report is genuinely N/A **only** if,
+  *after* entering via the menu, the store shows an advertiser
+  **onboarding / registration** flow (no advertiser account). A marketing
+  landing reached by direct URL proves nothing — it just means you
+  weren't SSO'd; it is NOT evidence of "no Ads".
+- **FBA storage / returns:** open the report page and request the month.
+  An empty result / "No Data Available" for a *valid* request still
+  means you asked correctly — download whatever file is produced. Only
+  if the page **explicitly says the store is not enrolled in FBA** is it
+  N/A.
+
+**When to use each task outcome:**
+
+- **downloaded** (incl. empty 0-row exports) → deliverable met.
+- **N/A** — only when the *page* proved the capability is absent
+  (advertiser-registration landing; explicit not-enrolled-in-FBA). Record
+  in `vibe_seller_set_task_result`; do **NOT** `vibe_seller_set_task_error`.
+- **pending-Amazon-latency** (e.g. Monthly Storage Fees not yet
+  published, see §2) → `vibe_seller_set_task_result`, not
+  `vibe_seller_set_task_error`.
+- **failed** → `vibe_seller_set_task_error` **only** for a report the page
+  shows you *should* be able to get but couldn't (dead button, 0-byte
+  download, error page).
+
+If the only gaps are proven-N/A or latency-pending, the task
+**COMPLETES**. State per report which of {downloaded, N/A-proven-on-page,
+pending-latency, failed} it is, so the outcome is unambiguous — and never
+downgrade "I didn't check" into "N/A".
+
 ## Clicking a Download button (Amazon `kat-*` shadow DOM)
 
 Report tables wrap the Download control as
@@ -124,80 +174,66 @@ lists a plain `Download` link, clickable by index) or `capture_screenshot()`
 any `kat-button` (e.g. "Request Report", "Download CSV") — match on its
 `label`/text instead of the date substring.
 
-## Setting a custom date range (`kat-date-range-picker` / `kat-dropdown`)
+## Setting a custom date range (works across every Seller Central variant)
 
-The date controls on new Seller Central pages are `kat-*` web
-components, and they behave **differently per marketplace** — do not
-assume one approach works everywhere:
+Date controls differ **per marketplace and per report page** — and
+Amazon changes them over time. You will meet native `<select>` presets,
+`kat-dropdown` presets, plain `<input>` date fields, `kat-date-picker` /
+`kat-date-range-picker` shadow widgets, and month/year dropdowns — the
+same report can render differently on `.sa` vs `.ae` vs `.com`. **Do not
+assume a widget.** Follow the same three-step loop everywhere:
+**observe → interact the human way → verify the outcome.** The outcome
+check is DOM-independent and is what makes this robust.
 
-- **Some marketplaces** surface the Start/End fields as ordinary
-  `<input>` elements — they appear in `print(page_info())` and
-  `fill_input("input[aria-label='Start date']", "<date>")` works.
-- **Others** (verified on a MENA site) nest the inputs **three shadow
-  levels deep** — `kat-date-range-picker → kat-date-picker → kat-input →
-  input` — so they never appear in `page_info()` and neither
-  `fill_input` nor `browser-use input` can reach them.
+**Step 1 — Observe.** `capture_screenshot()` and glance at the DOM
+(`document.querySelector('kat-date-range-picker')`? a native
+`<select>`? plain `input[placeholder]`?). Identify the preset control
+and, once a custom range is chosen, the two date fields.
 
-**Decision rule:** after opening the date control, run
-`print(page_info())`. If the Start/End inputs are listed, use
-`fill_input`. If they are NOT listed, use the shadow-piercing JS below —
-do **not** burn turns retyping into fields that aren't there.
+**Step 2 — Interact the way a human would for THAT widget.** Prefer the
+interaction that fires the component's real handlers:
 
-**Shadow-piercing set (when the inputs aren't in `page_info()`):**
+- **Preset → "Exact dates":** a **native `<select>`** takes a value-set
+  (`el.value='…'` + `change`); a **`kat-dropdown`** does **not** —
+  `click_at_xy` to expand, then `click_at_xy` the "Exact dates" row.
+- **The two date fields:** the reliable path on **every** variant is the
+  **calendar popup with real clicks** — click the field's calendar icon,
+  `click_at_xy` the **‹ / ›** month arrows to the target month, then
+  `click_at_xy` the day cell. (Locate cells from the screenshot — they
+  aren't reliable via `page_info()`/JS rects.) Plain `<input>` fields on
+  some marketplaces also accept `fill_input(selector, "<date>")` — try it
+  if they truly are light-DOM inputs, but **only trust it after Step 3**.
 
-```bash
-browser-use <<'PY'
-print(js(r"""
-var rp = document.querySelector('kat-date-range-picker');
-if (!rp) return 'no kat-date-range-picker on page';
-// Use ONE format for both the attribute and the nested input — it MUST
-// match the input's own placeholder (see note below; here DD/MM/YYYY).
-var vals = ['01/06/2026', '30/06/2026'];
-// Simplest path: the range picker accepts start/end value attributes.
-rp.setAttribute('start-value', vals[0]);
-rp.setAttribute('end-value',   vals[1]);
-// Robust path: also drive the nested <input> so React/Katal state commits.
-var pickers = rp.shadowRoot.querySelectorAll('kat-date-picker');
-for (var i = 0; i < pickers.length; i++) {
-  pickers[i].setAttribute('value', vals[i]);
-  var inp = pickers[i].shadowRoot.querySelector('kat-input')
-              .shadowRoot.querySelector('input');
-  var set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-  set.call(inp, vals[i]);
-  inp.dispatchEvent(new Event('input',  {bubbles: true, composed: true}));
-  inp.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
-}
-return 'set range via shadow DOM';
-"""))
-PY
-```
+> ⚠️ **On `kat-*` date widgets, programmatic value-setting is
+> display-only and silently ignored on submit** — live-verified on AE FBA
+> Customer Returns (2026-07-07): `setAttribute('start-value')`, the
+> `startValue`/`endValue` property, the nested shadow `<input>.value` +
+> `input`/`change` events, and CDP `Input.insertText` all updated the
+> visible field (and even `rp.startValue`) yet the report generated for
+> **today**. `dropdown.selectOption('-1')` likewise sets `.value` without
+> emitting the reveal event. The component's submit reads an internal
+> model only real user input updates — so calendar clicks, not scripts.
 
-**Date format varies by marketplace/locale** — `DD/MM/YYYY`,
-`MM/DD/YYYY`, and `YYYY/M/D` have all been seen on different report
-pages. Read the input's own `placeholder` and match it exactly; setting
-the wrong format silently reverts to empty.
+**Step 3 — Verify the outcome (the universal acceptance test).** This is
+the check that survives every DOM difference:
 
-**Selecting a `kat-dropdown` option (e.g. "Exact dates", a month) when
-`click_at_xy` / `.click()` don't respond** — drive its native API
-instead of clicking:
+1. A quick sanity read after a calendar click —
+   `js("var rp=document.querySelector('kat-date-range-picker'); return rp?rp.startValue+' -> '+rp.endValue:'n/a'")`
+   — is fine as a *first* look, but it is **not authoritative**: a
+   programmatic set can leave `startValue`/`endValue` showing your target
+   without the value actually committing (see the warning above), so a
+   match here does **not** guarantee the report will use it.
+2. The authoritative check: request the report, then **CONFIRM the new
+   history row's "Date Range Covered" is your target month, not today.** A
+   today-dated (or wrong) row means the date never committed — go back to
+   Step 2 and use real clicks; do not download the wrong-range file.
 
-```bash
-browser-use <<'PY'
-print(js(r"""
-var d = document.querySelector('kat-dropdown');   // narrow by label if several
-d.toggleExpanded(true);
-d.selectOption('-1');      // '-1' = "Exact dates"; month dropdowns are 0-indexed (Jan=0 … Jun=5)
-d.toggleExpanded(false);
-return 'selected ' + d.value;
-"""))
-PY
-```
-
-**Month-mode fallback:** on pages that offer a "Month" radio (Payments
-Reports Repository, some Fulfillment reports), if the Custom Date Range
-`kat-date-picker` resists every approach above, click the Month radio —
-it replaces the pickers with two simple `kat-dropdown`s (month, year)
-that take the native-API select above. Month values are **0-indexed**.
+Because the calendar fills the field itself, **date-format variance
+(`DD/MM/YYYY` / `MM/DD/YYYY` / `YYYY/M/D`) is irrelevant** — never hand-
+type the format. Month/year dropdowns (Payments Reports Repository,
+Monthly Storage Fees) are `kat-dropdown`s → select by real click, never
+`selectOption()`; month index has been seen **0-indexed** (Jan=0) on some
+pages — confirm against the visible label, don't hardcode it.
 
 **Report-status polling — keep each sleep short.** After requesting a
 report, poll for the Download button; do **not** `time.sleep(120)` in one
@@ -398,44 +434,27 @@ Select `Exact dates` FIRST — the `.csv` download control only appears
 *after* an exact range is chosen (with a preset selected, only a TSV
 button shows).
 
+Open the page, then set the range with the **real-click calendar
+method** in "Setting a custom date range" above — screenshot, click the
+preset dropdown, click "Exact dates", then set start/end from the
+calendar popups. Do **not** try `selectOption('-1')` or any programmatic
+date-set: live-verified that they leave the request on today's date.
+
 ```bash
 browser-use <<'PY'
 new_tab("https://sellercentral.amazon.{tld}/reportcentral/CUSTOMER_RETURNS/1")
 wait_for_load()
-print(page_info())   # locate the preset dropdown (title="last day (yesterday)")
-# Select "Exact dates" (value=-1). If the dropdown is a kat-dropdown that
-# ignores clicks, drive its native API instead (see "Setting a custom
-# date range" above): d.toggleExpanded(true); d.selectOption('-1').
-print(page_info())   # do the Start/End inputs now appear as plain <input>?
+import time; time.sleep(3)
+capture_screenshot()   # locate the preset dropdown + (after Exact dates) the calendar icons
 PY
 ```
 
-Then set the range using the **decision rule** in "Setting a custom date
-range" above:
-
-- **If the Start/End `<input>`s appear in `page_info()`** (seen on some
-  marketplaces):
-  `fill_input("input[aria-label='Start date']", "<date>")` /
-  `fill_input("input[aria-label='End date']", "<date>")`. Use
-  `fill_input` with a selector, not `type_text` (which can't target a
-  specific field).
-- **If they do NOT appear** (seen on a MENA marketplace — the inputs are
-  three shadow levels deep): use the shadow-piercing set from that
-  section. `fill_input` / `browser-use input` cannot reach them.
-
-Finally request and download — both are `kat-button`s, so use the
-host→inner-button walk from "Clicking a Download button" (match on the
-"Request .csv" / date-range label), waiting ~30s between request and
-download.
-
-> **Marketplace divergence (why this matters):** on some marketplaces
-> the Start/End fields are plain `<input>`s and `fill_input` just works;
-> on others the identical page nests them in
-> `kat-dropdown → kat-date-range-picker → kat-date-picker → kat-input →
-> input` and they never surface in `page_info()`. There is **no single
-> right method** — always let `page_info()` decide, and never conclude
-> "the field doesn't exist" from a `fill_input` no-op on the shadow-DOM
-> variant.
+Finally request and download — the "Request .csv" control is a
+`kat-button`, so use the host→inner-button walk from "Clicking a
+Download button". **Then confirm the new history row's date range is the
+month you asked for, not today**, before downloading (a today-dated row =
+the date never committed; redo the calendar clicks). The `.csv` control
+only appears once an exact range is set; a preset shows only TSV.
 
 **UTC edge rows are normal:** the date filter is marketplace-local,
 but the CSV's `return-date` column is UTC. A row dated the last day
@@ -597,14 +616,13 @@ js("document.querySelector('[title=Transaction]').click()")
 print(page_info())   # locate kat-option elements
 js("[...document.querySelectorAll('kat-option')].find(o => o.textContent.trim() === 'Transaction').click()")  # Transaction or Summary
 
-# 2. Date Range — set start and end dates via the decision rule in
-#    "Setting a custom date range" above (fill_input if the inputs appear
-#    in page_info(); the shadow-piercing set otherwise). Format here is
-#    MM/DD/YYYY on some marketplaces — match the input placeholder.
-#    If the Custom Date Range kat-date-picker resists every approach,
-#    click the "Month" radio and pick month (0-indexed) + year from the
-#    two kat-dropdowns it swaps in (native-API select) — the reliable
-#    fallback for this page.
+# 2. Date Range — set start and end dates with the REAL-CLICK calendar
+#    method in "Setting a custom date range" above (screenshot → click
+#    the field's calendar icon → month arrows → click the day cell).
+#    Programmatic date-sets do NOT commit. If the page offers a "Month"
+#    radio, click it and pick month + year from the kat-dropdowns by
+#    real clicks (month observed 0-indexed). Verify the picker shows your
+#    range before requesting.
 
 # 3. Request Report — kat-button; use the host→inner-button walk from
 #    "Clicking a Download button", matching its label.
@@ -720,9 +738,46 @@ monthly = df[df['type'] == 'Order'].groupby('month')['product sales'].sum()
 
 ## 6. Advertising Reports (Amazon Ads Console)
 
-**Navigation**: hamburger menu → hover Reports → Advertising Reports
-(redirects to `advertising.amazon.{tld}/reports`)
-**Direct URL**: `https://advertising.amazon.{tld}/reports`
+**Navigation (MUST go via the Seller Central menu, not a direct URL):**
+open the ad console by clicking **Campaign Manager** from Amazon's own
+Seller Central navigation → it SSOs into the console
+(`advertising.amazon.{tld}/campaign-manager/...`), then open Reports from
+there. On Ziniao-gated stores only the seller-central root is whitelisted,
+so opening `advertising.amazon.{tld}/reports` **directly on a cold session
+lands on the public "Full-funnel advertising / Sign in / Register"
+marketing page — NOT the console.** Once you've entered via Campaign
+Manager (SSO + entity now warm), the `.../reports` URL works for the rest
+of the session.
+
+> **Where "Campaign Manager" lives varies per store — find it, don't
+> assume a fixed spot.** Verified 2026-07-07: on one store it's a
+> **top-nav** item; on another the top nav has no ads entry at all and
+> it's under the **☰ hamburger menu → Advertising → Campaign Manager**
+> (opens with an external-link ⧉). If it's not in the top bar, open the
+> ☰ menu and look under "Advertising". A store showing ad activity in the
+> Global Snapshot (Advertisement Sales / Impressions) HAS an ad account —
+> the Campaign Manager link exists somewhere in the menu; keep looking
+> rather than concluding "no Ads".
+
+> ⚠️ **A marketing / "Sign in / Register" landing means you are NOT
+> signed into the ad console — it does NOT mean the store has no ad
+> account.** Live-verified 2026-07-07: a warm task session opened
+> `advertising.amazon.{tld}/reports` straight to the console, while a
+> cold session got the marketing page for the *same* store. Never
+> conclude "no Ads" from that page — go in via Campaign Manager first. A
+> genuine no-ad-account store only shows an advertiser **onboarding /
+> registration flow AFTER** you enter through the menu (see the
+> report-applicability rule near the top).
+
+### The ad account is often UNIFIED across marketplaces
+
+Many accounts run **one advertising account spanning several
+marketplaces** (verified on a MENA account 2026-07: the console banner
+reads "ads across **multiple countries/regions**", a single `entityId`,
+a Country column). Its Sponsored Products Advertised Product report is
+**account-level** — a single export already contains every marketplace
+in that account. Knowing this avoids re-generating "a separate report
+per marketplace" when one account report already holds them all.
 
 ### Page Structure
 
@@ -792,6 +847,9 @@ Click "Create report" button (first `<button>` inside `#advertising-reports`):
 
 ```bash
 browser-use <<'PY'
+# PREREQUISITE: enter the console via Campaign Manager (SC menu) first —
+# see Navigation above. This direct /reports URL only resolves once that
+# SSO/entity is warm; cold it lands on the marketing/Sign-in page.
 new_tab("https://advertising.amazon.{tld}/reports")
 wait_for_load()
 js("document.querySelector('#advertising-reports button').click()")
