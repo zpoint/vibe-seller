@@ -579,6 +579,23 @@ PY
 
 **1-5 minutes**. Refresh page to check if Report Status = ready.
 
+### Multi-country downloads collide on filename — rename each immediately
+
+The All Listings / Active Listings Report downloads with a **fixed,
+date-based filename** (e.g. `All+Listings+Report_MM-DD-YYYY.txt`) that is
+**identical across marketplaces**. If you download the report for two
+countries in a row (e.g. SA then AE), the second **silently overwrites**
+the first in the download dir — no browser prompt. Two consequences:
+
+- **Rename right after each download**, before triggering the next. Copy
+  the freshly-downloaded file to a country-suffixed name
+  (`All_Listings_<CC>_<YYYY-MM-DD>.txt`) the moment it lands, then request
+  the next country.
+- The All Listings TSV is **account-level** (byte-identical across a
+  unified account's marketplace subdomains), so a per-country re-download
+  often yields the same rows anyway — verify content rather than assuming
+  each country's file differs.
+
 ---
 
 ## 5. Payments Reports Repository
