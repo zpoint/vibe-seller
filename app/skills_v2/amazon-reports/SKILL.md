@@ -114,12 +114,13 @@ missing.** Request each report on its page:
 - **downloaded** (incl. empty 0-row exports) → deliverable met.
 - **N/A** — only when the *page* proved the capability is absent
   (advertiser-registration landing; explicit not-enrolled-in-FBA). Record
-  in `vibe_seller_set_task_result`; do **NOT** `set_task_error`.
+  in `vibe_seller_set_task_result`; do **NOT** `vibe_seller_set_task_error`.
 - **pending-Amazon-latency** (e.g. Monthly Storage Fees not yet
-  published, see §2) → `set_task_result`, not `set_task_error`.
-- **failed** → `set_task_error` **only** for a report the page shows you
-  *should* be able to get but couldn't (dead button, 0-byte download,
-  error page).
+  published, see §2) → `vibe_seller_set_task_result`, not
+  `vibe_seller_set_task_error`.
+- **failed** → `vibe_seller_set_task_error` **only** for a report the page
+  shows you *should* be able to get but couldn't (dead button, 0-byte
+  download, error page).
 
 If the only gaps are proven-N/A or latency-pending, the task
 **COMPLETES**. State per report which of {downloaded, N/A-proven-on-page,
@@ -216,13 +217,16 @@ interaction that fires the component's real handlers:
 **Step 3 — Verify the outcome (the universal acceptance test).** This is
 the check that survives every DOM difference:
 
-1. Before requesting, read the committed range back — e.g.
+1. A quick sanity read after a calendar click —
    `js("var rp=document.querySelector('kat-date-range-picker'); return rp?rp.startValue+' -> '+rp.endValue:'n/a'")`
-   — it must equal your target.
-2. Request the report, then **CONFIRM the new history row's "Date Range
-   Covered" is your target month, not today.** A today-dated (or wrong)
-   row means the date never committed — go back to Step 2 and use real
-   clicks; do not download the wrong-range file.
+   — is fine as a *first* look, but it is **not authoritative**: a
+   programmatic set can leave `startValue`/`endValue` showing your target
+   without the value actually committing (see the warning above), so a
+   match here does **not** guarantee the report will use it.
+2. The authoritative check: request the report, then **CONFIRM the new
+   history row's "Date Range Covered" is your target month, not today.** A
+   today-dated (or wrong) row means the date never committed — go back to
+   Step 2 and use real clicks; do not download the wrong-range file.
 
 Because the calendar fills the field itself, **date-format variance
 (`DD/MM/YYYY` / `MM/DD/YYYY` / `YYYY/M/D`) is irrelevant** — never hand-
