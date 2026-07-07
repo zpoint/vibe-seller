@@ -46,3 +46,5 @@ qianniu-ads/SKILL.md
 qianniu-ads/references/mechanics.md
 qianniu-ads/scripts/ads_report.py
 qianniu-ads/requirements.txt
+review-collect/gates/review_completeness_review.py
+review-collect/gates/review_output_gate.py
