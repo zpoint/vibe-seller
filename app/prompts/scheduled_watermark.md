@@ -12,7 +12,7 @@ you used with `vibe_seller_get_schedule_state`):
 
 | Workflow | key | value to write |
 |---|---|---|
-| Daily email sweep | `email_watermark` | The integer in the `epoch` column of the newest row your SELECT returned (you should have projected `CAST(strftime('%s', date) AS INTEGER) AS epoch` on purpose — do NOT compute epoch mentally from the ISO date, that loses the year). Unix epoch seconds as an integer string, e.g. `"1776441057"`. NOT an ISO timestamp; the server rejects ISO for this key because lex comparison under tz/microseconds is unsafe. |
+| Daily email sweep | `email_watermark` | The **`next_watermark`** returned by `vibe_seller_get_new_emails`, written **verbatim**. That is the only accepted source: the server records it as a floor and **rejects** any `email_watermark` you set by hand, from an email `Date` header, or below that floor (a store with linked email accounts also rejects the write entirely until you have called `vibe_seller_get_new_emails`). Unix epoch seconds as an integer string, e.g. `"1776441057"` — never an ISO timestamp, and never an epoch you computed yourself from a date. |
 | Order audit | `last_order_id` | highest order id you processed |
 | Messaging / chat | `last_message_id` | newest message id handled |
 | Product sync | `last_sku_batch_id` | newest batch id fully applied |
