@@ -350,6 +350,7 @@ class TestWatermarkFloorAuthority:
         )
         # Establish the floor via the sanctioned read path.
         r1 = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r1.status_code == 200
         floor = int(r1.json()['next_watermark'])
 
         # A Date-header-derived value below the floor (the fetched_at
@@ -368,19 +369,25 @@ class TestWatermarkFloorAuthority:
         )
         assert ok.status_code == 200
 
-    async def test_reserved_floor_key_write_rejected(
+    async def test_reserved_floor_key_rejected_read_and_write(
         self, admin_client, override_async_session, admin_user, email_env
     ):
-        """Agents cannot write the server-managed floor key directly."""
+        """Agents can neither write nor read the server-managed floor."""
         task_id = await _make_running_task(
             override_async_session,
             admin_user,
             email_env['schedule_id'],
             email_env['store_id'],
         )
-        r = await admin_client.put(
+        w = await admin_client.put(
             f'/api/tasks/{task_id}/schedule-state/_email_watermark_floor',
             json={'value': '0'},
+        )
+        assert w.status_code == 400
+        assert 'reserved' in w.json()['detail']
+
+        r = await admin_client.get(
+            f'/api/tasks/{task_id}/schedule-state/_email_watermark_floor'
         )
         assert r.status_code == 400
         assert 'reserved' in r.json()['detail']
@@ -397,10 +404,12 @@ class TestWatermarkFloorAuthority:
         )
         # get_new_emails writes the floor; then persist the watermark.
         r1 = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
-        await admin_client.put(
+        assert r1.status_code == 200
+        put = await admin_client.put(
             f'/api/tasks/{task_id}/schedule-state/email_watermark',
             json={'value': r1.json()['next_watermark']},
         )
+        assert put.status_code == 200
         # A miss on an unrelated key lists other keys — the floor
         # (a `_`-prefixed reserved key) must not appear.
         miss = await admin_client.get(

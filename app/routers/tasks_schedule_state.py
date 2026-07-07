@@ -14,7 +14,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, StringConstraints
-from sqlalchemy import select
+from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -120,6 +120,25 @@ def _validate_schedule_state_key(key: str) -> None:
             status_code=400,
             detail=(
                 'Invalid key: must match [A-Za-z0-9_.-] and be 1-64 chars.'
+            ),
+        )
+
+
+def _reject_reserved_key(key: str) -> None:
+    """Reject agent access to server-managed (``_``-prefixed) keys.
+
+    Applied on BOTH the read and write paths so an agent can neither
+    read the email-watermark floor nor lower it. The server's own
+    floor read/write goes through ``db`` directly, not these
+    endpoints, so it is unaffected.
+    """
+    if key.startswith(_RESERVED_KEY_PREFIX):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"keys starting with '{_RESERVED_KEY_PREFIX}' are reserved "
+                'for server-managed cursors and cannot be read or written '
+                'via the schedule-state tools.'
             ),
         )
 
@@ -280,6 +299,7 @@ async def get_schedule_state(
     the MCP tool output cannot expose it to the agent.
     """
     _validate_schedule_state_key(key)
+    _reject_reserved_key(key)
     task = await _load_scheduled_task(db, task_id)
     # Scope by the calling task's store_id so fanout siblings each
     # see their own cursor. NO_STORE_SCOPE ('') is the sentinel for
@@ -307,8 +327,10 @@ async def get_schedule_state(
                 ScheduleState.store_id == store_scope,
             )
         )
-        # Hide server-managed cursors (e.g. the email-watermark floor)
-        # so the agent never tries to read or mimic them.
+        # Omit server-managed cursors (e.g. the email-watermark floor)
+        # from the hint list. Direct reads of them are also rejected
+        # (see _reject_reserved_key), so the agent never sees or mimics
+        # them by either path.
         known_keys = sorted(
             row[0]
             for row in existing.all()
@@ -352,15 +374,7 @@ async def set_schedule_state(
     MCP tool result never leaks it to the agent.
     """
     _validate_schedule_state_key(key)
-    if key.startswith(_RESERVED_KEY_PREFIX):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"keys starting with '{_RESERVED_KEY_PREFIX}' are reserved "
-                'for server-managed cursors and cannot be written via '
-                'set_schedule_state.'
-            ),
-        )
+    _reject_reserved_key(key)
     # `body.value` is already stripped + non-empty — enforced by
     # SetScheduleStateRequest's StringConstraints (pydantic 422s on
     # null / missing / empty / whitespace-only at the boundary).
@@ -523,21 +537,22 @@ async def get_new_emails(
             'new_emails': emails,
         })
 
-    # Record the cursor floor server-side (monotonic, never decreases):
-    # this is the highest next_watermark we have shown the agent, and
-    # set_schedule_state('email_watermark', …) refuses any value below
-    # it. Written here, on the sanctioned read path, so the agent can
-    # never persist a watermark that would re-sweep what it just saw.
-    prior_floor = await _get_watermark_floor(db, task.schedule_id, store_scope)
-    floor_val = next_watermark
-    if prior_floor is not None:
-        floor_val = max(floor_val, prior_floor)
+    # Record the cursor floor server-side. The floor is the highest
+    # next_watermark we have shown the agent;
+    # set_schedule_state('email_watermark', …) refuses any lower value,
+    # so the agent can never persist a watermark that re-sweeps what it
+    # just saw. The update is ATOMIC and monotonic: the ON CONFLICT
+    # clause takes MAX(existing, new) in SQL rather than a
+    # read-then-write in Python, so two overlapping GET /new-emails
+    # calls (or a retry) can never clobber a higher floor with a lower
+    # one. CAST to INTEGER so the comparison is numeric, not the unsafe
+    # lexicographic ordering the epoch-string format otherwise invites.
     floor_now = datetime.now(UTC).isoformat()
     floor_stmt = sqlite_insert(ScheduleState).values(
         schedule_id=task.schedule_id,
         store_id=store_scope,
         key=_EMAIL_WATERMARK_FLOOR_KEY,
-        value=str(floor_val),
+        value=str(next_watermark),
         updated_at=floor_now,
         updated_by_task_id=task_id,
     )
@@ -548,7 +563,10 @@ async def get_new_emails(
             ScheduleState.key,
         ],
         set_={
-            'value': floor_stmt.excluded.value,
+            'value': func.max(
+                cast(floor_stmt.excluded.value, Integer),
+                cast(ScheduleState.value, Integer),
+            ),
             'updated_at': floor_stmt.excluded.updated_at,
             'updated_by_task_id': floor_stmt.excluded.updated_by_task_id,
         },
