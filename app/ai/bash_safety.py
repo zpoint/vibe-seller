@@ -697,19 +697,14 @@ def check_exec_review_status(task_dir) -> str | None:
 # ── Pre-live bid-value sanity (the 10× / concatenation overspend bug) ────
 #
 # The Shadow-DOM bid input does not reliably clear, so a 1.30 target can
-# become 11.3 or 3.002.27 (a real-money overspend that shipped live, and
-# that the agent then rationalized as "≥ target"). The typed value is
-# visible in the Bash command, so we can deny the value-SHAPE pathology
-# before it goes live. This guard does NOT know the report target (the
-# index→keyword map isn't in the command) — catching the wrong target
-# value is the ``ad_execution_fidelity`` exit gate's job; this is purely
-# the absurd-magnitude / multi-decimal catch.
-#
-# The value appears in one of:
-#   * legacy 0.12 subcommand:  ``browser-use input <idx> "1.30"``
-#   * 0.13 heredoc typing helper: ``type_text("1.30")`` /
-#     ``fill_input(<sel>, "1.30")``
-#   * a JS value assignment: ``el.value = "1.30"``
+# become 11.3 or 3.002.27 (a real-money overspend that shipped live). The
+# typed value is visible in the Bash command, so we deny the value-SHAPE
+# pathology before it goes live. This guard does NOT know the report
+# target (index→keyword map isn't in the command) — catching the wrong
+# target is the ``ad_execution_fidelity`` exit gate's job; this is purely
+# the absurd-magnitude / multi-decimal catch. The value appears in a
+# legacy ``browser-use input <idx> "1.30"``, a 0.13 helper
+# (``type_text``/``fill_input``), or a JS ``el.value = "1.30"`` assign.
 _BID_INPUT_RE = re.compile(
     r'(?:'
     r'browser-use\s+(?:input|type)\s+\d+\s+["\']?'
@@ -756,7 +751,12 @@ def check_bid_value_shape(command: str) -> str | None:
         val = float(raw)
     except ValueError:
         return None
-    if val > _BID_SANITY_CEILING:
+    # Fire the ceiling on a decimal (a CPC bid is a currency decimal, so
+    # 113.0 is caught in any context) OR in an explicit bid context ("bid"
+    # in the command → an integer bid like 999 is still caught). The legacy
+    # input form WITHOUT "bid" is OTP/postal/quantity-ambiguous — integers
+    # there pass (firing on a 6-digit OTP blocked live login on two stores).
+    if val > _BID_SANITY_CEILING and ('.' in raw or 'bid' in command.lower()):
         return (
             f'Bid value {raw} exceeds the {_BID_SANITY_CEILING:g} sanity '
             'ceiling — almost certainly a clear-failure concatenation (e.g. '

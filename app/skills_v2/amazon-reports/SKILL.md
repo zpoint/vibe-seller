@@ -77,6 +77,145 @@ This applies to ALL report types:
 Only request/generate a new report if no existing one covers the needed
 date range.
 
+## Clicking a Download button (Amazon `kat-*` shadow DOM)
+
+Report tables wrap the Download control as
+`kat-table-row → kat-table-cell → kat-button`, and the real clickable
+`<button>` lives **inside `kat-button.shadowRoot`**. A plain
+`document.querySelector('kat-table-cell button')` (or any
+`[data-testid=...]` / `.download-btn` guess) returns `null` — CSS
+selectors do **not** cross shadow boundaries, and
+`[...document.querySelectorAll('button')]` never sees a button that
+lives inside a shadow root. So those selectors silently no-op and you
+waste turns. Reach the inner button through the shadow host and
+`.click()` it. (This `.click()` works for table Download buttons; the
+left-sidebar `kat-button`s are the exception — those need a coordinate
+click.)
+
+**Use this one snippet on every report page.** Match the target row by a
+substring of its date range, then click its Download control:
+
+```bash
+browser-use <<'PY'
+print(js(r"""
+var rowMatch = '01/06/26';   // substring of the TARGET row's date range
+var rows = document.querySelectorAll('kat-table-row, tr');
+for (var r of rows) {
+  if (!(r.textContent || '').includes(rowMatch)) continue;
+  for (var h of r.querySelectorAll('kat-button, kat-link, a, button')) {
+    var real = h.shadowRoot ? h.shadowRoot.querySelector('button, a') : h;
+    var label = (h.textContent||'') + ' ' + ((h.getAttribute && h.getAttribute('label')) || '');
+    if (real && (h.tagName === 'KAT-BUTTON' || /download|\.csv/i.test(label))) {
+      real.click();
+      return 'clicked download for row ~ ' + rowMatch;
+    }
+  }
+}
+return 'NO download control for ~' + rowMatch + ' (check the date substring / row exists)';
+"""))
+import time; time.sleep(3)   # let the download start
+PY
+```
+
+On "NO download control", fall back to `print(page_info())` (it often
+lists a plain `Download` link, clickable by index) or `capture_screenshot()`
++ coordinate click — but try the snippet first; it one-shots the common
+`kat-button` shadow case. The same host-then-inner-button walk applies to
+any `kat-button` (e.g. "Request Report", "Download CSV") — match on its
+`label`/text instead of the date substring.
+
+## Setting a custom date range (`kat-date-range-picker` / `kat-dropdown`)
+
+The date controls on new Seller Central pages are `kat-*` web
+components, and they behave **differently per marketplace** — do not
+assume one approach works everywhere:
+
+- **Some marketplaces** surface the Start/End fields as ordinary
+  `<input>` elements — they appear in `print(page_info())` and
+  `fill_input("input[aria-label='Start date']", "<date>")` works.
+- **Others** (verified on a MENA site) nest the inputs **three shadow
+  levels deep** — `kat-date-range-picker → kat-date-picker → kat-input →
+  input` — so they never appear in `page_info()` and neither
+  `fill_input` nor `browser-use input` can reach them.
+
+**Decision rule:** after opening the date control, run
+`print(page_info())`. If the Start/End inputs are listed, use
+`fill_input`. If they are NOT listed, use the shadow-piercing JS below —
+do **not** burn turns retyping into fields that aren't there.
+
+**Shadow-piercing set (when the inputs aren't in `page_info()`):**
+
+```bash
+browser-use <<'PY'
+print(js(r"""
+var rp = document.querySelector('kat-date-range-picker');
+if (!rp) return 'no kat-date-range-picker on page';
+// Use ONE format for both the attribute and the nested input — it MUST
+// match the input's own placeholder (see note below; here DD/MM/YYYY).
+var vals = ['01/06/2026', '30/06/2026'];
+// Simplest path: the range picker accepts start/end value attributes.
+rp.setAttribute('start-value', vals[0]);
+rp.setAttribute('end-value',   vals[1]);
+// Robust path: also drive the nested <input> so React/Katal state commits.
+var pickers = rp.shadowRoot.querySelectorAll('kat-date-picker');
+for (var i = 0; i < pickers.length; i++) {
+  pickers[i].setAttribute('value', vals[i]);
+  var inp = pickers[i].shadowRoot.querySelector('kat-input')
+              .shadowRoot.querySelector('input');
+  var set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  set.call(inp, vals[i]);
+  inp.dispatchEvent(new Event('input',  {bubbles: true, composed: true}));
+  inp.dispatchEvent(new Event('change', {bubbles: true, composed: true}));
+}
+return 'set range via shadow DOM';
+"""))
+PY
+```
+
+**Date format varies by marketplace/locale** — `DD/MM/YYYY`,
+`MM/DD/YYYY`, and `YYYY/M/D` have all been seen on different report
+pages. Read the input's own `placeholder` and match it exactly; setting
+the wrong format silently reverts to empty.
+
+**Selecting a `kat-dropdown` option (e.g. "Exact dates", a month) when
+`click_at_xy` / `.click()` don't respond** — drive its native API
+instead of clicking:
+
+```bash
+browser-use <<'PY'
+print(js(r"""
+var d = document.querySelector('kat-dropdown');   // narrow by label if several
+d.toggleExpanded(true);
+d.selectOption('-1');      // '-1' = "Exact dates"; month dropdowns are 0-indexed (Jan=0 … Jun=5)
+d.toggleExpanded(false);
+return 'selected ' + d.value;
+"""))
+PY
+```
+
+**Month-mode fallback:** on pages that offer a "Month" radio (Payments
+Reports Repository, some Fulfillment reports), if the Custom Date Range
+`kat-date-picker` resists every approach above, click the Month radio —
+it replaces the pickers with two simple `kat-dropdown`s (month, year)
+that take the native-API select above. Month values are **0-indexed**.
+
+**Report-status polling — keep each sleep short.** After requesting a
+report, poll for the Download button; do **not** `time.sleep(120)` in one
+call — a single long sleep exceeds the browser-use tool timeout and the
+turn is killed mid-wait. Loop with short sleeps and re-check instead:
+
+```bash
+browser-use <<'PY'
+import time
+for _ in range(6):          # ~6 × 30s ≈ 3 min, each well under the tool timeout
+    time.sleep(30)
+    info = page_info()
+    if 'Download' in info or 'Ready' in info:
+        break
+print(info)
+PY
+```
+
 ## Report Types Overview
 
 ### A. Seller Central Reports (via hamburger menu → Reports)
@@ -127,10 +266,11 @@ browser-use <<'PY'
 new_tab("https://sellercentral.amazon.{tld}/business-reports")
 wait_for_load()
 print(page_info())   # locate the "Download" button (inside a kat-table-cell shadow DOM)
-# Trigger the CSV download — immediate. Reach the button through its
-# shadow host; if no stable selector, screenshot then click_at_xy.
-js("document.querySelector('kat-table-cell button, [data-testid=download]').click()")
 PY
+# Trigger the CSV download with the canonical shadow-DOM download snippet
+# (see "Clicking a Download button" above). The Business Reports view has a
+# single Download button, so match on its label rather than a date row:
+#   real = h.shadowRoot ? h.shadowRoot.querySelector('button,a') : h  → real.click()
 ```
 
 ### Wait Time
@@ -161,24 +301,22 @@ PY
 browser-use <<'PY'
 new_tab("https://sellercentral.amazon.{tld}/reportcentral/WelcomePage")
 wait_for_load()
-print(page_info())   # locate the report link in the sidebar (id=report-nav-link-url)
-js("document.querySelector('#report-nav-link-url').click()")   # open specific report
-wait_for_load()
-print(page_info())   # locate "Request Report" / date range / "Generate Report"
-js("document.querySelector('[data-testid=request-report], #request-report').click()")
+print(page_info())   # sidebar report links carry id=report-nav-link-url
 PY
-# Wait 1-5 minutes. Reload the page to check status.
-browser-use <<'PY'
-new_tab("https://sellercentral.amazon.{tld}/reportcentral/WelcomePage")
-wait_for_load()
-print(page_info())   # locate the "Download" button when status shows ready
-js("document.querySelector('[data-testid=download], .download-btn').click()")
-PY
+# Click the sidebar link and the "Request Report" button by their
+# page_info() index (they are kat-* controls; a raw querySelector guess
+# no-ops). For any kat-button, use the host→inner-button walk from
+# "Clicking a Download button" above, matching on its label text.
+# Set the date range first via "Setting a custom date range" above.
+# Wait 1-5 minutes, then download with the canonical download snippet,
+# matching the history row by its date-range substring.
 ```
 
 ### Wait Time
 
-**1-5 minutes** for most reports. Refresh the page to check status.
+**1-5 minutes** for most reports. Refresh the page to check status. Poll
+with short sleeps (never one `time.sleep(120)` — see the polling loop in
+"Setting a custom date range" above).
 
 ### Monthly Storage Fees — publication latency
 
@@ -256,37 +394,48 @@ calendar month.**
 
 Correct flow:
 
+Select `Exact dates` FIRST — the `.csv` download control only appears
+*after* an exact range is chosen (with a preset selected, only a TSV
+button shows).
+
 ```bash
 browser-use <<'PY'
 new_tab("https://sellercentral.amazon.{tld}/reportcentral/CUSTOMER_RETURNS/1")
 wait_for_load()
-print(page_info())   # locate preset dropdown (title="last day (yesterday)")
-js("document.querySelector('[title=\"last day (yesterday)\"]').click()")
-print(page_info())   # options list; "Exact dates" is value=-1
-js("document.querySelector('[value=\"-1\"]').click()")
-print(page_info())   # TWO plain inputs appear:
-                     #   aria-label="Start date", aria-label="End date"
-                     #   placeholder DD/MM/YYYY
-fill_input("input[aria-label='Start date']", "01/01/2026")
-fill_input("input[aria-label='End date']", "31/01/2026")
-js("document.querySelector('[data-testid=request-csv], button.request-csv').click()")  # "Request .csv Download"
-PY
-# ~30s; first row of the history table shows the range + Download
-browser-use <<'PY'
-print(page_info())
-js("document.querySelector('[data-testid=download], .download-btn').click()")
+print(page_info())   # locate the preset dropdown (title="last day (yesterday)")
+# Select "Exact dates" (value=-1). If the dropdown is a kat-dropdown that
+# ignores clicks, drive its native API instead (see "Setting a custom
+# date range" above): d.toggleExpanded(true); d.selectOption('-1').
+print(page_info())   # do the Start/End inputs now appear as plain <input>?
 PY
 ```
 
-**Anti-pattern — do NOT do this:** after clicking `Exact dates`,
-do not try to set the `kat-date-picker` values via `js()` / shadow-DOM
-JS. Setting `.value` on kat-date-picker silently fails (one observed
-run burned ~100 steps this way and fell back to a wrong preset). After
-clicking the option, just re-run `print(page_info())` — the Start/End
-fields surface as ordinary `<input>` elements and
-`fill_input("input[aria-label='Start date']", "...")` works directly.
-(Use `fill_input` with a selector here, not `type_text` — `type_text`
-just types into whatever is focused and can't target a specific field.)
+Then set the range using the **decision rule** in "Setting a custom date
+range" above:
+
+- **If the Start/End `<input>`s appear in `page_info()`** (seen on some
+  marketplaces):
+  `fill_input("input[aria-label='Start date']", "<date>")` /
+  `fill_input("input[aria-label='End date']", "<date>")`. Use
+  `fill_input` with a selector, not `type_text` (which can't target a
+  specific field).
+- **If they do NOT appear** (seen on a MENA marketplace — the inputs are
+  three shadow levels deep): use the shadow-piercing set from that
+  section. `fill_input` / `browser-use input` cannot reach them.
+
+Finally request and download — both are `kat-button`s, so use the
+host→inner-button walk from "Clicking a Download button" (match on the
+"Request .csv" / date-range label), waiting ~30s between request and
+download.
+
+> **Marketplace divergence (why this matters):** on some marketplaces
+> the Start/End fields are plain `<input>`s and `fill_input` just works;
+> on others the identical page nests them in
+> `kat-dropdown → kat-date-range-picker → kat-date-picker → kat-input →
+> input` and they never surface in `page_info()`. There is **no single
+> right method** — always let `page_info()` decide, and never conclude
+> "the field doesn't exist" from a `fill_input` no-op on the shadow-DOM
+> variant.
 
 **UTC edge rows are normal:** the date filter is marketplace-local,
 but the CSV's `return-date` column is UTC. A row dated the last day
@@ -392,19 +541,17 @@ new_tab("https://sellercentral.amazon.{tld}/listing/reports")
 wait_for_load()
 print(page_info())   # locate "Select Report Type" dropdown and "Request Report"
 
-# Select type
-js("document.querySelector('[data-testid=report-type-select], select').click()")
-print(page_info())   # locate options
-js("[...document.querySelectorAll('kat-option, option')].find(o => o.textContent.trim() === 'All Listings Report').click()")
-
-# Request
-js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Request Report').click()")
+# Select the report type. If it is a kat-dropdown, use its native API
+# (see "Setting a custom date range" above):
+#   d.toggleExpanded(true); d.selectOption('<value>')
+# A plain [data-testid=...] / <select> querySelector no-ops on a kat-*
+# control. Then click "Request Report" via the host→inner-button walk
+# from "Clicking a Download button", matching its label text.
 PY
-# Wait 1-5 minutes, then check for Download
-browser-use <<'PY'
-print(page_info())   # table shows the new row with status
-js("document.querySelector('[data-testid=download], .download-btn').click()")
-PY
+# Wait 1-5 minutes (poll with short sleeps — see the polling loop above),
+# then download the new row with the canonical download snippet from
+# "Clicking a Download button", matching the row by its date-range /
+# request-time substring.
 ```
 
 ### Wait Time
@@ -450,20 +597,26 @@ js("document.querySelector('[title=Transaction]').click()")
 print(page_info())   # locate kat-option elements
 js("[...document.querySelectorAll('kat-option')].find(o => o.textContent.trim() === 'Transaction').click()")  # Transaction or Summary
 
-# 2. Date Range — set start and end dates
-print(page_info())   # locate date range inputs
-fill_input("input[aria-label='Start date']", "01/01/2026")
-fill_input("input[aria-label='End date']", "03/31/2026")
+# 2. Date Range — set start and end dates via the decision rule in
+#    "Setting a custom date range" above (fill_input if the inputs appear
+#    in page_info(); the shadow-piercing set otherwise). Format here is
+#    MM/DD/YYYY on some marketplaces — match the input placeholder.
+#    If the Custom Date Range kat-date-picker resists every approach,
+#    click the "Month" radio and pick month (0-indexed) + year from the
+#    two kat-dropdowns it swaps in (native-API select) — the reliable
+#    fallback for this page.
 
-# 3. Request Report
-js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Request Report').click()")
+# 3. Request Report — kat-button; use the host→inner-button walk from
+#    "Clicking a Download button", matching its label.
 PY
-# 4. Wait ~1-3 minutes, then scroll down to find the report in the table
+# 4. Wait ~1-3 minutes (poll with short sleeps — see the polling loop
+#    above), then scroll down and download the "Ready" row (check_circle
+#    icon) with the canonical download snippet, matching on the
+#    "Download CSV" label. A raw querySelectorAll('button') never sees
+#    the button inside kat-button.shadowRoot.
 browser-use <<'PY'
 js("window.scrollTo(0, document.body.scrollHeight)")
-print(page_info())   # locate "Download CSV" button (inside kat-table-cell shadow DOM)
-# Status must show "Ready" (with check_circle icon)
-js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Download CSV').click()")
+print(page_info())
 PY
 ```
 
