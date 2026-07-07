@@ -1053,6 +1053,22 @@ string or `.xlsx` extension, it must be updated for the unified CSV. The
 data (per SKU × campaign × country: spend, sales, units, impressions,
 clicks) is fully reproducible.
 
+**Verified live** (one SP marketplace, last-month period): the
+`advertised_product` template seeds ~47 default columns — including
+`推广的商品编号` (=ASIN), `推广的商品 SKU`, `广告活动名称`, `广告组名称`,
+`广告组合名称`, `预算货币`, `展示量`, `点击量`, `总成本`, and the base /
+`（推广）` / `（光环）` / `（品牌新客）` conversion families — and returns
+one row per SKU × campaign. Two things to know:
+- The default set uses **`推广的商品站点`** (Advertised product
+  marketplace), **not** `国家/地区`. If the consumer needs an explicit
+  country column, add the **国家/地区** dimension (§6.4C) or restrict the
+  country filter and rely on the folder (§6.8).
+- The **`日期范围`** dimension shows each row's *active* date span
+  **within** the selected period (rows with activity across the whole
+  month show `<1st> - <last>`; sparser SKUs show a sub-span). The report
+  period itself is still the one you picked (e.g. 上个月 = the full
+  previous calendar month).
+
 Example placeholder row (never use real SKUs/ASINs/campaign names):
 `WIDGET-001-White, B0EXAMPLE001, "example manual - KSA", SAR, 沙特阿拉伯,
 5000 impressions, 30 clicks, 30.00 spend, 250.00 sales, 6 units`.
@@ -1066,12 +1082,22 @@ idle); reload on a ~60–90 s cadence. Reports typically finish in a few
 minutes to ~30 min depending on data volume; the migration guide warns
 data can lag and be revised within the attribution window.
 
-When **已完成**, the **操作** (Actions) column / the report detail
-exposes a **下载** (Download) link — trigger the real anchor (JS
-`.click()` on the `<a>`, or `browser-use` open its `href`; a bare label
-click fires no download). The CSV lands in the store's download dir
-(`~/.vibe-seller/downloads/<slug>/`); glob the newest file (Amazon names
-it after the report), then `mv`/rename per the task's convention. If you
+When **已完成**, get the download from the **report detail page**, NOT
+the list-row action menu. The row's **操作** button (`id=report-menu-trigger`)
+menu only has 复制 (Copy) / 删除 (Delete) / edit — **no download**.
+Instead click the **report name** link → detail page
+`/reporting/history?entityId=<ENTITY>&reportId=<report-uuid>`, which has
+a **下载** (Download) link (`data-takt-id=storm-ui-link`). Its href is:
+
+```
+/reporting/subscriptions/<report-uuid>/download-report/<run-uuid>
+```
+
+Trigger the real anchor (JS `.click()` on the `<a>`, or `browser-use`
+open its `href`; a bare label click fires no download). The CSV lands in
+the store's download dir (`~/.vibe-seller/downloads/<slug>/`); glob the
+newest `*.csv` (Amazon names it after the report — e.g.
+`<report-name>.csv`), then `mv`/rename per the task's convention. If you
 set an email recipient, the CSV also arrives by email link.
 
 ### 6.8 Per-marketplace rule + verification (unchanged intent)
