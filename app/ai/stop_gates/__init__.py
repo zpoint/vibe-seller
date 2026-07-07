@@ -168,6 +168,10 @@ def resolve_skill_gates(
     deterministic (sorted by gate name) and duplicates collapse.
     """
 
+    # Lazy import: skill_gate_loader pulls workspace.manager, which would
+    # cycle if imported at module top.
+    from app.ai.skill_gate_loader import load_skill_gate  # noqa: PLC0415
+
     registry = get_registered_gates()
     resolved: dict[str, object] = {}
     for skill in sorted(loaded_skills):
@@ -175,7 +179,9 @@ def resolve_skill_gates(
         if skill_md is None:
             continue
         for gate_name in parse_skill_gates(skill_md):
-            module = registry.get(gate_name)
+            # Prefer a skill-bundled gate (hot-reloaded from its file);
+            # fall back to a core/plugin gate in the registry.
+            module = load_skill_gate(gate_name) or registry.get(gate_name)
             if module is not None:
                 resolved[gate_name] = module
     return sorted(resolved.items())
