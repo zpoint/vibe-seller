@@ -19,6 +19,7 @@ import pytest_asyncio
 from app.email.db import db_path_for_account, init_email_db, store_emails
 from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
+from app.models.schedule_state import ScheduleState
 from app.models.store import Store
 from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
@@ -245,13 +246,26 @@ class TestNewEmailsSweep:
             email_env['store_id'],
         )
 
-        # Watermark parked at "now" — as a fumbled sweep would leave it.
+        # Watermark parked at "now". Seed it directly in the DB rather
+        # than via the PUT endpoint: for an email-linked store that
+        # endpoint now refuses a watermark that didn't come from
+        # get_new_emails (the cursor-authority guard tested separately
+        # in TestWatermarkFloorAuthority). This test is about the READ
+        # axis (fetched_at, not the Date header), so we bypass the write
+        # guard and pin the cursor directly.
         now_epoch = int(datetime.now(UTC).timestamp())
-        put = await admin_client.put(
-            f'/api/tasks/{task_id}/schedule-state/email_watermark',
-            json={'value': str(now_epoch)},
-        )
-        assert put.status_code == 200
+        async with override_async_session() as db:
+            db.add(
+                ScheduleState(
+                    schedule_id=email_env['schedule_id'],
+                    store_id=email_env['store_id'],
+                    key='email_watermark',
+                    value=str(now_epoch),
+                    updated_at=datetime.now(UTC).isoformat(),
+                    updated_by_task_id=task_id,
+                )
+            )
+            await db.commit()
 
         # A new email arrives AFTER the cursor (fetched_at ahead of it)
         # but with a Date header from an hour BEFORE it.
@@ -293,3 +307,114 @@ class TestNewEmailsSweep:
         )
         r = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
         assert r.status_code == 400
+
+
+class TestWatermarkFloorAuthority:
+    """get_new_emails is the sole authority for the email watermark.
+
+    Pins the design fix for the run-1→run-2 leak: a store with linked
+    email accounts can only advance ``email_watermark`` through the
+    ``next_watermark`` get_new_emails emitted. A hand-derived value —
+    the Date-header epoch a fumbled sweep persisted in the incident —
+    is below that floor and is rejected at the write boundary, so the
+    already-processed email can never be re-swept.
+    """
+
+    async def test_write_rejected_before_get_new_emails(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """No floor yet + store has email accounts → write is refused."""
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        r = await admin_client.put(
+            f'/api/tasks/{task_id}/schedule-state/email_watermark',
+            json={'value': str(int(datetime.now(UTC).timestamp()) - 60)},
+        )
+        assert r.status_code == 400
+        assert 'get_new_emails' in r.json()['detail']
+
+    async def test_write_below_floor_rejected(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """The incident: a value below what get_new_emails showed is
+        rejected, so run 2 cannot re-sweep the processed email."""
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        # Establish the floor via the sanctioned read path.
+        r1 = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r1.status_code == 200
+        floor = int(r1.json()['next_watermark'])
+
+        # A Date-header-derived value below the floor (the fetched_at
+        # axis) — exactly what leaked in the e2e — is refused.
+        r = await admin_client.put(
+            f'/api/tasks/{task_id}/schedule-state/email_watermark',
+            json={'value': str(floor - 1)},
+        )
+        assert r.status_code == 400
+        assert 'floor' in r.json()['detail']
+
+        # Persisting the next_watermark verbatim (== floor) is accepted.
+        ok = await admin_client.put(
+            f'/api/tasks/{task_id}/schedule-state/email_watermark',
+            json={'value': str(floor)},
+        )
+        assert ok.status_code == 200
+
+    async def test_reserved_floor_key_rejected_read_and_write(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """Agents can neither write nor read the server-managed floor."""
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        w = await admin_client.put(
+            f'/api/tasks/{task_id}/schedule-state/_email_watermark_floor',
+            json={'value': '0'},
+        )
+        assert w.status_code == 400
+        assert 'reserved' in w.json()['detail']
+
+        r = await admin_client.get(
+            f'/api/tasks/{task_id}/schedule-state/_email_watermark_floor'
+        )
+        assert r.status_code == 400
+        assert 'reserved' in r.json()['detail']
+
+    async def test_floor_hidden_from_other_known_keys(
+        self, admin_client, override_async_session, admin_user, email_env
+    ):
+        """The internal floor never surfaces to the agent's key list."""
+        task_id = await _make_running_task(
+            override_async_session,
+            admin_user,
+            email_env['schedule_id'],
+            email_env['store_id'],
+        )
+        # get_new_emails writes the floor; then persist the watermark.
+        r1 = await admin_client.get(f'/api/tasks/{task_id}/new-emails')
+        assert r1.status_code == 200
+        put = await admin_client.put(
+            f'/api/tasks/{task_id}/schedule-state/email_watermark',
+            json={'value': r1.json()['next_watermark']},
+        )
+        assert put.status_code == 200
+        # A miss on an unrelated key lists other keys — the floor
+        # (a `_`-prefixed reserved key) must not appear.
+        miss = await admin_client.get(
+            f'/api/tasks/{task_id}/schedule-state/nope'
+        )
+        known = miss.json()['other_known_keys']
+        assert '_email_watermark_floor' not in known
+        assert 'email_watermark' in known
