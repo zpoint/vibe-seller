@@ -862,15 +862,22 @@ The builder (`/reporting/new`, title **创建报告**) is a single scrolling
 form with five cards. The UI is Amazon's **storm-ui** framework — every
 control carries a `data-takt-id="storm-ui-*"` and most have stable ids.
 
-> **Storm-ui buttons ignore synthetic `.click()`.** `js("el.click()")`
-> silently does nothing on the submit/preset buttons. Use a **real CDP
-> click** (`click_at_xy(x,y)` from the element's `getBoundingClientRect`)
-> and `fill_input(sel, text)` / `type_text(...)` for inputs.
+> **The 提交 (submit) button ignores synthetic `.click()`.** Verified
+> live: `js("document.getElementById('urc_frb_create_report_button').click()")`
+> silently no-ops — submit with a **real CDP click**
+> (`click_at_xy(x,y)` from the element's `getBoundingClientRect`). Most
+> other controls (the `使用模板` template button, date-range presets, the
+> picker **保存**, column checkboxes) *do* respond to `js("el.click()")`
+> in testing — but if any click appears to no-op, fall back to
+> `click_at_xy`. Use `fill_input(sel, text)` / `type_text(...)` for text
+> inputs.
 
 **A. Report name** — input `id="report-name-form:report-name-control-component-0"`
-(≤256 chars, auto-filled `推广的商品 - <timestamp>`). `fill_input`
-**appends** to the current value, so clear it first if you want a clean
-name. A unique, descriptive name makes the report easy to find later.
+(≤256 chars, auto-filled `推广的商品 - <timestamp>`). The field keeps its
+auto-filled value unless you clear it, so to set a clean name **select-all
+and delete (or empty the value) first**, then enter yours — don't assume
+a single `fill_input`/`type_text` call replaces the existing text. A
+unique, descriptive name makes the report easy to find later.
 
 **B. 筛选条件 (Filters)** — four rows, each with an **添加/变更**
 (Add/Change) button:
