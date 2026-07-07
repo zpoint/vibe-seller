@@ -35,6 +35,24 @@ _EMAIL_WATERMARK_KEY = 'email_watermark'
 # Default first-run lookback when no cursor exists yet.
 _DEFAULT_LOOKBACK_HOURS = 24
 
+# Server-managed floor for the email watermark. Written ONLY by
+# ``get_new_emails`` (never by the agent) and set to the highest
+# ``next_watermark`` the server has emitted for this schedule+store.
+# ``set_schedule_state('email_watermark', v)`` refuses to persist a
+# value below it — see the incident write-up in
+# ``tests/e2e/test_email_watermark_e2e.py``: a model that hand-derived
+# the watermark from an email's ``Date`` header (a value BELOW the
+# ``fetched_at`` axis the reader filters on) passed the coarse
+# ±90-day window check, so run 2 re-swept the already-processed email
+# and leaked its body. The floor moves that contract from prose into
+# code: the cursor cannot regress below what ``get_new_emails`` showed
+# the agent, and — for a store that actually has linked email accounts
+# — cannot be set at all until ``get_new_emails`` has run.
+_EMAIL_WATERMARK_FLOOR_KEY = '_email_watermark_floor'
+# Keys beginning with this prefix are server-managed and rejected on
+# the agent-facing write path (so an agent cannot lower the floor).
+_RESERVED_KEY_PREFIX = '_'
+
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 
 
@@ -157,6 +175,45 @@ async def _load_scheduled_task(db: AsyncSession, task_id: str) -> Task:
     return task
 
 
+async def _store_has_email_accounts(
+    db: AsyncSession, store_id: str | None
+) -> bool:
+    """True if ``store_id`` has at least one linked email account.
+
+    Gates the watermark-floor enforcement: only a store that actually
+    runs email sweeps must go through ``get_new_emails`` before writing
+    ``email_watermark``. Stores with no linked account (and the many
+    tests that use ``email_watermark`` as a generic KV sample) keep the
+    plain typed-value semantics.
+    """
+    if not store_id:
+        return False
+    row = await db.execute(
+        select(StoreEmailLink.id)
+        .where(StoreEmailLink.store_id == store_id)
+        .limit(1)
+    )
+    return row.first() is not None
+
+
+async def _get_watermark_floor(
+    db: AsyncSession, schedule_id: str, store_scope: str
+) -> int | None:
+    """Return the server-managed email-watermark floor, or None.
+
+    None means ``get_new_emails`` has not run yet for this
+    schedule+store, so no cursor has been shown to the agent.
+    """
+    state = await db.get(
+        ScheduleState,
+        (schedule_id, store_scope, _EMAIL_WATERMARK_FLOOR_KEY),
+    )
+    if state is None or not state.value:
+        return None
+    # Written only by the server as ``str(int)`` — int() is safe.
+    return int(state.value)
+
+
 class RegisterFinalizeRequest(BaseModel):
     # Non-empty NL instruction for the gather/reduce step. Same
     # strip+min_length contract as schedule-state so the MCP boundary
@@ -250,7 +307,13 @@ async def get_schedule_state(
                 ScheduleState.store_id == store_scope,
             )
         )
-        known_keys = sorted(row[0] for row in existing.all())
+        # Hide server-managed cursors (e.g. the email-watermark floor)
+        # so the agent never tries to read or mimic them.
+        known_keys = sorted(
+            row[0]
+            for row in existing.all()
+            if not row[0].startswith(_RESERVED_KEY_PREFIX)
+        )
         return {
             'key': key,
             'value': None,
@@ -289,12 +352,57 @@ async def set_schedule_state(
     MCP tool result never leaks it to the agent.
     """
     _validate_schedule_state_key(key)
+    if key.startswith(_RESERVED_KEY_PREFIX):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"keys starting with '{_RESERVED_KEY_PREFIX}' are reserved "
+                'for server-managed cursors and cannot be written via '
+                'set_schedule_state.'
+            ),
+        )
     # `body.value` is already stripped + non-empty — enforced by
     # SetScheduleStateRequest's StringConstraints (pydantic 422s on
     # null / missing / empty / whitespace-only at the boundary).
     _validate_typed_value(key, body.value)
     task = await _load_scheduled_task(db, task_id)
     store_scope = task.store_id or NO_STORE_SCOPE
+
+    # Email-watermark cursor authority: for a store that actually runs
+    # email sweeps, the watermark may only advance through what
+    # get_new_emails showed the agent. This makes the run-1→run-2 leak
+    # (persisting a Date-header epoch below the fetched_at axis)
+    # impossible from this surface — see _EMAIL_WATERMARK_FLOOR_KEY.
+    if key == _EMAIL_WATERMARK_KEY and await _store_has_email_accounts(
+        db, task.store_id
+    ):
+        floor = await _get_watermark_floor(db, task.schedule_id, store_scope)
+        if floor is None:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    'This store has linked email account(s): call '
+                    'vibe_seller_get_new_emails first and persist its '
+                    '`next_watermark` verbatim. The watermark must come '
+                    'from that tool (it keys off the fetched_at axis the '
+                    'reader filters on) — do not set email_watermark by '
+                    'hand or from an email Date header.'
+                ),
+            )
+        if int(body.value) < floor:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'value {body.value} is below the email-watermark '
+                    f'floor {floor} — the newest email '
+                    'vibe_seller_get_new_emails has shown you. Persisting '
+                    'it would re-sweep already-processed emails next run. '
+                    'Persist the `next_watermark` from get_new_emails '
+                    'verbatim; never derive the watermark from an email '
+                    'Date header.'
+                ),
+            )
+
     now = datetime.now(UTC).isoformat()
     stmt = sqlite_insert(ScheduleState).values(
         schedule_id=task.schedule_id,
@@ -414,6 +522,39 @@ async def get_new_emails(
             'email': acct.email,
             'new_emails': emails,
         })
+
+    # Record the cursor floor server-side (monotonic, never decreases):
+    # this is the highest next_watermark we have shown the agent, and
+    # set_schedule_state('email_watermark', …) refuses any value below
+    # it. Written here, on the sanctioned read path, so the agent can
+    # never persist a watermark that would re-sweep what it just saw.
+    prior_floor = await _get_watermark_floor(db, task.schedule_id, store_scope)
+    floor_val = next_watermark
+    if prior_floor is not None:
+        floor_val = max(floor_val, prior_floor)
+    floor_now = datetime.now(UTC).isoformat()
+    floor_stmt = sqlite_insert(ScheduleState).values(
+        schedule_id=task.schedule_id,
+        store_id=store_scope,
+        key=_EMAIL_WATERMARK_FLOOR_KEY,
+        value=str(floor_val),
+        updated_at=floor_now,
+        updated_by_task_id=task_id,
+    )
+    floor_stmt = floor_stmt.on_conflict_do_update(
+        index_elements=[
+            ScheduleState.schedule_id,
+            ScheduleState.store_id,
+            ScheduleState.key,
+        ],
+        set_={
+            'value': floor_stmt.excluded.value,
+            'updated_at': floor_stmt.excluded.updated_at,
+            'updated_by_task_id': floor_stmt.excluded.updated_by_task_id,
+        },
+    )
+    await db.execute(floor_stmt)
+    await db.commit()
 
     return {
         'key': _EMAIL_WATERMARK_KEY,

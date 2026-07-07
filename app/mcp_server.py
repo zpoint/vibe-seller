@@ -335,10 +335,14 @@ TOOLS = [
                         'the key; see the canonical-keys table in the '
                         'task system prompt (Scheduled task — cross-run '
                         'state). For example, `email_watermark` must be '
-                        'a unix epoch seconds integer string (not ISO). '
-                        'NEVER pass null or an empty string — if you '
-                        'have nothing to persist, do not call this '
-                        'tool.'
+                        'a unix epoch seconds integer string (not ISO), '
+                        'and for a store with linked email accounts it '
+                        'must be the `next_watermark` from '
+                        'vibe_seller_get_new_emails, written verbatim — '
+                        'the server rejects a hand-derived value or one '
+                        'below the floor that tool established. NEVER '
+                        'pass null or an empty string — if you have '
+                        'nothing to persist, do not call this tool.'
                     ),
                     'minLength': 1,
                 },
