@@ -950,9 +950,17 @@ Notable fields:
 **最近 7 天**). Opens a preset list (`data-takt-id=storm-ui-date-range-picker-preset-selector`)
 **and** a dual-calendar for custom ranges. Presets: 今天, 昨天, 最近 7
 天, 本周, 上周, 最近 30 天, 本月, **上个月**, 最近 90 天, 本季度, 上个
-季度, 今年, 去年. Click a preset (or pick calendar start→end), then
-**保存** (`data-takt-id=storm-ui-date-picker-confirmation-control-save`).
-The control label updates to the chosen range (e.g. `上个月`).
+季度, 今年, 去年.
+
+> **A preset auto-applies — do NOT click 保存 after one.** Verified live:
+> clicking a preset (e.g. **上个月**) closes the picker and applies the
+> range immediately; the **保存**
+> (`data-takt-id=storm-ui-date-picker-confirmation-control-save`) button
+> is **only present for a custom calendar start→end selection** — after a
+> preset it isn't in the DOM, so a `querySelector(...).click()` on it
+> returns null / throws. After clicking a preset, just verify the control
+> label changed (e.g. reads `上个月`). Click **保存 only** when you picked
+> custom calendar dates.
 
 Lookback limits: **daily/weekly up to 15 months; monthly/yearly up to 6
 years.** Max lookback varies per dimension/metric — some are shorter.
@@ -964,7 +972,10 @@ browser-use <<'PY'
 js("document.getElementById('report-range-form:date-range-row-control-component-0').click()")
 import time; time.sleep(2)
 js("[...document.querySelectorAll('[data-takt-id=storm-ui-date-range-picker-preset-selector]')].find(e=>e.textContent.trim()==='上个月').click()")
-js("document.querySelector('[data-takt-id=storm-ui-date-picker-confirmation-control-save]').click()")
+# A preset auto-applies — do NOT click 保存 (it isn't in the DOM after a
+# preset). Just confirm the control label now reads 上个月:
+import time; time.sleep(1)
+print(js("document.getElementById('report-range-form:date-range-row-control-component-0').textContent"))
 PY
 ```
 
@@ -1067,9 +1078,11 @@ clicks) is fully reproducible.
 `（推广）` / `（光环）` / `（品牌新客）` conversion families — and returns
 one row per SKU × campaign. Two things to know:
 - The default set uses **`推广的商品站点`** (Advertised product
-  marketplace), **not** `国家/地区`. If the consumer needs an explicit
-  country column, add the **国家/地区** dimension (§6.4C) or restrict the
-  country filter and rely on the folder (§6.8).
+  marketplace, values `AMAZON_SA`/`AMAZON_AE`/`AMAZON_AU`), **not**
+  `国家/地区`. The report is **account-wide** — it contains every
+  marketplace, and the country filter does NOT scope it (see §6.8). Split
+  per-marketplace **downstream** on `推广的商品站点` (or add the
+  **国家/地区** dimension, §6.4C, and split on that).
 - The **`日期范围`** dimension shows each row's *active* date span
   **within** the selected period (rows with activity across the whole
   month show `<1st> - <last>`; sparser SKUs show a sub-span). The report
@@ -1107,21 +1120,40 @@ newest `*.csv` (Amazon names it after the report — e.g.
 `<report-name>.csv`), then `mv`/rename per the task's convention. If you
 set an email recipient, the CSV also arrives by email link.
 
-### 6.8 Per-marketplace rule + verification (unchanged intent)
+### 6.8 Per-marketplace: split downstream (the filter does NOT scope)
 
 Each marketplace has its **own campaigns and its own currency** (sa=SAR,
-ae=AED, …). Two valid approaches:
+ae=AED, au=AUD, …). **Unified Reporting is account-wide, not
+per-marketplace**, and — unlike the old per-TLD `/reports` console —
+there is **no reliable way to get a single-marketplace file from the
+builder**:
 
-1. **One report per marketplace** — restrict **筛选条件 → 国家/地区** to
-   the single target country (or enter via that marketplace's
-   `entityId`), export into that country's folder. Simplest for the
-   monthly per-country files.
-2. **One multi-country report** — add the **国家/地区** *dimension* and
-   split rows downstream by country.
+> **⚠️ Verified live (twice, identical MD5): neither the 国家/地区 filter
+> nor the marketplace `entityId` scopes the report.** Entering via a
+> marketplace's `entityId` (e.g. the AE entity) still returns **all**
+> marketplaces, and the **筛选条件 → 国家/地区** storm-ui dialog
+> (全部清除 → tick one country → 保存) does **not** commit to the backend
+> — the CSV still contains every marketplace. A report created for "SA"
+> and one created with an "AE-only" filter came out byte-identical.
 
-Either way, **verify content, not just that a file exists:** confirm the
-`国家/地区` column matches the intended marketplace (`sa`→沙特阿拉伯,
-`ae`→阿联酋, `au`→澳大利亚). Never copy one marketplace's file into
+**So: produce ONE account-wide report and split it downstream by
+marketplace.** Add/keep the **`推广的商品站点`** (Advertised product
+marketplace) column — its values are `AMAZON_SA` / `AMAZON_AE` /
+`AMAZON_AU` — (or add the **国家/地区** dimension) and partition the rows
+into each country's folder yourself:
+
+```python
+import pandas as pd
+df = pd.read_csv('unified_advertised_product.csv')
+col = [c for c in df.columns if '站点' in c or 'marketplace' in c.lower()][0]
+for mkt, sub in df.groupby(col):        # AMAZON_SA / AMAZON_AE / AMAZON_AU
+    cc = mkt.split('_')[-1].lower()      # sa / ae / au
+    sub.to_csv(f'reports_{{MM}}_{cc}_{{slug}}/Sponsored_Products_Advertised_product_report_{{Mon}}.csv', index=False)
+```
+
+**Verify content, not just that a file exists:** after splitting, confirm
+each per-country file's `推广的商品站点` (or `国家/地区`) values are all
+the intended marketplace. Never hand-copy one marketplace's rows into
 another country's folder — the currency and campaigns differ.
 
 ### 6.9 Limits & troubleshooting
