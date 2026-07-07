@@ -66,10 +66,11 @@ This applies to ALL report types:
   Report Status (Download button). If a row matches the requested date
   range, click Download directly.
 
-- **Advertising reports** (`advertising.amazon.{tld}/reports`): The list
-  page shows existing reports with date ranges in the right scroll panel.
-  Click the report name to reach the detail page → history table with
-  Download link. If a completed run matches the date range, download it.
+- **Advertising reports** (Unified Reporting, `advertising.amazon.{tld}/reporting`):
+  the report list shows saved/generated reports with a **报告状态**
+  column; click into a **已完成** (Completed) row for the Download link.
+  If a completed run matches the date range, download it. (The old
+  `/reports` console is retiring 2026-12-31 — see §6.)
 
 - **Payments reports** (`/payments/reports-repository`): Check the report
   list for existing reports covering the target period.
@@ -93,16 +94,17 @@ You must open the actual page and let *it* tell you.
 **2. A report that exports with zero data rows is DOWNLOADED, not
 missing.** Request each report on its page:
 
-- **Ads report:** enter the ad console via **Campaign Manager in the
-  Seller Central menu** (NOT a direct `advertising.amazon.{tld}` URL —
-  cold, that gives a "Sign in / Register" marketing page, see §6). Once
-  in the console, request the report — Amazon **exports it even with zero
+- **Ads report:** warm the ad console first (via Campaign Manager in the
+  Seller Central menu, **or** the `choose-account?destination=/reporting`
+  flow in §6.1) — a **cold** direct `advertising.amazon.{tld}` URL gives
+  a "Sign in / Register" marketing page. Once warm, build the report in
+  Unified Reporting (§6) — Amazon **generates it even with zero
   campaigns** (headers, 0 rows) → download that empty file, it's a
   completed deliverable. The ad report is genuinely N/A **only** if,
-  *after* entering via the menu, the store shows an advertiser
-  **onboarding / registration** flow (no advertiser account). A marketing
-  landing reached by direct URL proves nothing — it just means you
-  weren't SSO'd; it is NOT evidence of "no Ads".
+  *after* warming up, the store shows an advertiser **onboarding /
+  registration** flow (no advertiser account). A marketing landing
+  reached by direct URL proves nothing — it just means you weren't SSO'd;
+  it is NOT evidence of "no Ads".
 - **FBA storage / returns:** open the report page and request the month.
   An empty result / "No Data Available" for a *valid* request still
   means you asked correctly — download whatever file is produced. Only
@@ -279,7 +281,7 @@ PY
 
 | Report | URL Pattern | Export Type | Wait Time |
 |--------|-------------|-------------|-----------|
-| Sponsored Ads Reports | `advertising.amazon.{tld}/reports` | CSV download | 5 min – 24 hours |
+| Ad reports — Unified Reporting | `advertising.amazon.{tld}/reporting` | CSV download | few min – 30+ min |
 
 ---
 
@@ -577,6 +579,23 @@ PY
 
 **1-5 minutes**. Refresh page to check if Report Status = ready.
 
+### Multi-country downloads collide on filename — rename each immediately
+
+The All Listings / Active Listings Report downloads with a **fixed,
+date-based filename** (e.g. `All+Listings+Report_MM-DD-YYYY.txt`) that is
+**identical across marketplaces**. If you download the report for two
+countries in a row (e.g. SA then AE), the second **silently overwrites**
+the first in the download dir — no browser prompt. Two consequences:
+
+- **Rename right after each download**, before triggering the next. Copy
+  the freshly-downloaded file to a country-suffixed name
+  (`All_Listings_<CC>_<YYYY-MM-DD>.txt`) the moment it lands, then request
+  the next country.
+- The All Listings TSV is **account-level** (byte-identical across a
+  unified account's marketplace subdomains), so a per-country re-download
+  often yields the same rows anyway — verify content rather than assuming
+  each country's file differs.
+
 ---
 
 ## 5. Payments Reports Repository
@@ -736,571 +755,454 @@ monthly = df[df['type'] == 'Order'].groupby('month')['product sales'].sum()
 
 ---
 
-## 6. Advertising Reports (Amazon Ads Console)
+## 6. Advertising Reports — Unified Reporting (统一报告 / new report center)
 
-**Navigation (MUST go via the Seller Central menu, not a direct URL):**
-open the ad console by clicking **Campaign Manager** from Amazon's own
-Seller Central navigation → it SSOs into the console
-(`advertising.amazon.{tld}/campaign-manager/...`), then open Reports from
-there. On Ziniao-gated stores only the seller-central root is whitelisted,
-so opening `advertising.amazon.{tld}/reports` **directly on a cold session
-lands on the public "Full-funnel advertising / Sign in / Register"
-marketing page — NOT the console.** Once you've entered via Campaign
-Manager (SSO + entity now warm), the `.../reports` URL works for the rest
-of the session.
+> **⚠️ Amazon is retiring the old ad-report consoles.** The Sponsored Ads
+> report console (`advertising.amazon.{tld}/reports`) **and** the Amazon
+> DSP report console close on **2026-12-31** — after which all saved
+> reports, scheduled reports, and their history are permanently deleted.
+> New-report creation/editing in the old console is disabled from
+> **2026-12-17** (existing reports go read-only). **All new ad reporting
+> goes through Unified Reporting** (统一报告), the centralized report
+> center documented below. Migration guide:
+> `advertising.amazon.com/help/GK3JZZE5QLTF8U8A`.
 
-> **Where "Campaign Manager" lives varies per store — find it, don't
-> assume a fixed spot.** Verified 2026-07-07: on one store it's a
-> **top-nav** item; on another the top nav has no ads entry at all and
-> it's under the **☰ hamburger menu → Advertising → Campaign Manager**
-> (opens with an external-link ⧉). If it's not in the top bar, open the
-> ☰ menu and look under "Advertising". A store showing ad activity in the
-> Global Snapshot (Advertisement Sales / Impressions) HAS an ad account —
-> the Campaign Manager link exists somewhere in the menu; keep looking
-> rather than concluding "no Ads".
+Unified Reporting combines **every ad product** (Sponsored Products,
+Sponsored Brands, Sponsored Display, Sponsored TV, **and Amazon DSP**)
+and **multiple accounts / marketplaces** into one report, built from a
+shared library of standardized **dimensions** and **metrics**. One
+report can span products and countries that used to need several
+separate exports.
 
-> ⚠️ **A marketing / "Sign in / Register" landing means you are NOT
-> signed into the ad console — it does NOT mean the store has no ad
-> account.** Live-verified 2026-07-07: a warm task session opened
-> `advertising.amazon.{tld}/reports` straight to the console, while a
-> cold session got the marketing page for the *same* store. Never
-> conclude "no Ads" from that page — go in via Campaign Manager first. A
-> genuine no-ad-account store only shows an advertiser **onboarding /
-> registration flow AFTER** you enter through the menu (see the
-> report-applicability rule near the top).
+### 6.0 The two report systems (know which URL you're on)
 
-### The ad *console* spans marketplaces, but each *export* is PER-MARKETPLACE
+| System | URL | State |
+|--------|-----|-------|
+| **Unified Reporting** (use this) | `advertising.amazon.{tld}/reporting` | Current. List + templates + custom builder. |
+| Legacy Sponsored-ads console (retiring) | `advertising.amazon.{tld}/reports` | Read-only after 2026-12-17, deleted 2026-12-31. See §6.10. |
 
-The ad console may show several countries under one `entityId` ("ads
-across multiple countries/regions"), but the **exported** Sponsored
-Products Advertised Product report is **scoped to the marketplace the
-console is currently on** — each country has its OWN campaigns **and its
-own currency** (e.g. `sa` rows are SAR, `ae` rows are AED). A single
-export does **NOT** contain every marketplace.
+The nav item **效果衡量和报告 → 报告** (Measurement & reporting →
+Reports) links to `/reporting` (unified). **搜索广告报告** (Search ads
+reports) still links to the old `/reports` console.
 
-So **export each marketplace separately** (switch the console's
-marketplace, export again) into that country's folder — and **never copy
-one marketplace's report into another's folder.** Verified 2026-07: a
-store's SA and AE ad reports are distinct files with different countries
-(`沙特阿拉伯` vs `阿联酋`) and currencies; reusing the SA file for AE
-misattributes SA's spend to AE.
+### 6.1 Navigation & warm-up
 
-**Verify content, not just that a file exists:** open the report and
-confirm its `国家/地区` (Country/Region) column matches the marketplace
-you meant to export (`sa`→`沙特阿拉伯`, `ae`→`阿联酋`). If an "AE" file
-contains only `沙特阿拉伯` rows, it's the wrong (SA) export — redo it for
-AE; do not save it as the AE report.
+Same cold-session caveat as the old console: a **cold** direct hit to
+`advertising.amazon.{tld}/reporting` redirects to
+`advertising.amazon.com/register` (the marketing/onboarding page) — that
+is **NOT** evidence the account has no ads; it just means you are not
+SSO'd into the ad console yet. Warm the account first:
 
-### Page Structure
-
-The Ads console is a **separate application** with its own left sidebar:
-Campaigns, Recommendations, Brand Stores, Creative tools, Insights & planning,
-Measurement & reporting → Sponsored ads reports
-
-### Report Categories and Types (Complete)
-
-#### Sponsored Products (`sp`)
-
-| Value | Label | Description |
-|-------|-------|-------------|
-| `searchTerms` | Search term | Customer search queries that triggered ads |
-| `keywords` | Targeting | Keyword/target performance |
-| `adProducts` | Advertised product | Per-ASIN ad performance |
-| `campaigns` | Campaign | Campaign-level metrics |
-| `budgets` | Budget | Budget utilization |
-| `placements` | Placement | Ad placement performance (top of search, etc.) |
-| `audience` | Audience | Audience segment performance |
-| `purchasedProducts` | Purchased product | Products buyers actually purchased |
-| `performanceOverTime` | Performance Over Time | Time-series performance data |
-| `searchTermsImpressionRank` | Search Term Impression Share | Share of impressions for search terms |
-| `grossAndInvalidTraffic` | Gross and Invalid Traffic | Invalid click detection |
-
-#### Sponsored Brands (`sb`)
-
-| Value | Label |
-|-------|-------|
-| `keywords` | Keyword |
-| `keywordPlacements` | Keyword Placement |
-| `campaigns` | Campaign |
-| `campaignPlacements` | Campaign placement |
-| `searchTerms` | Search term |
-| `searchTermsImpressionRank` | Search Term Impression Share |
-| `peerBenchmark` | Category benchmark |
-| `attributedPurchases` | Attributed Purchases |
-| `grossAndInvalidTraffic` | Gross and Invalid Traffic |
-
-#### Sponsored Display (`sd`)
-
-| Value | Label |
-|-------|-------|
-| `campaigns` | Campaign |
-| `keywords` | Targeting |
-| `adProducts` | Advertised product |
-| `purchasedProducts` | Purchased product |
-| `matchedTarget` | Matched target |
-| `grossAndInvalidTraffic` | Gross and Invalid Traffic |
-| `pricingTransparency` | Pricing transparency |
-
-#### Sponsored TV (`st`)
-
-| Value | Label |
-|-------|-------|
-| `pricingTransparency` | Pricing transparency |
-
-#### All Amazon campaigns (`all`)
-
-| Value | Label |
-|-------|-------|
-| `conversionPath` | Conversion path |
-
-### Create Report Dialog
-
-Click "Create report" button (first `<button>` inside `#advertising-reports`):
+**Warm-up via choose-account (reliable):**
 
 ```bash
 browser-use <<'PY'
-# PREREQUISITE: enter the console via Campaign Manager (SC menu) first —
-# see Navigation above. This direct /reports URL only resolves once that
-# SSO/entity is warm; cold it lands on the marketing/Sign-in page.
-new_tab("https://advertising.amazon.{tld}/reports")
+new_tab("https://advertising.amazon.{tld}/choose-account?destination=/reporting")
 wait_for_load()
-js("document.querySelector('#advertising-reports button').click()")
-print(page_info())
-PY
-```
-
-Dialog fields:
-
-| Field | Element Pattern | Options |
-|-------|----------------|---------|
-| Report category | `button[id*=report-category-control]` | SP, SB, SD, ST, All |
-| Report type | `button[id*=report-type-control]` | Depends on category (see tables above) |
-| Country | Auto-set to marketplace | Current marketplace |
-| MRC accredited data | `input[id=mrc-check-box]` | Checkbox |
-| Currency conversion | `input[id=cov-check-box]` | Add converted columns |
-| Time unit | `input[name=time-units]` | `summary` (default) or `day` (Daily). **Default to `summary` unless the user explicitly asks for daily** — Summary returns one row per (campaign, ad group, SKU) with the period totals; Daily returns one row per (date, …, SKU) and the report blows up to ~30× the row count. Downstream profit/cost analysis aggregates by SKU, so Summary is what produces the right monthly Spend / 7-day-attributed-units totals; summing Daily's `7 Day Total Units (#)` rows is **not** equivalent because each row's value uses a 7-day attribution window. |
-| Report period | `button[id*=report-period-control]` | Last 30 days, Last month, Custom |
-| Report name | `input[id=report-settings-card-report-name-input]` | Free text, auto-generates from category + type |
-| Schedule | (below name) | One-time or recurring |
-
-Action buttons:
-- `#urc_run_subscription_button` → **Run report**
-- `#urc_cancel_subscription_button` → **Cancel**
-
-### Sponsored Products Advertised Product report — DO NOT reuse cached files
-
-The Ziniao download dir (`~/.vibe-seller/downloads/<slug>/`) is
-PERSISTENT across tasks — files from previous runs accumulate
-there. Observed (iteration 6): an agent saw
-`Sponsored_Products_Advertised_product_report_Apr_SA.xlsx`
-already in the slug's downloads dir and `cp`'d it directly into
-the task workspace, bypassing the entire reports-page Time-unit
-verification below. The cached file was a Daily report from an
-earlier run, so the new task workspace got a Daily xlsx even
-though the skill said Summary.
-
-**Rule:** for the SP Advertised Product report, do NOT `cp` /
-reuse a file from `~/.vibe-seller/downloads/<slug>/` based on
-filename alone. Either:
-
-1. Always go through `advertising.amazon.{tld}/reports` and
-   verify Time unit on the list page (steps below); OR
-2. If you must reuse a cached file (e.g., the user explicitly
-   asks), open it with `python3 -c "import pandas as pd; df =
-   pd.read_excel('<path>'); print(list(df.columns)[:5])"` and
-   confirm column 1 is `Start Date` (English) or `开始日期`
-   (Chinese). If column 1 is `日期` / `Date` (singular), it's
-   Daily — discard and create a new Summary instead.
-
-This rule applies specifically to the SP Advertised Product
-report. The Transaction CSV, FBA Customer Returns CSV, and noon
-report are agnostic to filename-based cache reuse — their
-columns don't shift between Daily/Summary the way the SP report
-does.
-
-### Export Flow — Preferred: Download Existing Report
-
-**Always check for an existing report first.** If a completed report
-already covers the requested date range, download it directly — no need
-to generate a new one.
-
-The reports list page is a **split-panel layout**:
-- **Left panel** (fixed): report name `<a>` links
-- **Right panel** (horizontally scrollable): run details columns
-  (Last run, Report category, Report type, Country, Report period,
-  **Time unit**)
-
-Multiple reports can share the same name (e.g., separate one-time runs
-of "Sponsored Products Advertised product report"). Identify the correct
-one by matching the **Report period** column in the right panel.
-
-**Time-unit gate for reuse.** The list page
-exposes a `[col-id=timeUnit]` cell per row containing the literal
-"Summary" / "Daily" string (or `摘要` / `每日` on a Chinese UI). Before
-clicking through to download an existing report, READ this column on
-the same row whose Report period matches your target — and **only
-reuse rows where Time unit is Summary**. Daily reports are not a
-drop-in replacement for downstream profit aggregation: their per-row
-`7 Day Total Units (#)` and `7 Day Total Sales` columns use a 7-day
-attribution window, so summing 30 daily rows ≠ Summary's single
-monthly total. If the only matching row is Daily, skip reuse and
-fall through to "Create New Report" (which defaults to Summary).
-
-```bash
-# Filter the run rows to "Summary, target-period match" before
-# you commit to a reuse:
-browser-use <<'PY'
-print(js("""
-  var rows = document.querySelectorAll('.ag-center-cols-container [role=row]');
-  var matches = [];
-  rows.forEach(function(r) {
-    var tu = r.querySelector('[col-id=timeUnit]');
-    var rp = r.querySelector('[col-id=reportPeriod]');
-    var ts = r.querySelector('[col-id=reportCreationTimestamp]');
-    if (!tu || !rp) return;
-    var unit = tu.textContent.trim();
-    var period = rp.textContent.trim();
-    var isSummary = unit === 'Summary' || unit === '摘要';
-    var isTargetPeriod = period.indexOf('TARGET_RANGE_HERE') !== -1;
-    if (isSummary && isTargetPeriod) {
-      matches.push({ rowId: r.getAttribute('row-id'),
-                     ts: ts ? ts.textContent.trim() : '' });
-    }
-  });
-  return JSON.stringify(matches);
-"""))
-PY
-# If matches is empty → go to Create New Report flow.
-# If matches has entries → look up the same row-id in the LEFT
-# pinned panel (.ag-pinned-left-cols-container) to get the report
-# detail URL, then visit and click Download.
-```
-
-**Download links do NOT appear on the list page.** You must click
-through to the report detail page.
-
-The list page has a **split-panel layout** — left panel has report name
-links, right panel has run details. They are in separate DOM containers,
-so you CANNOT reliably match left links to right rows by position.
-
-**Reliable approach: extract report URLs via JS, then visit each one.**
-
-```bash
-# 1. Get all report detail URLs (language-agnostic)
-browser-use <<'PY'
-new_tab("https://advertising.amazon.{tld}/reports")
+# Click the advertising account button (its label = your ad-account name),
+# then the marketplace button (e.g. 沙特阿拉伯 / 阿联酋 / United States).
+js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '<your-ad-account>').click()")
+print(page_info())            # marketplace sub-buttons appear
+js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === '沙特阿拉伯').click()")
 wait_for_load()
-print(js("""
-  var section = document.querySelector('#advertising-reports');
-  if (!section) return '[]';
-  var anchors = section.querySelectorAll('a[href*="/reports/history/"]');
-  var urls = [];
-  for (var a of anchors) urls.push(a.href);
-  return JSON.stringify(urls);
-"""))
-PY
-# Returns array of detail page URLs (each has a unique UUID)
-# Works regardless of language (EN/CN/AR)
-
-# 2. Visit each URL and check the history table
-browser-use <<'PY'
-js("location.href='<url>'")   # already on the ad console — navigate in place
-wait_for_load()
-print(page_info())
-# Look for: "Completed" + target period + "Download" <a>.
-# If this one doesn't match, repeat with the next URL.
-# If it matches → click Download:
-js("[...document.querySelectorAll('a')].find(a => a.textContent.trim() === 'Download').click()")
+print(page_info())            # → advertising.amazon.{tld}/reporting?entityId=<ENTITY>
 PY
 ```
 
-**Do NOT click right-panel rows** — they show misleading inline text.
-**Do NOT guess which left-panel link is correct** — use the JS eval
-approach above to get direct URLs.
+You land on `advertising.amazon.{tld}/reporting?entityId=<ENTITY>`. The
+`entityId` is per-account **and per-marketplace** — each marketplace of
+a multi-country account has its own `entityId`. **Once SSO cookies are
+set in the profile, direct nav to `.../reporting?entityId=<ENTITY>`
+(and `.../reporting/new?...`) works warm** for the rest of the session.
+You can also reach it in-console via the left nav **效果衡量和报告 →
+报告**. Do NOT hard-code an `entityId` from a past run — read it back
+from the URL after warm-up.
 
-### Export Flow — Create New Report (only if no existing match)
+### 6.2 The report list page (`/reporting`)
 
-Only create a new report if the list page has no completed report
-matching the requested date range and report type.
+Top of the page: **report templates** row (§6.3) + a **创建报告**
+(Create report) button for a custom report. Below: your saved/generated
+reports table with columns **报告名称** (Report name), **报告状态**
+(Report status), **创建时间** (Created), **上次修改时间** (Last
+modified), **上次运行时间** (Last run), **下次运行时间** (Next run),
+**账户** (Account), **报告提取频率** (Frequency). Empty state: "尚无
+报告 — 首先选择模板或创建自定义报告".
 
-```bash
-# 1. Open reports page and click Create report
-browser-use <<'PY'
-new_tab("https://advertising.amazon.{tld}/reports")
-wait_for_load()
-js("document.querySelector('#advertising-reports button').click()")
-print(page_info())
+A finished report is downloaded from here (§6.7). **报告状态** values:
+排队/正在处理 (Queued/Processing — wait) → 已完成 (Completed — download
+available) → 失败 (Failed).
 
-# 2. Select report type (dropdown renders in #portal as role=listbox).
-#    Default is "Search term". Click the type button to open the dropdown:
-js("document.querySelector('button[id*=report-type-control]').click()")
-print(page_info())                 # look for role=option buttons in #portal
-# e.g. select the Advertised Product type. Type values: searchTerms,
-# keywords, adProducts, campaigns, budgets, placements, audience,
-# purchasedProducts, etc.
-js("document.querySelector('button[role=option][value=adProducts]').click()")
+### 6.3 Templates (fastest path)
 
-# 3. CONFIRM Time unit = summary (the page default; do NOT switch to Daily).
-#    For an Advertised Product report consumed by downstream profit
-#    aggregation, Summary returns one row per (campaign, ad group, SKU)
-#    with the period totals — which is what the consumer expects.
-#    Daily blows the file up ~30× and the per-row "7 Day Total Units (#)"
-#    uses a 7-day attribution window, so summing daily rows is NOT
-#    equivalent to Summary's monthly totals. Verify the radio:
-print(js("""
-  var r = document.querySelector('input[name="time-units"]:checked');
-  return r ? r.value : '(no time-units radio found)';
-"""))
-# Expected: "summary". If it returns "day" or "daily", click the
-# summary option:
-#   js("document.querySelector('input[name=\\"time-units\\"][value=summary]').click()")
+Three prebuilt templates sit at the top of `/reporting`, each with a
+**使用模板** (Use template) button. Clicking one opens the builder at
+`/reporting/new?entityId=<ENTITY>&templateId=<id>` **with a sensible
+default column set pre-seeded**:
 
-# 4. Set time period. Click the period button to open a HYBRID picker:
-#    - Top section: preset buttons (Today, Yesterday, Last month, etc.)
-#    - Bottom section: dual-calendar date picker with clickable day cells
-js("document.querySelector('button[id*=report-period-control]').click()")
-print(page_info())                 # presets + calendar appear in #portal
-# Option A — use a preset:
-js("document.querySelector('button[value=LAST_MONTH]').click()")
-# Option B — pick custom dates on the calendar:
-#   js("document.querySelector('button[aria-label=\\"Sunday March 1 2026\\"]').click()")
-#   js("document.querySelector('button[aria-label=\\"Tuesday March 31 2026\\"]').click()")
-#   js("[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save').click()")
+| Template (zh) | `templateId` | Equivalent old report |
+|---------------|--------------|-----------------------|
+| 广告活动 (Campaign) | `campaign` | Campaign report |
+| **推广的商品 (Advertised product)** | `advertised_product` | **SP "Advertised product" (adProducts)** |
+| 搜索词 (Search term) | `searchterm` | Search term report |
 
-# 5. Run the report
-js("document.querySelector('#urc_run_subscription_button').click()")
-PY
+Use **查看所有模板** (View all templates) for the full set.
 
-# 6. WAIT — dialog closes, you land on the report detail page.
-#    Poll the detail page for completion (reload each poll):
-browser-use <<'PY'
-js("location.reload()")
-wait_for_load()
-print(page_info())   # check Status column in run history table
-# Status values in the detail page history table:
-#   "Pending"    → Amazon has not started; Action column empty. WAIT.
-#   "Processing" → Amazon is generating; Action column empty. WAIT.
-#   "Completed"  → Done; Download <a> appears in Action column.
-# All non-Completed statuses are normal — just reload and retry.
-# Do NOT treat Pending/Processing as errors. Once Completed:
-js("[...document.querySelectorAll('a')].find(a => a.textContent.trim() === 'Download').click()")
-PY
-```
-
-The download link URL pattern:
-```
-/reports/subscriptions/{report-uuid}/download-report/{run-uuid}
-```
-
-### Report Detail Page Actions
-
-Click the "Action" dropdown (`button[id=action-dropdown-trigger]`):
-- **History** — view all past runs
-- **Report settings** — edit configuration
-
-To re-run: click the "Run report" button on the detail page.
-
-### Gotchas
-
-1. **Use the default browser session** for `advertising.amazon.{tld}` —
-   it shares authentication with Seller Central. Do NOT use aux session
-   (it requires a separate login).
-2. **No status or Download on the list page** — the list page does NOT
-   show report status (Completed/Pending/Processing). The list has two
-   panels: left panel has report name `<a>` links, right panel has run
-   detail columns. Clicking a right-panel row does NOT navigate — it
-   may show misleading inline text like "No data available." You MUST
-   click the report **name `<a>` link in the left panel** to navigate
-   to the detail page where the real status and Download link appear.
-3. **Period picker has two modes** — preset buttons at the top and a
-   dual-calendar below. For custom date ranges, click start date, then
-   end date on the calendar, then click **Save**.
-4. **Prefer preset buttons over custom calendar dates.** The calendar
-   Save button often fails to persist custom date selections via
-   automated clicks. Use presets like `LAST_MONTH` when they match
-   the target period.
-5. **~90-day calendar lookback (ad console only).** In the advertising
-   console's period picker, dates older than ~90 days may appear
-   greyed out or unselectable. If the target period is outside
-   preset range and calendar dates are greyed out, the report
-   cannot be generated — report this to the user.
-6. **Dropdown options use `kat-option` elements.** When clicking
-   dropdowns (month, year, report type), the options render as
-   `kat-option` custom elements. Use `print(page_info())` to see
-   them, then click the matching option by text via
-   `js("[...document.querySelectorAll('kat-option')].find(o => o.textContent.trim() === '<label>').click()")`.
-7. **Download every submitted report before completing.** Track all
-   reports you submit. Before marking the task complete, go back
-   and confirm every pending report has been downloaded. You may
-   do other work while reports generate, but do not forget them.
-8. **Always click into the detail page to check status.** A report
-   that appears to have "no data" on the list page may actually be
-   Completed with a Download link on the detail page. Never assume
-   status from the list — always click through and check the
-   history table's Status column and Download link.
-
-### Country Switching
-
-#### Seller Central
+> **Seeding is async and only happens via the template CLICK.** After
+> clicking **使用模板**, the ~20+ default columns populate a second or
+> two later — **wait for them** (poll for `删除`/Delete buttons in the
+> column list). Navigating **directly** to
+> `/reporting/new?...&templateId=advertised_product` by URL loads the
+> page but does **NOT** seed columns — you'd submit an empty report and
+> hit the validation error in §6.4. Always enter the builder by clicking
+> the template on `/reporting`.
 
 ```bash
 browser-use <<'PY'
-print(page_info())   # look for the "Switch Accounts" button
-js("document.querySelector('button[aria-label=\"Switch Accounts\"]').click()")
-print(page_info())   # locate country options
-js("[...document.querySelectorAll('button, [role=option]')].find(e => e.textContent.trim() === 'United States').click()")
-wait_for_load()      # page reloads with the new country context
+new_tab("https://advertising.amazon.{tld}/reporting?entityId=<ENTITY>")
+wait_for_load()
+# Click 使用模板 inside the 推广的商品 card (match the card that mentions
+# 推广的商品 but not 搜索词):
+js("""
+  var btns=[...document.querySelectorAll('button,a')].filter(b=>b.textContent.trim()==='使用模板');
+  for (var b of btns){ var p=b; for(var i=0;i<6&&p;i++){ p=p.parentElement;
+    if(p && /推广的商品/.test(p.textContent) && !/搜索词/.test(p.textContent)){ b.click(); return; } } }
+""")
+wait_for_load()
+import time; time.sleep(5)   # let default columns seed
+print(js("[...document.querySelectorAll('button')].filter(b=>b.textContent.trim()==='删除').length"))
 PY
 ```
 
-Some accounts may have the switcher inside
-`#ngstrim-account-switcher-dropdown`. If the button is not visible,
-try clicking on the store name / country text area to reveal it.
+### 6.4 Building / customizing a report (the builder)
 
-#### Ad Console
+The builder (`/reporting/new`, title **创建报告**) is a single scrolling
+form with five cards. The UI is Amazon's **storm-ui** framework — every
+control carries a `data-takt-id="storm-ui-*"` and most have stable ids.
 
-The advertising console has its OWN country switcher, separate from
-Seller Central's. Use this to switch between marketplaces without
-leaving the ad console.
+> **The 提交 (submit) button ignores synthetic `.click()`.** Verified
+> live: `js("document.getElementById('urc_frb_create_report_button').click()")`
+> silently no-ops — submit with a **real CDP click**
+> (`click_at_xy(x,y)` from the element's `getBoundingClientRect`). Most
+> other controls (the `使用模板` template button, date-range presets, the
+> picker **保存**, column checkboxes) *do* respond to `js("el.click()")`
+> in testing — but if any click appears to no-op, fall back to
+> `click_at_xy`. Use `fill_input(sel, text)` / `type_text(...)` for text
+> inputs.
+
+**A. Report name** — input `id="report-name-form:report-name-control-component-0"`
+(≤256 chars, auto-filled `推广的商品 - <timestamp>`). The field keeps its
+auto-filled value unless you clear it, so to set a clean name **select-all
+and delete (or empty the value) first**, then enter yours — don't assume
+a single `fill_input`/`type_text` call replaces the existing text. A
+unique, descriptive name makes the report easy to find later.
+
+**B. 筛选条件 (Filters)** — four rows, each with an **添加/变更**
+(Add/Change) button:
+
+| Filter | Default | Change control (`id=`) | Notes |
+|--------|---------|------------------------|-------|
+| 账户 (Account) | current account (1) | 添加 button (`data-takt-id=storm-ui-button`) | Dialog: **添加** (single), **添加当前和未来账户** (a manager acct incl. future-linked), **添加所有显示的账户** (all shown) → **保存**. |
+| 广告活动 (Campaigns) | 所有广告活动 (all with traffic) | `filter-form:campaigns-row-control-component-0-button` | Pick specific campaigns by name/id. |
+| 国家/地区 (Country/Region) | 所有国家/地区 | `filter-form:campaign-country-row-control-component-0-button` | **See §6.8** — restrict here for a per-marketplace file, or add the 国家/地区 *dimension* and split downstream. |
+| 广告产品 (Ad product) | 所有广告产品 | `filter-form:ad-product-row-control-component-0-button` | SP / SB / SD / STV / DSP. **Legacy SB (no ad groups) and self-service streaming-TV campaigns are NOT supported yet.** |
+
+**C. 定制列 (Custom columns)** — the heart of the builder. Two tabs:
+**尺寸** (Dimensions) and **指标** (Metrics), a category list on the
+left, a **Search** box (type any field name), and checkbox rows
+(`label[data-takt-id=storm-ui-checkbox]` — click to toggle). Chosen
+columns appear as reorderable "Sortable Item" rows each with a **删除**
+(Delete) button; drag to reorder.
+
+**Minimum to submit** (enforced on 提交):
+1. **≥1 time dimension** (维度 → 时间),
+2. **≥1 detail dimension** (维度 → 详细程度: 广告主账户 / 广告活动 /
+   广告组 / 广告), and
+3. **≥1 metric** (指标).
+
+Some fields grey out based on other choices (hover to see why, e.g.
+"选择主 IMDb 广告展示量时此列不可用"). Empty cells for a dimension that
+doesn't apply to a given ad product are **normal** — that's how one
+report holds several products.
+
+**Dimension categories** (维度 → tabs on the left): 时间 (Time), 详细
+程度 (Detail level), 商品 (Product), 广告库存来源 (Inventory source),
+交易 (Deals), 技术 (Tech), 地理位置 (Geography), 受众 (Audience), 投放
+方案 (Targeting), 转化 (Conversion). Notable fields:
+
+| Category | Key fields |
+|----------|-----------|
+| 时间 | 日期 (Date, → daily rows), 周, 月, 年份, 一周中的某一天, 小时, **日期范围** (Date range, → one start/end summary row) |
+| 详细程度 | 广告主账户 / …ID / …名称, 实体编号, 广告组合(名称/编号), 广告活动(名称/编号/状态/预算/竞价方案/起止日期…), 广告组(名称/编号/状态/类型…), 广告(名称/ID/格式/尺寸/语言) |
+| 商品 | **推广的商品** / 编号(=ASIN) / 名称 / 品牌 / 品类 / **SKU** / 站点; 达成转化的商品(编号/名称/品牌/品类); 商品相关度 |
+| 广告库存来源 | 网站或应用程序, 广告位(名称/大小/分类) |
+| 技术 | 操作系统, 浏览器名称/版本, 设备类型, 环境 |
+| 地理位置 | 国家/地区, 国家/地区代码, 区域, 指定市场区域(DMA), 城市, 邮政编码 |
+| 受众 | 细分受众群(ID/名称/类型/来源/国家/状态), 频次组 |
+| 投放方案 | 投放目标, 目标竞价, 投放类型, 投放状态, 投放方案, 匹配类型, **搜索词**, 匹配的目标 |
+| 转化 | 转化来源, 转化来源所有者, 转化定义/类型（亚马逊站外）, 归因类型 |
+| 内容/直播 (STV/DSP) | 内容类型/评级/标题/创作者, 直播活动(编号/名称/广告位/广告时段…) |
+
+**Metric categories** (指标 → tabs on the left): 投放 (Delivery), 成本
+和费用 (Cost & fees), 触达 (Reach), 展示量份额 (Impression share), 互动
+(Engagement), 亚马逊网站转化量 (On-Amazon conversions), 亚马逊设备转化量
+(Device conversions), 亚马逊视频转化量 (Video conversions), 亚马逊站外
+转化量 (Off-Amazon conversions), 已合并的转化量 (Combined conversions).
+Notable fields:
+
+| Category | Key fields |
+|----------|-----------|
+| 投放 | 展示量, 点击量, 点击率 (CTR), CPC, CPM, 可见展示量/可见率/vCPM, 无效展示/点击 |
+| 成本和费用 | **成本** (= spend/花费), 总成本, 广告库存成本, 各类费用 (代理费/平台费/第三方费用 …) |
+| 触达 | 用户触达量, 平均展示频率, 家庭触达量, 频次分布 (1…10+) |
+| 展示量份额 | 展示量份额, 展示量份额排名, 搜索结果首页首位展示量份额 |
+| 互动 | 视频四分位完成率/完播率/完整观看, 音频同类, 5 秒观看 |
+| 亚马逊网站转化量 | **购买量, 销售额, 已售商品数量, 购买率, ROAS, 单次购买成本**; 商品详情页浏览量, 加入购物车, 加入心愿单, 品牌搜索量, 品牌旗舰店浏览, 评论页访问, 订购省, 长期销售 — each in base / **（推广）** / **（光环）** / **（品牌新客）** and 归因于点击 / 归因于浏览 variants |
+| 亚马逊设备转化量 | 订阅注册, 应用商店启动/使用时长, Alexa 技能, Kindle KENP / KU 借阅 |
+| 亚马逊视频转化量 | 加入播放列表, 下载视频播放, 租借, 预告片播放, 视频有效播放 |
+| 亚马逊站外转化量 | 每 on-Amazon metric mirrored with the **（亚马逊站外）** qualifier + 潜在客户/结账/安装/页面浏览/搜索/注册/订阅 |
+| 已合并的转化量 | 购买量/销售额/ROAS **（已合并）** = on-Amazon + off-Amazon combined |
+
+**D. 报告期 (Report period)** — control
+`id="report-range-form:date-range-row-control-component-0"` (default
+**最近 7 天**). Opens a preset list (`data-takt-id=storm-ui-date-range-picker-preset-selector`)
+**and** a dual-calendar for custom ranges. Presets: 今天, 昨天, 最近 7
+天, 本周, 上周, 最近 30 天, 本月, **上个月**, 最近 90 天, 本季度, 上个
+季度, 今年, 去年.
+
+> **A preset auto-applies — do NOT click 保存 after one.** Verified live:
+> clicking a preset (e.g. **上个月**) closes the picker and applies the
+> range immediately; the **保存**
+> (`data-takt-id=storm-ui-date-picker-confirmation-control-save`) button
+> is **only present for a custom calendar start→end selection** — after a
+> preset it isn't in the DOM, so a `querySelector(...).click()` on it
+> returns null / throws. After clicking a preset, just verify the control
+> label changed (e.g. reads `上个月`). Click **保存 only** when you picked
+> custom calendar dates.
+
+Lookback limits: **daily/weekly up to 15 months; monthly/yearly up to 6
+years.** Max lookback varies per dimension/metric — some are shorter.
+Presets that exceed a selected dimension's limit are hidden.
 
 ```bash
+# Set period = last calendar month (for the monthly export)
 browser-use <<'PY'
-# 1. Click the marketplace switcher (shows current country name)
-js("document.querySelector('[data-takt-id=header_marketplace_switcher]').click()")
-print(page_info())
-# Look for buttons with id=aac-chrome-{CODE} (e.g. aac-chrome-AU).
-# Each has role=option and value={CODE}, selected=true/false.
-
-# 2. Click the target country option
-js("document.querySelector('button#aac-chrome-AU').click()")
-
-# 3. Click "Change country" to confirm
-js("document.querySelector('button#aac-chrome-change-country-button').click()")
-wait_for_load()   # page reloads with the new country context
+js("document.getElementById('report-range-form:date-range-row-control-component-0').click()")
+import time; time.sleep(2)
+js("[...document.querySelectorAll('[data-takt-id=storm-ui-date-range-picker-preset-selector]')].find(e=>e.textContent.trim()==='上个月').click()")
+# A preset auto-applies — do NOT click 保存 (it isn't in the DOM after a
+# preset). Just confirm the control label now reads 上个月:
+import time; time.sleep(1)
+print(js("document.getElementById('report-range-form:date-range-row-control-component-0').textContent"))
 PY
 ```
 
-Available country buttons follow the pattern `id=aac-chrome-{CODE}`
-where CODE is the 2-letter country code (US, UK, etc.).
-Cancel button: `id=aac-chrome-cancel-button`.
+**E. 投放设置 (Delivery)** —
+- **发送至** (Send to): optional email(s), input `id=recipients-input-builder-input`.
+  Anyone with the emailed link can view the report (no Amazon account
+  needed).
+- **报告提取频率** (Frequency): dropdown
+  (`data-takt-id=storm-ui-dropdown-trigger-button`; items
+  `storm-ui-dropdown-item`) = **一次** (Once, default) / 每日 / 每周 /
+  每月. Recurring → pick weekday (weekly) or day-of-month (monthly), an
+  **end date**, and a **time + timezone**.
+- **文件格式** (File format): **CSV**. (Note: unified reporting delivers
+  **CSV**, whereas the old SP Advertised Product report was **XLSX** —
+  see §6.6.)
 
-**Note**: This switcher is DIFFERENT from Seller Central's
-`button[aria-label="Switch Accounts"]`. The ad console uses
-`ax-chrome-marketplace-switcher` with `data-takt-id` buttons.
-Seller Central's account switcher may also appear as a modal
-overlay — they are separate UI patterns.
+**F. Submit** — **提交** button `id=urc_frb_create_report_button`
+(top-right; **real click**, not `.click()`). Cancel:
+`id=urc_cancel_subscription_button`. On success the builder closes and
+you return to `/reporting` with the new row in 正在处理 (Processing).
+If required columns are missing you get an inline banner *"Fix the
+following issues and submit again"* listing the missing time/detail/metric.
 
-### Wait Times by Report Type
+### 6.5 Standardized metrics & terminology — READ BEFORE trusting numbers
 
-| Report Type | Typical Wait | Notes |
-|------------|-------------|-------|
-| Search term | 5-15 min | Moderate data volume |
-| Targeting / Keyword | 5-15 min | |
-| Advertised product | 5-30 min | Per-ASIN, can be large |
-| Campaign | 3-10 min | Fewer rows |
-| Budget | 3-10 min | |
-| Placement | 5-15 min | |
-| Purchased product | 10-30 min | Cross-references purchases |
-| Gross and Invalid Traffic | 15-60 min | Complex analysis |
-| Conversion path | 30 min – 24 hours | Cross-campaign, very heavy |
-| Category benchmark | 10-30 min | Requires peer data |
+Unified Reporting **renamed and redefined** metrics. The underlying
+measurement logic is unchanged, but display names — and some values —
+differ from the old reports. Key changes:
 
-**Key**: Simple campaign/budget reports are fastest. Cross-campaign or
-purchased-product reports take longer. If the report hasn't completed
-after 1 hour, it may take up to 24 hours.
+- **Common terms unified:** (DSP → unified) 订单→广告活动, 广告订单项→
+  广告组, 创意→广告, 点击跳转量→点击量.
+- **Base conversion metrics now include halo.** 购买量 / 销售额 / 已售
+  商品数量 (and 商品详情页浏览量 etc.) now count **both** promoted
+  products **and** brand-halo (品牌光环) products. To reproduce the old
+  SP "promoted-only" numbers, use the **（推广）** variants
+  (推广商品的购买量 / 推广商品的销量 / 已售商品数量（推广） / 推广商品的
+  ROAS). DSP users especially: dropping the old "总" prefix means base
+  metrics can return **higher** values than the legacy DSP report.
+- **Lookback window removed from names.** Base metrics automatically use
+  the correct window: **Sponsored Products seller = 7-day**, vendor =
+  14-day; other campaign types = 14-day (flexible-lookback DSP uses the
+  advertiser's chosen click/view windows). So 销售额 = the old "7-day
+  total sales" for an SP seller; ROAS = ROAS7d.
+- **Traffic-date reporting.** All conversions are now reported on the
+  **traffic date** (the ad-interaction date), not the conversion date
+  (DSP/legacy SB used to report on conversion date). Expect higher
+  conversions early in a campaign's run vs the old reports.
+- **Off-Amazon** conversions all carry the **（亚马逊站外）** qualifier.
+- Qualifiers you'll see: **（推广）** promoted, **（光环）/（品牌光环）**
+  halo, **（品牌新客）** brand-new-customer, **归因于点击/归因于浏览**
+  click-/view-attributed, **（已合并）** on+off-Amazon combined.
 
-### Campaign Report CSV Structure
+### 6.6 Reproducing the old SP "Advertised product" report (monthly export)
 
-```csv
-State,Campaign name,Status,Type,Targeting,Campaign start date,
-Campaign end date,Campaign budget amount (converted),
-Campaign budget amount,Clicks,CTR,Total cost (converted),
-Total cost,CPC (converted),CPC,Purchases,Sales (converted),
-Sales,ACOS,ROAS
+The monthly `下载上月数据报表` schedule needs a per-marketplace
+"Sponsored Products Advertised product" report. In Unified Reporting
+that is the **推广的商品** template (`advertised_product`) filtered to
+**广告产品 = 商品推广 (SP)** and one marketplace. The old XLSX had 24
+columns; here is the mapping to unified dimensions/metrics (SP seller,
+7-day window):
+
+| Old column (XLSX) | Unified dimension / metric |
+|-------------------|----------------------------|
+| 开始日期 / 结束日期 | dim **日期范围** (summary) — or **日期** for daily rows |
+| 广告组合名称 | dim 广告组合名称 |
+| 货币 | dim 广告活动货币代码 (or infer from 国家/地区) |
+| 广告活动名称 | dim 广告活动名称 |
+| 广告组名称 | dim 广告组名称 |
+| 国家/地区 | dim 国家/地区 |
+| 广告SKU | dim 推广的商品 **SKU** |
+| 广告ASIN | dim 推广的商品 (编号 = ASIN) |
+| 展示量 | metric 展示量 |
+| 点击量 | metric 点击量 |
+| 点击率 (CTR) | metric 点击率 |
+| 单次点击成本 (CPC) | metric CPC |
+| 花费 | metric **成本** |
+| 7天总销售额 | metric **推广商品的销量** (promoted sales) |
+| ACOS 总计 | derive (成本 / 推广商品的销量) — or an ACOS metric |
+| 总 ROAS | metric **推广商品的 ROAS** |
+| 7天总订单数(#) | metric **推广商品的购买量** |
+| 7天总销售量(#) | metric **已售商品数量（推广）** |
+| 7天的转化率 | metric 购买率（推广的商品） |
+| 7天内广告SKU销售量(#) | metric 已售商品数量（推广） |
+| 7天内其他SKU销售量(#) | metric 已售商品数量（光环） |
+| 7天内广告SKU销售额 | metric 推广商品的销量 |
+| 7天内其他SKU销售额 | metric 销售额（光环） |
+
+**Column order and exact header text will differ** from the legacy
+XLSX (Amazon standardized the names), and the **file is CSV, not XLSX**.
+Downstream profit analysis keys on SKU/ASIN + spend + sales + units —
+which all map above — but if a consumer parses by exact legacy header
+string or `.xlsx` extension, it must be updated for the unified CSV. The
+data (per SKU × campaign × country: spend, sales, units, impressions,
+clicks) is fully reproducible.
+
+**Verified live** (one SP marketplace, last-month period): the
+`advertised_product` template seeds ~47 default columns — including
+`推广的商品编号` (=ASIN), `推广的商品 SKU`, `广告活动名称`, `广告组名称`,
+`广告组合名称`, `预算货币`, `展示量`, `点击量`, `总成本`, and the base /
+`（推广）` / `（光环）` / `（品牌新客）` conversion families — and returns
+one row per SKU × campaign. Two things to know:
+- The default set uses **`推广的商品站点`** (Advertised product
+  marketplace, values `AMAZON_SA`/`AMAZON_AE`/`AMAZON_AU`), **not**
+  `国家/地区`. The report is **account-wide** — it contains every
+  marketplace, and the country filter does NOT scope it (see §6.8). Split
+  per-marketplace **downstream** on `推广的商品站点` (or add the
+  **国家/地区** dimension, §6.4C, and split on that).
+- The **`日期范围`** dimension shows each row's *active* date span
+  **within** the selected period (rows with activity across the whole
+  month show `<1st> - <last>`; sparser SKUs show a sub-span). The report
+  period itself is still the one you picked (e.g. 上个月 = the full
+  previous calendar month).
+
+Example placeholder row (never use real SKUs/ASINs/campaign names):
+`WIDGET-001-White, B0EXAMPLE001, "example manual - KSA", SAR, 沙特阿拉伯,
+5000 impressions, 30 clicks, 30.00 spend, 250.00 sales, 6 units`.
+
+### 6.7 Retrieving a finished report
+
+After 提交 the report runs once automatically. Poll `/reporting` (reload
+and read **报告状态**) until it flips 正在处理 → **已完成** (Completed).
+Do not sleep >270 s at a stretch (the store session recycles at ~8 min
+idle); reload on a ~60–90 s cadence. Reports typically finish in a few
+minutes to ~30 min depending on data volume; the migration guide warns
+data can lag and be revised within the attribution window.
+
+When **已完成**, get the download from the **report detail page**, NOT
+the list-row action menu. The row's **操作** button (`id=report-menu-trigger`)
+menu only has 复制 (Copy) / 删除 (Delete) / edit — **no download**.
+Instead click the **report name** link → detail page
+`/reporting/history?entityId=<ENTITY>&reportId=<report-uuid>`, which has
+a **下载** (Download) link (`data-takt-id=storm-ui-link`). Its href is:
+
+```
+/reporting/subscriptions/<report-uuid>/download-report/<run-uuid>
 ```
 
-#### Column Details (20 columns)
+Trigger the real anchor (JS `.click()` on the `<a>`, or `browser-use`
+open its `href`; a bare label click fires no download). The CSV lands in
+the store's download dir (`~/.vibe-seller/downloads/<slug>/`); glob the
+newest `*.csv` (Amazon names it after the report — e.g.
+`<report-name>.csv`), then `mv`/rename per the task's convention. If you
+set an email recipient, the CSV also arrives by email link.
 
-| Column | Type | Example |
-|--------|------|---------|
-| State | enum | `ENABLED`, `PAUSED`, `ARCHIVED` |
-| Campaign name | string | Campaign identifier |
-| Status | enum | `CAMPAIGN_STATUS_ENABLED`, `CAMPAIGN_OUT_OF_BUDGET` |
-| Type | enum | `SP` (Products), `SB` (Brands), `SD` (Display) |
-| Targeting | enum | `MANUAL`, `AUTO` |
-| Campaign start date | date | `01/15/2026` |
-| Campaign end date | date | Empty if ongoing |
-| Campaign budget amount (converted) | currency | `USD 50.00` |
-| Campaign budget amount | currency | `USD 50.00` |
-| Clicks | int | `24` |
-| CTR | decimal | `0.0312` (click-through rate) |
-| Total cost (converted) | currency | `USD 65.80` |
-| Total cost | currency | `USD 65.80` |
-| CPC (converted) | currency | `USD 2.74` |
-| CPC | currency | `USD 2.74` (cost per click) |
-| Purchases | int | `1` |
-| Sales (converted) | currency | `USD 54.99` |
-| Sales | currency | `USD 54.99` |
-| ACOS | decimal | `0.4520` (ad cost / sales) |
-| ROAS | decimal | `2.2125` (return on ad spend) |
+### 6.8 Per-marketplace: split downstream (the filter does NOT scope)
 
-#### Analysis Script Hint
+Each marketplace has its **own campaigns and its own currency** (sa=SAR,
+ae=AED, au=AUD, …). **Unified Reporting is account-wide, not
+per-marketplace**, and — unlike the old per-TLD `/reports` console —
+there is **no reliable way to get a single-marketplace file from the
+builder**:
+
+> **⚠️ Verified live (twice, identical MD5): neither the 国家/地区 filter
+> nor the marketplace `entityId` scopes the report.** Entering via a
+> marketplace's `entityId` (e.g. the AE entity) still returns **all**
+> marketplaces, and the **筛选条件 → 国家/地区** storm-ui dialog
+> (全部清除 → tick one country → 保存) does **not** commit to the backend
+> — the CSV still contains every marketplace. A report created for "SA"
+> and one created with an "AE-only" filter came out byte-identical.
+
+**So: produce ONE account-wide report and split it downstream by
+marketplace.** Add/keep the **`推广的商品站点`** (Advertised product
+marketplace) column — its values are `AMAZON_SA` / `AMAZON_AE` /
+`AMAZON_AU` — (or add the **国家/地区** dimension) and partition the rows
+into each country's folder yourself:
 
 ```python
 import pandas as pd
-
-df = pd.read_csv('campaign_report.csv')
-# Parse currency columns
-for col in ['Total cost', 'Sales', 'CPC', 'Campaign budget amount']:
-    df[col + '_num'] = (
-        df[col].str.replace(r'[^\d.]', '', regex=True).astype(float)
-    )
-
-# Top campaigns by ROAS
-top_roas = df.sort_values('ROAS', ascending=False).head(10)
-# Campaigns over budget
-over_budget = df[df['Status'] == 'CAMPAIGN_OUT_OF_BUDGET']
-# Total spend vs sales
-total = df[['Total cost_num', 'Sales_num']].sum()
+df = pd.read_csv('unified_advertised_product.csv')
+col = [c for c in df.columns if '站点' in c or 'marketplace' in c.lower()][0]
+for mkt, sub in df.groupby(col):        # AMAZON_SA / AMAZON_AE / AMAZON_AU
+    cc = mkt.split('_')[-1].lower()      # sa / ae / au
+    sub.to_csv(f'reports_{{MM}}_{cc}_{{slug}}/Sponsored_Products_Advertised_product_report_{{Mon}}.csv', index=False)
 ```
 
-### Advertised Product Report CSV Structure (typical)
+**Verify content, not just that a file exists:** after splitting, confirm
+each per-country file's `推广的商品站点` (or `国家/地区`) values are all
+the intended marketplace. Never hand-copy one marketplace's rows into
+another country's folder — the currency and campaigns differ.
 
-```csv
-Date,Campaign Name,Ad Group Name,Targeting,Match Type,
-Customer Search Term,Advertised SKU,Advertised ASIN,
-Impressions,Clicks,CTR,CPC,Spend,
-7 Day Total Sales,Total ACOS,Total ROAS,
-7 Day Total Orders,7 Day Total Units,
-7 Day Conversion Rate
-```
+### 6.9 Limits & troubleshooting
 
-### Search Term Report CSV Structure (typical)
+- **Report > 25 GB times out.** Shorten the date range, keep advertisers
+  < 50, or select fewer dimensions.
+- **Empty fields / empty report are normal / success**, not failure — an
+  inapplicable dimension, an unsupported historical lookback, or a
+  permission-masked metric all yield blank cells. A 0-row export for a
+  valid request is a completed deliverable (see the applicability rule
+  near the top of this skill).
+- **Account not visible?** You need access to the manager/advertiser
+  account; newly-linked accounts can take up to ~1 hour to appear.
+- **Not yet in unified reporting** (planned late-2026): MRC viewability,
+  benchmarks, conversion path, SP video, SP prompts, cross-retailer SP,
+  and legacy-SB targeting/search-term support. For those, use §6.10 until
+  cutoff.
 
-```csv
-Date,Campaign Name,Ad Group Name,Targeting,Match Type,
-Customer Search Term,Impressions,Clicks,CTR,CPC,Spend,
-7 Day Total Sales,ACOS,ROAS,7 Day Total Orders,7 Day Total Units
-```
+### 6.10 Legacy Sponsored-ads console (retiring 2026-12-31)
 
-#### Analysis Hint (Search Term / Advertised Product)
-
-```python
-import pandas as pd
-
-df = pd.read_csv('search_term_report.csv')
-# Find high-spend low-conversion terms
-waste = df[(df['Spend'] > 10) & (df['7 Day Total Orders'] == 0)]
-# Best performing search terms
-best = df[df['ROAS'] > 3].sort_values('7 Day Total Sales', ascending=False)
-# SKU-level performance
-sku_perf = df.groupby('Advertised SKU').agg({
-    'Spend': 'sum',
-    '7 Day Total Sales': 'sum',
-    'Clicks': 'sum',
-})
-sku_perf['ACOS'] = sku_perf['Spend'] / sku_perf['7 Day Total Sales']
-```
+Only for reports not yet in unified reporting, or stores mid-migration —
+and only until the cutoff. The old console is at
+`advertising.amazon.{tld}/reports` (note: `/reports`, not `/reporting`).
+Its create dialog used `#advertising-reports button` → category/type
+controls (`button[id*=report-type-control]`, types `searchTerms`,
+`keywords`, `adProducts`, `campaigns`, `placements`, `purchasedProducts`,
+…), a `input[name=time-units]` Summary/Daily radio, and
+`#urc_run_subscription_button` to run; the list page linked to a detail
+page whose history table exposed the **Download** link. Full legacy
+selectors are in this file's git history (pre-unified-reporting revision)
+if a mid-migration store still needs them. **Do not build new workflows
+on `/reports` — it stops accepting new reports on 2026-12-17.**
 
 ---
 
@@ -1346,7 +1248,7 @@ cp "$DLDIR/INV-001 (2).pdf" workspace/invoices/INV-001.pdf
 | Tax Document Library | PDF | "View" button → form POST | POST `/tax/seller-fee-invoices` |
 | Custom Reports | CSV | Request → generate → download | Internal |
 | Payments Repository | CSV | "Download CSV" button → XHR | GET `/payments/reports/api/download-report?reportId={UUID}` |
-| Advertising Reports | CSV | "Download" link → direct | GET `/reports/subscriptions/{id}/download-report/{run-id}` |
+| Advertising Reports (Unified Reporting) | CSV | report row **已完成** → **下载** link (real `<a>` click) → direct | Internal (`/reporting`) |
 
 ### Download Troubleshooting
 
@@ -1366,7 +1268,7 @@ Seller Central Home
 │   ├── Business Reports        → /business-reports
 │   ├── Custom Analytics        → (new)
 │   ├── Fulfillment             → /reportcentral/WelcomePage
-│   ├── Advertising Reports     → advertising.amazon.{tld}/reports
+│   ├── Advertising Reports     → advertising.amazon.{tld}/reporting (Unified; old /reports retiring 2026-12-31)
 │   ├── Return Reports          → /reportcentral/WelcomePage
 │   ├── Custom Reports          → /listing/reports
 │   ├── Inventory Reports       → /inventory-reports
@@ -1378,7 +1280,7 @@ Seller Central Home
 │   └── Payments Dashboard      → /payments/reports-repository (tab)
 │
 └── Advertising Console (separate app)
-    └── Measurement & reporting → Sponsored ads reports
+    └── 效果衡量和报告 (Measurement & reporting) → 报告 (Unified Reporting)
 ```
 
 ## Tips
@@ -1388,8 +1290,8 @@ Seller Central Home
 - **For instant reports** (Business, Tax Library): click Download/View directly
 - **For generated reports** (Fulfillment, Custom, Payments): Request → poll
   status → Download when ready. Typically **1-5 minutes**.
-- **For ad reports**: Create/Run → wait **5 min to 24 hours** depending on
-  type → check Status = "Completed" → Download
+- **For ad reports** (Unified Reporting, §6): 使用模板/创建报告 → 提交 →
+  poll 报告状态 until **已完成** (few min – 30+ min) → **下载**
 - **Always copy downloads** from the browser download dir to task workspace
 - Use **direct URLs** when possible to skip hamburger menu navigation
 - The **hamburger menu button** is inside a `navigation-hamburger-menu` shadow
