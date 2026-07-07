@@ -1,38 +1,35 @@
-"""Load skill-bundled gate scripts, with content-hash-gated hot-reload.
+"""Load skill-bundled gate scripts once per process (restart to update).
 
 A skill declares its exit gates in SKILL.md frontmatter
 (``gates: [name]``) and ships each as ``<skill>/gates/<name>.py``
 exposing ``check(result_text, task_id=None, rules=None) -> GateDeny |
 None`` — the same contract as the core gates in ``app.ai.stop_gates``.
 
-Unlike the core gates (imported once by ``builtin_plugin`` at boot),
-skill-bundled gates are loaded from the file at resolve time and
-**hot-reloaded**: each gate is cached by its **content hash** and
-re-executed only when the file's bytes change. So a gate update delivered
-by ``skills_sync`` (which rewrites the runtime skills dir) takes effect on
-the next ``set_task_result`` **without a server restart** — matching the
-hot-update cadence of the skill markdown.
+Gate modules load from the sync-managed runtime skills dir
+(``~/.vibe-seller/.claude/skills/<skill>/gates/``) and are cached for the
+lifetime of the process: :func:`preload_skill_gates` runs at server start
+(after ``skills_sync`` has fetched the latest tree) and executes every gate
+file once. A gate update delivered later by ``skills_sync`` therefore takes
+effect only on the **next server restart** — never live.
 
-Why re-exec, not ``importlib.reload``: ``reload`` fails on a
-path-loaded module ("spec not found" — the synthetic module name has no
-finder). Re-running ``spec.loader.exec_module`` on a fresh
-``spec_from_file_location`` reliably picks up the new file.
+This is deliberate, not a limitation. Gate code runs server-side and
+``skills_sync`` can pull it from a remote GitHub source, so re-executing a
+changed gate file into a running server would let anyone who can write to
+that source inject live-executing code. Requiring a restart keeps every
+code change behind an explicit, operator-controlled event. (Boot re-runs
+``skills_sync`` before gates load, so a restart always picks up the latest
+synced gate code.)
 
-Source of truth: gates load from the sync-managed runtime skills dir
-(``~/.vibe-seller/.claude/skills/<skill>/gates/``) — the same trusted,
-repo-derived tree ``skills_sync`` writes. Gate-author constraints:
-- keep gates **stateless** — module-level state resets on re-exec; put
-  durable counters in core (``stop_gates`` owns ``_attempts``);
-- do **not** define classes used in cross-module ``isinstance`` — a
-  re-exec makes new class objects; import shared types (``GateDeny``)
-  from ``app.ai.stop_gates``.
+Gate-author constraint: import shared types (``GateDeny``) from
+``app.ai.stop_gates`` — don't define classes used in cross-module
+``isinstance``.
 """
 
 from __future__ import annotations
 
-import hashlib
+import importlib.util
+import logging
 from pathlib import Path
-import types
 
 # Import the path constant from the LEAF app.config (not
 # app.workspace.manager, which pulls the DB/models/stop_gates and would
@@ -41,73 +38,49 @@ import types
 # stop_gates import it at module top with no cycle.
 from app.config import VIBE_SELLER_DIR
 
+logger = logging.getLogger(__name__)
+
 # Runtime skills tree that skills_sync keeps current. All skills live
 # here (not just the ones a given task loaded), so a gate declared by
 # one skill (e.g. noon-ads) can resolve to its canonical file shipped by
 # another (e.g. amazon-ads/gates/ad_completeness_review.py).
 _RUNTIME_SKILLS = VIBE_SELLER_DIR / '.claude' / 'skills'
 
-# path -> (content_sha1, module). Cache for hot-reload; shared
-# process-wide. Keyed on the file's content hash (not mtime): mtime
-# granularity is coarse on some filesystems, and a same-size edit within
-# one tick would be missed. Reading a small gate file per resolve is
-# negligible and detects any change reliably.
-_module_cache: dict[str, tuple[str, object]] = {}
+# path -> loaded module. Populated once (at preload / first use) and never
+# refreshed on a file change — a fresh process (server restart) is what
+# re-executes the file. No content hash, no hot-reload: see module docstring.
+_module_cache: dict[str, object] = {}
 
 
-class HotGate:
-    """Transparent gate proxy that hot-reloads its module file.
+def load_gate_from_path(gate_name: str, path: Path):
+    """Load (once, cached) and return the gate module at ``path``.
 
-    Delegates every attribute to the current (content-hash-cached)
-    module, so it is a drop-in for a real gate module: ``check`` is the
-    one ``set_task_result`` calls, but the gate machinery also uses
-    ``is_stalled(task_id)`` (fail-open) and ``reset_progress(task_id)``
-    (cleanup), plus ``GATE_NAME`` etc. — all resolved via ``__getattr__``
-    against the live module. Re-execs the backing file whenever its bytes
-    change.
+    Cached by path for the process lifetime: a later edit to the file is
+    ignored until the next server restart. Returns ``None`` if the file
+    can't be read or executed (the caller then falls back to the plugin
+    registry / skips the gate).
     """
-
-    def __init__(self, name: str, path: Path):
-        self._name = name
-        self._path = path
-
-    def _module(self):
-        p = str(self._path)
-        try:
-            data = self._path.read_bytes()
-        except OSError:
+    p = str(path)
+    cached = _module_cache.get(p)
+    if cached is not None:
+        return cached
+    try:
+        spec = importlib.util.spec_from_file_location(
+            f'skillgate_{gate_name}', p
+        )
+        if spec is None or spec.loader is None:
             return None
-        digest = hashlib.sha1(data).hexdigest()
-        cached = _module_cache.get(p)
-        if cached is None or cached[0] != digest:
-            # compile+exec the EXACT bytes we hashed — do NOT go through
-            # importlib's SourceFileLoader, whose .pyc cache is keyed on
-            # mtime+size and would return stale bytecode for a same-size
-            # edit within one mtime tick (the hot-reload bug).
-            mod = types.ModuleType(f'skillgate_{self._name}')
-            mod.__file__ = p
-            exec(compile(data, p, 'exec'), mod.__dict__)  # noqa: S102
-            _module_cache[p] = (digest, mod)
-        return _module_cache[p][1]
-
-    def check(self, result_text, task_id=None, rules=None):
-        mod = self._module()
-        if mod is None or not hasattr(mod, 'check'):
-            return None
-        return mod.check(result_text, task_id, rules)
-
-    def __getattr__(self, attr):
-        # Delegate anything not defined on the proxy (is_stalled,
-        # reset_progress, GATE_NAME, STALL_CAP, …) to the live module, so
-        # the gate machinery sees the same surface as a real gate module.
-        # (__getattr__ only fires for misses, so _name/_path/check/_module
-        # never recurse here.) Underscore-dunders stay AttributeError.
-        if attr.startswith('__'):
-            raise AttributeError(attr)
-        mod = self._module()
-        if mod is None:
-            raise AttributeError(attr)
-        return getattr(mod, attr)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except OSError:
+        return None
+    except Exception:
+        # A malformed gate file must not take down set_task_result — skip
+        # it (fail-open) and log loudly so the bad gate is fixed.
+        logger.exception('Failed to load skill gate %s from %s', gate_name, p)
+        return None
+    _module_cache[p] = module
+    return module
 
 
 def discover_skill_gates(skills_root: Path | None = None) -> dict[str, Path]:
@@ -138,12 +111,29 @@ def discover_skill_gates(skills_root: Path | None = None) -> dict[str, Path]:
 
 
 def load_skill_gate(gate_name: str, skills_root: Path | None = None):
-    """Return a :class:`HotGate` for ``gate_name`` if a skill ships it.
+    """Return the loaded gate module for ``gate_name`` if a skill ships it.
 
-    Returns None if no skill in the tree provides ``gates/<name>.py`` —
+    Returns ``None`` if no skill in the tree provides ``gates/<name>.py`` —
     the caller then falls back to the plugin registry (core gates).
     """
     path = discover_skill_gates(skills_root).get(gate_name)
     if path is None:
         return None
-    return HotGate(gate_name, path)
+    return load_gate_from_path(gate_name, path)
+
+
+def preload_skill_gates(skills_root: Path | None = None) -> int:
+    """Execute every skill-bundled gate file once and cache it.
+
+    Called at server startup (after ``skills_sync.fetch``) so gate code is
+    loaded from the known-good, just-synced tree at a single controlled
+    moment — not lazily on first task, which would let a post-boot write to
+    the runtime dir slip new code into a running server. Returns the count
+    of gate modules successfully loaded.
+    """
+    loaded = 0
+    for gate_name, path in discover_skill_gates(skills_root).items():
+        if load_gate_from_path(gate_name, path) is not None:
+            loaded += 1
+    logger.info('Preloaded %d skill-bundled gate module(s)', loaded)
+    return loaded

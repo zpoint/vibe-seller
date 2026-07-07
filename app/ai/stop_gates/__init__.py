@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-from app.ai.skill_gate_loader import HotGate, discover_skill_gates
+from app.ai.skill_gate_loader import discover_skill_gates, load_gate_from_path
 from app.ai.skill_gate_utils import find_skill_md, parse_skill_gates
 from app.config import DATA_DIR
 from app.plugins import registered_gates
@@ -179,11 +179,13 @@ def resolve_skill_gates(
         if skill_md is None:
             continue
         for gate_name in parse_skill_gates(skill_md):
-            # Prefer a skill-bundled gate (hot-reloaded from its file);
-            # fall back to a core/plugin gate in the registry.
+            # Prefer a skill-bundled gate (loaded once from its file at
+            # startup; restart to update); else a core/plugin registry gate.
             path = skill_gate_files.get(gate_name)
             module = (
-                HotGate(gate_name, path) if path else registry.get(gate_name)
+                load_gate_from_path(gate_name, path)
+                if path
+                else registry.get(gate_name)
             )
             if module is not None:
                 resolved[gate_name] = module

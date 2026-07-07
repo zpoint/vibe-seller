@@ -1,21 +1,34 @@
-"""Skill-gate loader: discovery, hot-reload, shared-owner resolution.
+"""Skill-gate loader: discovery, load-once, shared-owner resolution.
 
 These pin the behaviour that makes gates part of a skill: a gate ships
 as ``<skill>/gates/<name>.py`` and is (a) discovered by name across the
-tree, (b) hot-reloaded when its file changes — so a synced/pulled gate
-update takes effect without a server restart — and (c) resolvable by a
-skill that declares the name even when the file lives in another skill.
+tree, (b) loaded once per process and cached — a later edit to the file
+is IGNORED until a server restart, so synced (possibly remote) gate code
+can't hot-reload into a running server — and (c) resolvable by a skill
+that declares the name even when the file lives in another skill.
 """
 
 import pytest
 
+from app.ai import skill_gate_loader
 from app.ai.skill_gate_loader import (
-    HotGate,
     discover_skill_gates,
+    load_gate_from_path,
     load_skill_gate,
+    preload_skill_gates,
 )
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _clear_module_cache():
+    # The loader caches by absolute path for the process lifetime; each
+    # test uses a fresh tmp_path so paths don't collide, but clear anyway
+    # so a test that rewrites the SAME path sees deterministic behaviour.
+    skill_gate_loader._module_cache.clear()
+    yield
+    skill_gate_loader._module_cache.clear()
 
 
 def _write_gate(root, skill, name, body):
@@ -43,46 +56,9 @@ def test_load_unknown_gate_returns_none(tmp_path):
     assert load_skill_gate('does_not_exist', tmp_path) is None
 
 
-def test_hot_reload_on_content_change(tmp_path):
-    """The core promise: edit the gate file → new behaviour, no restart.
-
-    Detection is content-hash based (not mtime): here v1 and v2 are the
-    SAME size and the edit lands within one mtime tick — an mtime- or
-    size-keyed cache (incl. importlib's .pyc cache) would miss it. The
-    loader compile+execs the exact bytes it hashed, so it can't go stale.
-    """
-    path = _write_gate(
-        tmp_path, 's', 'g', 'def check(r, t=None, ru=None): return "v1:" + r\n'
-    )
-    gate = load_skill_gate('g', tmp_path)
-    assert isinstance(gate, HotGate)
-    assert gate.check('x') == 'v1:x'
-
-    # Same-size rewrite, immediately (no sleep — mtime may not advance):
-    path.write_text('def check(r, t=None, ru=None): return "v2:" + r\n')
-
-    # Same HotGate instance, no reload call, no process restart:
-    assert gate.check('x') == 'v2:x'
-
-
-def test_no_reexec_when_file_unchanged(tmp_path):
-    # Module IDENTITY is the reliable signal: an unchanged file returns
-    # the same cached module object (no re-exec); a content change returns
-    # a new one. (A module-level counter can't test this — module state
-    # resets on every exec, so it always looks fresh.)
-    path = _write_gate(
-        tmp_path, 's', 'stable', 'def check(r, t=None, ru=None): return None\n'
-    )
-    gate = load_skill_gate('stable', tmp_path)
-    first = gate._module()
-    assert gate._module() is first  # unchanged → cached, not re-exec'd
-    path.write_text('def check(r, t=None, ru=None): return 1\n')
-    assert gate._module() is not first  # content changed → re-exec'd
-
-
-def test_proxy_delegates_gate_api_to_module(tmp_path):
-    # set_task_result uses is_stalled()/reset_progress()/GATE_NAME beyond
-    # check() — the proxy must expose them via the live module.
+def test_loaded_gate_is_a_real_module_exposing_the_gate_api(tmp_path):
+    # set_task_result uses check()/is_stalled()/reset_progress()/GATE_NAME —
+    # the loader returns the executed module directly, so all are present.
     _write_gate(
         tmp_path,
         's',
@@ -96,14 +72,33 @@ def test_proxy_delegates_gate_api_to_module(tmp_path):
         ),
     )
     gate = load_skill_gate('apis', tmp_path)
+    assert gate is not None
     assert gate.GATE_NAME == 'apis'
     assert gate.STALL_CAP == 2
     assert gate.is_stalled('stuck') is True
     assert gate.is_stalled('ok') is False
     assert gate.reset_progress('t1') == 'reset:t1'
-    # A missing attribute still raises AttributeError (not silently None).
-    with pytest.raises(AttributeError):
-        _ = gate.nonexistent_attr
+
+
+def test_loaded_once_ignores_later_file_change(tmp_path):
+    """The security property: once loaded, a gate never re-executes.
+
+    Edit the backing file and reload — the loader returns the SAME cached
+    module with the ORIGINAL behaviour. Only a fresh process (server
+    restart) would pick up the change. This is what prevents synced/remote
+    gate code from injecting into a running server.
+    """
+    path = _write_gate(
+        tmp_path, 's', 'g', 'def check(r, t=None, ru=None): return "v1:" + r\n'
+    )
+    first = load_skill_gate('g', tmp_path)
+    assert first.check('x') == 'v1:x'
+
+    path.write_text('def check(r, t=None, ru=None): return "v2:" + r\n')
+
+    again = load_skill_gate('g', tmp_path)
+    assert again is first  # same cached module object, not re-executed
+    assert again.check('x') == 'v1:x'  # old behaviour, no hot-reload
 
 
 def test_shared_gate_resolves_from_its_canonical_owner(tmp_path):
@@ -131,3 +126,25 @@ def test_check_signature_is_positional_safe(tmp_path):
     )
     gate = load_skill_gate('sig', tmp_path)
     assert gate.check('r', 't', {'k': 1}) == ('r', 't', {'k': 1})
+
+
+def test_malformed_gate_fails_open_to_none(tmp_path):
+    # A gate file that raises at import must not crash the loader — it
+    # returns None (caller skips the gate / falls back to the registry).
+    _write_gate(tmp_path, 's', 'boom', 'raise RuntimeError("bad gate")\n')
+    assert load_skill_gate('boom', tmp_path) is None
+
+
+def test_preload_loads_every_gate_once(tmp_path):
+    _write_gate(
+        tmp_path, 'a', 'g1', 'def check(r, t=None, ru=None): return None\n'
+    )
+    _write_gate(
+        tmp_path, 'b', 'g2', 'def check(r, t=None, ru=None): return None\n'
+    )
+    _write_gate(tmp_path, 'c', 'bad', 'raise ValueError("nope")\n')
+    # 2 good + 1 malformed → 2 loaded; the malformed one is skipped.
+    assert preload_skill_gates(tmp_path) == 2
+    # Preloaded modules are the cached instances load_gate_from_path returns.
+    g1_path = discover_skill_gates(tmp_path)['g1']
+    assert load_gate_from_path('g1', g1_path) is not None

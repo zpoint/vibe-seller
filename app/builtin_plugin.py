@@ -52,8 +52,8 @@ class BuiltinPlugin(Plugin):
     def _install_gates(ctx: ExtensionContext) -> None:
         # Ad-audit gates stay core-registered for now (pending relocation
         # into amazon-ads/gates/). The review-collect gates now ship in
-        # review-collect/gates/ and are discovered by the skill-gate
-        # loader (hot-reloaded), so they are NOT registered here.
+        # review-collect/gates/ and are discovered + loaded once by the
+        # skill-gate loader at startup, so they are NOT registered here.
         ctx.register_gate('ad_completeness_review', ad_completeness_review)
         ctx.register_gate('ad_negation_allowlist', ad_negation_allowlist)
         ctx.register_gate('ad_execution_fidelity', ad_execution_fidelity)
