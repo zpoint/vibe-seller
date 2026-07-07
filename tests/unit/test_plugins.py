@@ -110,15 +110,18 @@ def test_builtin_registers_core_gates():
         gates = get_extension_context().gates
     finally:
         reset_for_tests()
+    # Ad-audit gates are still core-registered. The review-collect gates
+    # moved into review-collect/gates/ (skill-bundled, discovered by the
+    # skill-gate loader), so they are intentionally NOT in the registry.
     for name in (
         'ad_completeness_review',
         'ad_negation_allowlist',
         'ad_execution_fidelity',
-        'review_completeness_review',
-        'review_output_gate',
     ):
         assert name in gates, name
         assert callable(gates[name].check)
+    assert 'review_completeness_review' not in gates
+    assert 'review_output_gate' not in gates
 
 
 def test_builtin_registers_browser_backends():
