@@ -72,7 +72,45 @@ $PY "$S" bid-update "$EXPORT" \
 $PY "$S" archive-campaign "$EXPORT" \
     --campaign "acme widgets 006 manual keyword US" \
     --out /tmp/<slug>/bulk_archive.xlsx
+
+# CLONE an AUTO campaign — same command; it detects auto from the source
+# (which has product-targeting rows, not keywords) and copies those match
+# groups (close-match/loose-match/substitutes/complements) verbatim. Do
+# NOT hand-write auto-target tokens; clone from a working auto campaign.
+$PY "$S" clone-campaign "$EXPORT" \
+    --src "acme widgets 004 auto US" --new "acme widgets 006 auto US" \
+    --sku WIDGET-006-Blue-M --daily-budget 10 --out /tmp/<slug>/bulk_auto.xlsx
+
+# NEGATE zero-sales keywords on a campaign (bulk — NOT by scraping the
+# on-screen grid). Campaign-level by default; --level adgroup for ad-group.
+$PY "$S" negate "$EXPORT" \
+    --campaign "acme widgets 006 manual keyword US" \
+    --keywords "generic term a,generic term b" --match negativePhrase \
+    --out /tmp/<slug>/bulk_negate.xlsx
 ```
+
+> **Negation is a bulk op, never a grid scrape.** The on-screen keyword /
+> search-term table is a **virtualized ag-Grid** (~13 of hundreds of rows
+> render; `innerText` is often undefined mid-virtualization) — reading or
+> clicking it to negate **does not work and wastes the run**. Decide *what*
+> to negate from the **export / Search-Terms CSV**, then apply via `negate`
+> (Sponsored Products). Sponsored **Brands** / SB-video negatives aren't in
+> the SP sheet — use the SB bulk sheet or the console targeting UI's
+> add-negative control; the principle (bulk/console, never scrape) is the
+> same.
+
+> **Clone re-points the product; verify name ↔ product.** `clone-campaign`
+> sets the new Product Ad to the `--sku` you pass — always the NEW
+> product's own seller SKU (resolve it from inventory by the new ASIN
+> first). A campaign named `…006…` that still advertises the 005/004 SKU is
+> the classic clone-rename bug; after upload, verify the created campaign's
+> Product Ad SKU/ASIN, not just its name.
+
+> **Create emits `paused`; enable when the task says to go live.** New
+> campaigns are emitted paused so nothing spends on upload. If the task is
+> to launch them, follow with a `bid-update`-style Update row setting
+> `State=enabled` (or enable in the console) — do not leave them paused and
+> call the task done when it asked you to run them.
 
 The output XLSX contains **only** the rows to act on (Create / Update /
 Archive), with `Operation` set accordingly. It reuses the exact header
