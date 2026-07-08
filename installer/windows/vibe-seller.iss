@@ -202,6 +202,7 @@ end;
 procedure RemoveVenvRobust(const VenvDir: String);
 var
   Rc, Attempt: Integer;
+  PsPath: String;
 begin
   // Inno's DelTree (and a single delete) can fail to remove .venv right
   // after the tray/server is killed: the OS releases the terminated
@@ -210,9 +211,14 @@ begin
   // then `uv venv` refuses ("exists but is not a virtual environment"),
   // leaving an empty .venv. This bites in-place upgrades launched from a
   // PRE-FIX tray (0.0.8/0.0.9) that doesn't quit itself. Retry — DelTree,
-  // then the more forgiving PowerShell Remove-Item -Force — with backoff
-  // until the directory is actually gone (bounded; the caller aborts with
-  // a clear message if it never clears).
+  // then the more forgiving PowerShell Remove-Item -Force — until the
+  // directory is actually gone (bounded; the caller aborts with a clear
+  // message if it never clears).
+  //
+  // Double any apostrophe so a path like C:\Users\O'Brien\... stays a
+  // valid PowerShell single-quoted literal instead of a silent no-op.
+  PsPath := VenvDir;
+  StringChangeEx(PsPath, '''', '''''', True);
   Attempt := 0;
   while DirExists(VenvDir) and (Attempt < 10) do begin
     DelTree(VenvDir, True, True, True);
@@ -220,9 +226,15 @@ begin
       Break;
     Exec('powershell.exe',
       '-NoProfile -ExecutionPolicy Bypass -Command "Remove-Item ' +
-      '-LiteralPath ''' + VenvDir + ''' -Recurse -Force ' +
-      '-ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 800"',
+      '-LiteralPath ''' + PsPath + ''' -Recurse -Force ' +
+      '-ErrorAction SilentlyContinue"',
       '', SW_HIDE, ewWaitUntilTerminated, Rc);
+    if not DirExists(VenvDir) then
+      Break;
+    // Back off in Inno (NOT inside PowerShell) so the handle-release wait
+    // still happens even if powershell.exe fails to launch — that wait is
+    // the whole point of the retry.
+    Sleep(800);
     Attempt := Attempt + 1;
   end;
 end;
