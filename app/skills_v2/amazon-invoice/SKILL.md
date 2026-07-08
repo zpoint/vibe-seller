@@ -7,9 +7,10 @@ requires: [amazon-shared]
 # Amazon Invoice Generator
 
 > **PREREQUISITE:** Read `../amazon-shared/SKILL.md` for marketplace
-> TLD map, sign-in / Ziniao / OTP handling, and the hamburger-menu
-> navigation pattern (used to reach Tax Document Library before
-> running this generator).
+> TLD map, the Ziniao login challenge-loop (password / OTP /
+> hosted-passkey), and version-aware navigation (New Seller Central vs
+> classic; prefer the direct Tax Document Library URL over the menu)
+> before running this generator.
 
 Generate professional tax invoices for Amazon orders by extracting data from Seller Central and producing PDF invoices via ReportLab.
 
