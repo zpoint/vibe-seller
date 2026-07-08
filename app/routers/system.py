@@ -103,6 +103,13 @@ async def _compute_update_check() -> dict:
                 'current_version': current,
             }
         releases = await fetch_release_notes(client, current)
+        # Reconcile the two sources: `latest` is PyPI (what `vibe-seller
+        # upgrade` / pip actually installs), but the notes come from
+        # GitHub Releases. If GitHub has tagged a release PyPI hasn't
+        # published yet, drop its notes — otherwise the popup advertises a
+        # version the user's upgrade path can't reach. Never show notes
+        # newer than the installable `latest`.
+        releases = [r for r in releases if not is_newer(r['version'], latest)]
 
     platform = get_platform()
     is_windows = platform == 'windows'

@@ -116,7 +116,7 @@ Source: "{#StagingDir}\vibe-seller.ico"; DestDir: "{app}"; Flags: ignoreversion 
 Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"" --open"; \
   Description: "{cm:OpenNow}"; \
   Flags: nowait postinstall skipifsilent; \
-  Check: VenvPythonwExists
+  Check: VenvIsReady
 
 [Icons]
 ; Clickable shortcuts (Start Menu + optional desktop) launch with
@@ -180,9 +180,14 @@ begin
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
-function VenvPythonwExists: Boolean;
+function VenvIsReady: Boolean;
 begin
-  Result := FileExists(ExpandConstant('{app}\.venv\Scripts\pythonw.exe'));
+  // A *real* venv, not a half-built one: the launcher must exist AND
+  // pyvenv.cfg must be present. The field failure left a Scripts\ dir
+  // with neither, and windows-upgrade.yml asserts both — keep this guard
+  // in lockstep with that assertion.
+  Result := FileExists(ExpandConstant('{app}\.venv\Scripts\pythonw.exe'))
+    and FileExists(ExpandConstant('{app}\.venv\pyvenv.cfg'));
 end;
 
 procedure SetStatus(const Msg: String);
@@ -225,7 +230,7 @@ begin
       ExpandConstant('{app}\wheels') + '" vibe-seller pystray pillow',
       '', SW_HIDE, ewWaitUntilTerminated, Rc);
   end;
-  Result := (Rc = 0) and VenvPythonwExists;
+  Result := (Rc = 0) and VenvIsReady;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -243,9 +248,14 @@ begin
           'Vibe Seller could not create its Python environment.'#13#10#13#10 +
           'Please fully quit Vibe Seller from the system tray, then run ' +
           'the installer again.');
-    // Browser engine for the chrome backend. Best-effort: needs network
-    // and is NOT fatal — the app runs and the engine is fetched later. A
-    // follow-up switches the backend to the user's installed Chrome/Edge.
+    // Browser engine for the chrome backend. Best-effort so a network
+    // blip doesn't abort the whole install — but NOT auto-fetched at
+    // runtime: the chrome backend drives Playwright's bundled Chromium,
+    // so if this download fails the app still starts and the UI works,
+    // yet chrome-backend browser tasks fail to launch until the engine
+    // is present (re-run the installer, or `playwright install chromium`
+    // in the venv). A follow-up switches to the user's installed
+    // Chrome/Edge, removing this step.
     SetStatus('Downloading browser engine (first run only)...');
     Exec(ExpandConstant('{app}\.venv\Scripts\playwright.exe'),
       'install chromium', '', SW_HIDE, ewWaitUntilTerminated, Rc);
