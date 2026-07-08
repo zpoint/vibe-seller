@@ -369,10 +369,32 @@ def cmd_clone_campaign(args):
             f'campaign {args.src!r} (check the exact name via `inspect`)'
         )
 
-    # Infer targeting type from what the source actually has: a
-    # product-targeting child => AUTO campaign; otherwise MANUAL.
-    is_auto = any(is_entity(r, 'product_targeting') for r in src_children)
-    targeting_type = TARGETING_AUTO if is_auto else TARGETING_MANUAL
+    # Targeting type comes from the SOURCE CAMPAIGN's own Targeting Type
+    # column — that is authoritative. Do NOT infer it from child rows:
+    # SP-Manual-**Product** campaigns also carry product-targeting rows, so
+    # their presence does NOT imply AUTO. Fall back to MANUAL (the common
+    # case) with a warning only if the source Campaign row isn't in the
+    # export (e.g. a paused campaign exported without zero-impression rows).
+    _TT = {
+        'AUTO': TARGETING_AUTO,
+        'MANUAL': TARGETING_MANUAL,
+        '自动': TARGETING_AUTO,
+        '手动': TARGETING_MANUAL,
+    }
+    targeting_type = None
+    for r in data:
+        if is_entity(r, 'campaign') and r[Col.CAMPAIGN_NAME] == args.src:
+            key = str(r[Col.TARGETING_TYPE] or '').strip()
+            targeting_type = _TT.get(key.upper(), _TT.get(key))
+            break
+    if targeting_type is None:
+        print(
+            f'warning: source campaign {args.src!r} Targeting Type not found '
+            'in export; defaulting new campaign to MANUAL. Pass a source that '
+            'appears in the export (zero-impression export for paused ones).',
+            file=sys.stderr,
+        )
+        targeting_type = TARGETING_MANUAL
 
     new = args.new
     ag = args.ad_group or new
@@ -625,22 +647,31 @@ def cmd_negate(args):
         )
     agid = None
     if args.level == 'adgroup':
-        for r in data:
-            if (
-                is_entity(r, 'ad_group')
-                and campaign_name_of(r, id_to_name) == args.campaign
-                and (
-                    args.ad_group is None
-                    or r[Col.AD_GROUP_NAME] == args.ad_group
-                )
-            ):
-                agid = r[Col.AD_GROUP_ID]
-                break
-        if not agid:
+        ag_rows = [
+            r
+            for r in data
+            if is_entity(r, 'ad_group')
+            and campaign_name_of(r, id_to_name) == args.campaign
+        ]
+        if args.ad_group:
+            ag_rows = [
+                r for r in ag_rows if r[Col.AD_GROUP_NAME] == args.ad_group
+            ]
+        elif len(ag_rows) > 1:
+            names = ', '.join(
+                sorted({str(r[Col.AD_GROUP_NAME]) for r in ag_rows})
+            )
+            sys.exit(
+                f'error: campaign {args.campaign!r} has multiple ad groups '
+                f'({names}); pass --ad-group to pick one, or --level campaign '
+                'to negate at the campaign level. Refusing to guess.'
+            )
+        if not ag_rows:
             sys.exit(
                 f'error: no ad group found for {args.campaign!r} '
                 '(needed for ad-group-level negatives; try --level campaign)'
             )
+        agid = ag_rows[0][Col.AD_GROUP_ID]
     match = NEG_MATCH_API.get(str(args.match).strip().lower(), args.match)
     kws = [k.strip() for k in (args.keywords or '').split(',') if k.strip()]
     if args.keywords_file:
