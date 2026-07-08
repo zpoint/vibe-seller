@@ -328,20 +328,47 @@ def _setup_worker_profile():
 
     e2e_helpers.DEFAULT_PROFILE_ID = profile_id
 
-    # Set admin user's default profile so UI-created tasks
-    # (Playwright tests) also use the worker's provider
-    # instead of falling back to server os.environ.
+    # Route EVERY agent task to the worker's provider — CI provisions no
+    # Claude credentials, so any fall-through to the 'default' (Claude)
+    # profile dies mid-run with "Not logged in · Please run /login". Two
+    # owners resolve profiles differently (see resolve_schedule_profile),
+    # so both must be configured here — centrally, never per-test:
+    #
+    #   (a) Admin default → UI-created tasks + admin-owned schedules.
+    #   (b) System schedules (e.g. catalog sync) are owned by the ai_bot
+    #       user, whose default is never set, so (a) does NOT reach them.
+    #       Pin the provider directly onto every schedule still resolving
+    #       to 'default' (a pin has top precedence in resolution).
+    #
+    # FAIL LOUD on any error — a swallowed failure here is exactly what
+    # let catalog sync silently fall back to Claude.
+    client2 = httpx.Client(timeout=30)
+    _login_client(client2)
     try:
-        client2 = httpx.Client(timeout=30)
-        _login_client(client2)
-        client2.patch(
-            f'{BASE_URL}/api/profiles/{profile_id}/set-default',
+        resp = client2.patch(
+            f'{BASE_URL}/api/profiles/{profile_id}/set-default'
         )
+        if resp.status_code != 200:
+            pytest.fail(
+                f'set-default {profile_id} failed: '
+                f'{resp.status_code} {resp.text}'
+            )
+
+        resp = client2.get(f'{BASE_URL}/api/schedules')
+        resp.raise_for_status()
+        for sched in resp.json():
+            if sched.get('ai_profile_id') in (None, '', 'default'):
+                pinned = client2.put(
+                    f'{BASE_URL}/api/schedules/{sched["id"]}',
+                    json={'ai_profile_id': profile_id},
+                )
+                if pinned.status_code != 200:
+                    pytest.fail(
+                        f'pin schedule {sched["id"]} to {profile_id} '
+                        f'failed: {pinned.status_code} {pinned.text}'
+                    )
+    finally:
         client2.close()
-    except Exception:
-        logging.getLogger('e2e').warning(
-            'Failed to set default profile %s', profile_id, exc_info=True
-        )
 
 
 @pytest.fixture(scope='module')

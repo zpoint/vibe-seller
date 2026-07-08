@@ -135,6 +135,69 @@ jobs:
           }
           if (-not $ok) { throw "UPGRADED server did not report 0.0.2 (upgrade failed)" }
 
+      # The REAL in-app upgrade path: the tray (pythonw.exe under
+      # .venv\Scripts) launches the installer and is still ALIVE when the
+      # installer deletes+rebuilds .venv. The prior "Upgrade in place"
+      # step stopped the server first, so it never exercised this lock —
+      # in the field it left an empty .venv and the finish step failed
+      # with "pythonw.exe not found". Here we hold a venv pythonw.exe open
+      # (native ext loaded, so .venv files are truly locked) and upgrade
+      # WITHOUT stopping first; PrepareToInstall must kill+wait for it and
+      # ssPostInstall must (re)build+verify the venv.
+      - name: Hot upgrade (server + tray pythonw running) rebuilds the venv
+        shell: pwsh
+        run: |
+          $install = $env:VS_INSTALL
+          $exe = "$env:GITHUB_WORKSPACE\installer\windows\outB\VibeSeller-Setup.exe"
+          # Server (0.0.2) is still running from the previous step. Also
+          # hold a venv pythonw.exe alive == the tray that launched the
+          # upgrade. Importing Pillow's C ext locks a .pyd inside .venv,
+          # and the running pythonw.exe image locks .venv\Scripts\pythonw.exe
+          # — exactly the production lock. Launch from a SCRIPT FILE
+          # (Start-Process mangles a spaces/commas `-c` string).
+          $pyw = "$install\.venv\Scripts\pythonw.exe"
+          $holder = Join-Path $env:RUNNER_TEMP 'hold_tray.py'
+          Set-Content -LiteralPath $holder -Encoding ascii -Value @(
+            'from PIL import Image, _imaging',
+            'import time',
+            'time.sleep(900)')
+          Start-Process -FilePath $pyw -ArgumentList $holder | Out-Null
+          Start-Sleep 6
+          if (-not (Get-CimInstance Win32_Process | Where-Object {
+            $_.Name -eq 'pythonw.exe' -and $_.ExecutablePath -and
+            $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) })) {
+            throw "precondition failed: no venv pythonw holding the lock"
+          }
+          # Upgrade in place WITHOUT stopping the server/tray first.
+          $p = Start-Process -FilePath $exe -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          if ($p.ExitCode -ne 0) { throw "hot upgrade exited $($p.ExitCode)" }
+          # The invariant that was violated in production: a real venv
+          # (not an empty .venv) must exist after the upgrade.
+          foreach ($f in @('.venv\pyvenv.cfg','.venv\Scripts\pythonw.exe',
+                           '.venv\Scripts\python.exe','.venv\Scripts\vibe-seller.exe',
+                           '.venv\Scripts\playwright.exe')) {
+            if (-not (Test-Path "$install\$f")) {
+              throw "empty/broken venv after hot upgrade: missing $f"
+            }
+          }
+          # Leave a healthy server running for the e2e step that follows.
+          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
+                      "$install\git\cmd;$install\git\bin;" +
+                      "$install\git\usr\bin;$install\git\mingw64\bin;$env:PATH"
+          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
+          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
+          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            try {
+              if ((Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version -eq '0.0.2') { $ok = $true; break }
+            } catch { }
+            Start-Sleep 2
+          }
+          if (-not $ok) { throw "server not healthy at 0.0.2 after hot upgrade" }
+          Write-Host "OK: hot in-place upgrade (tray running) rebuilt the venv"
+
       - name: Basic e2e on the UPGRADED build (health + store/profile API)
         shell: bash
         run: |

@@ -101,39 +101,22 @@ Source: "{#StagingDir}\dialogs.py"; DestDir: "{app}";        Flags: ignoreversio
 Source: "{#StagingDir}\vibe-seller.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Run]
-; Build the runtime venv on the target machine so all paths are correct.
-; (python-build-standalone is relocatable; the venv references it under
-;  the fixed install dir.)
-; --clear so an upgrade rebuilds the venv fresh instead of reusing a
-; stale one (which would keep old app code even after new wheels land).
-Filename: "{app}\uv.exe"; \
-  Parameters: "venv --clear ""{app}\.venv"" --python ""{app}\python\python.exe"""; \
-  StatusMsg: "Creating Python environment..."; \
-  Flags: runhidden waituntilterminated
-
-; Install the app + deps from the bundled wheels (fully offline).
-; --reinstall-package vibe-seller forces the app code to be replaced even
-; when the public version (0.0.1.dev1) is unchanged across builds — the
-; belt to the --clear/wheel-clear suspenders, so upgrades never strand
-; stale code.
-Filename: "{app}\uv.exe"; \
-  Parameters: "pip install --python ""{app}\.venv\Scripts\python.exe"" --reinstall-package vibe-seller --no-index --find-links ""{app}\wheels"" vibe-seller pystray pillow"; \
-  StatusMsg: "Installing Vibe Seller..."; \
-  Flags: runhidden waituntilterminated
-
-; Browser engine for the chrome backend. NOTE: a follow-up issue
-; switches the backend to drive the user's installed Chrome/Edge, at
-; which point this step (and the network requirement) goes away.
-Filename: "{app}\.venv\Scripts\playwright.exe"; \
-  Parameters: "install chromium"; \
-  StatusMsg: "Downloading browser engine (first run only)..."; \
-  Flags: runhidden waituntilterminated
+; The runtime venv (uv venv + uv pip install) and browser engine are
+; built in [Code]'s CurStepChanged(ssPostInstall), NOT here. In [Run],
+; Inno ignores a step's exit code, so a failed `uv venv` (classically: a
+; tray pythonw.exe still locking .venv during an in-place upgrade) left
+; an empty .venv and the finish step below then failed with
+; "pythonw.exe not found". Building in code lets us verify the result,
+; retry once, and surface a clear error instead. See BuildRuntimeEnv.
 
 ; Finish-page "Open now" (checked by default): starts the server and
 ; opens the browser to the UI (tray --open waits for health first).
+; Check: only offer/run this if the venv actually built — belt to the
+; ssPostInstall abort, so we never launch a missing pythonw.exe.
 Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"" --open"; \
   Description: "{cm:OpenNow}"; \
-  Flags: nowait postinstall skipifsilent
+  Flags: nowait postinstall skipifsilent; \
+  Check: VenvIsReady
 
 [Icons]
 ; Clickable shortcuts (Start Menu + optional desktop) launch with
@@ -174,14 +157,109 @@ Type: filesandordirs; Name: "{app}\.venv"
 procedure KillAppProcesses(NameClause: String);
 var
   ResultCode: Integer;
+  Filter: String;
 begin
+  // Match processes launched from the ACTUAL install dir ({app}).
+  Filter := '{ ' + NameClause + '$_.ExecutablePath -like ''' +
+    ExpandConstant('{app}') + '\*'' }';
+  // Kill AND WAIT until they are actually gone (or 30s elapse). A single
+  // Stop-Process returns before the OS finishes tearing the process down
+  // and releasing its file handles, so a plain kill races the subsequent
+  // .venv delete/rebuild — the exact window that left an empty .venv on
+  // in-place upgrade (the tray pythonw.exe locking .venv\Scripts). Poll
+  // until the handles are truly released before we proceed.
   Exec('powershell.exe',
-    '-NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance ' +
-    'Win32_Process | Where-Object { ' + NameClause +
-    '$_.ExecutablePath -like ''' + ExpandConstant('{app}') + '\*'' } | ' +
-    'ForEach-Object { Stop-Process -Id $_.ProcessId -Force ' +
-    '-ErrorAction SilentlyContinue }"',
+    '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    '$deadline=(Get-Date).AddSeconds(30);' +
+    'do {' +
+    '$p=@(Get-CimInstance Win32_Process | Where-Object ' + Filter + ');' +
+    'if ($p.Count -eq 0) { break };' +
+    '$p | ForEach-Object { Stop-Process -Id $_.ProcessId -Force ' +
+    '-ErrorAction SilentlyContinue };' +
+    'Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline)"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function VenvIsReady: Boolean;
+begin
+  // A *real* venv, not a half-built one: the launcher must exist AND
+  // pyvenv.cfg must be present. The field failure left a Scripts\ dir
+  // with neither, and windows-upgrade.yml asserts both — keep this guard
+  // in lockstep with that assertion.
+  Result := FileExists(ExpandConstant('{app}\.venv\Scripts\pythonw.exe'))
+    and FileExists(ExpandConstant('{app}\.venv\pyvenv.cfg'));
+end;
+
+procedure SetStatus(const Msg: String);
+begin
+  // Best-effort: no wizard UI in /VERYSILENT — status is cosmetic.
+  try
+    WizardForm.StatusLabel.Caption := Msg;
+  except
+  end;
+end;
+
+function BuildRuntimeEnv: Boolean;
+var
+  Rc: Integer;
+  Uv, VenvDir, PyExe, VenvPy: String;
+begin
+  Uv := ExpandConstant('{app}\uv.exe');
+  VenvDir := ExpandConstant('{app}\.venv');
+  PyExe := ExpandConstant('{app}\python\python.exe');
+  VenvPy := ExpandConstant('{app}\.venv\Scripts\python.exe');
+
+  // Ensure nothing holds the venv, then delete any partial dir before
+  // rebuilding: `uv venv` REFUSES a dir that "exists but is not a virtual
+  // environment", so a stale/locked half-built .venv (Scripts\ with no
+  // pyvenv.cfg) would otherwise wedge every retry.
+  KillAppProcesses('($_.Name -eq ''pythonw.exe'' -or ' +
+    '$_.Name -eq ''python.exe'') -and ');
+  DelTree(VenvDir, True, True, True);
+
+  SetStatus('Creating Python environment...');
+  Exec(Uv, 'venv "' + VenvDir + '" --python "' + PyExe + '"',
+    '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  if Rc = 0 then begin
+    // --reinstall-package vibe-seller forces the app code to be replaced
+    // even when the public version is unchanged across builds, so an
+    // upgrade never strands stale code.
+    SetStatus('Installing Vibe Seller...');
+    Exec(Uv, 'pip install --python "' + VenvPy + '" ' +
+      '--reinstall-package vibe-seller --no-index --find-links "' +
+      ExpandConstant('{app}\wheels') + '" vibe-seller pystray pillow',
+      '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  end;
+  Result := (Rc = 0) and VenvIsReady;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Rc: Integer;
+begin
+  if CurStep = ssPostInstall then begin
+    // Build the runtime venv HERE (not in [Run]) so a failure is verified
+    // and retried instead of silently leaving an empty .venv (the
+    // "pythonw.exe not found" bug). BuildRuntimeEnv kills+waits for any
+    // lock holder first; one retry covers a slow handle release.
+    if not BuildRuntimeEnv then
+      if not BuildRuntimeEnv then
+        RaiseException(
+          'Vibe Seller could not create its Python environment.'#13#10#13#10 +
+          'Please fully quit Vibe Seller from the system tray, then run ' +
+          'the installer again.');
+    // Browser engine for the chrome backend. Best-effort so a network
+    // blip doesn't abort the whole install — but NOT auto-fetched at
+    // runtime: the chrome backend drives Playwright's bundled Chromium,
+    // so if this download fails the app still starts and the UI works,
+    // yet chrome-backend browser tasks fail to launch until the engine
+    // is present (re-run the installer, or `playwright install chromium`
+    // in the venv). A follow-up switches to the user's installed
+    // Chrome/Edge, removing this step.
+    SetStatus('Downloading browser engine (first run only)...');
+    Exec(ExpandConstant('{app}\.venv\Scripts\playwright.exe'),
+      'install chromium', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+  end;
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -191,8 +269,9 @@ begin
   // On upgrade, a running server (uvicorn python) + tray (pythonw) hold
   // locks on files under {app}, so the file-copy fails and the built-in
   // "close applications / force close" often can't kill a background
-  // Python. Proactively stop the daemon and kill anything launched from
-  // the install dir so the overwrite succeeds. No-ops on a fresh install.
+  // Python. Proactively stop the daemon and kill+WAIT for anything
+  // launched from the install dir so the overwrite AND the venv rebuild
+  // succeed. No-ops on a fresh install.
   Exec(ExpandConstant('{app}\.venv\Scripts\vibe-seller.exe'), 'stop',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   KillAppProcesses('');
