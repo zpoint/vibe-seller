@@ -17,12 +17,15 @@ import argparse
 import asyncio
 from contextlib import suppress
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
+import urllib.request
 
 from app.platform import (
     collect_agent_descendants,
@@ -164,13 +167,28 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # upgrade --------------------------------------------------------
-    subs.add_parser(
+    up = subs.add_parser(
         'upgrade',
         help=(
             'Upgrade vibe-seller in place. Uses `uv tool upgrade` when '
             'uv is on PATH (the install.sh path), falls back to '
             '`pip install --upgrade` otherwise.'
         ),
+    )
+    up.add_argument(
+        '--test-pypi',
+        action='store_true',
+        help=(
+            'Upgrade to a release candidate on TestPyPI instead of the '
+            'latest PyPI release. Requires --version. Mirrors '
+            '`install.sh --test-pypi`.'
+        ),
+    )
+    up.add_argument(
+        '--version',
+        dest='target_version',
+        default=None,
+        help='Exact version to install (required with --test-pypi).',
     )
 
     return parser
@@ -333,7 +351,9 @@ def _cmd_stop(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_upgrade() -> int:
+def _cmd_upgrade(args: argparse.Namespace) -> int:
+    if getattr(args, 'test_pypi', False):
+        return _upgrade_from_test_pypi(args.target_version)
     # `uv tool upgrade vibe-seller` is the canonical path since
     # install.sh uses `uv tool install`. Falling back to pip keeps the
     # subcommand useful for the manual `pip install vibe-seller` user.
@@ -352,6 +372,58 @@ def _cmd_upgrade() -> int:
     return subprocess.run(cmd).returncode
 
 
+def _upgrade_from_test_pypi(version: str | None) -> int:
+    """Replace the current install with a specific TestPyPI wheel.
+
+    Release-candidate testing path — mirrors ``install.sh --test-pypi
+    --version``. TestPyPI hosts only this project and its wheels are
+    dev-versioned, so (like install.sh) we download the wheel by exact
+    version and ``uv tool install --force`` it, letting dependencies
+    resolve from real PyPI. Requires ``uv`` and an explicit version.
+    """
+    if not version:
+        print(
+            'vibe-seller upgrade --test-pypi requires --version <ver>',
+            file=sys.stderr,
+        )
+        return 2
+    if not shutil.which('uv'):
+        print(
+            'vibe-seller upgrade --test-pypi requires uv on PATH',
+            file=sys.stderr,
+        )
+        return 2
+    meta_url = f'https://test.pypi.org/pypi/vibe-seller/{version}/json'
+    try:
+        with urllib.request.urlopen(meta_url, timeout=30) as resp:  # noqa: S310
+            meta = json.loads(resp.read().decode())
+        wheel_url = next(
+            u['url'] for u in meta['urls'] if u['packagetype'] == 'bdist_wheel'
+        )
+    except (OSError, ValueError, KeyError, StopIteration) as exc:
+        print(
+            f'no TestPyPI wheel for vibe-seller=={version}: {exc}',
+            file=sys.stderr,
+        )
+        return 1
+    # Keep the wheel's real filename — uv reads name/version/tags from it.
+    tmp_dir = tempfile.mkdtemp(prefix='vibe-seller-wheel-')
+    wheel_path = os.path.join(tmp_dir, os.path.basename(wheel_url))
+    try:
+        with (
+            urllib.request.urlopen(  # noqa: S310
+                wheel_url, timeout=300
+            ) as resp,
+            open(wheel_path, 'wb') as f,
+        ):
+            shutil.copyfileobj(resp, f)
+        cmd = ['uv', 'tool', 'install', '--force', wheel_path]
+        print(f'==> {" ".join(cmd)}')
+        return subprocess.run(cmd).returncode
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     if args.command == 'start':
@@ -359,7 +431,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'stop':
         return _cmd_stop(args)
     if args.command == 'upgrade':
-        return _cmd_upgrade()
+        return _cmd_upgrade(args)
     return 1  # unreachable: subparsers.required = True
 
 

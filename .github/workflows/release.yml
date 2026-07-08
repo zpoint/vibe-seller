@@ -21,6 +21,14 @@ name: Release
 #                         `vibe-seller --version` matches, /api/health is
 #                         200, and POST/GET round-trips on /api/stores +
 #                         /api/profiles. Gates the production publish.
+#   4b. verify-upgrade-testpypi  Fresh runner: install the PREV dev build,
+#                         verify it, then `vibe-seller upgrade --test-pypi
+#                         --version <new>` (the real CLI command, running on
+#                         the PREV install) and re-verify — proving the
+#                         in-place upgrade path works BEFORE we publish to
+#                         PyPI. Also gates the production publish. Both dev
+#                         builds come from THIS checkout (build stage) so
+#                         PREV already carries the `--test-pypi` flag.
 #   5. publish-pypi       Publish the canonical wheel.
 #   6. verify-pypi        Re-run the same smoke against PyPI (post-publish
 #                         audit; same script, different version + source).
@@ -56,6 +64,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       dev_version: ${{ steps.build_testpypi.outputs.dev_version }}
+      dev_version_prev: ${{ steps.build_testpypi.outputs.dev_version_prev }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -100,18 +109,30 @@ jobs:
         # Tag-derived version, e.g. v0.0.1 → 0.0.1.
         run: python -m build --outdir dist-pypi
 
-      - name: Build dev-versioned wheel (for TestPyPI)
+      - name: Build dev-versioned wheels (for TestPyPI)
         id: build_testpypi
         # `SETUPTOOLS_SCM_PRETEND_VERSION` overrides the tag-derived
         # version. We stamp it with UTC seconds so every workflow run
         # gets a unique, immutable upload, e.g.
         # `0.0.1.dev20260514120555`.
+        #
+        # Build TWO dev wheels — PREV (older) and NEW — from THIS SAME
+        # checkout so the verify-upgrade job can exercise `vibe-seller
+        # upgrade --test-pypi` prev→new. Both must be same-code: the
+        # upgrade command runs on the PREV install, so PREV must already
+        # carry the `--test-pypi` flag (a previously-RELEASED version
+        # wouldn't). `dev$((TS-1))` < `dev$TS`, so NEW is a real upgrade.
         run: |
-          DEV_VERSION="${GITHUB_REF_NAME#v}.dev$(date -u +%Y%m%d%H%M%S)"
-          echo "==> dev version: $DEV_VERSION"
+          TS=$(date -u +%Y%m%d%H%M%S)
+          DEV_VERSION="${GITHUB_REF_NAME#v}.dev${TS}"
+          DEV_VERSION_PREV="${GITHUB_REF_NAME#v}.dev$((TS - 1))"
+          echo "==> prev dev: $DEV_VERSION_PREV ; new dev: $DEV_VERSION"
+          SETUPTOOLS_SCM_PRETEND_VERSION="$DEV_VERSION_PREV" \
+            python -m build --outdir dist-testpypi
           SETUPTOOLS_SCM_PRETEND_VERSION="$DEV_VERSION" \
             python -m build --outdir dist-testpypi
           echo "dev_version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+          echo "dev_version_prev=$DEV_VERSION_PREV" >> "$GITHUB_OUTPUT"
 
       - name: Verify both wheels bundle frontend assets
         run: |
@@ -249,9 +270,71 @@ jobs:
           echo "--- last 30 lines of server log ---"
           tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
 
+  verify-upgrade-testpypi:
+    name: Verify in-place upgrade (prev → new, gates release)
+    needs: [build, publish-testpypi]
+    runs-on: ubuntu-latest
+    env:
+      PREV: ${{ needs.build.outputs.dev_version_prev }}
+      NEW: ${{ needs.build.outputs.dev_version }}
+      SIMPLE_INDEX: https://test.pypi.org/simple/vibe-seller/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for both dev versions on the TestPyPI simple index
+        run: |
+          for want in "$PREV" "$NEW"; do
+            echo "waiting for vibe-seller==$want ..."
+            ok=0
+            for _ in $(seq 1 60); do
+              if curl -fsS "$SIMPLE_INDEX" 2>/dev/null | grep -qF "$want"; then
+                ok=1; break
+              fi
+              sleep 2
+            done
+            [ "$ok" = 1 ] || { echo "ERROR: $want not on simple index"; exit 1; }
+          done
+
+      - name: Install the PREVIOUS build from TestPyPI
+        run: ./install.sh --test-pypi --version "$PREV"
+
+      - name: Old version stands up (server + API round-trips)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller start --port 7777
+          bash tests/releases/verify_install.sh "$PREV"
+          vibe-seller stop --port 7777
+
+      - name: In-place upgrade via the real CLI command
+        # The whole point: exercise `vibe-seller upgrade` itself (running
+        # on the PREV install, as a real user would) pointed at the new
+        # build. GATES the PyPI publish — a broken upgrade path never
+        # reaches real users. Both builds are same-code, so PREV already
+        # carries the `--test-pypi` flag this step relies on.
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller upgrade --test-pypi --version "$NEW"
+
+      - name: New version stands up + --version bumped
+        # verify_install.sh asserts `vibe-seller --version == NEW` plus
+        # /api/health + store/profile round-trips — the same smoke reused
+        # from the fresh-install verify stages.
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller start --port 7777
+          bash tests/releases/verify_install.sh "$NEW"
+          vibe-seller stop --port 7777
+
+      - name: Stop server + dump logs
+        if: always()
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller stop --port 7777 || true
+          tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
+
   publish-pypi:
     name: Publish to PyPI (canonical)
-    needs: verify-testpypi
+    needs: [verify-testpypi, verify-upgrade-testpypi]
     runs-on: ubuntu-latest
     environment:
       name: pypi
