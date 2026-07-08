@@ -21,7 +21,6 @@ import pytest
 
 from app.browser.manager import store_slug as _store_slug
 from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
-import tests.e2e.e2e_helpers as e2e_helpers
 from tests.e2e.e2e_helpers import (
     BASE_URL,
     PIPELINE_TIMEOUT,
@@ -162,16 +161,11 @@ def _trigger_catalog_sync(
     (expected to skip via staleness check).
     """
     base = f'{BASE_URL}/api/schedules/{SYSTEM_CATALOG_SYNC_ID}'
-    # Ensure the schedule uses the worker's AI profile
-    # (CI seeds it with 'default' which lacks credentials). Send
-    # ONLY the mutable field — ScheduleUpdate uses extra='forbid',
-    # so PUTing the full GET response would 422 (phase_mode,
-    # store_id, is_system are immutable).
-    profile_id = e2e_helpers.DEFAULT_PROFILE_ID
-    if profile_id:
-        resp = client.put(base, json={'ai_profile_id': profile_id})
-        resp.raise_for_status()
-
+    # AI-profile routing for system schedules is configured centrally in
+    # conftest's _setup_worker_profile (which pins the worker's provider
+    # onto every schedule that would otherwise resolve to the
+    # credential-less 'default'). This helper just fires — no per-test
+    # profile setup.
     resp = client.post(f'{base}/trigger')
     resp.raise_for_status()
 

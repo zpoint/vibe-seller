@@ -94,6 +94,8 @@ _STRINGS = {
         'latest': "You're on the latest version ({v}).",
         'updating': 'Downloading v{v} — the installer will open to '
         'finish the update.',
+        'updating_includes': 'This update includes: {versions}.',
+        'whats_new': "What's new",
         'fail_title': 'Vibe Seller — update failed',
         'fail': '{err}\n\nDownload manually:\n{url}',
         'lan_title': 'Vibe Seller — LAN address',
@@ -110,6 +112,8 @@ _STRINGS = {
         'quit': '退出',
         'latest': '已是最新版本（{v}）。',
         'updating': '正在下载 v{v} —— 安装程序将打开以完成更新。',
+        'updating_includes': '本次更新包含：{versions}。',
+        'whats_new': '更新内容',
         'fail_title': 'Vibe Seller —— 更新失败',
         'fail': '{err}\n\n请手动下载：\n{url}',
         'lan_title': 'Vibe Seller —— 局域网地址',
@@ -316,8 +320,34 @@ def _on_check_updates(icon, item):  # noqa: ARG001
         status = res.get('status')
         if status == 'up-to-date':
             _dialog('Vibe Seller', _t('latest', v=res.get('version')))
+        elif status == 'in-progress':
+            logger.info('Upgrade already in progress; ignoring click')
         elif status == 'updating':
-            _dialog('Vibe Seller', _t('updating', v=res.get('version')))
+            # "What's new": list every release being applied (not just the
+            # target), so a user several versions behind sees the whole
+            # delta — e.g. 0.0.8 -> 0.0.10 shows v0.0.10 AND v0.0.9. Best
+            # effort: a missing changelog never blocks the update.
+            msg = _t('updating', v=res.get('version'))
+            try:
+                notes = windows_update.fetch_release_notes(get_version())
+            except Exception:  # noqa: BLE001 — changelog is cosmetic
+                notes = []
+            if notes:
+                versions = ', '.join(f'v{n["version"]}' for n in notes)
+                msg = f'{msg}\n\n{_t("updating_includes", versions=versions)}'
+            notes_url = res.get('notes_url')
+            copy_rows = [(_t('whats_new'), notes_url)] if notes_url else None
+            _dialog('Vibe Seller', msg, copy_rows=copy_rows)
+            # The installer must delete and rebuild {app}\.venv, but THIS
+            # process is {app}\.venv\Scripts\pythonw.exe — staying alive
+            # locks the very files it rebuilds, leaving an empty .venv and
+            # the "pythonw.exe not found" failure. The installer was
+            # launched detached, so stop the server and quit the tray now;
+            # nothing under the install dir is left locked. Login
+            # auto-start brings the new version's tray back up.
+            logger.info('Upgrade launched; stopping server and quitting tray')
+            _stop_server()
+            icon.stop()
         else:
             _dialog(
                 _t('fail_title'),
