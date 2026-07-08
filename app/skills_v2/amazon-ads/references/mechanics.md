@@ -42,10 +42,13 @@ guess seller-central paths.
 | Coupon create | `https://sellercentral.amazon.<tld>/coupons/create-coupon` | |
 
 The ad console **redirects through Amazon sign-in on first hit per
-session** even though the seller-central session is good. Ziniao
-auto-fills the password (and OTP/2FA via 紫鸟验证码服务). Click
-`signInSubmit` (or the `mfaSubmit` after OTP) and wait ~5s for the
-redirect to settle.
+session** even though the seller-central session is good. Follow the
+full login flow in **`amazon-shared` §2** — it's a challenge LOOP
+(password / OTP / hosted-passkey, in whatever combination Amazon's risk
+control picks), with Ziniao auto-filling each step it has stored (its
+`紫鸟验证码服务` OTP panel and `已托管账号Passkey` overlay are **native,
+not page DOM** — coordinate-click, don't querySelector). Rule:
+Ziniao-stored → use Ziniao; else ask a human.
 
 Each store's ad console may be on a *different* underlying Amazon
 account from its seller-central account (different email and entity
@@ -2152,15 +2155,15 @@ under `advertising.amazon.<tld>`. The ads-tuning audit primarily
 drives `advertising.amazon.<tld>`; switching to seller-central
 may require a session change. **Cookies for the two subdomains
 share the same Amazon account credential**, so once
-`amazon-shared § 1` login has happened in this Chromium profile,
+`amazon-shared § 2` login has happened in this Chromium profile,
 both subdomains see the same logged-in user.
 
 If the first navigation to `sellercentral.amazon.<tld>` after a
 fresh start lands on `/ap/signin`, run the standard login flow
-from `amazon-shared § 1` (Ziniao auto-fills password on
-`Sign in` click; OTP comes from the store's bound email account
-— the workspace handles OTP retrieval). The flow is verified to
-take ~10-20 s end-to-end.
+from **`amazon-shared § 2`** — the challenge LOOP (password / OTP /
+hosted-passkey, whatever Amazon's risk control presents), with Ziniao
+auto-filling each step it has stored. The flow is verified to take
+~10-20 s end-to-end.
 
 ### URL & navigation path
 
