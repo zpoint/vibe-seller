@@ -108,6 +108,40 @@ class TestUpdateCheckRoute:
         assert result['upgrade_command'] is None
         assert result['download_url'] == system_router.RELEASES_PAGE_URL
 
+    async def test_drops_release_notes_newer_than_installable_latest(
+        self, monkeypatch
+    ):
+        # GitHub tagged 0.8.0 before PyPI published it. PyPI's latest is
+        # 0.7.0 (what pip/`vibe-seller upgrade` can install), so the popup
+        # must NOT advertise 0.8.0's notes — only reconcile down to what's
+        # actually installable.
+        monkeypatch.setattr(system_router, 'APP_VERSION', '0.6.0')
+        monkeypatch.setattr(
+            system_router,
+            'fetch_latest_pypi_version',
+            AsyncMock(return_value='0.7.0'),
+        )
+        gh_ahead = [
+            {
+                'version': '0.8.0',
+                'name': 'v0.8.0',
+                'body': '',
+                'url': 'https://x/0.8.0',
+            },
+            *_SAMPLE_RELEASES,
+        ]
+        monkeypatch.setattr(
+            system_router,
+            'fetch_release_notes',
+            AsyncMock(return_value=gh_ahead),
+        )
+        monkeypatch.setattr(system_router, 'get_platform', lambda: 'mac')
+
+        result = await system_router.update_check()
+
+        assert result['latest_version'] == '0.7.0'
+        assert [r['version'] for r in result['releases']] == ['0.7.0']
+
 
 class TestUpdateCheckCache:
     async def test_second_call_within_ttl_skips_network(self, monkeypatch):

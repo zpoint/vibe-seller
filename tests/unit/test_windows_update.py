@@ -94,7 +94,11 @@ class TestUpgrade:
             patch.object(wu, 'run_installer') as run,
         ):
             res = wu.upgrade()
-        assert res == {'status': 'updating', 'version': '0.2.0'}
+        assert res == {
+            'status': 'updating',
+            'version': '0.2.0',
+            'notes_url': wu.RELEASES_PAGE,
+        }
         run.assert_called_once()
 
     def test_error_returns_manual_url(self):
@@ -135,6 +139,55 @@ class TestUpgrade:
         finally:
             wu._upgrade_lock.release()
         assert res['status'] == 'in-progress'
+
+
+class TestFetchReleaseNotes:
+    def _patch_releases(self, payload):
+        # fetch_release_notes reads _open(...).read() — mock that.
+        class _Resp:
+            def __enter__(self_):
+                return self_
+
+            def __exit__(self_, *a):
+                return False
+
+            def read(self_):
+                return json.dumps(payload).encode()
+
+        return patch.object(wu, '_open', return_value=_Resp())
+
+    _RELS = [
+        {'tag_name': 'v0.0.10', 'html_url': 'https://x/0.0.10'},
+        {'tag_name': 'v0.0.9', 'html_url': 'https://x/0.0.9'},
+        {'tag_name': 'v0.0.8', 'html_url': 'https://x/0.0.8'},
+    ]
+
+    def test_lists_every_release_newer_than_current(self):
+        # 0.0.8 -> latest must surface BOTH skipped releases, newest first.
+        with self._patch_releases(self._RELS):
+            notes = wu.fetch_release_notes('0.0.8')
+        assert [n['version'] for n in notes] == ['0.0.10', '0.0.9']
+
+    def test_skips_drafts_and_prereleases(self):
+        # GitHub returns newest-first; the function preserves that order.
+        rels = [
+            {'tag_name': 'v0.0.11', 'html_url': 'https://x/0.0.11'},
+            {**self._RELS[0], 'prerelease': True},  # 0.0.10 prerelease
+            {**self._RELS[1], 'draft': True},  # 0.0.9 draft
+            self._RELS[2],  # 0.0.8
+        ]
+        with self._patch_releases(rels):
+            notes = wu.fetch_release_notes('0.0.7')
+        assert [n['version'] for n in notes] == ['0.0.11', '0.0.8']
+
+    def test_caps_at_limit(self):
+        with self._patch_releases(self._RELS):
+            notes = wu.fetch_release_notes('0.0.0', limit=1)
+        assert [n['version'] for n in notes] == ['0.0.10']
+
+    def test_fetch_failure_returns_empty(self):
+        with patch.object(wu, '_open', side_effect=OSError('boom')):
+            assert wu.fetch_release_notes('0.0.8') == []
 
 
 class TestRunInstaller:

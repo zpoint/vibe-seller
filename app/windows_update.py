@@ -39,7 +39,11 @@ logger = logging.getLogger(__name__)
 REPO = 'zpoint/vibe-seller'
 ASSET_NAME = 'VibeSeller-Setup.exe'
 MANUAL_URL = f'https://github.com/{REPO}/releases/latest'
+# Human-facing "what's new" page listing every release (GitHub renders
+# it cumulatively), shown in the tray's update dialog.
+RELEASES_PAGE = f'https://github.com/{REPO}/releases'
 _DEFAULT_API = f'https://api.github.com/repos/{REPO}/releases/latest'
+_RELEASES_LIST_API = f'https://api.github.com/repos/{REPO}/releases'
 
 # One upgrade at a time. The tray spawns a daemon thread per "Check for
 # updates" click; without this, a double-click launches TWO installers
@@ -111,6 +115,42 @@ def check_for_update() -> dict | None:
     return {'version': tag, 'url': asset['browser_download_url']}
 
 
+def fetch_release_notes(current: str, *, limit: int = 5) -> list[dict]:
+    """Releases strictly newer than *current*, newest first (best-effort).
+
+    Powers the tray's "what's new" so a user jumping several versions
+    (e.g. 0.0.8 → 0.0.10) sees every intermediate release, not just the
+    target. Any fetch/parse failure returns ``[]`` — a missing changelog
+    must never block the upgrade itself. Drafts/prereleases are skipped
+    (the installer only ever fetches full releases).
+    """
+    try:
+        with _open(_RELEASES_LIST_API, timeout=10) as resp:
+            releases = json.loads(resp.read().decode())
+    except (OSError, ValueError):
+        return []
+    if not isinstance(releases, list):
+        return []
+    notes = []
+    for rel in releases:
+        if (
+            not isinstance(rel, dict)
+            or rel.get('draft')
+            or rel.get('prerelease')
+        ):
+            continue
+        tag = (rel.get('tag_name') or '').lstrip('v')
+        if not tag or not is_newer(tag, current):
+            continue
+        notes.append({
+            'version': tag,
+            'url': rel.get('html_url') or RELEASES_PAGE,
+        })
+        if len(notes) >= limit:
+            break
+    return notes
+
+
 def download_installer(url: str, dest: Path) -> Path:
     # Plain local path (tests/CI) → copy; http(s)/file:// → fetch.
     if not _is_url(url):
@@ -167,8 +207,9 @@ def upgrade(*, silent: bool = False) -> dict:
 
     Returns one of:
     - ``{'status': 'up-to-date', 'version': <current>}``
-    - ``{'status': 'updating', 'version': <new>}``
-    - ``{'status': 'in-progress'}`` — another upgrade is already running
+    - ``{'status': 'updating', 'version': <new>, 'notes_url': <url>}``
+    - ``{'status': 'in-progress', 'version': <current>}`` — another
+      upgrade is already running
     - ``{'status': 'error', 'error': <msg>, 'manual_url': <url>}``
     """
     if not _upgrade_lock.acquire(blocking=False):
@@ -183,7 +224,11 @@ def upgrade(*, silent: bool = False) -> dict:
         dest = Path(tempfile.mkdtemp(prefix='vibe-seller-upd-')) / ASSET_NAME
         download_installer(upd['url'], dest)
         run_installer(dest, silent=silent)
-        return {'status': 'updating', 'version': upd['version']}
+        return {
+            'status': 'updating',
+            'version': upd['version'],
+            'notes_url': RELEASES_PAGE,
+        }
     except Exception as exc:  # noqa: BLE001 — surfaced to the user, not raised
         logger.exception('Windows update failed')
         return {'status': 'error', 'error': str(exc), 'manual_url': MANUAL_URL}
