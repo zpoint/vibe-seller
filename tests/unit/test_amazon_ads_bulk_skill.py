@@ -30,7 +30,7 @@ openpyxl = pytest.importorskip('openpyxl')
 _SKILL_PATH = (
     Path(__file__).resolve().parents[2]
     / 'app'
-    / 'skills'
+    / 'skills_v2'
     / 'amazon-ads'
     / 'scripts'
     / 'ads_bulk.py'
@@ -126,6 +126,7 @@ def _make_export(path):
             CAMPAIGN_ID='C1',
             CAMPAIGN_NAME=SRC_CAMPAIGN,
             STATE='已启用',
+            TARGETING_TYPE='手动',
             DAILY_BUDGET=15.0,
             SPEND=100.0,
             SALES=250.0,
@@ -136,6 +137,7 @@ def _make_export(path):
         _row(
             ENTITY='广告组',
             CAMPAIGN_ID='C1',
+            AD_GROUP_ID='AG1',
             CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
             AD_GROUP_NAME='ag1',
             STATE='已启用',
@@ -376,3 +378,175 @@ class TestArchiveCampaign:
             ads_bulk.cmd_archive_campaign(
                 self._args(tmp_path, campaign='no such campaign')
             )
+
+
+def _make_targeting_export(path, targeting_type):
+    """Synthetic export: campaign + ad group + product ad + 2
+    product-targeting rows (NO keywords). Used to prove clone reads the
+    campaign's OWN Targeting Type — product-targeting rows are NOT unique
+    to AUTO (SP-Manual-Product campaigns have them too)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = ZH_SHEET
+    ws.append(ZH_HEADER)
+    ws.append(
+        _row(
+            ENTITY='广告活动',
+            CAMPAIGN_ID='C2',
+            CAMPAIGN_NAME=SRC_CAMPAIGN,
+            STATE='已启用',
+            TARGETING_TYPE=targeting_type,
+            DAILY_BUDGET=15.0,
+        )
+    )
+    ws.append(
+        _row(
+            ENTITY='广告组',
+            CAMPAIGN_ID='C2',
+            AD_GROUP_ID='AG2',
+            CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+            AD_GROUP_NAME='ag1',
+            STATE='已启用',
+            AD_GROUP_DEFAULT_BID=0.8,
+        )
+    )
+    ws.append(
+        _row(
+            ENTITY='商品广告',
+            CAMPAIGN_ID='C2',
+            CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+            STATE='已启用',
+            SKU='WIDGET-004-Blue',
+            ASIN_INFO='B0AAAAAAAA',
+        )
+    )
+    for bid, expr in ((1.5, 'close-match'), (1.2, 'substitutes')):
+        ws.append(
+            _row(
+                ENTITY='商品定向',
+                CAMPAIGN_ID='C2',
+                CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+                STATE='已启用',
+                BID=bid,
+                PRODUCT_TARGETING_EXPR=expr,
+            )
+        )
+    wb.save(path)
+
+
+@pytest.mark.unit
+class TestCloneAutoAndProductTargeting:
+    def _args(self, tmp_path, **over):
+        base = dict(
+            file=str(tmp_path / 'export.xlsx'),
+            src=SRC_CAMPAIGN,
+            new='acme widgets 006 auto US',
+            ad_group=None,
+            sku='WIDGET-006-Blue-M',
+            asin='B0BBBBBBBB',
+            daily_budget=10.0,
+            default_bid=0.75,
+            keyword_bid=None,
+            bidding_strategy='Dynamic bids - down only',
+            start_date='20260701',
+            out=str(tmp_path / 'create.xlsx'),
+        )
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def test_auto_source_clones_product_targeting_and_marks_auto(
+        self, tmp_path
+    ):
+        _make_targeting_export(tmp_path / 'export.xlsx', '自动')
+        ads_bulk.cmd_clone_campaign(self._args(tmp_path))
+        _t, _h, rows = _read_rows(tmp_path / 'create.xlsx')
+        assert [r[Col.ENTITY] for r in rows] == [
+            'Campaign',
+            'Ad Group',
+            'Product Ad',
+            'Product Targeting',
+            'Product Targeting',
+        ]
+        # Targeting type comes from the source campaign's column, not
+        # inferred; product-targeting expressions copied verbatim.
+        assert rows[0][Col.TARGETING_TYPE] == 'AUTO'
+        assert rows[2][Col.SKU] == 'WIDGET-006-Blue-M'  # re-pointed product
+        exprs = [
+            r[Col.PRODUCT_TARGETING_EXPR]
+            for r in rows
+            if r[Col.ENTITY] == 'Product Targeting'
+        ]
+        assert exprs == ['close-match', 'substitutes']
+        assert all(r[Col.STATE] == 'paused' for r in rows)
+
+    def test_manual_product_source_stays_manual(self, tmp_path):
+        # The Copilot bug: presence of product-targeting rows must NOT
+        # force AUTO — an SP-Manual-Product campaign keeps MANUAL.
+        _make_targeting_export(tmp_path / 'export.xlsx', '手动')
+        ads_bulk.cmd_clone_campaign(self._args(tmp_path))
+        _t, _h, rows = _read_rows(tmp_path / 'create.xlsx')
+        assert rows[0][Col.TARGETING_TYPE] == 'MANUAL'
+
+
+@pytest.mark.unit
+class TestNegate:
+    def _args(self, tmp_path, **over):
+        base = dict(
+            file=str(tmp_path / 'export.xlsx'),
+            campaign=SRC_CAMPAIGN,
+            keywords='foo,bar',
+            keywords_file=None,
+            match='negativePhrase',
+            level='campaign',
+            ad_group=None,
+            out=str(tmp_path / 'negate.xlsx'),
+        )
+        base.update(over)
+        return argparse.Namespace(**base)
+
+    def test_campaign_level_negatives(self, tmp_path):
+        _make_export(tmp_path / 'export.xlsx')
+        ads_bulk.cmd_negate(self._args(tmp_path))
+        _t, _h, rows = _read_rows(tmp_path / 'negate.xlsx')
+        assert len(rows) == 2
+        assert all(r[Col.ENTITY] == 'Campaign Negative Keyword' for r in rows)
+        assert all(r[Col.OPERATION] == 'Create' for r in rows)
+        assert all(r[Col.CAMPAIGN_ID] == 'C1' for r in rows)
+        assert all(r[Col.MATCH_TYPE] == 'negativePhrase' for r in rows)
+        assert sorted(r[Col.KEYWORD_TEXT] for r in rows) == ['bar', 'foo']
+
+    def test_adgroup_level_with_match_alias(self, tmp_path):
+        _make_export(tmp_path / 'export.xlsx')
+        ads_bulk.cmd_negate(
+            self._args(tmp_path, level='adgroup', match='exact')
+        )
+        _t, _h, rows = _read_rows(tmp_path / 'negate.xlsx')
+        assert all(r[Col.ENTITY] == 'Negative Keyword' for r in rows)
+        assert all(r[Col.AD_GROUP_ID] == 'AG1' for r in rows)
+        # 'exact' alias normalises to the negative API token.
+        assert all(r[Col.MATCH_TYPE] == 'negativeExact' for r in rows)
+
+    def test_adgroup_ambiguous_without_name_exits(self, tmp_path):
+        # Multiple ad groups + no --ad-group => refuse to guess (Copilot #2).
+        p = tmp_path / 'export.xlsx'
+        _make_export(p)
+        wb = openpyxl.load_workbook(p)
+        ws = wb.active
+        ws.append(
+            _row(
+                ENTITY='广告组',
+                CAMPAIGN_ID='C1',
+                AD_GROUP_ID='AG2',
+                CAMPAIGN_NAME_INFO=SRC_CAMPAIGN,
+                AD_GROUP_NAME='ag2',
+                STATE='已启用',
+            )
+        )
+        wb.save(p)
+        with pytest.raises(SystemExit):
+            ads_bulk.cmd_negate(self._args(tmp_path, level='adgroup'))
+
+    def test_no_keywords_exits(self, tmp_path):
+        _make_export(tmp_path / 'export.xlsx')
+        with pytest.raises(SystemExit):
+            ads_bulk.cmd_negate(self._args(tmp_path, keywords=None))
