@@ -7,8 +7,20 @@ knowledge, stop without updating any file.
 ## Correct what you relied on — FIRST, before writing anything new
 
 Look back at the notes/knowledge you **read** this task. If a stored fact
-steered your work and your live observation **contradicted** it, you MUST
-fix it **in place** — this outranks recording any new learning.
+steered your work and your live observation **contradicted** it, correct
+it — this outranks recording any new learning. **Where** you correct it
+depends on which file holds the stale fact (see "Where to write" below):
+
+- **Editable L2/L3 file** (`knowledge/notes.md`, `stores/<slug>/...`,
+  user-authored skills) → fix it **in place** now.
+- **Read-only L1** (`knowledge/project/`) or a **built-in skill** (you
+  cannot durably edit either from a task) → do NOT try to edit it. Record
+  the correction under the `## Skill follow-ups` heading in
+  `stores/<slug>/notes.md` (which file+section is wrong, the corrected
+  wording, the evidence) so the human can merge it, and flag it in your
+  final message.
+
+Either way — never leave the stale fact standing unremarked.
 
 - **Update, never extend.** Overwrite the wrong line (or delete it). Do
   NOT append a "correction" beneath the stale text, and do NOT leave the
