@@ -17,6 +17,60 @@ gates: [ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
 This skill is a **catalog**. The actual content lives in topical
 references in `references/`. Load whichever ones apply to the task.
 
+## When something doesn't fit the recipe — recover, don't stall
+
+The references below are worked examples, not the full space of what
+you'll hit. Amazon's UI, campaign types, and account states vary; a step
+that assumes one shape will sometimes meet another. **A gap in these
+docs is not a stop sign — it's a cue to reason from first principles.**
+You are a capable agent; the recipe is a starting point, not a cage.
+When a documented step doesn't fit, do NOT hand a half-finished task
+back to the user ("please do X manually"). Work the problem:
+
+- **The export is ground truth; the live UI is fragile.** For anything
+  data-heavy — reading campaigns, keywords, search terms, deciding what
+  to negate — use the **bulk export** (or a Search-Terms CSV), never the
+  on-screen grid. Amazon's grids are **virtualized** (only ~13 of
+  hundreds of rows exist in the DOM; `innerText` is undefined
+  mid-scroll). Scraping them is the single most common way a run wastes
+  itself. If you catch yourself scrolling a grid and re-reading, stop —
+  export instead.
+
+- **If a command/recipe doesn't cover your case, build it from the
+  export's own structure.** `ads_bulk.py` has `inspect` / `clone-campaign`
+  / `bid-update` / `negate` / `archive-campaign` — but if your case
+  isn't one of them (a campaign type, an entity, a field with no
+  helper), open the export, find a row of the kind you need (a working
+  example of exactly this on this account), and emit the same columns
+  with your values changed. The export **teaches you the exact tokens**
+  this account+locale accepts — you never have to invent them. (Worked:
+  an SB-video negative isn't in the SP script, so read an SB row and
+  build the SB negative sheet from it.)
+
+- **Poll async jobs in separate, short calls — never one long silent
+  sleep, and never block on a Monitor for browser/job state.** A bulk
+  export or upload takes minutes; check it with a short poll (a few
+  `sleep 20` + re-open), returning to the loop between checks so
+  progress stays observable. A single 15-minute `sleep` — or blocking a
+  `Monitor`/`TaskOutput` waiting for a page/job event — looks like a hang
+  and strands the run.
+
+- **Verify by re-reading ground truth, not by trusting "Success".** A
+  bulk `Success` status only means the file was accepted; re-export (or
+  re-read the campaign) and confirm the committed state — the campaign
+  is `enabled`, the Product Ad advertises the *intended* SKU (a cloned
+  campaign renamed to the new product can still point at the old SKU),
+  the negatives are present.
+
+- **Never exit-in-the-half.** If you're blocked, restate the invariant
+  ("I must end this campaign as `enabled` advertising SKU X"), find the
+  ground-truth source, and take the next concrete step toward it. Ask a
+  human only when a credential/permission is genuinely missing, not when
+  a recipe merely ran out.
+
+The references are the map; these principles are how you travel when the
+map ends.
+
 ## What this skill produces
 
 For tuning / audit tasks ("review the ads", "improve ACOS", "audit"):
