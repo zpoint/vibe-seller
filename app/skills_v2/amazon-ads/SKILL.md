@@ -9,7 +9,9 @@ gates: [ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
 # Amazon Ads — Catalog
 
 > **PREREQUISITE:** Read `../amazon-shared/SKILL.md` for marketplace
-> TLD map, hamburger-menu navigation, sign-in / Ziniao / OTP handling,
+> TLD map, version-aware navigation (New Seller Central vs classic;
+> navigate by direct URL), the Ziniao login challenge-loop (password /
+> OTP / hosted-passkey),
 > and the ad-console vs seller-central account caveat.
 
 This skill is a **catalog**. The actual content lives in topical

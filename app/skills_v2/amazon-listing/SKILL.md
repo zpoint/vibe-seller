@@ -7,9 +7,11 @@ requires: [amazon-shared]
 
 # Amazon — Listing CRUD (flat-file upload)
 
-> **PREREQUISITE:** read `../amazon-shared/SKILL.md` for login, Ziniao
-> auto-fill / OTP, marketplace TLDs, hamburger navigation, and the
-> capture rule (live data → `/tmp/<task>/`, never `knowledge/`).
+> **PREREQUISITE:** read `../amazon-shared/SKILL.md` for the Ziniao
+> login challenge-loop (password / OTP / hosted-passkey), marketplace
+> TLDs, version-aware navigation (New Seller Central vs classic;
+> navigate by direct URL), and the capture rule (live data →
+> `/tmp/<task>/`, never `knowledge/`).
 
 Amazon's **Add Products via Upload** takes a category **flat-file
 template** — a macro-enabled `.xlsm` whose `Template` sheet is a wide
