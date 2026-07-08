@@ -350,18 +350,49 @@ def cmd_clone_campaign(args):
     _wb, ws, header, data = load(args.file)
     id_to_name = build_campaign_index(data)
 
-    # Collect the source campaign's keyword rows.
-    src_keywords = []
+    # Collect the source campaign's TARGETING child rows — keywords
+    # (manual campaigns) AND product-targeting rows (auto campaigns' match
+    # groups: close-match / loose-match / substitutes / complements). We
+    # copy the export's OWN rows verbatim, so the exact match/expression
+    # tokens are whatever this account+locale actually uses — never
+    # hand-invented. That is what lets one command clone both a manual and
+    # an auto campaign (auto was the gap that forced ad-hoc openpyxl before).
+    src_children = []
     for r in data:
-        if not is_entity(r, 'keyword'):
+        if not (is_entity(r, 'keyword') or is_entity(r, 'product_targeting')):
             continue
         if campaign_name_of(r, id_to_name) == args.src:
-            src_keywords.append(r)
-    if not src_keywords:
+            src_children.append(r)
+    if not src_children:
         sys.exit(
-            f'error: no keyword rows found for source campaign {args.src!r} '
-            '(check the exact name via `inspect`)'
+            f'error: no keyword or product-targeting rows found for source '
+            f'campaign {args.src!r} (check the exact name via `inspect`)'
         )
+
+    # Targeting type is read from the SOURCE CAMPAIGN's own column
+    # (authoritative) — NOT inferred from child rows: SP-Manual-Product
+    # campaigns also carry product-targeting rows, so their presence does
+    # not imply AUTO. Fall back to MANUAL + warn if the source row is absent.
+    _TT = {
+        'AUTO': TARGETING_AUTO,
+        'MANUAL': TARGETING_MANUAL,
+        '自动': TARGETING_AUTO,
+        '手动': TARGETING_MANUAL,
+    }
+    targeting_type = None
+    for r in data:
+        if is_entity(r, 'campaign') and r[Col.CAMPAIGN_NAME] == args.src:
+            key = str(r[Col.TARGETING_TYPE] or '').strip()
+            targeting_type = _TT.get(key.upper(), _TT.get(key))
+            break
+    if targeting_type is None:
+        print(
+            f'warning: source campaign {args.src!r} Targeting Type not found '
+            'in export; defaulting new campaign to MANUAL. Pass a source that '
+            'appears in the export (zero-impression export for paused ones).',
+            file=sys.stderr,
+        )
+        targeting_type = TARGETING_MANUAL
 
     new = args.new
     ag = args.ad_group or new
@@ -386,7 +417,7 @@ def cmd_clone_campaign(args):
     c[Col.CAMPAIGN_ID] = camp_id
     c[Col.CAMPAIGN_NAME] = new
     c[Col.START_DATE] = start_date
-    c[Col.TARGETING_TYPE] = TARGETING_MANUAL
+    c[Col.TARGETING_TYPE] = targeting_type
     c[Col.STATE] = paused
     c[Col.DAILY_BUDGET] = args.daily_budget
     c[Col.BIDDING_STRATEGY] = args.bidding_strategy
@@ -422,32 +453,41 @@ def cmd_clone_campaign(args):
         p[Col.ASIN_INFO] = args.asin
     out_rows.append(p)
 
-    # Keywords, copied from source (text + match type; bid = source bid
-    # unless overridden). Native-language columns are copied through so
-    # non-Latin keyword text survives the round trip.
-    for r in src_keywords:
-        k = blank_row()
-        k[Col.PRODUCT] = 'Sponsored Products'
-        k[Col.ENTITY] = ENTITY['keyword'][0]
-        k[Col.OPERATION] = 'Create'
-        k[Col.CAMPAIGN_ID] = camp_id
-        k[Col.AD_GROUP_ID] = ag_id
-        k[Col.CAMPAIGN_NAME] = new
-        k[Col.AD_GROUP_NAME] = ag
-        k[Col.STATE] = paused
-        k[Col.BID] = args.keyword_bid or r[Col.BID]
-        k[Col.KEYWORD_TEXT] = r[Col.KEYWORD_TEXT]
-        k[Col.NATIVE_LANGUAGE_KEYWORD] = r[Col.NATIVE_LANGUAGE_KEYWORD]
-        k[Col.NATIVE_LANGUAGE_LOCALE] = r[Col.NATIVE_LANGUAGE_LOCALE]
-        # Normalise the export's DISPLAY match token (e.g. 广泛) to the
-        # English API token (broad) the uploader requires.
-        k[Col.MATCH_TYPE] = match_type_api(r[Col.MATCH_TYPE])
-        out_rows.append(k)
+    # Re-emit each source child row under the new campaign/ad-group.
+    # Keyword rows carry text + match type; product-targeting rows carry
+    # the targeting expression (the auto match group). Bids come from the
+    # source unless overridden. Native-language columns are copied through
+    # so non-Latin text survives the round trip.
+    n_kw = n_tgt = 0
+    for r in src_children:
+        row = blank_row()
+        row[Col.PRODUCT] = 'Sponsored Products'
+        row[Col.OPERATION] = 'Create'
+        row[Col.CAMPAIGN_ID] = camp_id
+        row[Col.AD_GROUP_ID] = ag_id
+        row[Col.CAMPAIGN_NAME] = new
+        row[Col.AD_GROUP_NAME] = ag
+        row[Col.STATE] = paused
+        row[Col.BID] = args.keyword_bid or r[Col.BID]
+        if is_entity(r, 'keyword'):
+            row[Col.ENTITY] = ENTITY['keyword'][0]
+            row[Col.KEYWORD_TEXT] = r[Col.KEYWORD_TEXT]
+            row[Col.NATIVE_LANGUAGE_KEYWORD] = r[Col.NATIVE_LANGUAGE_KEYWORD]
+            row[Col.NATIVE_LANGUAGE_LOCALE] = r[Col.NATIVE_LANGUAGE_LOCALE]
+            # Normalise the export's DISPLAY match token (e.g. 广泛) to the
+            # English API token (broad) the uploader requires.
+            row[Col.MATCH_TYPE] = match_type_api(r[Col.MATCH_TYPE])
+            n_kw += 1
+        else:  # product_targeting — copy the expression verbatim (auto group)
+            row[Col.ENTITY] = ENTITY['product_targeting'][0]
+            row[Col.PRODUCT_TARGETING_EXPR] = r[Col.PRODUCT_TARGETING_EXPR]
+            n_tgt += 1
+        out_rows.append(row)
 
     print(
-        f'cloning {len(src_keywords)} keyword(s) from {args.src!r} into '
-        f'new campaign {new!r} (paused, budget={args.daily_budget}, '
-        f'sku={args.sku})'
+        f'cloning {n_kw} keyword(s) + {n_tgt} product-target(s) from '
+        f'{args.src!r} into new {targeting_type} campaign {new!r} '
+        f'(paused, budget={args.daily_budget}, sku={args.sku})'
     )
     out_path = args.out or 'bulk_create_upload.xlsx'
     write_upload(ws.title, header, out_rows, out_path)
@@ -565,6 +605,100 @@ def cmd_scope(args):
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 
+# Negative match tokens the SP uploader accepts (Config:
+# SponsoredProductsCreateNegativeKeywordMatchTypes). Map friendly/localised
+# inputs to the API token.
+NEG_MATCH_API = {
+    'negativephrase': 'negativePhrase',
+    'negativeexact': 'negativeExact',
+    'phrase': 'negativePhrase',
+    'exact': 'negativeExact',
+    '否定词组': 'negativePhrase',
+    '否定精准': 'negativeExact',
+}
+
+
+# --- negate -------------------------------------------------------------
+def cmd_negate(args):
+    """Emit Negative Keyword rows for an existing SP campaign (the
+    supported way to negate — never scrape the virtualized keyword grid).
+
+    Resolves the campaign id (and ad-group id for ad-group level) from the
+    export by name. Sponsored **Products** only; SB / SB-video negatives
+    live in the SB bulk sheet / console (same bulk-not-scrape principle).
+    """
+    _wb, ws, header, data = load(args.file)
+    id_to_name = build_campaign_index(data)
+    cid = None
+    for r in data:
+        if is_entity(r, 'campaign') and r[Col.CAMPAIGN_NAME] == args.campaign:
+            cid = r[Col.CAMPAIGN_ID]
+            break
+    if not cid:
+        sys.exit(
+            f'error: campaign {args.campaign!r} not found in the export '
+            '(check the exact name via `inspect`).'
+        )
+    agid = None
+    if args.level == 'adgroup':
+        ag_rows = [
+            r
+            for r in data
+            if is_entity(r, 'ad_group')
+            and campaign_name_of(r, id_to_name) == args.campaign
+        ]
+        if args.ad_group:
+            ag_rows = [
+                r for r in ag_rows if r[Col.AD_GROUP_NAME] == args.ad_group
+            ]
+        elif len(ag_rows) > 1:
+            names = ', '.join(
+                sorted({str(r[Col.AD_GROUP_NAME]) for r in ag_rows})
+            )
+            sys.exit(
+                f'error: campaign {args.campaign!r} has multiple ad groups '
+                f'({names}); pass --ad-group to pick one, or --level campaign '
+                'to negate at the campaign level. Refusing to guess.'
+            )
+        if not ag_rows:
+            sys.exit(
+                f'error: no ad group found for {args.campaign!r} '
+                '(needed for ad-group-level negatives; try --level campaign)'
+            )
+        agid = ag_rows[0][Col.AD_GROUP_ID]
+    match = NEG_MATCH_API.get(str(args.match).strip().lower(), args.match)
+    kws = [k.strip() for k in (args.keywords or '').split(',') if k.strip()]
+    if args.keywords_file:
+        with open(args.keywords_file, encoding='utf-8') as f:
+            kws += [ln.strip() for ln in f if ln.strip()]
+    if not kws:
+        sys.exit('error: pass --keywords "a,b,c" or --keywords-file FILE')
+    entity = (
+        'campaign_negative_keyword'
+        if args.level == 'campaign'
+        else 'negative_keyword'
+    )
+    out_rows = []
+    for kw in kws:
+        row = blank_row()
+        row[Col.PRODUCT] = 'Sponsored Products'
+        row[Col.ENTITY] = ENTITY[entity][0]
+        row[Col.OPERATION] = 'Create'
+        row[Col.CAMPAIGN_ID] = cid
+        if args.level == 'adgroup':
+            row[Col.AD_GROUP_ID] = agid
+        row[Col.STATE] = STATE_ENABLED
+        row[Col.KEYWORD_TEXT] = kw
+        row[Col.MATCH_TYPE] = match
+        out_rows.append(row)
+    print(
+        f'negating {len(out_rows)} keyword(s) as {match} at {args.level} '
+        f'level on {args.campaign!r}'
+    )
+    out_path = args.out or 'bulk_negate.xlsx'
+    write_upload(ws.title, header, out_rows, out_path)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     sub = ap.add_subparsers(dest='cmd', required=True)
@@ -582,13 +716,16 @@ def main():
     p.set_defaults(func=cmd_scope)
 
     p = sub.add_parser(
-        'clone-campaign', help='emit Create rows for a new manual campaign'
+        'clone-campaign',
+        help='emit Create rows for a new campaign (manual OR auto — '
+        "copies the source's keywords or product-targeting groups)",
     )
     p.add_argument('file')
     p.add_argument(
         '--src',
         required=True,
-        help='exact source campaign name (keyword source)',
+        help='exact source campaign name (its targeting rows are copied; '
+        'manual→keywords, auto→product-targeting groups)',
     )
     p.add_argument('--new', required=True, help='new campaign name')
     p.add_argument('--ad-group', help='ad group name (default: new name)')
@@ -623,6 +760,34 @@ def main():
     p.add_argument('--campaign', required=True, help='exact campaign name')
     p.add_argument('--out')
     p.set_defaults(func=cmd_archive_campaign)
+
+    p = sub.add_parser(
+        'negate',
+        help='emit Negative Keyword rows for an SP campaign (bulk negation)',
+    )
+    p.add_argument('file')
+    p.add_argument('--campaign', required=True, help='exact campaign name')
+    p.add_argument(
+        '--keywords',
+        help='comma-separated terms to negate (or --keywords-file)',
+    )
+    p.add_argument(
+        '--keywords-file', help='file with one term to negate per line'
+    )
+    p.add_argument(
+        '--match',
+        default='negativePhrase',
+        help='negativePhrase|negativeExact (phrase/exact also accepted)',
+    )
+    p.add_argument(
+        '--level',
+        choices=('adgroup', 'campaign'),
+        default='campaign',
+        help='campaign-level (default) or ad-group-level negative',
+    )
+    p.add_argument('--ad-group', help='ad group name (ad-group level only)')
+    p.add_argument('--out')
+    p.set_defaults(func=cmd_negate)
 
     args = ap.parse_args()
     args.func(args)
