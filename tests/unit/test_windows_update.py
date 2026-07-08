@@ -5,6 +5,7 @@ prove the version comparison + flow without touching the network.
 """
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -104,3 +105,64 @@ class TestUpgrade:
         assert res['status'] == 'error'
         assert res['manual_url'] == wu.MANUAL_URL
         assert 'boom' in res['error']
+
+    def test_downloads_to_a_unique_dir_not_fixed_temp(self, tmp_path):
+        # A fixed %TEMP%\VibeSeller-Setup.exe collides when two upgrades
+        # race → WinError 32 on launch (the field bug). Each run must get
+        # its own dir.
+        upd = {'version': '0.2.0', 'url': _ASSET['browser_download_url']}
+        seen: list[Path] = []
+        with (
+            patch.object(wu, 'check_for_update', return_value=upd),
+            patch.object(wu, 'run_installer'),
+            patch.object(
+                wu,
+                'download_installer',
+                side_effect=lambda _url, dest: seen.append(dest) or dest,
+            ),
+        ):
+            wu.upgrade()
+            wu.upgrade()
+        assert len(seen) == 2
+        assert seen[0].name == wu.ASSET_NAME
+        assert seen[0].parent != seen[1].parent  # unique dir per run
+
+    def test_single_flight_reports_in_progress(self):
+        # A second concurrent click must not launch a rival installer.
+        assert wu._upgrade_lock.acquire(blocking=False)
+        try:
+            res = wu.upgrade()
+        finally:
+            wu._upgrade_lock.release()
+        assert res['status'] == 'in-progress'
+
+
+class TestRunInstaller:
+    def test_retries_on_winerror32_then_succeeds(self, tmp_path):
+        # A freshly-written exe can be briefly locked (AV scan / racing
+        # download); retry rather than fail the whole upgrade.
+        calls = {'n': 0}
+
+        def flaky(*_a, **_k):
+            calls['n'] += 1
+            if calls['n'] < 3:
+                raise PermissionError(32, 'in use')
+
+        with (
+            patch.object(wu.subprocess, 'Popen', side_effect=flaky) as popen,
+            patch.object(wu.time, 'sleep'),
+        ):
+            wu.run_installer(tmp_path / 's.exe')
+        assert popen.call_count == 3
+
+    def test_raises_after_exhausting_retries(self, tmp_path):
+        with (
+            patch.object(
+                wu.subprocess,
+                'Popen',
+                side_effect=PermissionError(32, 'in use'),
+            ),
+            patch.object(wu.time, 'sleep'),
+            pytest.raises(PermissionError),
+        ):
+            wu.run_installer(tmp_path / 's.exe')
