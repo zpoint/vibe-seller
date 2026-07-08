@@ -4,6 +4,27 @@ from actions taken AFTER your last reflection. **Writing nothing is a valid
 outcome** — if this task only produced data/results and no new procedural
 knowledge, stop without updating any file.
 
+## Correct what you relied on — FIRST, before writing anything new
+
+Look back at the notes/knowledge you **read** this task. If a stored fact
+steered your work and your live observation **contradicted** it, you MUST
+fix it **in place** — this outranks recording any new learning.
+
+- **Update, never extend.** Overwrite the wrong line (or delete it). Do
+  NOT append a "correction" beneath the stale text, and do NOT leave the
+  old line while adding a fresh one elsewhere. The file must end with
+  exactly one, current answer to the question.
+- **A wrong fact is worse than a missing one.** Every future task trusts
+  what it reads. A stale "market X has 0 campaigns", a moved URL, a
+  renamed selector — each silently poisons the next run, often by
+  suppressing the very check that would reveal the truth. Correcting one
+  is the single highest-value thing this reflection can do.
+- **Point-in-time state is not knowledge — it expires.** Counts,
+  statuses, "as of <date>" snapshots (campaign/SKU counts, inventory,
+  which market has ads, current bids) must never be written as durable
+  facts (see Do NOT write #1). If you find one already sitting in a notes
+  file, delete it — even if you didn't write it.
+
 ## The only thing worth writing
 
 A **transferable learning**: something a DIFFERENT future task would need to
