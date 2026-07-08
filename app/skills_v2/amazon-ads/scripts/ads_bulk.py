@@ -369,12 +369,10 @@ def cmd_clone_campaign(args):
             f'campaign {args.src!r} (check the exact name via `inspect`)'
         )
 
-    # Targeting type comes from the SOURCE CAMPAIGN's own Targeting Type
-    # column — that is authoritative. Do NOT infer it from child rows:
-    # SP-Manual-**Product** campaigns also carry product-targeting rows, so
-    # their presence does NOT imply AUTO. Fall back to MANUAL (the common
-    # case) with a warning only if the source Campaign row isn't in the
-    # export (e.g. a paused campaign exported without zero-impression rows).
+    # Targeting type is read from the SOURCE CAMPAIGN's own column
+    # (authoritative) — NOT inferred from child rows: SP-Manual-Product
+    # campaigns also carry product-targeting rows, so their presence does
+    # not imply AUTO. Fall back to MANUAL + warn if the source row is absent.
     _TT = {
         'AUTO': TARGETING_AUTO,
         'MANUAL': TARGETING_MANUAL,
@@ -622,16 +620,12 @@ NEG_MATCH_API = {
 
 # --- negate -------------------------------------------------------------
 def cmd_negate(args):
-    """Emit Negative Keyword rows to add negatives to an existing SP
-    campaign (the SUPPORTED way to negate — never scrape the on-screen
-    virtualized keyword grid, which shows only ~13 of hundreds of rows).
+    """Emit Negative Keyword rows for an existing SP campaign (the
+    supported way to negate — never scrape the virtualized keyword grid).
 
-    Resolves the campaign id (and, for ad-group-level, its ad-group id)
-    from the export by name, then emits one Create Negative Keyword row per
-    term. NOTE: this is Sponsored **Products**. Sponsored Brands / SB-video
-    negatives live in the SB bulk sheet (or the console targeting UI) — see
-    bulk-operations.md; the principle (bulk/console, never grid-scrape) is
-    the same.
+    Resolves the campaign id (and ad-group id for ad-group level) from the
+    export by name. Sponsored **Products** only; SB / SB-video negatives
+    live in the SB bulk sheet / console (same bulk-not-scrape principle).
     """
     _wb, ws, header, data = load(args.file)
     id_to_name = build_campaign_index(data)
