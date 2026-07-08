@@ -58,34 +58,49 @@ need it on every URL.
 
 ## 2. Reading existing campaigns
 
-### 2.0 One marketplace at a time — the country switcher
+### 2.0 Which marketplace are you looking at? (two layouts)
 
-The ad console shows the campaigns of **exactly one marketplace** — the
-one currently selected. The selector is the **top-left control labelled
-`Sponsored ads, <Country>`** (e.g. `Sponsored ads, Saudi Arabia`).
-Clicking it opens a menu of the account's marketplaces; each entry is
-often a *separate account/entity*, and the displayed brand name can even
-differ per country (observed: one entity shown as one brand for AE and a
-sibling brand for SA under the same login). Switching swaps the whole
-campaign list **and** what a bulk export contains.
+Amazon's ad console appears in **two shapes** depending on how the
+account's marketplaces are registered. Detect which one you're on before
+trusting any list or export — never assume.
 
-Consequences you must respect:
+**Layout A — per-country account (one marketplace at a time).** The
+top-left control reads `Sponsored ads, <Country>` (e.g.
+`Sponsored ads, Saudi Arabia`) and is a **switcher**. Clicking it opens a
+menu of the account's marketplaces; each entry is a *separate
+account/entity*, and the displayed brand name can differ per country
+(observed on a live account: `<brandA>  United Arab Emirates` and
+`<brandB>  Saudi Arabia` under one login). The campaign list **and any
+bulk export cover only the selected country.**
 
-- The campaign list and any **bulk export reflect only the selected
-  marketplace**. Rows are complete for *that* country and say nothing
-  about any other.
-- **Never infer that a country has no campaigns because it's absent from
-  another country's list/export.** To check country X, first switch the
-  console to X (confirm the top-left control now reads `Sponsored ads,
-  <X>`), *then* read/export.
-- **Multi-country audits = one export per country.** Loop: switch → wait
-  for the list to reload → export → repeat. Label each file by country;
-  do not merge markets in one download and assume it's complete.
+**Layout B — unified multi-market entity (one list, many countries).** A
+single campaign list spans several marketplaces, with a **Country column**
+per row, and the bulk export carries a marketplace/country column with all
+of them. No switching needed to see every market — but confirm the column
+is actually there and populated before relying on it.
 
+**How to tell them apart:** read the top-left control and the list. If the
+control names a single country and the rows have no differing Country
+values, you're on Layout A (other countries are hidden behind the
+switcher). If rows show multiple countries / there's a Country column,
+you're on Layout B.
+
+Consequences (both layouts):
+
+- **Never infer a country has no campaigns because it's absent from what's
+  currently in view.** On Layout A that just means it's not selected; on
+  Layout B it means the column filter/scope didn't include it. Put the
+  country in view first, then conclude.
+- The invariant: **every country you were asked about must be represented
+  in the data you read.** If one isn't, find where it lives (switch, or a
+  different entity) before reporting on it.
+
+**Layout-A multi-country audit = one export per country.** Loop: switch →
+wait for the list to reload → export → repeat; label each file by country.
 To switch programmatically: find the leaf element whose text matches
-`^Sponsored ads,\s*<Country>$`, `.click()` it, then click the target
-country's menu entry (`<brand>  <Country>`), and wait for the list to
-reload before reading.
+`^Sponsored ads,\s*<Country>$`, `.click()` it, click the target country's
+menu entry (`<brand>  <Country>`), and wait for the list to reload before
+reading.
 
 ### 2a. The campaign-list "Find a campaign" search
 

@@ -36,21 +36,30 @@ back to the user ("please do X manually"). Work the problem:
   itself. If you catch yourself scrolling a grid and re-reading, stop —
   export instead.
 
-- **The export covers ONE marketplace — whichever the console is switched
-  to — so a negative is never proof.** The ad console shows a single
-  country at a time: the top-left `Sponsored ads, <Country>` control is a
-  **marketplace switcher**, and each country is frequently a *separate
-  account/entity* (even the brand name can differ per market). A bulk
-  export reflects only the currently-selected marketplace — its rows are
-  complete for *that* country and silent about every other. **Never
-  conclude "country X has no ads" from country Y's export or list**; that
-  is exactly how a live marketplace gets falsely reported as empty. When
-  the user asks about more than one country (or "all" countries, or a
-  country the console isn't currently on): **switch the console to each
-  country and export it separately** — one download per country — then
-  compare. To prove any negative ("no ads in X"), switch to X and look.
-  A stored note claiming a market is empty is a stale per-run snapshot,
-  not a fact — re-verify it live before you trust it.
+- **Data is scoped to whatever marketplace the console is showing — so a
+  country's absence is never proof it's empty.** Amazon's ad console comes
+  in more than one shape, and you must not assume which you're on:
+    - *Per-country account* — the console shows **one marketplace at a
+      time**, selected by the top-left `Sponsored ads, <Country>` control;
+      each country is a **separate account/entity** (the brand name can
+      even differ per market). The list — and a bulk export — cover only
+      the selected country.
+    - *Unified multi-market entity* — a **single list spans several
+      countries**, distinguished by a Country column, and the export may
+      carry a marketplace/country column covering all of them.
+  Don't guess which you have — **check**: does the current view (or the
+  switcher menu) actually name the country you were asked about? Is there
+  a per-row Country column, and does the export contain that country's
+  rows? The invariant, true in every shape: **confirm each requested
+  country is actually represented in the data you read.** If a country
+  isn't present, it lives behind the switcher (or under another entity) —
+  go get it; do **not** conclude it has no ads. When the user asks about
+  more than one country (or "all", or one the console isn't currently
+  showing) and the layout is per-country, **switch to each country and
+  export separately** — one download per country — then compare. To prove
+  any negative ("no ads in X"), put X in view and look. A stored note
+  claiming a market is empty is a stale per-run snapshot, not a fact —
+  re-verify it live before you trust it.
 
 - **If a command/recipe doesn't cover your case, build it from the
   export's own structure.** `ads_bulk.py` has `inspect` / `clone-campaign`
