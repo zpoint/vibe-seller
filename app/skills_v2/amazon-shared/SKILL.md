@@ -62,8 +62,9 @@ PY
 
 `page_info()` does NOT show auto-filled input values — fields appear
 empty even when filled. Confirm with
-`js("return document.querySelector('#ap_password').value ? 'filled':'empty'")`
-before deciding whether to ask the user.
+`js("return document.querySelector('#ap_password')?.value ? 'filled':'empty'")`
+(null-safe `?.` — the same snippet runs on steps where the field is
+absent) before deciding whether to ask the user.
 
 ### Login is a challenge LOOP, not a fixed sequence
 
