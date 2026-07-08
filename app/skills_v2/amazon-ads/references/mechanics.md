@@ -58,6 +58,35 @@ need it on every URL.
 
 ## 2. Reading existing campaigns
 
+### 2.0 One marketplace at a time — the country switcher
+
+The ad console shows the campaigns of **exactly one marketplace** — the
+one currently selected. The selector is the **top-left control labelled
+`Sponsored ads, <Country>`** (e.g. `Sponsored ads, Saudi Arabia`).
+Clicking it opens a menu of the account's marketplaces; each entry is
+often a *separate account/entity*, and the displayed brand name can even
+differ per country (observed: one entity shown as one brand for AE and a
+sibling brand for SA under the same login). Switching swaps the whole
+campaign list **and** what a bulk export contains.
+
+Consequences you must respect:
+
+- The campaign list and any **bulk export reflect only the selected
+  marketplace**. Rows are complete for *that* country and say nothing
+  about any other.
+- **Never infer that a country has no campaigns because it's absent from
+  another country's list/export.** To check country X, first switch the
+  console to X (confirm the top-left control now reads `Sponsored ads,
+  <X>`), *then* read/export.
+- **Multi-country audits = one export per country.** Loop: switch → wait
+  for the list to reload → export → repeat. Label each file by country;
+  do not merge markets in one download and assume it's complete.
+
+To switch programmatically: find the leaf element whose text matches
+`^Sponsored ads,\s*<Country>$`, `.click()` it, then click the target
+country's menu entry (`<brand>  <Country>`), and wait for the list to
+reload before reading.
+
 ### 2a. The campaign-list "Find a campaign" search
 
 The campaign list has a search input with placeholder
