@@ -316,8 +316,20 @@ def _on_check_updates(icon, item):  # noqa: ARG001
         status = res.get('status')
         if status == 'up-to-date':
             _dialog('Vibe Seller', _t('latest', v=res.get('version')))
+        elif status == 'in-progress':
+            logger.info('Upgrade already in progress; ignoring click')
         elif status == 'updating':
             _dialog('Vibe Seller', _t('updating', v=res.get('version')))
+            # The installer must delete and rebuild {app}\.venv, but THIS
+            # process is {app}\.venv\Scripts\pythonw.exe — staying alive
+            # locks the very files it rebuilds, leaving an empty .venv and
+            # the "pythonw.exe not found" failure. The installer was
+            # launched detached, so stop the server and quit the tray now;
+            # nothing under the install dir is left locked. Login
+            # auto-start brings the new version's tray back up.
+            logger.info('Upgrade launched; stopping server and quitting tray')
+            _stop_server()
+            icon.stop()
         else:
             _dialog(
                 _t('fail_title'),
