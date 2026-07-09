@@ -32,6 +32,7 @@ review-collect/references/output-spec.md
 review-collect/references/collect-quickref.md
 browser-harness/SKILL.md
 noon-shared/SKILL.md
+noon-shared/references/dod-review-loop.md
 noon-listing/SKILL.md
 noon-fbn/SKILL.md
 noon-exports/SKILL.md

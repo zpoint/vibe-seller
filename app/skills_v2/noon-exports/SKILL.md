@@ -2,6 +2,17 @@
 name: noon-exports
 description: "Noon data exports — Sales report (per country), Transaction View (multi-contract CSV with status enum gotchas), Catalog Exports (Content / Pricing / Stock / Reports). Load when downloading sales, finance, transaction, or catalog data from noon."
 requires: [noon-shared]
+review:
+  criteria: |
+    - The requested export file(s) exist, are non-empty, and have rows >
+      0, covering the requested scope (every requested country / contract
+      / date window). A partial pull, or a status stuck at
+      Requested/Exporting with no file written, is a gap.
+  verify_by: |
+    Open the downloaded CSV(s) in ~/.vibe-seller/downloads/<slug>/;
+    confirm the header columns + a non-zero row count. For multi-country
+    / multi-contract (e.g. Transaction View), confirm the Contract column
+    covers every country asked for, not just one.
 ---
 
 # Noon — Data Exports

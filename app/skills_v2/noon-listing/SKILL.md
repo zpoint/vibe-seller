@@ -2,6 +2,20 @@
 name: noon-listing
 description: "Noon listing operations — create SKU (3-step wizard) and edit listings (Offer / Content / Sizes / Groups tabs). Load when creating, editing, pricing, restocking, or updating content on a noon SKU."
 requires: [noon-shared]
+review:
+  criteria: |
+    - The SKU is ACTUALLY created and live on noon, not just "submitted":
+      the create flow reached the success redirect to
+      /catalog/{noon_sku}/p, and the Offer tab shows the base price /
+      sale price / stock / barcode as entered (committed on the live
+      page). Content/Sizes match the request.
+    - An edit is done only when the live page reflects it (green success
+      + updated values), not on a toast alone.
+  verify_by: |
+    Open the created SKU's catalog page and its Offer tab; confirm price
+    / stock / barcode match what was entered. For an edit, reload the tab
+    and confirm the new values persisted. A feed/toast without the live
+    page reflecting it is a gap.
 ---
 
 # Noon — Listing Operations
