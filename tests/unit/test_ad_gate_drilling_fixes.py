@@ -61,17 +61,25 @@ class TestZeroImpressionMaintain:
         txt = self.HEADER + '| core kw | 12 | 20.0 | 维持 |\n'
         assert zi.check(txt) is None
 
-    IMPR_HEADER = '| 定向 | 曝光 | 点击 | 花费 | 建议 |\n|---|---|---|---|---|\n'
+    IMPR_HEADER = (
+        '| 定向 | 曝光 | 点击 | 花费 | 建议 |\n|---|---|---|---|---|\n'
+    )
 
     def test_eligibility_mention_does_not_rescue_maintain(self):
         # Action head is 维持 (0 impressions); an eligibility note in the
         # same cell must NOT rescue it (original defect: "维持——…未过审…").
-        txt = self.IMPR_HEADER + '| auto | 0 | 0 | 0 | 维持——未过审，需人工排查 |\n'
+        txt = (
+            self.IMPR_HEADER
+            + '| auto | 0 | 0 | 0 | 维持——未过审，需人工排查 |\n'
+        )
         assert zi.check(txt) is not None
 
     def test_eligibility_as_action_passes(self):
         # Action head IS the eligibility check (no 维持) → actionable → pass.
-        txt = self.IMPR_HEADER + '| auto | 0 | 0 | 0 | 检查广告资格（疑未过审） |\n'
+        txt = (
+            self.IMPR_HEADER
+            + '| auto | 0 | 0 | 0 | 检查广告资格（疑未过审） |\n'
+        )
         assert zi.check(txt) is None
 
     def test_impressions_present_zero_clicks_not_flagged(self):
