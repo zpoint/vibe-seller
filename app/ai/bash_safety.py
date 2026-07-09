@@ -434,8 +434,9 @@ def _is_server_reviewed(audit_text: str) -> bool:
 
 
 def check_review_status(task_dir) -> str | None:
-    """Deny reason if the ad-report reviewer hasn't returned ``ok`` (or
-    ``incomplete`` at iter ≥ 5); else ``None``. No-op for non-ad tasks.
+    """Deny reason if the DoD reviewer hasn't returned ``ok`` (or
+    ``incomplete`` at iter ≥ 5); else ``None``. Fires for ads skills AND
+    any skill declaring a ``review:`` block; no-op otherwise.
     """
     if task_dir is None:
         return None

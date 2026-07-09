@@ -92,6 +92,10 @@ def parse_skill_review(skill_md_path: Path | None) -> SkillReview | None:
     evidence = block.get('evidence') or []
     if isinstance(evidence, str):
         evidence = [evidence]
+    elif not isinstance(evidence, (list, tuple)):
+        # A mapping/other type would otherwise iterate its keys as
+        # bogus globs — ignore malformed evidence rather than guess.
+        evidence = []
     return SkillReview(
         criteria=str(block.get('criteria') or '').strip(),
         evidence=tuple(str(e).strip() for e in evidence if str(e).strip()),

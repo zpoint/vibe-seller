@@ -55,10 +55,11 @@ REVIEW_MAX_ITERS = 5
 REVIEWER_STALL_CAP = 5
 
 _PARTIAL_BANNER = (
-    '> ⚠️ **Unverified ad report.** This report completed WITHOUT a '
-    'passing reviewer verdict — the ``ads-report-review`` loop stalled '
-    'without reaching ``Status: ok``. Treat every finding as UNVERIFIED '
-    'and spot-check against the live console before acting on it.\n\n'
+    '> ⚠️ **Unverified result.** This deliverable completed WITHOUT a '
+    'passing reviewer verdict — the DoD review loop stalled without '
+    'reaching ``Status: ok``. Treat it as UNVERIFIED and spot-check '
+    'against the source of truth (live page / export / file) before '
+    'acting on it.\n\n'
 )
 
 
