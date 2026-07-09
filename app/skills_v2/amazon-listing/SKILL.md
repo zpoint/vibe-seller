@@ -3,6 +3,24 @@ name: amazon-listing
 description: "Amazon listing CRUD via the category flat-file (Add Products via Upload). Create a variation family (parent + colour/size children), update attributes, change parent-child relationships, and delete SKUs — all in one template round trip. Also covers the end-to-end sourcing flow: a supplier link (e.g. 1688) → extract product data → local GPU-free OCR of detail images → generate title / bullet points / description → bilingual review with the user → propose the parent-child structure → fill the template → upload → read the processing report. Load this BEFORE any browser-use action on sellercentral.amazon.<tld>/listing/upload or when the task is to create / edit / delete a listing from a product link."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
+review:
+  criteria: |
+    - Every attempted SKU is ACTUALLY LIVE, not just "uploaded": on
+      Manage Inventory the parent shows Variations(N) and each child has
+      a real ASIN (not "-"), with title / bullets / images matching the
+      request. The processing report parsed to 0 BLOCKING errors (a
+      missing-image 18320 is not blocking).
+    - For a delete, the SKU no longer appears in Manage Inventory.
+    - No partial family (parent live but a child missing) is called done.
+  evidence:
+    - "*REPORT*.xlsm"
+    - "*.xlsm"
+    - "LISTING_*.md"
+  verify_by: |
+    Open Manage Inventory (skucentral?mSku=<sku>, no &condition=New) for
+    each attempted SKU and confirm it exists with the intended content
+    and a real ASIN; open the downloaded processing report and confirm 0
+    blocking errors. For a delete, confirm the SKU is gone.
 ---
 
 # Amazon — Listing CRUD (flat-file upload)
@@ -30,6 +48,14 @@ Two references, load what the task needs:
   filled template: page extraction, local no-GPU OCR of detail images,
   AI-generated copy, the **bilingual review** step, and image handling.
   Load when the task starts from a **product link**.
+
+> **Before you finish — verify it's LIVE, not just uploaded.** A 0-error
+> processing report is necessary but NOT sufficient; the listing is only
+> done when Manage Inventory shows it live with a real ASIN (per the
+> `review:` block above). Run the DoD review loop
+> (`../amazon-shared/references/dod-review-loop.md`) with this skill's
+> `review.criteria` / `review.verify_by` and converge to `Status: ok`
+> before `set_task_result`.
 
 ## Work it like a human: upload → read the report → fix → repeat
 

@@ -1,4 +1,5 @@
 amazon-shared/SKILL.md
+amazon-shared/references/dod-review-loop.md
 amazon-ads/SKILL.md
 amazon-ads/references/mechanics.md
 amazon-ads/references/tuning-workflow.md
