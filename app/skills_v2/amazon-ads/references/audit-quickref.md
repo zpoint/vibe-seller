@@ -94,6 +94,20 @@ listed id must get a drill block). Append one entry per combo:
 ]}
 ```
 
+**Enumerate EVERY marketplace the task names — one combo entry each.** The
+ad console shows one marketplace at a time (top-left `Sponsored ads,
+<Country>` switcher; each country a separate account). So for a "SA + AE"
+task you must **switch to each country, export ITS bulk, and run
+`python scripts/ads_bulk.py scope <that-export>`** to list its active ids
+— then write a combo for each. You may **NEVER** report a marketplace as
+"无广告 / 无活动 / 零投放" from a glance, a filtered search box (Amazon's
+grid shows "No Matching Rows" even when campaigns exist), or another
+market's export. A market is empty ONLY if ITS OWN bulk export came back
+with zero active campaigns — recorded as a combo with `active_ids: []`.
+An empty-market claim with no AUDIT_SCOPE combo for that market is
+rejected by the completeness gate (`[空市场未证实]`). This is the exact
+bug that shipped "该市场无广告活动" while that market had live campaigns.
+
 `active_ids` = every **active** campaign id you enumerated (Amazon: the
 `state=enabled` Campaign ids from the bulk export — `ads_bulk.py scope
 <export>.xlsx` prints them; noon: the campaign ids unioned across all
