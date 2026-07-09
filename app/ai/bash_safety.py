@@ -23,6 +23,12 @@ would be bad.
 from pathlib import Path
 import re
 
+from app.ai.skill_review import skills_requiring_review
+from app.ai.stop_gates import (
+    ad_completeness_review,
+    recorded_skills,
+    report_reviewer,
+)
 from app.plugins import (
     registered_pretool_gates,
     registered_review_markers,
@@ -441,12 +447,6 @@ def check_review_status(task_dir) -> str | None:
     if task_dir is None:
         return None
     # Identify ad-report tasks by BOUND SKILL, not filename (no escape).
-    from app.ai.skill_review import skills_requiring_review  # noqa: PLC0415
-    from app.ai.stop_gates import (  # noqa: PLC0415
-        recorded_skills,
-        report_reviewer,
-    )
-
     skills = recorded_skills(task_dir.name)
     is_ad_task = bool(skills & report_reviewer.AD_SKILLS)
     # Phase 2: any non-ad skill that declares a ``review:`` block also
@@ -475,9 +475,6 @@ def check_review_status(task_dir) -> str | None:
         audit_text = newest_audit.read_text(encoding='utf-8')
     except OSError:
         audit_text = ''
-    # Lazy import: a top-level import would cycle (stop_gates → here).
-    from app.ai.stop_gates import ad_completeness_review  # noqa: PLC0415
-
     if is_ad_task:
         # Core ad report → HYBRID: the deterministic coverage FLOOR
         # (AUDIT_SCOPE combo + active-id coverage + monotonic drills —
