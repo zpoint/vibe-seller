@@ -233,14 +233,16 @@ _IS_AUDIT_RE = re.compile(
 # 无搜索词报告 / 无点击 token instead.
 # Campaign-id shapes that mark a "### " heading as a campaign block:
 #   * long numeric — the canonical Amazon campaign id (e.g. 100000000001)
-#   * A#######+   — the ad-console SHORT display id (e.g. A1234567), which
+#   * A\d{7,}     — the ad-console SHORT display id (e.g. A1234567), which
 #     is what the campaign-manager grid shows and what agents paste into
 #     headings; missing this let every per-market block escape the
 #     per-campaign search-term check (a whole audit shipped with fabricated
 #     搜索词对账 lines because the block was never recognized as a campaign).
 #   * C_XXXX      — noon.
-# `[A-Z]\d{7,}` won't match ASINs (e.g. B0EXAMPLE1 has letters after digit).
-_CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|[A-Z]\d{7,}|C_[A-Z0-9]{6,}')
+# Anchored to the literal ad-console prefix `A` (not a generic `[A-Z]`) so
+# it can't collide with an all-digit-suffix ASIN like B000123456 in a
+# heading — those must NOT be treated as campaign blocks.
+_CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|A\d{7,}|C_[A-Z0-9]{6,}')
 _RECONCILE_RE = re.compile(
     r'搜索词对账[:：][^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
     r'[^\n]*?点击[^\d\n]*([\d,]+)'

@@ -51,14 +51,16 @@ _SKIP_RE = re.compile(
     r'其余\s*\d+\s*个|另\s*\d+\s*个|新建|刚(?:创建|启动)|今日|当日新建',
     re.IGNORECASE,
 )
-# An acceptable action for a zero-impression row: raise the bid, or make
-# eligibility the ACTION (not a footnote). Presence of either means the
-# row is no longer a bare "maintain" and passes.
-_FIX_RE = re.compile(
-    r'提高|上调|加价|raise|increase|检查.{0,6}资格|排查.{0,6}资格'
-    r'|广告资格|是否合格|未过审|审核状态|eligib',
-    re.IGNORECASE,
-)
+# A zero-impression row is a defect whenever its ACTION is a bare
+# maintain. Only a RAISE (提高/上调出价) makes the cell actionable enough to
+# pass while still containing a maintain verb. An eligibility CHECK is a
+# valid action too — but it is expressed by NOT leading with 维持 (a cell
+# whose action is "检查广告资格" has no maintain verb, so it never reaches
+# this rule). Crucially, merely MENTIONING eligibility in a note while the
+# action head stays 维持 does NOT rescue the row — that was the exact
+# defect ("维持——…未过审…需人工排查"). So eligibility keywords are
+# deliberately NOT in this set.
+_RAISE_RE = re.compile(r'提高|上调|加价|raise|increase', re.IGNORECASE)
 
 
 def _cells(line: str) -> list[str] | None:
@@ -134,28 +136,21 @@ def check(
         if rec_i is None or rec_i >= len(cells):
             continue
         rec = cells[rec_i]
-        # Only a bare maintain is a defect: a row already recommending a
-        # raise or an eligibility check has an actionable next step.
-        if not _MAINTAIN_RE.search(rec) or _FIX_RE.search(rec):
+        # A bare maintain is the defect; a raise makes the row actionable.
+        if not _MAINTAIN_RE.search(rec) or _RAISE_RE.search(rec):
             continue
         # Collapsed filler and just-created rows are exempt (see _SKIP_RE).
         if _SKIP_RE.search(line):
             continue
-        # Zero-serving? Explicit text in the row, else numeric: the
-        # impressions column is 0 if present, otherwise BOTH clicks and
-        # spend are 0 (a serving proxy when there's no impr column).
+        # Zero-serving proof must be UNAMBIGUOUS: explicit zero-impression
+        # text in the row, or an impressions column that reads 0. We do NOT
+        # infer it from clicks==0 & spend==0 — in CPC a row can have
+        # impressions >0 with 0 clicks / 0 spend (a CTR problem, not a
+        # serving problem), so that proxy would falsely flag legitimate
+        # "维持观察" rows.
         zero_traffic = bool(_ZERO_TEXT_RE.search(line))
-        if not zero_traffic:
-            if 'impr' in col and col['impr'] < len(cells):
-                zero_traffic = _zero(cells[col['impr']])
-            elif 'clicks' in col and 'spend' in col:
-                ci, si = col['clicks'], col['spend']
-                zero_traffic = (
-                    ci < len(cells)
-                    and si < len(cells)
-                    and _zero(cells[ci])
-                    and _zero(cells[si])
-                )
+        if not zero_traffic and 'impr' in col and col['impr'] < len(cells):
+            zero_traffic = _zero(cells[col['impr']])
         if zero_traffic:
             name_i = col.get('name', 0)
             name = cells[name_i] if name_i < len(cells) else cells[0]
