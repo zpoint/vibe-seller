@@ -174,3 +174,58 @@ class TestEmptyMarketClaimNeedsScope:
         txt = '# 新建\n\n该 ASIN 目前无广告活动，已新建 1 个 SP 活动。\n'
         deny = review.check(txt, task_id=None, scope=None, track=False)
         assert '空市场未证实' not in _reasons(deny)
+
+
+class TestWordLevelDrill:
+    """Any ad report must drill search terms to the WORD level; a report
+    that only aggregates the wasting keywords (a count / a category) with
+    no per-term table is denied."""
+
+    # is_audit via >=2 ### blocks; flags waste in aggregate; no per-term
+    # search-term table.
+    AGG_ONLY = (
+        '# 广告复核\n\n'
+        '## 二、AE\n\n'
+        '### widget-006 SB 视频\n\n'
+        '有花费没出单：26 次点击零转化，10 个定向词全白花，搜索词全是 A/B/C 品类词。\n\n'
+        '### widget-006 SP 自动\n\n'
+        '| 活动 | 总搜索词 | 浪费词数 | 浪费金额 | 主要垃圾词类型 |\n'
+        '|---|---|---|---|---|\n'
+        '| widget-006 SB | 32 | 30 | 58.50 | A/B/C |\n'
+    )
+
+    def test_aggregate_keywords_without_drill_denied(self):
+        deny = review.check(self.AGG_ONLY, task_id=None, track=False)
+        assert deny is not None and '未下钻到词' in deny.reason
+
+    def test_per_term_table_satisfies_drill(self):
+        drilled = self.AGG_ONLY + (
+            '\n| 搜索词 | 点击 | 花费 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| term a | 8 | 12.0 | 0 | 否定（零转化浪费） |\n'
+            '| term b | 5 | 9.0 | 0 | 否定 |\n'
+        )
+        deny = review.check(drilled, task_id=None, track=False)
+        assert '未下钻到词' not in _reasons(deny)
+
+    def test_problem_cell_mentioning_keyword_is_not_a_drill_table(self):
+        # A data row whose problem cell mentions 关键词/否定 must NOT count
+        # as a per-term drill table (the header-only detection guard).
+        txt = (
+            '# r\n\n## 二、AE\n\n### widget SB\n\n### widget SP\n\n'
+            '浪费词数 30。\n\n'
+            '| 活动 | 花费 | 建议 |\n|---|---|---|\n'
+            '| widget SB | 58.5 | 🔴 关键词含无关词，建议否定 |\n'
+        )
+        deny = review.check(txt, task_id=None, track=False)
+        assert deny is not None and '未下钻到词' in deny.reason
+
+    def test_clean_report_no_waste_language_not_flagged(self):
+        txt = (
+            '# r\n\n## 二、AE\n\n### widget auto\n\n'
+            '| 定向 | 点击 | 花费 | 订单 | 建议 |\n|---|---|---|---|---|\n'
+            '| close-match | 40 | 60 | 5 | 维持，ROAS 健康 |\n'
+        )
+        assert '未下钻到词' not in _reasons(
+            review.check(txt, task_id=None, track=False)
+        )

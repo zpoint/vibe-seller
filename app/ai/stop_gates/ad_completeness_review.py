@@ -31,6 +31,7 @@ from app.ai.stop_gates import (
     ad_explicit_actions,
     ad_scale_winners,
     ad_scope,
+    ad_searchterm_drill,
     ad_zero_impression,
 )
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
@@ -628,6 +629,9 @@ def check(
     zi = ad_zero_impression.check(result_text, rules)
     if zi:
         gaps.append('[规则·零曝光] ' + zi.reason[:300])
+    sd = ad_searchterm_drill.check(result_text, rules)
+    if sd:
+        gaps.append('[未下钻到词] ' + sd.reason[:400])
 
     # 3) No-defer: work the agent excused as "next audit" / "needs OTP"
     #    that is actually doable this session (Brand Analytics is

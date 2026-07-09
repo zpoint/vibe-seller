@@ -37,6 +37,13 @@ For every audited `(platform, country)`, the report MUST contain a
 
 4. **Inactive campaigns**: one line each (id + state), not drilled.
 
+## Always drill to the word level
+
+Every ad report — any scope (full / single) or platform (Amazon / noon) —
+drills wasting terms to the word level, per the drill block below. A
+**count/category** of wasting words ("N 个词全白花", "浪费词数 58",
+"主要垃圾词类型 …") is not a drill; the gate rejects it (`[未下钻到词]`).
+
 ## Per-campaign drill block — required shape
 
 Each `### <campaign id> | <name> | …` block MUST contain, in order:
