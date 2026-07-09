@@ -18,6 +18,8 @@ from app.ai.stop_gates import (
     clear_skill_bindings,
     markdown_format as md_format_gate,
     record_attempt,
+    recorded_skills,
+    report_reviewer,
     reset_attempts,
     resolve_skill_gates,
     result_language as language_gate,
@@ -723,6 +725,30 @@ async def set_task_result(
             task_id,
             deny.reason[:200],
         )
+
+    # Active reviewer sign-off — enforced HERE too, not only in the Stop
+    # hook. Some backends never emit a Stop event and finish by calling
+    # this endpoint directly; gating the reviewer only at the Stop hook
+    # let those runs complete a shallow-but-covering report with the
+    # ``ads-report-review`` subagent never spawned (the all-ads
+    # slip-through). Trigger = ANY ads skill bound to the task — the
+    # reviewer decides whether there was real work to verify or nothing
+    # to review (it signs off fast on a lookup). Fail-open is bounded
+    # and marks the result UNVERIFIED — never a silent "done".
+    if recorded_skills(task_id) & report_reviewer.AD_SKILLS:
+        deny_reason = report_reviewer.reviewer_verdict(task_root)
+        if deny_reason:
+            attempt = record_attempt(task_id, 'ads_report_reviewer')
+            if attempt <= report_reviewer.REVIEWER_STALL_CAP:
+                raise HTTPException(status_code=400, detail=deny_reason)
+            logger.warning(
+                'Reviewer stalled for task %s after %d denials — accepting '
+                'result as UNVERIFIED. Last reason: %s',
+                task_id,
+                attempt,
+                deny_reason[:200],
+            )
+            final_result = report_reviewer.partial_banner() + final_result
 
     task.result = final_result
     task.updated_at = datetime.now(UTC).isoformat()
