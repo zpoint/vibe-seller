@@ -59,6 +59,13 @@ class TestParseSkillReview:
         p = _write_skill(tmp_path, 's', 'name: s\nreview:\n  evidence: "*.pdf"')
         assert parse_skill_review(p).evidence == ('*.pdf',)
 
+    def test_evidence_mapping_ignored(self, tmp_path):
+        # A mapping under evidence: must NOT be iterated as keys — ignore it.
+        p = _write_skill(
+            tmp_path, 's', 'name: s\nreview:\n  evidence:\n    a: 1\n    b: 2'
+        )
+        assert parse_skill_review(p).evidence == ()
+
     def test_malformed_yaml_returns_none(self, tmp_path):
         d = tmp_path / '.claude' / 'skills' / 'bad'
         d.mkdir(parents=True)

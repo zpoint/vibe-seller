@@ -34,7 +34,7 @@ _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
 
 
 def apply_report_reviewer_gate(task_id, task_root, final_result):
-    """Reviewer sign-off for ads-skill tasks at ``set_task_result``.
+    """Reviewer sign-off for review-declaring skills at ``set_task_result``.
 
     The active reviewer is enforced here (not only in the Stop hook) so a
     backend that finishes via this endpoint can't complete with the
