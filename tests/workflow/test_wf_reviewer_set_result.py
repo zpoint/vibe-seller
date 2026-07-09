@@ -175,6 +175,37 @@ class TestSetResultReviewerGate:
         assert 'UNVERIFIED' not in task.result
         assert 'ACOS' in task.result
 
+    async def test_general_review_skill_gated_at_set_result(
+        self, admin_client, override_async_session, monkeypatch, tmp_path
+    ):
+        # Phase 2: a non-ad skill declaring a review: block is gated on the
+        # set_task_result path too (not just the Stop hook).
+        task_id = await _seed_running_task(override_async_session)
+        task_dir = _wire(monkeypatch, tmp_path, task_id, skill='amazon-listing')
+        skdir = task_dir / '.claude' / 'skills' / 'amazon-listing'
+        skdir.mkdir(parents=True, exist_ok=True)
+        (skdir / 'SKILL.md').write_text(
+            '---\nname: amazon-listing\nreview:\n'
+            '  criteria: |\n    - Every SKU is live.\n---\n\n# body\n',
+            encoding='utf-8',
+        )
+        reset_attempts(task_id)
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': 'Created SKU WIDGET-TEST-1; see report.'},
+        )
+        assert r.status_code == 400
+        assert 'ads-report-review' in r.json()['detail']
+
+        (task_dir / 'REVIEW_2026-07-09_iter1.md').write_text(
+            '# Review\nStatus: ok\n', encoding='utf-8'
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': 'Created SKU WIDGET-TEST-1; see report.'},
+        )
+        assert r.status_code == 200
+
     async def test_non_ad_task_unaffected(
         self, admin_client, override_async_session, monkeypatch, tmp_path
     ):
