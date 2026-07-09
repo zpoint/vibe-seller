@@ -388,37 +388,27 @@ def check_report_overwrite(
 
 # ── Ad-tuning reviewer-status guard ───────────────────────────────
 #
-# When an ads-tuning audit task is about to finalize its deliverable
-# (transition to Stop), the agent must have run the
-# ``ads-format-review`` reviewer subagent against
-# ``AD_AUDIT_<date>.md`` and got back ``Status: ok``. The reviewer
-# writes its findings to
-# ``<task_workspace>/REVIEW_<YYYY-MM-DD>_iter<N>.md`` with a
-# canonical header that includes a ``Status: ok|gaps|incomplete``
-# line. The Stop hook reads the latest review file and decides:
-#
-# - ``ok``               → allow stop
-# - ``gaps``             → deny stop, point agent at the gaps
-# - ``incomplete``       → allow only if iter ≥ 5 (post-mortem trail)
-# - file missing         → deny stop; reviewer must run at least once
-# - file unparseable     → deny stop with format reminder
-#
-# Semantic quality of the review is the reviewer subagent's job;
-# code only gates on the file contents. See
-# ``amazon-ads/references/reviewer-loop.md`` for the contract and
-# the subagent prompt the main agent uses.
+# Before an ads-report task may Stop, the ``ads-report-review`` reviewer
+# subagent must have written ``REVIEW_<date>_iter<N>.md`` with
+# ``Status: ok`` (or ``incomplete`` at iter ≥ 5). Status → hook action:
+# ok=allow, gaps=deny+point at gaps, incomplete=allow only at iter ≥ 5,
+# missing/unparseable=deny. Semantic quality is the reviewer's job; code
+# only gates on the file. Contract: ``amazon-ads/references/reviewer-loop.md``.
 
-_REVIEW_FILE_GLOB = 'REVIEW_*_iter*.md'
+# The REPORT-reviewer verdict logic lives in
+# ``stop_gates.report_reviewer`` so BOTH completion paths (this Stop hook
+# AND set_task_result) enforce the same sign-off — see that module's
+# docstring. These two regexes are still used by the EXEC-review guard
+# below (phase-4 ``EXEC_REVIEW_*`` files share the ``Status:``/``_iter``
+# format).
 _REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
 _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
-# Audits reviewed by a SERVER-side completeness gate at
-# set_task_result — the legacy REVIEW-file/subagent gate below must NOT
-# also fire for them (double-gating burns rounds on format polish; see
-# check_review_status). Amazon/Noon combo-section audits →
-# ``ad_completeness_review`` (mirror of its ``_COMBO_HEADER_RE``).
-# Plugins that ship their own server-side completeness gate add their own
-# audit markers via ``ExtensionContext.register_review_marker`` — see
-# ``_is_server_reviewed``, which ORs those in. Core names no customer.
+
+# Audits a SERVER-side completeness gate reviews at set_task_result.
+# amazon/noon combo-section audits → ``ad_completeness_review``; plugins
+# register their own markers via ``register_review_marker`` (ORed in by
+# ``_is_server_reviewed``). Used only for NON-ad-skill tasks now (ad-skill
+# tasks are keyed at the task level — see ``check_review_status``).
 _SERVER_REVIEWED_RE = re.compile(
     r'(?im)^##.*(amazon|noon)\s+(sa|ae|mx|us|eg|com)\b'
 )
@@ -443,145 +433,77 @@ def _is_server_reviewed(audit_text: str) -> bool:
     return False
 
 
-# Max iterations before we accept ``incomplete`` as a terminal state
-# (matches the loop cap documented in ``reviewer-loop.md``).
-_REVIEW_MAX_ITERS = 5
-
-
 def check_review_status(task_dir) -> str | None:
-    """Return a deny reason if the ads-audit reviewer hasn't returned
-    ``ok`` (or ``incomplete`` at iter ≥ 5); otherwise ``None``.
-
-    Reads the highest-iteration ``REVIEW_*_iter*.md`` in *task_dir*.
-    Quiet no-op for non-ads tasks (no ``AD_AUDIT_*.md`` present in
-    the workspace — caller should pre-check; this function still
-    returns ``None`` when no review file exists AND no audit file
-    exists, but DENIES when audit exists without a review).
+    """Deny reason if the ad-report reviewer hasn't returned ``ok`` (or
+    ``incomplete`` at iter ≥ 5); else ``None``. No-op for non-ad tasks.
     """
     if task_dir is None:
         return None
+    # Identify ad-report tasks by BOUND SKILL, not filename (no escape).
+    from app.ai.stop_gates import (  # noqa: PLC0415
+        recorded_skills,
+        report_reviewer,
+    )
+
+    is_ad_task = bool(
+        recorded_skills(task_dir.name) & report_reviewer.AD_SKILLS
+    )
     try:
         audit_files = list(task_dir.glob('AD_AUDIT_*.md'))
     except OSError:
-        return None
+        audit_files = []
     if not audit_files:
-        return None  # Not an ads-tuning task; nothing to gate.
+        if is_ad_task:
+            # Even with no report file, route to the reviewer — it
+            # decides whether the task needed one (real audit → gaps) or
+            # had nothing to verify (quick lookup → signs off fast).
+            return report_reviewer.reviewer_verdict(task_dir)
+        return None  # Not an ads task; nothing to gate.
 
-    # amazon/noon audits are reviewed SERVER-SIDE (``ad_completeness_review``),
-    # not by the legacy REVIEW-file/format loop below. But an agent can finish
-    # by ENDING ITS TURN (streaming result persisted ungated) instead of
-    # calling set_task_result — the 3/24 bypass. So run the completeness
-    # backstop on this path too, gating the ending-turn under the same
-    # contract (bounded fail-open). Other platforms keep the REVIEW loop.
+    # This path also gates the ENDING-TURN bypass (streaming result
+    # persisted without set_task_result — the 3/24 bug) under the same
+    # contract, with the bounded fail-open.
     newest_audit = max(audit_files, key=lambda p: p.stat().st_mtime)
     try:
         audit_text = newest_audit.read_text(encoding='utf-8')
     except OSError:
         audit_text = ''
-    if _is_server_reviewed(audit_text):
-        # Lazy import: a top-level import would cycle (stop_gates → here).
-        from app.ai.stop_gates import ad_completeness_review  # noqa: PLC0415
+    # Lazy import: a top-level import would cycle (stop_gates → here).
+    from app.ai.stop_gates import ad_completeness_review  # noqa: PLC0415
 
+    if is_ad_task:
+        # Core ad report → HYBRID: the deterministic coverage FLOOR
+        # (AUDIT_SCOPE combo + active-id coverage + monotonic drills —
+        # ground truth an LLM can't fake) AND the active ads-report-review
+        # verification (opens the live console + cross-checks).
+        floor = ad_completeness_review.drill_incomplete_reason(
+            audit_text, task_dir.name
+        )
+        if floor is not None:
+            return floor
+        # Floor passed → fall through to the REVIEW_*.md reviewer check.
+    elif _is_server_reviewed(audit_text):
+        # A plugin's own server-side completeness gate, or a bare
+        # amazon/noon-headed audit from a NON-ad-skill task: keep the
+        # legacy floor-only behavior — don't force the ads reviewer on it.
         return ad_completeness_review.drill_incomplete_reason(
             audit_text, task_dir.name
         )
 
-    try:
-        review_files = sorted(task_dir.glob(_REVIEW_FILE_GLOB))
-    except OSError:
-        review_files = []
-    if not review_files:
-        return (
-            'Reviewer never ran. Before finalizing, spawn the '
-            '``ads-format-review`` subagent (subagent_type='
-            '"general-purpose") against your AD_AUDIT_*.md per '
-            '``amazon-ads/references/reviewer-loop.md``, and write '
-            'the result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in this '
-            'workspace. Re-run reviewer until Status: ok or until '
-            f'iter {_REVIEW_MAX_ITERS} with Status: incomplete.'
-        )
-
-    def _iter_of(p):
-        m = _REVIEW_ITER_RE.search(p.name)
-        return int(m.group(1)) if m else 0
-
-    # Pick the most recently written review file, not the highest
-    # iter number. A workspace can accumulate REVIEW files from
-    # several audit cycles (e.g. ``REVIEW_2026-05-22_iter7.md``
-    # from yesterday's audit + ``REVIEW_2026-05-24_iter1.md`` from
-    # today's) — choosing by iter number would pick yesterday's
-    # iter7 over today's iter1, gating the new audit against a
-    # stale verdict. mtime correctly reflects which review covers
-    # the current audit.
-    try:
-        latest = max(review_files, key=lambda p: p.stat().st_mtime)
-    except OSError:
-        latest = max(review_files, key=_iter_of)
-    try:
-        content = latest.read_text(encoding='utf-8', errors='ignore')
-    except OSError:
-        return f'{latest.name} could not be read; rewrite the review file.'
-
-    match = _REVIEW_STATUS_RE.search(content)
-    if not match:
-        return (
-            f'{latest.name} has no ``Status:`` line. The reviewer '
-            'output must begin with one of: ``Status: ok`` | '
-            '``Status: gaps`` | ``Status: incomplete``. See '
-            '``amazon-ads/references/reviewer-loop.md`` for the '
-            'canonical format.'
-        )
-
-    status = match.group(1).lower()
-    iter_num = _iter_of(latest)
-    if status == 'ok':
-        return None
-    if status == 'incomplete' and iter_num >= _REVIEW_MAX_ITERS:
-        return None  # accept as terminal; gaps are on-disk for post-mortem
-    if status == 'gaps':
-        return (
-            f'Reviewer iter {iter_num} found gaps in the audit. '
-            f'Read {latest.name} for the list, fix the audit in '
-            f'place (Edit tool, not re-drill), then spawn the '
-            'reviewer again to write '
-            f'``REVIEW_*_iter{iter_num + 1}.md``. Repeat until '
-            f'Status: ok or iter {_REVIEW_MAX_ITERS} with '
-            'Status: incomplete.'
-        )
-    if status == 'incomplete' and iter_num < _REVIEW_MAX_ITERS:
-        return (
-            f'``Status: incomplete`` only valid at iter '
-            f'{_REVIEW_MAX_ITERS}+. Current is iter {iter_num} — '
-            'keep iterating.'
-        )
-    return (
-        f'Unknown reviewer status {status!r} in {latest.name}. '
-        'Must be one of: ok | gaps | incomplete.'
-    )
+    # Reviewer sign-off — shared with the set_task_result path.
+    return report_reviewer.reviewer_verdict(task_dir)
 
 
 # ── Ad-tuning execution-review guard ───────────────────────────────
 #
-# Once an audit has been delivered (REVIEW_*_iter*.md Status: ok) and
-# the user instructs the agent to execute the plan, the agent creates
-# ``EXECUTION_LOG.md`` and begins applying each Recommendation row to
-# the live Amazon/Noon console. Before the agent may stop, an
-# ``ads-execution-review`` subagent must verify that:
-#
-# - Every actionable Recommendation in the audit has a corresponding
-#   EXECUTION_LOG row marked ``applied``.
-# - For every ``applied`` row, the per-campaign TSV reflects the new
-#   value (bid, status, negative-keyword, etc.).
-# - No row marked ``failed`` is left without a retry or an explicit
-#   note explaining why it was skipped.
-#
-# The reviewer writes ``EXEC_REVIEW_<YYYY-MM-DD>_iter<N>.md`` with the
-# same canonical ``Status: ok|gaps|incomplete`` header. The gate is
-# triggered only when ``EXECUTION_LOG.md`` exists in the task
-# workspace — non-execution tasks (audit-only) pass through.
-#
-# Semantic quality is the reviewer subagent's job. See
-# ``amazon-ads/references/reviewer-loop.md § Execution-review mode``.
+# After the user asks the agent to EXECUTE the plan, it creates
+# ``EXECUTION_LOG.md`` and applies each Recommendation on the live
+# console. Before Stop, the ``ads-execution-review`` subagent must verify
+# every actionable row was applied (EXECUTION_LOG + per-campaign TSV
+# reflect the new value; failures retried or noted) and write
+# ``EXEC_REVIEW_<date>_iter<N>.md`` with the same Status header. Gated
+# only when ``EXECUTION_LOG.md`` exists (audit-only tasks pass through).
+# Contract: ``amazon-ads/references/reviewer-loop.md § Execution-review``.
 
 _EXEC_LOG_NAME = 'EXECUTION_LOG.md'
 _EXEC_REVIEW_FILE_GLOB = 'EXEC_REVIEW_*_iter*.md'

@@ -31,6 +31,7 @@ from app.models.task import Task
 from app.models.task_step import TaskStep
 from app.models.user import User
 from app.routers.tasks_files import (
+    apply_report_reviewer_gate,
     looks_like_result_path,
     resolve_store_rules,
     resolve_workspace_result_path,
@@ -626,12 +627,9 @@ async def set_task_result(
 
     task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
 
-    # Phase-4 execution review gate (no-op unless an ``EXECUTION_LOG.md``
-    # exists in the workspace). The audit-report reviewer is no longer a
-    # separate subagent loop gated here — it's the constructive
-    # completeness reviewer below (``ad_completeness_review``), which
-    # lists what's missing each round and converges. See
-    # ``amazon-ads/references/output-spec.md``.
+    # Phase-4 execution review gate (no-op unless ``EXECUTION_LOG.md``
+    # exists). The audit-report reviewer runs below (completeness floor +
+    # apply_report_reviewer_gate), not here.
     deny = check_exec_review_status(task_root)
     if deny:
         raise HTTPException(status_code=400, detail=deny)
@@ -672,15 +670,11 @@ async def set_task_result(
 
     final_result = resolved_content if resolved_content is not None else raw
 
-    # Generic soft gates — run on the resolved result text, regardless
-    # of task type. Each gate gets at most SOFT_GATE_MAX_DENIALS denies
-    # per task; the next attempt is allowed through with the original
-    # text so a stubborn lint failure (or untranslatable identifier
-    # cluster) doesn't trap the agent forever. The agent sees the deny
-    # reason as the 400 detail; it can edit and call again. See
-    # ``app/ai/stop_gates/`` for the gate bodies and the rationale for
-    # placing them at set_task_result rather than the Stop hook (some
-    # backends don't emit Stop events).
+    # Generic soft gates — run on the resolved result text for every
+    # task. Each gate gets at most SOFT_GATE_MAX_DENIALS denies per task;
+    # past the cap the original text is allowed through so a stubborn
+    # failure doesn't trap the agent. At set_task_result rather than the
+    # Stop hook because some backends don't emit Stop events.
     for gate_module, gate_args in (
         (md_format_gate, (final_result,)),
         (language_gate, (final_result, task.title, task.description)),
@@ -723,6 +717,13 @@ async def set_task_result(
             task_id,
             deny.reason[:200],
         )
+
+    # Active reviewer sign-off (see apply_report_reviewer_gate).
+    deny_reason, final_result = apply_report_reviewer_gate(
+        task_id, task_root, final_result
+    )
+    if deny_reason:
+        raise HTTPException(status_code=400, detail=deny_reason)
 
     task.result = final_result
     task.updated_at = datetime.now(UTC).isoformat()
