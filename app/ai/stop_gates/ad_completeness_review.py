@@ -31,6 +31,7 @@ from app.ai.stop_gates import (
     ad_explicit_actions,
     ad_scale_winners,
     ad_scope,
+    ad_zero_impression,
 )
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
 
@@ -173,7 +174,14 @@ _DEFER_RE = re.compile(
     r'待下次\s*audit|下次\s*audit|下次任务|无法获取|未获取|本次会话未'
     r'|留待下次|待?下次审计|下一次审计|留待后续'
     r'|需\s*Brand\s*Registry\s*OTP|需要?\s*OTP|待\s*drill'
-    r'|pending[^。\n]*drill|代表性样本|快速扫描|仅\s*overview',
+    r'|pending[^。\n]*drill|代表性样本|快速扫描|仅\s*overview'
+    # Search-term drill evasions observed shipping a shallow report:
+    # deferring the reconciliation ("导出后补充对账"), claiming a page was
+    # "confirmed" with no numbers ("已在 Search Terms 页面确认"), or the
+    # unverified "only N days of data" excuse — all mean the search-term
+    # layer was NOT drilled this session.
+    r'|导出后补充|补充对账|需从\s*Search\s*Terms[^\n]{0,20}导出'
+    r'|已在\s*Search\s*Terms[^\n]{0,12}确认|数据仅\s*\d+\s*天',
     re.IGNORECASE,
 )
 
@@ -181,6 +189,35 @@ _DEFER_RE = re.compile(
 # report. A clean report has UPPERCASE ASINs / readable keywords.
 _GARBLED_RE = re.compile(
     r'asin-expanded\s*=|aria-label\s*=|\brole\s*=\s*["\']|\bb0[a-z0-9]{8}\b'
+)
+
+# Unproven "this marketplace is empty" claim. Asserting a marketplace has
+# NO campaigns is a NEGATIVE that must be PROVEN by enumeration — the
+# false-negative class where a report declared one marketplace's products
+# had "无广告投放 / 无活动" while that market actually had live campaigns.
+# The agent guessed "empty" from a single-marketplace view without ever
+# switching to that market and exporting it. Proof = AUDIT_SCOPE.json
+# (written by the per-marketplace enumeration step); its presence means the
+# agent actually switched + exported each market. When scope EXISTS, the
+# coverage loop above already forces every enumerated active id to be
+# drilled (and a genuinely-empty market is a combo with active_ids == []).
+# The optional token before the noun lets "无 <product> 活动" match for any
+# product name without hardcoding one.
+_EMPTY_MARKET_CLAIM_RE = re.compile(
+    r'无(?:任何)?\s*(?:[A-Za-z0-9一-鿿-]{1,16}\s+)?'
+    r'(?:广告活动|活动投放|广告投放|广告|活动)'
+    r'|零\s*广告(?:投放)?'
+    r'|没有(?:任何)?\s*(?:广告活动|广告投放|广告|活动投放|活动)'
+    r'|未(?:进行|做)?[^\n。]{0,6}广告投放'
+    r'|no\s+(?:active\s+)?campaigns?',
+    re.IGNORECASE,
+)
+# Only treat the result as an AUDIT (subject to the empty-claim proof
+# rule) when it has real per-campaign drill/bid tables or several campaign
+# blocks — so a narrow "create/investigate one ad" task that mentions
+# "无广告活动" in passing isn't wrongly gated.
+_IS_AUDIT_RE = re.compile(
+    r'^\|.*(?:建议|recommendation).*\|', re.MULTILINE | re.IGNORECASE
 )
 
 # --- Per-campaign search-term drill + reconciliation ------------------
@@ -194,7 +231,16 @@ _GARBLED_RE = re.compile(
 # bug) or the capture is incomplete. Campaign types with no search-term
 # report (e.g. Sponsored Display) escape with an explicit
 # 无搜索词报告 / 无点击 token instead.
-_CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|C_[A-Z0-9]{6,}')
+# Campaign-id shapes that mark a "### " heading as a campaign block:
+#   * long numeric — the canonical Amazon campaign id (e.g. 100000000001)
+#   * A#######+   — the ad-console SHORT display id (e.g. A1234567), which
+#     is what the campaign-manager grid shows and what agents paste into
+#     headings; missing this let every per-market block escape the
+#     per-campaign search-term check (a whole audit shipped with fabricated
+#     搜索词对账 lines because the block was never recognized as a campaign).
+#   * C_XXXX      — noon.
+# `[A-Z]\d{7,}` won't match ASINs (e.g. B0EXAMPLE1 has letters after digit).
+_CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|[A-Z]\d{7,}|C_[A-Z0-9]{6,}')
 _RECONCILE_RE = re.compile(
     r'搜索词对账[:：][^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
     r'[^\n]*?点击[^\d\n]*([\d,]+)'
@@ -577,6 +623,9 @@ def check(
     ea = ad_explicit_actions.check(result_text, rules)
     if ea:
         gaps.append('[规则·明确幅度] ' + ea.reason[:400])
+    zi = ad_zero_impression.check(result_text, rules)
+    if zi:
+        gaps.append('[规则·零曝光] ' + zi.reason[:300])
 
     # 3) No-defer: work the agent excused as "next audit" / "needs OTP"
     #    that is actually doable this session (Brand Analytics is
@@ -591,6 +640,30 @@ def check(
             + '。本会话已同时打开多平台，有足够上下文与时间：Brand Analytics '
             'ASIN 报告无需 OTP 可直接进入获取；跨平台/同-SKU 对比、逐活动 '
             'drill 必须本次完成，不能写“待下次 audit / 无法获取 / 代表性样本”。'
+        )
+
+    # 3a) Unproven empty-marketplace claim (see _EMPTY_MARKET_CLAIM_RE).
+    #     An audit that declares a market empty without AUDIT_SCOPE.json
+    #     never enumerated it — that is a guess, not a finding. Force the
+    #     agent to switch to that marketplace, export it, and persist
+    #     AUDIT_SCOPE (which then drives the coverage loop above).
+    is_audit = bool(_IS_AUDIT_RE.search(result_text)) or (
+        len(re.findall(r'(?m)^###\s', result_text)) >= 2
+    )
+    if (
+        scope is None
+        and is_audit
+        and _EMPTY_MARKET_CLAIM_RE.search(result_text)
+    ):
+        gaps.append(
+            '[空市场未证实] 报告断言某市场「无广告 / 无活动 / 零投放」，但工作区'
+            '没有 AUDIT_SCOPE.json——你从未枚举该市场，这是猜测不是结论。断言一个'
+            '市场为空属于“证明否定”，必须：切到该 marketplace（广告控制台左上角 '
+            '`Sponsored ads, <国家>` 切换器）→ 导出该市场 bulk → 运行 '
+            '`python scripts/ads_bulk.py scope <该市场导出>` 把每个市场的 active '
+            'campaign id 落盘到 `./AUDIT_SCOPE.json`。只有导出确实为空，才能写'
+            '「该市场无活动」；否则把导出里的活动逐个 drill（该市场很可能其实有'
+            '活动——这正是之前误报“AE 无广告”的原因）。'
         )
 
     # 4) Garbled extraction — raw DOM attributes / lowercased ASINs.

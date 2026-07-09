@@ -136,6 +136,17 @@ override — see tuning-thresholds.md.)
   浪费 (ACOS ∞)`**, never `<5%` or any placeholder. **Every ACOS value in
   the report must trace to captured `spend` AND `sales`** — a qualitative
   guess like `<5%` is a gap, not a metric.
+- **ZERO IMPRESSIONS over the window → NEVER `维持`.** A row with 0
+  曝光 (hence 0 点击, 0 花费) across the full window is not being served
+  at all — "维持/维持观察" is inaction disguised as advice, and the gate
+  (`ad_zero_impression`) rejects it. The action head must be **提高出价
+  至 X**（bid is likely below the auction entry price）or **检查广告资格**
+  （product suppressed / not eligible / campaign 未过审）. This is stronger
+  than the zero-*click* case above: with truly zero impressions even a
+  "reasonable" bid isn't winning the auction, so raise it or diagnose
+  eligibility — do not defer to another window. (Mentioning eligibility
+  in a note while the action head stays `维持` does NOT satisfy this —
+  change the action itself.)
 - **ACOS < `acos_no_lower`% → never LOWER the bid** (only when
   `orders ≥ 1` — see the zero-sales rule above). Only `Hold` or
   `提高/raise`. Bid-above-suggested alone is NOT a reason to trim.
