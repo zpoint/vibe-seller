@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime
+import logging
 import mimetypes
 import os
 from pathlib import Path
@@ -12,6 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from app.ai.stop_gates import (
+    record_attempt,
+    recorded_skills,
+    report_reviewer,
+)
 from app.ai.stop_gates.ad_rules import resolve_rules
 from app.auth import get_current_user
 from app.browser.manager import store_slug
@@ -21,7 +27,43 @@ from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 
+logger = logging.getLogger(__name__)
+
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
+
+
+def apply_report_reviewer_gate(task_id, task_root, final_result):
+    """Reviewer sign-off for ads-skill tasks at ``set_task_result``.
+
+    The active ``ads-report-review`` reviewer is enforced here (not only
+    in the Stop hook) so a backend that finishes via this endpoint can't
+    complete an ads report with the reviewer never spawned. Fires for ANY
+    ads-skill-bound task — the reviewer itself decides whether there was
+    real work to verify or nothing to review (it signs off fast on a
+    lookup); the server never pre-judges report-vs-lookup.
+
+    Returns ``(deny_reason, final_result)``. A non-None ``deny_reason``
+    means the caller should 400. On a bounded stall the reviewer fails
+    open: ``deny_reason`` is None but ``final_result`` is banner-marked
+    UNVERIFIED — never a silent "done".
+    """
+    if not (recorded_skills(task_id) & report_reviewer.AD_SKILLS):
+        return None, final_result
+    deny = report_reviewer.reviewer_verdict(task_root)
+    if not deny:
+        return None, final_result
+    attempt = record_attempt(task_id, 'ads_report_reviewer')
+    if attempt <= report_reviewer.REVIEWER_STALL_CAP:
+        return deny, final_result
+    logger.warning(
+        'Reviewer stalled for task %s after %d denials — accepting result '
+        'as UNVERIFIED. Last reason: %s',
+        task_id,
+        attempt,
+        deny[:200],
+    )
+    return None, report_reviewer.partial_banner() + final_result
+
 
 _SKIP_NAMES = {'.claude', '.mcp.json', 'CLAUDE.md'}
 
