@@ -59,6 +59,26 @@ ruff format .          # Python format
 
 Config lives in `pyproject.toml` ([tool.ruff]) and `.pre-commit-config.yaml`.
 
+## No real customer data in the repo (or anything that leaves the machine)
+
+**Never** commit real live-account data into source, comments, tests,
+docs, commit messages, or PR titles/bodies. This is a hard rule — the
+repo is shared/public. Prohibited: real **brand / store names**, **SKUs
+and product names**, **ASINs**, **entity IDs** (`ENTITY…`), **campaign
+IDs**, advertiser account names/emails, and **live metrics** captured
+from a real account (spend, ACOS, order counts, real search terms).
+
+Use obvious placeholders: `widget-006` / `WIDGET-006`, `B0EXAMPLE1`
+(ASIN), `A1234567` / `100000000001` (campaign id), `acme` (brand), round
+illustrative numbers. Generic marketplace codes (`SA`, `AE`, `US`, `EG`)
+are fine — they identify a marketplace, not the customer. Write
+regexes/gates to match *shapes* (`A\d{7,}`), never a hardcoded real
+SKU/brand. Before opening or updating a PR, grep the **whole diff**, the
+commit message, and the PR title/body for these tokens and replace any
+hit; if real data already landed, scrub it and force-push. Live per-run
+captures belong in `/tmp/<task>/`, never in the repo or under
+`~/.vibe-seller/knowledge/`. See memory `feedback_no_real_brands`.
+
 ## Fix from design, not from symptom
 
 When given a bug or failing test, **review the design that produced it

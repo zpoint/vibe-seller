@@ -115,13 +115,28 @@ causes shortcutting). Just two files, then run:**
    procedure on one page. Load a heavy reference only when a step there
    tells you to.
 
-Then write the report and call
-`vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`. The server's
-**completeness reviewer** replies with a short "what's still missing"
-list (under-drilled countries + bid-rule violations) and converges over
-rounds — **partial is accepted each round**, just fix the top gaps and
-re-submit until it returns nothing. No separate reviewer subagent or
-Stop-hook needed.
+Write the report to `AD_AUDIT_<YYYY-MM-DD>.md`, and persist the
+authoritative active-campaign ids per marketplace to `AUDIT_SCOPE.json`
+(run `python scripts/ads_bulk.py scope <each market's export>`) — the
+coverage floor checks against it.
+
+**Before `vibe_seller_set_task_result`, you MUST pass verification — the
+report is not done until it's checked against the live console:**
+
+1. The server's **coverage floor** (deterministic): every marketplace
+   enumerated, every active id drilled, drills never regress. It replies
+   with "what's still missing"; fix and re-submit until clean.
+2. The **`ads-report-review` reviewer loop** (active verification): spawn
+   the reviewer subagent per
+   [`reviewer-loop.md`](references/reviewer-loop.md) — it **opens the live
+   console / re-exports and cross-checks your report against reality**
+   (samples your claimed drills, switches to any "empty" marketplace to
+   confirm, rejects count/category summaries that aren't word-level). Fix
+   the gaps it writes, re-run it, until it writes `Status: ok`. The
+   Stop-hook will not let you finish until it does.
+
+Both must pass. This is how "done" is defined for an ad report: verified
+against the live console, drilled to the word level — never a claim.
 
 ## Workflow references — the "what to do" thinking
 
@@ -130,7 +145,7 @@ Stop-hook needed.
 | [`output-spec.md`](references/output-spec.md) | **Read first for every audit.** The report contract the server completeness reviewer checks against — per-(platform,country) 进度 line, header table, per-campaign drills, the 4 bid rules, TSV-per-campaign. |
 | [`audit-quickref.md`](references/audit-quickref.md) | **The procedure, one page.** Run this top-to-bottom; it points to heavy refs on demand. |
 | [`format-anchor.md`](references/format-anchor.md) | _Legacy detail._ Per-campaign table column shape; load only if you need the exact table layout. (The mandatory subagent reviewer-loop is superseded by the server completeness reviewer — partial is accepted, it lists gaps each round.) |
-| [`reviewer-loop.md`](references/reviewer-loop.md) | Phase-4 **execution review** only (`EXEC_REVIEW_*`, Stop-hook enforced). For audit reports its Phase-3 format loop is superseded by the server completeness reviewer — don't spawn a review subagent for amazon/noon audits. |
+| [`reviewer-loop.md`](references/reviewer-loop.md) | **Required before finishing ANY ad report.** Phase-3 `ads-report-review` = active verification (opens the live console/export, cross-checks your report, loops until `Status: ok`; Stop-hook enforced). Phase-4 `ads-execution-review` for apply tasks (`EXEC_REVIEW_*`). |
 | [`tuning-workflow.md`](references/tuning-workflow.md) | User asks to tune ads, improve ACOS, "review last month's ads", harvest search terms, lower bids on losers, weekly ad review, "why is X campaign burning money", or any ongoing-campaign refinement task. |
 | [`tuning-campaign-types.md`](references/tuning-campaign-types.md) | A campaign isn't SP-Manual-Keyword. The skill defaults to SP-Manual-Keyword; for SP-Auto / SP-Manual-Product / Sponsored Brands / Sponsored Brands Video / Sponsored Display, this reference has the per-type sidebar tabs, Targeting-tab columns, and lever-applicability matrix observed on a live merchant account. Pair with `tuning-workflow.md` Phase 3 — that phase branches on type. |
 | [`tuning-thresholds.md`](references/tuning-thresholds.md) | Need to derive per-store thresholds (breakeven ACOS = margin %, target ACOS = 0.7 × breakeven, protect-zone, waste/harvest cutoffs). Always heuristic, never hardcoded. |
