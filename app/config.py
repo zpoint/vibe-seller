@@ -97,6 +97,15 @@ FRONTEND_URL = Options.FRONTEND_URL.get() or f'http://{LOCALHOST_NAME}:5173'
 LOG_DIR = Path(Options.LOG_DIR.get() or (BASE_DIR / 'logs'))
 LOG_DIR.mkdir(exist_ok=True)
 
+# AskUserQuestion answer window. A task must never hang forever waiting
+# for a human to click an option — unattended/scheduled runs have no one
+# watching. After the window the server auto-answers with a sensible
+# default (first option) so the agent proceeds instead of stalling.
+# Interactive (user-created) tasks get a generous window; scheduled tasks
+# (definitionally unattended) answer fast.
+QUESTION_ANSWER_TIMEOUT_SECONDS = 120
+QUESTION_ANSWER_TIMEOUT_SCHEDULED_SECONDS = 10
+
 # Browser-use CLI
 BROWSER_USE_BIN_DIR = VIBE_SELLER_DIR / 'bin'
 BROWSER_USE_BIN_DIR.mkdir(parents=True, exist_ok=True)

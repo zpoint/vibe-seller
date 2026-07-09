@@ -27,6 +27,38 @@ prompts or the frontend — see CLAUDE.md "Fix from design".
 FREE_TEXT_KEY = '_free_text'
 
 
+def default_answers(questions: list[dict]) -> dict:
+    """Server-side default answers for an AskUserQuestion nobody answered.
+
+    Used when no human responds within the answer window (unattended /
+    scheduled runs) so the agent proceeds instead of hanging. Picks the
+    FIRST option per question — the ``AskUserQuestion`` convention puts
+    the recommended option first — as a list for ``multiSelect``; falls
+    back to a generic "proceed with defaults" text for a question with no
+    options. Keyed by question text (the shape the agent renders by),
+    matching ``expand_free_text_answers``.
+    """
+    out: dict = {}
+    for q in questions:
+        if not isinstance(q, dict):
+            continue
+        key = q.get('question') or q.get('header') or ''
+        if not key:
+            continue
+        options = q.get('options') or []
+        if options:
+            first = options[0]
+            label = (
+                first.get('label', '')
+                if isinstance(first, dict)
+                else str(first)
+            )
+            out[key] = [label] if q.get('multiSelect') else label
+        else:
+            out[key] = 'Proceed with sensible defaults.'
+    return out
+
+
 def expand_free_text_answers(answers: dict, questions: list[dict]) -> dict:
     """Return *answers* with the free-text sentinel expanded.
 

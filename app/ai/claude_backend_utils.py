@@ -14,7 +14,11 @@ from app.ai.bash_safety import (
     check_review_status,
 )
 from app.ai.skill_gate_utils import find_skill_md
-from app.config import WEB_BROWSER_SLUG
+from app.config import (
+    QUESTION_ANSWER_TIMEOUT_SCHEDULED_SECONDS,
+    QUESTION_ANSWER_TIMEOUT_SECONDS,
+    WEB_BROWSER_SLUG,
+)
 from app.database import async_session
 from app.env_options import Options
 from app.models.schedule import Schedule
@@ -432,3 +436,24 @@ def check_exec_review_status_for_stop(
     if task_dir is None:
         return None
     return check_exec_review_status(task_dir)
+
+
+async def resolve_question_answer_timeout(task_id: str) -> float:
+    """Seconds to wait for a human AskUserQuestion answer before the
+    server auto-answers with defaults.
+
+    Scheduled tasks run unattended → short window; a user-created
+    (interactive) task gets a generous one in case someone is watching.
+    """
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+            if task and task.schedule_id:
+                return QUESTION_ANSWER_TIMEOUT_SCHEDULED_SECONDS
+    except Exception:
+        logger.debug(
+            'Question-timeout task load failed for %s; interactive default',
+            task_id,
+            exc_info=True,
+        )
+    return QUESTION_ANSWER_TIMEOUT_SECONDS
