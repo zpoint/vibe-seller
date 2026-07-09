@@ -35,6 +35,13 @@ AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
 
 _REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
 _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
+# A review file carries ``review`` as a distinct token (case-insensitive,
+# not a substring of another word). Accepts ``REVIEW_...``,
+# ``<PRODUCT>_REVIEW_...``, lowercase ``review_...`` — a weak model names
+# it inconsistently. Rejects incidental substring matches like
+# ``PREVIEW.md``. ``EXEC_`` (phase-4 execution review) is excluded
+# separately.
+_REVIEW_NAME_RE = re.compile(r'(?:^|[^a-z])review(?:[^a-z]|$)', re.IGNORECASE)
 
 # Max iterations before ``incomplete`` is accepted as terminal (matches
 # the loop cap in ``amazon-ads/references/reviewer-loop.md``).
@@ -74,14 +81,17 @@ def reviewer_verdict(task_dir) -> str | None:
     if task_dir is None:
         return None
 
-    # Accept ANY ``*REVIEW*.md`` except an EXEC_ (phase-4) one — a weak
-    # model often names it ``<PRODUCT>_REVIEW_<date>.md``; the Status line
-    # gates, not the exact filename.
+    # Accept any ``.md`` whose name carries ``review`` as a token
+    # (case-insensitive) except an EXEC_ (phase-4) one — a weak model
+    # often names it ``<PRODUCT>_REVIEW_<date>.md`` or lowercase
+    # ``review_...``; the Status line gates, not the exact filename. The
+    # token match avoids incidental substrings (e.g. ``PREVIEW.md``).
     try:
         review_files = [
             p
-            for p in task_dir.glob('*REVIEW*.md')
-            if not p.name.startswith('EXEC_')
+            for p in task_dir.glob('*.md')
+            if _REVIEW_NAME_RE.search(p.name)
+            and not p.name.upper().startswith('EXEC_')
         ]
     except OSError:
         review_files = []
