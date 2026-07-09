@@ -2,6 +2,18 @@
 name: amazon-reports
 description: "Amazon platform only. MUST load BEFORE taking any action when the task involves Amazon Seller Central report pages (Tax Document Library, Business Reports, Fulfillment, Payments CSV, Advertising Reports, etc.). Contains URLs, hover navigation, CSV structures, and wait times."
 requires: [amazon-shared]
+review:
+  criteria: |
+    - The requested report(s) were ACTUALLY exported: the file exists,
+      is non-empty, and has rows > 0 — OR the page explicitly shows "No
+      Data Available" (a valid empty result, not a missing/failed pull).
+    - Scope matches the ask: every requested country / the requested date
+      window is covered, not a partial pull.
+  verify_by: |
+    Open the newest downloaded file in ~/.vibe-seller/downloads/<slug>/
+    and confirm the header columns + a non-zero row count; open the
+    report-history page and confirm the "Date Range Covered" and scope
+    match the request. Do not accept a claimed export without the file.
 ---
 
 # Amazon Seller Central — Reports Export Guide
