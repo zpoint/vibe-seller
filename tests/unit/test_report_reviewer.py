@@ -81,6 +81,26 @@ class TestReviewerVerdict:
         )
         assert rr.reviewer_verdict(tmp_path) is None
 
+    def test_lowercase_review_name_accepted(self, tmp_path):
+        # A weak model may write a lowercase name; case-sensitive glob
+        # used to MISS it and falsely trap the run.
+        self._audit(tmp_path)
+        (tmp_path / 'review_2026-07-09.md').write_text(
+            '# review\nStatus: ok\n', encoding='utf-8'
+        )
+        assert rr.reviewer_verdict(tmp_path) is None
+
+    def test_preview_substring_not_counted(self, tmp_path):
+        # ``PREVIEW.md`` contains "review" as a substring but is not a
+        # review file — the token match must reject it, so the gate still
+        # denies (reviewer never ran).
+        self._audit(tmp_path)
+        (tmp_path / 'PREVIEW.md').write_text(
+            '# preview\nStatus: ok\n', encoding='utf-8'
+        )
+        deny = rr.reviewer_verdict(tmp_path)
+        assert deny is not None and 'Reviewer never ran' in deny
+
     def test_exec_review_not_counted(self, tmp_path):
         # An EXEC_REVIEW_* (phase-4 execution review) must NOT satisfy the
         # report reviewer.
