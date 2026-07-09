@@ -82,4 +82,97 @@ class TestReviewStopGate:
         )
         deny = check_review_status(tmp_path)
         assert deny is not None
-        assert 'ads-format-review' in deny
+        assert 'ads-report-review' in deny
+
+    def test_ad_skill_task_requires_active_reviewer(
+        self, tmp_path, monkeypatch
+    ):
+        # An ad-skill-bound task must pass the coverage floor AND the
+        # active ads-report-review reviewer. Floor passing but no REVIEW
+        # file → still denied (reviewer never ran).
+        import app.ai.stop_gates as sg
+
+        monkeypatch.setattr(
+            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+        )
+        monkeypatch.setattr(
+            ad_completeness_review, 'check', lambda *a, **k: None
+        )
+        (tmp_path / 'AD_AUDIT_2026-07-09.md').write_text(
+            '# r\n\n## Amazon SA\n', encoding='utf-8'
+        )
+        deny = check_review_status(tmp_path)
+        assert deny is not None and 'ads-report-review' in deny
+
+    def test_ad_skill_task_passes_with_reviewer_ok(self, tmp_path, monkeypatch):
+        import app.ai.stop_gates as sg
+
+        monkeypatch.setattr(
+            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+        )
+        monkeypatch.setattr(
+            ad_completeness_review, 'check', lambda *a, **k: None
+        )
+        (tmp_path / 'AD_AUDIT_2026-07-09.md').write_text(
+            '# r\n\n## Amazon SA\n', encoding='utf-8'
+        )
+        (tmp_path / 'REVIEW_2026-07-09_iter1.md').write_text(
+            '# Review\nStatus: ok\n', encoding='utf-8'
+        )
+        assert check_review_status(tmp_path) is None
+
+    def test_review_file_nonstandard_name_accepted(self, tmp_path, monkeypatch):
+        # A weak model may name the review file <PRODUCT>_REVIEW_<date>.md
+        # instead of REVIEW_<date>_iter<N>.md. As long as it has a Status
+        # line and isn't an EXEC_ review, the Status is what gates.
+        import app.ai.stop_gates as sg
+
+        monkeypatch.setattr(
+            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+        )
+        monkeypatch.setattr(
+            ad_completeness_review, 'check', lambda *a, **k: None
+        )
+        (tmp_path / 'AD_AUDIT_2026-07-09.md').write_text(
+            '# r\n\n## Amazon SA\n', encoding='utf-8'
+        )
+        (tmp_path / 'WIDGET006_REVIEW_2026-07-09.md').write_text(
+            '# review\nStatus: ok\n', encoding='utf-8'
+        )
+        assert check_review_status(tmp_path) is None
+
+    def test_exec_review_not_counted_as_report_review(
+        self, tmp_path, monkeypatch
+    ):
+        # An EXEC_REVIEW_* file must NOT satisfy the phase-3 report gate.
+        import app.ai.stop_gates as sg
+
+        monkeypatch.setattr(
+            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+        )
+        monkeypatch.setattr(
+            ad_completeness_review, 'check', lambda *a, **k: None
+        )
+        (tmp_path / 'AD_AUDIT_2026-07-09.md').write_text(
+            '# r\n\n## Amazon SA\n', encoding='utf-8'
+        )
+        (tmp_path / 'EXEC_REVIEW_2026-07-09_iter1.md').write_text(
+            '# exec\nStatus: ok\n', encoding='utf-8'
+        )
+        deny = check_review_status(tmp_path)
+        assert deny is not None and 'ads-report-review' in deny
+
+    def test_ad_skill_task_without_report_denied(self, tmp_path, monkeypatch):
+        # Bound to an ad skill but no AD_AUDIT_*.md at all → denied, even
+        # though a differently-named report might exist (closes the
+        # filename-escape hole).
+        import app.ai.stop_gates as sg
+
+        monkeypatch.setattr(
+            sg, 'recorded_skills', lambda t: frozenset({'noon-ads'})
+        )
+        (tmp_path / 'widget_AD_COMPARISON.md').write_text(
+            '# r\n', encoding='utf-8'
+        )
+        deny = check_review_status(tmp_path)
+        assert deny is not None and 'AD_AUDIT' in deny

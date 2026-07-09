@@ -324,4 +324,4 @@ def test_registered_review_marker_suppresses_legacy_gate(
         '# 广告优化建议 — 某平台\n\n## 某场景\n', encoding='utf-8'
     )
     deny = check_review_status(other)
-    assert deny is not None and 'ads-format-review' in deny
+    assert deny is not None and 'ads-report-review' in deny
