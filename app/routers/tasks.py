@@ -18,8 +18,6 @@ from app.ai.stop_gates import (
     clear_skill_bindings,
     markdown_format as md_format_gate,
     record_attempt,
-    recorded_skills,
-    report_reviewer,
     reset_attempts,
     resolve_skill_gates,
     result_language as language_gate,
@@ -33,6 +31,7 @@ from app.models.task import Task
 from app.models.task_step import TaskStep
 from app.models.user import User
 from app.routers.tasks_files import (
+    apply_report_reviewer_gate,
     looks_like_result_path,
     resolve_store_rules,
     resolve_workspace_result_path,
@@ -628,12 +627,9 @@ async def set_task_result(
 
     task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
 
-    # Phase-4 execution review gate (no-op unless an ``EXECUTION_LOG.md``
-    # exists in the workspace). The audit-report reviewer is no longer a
-    # separate subagent loop gated here — it's the constructive
-    # completeness reviewer below (``ad_completeness_review``), which
-    # lists what's missing each round and converges. See
-    # ``amazon-ads/references/output-spec.md``.
+    # Phase-4 execution review gate (no-op unless ``EXECUTION_LOG.md``
+    # exists). The audit-report reviewer runs below (completeness floor +
+    # apply_report_reviewer_gate), not here.
     deny = check_exec_review_status(task_root)
     if deny:
         raise HTTPException(status_code=400, detail=deny)
@@ -674,15 +670,11 @@ async def set_task_result(
 
     final_result = resolved_content if resolved_content is not None else raw
 
-    # Generic soft gates — run on the resolved result text, regardless
-    # of task type. Each gate gets at most SOFT_GATE_MAX_DENIALS denies
-    # per task; the next attempt is allowed through with the original
-    # text so a stubborn lint failure (or untranslatable identifier
-    # cluster) doesn't trap the agent forever. The agent sees the deny
-    # reason as the 400 detail; it can edit and call again. See
-    # ``app/ai/stop_gates/`` for the gate bodies and the rationale for
-    # placing them at set_task_result rather than the Stop hook (some
-    # backends don't emit Stop events).
+    # Generic soft gates — run on the resolved result text for every
+    # task. Each gate gets at most SOFT_GATE_MAX_DENIALS denies per task;
+    # past the cap the original text is allowed through so a stubborn
+    # failure doesn't trap the agent. At set_task_result rather than the
+    # Stop hook because some backends don't emit Stop events.
     for gate_module, gate_args in (
         (md_format_gate, (final_result,)),
         (language_gate, (final_result, task.title, task.description)),
@@ -726,29 +718,12 @@ async def set_task_result(
             deny.reason[:200],
         )
 
-    # Active reviewer sign-off — enforced HERE too, not only in the Stop
-    # hook. Some backends never emit a Stop event and finish by calling
-    # this endpoint directly; gating the reviewer only at the Stop hook
-    # let those runs complete a shallow-but-covering report with the
-    # ``ads-report-review`` subagent never spawned (the all-ads
-    # slip-through). Trigger = ANY ads skill bound to the task — the
-    # reviewer decides whether there was real work to verify or nothing
-    # to review (it signs off fast on a lookup). Fail-open is bounded
-    # and marks the result UNVERIFIED — never a silent "done".
-    if recorded_skills(task_id) & report_reviewer.AD_SKILLS:
-        deny_reason = report_reviewer.reviewer_verdict(task_root)
-        if deny_reason:
-            attempt = record_attempt(task_id, 'ads_report_reviewer')
-            if attempt <= report_reviewer.REVIEWER_STALL_CAP:
-                raise HTTPException(status_code=400, detail=deny_reason)
-            logger.warning(
-                'Reviewer stalled for task %s after %d denials — accepting '
-                'result as UNVERIFIED. Last reason: %s',
-                task_id,
-                attempt,
-                deny_reason[:200],
-            )
-            final_result = report_reviewer.partial_banner() + final_result
+    # Active reviewer sign-off (see apply_report_reviewer_gate).
+    deny_reason, final_result = apply_report_reviewer_gate(
+        task_id, task_root, final_result
+    )
+    if deny_reason:
+        raise HTTPException(status_code=400, detail=deny_reason)
 
     task.result = final_result
     task.updated_at = datetime.now(UTC).isoformat()

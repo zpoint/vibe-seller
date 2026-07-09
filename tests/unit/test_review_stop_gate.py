@@ -105,7 +105,6 @@ class TestReviewStopGate:
         assert deny is not None and 'ads-report-review' in deny
 
     def test_ad_skill_task_passes_with_reviewer_ok(self, tmp_path, monkeypatch):
-
         monkeypatch.setattr(
             sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
         )
