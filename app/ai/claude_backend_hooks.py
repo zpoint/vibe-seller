@@ -26,6 +26,7 @@ from app.ai.claude_backend_utils import (
     check_review_status_for_stop,
     check_skill_prereqs,
     get_open_tasklist_items,
+    resolve_question_answer_timeout,
     validate_fanout_plan_text,
 )
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
@@ -40,7 +41,7 @@ from app.prompts import (
     SCHEDULED_WATERMARK_PROMPT,
     render_prompt,
 )
-from app.question_answers import expand_free_text_answers
+from app.question_answers import default_answers, expand_free_text_answers
 from app.task_states import TaskStatus
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -754,7 +755,11 @@ class _HookMixin:
     async def _handle_ask_user_question(
         self, request_id: str, tool_input: dict
     ):
-        """Handle AskUserQuestion — emit to frontend, wait."""
+        """Emit AskUserQuestion to the UI; wait a bounded window for a
+        human answer, else AUTO-ANSWER with defaults so the agent never
+        hangs (unattended/scheduled runs have no one to click). See
+        ``resolve_question_answer_timeout`` + ``default_answers``.
+        """
         questions = tool_input.get('questions', [])
         self._pending_questions[request_id] = {
             'request_id': request_id,
@@ -769,10 +774,24 @@ class _HookMixin:
                 'questions': questions,
             },
         )
-        await self._answer_events[request_id].wait()
-        answers = self._answers.pop(request_id, {})
-        self._answer_events.pop(request_id, None)
-        self._pending_questions.pop(request_id, None)
+        timeout = await resolve_question_answer_timeout(self.task_id)
+        try:
+            await asyncio.wait_for(
+                self._answer_events[request_id].wait(), timeout
+            )
+            answers = self._answers.pop(request_id, {})
+        except TimeoutError:
+            answers = default_answers(questions)
+            logger.info(
+                'AskUserQuestion auto-answered for task %s after %ss with '
+                'defaults (no response): %s',
+                self.task_id,
+                timeout,
+                answers,
+            )
+        finally:
+            self._answer_events.pop(request_id, None)
+            self._pending_questions.pop(request_id, None)
         if not self.running or self._stopping:
             return
         # Expand the UI free-text sentinel into per-question answers (#211).
