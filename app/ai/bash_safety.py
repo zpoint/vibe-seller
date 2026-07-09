@@ -395,9 +395,15 @@ def check_report_overwrite(
 # missing/unparseable=deny. Semantic quality is the reviewer's job; code
 # only gates on the file. Contract: ``amazon-ads/references/reviewer-loop.md``.
 
-_REVIEW_FILE_GLOB = 'REVIEW_*_iter*.md'
+# The REPORT-reviewer verdict logic lives in
+# ``stop_gates.report_reviewer`` so BOTH completion paths (this Stop hook
+# AND set_task_result) enforce the same sign-off — see that module's
+# docstring. These two regexes are still used by the EXEC-review guard
+# below (phase-4 ``EXEC_REVIEW_*`` files share the ``Status:``/``_iter``
+# format).
 _REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
 _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
+
 # Audits a SERVER-side completeness gate reviews at set_task_result.
 # amazon/noon combo-section audits → ``ad_completeness_review``; plugins
 # register their own markers via ``register_review_marker`` (ORed in by
@@ -427,11 +433,6 @@ def _is_server_reviewed(audit_text: str) -> bool:
     return False
 
 
-# Max iterations before we accept ``incomplete`` as a terminal state
-# (matches the loop cap documented in ``reviewer-loop.md``).
-_REVIEW_MAX_ITERS = 5
-
-
 def check_review_status(task_dir) -> str | None:
     """Deny reason if the ad-report reviewer hasn't returned ``ok`` (or
     ``incomplete`` at iter ≥ 5); else ``None``. No-op for non-ad tasks.
@@ -439,11 +440,13 @@ def check_review_status(task_dir) -> str | None:
     if task_dir is None:
         return None
     # Identify ad-report tasks by BOUND SKILL, not filename (no escape).
-    from app.ai.stop_gates import recorded_skills  # noqa: PLC0415
+    from app.ai.stop_gates import (  # noqa: PLC0415
+        recorded_skills,
+        report_reviewer,
+    )
 
     is_ad_task = bool(
-        recorded_skills(task_dir.name)
-        & {'amazon-ads', 'noon-ads', 'qianniu-ads'}
+        recorded_skills(task_dir.name) & report_reviewer.AD_SKILLS
     )
     try:
         audit_files = list(task_dir.glob('AD_AUDIT_*.md'))
@@ -451,14 +454,10 @@ def check_review_status(task_dir) -> str | None:
         audit_files = []
     if not audit_files:
         if is_ad_task:
-            return (
-                'This task used an ads skill but produced no '
-                '``AD_AUDIT_<date>.md``. Write the report to that file and '
-                'run the ``ads-report-review`` verification loop '
-                '(``amazon-ads/references/reviewer-loop.md``) until '
-                'Status: ok — an ad report is not done until it has been '
-                'verified against the live console.'
-            )
+            # Even with no report file, route to the reviewer — it
+            # decides whether the task needed one (real audit → gaps) or
+            # had nothing to verify (quick lookup → signs off fast).
+            return report_reviewer.reviewer_verdict(task_dir)
         return None  # Not an ads task; nothing to gate.
 
     # This path also gates the ENDING-TURN bypass (streaming result
@@ -491,86 +490,8 @@ def check_review_status(task_dir) -> str | None:
             audit_text, task_dir.name
         )
 
-    # Accept ANY ``*REVIEW*.md`` except an EXEC_ (phase-4) one — a weak
-    # model often names it ``<PRODUCT>_REVIEW_<date>.md``; the Status line
-    # gates, not the exact filename.
-    try:
-        review_files = [
-            p
-            for p in task_dir.glob('*REVIEW*.md')
-            if not p.name.startswith('EXEC_')
-        ]
-    except OSError:
-        review_files = []
-    if not review_files:
-        return (
-            'Reviewer never ran. Before finalizing, spawn the '
-            '``ads-report-review`` subagent (subagent_type='
-            '"general-purpose") — it OPENS the live console/export and '
-            'cross-verifies your AD_AUDIT_*.md per '
-            '``amazon-ads/references/reviewer-loop.md`` — and write '
-            'its result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in this '
-            'workspace. Re-run reviewer until Status: ok or until '
-            f'iter {_REVIEW_MAX_ITERS} with Status: incomplete.'
-        )
-
-    def _iter_of(p):
-        m = _REVIEW_ITER_RE.search(p.name)
-        return int(m.group(1)) if m else 0
-
-    # Pick the most recently written review file, not the highest
-    # iter number. A workspace can accumulate REVIEW files from
-    # several audit cycles (e.g. ``REVIEW_2026-05-22_iter7.md``
-    # from yesterday's audit + ``REVIEW_2026-05-24_iter1.md`` from
-    # today's) — choosing by iter number would pick yesterday's
-    # iter7 over today's iter1, gating the new audit against a
-    # stale verdict. mtime correctly reflects which review covers
-    # the current audit.
-    try:
-        latest = max(review_files, key=lambda p: p.stat().st_mtime)
-    except OSError:
-        latest = max(review_files, key=_iter_of)
-    try:
-        content = latest.read_text(encoding='utf-8', errors='ignore')
-    except OSError:
-        return f'{latest.name} could not be read; rewrite the review file.'
-
-    match = _REVIEW_STATUS_RE.search(content)
-    if not match:
-        return (
-            f'{latest.name} has no ``Status:`` line. The reviewer '
-            'output must begin with one of: ``Status: ok`` | '
-            '``Status: gaps`` | ``Status: incomplete``. See '
-            '``amazon-ads/references/reviewer-loop.md`` for the '
-            'canonical format.'
-        )
-
-    status = match.group(1).lower()
-    iter_num = _iter_of(latest)
-    if status == 'ok':
-        return None
-    if status == 'incomplete' and iter_num >= _REVIEW_MAX_ITERS:
-        return None  # accept as terminal; gaps are on-disk for post-mortem
-    if status == 'gaps':
-        return (
-            f'Reviewer iter {iter_num} found gaps in the audit. '
-            f'Read {latest.name} for the list, fix the audit in '
-            f'place (Edit tool, not re-drill), then spawn the '
-            'reviewer again to write '
-            f'``REVIEW_*_iter{iter_num + 1}.md``. Repeat until '
-            f'Status: ok or iter {_REVIEW_MAX_ITERS} with '
-            'Status: incomplete.'
-        )
-    if status == 'incomplete' and iter_num < _REVIEW_MAX_ITERS:
-        return (
-            f'``Status: incomplete`` only valid at iter '
-            f'{_REVIEW_MAX_ITERS}+. Current is iter {iter_num} — '
-            'keep iterating.'
-        )
-    return (
-        f'Unknown reviewer status {status!r} in {latest.name}. '
-        'Must be one of: ok | gaps | incomplete.'
-    )
+    # Reviewer sign-off — shared with the set_task_result path.
+    return report_reviewer.reviewer_verdict(task_dir)
 
 
 # ── Ad-tuning execution-review guard ───────────────────────────────

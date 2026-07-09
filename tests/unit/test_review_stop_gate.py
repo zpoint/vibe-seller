@@ -13,6 +13,7 @@ server gate) keeps the REVIEW-file loop as its fallback enforcement.
 import pytest
 
 from app.ai.bash_safety import check_review_status
+import app.ai.stop_gates as sg
 from app.ai.stop_gates import ad_completeness_review
 
 
@@ -90,7 +91,6 @@ class TestReviewStopGate:
         # An ad-skill-bound task must pass the coverage floor AND the
         # active ads-report-review reviewer. Floor passing but no REVIEW
         # file → still denied (reviewer never ran).
-        import app.ai.stop_gates as sg
 
         monkeypatch.setattr(
             sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
@@ -105,7 +105,6 @@ class TestReviewStopGate:
         assert deny is not None and 'ads-report-review' in deny
 
     def test_ad_skill_task_passes_with_reviewer_ok(self, tmp_path, monkeypatch):
-        import app.ai.stop_gates as sg
 
         monkeypatch.setattr(
             sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
@@ -125,7 +124,6 @@ class TestReviewStopGate:
         # A weak model may name the review file <PRODUCT>_REVIEW_<date>.md
         # instead of REVIEW_<date>_iter<N>.md. As long as it has a Status
         # line and isn't an EXEC_ review, the Status is what gates.
-        import app.ai.stop_gates as sg
 
         monkeypatch.setattr(
             sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
@@ -145,7 +143,6 @@ class TestReviewStopGate:
         self, tmp_path, monkeypatch
     ):
         # An EXEC_REVIEW_* file must NOT satisfy the phase-3 report gate.
-        import app.ai.stop_gates as sg
 
         monkeypatch.setattr(
             sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
@@ -162,17 +159,19 @@ class TestReviewStopGate:
         deny = check_review_status(tmp_path)
         assert deny is not None and 'ads-report-review' in deny
 
-    def test_ad_skill_task_without_report_denied(self, tmp_path, monkeypatch):
-        # Bound to an ad skill but no AD_AUDIT_*.md at all → denied, even
-        # though a differently-named report might exist (closes the
-        # filename-escape hole).
-        import app.ai.stop_gates as sg
+    def test_ad_skill_task_without_report_routes_to_reviewer(
+        self, tmp_path, monkeypatch
+    ):
+        # Bound to an ad skill but no AD_AUDIT_*.md and no REVIEW → denied
+        # and routed to the reviewer (always-require). The reviewer, not a
+        # hardcoded server message, decides whether a report was owed —
+        # it signs off fast if there was nothing to verify.
 
         monkeypatch.setattr(
             sg, 'recorded_skills', lambda t: frozenset({'noon-ads'})
         )
-        (tmp_path / 'widget_AD_COMPARISON.md').write_text(
+        (tmp_path / 'WIDGET_AD_COMPARISON.md').write_text(
             '# r\n', encoding='utf-8'
         )
         deny = check_review_status(tmp_path)
-        assert deny is not None and 'AD_AUDIT' in deny
+        assert deny is not None and 'ads-report-review' in deny
