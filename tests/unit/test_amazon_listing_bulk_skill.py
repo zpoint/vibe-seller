@@ -539,8 +539,9 @@ def _make_mkt_template(path):
     dd.append(['Group Name', 'Field Name', 'Local Label Name',
                'Definition and Use', 'Accepted Values', 'Example', 'Required?'])
     for f in fields:
-        # The template marks the AE block required (the account is UAE-primary)
-        # -- exactly the trap that made a run fill AE for an SA listing.
+        # A multi-marketplace template marks a *different* marketplace's
+        # offer block Required than the one we're listing on -- exactly the
+        # trap that silently fills the wrong marketplace's price.
         dd.append(['', f, f, '', '', '', 'Required' if f == _AE_PRICE else 'Optional'])
     wb.save(path)
 
