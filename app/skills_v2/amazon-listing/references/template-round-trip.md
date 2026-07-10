@@ -144,7 +144,12 @@ fields.
 > block creates an **ASIN with no live offer** — the listing sits in
 > **"Missing offer"** and never goes live, even though the feed reports
 > success. (Pass `--marketplace SA` to `fill` as an alternative to the
-> top-level key.) Omit `main_image_url` when the only image you have is a
+> top-level key.) Any Amazon country code works (`US`, `UK`, `DE`, `JP`,
+> `AE`, `SA`, …); a raw marketplace id is also accepted. If you omit
+> `marketplace` entirely and the template has offer columns for exactly
+> one marketplace, `fill` auto-detects it from the template — so a
+> marketplace not in the built-in table still works. Omit `main_image_url`
+> when the only image you have is a
 > hotlinked supplier URL. Give each child its category's full required
 > set, not just the differentiator (see the Parent-vs-Child note below).
 
