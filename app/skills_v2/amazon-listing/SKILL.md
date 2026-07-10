@@ -139,13 +139,18 @@ a family that the parent shows **"Variations (N)"**.
     so the ASIN can be minted.
   Either way, set `update_delete` on **every** row including children —
   never leave a child's operation blank.
-- **Offer/price is per-marketplace, and only `our_price` matters.** The
-  buyable offer is one block per marketplace:
-  `purchasable_offer[marketplace_id=<MKT>]#1.our_price#1.schedule#1.value_with_tax`
-  (+ `fulfillment_availability#1.quantity`). Of the many price columns
-  only `our_price` is needed. Fill the block for the marketplace you're
-  selling on; **verify it in THAT marketplace's Pricing view** — the feed
-  "N/N successful" count does not reflect price, and quantity can apply
+- **Offer/price is per-marketplace — set `our_price` + a top-level
+  `marketplace`, don't hand-pick the column.** A multi-marketplace
+  template has one `purchasable_offer[marketplace_id=<MKT>]` block per
+  marketplace and marks the account's *home* marketplace's block Required
+  — so hand-picking a column silently puts the price in the wrong
+  marketplace, creating an ASIN with **no live offer** ("Missing offer",
+  never live) even though the feed says success. Instead give the spec a
+  top-level `"marketplace": "<CC>"` (the country you're listing on) and a
+  bare `"our_price"` on each child; `fill` routes it to the right block
+  (+ `fulfillment_availability#1.quantity`). **Verify it in THAT
+  marketplace's Pricing view** — the feed "N/N successful" count does not
+  reflect price, and quantity can apply
   while price shows `--` if you set a different marketplace's column.
 - **A multi-marketplace account's template bundles every marketplace's
   offer columns** (e.g. a Europe account yields both SA + AE columns even

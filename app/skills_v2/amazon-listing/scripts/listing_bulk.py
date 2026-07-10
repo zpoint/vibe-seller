@@ -85,6 +85,36 @@ IDENTITY_FIELD = 'item_sku'
 PRODUCT_TYPE_FIELD = 'feed_product_type'
 BRAND_FIELD = 'brand_name'
 
+# Marketplace (country) -> Amazon marketplace id. A multi-marketplace
+# template carries a separate `purchasable_offer[marketplace_id=<id>]`
+# block PER marketplace the account sells on; the price MUST go in the
+# block for the marketplace you are listing on, or the product is created
+# ASIN-only and the listing sits in "Missing offer" (a draft, never live).
+# The agent only knows the country (from the seller-central domain, e.g.
+# amazon.sa -> SA), so we resolve the id here instead of trusting it to
+# hand-pick a raw id (which is exactly how a run put the SA price into the
+# UAE column and never went live).
+MARKETPLACE_IDS = {
+    'SA': 'A17E79C6D8DWNP',  # Saudi Arabia  (amazon.sa)
+    'AE': 'A2VIGQ35RCS4UG',  # UAE           (amazon.ae)
+    'EG': 'ARBP9OOSHTCHU',   # Egypt         (amazon.eg)
+    'AU': 'A39IBJ37TRP1C6',  # Australia     (amazon.com.au)
+    'US': 'ATVPDKIKX0DER',   # United States (amazon.com)
+    'MX': 'A1AM78C64UM0Y8',  # Mexico        (amazon.com.mx)
+    'UK': 'A1F83G8C2ARO7P',  # United Kingdom(amazon.co.uk)
+    'DE': 'A1PA6795UKMFR9',  # Germany       (amazon.de)
+}
+
+# Bare offer shorthand -> the marketplace-scoped column template. The
+# agent supplies `our_price` on a child row plus a top-level
+# `marketplace`; we expand it to the exact column for that marketplace so
+# it can never land in the wrong block. `{id}` is filled per-marketplace.
+_OUR_PRICE_TEMPLATE = (
+    'purchasable_offer[marketplace_id={id}]#1.our_price#1.schedule'
+    '#1.value_with_tax'
+)
+_OFFER_PRICE_SHORTHANDS = ('our_price', 'price', 'standard_price')
+
 # A Parent (relationship) row carries only the shared catalogue data;
 # the offer, stock, images and product-id live on the Child rows. So a
 # Parent legitimately omits these even when the template marks them
@@ -357,6 +387,82 @@ def _row_fields(spec_row, top):
     return {k: v for k, v in out.items() if v not in (None, '')}
 
 
+def _resolve_marketplace_id(marketplace):
+    """Accept a country code ('SA') or a raw marketplace id; return the id.
+
+    Returns None when nothing was supplied. Raises on an unrecognised
+    country code so a typo fails loudly instead of silently placing the
+    offer nowhere.
+    """
+    if not marketplace:
+        return None
+    m = str(marketplace).strip()
+    if m.upper() in MARKETPLACE_IDS:
+        return MARKETPLACE_IDS[m.upper()]
+    if m in MARKETPLACE_IDS.values():  # already a raw id
+        return m
+    codes = ', '.join(sorted(MARKETPLACE_IDS))
+    raise SystemExit(
+        f'error: unknown marketplace {marketplace!r} -- use a country code '
+        f'({codes}) or a raw marketplace id'
+    )
+
+
+def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
+    """Place the child offer price in the TARGET marketplace's column.
+
+    Expands a bare ``our_price``/``price`` shorthand into
+    ``purchasable_offer[marketplace_id=<mkt_id>]#1.our_price...`` and flags
+    a price already written to a *different* marketplace's block (the
+    "listed but Missing offer / never live" trap). Mutates ``fields``.
+    """
+    shorthand = next((k for k in _OFFER_PRICE_SHORTHANDS if k in fields), None)
+    # A full offer-price column aimed at a DIFFERENT marketplace than the
+    # target -- only meaningful once we know the target. When no target is
+    # given, an explicit full column is left as-is (backward compatible).
+    misplaced = (
+        [
+            k
+            for k in fields
+            if k.startswith('purchasable_offer[marketplace_id=')
+            and '.our_price' in k
+            and f'marketplace_id={mkt_id}]' not in k
+        ]
+        if mkt_id is not None
+        else []
+    )
+    if not shorthand and not misplaced:
+        return  # parent rows / rows without a price to route.
+    if mkt_id is None:
+        # Only reachable via a bare shorthand, which needs a target.
+        raise SystemExit(
+            f"error: row {i} sku={sku} sets a price but the spec has no "
+            f"'marketplace' -- add e.g. \"marketplace\": \"SA\" so the offer "
+            f'lands in the right block (the marketplace you are listing on)'
+        )
+    target_col = _OUR_PRICE_TEMPLATE.format(id=mkt_id)
+    if target_col not in cols:
+        raise SystemExit(
+            f'error: row {i} sku={sku}: this template has no offer column '
+            f'for marketplace_id={mkt_id} -- the account may not sell on that '
+            f'marketplace, or you downloaded the template from the wrong site'
+        )
+    if shorthand:
+        fields[target_col] = fields.pop(shorthand)
+    for k in misplaced:
+        # Re-home the price to the target marketplace rather than leave it
+        # in the wrong block, where it would create an ASIN with no live
+        # offer on the marketplace being listed.
+        warnings.append(
+            f'row {i} sku={sku}: offer price was set on {k} but you are '
+            f'listing on marketplace_id={mkt_id} -- moved it to the target '
+            f'block (a price in the wrong marketplace => Missing offer, '
+            f'never live)'
+        )
+        fields.setdefault(target_col, fields[k])
+        del fields[k]
+
+
 def cmd_fill(args):
     with open(args.spec, encoding='utf-8') as fh:
         spec = json.load(fh)
@@ -375,6 +481,12 @@ def cmd_fill(args):
     valid = _load_valid_values(wb)
     case = _valid_value_case(wb)
 
+    # The offer price is per-marketplace; resolve the target once (CLI
+    # --marketplace wins, else spec's top-level "marketplace").
+    mkt_id = _resolve_marketplace_id(
+        getattr(args, 'marketplace', None) or spec.get('marketplace')
+    )
+
     unknown_fields = set()
     warnings = []
     write_at = header_row + 1
@@ -390,6 +502,11 @@ def cmd_fill(args):
         sku = fields.get(IDENTITY_FIELD)
         if not sku:
             raise SystemExit(f'error: row {i} has no sku')
+
+        # Route the child offer price into the marketplace being listed on,
+        # so it can't land in the wrong `purchasable_offer` block (which
+        # creates an ASIN-only listing stuck in "Missing offer").
+        _route_offer_price(fields, cols, mkt_id, i, sku, warnings)
 
         # Enum validation: reject an invalid operation-family token hard;
         # warn (never fail) on other enums so an unseen-but-valid token
@@ -628,6 +745,12 @@ def main():
     p.add_argument('file', help='the category template (.xlsm)')
     p.add_argument('--spec', required=True, help='JSON spec of rows')
     p.add_argument('--out', required=True, help='output .xlsm path')
+    p.add_argument(
+        '--marketplace',
+        help='country code (SA/AE/AU/…) or raw marketplace id you are '
+        'listing on; routes the offer price to the right block. Overrides '
+        "the spec's top-level \"marketplace\".",
+    )
     p.set_defaults(func=cmd_fill)
 
     p = sub.add_parser('parse-feedback', help='summarise a processing report')
