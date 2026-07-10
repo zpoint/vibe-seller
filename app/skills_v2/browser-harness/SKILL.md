@@ -161,39 +161,79 @@ PY
 
 ## Uploading a file to a web `<input type=file>`
 
-There is **no native upload helper** and a coordinate-click on the
-visible "Browse" button opens the OS file picker (which you can't drive),
-so DO NOT click it. Set the file **directly on the input element via
-CDP** — the one reliable way. Get a Runtime `objectId` for the input,
-then `DOM.setFileInputFiles`:
+There is **no native upload helper**. Never coordinate-click the visible
+"Browse"/"Upload file" button expecting to then drive the OS file picker
+(you can't). Attach the file via CDP. **`cdp()` takes keyword args, NOT a
+params dict** — the signature is `cdp(method, session_id=None, **params)`,
+so a dict in the 2nd slot binds to `session_id` and the proxy rejects it
+with `-32600 "Message may have string 'sessionId' property"`. Always use
+keywords: `cdp('Runtime.evaluate', expression=..., returnByValue=False)`.
 
-**`cdp()` takes keyword args, NOT a params dict.** The signature is
-`cdp(method, session_id=None, **params)` — the second positional slot is
-`session_id`, so passing a dict there (`cdp('Runtime.evaluate', {...})`)
-binds your params to `session_id` and the proxy rejects it with
-`-32600 "Message may have string 'sessionId' property"`. Always spell
-the CDP params as keywords: `cdp('Runtime.evaluate', expression=..., returnByValue=False)`.
+There are **two kinds of file input** — pick the matching method:
+
+### Method 1 — a plain `<input type=file>` (set the node directly)
+
+Works for a normal light-DOM input, or a simple open-shadow-DOM input
+whose node the component actually reads from. Get an objectId, set files:
 
 ```bash
 browser-use <<'PY'
-# 1. objectId for the <input type=file>. For a plain input:
 sel = "document.querySelector('input[type=file]')"
-# For an input inside an OPEN shadow root (e.g. Amazon's kat-file-upload,
-# where the light-DOM input count is 0), pierce it:
-# sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
+# shadow-DOM variant: "document.querySelector('host').shadowRoot.querySelector('input[type=file]')"
 obj = cdp('Runtime.evaluate', expression=sel, returnByValue=False)  # kwargs!
 oid = obj['result']['objectId']
-# 2. Attach the file. The path MUST be ABSOLUTE; files is a list.
-cdp('DOM.setFileInputFiles', objectId=oid, files=['/abs/path/to/file.txt'])
-print('attached')
+cdp('DOM.setFileInputFiles', objectId=oid, files=['/abs/path/to/file.txt'])  # ABSOLUTE path
+print('files.length:', js(sel + ".files.length"))   # MUST verify → 1, not 0
 PY
 ```
 
-Then submit via the page's own button (`click_at_xy` the real submit
-control, not the browse button) and `wait_for_load()`. If
-`Runtime.evaluate` returns no `objectId`, the selector didn't match
-(wrong shadow root / not yet rendered) — fix the selector; don't fall
-back to clicking Browse or to `file://` navigation (both dead ends).
+**Always verify `files.length` right after.** If it stays **0** while the
+call returned success, the node you set is an **inert placeholder** the
+component doesn't read from (common with design-system upload widgets like
+Amazon's `kat-file-upload`, whose `input#kat-file-attachment` is a decoy).
+`setFileInputFiles` silently no-ops on it — objectId, `backendNodeId`, and
+`getDocument(pierce=True)` all give 0. Switch to Method 2.
+
+### Method 2 — a component-managed widget (file-chooser interception)
+
+For widgets that open the file picker via a button and create the *real*
+input on demand (Amazon `kat-file-upload`, most React uploaders). Suppress
+the OS dialog, do a **trusted** click on the widget's button, and take the
+`backendNodeId` Chrome hands you in `Page.fileChooserOpened`:
+
+```bash
+browser-use <<'PY'
+import time
+cdp('Page.enable')
+cdp('Page.setInterceptFileChooserDialog', enabled=True)   # OS dialog suppressed
+drain_events()                                            # clear the buffer
+# TRUSTED click on the visible upload button. click_at_xy is a CDP Input
+# event (trusted) — a JS .click() is UNtrusted and the browser will NOT
+# open a chooser for it (this is why setting the placeholder input fails).
+box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
+            var r=b.getBoundingClientRect();
+            return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};""")
+click_at_xy(box['x'], box['y'])
+bnid = None
+for _ in range(8):                     # poll for the event (~4s)
+    time.sleep(0.5)
+    for e in drain_events():
+        if 'fileChooserOpened' in str(e.get('method', '')):
+            bnid = e['params']['backendNodeId']
+    if bnid: break
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=['/abs/path/to/file.txt'])
+cdp('Page.setInterceptFileChooserDialog', enabled=False)
+print('attached to backendNodeId', bnid)
+PY
+```
+
+The widget then reads and stages the file itself — the visible field shows
+the filename and (for Amazon) a green "File Type … (Automatically
+detected)". **Don't trust the shadow-root `textContent`** to confirm — it
+carries hidden error-state strings ("File upload was unsuccessful") even on
+success; confirm with a `capture_screenshot()` + Read, or by the Submit
+button becoming enabled. Then `click_at_xy` the page's own **Submit** and
+`wait_for_load()`.
 
 ## Sessions
 
