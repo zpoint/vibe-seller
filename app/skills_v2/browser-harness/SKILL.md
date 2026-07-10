@@ -43,11 +43,8 @@ print(page_info())
 PY
 ```
 
-Single statements can use `-c`:
-
-```bash
-browser-use -c 'print(page_info())'
-```
+The wrapper takes the heredoc form **only** — there is no `-c` flag
+(passing one just prints usage). Put every statement inside the heredoc.
 
 ## Prerequisites
 
@@ -61,11 +58,20 @@ browser-use --doctor    # verify installation / CDP connectivity
    navigation**. There is **no `page` object** in the heredoc scope, so
    `page.goto(url)` raises `NameError`; use `new_tab(url)` (or click a link)
    to move around.
-2. **Understand visible state**: `capture_screenshot()` — screenshot first.
-3. **Inspect / extract**: `page_info()` for a structured summary; `js("...")`
-   for DOM queries when coordinates are the wrong tool.
-4. **Interact**: screenshot → read the pixel location → `click_at_xy(x, y)` →
-   screenshot again to confirm.
+2. **Understand state — via the DOM (PREFERRED, no vision needed):**
+   `page_info()` for page-level facts (url/title/size), and **`js(...)` to
+   read the DOM** — text content AND every element's on-screen coordinates
+   via `getBoundingClientRect` (see "Locate & click without vision"). This
+   is the primary way to drive the browser; a non-vision model completes
+   the whole flow this way.
+3. **See the layout (OPTIONAL — vision models only):**
+   `capture_screenshot()` returns a PNG path (`~/.vibe-seller/bh-tmp/shot.png`,
+   overwritten each call); `print()` it and **Read that PNG** to view it.
+   Use it only to disambiguate a crowded layout — never *depend* on it. If
+   your model can't view images, skip screenshots entirely and use step 2.
+4. **Interact**: get an element's centre coords from step 2, then
+   `click_at_xy(x, y)`; set input values with `js(...)`. Re-read with
+   `page_info()` / `js(...)` after to confirm.
 5. **After navigation**: `wait_for_load()`; if the tab is stale/internal,
    `ensure_real_tab()`.
 
@@ -76,13 +82,57 @@ Helpers are pre-imported into the heredoc namespace:
 ```python
 new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
-capture_screenshot()  # screenshot the visible viewport (understand state)
+capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/shot.png); Read it to VIEW
 click_at_xy(x, y)  # click at pixel coordinates
 wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
-js('<javascript>')  # run JS in the page; returns the result
+js('<javascript>')  # run JS; returns the SERIALIZABLE result only
 cdp('Domain.method', ...)  # raw Chrome DevTools Protocol call
 ```
+
+- **`js()` returns serializable values only.** `js("document.title")` and
+  `js("return 1+1")` work; but `js("document.querySelector(...)")` returns
+  a useless `{}` (a DOM node can't serialize). Return **numbers, strings,
+  or plain objects/arrays** — e.g. an element's coordinates (below), not
+  the element itself. For an element *reference* (to set a file input) use
+  `cdp('Runtime.evaluate', {..., 'returnByValue': False})` → `objectId`.
+
+## Locate & click an element WITHOUT vision (the preferred path)
+
+You do not need to see the page. Read the DOM and compute click
+coordinates from `getBoundingClientRect`, then `click_at_xy`. This drives
+any page — buttons, links, shadow-DOM `kat-*` components — with no
+screenshot:
+
+```bash
+browser-use <<'PY'
+# one element by selector → its centre coords + text (None if not found):
+box = js("""
+  var el = document.querySelector('button.submit');   // any CSS selector
+  if(!el) return null;
+  var r = el.getBoundingClientRect();
+  return {text:(el.innerText||el.value||'').slice(0,40),
+          x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+""")
+print("target:", box)
+if box: click_at_xy(box["x"], box["y"])
+
+# OR enumerate all clickables to find the right one by its text:
+els = js("""
+  return [].slice.call(document.querySelectorAll('a,button,input,[role=button],kat-button'))
+    .map(function(el){var r=el.getBoundingClientRect();
+      return {text:(el.innerText||el.value||'').slice(0,40),
+              x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};})
+    .filter(function(e){return e.x>0 && e.y>0;});
+""")
+print(els)          # pick the one whose text matches, then click_at_xy(it.x, it.y)
+PY
+```
+
+For an element inside an **open shadow root** (Amazon `kat-*`), pierce it
+in the selector: `document.querySelector('kat-file-upload').shadowRoot.querySelector('input')`.
+Set an input's value with `js("document.querySelector('#q').value='socks'")`
+(then click its search icon — some inputs need the click to fire events).
 
 Only the helpers above (plus Python builtins) are in scope — the heredoc
 runs as a plain Python script. **`time`, `json`, `re`, etc. are NOT
@@ -162,8 +212,10 @@ The wrapper rejects these — do not use them:
 
 ## Tips
 
-1. **Screenshot first**, then act on what you see — `capture_screenshot()`
-   before `click_at_xy`.
+1. **DOM first, not screenshots.** Locate targets with `js(...)` +
+   `getBoundingClientRect` (see "Locate & click without vision") and act on
+   the coords — this works with or without vision. A screenshot is an
+   optional cross-check for vision models, never a prerequisite.
 2. **`new_tab(url)` is how you navigate — every time**, not `goto` (there
    is no `page` object in the heredoc scope).
 3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
