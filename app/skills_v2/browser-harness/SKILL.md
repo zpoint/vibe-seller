@@ -106,6 +106,35 @@ print(page_info())
 PY
 ```
 
+## Uploading a file to a web `<input type=file>`
+
+There is **no native upload helper** and a coordinate-click on the
+visible "Browse" button opens the OS file picker (which you can't drive),
+so DO NOT click it. Set the file **directly on the input element via
+CDP** — the one reliable way. Get a Runtime `objectId` for the input,
+then `DOM.setFileInputFiles`:
+
+```bash
+browser-use <<'PY'
+# 1. objectId for the <input type=file>. For a plain input:
+sel = "document.querySelector('input[type=file]')"
+# For an input inside an OPEN shadow root (e.g. Amazon's kat-file-upload,
+# where the light-DOM input count is 0), pierce it:
+# sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
+obj = cdp('Runtime.evaluate', {'expression': sel, 'returnByValue': False})
+oid = obj['result']['objectId']
+# 2. Attach the file. The path MUST be ABSOLUTE; files is a list.
+cdp('DOM.setFileInputFiles', {'objectId': oid, 'files': ['/abs/path/to/file.txt']})
+print('attached')
+PY
+```
+
+Then submit via the page's own button (`click_at_xy` the real submit
+control, not the browse button) and `wait_for_load()`. If
+`Runtime.evaluate` returns no `objectId`, the selector didn't match
+(wrong shadow root / not yet rendered) — fix the selector; don't fall
+back to clicking Browse or to `file://` navigation (both dead ends).
+
 ## Sessions
 
 - **Default (seller center):** just run `browser-use <<'PY' … PY`. The wrapper
