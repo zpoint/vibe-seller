@@ -566,8 +566,10 @@ def test_fill_routes_bare_our_price_to_target_marketplace(mkt_template, tmp_path
     assert row[_AE_PRICE] in (None, '')  # the wrong block stayed empty
 
 
-def test_fill_rehomes_price_from_wrong_marketplace(mkt_template, tmp_path):
-    # Agent hand-picked the AE column but is listing on SA -> re-home to SA.
+def test_fill_warns_when_target_marketplace_has_no_offer(mkt_template, tmp_path, capsys):
+    # Agent hand-picked the AE column but is listing on SA. We DON'T silently
+    # move it (that confused agents) -- leave it as written and WARN that SA
+    # has no offer (=> Missing offer).
     spec = _spec(tmp_path, {
         'marketplace': 'SA', 'product_type': 'socks',
         'rows': [{'sku': 'K-WHT', 'parentage': 'Child', 'variation_theme': 'Color',
@@ -577,8 +579,9 @@ def test_fill_rehomes_price_from_wrong_marketplace(mkt_template, tmp_path):
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', mkt_template, '--spec', spec, '--out', out])
     row = _read_rows(out)[0]
-    assert row[_SA_PRICE] == '19.99'
-    assert row[_AE_PRICE] in (None, '')
+    assert row[_AE_PRICE] == '19.99'      # explicit column left as written
+    assert row[_SA_PRICE] in (None, '')
+    assert 'Missing offer' in capsys.readouterr().err
 
 
 def test_fill_errors_when_price_set_without_marketplace(mkt_template, tmp_path):
