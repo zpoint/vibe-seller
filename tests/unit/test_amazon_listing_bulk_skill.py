@@ -698,3 +698,47 @@ def test_fill_auto_derives_relationship_type_for_variation(
     rows = {r['item_sku']: r for r in _read_rows(out)}
     assert rows['K-P']['relationship_type'] == 'Variation'
     assert rows['K-WHT']['relationship_type'] == 'Variation'
+
+
+def test_marketplace_table_is_global():
+    # The country->id table must cover Amazon's global marketplaces, not
+    # just the few we happened to list on. Spot-check one per region and a
+    # healthy total so a truncated table fails loudly.
+    ids = listing_bulk.MARKETPLACE_IDS
+    for code, mid in {
+        'US': 'ATVPDKIKX0DER',
+        'UK': 'A1F83G8C2ARO7P',
+        'JP': 'A1VC38T7YXB528',
+        'AU': 'A39IBJ37TRP1C6',
+        'SA': 'A17E79C6D8DWNP',
+        'AE': 'A2VIGQ35RCS4UG',
+        'BR': 'A2Q3Y263D00KWC',
+    }.items():
+        assert ids[code] == mid
+    assert len(ids) >= 20  # NA + EU + ME + APAC, not a partial subset
+
+
+def test_resolve_marketplace_by_code_and_raw_id():
+    r = listing_bulk._resolve_marketplace_id
+    assert r('SA') == _SA
+    assert r('sa') == _SA  # case-insensitive country code
+    assert r(_AE) == _AE  # a raw id passes through unchanged
+    assert r(None) is None  # nothing supplied, no template hint
+
+
+def test_marketplace_ids_read_from_template_columns():
+    cols = {'item_sku': 1, _SA_PRICE: 2, _AE_PRICE: 3}
+    assert listing_bulk._marketplace_ids_in_template(cols) == [_SA, _AE]
+    assert listing_bulk._marketplace_ids_in_template({'item_sku': 1}) == []
+
+
+def test_resolve_auto_detects_single_marketplace_template():
+    r = listing_bulk._resolve_marketplace_id
+    # No marketplace given, but the template offers exactly one -> use it.
+    assert r(None, [_SA]) == _SA
+    # A marketplace code Amazon added after our table, disambiguated by a
+    # single-marketplace template -> still resolves (stays general).
+    assert r('ZA', [_SA]) == _SA
+    # Ambiguous: unknown code + multi-marketplace template -> fail loudly.
+    with pytest.raises(SystemExit):
+        r('ZA', [_SA, _AE])

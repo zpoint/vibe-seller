@@ -53,6 +53,7 @@ Requires: openpyxl.
 import argparse
 import csv
 import json
+import os
 import shutil
 import sys
 
@@ -61,6 +62,15 @@ try:
 except ImportError:
     sys.exit('error: openpyxl is required (pip install openpyxl)')
 
+# Global marketplace table + resolution, kept in a sibling data module.
+# The script dir is on sys.path when run as a CLI; add it for path-based
+# imports (tests) too.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from marketplace_ids import (  # noqa: E402,F401
+    MARKETPLACE_IDS,  # re-exported for callers/tests
+    ids_in_template as _marketplace_ids_in_template,
+    resolve as _resolve_marketplace_id,
+)
 
 # The Template sheet holds the flat file. Metadata lives in siblings.
 TEMPLATE_SHEET = 'Template'
@@ -85,19 +95,10 @@ IDENTITY_FIELD = 'item_sku'
 PRODUCT_TYPE_FIELD = 'feed_product_type'
 BRAND_FIELD = 'brand_name'
 
-# Marketplace (country) -> Amazon marketplace id. Price MUST go in the
-# `purchasable_offer[marketplace_id=<id>]` block for the marketplace being
-# listed on, else the product is ASIN-only ("Missing offer", never live).
-MARKETPLACE_IDS = {
-    'SA': 'A17E79C6D8DWNP',  # Saudi Arabia  (amazon.sa)
-    'AE': 'A2VIGQ35RCS4UG',  # UAE           (amazon.ae)
-    'EG': 'ARBP9OOSHTCHU',  # Egypt         (amazon.eg)
-    'AU': 'A39IBJ37TRP1C6',  # Australia     (amazon.com.au)
-    'US': 'ATVPDKIKX0DER',  # United States (amazon.com)
-    'MX': 'A1AM78C64UM0Y8',  # Mexico        (amazon.com.mx)
-    'UK': 'A1F83G8C2ARO7P',  # United Kingdom(amazon.co.uk)
-    'DE': 'A1PA6795UKMFR9',  # Germany       (amazon.de)
-}
+# Price MUST go in the `purchasable_offer[marketplace_id=<id>]` block for
+# the marketplace being listed on, else the product is ASIN-only ("Missing
+# offer", never live). The full country->id table and the resolver live in
+# `marketplace_ids`; the id is read straight off the template's columns.
 
 # Bare `our_price` + top-level `marketplace` -> the exact marketplace-
 # scoped column, so the price can never land in the wrong block.
@@ -381,27 +382,6 @@ def _row_fields(spec_row, top):
     return {k: v for k, v in out.items() if v not in (None, '')}
 
 
-def _resolve_marketplace_id(marketplace):
-    """Accept a country code ('SA') or a raw marketplace id; return the id.
-
-    Returns None when nothing was supplied. Raises on an unrecognised
-    country code so a typo fails loudly instead of silently placing the
-    offer nowhere.
-    """
-    if not marketplace:
-        return None
-    m = str(marketplace).strip()
-    if m.upper() in MARKETPLACE_IDS:
-        return MARKETPLACE_IDS[m.upper()]
-    if m in MARKETPLACE_IDS.values():  # already a raw id
-        return m
-    codes = ', '.join(sorted(MARKETPLACE_IDS))
-    raise SystemExit(
-        f'error: unknown marketplace {marketplace!r} -- use a country code '
-        f'({codes}) or a raw marketplace id'
-    )
-
-
 def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
     """Route a bare ``our_price`` to the TARGET marketplace's offer column.
 
@@ -460,9 +440,11 @@ def cmd_fill(args):
     case = _valid_value_case(wb)
 
     # The offer price is per-marketplace; resolve the target once (CLI
-    # --marketplace wins, else spec's top-level "marketplace").
+    # --marketplace wins, else spec's top-level "marketplace", else the
+    # template itself if it names exactly one marketplace).
     mkt_id = _resolve_marketplace_id(
-        getattr(args, 'marketplace', None) or spec.get('marketplace')
+        getattr(args, 'marketplace', None) or spec.get('marketplace'),
+        _marketplace_ids_in_template(cols),
     )
 
     unknown_fields = set()
