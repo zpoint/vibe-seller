@@ -39,6 +39,17 @@ and multi-marketplace disables Listing Preferences), then **Generate
 Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
 
+> **The "Generate Spreadsheet" button is usually BELOW the fold** (it sits
+> at the bottom of a tall `kat-popover`, and the Ziniao window is only
+> ~839px tall — `scrollIntoView`/`scrollTo` can't bring it up, so a normal
+> `click_at_xy` can't reach it). Don't reuse a stale template to dodge
+> this. Grow the viewport with CDP, then click: see browser-harness
+> **"A control BELOW the fold that won't scroll into view"** —
+> `cdp("Emulation.setDeviceMetricsOverride", width=1920, height=2400,
+> deviceScaleFactor=1, mobile=False)`, `click_at_xy` the button's
+> `getBoundingClientRect` centre, poll the downloads dir for the new
+> `.xlsm`, then `cdp("Emulation.clearDeviceMetricsOverride")`.
+
 > **Getting TO the product-type search (current Beta flow — don't
 > reverse-engineer it):** Spreadsheet → **Download Blank Template** lands
 > on `/product-search/bulk/generate` showing **template cards** (e.g.
