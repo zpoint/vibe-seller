@@ -148,6 +148,27 @@ fields.
 > hotlinked supplier URL. Give each child its category's full required
 > set, not just the differentiator (see the Parent-vs-Child note below).
 
+> **Apparel (socks, clothing, …) — the full `apparel_size` composite is
+> required on EVERY row, parent included.** Verified live: a socks
+> variation only goes live when each row (parent + children) carries the
+> WHOLE size composite — `apparel_size_system`, `apparel_size_class`,
+> `apparel_size`, `apparel_body_type`, `apparel_height_type` — each a
+> valid enum from the template (e.g. system `UAE/KSA`, class `Alpha`,
+> size `One Size`, body/height `Regular`). Miss any one and the report
+> says *"the field 'height_type'/'body_type' for attribute 'Apparel Size'
+> does not have enough values"* (parent) or *"A value is required for
+> apparel_body_type"* (child) — and nothing goes live. `fill` auto-adds
+> `relationship_type: Variation` to every variation row (a child without
+> it errors `relationship_type = null` and never creates), so you don't
+> hand-write it. **A brand-new variation family often needs two passes:**
+> the parent creates first; the children attach on a re-upload. The feed
+> "N/N successful" count is NOT liveness — always confirm on **Manage
+> Inventory** that the parent shows **Variations (N)** and each child has
+> a real ASIN. Read the processing report by opening **Check Upload
+> Status**, screenshotting to find your batch's **Download Processing
+> Summary** button, then `parse-feedback` (it reads the cell-comment
+> errors).
+
 ### Parent vs Child — what goes where
 
 - **Parent** row: shared catalogue data only (product type, brand,
