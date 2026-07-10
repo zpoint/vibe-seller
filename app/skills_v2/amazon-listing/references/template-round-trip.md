@@ -39,11 +39,46 @@ and multi-marketplace disables Listing Preferences), then **Generate
 Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
 
-> **Product-Type search gotcha (Beta modal):** the search box is a
-> locked `kat-input` — setting its value via `js(...)` alone does **not**
-> open the candidate list. `click_at_xy` the **search icon** at the right
-> of the input row to trigger the suggestions, then `click_at_xy` the
-> **Select** button on the matched product type.
+> **Getting TO the product-type search (current Beta flow — don't
+> reverse-engineer it):** Spreadsheet → **Download Blank Template** lands
+> on `/product-search/bulk/generate` showing **template cards** (e.g.
+> "List products that are not currently in Amazon's catalog"). The card
+> body text is NOT the button — the clickable control is a **`kat-button`
+> in the card's FOOTER**. Find it via the DOM, not a screenshot:
+> `js` for `kat-card kat-button` → `getBoundingClientRect` → `click_at_xy`
+> (see browser-harness "Locate & click without vision"). That navigates to
+> `/product-search/bulk/generate/add-product`, the product-type search page.
+>
+> **Product-Type search gotcha:** the search box is a `kat-input` whose
+> real `<input>` is in its shadow root, and Amazon's search only fires on
+> **input/change events** — a bare `value=` (or `kat-input.value=`) sets
+> the text but dispatches nothing, so the candidate list never opens. You
+> MUST set the value with the **native setter on the inner input** and then
+> **dispatch `input` + `change` with `composed:true`** (to cross the shadow
+> boundary); poking React's `_valueTracker` helps too. Then click the
+> search icon and the **Select** button. Verified recipe:
+>
+> ```bash
+> browser-use <<'PY'
+> import time
+> js(r"""
+>   var inp = document.querySelector('kat-input').shadowRoot.querySelector('input');
+>   var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+>   set.call(inp, 'sock');                                   // product-type query
+>   inp.dispatchEvent(new Event('input',  {bubbles:true, composed:true}));
+>   inp.dispatchEvent(new Event('change', {bubbles:true, composed:true}));
+>   if (inp._valueTracker) inp._valueTracker.setValue('sock');
+> """)
+> time.sleep(2)   # async suggestions
+> # then locate the matched type's Select button via the DOM and click_at_xy it
+> print(js(r"""return [].slice.call(document.querySelectorAll('kat-button'))
+>   .map(function(b){var r=b.getBoundingClientRect();
+>     return {t:(b.innerText||'').trim().slice(0,20), x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};})
+>   .filter(function(e){return e.t;});"""))
+> PY
+> ```
+> (Clicking the `kat-icon name=search` icon alone, without the events, is
+> what makes runs flail here — don't rely on it.)
 
 > **The create template generates asynchronously** — "Generate
 > Spreadsheet" does not always land a direct download. If it doesn't
@@ -77,6 +112,7 @@ fields.
 {
   "product_type": "socks",
   "brand": "ACME",
+  "marketplace": "SA",
   "rows": [
     { "sku": "WIDGET-001", "operation": "create", "parentage": "Parent",
       "variation_theme": "Color",
@@ -93,16 +129,50 @@ fields.
                   "recommended_browse_nodes": "<from Browse data>",
                   "fulfillment_availability#1.fulfillment_channel_code": "DEFAULT",
                   "fulfillment_availability#1.quantity": "100",
-                  "purchasable_offer[marketplace_id=<OWN_MKT>]#1.our_price#1.schedule#1.value_with_tax": "29.00" } }
+                  "our_price": "29.00" } }
   ]
 }
 ```
 
-> Fill only the store's **own** marketplace offer block (one
-> `purchasable_offer[marketplace_id=…]`), and omit `main_image_url` when
-> the only image you have is a hotlinked supplier URL (add images later
-> via the image flow). Give each child its category's full required set,
-> not just the differentiator (see the Parent-vs-Child note below).
+> **Set the offer price with the bare `our_price` key + a top-level
+> `marketplace` (the country you are listing on, matching the
+> seller-central domain — `amazon.sa` → `"SA"`).** `fill` routes the
+> price into `purchasable_offer[marketplace_id=<that marketplace>]` for
+> you. Do NOT hand-pick a `purchasable_offer[marketplace_id=…]` column:
+> a multi-marketplace template marks a *different* marketplace's block
+> Required (the account's home marketplace), and a price in the wrong
+> block creates an **ASIN with no live offer** — the listing sits in
+> **"Missing offer"** and never goes live, even though the feed reports
+> success. (Pass `--marketplace SA` to `fill` as an alternative to the
+> top-level key.) Any Amazon country code works (`US`, `UK`, `DE`, `JP`,
+> `AE`, `SA`, …); a raw marketplace id is also accepted. If you omit
+> `marketplace` entirely and the template has offer columns for exactly
+> one marketplace, `fill` auto-detects it from the template — so a
+> marketplace not in the built-in table still works. Omit `main_image_url`
+> when the only image you have is a
+> hotlinked supplier URL. Give each child its category's full required
+> set, not just the differentiator (see the Parent-vs-Child note below).
+
+> **Apparel (socks, clothing, …) — the full `apparel_size` composite is
+> required on EVERY row, parent included.** Verified live: a socks
+> variation only goes live when each row (parent + children) carries the
+> WHOLE size composite — `apparel_size_system`, `apparel_size_class`,
+> `apparel_size`, `apparel_body_type`, `apparel_height_type` — each a
+> valid enum from the template (e.g. system `UAE/KSA`, class `Alpha`,
+> size `One Size`, body/height `Regular`). Miss any one and the report
+> says *"the field 'height_type'/'body_type' for attribute 'Apparel Size'
+> does not have enough values"* (parent) or *"A value is required for
+> apparel_body_type"* (child) — and nothing goes live. `fill` auto-adds
+> `relationship_type: Variation` to every variation row (a child without
+> it errors `relationship_type = null` and never creates), so you don't
+> hand-write it. **A brand-new variation family often needs two passes:**
+> the parent creates first; the children attach on a re-upload. The feed
+> "N/N successful" count is NOT liveness — always confirm on **Manage
+> Inventory** that the parent shows **Variations (N)** and each child has
+> a real ASIN. Read the processing report by opening **Check Upload
+> Status**, screenshotting to find your batch's **Download Processing
+> Summary** button, then `parse-feedback` (it reads the cell-comment
+> errors).
 
 ### Parent vs Child — what goes where
 
@@ -143,6 +213,24 @@ parent-child relationship** is an update: re-submit the child with the
 new `parent_sku` / `variation_theme` (or clear `parent_sku` and set
 `parent_child` appropriately to detach).
 
+> **Deleting a variation family — first ENUMERATE every SKU (don't guess).**
+> You usually know only the parent SKU (or its title). Do NOT try to
+> expand the parent's "Variations (N)" in Manage Inventory to read the
+> child SKUs — the New-Seller-Central inventory grid is a **virtualized
+> table** whose child rows aren't reachable from the DOM, and it will
+> waste the whole run. Instead get the authoritative SKU list from a
+> **fresh All Listings Report**: Seller Central → **Reports → Inventory
+> Reports → All Listings Report → Request** (a few min), then download the
+> TSV to `~/.vibe-seller/downloads/<slug>/`. It lists **every** SKU
+> (parent + children) with `seller-sku`, `asin`, and the parent linkage.
+> Grep the family (by your SKU prefix, or the parent ASIN),
+> collect all its SKUs, then delete: a spec with `operation: delete` for
+> **each CHILD first, then the parent** (a parent can't delete while it
+> still has live children). Upload the `.txt`, then verify each SKU is
+> gone (its `skucentral?mSku=<sku>` **redirects** to /myinventory instead
+> of staying). Never rely on a local spec/file from the create step — a
+> delete task is independent and must discover SKUs from the account.
+
 ```bash
 $PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json --out /tmp/<slug>/out.xlsm
 ```
@@ -162,28 +250,47 @@ Excel upload") — the re-save alters the macro-workbook structure Amazon
 validates, and its own remedy is to upload a tab-delimited text file.
 The `.txt` reaches real content validation, which is what you want.
 
-On the upload page, the file input lives in a `kat-file-upload` **open
-shadow root** (light-DOM `input[type=file]` count is 0). Do NOT click the
-"Browse" button (it opens the OS picker you can't drive) and do NOT try
-`file://` navigation. Set the file directly on the input via CDP — get a
-Runtime `objectId` for the shadow-DOM input, then `DOM.setFileInputFiles`
-with the **absolute** `.txt` path:
+On the upload page the file input is a `kat-file-upload` widget. Its
+`shadowRoot input#kat-file-attachment` is an **inert placeholder** — a
+`DOM.setFileInputFiles` on it returns success but leaves `files.length`
+at **0** (verified: objectId, `backendNodeId`, and `getDocument(pierce)`
+all no-op), so DON'T set that node and DON'T click "Browse"/`file://`.
+
+The widget creates its **real** input only when the "Upload file" button
+is clicked with a **trusted** gesture, and hands it to you via
+`Page.fileChooserOpened`. Intercept the chooser, trusted-click the button,
+set the file on that `backendNodeId` (`cdp()` params are keyword args):
 
 ```bash
 browser-use <<'PY'
-sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
-obj = cdp('Runtime.evaluate', {'expression': sel, 'returnByValue': False})
-cdp('DOM.setFileInputFiles',
-    {'objectId': obj['result']['objectId'], 'files': ['/tmp/<slug>/listing.txt']})
-print('attached')
+import time
+cdp('Page.enable'); cdp('Page.setInterceptFileChooserDialog', enabled=True)
+drain_events()
+box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
+            var r=b.getBoundingClientRect();
+            return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};""")
+click_at_xy(box['x'], box['y'])          # TRUSTED click (not JS .click())
+bnid = None
+for _ in range(8):
+    time.sleep(0.5)
+    for e in drain_events():
+        if 'fileChooserOpened' in str(e.get('method','')): bnid = e['params']['backendNodeId']
+    if bnid: break
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=['/tmp/<slug>/listing.txt'])
+cdp('Page.setInterceptFileChooserDialog', enabled=False)
+print('attached to', bnid)
 PY
 ```
 
-(Full recipe + the plain-input variant: `browser-harness` SKILL.md §
-"Uploading a file".) Then `click_at_xy` **Submit products** and
-`wait_for_load()`. Amazon processes asynchronously; the batch row on
-**Check Upload Status** shows `SKUs successful / submitted` and a
-**Download Processing Summary** link. Save it and parse it:
+(Generic recipe + the plain-input Method 1: `browser-harness` SKILL.md §
+"Uploading a file".) Amazon stages the file, showing the filename +
+green **"File Type … (Automatically detected)"** and enabling **Submit
+products**. Confirm via `capture_screenshot()` + Read (the shadow-root
+text carries hidden "unsuccessful" strings even on success — don't trust
+it). Then `click_at_xy` **Submit products** and `wait_for_load()`. Amazon
+processes asynchronously; the batch row on **Check Upload Status** shows
+`SKUs successful / submitted` and a **Download Processing Summary** link.
+Save it and parse it:
 
 ```bash
 $PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-summary.xlsm

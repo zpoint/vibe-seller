@@ -53,6 +53,7 @@ Requires: openpyxl.
 import argparse
 import csv
 import json
+import os
 import shutil
 import sys
 
@@ -61,6 +62,15 @@ try:
 except ImportError:
     sys.exit('error: openpyxl is required (pip install openpyxl)')
 
+# Global marketplace table + resolution, kept in a sibling data module.
+# The script dir is on sys.path when run as a CLI; add it for path-based
+# imports (tests) too.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from marketplace_ids import (  # noqa: E402,F401
+    MARKETPLACE_IDS,  # re-exported for callers/tests
+    ids_in_template as _marketplace_ids_in_template,
+    resolve as _resolve_marketplace_id,
+)
 
 # The Template sheet holds the flat file. Metadata lives in siblings.
 TEMPLATE_SHEET = 'Template'
@@ -85,10 +95,22 @@ IDENTITY_FIELD = 'item_sku'
 PRODUCT_TYPE_FIELD = 'feed_product_type'
 BRAND_FIELD = 'brand_name'
 
-# A Parent (relationship) row carries only the shared catalogue data;
-# the offer, stock, images and product-id live on the Child rows. So a
-# Parent legitimately omits these even when the template marks them
-# Required -- don't warn about them for a Parent.
+# Price MUST go in the `purchasable_offer[marketplace_id=<id>]` block for
+# the marketplace being listed on, else the product is ASIN-only ("Missing
+# offer", never live). The full country->id table and the resolver live in
+# `marketplace_ids`; the id is read straight off the template's columns.
+
+# Bare `our_price` + top-level `marketplace` -> the exact marketplace-
+# scoped column, so the price can never land in the wrong block.
+_OUR_PRICE_TEMPLATE = (
+    'purchasable_offer[marketplace_id={id}]#1.our_price#1.schedule'
+    '#1.value_with_tax'
+)
+_OFFER_PRICE_SHORTHANDS = ('our_price', 'price', 'standard_price')
+
+# A Parent row carries only shared catalogue data; offer, stock, images
+# and product-id live on Child rows -- so a Parent legitimately omits
+# these even when the template marks them Required (don't warn).
 CHILD_LEVEL_PREFIXES = (
     'purchasable_offer',
     'fulfillment_availability',
@@ -101,10 +123,9 @@ CHILD_LEVEL_PREFIXES = (
     'apparel_size',
 )
 
-# Battery / hazmat / dangerous-goods fields are marked Required in the
-# Data Definitions but are only *conditionally* required -- Amazon
-# accepts them blank when the item has no batteries. Suppress the noise
-# when the row declares no batteries.
+# Battery / hazmat fields are marked Required but are only *conditionally*
+# required -- Amazon accepts them blank when the item has no batteries, so
+# suppress the noise when the row declares none.
 BATTERY_TOKENS = (
     'battery',
     'batteries',
@@ -350,11 +371,54 @@ def _row_fields(spec_row, top):
         out['parent_child'] = spec_row['parentage']
     if spec_row.get('variation_theme'):
         out['variation_theme'] = spec_row['variation_theme']
+    # Any variation row MUST carry relationship_type or a child errors
+    # "relationship_type = null" and never creates. Derive it (explicit wins).
+    if spec_row.get('parentage') or spec_row.get('variation_theme'):
+        out.setdefault('relationship_type', 'Variation')
     if spec_row.get('asin'):
         out['external_product_id'] = spec_row['asin']
         out.setdefault('external_product_id_type', 'asin')
     # Drop keys with no value so we never blank an intended default.
     return {k: v for k, v in out.items() if v not in (None, '')}
+
+
+def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
+    """Route a bare ``our_price`` to the TARGET marketplace's offer column.
+
+    Expands ``our_price``/``price`` into
+    ``purchasable_offer[marketplace_id=<mkt_id>]#1.our_price...``. Explicit
+    full offer columns are left exactly as written (no silent move); we
+    only WARN when the target marketplace ends up with no price -- the
+    "Missing offer / never live" trap. Mutates ``fields``.
+    """
+    target_col = _OUR_PRICE_TEMPLATE.format(id=mkt_id) if mkt_id else None
+    shorthand = next((k for k in _OFFER_PRICE_SHORTHANDS if k in fields), None)
+    if shorthand:
+        if mkt_id is None:
+            raise SystemExit(
+                f'error: row {i} sku={sku} sets a price but the spec has no '
+                f'\'marketplace\' -- add e.g. "marketplace": "SA"'
+            )
+        if target_col not in cols:
+            raise SystemExit(
+                f'error: row {i} sku={sku}: template has no offer column for '
+                f'marketplace_id={mkt_id} (account may not sell there)'
+            )
+        fields[target_col] = fields.pop(shorthand)
+    if mkt_id is not None and target_col not in fields:
+        other = [
+            k
+            for k in fields
+            if k.startswith('purchasable_offer[marketplace_id=')
+            and '.our_price' in k
+            and f'marketplace_id={mkt_id}]' not in k
+        ]
+        if other:
+            warnings.append(
+                f'row {i} sku={sku}: offer price is on {other[0]} but you are '
+                f'listing on marketplace_id={mkt_id}, which has NO offer -- the '
+                f'listing will be "Missing offer" (never live). Use "our_price".'
+            )
 
 
 def cmd_fill(args):
@@ -375,13 +439,19 @@ def cmd_fill(args):
     valid = _load_valid_values(wb)
     case = _valid_value_case(wb)
 
+    # The offer price is per-marketplace; resolve the target once (CLI
+    # --marketplace wins, else spec's top-level "marketplace", else the
+    # template itself if it names exactly one marketplace).
+    mkt_id = _resolve_marketplace_id(
+        getattr(args, 'marketplace', None) or spec.get('marketplace'),
+        _marketplace_ids_in_template(cols),
+    )
+
     unknown_fields = set()
     warnings = []
     write_at = header_row + 1
-    # Clear any pre-existing data rows before writing the spec, so stale
-    # rows from an Example row or a previously-filled template can't be
-    # uploaded as unintended SKUs. A freshly-generated blank template has
-    # none, but a reused workbook might.
+    # Clear pre-existing data rows first, so an Example row or a reused
+    # workbook's stale rows can't upload as unintended SKUs.
     if ws.max_row >= write_at:
         ws.delete_rows(write_at, ws.max_row - write_at + 1)
     for i, spec_row in enumerate(rows):
@@ -390,6 +460,11 @@ def cmd_fill(args):
         sku = fields.get(IDENTITY_FIELD)
         if not sku:
             raise SystemExit(f'error: row {i} has no sku')
+
+        # Route the child offer price into the marketplace being listed on,
+        # so it can't land in the wrong `purchasable_offer` block (which
+        # creates an ASIN-only listing stuck in "Missing offer").
+        _route_offer_price(fields, cols, mkt_id, i, sku, warnings)
 
         # Enum validation: reject an invalid operation-family token hard;
         # warn (never fail) on other enums so an unseen-but-valid token
@@ -514,10 +589,8 @@ def _template_cell_errors(path):
                 if not (c.comment and c.comment.text):
                     continue
                 field = names.get(c.column, f'col{c.column}')
-                # A cell comment can stack several messages, separated by
-                # Excel's literal carriage-return marker `_x000d_`. Split
-                # into individual ERROR/WARNING lines so each is one
-                # actionable item.
+                # A cell comment stacks several messages on Excel's literal
+                # `_x000d_` CR marker; split so each is one actionable line.
                 raw = str(c.comment.text).replace('_x000d_', '\n')
                 for line in raw.split('\n'):
                     line = ' '.join(line.split())
@@ -527,14 +600,75 @@ def _template_cell_errors(path):
         wb.close()
 
 
+def _report_comment_errors(path):
+    """Per-SKU errors from a processing summary's Template-tab CELL COMMENTS.
+
+    Amazon writes each error/warning as a cell comment on the Template tab
+    (orange = error, yellow = warning) keyed to the offending field's
+    column -- NOT as a table row. The comment is the only reliable error
+    source; a table scan lands on the localized instructions instead.
+    Returns [(sku, field, severity, message)].
+    """
+    if not path.lower().endswith(('.xlsm', '.xlsx')):
+        return []
+    try:
+        wb = openpyxl.load_workbook(path)
+    except Exception:
+        return []
+    if TEMPLATE_SHEET not in wb.sheetnames:
+        return []
+    ws = wb[TEMPLATE_SHEET]
+    try:
+        hdr = _find_header_row(ws)
+    except ValueError:
+        return []
+    names = [c.value for c in ws[hdr]]
+    if IDENTITY_FIELD not in names:
+        return []
+    sku_col = names.index(IDENTITY_FIELD)
+    out = []
+    for r in range(hdr + 1, ws.max_row + 1):
+        sku = ws.cell(r, sku_col + 1).value
+        if not sku:
+            continue
+        for c in ws[r]:
+            if not (c.comment and c.comment.text.strip()):
+                continue
+            field = names[c.column - 1] if c.column - 1 < len(names) else ''
+            text = ' '.join(c.comment.text.split())
+            sev = (
+                'error'
+                if text.lstrip().upper().startswith('ERROR')
+                else ('warning' if 'WARNING' in text[:20].upper() else 'info')
+            )
+            out.append((str(sku), str(field or ''), sev, text[:400]))
+    return out
+
+
 def cmd_parse_feedback(args):
     """Summarise Amazon's processing report: per-SKU errors/warnings.
 
-    Report layouts vary (a summary header block then a table). We locate
-    the table header by finding a row that names an error/SKU column,
-    then emit each data row's SKU + type + message. Falls back to
-    printing every row that mentions 'error' if no header is found.
+    Prefer the Template-tab cell comments (the authoritative per-field
+    error source); fall back to a table scan for report layouts that use
+    one. A parent SKU's errors block its children -- fix the parent first.
     """
+    comment_errs = _report_comment_errors(args.file)
+    if comment_errs:
+        n_err = sum(1 for _s in comment_errs if _s[2] == 'error')
+        n_warn = sum(1 for _s in comment_errs if _s[2] == 'warning')
+        for sku, field, sev, msg in comment_errs:
+            print(f'  [{sev}] sku={sku} field={field}: {msg}')
+        print(
+            f'\n{n_err} error(s), {n_warn} warning(s) across '
+            f'{len({s for s, *_ in comment_errs})} SKU(s).'
+        )
+        if n_err:
+            print(
+                'Fix ALL errors (parent first) and re-upload; a SKU with '
+                'any error is NOT created (feed "successful" != live).'
+            )
+        return
+
     rows = list(_iter_report_rows(args.file))
     if not rows:
         raise SystemExit('error: empty report')
@@ -628,6 +762,12 @@ def main():
     p.add_argument('file', help='the category template (.xlsm)')
     p.add_argument('--spec', required=True, help='JSON spec of rows')
     p.add_argument('--out', required=True, help='output .xlsm path')
+    p.add_argument(
+        '--marketplace',
+        help='country code (SA/AE/AU/…) or raw marketplace id you are '
+        'listing on; routes the offer price to the right block. Overrides '
+        'the spec\'s top-level "marketplace".',
+    )
     p.set_defaults(func=cmd_fill)
 
     p = sub.add_parser('parse-feedback', help='summarise a processing report')

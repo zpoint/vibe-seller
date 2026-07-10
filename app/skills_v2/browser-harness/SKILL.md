@@ -43,11 +43,8 @@ print(page_info())
 PY
 ```
 
-Single statements can use `-c`:
-
-```bash
-browser-use -c 'print(page_info())'
-```
+The wrapper takes the heredoc form **only** — there is no `-c` flag
+(passing one just prints usage). Put every statement inside the heredoc.
 
 ## Prerequisites
 
@@ -61,11 +58,20 @@ browser-use --doctor    # verify installation / CDP connectivity
    navigation**. There is **no `page` object** in the heredoc scope, so
    `page.goto(url)` raises `NameError`; use `new_tab(url)` (or click a link)
    to move around.
-2. **Understand visible state**: `capture_screenshot()` — screenshot first.
-3. **Inspect / extract**: `page_info()` for a structured summary; `js("...")`
-   for DOM queries when coordinates are the wrong tool.
-4. **Interact**: screenshot → read the pixel location → `click_at_xy(x, y)` →
-   screenshot again to confirm.
+2. **Understand state — via the DOM (PREFERRED, no vision needed):**
+   `page_info()` for page-level facts (url/title/size), and **`js(...)` to
+   read the DOM** — text content AND every element's on-screen coordinates
+   via `getBoundingClientRect` (see "Locate & click without vision"). This
+   is the primary way to drive the browser; a non-vision model completes
+   the whole flow this way.
+3. **See the layout (OPTIONAL — vision models only):**
+   `capture_screenshot()` returns a PNG path (`~/.vibe-seller/bh-tmp/shot.png`,
+   overwritten each call); `print()` it and **Read that PNG** to view it.
+   Use it only to disambiguate a crowded layout — never *depend* on it. If
+   your model can't view images, skip screenshots entirely and use step 2.
+4. **Interact**: get an element's centre coords from step 2, then
+   `click_at_xy(x, y)`; set input values with `js(...)`. Re-read with
+   `page_info()` / `js(...)` after to confirm.
 5. **After navigation**: `wait_for_load()`; if the tab is stale/internal,
    `ensure_real_tab()`.
 
@@ -76,13 +82,60 @@ Helpers are pre-imported into the heredoc namespace:
 ```python
 new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
-capture_screenshot()  # screenshot the visible viewport (understand state)
+capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/shot.png); Read it to VIEW
 click_at_xy(x, y)  # click at pixel coordinates
 wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
-js('<javascript>')  # run JS in the page; returns the result
-cdp('Domain.method', ...)  # raw Chrome DevTools Protocol call
+js('<javascript>')  # run JS; returns the SERIALIZABLE result only
+cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
+                                # e.g. cdp('Page.navigate', url='...')
 ```
+
+- **`js()` returns serializable values only.** `js("document.title")` and
+  `js("return 1+1")` work; but `js("document.querySelector(...)")` returns
+  a useless `{}` (a DOM node can't serialize). Return **numbers, strings,
+  or plain objects/arrays** — e.g. an element's coordinates (below), not
+  the element itself. For an element *reference* (to set a file input) use
+  `cdp('Runtime.evaluate', expression=..., returnByValue=False)` → `objectId`
+  (note: `cdp()` params are **keyword args**, never a positional dict —
+  see "Uploading a file").
+
+## Locate & click an element WITHOUT vision (the preferred path)
+
+You do not need to see the page. Read the DOM and compute click
+coordinates from `getBoundingClientRect`, then `click_at_xy`. This drives
+any page — buttons, links, shadow-DOM `kat-*` components — with no
+screenshot:
+
+```bash
+browser-use <<'PY'
+# one element by selector → its centre coords + text (None if not found):
+box = js("""
+  var el = document.querySelector('button.submit');   // any CSS selector
+  if(!el) return null;
+  var r = el.getBoundingClientRect();
+  return {text:(el.innerText||el.value||'').slice(0,40),
+          x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+""")
+print("target:", box)
+if box: click_at_xy(box["x"], box["y"])
+
+# OR enumerate all clickables to find the right one by its text:
+els = js("""
+  return [].slice.call(document.querySelectorAll('a,button,input,[role=button],kat-button'))
+    .map(function(el){var r=el.getBoundingClientRect();
+      return {text:(el.innerText||el.value||'').slice(0,40),
+              x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};})
+    .filter(function(e){return e.x>0 && e.y>0;});
+""")
+print(els)          # pick the one whose text matches, then click_at_xy(it.x, it.y)
+PY
+```
+
+For an element inside an **open shadow root** (Amazon `kat-*`), pierce it
+in the selector: `document.querySelector('kat-file-upload').shadowRoot.querySelector('input')`.
+Set an input's value with `js("document.querySelector('#q').value='socks'")`
+(then click its search icon — some inputs need the click to fire events).
 
 Only the helpers above (plus Python builtins) are in scope — the heredoc
 runs as a plain Python script. **`time`, `json`, `re`, etc. are NOT
@@ -108,32 +161,79 @@ PY
 
 ## Uploading a file to a web `<input type=file>`
 
-There is **no native upload helper** and a coordinate-click on the
-visible "Browse" button opens the OS file picker (which you can't drive),
-so DO NOT click it. Set the file **directly on the input element via
-CDP** — the one reliable way. Get a Runtime `objectId` for the input,
-then `DOM.setFileInputFiles`:
+There is **no native upload helper**. Never coordinate-click the visible
+"Browse"/"Upload file" button expecting to then drive the OS file picker
+(you can't). Attach the file via CDP. **`cdp()` takes keyword args, NOT a
+params dict** — the signature is `cdp(method, session_id=None, **params)`,
+so a dict in the 2nd slot binds to `session_id` and the proxy rejects it
+with `-32600 "Message may have string 'sessionId' property"`. Always use
+keywords: `cdp('Runtime.evaluate', expression=..., returnByValue=False)`.
+
+There are **two kinds of file input** — pick the matching method:
+
+### Method 1 — a plain `<input type=file>` (set the node directly)
+
+Works for a normal light-DOM input, or a simple open-shadow-DOM input
+whose node the component actually reads from. Get an objectId, set files:
 
 ```bash
 browser-use <<'PY'
-# 1. objectId for the <input type=file>. For a plain input:
 sel = "document.querySelector('input[type=file]')"
-# For an input inside an OPEN shadow root (e.g. Amazon's kat-file-upload,
-# where the light-DOM input count is 0), pierce it:
-# sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
-obj = cdp('Runtime.evaluate', {'expression': sel, 'returnByValue': False})
+# shadow-DOM variant: "document.querySelector('host').shadowRoot.querySelector('input[type=file]')"
+obj = cdp('Runtime.evaluate', expression=sel, returnByValue=False)  # kwargs!
 oid = obj['result']['objectId']
-# 2. Attach the file. The path MUST be ABSOLUTE; files is a list.
-cdp('DOM.setFileInputFiles', {'objectId': oid, 'files': ['/abs/path/to/file.txt']})
-print('attached')
+cdp('DOM.setFileInputFiles', objectId=oid, files=['/abs/path/to/file.txt'])  # ABSOLUTE path
+print('files.length:', js(sel + ".files.length"))   # MUST verify → 1, not 0
 PY
 ```
 
-Then submit via the page's own button (`click_at_xy` the real submit
-control, not the browse button) and `wait_for_load()`. If
-`Runtime.evaluate` returns no `objectId`, the selector didn't match
-(wrong shadow root / not yet rendered) — fix the selector; don't fall
-back to clicking Browse or to `file://` navigation (both dead ends).
+**Always verify `files.length` right after.** If it stays **0** while the
+call returned success, the node you set is an **inert placeholder** the
+component doesn't read from (common with design-system upload widgets like
+Amazon's `kat-file-upload`, whose `input#kat-file-attachment` is a decoy).
+`setFileInputFiles` silently no-ops on it — objectId, `backendNodeId`, and
+`getDocument(pierce=True)` all give 0. Switch to Method 2.
+
+### Method 2 — a component-managed widget (file-chooser interception)
+
+For widgets that open the file picker via a button and create the *real*
+input on demand (Amazon `kat-file-upload`, most React uploaders). Suppress
+the OS dialog, do a **trusted** click on the widget's button, and take the
+`backendNodeId` Chrome hands you in `Page.fileChooserOpened`:
+
+```bash
+browser-use <<'PY'
+import time
+cdp('Page.enable')
+cdp('Page.setInterceptFileChooserDialog', enabled=True)   # OS dialog suppressed
+drain_events()                                            # clear the buffer
+# TRUSTED click on the visible upload button. click_at_xy is a CDP Input
+# event (trusted) — a JS .click() is UNtrusted and the browser will NOT
+# open a chooser for it (this is why setting the placeholder input fails).
+box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
+            var r=b.getBoundingClientRect();
+            return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};""")
+click_at_xy(box['x'], box['y'])
+bnid = None
+for _ in range(8):                     # poll for the event (~4s)
+    time.sleep(0.5)
+    for e in drain_events():
+        if 'fileChooserOpened' in str(e.get('method', '')):
+            bnid = e['params']['backendNodeId']
+    if bnid: break
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=['/abs/path/to/file.txt'])
+cdp('Page.setInterceptFileChooserDialog', enabled=False)
+print('attached to backendNodeId', bnid)
+PY
+```
+
+The widget then reads and stages the file itself — the visible field shows
+the filename and (for Amazon) a green "File Type … (Automatically
+detected)". **Don't trust the shadow-root `textContent`** to confirm — it
+carries hidden error-state strings ("File upload was unsuccessful") even on
+success; confirm with a `capture_screenshot()` + Read, or by the Submit
+button becoming enabled. Then `click_at_xy` the page's own **Submit** and
+`wait_for_load()`.
 
 ## Sessions
 
@@ -162,8 +262,10 @@ The wrapper rejects these — do not use them:
 
 ## Tips
 
-1. **Screenshot first**, then act on what you see — `capture_screenshot()`
-   before `click_at_xy`.
+1. **DOM first, not screenshots.** Locate targets with `js(...)` +
+   `getBoundingClientRect` (see "Locate & click without vision") and act on
+   the coords — this works with or without vision. A screenshot is an
+   optional cross-check for vision models, never a prerequisite.
 2. **`new_tab(url)` is how you navigate — every time**, not `goto` (there
    is no `page` object in the heredoc scope).
 3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
