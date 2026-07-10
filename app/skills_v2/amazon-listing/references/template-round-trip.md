@@ -128,7 +128,7 @@ fields.
                   "age_range_description": "Adult",
                   "recommended_browse_nodes": "<from Browse data>",
                   "fulfillment_availability#1.fulfillment_channel_code": "DEFAULT",
-                  "fulfillment_availability#1.quantity": "100",
+                  "quantity": "100",
                   "our_price": "29.00" } }
   ]
 }
@@ -182,8 +182,9 @@ fields.
   images, colour/size, or product-id — those are child-level.
 - **Child** rows: `parent_child: Child`, `parent_sku` = the parent's
   SKU, the differentiating attribute (`color_name` / `size_name`), plus
-  the **offer** (`fulfillment_availability#1.*`) and **price**
-  (`purchasable_offer[marketplace_id=…]#1.our_price#1.schedule#1.value_with_tax`,
+  the **stock** (bare `quantity` — `fill` routes it to the marketplace's
+  own `fulfillment_availability#N` group) and **price** (bare `our_price`
+  → `purchasable_offer[marketplace_id=…]#1.our_price#1.schedule#1.value_with_tax`,
   one block per target marketplace).
 
 `fill` knows this: it suppresses child-level required-field warnings on
@@ -337,11 +338,14 @@ re-uploads can complete them.
 - **Offer/price is per-marketplace; verify in that marketplace's Pricing
   view.** Fill one offer block —
   `purchasable_offer[marketplace_id=<MKT>]#1.our_price#1.schedule#1.value_with_tax`
-  (`our_price` is the only price column that matters) +
-  `fulfillment_availability#1.quantity`. The feed count doesn't reflect
-  price; quantity can apply while Pricing shows `--` if you set a
-  different marketplace's column. On a bundled multi-marketplace
-  template, fill only the intended marketplace's block.
+  (`our_price` is the only price column that matters) + a bare `quantity`
+  for stock. **Stock is per-marketplace but NOT bracketed** — each
+  `fulfillment_availability#N` group is tied by *position* to one
+  marketplace's offer block, so don't hand-pick `#1`; use bare `quantity`
+  and `fill` routes it to the group adjacent to the target offer. The feed
+  count doesn't reflect price; quantity can apply while Pricing shows `--`
+  if you set a different marketplace's column. On a bundled
+  multi-marketplace template, fill only the intended marketplace's block.
 - **`main_image_url`:** by default not uploaded here (seller adds images)
   — a `18320` image error is *expected*, not a blocker. Never hotlink a
   supplier CDN URL (1688/alibaba `cbu01.alicdn.com`, tmall) — Amazon
