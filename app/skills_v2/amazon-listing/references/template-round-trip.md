@@ -172,32 +172,47 @@ Excel upload") — the re-save alters the macro-workbook structure Amazon
 validates, and its own remedy is to upload a tab-delimited text file.
 The `.txt` reaches real content validation, which is what you want.
 
-On the upload page, the file input lives in a `kat-file-upload` **open
-shadow root** (light-DOM `input[type=file]` count is 0). Do NOT click the
-"Browse" button (it opens the OS picker you can't drive) and do NOT try
-`file://` navigation. Set the file directly on the input via CDP — get a
-Runtime `objectId` for the shadow-DOM input, then `DOM.setFileInputFiles`
-with the **absolute** `.txt` path:
+On the upload page the file input is a `kat-file-upload` widget. Its
+`shadowRoot input#kat-file-attachment` is an **inert placeholder** — a
+`DOM.setFileInputFiles` on it returns success but leaves `files.length`
+at **0** (verified: objectId, `backendNodeId`, and `getDocument(pierce)`
+all no-op), so DON'T set that node and DON'T click "Browse"/`file://`.
 
-`cdp()` params are **keyword args**, never a positional dict — a dict in
-the 2nd slot binds to `session_id` and the proxy 400s with
-`-32600 "Message may have string 'sessionId' property"`:
+The widget creates its **real** input only when the "Upload file" button
+is clicked with a **trusted** gesture, and hands it to you via
+`Page.fileChooserOpened`. Intercept the chooser, trusted-click the button,
+set the file on that `backendNodeId` (`cdp()` params are keyword args):
 
 ```bash
 browser-use <<'PY'
-sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
-obj = cdp('Runtime.evaluate', expression=sel, returnByValue=False)  # kwargs!
-cdp('DOM.setFileInputFiles',
-    objectId=obj['result']['objectId'], files=['/tmp/<slug>/listing.txt'])
-print('attached')
+import time
+cdp('Page.enable'); cdp('Page.setInterceptFileChooserDialog', enabled=True)
+drain_events()
+box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
+            var r=b.getBoundingClientRect();
+            return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};""")
+click_at_xy(box['x'], box['y'])          # TRUSTED click (not JS .click())
+bnid = None
+for _ in range(8):
+    time.sleep(0.5)
+    for e in drain_events():
+        if 'fileChooserOpened' in str(e.get('method','')): bnid = e['params']['backendNodeId']
+    if bnid: break
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=['/tmp/<slug>/listing.txt'])
+cdp('Page.setInterceptFileChooserDialog', enabled=False)
+print('attached to', bnid)
 PY
 ```
 
-(Full recipe + the plain-input variant: `browser-harness` SKILL.md §
-"Uploading a file".) Then `click_at_xy` **Submit products** and
-`wait_for_load()`. Amazon processes asynchronously; the batch row on
-**Check Upload Status** shows `SKUs successful / submitted` and a
-**Download Processing Summary** link. Save it and parse it:
+(Generic recipe + the plain-input Method 1: `browser-harness` SKILL.md §
+"Uploading a file".) Amazon stages the file, showing the filename +
+green **"File Type … (Automatically detected)"** and enabling **Submit
+products**. Confirm via `capture_screenshot()` + Read (the shadow-root
+text carries hidden "unsuccessful" strings even on success — don't trust
+it). Then `click_at_xy` **Submit products** and `wait_for_load()`. Amazon
+processes asynchronously; the batch row on **Check Upload Status** shows
+`SKUs successful / submitted` and a **Download Processing Summary** link.
+Save it and parse it:
 
 ```bash
 $PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-summary.xlsm
