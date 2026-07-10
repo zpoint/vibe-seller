@@ -208,6 +208,24 @@ parent-child relationship** is an update: re-submit the child with the
 new `parent_sku` / `variation_theme` (or clear `parent_sku` and set
 `parent_child` appropriately to detach).
 
+> **Deleting a variation family — first ENUMERATE every SKU (don't guess).**
+> You usually know only the parent SKU (or its title). Do NOT try to
+> expand the parent's "Variations (N)" in Manage Inventory to read the
+> child SKUs — the New-Seller-Central inventory grid is a **virtualized
+> table** whose child rows aren't reachable from the DOM, and it will
+> waste the whole run. Instead get the authoritative SKU list from a
+> **fresh All Listings Report**: Seller Central → **Reports → Inventory
+> Reports → All Listings Report → Request** (a few min), then download the
+> TSV to `~/.vibe-seller/downloads/<slug>/`. It lists **every** SKU
+> (parent + children) with `seller-sku`, `asin`, and the parent linkage.
+> Grep the family (by your SKU prefix, or the parent ASIN),
+> collect all its SKUs, then delete: a spec with `operation: delete` for
+> **each CHILD first, then the parent** (a parent can't delete while it
+> still has live children). Upload the `.txt`, then verify each SKU is
+> gone (its `skucentral?mSku=<sku>` **redirects** to /myinventory instead
+> of staying). Never rely on a local spec/file from the create step — a
+> delete task is independent and must discover SKUs from the account.
+
 ```bash
 $PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json --out /tmp/<slug>/out.xlsm
 ```
