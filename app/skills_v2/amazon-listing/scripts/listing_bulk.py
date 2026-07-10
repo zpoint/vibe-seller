@@ -85,17 +85,15 @@ IDENTITY_FIELD = 'item_sku'
 PRODUCT_TYPE_FIELD = 'feed_product_type'
 BRAND_FIELD = 'brand_name'
 
-# Marketplace (country) -> Amazon marketplace id. A multi-marketplace
-# template has a `purchasable_offer[marketplace_id=<id>]` block per
-# marketplace; the price MUST go in the block for the one you're listing
-# on, or the product is ASIN-only ("Missing offer", never live). The agent
-# knows only the country (from the seller-central domain), so resolve here.
+# Marketplace (country) -> Amazon marketplace id. Price MUST go in the
+# `purchasable_offer[marketplace_id=<id>]` block for the marketplace being
+# listed on, else the product is ASIN-only ("Missing offer", never live).
 MARKETPLACE_IDS = {
     'SA': 'A17E79C6D8DWNP',  # Saudi Arabia  (amazon.sa)
     'AE': 'A2VIGQ35RCS4UG',  # UAE           (amazon.ae)
-    'EG': 'ARBP9OOSHTCHU',   # Egypt         (amazon.eg)
+    'EG': 'ARBP9OOSHTCHU',  # Egypt         (amazon.eg)
     'AU': 'A39IBJ37TRP1C6',  # Australia     (amazon.com.au)
-    'US': 'ATVPDKIKX0DER',   # United States (amazon.com)
+    'US': 'ATVPDKIKX0DER',  # United States (amazon.com)
     'MX': 'A1AM78C64UM0Y8',  # Mexico        (amazon.com.mx)
     'UK': 'A1F83G8C2ARO7P',  # United Kingdom(amazon.co.uk)
     'DE': 'A1PA6795UKMFR9',  # Germany       (amazon.de)
@@ -109,10 +107,9 @@ _OUR_PRICE_TEMPLATE = (
 )
 _OFFER_PRICE_SHORTHANDS = ('our_price', 'price', 'standard_price')
 
-# A Parent (relationship) row carries only the shared catalogue data;
-# the offer, stock, images and product-id live on the Child rows. So a
-# Parent legitimately omits these even when the template marks them
-# Required -- don't warn about them for a Parent.
+# A Parent row carries only shared catalogue data; offer, stock, images
+# and product-id live on Child rows -- so a Parent legitimately omits
+# these even when the template marks them Required (don't warn).
 CHILD_LEVEL_PREFIXES = (
     'purchasable_offer',
     'fulfillment_availability',
@@ -125,10 +122,9 @@ CHILD_LEVEL_PREFIXES = (
     'apparel_size',
 )
 
-# Battery / hazmat / dangerous-goods fields are marked Required in the
-# Data Definitions but are only *conditionally* required -- Amazon
-# accepts them blank when the item has no batteries. Suppress the noise
-# when the row declares no batteries.
+# Battery / hazmat fields are marked Required but are only *conditionally*
+# required -- Amazon accepts them blank when the item has no batteries, so
+# suppress the noise when the row declares none.
 BATTERY_TOKENS = (
     'battery',
     'batteries',
@@ -420,8 +416,8 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
     if shorthand:
         if mkt_id is None:
             raise SystemExit(
-                f"error: row {i} sku={sku} sets a price but the spec has no "
-                f"'marketplace' -- add e.g. \"marketplace\": \"SA\""
+                f'error: row {i} sku={sku} sets a price but the spec has no '
+                f'\'marketplace\' -- add e.g. "marketplace": "SA"'
             )
         if target_col not in cols:
             raise SystemExit(
@@ -431,9 +427,11 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
         fields[target_col] = fields.pop(shorthand)
     if mkt_id is not None and target_col not in fields:
         other = [
-            k for k in fields
+            k
+            for k in fields
             if k.startswith('purchasable_offer[marketplace_id=')
-            and '.our_price' in k and f'marketplace_id={mkt_id}]' not in k
+            and '.our_price' in k
+            and f'marketplace_id={mkt_id}]' not in k
         ]
         if other:
             warnings.append(
@@ -470,10 +468,8 @@ def cmd_fill(args):
     unknown_fields = set()
     warnings = []
     write_at = header_row + 1
-    # Clear any pre-existing data rows before writing the spec, so stale
-    # rows from an Example row or a previously-filled template can't be
-    # uploaded as unintended SKUs. A freshly-generated blank template has
-    # none, but a reused workbook might.
+    # Clear pre-existing data rows first, so an Example row or a reused
+    # workbook's stale rows can't upload as unintended SKUs.
     if ws.max_row >= write_at:
         ws.delete_rows(write_at, ws.max_row - write_at + 1)
     for i, spec_row in enumerate(rows):
@@ -611,10 +607,8 @@ def _template_cell_errors(path):
                 if not (c.comment and c.comment.text):
                     continue
                 field = names.get(c.column, f'col{c.column}')
-                # A cell comment can stack several messages, separated by
-                # Excel's literal carriage-return marker `_x000d_`. Split
-                # into individual ERROR/WARNING lines so each is one
-                # actionable item.
+                # A cell comment stacks several messages on Excel's literal
+                # `_x000d_` CR marker; split so each is one actionable line.
                 raw = str(c.comment.text).replace('_x000d_', '\n')
                 for line in raw.split('\n'):
                     line = ' '.join(line.split())
@@ -660,8 +654,10 @@ def _report_comment_errors(path):
                 continue
             field = names[c.column - 1] if c.column - 1 < len(names) else ''
             text = ' '.join(c.comment.text.split())
-            sev = 'error' if text.lstrip().upper().startswith('ERROR') else (
-                'warning' if 'WARNING' in text[:20].upper() else 'info'
+            sev = (
+                'error'
+                if text.lstrip().upper().startswith('ERROR')
+                else ('warning' if 'WARNING' in text[:20].upper() else 'info')
             )
             out.append((str(sku), str(field or ''), sev, text[:400]))
     return out
@@ -680,11 +676,15 @@ def cmd_parse_feedback(args):
         n_warn = sum(1 for _s in comment_errs if _s[2] == 'warning')
         for sku, field, sev, msg in comment_errs:
             print(f'  [{sev}] sku={sku} field={field}: {msg}')
-        print(f'\n{n_err} error(s), {n_warn} warning(s) across '
-              f'{len({s for s, *_ in comment_errs})} SKU(s).')
+        print(
+            f'\n{n_err} error(s), {n_warn} warning(s) across '
+            f'{len({s for s, *_ in comment_errs})} SKU(s).'
+        )
         if n_err:
-            print('Fix ALL errors (parent first) and re-upload; a SKU with '
-                  'any error is NOT created (feed "successful" != live).')
+            print(
+                'Fix ALL errors (parent first) and re-upload; a SKU with '
+                'any error is NOT created (feed "successful" != live).'
+            )
         return
 
     rows = list(_iter_report_rows(args.file))
@@ -784,7 +784,7 @@ def main():
         '--marketplace',
         help='country code (SA/AE/AU/…) or raw marketplace id you are '
         'listing on; routes the offer price to the right block. Overrides '
-        "the spec's top-level \"marketplace\".",
+        'the spec\'s top-level "marketplace".',
     )
     p.set_defaults(func=cmd_fill)
 
