@@ -374,6 +374,10 @@ def _row_fields(spec_row, top):
         out['parent_child'] = spec_row['parentage']
     if spec_row.get('variation_theme'):
         out['variation_theme'] = spec_row['variation_theme']
+    # Any variation row MUST carry relationship_type or a child errors
+    # "relationship_type = null" and never creates. Derive it (explicit wins).
+    if spec_row.get('parentage') or spec_row.get('variation_theme'):
+        out.setdefault('relationship_type', 'Variation')
     if spec_row.get('asin'):
         out['external_product_id'] = spec_row['asin']
         out.setdefault('external_product_id_type', 'asin')

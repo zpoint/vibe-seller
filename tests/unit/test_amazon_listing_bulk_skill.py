@@ -527,8 +527,8 @@ def _make_mkt_template(path):
     ws.title = listing_bulk.TEMPLATE_SHEET
     fields = [
         'feed_product_type', 'item_sku', 'brand_name', 'update_delete',
-        'item_name', 'parent_child', 'variation_theme', 'parent_sku',
-        'color_name', 'fulfillment_availability#1.quantity',
+        'item_name', 'parent_child', 'relationship_type', 'variation_theme',
+        'parent_sku', 'color_name', 'fulfillment_availability#1.quantity',
         _SA_PRICE, _AE_PRICE,
     ]
     ws.append(['TemplateType=fptcustom'])
@@ -594,3 +594,24 @@ def test_fill_errors_when_price_set_without_marketplace(mkt_template, tmp_path):
     with pytest.raises(SystemExit) as e:
         _run(['fill', mkt_template, '--spec', spec, '--out', out])
     assert 'marketplace' in str(e.value)
+
+
+def test_fill_auto_derives_relationship_type_for_variation(mkt_template, tmp_path):
+    # A child with parent_sku + variation_theme but NO relationship_type must
+    # still get relationship_type=Variation (else Amazon errors
+    # "relationship_type = null" and the child never creates).
+    spec = _spec(tmp_path, {
+        'marketplace': 'SA', 'product_type': 'socks',
+        'rows': [
+            {'sku': 'K-P', 'parentage': 'Parent', 'variation_theme': 'Color',
+             'fields': {'item_name': 'p'}},
+            {'sku': 'K-WHT', 'parentage': 'Child', 'parent_sku': 'K-P',
+             'variation_theme': 'Color',
+             'fields': {'item_name': 'w', 'color_name': 'White', 'our_price': '9.99'}},
+        ],
+    })
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    rows = {r['item_sku']: r for r in _read_rows(out)}
+    assert rows['K-P']['relationship_type'] == 'Variation'
+    assert rows['K-WHT']['relationship_type'] == 'Variation'
