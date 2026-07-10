@@ -33,7 +33,9 @@ from openpyxl.comments import Comment  # noqa: E402  (after importorskip guard)
 _SKILL_PATH = (
     Path(__file__).resolve().parents[2]
     / 'app'
-    / 'skills'
+    # Live skill tree (config.SKILLS_SUBDIR); matches the ads-bulk test.
+    # ``app/skills`` is the frozen 0.12.x copy and is not what ships.
+    / 'skills_v2'
     / 'amazon-listing'
     / 'scripts'
     / 'listing_bulk.py'
@@ -508,3 +510,84 @@ def test_parse_feedback_extracts_cell_comments(tmp_path):
     assert any(m.startswith('WARNING') and 'material' in m for m in msgs)
     # _x000d_ artifact must be cleaned (split into separate lines).
     assert not any('_x000d_' in m for m in msgs)
+
+
+# --- offer routing to the target marketplace (multi-marketplace bug) ---
+
+_SA = 'A17E79C6D8DWNP'
+_AE = 'A2VIGQ35RCS4UG'
+_SA_PRICE = f'purchasable_offer[marketplace_id={_SA}]#1.our_price#1.schedule#1.value_with_tax'
+_AE_PRICE = f'purchasable_offer[marketplace_id={_AE}]#1.our_price#1.schedule#1.value_with_tax'
+
+
+def _make_mkt_template(path):
+    """A template with a SEPARATE offer-price column per marketplace."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = listing_bulk.TEMPLATE_SHEET
+    fields = [
+        'feed_product_type', 'item_sku', 'brand_name', 'update_delete',
+        'item_name', 'parent_child', 'variation_theme', 'parent_sku',
+        'color_name', 'fulfillment_availability#1.quantity',
+        _SA_PRICE, _AE_PRICE,
+    ]
+    ws.append(['TemplateType=fptcustom'])
+    ws.append(['label:' + f for f in fields])  # localised label row
+    ws.append(list(fields))  # field API-name row (header)
+    dd = wb.create_sheet(listing_bulk.DEFN_SHEET)
+    dd.append(['x'])
+    dd.append(['Group Name', 'Field Name', 'Local Label Name',
+               'Definition and Use', 'Accepted Values', 'Example', 'Required?'])
+    for f in fields:
+        # The template marks the AE block required (the account is UAE-primary)
+        # -- exactly the trap that made a run fill AE for an SA listing.
+        dd.append(['', f, f, '', '', '', 'Required' if f == _AE_PRICE else 'Optional'])
+    wb.save(path)
+
+
+@pytest.fixture
+def mkt_template(tmp_path):
+    p = tmp_path / 'mkt.xlsx'
+    _make_mkt_template(str(p))
+    return str(p)
+
+
+def test_fill_routes_bare_our_price_to_target_marketplace(mkt_template, tmp_path):
+    spec = _spec(tmp_path, {
+        'marketplace': 'SA', 'product_type': 'socks',
+        'rows': [{'sku': 'K-WHT', 'parentage': 'Child', 'variation_theme': 'Color',
+                  'fields': {'item_name': 'x', 'color_name': 'White',
+                             'feed_product_type': 'socks', 'our_price': '19.99'}}],
+    })
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    row = _read_rows(out)[0]
+    assert row[_SA_PRICE] == '19.99'   # target marketplace got the price
+    assert row[_AE_PRICE] in (None, '')  # the wrong block stayed empty
+
+
+def test_fill_rehomes_price_from_wrong_marketplace(mkt_template, tmp_path):
+    # Agent hand-picked the AE column but is listing on SA -> re-home to SA.
+    spec = _spec(tmp_path, {
+        'marketplace': 'SA', 'product_type': 'socks',
+        'rows': [{'sku': 'K-WHT', 'parentage': 'Child', 'variation_theme': 'Color',
+                  'fields': {'item_name': 'x', 'color_name': 'White',
+                             'feed_product_type': 'socks', _AE_PRICE: '19.99'}}],
+    })
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    row = _read_rows(out)[0]
+    assert row[_SA_PRICE] == '19.99'
+    assert row[_AE_PRICE] in (None, '')
+
+
+def test_fill_errors_when_price_set_without_marketplace(mkt_template, tmp_path):
+    spec = _spec(tmp_path, {
+        'product_type': 'socks',
+        'rows': [{'sku': 'K-WHT', 'parentage': 'Child',
+                  'fields': {'item_name': 'x', 'our_price': '19.99'}}],
+    })
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as e:
+        _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    assert 'marketplace' in str(e.value)

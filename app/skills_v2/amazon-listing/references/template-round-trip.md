@@ -112,6 +112,7 @@ fields.
 {
   "product_type": "socks",
   "brand": "ACME",
+  "marketplace": "SA",
   "rows": [
     { "sku": "WIDGET-001", "operation": "create", "parentage": "Parent",
       "variation_theme": "Color",
@@ -128,16 +129,24 @@ fields.
                   "recommended_browse_nodes": "<from Browse data>",
                   "fulfillment_availability#1.fulfillment_channel_code": "DEFAULT",
                   "fulfillment_availability#1.quantity": "100",
-                  "purchasable_offer[marketplace_id=<OWN_MKT>]#1.our_price#1.schedule#1.value_with_tax": "29.00" } }
+                  "our_price": "29.00" } }
   ]
 }
 ```
 
-> Fill only the store's **own** marketplace offer block (one
-> `purchasable_offer[marketplace_id=…]`), and omit `main_image_url` when
-> the only image you have is a hotlinked supplier URL (add images later
-> via the image flow). Give each child its category's full required set,
-> not just the differentiator (see the Parent-vs-Child note below).
+> **Set the offer price with the bare `our_price` key + a top-level
+> `marketplace` (the country you are listing on, matching the
+> seller-central domain — `amazon.sa` → `"SA"`).** `fill` routes the
+> price into `purchasable_offer[marketplace_id=<that marketplace>]` for
+> you. Do NOT hand-pick a `purchasable_offer[marketplace_id=…]` column:
+> a multi-marketplace template marks a *different* marketplace's block
+> Required (the account's home marketplace), and a price in the wrong
+> block creates an **ASIN with no live offer** — the listing sits in
+> **"Missing offer"** and never goes live, even though the feed reports
+> success. (Pass `--marketplace SA` to `fill` as an alternative to the
+> top-level key.) Omit `main_image_url` when the only image you have is a
+> hotlinked supplier URL. Give each child its category's full required
+> set, not just the differentiator (see the Parent-vs-Child note below).
 
 ### Parent vs Child — what goes where
 
