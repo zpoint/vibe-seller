@@ -39,11 +39,21 @@ and multi-marketplace disables Listing Preferences), then **Generate
 Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
 
-> **Product-Type search gotcha (Beta modal):** the search box is a
-> locked `kat-input` — setting its value via `js(...)` alone does **not**
-> open the candidate list. `click_at_xy` the **search icon** at the right
-> of the input row to trigger the suggestions, then `click_at_xy` the
-> **Select** button on the matched product type.
+> **Getting TO the product-type search (current Beta flow — don't
+> reverse-engineer it):** Spreadsheet → **Download Blank Template** lands
+> on `/product-search/bulk/generate` showing **template cards** (e.g.
+> "List products that are not currently in Amazon's catalog"). The card
+> body text is NOT the button — the clickable control is a **`kat-button`
+> in the card's FOOTER**. Find it via the DOM, not a screenshot:
+> `js` for `kat-card kat-button` → `getBoundingClientRect` → `click_at_xy`
+> (see browser-harness "Locate & click without vision"). That navigates to
+> `/product-search/bulk/generate/add-product`, the product-type search page.
+>
+> **Product-Type search gotcha:** the search box is a locked `kat-input` —
+> setting its value via `js(...)` alone does **not** open the candidate
+> list. Locate and `click_at_xy` the **search icon** (`kat-icon
+> name=search`) at the right of the input row to trigger the suggestions,
+> then `click_at_xy` the **Select** button on the matched product type.
 
 > **The create template generates asynchronously** — "Generate
 > Spreadsheet" does not always land a direct download. If it doesn't
