@@ -21,6 +21,7 @@ amazon-listing/SKILL.md
 amazon-listing/references/template-round-trip.md
 amazon-listing/references/1688-sourcing.md
 amazon-listing/scripts/listing_bulk.py
+amazon-listing/scripts/marketplace_ids.py
 amazon-listing/scripts/ocr_1688.py
 amazon-listing/requirements.txt
 amazon-invoice/SKILL.md

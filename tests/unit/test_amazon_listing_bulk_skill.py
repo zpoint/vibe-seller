@@ -33,7 +33,9 @@ from openpyxl.comments import Comment  # noqa: E402  (after importorskip guard)
 _SKILL_PATH = (
     Path(__file__).resolve().parents[2]
     / 'app'
-    / 'skills'
+    # Live skill tree (config.SKILLS_SUBDIR); matches the ads-bulk test.
+    # ``app/skills`` is the frozen 0.12.x copy and is not what ships.
+    / 'skills_v2'
     / 'amazon-listing'
     / 'scripts'
     / 'listing_bulk.py'
@@ -508,3 +510,235 @@ def test_parse_feedback_extracts_cell_comments(tmp_path):
     assert any(m.startswith('WARNING') and 'material' in m for m in msgs)
     # _x000d_ artifact must be cleaned (split into separate lines).
     assert not any('_x000d_' in m for m in msgs)
+
+
+# --- offer routing to the target marketplace (multi-marketplace bug) ---
+
+_SA = 'A17E79C6D8DWNP'
+_AE = 'A2VIGQ35RCS4UG'
+_SA_PRICE = f'purchasable_offer[marketplace_id={_SA}]#1.our_price#1.schedule#1.value_with_tax'
+_AE_PRICE = f'purchasable_offer[marketplace_id={_AE}]#1.our_price#1.schedule#1.value_with_tax'
+
+
+def _make_mkt_template(path):
+    """A template with a SEPARATE offer-price column per marketplace."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = listing_bulk.TEMPLATE_SHEET
+    fields = [
+        'feed_product_type',
+        'item_sku',
+        'brand_name',
+        'update_delete',
+        'item_name',
+        'parent_child',
+        'relationship_type',
+        'variation_theme',
+        'parent_sku',
+        'color_name',
+        'fulfillment_availability#1.quantity',
+        _SA_PRICE,
+        _AE_PRICE,
+    ]
+    ws.append(['TemplateType=fptcustom'])
+    ws.append(['label:' + f for f in fields])  # localised label row
+    ws.append(list(fields))  # field API-name row (header)
+    dd = wb.create_sheet(listing_bulk.DEFN_SHEET)
+    dd.append(['x'])
+    dd.append([
+        'Group Name',
+        'Field Name',
+        'Local Label Name',
+        'Definition and Use',
+        'Accepted Values',
+        'Example',
+        'Required?',
+    ])
+    for f in fields:
+        # A multi-marketplace template marks a *different* marketplace's
+        # offer block Required than the one we're listing on -- exactly the
+        # trap that silently fills the wrong marketplace's price.
+        dd.append([
+            '',
+            f,
+            f,
+            '',
+            '',
+            '',
+            'Required' if f == _AE_PRICE else 'Optional',
+        ])
+    wb.save(path)
+
+
+@pytest.fixture
+def mkt_template(tmp_path):
+    p = tmp_path / 'mkt.xlsx'
+    _make_mkt_template(str(p))
+    return str(p)
+
+
+def test_fill_routes_bare_our_price_to_target_marketplace(
+    mkt_template, tmp_path
+):
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'variation_theme': 'Color',
+                    'fields': {
+                        'item_name': 'x',
+                        'color_name': 'White',
+                        'feed_product_type': 'socks',
+                        'our_price': '19.99',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    row = _read_rows(out)[0]
+    assert row[_SA_PRICE] == '19.99'  # target marketplace got the price
+    assert row[_AE_PRICE] in (None, '')  # the wrong block stayed empty
+
+
+def test_fill_warns_when_target_marketplace_has_no_offer(
+    mkt_template, tmp_path, capsys
+):
+    # Agent hand-picked the AE column but is listing on SA. We DON'T silently
+    # move it (that confused agents) -- leave it as written and WARN that SA
+    # has no offer (=> Missing offer).
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'variation_theme': 'Color',
+                    'fields': {
+                        'item_name': 'x',
+                        'color_name': 'White',
+                        'feed_product_type': 'socks',
+                        _AE_PRICE: '19.99',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    row = _read_rows(out)[0]
+    assert row[_AE_PRICE] == '19.99'  # explicit column left as written
+    assert row[_SA_PRICE] in (None, '')
+    assert 'Missing offer' in capsys.readouterr().err
+
+
+def test_fill_errors_when_price_set_without_marketplace(mkt_template, tmp_path):
+    spec = _spec(
+        tmp_path,
+        {
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'fields': {'item_name': 'x', 'our_price': '19.99'},
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as e:
+        _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    assert 'marketplace' in str(e.value)
+
+
+def test_fill_auto_derives_relationship_type_for_variation(
+    mkt_template, tmp_path
+):
+    # A child with parent_sku + variation_theme but NO relationship_type must
+    # still get relationship_type=Variation (else Amazon errors
+    # "relationship_type = null" and the child never creates).
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-P',
+                    'parentage': 'Parent',
+                    'variation_theme': 'Color',
+                    'fields': {'item_name': 'p'},
+                },
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'parent_sku': 'K-P',
+                    'variation_theme': 'Color',
+                    'fields': {
+                        'item_name': 'w',
+                        'color_name': 'White',
+                        'our_price': '9.99',
+                    },
+                },
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    rows = {r['item_sku']: r for r in _read_rows(out)}
+    assert rows['K-P']['relationship_type'] == 'Variation'
+    assert rows['K-WHT']['relationship_type'] == 'Variation'
+
+
+def test_marketplace_table_is_global():
+    # The country->id table must cover Amazon's global marketplaces, not
+    # just the few we happened to list on. Spot-check one per region and a
+    # healthy total so a truncated table fails loudly.
+    ids = listing_bulk.MARKETPLACE_IDS
+    for code, mid in {
+        'US': 'ATVPDKIKX0DER',
+        'UK': 'A1F83G8C2ARO7P',
+        'JP': 'A1VC38T7YXB528',
+        'AU': 'A39IBJ37TRP1C6',
+        'SA': 'A17E79C6D8DWNP',
+        'AE': 'A2VIGQ35RCS4UG',
+        'BR': 'A2Q3Y263D00KWC',
+    }.items():
+        assert ids[code] == mid
+    assert len(ids) >= 20  # NA + EU + ME + APAC, not a partial subset
+
+
+def test_resolve_marketplace_by_code_and_raw_id():
+    r = listing_bulk._resolve_marketplace_id
+    assert r('SA') == _SA
+    assert r('sa') == _SA  # case-insensitive country code
+    assert r(_AE) == _AE  # a raw id passes through unchanged
+    assert r(None) is None  # nothing supplied, no template hint
+
+
+def test_marketplace_ids_read_from_template_columns():
+    cols = {'item_sku': 1, _SA_PRICE: 2, _AE_PRICE: 3}
+    assert listing_bulk._marketplace_ids_in_template(cols) == [_SA, _AE]
+    assert listing_bulk._marketplace_ids_in_template({'item_sku': 1}) == []
+
+
+def test_resolve_auto_detects_single_marketplace_template():
+    r = listing_bulk._resolve_marketplace_id
+    # No marketplace given, but the template offers exactly one -> use it.
+    assert r(None, [_SA]) == _SA
+    # A marketplace code Amazon added after our table, disambiguated by a
+    # single-marketplace template -> still resolves (stays general).
+    assert r('ZA', [_SA]) == _SA
+    # Ambiguous: unknown code + multi-marketplace template -> fail loudly.
+    with pytest.raises(SystemExit):
+        r('ZA', [_SA, _AE])
