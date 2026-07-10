@@ -147,11 +147,18 @@ a family that the parent shows **"Variations (N)"**.
   marketplace, creating an ASIN with **no live offer** ("Missing offer",
   never live) even though the feed says success. Instead give the spec a
   top-level `"marketplace": "<CC>"` (the country you're listing on) and a
-  bare `"our_price"` on each child; `fill` routes it to the right block
-  (+ `fulfillment_availability#1.quantity`). **Verify it in THAT
-  marketplace's Pricing view** — the feed "N/N successful" count does not
-  reflect price, and quantity can apply
-  while price shows `--` if you set a different marketplace's column.
+  bare `"our_price"` **and bare `"quantity"`** on each child; `fill` routes
+  BOTH to that marketplace's block. **Stock is per-marketplace too, and it
+  is NOT bracketed like the price** — each `fulfillment_availability#N`
+  group is tied by *position* to one marketplace's offer block, so `#1` is
+  a *different* marketplace than you may think. Never hand-pick a
+  `fulfillment_availability#N.quantity` column; use the bare `quantity` and
+  let `fill` pick the group adjacent to the target offer (it also
+  normalises a wrong-index `fulfillment_availability#k.*` to the right
+  one). Putting stock on the wrong group = an offer with no stock = never
+  live. **Verify it in THAT marketplace's Pricing view** — the feed "N/N
+  successful" count does not reflect price, and quantity can apply while
+  price shows `--` if you set a different marketplace's column.
 - **A multi-marketplace account's template bundles every marketplace's
   offer columns** (e.g. a Europe account yields both SA + AE columns even
   when you select one) — a truly single-country template may not be

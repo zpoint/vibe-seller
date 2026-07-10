@@ -68,6 +68,7 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from marketplace_ids import (  # noqa: E402,F401
     MARKETPLACE_IDS,  # re-exported for callers/tests
+    fulfillment_index as _fulfillment_index_for_marketplace,
     ids_in_template as _marketplace_ids_in_template,
     resolve as _resolve_marketplace_id,
 )
@@ -419,6 +420,23 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                 f'listing on marketplace_id={mkt_id}, which has NO offer -- the '
                 f'listing will be "Missing offer" (never live). Use "our_price".'
             )
+    # Fulfillment/stock is NOT marketplace-bracketed: each
+    # `fulfillment_availability#N` group is tied by position to one
+    # marketplace's offer block. Route a bare `quantity` + normalise any
+    # `fulfillment_availability#k.*` to the TARGET marketplace's index, so
+    # stock can't land on the wrong marketplace (SA offer + AE qty = dead).
+    if mkt_id is not None:
+        n = _fulfillment_index_for_marketplace(cols, mkt_id)
+        if n is not None:
+            if 'quantity' in fields:
+                fields[f'fulfillment_availability#{n}.quantity'] = fields.pop(
+                    'quantity'
+                )
+            for k in list(fields):
+                if k.startswith('fulfillment_availability#') and '.' in k:
+                    tgt = f'fulfillment_availability#{n}.{k.split(".", 1)[1]}'
+                    if tgt != k:
+                        fields[tgt] = fields.pop(k)
 
 
 def cmd_fill(args):
