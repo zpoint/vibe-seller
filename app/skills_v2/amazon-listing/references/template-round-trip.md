@@ -49,11 +49,36 @@ Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 > (see browser-harness "Locate & click without vision"). That navigates to
 > `/product-search/bulk/generate/add-product`, the product-type search page.
 >
-> **Product-Type search gotcha:** the search box is a locked `kat-input` —
-> setting its value via `js(...)` alone does **not** open the candidate
-> list. Locate and `click_at_xy` the **search icon** (`kat-icon
-> name=search`) at the right of the input row to trigger the suggestions,
-> then `click_at_xy` the **Select** button on the matched product type.
+> **Product-Type search gotcha:** the search box is a `kat-input` whose
+> real `<input>` is in its shadow root, and Amazon's search only fires on
+> **input/change events** — a bare `value=` (or `kat-input.value=`) sets
+> the text but dispatches nothing, so the candidate list never opens. You
+> MUST set the value with the **native setter on the inner input** and then
+> **dispatch `input` + `change` with `composed:true`** (to cross the shadow
+> boundary); poking React's `_valueTracker` helps too. Then click the
+> search icon and the **Select** button. Verified recipe:
+>
+> ```bash
+> browser-use <<'PY'
+> import time
+> js(r"""
+>   var inp = document.querySelector('kat-input').shadowRoot.querySelector('input');
+>   var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+>   set.call(inp, 'sock');                                   // product-type query
+>   inp.dispatchEvent(new Event('input',  {bubbles:true, composed:true}));
+>   inp.dispatchEvent(new Event('change', {bubbles:true, composed:true}));
+>   if (inp._valueTracker) inp._valueTracker.setValue('sock');
+> """)
+> time.sleep(2)   # async suggestions
+> # then locate the matched type's Select button via the DOM and click_at_xy it
+> print(js(r"""return [].slice.call(document.querySelectorAll('kat-button'))
+>   .map(function(b){var r=b.getBoundingClientRect();
+>     return {t:(b.innerText||'').trim().slice(0,20), x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};})
+>   .filter(function(e){return e.t;});"""))
+> PY
+> ```
+> (Clicking the `kat-icon name=search` icon alone, without the events, is
+> what makes runs flail here — don't rely on it.)
 
 > **The create template generates asynchronously** — "Generate
 > Spreadsheet" does not always land a direct download. If it doesn't
