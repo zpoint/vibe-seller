@@ -179,12 +179,16 @@ shadow root** (light-DOM `input[type=file]` count is 0). Do NOT click the
 Runtime `objectId` for the shadow-DOM input, then `DOM.setFileInputFiles`
 with the **absolute** `.txt` path:
 
+`cdp()` params are **keyword args**, never a positional dict — a dict in
+the 2nd slot binds to `session_id` and the proxy 400s with
+`-32600 "Message may have string 'sessionId' property"`:
+
 ```bash
 browser-use <<'PY'
 sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
-obj = cdp('Runtime.evaluate', {'expression': sel, 'returnByValue': False})
+obj = cdp('Runtime.evaluate', expression=sel, returnByValue=False)  # kwargs!
 cdp('DOM.setFileInputFiles',
-    {'objectId': obj['result']['objectId'], 'files': ['/tmp/<slug>/listing.txt']})
+    objectId=obj['result']['objectId'], files=['/tmp/<slug>/listing.txt'])
 print('attached')
 PY
 ```
