@@ -87,7 +87,8 @@ click_at_xy(x, y)  # click at pixel coordinates
 wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
 js('<javascript>')  # run JS; returns the SERIALIZABLE result only
-cdp('Domain.method', ...)  # raw Chrome DevTools Protocol call
+cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
+                                # e.g. cdp('Page.navigate', url='...')
 ```
 
 - **`js()` returns serializable values only.** `js("document.title")` and
@@ -95,7 +96,9 @@ cdp('Domain.method', ...)  # raw Chrome DevTools Protocol call
   a useless `{}` (a DOM node can't serialize). Return **numbers, strings,
   or plain objects/arrays** — e.g. an element's coordinates (below), not
   the element itself. For an element *reference* (to set a file input) use
-  `cdp('Runtime.evaluate', {..., 'returnByValue': False})` → `objectId`.
+  `cdp('Runtime.evaluate', expression=..., returnByValue=False)` → `objectId`
+  (note: `cdp()` params are **keyword args**, never a positional dict —
+  see "Uploading a file").
 
 ## Locate & click an element WITHOUT vision (the preferred path)
 
@@ -164,6 +167,13 @@ so DO NOT click it. Set the file **directly on the input element via
 CDP** — the one reliable way. Get a Runtime `objectId` for the input,
 then `DOM.setFileInputFiles`:
 
+**`cdp()` takes keyword args, NOT a params dict.** The signature is
+`cdp(method, session_id=None, **params)` — the second positional slot is
+`session_id`, so passing a dict there (`cdp('Runtime.evaluate', {...})`)
+binds your params to `session_id` and the proxy rejects it with
+`-32600 "Message may have string 'sessionId' property"`. Always spell
+the CDP params as keywords: `cdp('Runtime.evaluate', expression=..., returnByValue=False)`.
+
 ```bash
 browser-use <<'PY'
 # 1. objectId for the <input type=file>. For a plain input:
@@ -171,10 +181,10 @@ sel = "document.querySelector('input[type=file]')"
 # For an input inside an OPEN shadow root (e.g. Amazon's kat-file-upload,
 # where the light-DOM input count is 0), pierce it:
 # sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
-obj = cdp('Runtime.evaluate', {'expression': sel, 'returnByValue': False})
+obj = cdp('Runtime.evaluate', expression=sel, returnByValue=False)  # kwargs!
 oid = obj['result']['objectId']
 # 2. Attach the file. The path MUST be ABSOLUTE; files is a list.
-cdp('DOM.setFileInputFiles', {'objectId': oid, 'files': ['/abs/path/to/file.txt']})
+cdp('DOM.setFileInputFiles', objectId=oid, files=['/abs/path/to/file.txt'])
 print('attached')
 PY
 ```
