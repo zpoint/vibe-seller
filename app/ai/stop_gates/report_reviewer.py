@@ -55,10 +55,11 @@ REVIEW_MAX_ITERS = 5
 REVIEWER_STALL_CAP = 5
 
 _PARTIAL_BANNER = (
-    '> ⚠️ **Unverified ad report.** This report completed WITHOUT a '
-    'passing reviewer verdict — the ``ads-report-review`` loop stalled '
-    'without reaching ``Status: ok``. Treat every finding as UNVERIFIED '
-    'and spot-check against the live console before acting on it.\n\n'
+    '> ⚠️ **Unverified result.** This deliverable completed WITHOUT a '
+    'passing reviewer verdict — the DoD review loop stalled without '
+    'reaching ``Status: ok``. Treat it as UNVERIFIED and spot-check '
+    'against the source of truth (live page / export / file) before '
+    'acting on it.\n\n'
 )
 
 
@@ -97,15 +98,17 @@ def reviewer_verdict(task_dir) -> str | None:
         review_files = []
     if not review_files:
         return (
-            'Reviewer never ran. Before finalizing, spawn the '
-            '``ads-report-review`` subagent (subagent_type='
-            '"general-purpose") — it OPENS the live console/export and '
-            'cross-verifies your report per '
-            '``amazon-ads/references/reviewer-loop.md`` (if there was '
-            'nothing substantive to review, it signs off fast) — and '
-            'write its result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in '
-            'this workspace. Re-run reviewer until Status: ok or until '
-            f'iter {REVIEW_MAX_ITERS} with Status: incomplete.'
+            'Reviewer never ran. Before finalizing, spawn the DoD '
+            'verification reviewer (the ``ads-report-review`` subagent, '
+            'subagent_type="general-purpose") — it '
+            'OPENS the live source of truth (console / page / export / '
+            'file) and cross-verifies your deliverable per your skill'
+            "'s DoD review loop (its ``references/dod-review-loop.md``, "
+            'or ``amazon-ads/references/reviewer-loop.md`` for ads). If '
+            'there was nothing substantive to review, it signs off fast. '
+            'Write its result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in this '
+            'workspace; re-run until Status: ok or iter '
+            f'{REVIEW_MAX_ITERS} with Status: incomplete.'
         )
 
     def _iter_of(p):

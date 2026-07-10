@@ -23,6 +23,12 @@ would be bad.
 from pathlib import Path
 import re
 
+from app.ai.skill_review import skills_requiring_review
+from app.ai.stop_gates import (
+    ad_completeness_review,
+    recorded_skills,
+    report_reviewer,
+)
 from app.plugins import (
     registered_pretool_gates,
     registered_review_markers,
@@ -434,31 +440,32 @@ def _is_server_reviewed(audit_text: str) -> bool:
 
 
 def check_review_status(task_dir) -> str | None:
-    """Deny reason if the ad-report reviewer hasn't returned ``ok`` (or
-    ``incomplete`` at iter ≥ 5); else ``None``. No-op for non-ad tasks.
+    """Deny reason if the DoD reviewer hasn't returned ``ok`` (or
+    ``incomplete`` at iter ≥ 5); else ``None``. Fires for ads skills AND
+    any skill declaring a ``review:`` block; no-op otherwise.
     """
     if task_dir is None:
         return None
     # Identify ad-report tasks by BOUND SKILL, not filename (no escape).
-    from app.ai.stop_gates import (  # noqa: PLC0415
-        recorded_skills,
-        report_reviewer,
-    )
-
-    is_ad_task = bool(
-        recorded_skills(task_dir.name) & report_reviewer.AD_SKILLS
+    skills = recorded_skills(task_dir.name)
+    is_ad_task = bool(skills & report_reviewer.AD_SKILLS)
+    # Phase 2: any non-ad skill that declares a ``review:`` block also
+    # requires the active reviewer verdict before the turn may end.
+    needs_general_review = not is_ad_task and bool(
+        skills_requiring_review(skills, task_dir)
     )
     try:
         audit_files = list(task_dir.glob('AD_AUDIT_*.md'))
     except OSError:
         audit_files = []
     if not audit_files:
-        if is_ad_task:
+        if is_ad_task or needs_general_review:
             # Even with no report file, route to the reviewer — it
-            # decides whether the task needed one (real audit → gaps) or
-            # had nothing to verify (quick lookup → signs off fast).
+            # decides whether the task needed one (real deliverable →
+            # gaps) or had nothing to verify (quick lookup → signs off
+            # fast).
             return report_reviewer.reviewer_verdict(task_dir)
-        return None  # Not an ads task; nothing to gate.
+        return None  # Nothing bound that requires review.
 
     # This path also gates the ENDING-TURN bypass (streaming result
     # persisted without set_task_result — the 3/24 bug) under the same
@@ -468,9 +475,6 @@ def check_review_status(task_dir) -> str | None:
         audit_text = newest_audit.read_text(encoding='utf-8')
     except OSError:
         audit_text = ''
-    # Lazy import: a top-level import would cycle (stop_gates → here).
-    from app.ai.stop_gates import ad_completeness_review  # noqa: PLC0415
-
     if is_ad_task:
         # Core ad report → HYBRID: the deterministic coverage FLOOR
         # (AUDIT_SCOPE combo + active-id coverage + monotonic drills —

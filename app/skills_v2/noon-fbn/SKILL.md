@@ -2,6 +2,19 @@
 name: noon-fbn
 description: "Noon Fulfilled-by-noon (FBN) — ASN creation flow, ASN status enum, inventory export, barcode print. Load when scheduling a shipment, managing FBN inventory, creating an ASN, or exporting warehouse stock."
 requires: [noon-shared]
+review:
+  criteria: |
+    - The ASN was ACTUALLY created: it has an ASN number and appears in
+      My ASN & Storage with a valid status; its product list and
+      quantities match the request. A "submitted" claim without the ASN
+      showing in the list is not done.
+    - If an inventory export was requested, the CSV exists and is
+      non-empty with the expected columns.
+  verify_by: |
+    Open the FBN ASN page (fbn.noon.partners/.../asn); confirm the new
+    ASN number + status + shipment contents match. If inventory export
+    was asked, open the CSV and confirm non-zero rows + warehouse/stock
+    columns.
 ---
 
 # Noon — FBN (Fulfilled by noon)
