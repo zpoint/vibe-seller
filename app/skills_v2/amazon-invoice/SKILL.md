@@ -2,6 +2,18 @@
 name: amazon-invoice
 description: Generate tax invoices from Amazon Seller Central order data using browser extraction and PDF generation
 requires: [amazon-shared]
+review:
+  criteria: |
+    - A non-empty PDF exists for EVERY requested order, with correct
+      structure: invoice number, seller + buyer blocks, a line-item
+      table, and subtotal / tax / total that match the source order
+      (tax computed per the order's country rule).
+  evidence:
+    - "invoice_*.pdf"
+  verify_by: |
+    Open each invoice_<order_id>.pdf, confirm it is non-zero and that the
+    line items + totals match the source order data (not placeholder or
+    zeroed values). One PDF per requested order — no order skipped.
 ---
 
 # Amazon Invoice Generator

@@ -13,7 +13,6 @@ server gate) keeps the REVIEW-file loop as its fallback enforcement.
 import pytest
 
 from app.ai.bash_safety import check_review_status
-import app.ai.stop_gates as sg
 from app.ai.stop_gates import ad_completeness_review
 
 
@@ -93,7 +92,8 @@ class TestReviewStopGate:
         # file → still denied (reviewer never ran).
 
         monkeypatch.setattr(
-            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-ads'}),
         )
         monkeypatch.setattr(
             ad_completeness_review, 'check', lambda *a, **k: None
@@ -106,7 +106,8 @@ class TestReviewStopGate:
 
     def test_ad_skill_task_passes_with_reviewer_ok(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-ads'}),
         )
         monkeypatch.setattr(
             ad_completeness_review, 'check', lambda *a, **k: None
@@ -125,7 +126,8 @@ class TestReviewStopGate:
         # line and isn't an EXEC_ review, the Status is what gates.
 
         monkeypatch.setattr(
-            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-ads'}),
         )
         monkeypatch.setattr(
             ad_completeness_review, 'check', lambda *a, **k: None
@@ -144,7 +146,8 @@ class TestReviewStopGate:
         # An EXEC_REVIEW_* file must NOT satisfy the phase-3 report gate.
 
         monkeypatch.setattr(
-            sg, 'recorded_skills', lambda t: frozenset({'amazon-ads'})
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-ads'}),
         )
         monkeypatch.setattr(
             ad_completeness_review, 'check', lambda *a, **k: None
@@ -158,6 +161,54 @@ class TestReviewStopGate:
         deny = check_review_status(tmp_path)
         assert deny is not None and 'ads-report-review' in deny
 
+    def _write_review_skill(self, root, name='amazon-listing'):
+        d = root / '.claude' / 'skills' / name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / 'SKILL.md').write_text(
+            f'---\nname: {name}\nreview:\n'
+            '  criteria: |\n    - Every SKU is live.\n---\n\n# body\n',
+            encoding='utf-8',
+        )
+
+    def test_general_review_skill_requires_reviewer(
+        self, tmp_path, monkeypatch
+    ):
+        # Phase 2: a NON-ad skill declaring a review: block must require
+        # the active reviewer at the Stop hook (no AD_AUDIT involved).
+        monkeypatch.setattr(
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-listing'}),
+        )
+        self._write_review_skill(tmp_path)
+        deny = check_review_status(tmp_path)
+        assert deny is not None and 'ads-report-review' in deny
+
+    def test_general_review_skill_passes_with_reviewer_ok(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-listing'}),
+        )
+        self._write_review_skill(tmp_path)
+        (tmp_path / 'REVIEW_2026-07-09_iter1.md').write_text(
+            '# Review\nStatus: ok\n', encoding='utf-8'
+        )
+        assert check_review_status(tmp_path) is None
+
+    def test_non_review_skill_not_gated(self, tmp_path, monkeypatch):
+        # A skill with NO review: block (and not an ad skill) → no gate.
+        monkeypatch.setattr(
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-shared'}),
+        )
+        d = tmp_path / '.claude' / 'skills' / 'amazon-shared'
+        d.mkdir(parents=True)
+        (d / 'SKILL.md').write_text(
+            '---\nname: amazon-shared\n---\n\n# body\n', encoding='utf-8'
+        )
+        assert check_review_status(tmp_path) is None
+
     def test_ad_skill_task_without_report_routes_to_reviewer(
         self, tmp_path, monkeypatch
     ):
@@ -167,7 +218,8 @@ class TestReviewStopGate:
         # it signs off fast if there was nothing to verify.
 
         monkeypatch.setattr(
-            sg, 'recorded_skills', lambda t: frozenset({'noon-ads'})
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'noon-ads'}),
         )
         (tmp_path / 'WIDGET_AD_COMPARISON.md').write_text(
             '# r\n', encoding='utf-8'

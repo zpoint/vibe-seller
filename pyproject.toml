@@ -19,6 +19,10 @@ dependencies = [
     "pydantic-settings",
     "sse-starlette",
     "httpx[socks]",
+    # Used by app/ai/skill_review.py to parse the per-skill ``review:``
+    # DoD block from SKILL.md frontmatter (nested YAML with multiline
+    # scalars — regex isn't enough). Was previously only a transitive dep.
+    "pyyaml",
     # browser-use 0.13 ("CLI 3.0", commit f768a06c) replaced the
     # subcommand CLI (`open`/`state`/`click`) and `--session`/`--cdp-url`
     # flags with a browser_harness heredoc code-eval interface driven by
