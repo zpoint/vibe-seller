@@ -163,10 +163,25 @@ validates, and its own remedy is to upload a tab-delimited text file.
 The `.txt` reaches real content validation, which is what you want.
 
 On the upload page, the file input lives in a `kat-file-upload` **open
-shadow root** (light-DOM `input[type=file]` count is 0). Locate the input
-node with `js(...)` (pierce the shadow root) and set the file on it via
-`cdp('DOM.setFileInputFiles', ...)` (see the `browser-use` skill), then
-`click_at_xy` **Submit products**. Amazon processes asynchronously; the batch row on
+shadow root** (light-DOM `input[type=file]` count is 0). Do NOT click the
+"Browse" button (it opens the OS picker you can't drive) and do NOT try
+`file://` navigation. Set the file directly on the input via CDP — get a
+Runtime `objectId` for the shadow-DOM input, then `DOM.setFileInputFiles`
+with the **absolute** `.txt` path:
+
+```bash
+browser-use <<'PY'
+sel = "document.querySelector('kat-file-upload').shadowRoot.querySelector('input[type=file]')"
+obj = cdp('Runtime.evaluate', {'expression': sel, 'returnByValue': False})
+cdp('DOM.setFileInputFiles',
+    {'objectId': obj['result']['objectId'], 'files': ['/tmp/<slug>/listing.txt']})
+print('attached')
+PY
+```
+
+(Full recipe + the plain-input variant: `browser-harness` SKILL.md §
+"Uploading a file".) Then `click_at_xy` **Submit products** and
+`wait_for_load()`. Amazon processes asynchronously; the batch row on
 **Check Upload Status** shows `SKUs successful / submitted` and a
 **Download Processing Summary** link. Save it and parse it:
 
