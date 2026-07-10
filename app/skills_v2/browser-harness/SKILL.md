@@ -43,11 +43,8 @@ print(page_info())
 PY
 ```
 
-Single statements can use `-c`:
-
-```bash
-browser-use -c 'print(page_info())'
-```
+The wrapper takes the heredoc form **only** — there is no `-c` flag
+(passing one just prints usage). Put every statement inside the heredoc.
 
 ## Prerequisites
 
@@ -76,13 +73,26 @@ Helpers are pre-imported into the heredoc namespace:
 ```python
 new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
-capture_screenshot()  # screenshot the visible viewport (understand state)
+capture_screenshot()  # → path to a PNG (fixed: ~/.vibe-seller/bh-tmp/shot.png,
+                      # overwritten each call). Read that path to VIEW it.
 click_at_xy(x, y)  # click at pixel coordinates
 wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
-js('<javascript>')  # run JS in the page; returns the result
+js('<javascript>')  # run JS; returns the SERIALIZABLE result only
 cdp('Domain.method', ...)  # raw Chrome DevTools Protocol call
 ```
+
+- **`capture_screenshot()`** returns a file path; `print()` it, then
+  **Read that PNG to see the page** — this is how you understand layout
+  and find click targets. If your model can't view images, you're
+  half-blind: lean harder on `page_info()` and DOM text, and expect to
+  work more carefully.
+- **`js()` returns serializable values only.** `js("document.title")` and
+  `js("return 1+1")` work; but `js("document.querySelector(...)")`
+  returns a useless `{}` (a DOM node can't serialize). To get an
+  **element reference** (e.g. to set a file input), use
+  `cdp('Runtime.evaluate', {'expression': …, 'returnByValue': False})` →
+  `result.objectId` (see "Uploading a file" below).
 
 Only the helpers above (plus Python builtins) are in scope — the heredoc
 runs as a plain Python script. **`time`, `json`, `re`, etc. are NOT
