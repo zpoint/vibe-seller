@@ -99,6 +99,17 @@ listing. **Always confirm on Manage Inventory** (or
 false-negates incomplete listings). Confirm the SKU has an ASIN, and for
 a family that the parent shows **"Variations (N)"**.
 
+> **Do NOT re-upload just because Check Upload Status shows "N/A".** After
+> a submit, the batch's "SKUs successful / N/A" column stays `N/A` for
+> minutes (and CREATE/DELETE feeds can sit at N/A a long time) — that is
+> **normal, not a failure**, and the widget's shadow-root text may even
+> read "File not uploaded" on a submit that *did* go through. Re-uploading
+> on N/A just creates duplicate batches and wastes the run. Once you have
+> a batch reference_id, the upload was accepted: **go straight to Manage
+> Inventory** (search your SKU prefix) to verify the family is live —
+> that is the source of truth, not the feed status. Only re-upload if the
+> **downloaded processing report** names a real per-SKU error to fix.
+
 ### Priors that recur across categories
 
 - **Upload a tab-delimited `.txt`, not the `.xlsm`.** `fill` writes the
