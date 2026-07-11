@@ -50,46 +50,47 @@ Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 > `getBoundingClientRect` centre, poll the downloads dir for the new
 > `.xlsm`, then `cdp("Emulation.clearDeviceMetricsOverride")`.
 
-> **Getting TO the product-type search (current Beta flow — don't
-> reverse-engineer it):** Spreadsheet → **Download Blank Template** lands
-> on `/product-search/bulk/generate` showing **template cards** (e.g.
-> "List products that are not currently in Amazon's catalog"). The card
-> body text is NOT the button — the clickable control is a **`kat-button`
-> in the card's FOOTER**. Find it via the DOM, not a screenshot:
-> `js` for `kat-card kat-button` → `getBoundingClientRect` → `click_at_xy`
-> (see browser-harness "Locate & click without vision"). That navigates to
-> `/product-search/bulk/generate/add-product`, the product-type search page.
+> **Getting TO the product-type search (verified 2026-07, NGS beta).**
+> On `/product-search/bulk` a right-side **"Choose a template"** panel
+> opens; click the **Download Product Spreadsheet** button under **"List
+> products that are not currently in Amazon's catalog"** (that's the
+> create-new-ASIN card — NOT "Get Listing Loader", which is for existing
+> ASINs). It opens the **Download Product Spreadsheet** panel at
+> `/product-search/bulk/generate/add-product` (language dropdown +
+> product-type search + store checkboxes + Generate). Locate the button by
+> its label text via the DOM and `click_at_xy` it.
 >
-> **Product-Type search gotcha:** the search box is a `kat-input` whose
-> real `<input>` is in its shadow root, and Amazon's search only fires on
-> **input/change events** — a bare `value=` (or `kat-input.value=`) sets
-> the text but dispatches nothing, so the candidate list never opens. You
-> MUST set the value with the **native setter on the inner input** and then
-> **dispatch `input` + `change` with `composed:true`** (to cross the shadow
-> boundary); poking React's `_valueTracker` helps too. Then click the
-> search icon and the **Select** button. Verified recipe:
+> **Product-Type search — it's a PLAIN `<input>` + a separate search-icon
+> button, NOT a shadow-dropdown.** Setting `value` or dispatching
+> input/change does NOT open a suggestion list (there is none); you must
+> TYPE into it and click the magnifying-glass button beside it. Verified
+> recipe:
 >
 > ```bash
 > browser-use <<'PY'
 > import time
-> js(r"""
->   var inp = document.querySelector('kat-input').shadowRoot.querySelector('input');
->   var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
->   set.call(inp, 'sock');                                   // product-type query
->   inp.dispatchEvent(new Event('input',  {bubbles:true, composed:true}));
->   inp.dispatchEvent(new Event('change', {bubbles:true, composed:true}));
->   if (inp._valueTracker) inp._valueTracker.setValue('sock');
-> """)
-> time.sleep(2)   # async suggestions
-> # then locate the matched type's Select button via the DOM and click_at_xy it
-> print(js(r"""return [].slice.call(document.querySelectorAll('kat-button'))
+> box = js(r"""var i=document.querySelector('input[placeholder*="Product keyword"]');
+>   if(!i)return null;var r=i.getBoundingClientRect();
+>   return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};""")
+> click_at_xy(box["x"], box["y"])                 # focus the input
+> cdp("Input.insertText", text="socks")           # TRUSTED typing (value= / events don't stick)
+> time.sleep(1)
+> # click the search-icon button just right of the input (find it by position),
+> # then the matched type's **Select** button (e.g. the "Sock" row):
+> print(js(r"""return [].slice.call(document.querySelectorAll('button,kat-button'))
 >   .map(function(b){var r=b.getBoundingClientRect();
->     return {t:(b.innerText||'').trim().slice(0,20), x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};})
->   .filter(function(e){return e.t;});"""))
+>     return {t:(b.innerText||b.getAttribute('label')||'').trim().slice(0,20),
+>             x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})
+>   .filter(function(e){return e.x>0;});"""))   # → click the search icon, then Select
 > PY
 > ```
-> (Clicking the `kat-icon name=search` icon alone, without the events, is
-> what makes runs flail here — don't rely on it.)
+> After **Select**, the right column shows "Product Type Selected: Sock".
+> Then tick the store(s) (the account's home marketplace may be force-
+> checked; ensure the marketplace you're listing on is ticked), and click
+> **Generate Spreadsheet** — which is below the fold, so use the CDP
+> viewport-resize recipe above. A fresh `.xlsm` lands in the downloads dir
+> within ~30s. (`cdp("Input.insertText", ...)` needs the element focused
+> first — click it, don't just querySelector it.)
 
 > **The create template generates asynchronously** — "Generate
 > Spreadsheet" does not always land a direct download. If it doesn't
