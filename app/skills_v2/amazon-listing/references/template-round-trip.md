@@ -33,11 +33,25 @@ Seller Central → **Catalogue → Add Products via Upload**
 (`sellercentral.amazon.<tld>/listing/upload` → `/product-search/bulk`).
 Open **Spreadsheet → Download Blank Template → Download Product
 Spreadsheet**, search the product type (e.g. "socks" → **Select**
-"Sock"), choose the language, then **select the store's own single
-marketplace only** (uncheck the others — the picker defaults to several,
-and multi-marketplace disables Listing Preferences), then **Generate
-Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
+"Sock"), choose the language, then **just make sure your TARGET
+marketplace's checkbox is ticked** (it usually is by default) and
+**Generate Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
+
+> **Do NOT try to uncheck the other marketplaces.** A bundled
+> multi-marketplace template (e.g. SA + AE) is perfectly fine — `fill`
+> routes the offer AND the quantity to your target marketplace's block
+> (see the per-marketplace offer/stock rule below), so extra marketplaces
+> in the template are harmless. Fighting the store `kat-checkbox`es wastes
+> the run: their state doesn't reliably toggle via `click_at_xy`/JS, and
+> the whole point (single-marketplace) buys you nothing. Leave them as-is
+> and Generate.
+>
+> **Coordinate gotcha after a viewport resize:** if you used
+> `Emulation.setDeviceMetricsOverride` (below-fold recipe) to reach the
+> Generate button, every element's `getBoundingClientRect` is now in the
+> NEW tall viewport — **re-read the coordinates after the override**
+> before `click_at_xy`; the pre-resize x/y are stale.
 
 > **The "Generate Spreadsheet" button is usually BELOW the fold** (it sits
 > at the bottom of a tall `kat-popover`, and the Ziniao window is only
