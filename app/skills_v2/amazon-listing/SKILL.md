@@ -125,9 +125,11 @@ a family that the parent shows **"Variations (N)"**.
 - **Compound attributes come as a set** — e.g. Apparel Size needs
   `apparel_size_class` + `apparel_size_system` + `apparel_body_type` +
   `apparel_height_type` together; a partial set errors (99001/99022).
-- **Own-country only** — in the generator, select the store's **single**
-  marketplace (multi-marketplace disables Listing Preferences and adds
-  offer blocks you don't need). Fill only that marketplace's offer.
+- **Don't fight the marketplace checkboxes in the generator** — just make
+  sure your **target** marketplace is ticked and Generate; do NOT try to
+  uncheck the others. A bundled multi-marketplace template is fine (`fill`
+  routes offer + quantity to your target's block); the store `kat-checkbox`
+  toggles are unreliable and unchecking buys nothing but a stuck run.
 - **Main image is not required by default** — we do **not** upload
   images from here (the seller adds them separately). So a `18320`
   ("main image is missing") error is *expected noise*, not a blocker;
