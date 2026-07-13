@@ -99,6 +99,34 @@ listing. **Always confirm on Manage Inventory** (or
 false-negates incomplete listings). Confirm the SKU has an ASIN, and for
 a family that the parent shows **"Variations (N)"**.
 
+> **"Missing Information / ASIN -" is usually NOT a failure — don't
+> thrash.** Two benign causes, and re-uploading fixes neither:
+> 1. **ASINs mint asynchronously.** A just-submitted family can show
+>    `ASIN -` / a "Complete drafts → Submitted: Provide missing
+>    information" entry for **10–30 minutes** while Amazon mints the
+>    ASINs. Re-check Manage Inventory later — the parent flips to
+>    `Variations (N)` with real child ASINs on its own. Do NOT re-upload
+>    (that just spawns duplicate batches).
+> 2. **Only the main image is missing.** We intentionally don't upload
+>    images, so a no-image product parks in "provide missing information"
+>    for the image alone. **That is an acceptable DONE state** — the
+>    seller adds the image later. The listing is **finished** once Manage
+>    Inventory shows it with the variation relationship (`Variations (N)`),
+>    real child ASINs, and correct **title / price / bullets**; a blank
+>    image does not block "done". Only treat it as unfinished if the
+>    processing report names a **non-image** blocking error.
+
+> **Do NOT re-upload just because Check Upload Status shows "N/A".** After
+> a submit, the batch's "SKUs successful / N/A" column stays `N/A` for
+> minutes (and CREATE/DELETE feeds can sit at N/A a long time) — that is
+> **normal, not a failure**, and the widget's shadow-root text may even
+> read "File not uploaded" on a submit that *did* go through. Re-uploading
+> on N/A just creates duplicate batches and wastes the run. Once you have
+> a batch reference_id, the upload was accepted: **go straight to Manage
+> Inventory** (search your SKU prefix) to verify the family is live —
+> that is the source of truth, not the feed status. Only re-upload if the
+> **downloaded processing report** names a real per-SKU error to fix.
+
 ### Priors that recur across categories
 
 - **Upload a tab-delimited `.txt`, not the `.xlsm`.** `fill` writes the
@@ -114,9 +142,11 @@ a family that the parent shows **"Variations (N)"**.
 - **Compound attributes come as a set** — e.g. Apparel Size needs
   `apparel_size_class` + `apparel_size_system` + `apparel_body_type` +
   `apparel_height_type` together; a partial set errors (99001/99022).
-- **Own-country only** — in the generator, select the store's **single**
-  marketplace (multi-marketplace disables Listing Preferences and adds
-  offer blocks you don't need). Fill only that marketplace's offer.
+- **Don't fight the marketplace checkboxes in the generator** — just make
+  sure your **target** marketplace is ticked and Generate; do NOT try to
+  uncheck the others. A bundled multi-marketplace template is fine (`fill`
+  routes offer + quantity to your target's block); the store `kat-checkbox`
+  toggles are unreliable and unchecking buys nothing but a stuck run.
 - **Main image is not required by default** — we do **not** upload
   images from here (the seller adds them separately). So a `18320`
   ("main image is missing") error is *expected noise*, not a blocker;
@@ -147,11 +177,18 @@ a family that the parent shows **"Variations (N)"**.
   marketplace, creating an ASIN with **no live offer** ("Missing offer",
   never live) even though the feed says success. Instead give the spec a
   top-level `"marketplace": "<CC>"` (the country you're listing on) and a
-  bare `"our_price"` on each child; `fill` routes it to the right block
-  (+ `fulfillment_availability#1.quantity`). **Verify it in THAT
-  marketplace's Pricing view** — the feed "N/N successful" count does not
-  reflect price, and quantity can apply
-  while price shows `--` if you set a different marketplace's column.
+  bare `"our_price"` **and bare `"quantity"`** on each child; `fill` routes
+  BOTH to that marketplace's block. **Stock is per-marketplace too, and it
+  is NOT bracketed like the price** — each `fulfillment_availability#N`
+  group is tied by *position* to one marketplace's offer block, so `#1` is
+  a *different* marketplace than you may think. Never hand-pick a
+  `fulfillment_availability#N.quantity` column; use the bare `quantity` and
+  let `fill` pick the group adjacent to the target offer (it also
+  normalises a wrong-index `fulfillment_availability#k.*` to the right
+  one). Putting stock on the wrong group = an offer with no stock = never
+  live. **Verify it in THAT marketplace's Pricing view** — the feed "N/N
+  successful" count does not reflect price, and quantity can apply while
+  price shows `--` if you set a different marketplace's column.
 - **A multi-marketplace account's template bundles every marketplace's
   offer columns** (e.g. a Europe account yields both SA + AE columns even
   when you select one) — a truly single-country template may not be
