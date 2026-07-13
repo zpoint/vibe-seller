@@ -99,6 +99,23 @@ listing. **Always confirm on Manage Inventory** (or
 false-negates incomplete listings). Confirm the SKU has an ASIN, and for
 a family that the parent shows **"Variations (N)"**.
 
+> **"Missing Information / ASIN -" is usually NOT a failure — don't
+> thrash.** Two benign causes, and re-uploading fixes neither:
+> 1. **ASINs mint asynchronously.** A just-submitted family can show
+>    `ASIN -` / a "Complete drafts → Submitted: Provide missing
+>    information" entry for **10–30 minutes** while Amazon mints the
+>    ASINs. Re-check Manage Inventory later — the parent flips to
+>    `Variations (N)` with real child ASINs on its own. Do NOT re-upload
+>    (that just spawns duplicate batches).
+> 2. **Only the main image is missing.** We intentionally don't upload
+>    images, so a no-image product parks in "provide missing information"
+>    for the image alone. **That is an acceptable DONE state** — the
+>    seller adds the image later. The listing is **finished** once Manage
+>    Inventory shows it with the variation relationship (`Variations (N)`),
+>    real child ASINs, and correct **title / price / bullets**; a blank
+>    image does not block "done". Only treat it as unfinished if the
+>    processing report names a **non-image** blocking error.
+
 > **Do NOT re-upload just because Check Upload Status shows "N/A".** After
 > a submit, the batch's "SKUs successful / N/A" column stays `N/A` for
 > minutes (and CREATE/DELETE feeds can sit at N/A a long time) — that is
