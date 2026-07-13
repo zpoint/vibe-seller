@@ -62,7 +62,7 @@ Imports are keyed by **Type → Subtype**. The relevant ones:
 | Content | Product Import | *Updates* content (title/description/attributes) of **existing** SKUs only. |
 | Pricing | **Price Update** | Base price + sale price/window for existing SKUs (see §1.3). |
 | Pricing | Price Range Update | Long-dated sale windows (the discount pattern, §1.3). |
-| Stock | (stock subtype) | On-hand quantity for existing SKUs. |
+| Stock | (stock subtype) | On-hand quantity for existing SKUs. **Match the store's warehouse type**: an FBP Stock Update fails ("no FBP warehouse") if the store has none; FBN stock requires an ASN shipment flow, not a stock import. Check the SKU's Offer→Stock section for which warehouse the store actually has before choosing the stock import. |
 | Warranty | (warranty subtype) | Warranty type for existing SKUs (file equivalent of the click "No Warranty"). |
 
 So a full file-based create is: **NIS Create/Update** (identity + images)
