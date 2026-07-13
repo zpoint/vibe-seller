@@ -26,9 +26,100 @@ review:
 Covers SKU creation and the post-creation edit flow (price, stock,
 barcode, content, visibility status).
 
-## 1. Create Listing (SKU)
+> **Two create paths — PREFER file-based, FALL BACK to click.**
+> File-based (§1, NIS spreadsheet import) sets every hard field through a
+> spreadsheet, so it never touches the Ant-Design dropdowns (Warranty,
+> Department, Gender, Size, Content selects) that the click wizard needs
+> a *trusted mouse* to open — those dropdowns are the recurring wall on
+> the click path. Use file-based whenever creating one or more SKUs of a
+> known category. Use the click wizard (§2) only for a one-off where you
+> can drive a real trusted click, or to *edit* a SKU after creation.
+
+## 1. Create Listing — File-based (PREFERRED, NIS import)
+
+Noon's **NIS** (noon Item Sheet) importer creates SKUs in bulk from a
+spreadsheet. Everything the click wizard sets via a dropdown is a plain
+cell here, so it sidesteps the anti-automation selects entirely.
+
+**Flow:** `Imports` → **Add Import** → **Type = Content**, **Subtype =
+NIS Create/Update** → pick the category → **Download** the template →
+fill it → **Next** → upload → SKUs go to async Quality Check (QC).
+
+URL: `https://noon-catalog.noon.partners/en/imports/create?project=PRJ{project_id}`
+
+The Type / Subtype selects are Ant-Design dropdowns — open each with a
+trusted `click_at_xy` on the field, then option-click the item in
+`.ant-select-dropdown .ant-select-item` (type-to-filter does NOT work;
+see `../noon-shared`).
+
+### 1.1 Which import for which field
+
+Imports are keyed by **Type → Subtype**. The relevant ones:
+
+| Type | Subtype | Creates / sets |
+|------|---------|----------------|
+| Content | **NIS Create/Update** | **Creates new SKUs** — identity, sizes, attributes, images, in bulk. This is the create step. |
+| Content | Product Import | *Updates* content (title/description/attributes) of **existing** SKUs only. |
+| Pricing | **Price Update** | Base price + sale price/window for existing SKUs (see §1.3). |
+| Pricing | Price Range Update | Long-dated sale windows (the discount pattern, §1.3). |
+| Stock | (stock subtype) | On-hand quantity for existing SKUs. |
+| Warranty | (warranty subtype) | Warranty type for existing SKUs (file equivalent of the click "No Warranty"). |
+
+So a full file-based create is: **NIS Create/Update** (identity + images)
+→ then **Price Update** (price) and **Stock** as follow-up imports keyed
+on the `seller_sku`/`partner_sku` you assigned. Each import's own
+"ABOUT THIS UPLOAD" panel lists its exact Required/Optional columns —
+read it in-page before filling; do not assume.
+
+### 1.2 The NIS template (Content → NIS Create/Update)
+
+- **Category**: "Download templates for" → **Specific category** →
+  drill the tree (e.g. **Apparel** → product-types incl. *Socks &
+  Tights*) and select it, **plus** the target store/marketplace, to
+  enable the per-category **Download English** / **Download English +
+  Arabic** buttons (AE stores need the +Arabic template for the local
+  title). "All categories" downloads a generic shell without the
+  category attribute columns — only use it to see the structure.
+- **`With Instructions`** checkbox adds a column-guidance row — leave it
+  on the first time.
+- **Core required columns** (from the template's `valid values` sheet):
+  `family`, `product_type`, `product_subtype`, `seller_sku`,
+  `item_condition` (`New`), `parent_child_variation` (`Parent`/`Child`
+  for sized products), and per-marketplace `vat_rate_ae` / `vat_rate_sa`
+  / `vat_rate_eg` (`Std`). Category attribute columns + image-URL columns
+  follow — fill per the in-sheet guidance and the linked "How to fill out
+  the NIS sheet" article.
+- Each row needs a **unique `seller_sku`**. Partial failures are
+  per-row: good rows still create; fix the error file and re-upload the
+  rest.
+
+### 1.3 Pricing import — optional high-base + long sale (a seller pattern)
+
+Some sellers list a **high base price** and a **long-dated half-price
+sale** so the page shows a large discount on day one, while the true
+selling price is the sale price every day. This is a **guideline, not a
+requirement** — only apply it when the seller asks for it.
+
+To do it file-based, after the SKU exists run **Pricing → Price Update**
+(columns: required `country_code`, `id_partner`, `partner_sku`; optional
+`price`, `sale_price`, `sale_start`, `sale_end`, `is_active`):
+
+- `price` = the high base (e.g. `100`)
+- `sale_price` = the real everyday price (e.g. `50`)
+- `sale_start` = today, `sale_end` = a far-future date (e.g. +5 years)
+
+For a rolling window use **Pricing → Price Range Update**. If the seller
+did not ask for the discount pattern, just set `price` to the real price
+and leave the sale columns blank.
+
+## 2. Create Listing — Click wizard (FALLBACK)
 
 **URL**: `https://noon-catalog.noon.partners/en/catalog/create?project=PRJ{project_id}`
+
+> Use this only when file-based isn't practical (a true one-off you can
+> drive with a real trusted click). It needs trusted `click_at_xy` for
+> every Ant-Design select; a programmatic `.click()` / nativeSetter does
+> NOT register. If a required dropdown won't open, fall back to §1.
 
 3-step wizard: **Category → Brand → Identity**.
 
@@ -171,7 +262,7 @@ On success, redirected to:
 /en/catalog/{noon_sku}/p?code={code}&project=PRJ{project_id}
 ```
 
-## 2. Edit Listing — After Creation
+## 3. Edit Listing — After Creation
 
 **URL**: `https://noon-catalog.noon.partners/en/catalog/{sku}/d?code={code}&offerTab=noon&project=PRJ{project_id}`
 
@@ -195,7 +286,7 @@ If you switch tabs with unsaved edits, noon shows a modal:
 
 **Always save before navigating away** — discarding loses all input.
 
-### 2.1 Offer Tab — Price
+### 3.1 Offer Tab — Price
 
 Inputs (all Ant Design shadow DOM, `name=` attribute identifies):
 
@@ -222,7 +313,7 @@ PY
 After filling prices, click the blue **Save Changes** button at top-right.
 The modal "Your changes have been saved" with a green check confirms success.
 
-### 2.2 Offer Tab — Barcode
+### 3.2 Offer Tab — Barcode
 
 Labeled "Common across marketplaces". Multiple barcodes can be added.
 
@@ -238,7 +329,7 @@ PY
 Each added barcode shows as a removable chip (Amazon-ASIN-style
 strings like `XNNNXXXNNN` are typical — 10 chars, digits + caps).
 
-### 2.3 Offer Tab — Stock
+### 3.3 Offer Tab — Stock
 
 Two sections:
 - **FBN Warehouses**: "Add you products to our noon warehouses
@@ -251,12 +342,12 @@ When stock is already configured, FBN section shows:
 - Stock type badge ("Regular")
 - Last Stock Update, Stock Transferred, Stock Reserved, Net stock
 
-### 2.4 Offer Tab — Warranty & Offer Note
+### 3.4 Offer Tab — Warranty & Offer Note
 
 - **Warranty**: Select warranty duration dropdown ("No warranty" by default)
 - **Offer Note**: Free-text textarea (0/353 char counter)
 
-### 2.5 Content Tab
+### 3.5 Content Tab
 
 > **Edit content on the `/d` detail page's Content tab, not `/p`.** The
 > editable URL is
@@ -350,7 +441,7 @@ PY
 Always click **Save Changes** after editing, then **reload and re-read**
 the field to confirm it persisted (the green toast alone is not proof).
 
-### 2.6 Product Visibility Status
+### 3.6 Product Visibility Status
 
 Top of the page shows:
 - **Seller Status**: toggle (on/off) — controls whether the offer is live
