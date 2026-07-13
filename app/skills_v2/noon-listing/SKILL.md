@@ -92,6 +92,20 @@ read it in-page before filling; do not assume.
 - Each row needs a **unique `seller_sku`**. Partial failures are
   per-row: good rows still create; fix the error file and re-upload the
   rest.
+- **A parent needs a child — a lone parent creates NOTHING.** Verified
+  live: a single row with `parent_child_variation=parent` imports
+  "successfully" but the SKU never appears, and the error file's
+  `creation_error` column reads **`child is missing`**. Every product
+  needs **two rows sharing one `parent_group_key`**: a `parent` row
+  (identity) **and** at least one `child` row (the sellable variant,
+  with its own distinct `seller_sku` and a `size_variation`/`size_map`,
+  e.g. `One Size`). The **child** is what carries the offer — follow-up
+  Pricing/Stock imports key on the **child** `seller_sku`.
+- **Reading the error file is the debug loop.** An import that shows
+  Completed but creates nothing failed row validation; open the import's
+  Result/error CSV — its trailing `partner_error` / `content_error` /
+  `creation_error` columns name the exact problem. Fix those cells
+  (use the exact valid-value strings) and re-upload.
 
 ### 1.3 Pricing import — optional high-base + long sale (a seller pattern)
 
