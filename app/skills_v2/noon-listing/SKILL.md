@@ -547,6 +547,25 @@ Top of the page shows:
 - **Live Status**: badge (e.g. "Offer Created", "Unavailable")
 - **Buy Box Won**: ACTIVE badge
 
+## 4. Delete (Deactivate) a Listing
+
+noon has **no hard delete** — the delete-equivalent is **Deactivate**,
+which pulls the SKU from sale across noon / supermall / Global. It is
+reversible (an **Activate SKUs** button re-lists it). Verified live:
+
+1. **My Catalog** → in the **"Search for SKU here…"** box type the
+   partner SKU and press **Enter** (typing alone does NOT filter — the
+   Enter is required; "Total N items" updates to the match).
+2. **Tick that row's checkbox.** ⚠️ Do NOT click the **header**
+   checkbox — it is select-all and would deactivate every SKU including
+   live sellers. Filter to the one SKU first, confirm **"Total 1 items"**,
+   then select. (Selecting one product may check its per-marketplace
+   sub-boxes too — that is still just the one product.)
+3. A **"Deactivate SKUs"** action button appears — click it.
+4. Confirm the modal (**"Deactivate this SKU? … across noon, supermall,
+   and Global"**) → **Deactivate**. To reverse, select it again and use
+   **Activate SKUs**.
+
 ## See also
 
 - `noon-shared` — login, page structure, modals (prerequisite)
