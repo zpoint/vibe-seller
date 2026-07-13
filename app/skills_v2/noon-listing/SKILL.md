@@ -32,6 +32,27 @@ barcode, content, visibility status).
 
 3-step wizard: **Category → Brand → Identity**.
 
+> **MINIMAL PATH to a valid listing — do exactly these, in order, and
+> STOP:**
+> 1. Wizard create (Category → Brand → Identity), `fill_input` the SKU.
+> 2. **Offer tab** → `fill_input` **Base Price** → **Save Changes**
+>    (price persists across reload; green modal confirms).
+> 3. **Content** on `/d?code=…&tab=content` → `fill_input` **Product
+>    Title** + set **Department** → **Save Changes** → "sent for QC"
+>    (async — done; do NOT re-fill).
+> 4. **Image** (mandatory ≥1): upload one, or leave as the seller's item.
+> 5. **Seller Status → ON**.
+>
+> **SKIP every OPTIONAL field — do NOT fight their dropdowns.** Warranty
+> ("Choose type"), Gender, Size Unit, Feature Bullets, Long Description,
+> Material, Colour and the other detailed-content attributes are
+> **optional** — the listing saves and goes live without them. Their
+> Ant-Design selects resist programmatic opening; **trying to set them is
+> a rathole that burns the whole run** (live runs stalled for dozens of
+> steps on the Warranty and Gender selects). Fill only what step 2–5
+> require; if a seller explicitly asked for an optional attribute and its
+> dropdown won't open, note it as a manual follow-up rather than looping.
+
 > **Use the 3-step wizard to create your OWN new product. Do NOT use the
 > "paste a noon PDP URL / copy SKU link" shortcut to create a brand-new
 > listing.** That shortcut clones an *existing* catalog item and links
