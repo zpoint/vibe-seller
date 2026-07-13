@@ -76,6 +76,33 @@ def partial_banner() -> str:
     return _PARTIAL_BANNER
 
 
+def effective_status(content: str) -> tuple[str | None, list[str]]:
+    """The most-conservative ``Status:`` verdict stated in a review body.
+
+    A review may (wrongly) state more than one ``Status:`` line — e.g. a
+    leading ``ok`` with a bolded ``**Status: incomplete**`` conclusion.
+    A DoD gate must never be fooled by the stray ``ok``, so this returns
+    the verdict LEAST likely to pass: ``gaps`` (never passes) >
+    ``incomplete`` (passes only at max iter) > ``ok`` — an unrecognised
+    token is surfaced verbatim so the caller rejects it. Returns
+    ``(status, raw_statuses)``; ``status`` is ``None`` when no ``Status:``
+    line exists, and ``len(set(raw_statuses)) > 1`` signals a conflict.
+    Shared by BOTH review gates (this module and the execution-review
+    check in ``bash_safety``) so the fail-closed rule has one home.
+    """
+    statuses = [s.lower() for s in _REVIEW_STATUS_RE.findall(content)]
+    if not statuses:
+        return None, statuses
+    if 'gaps' in statuses:
+        return 'gaps', statuses
+    if 'incomplete' in statuses:
+        return 'incomplete', statuses
+    if set(statuses) <= {'ok'}:
+        return 'ok', statuses
+    known = {'ok', 'gaps', 'incomplete'}
+    return next(s for s in statuses if s not in known), statuses
+
+
 def reviewer_verdict(task_dir) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
@@ -137,16 +164,13 @@ def reviewer_verdict(task_dir) -> str | None:
     except OSError:
         return f'{latest.name} could not be read; rewrite the review file.'
 
-    # Collect EVERY status the review states, not just the first. A DoD
-    # gate exists to block half-done work, so it must fail-closed on a
-    # self-contradictory review: a reviewer that stamps a leading
-    # ``Status: ok`` but concludes ``incomplete``/``gaps`` in its body
-    # (observed live — a mis-added total the reviewer caught yet still
-    # top-stamped ``ok``) must be read at its MOST-CONSERVATIVE verdict,
-    # never the stray ``ok``. Severity, least→most likely to pass:
-    # gaps (never passes) > incomplete (passes only at max iter) > ok.
-    statuses = [s.lower() for s in _REVIEW_STATUS_RE.findall(content)]
-    if not statuses:
+    # Fail-closed on a self-contradictory review: a reviewer that stamps
+    # a leading ``Status: ok`` but concludes ``incomplete``/``gaps`` in
+    # its body (observed live — a mis-added total the reviewer caught yet
+    # still top-stamped ``ok``) must be read at its MOST-CONSERVATIVE
+    # verdict, never the stray ``ok``. ``effective_status`` owns that rule.
+    status, statuses = effective_status(content)
+    if status is None:
         return (
             f'{latest.name} has no ``Status:`` line. The reviewer '
             'output must begin with one of: ``Status: ok`` | '
@@ -156,16 +180,7 @@ def reviewer_verdict(task_dir) -> str | None:
         )
 
     iter_num = _iter_of(latest)
-    known = {'ok', 'gaps', 'incomplete'}
     conflict = len(set(statuses)) > 1
-    if 'gaps' in statuses:
-        status = 'gaps'
-    elif 'incomplete' in statuses:
-        status = 'incomplete'
-    elif set(statuses) <= {'ok'}:
-        status = 'ok'
-    else:  # an unrecognised token is present — surface it, don't pass
-        status = next(s for s in statuses if s not in known)
     conflict_note = (
         f' NOTE: {latest.name} states conflicting Status lines '
         f'{sorted(set(statuses))} — a review must reach ONE verdict. '
