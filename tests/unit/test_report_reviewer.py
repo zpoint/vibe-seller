@@ -174,6 +174,32 @@ class TestReviewerVerdict:
 
 
 @pytest.mark.unit
+class TestEffectiveStatus:
+    """The shared fail-closed status parser (used by both review gates)."""
+
+    def test_most_conservative_wins_over_leading_ok(self):
+        status, raw = rr.effective_status(
+            'Status: ok\n\n**Status: incomplete**\n'
+        )
+        assert status == 'incomplete'
+        assert len(set(raw)) > 1  # conflict detectable
+
+    def test_gaps_beats_incomplete_and_ok(self):
+        status, _ = rr.effective_status(
+            'Status: ok\n- Status: incomplete\n> Status: gaps\n'
+        )
+        assert status == 'gaps'
+
+    def test_all_ok_is_ok(self):
+        status, _ = rr.effective_status('Status: ok\ntext\nStatus: ok\n')
+        assert status == 'ok'
+
+    def test_no_status_is_none(self):
+        status, raw = rr.effective_status('# review, no verdict\n')
+        assert status is None and raw == []
+
+
+@pytest.mark.unit
 class TestPartialBanner:
     def test_banner_marks_unverified(self):
         banner = rr.partial_banner()
