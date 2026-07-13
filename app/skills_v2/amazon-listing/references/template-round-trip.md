@@ -33,52 +33,78 @@ Seller Central → **Catalogue → Add Products via Upload**
 (`sellercentral.amazon.<tld>/listing/upload` → `/product-search/bulk`).
 Open **Spreadsheet → Download Blank Template → Download Product
 Spreadsheet**, search the product type (e.g. "socks" → **Select**
-"Sock"), choose the language, then **select the store's own single
-marketplace only** (uncheck the others — the picker defaults to several,
-and multi-marketplace disables Listing Preferences), then **Generate
-Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
+"Sock"), choose the language, then **just make sure your TARGET
+marketplace's checkbox is ticked** (it usually is by default) and
+**Generate Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
 
-> **Getting TO the product-type search (current Beta flow — don't
-> reverse-engineer it):** Spreadsheet → **Download Blank Template** lands
-> on `/product-search/bulk/generate` showing **template cards** (e.g.
-> "List products that are not currently in Amazon's catalog"). The card
-> body text is NOT the button — the clickable control is a **`kat-button`
-> in the card's FOOTER**. Find it via the DOM, not a screenshot:
-> `js` for `kat-card kat-button` → `getBoundingClientRect` → `click_at_xy`
-> (see browser-harness "Locate & click without vision"). That navigates to
-> `/product-search/bulk/generate/add-product`, the product-type search page.
+> **Do NOT try to uncheck the other marketplaces.** A bundled
+> multi-marketplace template (e.g. SA + AE) is perfectly fine — `fill`
+> routes the offer AND the quantity to your target marketplace's block
+> (see the per-marketplace offer/stock rule below), so extra marketplaces
+> in the template are harmless. Fighting the store `kat-checkbox`es wastes
+> the run: their state doesn't reliably toggle via `click_at_xy`/JS, and
+> the whole point (single-marketplace) buys you nothing. Leave them as-is
+> and Generate.
 >
-> **Product-Type search gotcha:** the search box is a `kat-input` whose
-> real `<input>` is in its shadow root, and Amazon's search only fires on
-> **input/change events** — a bare `value=` (or `kat-input.value=`) sets
-> the text but dispatches nothing, so the candidate list never opens. You
-> MUST set the value with the **native setter on the inner input** and then
-> **dispatch `input` + `change` with `composed:true`** (to cross the shadow
-> boundary); poking React's `_valueTracker` helps too. Then click the
-> search icon and the **Select** button. Verified recipe:
+> **Coordinate gotcha after a viewport resize:** if you used
+> `Emulation.setDeviceMetricsOverride` (below-fold recipe) to reach the
+> Generate button, every element's `getBoundingClientRect` is now in the
+> NEW tall viewport — **re-read the coordinates after the override**
+> before `click_at_xy`; the pre-resize x/y are stale.
+
+> **The "Generate Spreadsheet" button is usually BELOW the fold** (it sits
+> at the bottom of a tall `kat-popover`, and the Ziniao window is only
+> ~839px tall — `scrollIntoView`/`scrollTo` can't bring it up, so a normal
+> `click_at_xy` can't reach it). Don't reuse a stale template to dodge
+> this. Grow the viewport with CDP, then click: see browser-harness
+> **"A control BELOW the fold that won't scroll into view"** —
+> `cdp("Emulation.setDeviceMetricsOverride", width=1920, height=2400,
+> deviceScaleFactor=1, mobile=False)`, `click_at_xy` the button's
+> `getBoundingClientRect` centre, poll the downloads dir for the new
+> `.xlsm`, then `cdp("Emulation.clearDeviceMetricsOverride")`.
+
+> **Getting TO the product-type search (verified 2026-07, NGS beta).**
+> On `/product-search/bulk` a right-side **"Choose a template"** panel
+> opens; click the **Download Product Spreadsheet** button under **"List
+> products that are not currently in Amazon's catalog"** (that's the
+> create-new-ASIN card — NOT "Get Listing Loader", which is for existing
+> ASINs). It opens the **Download Product Spreadsheet** panel at
+> `/product-search/bulk/generate/add-product` (language dropdown +
+> product-type search + store checkboxes + Generate). Locate the button by
+> its label text via the DOM and `click_at_xy` it.
+>
+> **Product-Type search — it's a PLAIN `<input>` + a separate search-icon
+> button, NOT a shadow-dropdown.** Setting `value` or dispatching
+> input/change does NOT open a suggestion list (there is none); you must
+> TYPE into it and click the magnifying-glass button beside it. Verified
+> recipe:
 >
 > ```bash
 > browser-use <<'PY'
 > import time
-> js(r"""
->   var inp = document.querySelector('kat-input').shadowRoot.querySelector('input');
->   var set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
->   set.call(inp, 'sock');                                   // product-type query
->   inp.dispatchEvent(new Event('input',  {bubbles:true, composed:true}));
->   inp.dispatchEvent(new Event('change', {bubbles:true, composed:true}));
->   if (inp._valueTracker) inp._valueTracker.setValue('sock');
-> """)
-> time.sleep(2)   # async suggestions
-> # then locate the matched type's Select button via the DOM and click_at_xy it
-> print(js(r"""return [].slice.call(document.querySelectorAll('kat-button'))
+> box = js(r"""var i=document.querySelector('input[placeholder*="Product keyword"]');
+>   if(!i)return null;var r=i.getBoundingClientRect();
+>   return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};""")
+> click_at_xy(box["x"], box["y"])                 # focus the input
+> cdp("Input.insertText", text="socks")           # TRUSTED typing (value= / events don't stick)
+> time.sleep(1)
+> # click the search-icon button just right of the input (find it by position),
+> # then the matched type's **Select** button (e.g. the "Sock" row):
+> print(js(r"""return [].slice.call(document.querySelectorAll('button,kat-button'))
 >   .map(function(b){var r=b.getBoundingClientRect();
->     return {t:(b.innerText||'').trim().slice(0,20), x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};})
->   .filter(function(e){return e.t;});"""))
+>     return {t:(b.innerText||b.getAttribute('label')||'').trim().slice(0,20),
+>             x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};})
+>   .filter(function(e){return e.x>0;});"""))   # → click the search icon, then Select
 > PY
 > ```
-> (Clicking the `kat-icon name=search` icon alone, without the events, is
-> what makes runs flail here — don't rely on it.)
+> After **Select**, the right column shows "Product Type Selected: Sock".
+> Then tick the store(s) (the account's home marketplace may be force-
+> checked; ensure the marketplace you're listing on is ticked), and click
+> **Generate Spreadsheet** — which is below the fold, so use the CDP
+> viewport-resize recipe above. A fresh `.xlsm` lands in the downloads dir
+> within ~30s. (`cdp("Input.insertText", ...)` needs the element focused
+> first — click it, don't just querySelector it.)
 
 > **The create template generates asynchronously** — "Generate
 > Spreadsheet" does not always land a direct download. If it doesn't
@@ -128,7 +154,7 @@ fields.
                   "age_range_description": "Adult",
                   "recommended_browse_nodes": "<from Browse data>",
                   "fulfillment_availability#1.fulfillment_channel_code": "DEFAULT",
-                  "fulfillment_availability#1.quantity": "100",
+                  "quantity": "100",
                   "our_price": "29.00" } }
   ]
 }
@@ -182,8 +208,9 @@ fields.
   images, colour/size, or product-id — those are child-level.
 - **Child** rows: `parent_child: Child`, `parent_sku` = the parent's
   SKU, the differentiating attribute (`color_name` / `size_name`), plus
-  the **offer** (`fulfillment_availability#1.*`) and **price**
-  (`purchasable_offer[marketplace_id=…]#1.our_price#1.schedule#1.value_with_tax`,
+  the **stock** (bare `quantity` — `fill` routes it to the marketplace's
+  own `fulfillment_availability#N` group) and **price** (bare `our_price`
+  → `purchasable_offer[marketplace_id=…]#1.our_price#1.schedule#1.value_with_tax`,
   one block per target marketplace).
 
 `fill` knows this: it suppresses child-level required-field warnings on
@@ -337,11 +364,14 @@ re-uploads can complete them.
 - **Offer/price is per-marketplace; verify in that marketplace's Pricing
   view.** Fill one offer block —
   `purchasable_offer[marketplace_id=<MKT>]#1.our_price#1.schedule#1.value_with_tax`
-  (`our_price` is the only price column that matters) +
-  `fulfillment_availability#1.quantity`. The feed count doesn't reflect
-  price; quantity can apply while Pricing shows `--` if you set a
-  different marketplace's column. On a bundled multi-marketplace
-  template, fill only the intended marketplace's block.
+  (`our_price` is the only price column that matters) + a bare `quantity`
+  for stock. **Stock is per-marketplace but NOT bracketed** — each
+  `fulfillment_availability#N` group is tied by *position* to one
+  marketplace's offer block, so don't hand-pick `#1`; use bare `quantity`
+  and `fill` routes it to the group adjacent to the target offer. The feed
+  count doesn't reflect price; quantity can apply while Pricing shows `--`
+  if you set a different marketplace's column. On a bundled
+  multi-marketplace template, fill only the intended marketplace's block.
 - **`main_image_url`:** by default not uploaded here (seller adds images)
   — a `18320` image error is *expected*, not a blocker. Never hotlink a
   supplier CDN URL (1688/alibaba `cbu01.alicdn.com`, tmall) — Amazon

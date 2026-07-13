@@ -12,6 +12,8 @@ template's `purchasable_offer[marketplace_id=<id>]` columns, so a
 marketplace Amazon adds *after* this table still works without an edit.
 """
 
+import re
+
 MARKETPLACE_IDS = {
     # North America
     'US': 'ATVPDKIKX0DER',  # amazon.com
@@ -44,7 +46,38 @@ MARKETPLACE_IDS = {
 # id -> country code, for reverse lookups / labelling.
 COUNTRY_BY_ID = {v: k for k, v in MARKETPLACE_IDS.items()}
 
-_MKT_ID_IN_COLUMN = __import__('re').compile(r'marketplace_id=([A-Za-z0-9]+)')
+_MKT_ID_IN_COLUMN = re.compile(r'marketplace_id=([A-Za-z0-9]+)')
+_FULFILL_GROUP = re.compile(r'fulfillment_availability#(\d+)\.')
+
+
+def fulfillment_index(cols, mkt_id):
+    """Which `fulfillment_availability#N` group belongs to a marketplace.
+
+    Fulfillment columns are NOT marketplace-bracketed like
+    `purchasable_offer[marketplace_id=...]`; each `fulfillment_availability#N`
+    group instead sits just before that marketplace's offer block. So stock
+    for marketplace X must use the N whose columns most-closely precede X's
+    offer block -- else quantity lands on the wrong marketplace (an SA offer
+    with AE stock never goes live). `cols` maps field name -> list of 1-based
+    column indices. Returns N (int) or None.
+    """
+    offer = [
+        c
+        for k, v in cols.items()
+        if f'marketplace_id={mkt_id}]' in k
+        for c in v
+    ]
+    if not offer:
+        return None
+    target = min(offer)
+    best = None  # (min_col, N) of the nearest group preceding the offer
+    for k, v in cols.items():
+        m = _FULFILL_GROUP.match(str(k))
+        if m:
+            col = min(v)
+            if col < target and (best is None or col > best[0]):
+                best = (col, int(m.group(1)))
+    return best[1] if best else None
 
 
 def ids_in_template(cols):

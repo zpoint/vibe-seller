@@ -132,6 +132,39 @@ print(els)          # pick the one whose text matches, then click_at_xy(it.x, it
 PY
 ```
 
+### A control BELOW the fold that won't scroll into view
+
+Some pages (e.g. Amazon's "Generate Spreadsheet" popover) put the button
+you need **below the viewport**, inside a `kat-popover`/panel that
+`scrollTo`/`scrollIntoView` can't bring up — the window is short (e.g.
+839px tall) and `click_at_xy` can't hit an off-screen y. Don't fight the
+scroll: **grow the layout viewport with CDP so the whole panel fits**,
+then click the (now on-screen) coordinate, then restore:
+
+```bash
+browser-use <<'PY'
+import time
+cdp("Emulation.setDeviceMetricsOverride",
+    width=1920, height=2400, deviceScaleFactor=1, mobile=False)  # tall viewport
+time.sleep(1)
+box = js("""
+  var els=document.querySelectorAll('kat-button,button,[role=button]');
+  for(var i=0;i<els.length;i++){var t=(els[i].innerText||els[i].getAttribute('label')||'').trim();
+    if(/generate spreadsheet/i.test(t)){var r=els[i].getBoundingClientRect();
+      return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};}}
+  return null;
+""")
+if box: click_at_xy(box["x"], box["y"])   # trusted click, now on-screen
+time.sleep(3)
+cdp("Emulation.clearDeviceMetricsOverride")   # restore the real viewport
+PY
+```
+
+(Verified: the override raises `window.innerHeight` to the set value, so a
+below-fold button becomes reachable; `clearDeviceMetricsOverride` undoes
+it. A plain JS `.click()` still no-ops on `kat-*` — you need the trusted
+`click_at_xy`.)
+
 For an element inside an **open shadow root** (Amazon `kat-*`), pierce it
 in the selector: `document.querySelector('kat-file-upload').shadowRoot.querySelector('input')`.
 Set an input's value with `js("document.querySelector('#q').value='socks'")`

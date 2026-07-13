@@ -742,3 +742,42 @@ def test_resolve_auto_detects_single_marketplace_template():
     # Ambiguous: unknown code + multi-marketplace template -> fail loudly.
     with pytest.raises(SystemExit):
         r('ZA', [_SA, _AE])
+
+
+# A real multi-marketplace template interleaves each marketplace's
+# fulfillment_availability#N group with its offer block: AE (#1) then SA
+# (#2). Column order matters -- the resolver picks the group by position.
+_AE_QTY = 'fulfillment_availability#1.quantity'
+_SA_QTY = 'fulfillment_availability#2.quantity'
+_MKT_COLS = {
+    'item_sku': [2],
+    _AE_QTY: [165],
+    _AE_PRICE: [171],
+    _SA_QTY: [181],
+    _SA_PRICE: [186],
+}
+
+
+def test_fulfillment_index_maps_to_the_marketplaces_own_group():
+    f = listing_bulk._fulfillment_index_for_marketplace
+    assert f(_MKT_COLS, _AE) == 1  # AE's stock group precedes AE's offer
+    assert f(_MKT_COLS, _SA) == 2  # SA's stock group precedes SA's offer
+
+
+def test_route_sends_quantity_to_target_marketplace_group():
+    # Listing on SA: a bare `quantity` must land in SA's group (#2), NOT the
+    # first group (#1 = AE) -- else the SA offer has no stock and never lives.
+    fields = {'our_price': '19.99', 'quantity': '100'}
+    listing_bulk._route_offer_price(fields, _MKT_COLS, _SA, 0, 'K-WHT', [])
+    assert fields[_SA_QTY] == '100'
+    assert _AE_QTY not in fields
+    assert fields[_SA_PRICE] == '19.99'
+
+
+def test_route_remaps_wrong_index_fulfillment_to_target():
+    # The agent wrote fulfillment_availability#1 (AE) but is listing on SA;
+    # normalise it to SA's group (#2).
+    fields = {_AE_QTY: '100', 'our_price': '19.99'}
+    listing_bulk._route_offer_price(fields, _MKT_COLS, _SA, 0, 'K-WHT', [])
+    assert fields[_SA_QTY] == '100'
+    assert _AE_QTY not in fields
