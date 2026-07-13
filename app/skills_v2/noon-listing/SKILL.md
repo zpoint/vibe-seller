@@ -32,6 +32,23 @@ barcode, content, visibility status).
 
 3-step wizard: **Category → Brand → Identity**.
 
+> **Use the 3-step wizard to create your OWN new product. Do NOT use the
+> "paste a noon PDP URL / copy SKU link" shortcut to create a brand-new
+> listing.** That shortcut clones an *existing* catalog item and links
+> your SKU to a parent you don't own — the product is then permanently
+> un-saveable: every Offer save fails with a red
+> `Invalid sku_parents: {...}` toast and price/content never persist.
+> The wizard below mints a clean standalone parent that saves normally.
+>
+> **Input method (critical):** fill every field with **`fill_input`**
+> (it fires the real key + input/change events React needs). Do NOT use
+> `type_text`, `Input.insertText`, or a `nativeSetter` — those set the
+> DOM value only; React never ingests it, so "Final Price" stays `-` and
+> the save drops the field. Verify a save by **reloading the page** and
+> re-reading the value (a green "changes saved" toast alone is not proof;
+> a hidden `pricing-errors.undefined` string in the DOM is NOT a real
+> error — trust the reloaded value / a screenshot, not a DOM grep).
+
 ### Step 1 — Category
 
 Hierarchical tree (e.g. Electronics > Accessories > Cables). Click
@@ -67,16 +84,17 @@ unbranded products.
 Enter Partner SKU (your internal code) or click "Generate Partner SKU".
 
 **Important**: "Generate Partner SKU" auto-fills a format like
-`PSKU_{project}_{digits}_X`. Clear it first if you want your own SKU:
+`PSKU_{project}_{digits}_X`. To use your own SKU, `fill_input` the SKU
+box (it has no stable `name=`, so target the visible text input):
 ```bash
 browser-use <<'PY'
-js("document.querySelector('input[name=partner_sku]').focus()")   # SKU input
-press_key("Control+a")
-type_text("SKU-100234")
+fill_input("input[type=text]", "SKU-100234")   # partner SKU box (clears + types via real key events)
 # Click "Create" (NOT Next — this is the final step)
-js("document.querySelectorAll('button')[1].click()")
+js("Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Create')?.click()")
 PY
 ```
+Success = redirect to `/en/catalog/{noon_sku}/p?...` (a fresh noon SKU is
+minted). Verified live: this wizard product saves price/content normally.
 
 On success, redirected to:
 ```
@@ -210,26 +228,31 @@ a direct "Add Product Title" button that scrolls to the field.
 | What's In The Box | Optional | Optional |
 | Shipping Height/Length/Weight/Width/Depth | Optional | Optional |
 
-#### Filling content via JS (bypasses shadow DOM issues)
+#### Filling content — always `fill_input`, never `nativeSetter`
 
-Some inputs are inside shadow DOM. If `fill_input` doesn't trigger
-the React onChange, use the native setter pattern via `js()`:
+Content fields are the same React-controlled inputs as the Offer tab, so
+fill each with **`fill_input`** (matches on placeholder / name). There
+are English + local-language variants per field — fill both:
 
 ```bash
 browser-use <<'PY'
-js("""
-  var nsetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  var inputs = document.querySelectorAll('input[placeholder="Product Title *"]');
-  inputs.forEach(function(inp, i) {
-    nsetter.call(inp, i === 0 ? 'English title' : 'local-language title');
-    inp.dispatchEvent(new Event('input', {bubbles: true}));
-  });
-""")
+# Title has an English box and a local-language box (same placeholder,
+# two elements). fill_input targets one selector; use :nth-of-type or a
+# per-element loop with real key events — NOT nativeSetter (React ignores
+# a nativeSetter value, leaving the field blank on save/reload).
+fill_input("input[placeholder='Product Title *']", "Women's Cotton Crew Socks (6-Pack)")
+# for the second (local-language) box, click it then fill:
+js("document.querySelectorAll(\"input[placeholder='Product Title *']\")[1]?.focus()")
+type_text_note = "use fill_input on a unique selector; if two share a placeholder, focus the 2nd then fill_input its id/xpath"
 PY
 ```
 
-Always click **Save Changes** after editing. Validate with the green
-"Your changes have been saved" toast.
+> A `nativeSetter` + `dispatchEvent('input')` sets the DOM value but does
+> NOT enter React state — the field looks filled yet saves blank and is
+> empty on reload. This was a real live failure. Use `fill_input`.
+
+Always click **Save Changes** after editing, then **reload and re-read**
+the field to confirm it persisted (the green toast alone is not proof).
 
 ### 2.6 Product Visibility Status
 
