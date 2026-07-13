@@ -129,10 +129,14 @@ and leave the sale columns blank.
 > 2. **Offer tab** → `fill_input` **Base Price**, then **set Warranty**
 >    (MANDATORY — see below), then **Save Changes** (green modal; price
 >    persists across reload).
-> 3. **Content** on `/d?code=…&tab=content` → `fill_input` **Product
->    Title** + set **Department** → **Save Changes** → "sent for QC"
->    (async — done; do NOT re-fill).
-> 4. **Image** (mandatory ≥1): upload one, or leave as the seller's item.
+> 3. **Content** on `/d?code=…&tab=content` → Product **Title** (EN via
+>    `fill_input`, Arabic via `Input.insertText` — see §2.7) + set
+>    **Gender** (MANDATORY; Department + Arabic gender auto-derive — §2.7)
+>    → **Save Changes** → Submit → "sent for review" (async QC — done;
+>    do NOT re-fill).
+> 4. **Image** (mandatory ≥1): upload the seller's **real product photo**
+>    (§2.7) — a placeholder fails noon's async image validation and the
+>    listing never goes live.
 > 5. **Seller Status → ON**.
 >
 > **Warranty is MANDATORY — but trivial: select "No Warranty".** The
@@ -148,15 +152,22 @@ and leave the sale columns blank.
 > **"No Warranty"** option in the `.ant-select-dropdown`. Verified live:
 > price + No-Warranty → Save → offer created, persists across reload.
 >
-> **SKIP the other OPTIONAL fields — do NOT fight their dropdowns.**
-> Gender, Size Unit, Feature Bullets, Long Description, Material, Colour
-> and the other detailed-content attributes are **optional** — the
-> listing saves and goes live without them, and their Ant-Design selects
-> resist programmatic opening (**trying to set them is a rathole that
-> burns the whole run** — a live run stalled dozens of steps on the
-> Gender select). Fill only what steps 2–5 require; if a seller
-> explicitly asked for an optional attribute and its dropdown won't open,
-> note it as a manual follow-up rather than looping.
+> **Gender IS MANDATORY (verified live) — Department derives from it.**
+> Content Check flags `Missing Department` until Gender is set; you do
+> NOT set Department directly (there is no Department field). Set the
+> **English `Gender *`** select (e.g. `Men`) and noon **auto-fills the
+> Arabic gender (`رجال`) and clears the Department requirement**. The
+> Gender select is the same anti-automation ant-select as Warranty — open
+> it with the virtual-list technique in §2.7 (grow viewport → scroll the
+> dropdown's `.rc-virtual-list-holder` → in-panel trusted `click_at_xy`).
+> An earlier note calling Gender "optional, skip it" was WRONG — a listing
+> without Gender never clears mandatory content and never goes live.
+>
+> **These ARE optional — skip unless the seller asked:** Size Unit,
+> Feature Bullets, Long Description, Material, Colour, and the other
+> detailed-content attributes. The listing saves and goes live without
+> them. If a seller explicitly wants one and its dropdown won't open with
+> §2.7, note it as a manual follow-up rather than looping.
 
 **Runnable Offer-tab snippet (price + No Warranty) — copy verbatim.** The
 below-fold Warranty select can't be found by an un-scrolled DOM query;
@@ -261,6 +272,80 @@ On success, redirected to:
 ```
 /en/catalog/{noon_sku}/p?code={code}&project=PRJ{project_id}
 ```
+
+### 2.7 Proven click techniques (verified end-to-end by hand)
+
+These are the exact methods that make the click path work — every one
+was a wall until pinned down. Follow them literally.
+
+- **Category tree is a scrollable drill, not a flat list.** Click the
+  top category (e.g. `Apparel`) → it shows product-types as a scrollable
+  list → the leaf you want is usually below the fold. Do NOT click a raw
+  coordinate; `scrollIntoView({block:'center'})` the leaf text, re-read
+  its live rect, then trusted `click_at_xy`. A product-type like
+  `Socks & Tights` expands to sub-types (`Socks`, `Stockings`, …) each
+  with a **`Select`** button — click that to enable `Next`.
+
+- **Ant-Design selects are VIRTUAL lists — the option you want often
+  renders BELOW the clipped dropdown panel.** Opening the select and
+  clicking the option's reported rect fails silently when that rect is
+  past the panel bottom (the click lands outside → closes it unselected).
+  The reliable recipe (Warranty, Gender, any long select):
+  ```bash
+  browser-use <<'PY'
+  import time, json
+  cdp("Emulation.setDeviceMetricsOverride", width=1500, height=3200, deviceScaleFactor=1, mobile=False); time.sleep(2)
+  # open the target select (trusted click on its centre)
+  sel=json.loads(js("(function(){var s=Array.from(document.querySelectorAll('.ant-select')).find(e=>/Gender/.test(e.textContent)); var b=s.getBoundingClientRect(); return JSON.stringify({x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)});})()"))
+  click_at_xy(sel['x'], sel['y']); time.sleep(1.5)
+  # scroll the dropdown's virtual-list holder to the bottom so the option renders inside the panel
+  js("(function(){var h=document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .rc-virtual-list-holder'); if(h)h.scrollTop=h.scrollHeight;})()"); time.sleep(1)
+  # click the option ONLY if it is inside the panel bounds
+  o=json.loads(js("(function(){var el=Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item')).find(e=>e.textContent.trim()==='Men'); var dd=document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getBoundingClientRect(); var b=el.getBoundingClientRect(); return JSON.stringify({x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2),inpanel:(b.y>=dd.top&&b.bottom<=dd.bottom)});})()"))
+  if o['inpanel']: click_at_xy(o['x'], o['y'])
+  PY
+  ```
+  Verify by the field showing the value (and reload-persistence), not by
+  a DOM `selection-item` query (that selector is unreliable).
+
+- **Arabic / non-Latin text: use `Input.insertText`, NOT `fill_input`.**
+  `fill_input` types char-by-char via key events and **hangs the daemon**
+  on Arabic (no keycode mapping). Focus the field, then
+  `cdp("Input.insertText", text="…")` inserts the whole string. (Latin
+  text still uses `fill_input`.) The English↔Arabic Product Title are two
+  separate boxes with the same `placeholder="Product Title *"`; tag them
+  (`setAttribute('data-fill', …)`) to target each.
+
+- **Content edits are on `/d?...&tab=content`.** Clicking the "Content"
+  tab on the `/p` page does not switch to editable content. Navigate the
+  URL directly (`js("location.href=…")`) — do NOT `new_tab` repeatedly
+  (piled-up tabs make later reconnects attach to the wrong tab; a fresh
+  wrapper invocation reads whatever tab is active).
+
+- **Image (mandatory ≥1) — upload + the async validation gate.** The file
+  input is hidden; set it and fire `change`, then confirm the modal:
+  ```bash
+  browser-use <<'PY'
+  import time, json
+  r=cdp("Runtime.evaluate", expression="document.querySelector('input[type=file][accept*=\"image\"]')")
+  cdp("DOM.setFileInputFiles", files=["/path/to/photo.jpg"], objectId=r['result']['objectId']); time.sleep(1)
+  js("document.querySelector('input[type=file][accept*=\"image\"]').dispatchEvent(new Event('change',{bubbles:true}))"); time.sleep(4)
+  # "Review Images" modal → Upload All
+  b=json.loads(js("(function(){var x=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()==='Upload All'); var r=x.getBoundingClientRect(); return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});})()"))
+  click_at_xy(b['x'], b['y']); time.sleep(12)  # uploads to f.nooncdn.com
+  PY
+  ```
+  **The image must be a real product photo.** noon runs an async
+  image-quality **Validation** after upload; a placeholder / low-quality
+  image sits in `Validating…` and never clears `Missing Image`, so the
+  listing can't go live. Use the seller's actual photo. This is a
+  *content-quality* gate, not an automation limitation.
+
+- **Persistence rule:** every Save on this app opens a `Submit`
+  confirmation modal ("sent for review" / "are you sure"). Click
+  `Submit`, then **reload and re-read** — React state alone (and toasts)
+  are not proof. When `Save Changes` is **disabled**, there are no
+  unsaved changes (already committed).
 
 ## 3. Edit Listing — After Creation
 
