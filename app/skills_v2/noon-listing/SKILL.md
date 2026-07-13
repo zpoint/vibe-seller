@@ -35,23 +35,37 @@ barcode, content, visibility status).
 > **MINIMAL PATH to a valid listing — do exactly these, in order, and
 > STOP:**
 > 1. Wizard create (Category → Brand → Identity), `fill_input` the SKU.
-> 2. **Offer tab** → `fill_input` **Base Price** → **Save Changes**
->    (price persists across reload; green modal confirms).
+> 2. **Offer tab** → `fill_input` **Base Price**, then **set Warranty**
+>    (MANDATORY — see below), then **Save Changes** (green modal; price
+>    persists across reload).
 > 3. **Content** on `/d?code=…&tab=content` → `fill_input` **Product
 >    Title** + set **Department** → **Save Changes** → "sent for QC"
 >    (async — done; do NOT re-fill).
 > 4. **Image** (mandatory ≥1): upload one, or leave as the seller's item.
 > 5. **Seller Status → ON**.
 >
-> **SKIP every OPTIONAL field — do NOT fight their dropdowns.** Warranty
-> ("Choose type"), Gender, Size Unit, Feature Bullets, Long Description,
-> Material, Colour and the other detailed-content attributes are
-> **optional** — the listing saves and goes live without them. Their
-> Ant-Design selects resist programmatic opening; **trying to set them is
-> a rathole that burns the whole run** (live runs stalled for dozens of
-> steps on the Warranty and Gender selects). Fill only what step 2–5
-> require; if a seller explicitly asked for an optional attribute and its
-> dropdown won't open, note it as a manual follow-up rather than looping.
+> **Warranty is MANDATORY — but trivial: select "No Warranty".** The
+> Offer save FAILS with `Save failed — Warranty / No Offer Created`
+> unless the Warranty **type** is set. Do NOT try to configure a real
+> warranty (service center + 1–60mo duration — that path IS an
+> anti-automation rathole). Just open the Warranty **type** select and
+> pick **"No Warranty"** (options: No Warranty / Seller Warranty /
+> Manufacturer Warranty) — no service center or duration needed, and the
+> offer saves. Open it with a trusted `click_at_xy` on the select's
+> centre (it's below the fold — grow the viewport via
+> `Emulation.setDeviceMetricsOverride` first), then click the
+> **"No Warranty"** option in the `.ant-select-dropdown`. Verified live:
+> price + No-Warranty → Save → offer created, persists across reload.
+>
+> **SKIP the other OPTIONAL fields — do NOT fight their dropdowns.**
+> Gender, Size Unit, Feature Bullets, Long Description, Material, Colour
+> and the other detailed-content attributes are **optional** — the
+> listing saves and goes live without them, and their Ant-Design selects
+> resist programmatic opening (**trying to set them is a rathole that
+> burns the whole run** — a live run stalled dozens of steps on the
+> Gender select). Fill only what steps 2–5 require; if a seller
+> explicitly asked for an optional attribute and its dropdown won't open,
+> note it as a manual follow-up rather than looping.
 
 > **Use the 3-step wizard to create your OWN new product. Do NOT use the
 > "paste a noon PDP URL / copy SKU link" shortcut to create a brand-new
