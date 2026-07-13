@@ -67,6 +67,41 @@ barcode, content, visibility status).
 > explicitly asked for an optional attribute and its dropdown won't open,
 > note it as a manual follow-up rather than looping.
 
+**Runnable Offer-tab snippet (price + No Warranty) — copy verbatim.** The
+below-fold Warranty select can't be found by an un-scrolled DOM query;
+this grows the viewport, trusted-clicks the Warranty card's select, and
+picks "No Warranty". It also clears the price field first (`fill_input`
+*appends* if a value is already present → `59.59.9`). Verified live:
+
+```bash
+browser-use <<'PY'
+import time, json
+# 1) price — clear first (fill_input appends to an existing value), then fill
+js("var i=document.querySelector('input[name=new_price]'); if(i){i.value='';}")
+fill_input('input[name="new_price"]', '59.90')
+# 2) Warranty = No Warranty (MANDATORY). Grow viewport (it's below fold),
+#    trusted-click the Warranty card's ant-select, option-click No Warranty.
+cdp("Emulation.setDeviceMetricsOverride", width=1500, height=2200, deviceScaleFactor=1, mobile=False)
+time.sleep(2)
+info = js("""(function(){
+  var hdr=Array.from(document.querySelectorAll('*')).find(e=>e.textContent.trim()==='Warranty'&&e.children.length<3);
+  var card=hdr.closest('div'); for(var i=0;i<5&&card;i++){if(card.querySelector('.ant-select'))break;card=card.parentElement;}
+  var sel=card.querySelector('.ant-select'); sel.scrollIntoView({block:'center'});
+  var r=sel.getBoundingClientRect(); return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});
+})()""")
+p=json.loads(info); click_at_xy(p['x'], p['y']); time.sleep(2)
+js("""(function(){var dd=document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)');
+  var o=Array.from(dd.querySelectorAll('.ant-select-item')).find(x=>x.textContent.trim()==='No Warranty'); if(o)o.click();})()""")
+time.sleep(1); cdp("Emulation.clearDeviceMetricsOverride")
+# 3) Save Changes, then confirm Submit
+js("(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>/save changes/i.test(x.textContent)&&x.textContent.length<20); if(b)b.click();})()")
+time.sleep(3)
+js("(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>/^submit$/i.test(x.textContent.trim())); if(b)b.click();})()")
+time.sleep(3)
+print(js("var t=document.body.innerText; ('Save failed: '+/Save failed/i.test(t)+' | saved: '+/have been saved/i.test(t))"))
+PY
+```
+
 > **Use the 3-step wizard to create your OWN new product. Do NOT use the
 > "paste a noon PDP URL / copy SKU link" shortcut to create a brand-new
 > listing.** That shortcut clones an *existing* catalog item and links
