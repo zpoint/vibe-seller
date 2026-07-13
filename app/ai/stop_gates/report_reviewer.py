@@ -33,7 +33,15 @@ import re
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
 
-_REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
+# Match a ``Status:`` verdict anywhere it can legitimately appear — plain
+# at line start (``Status: ok``) OR emphasised/indented (``**Status:
+# incomplete**``, ``- Status: gaps``). A reviewer that stamps a leading
+# ``ok`` but concludes ``incomplete`` in a bolded footer is a real failure
+# mode; the gate must SEE both lines so it can fail-closed on the conflict
+# (see ``reviewer_verdict``). Case-insensitive so ``status:`` also counts.
+_REVIEW_STATUS_RE = re.compile(
+    r'^[\s*_>#-]*Status:\s*(\w+)', re.MULTILINE | re.IGNORECASE
+)
 _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 # A review file carries ``review`` as a distinct token (case-insensitive,
 # not a substring of another word). Accepts ``REVIEW_...``,
@@ -129,8 +137,16 @@ def reviewer_verdict(task_dir) -> str | None:
     except OSError:
         return f'{latest.name} could not be read; rewrite the review file.'
 
-    match = _REVIEW_STATUS_RE.search(content)
-    if not match:
+    # Collect EVERY status the review states, not just the first. A DoD
+    # gate exists to block half-done work, so it must fail-closed on a
+    # self-contradictory review: a reviewer that stamps a leading
+    # ``Status: ok`` but concludes ``incomplete``/``gaps`` in its body
+    # (observed live — a mis-added total the reviewer caught yet still
+    # top-stamped ``ok``) must be read at its MOST-CONSERVATIVE verdict,
+    # never the stray ``ok``. Severity, least→most likely to pass:
+    # gaps (never passes) > incomplete (passes only at max iter) > ok.
+    statuses = [s.lower() for s in _REVIEW_STATUS_RE.findall(content)]
+    if not statuses:
         return (
             f'{latest.name} has no ``Status:`` line. The reviewer '
             'output must begin with one of: ``Status: ok`` | '
@@ -139,8 +155,25 @@ def reviewer_verdict(task_dir) -> str | None:
             'canonical format.'
         )
 
-    status = match.group(1).lower()
     iter_num = _iter_of(latest)
+    known = {'ok', 'gaps', 'incomplete'}
+    conflict = len(set(statuses)) > 1
+    if 'gaps' in statuses:
+        status = 'gaps'
+    elif 'incomplete' in statuses:
+        status = 'incomplete'
+    elif set(statuses) <= {'ok'}:
+        status = 'ok'
+    else:  # an unrecognised token is present — surface it, don't pass
+        status = next(s for s in statuses if s not in known)
+    conflict_note = (
+        f' NOTE: {latest.name} states conflicting Status lines '
+        f'{sorted(set(statuses))} — a review must reach ONE verdict. '
+        'Rewrite it so the top ``Status:`` line matches your conclusion.'
+        if conflict
+        else ''
+    )
+
     if status == 'ok':
         return None
     if status == 'incomplete' and iter_num >= REVIEW_MAX_ITERS:
@@ -153,13 +186,13 @@ def reviewer_verdict(task_dir) -> str | None:
             'reviewer again to write '
             f'``REVIEW_*_iter{iter_num + 1}.md``. Repeat until '
             f'Status: ok or iter {REVIEW_MAX_ITERS} with '
-            'Status: incomplete.'
+            f'Status: incomplete.{conflict_note}'
         )
     if status == 'incomplete' and iter_num < REVIEW_MAX_ITERS:
         return (
             f'``Status: incomplete`` only valid at iter '
             f'{REVIEW_MAX_ITERS}+. Current is iter {iter_num} — '
-            'keep iterating.'
+            f'keep iterating.{conflict_note}'
         )
     return (
         f'Unknown reviewer status {status!r} in {latest.name}. '
