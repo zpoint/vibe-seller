@@ -188,6 +188,32 @@ When stock is already configured, FBN section shows:
 
 ### 2.5 Content Tab
 
+> **Edit content on the `/d` detail page's Content tab, not `/p`.** The
+> editable URL is
+> `…/catalog/{noon_sku}/d?code={code}&tab=content&project=PRJ{id}` (get
+> `{code}` from the My-Catalog row's product link — the read-only `/p`
+> view loads no editable fields and is why earlier runs "couldn't fill"
+> content). Fill every field with **`fill_input`** (see §1 warning).
+>
+> **Content save is ASYNC — do NOT re-fill on immediately-stale status.**
+> After you fill the mandatory fields and click **Save Changes**, a green
+> modal says *"Your changes have been saved. The content will now be sent
+> for Quality Check (QC)… allow some time."* The **Content Check Status /
+> "N Issues" / "0/7 Attributes" indicators do NOT update instantly** —
+> they clear only after Noon's async QC (minutes). Re-filling because the
+> count still shows issues is a thrash (a live run re-typed the title 68×
+> for this exact reason — the saves *were* landing). Save ONCE, trust the
+> "sent for QC" modal, move on, and re-check later. This is the same
+> async-confirmation trap as Amazon's async-minting ASINs.
+>
+> **Mandatory content on noon = Product Title + Department + ≥1 Image.**
+> Unlike Amazon (where a blank main image is an acceptable done-state),
+> **noon requires at least one product image** for content to pass — a
+> listing with title+price but no image keeps a "Missing Image" content
+> issue. If the seller hasn't supplied an image, upload a placeholder via
+> the Content tab's **Add Image** file-chooser, or surface "Missing
+> Image" as the one remaining item for the seller.
+
 Click `rc-tabs-0-tab-content`. Left sub-nav: **Basic Content** /
 **Detailed Content**.
 
