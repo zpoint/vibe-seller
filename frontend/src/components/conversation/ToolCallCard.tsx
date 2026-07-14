@@ -67,14 +67,14 @@ export function ToolCallGroup({ items }: ToolCallGroupProps) {
 
   if (items.length === 1) {
     return (
-      <div className="border-l-2 border-gray-200 pl-2 py-1">
+      <div className="py-0.5">
         <ToolCallLine {...items[0]} />
       </div>
     )
   }
 
   return (
-    <div className="border-l-2 border-gray-200 pl-2 py-1">
+    <div className="py-0.5">
       <button
         className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700"
         onClick={() => setExpanded(e => !e)}

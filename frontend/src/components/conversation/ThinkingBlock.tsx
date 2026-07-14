@@ -15,7 +15,7 @@ export function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
     const lines = content.split('\n')
     const preview = lines.slice(-3).join('\n')
     return (
-      <div className="border-l-2 border-purple-200 pl-2 py-1">
+      <div className="py-0.5">
         <div className="flex items-center gap-1.5 text-xs text-purple-500">
           <span className="animate-pulse">💭</span>
           <span>{t('tasks.thinking', 'Thinking...')}</span>
@@ -31,7 +31,7 @@ export function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
 
   // Collapsed state — click to expand
   return (
-    <div className="border-l-2 border-purple-100 pl-2 py-1">
+    <div className="py-0.5">
       <button
         className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-purple-500"
         onClick={() => setExpanded(e => !e)}
