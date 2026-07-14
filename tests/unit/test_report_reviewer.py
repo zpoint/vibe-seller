@@ -131,6 +131,73 @@ class TestReviewerVerdict:
         os.utime(new, (1_700_000_000, 1_700_000_000))
         assert rr.reviewer_verdict(tmp_path) is None
 
+    def test_leading_ok_but_bolded_incomplete_denies(self, tmp_path):
+        # The live failure: a reviewer top-stamps ``Status: ok`` but its
+        # conclusion is ``**Status: incomplete**`` (bolded, off line-start).
+        # The gate used to read only the leading ``ok`` and pass a report
+        # with a known error. It must fail-closed on the conflict.
+        self._audit(tmp_path)
+        (tmp_path / 'REVIEW_2026-07-09_iter1.md').write_text(
+            'Status: ok\n\n# Review\n\n'
+            '## Conclusion\n\n**Status: incomplete**\n'
+            'One numerical error: total is 140 but should be 145.\n',
+            encoding='utf-8',
+        )
+        deny = rr.reviewer_verdict(tmp_path)
+        assert deny is not None
+        # incomplete at iter 1 (< cap) → keep iterating, and the conflict
+        # is surfaced so the reviewer rewrites a single coherent verdict.
+        assert 'only valid at iter' in deny
+        assert 'conflicting Status' in deny
+
+    def test_leading_ok_but_gaps_in_body_denies(self, tmp_path):
+        # Same fail-closed rule for a body ``Status: gaps`` under a leading
+        # ``ok`` — gaps is the most-conservative verdict and must win.
+        self._audit(tmp_path)
+        (tmp_path / 'REVIEW_2026-07-09_iter2.md').write_text(
+            'Status: ok\n# Review\n- Status: gaps\nmissing drill\n',
+            encoding='utf-8',
+        )
+        deny = rr.reviewer_verdict(tmp_path)
+        assert deny is not None
+        assert 'iter 2' in deny and 'iter3' in deny
+
+    def test_repeated_ok_only_still_passes(self, tmp_path):
+        # Two ``ok`` lines is not a conflict — a genuinely clean review
+        # must still pass (no false trap).
+        self._audit(tmp_path)
+        (tmp_path / 'REVIEW_2026-07-09_iter1.md').write_text(
+            'Status: ok\n# Review\nAll totals reconcile.\nStatus: ok\n',
+            encoding='utf-8',
+        )
+        assert rr.reviewer_verdict(tmp_path) is None
+
+
+@pytest.mark.unit
+class TestEffectiveStatus:
+    """The shared fail-closed status parser (used by both review gates)."""
+
+    def test_most_conservative_wins_over_leading_ok(self):
+        status, raw = rr.effective_status(
+            'Status: ok\n\n**Status: incomplete**\n'
+        )
+        assert status == 'incomplete'
+        assert len(set(raw)) > 1  # conflict detectable
+
+    def test_gaps_beats_incomplete_and_ok(self):
+        status, _ = rr.effective_status(
+            'Status: ok\n- Status: incomplete\n> Status: gaps\n'
+        )
+        assert status == 'gaps'
+
+    def test_all_ok_is_ok(self):
+        status, _ = rr.effective_status('Status: ok\ntext\nStatus: ok\n')
+        assert status == 'ok'
+
+    def test_no_status_is_none(self):
+        status, raw = rr.effective_status('# review, no verdict\n')
+        assert status is None and raw == []
+
 
 @pytest.mark.unit
 class TestPartialBanner:

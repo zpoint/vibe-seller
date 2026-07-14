@@ -26,11 +26,214 @@ review:
 Covers SKU creation and the post-creation edit flow (price, stock,
 barcode, content, visibility status).
 
-## 1. Create Listing (SKU)
+> **Two create paths — PREFER file-based, FALL BACK to click.**
+> File-based (§1, NIS spreadsheet import) sets every hard field through a
+> spreadsheet, so it never touches the Ant-Design dropdowns (Warranty,
+> Department, Gender, Size, Content selects) that the click wizard needs
+> a *trusted mouse* to open — those dropdowns are the recurring wall on
+> the click path. Use file-based whenever creating one or more SKUs of a
+> known category. Use the click wizard (§2) only for a one-off where you
+> can drive a real trusted click, or to *edit* a SKU after creation.
+
+## 1. Create Listing — File-based (PREFERRED, NIS import)
+
+Noon's **NIS** (noon Item Sheet) importer creates SKUs in bulk from a
+spreadsheet. Everything the click wizard sets via a dropdown is a plain
+cell here, so it sidesteps the anti-automation selects entirely.
+
+**Flow:** `Imports` → **Add Import** → **Type = Content**, **Subtype =
+NIS Create/Update** → pick the category → **Download** the template →
+fill it → **Next** → upload → SKUs go to async Quality Check (QC).
+
+URL: `https://noon-catalog.noon.partners/en/imports/create?project=PRJ{project_id}`
+
+The Type / Subtype selects are Ant-Design dropdowns — open each with a
+trusted `click_at_xy` on the field, then option-click the item in
+`.ant-select-dropdown .ant-select-item` (type-to-filter does NOT work;
+see `../noon-shared`).
+
+### 1.1 Which import for which field
+
+Imports are keyed by **Type → Subtype**. The relevant ones:
+
+| Type | Subtype | Creates / sets |
+|------|---------|----------------|
+| Content | **NIS Create/Update** | **Creates new SKUs** — identity, sizes, attributes, images, in bulk. This is the create step. |
+| Content | Product Import | *Updates* content (title/description/attributes) of **existing** SKUs only. |
+| Pricing | **Price Update** | Base price + sale price/window for existing SKUs (see §1.3). |
+| Pricing | Price Range Update | Long-dated sale windows (the discount pattern, §1.3). |
+| Stock | (stock subtype) | On-hand quantity for existing SKUs. **Match the store's warehouse type**: an FBP Stock Update fails ("no FBP warehouse") if the store has none; FBN stock requires an ASN shipment flow, not a stock import. Check the SKU's Offer→Stock section for which warehouse the store actually has before choosing the stock import. |
+| Warranty | (warranty subtype) | Warranty type for existing SKUs (file equivalent of the click "No Warranty"). |
+
+So a full file-based create is: **NIS Create/Update** (identity + images)
+→ then **Price Update** (price) and **Stock** as follow-up imports keyed
+on the `seller_sku`/`partner_sku` you assigned. Each import's own
+"ABOUT THIS UPLOAD" panel lists its exact Required/Optional columns —
+read it in-page before filling; do not assume.
+
+### 1.2 The NIS template (Content → NIS Create/Update)
+
+- **Category**: "Download templates for" → **Specific category** →
+  drill the tree (e.g. **Apparel** → product-types incl. *Socks &
+  Tights*) and select it, **plus** the target store/marketplace, to
+  enable the per-category **Download English** / **Download English +
+  Arabic** buttons (AE stores need the +Arabic template for the local
+  title). "All categories" downloads a generic shell without the
+  category attribute columns — only use it to see the structure.
+- **`With Instructions`** checkbox adds a column-guidance row — leave it
+  on the first time.
+- **Core required columns** (from the template's `valid values` sheet):
+  `family`, `product_type`, `product_subtype`, `seller_sku`,
+  `item_condition` (`New`), `parent_child_variation` (`Parent`/`Child`
+  for sized products), and per-marketplace `vat_rate_ae` / `vat_rate_sa`
+  / `vat_rate_eg` (`Std`). Category attribute columns + image-URL columns
+  follow — fill per the in-sheet guidance and the linked "How to fill out
+  the NIS sheet" article.
+- Each row needs a **unique `seller_sku`**. Partial failures are
+  per-row: good rows still create; fix the error file and re-upload the
+  rest.
+- **A parent needs a child — a lone parent creates NOTHING.** Verified
+  live: a single row with `parent_child_variation=parent` imports
+  "successfully" but the SKU never appears, and the error file's
+  `creation_error` column reads **`child is missing`**. Every product
+  needs **two rows sharing one `parent_group_key`**: a `parent` row
+  (identity) **and** at least one `child` row (the sellable variant,
+  with its own distinct `seller_sku` and a `size_variation`/`size_map`,
+  e.g. `One Size`). The **child** is what carries the offer — follow-up
+  Pricing/Stock imports key on the **child** `seller_sku`.
+- **Reading the error file is the debug loop.** An import that shows
+  Completed but creates nothing failed row validation; open the import's
+  Result/error CSV — its trailing `partner_error` / `content_error` /
+  `creation_error` columns name the exact problem. Fix those cells
+  (use the exact valid-value strings) and re-upload.
+
+### 1.3 Pricing import — optional high-base + long sale (a seller pattern)
+
+Some sellers list a **high base price** and a **long-dated half-price
+sale** so the page shows a large discount on day one, while the true
+selling price is the sale price every day. This is a **guideline, not a
+requirement** — only apply it when the seller asks for it.
+
+To do it file-based, after the SKU exists run **Pricing → Price Update**
+(columns: required `country_code`, `id_partner`, `partner_sku`; optional
+`price`, `sale_price`, `sale_start`, `sale_end`, `is_active`):
+
+- `price` = the high base (e.g. `100`)
+- `sale_price` = the real everyday price (e.g. `50`)
+- `sale_start` = today, `sale_end` = a far-future date (e.g. +5 years)
+
+For a rolling window use **Pricing → Price Range Update**. If the seller
+did not ask for the discount pattern, just set `price` to the real price
+and leave the sale columns blank.
+
+## 2. Create Listing — Click wizard (FALLBACK)
 
 **URL**: `https://noon-catalog.noon.partners/en/catalog/create?project=PRJ{project_id}`
 
+> Use this only when file-based isn't practical (a true one-off you can
+> drive with a real trusted click). It needs trusted `click_at_xy` for
+> every Ant-Design select; a programmatic `.click()` / nativeSetter does
+> NOT register. If a required dropdown won't open, fall back to §1.
+
 3-step wizard: **Category → Brand → Identity**.
+
+> **MINIMAL PATH to a valid listing — do exactly these, in order, and
+> STOP:**
+> 1. Wizard create (Category → Brand → Identity), `fill_input` the SKU.
+> 2. **Offer tab** → `fill_input` **Base Price**, then **set Warranty**
+>    (MANDATORY — see below), then **Save Changes** (green modal; price
+>    persists across reload).
+> 3. **Content** on `/d?code=…&tab=content` → Product **Title** (EN via
+>    `fill_input`, Arabic via `Input.insertText` — see §2.7) + set
+>    **Gender** (MANDATORY; Department + Arabic gender auto-derive — §2.7)
+>    → **Save Changes** → Submit → "sent for review" (async QC — done;
+>    do NOT re-fill).
+> 4. **Image** (mandatory ≥1): upload the seller's **real product photo**
+>    (§2.7) — a placeholder fails noon's async image validation and the
+>    listing never goes live.
+> 5. **Seller Status → ON**.
+>
+> **Warranty is MANDATORY — but trivial: select "No Warranty".** The
+> Offer save FAILS with `Save failed — Warranty / No Offer Created`
+> unless the Warranty **type** is set. Do NOT try to configure a real
+> warranty (service center + 1–60mo duration — that path IS an
+> anti-automation rathole). Just open the Warranty **type** select and
+> pick **"No Warranty"** (options: No Warranty / Seller Warranty /
+> Manufacturer Warranty) — no service center or duration needed, and the
+> offer saves. Open it with a trusted `click_at_xy` on the select's
+> centre (it's below the fold — grow the viewport via
+> `Emulation.setDeviceMetricsOverride` first), then click the
+> **"No Warranty"** option in the `.ant-select-dropdown`. Verified live:
+> price + No-Warranty → Save → offer created, persists across reload.
+>
+> **Gender IS MANDATORY (verified live) — Department derives from it.**
+> Content Check flags `Missing Department` until Gender is set; you do
+> NOT set Department directly (there is no Department field). Set the
+> **English `Gender *`** select (e.g. `Men`) and noon **auto-fills the
+> Arabic gender (`رجال`) and clears the Department requirement**. The
+> Gender select is the same anti-automation ant-select as Warranty — open
+> it with the virtual-list technique in §2.7 (grow viewport → scroll the
+> dropdown's `.rc-virtual-list-holder` → in-panel trusted `click_at_xy`).
+> An earlier note calling Gender "optional, skip it" was WRONG — a listing
+> without Gender never clears mandatory content and never goes live.
+>
+> **These ARE optional — skip unless the seller asked:** Size Unit,
+> Feature Bullets, Long Description, Material, Colour, and the other
+> detailed-content attributes. The listing saves and goes live without
+> them. If a seller explicitly wants one and its dropdown won't open with
+> §2.7, note it as a manual follow-up rather than looping.
+
+**Runnable Offer-tab snippet (price + No Warranty) — copy verbatim.** The
+below-fold Warranty select can't be found by an un-scrolled DOM query;
+this grows the viewport, trusted-clicks the Warranty card's select, and
+picks "No Warranty". It also clears the price field first (`fill_input`
+*appends* if a value is already present → `59.59.9`). Verified live:
+
+```bash
+browser-use <<'PY'
+import time, json
+# 1) price — clear first (fill_input appends to an existing value), then fill
+js("var i=document.querySelector('input[name=new_price]'); if(i){i.value='';}")
+fill_input('input[name="new_price"]', '59.90')
+# 2) Warranty = No Warranty (MANDATORY). Grow viewport (it's below fold),
+#    trusted-click the Warranty card's ant-select, option-click No Warranty.
+cdp("Emulation.setDeviceMetricsOverride", width=1500, height=2200, deviceScaleFactor=1, mobile=False)
+time.sleep(2)
+info = js("""(function(){
+  var hdr=Array.from(document.querySelectorAll('*')).find(e=>e.textContent.trim()==='Warranty'&&e.children.length<3);
+  var card=hdr.closest('div'); for(var i=0;i<5&&card;i++){if(card.querySelector('.ant-select'))break;card=card.parentElement;}
+  var sel=card.querySelector('.ant-select'); sel.scrollIntoView({block:'center'});
+  var r=sel.getBoundingClientRect(); return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});
+})()""")
+p=json.loads(info); click_at_xy(p['x'], p['y']); time.sleep(2)
+js("""(function(){var dd=document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)');
+  var o=Array.from(dd.querySelectorAll('.ant-select-item')).find(x=>x.textContent.trim()==='No Warranty'); if(o)o.click();})()""")
+time.sleep(1); cdp("Emulation.clearDeviceMetricsOverride")
+# 3) Save Changes, then confirm Submit
+js("(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>/save changes/i.test(x.textContent)&&x.textContent.length<20); if(b)b.click();})()")
+time.sleep(3)
+js("(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>/^submit$/i.test(x.textContent.trim())); if(b)b.click();})()")
+time.sleep(3)
+print(js("var t=document.body.innerText; ('Save failed: '+/Save failed/i.test(t)+' | saved: '+/have been saved/i.test(t))"))
+PY
+```
+
+> **Use the 3-step wizard to create your OWN new product. Do NOT use the
+> "paste a noon PDP URL / copy SKU link" shortcut to create a brand-new
+> listing.** That shortcut clones an *existing* catalog item and links
+> your SKU to a parent you don't own — the product is then permanently
+> un-saveable: every Offer save fails with a red
+> `Invalid sku_parents: {...}` toast and price/content never persist.
+> The wizard below mints a clean standalone parent that saves normally.
+>
+> **Input method (critical):** fill every field with **`fill_input`**
+> (it fires the real key + input/change events React needs). Do NOT use
+> `type_text`, `Input.insertText`, or a `nativeSetter` — those set the
+> DOM value only; React never ingests it, so "Final Price" stays `-` and
+> the save drops the field. Verify a save by **reloading the page** and
+> re-reading the value (a green "changes saved" toast alone is not proof;
+> a hidden `pricing-errors.undefined` string in the DOM is NOT a real
+> error — trust the reloaded value / a screenshot, not a DOM grep).
 
 ### Step 1 — Category
 
@@ -67,23 +270,98 @@ unbranded products.
 Enter Partner SKU (your internal code) or click "Generate Partner SKU".
 
 **Important**: "Generate Partner SKU" auto-fills a format like
-`PSKU_{project}_{digits}_X`. Clear it first if you want your own SKU:
+`PSKU_{project}_{digits}_X`. To use your own SKU, `fill_input` the SKU
+box (it has no stable `name=`, so target the visible text input):
 ```bash
 browser-use <<'PY'
-js("document.querySelector('input[name=partner_sku]').focus()")   # SKU input
-press_key("Control+a")
-type_text("SKU-100234")
+fill_input("input[type=text]", "SKU-100234")   # partner SKU box (clears + types via real key events)
 # Click "Create" (NOT Next — this is the final step)
-js("document.querySelectorAll('button')[1].click()")
+js("Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Create')?.click()")
 PY
 ```
+Success = redirect to `/en/catalog/{noon_sku}/p?...` (a fresh noon SKU is
+minted). Verified live: this wizard product saves price/content normally.
 
 On success, redirected to:
 ```
 /en/catalog/{noon_sku}/p?code={code}&project=PRJ{project_id}
 ```
 
-## 2. Edit Listing — After Creation
+### 2.7 Proven click techniques (verified end-to-end by hand)
+
+These are the exact methods that make the click path work — every one
+was a wall until pinned down. Follow them literally.
+
+- **Category tree is a scrollable drill, not a flat list.** Click the
+  top category (e.g. `Apparel`) → it shows product-types as a scrollable
+  list → the leaf you want is usually below the fold. Do NOT click a raw
+  coordinate; `scrollIntoView({block:'center'})` the leaf text, re-read
+  its live rect, then trusted `click_at_xy`. A product-type like
+  `Socks & Tights` expands to sub-types (`Socks`, `Stockings`, …) each
+  with a **`Select`** button — click that to enable `Next`.
+
+- **Ant-Design selects are VIRTUAL lists — the option you want often
+  renders BELOW the clipped dropdown panel.** Opening the select and
+  clicking the option's reported rect fails silently when that rect is
+  past the panel bottom (the click lands outside → closes it unselected).
+  The reliable recipe (Warranty, Gender, any long select):
+  ```bash
+  browser-use <<'PY'
+  import time, json
+  cdp("Emulation.setDeviceMetricsOverride", width=1500, height=3200, deviceScaleFactor=1, mobile=False); time.sleep(2)
+  # open the target select (trusted click on its centre)
+  sel=json.loads(js("(function(){var s=Array.from(document.querySelectorAll('.ant-select')).find(e=>/Gender/.test(e.textContent)); var b=s.getBoundingClientRect(); return JSON.stringify({x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2)});})()"))
+  click_at_xy(sel['x'], sel['y']); time.sleep(1.5)
+  # scroll the dropdown's virtual-list holder to the bottom so the option renders inside the panel
+  js("(function(){var h=document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .rc-virtual-list-holder'); if(h)h.scrollTop=h.scrollHeight;})()"); time.sleep(1)
+  # click the option ONLY if it is inside the panel bounds
+  o=json.loads(js("(function(){var el=Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item')).find(e=>e.textContent.trim()==='Men'); var dd=document.querySelector('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').getBoundingClientRect(); var b=el.getBoundingClientRect(); return JSON.stringify({x:Math.round(b.x+b.width/2),y:Math.round(b.y+b.height/2),inpanel:(b.y>=dd.top&&b.bottom<=dd.bottom)});})()"))
+  if o['inpanel']: click_at_xy(o['x'], o['y'])
+  PY
+  ```
+  Verify by the field showing the value (and reload-persistence), not by
+  a DOM `selection-item` query (that selector is unreliable).
+
+- **Arabic / non-Latin text: use `Input.insertText`, NOT `fill_input`.**
+  `fill_input` types char-by-char via key events and **hangs the daemon**
+  on Arabic (no keycode mapping). Focus the field, then
+  `cdp("Input.insertText", text="…")` inserts the whole string. (Latin
+  text still uses `fill_input`.) The English↔Arabic Product Title are two
+  separate boxes with the same `placeholder="Product Title *"`; tag them
+  (`setAttribute('data-fill', …)`) to target each.
+
+- **Content edits are on `/d?...&tab=content`.** Clicking the "Content"
+  tab on the `/p` page does not switch to editable content. Navigate the
+  URL directly (`js("location.href=…")`) — do NOT `new_tab` repeatedly
+  (piled-up tabs make later reconnects attach to the wrong tab; a fresh
+  wrapper invocation reads whatever tab is active).
+
+- **Image (mandatory ≥1) — upload + the async validation gate.** The file
+  input is hidden; set it and fire `change`, then confirm the modal:
+  ```bash
+  browser-use <<'PY'
+  import time, json
+  r=cdp("Runtime.evaluate", expression="document.querySelector('input[type=file][accept*=\"image\"]')")
+  cdp("DOM.setFileInputFiles", files=["/path/to/photo.jpg"], objectId=r['result']['objectId']); time.sleep(1)
+  js("document.querySelector('input[type=file][accept*=\"image\"]').dispatchEvent(new Event('change',{bubbles:true}))"); time.sleep(4)
+  # "Review Images" modal → Upload All
+  b=json.loads(js("(function(){var x=Array.from(document.querySelectorAll('button')).find(e=>e.textContent.trim()==='Upload All'); var r=x.getBoundingClientRect(); return JSON.stringify({x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});})()"))
+  click_at_xy(b['x'], b['y']); time.sleep(12)  # uploads to f.nooncdn.com
+  PY
+  ```
+  **The image must be a real product photo.** noon runs an async
+  image-quality **Validation** after upload; a placeholder / low-quality
+  image sits in `Validating…` and never clears `Missing Image`, so the
+  listing can't go live. Use the seller's actual photo. This is a
+  *content-quality* gate, not an automation limitation.
+
+- **Persistence rule:** every Save on this app opens a `Submit`
+  confirmation modal ("sent for review" / "are you sure"). Click
+  `Submit`, then **reload and re-read** — React state alone (and toasts)
+  are not proof. When `Save Changes` is **disabled**, there are no
+  unsaved changes (already committed).
+
+## 3. Edit Listing — After Creation
 
 **URL**: `https://noon-catalog.noon.partners/en/catalog/{sku}/d?code={code}&offerTab=noon&project=PRJ{project_id}`
 
@@ -107,7 +385,7 @@ If you switch tabs with unsaved edits, noon shows a modal:
 
 **Always save before navigating away** — discarding loses all input.
 
-### 2.1 Offer Tab — Price
+### 3.1 Offer Tab — Price
 
 Inputs (all Ant Design shadow DOM, `name=` attribute identifies):
 
@@ -134,7 +412,7 @@ PY
 After filling prices, click the blue **Save Changes** button at top-right.
 The modal "Your changes have been saved" with a green check confirms success.
 
-### 2.2 Offer Tab — Barcode
+### 3.2 Offer Tab — Barcode
 
 Labeled "Common across marketplaces". Multiple barcodes can be added.
 
@@ -150,7 +428,7 @@ PY
 Each added barcode shows as a removable chip (Amazon-ASIN-style
 strings like `XNNNXXXNNN` are typical — 10 chars, digits + caps).
 
-### 2.3 Offer Tab — Stock
+### 3.3 Offer Tab — Stock
 
 Two sections:
 - **FBN Warehouses**: "Add you products to our noon warehouses
@@ -163,12 +441,38 @@ When stock is already configured, FBN section shows:
 - Stock type badge ("Regular")
 - Last Stock Update, Stock Transferred, Stock Reserved, Net stock
 
-### 2.4 Offer Tab — Warranty & Offer Note
+### 3.4 Offer Tab — Warranty & Offer Note
 
 - **Warranty**: Select warranty duration dropdown ("No warranty" by default)
 - **Offer Note**: Free-text textarea (0/353 char counter)
 
-### 2.5 Content Tab
+### 3.5 Content Tab
+
+> **Edit content on the `/d` detail page's Content tab, not `/p`.** The
+> editable URL is
+> `…/catalog/{noon_sku}/d?code={code}&tab=content&project=PRJ{id}` (get
+> `{code}` from the My-Catalog row's product link — the read-only `/p`
+> view loads no editable fields and is why earlier runs "couldn't fill"
+> content). Fill every field with **`fill_input`** (see §1 warning).
+>
+> **Content save is ASYNC — do NOT re-fill on immediately-stale status.**
+> After you fill the mandatory fields and click **Save Changes**, a green
+> modal says *"Your changes have been saved. The content will now be sent
+> for Quality Check (QC)… allow some time."* The **Content Check Status /
+> "N Issues" / "0/7 Attributes" indicators do NOT update instantly** —
+> they clear only after Noon's async QC (minutes). Re-filling because the
+> count still shows issues is a thrash (a live run re-typed the title 68×
+> for this exact reason — the saves *were* landing). Save ONCE, trust the
+> "sent for QC" modal, move on, and re-check later. This is the same
+> async-confirmation trap as Amazon's async-minting ASINs.
+>
+> **Mandatory content on noon = Product Title + Department + ≥1 Image.**
+> Unlike Amazon (where a blank main image is an acceptable done-state),
+> **noon requires at least one product image** for content to pass — a
+> listing with title+price but no image keeps a "Missing Image" content
+> issue. If the seller hasn't supplied an image, upload a placeholder via
+> the Content tab's **Add Image** file-chooser, or surface "Missing
+> Image" as the one remaining item for the seller.
 
 Click `rc-tabs-0-tab-content`. Left sub-nav: **Basic Content** /
 **Detailed Content**.
@@ -210,33 +514,57 @@ a direct "Add Product Title" button that scrolls to the field.
 | What's In The Box | Optional | Optional |
 | Shipping Height/Length/Weight/Width/Depth | Optional | Optional |
 
-#### Filling content via JS (bypasses shadow DOM issues)
+#### Filling content — always `fill_input`, never `nativeSetter`
 
-Some inputs are inside shadow DOM. If `fill_input` doesn't trigger
-the React onChange, use the native setter pattern via `js()`:
+Content fields are the same React-controlled inputs as the Offer tab, so
+fill each with **`fill_input`** (matches on placeholder / name). There
+are English + local-language variants per field — fill both:
 
 ```bash
 browser-use <<'PY'
-js("""
-  var nsetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-  var inputs = document.querySelectorAll('input[placeholder="Product Title *"]');
-  inputs.forEach(function(inp, i) {
-    nsetter.call(inp, i === 0 ? 'English title' : 'local-language title');
-    inp.dispatchEvent(new Event('input', {bubbles: true}));
-  });
-""")
+# Title has an English box and a local-language box (same placeholder,
+# two elements). fill_input targets one selector; use :nth-of-type or a
+# per-element loop with real key events — NOT nativeSetter (React ignores
+# a nativeSetter value, leaving the field blank on save/reload).
+fill_input("input[placeholder='Product Title *']", "Women's Cotton Crew Socks (6-Pack)")
+# for the second (local-language) box, click it then fill:
+js("document.querySelectorAll(\"input[placeholder='Product Title *']\")[1]?.focus()")
+type_text_note = "use fill_input on a unique selector; if two share a placeholder, focus the 2nd then fill_input its id/xpath"
 PY
 ```
 
-Always click **Save Changes** after editing. Validate with the green
-"Your changes have been saved" toast.
+> A `nativeSetter` + `dispatchEvent('input')` sets the DOM value but does
+> NOT enter React state — the field looks filled yet saves blank and is
+> empty on reload. This was a real live failure. Use `fill_input`.
 
-### 2.6 Product Visibility Status
+Always click **Save Changes** after editing, then **reload and re-read**
+the field to confirm it persisted (the green toast alone is not proof).
+
+### 3.6 Product Visibility Status
 
 Top of the page shows:
 - **Seller Status**: toggle (on/off) — controls whether the offer is live
 - **Live Status**: badge (e.g. "Offer Created", "Unavailable")
 - **Buy Box Won**: ACTIVE badge
+
+## 4. Delete (Deactivate) a Listing
+
+noon has **no hard delete** — the delete-equivalent is **Deactivate**,
+which pulls the SKU from sale across noon / supermall / Global. It is
+reversible (an **Activate SKUs** button re-lists it). Verified live:
+
+1. **My Catalog** → in the **"Search for SKU here…"** box type the
+   partner SKU and press **Enter** (typing alone does NOT filter — the
+   Enter is required; "Total N items" updates to the match).
+2. **Tick that row's checkbox.** ⚠️ Do NOT click the **header**
+   checkbox — it is select-all and would deactivate every SKU including
+   live sellers. Filter to the one SKU first, confirm **"Total 1 items"**,
+   then select. (Selecting one product may check its per-marketplace
+   sub-boxes too — that is still just the one product.)
+3. A **"Deactivate SKUs"** action button appears — click it.
+4. Confirm the modal (**"Deactivate this SKU? … across noon, supermall,
+   and Global"**) → **Deactivate**. To reverse, select it again and use
+   **Activate SKUs**.
 
 ## See also
 

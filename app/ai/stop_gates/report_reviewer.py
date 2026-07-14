@@ -33,7 +33,15 @@ import re
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
 
-_REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
+# Match a ``Status:`` verdict anywhere it can legitimately appear — plain
+# at line start (``Status: ok``) OR emphasised/indented (``**Status:
+# incomplete**``, ``- Status: gaps``). A reviewer that stamps a leading
+# ``ok`` but concludes ``incomplete`` in a bolded footer is a real failure
+# mode; the gate must SEE both lines so it can fail-closed on the conflict
+# (see ``reviewer_verdict``). Case-insensitive so ``status:`` also counts.
+_REVIEW_STATUS_RE = re.compile(
+    r'^[\s*_>#-]*Status:\s*(\w+)', re.MULTILINE | re.IGNORECASE
+)
 _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 # A review file carries ``review`` as a distinct token (case-insensitive,
 # not a substring of another word). Accepts ``REVIEW_...``,
@@ -66,6 +74,33 @@ _PARTIAL_BANNER = (
 def partial_banner() -> str:
     """Banner prepended to a result that failed open past the stall cap."""
     return _PARTIAL_BANNER
+
+
+def effective_status(content: str) -> tuple[str | None, list[str]]:
+    """The most-conservative ``Status:`` verdict stated in a review body.
+
+    A review may (wrongly) state more than one ``Status:`` line — e.g. a
+    leading ``ok`` with a bolded ``**Status: incomplete**`` conclusion.
+    A DoD gate must never be fooled by the stray ``ok``, so this returns
+    the verdict LEAST likely to pass: ``gaps`` (never passes) >
+    ``incomplete`` (passes only at max iter) > ``ok`` — an unrecognised
+    token is surfaced verbatim so the caller rejects it. Returns
+    ``(status, raw_statuses)``; ``status`` is ``None`` when no ``Status:``
+    line exists, and ``len(set(raw_statuses)) > 1`` signals a conflict.
+    Shared by BOTH review gates (this module and the execution-review
+    check in ``bash_safety``) so the fail-closed rule has one home.
+    """
+    statuses = [s.lower() for s in _REVIEW_STATUS_RE.findall(content)]
+    if not statuses:
+        return None, statuses
+    if 'gaps' in statuses:
+        return 'gaps', statuses
+    if 'incomplete' in statuses:
+        return 'incomplete', statuses
+    if set(statuses) <= {'ok'}:
+        return 'ok', statuses
+    known = {'ok', 'gaps', 'incomplete'}
+    return next(s for s in statuses if s not in known), statuses
 
 
 def reviewer_verdict(task_dir) -> str | None:
@@ -129,8 +164,13 @@ def reviewer_verdict(task_dir) -> str | None:
     except OSError:
         return f'{latest.name} could not be read; rewrite the review file.'
 
-    match = _REVIEW_STATUS_RE.search(content)
-    if not match:
+    # Fail-closed on a self-contradictory review: a reviewer that stamps
+    # a leading ``Status: ok`` but concludes ``incomplete``/``gaps`` in
+    # its body (observed live — a mis-added total the reviewer caught yet
+    # still top-stamped ``ok``) must be read at its MOST-CONSERVATIVE
+    # verdict, never the stray ``ok``. ``effective_status`` owns that rule.
+    status, statuses = effective_status(content)
+    if status is None:
         return (
             f'{latest.name} has no ``Status:`` line. The reviewer '
             'output must begin with one of: ``Status: ok`` | '
@@ -139,8 +179,16 @@ def reviewer_verdict(task_dir) -> str | None:
             'canonical format.'
         )
 
-    status = match.group(1).lower()
     iter_num = _iter_of(latest)
+    conflict = len(set(statuses)) > 1
+    conflict_note = (
+        f' NOTE: {latest.name} states conflicting Status lines '
+        f'{sorted(set(statuses))} — a review must reach ONE verdict. '
+        'Rewrite it so the top ``Status:`` line matches your conclusion.'
+        if conflict
+        else ''
+    )
+
     if status == 'ok':
         return None
     if status == 'incomplete' and iter_num >= REVIEW_MAX_ITERS:
@@ -153,13 +201,13 @@ def reviewer_verdict(task_dir) -> str | None:
             'reviewer again to write '
             f'``REVIEW_*_iter{iter_num + 1}.md``. Repeat until '
             f'Status: ok or iter {REVIEW_MAX_ITERS} with '
-            'Status: incomplete.'
+            f'Status: incomplete.{conflict_note}'
         )
     if status == 'incomplete' and iter_num < REVIEW_MAX_ITERS:
         return (
             f'``Status: incomplete`` only valid at iter '
             f'{REVIEW_MAX_ITERS}+. Current is iter {iter_num} — '
-            'keep iterating.'
+            f'keep iterating.{conflict_note}'
         )
     return (
         f'Unknown reviewer status {status!r} in {latest.name}. '

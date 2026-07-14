@@ -404,10 +404,9 @@ def check_report_overwrite(
 # The REPORT-reviewer verdict logic lives in
 # ``stop_gates.report_reviewer`` so BOTH completion paths (this Stop hook
 # AND set_task_result) enforce the same sign-off — see that module's
-# docstring. These two regexes are still used by the EXEC-review guard
-# below (phase-4 ``EXEC_REVIEW_*`` files share the ``Status:``/``_iter``
-# format).
-_REVIEW_STATUS_RE = re.compile(r'^Status:\s*(\w+)', re.MULTILINE)
+# docstring. Status parsing lives there too (``effective_status``, shared
+# by the EXEC-review guard below so the fail-closed rule has one home);
+# only the iter-number regex is still needed locally.
 _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 
 # Audits a SERVER-side completeness gate reviews at set_task_result.
@@ -559,8 +558,11 @@ def check_exec_review_status(task_dir) -> str | None:
             'execution-review file.'
         )
 
-    match = _REVIEW_STATUS_RE.search(content)
-    if not match:
+    # Fail-closed on a self-contradictory verdict (a leading ``ok`` with a
+    # bolded ``incomplete`` conclusion) — same rule as the report gate,
+    # shared so the bug class can't recur in only one path.
+    status, _statuses = report_reviewer.effective_status(content)
+    if status is None:
         return (
             f'{latest.name} has no ``Status:`` line. The execution '
             'reviewer output must begin with one of: ``Status: ok`` '
@@ -569,7 +571,6 @@ def check_exec_review_status(task_dir) -> str | None:
             'Execution-review mode``.'
         )
 
-    status = match.group(1).lower()
     iter_num = _iter_of(latest)
     # Stale-review guard: a Status: ok review predating the latest
     # EXECUTION_LOG row count is no longer valid. Compare mtimes.
