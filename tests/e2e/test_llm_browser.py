@@ -457,9 +457,7 @@ class TestGUITaskExecution:
         # Select by stable test id, not incidental utility classes —
         # the conversation panel's styling (padding, width) changes
         # with the design; the contract "this is the panel" should not.
-        detail_panel = page.locator(
-            '[data-testid="conversation-scroll"]'
-        ).last
+        detail_panel = page.locator('[data-testid="conversation-scroll"]').last
         if detail_panel.count() == 0:
             return ''
 
