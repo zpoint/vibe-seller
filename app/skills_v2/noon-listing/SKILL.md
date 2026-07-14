@@ -561,6 +561,13 @@ reversible (an **Activate SKUs** button re-lists it). Verified live:
    live sellers. Filter to the one SKU first, confirm **"Total 1 items"**,
    then select. (Selecting one product may check its per-marketplace
    sub-boxes too — that is still just the one product.)
+   ⚠️ **"Total 1 items" is not enough — the search is prefix/fuzzy.** A
+   query can return a *different* single SKU (e.g. searching
+   `WIDGET-010` when only `WIDGET-011-OS` exists shows that one as
+   "Total 1 items"). **Verify the row's `PSKU:` matches your target
+   exactly before ticking** — otherwise you deactivate the wrong SKU. If
+   the exact partner SKU isn't in the result, treat it as "not listed",
+   not a match.
 3. A **"Deactivate SKUs"** action button appears — click it.
 4. Confirm the modal (**"Deactivate this SKU? … across noon, supermall,
    and Global"**) → **Deactivate**. To reverse, select it again and use
