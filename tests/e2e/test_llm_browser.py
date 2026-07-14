@@ -454,14 +454,19 @@ class TestGUITaskExecution:
 
     def _get_agent_chat_text(self, page: Page) -> str:
         """Extract all visible text from the task detail panel."""
-        detail_panel = page.locator('div.flex-1.overflow-y-auto.p-4').last
+        # Select by stable test id, not incidental utility classes —
+        # the conversation panel's styling (padding, width) changes
+        # with the design; the contract "this is the panel" should not.
+        detail_panel = page.locator('[data-testid="conversation-scroll"]').last
         if detail_panel.count() == 0:
             return ''
 
         start = time.time()
         while time.time() - start < 30:
             text = detail_panel.inner_text()
-            if 'Result' in text and len(text) > 500:
+            # Case-insensitive: the result label may render uppercase
+            # via CSS text-transform, which innerText reflects.
+            if 'result' in text.lower() and len(text) > 500:
                 return text
             time.sleep(2)
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -233,7 +233,7 @@ function TaskFiles({ taskId }: { taskId: string }) {
   )
 }
 
-const PROSE_RESULT = 'prose prose-sm max-w-none prose-code:text-xs prose-code:font-mono prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-50 prose-pre:text-gray-800 prose-pre:border prose-pre:border-gray-200 prose-pre:rounded prose-pre:p-2 prose-pre:my-2 prose-h1:text-base prose-h1:font-bold prose-h1:text-gray-900 prose-h1:border-b prose-h1:border-gray-200 prose-h1:pb-2 prose-h1:mb-3 prose-h2:text-sm prose-h2:font-semibold prose-h2:text-gray-800 prose-h2:border-b prose-h2:border-gray-100 prose-h2:pb-1.5 prose-h2:mb-2.5 prose-h2:mt-5 prose-p:my-2 prose-p:text-gray-700 prose-p:leading-relaxed prose-ul:my-2 prose-ul:pl-4 prose-li:my-1 prose-li:marker:text-gray-400'
+const PROSE_RESULT = 'prose prose-neutral max-w-none text-[17px] leading-[1.65] prose-code:text-[14px] prose-code:font-mono prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:before:content-none prose-code:after:content-none prose-pre:bg-gray-50 prose-pre:text-gray-800 prose-pre:border prose-pre:border-gray-200 prose-pre:rounded prose-pre:p-3 prose-pre:my-3 prose-pre:text-[14px] prose-h1:text-[20px] prose-h1:font-bold prose-h1:text-gray-900 prose-h1:border-b prose-h1:border-gray-200 prose-h1:pb-2 prose-h1:mb-3 prose-h2:text-[17px] prose-h2:font-semibold prose-h2:text-gray-800 prose-h2:border-b prose-h2:border-gray-100 prose-h2:pb-1.5 prose-h2:mb-2.5 prose-h2:mt-5 prose-p:my-2.5 prose-p:text-gray-800 prose-p:leading-[1.65] prose-ul:my-2.5 prose-ul:pl-6 prose-li:my-1 prose-li:marker:text-gray-400'
 
 interface ConversationStreamProps {
   items: ConversationItem[]
@@ -291,7 +291,7 @@ export function ConversationStream({
   const hasExecutionSep = items.some(i => i.type === 'execution_separator')
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       {/* Review plan toggle in stream when applicable */}
 
       {items.length === 0 && isActive && (
@@ -309,7 +309,7 @@ export function ConversationStream({
       {(() => {
         let taskStartRendered = false
         const allPlanVersions = items.filter(i => i.type === 'plan' && i.plan).map(i => i.plan!)
-        return groupItems(items).map((di, idx) => {
+        const renderDI = (di: DisplayItem, idx: number): ReactNode => {
         if (di.kind === 'tool_group') {
           return <ToolCallGroup key={`tg-${idx}`} items={di.items.map(i => i.toolCall!)} />
         }
@@ -362,9 +362,12 @@ export function ConversationStream({
           case 'result':
             return (
               <div key={item.id}>
-                <div className="bg-white rounded-xl border-l-4 border-l-green-400 border border-green-200 p-4 shadow-sm">
-                  <h3 className="text-sm font-semibold text-green-700 mb-2">{t('tasks.result')}</h3>
-                  <div className={`text-sm text-gray-800 ${PROSE_RESULT} overflow-x-auto`}>
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-green-600">{t('tasks.result')}</span>
+                  </div>
+                  <div className={`text-gray-800 ${PROSE_RESULT} overflow-x-auto`}>
                     <Markdown remarkPlugins={[remarkGfm]}>{item.result || ''}</Markdown>
                   </div>
                 </div>
@@ -398,7 +401,47 @@ export function ConversationStream({
           default:
             return null
         }
-      })
+        }
+
+        // Thread consecutive assistant-side items (thinking / tools /
+        // agent text / streaming) onto one vertical spine so a single
+        // eye-line follows the whole turn — matches opencode's part rail.
+        // User messages, plans, results, separators and questions render
+        // standalone at full column width.
+        const isAssistantSide = (di: DisplayItem) =>
+          di.kind === 'tool_group' ||
+          (di.kind === 'item' &&
+            (di.item.type === 'agent_message' ||
+              di.item.type === 'streaming' ||
+              di.item.type === 'thinking'))
+
+        const dis = groupItems(items)
+        const out: ReactNode[] = []
+        let turnBuf: { di: DisplayItem; idx: number }[] = []
+        const flushTurn = (live: boolean) => {
+          if (turnBuf.length === 0) return
+          const buf = turnBuf
+          turnBuf = []
+          out.push(
+            <div key={`turn-${buf[0].idx}`} className="flex gap-3.5">
+              <div className={`w-[3px] shrink-0 rounded-full ${live ? 'bg-indigo-500' : 'bg-gray-200'}`} />
+              <div className="min-w-0 flex-1 space-y-3">
+                {buf.map(b => renderDI(b.di, b.idx))}
+              </div>
+            </div>,
+          )
+        }
+        dis.forEach((di, idx) => {
+          if (isAssistantSide(di)) {
+            turnBuf.push({ di, idx })
+          } else {
+            flushTurn(false)
+            out.push(renderDI(di, idx))
+          }
+        })
+        // Last assistant turn glows while the agent is still working.
+        flushTurn(isActive)
+        return out
       })()}
 
       {/* Inline pending questions if not already in stream */}

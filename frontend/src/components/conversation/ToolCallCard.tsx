@@ -39,7 +39,7 @@ export function ToolCallLine({ tool, input }: ToolCallProps) {
   return (
     <div>
       <button
-        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 w-full text-left py-0.5"
+        className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-700 w-full text-left py-0.5"
         onClick={() => setExpanded(e => !e)}
       >
         <span>{toolIcon(tool)}</span>
@@ -49,7 +49,7 @@ export function ToolCallLine({ tool, input }: ToolCallProps) {
         )}
       </button>
       {expanded && input && (
-        <pre className="text-[10px] text-gray-400 bg-gray-50 rounded p-1.5 mt-0.5 ml-5 overflow-x-auto">
+        <pre className="text-[12px] text-gray-400 bg-gray-50 rounded p-1.5 mt-0.5 ml-5 overflow-x-auto">
           {JSON.stringify(input, null, 2)}
         </pre>
       )}
@@ -67,16 +67,16 @@ export function ToolCallGroup({ items }: ToolCallGroupProps) {
 
   if (items.length === 1) {
     return (
-      <div className="border-l-2 border-gray-200 pl-2 py-1">
+      <div className="py-0.5">
         <ToolCallLine {...items[0]} />
       </div>
     )
   }
 
   return (
-    <div className="border-l-2 border-gray-200 pl-2 py-1">
+    <div className="py-0.5">
       <button
-        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700"
+        className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-700"
         onClick={() => setExpanded(e => !e)}
       >
         <span className={`transition-transform ${expanded ? 'rotate-90' : ''}`}>

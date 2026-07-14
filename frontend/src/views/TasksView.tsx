@@ -511,12 +511,14 @@ export function TasksView({
             {/* Scrollable conversation stream */}
             <div
               ref={scrollContainerRef}
+              data-testid="conversation-scroll"
               onScroll={() => {
                 const el = scrollContainerRef.current
                 if (el) userNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
               }}
-              className="flex-1 overflow-y-auto p-4"
+              className="flex-1 overflow-y-auto px-6 py-6"
             >
+              <div className="w-full">
               {debugMode ? (
                 /* Debug mode: raw messages */
                 <div className="mb-4">
@@ -596,10 +598,12 @@ export function TasksView({
                   </div>
                 </div>
               )}
+              </div>
             </div>
 
             {/* Fixed footer */}
-            <div className="bg-white border-t border-gray-200 px-4 py-3 space-y-2">
+            <div className="bg-white border-t border-gray-200 px-6 py-3">
+              <div className="w-full space-y-2">
               {/* Profile selector + Debug toggle row */}
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg">
@@ -755,6 +759,7 @@ export function TasksView({
                     {t('tasks.send')}
                   </button>
                 )}
+              </div>
               </div>
             </div>
           </>
