@@ -309,6 +309,44 @@ class TestNewEmailsSweep:
         assert r.status_code == 400
 
 
+class TestEmailInfoSurface:
+    """The agent-facing email_info surface must not invite the leak.
+
+    The live-agent incident: handed only a TEXT ``date`` column, the
+    model wrote ``WHERE date > <epoch>`` — a TEXT-vs-INTEGER compare
+    that SQLite treats as always-true, so every already-processed email
+    leaked back. This pins that the surface now (a) exposes the typed
+    ``received_epoch`` column, (b) explicitly warns ``date`` is
+    display-only, and (c) never ships a ``date > / <`` sample. Fast
+    tier, no LLM — a revert of the guidance fails here, not in e2e.
+    """
+
+    async def test_info_steers_to_received_epoch(
+        self, admin_client, email_env
+    ):
+        r = await admin_client.get(
+            f'/api/email-accounts/info-by-store/{email_env["store_id"]}'
+        )
+        assert r.status_code == 200
+        body = r.json()
+
+        assert 'received_epoch' in body['schema']
+        notes = body.get('column_notes', '')
+        assert 'received_epoch' in notes
+        assert 'date' in notes  # explicitly calls out the footgun column
+
+        # No sample may compare the TEXT date column with > / < — that
+        # is exactly the always-true filter that leaked.
+        for q in body['sample_queries']:
+            compact = q.replace(' ', '')
+            assert 'date>' not in compact and 'date<' not in compact, (
+                f'sample query invites the date-vs-epoch footgun: {q!r}'
+            )
+        # …and at least one sample uses received_epoch for a time window.
+        assert any('received_epoch' in q for q in body['sample_queries'])
+        assert 'get_new_emails' in body['watermark_note']
+
+
 class TestWatermarkFloorAuthority:
     """get_new_emails is the sole authority for the email watermark.
 
