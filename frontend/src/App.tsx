@@ -3,9 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { ProfileModal } from './components/ProfileModal'
 import { LoginPage } from './components/LoginPage'
 import { Sidebar } from './components/Sidebar'
+import { MobileMenuButton } from './components/MobileMenuButton'
 import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateCheck } from './hooks/useUpdateCheck'
 import { useIsMobile } from './hooks/useIsMobile'
+import { useMobileBackStack } from './hooks/useMobileBackStack'
 import { CreateTaskModal } from './components/CreateTaskModal'
 import { CreateScheduleModal } from './components/CreateScheduleModal'
 import { UpdateAvailableModal } from './components/UpdateAvailableModal'
@@ -15,14 +17,14 @@ import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { api, AUTH_EXPIRED_EVENT } from './api'
-import { sendEvent, lengthBucket } from './lib/telemetry'
-import { FrontendEvent } from './lib/telemetryEvents'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
 import { retryTask as retryTaskHandler } from './handlers/retryTask'
 import { continueTask as continueTaskHandler } from './handlers/continueTask'
+import { deleteTask as deleteTaskHandler } from './handlers/deleteTask'
+import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
   ServerPlatform,
@@ -191,40 +193,14 @@ export default function App() {
 
   const { updateCheck, dismissUpdateCheck } = useUpdateCheck(currentUser)
 
-  // ─── Mobile back-button integration ─────────────────
-  // On phones the layout is a drill-down stack (nav drawer → task list
-  // → task detail). Without this, the device/browser Back button leaves
-  // the site entirely. We add exactly one history entry whenever a
-  // "sub-screen" is open (drawer, or a selected task/schedule) and pop
-  // the top-most one on `popstate`, so Back means "up one level".
-  const mobileSubOpen =
-    isMobile && (navOpen || !!selectedTask || !!selectedSchedule)
-  const historyPushedRef = useRef(false)
-  useEffect(() => {
-    if (!isMobile) return
-    if (mobileSubOpen && !historyPushedRef.current) {
-      historyPushedRef.current = true
-      window.history.pushState({ vsSub: true }, '')
-    } else if (!mobileSubOpen && historyPushedRef.current) {
-      // Closed via in-app UI (the ← bar / scrim): drop our history
-      // entry so the next Back leaves the app as the user expects.
-      historyPushedRef.current = false
-      window.history.back()
-    }
-  }, [isMobile, mobileSubOpen])
-  useEffect(() => {
-    const onPop = () => {
-      if (!historyPushedRef.current) return
-      historyPushedRef.current = false
-      // Close only the top-most level. If a lower level is still open
-      // the push effect re-adds an entry for it, so each Back peels one.
-      if (navOpen) setNavOpen(false)
-      else if (selectedTask) setSelectedTask(null)
-      else if (selectedSchedule) setSelectedSchedule(null)
-    }
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [navOpen, selectedTask, selectedSchedule])
+  // Device/browser Back pops the mobile drill-down instead of leaving.
+  useMobileBackStack({
+    isMobile, navOpen,
+    hasTask: !!selectedTask, hasSchedule: !!selectedSchedule,
+    closeNav: () => setNavOpen(false),
+    closeTask: () => setSelectedTask(null),
+    closeSchedule: () => setSelectedSchedule(null),
+  })
 
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
@@ -523,81 +499,26 @@ export default function App() {
     })
   const continueTask = (taskId: string) =>
     continueTaskHandler(taskId, handlerDeps)
-  const deleteTask = async (taskId: string) => {
-    let childCount = 0
-    try {
-      const kids = await api.get(`/api/tasks?parent_task_id=${encodeURIComponent(taskId)}`) as Task[]
-      childCount = Array.isArray(kids) ? kids.length : 0
-    } catch { /* ignore — fall back to plain confirm */ }
-    const message = childCount > 0
-      ? t('tasks.deleteConfirmCascade', { count: childCount })
-      : t('tasks.deleteConfirm')
-    if (!confirm(message)) return
-    try {
-      await api.del(`/api/tasks/${taskId}`)
-      // Locally drop the deleted task plus any descendants we
-      // know about (cascade on the server won't push individual
-      // SSE deletes for each child).
-      const dropIds = new Set<string>([taskId])
-      let frontier = [taskId]
-      while (frontier.length) {
-        const next: string[] = []
-        for (const id of frontier) {
-          for (const t2 of tasks) if (t2.parent_task_id === id) next.push(t2.id)
-          for (const t2 of scheduleTasks) if (t2.parent_task_id === id) next.push(t2.id)
-        }
-        // Filter to unvisited BEFORE adding to dropIds — otherwise
-        // every BFS frontier collapses to [] after the first hop and
-        // we never reach grandchildren.
-        const unvisited = next.filter(id => !dropIds.has(id))
-        unvisited.forEach(id => dropIds.add(id))
-        frontier = unvisited
-      }
-      setTasks(prev => prev.filter(x => !dropIds.has(x.id)))
-      setScheduleTasks(prev => prev.filter(x => !dropIds.has(x.id)))
-      if (selectedTask && dropIds.has(selectedTask.id)) {
+  const deleteTask = (taskId: string) =>
+    deleteTaskHandler(taskId, {
+      api, tasks, scheduleTasks, selectedTask, setTasks, setScheduleTasks,
+      onSelectedCleared: () => {
         setSelectedTask(null)
         setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([])
         setAgentMessages([]); setTodoItems([]); setPendingQuestions(null)
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg !== 'unauthorized') alert(msg)
-    }
-  }
+      },
+    })
   const selectAnswer = (questionText: string, answer: string) => { setSelectedAnswers(prev => ({ ...prev, [questionText]: answer })); setShowOtherInput(prev => ({ ...prev, [questionText]: false })); setOtherInputs(prev => ({ ...prev, [questionText]: '' })) }
   const toggleOtherInput = (questionText: string) => { setShowOtherInput(prev => { const show = !prev[questionText]; if (show) { setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } else { setOtherInputs(p => ({ ...p, [questionText]: '' })); setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } return { ...prev, [questionText]: show } }) }
   const setOtherAnswer = (questionText: string, text: string) => { setOtherInputs(prev => ({ ...prev, [questionText]: text })); if (text.trim()) { setSelectedAnswers(prev => ({ ...prev, [questionText]: text.trim() })) } else { setSelectedAnswers(prev => { const n = { ...prev }; delete n[questionText]; return n }) } }
   const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; await api.post(`/api/tasks/${selectedTask.id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
   const sendingRef = useRef(false)
-  const sendChatMessage = async () => {
-    if (!selectedTask || !chatInput.trim() || sendingRef.current) return
-    sendingRef.current = true
-    const content = chatInput.trim(); setChatInput('')
-    sendEvent(FrontendEvent.TASK_MESSAGE_SUBMITTED, {
-      length_bucket: lengthBucket(content.length),
-      task_status_at_send: selectedTask.status,
-      is_first_message_for_task: !conversationItems.some(c => c.type === 'user_message'),
+  const sendChatMessage = () =>
+    sendChatMessageHandler({
+      api, selectedTask, chatInput, profileId: selectedProfileId,
+      conversationItems, sendingRef,
+      setChatInput, setAgentMessages, setConversationItems, setSelectedTask, setTasks,
     })
-    // Optimistic add to both agentMessages (debug) and conversationItems
-    setAgentMessages(prev => [...prev, { role: 'user', content }])
-    setConversationItems(prev => [...prev, {
-      id: `user-opt-${Date.now()}`,
-      type: 'user_message',
-      timestamp: new Date().toISOString(),
-      message: { role: 'user', content },
-    }])
-    try {
-      const response = await api.post(`/api/tasks/${selectedTask.id}/messages`, { content, profile_id: selectedProfileId })
-      if (response.woken) {
-        setSelectedTask(prev => prev ? { ...prev, status: 'queued' } : prev)
-        setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, status: 'queued' } : t2))
-      }
-      if (response.profile_switched) {
-        setSelectedTask(prev => prev ? { ...prev, ai_profile_id: selectedProfileId } : prev)
-      }
-    } catch (err) { console.error('Failed to send message:', err) } finally { sendingRef.current = false }
-  }
 
   // ─── Profile helpers ───────────────────────────────
   const createProfile = async (profile: Omit<Profile, 'id'>) => { const newProfile = await api.post('/api/profiles', profile); setProfiles(prev => [...prev, newProfile]); return newProfile }
@@ -691,7 +612,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100 text-gray-900">
+    <div className="flex h-dvh bg-gray-100 text-gray-900">
       {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}
       {isMobile && navOpen && (
         <div
@@ -767,13 +688,7 @@ export default function App() {
           {/* Mode toggle header */}
           <div className="px-4 py-2.5 bg-white border-b border-gray-100 flex items-center justify-end gap-2">
             {isMobile && (
-              <button
-                onClick={() => setNavOpen(true)}
-                className="mr-auto w-9 h-9 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100"
-                aria-label={t('common.menu', 'Menu')}
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-              </button>
+              <MobileMenuButton onClick={() => setNavOpen(true)} label={t('common.menu', 'Menu')} className="mr-auto -ml-1" />
             )}
             <div className="inline-flex rounded-lg border border-gray-200 p-1 gap-1">
               <button
@@ -816,13 +731,7 @@ export default function App() {
         <div className="flex-1 flex flex-col min-w-0">
         {isMobile && (
           <div className="px-3 py-2 bg-white border-b border-gray-200 flex items-center">
-            <button
-              onClick={() => setNavOpen(true)}
-              className="w-9 h-9 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100"
-              aria-label={t('common.menu', 'Menu')}
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-            </button>
+            <MobileMenuButton onClick={() => setNavOpen(true)} label={t('common.menu', 'Menu')} className="-ml-1" />
             <span className="ml-1 font-semibold text-gray-800">{t('settings.title')}</span>
           </div>
         )}

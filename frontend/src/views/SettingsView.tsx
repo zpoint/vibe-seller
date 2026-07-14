@@ -95,7 +95,7 @@ export function SettingsView({
   return (
     <div className="flex-1 flex flex-col bg-gray-50 p-4 sm:p-6 overflow-y-auto">
       <h2 className="text-lg font-bold mb-4">{t('settings.title')}</h2>
-      <div className="flex gap-2 mb-4 border-b border-gray-200 overflow-x-auto">
+      <div className="flex flex-wrap gap-x-2 gap-y-1 mb-4 border-b border-gray-200">
         {tabs.map(tab => (
           <button
             key={tab}

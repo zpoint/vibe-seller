@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { LanguageSwitcher, WsFileItem } from './ui'
+import { SkillItem } from './SkillItem'
 import { StoreFilesSection } from './WorkspaceStoreSections'
 import { api } from '../api'
 import { sendEvent } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
-import type { Store, AuthUser, AppView, ServerPlatform, WsStructured, WsSkill, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import type { Store, AuthUser, AppView, ServerPlatform, WsStructured, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 interface SidebarProps {
   // Mobile drawer control (desktop leaves these at defaults)
@@ -257,10 +258,10 @@ export function Sidebar(props: SidebarProps) {
           syncBuiltinSkills={syncBuiltinSkills} wsSkillsSyncing={wsSkillsSyncing}
         />
       ) : (
-        <div className="flex-1 overflow-y-auto p-4">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{t('settings.title')}</p>
-          <button onClick={() => setAppView('settings')} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded">{t('settings.userManagement')}</button>
-        </div>
+        // Settings navigates via the top tabs in the main panel; the
+        // sidebar body stays empty here (the old lone "user management"
+        // link was a vestige of the pre-tab layout).
+        <div className="flex-1 overflow-y-auto" />
       )}
     </div>
   )
@@ -532,57 +533,6 @@ function ZiniaoSection(props: {
 }
 
 // ─── Reusable skill item renderer ─────────────────────
-function SkillItem(props: {
-  skill: WsSkill
-  badge: React.ReactNode
-  expanded: boolean
-  toggleExpanded: () => void
-  wsSelectedFile: string | null
-  openWsFile: (path: string) => void
-  deleteWsFile: (path: string) => void
-  onDelete?: (slug: string) => void
-}) {
-  const { t } = useTranslation()
-  const { skill, badge, expanded, toggleExpanded, wsSelectedFile, openWsFile, deleteWsFile, onDelete } = props
-  return (
-    <div className="border-b border-gray-50">
-      <div className="flex items-center px-3">
-        <button
-          onClick={toggleExpanded}
-          className="flex-1 text-left py-1.5 flex items-center gap-2 hover:bg-gray-50 text-sm"
-        >
-          <span className={`text-[10px] text-gray-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9654;</span>
-          <span className="font-medium text-gray-700 text-xs">{skill.slug}</span>
-          {badge}
-          <span className="text-[10px] text-gray-400 ml-auto">{skill.file_count}</span>
-        </button>
-        {onDelete && (
-          <button
-            type="button"
-            onClick={() => onDelete(skill.slug)}
-            className="text-gray-300 hover:text-red-500 cursor-pointer ml-1 text-xs"
-            title={t('workspace.uninstallSkill')}
-            aria-label={t('workspace.uninstallSkill')}
-          >&times;</button>
-        )}
-      </div>
-      {skill.description && !expanded && (
-        <p className="px-3 pb-1 ml-5 text-[10px] text-gray-400 leading-tight truncate">{skill.description}</p>
-      )}
-      {expanded && (
-        <div className="ml-3">
-          {skill.files.map(f => (
-            <WsFileItem key={f.path} file={f} selected={wsSelectedFile === f.path} onSelect={openWsFile} onDelete={deleteWsFile} />
-          ))}
-          {skill.files.length === 0 && (
-            <div className="px-4 py-1 text-[10px] text-gray-400 italic">{t('common.noData')}</div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Workspace sidebar tree ──────────────────────────
 function WorkspaceSidebar(props: {
   wsStructured: WsStructured | null; wsSelectedFile: string | null

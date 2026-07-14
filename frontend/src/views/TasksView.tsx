@@ -10,6 +10,8 @@ import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
 import { ExternalConfigOverrideErrorCard } from '../components/ExternalConfigOverrideErrorCard'
+import { SubtaskList } from '../components/SubtaskList'
+import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem } from '../types'
 
@@ -81,54 +83,6 @@ interface TasksViewProps {
   onScheduleUpdated: (schedule: Schedule) => void
   selectedStore: Store | null
   stores: Store[]
-}
-
-function SubtaskList({ parentTaskId, onSelect, stores }: {
-  parentTaskId: string
-  onSelect: (t: Task) => void
-  stores: Store[]
-}) {
-  const { t } = useTranslation()
-  const [children, setChildren] = useState<Task[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    const fetchChildren = () => {
-      api.get(`/api/tasks?parent_task_id=${encodeURIComponent(parentTaskId)}`).then((data: Task[]) => {
-        if (!cancelled) setChildren(data)
-      }).catch(() => {})
-    }
-    fetchChildren()
-    // Poll every 10s for status updates instead of opening a second SSE
-    const interval = setInterval(fetchChildren, 10000)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [parentTaskId])
-
-  if (children.length === 0) return null
-
-  const storeName = (sid: string | null) => {
-    if (!sid) return ''
-    return stores.find(s => s.id === sid)?.name || sid.slice(0, 8)
-  }
-
-  return (
-    <div className="mt-2">
-      <div className="text-xs font-medium text-gray-500 mb-1">{t('tasks.subtasks', 'Subtasks')} ({children.length})</div>
-      <div className="space-y-1">
-        {children.map(child => (
-          <button
-            key={child.id}
-            onClick={() => onSelect(child)}
-            className="w-full text-left px-2 py-1.5 text-xs rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2"
-          >
-            <StatusBadge status={child.status} />
-            <span className="truncate flex-1">{child.title}</span>
-            {child.store_id && <span className="text-gray-400 text-[10px]">{storeName(child.store_id)}</span>}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 export function TasksView({
@@ -273,13 +227,7 @@ export function TasksView({
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2 min-w-0">
                   {isMobile && (
-                    <button
-                      onClick={onOpenNav}
-                      className="w-9 h-9 -ml-1.5 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 flex-shrink-0"
-                      aria-label={t('common.menu', 'Menu')}
-                    >
-                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-                    </button>
+                    <MobileMenuButton onClick={onOpenNav} label={t('common.menu', 'Menu')} className="-ml-1.5" />
                   )}
                   <h2 className="font-semibold truncate">{taskPanelTitle}</h2>
                 </div>
