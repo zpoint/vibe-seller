@@ -321,9 +321,7 @@ class TestEmailInfoSurface:
     tier, no LLM — a revert of the guidance fails here, not in e2e.
     """
 
-    async def test_info_steers_to_received_epoch(
-        self, admin_client, email_env
-    ):
+    async def test_info_steers_to_received_epoch(self, admin_client, email_env):
         r = await admin_client.get(
             f'/api/email-accounts/info-by-store/{email_env["store_id"]}'
         )
