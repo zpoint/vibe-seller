@@ -101,6 +101,29 @@ read it in-page before filling; do not assume.
   with its own distinct `seller_sku` and a `size_variation`/`size_map`,
   e.g. `One Size`). The **child** is what carries the offer — follow-up
   Pricing/Stock imports key on the **child** `seller_sku`.
+- **Multiple sizes = one parent row + one child row PER SIZE** (all
+  sharing the parent's `parent_group_key`). Verified live: a parent +
+  three children (`size_variation`/`size_map` = `S`, `M`, `L`, distinct
+  `seller_sku`s) created one parent noon-SKU with children `-1/-2/-3`,
+  one per size — the same shape a real sized product uses (e.g. an
+  S/M/L/XL/XXL family is a parent + five child rows). `size_map` is the
+  **noon** size and may differ from your label (e.g. `XXL` → noon `2XL`);
+  check the template's `valid values` / the live **Sizes tab** for the
+  noon size names. This is noon's **new** variation style — always use it
+  for new listings.
+  ⚠️ **NIS has no Arabic-size column — only `size_variation` (Seller Size
+  EN) and `size_map` (noon Size).** So after a NIS create the sized
+  product's **Seller Size (AR)** — a `*`-mandatory field on the Sizes tab
+  — shows `--` (empty), and the family is bound but not content-complete.
+  Fill the Arabic seller size per row on the live **Sizes tab** (edit each
+  size) after import. Verified live: a parent + S/M/L children imported
+  correctly (one parent hash, children `-1/-2/-3`, all shown bound on the
+  Sizes tab) but with `Seller Size (AR) = --` until filled by hand.
+- **Upload flow (filled NIS sheet):** Imports → Add Import → Type=Content,
+  Subtype=NIS Create/Update → **Next** → drag/drop or pick the `.xlsx`
+  (the hidden `input[type=file]` accepts `.csv,.xlsx`) → **Submit**. The
+  import runs async (a `IMP…` code); it shows Completed even on row
+  failures, so verify the SKUs actually appear in My Catalog.
 - **Reading the error file is the debug loop.** An import that shows
   Completed but creates nothing failed row validation; open the import's
   Result/error CSV — its trailing `partner_error` / `content_error` /
@@ -371,8 +394,18 @@ The product detail/edit page has 5 primary tabs:
 |-----|----|----|
 | Offer | `rc-tabs-0-tab-offer` | Price, stock, barcode, warranty, offer note |
 | Content | `rc-tabs-0-tab-content` | Title, description, images, attributes |
-| Sizes | `rc-tabs-0-tab-sizes` | Size matrix |
+| Sizes | `rc-tabs-0-tab-sizes` | Size variants of one parent (new style) |
 | Groups | `rc-tabs-0-tab-groups` | Product groupings |
+
+> **Sizes tab = the click way to manage size variants** (the interactive
+> equivalent of NIS parent+child, §1.2). On the **parent** SKU's Sizes
+> tab: "Create size variants for this SKU" → **Add Size**, a row per size
+> with **Partner SKU / Seller Size (EN) / Seller Size (AR) / Display Size
+> / noon Size**. Each size becomes a child noon-SKU (`<parent>-1`,
+> `-2`, …) sharing the parent — this is noon's **new** variation style,
+> the only one to use for new listings. (Prefer the file-based NIS path
+> in §1.2 for creating many sizes at once; use this tab to add/adjust a
+> size on an existing parent.)
 | Product Insights | `rc-tabs-0-tab-product-insights` | Performance insights |
 
 And country/market sub-tabs: `rc-tabs-1-tab-noon`, `rc-tabs-1-tab-supermall`, `rc-tabs-1-tab-global`.
