@@ -765,9 +765,18 @@ main() {
     # find tools installed by previous runs even in non-interactive shells
     # (e.g. SSH sessions, WSL launched from Windows, CI runners).
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-    local _npm_bin
-    _npm_bin="$(npm config get prefix 2>/dev/null)/bin"
-    if [[ -d "$_npm_bin" && ":$PATH:" != *":$_npm_bin:"* ]]; then
+    # npm may not exist yet on a fresh machine — the DEPS loop below is
+    # what installs node/npm. Only probe npm's prefix if npm is present:
+    # a command substitution of a missing command exits 127, which
+    # `2>/dev/null` silences but does NOT neutralize, so under `set -e`
+    # the bare assignment aborts the whole installer (observed as an
+    # instant exit 127 right after the platform check on a clean macOS).
+    # This block is best-effort PATH sugar; a missing npm must be a no-op.
+    local _npm_bin=""
+    if _check npm; then
+        _npm_bin="$(npm config get prefix 2>/dev/null || true)/bin"
+    fi
+    if [[ -n "$_npm_bin" && -d "$_npm_bin" && ":$PATH:" != *":$_npm_bin:"* ]]; then
         export PATH="$_npm_bin:$PATH"
     fi
     # In GitHub Actions, PATH exports inside a script don't persist to
