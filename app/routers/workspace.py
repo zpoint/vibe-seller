@@ -9,6 +9,7 @@ from app.schemas.workspace import (
     FileResetRequest,
     FileWriteRequest,
     SkillCreateRequest,
+    SkillSaveRequest,
     StoreProfileCreateRequest,
 )
 from app.workspace.catalog_validation import reject_wrong_stubs
@@ -109,6 +110,35 @@ async def delete_file(
         return {'path': path, 'status': 'deleted'}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f'Not found: {path}')
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get('/skills')
+async def list_skills(_user: User = Depends(get_current_user)):
+    """List skills as {slug, name, description, source, updatable}.
+
+    Used by the save-skill flow to decide whether to extend an
+    existing user-space skill or create a new one.
+    """
+    await workspace_manager.ensure_init()
+    return await workspace_manager.list_skills()
+
+
+@router.put('/skills/{slug}')
+async def save_skill(
+    slug: str,
+    body: SkillSaveRequest,
+    _user: User = Depends(get_current_user),
+):
+    """Create or extend a user-space skill (upsert).
+
+    Built-in slugs are rejected by the manager (they are read-only).
+    """
+    try:
+        return await workspace_manager.save_skill(
+            slug, body.skill_md, body.files or None
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

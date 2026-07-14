@@ -6,14 +6,10 @@ Git-managed, contains ``.claude/skills/`` (auto-discovered via
 """
 
 import asyncio
-from datetime import UTC, datetime
-import json
 import logging
 import os
 from pathlib import Path
-import re
 import shutil
-import tempfile
 import time
 
 import git as gitlib
@@ -21,6 +17,7 @@ import git as gitlib
 from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
 from app.workspace import task_links, venv_bootstrap
+from app.workspace.skills_manager import SkillsMixin
 from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_seed import write_catalog_stub
 from app.workspace.structured_stores import collect_store_entries
@@ -29,7 +26,7 @@ from app.workspace.templates import WORKSPACE_CLAUDE_MD
 logger = logging.getLogger(__name__)
 
 
-class WorkspaceManager:
+class WorkspaceManager(SkillsMixin):
     """File operations + git auto-commit for ~/.vibe-seller/."""
 
     def __init__(self, root: Path | None = None):
@@ -272,58 +269,6 @@ class WorkspaceManager:
                 result[key.strip()] = value.strip()
         return result
 
-    @property
-    def _lockfile_path(self):
-        return self.root / '.claude' / 'skills' / 'skills.lock.json'
-
-    @staticmethod
-    def _read_synced_skills(skills_dir: Path) -> set[str]:
-        """Read the set of synced (builtin) skill names."""
-        meta_path = skills_dir / '.sync_meta.json'
-        if meta_path.exists():
-            try:
-                data = json.loads(meta_path.read_text(encoding='utf-8'))
-                return set(data.get('synced_skills', []))
-            except Exception:
-                pass
-        return set()
-
-    def _read_lockfile(self) -> dict:
-        """Read skills lockfile, return default if missing/corrupt."""
-        default = {'version': 1, 'skills': {}}
-        try:
-            if self._lockfile_path.exists():
-                data = json.loads(
-                    self._lockfile_path.read_text(encoding='utf-8')
-                )
-                if not isinstance(data, dict):
-                    return default
-                # Merge with defaults for missing keys
-                data.setdefault('version', 1)
-                data.setdefault('skills', {})
-                if not isinstance(data['skills'], dict):
-                    data['skills'] = {}
-                return data
-        except (json.JSONDecodeError, OSError):
-            logger.warning('Corrupt skills lockfile, using default')
-        return default
-
-    def _write_lockfile(self, data: dict) -> None:
-        """Write skills lockfile atomically via temp + rename."""
-        path = self._lockfile_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix='.tmp')
-        try:
-            with os.fdopen(fd, 'w') as f:
-                json.dump(data, f, indent=2)
-            os.replace(tmp, str(path))
-        except Exception:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
-
     async def get_structured(self) -> dict:
         """Return workspace organized by section for the UI."""
         await self.ensure_init()
@@ -438,71 +383,6 @@ class WorkspaceManager:
             'local_knowledge': local_knowledge,
             'root_files': root_files,
         }
-
-    async def create_skill(
-        self,
-        name: str,
-        description: str = '',
-        content: str | None = None,
-        origin_url: str = '',
-    ) -> str:
-        """Scaffold a new skill directory with SKILL.md.
-
-        If content is provided, it replaces the default SKILL.md
-        template.
-        """
-        if name.startswith('_'):
-            raise ValueError(
-                f'Skill names starting with _ are reserved: {name}'
-            )
-        slug = re.sub(r'[^a-z0-9-]', '-', name.lower()).strip('-')
-        skill_dir = self.root / '.claude' / 'skills' / slug
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_md = skill_dir / 'SKILL.md'
-        if content is not None:
-            skill_md.write_text(content, encoding='utf-8')
-        else:
-            default = f"""---
-name: {name}
-description: {description}
----
-
-# {name}
-
-{description}
-
-## Instructions
-
-<!-- Add skill instructions here -->
-"""
-            skill_md.write_text(default, encoding='utf-8')
-        lockfile = self._read_lockfile()
-        lockfile['skills'][slug] = {
-            'source': 'url' if origin_url else 'local',
-            'name': name,
-            'origin_url': origin_url,
-            'created_at': datetime.now(UTC).isoformat(),
-            'updated_at': datetime.now(UTC).isoformat(),
-        }
-        self._write_lockfile(lockfile)
-        await self._auto_commit(f'Create skill: {name}')
-        return str(skill_dir.relative_to(self.root))
-
-    async def delete_skill(self, slug: str) -> None:
-        """Delete a user skill directory and lockfile entry."""
-        # Validate slug: only lowercase alphanumeric and hyphens
-        if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug):
-            raise ValueError(f'Invalid skill slug: {slug}')
-        if slug.startswith('_'):
-            raise ValueError('Cannot delete built-in skills')
-        skill_dir = self.root / '.claude' / 'skills' / slug
-        if not skill_dir.is_dir():
-            raise FileNotFoundError(f'Skill not found: {slug}')
-        shutil.rmtree(skill_dir)
-        lockfile = self._read_lockfile()
-        lockfile['skills'].pop(slug, None)
-        self._write_lockfile(lockfile)
-        await self._auto_commit(f'Delete skill: {slug}')
 
     async def create_store_profile(
         self,
