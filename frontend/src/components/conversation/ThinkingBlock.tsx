@@ -16,7 +16,7 @@ export function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
     const preview = lines.slice(-3).join('\n')
     return (
       <div className="py-0.5">
-        <div className="flex items-center gap-1.5 text-[13px] text-purple-500">
+        <div className="flex items-center gap-1.5 text-[13px] text-indigo-500">
           <span className="animate-pulse">💭</span>
           <span>{t('tasks.thinking', 'Thinking...')}</span>
         </div>
@@ -33,7 +33,7 @@ export function ThinkingBlock({ content, isStreaming }: ThinkingBlockProps) {
   return (
     <div className="py-0.5">
       <button
-        className="flex items-center gap-1.5 text-[13px] text-gray-400 hover:text-purple-500"
+        className="flex items-center gap-1.5 text-[13px] text-gray-400 hover:text-indigo-500"
         onClick={() => setExpanded(e => !e)}
       >
         <span>💭</span>

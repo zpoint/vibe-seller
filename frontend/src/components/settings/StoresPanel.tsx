@@ -107,7 +107,7 @@ export function StoresPanel({ stores, loadStores, emailAccounts, loadEmailAccoun
 
         if (editingStore?.id === store.id) {
           return (
-            <div key={store.id} className="bg-white rounded-lg border border-blue-300 p-4">
+            <div key={store.id} className="bg-white rounded-lg border border-indigo-300 p-4">
               <h4 className="font-semibold mb-3">{t('settings.editStore')}</h4>
               <StoreForm
                 mode="edit"
@@ -127,8 +127,8 @@ export function StoresPanel({ stores, loadStores, emailAccounts, loadEmailAccoun
                   <h4 className="font-semibold text-sm">{store.name}</h4>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
                     store.browser_backend === 'chrome'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-purple-100 text-purple-700'
+                      ? 'bg-indigo-100 text-indigo-700'
+                      : 'bg-indigo-100 text-indigo-700'
                   }`}>
                     {store.browser_backend === 'chrome' ? 'Chrome' : t('tasks.ziniao')}
                   </span>
@@ -171,11 +171,11 @@ export function StoresPanel({ stores, loadStores, emailAccounts, loadEmailAccoun
               {links.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mb-2">
                   {links.map(link => (
-                    <span key={link.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
+                    <span key={link.id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full text-xs">
                       {link.email}
                       <button
                         onClick={() => unlinkEmail(store.id, link.id)}
-                        className="text-blue-400 hover:text-red-500 ml-0.5"
+                        className="text-indigo-400 hover:text-red-500 ml-0.5"
                         title={t('email.disconnect')}
                       >
                         &times;
@@ -199,7 +199,7 @@ export function StoresPanel({ stores, loadStores, emailAccounts, loadEmailAccoun
                   <button
                     onClick={() => linkEmail(store.id, linkingEmail[store.id] || '')}
                     disabled={!linkingEmail[store.id]}
-                    className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                    className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
                   >
                     {t('stores.linkEmail')}
                   </button>

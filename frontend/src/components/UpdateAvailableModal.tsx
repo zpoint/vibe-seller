@@ -67,7 +67,7 @@ export function UpdateAvailableModal({ result, onClose }: Props) {
                 href={result.download_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-2 inline-block rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+                className="mt-2 inline-block rounded bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700"
               >
                 {t('updateCheck.downloadButton')}
               </a>

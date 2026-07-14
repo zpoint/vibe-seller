@@ -267,7 +267,7 @@ export function GeneralPanel({ currentUser, setCurrentUser }: GeneralPanelProps)
               checked={browserHeadless}
               onChange={e => saveBrowserHeadless(e.target.checked)}
             />
-            <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-blue-600">
+            <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-indigo-600">
               <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${browserHeadless ? 'translate-x-5' : ''}`}></span>
             </span>
           </label>
@@ -290,7 +290,7 @@ export function GeneralPanel({ currentUser, setCurrentUser }: GeneralPanelProps)
               onChange={e => saveSkillsAutoSync(e.target.checked)}
               aria-label={t('settings.skillsAutoSyncTitle')}
             />
-            <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-blue-600">
+            <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-indigo-600">
               <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${skillsAutoSync ? 'translate-x-5' : ''}`}></span>
             </span>
           </label>
@@ -312,7 +312,7 @@ export function GeneralPanel({ currentUser, setCurrentUser }: GeneralPanelProps)
               checked={telemetryEnabled}
               onChange={e => saveTelemetry(e.target.checked)}
             />
-            <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-blue-600">
+            <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-indigo-600">
               <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${telemetryEnabled ? 'translate-x-5' : ''}`}></span>
             </span>
           </label>

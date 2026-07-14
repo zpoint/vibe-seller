@@ -87,11 +87,11 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
       onClick={(e) => { if (e.target === e.currentTarget) handleClose() }}
       onPaste={handlePaste}
     >
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold">
             {showAllTasks ? t('tasks.newTask') : t('tasks.newTaskFor', { storeName })}
@@ -110,7 +110,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
               onChange={e => setModalTitle(e.target.value)}
               onKeyDown={e => { if (e.key === 'Escape') handleClose() }}
               placeholder={showAllTasks ? 'e.g. Process billing files' : 'e.g. Navigate to google.com'}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               autoFocus
             />
           </div>
@@ -123,7 +123,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
               onKeyDown={e => { if (e.key === 'Escape') handleClose() }}
               placeholder={t('tasks.descriptionPlaceholder')}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
             />
           </div>
           {selectedStore && selectedStore.platform_countries && Object.keys(selectedStore.platform_countries).length > 0 && (
@@ -166,7 +166,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
               className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${
-                dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'
+                dragOver ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-gray-400'
               }`}
             >
               <p className="text-sm text-gray-500">Drop images here, paste, or click to browse</p>
@@ -214,7 +214,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
           <button
             onClick={handleSubmit}
             disabled={!modalTitle.trim() || modalCreating}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {modalCreating ? t('common.loading') : showAllTasks ? t('common.create') : 'Create & Run'}
           </button>

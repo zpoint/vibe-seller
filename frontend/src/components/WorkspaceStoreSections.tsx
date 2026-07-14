@@ -91,7 +91,7 @@ export function StoreFilesSection(p: StoreSectionsProps) {
           >
             <span className={`text-[10px] text-gray-400 transition-transform ${p.wsExpandedStores.has(store.slug) ? 'rotate-90' : ''}`}>&#9654;</span>
             <span className="font-medium text-gray-700 text-xs">{store.slug}</span>
-            {store.has_content && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 flex-shrink-0" title={t('workspace.hasContent')} />}
+            {store.has_content && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 flex-shrink-0" title={t('workspace.hasContent')} />}
             <span className="text-[10px] text-gray-400 ml-auto">{store.file_count + store.data_file_count}</span>
           </button>
           {p.wsExpandedStores.has(store.slug) && (
@@ -99,7 +99,7 @@ export function StoreFilesSection(p: StoreSectionsProps) {
               <div className="flex items-center px-3 py-0.5">
                 <button
                   onClick={() => p.setWsNewFileSection(p.wsNewFileSection === store.path ? null : store.path)}
-                  className="text-[10px] text-gray-400 hover:text-blue-600"
+                  className="text-[10px] text-gray-400 hover:text-indigo-600"
                 >+ {t('workspace.newFile')}</button>
               </div>
               {p.wsNewFileSection === store.path && (

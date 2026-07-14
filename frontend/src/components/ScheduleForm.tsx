@@ -69,7 +69,7 @@ export function ScheduleForm({
             value={value.title}
             onChange={e => set('title', e.target.value)}
             placeholder={t('tasks.titlePlaceholder')}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
             autoFocus
           />
         </div>
@@ -86,7 +86,7 @@ export function ScheduleForm({
           onChange={e => set('description', e.target.value)}
           rows={2}
           placeholder={t('tasks.descriptionPlaceholder')}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
         />
       </div>
 

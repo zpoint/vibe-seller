@@ -116,7 +116,7 @@ export function WorkspaceView({
               <button
                 onClick={saveWsFile}
                 disabled={!wsEditorDirty || wsSaving}
-                className="px-4 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                className="px-4 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-indigo-700 transition-colors"
               >
                 {wsSaving ? t('common.loading') : t('common.save')}
               </button>
@@ -125,12 +125,12 @@ export function WorkspaceView({
         </div>
       </div>
       {isBuiltinSkill && (
-        <div className="px-4 py-2 bg-blue-50 border-b border-blue-200">
-          <p className="text-xs text-blue-700">{t('workspace.builtinSkillHint')}</p>
+        <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200">
+          <p className="text-xs text-indigo-700">{t('workspace.builtinSkillHint')}</p>
         </div>
       )}
       {isImportedSkill && (
-        <div className="px-4 py-2 bg-purple-50 border-b border-purple-200 text-xs text-purple-700">
+        <div className="px-4 py-2 bg-indigo-50 border-b border-indigo-200 text-xs text-indigo-700">
           {t('workspace.importedSkillHint')}
         </div>
       )}
@@ -154,11 +154,11 @@ export function WorkspaceView({
               wsFileHistory.map((c, i) => (
                 <div
                   key={c.sha}
-                  className={`px-3 py-2 border-b border-gray-100 cursor-pointer hover:bg-blue-50 transition-colors ${wsPreviewCommit === c.sha ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''}`}
+                  className={`px-3 py-2 border-b border-gray-100 cursor-pointer hover:bg-indigo-50 transition-colors ${wsPreviewCommit === c.sha ? 'bg-indigo-50 border-l-2 border-l-indigo-500' : ''}`}
                   onClick={() => previewVersion(wsSelectedFile!, c.sha)}
                 >
                   <div className="flex items-center justify-between">
-                    <code className="text-[10px] text-blue-600 font-mono">{c.sha}</code>
+                    <code className="text-[10px] text-indigo-600 font-mono">{c.sha}</code>
                     {i === 0 && <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">{t('workspace.current')}</span>}
                   </div>
                   <p className="text-xs text-gray-700 mt-0.5 line-clamp-2">{c.message}</p>
@@ -172,7 +172,7 @@ export function WorkspaceView({
             {wsPreviewCommit ? (
               <>
                 <div className="px-4 py-2 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
-                  <span className="text-xs text-gray-500">{t('workspace.preview')}: <code className="font-mono text-blue-600">{wsPreviewCommit}</code></span>
+                  <span className="text-xs text-gray-500">{t('workspace.preview')}: <code className="font-mono text-indigo-600">{wsPreviewCommit}</code></span>
                   {wsFileHistory[0]?.sha !== wsPreviewCommit && (
                     <button
                       onClick={() => resetFileToVersion(wsSelectedFile!, wsPreviewCommit!)}

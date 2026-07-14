@@ -73,7 +73,7 @@ export function WorkspaceAssistantView({
             className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-white/80 backdrop-blur border border-gray-200 shadow-sm hover:bg-gray-50 transition-colors"
           >
             <span className="text-[11px] text-gray-400">{t('tasks.debugMode')}</span>
-            <div className={`relative w-7 h-3.5 rounded-full transition-colors ${debugMode ? 'bg-blue-500' : 'bg-gray-300'}`}>
+            <div className={`relative w-7 h-3.5 rounded-full transition-colors ${debugMode ? 'bg-indigo-500' : 'bg-gray-300'}`}>
               <div className={`absolute top-0.5 left-0.5 w-2.5 h-2.5 bg-white rounded-full transition-transform pointer-events-none ${debugMode ? 'translate-x-3.5' : ''}`} />
             </div>
           </button>
@@ -93,7 +93,7 @@ export function WorkspaceAssistantView({
                 <button
                   key={i}
                   onClick={() => { if (inputRef.current) { inputRef.current.value = ex; inputRef.current.focus() } }}
-                  className="text-left px-4 py-3 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                  className="text-left px-4 py-3 bg-white border border-gray-200 rounded-lg text-sm text-gray-700 hover:bg-indigo-50 hover:border-indigo-300 transition-colors"
                 >
                   {ex}
                 </button>
@@ -106,8 +106,8 @@ export function WorkspaceAssistantView({
               <div key={i} className="text-xs font-mono min-w-0">
                 <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold mr-1.5 ${
                   msg.role === 'assistant' || msg.role === 'result' ? 'bg-green-900 text-green-300' :
-                  msg.role === 'user' ? 'bg-blue-900 text-blue-300' :
-                  msg.role === 'tool_use' ? 'bg-purple-900 text-purple-300' :
+                  msg.role === 'user' ? 'bg-indigo-900 text-indigo-300' :
+                  msg.role === 'tool_use' ? 'bg-indigo-900 text-indigo-300' :
                   msg.role === 'system' ? 'bg-red-900 text-red-300' :
                   msg.role === 'agent_event' ? 'bg-yellow-900 text-yellow-300' :
                   'bg-gray-700 text-gray-400'
@@ -123,7 +123,7 @@ export function WorkspaceAssistantView({
               if (msg.role === 'user') {
                 return (
                   <div key={i} className="flex justify-end">
-                    <div className="bg-blue-500 text-white px-4 py-2 rounded-2xl rounded-br-md max-w-[80%] text-sm whitespace-pre-wrap">
+                    <div className="bg-indigo-500 text-white px-4 py-2 rounded-2xl rounded-br-md max-w-[80%] text-sm whitespace-pre-wrap">
                       {msg.content}
                     </div>
                   </div>
@@ -136,7 +136,7 @@ export function WorkspaceAssistantView({
                     {msg.role === '_streaming' ? (
                       <div className="prose prose-sm max-w-none">
                         <ReactMarkdown>{msg.content}</ReactMarkdown>
-                        <span className="inline-block w-1.5 h-4 bg-blue-400 animate-pulse ml-0.5 align-text-bottom" />
+                        <span className="inline-block w-1.5 h-4 bg-indigo-400 animate-pulse ml-0.5 align-text-bottom" />
                       </div>
                     ) : (
                       <div className="prose prose-sm max-w-none">
@@ -151,9 +151,9 @@ export function WorkspaceAssistantView({
               <div className="flex justify-start">
                 <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-white border border-gray-200 text-sm text-gray-400 flex items-center gap-2">
                   <span className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                   </span>
                   {t('workspace.assistantThinking')}
                 </div>
@@ -171,7 +171,7 @@ export function WorkspaceAssistantView({
             ref={inputRef}
             onKeyDown={handleKeyDown}
             placeholder={t('workspace.assistantPlaceholder')}
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent"
             rows={1}
             disabled={false}
           />
@@ -185,7 +185,7 @@ export function WorkspaceAssistantView({
           ) : (
             <button
               onClick={handleSubmit}
-              className="px-4 py-2 bg-blue-500 text-white rounded-xl text-sm font-medium hover:bg-blue-600 transition-colors flex-shrink-0"
+              className="px-4 py-2 bg-indigo-500 text-white rounded-xl text-sm font-medium hover:bg-indigo-600 transition-colors flex-shrink-0"
             >
               {t('tasks.send')}
             </button>

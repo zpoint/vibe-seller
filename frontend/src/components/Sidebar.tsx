@@ -8,6 +8,10 @@ import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Store, AuthUser, AppView, ServerPlatform, WsStructured, WsSkill, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 
 interface SidebarProps {
+  // Mobile drawer control (desktop leaves these at defaults)
+  isMobile: boolean
+  navOpen: boolean
+  closeNav: () => void
   currentUser: AuthUser
   appView: AppView
   setAppView: (v: AppView) => void
@@ -83,6 +87,7 @@ interface SidebarProps {
 export function Sidebar(props: SidebarProps) {
   const { t } = useTranslation()
   const {
+    isMobile, navOpen, closeNav,
     currentUser, appView, setAppView, handleLogout, authRequired,
     stores, selectedStore, showAllTasks, selectStore, selectAllTasks,
     showCreateStore, setShowCreateStore, createStore,
@@ -127,13 +132,29 @@ export function Sidebar(props: SidebarProps) {
     window.addEventListener('mouseup', onUp)
   }
 
+  // Mobile: fixed slide-in drawer (off-canvas when closed). Desktop:
+  // resident, resizable column. Width/resize-handle apply to desktop only.
+  const rootClass = isMobile
+    ? `fixed inset-y-0 left-0 z-50 w-[86%] max-w-xs bg-white border-r border-gray-200 flex flex-col transform transition-transform duration-200 ${navOpen ? 'translate-x-0' : '-translate-x-full'}`
+    : 'relative bg-white border-r border-gray-200 flex flex-col flex-shrink-0'
   return (
-    <div className="relative bg-white border-r border-gray-200 flex flex-col flex-shrink-0" style={{ width: sidebarWidth }}>
-      <div
-        onMouseDown={startSidebarResize}
-        className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-10 hover:bg-blue-200/60 active:bg-blue-300/60"
-        title="drag to resize"
-      />
+    <div className={rootClass} style={isMobile ? undefined : { width: sidebarWidth }}>
+      {!isMobile && (
+        <div
+          onMouseDown={startSidebarResize}
+          className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-10 hover:bg-indigo-200/60 active:bg-indigo-300/60"
+          title="drag to resize"
+        />
+      )}
+      {isMobile && (
+        <button
+          onClick={closeNav}
+          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100"
+          aria-label={t('common.close', 'Close')}
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      )}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-baseline gap-1"><h1 className="text-lg font-bold leading-tight">Vibe Seller</h1>{serverVersion && <span className="text-[10px] text-gray-400" title={`Server: ${serverVersion}`}>v{serverVersion.slice(0, 14)}</span>}</div>
@@ -156,7 +177,7 @@ export function Sidebar(props: SidebarProps) {
           {(['tasks', 'workspace'] as const).map(v => (
             <button
               key={v}
-              onClick={() => { sendEvent(FrontendEvent.VIEW_CHANGED, { view: v }); setAppView(v) }}
+              onClick={() => { sendEvent(FrontendEvent.VIEW_CHANGED, { view: v }); setAppView(v); closeNav() }}
               className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-colors ${appView === v ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
             >
               {t(`navigation.${v}`)}
@@ -170,7 +191,7 @@ export function Sidebar(props: SidebarProps) {
           <div className="p-3">
             <button
               onClick={() => setShowCreateStore(true)}
-              className="w-full px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+              className="w-full px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
             >
               + {t('settings.newStore')}
             </button>
@@ -204,7 +225,7 @@ export function Sidebar(props: SidebarProps) {
               <button
                 key={store.id}
                 onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: false, backend: store.browser_backend }); selectStore(store) }}
-                className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedStore?.id === store.id && !showAllTasks ? 'bg-blue-50 border-l-4 border-l-blue-600' : ''}`}
+                className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedStore?.id === store.id && !showAllTasks ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}`}
               >
                 <div className="font-medium text-sm">{store.name}</div>
                 <div className="text-xs text-gray-500">{store.browser_backend}</div>
@@ -215,7 +236,7 @@ export function Sidebar(props: SidebarProps) {
             )}
             <button
               onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: true }); selectAllTasks() }}
-              className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${showAllTasks ? 'bg-purple-50 border-l-4 border-l-purple-600' : ''}`}
+              className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${showAllTasks ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}`}
             >
               <div className="font-medium text-sm">{t('tasks.allStores')}</div>
               <div className="text-xs text-gray-500">{t('tasks.noStore')}</div>
@@ -387,7 +408,7 @@ function ZiniaoSection(props: {
             <button onClick={() => { if (confirm(t('settings.deleteAccountConfirm'))) p.deleteZiniaoAccount(p.selectedZiniaoAccountId) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-red-500 hover:bg-red-50 rounded border border-gray-300" title={t('common.delete')}>&times;</button>
           </>
         )}
-        <button onClick={() => { p.setEditingAccountId(''); p.setNewAccount({ name: '', company: '', username: '', password: '' }); p.setShowAddAccount(!p.showAddAccount) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-blue-600 hover:bg-blue-50 rounded border border-gray-300" title="Add account">+</button>
+        <button onClick={() => { p.setEditingAccountId(''); p.setNewAccount({ name: '', company: '', username: '', password: '' }); p.setShowAddAccount(!p.showAddAccount) }} className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-sm text-indigo-600 hover:bg-indigo-50 rounded border border-gray-300" title="Add account">+</button>
       </div>
       {p.showAddAccount && (
         <div className="space-y-1 p-2 bg-gray-50 rounded border border-gray-200">
@@ -401,7 +422,7 @@ function ZiniaoSection(props: {
             </button>
           </div>
           <div className="flex gap-1">
-            <button onClick={p.editingAccountId ? p.updateZiniaoAccount : p.createZiniaoAccount} className="px-2 py-1 bg-blue-600 text-white rounded text-xs">{t('common.save')}</button>
+            <button onClick={p.editingAccountId ? p.updateZiniaoAccount : p.createZiniaoAccount} className="px-2 py-1 bg-indigo-600 text-white rounded text-xs">{t('common.save')}</button>
             <button onClick={() => { p.setShowAddAccount(false); p.setEditingAccountId(''); p.setShowAccountPassword(false) }} className="px-2 py-1 bg-gray-200 rounded text-xs">{t('common.cancel')}</button>
           </div>
           <p className="text-[10px] text-gray-400">Credentials stored in local SQLite, not in the cloud.</p>
@@ -420,9 +441,9 @@ function ZiniaoSection(props: {
         const editSelected = () => { const a = p.ziniaoAccounts.find(x => x.id === p.selectedZiniaoAccountId); if (a) { p.setNewAccount({ name: a.name, company: a.company, username: a.username, password: '' }); p.setEditingAccountId(a.id); p.setShowAddAccount(true) } }
 
         return p.fetchingBrowsers ? (
-          <div className="flex flex-col items-center justify-center py-6 px-4 bg-blue-50 rounded-lg border border-blue-200">
-            <div className="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-            <p className="text-sm font-medium text-blue-700">{t('settings.ziniaoLoading')}</p>
+          <div className="flex flex-col items-center justify-center py-6 px-4 bg-indigo-50 rounded-lg border border-indigo-200">
+            <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+            <p className="text-sm font-medium text-indigo-700">{t('settings.ziniaoLoading')}</p>
           </div>
         ) : zs?.status === 'running_normal' && (isMac || isWsl || isWindows) ? (
           // Mac/Windows/WSL: Ziniao running in normal mode
@@ -439,7 +460,7 @@ function ZiniaoSection(props: {
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             {zs.message ? <p className="text-sm font-medium text-red-700 mb-3 break-all">{zs.message}</p> : <><p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNoPermission')}</p><p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNoPermissionHint')}</p></>}
             <div className="flex gap-2">
-              {!zs.message && <a href="https://open.ziniao.com/docSupport?docId=99" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoEnableWebDriver')}</a>}
+              {!zs.message && <a href="https://open.ziniao.com/docSupport?docId=99" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoEnableWebDriver')}</a>}
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>
@@ -448,7 +469,7 @@ function ZiniaoSection(props: {
           <div className="flex flex-col items-center justify-center py-6 px-4 bg-red-50 rounded-lg border border-red-200">
             <p className="text-sm font-medium text-red-700 mb-3 break-all">{t('settings.ziniaoCredentialsError')}</p>
             <div className="flex gap-2">
-              <button onClick={editSelected} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.editZiniaoAccount')}</button>
+              <button onClick={editSelected} className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.editZiniaoAccount')}</button>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>
@@ -458,7 +479,7 @@ function ZiniaoSection(props: {
             <p className="text-sm font-medium text-red-700 mb-2">{t('settings.ziniaoNotInstalled')}</p>
             <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoNotInstalledHint')}</p>
             <div className="flex gap-2">
-              <a href="https://www.ziniao.com/download" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadZiniao')}</a>
+              <a href="https://www.ziniao.com/download" target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadZiniao')}</a>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>
@@ -474,8 +495,8 @@ function ZiniaoSection(props: {
             <p className="text-sm font-medium text-red-700 mb-2">{isMac ? t('settings.ziniaoConnectErrorMac') : t('settings.ziniaoConnectError')}</p>
             {isWsl && <p className="text-xs text-red-600 mb-3">{t('settings.ziniaoLaunchHint')}</p>}
             <div className="flex gap-2">
-              {isWsl && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadLauncher')}</a>}
-              <button onClick={editSelected} className="px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.editZiniaoAccount')}</button>
+              {isWsl && <a href="/api/ziniao/launcher" download className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadLauncher')}</a>}
+              <button onClick={editSelected} className="px-3 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.editZiniaoAccount')}</button>
               <button onClick={() => p.fetchBrowserProfiles(p.selectedZiniaoAccountId)} className="px-3 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700">{t('common.refresh')}</button>
             </div>
           </div>
@@ -603,11 +624,11 @@ function WorkspaceSidebar(props: {
           <div className="flex items-center gap-0">
             <button
               onClick={() => setSkillsTab('builtin')}
-              className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${skillsTab === 'builtin' ? 'text-blue-600 border-blue-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
+              className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${skillsTab === 'builtin' ? 'text-indigo-600 border-indigo-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
             >{t('workspace.builtinTab')}</button>
             <button
               onClick={() => setSkillsTab('myskills')}
-              className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${skillsTab === 'myskills' ? 'text-blue-600 border-blue-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
+              className={`px-2 py-0.5 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors ${skillsTab === 'myskills' ? 'text-indigo-600 border-indigo-600' : 'text-gray-400 border-transparent hover:text-gray-600'}`}
             >{t('workspace.mySkillsTab')}</button>
           </div>
           <div className="flex items-center gap-1">
@@ -615,14 +636,14 @@ function WorkspaceSidebar(props: {
               <button
                 onClick={p.syncBuiltinSkills}
                 disabled={p.wsSkillsSyncing}
-                className={`text-gray-400 hover:text-blue-600 text-[10px] leading-none ${p.wsSkillsSyncing ? 'animate-spin' : ''}`}
+                className={`text-gray-400 hover:text-indigo-600 text-[10px] leading-none ${p.wsSkillsSyncing ? 'animate-spin' : ''}`}
                 title={t('workspace.syncSkills')}
               >&#8635;</button>
             )}
             {skillsTab === 'myskills' && (
               <button
                 onClick={() => p.setWsNewFileSection(p.wsNewFileSection === '_skill_create' ? null : '_skill_create')}
-                className="text-gray-400 hover:text-blue-600 text-sm leading-none"
+                className="text-gray-400 hover:text-indigo-600 text-sm leading-none"
                 title={t('workspace.createSkill')}
               >+</button>
             )}
@@ -637,7 +658,7 @@ function WorkspaceSidebar(props: {
               <SkillItem
                 key={skill.slug + skill.source}
                 skill={skill}
-                badge={<span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{t('workspace.builtinBadge')}</span>}
+                badge={<span className="text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{t('workspace.builtinBadge')}</span>}
                 expanded={p.wsExpandedSkills.has(skill.slug)}
                 toggleExpanded={() => p.toggleSkillExpanded(skill.slug)}
                 wsSelectedFile={p.wsSelectedFile}
@@ -700,7 +721,7 @@ function WorkspaceSidebar(props: {
               <SkillItem
                 key={skill.slug + skill.source}
                 skill={skill}
-                badge={<span className="text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{getOriginDomain(skill.origin_url)}</span>}
+                badge={<span className="text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full flex-shrink-0">{getOriginDomain(skill.origin_url)}</span>}
                 expanded={p.wsExpandedSkills.has(skill.slug)}
                 toggleExpanded={() => p.toggleSkillExpanded(skill.slug)}
                 wsSelectedFile={p.wsSelectedFile}
@@ -723,7 +744,7 @@ function WorkspaceSidebar(props: {
           <button
             onClick={p.syncProjectKnowledge}
             disabled={p.wsSyncing}
-            className={`text-gray-400 hover:text-blue-600 text-[10px] leading-none ${p.wsSyncing ? 'animate-spin' : ''}`}
+            className={`text-gray-400 hover:text-indigo-600 text-[10px] leading-none ${p.wsSyncing ? 'animate-spin' : ''}`}
             title={p.wsSyncing ? t('workspace.syncing') : t('workspace.syncKnowledge')}
           >&#8635;</button>
         </div>
@@ -754,7 +775,7 @@ function WorkspaceSidebar(props: {
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{t('workspace.localKnowledge')}</p>
           <button
             onClick={() => p.setWsNewFileSection(p.wsNewFileSection === 'knowledge' ? null : 'knowledge')}
-            className="text-gray-400 hover:text-blue-600 text-sm leading-none"
+            className="text-gray-400 hover:text-indigo-600 text-sm leading-none"
             title={t('workspace.addKnowledgeFile')}
           >+</button>
         </div>

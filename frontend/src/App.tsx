@@ -5,6 +5,7 @@ import { LoginPage } from './components/LoginPage'
 import { Sidebar } from './components/Sidebar'
 import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateCheck } from './hooks/useUpdateCheck'
+import { useIsMobile } from './hooks/useIsMobile'
 import { CreateTaskModal } from './components/CreateTaskModal'
 import { CreateScheduleModal } from './components/CreateScheduleModal'
 import { UpdateAvailableModal } from './components/UpdateAvailableModal'
@@ -42,6 +43,10 @@ export default function App() {
   const [loginError, setLoginError] = useState('')
 
   const [appView, setAppView] = useState<AppView>('tasks')
+  // Mobile: the sidebar collapses into a slide-in drawer toggled by a
+  // hamburger; desktop keeps it as a resident column.
+  const isMobile = useIsMobile()
+  const [navOpen, setNavOpen] = useState(false)
   const [stores, setStores] = useState<Store[]>([])
   const [selectedStore, setSelectedStore] = useState<Store | null>(null)
   const [showAllTasks, setShowAllTasks] = useState(true)
@@ -348,12 +353,14 @@ export default function App() {
   }
 
   const selectStore = async (store: Store) => {
+    setNavOpen(false)
     userActedRef.current = true; setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([])
     setTasks(await api.get(`/api/tasks?store_id=${store.id}`))
     loadSchedules()
   }
   const selectAllTasks = async () => {
+    setNavOpen(false)
     userActedRef.current = true; setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([])
     setTasks(await api.get('/api/tasks?store_id=__none__'))
@@ -650,7 +657,16 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-100 text-gray-900">
+      {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}
+      {isMobile && navOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40"
+          onClick={() => setNavOpen(false)}
+          aria-hidden
+        />
+      )}
       <Sidebar
+        isMobile={isMobile} navOpen={navOpen} closeNav={() => setNavOpen(false)}
         currentUser={currentUser} appView={appView} setAppView={setAppView} handleLogout={handleLogout} authRequired={authRequired}
         stores={stores} selectedStore={selectedStore} showAllTasks={showAllTasks}
         selectStore={selectStore} selectAllTasks={selectAllTasks}
@@ -684,6 +700,7 @@ export default function App() {
       {/* Main content area */}
       {appView === 'tasks' ? (
         <TasksView
+          isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
           tasks={tasks} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
@@ -711,9 +728,18 @@ export default function App() {
           stores={stores}
         />
       ) : appView === 'workspace' ? (
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Mode toggle header */}
-          <div className="px-4 py-2.5 bg-white border-b border-gray-100 flex justify-end">
+          <div className="px-4 py-2.5 bg-white border-b border-gray-100 flex items-center justify-end gap-2">
+            {isMobile && (
+              <button
+                onClick={() => setNavOpen(true)}
+                className="mr-auto w-9 h-9 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100"
+                aria-label={t('common.menu', 'Menu')}
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+              </button>
+            )}
             <div className="inline-flex rounded-lg border border-gray-200 p-1 gap-1">
               <button
                 onClick={() => setWsAssistantActive(false)}
@@ -724,7 +750,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setWsAssistantActive(true)}
-                className={`px-4 py-1.5 rounded-md transition-colors flex flex-col items-center ${wsAssistantActive ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
+                className={`px-4 py-1.5 rounded-md transition-colors flex flex-col items-center ${wsAssistantActive ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
               >
                 <span className="text-sm font-medium">{t('workspace.modeAI')}</span>
                 <span className="text-[10px] opacity-60">{t('workspace.modeAISub')}</span>
@@ -752,6 +778,19 @@ export default function App() {
           )}
         </div>
       ) : (
+        <div className="flex-1 flex flex-col min-w-0">
+        {isMobile && (
+          <div className="px-3 py-2 bg-white border-b border-gray-200 flex items-center">
+            <button
+              onClick={() => setNavOpen(true)}
+              className="w-9 h-9 -ml-1 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100"
+              aria-label={t('common.menu', 'Menu')}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+            </button>
+            <span className="ml-1 font-semibold text-gray-800">{t('settings.title')}</span>
+          </div>
+        )}
         <SettingsView
           currentUser={currentUser} settingsTab={settingsTab} setSettingsTab={setSettingsTab}
           allUsers={allUsers} showAddUser={showAddUser} setShowAddUser={setShowAddUser}
@@ -762,6 +801,7 @@ export default function App() {
           stores={stores} loadStores={loadStores}
           authRequired={authRequired} setAuthRequired={setAuthRequired} loadUsers={loadUsers}
         />
+        </div>
       )}
 
       {/* Modals */}

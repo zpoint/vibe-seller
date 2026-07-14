@@ -35,7 +35,7 @@ interface Props {
 
 const STATE_ACCENT: Record<SchedulePlanStatus, string> = {
   ready: 'border-l-green-500 bg-green-50/40',
-  planning: 'border-l-blue-500 bg-blue-50/40',
+  planning: 'border-l-indigo-500 bg-indigo-50/40',
   stale: 'border-l-orange-500 bg-orange-50/40',
   failed: 'border-l-red-500 bg-red-50/40',
   none: 'border-l-amber-500 bg-amber-50/40',
@@ -43,7 +43,7 @@ const STATE_ACCENT: Record<SchedulePlanStatus, string> = {
 
 const STATUS_PILL: Record<SchedulePlanStatus, string> = {
   ready: 'bg-green-100 text-green-800',
-  planning: 'bg-blue-100 text-blue-800',
+  planning: 'bg-indigo-100 text-indigo-800',
   stale: 'bg-orange-100 text-orange-800',
   failed: 'bg-red-100 text-red-800',
   none: 'bg-amber-100 text-amber-800',
@@ -302,7 +302,7 @@ function renderCta({
     return (
       <button
         onClick={() => onOpenTask(planningTaskId)}
-        className="px-3 py-1.5 text-xs rounded font-medium bg-blue-600 text-white hover:bg-blue-700"
+        className="px-3 py-1.5 text-xs rounded font-medium bg-indigo-600 text-white hover:bg-indigo-700"
         data-testid="plan-open-planning-task"
       >
         {t('schedules.plan.openPlanningTask')}

@@ -97,7 +97,7 @@ export function IntegrationsPanel() {
                 className={`px-3 py-1.5 text-sm rounded font-medium transition-colors ${
                   status.enabled
                     ? 'bg-gray-200 text-gray-800 hover:bg-gray-300'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
                 } disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 {busy
@@ -154,7 +154,7 @@ export function IntegrationsPanel() {
                   href="https://github.com/googleworkspace/cli/releases"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-blue-600 hover:underline"
+                  className="text-indigo-600 hover:underline"
                 >
                   github.com/googleworkspace/cli
                 </a>
@@ -166,7 +166,7 @@ export function IntegrationsPanel() {
               </p>
             )}
             {busy && !status.enabled && (
-              <p className="text-xs text-blue-600">
+              <p className="text-xs text-indigo-600">
                 {t('integrations.gws.installing')}
               </p>
             )}

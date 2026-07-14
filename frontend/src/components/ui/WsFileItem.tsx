@@ -18,7 +18,7 @@ export function WsFileItem({ file, selected, onSelect, onDelete, displayPrefix }
     : file.name
   return (
     <div
-      className={`group px-3 py-1.5 cursor-pointer text-xs ${selected ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+      className={`group px-3 py-1.5 cursor-pointer text-xs ${selected ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'}`}
       onClick={() => onSelect(file.path)}
     >
       <div className="flex items-center">
@@ -35,7 +35,7 @@ export function WsFileItem({ file, selected, onSelect, onDelete, displayPrefix }
           title={t('common.delete')}
         >&#10005;</button>
       </div>
-      {hintKey && <p className={`mt-0.5 text-[10px] leading-tight ml-5 ${selected ? 'text-blue-400' : 'text-gray-400'}`}>{t(hintKey)}</p>}
+      {hintKey && <p className={`mt-0.5 text-[10px] leading-tight ml-5 ${selected ? 'text-indigo-400' : 'text-gray-400'}`}>{t(hintKey)}</p>}
     </div>
   )
 }

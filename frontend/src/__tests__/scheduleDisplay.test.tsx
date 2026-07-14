@@ -84,7 +84,7 @@ describe('F10: showAllTasks=true → all schedule types visible', () => {
     const { container } = renderScheduleList({ schedules, showAllTasks: true })
 
     // Badge with purple bg
-    const badge = container.querySelector('.bg-purple-100')
+    const badge = container.querySelector('.bg-indigo-100')
     expect(badge).toBeInTheDocument()
     expect(badge?.textContent).toBe('All Stores')
   })

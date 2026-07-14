@@ -169,18 +169,18 @@ export function PlanCard({ plan, allVersions, todoItems, taskStatus, planMode, s
                 const isActive = ti.status === 'in_progress'
                 return (
                   <div key={idx} className={`flex gap-3 p-2 rounded-lg transition-all duration-300 ${
-                    isActive ? 'bg-blue-50 border border-blue-200 shadow-sm' :
+                    isActive ? 'bg-indigo-50 border border-indigo-200 shadow-sm' :
                     isDone ? 'bg-green-50/50 border border-green-100' :
                     'bg-gray-50 border border-transparent'
                   }`}>
                     <div className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                       isDone ? 'bg-green-500 text-white' :
-                      isActive ? 'bg-blue-500 text-white animate-pulse' :
+                      isActive ? 'bg-indigo-500 text-white animate-pulse' :
                       'bg-gray-200 text-gray-500'
                     }`}>
                       {isDone ? '\u2713' : idx + 1}
                     </div>
-                    <div className={`flex-1 text-sm ${isDone ? 'text-gray-400 line-through' : isActive ? 'text-blue-800 font-medium' : 'text-gray-700'}`}>
+                    <div className={`flex-1 text-sm ${isDone ? 'text-gray-400 line-through' : isActive ? 'text-indigo-800 font-medium' : 'text-gray-700'}`}>
                       {ti.content}
                     </div>
                   </div>

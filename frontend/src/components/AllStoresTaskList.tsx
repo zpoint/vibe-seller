@@ -76,7 +76,7 @@ export function AllStoresTaskList({
         return (
           <div key={storeKey}>
             {isStoreFocused && isCurrent ? (
-              <div className="px-2 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded">{storeName}</div>
+              <div className="px-2 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded">{storeName}</div>
             ) : (
               <button
                 type="button"

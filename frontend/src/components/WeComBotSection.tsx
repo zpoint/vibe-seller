@@ -125,7 +125,7 @@ export function WeComBotSection() {
           <button
             data-testid="wecom-bot-add"
             onClick={startCreate}
-            className="px-3 py-1.5 text-sm rounded font-medium bg-blue-600 text-white hover:bg-blue-700"
+            className="px-3 py-1.5 text-sm rounded font-medium bg-indigo-600 text-white hover:bg-indigo-700"
           >
             {t('integrations.wecom_bot.add')}
           </button>
@@ -164,7 +164,7 @@ export function WeComBotSection() {
               data-testid="wecom-bot-save"
               onClick={save}
               disabled={saving}
-              className="px-3 py-1.5 text-sm rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
+              className="px-3 py-1.5 text-sm rounded font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40"
             >
               {saving ? '…' : t('integrations.wecom_bot.save')}
             </button>
