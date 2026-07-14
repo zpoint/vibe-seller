@@ -153,7 +153,7 @@ export function StoreForm({ mode, initialValues, onSubmit, onCancel, ...ziniaoPr
         <button
           onClick={handleSubmit}
           disabled={nameEmpty}
-          className={`px-4 py-2 rounded-lg text-sm font-medium ${nameEmpty ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+          className={`px-4 py-2 rounded-lg text-sm font-medium ${nameEmpty ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
         >
           {mode === 'create' ? t('common.create') : t('common.save')}
         </button>

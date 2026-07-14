@@ -93,16 +93,16 @@ export function SettingsView({
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-gray-50 p-6 overflow-y-auto">
+    <div className="flex-1 flex flex-col bg-gray-50 p-4 sm:p-6 overflow-y-auto">
       <h2 className="text-lg font-bold mb-4">{t('settings.title')}</h2>
-      <div className="flex gap-2 mb-4 border-b border-gray-200">
+      <div className="flex flex-wrap gap-x-2 gap-y-1 mb-4 border-b border-gray-200">
         {tabs.map(tab => (
           <button
             key={tab}
             onClick={() => setSettingsTab(tab)}
-            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex-shrink-0 ${
               settingsTab === tab
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-indigo-600 text-indigo-600'
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
@@ -156,7 +156,7 @@ export function SettingsView({
               <h3 className="font-semibold text-sm">{t('settings.aiProfiles')}</h3>
               <button
                 onClick={() => { setEditingProfile(undefined); setShowProfileModal(true) }}
-                className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                className="px-3 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700"
               >
                 {t('profiles.create')}
               </button>
@@ -164,10 +164,10 @@ export function SettingsView({
             <p className="text-xs text-gray-500 mb-3">{t('profiles.description')}</p>
 
             {/* Default Profile */}
-            <div className={`border rounded-lg p-3 mb-2 ${currentUser?.default_profile_id === 'default' ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200'}`}>
+            <div className={`border rounded-lg p-3 mb-2 ${currentUser?.default_profile_id === 'default' ? 'border-indigo-300 bg-indigo-50/30' : 'border-gray-200'}`}>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-sm">{t('profiles.default')}{currentUser?.default_profile_id === 'default' && <span className="ml-1.5 text-xs text-blue-600">★ {t('profiles.isDefault')}</span>}</p>
+                  <p className="font-medium text-sm">{t('profiles.default')}{currentUser?.default_profile_id === 'default' && <span className="ml-1.5 text-xs text-indigo-600">★ {t('profiles.isDefault')}</span>}</p>
                   <p className="text-xs text-gray-500">{t('profiles.defaultDescription')}</p>
                 </div>
                 <div className="flex gap-2 items-center">
@@ -180,7 +180,7 @@ export function SettingsView({
                           setSelectedProfileId('default')
                         } catch (err) { if (!handleProfileApiError(err)) { /* swallow other errors */ } }
                       }}
-                      className="px-2 py-1 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50"
+                      className="px-2 py-1 text-xs border border-indigo-300 text-indigo-600 rounded hover:bg-indigo-50"
                     >
                       {t('profiles.setDefault')}
                     </button>
@@ -192,10 +192,10 @@ export function SettingsView({
 
             {/* Custom Profiles */}
             {profiles.filter(p => p.id !== 'default').map(profile => (
-              <div key={profile.id} className={`border rounded-lg p-3 mb-2 ${currentUser?.default_profile_id === profile.id ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200'}`}>
+              <div key={profile.id} className={`border rounded-lg p-3 mb-2 ${currentUser?.default_profile_id === profile.id ? 'border-indigo-300 bg-indigo-50/30' : 'border-gray-200'}`}>
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-medium text-sm">{profile.name}{currentUser?.default_profile_id === profile.id && <span className="ml-1.5 text-xs text-blue-600">★ {t('profiles.isDefault')}</span>}</p>
+                    <p className="font-medium text-sm">{profile.name}{currentUser?.default_profile_id === profile.id && <span className="ml-1.5 text-xs text-indigo-600">★ {t('profiles.isDefault')}</span>}</p>
                     <p className="text-xs text-gray-500">{profile.description || t('profiles.noDescription')}</p>
                     {profile.env && Object.keys(profile.env).length > 0 && (
                       <p className="text-xs text-gray-400 mt-1">
@@ -213,7 +213,7 @@ export function SettingsView({
                             setSelectedProfileId(profile.id)
                           } catch (err) { if (!handleProfileApiError(err)) { /* swallow other errors */ } }
                         }}
-                        className="px-2 py-1 text-xs border border-blue-300 text-blue-600 rounded hover:bg-blue-50"
+                        className="px-2 py-1 text-xs border border-indigo-300 text-indigo-600 rounded hover:bg-indigo-50"
                       >
                         {t('profiles.setDefault')}
                       </button>

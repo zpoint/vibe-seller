@@ -195,7 +195,7 @@ export function Dida365Panel() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+              className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
             >
               {saving ? t('common.loading') : t('settings.dida365SaveConfig')}
             </button>
@@ -212,7 +212,7 @@ export function Dida365Panel() {
         <div className="space-y-4">
           {/* Step 1: Choose service */}
           <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center mt-0.5">1</span>
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center mt-0.5">1</span>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-700 mb-1">{t('settings.dida365GuideStep1')}</p>
               <div className="flex gap-4">
@@ -242,12 +242,12 @@ export function Dida365Panel() {
 
           {/* Step 2: Register app on developer portal */}
           <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center mt-0.5">2</span>
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center mt-0.5">2</span>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-700 mb-1">{t('settings.dida365GuideStep2')}</p>
               <p className="text-xs text-gray-500 mb-2">{t('settings.dida365GuideStep2Hint')}</p>
               <a href={devPortalUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-sm text-blue-600 rounded border border-gray-200 transition-colors">
+                className="inline-flex items-center gap-1 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-sm text-indigo-600 rounded border border-gray-200 transition-colors">
                 {serviceType === 'dida365' ? 'developer.dida365.com' : 'developer.ticktick.com'} &rarr;
               </a>
             </div>
@@ -255,7 +255,7 @@ export function Dida365Panel() {
 
           {/* Step 3: Set callback URL */}
           <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center mt-0.5">3</span>
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center mt-0.5">3</span>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-700 mb-1">{t('settings.dida365GuideStep3')}</p>
               <p className="text-xs text-gray-500 mb-1">{t('settings.dida365GuideStep3Hint')}</p>
@@ -274,7 +274,7 @@ export function Dida365Panel() {
 
           {/* Step 4: Paste credentials */}
           <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center mt-0.5">4</span>
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center mt-0.5">4</span>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-700 mb-2">{t('settings.dida365GuideStep4')}</p>
               <div className="space-y-2">
@@ -303,17 +303,17 @@ export function Dida365Panel() {
 
           {/* Step 5: Connect */}
           <div className="flex items-start gap-3">
-            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-blue-100 text-blue-700 text-xs font-bold flex items-center justify-center mt-0.5">5</span>
+            <span className="flex-shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center mt-0.5">5</span>
             <div className="flex-1">
               <p className="text-sm font-medium text-gray-700 mb-1">{t('settings.dida365GuideStep5')}</p>
               <p className="text-xs text-gray-400 mb-2">{t('settings.dida365PopupHint')}</p>
               {installing ? (
-                <div className="flex items-center gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <svg className="animate-spin h-4 w-4 text-blue-600" viewBox="0 0 24 24">
+                <div className="flex items-center gap-2 p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
+                  <svg className="animate-spin h-4 w-4 text-indigo-600" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  <span className="text-sm text-blue-700">{t('settings.dida365Installing')}</span>
+                  <span className="text-sm text-indigo-700">{t('settings.dida365Installing')}</span>
                 </div>
               ) : polling ? (
                 <div className="space-y-2">
@@ -342,7 +342,7 @@ export function Dida365Panel() {
                 <button
                   onClick={handleConnect}
                   disabled={connecting || !clientId || !clientSecret}
-                  className="px-4 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 disabled:opacity-50"
                 >
                   {t('settings.dida365Connect')}
                 </button>

@@ -110,13 +110,13 @@ export function CreateScheduleModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
       onClick={e => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
       <div
-        className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4"
+        className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[92vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         <div className="px-6 py-4 border-b border-gray-200">
@@ -181,7 +181,7 @@ export function CreateScheduleModal({
           <button
             onClick={handleSubmit}
             disabled={!form.title.trim() || creating}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {creating ? t('common.loading') : t('common.create')}
           </button>

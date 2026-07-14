@@ -39,17 +39,17 @@ function ScheduleItem({ schedule, badge, storeName, isSelected, onClick, getSche
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${isSelected ? 'bg-blue-50' : ''}`}
+      className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${isSelected ? 'bg-indigo-50' : ''}`}
     >
       <div className="flex items-center gap-2">
         <span className="font-medium text-sm truncate flex-1">{schedule.title}</span>
         {badge && (
-          <span className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-purple-100 text-purple-700 shrink-0">{badge}</span>
+          <span className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-indigo-100 text-indigo-700 shrink-0">{badge}</span>
         )}
       </div>
       <div className="flex items-center gap-2 mt-1 flex-wrap">
         {schedule.is_system && (
-          <span className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-blue-100 text-blue-700">{t('schedules.system')}</span>
+          <span className="px-1.5 py-0.5 text-[10px] rounded-full font-medium bg-indigo-100 text-indigo-700">{t('schedules.system')}</span>
         )}
         <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${schedule.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
           {schedule.is_active ? t('schedules.active') : t('schedules.paused')}
@@ -120,7 +120,7 @@ export function ScheduleList({
           <p className="text-xs text-gray-400 mb-3">{t('schedules.createFirstSchedule')}</p>
           <button
             onClick={() => setShowCreateSchedule(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
           >
             + {t('schedules.newSchedule')}
           </button>

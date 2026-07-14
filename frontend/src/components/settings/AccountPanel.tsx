@@ -134,7 +134,7 @@ export function AccountPanel({
             </div>
             <button
               onClick={() => handleToggleAuth(!authRequired)}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${authRequired ? 'bg-blue-600' : 'bg-gray-300'}`}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${authRequired ? 'bg-indigo-600' : 'bg-gray-300'}`}
             >
               <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${authRequired ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
@@ -156,7 +156,7 @@ export function AccountPanel({
             <input value={profileEmail} onChange={e => setProfileEmail(e.target.value)} type="email" className="w-full px-3 py-2 border border-gray-300 rounded text-sm" placeholder={t('auth.emailPlaceholder')} />
           </div>
           {profileMsg && <p className={`text-xs ${profileMsgIsError ? 'text-red-600' : 'text-green-600'}`}>{profileMsg}</p>}
-          <button onClick={handleUpdateProfile} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">{t('common.save')}</button>
+          <button onClick={handleUpdateProfile} className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">{t('common.save')}</button>
         </div>
       </div>
 
@@ -170,7 +170,7 @@ export function AccountPanel({
           <input value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder={t('settings.newPassword')} type="password" className="w-full px-3 py-2 border border-gray-300 rounded text-sm" />
           <input value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder={t('settings.confirmPassword')} type="password" className="w-full px-3 py-2 border border-gray-300 rounded text-sm" />
           {pwMsg && <p className={`text-xs ${pwMsg === t('settings.passwordChanged') ? 'text-green-600' : 'text-red-600'}`}>{pwMsg}</p>}
-          <button onClick={handleChangePassword} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">{t('settings.changePassword')}</button>
+          <button onClick={handleChangePassword} className="px-3 py-1.5 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">{t('settings.changePassword')}</button>
         </div>
       </div>
 
@@ -179,7 +179,7 @@ export function AccountPanel({
         <div className="bg-white rounded-lg border border-gray-200 p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-sm">{t('settings.users')}</h3>
-            <button onClick={() => setShowAddUser(true)} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">+ {t('settings.newUser')}</button>
+            <button onClick={() => setShowAddUser(true)} className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700">+ {t('settings.newUser')}</button>
           </div>
           {showAddUser && (
             <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-2">
@@ -209,10 +209,10 @@ export function AccountPanel({
                 <React.Fragment key={u.id}>
                   <tr className="border-b border-gray-100">
                     <td className="py-2">{u.username}</td>
-                    <td className="py-2"><span className={`px-2 py-0.5 rounded-full text-xs ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : u.role === 'ai_bot' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{u.role}</span></td>
+                    <td className="py-2"><span className={`px-2 py-0.5 rounded-full text-xs ${u.role === 'admin' ? 'bg-indigo-100 text-indigo-700' : u.role === 'ai_bot' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-700'}`}>{u.role}</span></td>
                     <td className="py-2 text-right space-x-2">
                       {u.role !== 'ai_bot' && u.id !== currentUser.id && (<>
-                        <button onClick={() => editingUserId === u.id ? setEditingUserId(null) : startEditUser(u)} className="text-xs text-blue-600 hover:text-blue-800">
+                        <button onClick={() => editingUserId === u.id ? setEditingUserId(null) : startEditUser(u)} className="text-xs text-indigo-600 hover:text-indigo-800">
                           {editingUserId === u.id ? t('common.cancel') : t('common.edit')}
                         </button>
                         <button onClick={() => deleteUser(u.id, u.username)} className="text-xs text-gray-500 hover:text-red-600">
@@ -236,7 +236,7 @@ export function AccountPanel({
                               <option value="admin">{t('settings.admin')}</option>
                             </select>
                           </div>
-                          <button onClick={handleSaveUser} className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700">{t('common.save')}</button>
+                          <button onClick={handleSaveUser} className="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">{t('common.save')}</button>
                         </div>
                       </td>
                     </tr>

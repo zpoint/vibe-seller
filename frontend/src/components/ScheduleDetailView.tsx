@@ -63,7 +63,7 @@ export function ScheduleDetailView({
           <h2 className="text-lg font-semibold">{schedule.title}</h2>
           <div className="flex items-center gap-2">
             {schedule.is_system && (
-              <span className="px-2 py-1 text-xs rounded-full font-medium bg-blue-100 text-blue-700">
+              <span className="px-2 py-1 text-xs rounded-full font-medium bg-indigo-100 text-indigo-700">
                 {t('schedules.system')}
               </span>
             )}
@@ -126,7 +126,7 @@ export function ScheduleDetailView({
             onClick={() => triggerSchedule(schedule.id)}
             disabled={triggerDisabled}
             title={triggerTitle}
-            className={`px-3 py-1.5 text-xs rounded font-medium ${triggerDisabled ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+            className={`px-3 py-1.5 text-xs rounded font-medium ${triggerDisabled ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
           >
             {t('schedules.trigger')}
           </button>

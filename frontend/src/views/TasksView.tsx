@@ -10,6 +10,8 @@ import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
 import { ExternalConfigOverrideErrorCard } from '../components/ExternalConfigOverrideErrorCard'
+import { SubtaskList } from '../components/SubtaskList'
+import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
 import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem } from '../types'
 
@@ -21,6 +23,8 @@ function formatDate(dateStr: string): string {
 }
 
 interface TasksViewProps {
+  isMobile: boolean
+  onOpenNav: () => void
   taskPanelActive: boolean
   taskPanelTitle: string
   tasks: Task[]
@@ -81,55 +85,9 @@ interface TasksViewProps {
   stores: Store[]
 }
 
-function SubtaskList({ parentTaskId, onSelect, stores }: {
-  parentTaskId: string
-  onSelect: (t: Task) => void
-  stores: Store[]
-}) {
-  const { t } = useTranslation()
-  const [children, setChildren] = useState<Task[]>([])
-
-  useEffect(() => {
-    let cancelled = false
-    const fetchChildren = () => {
-      api.get(`/api/tasks?parent_task_id=${encodeURIComponent(parentTaskId)}`).then((data: Task[]) => {
-        if (!cancelled) setChildren(data)
-      }).catch(() => {})
-    }
-    fetchChildren()
-    // Poll every 10s for status updates instead of opening a second SSE
-    const interval = setInterval(fetchChildren, 10000)
-    return () => { cancelled = true; clearInterval(interval) }
-  }, [parentTaskId])
-
-  if (children.length === 0) return null
-
-  const storeName = (sid: string | null) => {
-    if (!sid) return ''
-    return stores.find(s => s.id === sid)?.name || sid.slice(0, 8)
-  }
-
-  return (
-    <div className="mt-2">
-      <div className="text-xs font-medium text-gray-500 mb-1">{t('tasks.subtasks', 'Subtasks')} ({children.length})</div>
-      <div className="space-y-1">
-        {children.map(child => (
-          <button
-            key={child.id}
-            onClick={() => onSelect(child)}
-            className="w-full text-left px-2 py-1.5 text-xs rounded border border-gray-200 hover:bg-gray-50 flex items-center gap-2"
-          >
-            <StatusBadge status={child.status} />
-            <span className="truncate flex-1">{child.title}</span>
-            {child.store_id && <span className="text-gray-400 text-[10px]">{storeName(child.store_id)}</span>}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 export function TasksView({
+  isMobile,
+  onOpenNav,
   taskPanelActive,
   taskPanelTitle,
   tasks,
@@ -250,20 +208,32 @@ export function TasksView({
 
   const onetimeTasks = tasks.filter(task => !task.schedule_id)
 
+  // Mobile drill-down: the list and detail are separate full-screen
+  // steps. Show detail (task or schedule) full-width and hide the list
+  // once something is selected; otherwise the list fills the screen.
+  const mobileShowDetail = isMobile && (!!selectedTask || !!selectedSchedule)
+  const onMobileBack = () => {
+    if (selectedTask) setSelectedTask(null)
+    else setSelectedSchedule(null)
+  }
+
   return (
     <>
       {/* Middle: Task list */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
+      <div className={`${mobileShowDetail ? 'hidden ' : 'flex '}${isMobile ? 'w-full' : 'w-80'} bg-white border-r border-gray-200 flex-col`}>
         {taskPanelActive ? (
           <>
             <div className="p-4 pb-0 border-b border-gray-200">
               <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h2 className="font-semibold">{taskPanelTitle}</h2>
+                <div className="flex items-center gap-2 min-w-0">
+                  {isMobile && (
+                    <MobileMenuButton onClick={onOpenNav} label={t('common.menu', 'Menu')} className="-ml-1.5" />
+                  )}
+                  <h2 className="font-semibold truncate">{taskPanelTitle}</h2>
                 </div>
                 <button
                   onClick={taskSubTab === 'onetime' ? openCreateModal : () => setShowCreateSchedule(true)}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-1"
+                  className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center gap-1"
                 >
                   <span className="text-base leading-none">+</span> {taskSubTab === 'onetime' ? t('tasks.newTask') : t('schedules.newSchedule')}
                 </button>
@@ -303,7 +273,7 @@ export function TasksView({
                         })
                         selectTask(task); setSelectedSchedule(null)
                       }}
-                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedTask?.id === task.id && !selectedSchedule ? 'bg-blue-50' : ''} ${task.status === 'waiting' ? 'border-l-3 border-l-amber-400' : ''}`}
+                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedTask?.id === task.id && !selectedSchedule ? 'bg-indigo-50' : ''} ${task.status === 'waiting' ? 'border-l-3 border-l-amber-400' : ''}`}
                     >
                       <div className="font-medium text-sm truncate">{task.title}</div>
                       {task.description && <div className="text-xs text-gray-400 truncate">{task.description}</div>}
@@ -314,7 +284,7 @@ export function TasksView({
                             const cond = JSON.parse(task.wait_condition)
                             const strategy = cond.check_strategy || 'manual'
                             return (
-                              <span className={`text-[10px] px-1 py-0.5 rounded whitespace-nowrap shrink-0 ${strategy === 'email' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}`}>
+                              <span className={`text-[10px] px-1 py-0.5 rounded whitespace-nowrap shrink-0 ${strategy === 'email' ? 'bg-indigo-50 text-indigo-600' : 'bg-gray-100 text-gray-500'}`}>
                                 {strategy === 'email' ? t('waiting.autoEmail') : t('waiting.manual')}
                               </span>
                             )
@@ -331,7 +301,7 @@ export function TasksView({
                       <p className="text-sm text-gray-500 mb-3">{t('tasks.noTasks')}</p>
                       <button
                         onClick={openCreateModal}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700"
                       >
                         + {t('tasks.createFirstTask')}
                       </button>
@@ -361,7 +331,17 @@ export function TasksView({
       </div>
 
       {/* Right: Task detail or Schedule detail */}
-      <div className="flex-1 flex flex-col bg-gray-50">
+      <div className={`${isMobile && !mobileShowDetail ? 'hidden ' : 'flex '}flex-1 min-w-0 flex-col bg-gray-50`}>
+        {/* Mobile: a slim back bar returns to the list (or schedule). */}
+        {isMobile && mobileShowDetail && (
+          <button
+            onClick={onMobileBack}
+            className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-200 bg-white text-sm text-gray-600 hover:bg-gray-50"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            {t('common.back', 'Back')}
+          </button>
+        )}
         {selectedSchedule && !selectedTask ? (
           <ScheduleDetailView
             schedule={selectedSchedule}
@@ -387,25 +367,25 @@ export function TasksView({
                 {selectedSchedule && (
                   <button
                     onClick={() => { setSelectedTask(null) }}
-                    className="text-xs text-blue-600 hover:text-blue-800 mb-2 flex items-center gap-1"
+                    className="text-xs text-indigo-600 hover:text-indigo-800 mb-2 flex items-center gap-1"
                   >
                     <span>&larr;</span> {t('schedules.backToSchedule')}: {selectedSchedule.title}
                   </button>
                 )}
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
                   <StatusBadge status={selectedTask.status} />
                   {selectedTask.description ? (
                     <button
                       type="button"
                       aria-expanded={descExpanded}
-                      className="flex items-center gap-1.5 hover:text-indigo-600"
+                      className="flex items-center gap-1.5 hover:text-indigo-600 min-w-0 text-left"
                       onClick={() => setDescExpanded(e => !e)}
                     >
                       <span className={`text-[10px] text-gray-400 transition-transform ${descExpanded ? 'rotate-90' : ''}`}>▶</span>
-                      <h2 className="font-semibold">{selectedTask.title}</h2>
+                      <h2 className="font-semibold break-words min-w-0">{selectedTask.title}</h2>
                     </button>
                   ) : (
-                    <h2 className="font-semibold">{selectedTask.title}</h2>
+                    <h2 className="font-semibold break-words min-w-0">{selectedTask.title}</h2>
                   )}
                   {selectedTask.store_id && (
                     <span className="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">{stores.find(s => s.id === selectedTask.store_id)?.name || selectedTask.store_id.slice(0, 8)}</span>
@@ -426,7 +406,7 @@ export function TasksView({
                       {todoItems.map((ti, i) => (
                         <div key={i} className={`w-1.5 h-1.5 rounded-full ${
                           ti.status === 'completed' ? 'bg-green-500' :
-                          ti.status === 'in_progress' ? 'bg-blue-500 animate-pulse' :
+                          ti.status === 'in_progress' ? 'bg-indigo-500 animate-pulse' :
                           'bg-gray-300'
                         }`} />
                       ))}
@@ -454,7 +434,7 @@ export function TasksView({
                       ? t(`tasks.error_${selectedTask.error_category}`, selectedTask.error)
                       : selectedTask.error}
                     {selectedTask.error.includes('/api/ziniao/launcher') && (
-                      <a href="/api/ziniao/launcher" download className="ml-2 inline-block px-2 py-0.5 bg-blue-600 text-white rounded text-xs hover:bg-blue-700">{t('settings.ziniaoDownloadLauncher')}</a>
+                      <a href="/api/ziniao/launcher" download className="ml-2 inline-block px-2 py-0.5 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700">{t('settings.ziniaoDownloadLauncher')}</a>
                     )}
                   </div>
                     )
@@ -462,7 +442,7 @@ export function TasksView({
                 <SubtaskList parentTaskId={selectedTask.id} onSelect={selectTask} stores={stores} />
                 <div className="mt-2 flex gap-2 flex-wrap">
                   {getUI(selectedTask.status).isActive && (
-                    <span className="text-xs text-blue-600 animate-pulse self-center">
+                    <span className="text-xs text-indigo-600 animate-pulse self-center">
                       {selectedTask.status === 'designing' ? t('tasks.designing') : t('tasks.running')}
                     </span>
                   )}
@@ -516,7 +496,7 @@ export function TasksView({
                 const el = scrollContainerRef.current
                 if (el) userNearBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100
               }}
-              className="flex-1 overflow-y-auto px-6 py-6"
+              className="flex-1 overflow-y-auto px-4 sm:px-6 py-6"
             >
               <div className="w-full">
               {debugMode ? (
@@ -543,8 +523,8 @@ export function TasksView({
                         <div key={i} className="text-xs font-mono min-w-0">
                           <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold mr-1.5 ${
                             msg.role === 'assistant' || msg.role === 'result' ? 'bg-green-900 text-green-300' :
-                            msg.role === 'user' ? 'bg-blue-900 text-blue-300' :
-                            msg.role === 'tool_use' ? 'bg-purple-900 text-purple-300' :
+                            msg.role === 'user' ? 'bg-indigo-900 text-indigo-300' :
+                            msg.role === 'tool_use' ? 'bg-indigo-900 text-indigo-300' :
                             msg.role === 'system' ? 'bg-red-900 text-red-300' :
                             'bg-gray-700 text-gray-400'
                           }`}>{msg.role}</span>
@@ -555,9 +535,9 @@ export function TasksView({
                       </div>
                     </div>
                   ) : isActive ? (
-                    <div className="flex items-center gap-3 px-4 py-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0" />
-                      <div className="text-sm font-medium text-blue-700">{t('tasks.agentStarting')}</div>
+                    <div className="flex items-center gap-3 px-4 py-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                      <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin shrink-0" />
+                      <div className="text-sm font-medium text-indigo-700">{t('tasks.agentStarting')}</div>
                     </div>
                   ) : null}
                 </div>
@@ -602,10 +582,10 @@ export function TasksView({
             </div>
 
             {/* Fixed footer */}
-            <div className="bg-white border-t border-gray-200 px-6 py-3">
+            <div className="bg-white border-t border-gray-200 px-4 sm:px-6 py-3">
               <div className="w-full space-y-2">
               {/* Profile selector + Debug toggle row */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg">
                   <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" /></svg>
                   <select
@@ -636,7 +616,7 @@ export function TasksView({
                 })()}
                 <button
                   onClick={() => { setEditingProfile(undefined); setShowProfileModal(true) }}
-                  className="text-xs text-gray-400 hover:text-blue-600"
+                  className="text-xs text-gray-400 hover:text-indigo-600"
                   title={t('chat.manageProfiles')}
                 >
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
@@ -697,7 +677,7 @@ export function TasksView({
                   aria-checked={debugMode}
                 >
                   <span className="text-xs text-gray-400">{t('tasks.debugMode')}</span>
-                  <div className={`relative w-8 h-4 rounded-full transition-colors ${debugMode ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                  <div className={`relative w-8 h-4 rounded-full transition-colors ${debugMode ? 'bg-indigo-500' : 'bg-gray-300'}`}>
                     <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform pointer-events-none ${debugMode ? 'translate-x-4' : ''}`} />
                   </div>
                 </div>
@@ -735,7 +715,7 @@ export function TasksView({
                   }}
                   placeholder={getPlaceholder()}
                   disabled={!canSend && !isActive}
-                  className="flex-1 px-3 py-2 text-sm leading-5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-40 disabled:cursor-not-allowed resize-none overflow-y-auto"
+                  className="flex-1 px-3 py-2 text-sm leading-5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed resize-none overflow-y-auto"
                 />
                 {canSend && hasText ? (
                   <button

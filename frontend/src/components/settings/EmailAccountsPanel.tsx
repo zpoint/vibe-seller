@@ -140,7 +140,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores }:
         <h3 className="font-semibold">{t('email.accounts')}</h3>
         <button
           onClick={() => setShowAddEmail(!showAddEmail)}
-          className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+          className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
         >
           + {t('email.addAccount')}
         </button>
@@ -278,11 +278,11 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores }:
                   {links.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {links.map(link => (
-                        <span key={link.link_id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs">
+                        <span key={link.link_id} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-50 text-indigo-700 rounded-full text-xs">
                           {link.store_name}
                           <button
                             onClick={() => unlinkStore(link.store_id, link.link_id)}
-                            className="text-blue-400 hover:text-red-500 ml-0.5"
+                            className="text-indigo-400 hover:text-red-500 ml-0.5"
                             title={t('email.disconnect')}
                           >
                             &times;
@@ -306,7 +306,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores }:
                       <button
                         onClick={() => linkStore(acct.id, linkingStore[acct.id] || '')}
                         disabled={!linkingStore[acct.id]}
-                        className="text-xs px-2 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                        className="text-xs px-2 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
                       >
                         {t('email.linkToStore')}
                       </button>

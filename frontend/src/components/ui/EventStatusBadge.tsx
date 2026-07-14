@@ -4,7 +4,7 @@ export function EventStatusBadge({ status }: { status: string }) {
   const { t } = useTranslation()
   const colors: Record<string, string> = {
     draft: 'bg-gray-200 text-gray-700',
-    open: 'bg-blue-100 text-blue-700',
+    open: 'bg-indigo-100 text-indigo-700',
     in_progress: 'bg-indigo-100 text-indigo-700',
     waiting: 'bg-amber-100 text-amber-700',
     resolved: 'bg-green-100 text-green-700',

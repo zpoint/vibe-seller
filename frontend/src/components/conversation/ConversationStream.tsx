@@ -179,13 +179,13 @@ function FileTreeItem({ node, taskId, depth }: { node: FileTreeNode; taskId: str
     <a
       href={`/api/tasks/${taskId}/files/${encodedPath}`}
       download={node.name}
-      className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-blue-50 rounded transition-colors"
+      className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-indigo-50 rounded transition-colors"
       style={{ paddingLeft: `${(depth) * 16 + 8 + 12 + 6}px` }}
     >
       <span className="text-gray-400 text-[10px]">
         {node.type?.includes('pdf') ? '\uD83D\uDCC4' : '\uD83D\uDCCE'}
       </span>
-      <span className="text-blue-600 font-medium truncate">{node.name}</span>
+      <span className="text-indigo-600 font-medium truncate">{node.name}</span>
       <span className="text-gray-400 ml-auto whitespace-nowrap">
         {node.size != null ? formatSize(node.size) : ''}
       </span>
@@ -219,7 +219,7 @@ function TaskFiles({ taskId }: { taskId: string }) {
         <a
           href={`/api/tasks/${taskId}/files-zip`}
           download
-          className="text-[10px] text-blue-600 hover:underline cursor-pointer"
+          className="text-[10px] text-indigo-600 hover:underline cursor-pointer"
         >
           {t('tasks.downloadZip', 'Download All (ZIP)')}
         </a>
@@ -295,13 +295,13 @@ export function ConversationStream({
       {/* Review plan toggle in stream when applicable */}
 
       {items.length === 0 && isActive && (
-        <div className="flex items-center gap-3 px-4 py-4 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin shrink-0" />
+        <div className="flex items-center gap-3 px-4 py-4 bg-indigo-50 rounded-lg border border-indigo-200">
+          <div className="w-5 h-5 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin shrink-0" />
           <div>
-            <div className="text-sm font-medium text-blue-700">
+            <div className="text-sm font-medium text-indigo-700">
               {task.status === 'designing' ? t('tasks.designing') : t('tasks.running')}
             </div>
-            <div className="text-xs text-blue-500">{t('tasks.agentStarting')}</div>
+            <div className="text-xs text-indigo-500">{t('tasks.agentStarting')}</div>
           </div>
         </div>
       )}
@@ -477,7 +477,7 @@ export function ConversationStream({
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-amber-600 text-lg">&#9203;</span>
                 <h3 className="text-sm font-semibold text-amber-800">{t('status.waiting')}</h3>
-                <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${strategy === 'email' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${strategy === 'email' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'}`}>
                   {strategy === 'email' ? t('waiting.autoEmail') : t('waiting.manual')}
                 </span>
               </div>

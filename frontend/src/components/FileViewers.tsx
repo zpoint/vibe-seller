@@ -156,7 +156,7 @@ export function BinaryDownload({ path }: { path: string }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
       <div className="text-4xl opacity-40">&#128230;</div>
-      <a href={rawUrl(path)} download className="px-4 py-2 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+      <a href={rawUrl(path)} download className="px-4 py-2 text-xs font-medium bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">
         {t('workspace.download')} {path.split('/').pop()}
       </a>
     </div>

@@ -21,16 +21,16 @@ export function LoginPage({ loginIdentifier, setLoginIdentifier, loginPassword, 
         <input
           value={loginIdentifier} onChange={e => setLoginIdentifier(e.target.value)}
           placeholder={t('auth.identifierPlaceholder')} type="text" autoFocus
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           onKeyDown={e => e.key === 'Enter' && onLogin()}
         />
         <input
           value={loginPassword} onChange={e => setLoginPassword(e.target.value)}
           placeholder={t('auth.passwordPlaceholder')} type="password"
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           onKeyDown={e => e.key === 'Enter' && onLogin()}
         />
-        <button onClick={onLogin} className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+        <button onClick={onLogin} className="w-full px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
           {t('auth.signIn')}
         </button>
         {/* Language switcher on login page */}

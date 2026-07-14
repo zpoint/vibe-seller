@@ -86,7 +86,7 @@ describe('AllStoresTaskList', () => {
       })
 
       // Current store header is blue (not a button)
-      const blueHeader = container.querySelector('.bg-blue-50')
+      const blueHeader = container.querySelector('.bg-indigo-50')
       expect(blueHeader).toBeInTheDocument()
       expect(blueHeader?.textContent).toBe('Amazon US')
 
@@ -185,7 +185,7 @@ describe('AllStoresTaskList', () => {
       })
 
       // Blue header = current store (Zebra)
-      const blueHeader = container.querySelector('.bg-blue-50')
+      const blueHeader = container.querySelector('.bg-indigo-50')
       expect(blueHeader?.textContent).toBe('Zebra Store')
 
       // Other stores in alpha order: Alpha, Middle
@@ -221,7 +221,7 @@ describe('AllStoresTaskList', () => {
       expect(screen.queryByText('Task B')).not.toBeInTheDocument()
 
       // No blue highlight (no focused store)
-      expect(container.querySelector('.bg-blue-50')).not.toBeInTheDocument()
+      expect(container.querySelector('.bg-indigo-50')).not.toBeInTheDocument()
 
       // Headers are toggle buttons
       const toggleButtons = container.querySelectorAll('button[aria-expanded]')
@@ -287,7 +287,7 @@ describe('AllStoresTaskList', () => {
       })
 
       // No blue highlight — all-tasks mode doesn't focus a store
-      expect(container.querySelector('.bg-blue-50')).not.toBeInTheDocument()
+      expect(container.querySelector('.bg-indigo-50')).not.toBeInTheDocument()
 
       // Selected store sorts first
       const groupDivs = container.querySelectorAll('.bg-gray-50')
@@ -379,7 +379,7 @@ describe('AllStoresTaskList', () => {
     it('handles empty task list', () => {
       const { container } = renderList({ scheduleTasks: [], showAllTasks: true })
       expect(container.querySelector('.bg-gray-50')).not.toBeInTheDocument()
-      expect(container.querySelector('.bg-blue-50')).not.toBeInTheDocument()
+      expect(container.querySelector('.bg-indigo-50')).not.toBeInTheDocument()
     })
 
     it('handles tasks for a store not in the stores list', () => {

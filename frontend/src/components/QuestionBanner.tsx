@@ -79,10 +79,10 @@ export function QuestionBanner({
                       <button
                         key={oi}
                         onClick={() => onSelectAnswer(q.question, opt.label)}
-                        className={`px-3 py-1.5 text-xs border rounded-lg transition-all ${
+                        className={`px-3 py-2.5 text-sm sm:py-1.5 sm:text-xs border rounded-lg transition-all ${
                           selectedAnswers[q.question] === opt.label && !isOther
-                            ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium shadow-sm'
-                            : 'bg-white border-gray-200 text-gray-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'
+                            ? 'bg-indigo-50 border-indigo-400 text-indigo-700 font-medium shadow-sm'
+                            : 'bg-white border-gray-200 text-gray-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600'
                         }`}
                         title={opt.description || ''}
                       >
@@ -91,10 +91,10 @@ export function QuestionBanner({
                     ))}
                     <button
                       onClick={() => onToggleOther(q.question)}
-                      className={`px-3 py-1.5 text-xs border rounded-lg transition-all ${
+                      className={`px-3 py-2.5 text-sm sm:py-1.5 sm:text-xs border rounded-lg transition-all ${
                         isOther
-                          ? 'bg-blue-50 border-blue-400 text-blue-700 font-medium shadow-sm'
-                          : 'bg-white border-gray-200 text-gray-600 hover:bg-blue-50 hover:border-blue-300 hover:text-blue-600'
+                          ? 'bg-indigo-50 border-indigo-400 text-indigo-700 font-medium shadow-sm'
+                          : 'bg-white border-gray-200 text-gray-600 hover:bg-indigo-50 hover:border-indigo-300 hover:text-indigo-600'
                       }`}
                     >
                       {t('tasks.other')}
@@ -109,7 +109,7 @@ export function QuestionBanner({
                       onChange={e => onSetOtherAnswer(q.question, e.target.value)}
                       onKeyDown={e => { if (e.key === 'Escape') onToggleOther(q.question) }}
                       placeholder={t('tasks.typeAnswer')}
-                      className="w-full px-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-white"
+                      className="w-full px-3 py-2.5 text-sm sm:py-1.5 sm:text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 bg-white"
                       autoFocus
                     />
                   )}
@@ -133,7 +133,7 @@ export function QuestionBanner({
             }}
             placeholder={t('tasks.freeTextPlaceholder')}
             aria-label={t('tasks.freeTextPlaceholder')}
-            className="min-h-[80px] w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-400 bg-white resize-y"
+            className="min-h-[80px] w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 bg-white resize-y"
           />
         </div>
       )}
@@ -142,13 +142,13 @@ export function QuestionBanner({
           <button
             onClick={() => freeTextMode ? onSubmitAll({ _free_text: freeTextInput.trim() }) : onSubmitAll()}
             disabled={freeTextMode ? !freeTextInput.trim() : Object.keys(selectedAnswers).length < questions.length}
-            className="px-5 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
+            className="px-5 py-2 text-xs font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shadow-sm"
           >
             {t('tasks.submitAnswers')}
           </button>
           <button
             type="button"
-            className="text-xs text-blue-600 hover:underline cursor-pointer"
+            className="text-xs text-indigo-600 hover:underline cursor-pointer"
             onClick={() => setFreeTextMode(prev => !prev)}
             aria-pressed={freeTextMode}
           >

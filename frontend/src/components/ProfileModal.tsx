@@ -32,7 +32,7 @@ export function ProfileModal({
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 sm:p-4">
       <ProfileForm
         key={editingProfile?.id ?? '__new__'}
         editingProfile={editingProfile}
@@ -140,7 +140,7 @@ function ProfileForm({
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="bg-white rounded-t-2xl sm:rounded-lg shadow-xl w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto">
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-semibold">
@@ -178,7 +178,7 @@ function ProfileForm({
                     onClick={() => applyPreset(id)}
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                       selectedPreset === id
-                        ? 'bg-blue-600 text-white'
+                        ? 'bg-indigo-600 text-white'
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
@@ -194,7 +194,7 @@ function ProfileForm({
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     selectedPreset === 'custom'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-indigo-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
@@ -213,7 +213,7 @@ function ProfileForm({
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               placeholder={t('profiles.namePlaceholder')}
             />
           </div>
@@ -227,7 +227,7 @@ function ProfileForm({
                 onChange={(e) => setLoadGlobalMcp(e.target.checked)}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600" />
+              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600" />
             </label>
             <div>
               <span className="text-sm font-medium text-gray-700">
@@ -247,7 +247,7 @@ function ProfileForm({
               </h4>
               <button
                 onClick={addEnvVar}
-                className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
               >
                 + {t('profiles.addVariable')}
               </button>
@@ -266,14 +266,14 @@ function ProfileForm({
                       placeholder="KEY"
                       value={env.key}
                       onChange={(e) => updateEnvKey(idx, e.target.value)}
-                      className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="flex-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                     <input
                       type="text"
                       placeholder="value"
                       value={env.value}
                       onChange={(e) => updateEnvValue(idx, e.target.value)}
-                      className="flex-[2] px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="flex-[2] px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                     <button
                       onClick={() => removeEnv(idx)}
@@ -298,7 +298,7 @@ function ProfileForm({
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors"
             >
               {editingProfile
                 ? t('common.save')

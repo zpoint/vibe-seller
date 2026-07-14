@@ -3,8 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { ProfileModal } from './components/ProfileModal'
 import { LoginPage } from './components/LoginPage'
 import { Sidebar } from './components/Sidebar'
+import { MobileMenuButton } from './components/MobileMenuButton'
 import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateCheck } from './hooks/useUpdateCheck'
+import { useIsMobile } from './hooks/useIsMobile'
+import { useMobileBackStack } from './hooks/useMobileBackStack'
 import { CreateTaskModal } from './components/CreateTaskModal'
 import { CreateScheduleModal } from './components/CreateScheduleModal'
 import { UpdateAvailableModal } from './components/UpdateAvailableModal'
@@ -14,14 +17,14 @@ import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { api, AUTH_EXPIRED_EVENT } from './api'
-import { sendEvent, lengthBucket } from './lib/telemetry'
-import { FrontendEvent } from './lib/telemetryEvents'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
 import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCreateTask'
 import { retryTask as retryTaskHandler } from './handlers/retryTask'
 import { continueTask as continueTaskHandler } from './handlers/continueTask'
+import { deleteTask as deleteTaskHandler } from './handlers/deleteTask'
+import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
   ServerPlatform,
@@ -42,6 +45,10 @@ export default function App() {
   const [loginError, setLoginError] = useState('')
 
   const [appView, setAppView] = useState<AppView>('tasks')
+  // Mobile: the sidebar collapses into a slide-in drawer toggled by a
+  // hamburger; desktop keeps it as a resident column.
+  const isMobile = useIsMobile()
+  const [navOpen, setNavOpen] = useState(false)
   const [stores, setStores] = useState<Store[]>([])
   const [selectedStore, setSelectedStore] = useState<Store | null>(null)
   const [showAllTasks, setShowAllTasks] = useState(true)
@@ -185,6 +192,15 @@ export default function App() {
   }, [])
 
   const { updateCheck, dismissUpdateCheck } = useUpdateCheck(currentUser)
+
+  // Device/browser Back pops the mobile drill-down instead of leaving.
+  useMobileBackStack({
+    isMobile, navOpen,
+    hasTask: !!selectedTask, hasSchedule: !!selectedSchedule,
+    closeNav: () => setNavOpen(false),
+    closeTask: () => setSelectedTask(null),
+    closeSchedule: () => setSelectedSchedule(null),
+  })
 
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
@@ -348,12 +364,14 @@ export default function App() {
   }
 
   const selectStore = async (store: Store) => {
+    setNavOpen(false)
     userActedRef.current = true; setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([])
     setTasks(await api.get(`/api/tasks?store_id=${store.id}`))
     loadSchedules()
   }
   const selectAllTasks = async () => {
+    setNavOpen(false)
     userActedRef.current = true; setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([])
     setTasks(await api.get('/api/tasks?store_id=__none__'))
@@ -481,81 +499,26 @@ export default function App() {
     })
   const continueTask = (taskId: string) =>
     continueTaskHandler(taskId, handlerDeps)
-  const deleteTask = async (taskId: string) => {
-    let childCount = 0
-    try {
-      const kids = await api.get(`/api/tasks?parent_task_id=${encodeURIComponent(taskId)}`) as Task[]
-      childCount = Array.isArray(kids) ? kids.length : 0
-    } catch { /* ignore — fall back to plain confirm */ }
-    const message = childCount > 0
-      ? t('tasks.deleteConfirmCascade', { count: childCount })
-      : t('tasks.deleteConfirm')
-    if (!confirm(message)) return
-    try {
-      await api.del(`/api/tasks/${taskId}`)
-      // Locally drop the deleted task plus any descendants we
-      // know about (cascade on the server won't push individual
-      // SSE deletes for each child).
-      const dropIds = new Set<string>([taskId])
-      let frontier = [taskId]
-      while (frontier.length) {
-        const next: string[] = []
-        for (const id of frontier) {
-          for (const t2 of tasks) if (t2.parent_task_id === id) next.push(t2.id)
-          for (const t2 of scheduleTasks) if (t2.parent_task_id === id) next.push(t2.id)
-        }
-        // Filter to unvisited BEFORE adding to dropIds — otherwise
-        // every BFS frontier collapses to [] after the first hop and
-        // we never reach grandchildren.
-        const unvisited = next.filter(id => !dropIds.has(id))
-        unvisited.forEach(id => dropIds.add(id))
-        frontier = unvisited
-      }
-      setTasks(prev => prev.filter(x => !dropIds.has(x.id)))
-      setScheduleTasks(prev => prev.filter(x => !dropIds.has(x.id)))
-      if (selectedTask && dropIds.has(selectedTask.id)) {
+  const deleteTask = (taskId: string) =>
+    deleteTaskHandler(taskId, {
+      api, tasks, scheduleTasks, selectedTask, setTasks, setScheduleTasks,
+      onSelectedCleared: () => {
         setSelectedTask(null)
         setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([])
         setAgentMessages([]); setTodoItems([]); setPendingQuestions(null)
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      if (msg !== 'unauthorized') alert(msg)
-    }
-  }
+      },
+    })
   const selectAnswer = (questionText: string, answer: string) => { setSelectedAnswers(prev => ({ ...prev, [questionText]: answer })); setShowOtherInput(prev => ({ ...prev, [questionText]: false })); setOtherInputs(prev => ({ ...prev, [questionText]: '' })) }
   const toggleOtherInput = (questionText: string) => { setShowOtherInput(prev => { const show = !prev[questionText]; if (show) { setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } else { setOtherInputs(p => ({ ...p, [questionText]: '' })); setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } return { ...prev, [questionText]: show } }) }
   const setOtherAnswer = (questionText: string, text: string) => { setOtherInputs(prev => ({ ...prev, [questionText]: text })); if (text.trim()) { setSelectedAnswers(prev => ({ ...prev, [questionText]: text.trim() })) } else { setSelectedAnswers(prev => { const n = { ...prev }; delete n[questionText]; return n }) } }
   const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; await api.post(`/api/tasks/${selectedTask.id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
   const sendingRef = useRef(false)
-  const sendChatMessage = async () => {
-    if (!selectedTask || !chatInput.trim() || sendingRef.current) return
-    sendingRef.current = true
-    const content = chatInput.trim(); setChatInput('')
-    sendEvent(FrontendEvent.TASK_MESSAGE_SUBMITTED, {
-      length_bucket: lengthBucket(content.length),
-      task_status_at_send: selectedTask.status,
-      is_first_message_for_task: !conversationItems.some(c => c.type === 'user_message'),
+  const sendChatMessage = () =>
+    sendChatMessageHandler({
+      api, selectedTask, chatInput, profileId: selectedProfileId,
+      conversationItems, sendingRef,
+      setChatInput, setAgentMessages, setConversationItems, setSelectedTask, setTasks,
     })
-    // Optimistic add to both agentMessages (debug) and conversationItems
-    setAgentMessages(prev => [...prev, { role: 'user', content }])
-    setConversationItems(prev => [...prev, {
-      id: `user-opt-${Date.now()}`,
-      type: 'user_message',
-      timestamp: new Date().toISOString(),
-      message: { role: 'user', content },
-    }])
-    try {
-      const response = await api.post(`/api/tasks/${selectedTask.id}/messages`, { content, profile_id: selectedProfileId })
-      if (response.woken) {
-        setSelectedTask(prev => prev ? { ...prev, status: 'queued' } : prev)
-        setTasks(prev => prev.map(t2 => t2.id === selectedTask.id ? { ...t2, status: 'queued' } : t2))
-      }
-      if (response.profile_switched) {
-        setSelectedTask(prev => prev ? { ...prev, ai_profile_id: selectedProfileId } : prev)
-      }
-    } catch (err) { console.error('Failed to send message:', err) } finally { sendingRef.current = false }
-  }
 
   // ─── Profile helpers ───────────────────────────────
   const createProfile = async (profile: Omit<Profile, 'id'>) => { const newProfile = await api.post('/api/profiles', profile); setProfiles(prev => [...prev, newProfile]); return newProfile }
@@ -649,8 +612,17 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen bg-gray-100 text-gray-900">
+    <div className="flex h-dvh bg-gray-100 text-gray-900">
+      {/* Mobile drawer scrim — tap to close the slide-in sidebar. */}
+      {isMobile && navOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40"
+          onClick={() => setNavOpen(false)}
+          aria-hidden
+        />
+      )}
       <Sidebar
+        isMobile={isMobile} navOpen={navOpen} closeNav={() => setNavOpen(false)}
         currentUser={currentUser} appView={appView} setAppView={setAppView} handleLogout={handleLogout} authRequired={authRequired}
         stores={stores} selectedStore={selectedStore} showAllTasks={showAllTasks}
         selectStore={selectStore} selectAllTasks={selectAllTasks}
@@ -684,6 +656,7 @@ export default function App() {
       {/* Main content area */}
       {appView === 'tasks' ? (
         <TasksView
+          isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
           tasks={tasks} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
@@ -711,9 +684,12 @@ export default function App() {
           stores={stores}
         />
       ) : appView === 'workspace' ? (
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0">
           {/* Mode toggle header */}
-          <div className="px-4 py-2.5 bg-white border-b border-gray-100 flex justify-end">
+          <div className="px-4 py-2.5 bg-white border-b border-gray-100 flex items-center justify-end gap-2">
+            {isMobile && (
+              <MobileMenuButton onClick={() => setNavOpen(true)} label={t('common.menu', 'Menu')} className="mr-auto -ml-1" />
+            )}
             <div className="inline-flex rounded-lg border border-gray-200 p-1 gap-1">
               <button
                 onClick={() => setWsAssistantActive(false)}
@@ -724,7 +700,7 @@ export default function App() {
               </button>
               <button
                 onClick={() => setWsAssistantActive(true)}
-                className={`px-4 py-1.5 rounded-md transition-colors flex flex-col items-center ${wsAssistantActive ? 'bg-blue-50 text-blue-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
+                className={`px-4 py-1.5 rounded-md transition-colors flex flex-col items-center ${wsAssistantActive ? 'bg-indigo-50 text-indigo-600' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'}`}
               >
                 <span className="text-sm font-medium">{t('workspace.modeAI')}</span>
                 <span className="text-[10px] opacity-60">{t('workspace.modeAISub')}</span>
@@ -752,6 +728,13 @@ export default function App() {
           )}
         </div>
       ) : (
+        <div className="flex-1 flex flex-col min-w-0">
+        {isMobile && (
+          <div className="px-3 py-2 bg-white border-b border-gray-200 flex items-center">
+            <MobileMenuButton onClick={() => setNavOpen(true)} label={t('common.menu', 'Menu')} className="-ml-1" />
+            <span className="ml-1 font-semibold text-gray-800">{t('settings.title')}</span>
+          </div>
+        )}
         <SettingsView
           currentUser={currentUser} settingsTab={settingsTab} setSettingsTab={setSettingsTab}
           allUsers={allUsers} showAddUser={showAddUser} setShowAddUser={setShowAddUser}
@@ -762,6 +745,7 @@ export default function App() {
           stores={stores} loadStores={loadStores}
           authRequired={authRequired} setAuthRequired={setAuthRequired} loadUsers={loadUsers}
         />
+        </div>
       )}
 
       {/* Modals */}
