@@ -111,6 +111,14 @@ read it in-page before filling; do not assume.
   check the template's `valid values` / the live **Sizes tab** for the
   noon size names. This is noon's **new** variation style — always use it
   for new listings.
+  ⚠️ **NIS has no Arabic-size column — only `size_variation` (Seller Size
+  EN) and `size_map` (noon Size).** So after a NIS create the sized
+  product's **Seller Size (AR)** — a `*`-mandatory field on the Sizes tab
+  — shows `--` (empty), and the family is bound but not content-complete.
+  Fill the Arabic seller size per row on the live **Sizes tab** (edit each
+  size) after import. Verified live: a parent + S/M/L children imported
+  correctly (one parent hash, children `-1/-2/-3`, all shown bound on the
+  Sizes tab) but with `Seller Size (AR) = --` until filled by hand.
 - **Upload flow (filled NIS sheet):** Imports → Add Import → Type=Content,
   Subtype=NIS Create/Update → **Next** → drag/drop or pick the `.xlsx`
   (the hidden `input[type=file]` accepts `.csv,.xlsx`) → **Submit**. The
