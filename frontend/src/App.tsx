@@ -191,6 +191,41 @@ export default function App() {
 
   const { updateCheck, dismissUpdateCheck } = useUpdateCheck(currentUser)
 
+  // ─── Mobile back-button integration ─────────────────
+  // On phones the layout is a drill-down stack (nav drawer → task list
+  // → task detail). Without this, the device/browser Back button leaves
+  // the site entirely. We add exactly one history entry whenever a
+  // "sub-screen" is open (drawer, or a selected task/schedule) and pop
+  // the top-most one on `popstate`, so Back means "up one level".
+  const mobileSubOpen =
+    isMobile && (navOpen || !!selectedTask || !!selectedSchedule)
+  const historyPushedRef = useRef(false)
+  useEffect(() => {
+    if (!isMobile) return
+    if (mobileSubOpen && !historyPushedRef.current) {
+      historyPushedRef.current = true
+      window.history.pushState({ vsSub: true }, '')
+    } else if (!mobileSubOpen && historyPushedRef.current) {
+      // Closed via in-app UI (the ← bar / scrim): drop our history
+      // entry so the next Back leaves the app as the user expects.
+      historyPushedRef.current = false
+      window.history.back()
+    }
+  }, [isMobile, mobileSubOpen])
+  useEffect(() => {
+    const onPop = () => {
+      if (!historyPushedRef.current) return
+      historyPushedRef.current = false
+      // Close only the top-most level. If a lower level is still open
+      // the push effect re-adds an entry for it, so each Back peels one.
+      if (navOpen) setNavOpen(false)
+      else if (selectedTask) setSelectedTask(null)
+      else if (selectedSchedule) setSelectedSchedule(null)
+    }
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [navOpen, selectedTask, selectedSchedule])
+
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
   const userActedRef = useRef(false)  // Login default-select guard: flips true on any manual selectStore/selectAllTasks. A plain state ref wouldn't distinguish "clicked All Stores" from initial state (same values).
