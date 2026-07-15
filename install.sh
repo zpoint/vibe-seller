@@ -29,6 +29,7 @@ set -euo pipefail
 DEV=false
 CHECK_ONLY=false
 HELP=false
+PRINT_PATH=false
 TEST_PYPI=false
 VERSION=""
 # `while + shift` so we can take an argument after --version. Other
@@ -37,6 +38,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --dev)         DEV=true ;;
         --check-only)  CHECK_ONLY=true; DEV=true ;;  # check-only is dev-only
+        --print-path)  PRINT_PATH=true ;;  # emit the tool PATH, for start.sh
         --test-pypi)   TEST_PYPI=true ;;
         --version)     VERSION="${2:-}"; shift ;;
         --version=*)   VERSION="${1#*=}" ;;
@@ -125,6 +127,39 @@ _success() { printf "%s[ok]%s %s\n" "$_G" "$_Z" "$*"; }
 _warn()    { printf "%s[!]%s %s\n" "$_Y" "$_Z" "$*" >&2; }
 _error()   { printf "%s[error]%s %s\n" "$_R" "$_Z" "$*" >&2; }
 _check()   { command -v "$1" > /dev/null 2>&1; }
+
+# Canonical set of user-local bin dirs where our installers drop
+# binaries: uv → ~/.local/bin or ~/.cargo/bin; node/pnpm → the npm
+# prefix's bin. Prints a PATH value with these prepended.
+#
+# SINGLE SOURCE OF TRUTH: main()'s dependency checks AND start.sh (via
+# `install.sh --print-path`) prepend the *same* dirs. Without this, a
+# passing `--check-only` would not guarantee the tools are runnable
+# where they are used — install.sh finds uv only because it bootstraps
+# this PATH internally, and that export dies with the subprocess, so a
+# login shell (or start.sh) that lacks ~/.local/bin can't run uv.
+_compute_bootstrap_path() {
+    local p="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+    # Only probe npm's prefix if npm resolves under the augmented PATH.
+    # A command substitution of a missing command exits 127, which
+    # `2>/dev/null` silences but does NOT neutralize under `set -e`;
+    # guarding with the `if` keeps a missing npm a no-op.
+    local npm_bin=''
+    if PATH="$p" command -v npm >/dev/null 2>&1; then
+        npm_bin="$(PATH="$p" npm config get prefix 2>/dev/null || true)/bin"
+    fi
+    if [[ -n "$npm_bin" && -d "$npm_bin" && ":$p:" != *":$npm_bin:"* ]]; then
+        p="$npm_bin:$p"
+    fi
+    printf '%s' "$p"
+}
+
+# `--print-path` is a pure query used by start.sh: emit the tool PATH
+# and exit before any install side effect (no clone, no sudo, no deps).
+if [[ "$PRINT_PATH" == true ]]; then
+    _compute_bootstrap_path
+    exit 0
+fi
 
 # -- Platform detection --
 OS="unknown"
@@ -283,6 +318,10 @@ Other flags:
                     Combine with --test-pypi to test a release candidate.
   --check-only      Check dev-mode dependencies without installing.
                     Used by start.sh during local development.
+  --print-path      Print the PATH (user-local tool dirs prepended)
+                    and exit, without installing anything. start.sh
+                    uses this so it resolves uv/pnpm exactly as the
+                    dependency check did.
   --help, -h        Show this help.
 EOF
 }
@@ -761,24 +800,12 @@ main() {
         require_sudo
     fi
 
-    # Bootstrap PATH with common user-local binary dirs so check_* functions
-    # find tools installed by previous runs even in non-interactive shells
-    # (e.g. SSH sessions, WSL launched from Windows, CI runners).
-    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
-    # npm may not exist yet on a fresh machine — the DEPS loop below is
-    # what installs node/npm. Only probe npm's prefix if npm is present:
-    # a command substitution of a missing command exits 127, which
-    # `2>/dev/null` silences but does NOT neutralize, so under `set -e`
-    # the bare assignment aborts the whole installer (observed as an
-    # instant exit 127 right after the platform check on a clean macOS).
-    # This block is best-effort PATH sugar; a missing npm must be a no-op.
-    local _npm_bin=""
-    if _check npm; then
-        _npm_bin="$(npm config get prefix 2>/dev/null || true)/bin"
-    fi
-    if [[ -n "$_npm_bin" && -d "$_npm_bin" && ":$PATH:" != *":$_npm_bin:"* ]]; then
-        export PATH="$_npm_bin:$PATH"
-    fi
+    # Bootstrap PATH with common user-local binary dirs so check_*
+    # functions find tools installed by previous runs even in
+    # non-interactive shells (SSH sessions, WSL launched from Windows,
+    # CI runners). start.sh applies the IDENTICAL set via `--print-path`
+    # so a passing check guarantees the tools are runnable there too.
+    export PATH="$(_compute_bootstrap_path)"
     # In GitHub Actions, PATH exports inside a script don't persist to
     # subsequent steps. When we find tools via the bootstrap above and skip
     # their installers (which would normally write to $GITHUB_PATH), register
@@ -786,7 +813,11 @@ main() {
     if [[ -n "${GITHUB_PATH:-}" ]]; then
         echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-        [[ -d "$_npm_bin" ]] && echo "$_npm_bin" >> "$GITHUB_PATH"
+        local _npm_bin=""
+        if _check npm; then
+            _npm_bin="$(npm config get prefix 2>/dev/null || true)/bin"
+        fi
+        [[ -n "$_npm_bin" && -d "$_npm_bin" ]] && echo "$_npm_bin" >> "$GITHUB_PATH"
     fi
 
     # Required dependencies

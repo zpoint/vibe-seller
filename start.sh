@@ -19,6 +19,18 @@ fi
 _info()  { printf "%s==>%s %s%s\n" "$_B$_W" "$_Z$_W" "$*" "$_Z"; }
 _error() { printf "%sError%s: %s\n" "$_R$_W" "$_Z" "$*" >&2; }
 
+# -- Make installed tools resolvable in THIS shell --
+# install.sh drops uv in ~/.local/bin (and node/pnpm under the npm
+# prefix); a login shell may not have those dirs on PATH, so `uv` would
+# be missing even though the dependency check below — which bootstraps
+# the same dirs internally — passes. Ask the installer for its canonical
+# PATH so the check-context and the run-context are identical. Without
+# this, `env … uv run …` at launch fails with "env: uv: No such file".
+if _bootstrap_path="$("$SCRIPT_DIR/install.sh" --print-path 2>/dev/null)" \
+        && [ -n "$_bootstrap_path" ]; then
+    export PATH="$_bootstrap_path"
+fi
+
 # -- Prerequisite checks (delegates to install.sh) --
 if ! "$SCRIPT_DIR/install.sh" --check-only; then
     echo "" >&2
