@@ -1,5 +1,6 @@
 """Tests for app.email.db — per-account SQLite email storage."""
 
+from datetime import datetime
 import json
 import sqlite3
 
@@ -7,6 +8,7 @@ import pytest
 
 from app.email.db import (
     db_path_for_account,
+    get_new_emails_since,
     get_sync_state,
     init_email_db,
     search_emails,
@@ -61,6 +63,11 @@ class TestInitEmailDb:
         assert 'idx_emails_sender' in indexes
         assert 'idx_emails_date' in indexes
         assert 'idx_emails_folder' in indexes
+        assert 'idx_emails_recv' in indexes
+
+        # received_epoch column exists (epoch axis for the watermark).
+        cols = {r[1] for r in conn.execute('PRAGMA table_info(emails)')}
+        assert 'received_epoch' in cols
         conn.close()
 
     def test_idempotent(self, account_id):
@@ -160,6 +167,108 @@ class TestStoreEmails:
         assert row is not None
         parsed = json.loads(row[0])
         assert parsed[0]['filename'] == 'doc.pdf'
+
+
+class TestReceivedEpochWatermark:
+    """The epoch axis that makes the watermark filter type-safe.
+
+    Regression guard for the e2e watermark leak: the agent filtered
+    ``WHERE date > <epoch>`` on the TEXT ``date`` column, and SQLite
+    treats every TEXT value as greater than any INTEGER, so the filter
+    matched every row and re-leaked an already-processed email. The
+    fix is a real INTEGER ``received_epoch`` column; these tests pin
+    both that it works AND why ``date`` cannot be used for it.
+    """
+
+    OLD = '2025-01-01T00:00:00+00:00'
+    NEW = '2025-06-01T00:00:00+00:00'
+
+    def _seed(self, account_id):
+        store_emails(
+            account_id,
+            [
+                {
+                    'message_id': '<old@ex.com>',
+                    'folder': 'INBOX',
+                    'subject': 'old',
+                    'date': self.OLD,
+                    'fetched_at': self.OLD,
+                    'body_text': 'SECRET_OLD',
+                },
+                {
+                    'message_id': '<new@ex.com>',
+                    'folder': 'INBOX',
+                    'subject': 'new',
+                    'date': self.NEW,
+                    'fetched_at': self.NEW,
+                    'body_text': 'SECRET_NEW',
+                },
+            ],
+        )
+
+    def test_received_epoch_populated(self, account_id, initialized_db):
+        self._seed(account_id)
+        conn = sqlite3.connect(str(db_path_for_account(account_id)))
+        rows = dict(
+            conn.execute(
+                'SELECT message_id, received_epoch FROM emails'
+            ).fetchall()
+        )
+        conn.close()
+        assert rows['<old@ex.com>'] == int(
+            datetime.fromisoformat(self.OLD).timestamp()
+        )
+        assert rows['<new@ex.com>'] == int(
+            datetime.fromisoformat(self.NEW).timestamp()
+        )
+
+    def test_get_new_emails_since_excludes_pre_watermark(
+        self, account_id, initialized_db
+    ):
+        self._seed(account_id)
+        cursor = int(datetime.fromisoformat(self.OLD).timestamp())
+        emails, max_epoch = get_new_emails_since(account_id, cursor)
+        ids = {e['message_id'] for e in emails}
+        assert ids == {'<new@ex.com>'}  # old one (== cursor) excluded
+        assert max_epoch == int(datetime.fromisoformat(self.NEW).timestamp())
+
+    def test_date_column_is_the_footgun(self, account_id, initialized_db):
+        """`WHERE date > <epoch>` matches EVERY row (the leak); the same
+        comparison on received_epoch filters correctly."""
+        self._seed(account_id)
+        cursor = int(datetime.fromisoformat(self.OLD).timestamp())
+        conn = sqlite3.connect(str(db_path_for_account(account_id)))
+        try:
+            leaked = conn.execute(
+                'SELECT COUNT(*) FROM emails WHERE date > ?', (cursor,)
+            ).fetchone()[0]
+            correct = conn.execute(
+                'SELECT COUNT(*) FROM emails WHERE received_epoch > ?',
+                (cursor,),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        assert leaked == 2  # TEXT > INTEGER is always true → leaks all
+        assert correct == 1  # integer axis excludes the pre-watermark row
+
+    def test_migration_backfills_legacy_null(self, account_id, initialized_db):
+        """A row with received_epoch NULL (as in a pre-migration DB) is
+        backfilled by init_email_db and then filters correctly."""
+        self._seed(account_id)
+        path = db_path_for_account(account_id)
+        conn = sqlite3.connect(str(path))
+        conn.execute('UPDATE emails SET received_epoch = NULL')
+        conn.commit()
+        conn.close()
+
+        init_email_db(account_id)  # re-init backfills
+
+        conn = sqlite3.connect(str(path))
+        nulls = conn.execute(
+            'SELECT COUNT(*) FROM emails WHERE received_epoch IS NULL'
+        ).fetchone()[0]
+        conn.close()
+        assert nulls == 0
 
 
 class TestSyncState:

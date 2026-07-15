@@ -505,7 +505,20 @@ async def email_info_by_store(
             'emails(message_id, folder, subject, sender, '
             'recipient, date, body_text, body_html, '
             'raw_headers, attachments, flags, fetched_at, '
-            'email_account)'
+            'email_account, received_epoch)'
+        ),
+        # date vs received_epoch is the footgun that leaked a run's
+        # already-processed email (tests/e2e/test_email_watermark_e2e.py):
+        # `date` is a human ISO string, the watermark is unix seconds, and
+        # SQLite treats every TEXT value as greater than any INTEGER — so
+        # `WHERE date > <watermark>` matches EVERY row and silently leaks.
+        'column_notes': (
+            '`date` = sender-supplied ISO string, for DISPLAY only. Never '
+            'compare it with >/< against the epoch watermark. For any '
+            '"since <time>" filter use `received_epoch` (unix seconds, '
+            'arrival axis) — that is the axis the email_watermark cursor '
+            'is measured in, so `received_epoch > <cursor>` is a correct '
+            'INTEGER compare.'
         ),
         # Metadata-only samples (subject/sender/date — never body_text
         # or SELECT *). For a "new since last run" sweep, do NOT widen
@@ -516,18 +529,20 @@ async def email_info_by_store(
         'sample_queries': [
             'sqlite3 <db_path> "SELECT subject, sender, '
             "date FROM emails WHERE folder='INBOX' "
-            'ORDER BY date DESC LIMIT 20"',
-            'sqlite3 <db_path> "SELECT subject, recipient, '
-            "date FROM emails WHERE folder='Sent' "
-            'ORDER BY date DESC LIMIT 10"',
+            'ORDER BY received_epoch DESC LIMIT 20"',
             'sqlite3 <db_path> "SELECT subject, sender, date '
             "FROM emails WHERE subject LIKE '%keyword%'\"",
+            # Time window: compare received_epoch (INTEGER), never date.
+            'sqlite3 <db_path> "SELECT subject, sender, date FROM '
+            'emails WHERE received_epoch > <watermark_epoch> '
+            'ORDER BY received_epoch ASC"',
         ],
         'watermark_note': (
             'For a scheduled "new emails since the last run" sweep, do '
             'NOT query here — call vibe_seller_get_new_emails. It reads '
             'the email_watermark cursor and filters server-side, so '
-            'already-processed emails never enter your context.'
+            'already-processed emails never enter your context. If you '
+            'do query raw, filter on received_epoch (NOT date).'
         ),
         'sync_interval': '5 minutes (automatic)',
     }

@@ -30,11 +30,19 @@ CREATE TABLE IF NOT EXISTS emails (
     flags         TEXT,
     fetched_at    TEXT,
     email_account TEXT,
+    -- Arrival time as unix seconds (epoch of COALESCE(fetched_at,
+    -- date)). This is the axis the email_watermark cursor is measured
+    -- in, so a "new since last run" filter is `received_epoch > cursor`
+    -- — an INTEGER vs INTEGER compare. The `date` column above is a
+    -- human ISO string; comparing it (TEXT) against the epoch cursor is
+    -- silently always-true in SQLite and leaks every row.
+    received_epoch INTEGER,
     PRIMARY KEY (message_id, folder)
 );
 CREATE INDEX IF NOT EXISTS idx_emails_sender ON emails(sender);
 CREATE INDEX IF NOT EXISTS idx_emails_date   ON emails(date);
 CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder);
+CREATE INDEX IF NOT EXISTS idx_emails_recv   ON emails(received_epoch);
 
 CREATE TABLE IF NOT EXISTS sync_state (
     folder            TEXT PRIMARY KEY,
@@ -74,6 +82,24 @@ def init_email_db(account_id: str) -> Path:
     try:
         conn.execute('PRAGMA journal_mode=WAL')
         conn.executescript(_SCHEMA_SQL)
+        # Migrate DBs created before received_epoch existed: add the
+        # column + index, then backfill from the same axis the sweep
+        # filter uses. Idempotent — ADD COLUMN throws once the column
+        # exists, so we probe pragma first.
+        cols = {
+            r[1] for r in conn.execute('PRAGMA table_info(emails)').fetchall()
+        }
+        if 'received_epoch' not in cols:
+            conn.execute('ALTER TABLE emails ADD COLUMN received_epoch INTEGER')
+            conn.execute(
+                'CREATE INDEX IF NOT EXISTS idx_emails_recv '
+                'ON emails(received_epoch)'
+            )
+        conn.execute(
+            'UPDATE emails SET received_epoch = '
+            "CAST(strftime('%s', COALESCE(fetched_at, date)) AS INTEGER) "
+            'WHERE received_epoch IS NULL'
+        )
         conn.commit()
     finally:
         conn.close()
@@ -93,29 +119,34 @@ def store_emails(account_id: str, emails: list[dict]) -> int:
     new_count = 0
     try:
         for em in emails:
+            fetched_at = em.get('fetched_at', datetime.now(UTC).isoformat())
+            date = em.get('date')
             cur = conn.execute(
                 'INSERT OR IGNORE INTO emails '
                 '(message_id, folder, subject, sender, recipient,'
                 ' date, body_text, body_html, raw_headers,'
-                ' attachments, flags, fetched_at, email_account)'
-                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                ' attachments, flags, fetched_at, email_account,'
+                ' received_epoch)'
+                ' VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'
+                "CAST(strftime('%s', COALESCE(?, ?)) AS INTEGER))",
                 (
                     em.get('message_id', ''),
                     em.get('folder', 'INBOX'),
                     em.get('subject'),
                     em.get('sender'),
                     em.get('recipient'),
-                    em.get('date'),
+                    date,
                     em.get('body_text'),
                     em.get('body_html'),
                     em.get('raw_headers'),
                     em.get('attachments'),
                     em.get('flags'),
-                    em.get(
-                        'fetched_at',
-                        datetime.now(UTC).isoformat(),
-                    ),
+                    fetched_at,
                     em.get('email_account'),
+                    # received_epoch axis: arrival time, sender date
+                    # fallback — identical to get_new_emails_since.
+                    fetched_at,
+                    date,
                 ),
             )
             new_count += cur.rowcount
@@ -169,9 +200,14 @@ def get_new_emails_since(
     if not path.exists():
         return [], since_epoch
 
-    # Fetch-time cursor: filter + order + returned epoch all key off
-    # COALESCE(fetched_at, date) so the axis is consistent end to end.
-    epoch_expr = "CAST(strftime('%s', COALESCE(fetched_at, date)) AS INTEGER)"
+    # Fetch-time cursor: filter + order + returned epoch all key off the
+    # stored received_epoch column (arrival axis), so a raw agent query
+    # of `received_epoch > cursor` returns exactly what this tool does.
+    # COALESCE guards any legacy row not yet backfilled by init_email_db.
+    epoch_expr = (
+        'COALESCE(received_epoch, '
+        "CAST(strftime('%s', COALESCE(fetched_at, date)) AS INTEGER))"
+    )
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     try:

@@ -3,6 +3,9 @@
 import asyncio
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+import json
+from pathlib import Path
+import re
 import shutil
 import uuid
 
@@ -384,6 +387,68 @@ def mock_workspace(monkeypatch, tmp_path):
             if slug.startswith('_'):
                 raise ValueError('Cannot delete built-in skills')
             shutil.rmtree(d)
+
+        def _synced(self):
+            meta = self.root / '.claude' / 'skills' / '.sync_meta.json'
+            if meta.exists():
+                return set(
+                    json.loads(meta.read_text()).get('synced_skills', [])
+                )
+            return set()
+
+        async def list_skills(self):
+            skills_dir = self.root / '.claude' / 'skills'
+            if not skills_dir.is_dir():
+                return []
+            synced = self._synced()
+            out = []
+            for p in sorted(skills_dir.iterdir()):
+                if not p.is_dir() or p.name.startswith('.'):
+                    continue
+                source = 'builtin' if p.name in synced else 'custom'
+                name, desc = p.name, ''
+                md = p / 'SKILL.md'
+                if md.is_file():
+                    for line in md.read_text().splitlines():
+                        m = re.match(r'(name|description):\s*(.*)', line)
+                        if m and m.group(1) == 'name':
+                            name = m.group(2).strip() or p.name
+                        elif m:
+                            desc = m.group(2).strip().strip('"')
+                out.append({
+                    'slug': p.name,
+                    'name': name,
+                    'description': desc,
+                    'source': source,
+                    'updatable': source in ('custom', 'imported'),
+                })
+            return out
+
+        async def save_skill(self, slug, skill_md, files=None):
+            if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug or ''):
+                raise ValueError(f'Invalid skill slug: {slug!r}')
+            if slug in self._synced():
+                raise ValueError(f'{slug!r} is a built-in skill')
+            d = self.root / '.claude' / 'skills' / slug
+            existed = d.is_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            (d / 'SKILL.md').write_text(skill_md)
+            for rel, content in (files or {}).items():
+                pp = Path(rel)
+                if (
+                    pp.is_absolute()
+                    or not pp.parts
+                    or '..' in pp.parts
+                    or pp.name == 'SKILL.md'
+                ):
+                    raise ValueError(f'Invalid skill file path: {rel!r}')
+                (d / pp).parent.mkdir(parents=True, exist_ok=True)
+                (d / pp).write_text(content)
+            return {
+                'slug': slug,
+                'path': f'.claude/skills/{slug}',
+                'action': 'updated' if existed else 'created',
+            }
 
         async def create_store_profile(
             self,

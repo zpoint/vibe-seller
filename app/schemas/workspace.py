@@ -16,6 +16,13 @@ class SkillCreateRequest(BaseModel):
     origin_url: str = ''
 
 
+class SkillSaveRequest(BaseModel):
+    """Upsert a user-space skill: full SKILL.md + optional bundles."""
+
+    skill_md: str
+    files: dict[str, str] = {}
+
+
 class StoreProfileCreateRequest(BaseModel):
     slug: str
     name: str

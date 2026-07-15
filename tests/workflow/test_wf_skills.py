@@ -129,3 +129,61 @@ class TestSkillCRUD:
     async def test_delete_nonexistent(self, admin_client):
         r = await admin_client.delete('/api/workspace/skills/no-such-skill')
         assert r.status_code == 404
+
+
+class TestSaveSkillEndpoints:
+    """Contract for the save-skill flow: GET /skills + PUT /skills/{slug}."""
+
+    SKILL_MD = (
+        '---\nname: WF Save Test\n'
+        'description: "Contract-test skill. Use when running the '
+        'save-skill workflow test."\n---\n\n# WF Save Test\n\nBody.\n'
+    )
+
+    async def test_list_skills_shape(self, admin_client):
+        r = await admin_client.get('/api/workspace/skills')
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        for s in data:
+            assert set(s) == {
+                'slug',
+                'name',
+                'description',
+                'source',
+                'updatable',
+            }
+
+    async def test_create_then_extend_same_slug(self, admin_client):
+        # Create
+        r = await admin_client.put(
+            '/api/workspace/skills/wf-save-test',
+            json={'skill_md': self.SKILL_MD},
+        )
+        assert r.status_code == 200
+        assert r.json()['action'] == 'created'
+
+        # Now it shows up as an updatable custom skill.
+        listing = (await admin_client.get('/api/workspace/skills')).json()
+        entry = next(s for s in listing if s['slug'] == 'wf-save-test')
+        assert entry['updatable'] is True
+        assert entry['source'] == 'custom'
+
+        # Extend (same slug → updated, not a duplicate)
+        r = await admin_client.put(
+            '/api/workspace/skills/wf-save-test',
+            json={'skill_md': self.SKILL_MD + '\n## More\n'},
+        )
+        assert r.status_code == 200
+        assert r.json()['action'] == 'updated'
+
+        listing = (await admin_client.get('/api/workspace/skills')).json()
+        slugs = [s['slug'] for s in listing]
+        assert slugs.count('wf-save-test') == 1
+
+    async def test_invalid_slug_is_400(self, admin_client):
+        r = await admin_client.put(
+            '/api/workspace/skills/Bad Slug',
+            json={'skill_md': self.SKILL_MD},
+        )
+        assert r.status_code == 400
