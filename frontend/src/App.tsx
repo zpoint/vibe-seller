@@ -54,6 +54,12 @@ export default function App() {
   const [showAllTasks, setShowAllTasks] = useState(true)
   const [tasks, setTasks] = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(false)
+  // Key ('<store_id>' or '__none__') of the task-list fetch currently
+  // in flight. Stamped when a store/all-stores view is selected; the
+  // response and its loading toggle are dropped if the ref has since
+  // changed, so a slow response for the previous store can't clobber
+  // the newly-selected store's list (stale-response-wins race).
+  const inFlightTasksKeyRef = useRef<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [screenshots, setScreenshots] = useState<Record<string, string>>({})
@@ -368,14 +374,26 @@ export default function App() {
     setNavOpen(false)
     userActedRef.current = true; setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
-    try { setTasks(await api.get(`/api/tasks?store_id=${store.id}`)) } finally { setTasksLoading(false) }
+    inFlightTasksKeyRef.current = store.id
+    try {
+      const data = await api.get(`/api/tasks?store_id=${store.id}`)
+      if (inFlightTasksKeyRef.current === store.id) setTasks(data)
+    } finally {
+      if (inFlightTasksKeyRef.current === store.id) setTasksLoading(false)
+    }
     loadSchedules()
   }
   const selectAllTasks = async () => {
     setNavOpen(false)
     userActedRef.current = true; setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
-    try { setTasks(await api.get('/api/tasks?store_id=__none__')) } finally { setTasksLoading(false) }
+    inFlightTasksKeyRef.current = '__none__'
+    try {
+      const data = await api.get('/api/tasks?store_id=__none__')
+      if (inFlightTasksKeyRef.current === '__none__') setTasks(data)
+    } finally {
+      if (inFlightTasksKeyRef.current === '__none__') setTasksLoading(false)
+    }
     loadSchedules()
   }
 
