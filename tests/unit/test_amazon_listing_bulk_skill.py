@@ -886,27 +886,21 @@ def _make_unified_template(path):
     row7[0] = "We've prefilled attributes. Please do not delete this row."
     ws.append(row7)
 
+    # Unified Data Definitions has NO 'Definition and Use' column, so
+    # 'Required?' sits at col 6 (index 5), not col 7 — the tool must find
+    # it by header name, not a fixed index.
     dd = wb.create_sheet(listing_bulk.DEFN_SHEET)
     dd.append(['How to complete your inventory template'])
     dd.append([
         'Group Name',
         'Field Name',
         'Local Label Name',
-        'Definition and Use',
         'Accepted Values',
         'Example',
         'Required?',
     ])
     for f in _UNI_FIELDS:
-        dd.append([
-            '',
-            f,
-            f,
-            '',
-            '',
-            '',
-            'Required' if f in _UNI_REQUIRED else '',
-        ])
+        dd.append(['', f, f, '', '', 'Required' if f in _UNI_REQUIRED else ''])
 
     dl = wb.create_sheet(listing_bulk.DROPDOWN_SHEET)
     dl.append([])
@@ -957,6 +951,9 @@ def test_unified_header_and_dialect_detected(unified_template):
     assert schema.field('brand') == _UNI_BRAND
     assert schema.field('product_id') == _UNI_ID_VALUE
     assert schema.field('product_id_type') == _UNI_ID_TYPE
+    # Required fields are parsed from the unified DD (6-col layout,
+    # 'Required?' located by header name, not a fixed index).
+    assert listing_bulk._load_required_fields(wb) == _UNI_REQUIRED
 
 
 def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(

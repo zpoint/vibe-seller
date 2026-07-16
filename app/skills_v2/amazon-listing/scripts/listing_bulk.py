@@ -455,6 +455,16 @@ def cmd_fill(args):
             f'{sorted(unknown_fields)}',
             file=sys.stderr,
         )
+    # The browser (Ziniao/macOS) can't read /tmp, so uploading a /tmp file
+    # silently no-ops (Submit never enables). Nudge the caller to write
+    # under the store downloads dir instead.
+    if os.path.realpath(txt_path).startswith(('/tmp/', '/private/tmp/')):
+        print(
+            f'warning: {txt_path} is under /tmp -- the browser cannot read '
+            'it and the upload will silently fail. Write --out under '
+            '~/.vibe-seller/downloads/<slug>/ instead.',
+            file=sys.stderr,
+        )
     print(f'wrote {len(rows)} data row(s) -> {args.out}')
     print(
         f'UPLOAD THIS (tab-delimited) -> {txt_path}  '

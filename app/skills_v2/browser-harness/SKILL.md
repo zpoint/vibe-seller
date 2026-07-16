@@ -194,6 +194,15 @@ PY
 
 ## Uploading a file to a web `<input type=file>`
 
+> **The file must live in a path the BROWSER can read — NOT `/tmp`.**
+> `setFileInputFiles` reads the file from disk *in the browser process*.
+> Ziniao's Chrome (macOS-sandboxed) cannot read `/tmp`, so a `/tmp` path
+> **silently no-ops** — `files.length` stays 0 and Submit never enables,
+> with no error. Put the file in the store's downloads dir
+> (`~/.vibe-seller/downloads/<slug>/`, the one path the browser is
+> guaranteed to read) and pass that absolute path. This alone was the
+> cause of "the upload widget won't accept my file" — not the widget.
+
 There is **no native upload helper**. Never coordinate-click the visible
 "Browse"/"Upload file" button expecting to then drive the OS file picker
 (you can't). Attach the file via CDP. **`cdp()` takes keyword args, NOT a

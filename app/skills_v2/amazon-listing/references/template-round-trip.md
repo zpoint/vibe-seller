@@ -297,7 +297,10 @@ new `parent_sku` / `variation_theme` (or clear `parent_sku` and set
 > delete task is independent and must discover SKUs from the account.
 
 ```bash
-$PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json --out /tmp/<slug>/out.xlsm
+# Write under the store DOWNLOADS dir, NOT /tmp — the browser must read
+# the .txt to upload it, and Ziniao's Chrome can't read /tmp (§4).
+$PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json \
+    --out ~/.vibe-seller/downloads/<slug>/out.xlsm
 ```
 
 `fill` prints a warning (never fails) for an enum value not in the
@@ -308,95 +311,51 @@ reject on.
 
 ## 4. Upload the `.txt` + read the processing report
 
-**Upload the tab-delimited `.txt` that `fill` wrote, NOT the `.xlsm`.**
-An openpyxl-saved `.xlsm` is rejected with a **90502 FATAL** ("the file
-does not contain a worksheet with a template type that is supported for
-Excel upload") — the re-save alters the macro-workbook structure Amazon
-validates, and its own remedy is to upload a tab-delimited text file.
-The `.txt` reaches real content validation, which is what you want.
+**Upload the `.txt` `fill` wrote, NOT the `.xlsm`** (an openpyxl-saved
+`.xlsm` is rejected 90502 FATAL). Drive the `kat-file-upload` widget with
+the file-chooser recipe in `browser-harness` § "Uploading a file".
 
-On the upload page the file input is a `kat-file-upload` widget. Its
-`shadowRoot input#kat-file-attachment` is an **inert placeholder** — a
-`DOM.setFileInputFiles` on it returns success but leaves `files.length`
-at **0** (verified: objectId, `backendNodeId`, and `getDocument(pierce)`
-all no-op), so DON'T set that node and DON'T click "Browse"/`file://`.
-
-The widget creates its **real** input only when the "Upload file" button
-is clicked with a **trusted** gesture, and hands it to you via
-`Page.fileChooserOpened`. Intercept the chooser, trusted-click the button,
-set the file on that `backendNodeId` (`cdp()` params are keyword args):
+> **The `.txt` MUST be under `~/.vibe-seller/downloads/<slug>/`, never
+> `/tmp`.** `setFileInputFiles` reads the file in the browser process and
+> Ziniao's Chrome can't read `/tmp`, so a `/tmp` path silently no-ops —
+> Submit never enables, which looks like "the widget rejects my file". This
+> was the sole cause of failed child uploads.
 
 ```bash
 browser-use <<'PY'
-import time
-cdp('Page.enable'); cdp('Page.setInterceptFileChooserDialog', enabled=True)
-drain_events()
+import os, time
+F = os.path.expanduser('~/.vibe-seller/downloads/<slug>/out.txt')  # browser-readable
+cdp('Page.enable'); cdp('Page.setInterceptFileChooserDialog', enabled=True); drain_events()
 box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
-            var r=b.getBoundingClientRect();
-            return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};""")
-click_at_xy(box['x'], box['y'])          # TRUSTED click (not JS .click())
-bnid = None
+            var r=b.getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};""")
+click_at_xy(box['x'], box['y'])
+bnid=None
 for _ in range(8):
     time.sleep(0.5)
     for e in drain_events():
-        if 'fileChooserOpened' in str(e.get('method','')): bnid = e['params']['backendNodeId']
+        if 'fileChooserOpened' in str(e.get('method','')): bnid=e['params']['backendNodeId']
     if bnid: break
-cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=['/tmp/<slug>/listing.txt'])
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
 cdp('Page.setInterceptFileChooserDialog', enabled=False)
-print('attached to', bnid)
 PY
 ```
 
-(Generic recipe + the plain-input Method 1: `browser-harness` SKILL.md §
-"Uploading a file".)
-
-> **Submit is a TWO-CLICK flow — the first click only introspects.** On
-> the unified upload page (`/product-search/bulk`) clicking **Submit
-> products** the first time fires `listing/introspect-feed` (file-type
-> auto-detection) — it does NOT create a batch. When it returns, the page
-> shows the green **"File Type: Product Spreadsheet File (Automatically
-> detected)"** banner. You must then click **Submit products AGAIN**; only
-> the second click posts the feed and navigates to
-> `listing/status?reference_id=<batchId>…`. Watching for a batch id after a
-> single click and re-uploading when none appears is the trap that burns a
-> run. Sequence: attach → click Submit → wait for "Automatically detected"
-> → click Submit again → confirm the URL carries `reference_id=`.
->
-> **The red "Sorry! There's a network error. Try again later." banner is a
-> RED HERRING.** It is a stale toast that shows even when
-> `introspect-feed` returned **200** and the file is staged fine (verify
-> the introspect response status / the "Automatically detected" banner
-> instead). Do NOT treat it as an upload failure and do NOT re-upload on
-> it — that just spawns duplicate batches. Likewise the file widget's
-> shadow-root text carries hidden "File upload was unsuccessful" strings
-> even on a good stage — don't trust it; trust the introspect 200 + the
-> detected-file-type banner (`capture_screenshot()` + Read to see them).
-
-After the second click Amazon processes asynchronously; the batch row on
-**Check Upload Status** (`/listing/status`) shows `SKUs successful /
-submitted` and a **Download Processing Summary** link. Save it and parse
-it:
+**Submit is two clicks:** the 1st fires `introspect-feed` (file-type
+detection → green "Product Spreadsheet File (Automatically detected)"); the
+2nd posts the feed (URL gains `reference_id=`). Confirm staging by
+Submit-enabled / the detected banner — the widget's "File upload was
+unsuccessful" shadow text and any red "network error" toast are stale and
+lie. Then read the report (downloaded to the same dir):
 
 ```bash
-$PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-summary.xlsm
+$PY $S/listing_bulk.py parse-feedback ~/.vibe-seller/downloads/<slug>/REPORT.xlsm
 ```
 
-It prints per-SKU `[Error|Warning] sku=… code=…: message`. Fix the
-flagged fields and re-upload.
-
-> **"Parent created, children N/A" (e.g. `1/8`) is a CONTENT rejection of
-> the children — NOT a browser/upload glitch.** If the batch shows a
-> reference id and the parent went live, the file uploaded FINE and
-> reached content validation; the children were rejected on their DATA.
-> **Download the Processing Summary and `parse-feedback` it** to get the
-> exact per-child reason (missing required field, `8560` no-ASIN /
-> GTIN-exempt attributes, offer/marketplace, apparel-size composite), then
-> fix those fields and re-upload the children. Do NOT conclude "the upload
-> widget is broken" and thrash on CDP/file-chooser mechanics — a live run
-> did exactly that for ~40 min and shipped an incomplete family. (A
-> brand-new variation family also often needs a second pass: the parent
-> creates first, the children attach on re-upload — so re-upload the
-> children once with a clean `fill`ed file before assuming a data error.)
+> **"Parent live, children N/A" (e.g. `1/8`) = a CONTENT rejection of the
+> children, not a browser bug** (the file uploaded fine). `parse-feedback`
+> the Processing Summary for the per-child reason and fix those fields; a
+> brand-new family often needs a second pass (parent first, children on
+> re-upload). Don't thrash the upload widget.
 
 > **The status page lists many past batches — download the report from
 > the row whose filename matches THIS upload**, or you'll parse a stale

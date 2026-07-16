@@ -240,19 +240,35 @@ def field_columns(ws, header_row):
 def load_required_fields(wb):
     """Field API names marked Required in the Data Definitions sheet.
 
-    Data Definitions layout: header at Excel row 2, then per-field rows
-    with columns Group Name | Field Name | Local Label | Definition |
-    Accepted Values | Example | Required?.
+    Header at Excel row 2, then per-field rows. The `Field Name` and
+    `Required?` COLUMN POSITIONS differ by dialect (legacy has an extra
+    `Definition and Use` column, so `Required?` is col 6; unified drops it,
+    so it's col 5), so locate both by header name rather than a fixed
+    index. Only an exact `Required` counts -- `Conditionally Required` and
+    `Optional` are not hard requirements.
     """
     if DEFN_SHEET not in wb.sheetnames:
         return set()
     ws = wb[DEFN_SHEET]
     rows = list(ws.iter_rows(values_only=True))
+    if len(rows) < 3:
+        return set()
+    hdr = [str(c).strip().lower() if c is not None else '' for c in rows[1]]
+
+    def col(*needles):
+        for i, h in enumerate(hdr):
+            if any(n in h for n in needles):
+                return i
+        return None
+
+    fn_i, req_i = col('field name'), col('required')
+    if fn_i is None or req_i is None:
+        return set()
     required = set()
     for row in rows[2:]:
-        if not row or len(row) < 7:
+        if not row or len(row) <= max(fn_i, req_i):
             continue
-        field_name, req = row[1], row[6]
+        field_name, req = row[fn_i], row[req_i]
         if field_name and req and str(req).strip().lower() == 'required':
             required.add(str(field_name).strip())
     return required
