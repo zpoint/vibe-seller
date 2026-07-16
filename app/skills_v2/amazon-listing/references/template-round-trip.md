@@ -313,13 +313,9 @@ reject on.
 
 **Upload the `.txt` `fill` wrote, NOT the `.xlsm`** (an openpyxl-saved
 `.xlsm` is rejected 90502 FATAL). Drive the `kat-file-upload` widget with
-the file-chooser recipe in `browser-harness` § "Uploading a file".
-
-> **The `.txt` MUST be under `~/.vibe-seller/downloads/<slug>/`, never
-> `/tmp`.** `setFileInputFiles` reads the file in the browser process and
-> Ziniao's Chrome can't read `/tmp`, so a `/tmp` path silently no-ops —
-> Submit never enables, which looks like "the widget rejects my file". This
-> was the sole cause of failed child uploads.
+the file-chooser recipe in `browser-harness` § "Uploading a file" — which
+is also where the "keep the file in the downloads dir, not `/tmp`" rule
+lives.
 
 ```bash
 browser-use <<'PY'

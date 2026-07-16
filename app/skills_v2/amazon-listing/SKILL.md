@@ -133,11 +133,9 @@ a family that the parent shows **"Variations (N)"**.
   `.txt` next to the `.xlsm` for you — upload that. An openpyxl-saved
   `.xlsm` triggers a **90502 FATAL** ("worksheet template type not
   supported for Excel upload").
-- **Write the file under `~/.vibe-seller/downloads/<slug>/`, NOT `/tmp`**
-  (`fill --out` there). The browser reads the file to attach it and
-  Ziniao's Chrome can't read `/tmp`, so a `/tmp` file silently fails to
-  upload (Submit never enables). This was the sole cause of failed child
-  uploads.
+- **`fill --out` into the store downloads dir**
+  (`~/.vibe-seller/downloads/<slug>/`), not `/tmp` — the browser must read
+  the file to attach it (see `browser-harness` § "Uploading a file").
 - **Submit is TWO clicks; the "network error" banner is a red herring.**
   On the unified upload page the 1st **Submit products** only fires
   `introspect-feed` (file-type detection → "Automatically detected"

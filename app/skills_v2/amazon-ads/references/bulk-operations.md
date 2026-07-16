@@ -127,12 +127,9 @@ row and sheet name from the export you fed it (see locale note below).
 
 ### 3. Import (Upload campaigns)
 
-> **The upload file must be under `~/.vibe-seller/downloads/<slug>/`, not
-> `/tmp`** — the browser reads it to attach it and Ziniao's Chrome can't
-> read `/tmp` (see `browser-harness` § "Uploading a file"). That's why the
-> `--out` paths above target the downloads dir.
-
-Bulk Operations → **Upload campaigns** → pick the output file. The job
+Bulk Operations → **Upload campaigns** → pick the output file (from the
+downloads dir the `--out` paths above target — the browser must read it to
+attach it; see `browser-harness` § "Uploading a file"). The job
 runs asynchronously; the history table shows `Success` / `Failed` /
 `File not uploaded` (these status strings are **English regardless of
 console language**). When a row fails, **download its result report**
