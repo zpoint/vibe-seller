@@ -28,6 +28,7 @@ interface TasksViewProps {
   taskPanelActive: boolean
   taskPanelTitle: string
   tasks: Task[]
+  tasksLoading: boolean
   selectedTask: Task | null
   steps: TaskStep[]
   screenshots: Record<string, string>
@@ -91,6 +92,7 @@ export function TasksView({
   taskPanelActive,
   taskPanelTitle,
   tasks,
+  tasksLoading,
   selectedTask,
   steps,
   screenshots,
@@ -260,6 +262,12 @@ export function TasksView({
             )}
             <div className="flex-1 overflow-y-auto">
               {taskSubTab === 'onetime' ? (
+                tasksLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                    <div className="w-6 h-6 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin mb-3" />
+                    <p className="text-sm text-gray-400">{t('tasks.loading', 'Loading tasks...')}</p>
+                  </div>
+                ) : (
                 <>
                   {onetimeTasks.map(task => (
                     <button
@@ -308,6 +316,7 @@ export function TasksView({
                     </div>
                   )}
                 </>
+                )
               ) : (
                 /* ── Scheduled tab: store-specific + all-stores schedules ── */
                 <ScheduleList

@@ -53,6 +53,7 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState<Store | null>(null)
   const [showAllTasks, setShowAllTasks] = useState(true)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [tasksLoading, setTasksLoading] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [screenshots, setScreenshots] = useState<Record<string, string>>({})
@@ -366,15 +367,15 @@ export default function App() {
   const selectStore = async (store: Store) => {
     setNavOpen(false)
     userActedRef.current = true; setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
-    setSelectedSchedule(null); setScheduleTasks([])
-    setTasks(await api.get(`/api/tasks?store_id=${store.id}`))
+    setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
+    try { setTasks(await api.get(`/api/tasks?store_id=${store.id}`)) } finally { setTasksLoading(false) }
     loadSchedules()
   }
   const selectAllTasks = async () => {
     setNavOpen(false)
     userActedRef.current = true; setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
-    setSelectedSchedule(null); setScheduleTasks([])
-    setTasks(await api.get('/api/tasks?store_id=__none__'))
+    setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
+    try { setTasks(await api.get('/api/tasks?store_id=__none__')) } finally { setTasksLoading(false) }
     loadSchedules()
   }
 
@@ -658,7 +659,7 @@ export default function App() {
         <TasksView
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
-          tasks={tasks} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
+          tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}
