@@ -194,14 +194,18 @@ PY
 
 ## Uploading a file to a web `<input type=file>`
 
-> **The file must live in a path the BROWSER can read — NOT `/tmp`.**
-> `setFileInputFiles` reads the file from disk *in the browser process*.
-> Ziniao's Chrome (macOS-sandboxed) cannot read `/tmp`, so a `/tmp` path
-> **silently no-ops** — `files.length` stays 0 and Submit never enables,
-> with no error. Put the file in the store's downloads dir
-> (`~/.vibe-seller/downloads/<slug>/`, the one path the browser is
-> guaranteed to read) and pass that absolute path. This alone was the
-> cause of "the upload widget won't accept my file" — not the widget.
+> **The file must be in a path the BROWSER PROCESS can read, passed in
+> that process's path form — NOT `/tmp`.** `setFileInputFiles` reads the
+> file in the browser, not the agent. Put it in the store's downloads dir
+> (`~/.vibe-seller/downloads/<slug>/`) — the one location guaranteed
+> readable on every backend. Otherwise it **silently no-ops**:
+> `files.length` stays 0, Submit never enables, no error. Per backend:
+> macOS Ziniao's Chrome is sandboxed and can't read `/tmp` (so a `/tmp`
+> file fails — this was the whole "the widget won't accept my file"
+> bug, not the widget); native-Windows Chrome has no such sandbox but the
+> winchrome case (WSL agent → native Windows Chrome) must pass the
+> **Windows-form** path (`C:\…\downloads\<slug>\file`, via `wslpath -w`) —
+> a `/mnt/c` or WSL path is unreadable by native Chrome.
 
 There is **no native upload helper**. Never coordinate-click the visible
 "Browse"/"Upload file" button expecting to then drive the OS file picker
