@@ -153,6 +153,17 @@ a family that the parent shows **"Variations (N)"**.
   its category asks for (e.g. `item_name`, `target_gender`,
   `age_range_description`, and any compound-attribute sub-fields), plus
   its differentiator + offer — not just `parent_sku` + colour.
+- **"Required" is a guide, not an absolute — fill what you can, defer what
+  you can't.** For each required-field error the report names, supply a
+  sensible value: pick from the template's valid set (material, weave,
+  size type, package dimension/weight units), set `list_price` = your
+  price, `model_name` = the SKU/title. For a **new ASIN** with no GTIN, set
+  the product-id **type** to `GTIN Exempt` (unified) / leave the id blank
+  + set brand (legacy) if the brand is exempt. A few are genuinely
+  deferrable — a real **main image** you don't have (18320) is added later
+  and does NOT block creation. Don't stall the whole family on one
+  attribute you can't provide; create with what you have and let the
+  seller finish image/GTIN afterwards.
 - **Enum case is exact** (`UAE/KSA`, not `uae/ksa`). `fill` canonicalises
   a value to the template's own casing when the field has a valid set.
 - **Compound attributes come as a set** — e.g. Apparel Size needs
