@@ -102,6 +102,7 @@ from listing_schema import (  # noqa: E402, F401
     ROLE_MATCHERS as _ROLE_MATCHERS,
     TEMPLATE_SHEET,
     Schema as _Schema,
+    base_attr as _base_attr,
     data_start_row as _data_start_row,
     field_columns as _field_columns,
     find_header_row as _find_header_row,
@@ -119,6 +120,19 @@ from marketplace_ids import (  # noqa: E402,F401
 )
 
 _OFFER_PRICE_SHORTHANDS = ('our_price', 'price', 'standard_price')
+
+# Item Highlight (`title_differentiation`) is an OPTIONAL field Amazon only
+# accepts when the Item Name is <= 75 chars; a longer title makes Amazon
+# reject the highlight with error 100476 ("Provide an Item Name that is 75
+# characters or less to use Item Highlights") -- a non-blocking SUCCESS
+# (OTHER) error that leaves the SKU in inventory but flagged "Action
+# required". The marketing item_name is routinely > 75 chars, so a spec
+# that fills Item Highlight (e.g. with the colour) silently poisons every
+# child. `fill` drops the optional highlight when the title is too long so
+# the SKU lands clean; the value belongs in `color_name`, never here.
+_ITEM_HIGHLIGHT_ATTR = 'title_differentiation'
+_ITEM_NAME_ATTR = 'item_name'
+_ITEM_HIGHLIGHT_MAX_TITLE = 75
 
 # A Parent row carries only shared catalogue data; offer, stock, images
 # and product-id live on Child rows -- so a Parent legitimately omits
@@ -282,6 +296,15 @@ def _row_fields(spec_row, top, schema):
     if spec_row.get('asin'):
         put('product_id', spec_row['asin'])
         put('product_id_type', 'asin', overwrite=False)
+    # Offer shorthands (`our_price`/`price`/`quantity`) belong in `fields`,
+    # but the skill tells the agent to put "a bare our_price/quantity on
+    # each child" -- naturally read as a ROW-LEVEL key. Fold those from the
+    # row into fields (a value already in `fields` wins) so the price/stock
+    # routes to the target marketplace either way, instead of being
+    # silently dropped -> an empty offer column the agent then hand-picks.
+    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity'):
+        if spec_row.get(k) not in (None, '') and k not in out:
+            out[k] = spec_row[k]
     # Drop keys with no value so we never blank an intended default.
     return {k: v for k, v in out.items() if v not in (None, '')}
 
@@ -340,6 +363,35 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                     tgt = f'fulfillment_availability#{n}.{k.split(".", 1)[1]}'
                     if tgt != k:
                         fields[tgt] = fields.pop(k)
+
+
+def _drop_unusable_item_highlight(fields, i, sku, warnings):
+    """Drop an optional Item Highlight when the Item Name is too long.
+
+    Amazon only accepts `title_differentiation` (Item Highlight) when the
+    row's `item_name` is <= 75 chars; otherwise it returns error 100476 and
+    parks the SKU in "Action required" (SUCCESS OTHER). The field is
+    OPTIONAL, so when the title exceeds the limit we drop the highlight and
+    warn rather than upload a value that guarantees a rejection. Mutates
+    ``fields``. No-op when no highlight is set or the title fits.
+    """
+    hi = next(
+        (k for k in fields if _base_attr(k) == _ITEM_HIGHLIGHT_ATTR), None
+    )
+    if hi is None or not str(fields[hi]).strip():
+        return
+    name = next(
+        (v for k, v in fields.items() if _base_attr(k) == _ITEM_NAME_ATTR), ''
+    )
+    if len(str(name)) > _ITEM_HIGHLIGHT_MAX_TITLE:
+        dropped = fields.pop(hi)
+        warnings.append(
+            f'row {i} sku={sku}: dropped Item Highlight '
+            f'({hi}={dropped!r}) -- item_name is '
+            f'{len(str(name))} chars (> {_ITEM_HIGHLIGHT_MAX_TITLE}), which '
+            f'Amazon rejects with error 100476. Item Highlight is optional; '
+            f'put the colour in color_name, not here.'
+        )
 
 
 def cmd_fill(args):
@@ -401,6 +453,10 @@ def cmd_fill(args):
         # so it can't land in the wrong `purchasable_offer` block (which
         # creates an ASIN-only listing stuck in "Missing offer").
         _route_offer_price(fields, cols, mkt_id, i, sku, warnings)
+
+        # Drop an optional Item Highlight the title is too long for, so it
+        # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).
+        _drop_unusable_item_highlight(fields, i, sku, warnings)
 
         # Enum validation: reject an invalid operation-family token hard;
         # warn (never fail) on other enums so an unseen-but-valid token
@@ -613,8 +669,13 @@ def cmd_parse_feedback(args):
         )
         if n_err:
             print(
-                'Fix ALL errors (parent first) and re-upload; a SKU with '
-                'any error is NOT created (feed "successful" != live).'
+                'NOT DONE. Fix ALL errors (parent first) and re-upload. A '
+                'SKU with any error is either not created OR created but '
+                'flagged "Action required" (SUCCESS OTHER) -- it shows up in '
+                'inventory yet the error is UNRESOLVED. Inventory presence '
+                'is NOT "done"; only 18320 (missing main image) is a legit '
+                'deferral. Re-run parse-feedback on the new report until the '
+                'sole remaining error is 18320.'
             )
             # Non-zero exit so a caller/CI sees the feed had blocking
             # errors -- matches the table-scan path below.

@@ -56,6 +56,7 @@ FIELDS = [
     'external_product_id',
     'external_product_id_type',
     'item_name',
+    'title_differentiation',
     'product_description',
     'recommended_browse_nodes',
     'main_image_url',
@@ -237,6 +238,59 @@ def test_fill_operation_column(template, tmp_path):
     assert by_sku['W-4']['update_delete'] == 'delete'
     # brand default applied to every row.
     assert all(r['brand_name'] == 'ACME' for r in rows)
+
+
+def test_fill_drops_item_highlight_when_title_too_long(
+    template, tmp_path, capsys
+):
+    # Item Highlight (title_differentiation) is only valid when item_name
+    # is <= 75 chars; a longer title makes Amazon reject it with 100476
+    # (SUCCESS OTHER). fill drops the optional highlight so the SKU lands
+    # clean, and warns. Regression for the long-title over-claim.
+    long_title = 'A' * 90
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'rows': [
+            {
+                'sku': 'W-LONG',
+                'operation': 'create',
+                'fields': {
+                    'item_name': long_title,
+                    'title_differentiation': 'Pure White',
+                },
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = {r['item_sku']: r for r in _read_rows(out)}['W-LONG']
+    assert row['title_differentiation'] in (None, '')
+    err = capsys.readouterr().err
+    assert 'Item Highlight' in err and '100476' in err
+
+
+def test_fill_keeps_item_highlight_when_title_fits(template, tmp_path):
+    # A short title is under the limit, so a genuine Item Highlight is
+    # written unchanged -- the guard only strips the poison case.
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'rows': [
+            {
+                'sku': 'W-SHORT',
+                'operation': 'create',
+                'fields': {
+                    'item_name': 'ACME Socks',
+                    'title_differentiation': 'Breathable',
+                },
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = {r['item_sku']: r for r in _read_rows(out)}['W-SHORT']
+    assert row['title_differentiation'] == 'Breathable'
 
 
 def test_parent_child_structure(template, tmp_path):
@@ -605,6 +659,39 @@ def test_fill_routes_bare_our_price_to_target_marketplace(
     row = _read_rows(out)[0]
     assert row[_SA_PRICE] == '19.99'  # target marketplace got the price
     assert row[_AE_PRICE] in (None, '')  # the wrong block stayed empty
+
+
+def test_fill_routes_row_level_our_price_and_quantity(mkt_template, tmp_path):
+    # The skill says put "a bare our_price / quantity on each child" -- an
+    # agent naturally puts them at the ROW level (sibling to `fields`), not
+    # inside `fields`. Both placements must route, else the offer column
+    # comes out empty and the agent thrashes hand-picking columns.
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'variation_theme': 'Color',
+                    'our_price': '19.99',  # row-level, not in fields
+                    'quantity': '100',  # row-level, not in fields
+                    'fields': {
+                        'item_name': 'x',
+                        'color_name': 'White',
+                        'feed_product_type': 'socks',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    row = _read_rows(out)[0]
+    assert row[_SA_PRICE] == '19.99'
+    assert row[_AE_PRICE] in (None, '')
 
 
 def test_fill_warns_when_target_marketplace_has_no_offer(

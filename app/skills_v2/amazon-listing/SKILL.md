@@ -8,8 +8,12 @@ review:
     - Every attempted SKU is ACTUALLY LIVE, not just "uploaded": on
       Manage Inventory the parent shows Variations(N) and each child has
       a real ASIN (not "-"), with title / bullets / images matching the
-      request. The processing report parsed to 0 BLOCKING errors (a
-      missing-image 18320 is not blocking).
+      request. The LATEST processing report for EVERY batch parsed
+      (`parse-feedback`) to zero errors of ANY severity EXCEPT a
+      missing-image 18320. This includes non-fatal "SUCCESS (OTHER) /
+      Action required" errors (e.g. 100476 Item Highlight): the SKU is in
+      inventory yet the error is unresolved -- that is NOT done. Presence
+      in inventory alone never satisfies this.
     - For a delete, the SKU no longer appears in Manage Inventory.
     - No partial family (parent live but a child missing) is called done.
   evidence:
@@ -19,8 +23,10 @@ review:
   verify_by: |
     Open Manage Inventory (skucentral?mSku=<sku>, no &condition=New) for
     each attempted SKU and confirm it exists with the intended content
-    and a real ASIN; open the downloaded processing report and confirm 0
-    blocking errors. For a delete, confirm the SKU is gone.
+    and a real ASIN; download the LATEST processing report for EVERY
+    batch you uploaded and `parse-feedback` it -- confirm zero errors except
+    18320. Do NOT accept a batch shown "Action required / SUCCESS (OTHER)"
+    (e.g. 100476) as done. For a delete, confirm the SKU is gone.
 ---
 
 # Amazon — Listing CRUD (flat-file upload)
@@ -177,7 +183,15 @@ a family that the parent shows **"Variations (N)"**.
   ("main image is missing") error is *expected noise*, not a blocker;
   don't chase it, and don't hotlink a supplier CDN URL into
   `main_image_url` (Amazon can't fetch a referer-protected 1688/alibaba
-  URL anyway). "Done" = every error resolved **except** the image one.
+  URL anyway). "Done" = every error resolved **except** the image one —
+  and that means **`parse-feedback` the report, not eyeball inventory**. A
+  record can post as **SUCCESS (OTHER)** ("Action required", 0 successful):
+  it *appears* in inventory but carries an unresolved, fixable error —
+  e.g. **100476** ("Provide an Item Name ≤75 chars to use Item
+  Highlights") when `title_differentiation` (Item Highlight) was filled on
+  a long-title item. That is **NOT done**: fix the exact field the report
+  names (Item Highlight is optional — clear it; the colour belongs in
+  `color_name`) and re-upload. Only 18320 is a legit deferral.
 - **A buyable child that `8560`s ("doesn't match any ASINs … include
   standard_product_id")** — Amazon is refusing to *mint a new ASIN* for
   it. Two cases, decided by whether that child's ASIN already exists:
