@@ -182,6 +182,12 @@ class AgentSession(_HookMixin, _StreamMixin):
         self._input_closed: bool = False
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
+        # How many times this session has re-driven the agent because a
+        # ``result`` arrived while a review gate was still unsatisfied.
+        # Bounds the review loop so a gate the agent can never satisfy
+        # still terminates. See the result branch in
+        # ``claude_backend_stream._handle_event``.
+        self._review_redrive_count: int = 0
         # PreToolUse-hook state. See app.ai.bash_safety and
         # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()
@@ -553,7 +559,26 @@ class AgentSession(_HookMixin, _StreamMixin):
 
     async def _send_stdin(self, msg: dict, *, label: str = 'stdin'):
         """Write a JSON message to the subprocess stdin."""
-        if not self._proc or not self._proc.stdin:
+        if not self._proc or not self._proc.stdin or self._input_closed:
+            # Dropping a tool-approval / hook reply after the control
+            # channel is gone is a contract violation, not a benign
+            # no-op: the CLI default-denies the unanswered tool with its
+            # generic "user doesn't want to take this action" message,
+            # which the agent misreads as a human interrupt. Make it
+            # loud so it can never again silently ship a placeholder
+            # result. (The result-branch review gate keeps the channel
+            # open through the review loop so this shouldn't fire.)
+            if self._input_closed and label in (
+                'control_response',
+                'hook_response',
+            ):
+                logger.warning(
+                    'Dropping %s for %s: control channel already closed '
+                    '— the tool call will default-deny. This is a '
+                    'review/lifecycle race.',
+                    label,
+                    self.task_id[:8],
+                )
             return
         line = json.dumps(msg, ensure_ascii=False) + '\n'
         if AGENT_DEBUG:

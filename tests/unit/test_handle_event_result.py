@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from app.ai.claude_backend import AgentSession
+from app.ai.claude_backend_stream import REVIEW_REDRIVE_MAX
 
 pytestmark = pytest.mark.unit
 
@@ -217,6 +218,116 @@ class TestHandleEventResultDedup:
         assert emitted[0] == ('result', 'Auto result')
         assert emitted[1] == ('assistant', 'Extra ack')
         assert session._result_text == 'Auto result'
+
+
+class TestReviewGateRedrive:
+    """A result while a review gate is unsatisfied must NOT end the turn:
+    keep the control channel open and re-drive the agent instead of
+    closing stdin (which would silently deny the reviewer subagent's
+    tool calls). See app/ai/claude_backend_stream result branch."""
+
+    async def test_unsatisfied_gate_redrives_instead_of_emitting(self):
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+        emitted: list[tuple[str, str]] = []
+        sent: list[str] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        async def _mock_send(msg):
+            sent.append(msg)
+
+        with (
+            patch.object(session, '_emit_message', _mock_emit),
+            patch.object(session, 'send_user_message', _mock_send),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value='Reviewer never ran. Spawn the DoD reviewer.',
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'placeholder — reviewer running in background',
+            })
+
+        # The placeholder result was NOT finalized as the turn's result.
+        assert session._first_result_emitted is False
+        assert session._result_text == ''
+        # The agent was re-driven with the gate's deny reason.
+        assert len(sent) == 1
+        assert 'Reviewer never ran' in sent[0]
+        assert session._review_redrive_count == 1
+        # A structured re-drive marker was emitted (not the result card).
+        assert any(r == 'agent_event' for r, _ in emitted)
+        assert not any(r == 'result' for r, _ in emitted)
+
+    async def test_redrive_is_bounded(self):
+        """After REVIEW_REDRIVE_MAX re-drives, the turn is allowed to end
+        so an unsatisfiable gate can't wedge the session forever."""
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+        session._review_redrive_count = REVIEW_REDRIVE_MAX
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with (
+            patch.object(session, '_emit_message', _mock_emit),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value='still gaps',
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Final answer',
+            })
+
+        # Bound hit → normal end-of-turn: result card emitted.
+        assert emitted == [('result', 'Final answer')]
+        assert session._first_result_emitted is True
+
+    async def test_satisfied_gate_ends_turn_normally(self):
+        """Gate satisfied (helpers return None) → result finalizes."""
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with (
+            patch.object(session, '_emit_message', _mock_emit),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value=None,
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Verified answer',
+            })
+
+        assert emitted == [('result', 'Verified answer')]
+        assert session._first_result_emitted is True
+        assert session._review_redrive_count == 0
 
 
 class TestHandleEventReflectionGuard:
