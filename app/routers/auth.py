@@ -9,10 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import telemetry
 from app.auth import (
     COOKIE_NAME,
-    TOKEN_EXPIRE_DAYS,
+    USER_SESSION_EXPIRE,
     create_token,
     get_current_user,
     is_auth_required,
+    set_session_cookie,
 )
 from app.config import DEFAULT_USER_ID
 from app.database import get_db
@@ -54,7 +55,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail='Invalid credentials')
     if not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail='Invalid credentials')
-    token = create_token(user.id, user.role)
+    token = create_token(user.id, user.role, expires_delta=USER_SESSION_EXPIRE)
     response = JSONResponse(
         content={
             'id': user.id,
@@ -66,13 +67,26 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
             'plan_mode_default': user.plan_mode_default,
         }
     )
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=token,
-        httponly=True,
-        samesite='lax',
-        max_age=TOKEN_EXPIRE_DAYS * 86400,
+    set_session_cookie(response, token)
+    return response
+
+
+@router.post('/refresh')
+async def refresh_session(current_user: User = Depends(get_current_user)):
+    """Roll the session cookie forward by another full window.
+
+    The frontend keepalive calls this on real user activity so an
+    actively-used session never expires out from under the user; the
+    24h window only elapses on genuine idleness. When auth is required
+    and the cookie has already lapsed, ``get_current_user`` raises 401
+    here — which the shared API client turns into an ``auth:expired``
+    redirect to the login page (no hung screen).
+    """
+    token = create_token(
+        current_user.id, current_user.role, expires_delta=USER_SESSION_EXPIRE
     )
+    response = JSONResponse(content={'ok': True})
+    set_session_cookie(response, token)
     return response
 
 

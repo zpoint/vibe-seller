@@ -6,6 +6,7 @@ import { Sidebar } from './components/Sidebar'
 import { MobileMenuButton } from './components/MobileMenuButton'
 import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateCheck } from './hooks/useUpdateCheck'
+import { useSessionKeepalive } from './hooks/useSessionKeepalive'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useMobileBackStack } from './hooks/useMobileBackStack'
 import { CreateTaskModal } from './components/CreateTaskModal'
@@ -199,6 +200,10 @@ export default function App() {
   }, [])
 
   const { updateCheck, dismissUpdateCheck } = useUpdateCheck(currentUser)
+
+  // Roll the session forward on activity and bounce to login on idle
+  // expiry — only meaningful when auth is on (otherwise never 401s).
+  useSessionKeepalive(authChecked && !!currentUser && authRequired)
 
   // Device/browser Back pops the mobile drill-down instead of leaving.
   useMobileBackStack({

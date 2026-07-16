@@ -1,7 +1,12 @@
 """Workflow tests for authentication and admin user management."""
 
+from datetime import UTC, datetime, timedelta
+
+import jwt
 import pytest
 
+from app.auth import ALGORITHM
+from app.config import JWT_SECRET
 from app.models.user import User
 from app.password import hash_password
 
@@ -94,6 +99,42 @@ class TestLogout:
         r = await admin_client.post('/api/auth/logout')
         assert r.status_code == 200
         assert r.json() == {'ok': True}
+
+
+class TestRefresh:
+    """Sliding-session refresh — rolls the cookie forward on activity."""
+
+    async def test_refresh_rolls_cookie(self, admin_client):
+        r = await admin_client.post('/api/auth/refresh')
+        assert r.status_code == 200
+        assert r.json() == {'ok': True}
+        # A fresh session cookie is re-issued on the response.
+        assert 'auth_token' in r.cookies
+
+    async def test_refresh_without_auth_401(self, unauthed_client):
+        """No cookie + auth required → 401 (drives the login redirect)."""
+        r = await unauthed_client.post('/api/auth/refresh')
+        assert r.status_code == 401
+
+    async def test_refresh_expired_token_401(self, unauthed_client, admin_user):
+        """An expired session cookie is rejected, not silently accepted.
+
+        This is the contract the frontend heartbeat relies on: once the
+        24h window lapses, the next refresh/heartbeat 401s so the client
+        is bounced to login instead of hanging on a dead session.
+        """
+        expired = jwt.encode(
+            {
+                'sub': admin_user.id,
+                'role': 'admin',
+                'exp': datetime.now(UTC) - timedelta(minutes=1),
+            },
+            JWT_SECRET,
+            algorithm=ALGORITHM,
+        )
+        unauthed_client.cookies.set('auth_token', expired)
+        r = await unauthed_client.post('/api/auth/refresh')
+        assert r.status_code == 401
 
 
 class TestUserCrudAuthBoundary:
