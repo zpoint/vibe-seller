@@ -113,6 +113,7 @@
     "messagePlaceholder": "输入您的消息...",
     "deleteConfirm": "确定要删除此任务吗？",
     "deleteConfirmCascade": "此任务包含 {{count}} 个子任务，删除将级联移除整个子任务树及其磁盘文件。是否继续？",
+    "loading": "任务加载中...",
     "noTasks": "暂无任务",
     "createFirstTask": "创建您的第一个任务开始使用",
     "selectTaskHint": "选择一个任务，或点击「+ 新建任务」创建",

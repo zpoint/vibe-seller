@@ -113,6 +113,7 @@
     "messagePlaceholder": "Type your message...",
     "deleteConfirm": "Are you sure you want to delete this task?",
     "deleteConfirmCascade": "This task has {{count}} sub-task(s). Deleting it will also remove the entire subtree and all on-disk files. Continue?",
+    "loading": "Loading tasks...",
     "noTasks": "No tasks yet",
     "createFirstTask": "Create your first task to get started",
     "selectTaskHint": "Select a task or click \"+ New Task\" to create one",

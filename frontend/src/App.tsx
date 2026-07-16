@@ -25,6 +25,7 @@ import { submitCreateTask as submitCreateTaskHandler } from './handlers/submitCr
 import { retryTask as retryTaskHandler } from './handlers/retryTask'
 import { continueTask as continueTaskHandler } from './handlers/continueTask'
 import { deleteTask as deleteTaskHandler } from './handlers/deleteTask'
+import { fetchBrowserProfiles as fetchBrowserProfilesHandler, restartZiniao as restartZiniaoHandler } from './handlers/fetchBrowserProfiles'
 import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
@@ -54,6 +55,13 @@ export default function App() {
   const [selectedStore, setSelectedStore] = useState<Store | null>(null)
   const [showAllTasks, setShowAllTasks] = useState(true)
   const [tasks, setTasks] = useState<Task[]>([])
+  const [tasksLoading, setTasksLoading] = useState(false)
+  // Key ('<store_id>' or '__none__') of the task-list fetch currently
+  // in flight. Stamped when a store/all-stores view is selected; the
+  // response and its loading toggle are dropped if the ref has since
+  // changed, so a slow response for the previous store can't clobber
+  // the newly-selected store's list (stale-response-wins race).
+  const inFlightTasksKeyRef = useRef<string | null>(null)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [screenshots, setScreenshots] = useState<Record<string, string>>({})
@@ -296,60 +304,14 @@ export default function App() {
     if (selectedZiniaoAccountId === accountId) { setSelectedZiniaoAccountId(''); setZiniaoBrowsers([]); setBrowserFetchError('') }
     await loadZiniaoAccounts()
   }
-  const fetchBrowserProfiles = async (accountId: string) => {
-    if (!accountId) return
-    // Retry if previously in running_normal. The encoding is
-    // `ziniao:running_normal` or `ziniao:running_normal:<base64msg>`.
-    const wasNormalMode = browserFetchError === 'ziniao:running_normal' || browserFetchError.startsWith('ziniao:running_normal:')
-    setFetchingBrowsers(true); setZiniaoBrowsers([]); setSelectedBrowserOauth(''); setBrowserFetchError('')
-    // Reset retry state unless this is a retry from running_normal
-    if (!wasNormalMode) setZiniaoRetried(false)
-    try {
-      const browsers = await api.get(`/api/ziniao-accounts/${accountId}/browsers`)
-      setZiniaoBrowsers(browsers)
-      setZiniaoRetried(false)
-      if (browsers.length === 0) setBrowserFetchError('no_profiles')
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : ''
-      // Try to parse structured JSON status from backend. The server
-      // platform comes from /api/system/info (serverPlatform state) —
-      // we only carry the ziniao status + its own error text here.
-      try {
-        const status = JSON.parse(msg)
-        if (status.status) {
-          if (wasNormalMode && status.status === 'running_normal') setZiniaoRetried(true)
-          // Carry Ziniao's own err text through as an extra colon-
-          // delimited field so the UI can surface it. base64 the
-          // message so embedded colons / unicode don't tangle the
-          // parser on the other side.
-          const ziniaoMsg = (status.message || '').toString()
-          const encoded = ziniaoMsg
-            ? `:${btoa(unescape(encodeURIComponent(ziniaoMsg)))}`
-            : ''
-          setBrowserFetchError(`ziniao:${status.status}${encoded}`)
-          setFetchingBrowsers(false)
-          return
-        }
-      } catch { /* not JSON, fall through */ }
-      // Fallback: existing string-matching logic
-      if (msg.includes('/api/ziniao/launcher') || msg.includes('not running')) setBrowserFetchError('connect_error')
-      else if (msg.includes('Ziniao API error') || msg.includes('-10003')) setBrowserFetchError('api_error:' + msg)
-      else setBrowserFetchError('connect_error')
-    }
-    setFetchingBrowsers(false)
+  const browserProfilesDeps = {
+    api, browserFetchError, setFetchingBrowsers, setZiniaoBrowsers,
+    setSelectedBrowserOauth, setBrowserFetchError, setZiniaoRetried,
   }
-  const restartZiniao = async (accountId: string) => {
-    setFetchingBrowsers(true); setBrowserFetchError('')
-    try {
-      await api.post(`/api/ziniao-accounts/${accountId}/restart`)
-      setZiniaoRetried(false)
-      await fetchBrowserProfiles(accountId)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Restart failed'
-      setBrowserFetchError('restart_failed:' + msg)
-    }
-    setFetchingBrowsers(false)
-  }
+  const fetchBrowserProfiles = (accountId: string) =>
+    fetchBrowserProfilesHandler(accountId, browserProfilesDeps)
+  const restartZiniao = (accountId: string) =>
+    restartZiniaoHandler(accountId, browserProfilesDeps)
 
   // ─── Store helpers ─────────────────────────────────
   const createStore = async () => {
@@ -368,20 +330,26 @@ export default function App() {
     setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass(''); setShowCreateStore(false); await loadStores()
   }
 
-  const selectStore = async (store: Store) => {
+  // Select a store (or all-stores when `store` is null) and load its task
+  // list. The in-flight key ('<store_id>' or '__none__') guards against a
+  // slow response for the previous scope clobbering the newly-selected
+  // one (stale-response-wins race).
+  const selectScope = async (store: Store | null) => {
     setNavOpen(false)
-    userActedRef.current = true; setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
-    setSelectedSchedule(null); setScheduleTasks([])
-    setTasks(await api.get(`/api/tasks?store_id=${store.id}`))
+    userActedRef.current = true; setSelectedStore(store); setShowAllTasks(!store); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
+    setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
+    const key = store ? store.id : '__none__'
+    inFlightTasksKeyRef.current = key
+    try {
+      const data = await api.get(`/api/tasks?store_id=${key}`)
+      if (inFlightTasksKeyRef.current === key) setTasks(data)
+    } finally {
+      if (inFlightTasksKeyRef.current === key) setTasksLoading(false)
+    }
     loadSchedules()
   }
-  const selectAllTasks = async () => {
-    setNavOpen(false)
-    userActedRef.current = true; setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
-    setSelectedSchedule(null); setScheduleTasks([])
-    setTasks(await api.get('/api/tasks?store_id=__none__'))
-    loadSchedules()
-  }
+  const selectStore = (store: Store) => selectScope(store)
+  const selectAllTasks = () => selectScope(null)
 
   const selectTask = async (task: Task) => {
     let fullTask = task
@@ -663,7 +631,7 @@ export default function App() {
         <TasksView
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
-          tasks={tasks} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
+          tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}
