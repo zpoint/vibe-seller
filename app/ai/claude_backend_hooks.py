@@ -13,6 +13,7 @@ import logging
 from app.ai.bash_safety import (
     check_catalog_first_tool_args,
     check_report_overwrite,
+    check_skill_file_write,
     first_bash_deny,
     should_mark_catalog_read,
 )
@@ -278,6 +279,14 @@ class _HookMixin:
             )
             if deny_reason:
                 logger.warning('Report-overwrite guard: %s', self.task_id[:8])
+                await self._deny_pre_tool_use(request_id, deny_reason)
+                return
+            # Skill-file guard: built-in Write/Edit against
+            # .claude/skills/** only mutates the throwaway per-task copy
+            # and silently fails to persist — force vibe_seller_save_skill.
+            deny_reason = check_skill_file_write(inner_name, inner_input)
+            if deny_reason:
+                logger.warning('Skill-file write guard: %s', self.task_id[:8])
                 await self._deny_pre_tool_use(request_id, deny_reason)
                 return
             if should_mark_catalog_read(inner_name, inner_input):
