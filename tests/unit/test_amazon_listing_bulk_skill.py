@@ -56,6 +56,7 @@ FIELDS = [
     'external_product_id',
     'external_product_id_type',
     'item_name',
+    'title_differentiation',
     'product_description',
     'recommended_browse_nodes',
     'main_image_url',
@@ -237,6 +238,59 @@ def test_fill_operation_column(template, tmp_path):
     assert by_sku['W-4']['update_delete'] == 'delete'
     # brand default applied to every row.
     assert all(r['brand_name'] == 'ACME' for r in rows)
+
+
+def test_fill_drops_item_highlight_when_title_too_long(
+    template, tmp_path, capsys
+):
+    # Item Highlight (title_differentiation) is only valid when item_name
+    # is <= 75 chars; a longer title makes Amazon reject it with 100476
+    # (SUCCESS OTHER). fill drops the optional highlight so the SKU lands
+    # clean, and warns. Regression for the long-title over-claim.
+    long_title = 'A' * 90
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'rows': [
+            {
+                'sku': 'W-LONG',
+                'operation': 'create',
+                'fields': {
+                    'item_name': long_title,
+                    'title_differentiation': 'Pure White',
+                },
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = {r['item_sku']: r for r in _read_rows(out)}['W-LONG']
+    assert row['title_differentiation'] in (None, '')
+    err = capsys.readouterr().err
+    assert 'Item Highlight' in err and '100476' in err
+
+
+def test_fill_keeps_item_highlight_when_title_fits(template, tmp_path):
+    # A short title is under the limit, so a genuine Item Highlight is
+    # written unchanged -- the guard only strips the poison case.
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'rows': [
+            {
+                'sku': 'W-SHORT',
+                'operation': 'create',
+                'fields': {
+                    'item_name': 'ACME Socks',
+                    'title_differentiation': 'Breathable',
+                },
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = {r['item_sku']: r for r in _read_rows(out)}['W-SHORT']
+    assert row['title_differentiation'] == 'Breathable'
 
 
 def test_parent_child_structure(template, tmp_path):
@@ -607,6 +661,39 @@ def test_fill_routes_bare_our_price_to_target_marketplace(
     assert row[_AE_PRICE] in (None, '')  # the wrong block stayed empty
 
 
+def test_fill_routes_row_level_our_price_and_quantity(mkt_template, tmp_path):
+    # The skill says put "a bare our_price / quantity on each child" -- an
+    # agent naturally puts them at the ROW level (sibling to `fields`), not
+    # inside `fields`. Both placements must route, else the offer column
+    # comes out empty and the agent thrashes hand-picking columns.
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'variation_theme': 'Color',
+                    'our_price': '19.99',  # row-level, not in fields
+                    'quantity': '100',  # row-level, not in fields
+                    'fields': {
+                        'item_name': 'x',
+                        'color_name': 'White',
+                        'feed_product_type': 'socks',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    row = _read_rows(out)[0]
+    assert row[_SA_PRICE] == '19.99'
+    assert row[_AE_PRICE] in (None, '')
+
+
 def test_fill_warns_when_target_marketplace_has_no_offer(
     mkt_template, tmp_path, capsys
 ):
@@ -781,3 +868,421 @@ def test_route_remaps_wrong_index_fulfillment_to_target():
     listing_bulk._route_offer_price(fields, _MKT_COLS, _SA, 0, 'K-WHT', [])
     assert fields[_SA_QTY] == '100'
     assert _AE_QTY not in fields
+
+
+# --- unified (NGS "Beta Product Spreadsheet") template dialect ----------
+#
+# The current Seller Central template. Its field API names are decorated
+# (`contribution_sku#1.value`, `::record_action`, marketplace-scoped
+# parentage/parent-link/offer with an `[audience=ALL]` insert), its
+# field-name row sits at Excel row 5 (not 3), and it ships PREFILLED rows
+# (an Example SKU + a "do not delete this row" instruction). The legacy
+# tool keyed on `item_sku` and crashed here, which forced agents to
+# hand-roll the file -- and a hand-rolled file uploaded the prefilled
+# Example/instruction rows as real SKUs (verified: a live run got "1/8"
+# because those junk rows shipped). These tests pin that the SAME friendly
+# spec now drives this dialect and clears the prefilled rows.
+
+_UNI_SKU = 'contribution_sku#1.value'
+_UNI_PT = 'product_type#1.value'
+_UNI_OP = '::record_action'
+_UNI_PARENTAGE = f'parentage_level[marketplace_id={_SA}]#1.value'
+_UNI_PARENT_SKU = (
+    f'child_parent_sku_relationship[marketplace_id={_SA}]#1.parent_sku'
+)
+_UNI_THEME = 'variation_theme#1.name'
+_UNI_NAME = f'item_name[marketplace_id={_SA}][language_tag=en_AE]#1.value'
+_UNI_BRAND = f'brand[marketplace_id={_SA}][language_tag=en_AE]#1.value'
+_UNI_ID_TYPE = 'amzn1.volt.ca.product_id_type'
+_UNI_ID_VALUE = 'amzn1.volt.ca.product_id_value'
+_UNI_COLOR = f'color[marketplace_id={_SA}][language_tag=en_AE]#1.value'
+_UNI_QTY = 'fulfillment_availability#1.quantity'
+# The offer column carries the `[audience=ALL]` insert a fixed template
+# string can't match -- the routing must find it structurally.
+_UNI_PRICE = (
+    f'purchasable_offer[marketplace_id={_SA}][audience=ALL]'
+    '#1.our_price#1.schedule#1.value_with_tax'
+)
+
+# Column order matters: stock group must precede the offer block.
+_UNI_FIELDS = [
+    _UNI_SKU,
+    _UNI_PT,
+    _UNI_OP,
+    _UNI_PARENTAGE,
+    _UNI_PARENT_SKU,
+    _UNI_THEME,
+    _UNI_NAME,
+    _UNI_BRAND,
+    _UNI_ID_TYPE,
+    _UNI_ID_VALUE,
+    _UNI_COLOR,
+    _UNI_QTY,
+    _UNI_PRICE,
+]
+_UNI_REQUIRED = {
+    _UNI_SKU,
+    _UNI_PT,
+    _UNI_NAME,
+    _UNI_BRAND,
+    _UNI_PRICE,
+    _UNI_COLOR,
+}
+_UNI_ENUMS = {
+    _UNI_OP: [
+        'Create or Replace (Full Update)',
+        'Edit (Partial Update)',
+        'Delete',
+    ],
+    _UNI_PARENTAGE: ['Parent', 'Child'],
+    _UNI_THEME: ['COLLECTION_ITEM', 'COLOR', 'SIZE'],
+    _UNI_ID_TYPE: ['EAN', 'GTIN', 'UPC', 'ASIN', 'GTIN Exempt'],
+}
+
+
+def _make_unified_template(path):
+    """A synthetic unified template mirroring the real geometry: a 5-row
+    header (settings / instructions / group / localised labels / field API
+    names) and PREFILLED Example + instruction data rows that fill MUST
+    clear."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = listing_bulk.TEMPLATE_SHEET
+    # row 1 settings — like the real template, carries the geometry
+    # (labelRow/attributeRow/dataRow). dataRow=8 means rows 6-7 are a
+    # skipped example region and data must start at row 8.
+    ws.append([
+        'settings=feedType=256&labelRow=4&attributeRow=5&dataRow=8'
+        '&contributorId=amzn1'
+    ])
+    ws.append(['Use ENGLISH. DO NOT modify or delete the colored head'])
+    ws.append(['Listing Identity'])  # row 3 group names
+    ws.append(['SKU', 'Product Type', 'Listing Action'])  # row 4 labels (zh)
+    ws.append(list(_UNI_FIELDS))  # row 5 field API names <-- keyed
+    # Row 6+: Amazon's prefilled Example row + a "do not delete" row.
+    example = {
+        _UNI_SKU: 'EXAMPLE-SKU',
+        _UNI_OP: '(Default) Create or Replace',
+        _UNI_PARENTAGE: 'Parent',
+        _UNI_PARENT_SKU: 'EXAMPLE-SKU',
+        _UNI_THEME: 'SIZE',
+        _UNI_ID_TYPE: 'UPC',
+        _UNI_ID_VALUE: '100000000001',
+        _UNI_PRICE: '9.00',
+    }
+    idx = {f: i for i, f in enumerate(_UNI_FIELDS)}
+    row6 = [''] * len(_UNI_FIELDS)
+    for f, v in example.items():
+        row6[idx[f]] = v
+    ws.append(row6)
+    row7 = [''] * len(_UNI_FIELDS)
+    row7[0] = "We've prefilled attributes. Please do not delete this row."
+    ws.append(row7)
+
+    # Unified Data Definitions has NO 'Definition and Use' column, so
+    # 'Required?' sits at col 6 (index 5), not col 7 — the tool must find
+    # it by header name, not a fixed index.
+    dd = wb.create_sheet(listing_bulk.DEFN_SHEET)
+    dd.append(['How to complete your inventory template'])
+    dd.append([
+        'Group Name',
+        'Field Name',
+        'Local Label Name',
+        'Accepted Values',
+        'Example',
+        'Required?',
+    ])
+    for f in _UNI_FIELDS:
+        dd.append(['', f, f, '', '', 'Required' if f in _UNI_REQUIRED else ''])
+
+    dl = wb.create_sheet(listing_bulk.DROPDOWN_SHEET)
+    dl.append([])
+    dl.append([])
+    enum_fields = list(_UNI_ENUMS)
+    dl.append(enum_fields)  # unified: header row carries `::record_action`
+    for i in range(max(len(v) for v in _UNI_ENUMS.values())):
+        dl.append([
+            _UNI_ENUMS[f][i] if i < len(_UNI_ENUMS[f]) else None
+            for f in enum_fields
+        ])
+    wb.save(path)
+
+
+@pytest.fixture
+def unified_template(tmp_path):
+    p = tmp_path / 'unified.xlsx'
+    _make_unified_template(str(p))
+    return str(p)
+
+
+def _read_unified_rows(path):
+    wb = openpyxl.load_workbook(path)
+    ws = wb[listing_bulk.TEMPLATE_SHEET]
+    names = [c.value for c in ws[5]]  # field API names at row 5
+    idx = {n: i for i, n in enumerate(names)}
+    rows = []
+    for r in ws.iter_rows(min_row=6, values_only=True):
+        if any(c is not None and str(c).strip() for c in r):
+            rows.append({n: r[idx[n]] for n in names if n})
+    return rows
+
+
+def test_unified_header_and_dialect_detected(unified_template):
+    wb = openpyxl.load_workbook(unified_template)
+    ws = wb[listing_bulk.TEMPLATE_SHEET]
+    # Field-name row is row 5 (unified), found structurally -- NOT item_sku.
+    assert listing_bulk._find_header_row(ws) == 5
+    cols = listing_bulk._field_columns(ws, 5)
+    schema = listing_bulk._Schema(cols)
+    assert schema.dialect == 'unified'
+    # Friendly roles resolve to the decorated unified columns.
+    assert schema.field('sku') == _UNI_SKU
+    assert schema.field('operation') == _UNI_OP
+    assert schema.field('parentage') == _UNI_PARENTAGE
+    assert schema.field('parent_sku') == _UNI_PARENT_SKU
+    assert schema.field('variation_theme') == _UNI_THEME
+    assert schema.field('brand') == _UNI_BRAND
+    assert schema.field('product_id') == _UNI_ID_VALUE
+    assert schema.field('product_id_type') == _UNI_ID_TYPE
+    # Required fields are parsed from the unified DD (6-col layout,
+    # 'Required?' located by header name, not a fixed index).
+    assert listing_bulk._load_required_fields(wb) == _UNI_REQUIRED
+
+
+def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(
+    unified_template, tmp_path
+):
+    """The core regression: the SAME friendly spec that drives legacy must
+    drive unified -- clearing Amazon's prefilled Example/instruction rows
+    (the "1/8" cause) and routing every field to its decorated column."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'marketplace': 'SA',
+        'rows': [
+            {
+                'sku': 'WIDGET-006',
+                'operation': 'create',
+                'parentage': 'Parent',
+                'variation_theme': 'COLOR',
+                'fields': {'item_name': 'ACME Socks'},
+            },
+            {
+                'sku': 'WIDGET-006-WHT',
+                'operation': 'create',
+                'parentage': 'Child',
+                'parent_sku': 'WIDGET-006',
+                'variation_theme': 'COLOR',
+                'fields': {
+                    'item_name': 'ACME Socks White',
+                    'our_price': '42.99',
+                    'quantity': '100',
+                },
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    rows = _read_unified_rows(out)
+    skus = [r[_UNI_SKU] for r in rows]
+    # Prefilled Example + "do not delete" rows are GONE; only the spec rows.
+    assert 'EXAMPLE-SKU' not in skus
+    assert not any('do not delete' in str(r[_UNI_SKU]) for r in rows)
+    assert skus == ['WIDGET-006', 'WIDGET-006-WHT']
+    parent = next(r for r in rows if r[_UNI_SKU] == 'WIDGET-006')
+    child = next(r for r in rows if r[_UNI_SKU] == 'WIDGET-006-WHT')
+    # create -> blank operation cell; friendly keys hit unified columns.
+    assert parent[_UNI_OP] in (None, '')
+    assert parent[_UNI_PARENTAGE] == 'Parent'
+    assert parent[_UNI_PARENT_SKU] in (None, '')  # parent has no parent
+    assert parent[_UNI_BRAND] == 'ACME'  # top-level brand default applied
+    assert parent[_UNI_PRICE] in (None, '')  # offer is child-level
+    assert child[_UNI_PARENTAGE] == 'Child'
+    assert child[_UNI_PARENT_SKU] == 'WIDGET-006'
+    assert child[_UNI_THEME] == 'COLOR'
+    # bare our_price routed to the `[audience=ALL]` offer column...
+    assert str(child[_UNI_PRICE]) == '42.99'
+    # ...and bare quantity to the marketplace's fulfillment group.
+    assert str(child[_UNI_QTY]) == '100'
+
+
+def test_fill_unified_operation_tokens(unified_template, tmp_path):
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'marketplace': 'SA',
+        'rows': [
+            {'sku': 'W-1', 'operation': 'create', 'fields': {'item_name': 'x'}},
+            {'sku': 'W-2', 'operation': 'update', 'fields': {'item_name': 'x'}},
+            {
+                'sku': 'W-3',
+                'operation': 'partialupdate',
+                'fields': {'item_name': 'x'},
+            },
+            {'sku': 'W-4', 'operation': 'delete'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    by_sku = {r[_UNI_SKU]: r for r in _read_unified_rows(out)}
+    assert by_sku['W-1'][_UNI_OP] in (None, '')  # create = blank
+    assert by_sku['W-2'][_UNI_OP] == 'Create or Replace (Full Update)'
+    assert by_sku['W-3'][_UNI_OP] == 'Edit (Partial Update)'
+    assert by_sku['W-4'][_UNI_OP] == 'Delete'
+
+
+def test_fill_unified_asin_folds_into_volt_product_id(
+    unified_template, tmp_path
+):
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'marketplace': 'SA',
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'update',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'item_name': 'x'},
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    row = _read_unified_rows(out)[0]
+    assert row[_UNI_ID_VALUE] == 'B0EXAMPLE1'
+    # Canonicalised to the template's exact enum case (unified lists ASIN,
+    # not asin) -- Amazon is case-strict on some fields.
+    assert row[_UNI_ID_TYPE] == 'ASIN'
+
+
+def test_fill_unified_tsv_keeps_settings_header(unified_template, tmp_path):
+    """The uploaded .txt must retain the row-1 settings/signature block --
+    Amazon's introspect-feed keys on it to detect the file type. A
+    hand-rolled header-less TSV was rejected ("File upload unsuccessful")."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'marketplace': 'SA',
+        'rows': [
+            {'sku': 'W-1', 'operation': 'create', 'fields': {'item_name': 'x'}}
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    txt = tmp_path / 'out.txt'
+    lines = [ln for ln in txt.read_text(encoding='utf-8').split('\n') if ln]
+    grid = [ln.split('\t') for ln in lines]
+    assert grid[0][0].startswith('settings=')  # detection header preserved
+    assert _UNI_SKU in grid[4]  # field-name row at index 4 (Excel row 5)
+    assert len({len(r) for r in grid}) == 1  # uniform width, no drift
+    # Prefilled Example row did not survive into the upload artefact.
+    assert not any('EXAMPLE-SKU' in r for r in grid)
+
+
+def test_fill_unified_writes_data_at_datarow(unified_template, tmp_path):
+    """Unified data must start at the settings' `dataRow` (8 here), NOT
+    header_row+1. Amazon SKIPS the rows between the field-name row and
+    dataRow as an example region, so data written there is dropped
+    (verified live: children written into rows 6-7 processed as 4/6)."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'marketplace': 'SA',
+        'rows': [
+            {
+                'sku': 'P',
+                'operation': 'create',
+                'parentage': 'Parent',
+                'variation_theme': 'COLOR',
+                'fields': {'item_name': 'p'},
+            },
+            {
+                'sku': 'C',
+                'operation': 'create',
+                'parentage': 'Child',
+                'parent_sku': 'P',
+                'variation_theme': 'COLOR',
+                'fields': {
+                    'item_name': 'c',
+                    'our_price': '9.99',
+                    'quantity': '5',
+                },
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    ws = openpyxl.load_workbook(out)[listing_bulk.TEMPLATE_SHEET]
+    # The example region (rows 6-7) is blank; data starts at row 8.
+    assert all(c.value in (None, '') for c in ws[6])
+    assert all(c.value in (None, '') for c in ws[7])
+    assert ws.cell(row=8, column=1).value == 'P'  # first data row = 8
+    assert ws.cell(row=9, column=1).value == 'C'
+
+
+def test_parse_feedback_unified_report_finds_child_error(tmp_path, capsys):
+    """The blind spot that caused the 40-minute misdiagnosis: a unified
+    processing report must be parseable so the per-CHILD rejection reason
+    is surfaced (it was invisible because parse-feedback also keyed on
+    item_sku)."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = listing_bulk.TEMPLATE_SHEET
+    ws.append(['settings=feedType=256'])  # row 1
+    ws.append(['instructions'])  # row 2
+    ws.append(['group'])  # row 3
+    ws.append(['SKU', 'Colour'])  # row 4 localised labels
+    ws.append([_UNI_SKU, _UNI_COLOR])  # row 5 field API names
+    ws.append(['WIDGET-006-WHT', 'White'])  # row 6 data
+    ws.cell(row=6, column=1).comment = Comment(
+        'ERROR : 8560 does not match any ASINs; include a valid '
+        'standard_product_id or request GTIN exemption',
+        'Amazon',
+    )
+    p = tmp_path / 'report.xlsx'
+    wb.save(str(p))
+
+    errs = list(listing_bulk._template_cell_errors(str(p)))
+    assert errs and all(sku == 'WIDGET-006-WHT' for sku, _, _ in errs)
+    assert any('8560' in m for _, _, m in errs)
+
+    with pytest.raises(SystemExit):  # exit 1 -- a blocking error exists
+        _run(['parse-feedback', str(p)])
+    out = capsys.readouterr().out
+    assert 'WIDGET-006-WHT' in out and '8560' in out

@@ -2,9 +2,8 @@
 """Amazon listing flat-file (category template) inspect + fill + feedback.
 
 Drives the "Add Products via Upload" round trip: download a category
-template (a macro-enabled `.xlsm` flat file, TemplateType=fptcustom),
-fill parent/child rows from a JSON spec, upload it, then parse the
-processing report Amazon returns.
+template (a macro-enabled `.xlsm` flat file), fill parent/child rows from
+a JSON spec, upload it, then parse the processing report Amazon returns.
 
 Why a script (vs. clicking the listing wizard)
 ----------------------------------------------
@@ -15,23 +14,50 @@ supported batch interface -- the same philosophy as `amazon-ads`'
 `ads_bulk.py`, but listing templates are **category-specific** (the
 column set differs per product type), so this tool cannot use a fixed
 positional schema. Instead it keys every field by its **field API name**
-(the row that contains `item_sku`), which is identical in every console
-language -- only the human label row above it is localised.
+(the row that contains the SKU column), which is identical in every
+console language -- only the human label row above it is localised.
 
-Template geometry (verified on a real fptcustom template)
----------------------------------------------------------
-  Excel row 1  TemplateType/Version/Signature + group names
-  Excel row 2  Local Label Names  (LOCALISED -- never keyed on)
-  Excel row 3  field API names    (item_sku, update_delete, ...) <-- keyed
-  Excel row 4+ data rows
+Two template dialects
+---------------------
+Amazon ships two flat-file templates and the tool auto-detects which:
 
-The operation column is `update_delete`:
-  blank  -> Create   (the default when no ASIN is supplied)
-  Update / partialupdate / delete
-The parent-child cluster is `parent_child` (Parent/Child),
-`relationship_type` (Variation), `variation_theme` (e.g. Color),
-`parent_sku`. Update-by-ASIN sets `external_product_id` = the ASIN and
-`external_product_id_type` = asin.
+  legacy  (TemplateType=fptcustom) -- the classic flat file. Field API
+          names are bare: `item_sku`, `update_delete`, `parent_child`,
+          `relationship_type`, `variation_theme`, `parent_sku`,
+          `external_product_id[_type]`.
+  unified (NGS "Beta Product Spreadsheet") -- the current Seller Central
+          template. Every field name is decorated: the SKU is
+          `contribution_sku#1.value`, the operation is `::record_action`,
+          parentage is `parentage_level[marketplace_id=<id>]#1.value`, the
+          parent link is
+          `child_parent_sku_relationship[marketplace_id=<id>]#1.parent_sku`,
+          the theme is `variation_theme#1.name`, and the product id lives
+          in `amzn1.volt.ca.product_id{_type,_value}`.
+
+Every field the tool addresses by a friendly role (sku, operation,
+product_type, brand, parentage, parent_sku, variation_theme, product id,
+offer price) is resolved STRUCTURALLY from the header (`_Schema`), so the
+same spec drives either dialect. Fields not covered by a role are still
+addressed by their exact API name via the spec's `fields` map.
+
+Template geometry
+-----------------
+  legacy : row 1 TemplateType/signature | row 2 localised labels |
+           row 3 field API names <-- keyed | row 4+ data
+  unified: rows 1-4 settings/instructions/group/localised labels |
+           row 5 field API names <-- keyed | rows 6..dataRow-1 a SKIPPED
+           example region | data from `dataRow` (the row-1 settings blob's
+           `dataRow=N`, e.g. 8)
+The field-name row is found structurally (the row carrying the SKU field);
+data is written at `dataRow` (legacy: field-name row + 1), never by a
+guessed fixed number.
+
+The operation column (`update_delete` legacy / `::record_action`
+unified):
+  blank -> Create (the default when no ASIN is supplied)
+  update / partialupdate / delete map to each dialect's own tokens.
+Update-by-ASIN sets the product-id field to the ASIN and its type to
+`asin`.
 
 The template's own sheets are the source of truth for validation:
   'Data Definitions'  -> which fields are Required
@@ -66,6 +92,26 @@ except ImportError:
 # The script dir is on sys.path when run as a CLI; add it for path-based
 # imports (tests) too.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Template structure + metadata parsing live in a sibling module so this
+# file stays within the line cap. Public names there; alias to the
+# `_`-prefixed internal names used here (and re-exported for tests).
+from listing_schema import (  # noqa: E402, F401
+    DEFN_SHEET,
+    DROPDOWN_SHEET,
+    OP_TOKENS as _OP_TOKENS,
+    ROLE_MATCHERS as _ROLE_MATCHERS,
+    TEMPLATE_SHEET,
+    Schema as _Schema,
+    base_attr as _base_attr,
+    data_start_row as _data_start_row,
+    field_columns as _field_columns,
+    find_header_row as _find_header_row,
+    is_sku_field as _is_sku_field,
+    load_required_fields as _load_required_fields,
+    load_valid_values as _load_valid_values,
+    our_price_col as _our_price_col,
+    valid_value_case as _valid_value_case,
+)
 from marketplace_ids import (  # noqa: E402,F401
     MARKETPLACE_IDS,  # re-exported for callers/tests
     fulfillment_index as _fulfillment_index_for_marketplace,
@@ -73,54 +119,39 @@ from marketplace_ids import (  # noqa: E402,F401
     resolve as _resolve_marketplace_id,
 )
 
-# The Template sheet holds the flat file. Metadata lives in siblings.
-TEMPLATE_SHEET = 'Template'
-DEFN_SHEET = 'Data Definitions'
-VALID_SHEET = 'Valid Values'
-DROPDOWN_SHEET = 'Dropdown Lists'
-
-# The operation column and the tokens Amazon accepts in it. A blank
-# cell means Create -- that is the default and cannot be a literal
-# token, so callers pass operation='create' and we clear the cell.
-OP_COLUMN = 'update_delete'
-OP_TOKENS = {
-    'create': '',
-    'update': 'Update',
-    'partialupdate': 'partialupdate',
-    'delete': 'delete',
-}
-
-# Fields the caller addresses through friendly per-row keys, mapped to
-# their flat-file field API name. Everything else goes in `fields`.
-IDENTITY_FIELD = 'item_sku'
-PRODUCT_TYPE_FIELD = 'feed_product_type'
-BRAND_FIELD = 'brand_name'
-
-# Price MUST go in the `purchasable_offer[marketplace_id=<id>]` block for
-# the marketplace being listed on, else the product is ASIN-only ("Missing
-# offer", never live). The full country->id table and the resolver live in
-# `marketplace_ids`; the id is read straight off the template's columns.
-
-# Bare `our_price` + top-level `marketplace` -> the exact marketplace-
-# scoped column, so the price can never land in the wrong block.
-_OUR_PRICE_TEMPLATE = (
-    'purchasable_offer[marketplace_id={id}]#1.our_price#1.schedule'
-    '#1.value_with_tax'
-)
 _OFFER_PRICE_SHORTHANDS = ('our_price', 'price', 'standard_price')
+
+# Item Highlight (`title_differentiation`) is an OPTIONAL field Amazon only
+# accepts when the Item Name is <= 75 chars; a longer title makes Amazon
+# reject the highlight with error 100476 ("Provide an Item Name that is 75
+# characters or less to use Item Highlights") -- a non-blocking SUCCESS
+# (OTHER) error that leaves the SKU in inventory but flagged "Action
+# required". The marketing item_name is routinely > 75 chars, so a spec
+# that fills Item Highlight (e.g. with the colour) silently poisons every
+# child. `fill` drops the optional highlight when the title is too long so
+# the SKU lands clean; the value belongs in `color_name`, never here.
+_ITEM_HIGHLIGHT_ATTR = 'title_differentiation'
+_ITEM_NAME_ATTR = 'item_name'
+_ITEM_HIGHLIGHT_MAX_TITLE = 75
 
 # A Parent row carries only shared catalogue data; offer, stock, images
 # and product-id live on Child rows -- so a Parent legitimately omits
-# these even when the template marks them Required (don't warn).
+# these even when the template marks them Required (don't warn). Prefixes
+# cover both dialects (`color_name`/legacy id vs `color`/`amzn1.volt.ca`).
 CHILD_LEVEL_PREFIXES = (
     'purchasable_offer',
     'fulfillment_availability',
     'main_image_url',
+    'main_product_image',
     'other_image_url',
+    'other_product_image',
     'swatch_image_url',
     'external_product_id',
+    'amzn1.volt.ca.product_id',
     'color_name',
+    'color[',
     'size_name',
+    'size[',
     'apparel_size',
 )
 
@@ -150,132 +181,6 @@ def _keep_vba(path):
     return path.lower().endswith('.xlsm')
 
 
-def _find_header_row(ws, max_scan=8):
-    """Return the 1-based row index whose cells carry field API names.
-
-    Identified structurally by the presence of `item_sku`, so it works
-    regardless of console language (the label row above it is localised;
-    this row is not).
-    """
-    for r in range(1, max_scan + 1):
-        values = [c.value for c in ws[r]]
-        if IDENTITY_FIELD in values:
-            return r
-    raise ValueError(
-        f"could not find the field-name row (no '{IDENTITY_FIELD}' in the "
-        f'first {max_scan} rows) -- is this a listing flat-file template?'
-    )
-
-
-def _field_columns(ws, header_row):
-    """Map field API name -> list of 1-based column indices.
-
-    Repeated fields (bullet_point1..N are distinct, but some templates
-    reuse a bare name across marketplace-scoped offer blocks) map to
-    multiple columns; the first is used for scalar writes.
-    """
-    cols = {}
-    for cell in ws[header_row]:
-        name = cell.value
-        if name:
-            cols.setdefault(str(name), []).append(cell.column)
-    return cols
-
-
-def _load_required_fields(wb):
-    """Field API names marked Required in the Data Definitions sheet.
-
-    Data Definitions layout: header at Excel row 2, then per-field rows
-    with columns Group Name | Field Name | Local Label | Definition |
-    Accepted Values | Example | Required?.
-    """
-    if DEFN_SHEET not in wb.sheetnames:
-        return set()
-    ws = wb[DEFN_SHEET]
-    rows = list(ws.iter_rows(values_only=True))
-    required = set()
-    for row in rows[2:]:
-        if not row or len(row) < 7:
-            continue
-        field_name, req = row[1], row[6]
-        if field_name and req and str(req).strip().lower() == 'required':
-            required.add(str(field_name).strip())
-    return required
-
-
-def _load_valid_values(wb):
-    """Map field API name -> set of accepted enum tokens (lowercased).
-
-    Read from 'Dropdown Lists', whose row 3 holds field API names as
-    column headers and the rows below hold the tokens for each. Returns
-    {} silently if the sheet is absent or shaped unexpectedly -- enum
-    checks then degrade to warnings only.
-    """
-    if DROPDOWN_SHEET not in wb.sheetnames:
-        return {}
-    ws = wb[DROPDOWN_SHEET]
-    rows = list(ws.iter_rows(values_only=True))
-    if len(rows) < 4:
-        return {}
-    # The field-name header inside Dropdown Lists is the row that
-    # contains a known enum field; probe the first few rows for it.
-    hdr_idx = None
-    for i in range(min(5, len(rows))):
-        if rows[i] and OP_COLUMN in [str(c) for c in rows[i] if c]:
-            hdr_idx = i
-            break
-    if hdr_idx is None:
-        return {}
-    hdr = rows[hdr_idx]
-    out = {}
-    for ci, name in enumerate(hdr):
-        if not name:
-            continue
-        vals = set()
-        for ri in range(hdr_idx + 1, len(rows)):
-            v = rows[ri][ci] if ci < len(rows[ri]) else None
-            if v not in (None, ''):
-                vals.add(str(v).strip().lower())
-        if vals:
-            out[str(name).strip()] = vals
-    return out
-
-
-def _valid_value_case(wb):
-    """Map field API name -> {lowercased token: template's exact-case token}.
-
-    Amazon rejects a case-mismatched enum on some fields (verified live:
-    `apparel_size_system` accepts `UAE/KSA` but rejects `uae/ksa`), so a
-    spec value must be written in the template's own case. This mirrors
-    `_load_valid_values` but keeps the original casing as the value.
-    """
-    if DROPDOWN_SHEET not in wb.sheetnames:
-        return {}
-    ws = wb[DROPDOWN_SHEET]
-    rows = list(ws.iter_rows(values_only=True))
-    if len(rows) < 4:
-        return {}
-    hdr_idx = None
-    for i in range(min(5, len(rows))):
-        if rows[i] and OP_COLUMN in [str(c) for c in rows[i] if c]:
-            hdr_idx = i
-            break
-    if hdr_idx is None:
-        return {}
-    out = {}
-    for ci, name in enumerate(rows[hdr_idx]):
-        if not name:
-            continue
-        m = {}
-        for ri in range(hdr_idx + 1, len(rows)):
-            v = rows[ri][ci] if ci < len(rows[ri]) else None
-            if v not in (None, ''):
-                m[str(v).strip().lower()] = str(v).strip()
-        if m:
-            out[str(name).strip()] = m
-    return out
-
-
 def _export_tsv(ws, path):
     """Write the Template sheet as a tab-delimited .txt (the upload file).
 
@@ -283,8 +188,10 @@ def _export_tsv(ws, path):
     90502 FATAL ("worksheet template type not supported for Excel
     upload") because the re-save alters the macro-workbook structure it
     validates. Its own remedy is to upload a tab-delimited text file, so
-    this is the artefact you actually upload -- keyed by the row-3 field
-    names, uniform column count so nothing shifts.
+    this is the artefact you actually upload -- the WHOLE sheet including
+    the settings/signature/label header block (Amazon's introspect-feed
+    keys on it to detect the file type), uniform column count so nothing
+    shifts.
     """
     max_c = ws.max_column
     with open(path, 'w', newline='', encoding='utf-8') as fh:
@@ -302,6 +209,7 @@ def cmd_inspect(args):
     ws = wb[TEMPLATE_SHEET]
     header_row = _find_header_row(ws)
     cols = _field_columns(ws, header_row)
+    schema = _Schema(cols)
     required = _load_required_fields(wb)
     valid = _load_valid_values(wb)
 
@@ -317,68 +225,86 @@ def cmd_inspect(args):
         print(f'  values  : {dig(name)}')
         return
 
-    tt = ws.cell(row=1, column=1).value
-    print(f'template : {tt}')
+    tt = str(ws.cell(row=1, column=1).value or '')
+    op_field = schema.field('operation')
+    data_row = _data_start_row(ws, header_row)
+    print(f'template : {tt[:80]}')
+    print(f'dialect  : {schema.dialect}')
     print(f'sheets   : {wb.sheetnames}')
-    print(f'header at Excel row {header_row}; data starts row {header_row + 1}')
+    print(f'header at Excel row {header_row}; data starts row {data_row}')
     print(f'total fields: {len(cols)}   required fields: {len(required)}')
     print(
         '\noperation column ({}): create=blank / {}'.format(
-            OP_COLUMN, ' / '.join(t for t in OP_TOKENS.values() if t)
+            op_field,
+            ' / '.join(t for t in schema.op_tokens().values() if t),
         )
     )
-    print('\nvariation cluster:')
-    for f in (
-        'parent_child',
-        'relationship_type',
-        'variation_theme',
-        'parent_sku',
-        'external_product_id',
-        'external_product_id_type',
-    ):
-        if f in cols:
-            print(f'  {f:26} col={cols[f][0]:<4} values={dig(f)}')
+    # The resolved logical roles: the actual columns a spec's friendly keys
+    # (and offer-price routing) write to for THIS template's dialect.
+    print('\nresolved roles (friendly key -> the column it fills):')
+    for role in _ROLE_MATCHERS:
+        name = schema.field(role)
+        if name:
+            print(f'  {role:16} -> {name}   values={dig(name)}')
     print('\nrequired fields:')
     for f in sorted(required):
         print(f'  {f:30} values={dig(f)}')
 
 
-def _resolve_operation(op):
+def _resolve_operation(op, dialect):
+    tokens = _OP_TOKENS[dialect]
     key = (op or 'create').strip().lower()
-    if key not in OP_TOKENS:
+    if key not in tokens:
         raise SystemExit(
-            f"error: operation '{op}' is not one of {', '.join(OP_TOKENS)}"
+            f"error: operation '{op}' is not one of {', '.join(tokens)}"
         )
-    return OP_TOKENS[key], key
+    return tokens[key], key
 
 
-def _row_fields(spec_row, top):
+def _row_fields(spec_row, top, schema):
     """Flatten one spec row into {field_api_name: value}.
 
     Friendly per-row keys (sku, asin, parent_sku, parentage,
-    variation_theme) fold into their flat-file field names; `fields`
+    variation_theme) fold into their flat-file field names -- resolved
+    through `schema` so the SAME spec drives either dialect; `fields`
     carries everything else verbatim by API name. Top-level `product_type`
     and `brand` supply defaults when a row omits them.
     """
     out = dict(spec_row.get('fields') or {})
-    out.setdefault(PRODUCT_TYPE_FIELD, top.get('product_type'))
-    if top.get('brand'):
-        out.setdefault(BRAND_FIELD, top['brand'])
-    if spec_row.get('sku'):
-        out[IDENTITY_FIELD] = spec_row['sku']
-    if spec_row.get('parent_sku'):
-        out['parent_sku'] = spec_row['parent_sku']
-    if spec_row.get('parentage'):
-        out['parent_child'] = spec_row['parentage']
-    if spec_row.get('variation_theme'):
-        out['variation_theme'] = spec_row['variation_theme']
-    # Any variation row MUST carry relationship_type or a child errors
-    # "relationship_type = null" and never creates. Derive it (explicit wins).
-    if spec_row.get('parentage') or spec_row.get('variation_theme'):
+
+    def put(role, value, overwrite=True):
+        name = schema.field(role)
+        if name and value not in (None, ''):
+            if overwrite or name not in out:
+                out[name] = value
+
+    put('product_type', top.get('product_type'), overwrite=False)
+    put('brand', top.get('brand'), overwrite=False)
+    put('sku', spec_row.get('sku'))
+    put('parent_sku', spec_row.get('parent_sku'))
+    put('parentage', spec_row.get('parentage'))
+    put('variation_theme', spec_row.get('variation_theme'))
+    # A legacy variation row MUST carry relationship_type or a child errors
+    # "relationship_type = null" and never creates (explicit wins). The
+    # unified template has no such column -- the parent link is carried by
+    # parentage_level + child_parent_sku_relationship -- so only add it when
+    # the template actually has a `relationship_type` column.
+    if (spec_row.get('parentage') or spec_row.get('variation_theme')) and (
+        'relationship_type' in schema.cols
+    ):
         out.setdefault('relationship_type', 'Variation')
     if spec_row.get('asin'):
-        out['external_product_id'] = spec_row['asin']
-        out.setdefault('external_product_id_type', 'asin')
+        put('product_id', spec_row['asin'])
+        put('product_id_type', 'asin', overwrite=False)
+    # Offer shorthands (`our_price`/`price`/`quantity`) belong in `fields`,
+    # but the skill tells the agent to put "a bare our_price/quantity on
+    # each child" -- naturally read as a ROW-LEVEL key. Fold those from the
+    # row into fields (a value already in `fields` wins) so the price/stock
+    # routes to the target marketplace either way, instead of being
+    # silently dropped -> an empty offer column the agent then hand-picks.
+    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity'):
+        if spec_row.get(k) not in (None, '') and k not in out:
+            out[k] = spec_row[k]
     # Drop keys with no value so we never blank an intended default.
     return {k: v for k, v in out.items() if v not in (None, '')}
 
@@ -392,7 +318,7 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
     only WARN when the target marketplace ends up with no price -- the
     "Missing offer / never live" trap. Mutates ``fields``.
     """
-    target_col = _OUR_PRICE_TEMPLATE.format(id=mkt_id) if mkt_id else None
+    target_col = _our_price_col(cols, mkt_id)
     shorthand = next((k for k in _OFFER_PRICE_SHORTHANDS if k in fields), None)
     if shorthand:
         if mkt_id is None:
@@ -400,13 +326,13 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                 f'error: row {i} sku={sku} sets a price but the spec has no '
                 f'\'marketplace\' -- add e.g. "marketplace": "SA"'
             )
-        if target_col not in cols:
+        if target_col is None:
             raise SystemExit(
                 f'error: row {i} sku={sku}: template has no offer column for '
                 f'marketplace_id={mkt_id} (account may not sell there)'
             )
         fields[target_col] = fields.pop(shorthand)
-    if mkt_id is not None and target_col not in fields:
+    if mkt_id is not None and (target_col is None or target_col not in fields):
         other = [
             k
             for k in fields
@@ -439,6 +365,35 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                         fields[tgt] = fields.pop(k)
 
 
+def _drop_unusable_item_highlight(fields, i, sku, warnings):
+    """Drop an optional Item Highlight when the Item Name is too long.
+
+    Amazon only accepts `title_differentiation` (Item Highlight) when the
+    row's `item_name` is <= 75 chars; otherwise it returns error 100476 and
+    parks the SKU in "Action required" (SUCCESS OTHER). The field is
+    OPTIONAL, so when the title exceeds the limit we drop the highlight and
+    warn rather than upload a value that guarantees a rejection. Mutates
+    ``fields``. No-op when no highlight is set or the title fits.
+    """
+    hi = next(
+        (k for k in fields if _base_attr(k) == _ITEM_HIGHLIGHT_ATTR), None
+    )
+    if hi is None or not str(fields[hi]).strip():
+        return
+    name = next(
+        (v for k, v in fields.items() if _base_attr(k) == _ITEM_NAME_ATTR), ''
+    )
+    if len(str(name)) > _ITEM_HIGHLIGHT_MAX_TITLE:
+        dropped = fields.pop(hi)
+        warnings.append(
+            f'row {i} sku={sku}: dropped Item Highlight '
+            f'({hi}={dropped!r}) -- item_name is '
+            f'{len(str(name))} chars (> {_ITEM_HIGHLIGHT_MAX_TITLE}), which '
+            f'Amazon rejects with error 100476. Item Highlight is optional; '
+            f'put the colour in color_name, not here.'
+        )
+
+
 def cmd_fill(args):
     with open(args.spec, encoding='utf-8') as fh:
         spec = json.load(fh)
@@ -453,6 +408,8 @@ def cmd_fill(args):
     ws = wb[TEMPLATE_SHEET]
     header_row = _find_header_row(ws)
     cols = _field_columns(ws, header_row)
+    schema = _Schema(cols)
+    op_field = schema.field('operation')
     required = _load_required_fields(wb)
     valid = _load_valid_values(wb)
     case = _valid_value_case(wb)
@@ -467,15 +424,28 @@ def cmd_fill(args):
 
     unknown_fields = set()
     warnings = []
-    write_at = header_row + 1
-    # Clear pre-existing data rows first, so an Example row or a reused
-    # workbook's stale rows can't upload as unintended SKUs.
-    if ws.max_row >= write_at:
-        ws.delete_rows(write_at, ws.max_row - write_at + 1)
+    # Data begins at the template's data row (unified: the `dataRow=N` the
+    # settings blob names, with rows header_row+1..N-1 an example region
+    # Amazon SKIPS; legacy: header_row+1). Writing into that skipped gap
+    # silently drops SKUs.
+    write_at = _data_start_row(ws, header_row)
+    # Clear everything below the field-name row, so the template's prefilled
+    # Example row (and its "do not delete this row" instruction row) or a
+    # reused workbook's stale rows can't upload as unintended SKUs; the gap
+    # rows above write_at are then re-emitted empty by the TSV export.
+    if ws.max_row > header_row:
+        ws.delete_rows(header_row + 1, ws.max_row - header_row)
     for i, spec_row in enumerate(rows):
-        op_token, op_key = _resolve_operation(spec_row.get('operation'))
-        fields = _row_fields(spec_row, spec)
-        sku = fields.get(IDENTITY_FIELD)
+        op_token, op_key = _resolve_operation(
+            spec_row.get('operation'), schema.dialect
+        )
+        fields = _row_fields(spec_row, spec, schema)
+        # Map any bare/undecorated content field name to this template's
+        # actual column (unified decorates them), so the SAME spec fills
+        # either dialect. Offer shorthands (our_price/quantity) have no
+        # column of their own and pass through to _route_offer_price.
+        fields = {schema.resolve_field(k): v for k, v in fields.items()}
+        sku = fields.get(schema.field('sku'))
         if not sku:
             raise SystemExit(f'error: row {i} has no sku')
 
@@ -483,6 +453,10 @@ def cmd_fill(args):
         # so it can't land in the wrong `purchasable_offer` block (which
         # creates an ASIN-only listing stuck in "Missing offer").
         _route_offer_price(fields, cols, mkt_id, i, sku, warnings)
+
+        # Drop an optional Item Highlight the title is too long for, so it
+        # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).
+        _drop_unusable_item_highlight(fields, i, sku, warnings)
 
         # Enum validation: reject an invalid operation-family token hard;
         # warn (never fail) on other enums so an unseen-but-valid token
@@ -498,13 +472,14 @@ def cmd_fill(args):
         # Required-field guard applies to Create rows only. Update/
         # partialupdate touch a subset; delete needs just sku+operation.
         if op_key == 'create':
-            is_parent = str(fields.get('parent_child', '')).lower() == 'parent'
+            parentage = fields.get(schema.field('parentage'), '')
+            is_parent = str(parentage).lower() == 'parent'
             no_battery = _is_falsey(
                 fields.get('are_batteries_included')
             ) and _is_falsey(fields.get('batteries_required'))
             missing = []
             for f in required:
-                if f not in cols or f in fields or f == OP_COLUMN:
+                if f not in cols or f in fields or f == op_field:
                     continue
                 if is_parent and f.startswith(CHILD_LEVEL_PREFIXES):
                     continue
@@ -519,8 +494,8 @@ def cmd_fill(args):
 
         target = ws[write_at + i]
         # Operation column: write the token (blank cell = Create).
-        if OP_COLUMN in cols:
-            target[cols[OP_COLUMN][0] - 1].value = op_token or None
+        if op_field and op_field in cols:
+            target[cols[op_field][0] - 1].value = op_token or None
         for fname, fval in fields.items():
             if fname not in cols:
                 unknown_fields.add(fname)
@@ -544,6 +519,16 @@ def cmd_fill(args):
         print(
             f'warning: fields not in this template (skipped): '
             f'{sorted(unknown_fields)}',
+            file=sys.stderr,
+        )
+    # The browser (Ziniao/macOS) can't read /tmp, so uploading a /tmp file
+    # silently no-ops (Submit never enables). Nudge the caller to write
+    # under the store downloads dir instead.
+    if os.path.realpath(txt_path).startswith(('/tmp/', '/private/tmp/')):
+        print(
+            f'warning: {txt_path} is under /tmp -- the browser cannot read '
+            'it and the upload will silently fail. Write --out under '
+            '~/.vibe-seller/downloads/<slug>/ instead.',
             file=sys.stderr,
         )
     print(f'wrote {len(rows)} data row(s) -> {args.out}')
@@ -596,7 +581,7 @@ def _template_cell_errors(path):
             c.column: str(c.value).strip() for c in ws[header_row] if c.value
         }
         sku_col = next(
-            (col for col, n in names.items() if n == IDENTITY_FIELD), None
+            (col for col, n in names.items() if _is_sku_field(n)), None
         )
         for row in ws.iter_rows(min_row=header_row + 1):
             sku = ''
@@ -641,9 +626,11 @@ def _report_comment_errors(path):
     except ValueError:
         return []
     names = [c.value for c in ws[hdr]]
-    if IDENTITY_FIELD not in names:
+    sku_col = next(
+        (i for i, n in enumerate(names) if n and _is_sku_field(str(n))), None
+    )
+    if sku_col is None:
         return []
-    sku_col = names.index(IDENTITY_FIELD)
     out = []
     for r in range(hdr + 1, ws.max_row + 1):
         sku = ws.cell(r, sku_col + 1).value
@@ -682,9 +669,17 @@ def cmd_parse_feedback(args):
         )
         if n_err:
             print(
-                'Fix ALL errors (parent first) and re-upload; a SKU with '
-                'any error is NOT created (feed "successful" != live).'
+                'NOT DONE. Fix ALL errors (parent first) and re-upload. A '
+                'SKU with any error is either not created OR created but '
+                'flagged "Action required" (SUCCESS OTHER) -- it shows up in '
+                'inventory yet the error is UNRESOLVED. Inventory presence '
+                'is NOT "done"; only 18320 (missing main image) is a legit '
+                'deferral. Re-run parse-feedback on the new report until the '
+                'sole remaining error is 18320.'
             )
+            # Non-zero exit so a caller/CI sees the feed had blocking
+            # errors -- matches the table-scan path below.
+            sys.exit(1)
         return
 
     rows = list(_iter_report_rows(args.file))

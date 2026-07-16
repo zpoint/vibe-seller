@@ -4,20 +4,58 @@
 > category-specific: the column set and valid values differ per product
 > type, so `inspect` a fresh template before filling it.
 
-## 0. The template geometry (verified on a real fptcustom template)
+## 0. The template geometry (two dialects — auto-detected)
 
-The `Template` sheet is a wide table with a **three-row header**:
+Amazon ships **two** flat-file templates and `listing_bulk.py` handles
+both; `inspect` prints which (`dialect: legacy` / `dialect: unified`).
+
+**legacy (`TemplateType=fptcustom`)** — the classic flat file, a
+three-row header:
 
 ```
 Excel row 1   TemplateType=fptcustom | Version | Signature | group names
 Excel row 2   Local Label Names   (LOCALISED — e.g. "Seller SKU")
-Excel row 3   field API names     (item_sku, update_delete, ...)  <-- key on THIS
+Excel row 3   field API names     (item_sku, update_delete, ...)  <-- keyed
 Excel row 4+  data rows
 ```
 
-`listing_bulk.py` locates the field-name row structurally (the row that
-contains `item_sku`) and addresses every field by API name — **never**
-by the localised label above it. Data rows are appended from row 4.
+**unified (NGS "Beta Product Spreadsheet")** — the current Seller Central
+template, a five-row header and PREFILLED example rows:
+
+```
+Excel row 1   settings=feedType=…&labelRow=4&attributeRow=5&dataRow=8…  (signature blob)
+Excel row 2   instructions ("Use ENGLISH … do not delete the colored head")
+Excel row 3   group names (Listing Identity | Variations | …)
+Excel row 4   Local Label Names   (LOCALISED)
+Excel row 5   field API names     <-- keyed
+Excel row 6-7 PREFILLED example SKU + a "do not delete this row" instruction
+Excel row 8+  where the UI expects your data
+```
+
+Every field name in the unified dialect is **decorated**: the SKU is
+`contribution_sku#1.value`, the operation is `::record_action` (tokens
+`Create or Replace (Full Update)` / `Edit (Partial Update)` / `Delete`),
+parentage is `parentage_level[marketplace_id=<id>]#1.value`, the parent
+link is `child_parent_sku_relationship[marketplace_id=<id>]#1.parent_sku`,
+the theme is `variation_theme#1.name`, the brand/title are
+`…[marketplace_id=<id>][language_tag=<tag>]#1.value`, the product id is
+`amzn1.volt.ca.product_id{_type,_value}`, and the offer price carries an
+`[audience=ALL]` insert
+(`purchasable_offer[marketplace_id=<id>][audience=ALL]#1.our_price…`).
+
+`listing_bulk.py` locates the field-name row **structurally** (the row
+carrying the SKU column — `item_sku` OR `contribution_sku`) and resolves
+every friendly role from the header, so the **same spec drives either
+dialect** — never key on a fixed row number or the localised label row.
+
+> **`fill` clears the prefilled example/instruction rows for you.** The
+> unified template ships an example SKU + a "do not delete this row"
+> instruction in the data area. **Do NOT hand-roll the upload file** — a
+> hand-rolled file that appends your SKUs *after* those rows uploads the
+> example + instruction as if they were real SKUs (a live run got
+> **"1/8 successful"** that way: only the parent created, the junk rows
+> and the children failed). `fill` deletes everything below the field-name
+> row before writing, so only your SKUs ship.
 
 The metadata sheets are the source of truth:
 
@@ -259,7 +297,10 @@ new `parent_sku` / `variation_theme` (or clear `parent_sku` and set
 > delete task is independent and must discover SKUs from the account.
 
 ```bash
-$PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json --out /tmp/<slug>/out.xlsm
+# Write under the store DOWNLOADS dir, NOT /tmp — the browser must read
+# the .txt to upload it, and Ziniao's Chrome can't read /tmp (§4).
+$PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json \
+    --out ~/.vibe-seller/downloads/<slug>/out.xlsm
 ```
 
 `fill` prints a warning (never fails) for an enum value not in the
@@ -270,61 +311,49 @@ reject on.
 
 ## 4. Upload the `.txt` + read the processing report
 
-**Upload the tab-delimited `.txt` that `fill` wrote, NOT the `.xlsm`.**
-An openpyxl-saved `.xlsm` is rejected with a **90502 FATAL** ("the file
-does not contain a worksheet with a template type that is supported for
-Excel upload") — the re-save alters the macro-workbook structure Amazon
-validates, and its own remedy is to upload a tab-delimited text file.
-The `.txt` reaches real content validation, which is what you want.
-
-On the upload page the file input is a `kat-file-upload` widget. Its
-`shadowRoot input#kat-file-attachment` is an **inert placeholder** — a
-`DOM.setFileInputFiles` on it returns success but leaves `files.length`
-at **0** (verified: objectId, `backendNodeId`, and `getDocument(pierce)`
-all no-op), so DON'T set that node and DON'T click "Browse"/`file://`.
-
-The widget creates its **real** input only when the "Upload file" button
-is clicked with a **trusted** gesture, and hands it to you via
-`Page.fileChooserOpened`. Intercept the chooser, trusted-click the button,
-set the file on that `backendNodeId` (`cdp()` params are keyword args):
+**Upload the `.txt` `fill` wrote, NOT the `.xlsm`** (an openpyxl-saved
+`.xlsm` is rejected 90502 FATAL). Drive the `kat-file-upload` widget with
+the file-chooser recipe in `browser-harness` § "Uploading a file" — which
+is also where the "keep the file in the downloads dir, not `/tmp`" rule
+lives.
 
 ```bash
 browser-use <<'PY'
-import time
-cdp('Page.enable'); cdp('Page.setInterceptFileChooserDialog', enabled=True)
-drain_events()
+import os, time
+F = os.path.expanduser('~/.vibe-seller/downloads/<slug>/out.txt')  # browser-readable
+cdp('Page.enable'); cdp('Page.setInterceptFileChooserDialog', enabled=True); drain_events()
 box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
-            var r=b.getBoundingClientRect();
-            return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};""")
-click_at_xy(box['x'], box['y'])          # TRUSTED click (not JS .click())
-bnid = None
+            var r=b.getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};""")
+click_at_xy(box['x'], box['y'])
+bnid=None
 for _ in range(8):
     time.sleep(0.5)
     for e in drain_events():
-        if 'fileChooserOpened' in str(e.get('method','')): bnid = e['params']['backendNodeId']
+        if 'fileChooserOpened' in str(e.get('method','')): bnid=e['params']['backendNodeId']
     if bnid: break
-cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=['/tmp/<slug>/listing.txt'])
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
 cdp('Page.setInterceptFileChooserDialog', enabled=False)
-print('attached to', bnid)
 PY
 ```
 
-(Generic recipe + the plain-input Method 1: `browser-harness` SKILL.md §
-"Uploading a file".) Amazon stages the file, showing the filename +
-green **"File Type … (Automatically detected)"** and enabling **Submit
-products**. Confirm via `capture_screenshot()` + Read (the shadow-root
-text carries hidden "unsuccessful" strings even on success — don't trust
-it). Then `click_at_xy` **Submit products** and `wait_for_load()`. Amazon
-processes asynchronously; the batch row on **Check Upload Status** shows
-`SKUs successful / submitted` and a **Download Processing Summary** link.
-Save it and parse it:
+**Submit is two clicks:** the 1st fires `introspect-feed` (file-type
+detection → green "Product Spreadsheet File (Automatically detected)"); the
+2nd posts the feed (URL gains `reference_id=`). Confirm staging by
+Submit-enabled / the detected banner — the widget's "File upload was
+unsuccessful" shadow text and any red "network error" toast are stale and
+lie. If `click_at_xy` on **Submit products** doesn't register (the button
+sits low on the page), fire it with a JS `.click()` on the `kat-button`
+instead. Then read the report (downloaded to the same dir):
 
 ```bash
-$PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-summary.xlsm
+$PY $S/listing_bulk.py parse-feedback ~/.vibe-seller/downloads/<slug>/REPORT.xlsm
 ```
 
-It prints per-SKU `[Error|Warning] sku=… code=…: message`. Fix the
-flagged fields and re-upload.
+> **"Parent live, children N/A" (e.g. `1/8`) = a CONTENT rejection of the
+> children, not a browser bug** (the file uploaded fine). `parse-feedback`
+> the Processing Summary for the per-child reason and fix those fields; a
+> brand-new family often needs a second pass (parent first, children on
+> re-upload). Don't thrash the upload widget.
 
 > **The status page lists many past batches — download the report from
 > the row whose filename matches THIS upload**, or you'll parse a stale

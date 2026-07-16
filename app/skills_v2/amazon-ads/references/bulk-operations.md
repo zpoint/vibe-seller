@@ -60,18 +60,18 @@ $PY "$S" clone-campaign "$EXPORT" \
     --new "acme widgets 006 manual keyword US" \
     --sku WIDGET-006-Blue-M --asin B0EXAMPLE1 \
     --daily-budget 10 --default-bid 0.75 \
-    --out /tmp/<slug>/bulk_create.xlsx
+    --out ~/.vibe-seller/downloads/<slug>/bulk_create.xlsx
 
 # BID UPDATE: re-bid every keyword in a campaign (scale or set).
 $PY "$S" bid-update "$EXPORT" \
     --campaign "acme widgets 004 manual keyword US" --scale 0.85 \
-    --out /tmp/<slug>/bulk_bid_update.xlsx
+    --out ~/.vibe-seller/downloads/<slug>/bulk_bid_update.xlsx
 
 # ARCHIVE (disable + clean up) a campaign — needs only its Campaign Id,
 # read from the export.
 $PY "$S" archive-campaign "$EXPORT" \
     --campaign "acme widgets 006 manual keyword US" \
-    --out /tmp/<slug>/bulk_archive.xlsx
+    --out ~/.vibe-seller/downloads/<slug>/bulk_archive.xlsx
 
 # CLONE an AUTO campaign — same command; it detects auto from the source
 # (which has product-targeting rows, not keywords) and copies those match
@@ -79,14 +79,14 @@ $PY "$S" archive-campaign "$EXPORT" \
 # NOT hand-write auto-target tokens; clone from a working auto campaign.
 $PY "$S" clone-campaign "$EXPORT" \
     --src "acme widgets 004 auto US" --new "acme widgets 006 auto US" \
-    --sku WIDGET-006-Blue-M --daily-budget 10 --out /tmp/<slug>/bulk_auto.xlsx
+    --sku WIDGET-006-Blue-M --daily-budget 10 --out ~/.vibe-seller/downloads/<slug>/bulk_auto.xlsx
 
 # NEGATE zero-sales keywords on a campaign (bulk — NOT by scraping the
 # on-screen grid). Campaign-level by default; --level adgroup for ad-group.
 $PY "$S" negate "$EXPORT" \
     --campaign "acme widgets 006 manual keyword US" \
     --keywords "generic term a,generic term b" --match negativePhrase \
-    --out /tmp/<slug>/bulk_negate.xlsx
+    --out ~/.vibe-seller/downloads/<slug>/bulk_negate.xlsx
 ```
 
 > **Negation is a bulk op, never a grid scrape.** The on-screen keyword /
@@ -127,7 +127,9 @@ row and sheet name from the export you fed it (see locale note below).
 
 ### 3. Import (Upload campaigns)
 
-Bulk Operations → **Upload campaigns** → pick the output file. The job
+Bulk Operations → **Upload campaigns** → pick the output file (from the
+downloads dir the `--out` paths above target — the browser must read it to
+attach it; see `browser-harness` § "Uploading a file"). The job
 runs asynchronously; the history table shows `Success` / `Failed` /
 `File not uploaded` (these status strings are **English regardless of
 console language**). When a row fails, **download its result report**
