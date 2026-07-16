@@ -192,6 +192,18 @@ a family that the parent shows **"Variations (N)"**.
   a long-title item. That is **NOT done**: fix the exact field the report
   names (Item Highlight is optional — clear it; the colour belongs in
   `color_name`) and re-upload. Only 18320 is a legit deferral.
+- **When the image IS the only remaining error, say so — never call it
+  "live".** A SUCCESS (OTHER) whose sole error is the missing main image
+  ("submit a compliant image to lift the suppression") means the SKU is
+  **created + priced + stocked but SEARCH-SUPPRESSED** — it is NOT buyable
+  or discoverable until the seller adds an image. That is the accepted
+  deferred done-state, but the final result MUST report it precisely:
+  "N children created, linked, priced, stocked — **SUPPRESSED pending main
+  image** (seller adds the image to go live)". Do **not** write "live",
+  "done", "全部完成", or imply the listings are sellable. The Manage
+  Inventory row will read "Search suppressed" / "No image available" and
+  the upload feed will read 0/N successful — that is expected for this
+  state, not a failure to re-upload over.
 - **A buyable child that `8560`s ("doesn't match any ASINs … include
   standard_product_id")** — Amazon is refusing to *mint a new ASIN* for
   it. Two cases, decided by whether that child's ASIN already exists:
