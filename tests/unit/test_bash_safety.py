@@ -14,6 +14,7 @@ from app.ai.bash_safety import (
     check_dangerous_kill,
     check_report_overwrite,
     check_report_script_write,
+    check_skill_file_write,
     is_catalog_path,
     should_mark_catalog_read,
 )
@@ -470,3 +471,63 @@ class TestReportForkGuard:
             'Write', {'file_path': 'AD_AUDIT_2026-06-12.md'}, tmp_path
         )
         assert deny is not None
+
+
+class TestSkillFileWriteGuard:
+    """Built-in Write/Edit against .claude/skills/** must be denied and
+    steered to vibe_seller_save_skill — the per-task .claude copy makes
+    those writes silently non-persistent."""
+
+    @pytest.mark.parametrize('tool', ['Write', 'Edit', 'MultiEdit'])
+    def test_absolute_skill_path_denied(self, tool):
+        deny = check_skill_file_write(
+            tool,
+            {
+                'file_path': (
+                    '/home/runner/.vibe-seller/tasks/abc/.claude/skills/'
+                    'csv-revenue-total/SKILL.md'
+                )
+            },
+        )
+        assert deny is not None
+        assert 'vibe_seller_save_skill' in deny
+
+    def test_relative_skill_path_denied(self):
+        deny = check_skill_file_write(
+            'Edit', {'file_path': '.claude/skills/my-skill/SKILL.md'}
+        )
+        assert deny is not None
+
+    def test_bundled_skill_file_denied(self):
+        """Not just SKILL.md — any file under the skill dir (references,
+        scripts) must go through save_skill's `files` map."""
+        deny = check_skill_file_write(
+            'Write',
+            {'file_path': '.claude/skills/my-skill/references/notes.md'},
+        )
+        assert deny is not None
+
+    def test_non_skill_path_allowed(self):
+        assert (
+            check_skill_file_write(
+                'Edit', {'file_path': 'stores/acme/CATALOG.md'}
+            )
+            is None
+        )
+
+    def test_other_dot_claude_path_allowed(self):
+        """Only skills/ is guarded — e.g. a settings file is not."""
+        assert (
+            check_skill_file_write(
+                'Write', {'file_path': '.claude/settings.json'}
+            )
+            is None
+        )
+
+    def test_read_tool_not_guarded(self):
+        assert (
+            check_skill_file_write(
+                'Read', {'file_path': '.claude/skills/my-skill/SKILL.md'}
+            )
+            is None
+        )

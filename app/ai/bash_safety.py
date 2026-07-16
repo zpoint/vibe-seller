@@ -392,6 +392,51 @@ def check_report_overwrite(
     return None
 
 
+# ── Skill-file write guard ────────────────────────────────────────
+#
+# The task's ``.claude/`` tree is a per-task COPY of the shared
+# workspace (WorkspaceManager copies, not symlinks, because Claude
+# Code's Glob won't traverse symlinked ** — see workspace/manager.py).
+# So a built-in Write/Edit against ``.claude/skills/<slug>/…`` reports
+# "updated successfully" but only mutates the throwaway copy — the
+# durable skill under ~/.vibe-seller/.claude/skills/ is untouched and
+# the change vanishes when the task ends. Observed live: an agent asked
+# to "update that skill to also post to WeCom" Edited the task-local
+# SKILL.md, saw success, and moved on — the skill never changed.
+#
+# The only durable path is the vibe_seller_save_skill MCP tool. Deny
+# built-in file writes anywhere under .claude/skills/ and point there.
+
+_SKILL_FILE_RE = re.compile(r'(?:^|/)\.claude/skills/[^/]+/')
+
+_SKILL_WRITE_DENY = (
+    'BLOCKED — do not create or edit skills with the Write/Edit tool. '
+    "A file under .claude/skills/ lives in the task's throwaway copy of "
+    'the workspace: the built-in tools report success but the change is '
+    'discarded when the task ends, so the skill is NOT durably saved. '
+    'To create or extend a user-space skill, load the "save-skill" '
+    'skill and use the vibe_seller_save_skill MCP tool — it overwrites '
+    'an existing updatable skill (that is how you extend) or creates a '
+    'new one. Built-in (maintainer-shipped) skills are read-only; if one '
+    'is the closest match, create a new user-space skill instead.'
+)
+
+
+def check_skill_file_write(tool_name: str, tool_input: dict) -> str | None:
+    """Deny a built-in Write/Edit targeting a ``.claude/skills/**`` path.
+
+    Skill files must be written through ``vibe_seller_save_skill``; the
+    built-in file tools silently fail to persist through the per-task
+    ``.claude`` copy. See the module comment above.
+    """
+    if tool_name not in ('Write', 'Edit', 'MultiEdit'):
+        return None
+    path = tool_input.get('file_path', '')
+    if not isinstance(path, str) or not _SKILL_FILE_RE.search(path):
+        return None
+    return _SKILL_WRITE_DENY
+
+
 # ── Ad-tuning reviewer-status guard ───────────────────────────────
 #
 # Before an ads-report task may Stop, the ``ads-report-review`` reviewer

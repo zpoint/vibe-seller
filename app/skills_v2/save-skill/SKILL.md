@@ -1,6 +1,6 @@
 ---
 name: save-skill
-description: "Save the workflow you just carried out as a reusable skill, when the user asks to remember or reuse it — e.g. \"把这个任务的流程保存为技能\", \"save this workflow as a skill\", \"save to skill\", \"remember how to do this\", \"turn this into a skill\", \"next time do it the same way\". Search the existing skills first, then EXTEND the one that already covers this workflow or CREATE a new one — never duplicate. Writes user-space skills through the vibe_seller MCP tools so they persist and auto-load for future tasks."
+description: "Save the workflow you just carried out as a reusable skill — OR update an existing skill — whenever the user asks to remember, reuse, or amend it. Triggers include \"把这个任务的流程保存为技能\", \"save this workflow as a skill\", \"save to skill\", \"remember how to do this\", \"turn this into a skill\", \"next time do it the same way\", AND update/extend phrasings like \"update that skill\", \"extend the skill\", \"add this step to the skill\", \"make the skill also remember to…\", \"更新这个技能\", \"把这一步加到技能里\", \"让技能也记住…\". Search the existing skills first, then EXTEND the one that already covers this workflow or CREATE a new one — never duplicate. Skills are saved/extended ONLY through the vibe_seller_save_skill MCP tool (the built-in Write/Edit tools do not persist skill files); they then auto-load for future tasks."
 ---
 
 # Save this workflow as a skill
