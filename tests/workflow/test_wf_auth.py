@@ -116,9 +116,7 @@ class TestRefresh:
         r = await unauthed_client.post('/api/auth/refresh')
         assert r.status_code == 401
 
-    async def test_refresh_expired_token_401(
-        self, unauthed_client, admin_user
-    ):
+    async def test_refresh_expired_token_401(self, unauthed_client, admin_user):
         """An expired session cookie is rejected, not silently accepted.
 
         This is the contract the frontend heartbeat relies on: once the
