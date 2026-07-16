@@ -64,7 +64,7 @@ def fulfillment_index(cols, mkt_id):
     offer = [
         c
         for k, v in cols.items()
-        if f'marketplace_id={mkt_id}]' in k
+        if f'purchasable_offer[marketplace_id={mkt_id}]' in k
         for c in v
     ]
     if not offer:
@@ -86,9 +86,15 @@ def ids_in_template(cols):
     `purchasable_offer[marketplace_id=<id>]...` columns name exactly the
     marketplaces the template can list on -- ground truth independent of
     the table above, so a marketplace Amazon adds later still resolves.
+    Keyed on the OFFER block specifically: the unified template also
+    marketplace-scopes content columns (brand/item_name/parentage), so a
+    bare `marketplace_id=` scan would over-report marketplaces you can't
+    actually make an offer on.
     """
     ids = []
     for col in cols:
+        if 'purchasable_offer[marketplace_id=' not in str(col):
+            continue
         m = _MKT_ID_IN_COLUMN.search(str(col))
         if m and m.group(1) not in ids:
             ids.append(m.group(1))

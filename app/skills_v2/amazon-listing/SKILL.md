@@ -133,6 +133,17 @@ a family that the parent shows **"Variations (N)"**.
   `.txt` next to the `.xlsm` for you — upload that. An openpyxl-saved
   `.xlsm` triggers a **90502 FATAL** ("worksheet template type not
   supported for Excel upload").
+- **Submit is TWO clicks; the "network error" banner is a red herring.**
+  On the unified upload page the 1st **Submit products** only fires
+  `introspect-feed` (file-type detection → "Automatically detected"
+  banner); a 2nd click actually posts the feed (URL gains
+  `reference_id=`). The red "Sorry! There's a network error" toast shows
+  even when introspect returned 200 — do NOT re-upload on it. See
+  `references/template-round-trip.md` § 4.
+- **"1/N — parent created, children failed" is a CONTENT rejection, not a
+  browser bug.** The file uploaded fine (it reached validation); download
+  the Processing Summary and `parse-feedback` it for the per-child reason,
+  then fix + re-upload the children. Never thrash on the upload widget.
 - **Children are NOT minimal.** Each child needs the full required set
   its category asks for (e.g. `item_name`, `target_gender`,
   `age_range_description`, and any compound-attribute sub-fields), plus
@@ -203,13 +214,25 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
 ```
 
 - **`listing_bulk.py`** — deterministic template writer. It keys every
-  field by its **field API name** (the row that contains `item_sku`),
+  field by its **field API name** (the row carrying the SKU column),
   which is identical in every console language, so it is locale-robust
-  the same way `amazon-ads/ads_bulk.py` is.
-  - `inspect TEMPLATE.xlsm [--field NAME]` — dump the field set, which
-    fields are Required, the accepted enum tokens, and the variation
-    cluster. **Run this first on every fresh template** — the column
-    set and valid values differ per product type.
+  the same way `amazon-ads/ads_bulk.py` is. It **auto-detects both
+  template dialects** — legacy `fptcustom` (`item_sku`, `update_delete`,
+  header row 3) and the current unified NGS "Beta Product Spreadsheet"
+  (`contribution_sku#1.value`, `::record_action`, marketplace-scoped
+  parentage/offer, header row 5) — and resolves the friendly spec keys to
+  each dialect's columns, so the SAME spec drives either. **Always drive
+  the upload file through `fill` — never hand-roll it**: a hand-rolled
+  file skips `fill`'s guard that clears the unified template's prefilled
+  example/instruction rows, and uploading those as SKUs is what produced a
+  live **"1/8 successful"** (parent only, all children failed). See
+  `references/template-round-trip.md` § 0.
+  - `inspect TEMPLATE.xlsm [--field NAME]` — dump the dialect, the field
+    set, which fields are Required, the accepted enum tokens, and the
+    resolved friendly roles (which column each of sku / operation /
+    parentage / parent_sku / variation_theme / brand / offer maps to for
+    THIS template). **Run this first on every fresh template** — the
+    column set, dialect, and valid values differ per product type.
   - `fill TEMPLATE.xlsm --spec SPEC.json --out OUT.xlsm` — write
     parent/child rows, set the operation column per row, validate enums
     and required fields against the template's own metadata sheets, and

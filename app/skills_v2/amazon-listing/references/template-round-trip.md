@@ -4,20 +4,58 @@
 > category-specific: the column set and valid values differ per product
 > type, so `inspect` a fresh template before filling it.
 
-## 0. The template geometry (verified on a real fptcustom template)
+## 0. The template geometry (two dialects — auto-detected)
 
-The `Template` sheet is a wide table with a **three-row header**:
+Amazon ships **two** flat-file templates and `listing_bulk.py` handles
+both; `inspect` prints which (`dialect: legacy` / `dialect: unified`).
+
+**legacy (`TemplateType=fptcustom`)** — the classic flat file, a
+three-row header:
 
 ```
 Excel row 1   TemplateType=fptcustom | Version | Signature | group names
 Excel row 2   Local Label Names   (LOCALISED — e.g. "Seller SKU")
-Excel row 3   field API names     (item_sku, update_delete, ...)  <-- key on THIS
+Excel row 3   field API names     (item_sku, update_delete, ...)  <-- keyed
 Excel row 4+  data rows
 ```
 
-`listing_bulk.py` locates the field-name row structurally (the row that
-contains `item_sku`) and addresses every field by API name — **never**
-by the localised label above it. Data rows are appended from row 4.
+**unified (NGS "Beta Product Spreadsheet")** — the current Seller Central
+template, a five-row header and PREFILLED example rows:
+
+```
+Excel row 1   settings=feedType=…&labelRow=4&attributeRow=5&dataRow=8…  (signature blob)
+Excel row 2   instructions ("Use ENGLISH … do not delete the colored head")
+Excel row 3   group names (Listing Identity | Variations | …)
+Excel row 4   Local Label Names   (LOCALISED)
+Excel row 5   field API names     <-- keyed
+Excel row 6-7 PREFILLED example SKU + a "do not delete this row" instruction
+Excel row 8+  where the UI expects your data
+```
+
+Every field name in the unified dialect is **decorated**: the SKU is
+`contribution_sku#1.value`, the operation is `::record_action` (tokens
+`Create or Replace (Full Update)` / `Edit (Partial Update)` / `Delete`),
+parentage is `parentage_level[marketplace_id=<id>]#1.value`, the parent
+link is `child_parent_sku_relationship[marketplace_id=<id>]#1.parent_sku`,
+the theme is `variation_theme#1.name`, the brand/title are
+`…[marketplace_id=<id>][language_tag=<tag>]#1.value`, the product id is
+`amzn1.volt.ca.product_id{_type,_value}`, and the offer price carries an
+`[audience=ALL]` insert
+(`purchasable_offer[marketplace_id=<id>][audience=ALL]#1.our_price…`).
+
+`listing_bulk.py` locates the field-name row **structurally** (the row
+carrying the SKU column — `item_sku` OR `contribution_sku`) and resolves
+every friendly role from the header, so the **same spec drives either
+dialect** — never key on a fixed row number or the localised label row.
+
+> **`fill` clears the prefilled example/instruction rows for you.** The
+> unified template ships an example SKU + a "do not delete this row"
+> instruction in the data area. **Do NOT hand-roll the upload file** — a
+> hand-rolled file that appends your SKUs *after* those rows uploads the
+> example + instruction as if they were real SKUs (a live run got
+> **"1/8 successful"** that way: only the parent created, the junk rows
+> and the children failed). `fill` deletes everything below the field-name
+> row before writing, so only your SKUs ship.
 
 The metadata sheets are the source of truth:
 
@@ -310,14 +348,34 @@ PY
 ```
 
 (Generic recipe + the plain-input Method 1: `browser-harness` SKILL.md §
-"Uploading a file".) Amazon stages the file, showing the filename +
-green **"File Type … (Automatically detected)"** and enabling **Submit
-products**. Confirm via `capture_screenshot()` + Read (the shadow-root
-text carries hidden "unsuccessful" strings even on success — don't trust
-it). Then `click_at_xy` **Submit products** and `wait_for_load()`. Amazon
-processes asynchronously; the batch row on **Check Upload Status** shows
-`SKUs successful / submitted` and a **Download Processing Summary** link.
-Save it and parse it:
+"Uploading a file".)
+
+> **Submit is a TWO-CLICK flow — the first click only introspects.** On
+> the unified upload page (`/product-search/bulk`) clicking **Submit
+> products** the first time fires `listing/introspect-feed` (file-type
+> auto-detection) — it does NOT create a batch. When it returns, the page
+> shows the green **"File Type: Product Spreadsheet File (Automatically
+> detected)"** banner. You must then click **Submit products AGAIN**; only
+> the second click posts the feed and navigates to
+> `listing/status?reference_id=<batchId>…`. Watching for a batch id after a
+> single click and re-uploading when none appears is the trap that burns a
+> run. Sequence: attach → click Submit → wait for "Automatically detected"
+> → click Submit again → confirm the URL carries `reference_id=`.
+>
+> **The red "Sorry! There's a network error. Try again later." banner is a
+> RED HERRING.** It is a stale toast that shows even when
+> `introspect-feed` returned **200** and the file is staged fine (verify
+> the introspect response status / the "Automatically detected" banner
+> instead). Do NOT treat it as an upload failure and do NOT re-upload on
+> it — that just spawns duplicate batches. Likewise the file widget's
+> shadow-root text carries hidden "File upload was unsuccessful" strings
+> even on a good stage — don't trust it; trust the introspect 200 + the
+> detected-file-type banner (`capture_screenshot()` + Read to see them).
+
+After the second click Amazon processes asynchronously; the batch row on
+**Check Upload Status** (`/listing/status`) shows `SKUs successful /
+submitted` and a **Download Processing Summary** link. Save it and parse
+it:
 
 ```bash
 $PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-summary.xlsm
@@ -325,6 +383,20 @@ $PY $S/listing_bulk.py parse-feedback /tmp/<slug>/processing-summary.xlsm
 
 It prints per-SKU `[Error|Warning] sku=… code=…: message`. Fix the
 flagged fields and re-upload.
+
+> **"Parent created, children N/A" (e.g. `1/8`) is a CONTENT rejection of
+> the children — NOT a browser/upload glitch.** If the batch shows a
+> reference id and the parent went live, the file uploaded FINE and
+> reached content validation; the children were rejected on their DATA.
+> **Download the Processing Summary and `parse-feedback` it** to get the
+> exact per-child reason (missing required field, `8560` no-ASIN /
+> GTIN-exempt attributes, offer/marketplace, apparel-size composite), then
+> fix those fields and re-upload the children. Do NOT conclude "the upload
+> widget is broken" and thrash on CDP/file-chooser mechanics — a live run
+> did exactly that for ~40 min and shipped an incomplete family. (A
+> brand-new variation family also often needs a second pass: the parent
+> creates first, the children attach on re-upload — so re-upload the
+> children once with a clean `fill`ed file before assuming a data error.)
 
 > **The status page lists many past batches — download the report from
 > the row whose filename matches THIS upload**, or you'll parse a stale
