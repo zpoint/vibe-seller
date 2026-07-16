@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, Response
 import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,16 +13,44 @@ from app.models.app_settings import AppSettings
 from app.models.user import User
 
 ALGORITHM = 'HS256'
-TOKEN_EXPIRE_DAYS = 7
 COOKIE_NAME = 'auth_token'
 
+# Interactive browser login sessions are short-lived and roll forward on
+# real user activity (POST /api/auth/refresh, driven by the frontend
+# keepalive). Idle longer than this and the cookie lapses → the client
+# is bounced to the login page. Kept deliberately short for security.
+USER_SESSION_EXPIRE = timedelta(hours=24)
 
-def create_token(user_id: str, role: str) -> str:
-    expire = datetime.now(UTC) + timedelta(days=TOKEN_EXPIRE_DAYS)
+# Service tokens (ai_bot wrapper auto-start curl, `system`) are NOT
+# interactive: they get baked into per-store browser-use wrapper scripts
+# and must keep authenticating for long-running / scheduled work that
+# can fire well after the wrapper was written. They must outlive a user
+# session, so this — not the 24h window — is create_token's default.
+SERVICE_TOKEN_EXPIRE = timedelta(days=7)
+
+
+def create_token(
+    user_id: str, role: str, *, expires_delta: timedelta | None = None
+) -> str:
+    """Sign a JWT. Defaults to the long-lived service-token TTL; pass
+    ``expires_delta=USER_SESSION_EXPIRE`` for interactive logins."""
+    expire = datetime.now(UTC) + (expires_delta or SERVICE_TOKEN_EXPIRE)
     return jwt.encode(
         {'sub': user_id, 'role': role, 'exp': expire},
         JWT_SECRET,
         algorithm=ALGORITHM,
+    )
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    """Write the interactive-session auth cookie. Single source of truth
+    for cookie flags/TTL, shared by login and the sliding refresh."""
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite='lax',
+        max_age=int(USER_SESSION_EXPIRE.total_seconds()),
     )
 
 
