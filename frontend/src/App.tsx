@@ -370,32 +370,26 @@ export default function App() {
     setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass(''); setShowCreateStore(false); await loadStores()
   }
 
-  const selectStore = async (store: Store) => {
+  // Select a store (or all-stores when `store` is null) and load its task
+  // list. The in-flight key ('<store_id>' or '__none__') guards against a
+  // slow response for the previous scope clobbering the newly-selected
+  // one (stale-response-wins race).
+  const selectScope = async (store: Store | null) => {
     setNavOpen(false)
-    userActedRef.current = true; setSelectedStore(store); setShowAllTasks(false); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
+    userActedRef.current = true; setSelectedStore(store); setShowAllTasks(!store); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
-    inFlightTasksKeyRef.current = store.id
+    const key = store ? store.id : '__none__'
+    inFlightTasksKeyRef.current = key
     try {
-      const data = await api.get(`/api/tasks?store_id=${store.id}`)
-      if (inFlightTasksKeyRef.current === store.id) setTasks(data)
+      const data = await api.get(`/api/tasks?store_id=${key}`)
+      if (inFlightTasksKeyRef.current === key) setTasks(data)
     } finally {
-      if (inFlightTasksKeyRef.current === store.id) setTasksLoading(false)
+      if (inFlightTasksKeyRef.current === key) setTasksLoading(false)
     }
     loadSchedules()
   }
-  const selectAllTasks = async () => {
-    setNavOpen(false)
-    userActedRef.current = true; setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
-    setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
-    inFlightTasksKeyRef.current = '__none__'
-    try {
-      const data = await api.get('/api/tasks?store_id=__none__')
-      if (inFlightTasksKeyRef.current === '__none__') setTasks(data)
-    } finally {
-      if (inFlightTasksKeyRef.current === '__none__') setTasksLoading(false)
-    }
-    loadSchedules()
-  }
+  const selectStore = (store: Store) => selectScope(store)
+  const selectAllTasks = () => selectScope(null)
 
   const selectTask = async (task: Task) => {
     let fullTask = task
