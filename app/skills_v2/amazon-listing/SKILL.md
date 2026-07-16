@@ -8,8 +8,12 @@ review:
     - Every attempted SKU is ACTUALLY LIVE, not just "uploaded": on
       Manage Inventory the parent shows Variations(N) and each child has
       a real ASIN (not "-"), with title / bullets / images matching the
-      request. The processing report parsed to 0 BLOCKING errors (a
-      missing-image 18320 is not blocking).
+      request. The LATEST processing report for EVERY batch parsed
+      (`parse-feedback`) to zero errors of ANY severity EXCEPT a
+      missing-image 18320. This includes non-fatal "SUCCESS (OTHER) /
+      Action required" errors (e.g. 100476 Item Highlight): the SKU is in
+      inventory yet the error is unresolved -- that is NOT done. Presence
+      in inventory alone never satisfies this.
     - For a delete, the SKU no longer appears in Manage Inventory.
     - No partial family (parent live but a child missing) is called done.
   evidence:
@@ -19,8 +23,10 @@ review:
   verify_by: |
     Open Manage Inventory (skucentral?mSku=<sku>, no &condition=New) for
     each attempted SKU and confirm it exists with the intended content
-    and a real ASIN; open the downloaded processing report and confirm 0
-    blocking errors. For a delete, confirm the SKU is gone.
+    and a real ASIN; download the LATEST processing report for EVERY
+    batch you uploaded and `parse-feedback` it -- confirm zero errors except
+    18320. Do NOT accept a batch shown "Action required / SUCCESS (OTHER)"
+    (e.g. 100476) as done. For a delete, confirm the SKU is gone.
 ---
 
 # Amazon — Listing CRUD (flat-file upload)
@@ -133,10 +139,35 @@ a family that the parent shows **"Variations (N)"**.
   `.txt` next to the `.xlsm` for you — upload that. An openpyxl-saved
   `.xlsm` triggers a **90502 FATAL** ("worksheet template type not
   supported for Excel upload").
+- **`fill --out` into the store downloads dir**
+  (`~/.vibe-seller/downloads/<slug>/`), not `/tmp` — the browser must read
+  the file to attach it (see `browser-harness` § "Uploading a file").
+- **Submit is TWO clicks; the "network error" banner is a red herring.**
+  On the unified upload page the 1st **Submit products** only fires
+  `introspect-feed` (file-type detection → "Automatically detected"
+  banner); a 2nd click actually posts the feed (URL gains
+  `reference_id=`). The red "Sorry! There's a network error" toast shows
+  even when introspect returned 200 — do NOT re-upload on it. See
+  `references/template-round-trip.md` § 4.
+- **"1/N — parent created, children failed" is a CONTENT rejection, not a
+  browser bug.** The file uploaded fine (it reached validation); download
+  the Processing Summary and `parse-feedback` it for the per-child reason,
+  then fix + re-upload the children. Never thrash on the upload widget.
 - **Children are NOT minimal.** Each child needs the full required set
   its category asks for (e.g. `item_name`, `target_gender`,
   `age_range_description`, and any compound-attribute sub-fields), plus
   its differentiator + offer — not just `parent_sku` + colour.
+- **"Required" is a guide, not an absolute — fill what you can, defer what
+  you can't.** For each required-field error the report names, supply a
+  sensible value: pick from the template's valid set (material, weave,
+  size type, package dimension/weight units), set `list_price` = your
+  price, `model_name` = the SKU/title. For a **new ASIN** with no GTIN, set
+  the product-id **type** to `GTIN Exempt` (unified) / leave the id blank
+  + set brand (legacy) if the brand is exempt. A few are genuinely
+  deferrable — a real **main image** you don't have (18320) is added later
+  and does NOT block creation. Don't stall the whole family on one
+  attribute you can't provide; create with what you have and let the
+  seller finish image/GTIN afterwards.
 - **Enum case is exact** (`UAE/KSA`, not `uae/ksa`). `fill` canonicalises
   a value to the template's own casing when the field has a valid set.
 - **Compound attributes come as a set** — e.g. Apparel Size needs
@@ -152,7 +183,27 @@ a family that the parent shows **"Variations (N)"**.
   ("main image is missing") error is *expected noise*, not a blocker;
   don't chase it, and don't hotlink a supplier CDN URL into
   `main_image_url` (Amazon can't fetch a referer-protected 1688/alibaba
-  URL anyway). "Done" = every error resolved **except** the image one.
+  URL anyway). "Done" = every error resolved **except** the image one —
+  and that means **`parse-feedback` the report, not eyeball inventory**. A
+  record can post as **SUCCESS (OTHER)** ("Action required", 0 successful):
+  it *appears* in inventory but carries an unresolved, fixable error —
+  e.g. **100476** ("Provide an Item Name ≤75 chars to use Item
+  Highlights") when `title_differentiation` (Item Highlight) was filled on
+  a long-title item. That is **NOT done**: fix the exact field the report
+  names (Item Highlight is optional — clear it; the colour belongs in
+  `color_name`) and re-upload. Only 18320 is a legit deferral.
+- **When the image IS the only remaining error, say so — never call it
+  "live".** A SUCCESS (OTHER) whose sole error is the missing main image
+  ("submit a compliant image to lift the suppression") means the SKU is
+  **created + priced + stocked but SEARCH-SUPPRESSED** — it is NOT buyable
+  or discoverable until the seller adds an image. That is the accepted
+  deferred done-state, but the final result MUST report it precisely:
+  "N children created, linked, priced, stocked — **SUPPRESSED pending main
+  image** (seller adds the image to go live)". Do **not** write "live",
+  "done", "全部完成", or imply the listings are sellable. The Manage
+  Inventory row will read "Search suppressed" / "No image available" and
+  the upload feed will read 0/N successful — that is expected for this
+  state, not a failure to re-upload over.
 - **A buyable child that `8560`s ("doesn't match any ASINs … include
   standard_product_id")** — Amazon is refusing to *mint a new ASIN* for
   it. Two cases, decided by whether that child's ASIN already exists:
@@ -203,13 +254,25 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
 ```
 
 - **`listing_bulk.py`** — deterministic template writer. It keys every
-  field by its **field API name** (the row that contains `item_sku`),
+  field by its **field API name** (the row carrying the SKU column),
   which is identical in every console language, so it is locale-robust
-  the same way `amazon-ads/ads_bulk.py` is.
-  - `inspect TEMPLATE.xlsm [--field NAME]` — dump the field set, which
-    fields are Required, the accepted enum tokens, and the variation
-    cluster. **Run this first on every fresh template** — the column
-    set and valid values differ per product type.
+  the same way `amazon-ads/ads_bulk.py` is. It **auto-detects both
+  template dialects** — legacy `fptcustom` (`item_sku`, `update_delete`,
+  header row 3) and the current unified NGS "Beta Product Spreadsheet"
+  (`contribution_sku#1.value`, `::record_action`, marketplace-scoped
+  parentage/offer, header row 5) — and resolves the friendly spec keys to
+  each dialect's columns, so the SAME spec drives either. **Always drive
+  the upload file through `fill` — never hand-roll it**: a hand-rolled
+  file skips `fill`'s guard that clears the unified template's prefilled
+  example/instruction rows, and uploading those as SKUs is what produced a
+  live **"1/8 successful"** (parent only, all children failed). See
+  `references/template-round-trip.md` § 0.
+  - `inspect TEMPLATE.xlsm [--field NAME]` — dump the dialect, the field
+    set, which fields are Required, the accepted enum tokens, and the
+    resolved friendly roles (which column each of sku / operation /
+    parentage / parent_sku / variation_theme / brand / offer maps to for
+    THIS template). **Run this first on every fresh template** — the
+    column set, dialect, and valid values differ per product type.
   - `fill TEMPLATE.xlsm --spec SPEC.json --out OUT.xlsm` — write
     parent/child rows, set the operation column per row, validate enums
     and required fields against the template's own metadata sheets, and
