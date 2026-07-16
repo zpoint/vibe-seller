@@ -861,7 +861,13 @@ def _make_unified_template(path):
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = listing_bulk.TEMPLATE_SHEET
-    ws.append(['settings=feedType=256&contributorId=amzn1'])  # row 1
+    # row 1 settings — like the real template, carries the geometry
+    # (labelRow/attributeRow/dataRow). dataRow=8 means rows 6-7 are a
+    # skipped example region and data must start at row 8.
+    ws.append([
+        'settings=feedType=256&labelRow=4&attributeRow=5&dataRow=8'
+        '&contributorId=amzn1'
+    ])
     ws.append(['Use ENGLISH. DO NOT modify or delete the colored head'])
     ws.append(['Listing Identity'])  # row 3 group names
     ws.append(['SKU', 'Product Type', 'Listing Action'])  # row 4 labels (zh)
@@ -1113,6 +1119,54 @@ def test_fill_unified_tsv_keeps_settings_header(unified_template, tmp_path):
     assert len({len(r) for r in grid}) == 1  # uniform width, no drift
     # Prefilled Example row did not survive into the upload artefact.
     assert not any('EXAMPLE-SKU' in r for r in grid)
+
+
+def test_fill_unified_writes_data_at_datarow(unified_template, tmp_path):
+    """Unified data must start at the settings' `dataRow` (8 here), NOT
+    header_row+1. Amazon SKIPS the rows between the field-name row and
+    dataRow as an example region, so data written there is dropped
+    (verified live: children written into rows 6-7 processed as 4/6)."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'marketplace': 'SA',
+        'rows': [
+            {
+                'sku': 'P',
+                'operation': 'create',
+                'parentage': 'Parent',
+                'variation_theme': 'COLOR',
+                'fields': {'item_name': 'p'},
+            },
+            {
+                'sku': 'C',
+                'operation': 'create',
+                'parentage': 'Child',
+                'parent_sku': 'P',
+                'variation_theme': 'COLOR',
+                'fields': {
+                    'item_name': 'c',
+                    'our_price': '9.99',
+                    'quantity': '5',
+                },
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    ws = openpyxl.load_workbook(out)[listing_bulk.TEMPLATE_SHEET]
+    # The example region (rows 6-7) is blank; data starts at row 8.
+    assert all(c.value in (None, '') for c in ws[6])
+    assert all(c.value in (None, '') for c in ws[7])
+    assert ws.cell(row=8, column=1).value == 'P'  # first data row = 8
+    assert ws.cell(row=9, column=1).value == 'C'
 
 
 def test_parse_feedback_unified_report_finds_child_error(tmp_path, capsys):

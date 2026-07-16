@@ -45,9 +45,12 @@ Template geometry
   legacy : row 1 TemplateType/signature | row 2 localised labels |
            row 3 field API names <-- keyed | row 4+ data
   unified: rows 1-4 settings/instructions/group/localised labels |
-           row 5 field API names <-- keyed | row 6+ data
-Both are found structurally (the row carrying the SKU field), never by a
-fixed row number.
+           row 5 field API names <-- keyed | rows 6..dataRow-1 a SKIPPED
+           example region | data from `dataRow` (the row-1 settings blob's
+           `dataRow=N`, e.g. 8)
+The field-name row is found structurally (the row carrying the SKU field);
+data is written at `dataRow` (legacy: field-name row + 1), never by a
+guessed fixed number.
 
 The operation column (`update_delete` legacy / `::record_action`
 unified):
@@ -99,6 +102,7 @@ from listing_schema import (  # noqa: E402, F401
     ROLE_MATCHERS as _ROLE_MATCHERS,
     TEMPLATE_SHEET,
     Schema as _Schema,
+    data_start_row as _data_start_row,
     field_columns as _field_columns,
     find_header_row as _find_header_row,
     is_sku_field as _is_sku_field,
@@ -207,12 +211,13 @@ def cmd_inspect(args):
         print(f'  values  : {dig(name)}')
         return
 
-    tt = ws.cell(row=1, column=1).value
+    tt = str(ws.cell(row=1, column=1).value or '')
     op_field = schema.field('operation')
-    print(f'template : {tt}')
+    data_row = _data_start_row(ws, header_row)
+    print(f'template : {tt[:80]}')
     print(f'dialect  : {schema.dialect}')
     print(f'sheets   : {wb.sheetnames}')
-    print(f'header at Excel row {header_row}; data starts row {header_row + 1}')
+    print(f'header at Excel row {header_row}; data starts row {data_row}')
     print(f'total fields: {len(cols)}   required fields: {len(required)}')
     print(
         '\noperation column ({}): create=blank / {}'.format(
@@ -367,12 +372,17 @@ def cmd_fill(args):
 
     unknown_fields = set()
     warnings = []
-    write_at = header_row + 1
-    # Clear pre-existing data rows first, so the template's prefilled
+    # Data begins at the template's data row (unified: the `dataRow=N` the
+    # settings blob names, with rows header_row+1..N-1 an example region
+    # Amazon SKIPS; legacy: header_row+1). Writing into that skipped gap
+    # silently drops SKUs.
+    write_at = _data_start_row(ws, header_row)
+    # Clear everything below the field-name row, so the template's prefilled
     # Example row (and its "do not delete this row" instruction row) or a
-    # reused workbook's stale rows can't upload as unintended SKUs.
-    if ws.max_row >= write_at:
-        ws.delete_rows(write_at, ws.max_row - write_at + 1)
+    # reused workbook's stale rows can't upload as unintended SKUs; the gap
+    # rows above write_at are then re-emitted empty by the TSV export.
+    if ws.max_row > header_row:
+        ws.delete_rows(header_row + 1, ws.max_row - header_row)
     for i, spec_row in enumerate(rows):
         op_token, op_key = _resolve_operation(
             spec_row.get('operation'), schema.dialect

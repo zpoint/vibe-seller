@@ -20,6 +20,8 @@ either:
 and re-exports the ones tests reach for.
 """
 
+import re
+
 # The Template sheet holds the flat file. Metadata lives in siblings.
 TEMPLATE_SHEET = 'Template'
 DEFN_SHEET = 'Data Definitions'
@@ -220,6 +222,26 @@ def find_header_row(ws, max_scan=8):
         f'contribution_sku -- in the first {max_scan} rows) -- is this a '
         'listing flat-file template?'
     )
+
+
+def data_start_row(ws, header_row):
+    """The 1-based row where DATA must begin.
+
+    Legacy: immediately below the field-name row (`header_row + 1`).
+    Unified: the row-1 `settings=…&dataRow=N&…` blob names N, and Amazon
+    treats the rows between the field-name row and N as a prefilled EXAMPLE
+    region that it SKIPS on upload. Writing data into that gap silently
+    drops those SKUs (verified live: children in rows 6-7 were skipped, so a
+    6-child feed processed as 4/6). Honour `dataRow` so every row is read.
+    """
+    settings = ws.cell(row=1, column=1).value
+    if settings:
+        m = re.search(r'dataRow=(\d+)', str(settings))
+        if m:
+            n = int(m.group(1))
+            if n > header_row:
+                return n
+    return header_row + 1
 
 
 def field_columns(ws, header_row):

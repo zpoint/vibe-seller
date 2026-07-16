@@ -341,7 +341,9 @@ detection → green "Product Spreadsheet File (Automatically detected)"); the
 2nd posts the feed (URL gains `reference_id=`). Confirm staging by
 Submit-enabled / the detected banner — the widget's "File upload was
 unsuccessful" shadow text and any red "network error" toast are stale and
-lie. Then read the report (downloaded to the same dir):
+lie. If `click_at_xy` on **Submit products** doesn't register (the button
+sits low on the page), fire it with a JS `.click()` on the `kat-button`
+instead. Then read the report (downloaded to the same dir):
 
 ```bash
 $PY $S/listing_bulk.py parse-feedback ~/.vibe-seller/downloads/<slug>/REPORT.xlsm
