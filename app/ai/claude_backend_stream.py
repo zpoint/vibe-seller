@@ -17,7 +17,7 @@ from app.ai.claude_backend_utils import (
     get_next_seq,
     parse_wait_condition,
 )
-from app.ai.stop_gates.report_reviewer import stamp_turn_start
+from app.ai.stop_gates.report_reviewer import rollover_reviews
 from app.database import async_session
 from app.errors import STREAM_ERROR_MAP, categorize_error_text
 from app.events.bus import event_bus
@@ -433,16 +433,17 @@ class _StreamMixin:
 
         elif etype == 'system':
             sid = event.get('session_id')
-            if event.get('subtype') == 'init':
-                # Mark the start of this execution turn. The review gate
-                # only honours reviews written after this mark, so a
-                # prior turn's verdict (a follow-up inheriting the
-                # original turn's iter5=incomplete) can't satisfy this
-                # turn's gate. Universal — every session emits init.
-                stamp_turn_start(self.task_dir)
             if sid:
                 first = self.session_id is None
                 self.session_id = sid
+                if first and event.get('subtype') == 'init':
+                    # New execution turn: move the prior turn's review
+                    # verdicts aside so THIS turn is reviewed on a clean
+                    # slate (a follow-up can't inherit an earlier turn's
+                    # verdict/iter count). Once per session — guarded by
+                    # `first` so a stray later init can't wipe reviews
+                    # written during this turn. See rollover_reviews.
+                    rollover_reviews(self.task_dir)
                 # Persist task.session_id at the init event, not only
                 # at end-of-stream. `--resume X` keeps the session id
                 # as X (Claude Code does NOT mint a new id unless

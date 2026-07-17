@@ -34,57 +34,9 @@ import re
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
 
-# Per-turn freshness marker. AgentSession stamps this file at the start of
-# EVERY execution turn (the system/init event; see claude_backend_stream).
-# A review artifact written before the current turn began belongs to a
-# PRIOR turn — e.g. a completed task that got a follow-up ("also list it
-# on AE"). Such stale verdicts must NOT satisfy the gate for the new
-# turn's work; otherwise a prior turn's terminal ``iter5=incomplete`` lets
-# the follow-up finish having never reviewed its own deliverable (observed
-# live). No marker (old tasks) → no filtering, so behaviour is unchanged
-# for anything predating the stamp. This is a universal review-gate rule,
-# not skill-specific.
-TURN_MARKER_NAME = '.turn_started'
-
-
-def stamp_turn_start(task_dir) -> None:
-    """Mark the start of a fresh execution turn (best-effort)."""
-    if task_dir is None:
-        return
-    try:
-        d = Path(task_dir)
-        d.mkdir(parents=True, exist_ok=True)
-        (d / TURN_MARKER_NAME).write_text('', encoding='utf-8')
-    except OSError:  # pragma: no cover — best-effort
-        pass
-
-
-def _turn_cutoff_mtime(task_dir) -> float | None:
-    """mtime of the current turn's start marker, or None if unmarked."""
-    try:
-        return (Path(task_dir) / TURN_MARKER_NAME).stat().st_mtime
-    except OSError:
-        return None
-
-
-def fresh_reviews(review_files, task_dir):
-    """Drop review files older than the current turn's start marker.
-
-    Returns the list unchanged when there is no marker (backward
-    compatible). Shared by the report gate here and the exec-review gate
-    in ``bash_safety`` so a stale verdict can't satisfy either path."""
-    cutoff = _turn_cutoff_mtime(task_dir)
-    if cutoff is None:
-        return review_files
-    fresh = []
-    for p in review_files:
-        try:
-            if p.stat().st_mtime >= cutoff:
-                fresh.append(p)
-        except OSError:  # pragma: no cover
-            continue
-    return fresh
-
+# Subdir the prior turn's review verdicts are moved into at the start of a
+# new execution turn (see ``rollover_reviews``).
+PREV_TURNS_DIR = '.prev_turns'
 
 # Match a ``Status:`` verdict anywhere it can legitimately appear — plain
 # at line start (``Status: ok``) OR emphasised/indented (``**Status:
@@ -103,6 +55,44 @@ _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 # ``PREVIEW.md``. ``EXEC_`` (phase-4 execution review) is excluded
 # separately.
 _REVIEW_NAME_RE = re.compile(r'(?:^|[^a-z])review(?:[^a-z]|$)', re.IGNORECASE)
+
+
+def rollover_reviews(task_dir) -> None:
+    """Move the PRIOR turn's review verdicts aside at the start of a new
+    execution turn, so this turn is reviewed on a clean slate.
+
+    Universal review-gate design (every review-bound task, not one
+    skill). A task that completed one deliverable and then gets a
+    follow-up ("now also export it" / "also list it on the other
+    marketplace") is a NEW turn with NEW work. Its review must cover
+    THAT work — not inherit the prior turn's verdict. Leaving the old
+    ``REVIEW_*/EXEC_REVIEW_*`` files in place let a follow-up (a) pass on
+    a stale ``iter5=incomplete``, and (b) continue the iter numbering
+    (``iter6``) so ``incomplete`` was accepted on its first pass. Moving
+    them out gives a clean slate: iter restarts at 1 and no prior verdict
+    can satisfy or misdirect this turn's gate. Files are preserved (moved,
+    not deleted) under ``.prev_turns/`` for post-mortem. Best-effort;
+    called once per turn at the ``system/init`` event.
+    """
+    if task_dir is None:
+        return
+    try:
+        d = Path(task_dir)
+        stale = [p for p in d.glob('*.md') if _REVIEW_NAME_RE.search(p.name)]
+        if not stale:
+            return
+        root = d / PREV_TURNS_DIR
+        root.mkdir(parents=True, exist_ok=True)
+        dest = root / f'turn_{1 + sum(1 for _ in root.glob("turn_*"))}'
+        dest.mkdir(parents=True, exist_ok=True)
+        for p in stale:
+            try:
+                p.rename(dest / p.name)
+            except OSError:  # pragma: no cover
+                pass
+    except OSError:  # pragma: no cover — best-effort
+        pass
+
 
 # Max iterations before ``incomplete`` is accepted as terminal (matches
 # the loop cap in ``amazon-ads/references/reviewer-loop.md``).
@@ -184,10 +174,10 @@ def reviewer_verdict(task_dir) -> str | None:
         ]
     except OSError:
         review_files = []
-    # Only a review from THIS turn counts — a stale prior-turn verdict
-    # (e.g. a follow-up inheriting the original turn's iter5=incomplete)
-    # must force a fresh review of the new work, not silently pass.
-    review_files = fresh_reviews(review_files, task_dir)
+    # Prior-turn verdicts are moved to .prev_turns/ at turn start
+    # (rollover_reviews), so a plain top-level glob already sees only
+    # THIS turn's reviews — a follow-up can't inherit an earlier turn's
+    # verdict or iter count.
     if not review_files:
         return (
             'Reviewer never ran. Before finalizing, spawn the DoD '
