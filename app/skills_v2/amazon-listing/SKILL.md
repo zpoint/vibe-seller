@@ -5,6 +5,22 @@ allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
 review:
   criteria: |
+    - The listing is live on the TARGET marketplace the user asked for
+      (the exact country / `sellercentral.amazon.<tld>`), confirmed on
+      THAT marketplace's own Manage Inventory — NOT merely "batch
+      submitted", and NOT live only on a different marketplace. Amazon
+      groups marketplaces two ways and you must not conflate them: a
+      UNIFIED regional account whose sibling marketplaces share ONE
+      catalog + an ACCOUNT-LEVEL bulk feed (the same batch id then shows
+      on every sibling's listing/status page, so a batch row on one is NOT
+      proof the SKU is live on another, and the offer can land on the
+      account's home marketplace only); versus a SEPARATE account (a
+      different region, or a legacy single-marketplace login) that is a
+      different catalog entirely, created and confirmed independently,
+      often with its own ASIN. Either way: if the TARGET marketplace's own
+      inventory does not show the SKU live, it is a GAP even when the
+      upload "succeeded" — a listing on the wrong marketplace, or only a
+      batch id, is not done.
     - Every attempted SKU is ACTUALLY LIVE, not just "uploaded": on
       Manage Inventory the parent shows Variations(N) and each child has
       a real ASIN (not "-"), with title / bullets / images matching the
@@ -21,12 +37,20 @@ review:
     - "*.xlsm"
     - "LISTING_*.md"
   verify_by: |
-    Open Manage Inventory (skucentral?mSku=<sku>, no &condition=New) for
-    each attempted SKU and confirm it exists with the intended content
-    and a real ASIN; download the LATEST processing report for EVERY
-    batch you uploaded and `parse-feedback` it -- confirm zero errors except
-    18320. Do NOT accept a batch shown "Action required / SUCCESS (OTHER)"
-    (e.g. 100476) as done. For a delete, confirm the SKU is gone.
+    Open Manage Inventory ON THE TARGET MARKETPLACE
+    (`sellercentral.amazon.<target-tld>/skucentral?mSku=<sku>`, no
+    &condition=New) for each attempted SKU and confirm it exists LIVE on
+    that marketplace with the intended content and a real ASIN, and that
+    its offer/price/stock show on that marketplace's Pricing view. Do NOT
+    accept a batch-status row on some marketplace's listing/status page as
+    proof — the batch id is account-level and appears on every
+    marketplace. If the target marketplace's inventory is empty but
+    another marketplace's shows the SKU, the offer landed on the wrong
+    marketplace: that is a GAP. Download the LATEST processing report for
+    EVERY batch you uploaded and `parse-feedback` it -- confirm zero
+    errors except 18320. Do NOT accept a batch shown "Action required /
+    SUCCESS (OTHER)" (e.g. 100476) as done. For a delete, confirm the SKU
+    is gone.
 ---
 
 # Amazon — Listing CRUD (flat-file upload)

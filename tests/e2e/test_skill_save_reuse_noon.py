@@ -93,6 +93,9 @@ def has_wecom_bot(api_client):
     return True
 
 
+# Serialize with the other skill-mutating e2e tests (shared workspace
+# skill namespace). See test_skill_save_reuse.py for the rationale.
+@pytest.mark.xdist_group('workspace_skills')
 class TestSaveAndReuseSkillLive:
     def test_create_then_extend_live(
         self, api_client, live_store, has_wecom_bot
@@ -171,9 +174,10 @@ class TestSaveAndReuseSkillLive:
         _wait_for_followup_result(api_client, task2['id'], count2)
 
         customs_final = _custom_skills(api_client)
-        assert set(customs_final) == set(customs_after_save), (
-            'second save duplicated instead of extending: '
-            f'{sorted(customs_after_save)} -> {sorted(customs_final)}'
+        dup_slugs = set(customs_final) - set(customs_after_save)
+        assert not dup_slugs, (
+            'second save duplicated instead of extending; '
+            f'new slug(s) appeared: {sorted(dup_slugs)}'
         )
         assert any(
             'wecom' in _skill_md(api_client, slug).lower()

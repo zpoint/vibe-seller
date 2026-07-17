@@ -36,6 +36,23 @@ written with the built-in Write tool is discarded when the task ends.
 - **`custom` / `imported`** (`updatable: true`) — user-space. These are
   the only skills you may overwrite.
 
+**Never decide a skill is built-in FROM MEMORY, and never silently skip
+an update.** This is the failure that keeps a follow-up from landing: the
+user says "update that skill", you *recall* it as built-in, and you do
+nothing. Two rules kill it:
+
+1. **`source` comes from `vibe_seller_list_skills`, not memory** — call
+   it again for the update, every time. A skill YOU created earlier this
+   session is **`custom`** (user-space, updatable), NOT built-in — your
+   own `vibe_seller_save_skill` made it.
+2. **When in doubt, just attempt the save.** `vibe_seller_save_skill(slug,
+   merged_md)` OVERWRITES an updatable skill (that is the extend) and
+   only *rejects* a genuinely built-in slug — with a message telling you
+   to create a new one. So the server, not your guess, is the authority:
+   try the save; on rejection, create a new user-space skill. Never
+   conclude "it's built-in, nothing to do" and end the turn — that leaves
+   the user's request undone.
+
 ## Search, then judge: extend or create
 
 List the skills and read each `description` — that field, not the slug,
