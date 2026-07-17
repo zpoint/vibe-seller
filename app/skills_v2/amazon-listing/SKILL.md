@@ -246,6 +246,49 @@ a family that the parent shows **"Variations (N)"**.
   downloadable there. "Clean single-country" then means: fill only the
   intended marketplace's offer block, leave the others blank.
 
+## Relisting the same product on another marketplace (share the ASIN)
+
+When a product already lives on one marketplace (say SA) and the user
+wants it "the same" on another (say AE), the default intent is the
+**same ASIN on both**. Amazon pools ratings/reviews by ASIN, so minting
+a *new* ASIN forks the reviews and restarts the new marketplace at zero
+stars — for the same physical product that is almost never what's
+wanted. Only create a new ASIN when the user explicitly asks for a
+separate listing, or when the account's marketplaces are on genuinely
+separate catalogs (see below).
+
+Make the match **proactively** — don't submit a blind create and wait
+for an `8560` to fix reactively:
+
+1. **Get the source ASINs.** Map every SKU (parent + each child) to the
+   ASIN it already has on the source marketplace — the All-Listings
+   report is account-level (byte-identical across a unified account's
+   marketplace subdomains), or read them off Manage Inventory. Reuse the
+   **same SKUs** on the target marketplace; same SKU keeps it idempotent.
+2. **Switch to the target marketplace and download ITS template** — use
+   Amazon's own marketplace switcher, don't hand-edit URLs on a gated
+   store. Offer/stock columns are per-marketplace (see the offer prior
+   above).
+3. **Pin the ASIN on every row** so Amazon *matches* instead of minting:
+   `operation: update`, `external_product_id` = that row's existing ASIN
+   (e.g. `B0EXAMPLE1`), `external_product_id_type: asin`. The catalog
+   content already exists under the ASIN — you are only adding this
+   marketplace's **offer**, so set it via the top-level
+   `"marketplace": "<CC>"` + bare `our_price`/`quantity` (offer prior),
+   not by re-describing the product.
+4. **Verify** the target ASINs equal the source ones (same ASIN ⇒ shared
+   reviews) and that the offer is live in the TARGET marketplace's
+   Pricing view — the feed's "N/N successful" does not prove either.
+
+**Unified vs separate catalogs.** A unified pan-regional account (e.g.
+MENA: SA / AE / EG) shares one catalog, so a matched ASIN carries its
+reviews across all of them — reusing the same SKU often auto-shares it,
+but pinning `external_product_id` makes it deterministic instead of
+hoping. If the marketplaces sit on separate catalogs the ASIN may not be
+shareable at all: when Amazon still `8560`s *after* a correct match,
+that region cannot share the catalog — report that (a new ASIN is
+unavoidable), don't silently fork the reviews.
+
 ## The two scripts
 
 ```bash
