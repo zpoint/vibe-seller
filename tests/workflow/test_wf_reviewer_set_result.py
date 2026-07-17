@@ -222,3 +222,47 @@ class TestSetResultReviewerGate:
             json={'result': './AD_AUDIT_2026-07-09.md'},
         )
         assert r.status_code == 200
+
+
+class TestFollowUpTurnRollover:
+    """A follow-up turn must be reviewed on its OWN merits — it cannot
+    inherit the prior turn's verdict. Regression for the AE relist that
+    completed on the SA turn's stale ``iter5=incomplete``."""
+
+    async def test_followup_cannot_ride_prior_turn_incomplete(
+        self, admin_client, override_async_session, monkeypatch, tmp_path
+    ):
+        task_id = await _seed_running_task(override_async_session)
+        task_dir = _wire(monkeypatch, tmp_path, task_id)
+        (task_dir / 'AD_AUDIT_2026-07-16.md').write_text(
+            '# 广告优化建议\n\n## Amazon SA\n报告内容\n', encoding='utf-8'
+        )
+        # Turn 1 finished with a terminal incomplete verdict → accepted.
+        (
+            task_dir
+            / f'REVIEW_2026-07-16_iter{report_reviewer.REVIEW_MAX_ITERS}.md'
+        ).write_text('Status: incomplete\n', encoding='utf-8')
+        reset_attempts(task_id)
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': './AD_AUDIT_2026-07-16.md'},
+        )
+        assert r.status_code == 200  # turn 1 completes
+
+        # A NEW turn begins (the follow-up) — the server rolls the prior
+        # turn's review verdict aside, exactly as the init event does.
+        report_reviewer.rollover_reviews(task_dir)
+        assert not (
+            task_dir
+            / f'REVIEW_2026-07-16_iter{report_reviewer.REVIEW_MAX_ITERS}.md'
+        ).exists()
+
+        # The follow-up's completion is now DENIED until it runs its own
+        # reviewer — it can no longer ride the prior turn's incomplete.
+        reset_attempts(task_id)
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': './AD_AUDIT_2026-07-16.md'},
+        )
+        assert r.status_code == 400
+        assert 'ads-report-review' in r.json()['detail']

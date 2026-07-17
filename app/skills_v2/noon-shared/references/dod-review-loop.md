@@ -12,6 +12,17 @@ The reviewer is an **adversarial verifier**: its job is to disprove
 processing report, the downloaded file, the product page) and
 cross-checking your deliverable against it — not to grade your prose.
 
+**Review only THIS turn's request.** On a follow-up (a new user message
+on an already-completed task), the prior turn's deliverable is done and
+already reviewed — do NOT re-open or re-gate it. Verify the work this
+turn produced for the *current* request. If the current request was a
+one-shot with nothing substantive to cross-check (an export, a quick
+lookup, a retry acknowledgement, "also do X on the other marketplace"
+where X just succeeded), sign off `Status: ok` immediately — don't
+invent work or drag in a previous turn's gaps. The server already moves
+the prior turn's `REVIEW_*` files aside at the start of each turn, so
+you always begin at `iter1` on a clean slate.
+
 ## Steps
 
 1. Finish your deliverable (the report / created listing / exported

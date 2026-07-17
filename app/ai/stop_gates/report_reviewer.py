@@ -28,10 +28,15 @@ and only gates on the reviewer artifact.
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
+
+# Subdir the prior turn's review verdicts are moved into at the start of a
+# new execution turn (see ``rollover_reviews``).
+PREV_TURNS_DIR = '.prev_turns'
 
 # Match a ``Status:`` verdict anywhere it can legitimately appear — plain
 # at line start (``Status: ok``) OR emphasised/indented (``**Status:
@@ -50,6 +55,44 @@ _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 # ``PREVIEW.md``. ``EXEC_`` (phase-4 execution review) is excluded
 # separately.
 _REVIEW_NAME_RE = re.compile(r'(?:^|[^a-z])review(?:[^a-z]|$)', re.IGNORECASE)
+
+
+def rollover_reviews(task_dir) -> None:
+    """Move the PRIOR turn's review verdicts aside at the start of a new
+    execution turn, so this turn is reviewed on a clean slate.
+
+    Universal review-gate design (every review-bound task, not one
+    skill). A task that completed one deliverable and then gets a
+    follow-up ("now also export it" / "also list it on the other
+    marketplace") is a NEW turn with NEW work. Its review must cover
+    THAT work — not inherit the prior turn's verdict. Leaving the old
+    ``REVIEW_*/EXEC_REVIEW_*`` files in place let a follow-up (a) pass on
+    a stale ``iter5=incomplete``, and (b) continue the iter numbering
+    (``iter6``) so ``incomplete`` was accepted on its first pass. Moving
+    them out gives a clean slate: iter restarts at 1 and no prior verdict
+    can satisfy or misdirect this turn's gate. Files are preserved (moved,
+    not deleted) under ``.prev_turns/`` for post-mortem. Best-effort;
+    called once per turn at the ``system/init`` event.
+    """
+    if task_dir is None:
+        return
+    try:
+        d = Path(task_dir)
+        stale = [p for p in d.glob('*.md') if _REVIEW_NAME_RE.search(p.name)]
+        if not stale:
+            return
+        root = d / PREV_TURNS_DIR
+        root.mkdir(parents=True, exist_ok=True)
+        dest = root / f'turn_{1 + sum(1 for _ in root.glob("turn_*"))}'
+        dest.mkdir(parents=True, exist_ok=True)
+        for p in stale:
+            try:
+                p.rename(dest / p.name)
+            except OSError:  # pragma: no cover
+                pass
+    except OSError:  # pragma: no cover — best-effort
+        pass
+
 
 # Max iterations before ``incomplete`` is accepted as terminal (matches
 # the loop cap in ``amazon-ads/references/reviewer-loop.md``).
@@ -131,6 +174,10 @@ def reviewer_verdict(task_dir) -> str | None:
         ]
     except OSError:
         review_files = []
+    # Prior-turn verdicts are moved to .prev_turns/ at turn start
+    # (rollover_reviews), so a plain top-level glob already sees only
+    # THIS turn's reviews — a follow-up can't inherit an earlier turn's
+    # verdict or iter count.
     if not review_files:
         return (
             'Reviewer never ran. Before finalizing, spawn the DoD '
