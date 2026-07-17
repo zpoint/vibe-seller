@@ -115,6 +115,12 @@ def _followup(client, task_id, content, marker):
     return text
 
 
+# Shares the workspace-global skill namespace with the other
+# skill-mutating e2e tests, so it must run on the SAME xdist worker
+# (serially). Without this, a sibling test's whole-namespace cleanup
+# deleted this test's review skill mid-run and its follow-up stalled.
+# Requires ``--dist loadgroup`` (set in CI). See test_skill_save_reuse.py.
+@pytest.mark.xdist_group('workspace_skills')
 class TestFollowUpReviewScoping:
     def test_multi_round_followups_each_reviewed_separately(
         self, api_client, review_skill

@@ -370,7 +370,11 @@ jobs:
           E2E_N="${E2E_WORKERS:-0}"
           XDIST_ARGS=""
           if [ "$E2E_N" -gt 1 ] 2>/dev/null; then
-            XDIST_ARGS="-n $E2E_N"
+            # --dist loadgroup so tests sharing a resource (the workspace
+            # skill namespace is workspace-global, not per-worker) can pin
+            # to one worker via @pytest.mark.xdist_group and never mutate
+            # it concurrently. Ungrouped tests still distribute by load.
+            XDIST_ARGS="-n $E2E_N --dist loadgroup"
           fi
           uv run pytest tests/e2e --e2e -v --log-cli-level=INFO \
             --reruns 1 \

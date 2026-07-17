@@ -159,12 +159,18 @@ def orders_csv(tmp_path):
 
 @pytest.fixture
 def created_skills_cleanup(api_client):
-    """Delete any user-space skills this test creates, so the shared
-    dev workspace and re-runs stay clean."""
-    before = set(_custom_skills(api_client))
-    yield
-    after = set(_custom_skills(api_client))
-    for slug in after - before:
+    """Delete only the user-space skills THIS test registers (by adding
+    their slugs to the yielded set), so re-runs stay clean.
+
+    Must NOT delete the whole before/after delta of the skill list: that
+    namespace is workspace-global and shared across parallel xdist
+    workers, so a delta cleanup would delete a *sibling* test's skill
+    mid-run. The test owns the slugs it created and registers exactly
+    those.
+    """
+    owned: set[str] = set()
+    yield owned
+    for slug in owned:
         api_client.delete(f'{BASE_URL}/api/workspace/skills/{slug}')
 
 
@@ -177,6 +183,11 @@ def _assert_total(text, total):
 # ── Test ────────────────────────────────────────────
 
 
+# All skill-mutating e2e tests share the workspace-global skill namespace,
+# so they must run on the SAME xdist worker (serially) — never
+# concurrently. Otherwise one test's snapshot/cleanup races another's
+# create/delete. Requires ``--dist loadgroup`` (set in CI).
+@pytest.mark.xdist_group('workspace_skills')
 class TestSaveAndReuseSkill:
     def test_create_then_extend(
         self, api_client, orders_csv, wecom_stub, created_skills_cleanup
@@ -227,6 +238,7 @@ class TestSaveAndReuseSkill:
             'no user-space skill was created by "save as skill"; '
             f'custom skills: {sorted(customs_after_save)}'
         )
+        created_skills_cleanup.update(new_slugs)  # own these for teardown
         for slug in new_slugs:
             assert customs_after_save[slug]['source'] == 'custom'
 
@@ -264,11 +276,15 @@ class TestSaveAndReuseSkill:
         _wait_for_followup_result(api_client, task2['id'], count2)
 
         customs_final = _custom_skills(api_client)
-        # No brand-new near-duplicate skill appeared on the second save.
-        assert set(customs_final) == set(customs_after_save), (
+        # The second save must EXTEND the existing slug, not mint a new
+        # near-duplicate. Check only for a NEW slug appearing (a subset
+        # check, scoped to this test's serialized worker) rather than
+        # whole-namespace equality — equality would also trip if a
+        # sibling test's skill were added/removed in the shared namespace.
+        dup_slugs = set(customs_final) - set(customs_after_save)
+        assert not dup_slugs, (
             'second "save as skill" duplicated instead of extending; '
-            f'before={sorted(customs_after_save)} '
-            f'after={sorted(customs_final)}'
+            f'new slug(s) appeared: {sorted(dup_slugs)}'
         )
         # The originally-created skill now covers the WeCom step.
         assert any(
