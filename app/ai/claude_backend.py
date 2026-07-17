@@ -182,6 +182,7 @@ class AgentSession(_HookMixin, _StreamMixin):
         self._input_closed: bool = False
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
+        self._review_redrive_count: int = 0  # review-gate re-drive bound
         # PreToolUse-hook state. See app.ai.bash_safety and
         # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()
@@ -553,7 +554,19 @@ class AgentSession(_HookMixin, _StreamMixin):
 
     async def _send_stdin(self, msg: dict, *, label: str = 'stdin'):
         """Write a JSON message to the subprocess stdin."""
-        if not self._proc or not self._proc.stdin:
+        if not self._proc or not self._proc.stdin or self._input_closed:
+            # Dropping an approval/hook reply after the channel is closed
+            # is a contract violation (the CLI default-denies the tool).
+            if self._input_closed and label in (
+                'control_response',
+                'hook_response',
+            ):
+                logger.warning(
+                    'Dropping %s for %s: control channel closed — tool '
+                    'will default-deny (review/lifecycle race).',
+                    label,
+                    self.task_id[:8],
+                )
             return
         line = json.dumps(msg, ensure_ascii=False) + '\n'
         if AGENT_DEBUG:

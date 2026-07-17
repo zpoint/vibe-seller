@@ -12,6 +12,8 @@ import logging
 
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
+    check_exec_review_status_for_stop,
+    check_review_status_for_stop,
     get_next_seq,
     parse_wait_condition,
 )
@@ -23,6 +25,12 @@ from app.models.task_message import TaskMessage
 from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
+
+# Max times a session will re-drive the agent when a `result` arrives
+# with a review gate still unsatisfied, before giving up and letting the
+# turn end. Matches the reviewer loop's iter-5 `incomplete` ceiling so a
+# gate the agent genuinely cannot satisfy still terminates.
+REVIEW_REDRIVE_MAX = 5
 
 # How long to wait on a single `stdout.readline()` before issuing
 # a stall-reaper heartbeat bump. The model can take minutes to
@@ -265,6 +273,51 @@ class _StreamMixin:
         elif etype == 'result':
             text = event.get('result', '')
             is_error = event.get('is_error', False)
+            # ── Review-gate guard (project-wide) ───────────────
+            # A `result` while a server-mandated review gate is still
+            # unsatisfied is NOT the end of the turn. The DoD/exec
+            # review loop runs AFTER the deliverable — it spawns a
+            # reviewer subagent and fixes the deliverable in place, and
+            # every one of those tool calls needs the approval channel.
+            # If we close stdin here (below), those approvals get
+            # dropped and the CLI default-denies them, so the review is
+            # abandoned and a placeholder result ships as "completed".
+            # Instead: keep the channel open and re-drive the agent with
+            # the gate's own deny reason (the same one the Stop hook
+            # uses), so it actually satisfies the gate on a LIVE channel.
+            # Bounded so an unsatisfiable gate still terminates. Uses the
+            # shared gate helpers, so this covers every review gate, not
+            # one task type.
+            if self._executing and not is_error:
+                gate_reason = check_review_status_for_stop(
+                    self.task_dir
+                ) or check_exec_review_status_for_stop(self.task_dir)
+                if (
+                    gate_reason
+                    and self._review_redrive_count < REVIEW_REDRIVE_MAX
+                ):
+                    self._review_redrive_count += 1
+                    logger.warning(
+                        'Review gate unsatisfied at result for %s — '
+                        're-driving agent (%d/%d) instead of closing the '
+                        'control channel',
+                        self.task_id[:8],
+                        self._review_redrive_count,
+                        REVIEW_REDRIVE_MAX,
+                    )
+                    await self._emit_message(
+                        'agent_event',
+                        json.dumps({
+                            'event': 'review_gate_redrive',
+                            'iter': self._review_redrive_count,
+                        }),
+                    )
+                    await self.send_user_message(
+                        'You cannot finish yet — a required review gate '
+                        'is not satisfied. Do NOT just re-answer; act on '
+                        'this and then finish:\n\n' + gate_reason
+                    )
+                    return
             if event.get('subtype') == 'success' and not is_error:
                 self._agent_success = True
             # ``None`` means Stop-hook reflection never fired this
