@@ -158,15 +158,26 @@ class TestSkillPrereqHookEndToEnd:
         task_id_prefix = task_id[:8]
         logger.info('Created prereq-hook task %s', task_id_prefix)
 
+        # This task loads ``noon-ads``, an AD_SKILL, which binds it to the
+        # ad DoD-review gate — ORTHOGONAL to the prereq hook under test.
+        # Whether the agent's fast-signoff reviewer lets the task reach
+        # ``completed`` (or it ends ``failed``/UNVERIFIED on that gate) is
+        # non-deterministic agent behavior and NOT this test's contract.
+        # The prereq-hook contract — (1) the deny fired, (2) noon-shared's
+        # content reached the agent — is fully observable either way (both
+        # happen while the agent works, before it attempts to finish), so
+        # we wait for any TERMINAL state and assert on those two, never on
+        # the final status. Coupling to status imported the flaky gate.
         result = poll_task_status(
             api_client,
             task_id,
-            target_statuses={'completed'},
-            fail_statuses={'failed'},
+            target_statuses={'completed', 'failed'},
             timeout=PIPELINE_TIMEOUT,
         )
-        assert result['status'] == 'completed', (
-            f'Task failed: {result.get("error", "unknown")}'
+        logger.info(
+            'prereq-hook task %s reached terminal status=%s',
+            task_id_prefix,
+            result.get('status'),
         )
 
         # ── Assertion 1: the hook actually fired a deny ─────────
