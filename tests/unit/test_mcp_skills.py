@@ -6,6 +6,7 @@ dispatch branches (vibe_seller_list_skills / vibe_seller_save_skill).
 """
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -224,3 +225,37 @@ class TestMcpDispatch:
             mock_api.assert_awaited_once_with(
                 'PUT', '/api/workspace/skills/s', {'skill_md': SKILL_MD}
             )
+
+
+class TestSaveSkillGuidanceForbidsMisclassification:
+    """The save-skill SKILL.md must forbid the observed failure: on an
+    "update that skill" follow-up the agent recalled a skill IT created
+    as built-in and silently skipped the extend. The server already
+    handles both cases (overwrite custom / reject built-in), so the fix
+    lives in the guidance: never decide built-in from memory, and never
+    skip an update."""
+
+    def _guidance(self):
+        p = (
+            Path(__file__).resolve().parents[2]
+            / 'app'
+            / 'skills_v2'
+            / 'save-skill'
+            / 'SKILL.md'
+        )
+        return p.read_text(encoding='utf-8').lower()
+
+    def test_forbids_deciding_builtin_from_memory(self):
+        g = self._guidance()
+        assert 'from memory' in g
+        # a skill the agent created this session is custom, not built-in
+        assert 'created' in g and 'custom' in g
+
+    def test_forbids_silently_skipping_an_update(self):
+        g = self._guidance()
+        assert 'never' in g and 'skip' in g
+
+    def test_tells_agent_to_attempt_the_save_and_let_server_decide(self):
+        g = self._guidance()
+        assert 'attempt the save' in g or 'just attempt' in g
+        assert 'overwrites' in g and 'reject' in g
