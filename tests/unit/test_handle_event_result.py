@@ -4,7 +4,7 @@ Verifies that only the first execution-phase result event is emitted
 as role='result'; subsequent results are demoted to 'assistant'.
 """
 
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -328,6 +328,77 @@ class TestReviewGateRedrive:
         assert emitted == [('result', 'Verified answer')]
         assert session._first_result_emitted is True
         assert session._review_redrive_count == 0
+
+    # ── The core regression: the control channel must stay OPEN while a
+    # review gate is unsatisfied. This is the exact invariant the
+    # production bug violated — a `result` closed stdin, so the DoD
+    # reviewer subagent's tool calls (and the in-place fixes) lost their
+    # approval channel and the CLI default-denied all of them. Neither
+    # the workflow tests (FakeAgent replaces AgentSession, never touches
+    # stdin) nor any e2e test covered this surface. These two pins do.
+
+    async def test_unsatisfied_gate_keeps_control_channel_open(self):
+        """Unsatisfied gate → stdin is NOT closed (approvals survive)."""
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+        session._proc = Mock()
+        session._proc.stdin = Mock()
+
+        async def _noop(*a, **k):
+            pass
+
+        with (
+            patch.object(session, '_emit_message', _noop),
+            patch.object(session, 'send_user_message', _noop),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value='Reviewer never ran — spawn the DoD reviewer.',
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'placeholder',
+            })
+
+        # The bug: these would be True / called. The fix keeps them clean.
+        assert session._input_closed is False
+        session._proc.stdin.close.assert_not_called()
+
+    async def test_satisfied_gate_closes_control_channel(self):
+        """Gate satisfied → stdin DOES close so the CLI exits (the fix
+        must not regress normal end-of-turn)."""
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+        session._proc = Mock()
+        session._proc.stdin = Mock()
+
+        async def _noop(*a, **k):
+            pass
+
+        with (
+            patch.object(session, '_emit_message', _noop),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value=None,
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Verified answer',
+            })
+
+        assert session._input_closed is True
+        session._proc.stdin.close.assert_called_once()
 
 
 class TestHandleEventReflectionGuard:
