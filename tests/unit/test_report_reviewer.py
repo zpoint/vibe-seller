@@ -205,3 +205,55 @@ class TestPartialBanner:
         banner = rr.partial_banner()
         assert 'Unverified' in banner or 'UNVERIFIED' in banner
         assert banner.endswith('\n')
+
+
+@pytest.mark.unit
+class TestTurnFreshness:
+    """A review from a PRIOR turn must not satisfy the gate for the
+    CURRENT turn. Universal design: applies to every review-bound task,
+    not one skill. Regression for the follow-up that completed on the
+    original turn's stale ``iter5=incomplete`` verdict."""
+
+    def _write(self, path, body, mtime):
+        path.write_text(body, encoding='utf-8')
+        os.utime(path, (mtime, mtime))
+
+    def test_stale_prior_turn_review_is_ignored(self, tmp_path):
+        # A prior turn's terminal incomplete verdict, written BEFORE the
+        # current turn's marker → must NOT pass; forces a fresh review.
+        review = tmp_path / f'REVIEW_2026-07-16_iter{rr.REVIEW_MAX_ITERS}.md'
+        self._write(review, 'Status: incomplete\n', mtime=1000)
+        rr.stamp_turn_start(tmp_path)  # marker mtime = now >> 1000
+        deny = rr.reviewer_verdict(tmp_path)
+        assert deny is not None
+        assert 'Reviewer never ran' in deny
+
+    def test_fresh_review_after_marker_gates_normally(self, tmp_path):
+        rr.stamp_turn_start(tmp_path)
+        cutoff = os.stat(tmp_path / rr.TURN_MARKER_NAME).st_mtime
+        ok = tmp_path / 'REVIEW_2026-07-17_iter1.md'
+        self._write(ok, 'Status: ok\n', mtime=cutoff + 10)
+        assert rr.reviewer_verdict(tmp_path) is None
+        gaps = tmp_path / 'REVIEW_2026-07-17_iter2.md'
+        self._write(gaps, 'Status: gaps\n', mtime=cutoff + 20)
+        deny = rr.reviewer_verdict(tmp_path)
+        assert deny is not None and 'gaps' in deny
+
+    def test_no_marker_is_backward_compatible(self, tmp_path):
+        # No marker (pre-existing tasks) → no filtering, old behaviour.
+        review = tmp_path / f'REVIEW_2026-07-16_iter{rr.REVIEW_MAX_ITERS}.md'
+        self._write(review, 'Status: incomplete\n', mtime=1000)
+        assert rr.reviewer_verdict(tmp_path) is None  # incomplete@cap accepts
+
+    def test_fresh_reviews_helper_filters_by_marker(self, tmp_path):
+        stale = tmp_path / 'REVIEW_a_iter1.md'
+        self._write(stale, 'x', mtime=1000)
+        rr.stamp_turn_start(tmp_path)
+        cutoff = os.stat(tmp_path / rr.TURN_MARKER_NAME).st_mtime
+        fresh = tmp_path / 'REVIEW_b_iter1.md'
+        self._write(fresh, 'x', mtime=cutoff + 5)
+        kept = rr.fresh_reviews([stale, fresh], tmp_path)
+        assert kept == [fresh]
+
+    def test_stamp_turn_start_none_dir_is_noop(self):
+        rr.stamp_turn_start(None)  # must not raise

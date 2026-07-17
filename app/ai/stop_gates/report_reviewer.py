@@ -28,10 +28,63 @@ and only gates on the reviewer artifact.
 
 from __future__ import annotations
 
+from pathlib import Path
 import re
 
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
+
+# Per-turn freshness marker. AgentSession stamps this file at the start of
+# EVERY execution turn (the system/init event; see claude_backend_stream).
+# A review artifact written before the current turn began belongs to a
+# PRIOR turn — e.g. a completed task that got a follow-up ("also list it
+# on AE"). Such stale verdicts must NOT satisfy the gate for the new
+# turn's work; otherwise a prior turn's terminal ``iter5=incomplete`` lets
+# the follow-up finish having never reviewed its own deliverable (observed
+# live). No marker (old tasks) → no filtering, so behaviour is unchanged
+# for anything predating the stamp. This is a universal review-gate rule,
+# not skill-specific.
+TURN_MARKER_NAME = '.turn_started'
+
+
+def stamp_turn_start(task_dir) -> None:
+    """Mark the start of a fresh execution turn (best-effort)."""
+    if task_dir is None:
+        return
+    try:
+        d = Path(task_dir)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / TURN_MARKER_NAME).write_text('', encoding='utf-8')
+    except OSError:  # pragma: no cover — best-effort
+        pass
+
+
+def _turn_cutoff_mtime(task_dir) -> float | None:
+    """mtime of the current turn's start marker, or None if unmarked."""
+    try:
+        return (Path(task_dir) / TURN_MARKER_NAME).stat().st_mtime
+    except OSError:
+        return None
+
+
+def fresh_reviews(review_files, task_dir):
+    """Drop review files older than the current turn's start marker.
+
+    Returns the list unchanged when there is no marker (backward
+    compatible). Shared by the report gate here and the exec-review gate
+    in ``bash_safety`` so a stale verdict can't satisfy either path."""
+    cutoff = _turn_cutoff_mtime(task_dir)
+    if cutoff is None:
+        return review_files
+    fresh = []
+    for p in review_files:
+        try:
+            if p.stat().st_mtime >= cutoff:
+                fresh.append(p)
+        except OSError:  # pragma: no cover
+            continue
+    return fresh
+
 
 # Match a ``Status:`` verdict anywhere it can legitimately appear — plain
 # at line start (``Status: ok``) OR emphasised/indented (``**Status:
@@ -131,6 +184,10 @@ def reviewer_verdict(task_dir) -> str | None:
         ]
     except OSError:
         review_files = []
+    # Only a review from THIS turn counts — a stale prior-turn verdict
+    # (e.g. a follow-up inheriting the original turn's iter5=incomplete)
+    # must force a fresh review of the new work, not silently pass.
+    review_files = fresh_reviews(review_files, task_dir)
     if not review_files:
         return (
             'Reviewer never ran. Before finalizing, spawn the DoD '

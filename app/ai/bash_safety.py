@@ -578,6 +578,9 @@ def check_exec_review_status(task_dir) -> str | None:
         review_files = sorted(task_dir.glob(_EXEC_REVIEW_FILE_GLOB))
     except OSError:
         review_files = []
+    # Same per-turn freshness rule as the report gate: a prior turn's
+    # exec-review verdict must not satisfy this turn's gate.
+    review_files = report_reviewer.fresh_reviews(review_files, task_dir)
     if not review_files:
         return (
             'Execution reviewer never ran. After applying every '
