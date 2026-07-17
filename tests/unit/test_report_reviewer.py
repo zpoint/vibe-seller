@@ -205,3 +205,60 @@ class TestPartialBanner:
         banner = rr.partial_banner()
         assert 'Unverified' in banner or 'UNVERIFIED' in banner
         assert banner.endswith('\n')
+
+
+@pytest.mark.unit
+class TestTurnRollover:
+    """At the start of a new turn the prior turn's review verdicts are
+    moved aside so the follow-up is reviewed on a clean slate. Universal
+    design (every review-bound task). Regression for the follow-up that
+    completed on the original turn's stale ``iter5=incomplete`` verdict —
+    and for the iter-number leak (a follow-up continuing to ``iter6`` so
+    ``incomplete`` passed on its first pass)."""
+
+    def test_prior_turn_incomplete_no_longer_passes_after_rollover(
+        self, tmp_path
+    ):
+        # Original turn's terminal incomplete verdict...
+        review = tmp_path / f'REVIEW_2026-07-16_iter{rr.REVIEW_MAX_ITERS}.md'
+        review.write_text('Status: incomplete\n', encoding='utf-8')
+        assert rr.reviewer_verdict(tmp_path) is None  # would pass before turn
+        # ...a NEW turn rolls it aside → gate now demands a fresh review.
+        rr.rollover_reviews(tmp_path)
+        deny = rr.reviewer_verdict(tmp_path)
+        assert deny is not None and 'Reviewer never ran' in deny
+
+    def test_rollover_preserves_prior_files(self, tmp_path):
+        review = tmp_path / 'REVIEW_2026-07-16_iter1.md'
+        review.write_text('Status: ok\n', encoding='utf-8')
+        rr.rollover_reviews(tmp_path)
+        assert not review.exists()  # moved out of top level
+        archived = list((tmp_path / rr.PREV_TURNS_DIR).rglob('REVIEW_*.md'))
+        assert len(archived) == 1  # preserved for post-mortem, not deleted
+
+    def test_fresh_review_after_rollover_gates_normally(self, tmp_path):
+        old = tmp_path / f'REVIEW_2026-07-16_iter{rr.REVIEW_MAX_ITERS}.md'
+        old.write_text('Status: incomplete\n', encoding='utf-8')
+        rr.rollover_reviews(tmp_path)
+        # This turn writes its OWN review, numbered from iter1.
+        fresh = tmp_path / 'REVIEW_2026-07-17_iter1.md'
+        fresh.write_text('Status: incomplete\n', encoding='utf-8')
+        deny = rr.reviewer_verdict(tmp_path)
+        # iter1 incomplete is NOT terminal → must keep iterating (no
+        # early exit inherited from the prior turn's iter5).
+        assert deny is not None and 'incomplete' in deny.lower()
+        fresh.write_text('Status: ok\n', encoding='utf-8')
+        assert rr.reviewer_verdict(tmp_path) is None
+
+    def test_rollover_noop_when_nothing_to_move(self, tmp_path):
+        rr.rollover_reviews(tmp_path)  # empty dir → no raise, no subdir
+        assert not (tmp_path / rr.PREV_TURNS_DIR).exists()
+
+    def test_rollover_none_dir_is_noop(self):
+        rr.rollover_reviews(None)  # must not raise
+
+    def test_rollover_also_moves_exec_review(self, tmp_path):
+        exec_r = tmp_path / 'EXEC_REVIEW_2026-07-16_iter1.md'
+        exec_r.write_text('Status: ok\n', encoding='utf-8')
+        rr.rollover_reviews(tmp_path)
+        assert not exec_r.exists()
