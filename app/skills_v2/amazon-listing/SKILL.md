@@ -304,6 +304,23 @@ for an `8560` to fix reactively:
    the wrong marketplace. Then download the target's template and
    `inspect` it. Offer/stock columns are per-marketplace (see the offer
    prior above).
+   - **The template is region-stamped — generate it with the TARGET store
+     ticked.** "Download Blank Template" → "Download Product Spreadsheet"
+     ("List products not currently in Amazon's catalog") → search the
+     product type (type into the search with **trusted** keystrokes, not a
+     JS value set) → Select it → in "stores where you want to create
+     offers", **tick the TARGET marketplace and untick the others** (the
+     default is the account's HOME marketplace, so a template "downloaded
+     from AE" is still stamped SA unless you fix this) → Generate. Reusing
+     another marketplace's file fails upload with
+     `UPLOAD_AND_DOWNLOAD_MARKETPLACES_DIFFERENT`, even on the right
+     subdomain.
+   - **Staging the file uses the file-chooser intercept, not the visible
+     input.** The `kat-file-upload` widget's `input#kat-file-attachment`
+     is a decoy — `setFileInputFiles` on it silently no-ops ("File not
+     uploaded"). Use the intercept + trusted-click recipe in
+     `browser-harness` § "Uploading a file" (Method 2). "Staged: False" is
+     this bug, not a rejected template.
 3. **Pin the ASIN on every row** so Amazon *matches* instead of minting:
    `external_product_id` = that row's existing ASIN (e.g. `B0EXAMPLE1`),
    `external_product_id_type: asin`. The catalog content already exists
