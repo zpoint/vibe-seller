@@ -183,6 +183,12 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
         self._review_redrive_count: int = 0  # review-gate re-drive bound
+        # True once the stream observes a review/verify SUBAGENT spawn
+        # (Agent/Task tool) this run. The Stop gate uses it to reject an
+        # accepting REVIEW verdict the main agent wrote WITHOUT actually
+        # running the reviewer subagent (the self-certification bypass).
+        # A fresh process per follow-up means this starts False each turn.
+        self._review_subagent_ran: bool = False
         # PreToolUse-hook state. See app.ai.bash_safety and
         # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()

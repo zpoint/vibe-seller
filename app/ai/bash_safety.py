@@ -483,7 +483,7 @@ def _is_server_reviewed(audit_text: str) -> bool:
     return False
 
 
-def check_review_status(task_dir) -> str | None:
+def check_review_status(task_dir, subagent_ran=None) -> str | None:
     """Deny reason if the DoD reviewer hasn't returned ``ok`` (or
     ``incomplete`` at iter ≥ 5); else ``None``. Fires for ads skills AND
     any skill declaring a ``review:`` block; no-op otherwise.
@@ -508,7 +508,7 @@ def check_review_status(task_dir) -> str | None:
             # decides whether the task needed one (real deliverable →
             # gaps) or had nothing to verify (quick lookup → signs off
             # fast).
-            return report_reviewer.reviewer_verdict(task_dir)
+            return report_reviewer.reviewer_verdict(task_dir, subagent_ran)
         return None  # Nothing bound that requires review.
 
     # This path also gates the ENDING-TURN bypass (streaming result
@@ -539,7 +539,7 @@ def check_review_status(task_dir) -> str | None:
         )
 
     # Reviewer sign-off — shared with the set_task_result path.
-    return report_reviewer.reviewer_verdict(task_dir)
+    return report_reviewer.reviewer_verdict(task_dir, subagent_ran)
 
 
 # ── Ad-tuning execution-review guard ───────────────────────────────

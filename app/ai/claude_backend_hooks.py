@@ -173,7 +173,9 @@ class _HookMixin:
         main agent runs to satisfy this gate. Quiet no-op for non-ads
         tasks (no ``AD_AUDIT_*.md`` in the workspace).
         """
-        deny = check_review_status_for_stop(self.task_dir)
+        deny = check_review_status_for_stop(
+            self.task_dir, subagent_ran=self._review_subagent_ran
+        )
         if not deny:
             return False
         logger.info(

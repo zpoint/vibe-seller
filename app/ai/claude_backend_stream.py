@@ -250,6 +250,20 @@ class _StreamMixin:
                     self._had_tool_use = True
                     tool_name = block.get('name', '')
                     tool_input = block.get('input', {})
+                    # A DoD/review verdict only counts when a real reviewer
+                    # SUBAGENT produced it. The main agent can't fabricate
+                    # this tool_use it never made, so flag a review-ish
+                    # Agent/Task spawn; the Stop gate rejects a self-written
+                    # verdict when this stayed False.
+                    if tool_name in ('Agent', 'Task'):
+                        _blob = json.dumps(
+                            tool_input, ensure_ascii=False
+                        ).lower()
+                        if any(
+                            k in _blob
+                            for k in ('review', 'verif', 'dod', 'audit')
+                        ):
+                            self._review_subagent_ran = True
                     if tool_name == 'TodoWrite':
                         todos = tool_input.get('todos', [])
                         await event_bus.emit(
@@ -291,7 +305,7 @@ class _StreamMixin:
             # one task type.
             if self._executing and not is_error:
                 gate_reason = check_review_status_for_stop(
-                    self.task_dir
+                    self.task_dir, subagent_ran=self._review_subagent_ran
                 ) or check_exec_review_status_for_stop(self.task_dir)
                 if (
                     gate_reason

@@ -120,6 +120,49 @@ class TestReviewStopGate:
         )
         assert check_review_status(tmp_path) is None
 
+    def _ok_review_task(self, tmp_path, monkeypatch):
+        """An ad-skill task whose floor passes and which has a
+        ``Status: ok`` REVIEW file on disk (the exact input the
+        self-certification bypass produces)."""
+        monkeypatch.setattr(
+            'app.ai.bash_safety.recorded_skills',
+            lambda t: frozenset({'amazon-ads'}),
+        )
+        monkeypatch.setattr(
+            ad_completeness_review, 'check', lambda *a, **k: None
+        )
+        (tmp_path / 'AD_AUDIT_2026-07-09.md').write_text(
+            '# r\n\n## Amazon SA\n', encoding='utf-8'
+        )
+        (tmp_path / 'REVIEW_2026-07-09_iter1.md').write_text(
+            '# Review\nStatus: ok\n', encoding='utf-8'
+        )
+
+    def test_self_written_ok_denied_when_no_subagent_ran(
+        self, tmp_path, monkeypatch
+    ):
+        # The bypass: a Status: ok REVIEW file the main agent wrote
+        # itself, with NO reviewer subagent spawned this turn. The gate
+        # must reject it and tell the agent to actually run the reviewer.
+        # (The old tests missed this because they fed the gate a REVIEW
+        # file and only checked its CONTENT — never its authorship.)
+        self._ok_review_task(tmp_path, monkeypatch)
+        deny = check_review_status(tmp_path, subagent_ran=False)
+        assert deny is not None and 'subagent' in deny.lower()
+
+    def test_ok_accepted_when_subagent_ran(self, tmp_path, monkeypatch):
+        # Same on-disk verdict, but a reviewer subagent DID run this turn
+        # (the stream saw the Agent spawn) → accept.
+        self._ok_review_task(tmp_path, monkeypatch)
+        assert check_review_status(tmp_path, subagent_ran=True) is None
+
+    def test_subagent_signal_absent_is_legacy(self, tmp_path, monkeypatch):
+        # subagent_ran=None (caller didn't supply the signal) keeps the
+        # legacy behavior so callers without the stream flag don't break.
+        self._ok_review_task(tmp_path, monkeypatch)
+        assert check_review_status(tmp_path) is None
+        assert check_review_status(tmp_path, subagent_ran=None) is None
+
     def test_review_file_nonstandard_name_accepted(self, tmp_path, monkeypatch):
         # A weak model may name the review file <PRODUCT>_REVIEW_<date>.md
         # instead of REVIEW_<date>_iter<N>.md. As long as it has a Status
