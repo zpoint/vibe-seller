@@ -288,22 +288,22 @@ for an `8560` to fix reactively:
    report is account-level (byte-identical across a unified account's
    marketplace subdomains), or read them off Manage Inventory. Reuse the
    **same SKUs** on the target marketplace; same SKU keeps it idempotent.
-2. **Switch the console to the target marketplace FIRST — the upload is
-   console-scoped.** A flat-file upload applies to whatever marketplace
-   the console is currently on, regardless of the offer columns in the
-   file; uploading while the console is still on the source marketplace
-   re-applies it to the SOURCE and never reaches the target. Switch via
-   Amazon's account switcher
-   (`/account-switcher/default/merchantMarketplace`). Fast path (current
-   layout): each marketplace is a clickable account `<button>` (class
-   `full-page-account-switcher-account`) — click the button, not the inert
-   `…-label` span, then **Select account**. **Always confirm it took** —
-   the header currency / marketplace name must change to the target. If
-   the click no-ops or the layout has changed, don't give up and upload on
-   the wrong console: screenshot, find the real clickable control, click
-   it, and re-confirm. Then download the target's template, `inspect` it,
-   and switch back to the home marketplace when done. Offer/stock columns
-   are per-marketplace (see the offer prior above).
+2. **Do the WHOLE target flow on the target marketplace's own subdomain —
+   the upload is marketplace-scoped.** A flat-file upload applies to the
+   marketplace of the `sellercentral.amazon.<tld>` you're on, regardless
+   of the offer columns in the file; a `.sa` upload lands on SA even when
+   the account context shows the target. So for AE, run template download +
+   upload + Check Upload Status all on `sellercentral.amazon.ae/...` (EG →
+   `.eg`, etc.); the subdomain selects the marketplace for a unified
+   account. **Confirm the header shows the target** (marketplace name /
+   currency) before uploading. If the subdomain instead lands on an
+   account-picker ("Select an account"), switch there first — fast path
+   (current layout): click the target account's `<button>` (not the inert
+   label), then **Select account**, and if a click no-ops or the layout
+   changed, screenshot and find the real control rather than uploading on
+   the wrong marketplace. Then download the target's template and
+   `inspect` it. Offer/stock columns are per-marketplace (see the offer
+   prior above).
 3. **Pin the ASIN on every row** so Amazon *matches* instead of minting:
    `external_product_id` = that row's existing ASIN (e.g. `B0EXAMPLE1`),
    `external_product_id_type: asin`. The catalog content already exists
