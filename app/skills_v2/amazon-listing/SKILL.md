@@ -293,25 +293,28 @@ for an `8560` to fix reactively:
    store, and `inspect` the fresh template. Offer/stock columns are
    per-marketplace (see the offer prior above).
 3. **Pin the ASIN on every row** so Amazon *matches* instead of minting:
-   `operation: update`, `external_product_id` = that row's existing ASIN
-   (e.g. `B0EXAMPLE1`), `external_product_id_type: asin`. The catalog
-   content already exists under the ASIN — you are only adding this
-   marketplace's **offer**, so set it via the top-level
-   `"marketplace": "<CC>"` + bare `our_price` + `quantity` +
-   `fulfillment_channel_code` (offer prior), not by re-describing the
-   product.
-   - Pick each row's `operation` by whether that SKU's offer already
-     exists in the target marketplace: **no offer there yet → `update`**
-     (Create or Replace is the only op that creates it); **offer already
-     exists → `update` or `partialupdate`** (both fine — `update`
-     overwrites every field incl. blanks, `partialupdate` only the fields
-     you send). A partial re-run (e.g. 2 of 6 already live) mixes them
-     per row.
-   - A fulfillment group needs a `fulfillment_channel_code` together with
-     its `quantity`, or Amazon rejects the offer ("does not have enough
-     values"). It's marketplace-specific (read the target template's valid
-     values); `fill` routes a bare `fulfillment_channel_code` to the
-     target group and warns if a group has a quantity but no code.
+   `external_product_id` = that row's existing ASIN (e.g. `B0EXAMPLE1`),
+   `external_product_id_type: asin`. The catalog content already exists
+   under the ASIN — you are only adding this marketplace's **offer**, so
+   set it via the top-level `"marketplace": "<CC>"` + bare `our_price` +
+   `quantity` + `fulfillment_channel_code` (offer prior), not by
+   re-describing the product.
+   - **Use `operation: partialupdate` to add the offer to a matched
+     ASIN.** The catalog exists under the ASIN, so you merge in only this
+     marketplace's offer. `update` (Create or Replace) instead demands
+     re-supplying EVERY required catalog field (item_name, description,
+     bullet_point, fabric_type, country_of_origin, …) and rejects the row
+     for any that's missing — i.e. re-describing the product, which the
+     ASIN match exists to avoid. Reserve `update` for when you truly mean
+     to (re)write the full catalog content; use `create` only for a
+     genuinely new ASIN.
+   - Supply the **complete offer** — `our_price` + `quantity` +
+     `fulfillment_channel_code` — on each child. A fulfillment group needs
+     a channel code together with its quantity, or Amazon rejects the
+     offer ("does not have enough values"). The code is marketplace-
+     specific (read the target template's valid values); `fill` routes a
+     bare `fulfillment_channel_code` to the target group and warns if a
+     group has a quantity but no code.
 4. **Verify** the target ASINs equal the source ones (same ASIN ⇒ shared
    reviews) and that the offer is live in the TARGET marketplace's
    Pricing view — the feed's "N/N successful" does not prove either.
