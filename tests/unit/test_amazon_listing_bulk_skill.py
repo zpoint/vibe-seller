@@ -872,6 +872,38 @@ def test_route_remaps_wrong_index_fulfillment_to_target():
     assert _AE_QTY not in fields
 
 
+def test_route_sends_channel_code_to_target_group():
+    # A bare fulfillment_channel_code routes to the target marketplace's
+    # fulfillment group (SA = #2), paired with its quantity -- a group needs
+    # both or Amazon rejects it ("does not have enough values").
+    fields = {
+        'our_price': '19.99',
+        'quantity': '100',
+        'fulfillment_channel_code': 'DEFAULT',
+    }
+    warnings = []
+    listing_bulk._route_offer_price(
+        fields, _MKT_COLS, _SA, 0, 'K-WHT', warnings
+    )
+    assert fields[_SA_QTY] == '100'
+    assert (
+        fields['fulfillment_availability#2.fulfillment_channel_code']
+        == 'DEFAULT'
+    )
+    assert warnings == []  # both quantity and code present -> no warning
+
+
+def test_route_warns_when_group_has_quantity_but_no_channel_code():
+    # quantity routed to the target group but no channel code -> the exact
+    # cross-marketplace rejection; warn so the caller supplies the code.
+    fields = {'our_price': '19.99', 'quantity': '100'}
+    warnings = []
+    listing_bulk._route_offer_price(
+        fields, _MKT_COLS, _SA, 0, 'K-WHT', warnings
+    )
+    assert any('fulfillment_channel_code' in w for w in warnings)
+
+
 # --- unified (NGS "Beta Product Spreadsheet") template dialect ----------
 #
 # The current Seller Central template. Its field API names are decorated

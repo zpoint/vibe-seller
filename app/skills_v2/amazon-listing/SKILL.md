@@ -216,18 +216,17 @@ a family that the parent shows **"Variations (N)"**.
   a long-title item. That is **NOT done**: fix the exact field the report
   names (Item Highlight is optional — clear it; the colour belongs in
   `color_name`) and re-upload. Only 18320 is a legit deferral.
-- **When the image IS the only remaining error, say so — never call it
-  "live".** A SUCCESS (OTHER) whose sole error is the missing main image
-  ("submit a compliant image to lift the suppression") means the SKU is
-  **created + priced + stocked but SEARCH-SUPPRESSED** — it is NOT buyable
-  or discoverable until the seller adds an image. That is the accepted
-  deferred done-state, but the final result MUST report it precisely:
-  "N children created, linked, priced, stocked — **SUPPRESSED pending main
-  image** (seller adds the image to go live)". Do **not** write "live",
-  "done", "全部完成", or imply the listings are sellable. The Manage
-  Inventory row will read "Search suppressed" / "No image available" and
-  the upload feed will read 0/N successful — that is expected for this
-  state, not a failure to re-upload over.
+- **When the image is the only remaining error, report it as
+  image-deferred, not "live".** A SUCCESS (OTHER) whose sole error is the
+  missing main image ("submit a compliant image to lift the suppression")
+  means the SKU is created + priced + stocked but **search-suppressed** —
+  not buyable or discoverable until the seller adds an image. That is the
+  accepted deferred done-state; report it as such (e.g. "N children
+  created, linked, priced, stocked — suppressed pending main image, seller
+  adds it to go live") rather than "live" or "done". The Manage Inventory
+  row reads "Search suppressed" / "No image available" and the upload feed
+  reads 0/N successful — expected for this state, not a failure to
+  re-upload over.
 - **A buyable child that `8560`s ("doesn't match any ASINs … include
   standard_product_id")** — Amazon is refusing to *mint a new ASIN* for
   it. Two cases, decided by whether that child's ASIN already exists:
@@ -291,15 +290,28 @@ for an `8560` to fix reactively:
    **same SKUs** on the target marketplace; same SKU keeps it idempotent.
 2. **Switch to the target marketplace and download ITS template** — use
    Amazon's own marketplace switcher, don't hand-edit URLs on a gated
-   store. Offer/stock columns are per-marketplace (see the offer prior
-   above).
+   store, and `inspect` the fresh template. Offer/stock columns are
+   per-marketplace (see the offer prior above).
 3. **Pin the ASIN on every row** so Amazon *matches* instead of minting:
    `operation: update`, `external_product_id` = that row's existing ASIN
    (e.g. `B0EXAMPLE1`), `external_product_id_type: asin`. The catalog
    content already exists under the ASIN — you are only adding this
    marketplace's **offer**, so set it via the top-level
-   `"marketplace": "<CC>"` + bare `our_price`/`quantity` (offer prior),
-   not by re-describing the product.
+   `"marketplace": "<CC>"` + bare `our_price` + `quantity` +
+   `fulfillment_channel_code` (offer prior), not by re-describing the
+   product.
+   - Pick each row's `operation` by whether that SKU's offer already
+     exists in the target marketplace: **no offer there yet → `update`**
+     (Create or Replace is the only op that creates it); **offer already
+     exists → `update` or `partialupdate`** (both fine — `update`
+     overwrites every field incl. blanks, `partialupdate` only the fields
+     you send). A partial re-run (e.g. 2 of 6 already live) mixes them
+     per row.
+   - A fulfillment group needs a `fulfillment_channel_code` together with
+     its `quantity`, or Amazon rejects the offer ("does not have enough
+     values"). It's marketplace-specific (read the target template's valid
+     values); `fill` routes a bare `fulfillment_channel_code` to the
+     target group and warns if a group has a quantity but no code.
 4. **Verify** the target ASINs equal the source ones (same ASIN ⇒ shared
    reviews) and that the offer is live in the TARGET marketplace's
    Pricing view — the feed's "N/N successful" does not prove either.
@@ -331,8 +343,8 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
   each dialect's columns, so the SAME spec drives either. **Always drive
   the upload file through `fill` — never hand-roll it**: a hand-rolled
   file skips `fill`'s guard that clears the unified template's prefilled
-  example/instruction rows, and uploading those as SKUs is what produced a
-  live **"1/8 successful"** (parent only, all children failed). See
+  example/instruction rows, and uploading those as SKUs creates only the
+  parent — the children fail. See
   `references/template-round-trip.md` § 0.
   - `inspect TEMPLATE.xlsm [--field NAME]` — dump the dialect, the field
     set, which fields are Required, the accepted enum tokens, and the

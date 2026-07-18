@@ -52,9 +52,9 @@ dialect** — never key on a fixed row number or the localised label row.
 > unified template ships an example SKU + a "do not delete this row"
 > instruction in the data area. **Do NOT hand-roll the upload file** — a
 > hand-rolled file that appends your SKUs *after* those rows uploads the
-> example + instruction as if they were real SKUs (a live run got
-> **"1/8 successful"** that way: only the parent created, the junk rows
-> and the children failed). `fill` deletes everything below the field-name
+> example + instruction as if they were real SKUs — only the parent then
+> creates, and the junk rows and the children fail. `fill` deletes
+> everything below the field-name
 > row before writing, so only your SKUs ship.
 
 The metadata sheets are the source of truth:
@@ -218,7 +218,7 @@ fields.
 > set, not just the differentiator (see the Parent-vs-Child note below).
 
 > **Apparel (socks, clothing, …) — the full `apparel_size` composite is
-> required on EVERY row, parent included.** Verified live: a socks
+> required on EVERY row, parent included.** A socks (apparel)
 > variation only goes live when each row (parent + children) carries the
 > WHOLE size composite — `apparel_size_system`, `apparel_size_class`,
 > `apparel_size`, `apparel_body_type`, `apparel_height_type` — each a
@@ -256,8 +256,8 @@ a Parent row, and suppresses battery/hazmat required-field warnings when
 the row declares no batteries.
 
 > **Children are NOT minimal — fill each child's full required set.**
-> On a real socks create, minimal children (only `parent_sku` + colour +
-> offer) were rejected: Amazon required `item_name`, `target_gender`,
+> Minimal children (only `parent_sku` + colour + offer) get rejected:
+> Amazon requires `item_name`, `target_gender`,
 > `age_range_description`, `apparel_size_system`, and the compound
 > `apparel_body_type` / `apparel_height_type` **on every child row**. So
 > put the shared required attributes on the children too, not just the
@@ -365,7 +365,7 @@ each SKU has an ASIN and the parent shows **"Variations (N)"**. The feed
 count under-reports — records with errors still create stubs, and later
 re-uploads can complete them.
 
-### First-upload gotchas (verified on a socks template — priors, not a checklist)
+### First-upload gotchas (priors, not a checklist)
 
 - **`recommended_browse_nodes`** is a **gated set** per category — a
   guessed id is rejected. Pick one from the template's `Browse data`

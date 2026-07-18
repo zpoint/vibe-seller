@@ -302,7 +302,7 @@ def _row_fields(spec_row, top, schema):
     # row into fields (a value already in `fields` wins) so the price/stock
     # routes to the target marketplace either way, instead of being
     # silently dropped -> an empty offer column the agent then hand-picks.
-    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity'):
+    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity', 'fulfillment_channel_code'):
         if spec_row.get(k) not in (None, '') and k not in out:
             out[k] = spec_row[k]
     # Drop keys with no value so we never blank an intended default.
@@ -358,11 +358,36 @@ def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                 fields[f'fulfillment_availability#{n}.quantity'] = fields.pop(
                     'quantity'
                 )
+            # A bare `fulfillment_channel_code` routes to the SAME target
+            # group as the quantity: a fulfillment group needs BOTH a
+            # quantity AND a channel code, so a bare code left unrouted
+            # would leave the target group with stock but no channel ->
+            # Amazon's "does not have enough values" rejection.
+            if 'fulfillment_channel_code' in fields:
+                fields[
+                    f'fulfillment_availability#{n}.fulfillment_channel_code'
+                ] = fields.pop('fulfillment_channel_code')
             for k in list(fields):
                 if k.startswith('fulfillment_availability#') and '.' in k:
                     tgt = f'fulfillment_availability#{n}.{k.split(".", 1)[1]}'
                     if tgt != k:
                         fields[tgt] = fields.pop(k)
+            # Guard the exact cross-marketplace trap: a target group with a
+            # quantity but no channel code is DOA. fill can't invent the
+            # code (it is marketplace/channel-specific), so warn loudly.
+            qty_key = f'fulfillment_availability#{n}.quantity'
+            code_key = f'fulfillment_availability#{n}.fulfillment_channel_code'
+            if fields.get(qty_key) not in (None, '') and fields.get(
+                code_key
+            ) in (None, ''):
+                warnings.append(
+                    f'row {i} sku={sku}: fulfillment group #{n} '
+                    f'(marketplace_id={mkt_id}) has a quantity but no '
+                    f'fulfillment_channel_code -- Amazon rejects the offer '
+                    f'("does not have enough values"). Add a bare '
+                    f'"fulfillment_channel_code" (the merchant/default code '
+                    f'for THIS marketplace) to the row.'
+                )
 
 
 def _drop_unusable_item_highlight(fields, i, sku, warnings):
