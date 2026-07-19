@@ -76,9 +76,19 @@ for anything structurally verifiable:
   drill block; drill counts are **monotonic** across rounds (catches the
   compaction-clobber regression). *This is what an LLM judge cannot
   reproduce and must not replace.*
-- `listing_submitted` — a submission artifact exists for every attempted
-  SKU with a batch id and a processing report parsed to
-  `errors == 0`. ("Uploaded?" answered by the report, not the claim.)
+- `listing_submitted` — **implemented as the batch-marker gate**
+  (`stop_gates/listing_upload_gate.py`): the upload helper
+  (`amazon-listing/scripts/bh_upload_flatfile.py`) records every
+  submitted batch as an `UPLOAD_BATCH_<id>.json` marker in the task
+  workspace, and `listing_bulk.py parse-feedback --batch-id <id>` writes
+  the matching `BATCH_<id>_VERDICT.json` after reading THAT batch's
+  processing report. Completion is denied until every marker has a
+  verdict and the **latest** batch has zero non-image errors (earlier
+  batches are immutable history a later upload supersedes). Freshness is
+  keyed to the batch id the upload actually produced — a reviewer can't
+  pass the turn on a stale report. Markers/verdicts roll over with the
+  review files at each new turn (`rollover_reviews`). ("Uploaded?"
+  answered by the report, not the claim.)
 - `export_produced` — the requested export file exists, non-empty,
   row-count > 0.
 - `reviews_manifest` — the reviews manifest exists with the expected
@@ -95,6 +105,12 @@ against reality**, then loops until the bar is met. "Did the ads get
 fully drilled?" / "Did the listing actually get created and succeed?" are
 answered by **going and looking**, not by reading the writer's prose.
 
+- **Verdict authorship is enforced, not assumed.** The stream marks the
+  session when it observes a review/verify `Agent`/`Task` subagent spawn
+  (a tool_use the main agent cannot fabricate); `reviewer_verdict`
+  rejects an accepting `Status: ok`/terminal-`incomplete` verdict when
+  no reviewer subagent ran this turn — a verdict the writer wrote itself
+  does not count (`subagent_ran` in `stop_gates/report_reviewer.py`).
 - **Agent-spawned reviewer subagent with browser + tool access.** It runs
   in the task context (so it can drive the store's Ziniao `browser-use`
   wrapper and MCP tools) but in a **separate, adversarial context** whose
@@ -151,6 +167,14 @@ still improving). Accept the best result only after `STALL_CAP` rounds
 with **no net progress** (server tracks progress deterministically —
 coverage counts + result delta). A weak-but-progressing model is never
 trapped; a stalled-shallow one is never rubber-stamped.
+
+At the streaming end-of-turn path the same convergence is bounded by
+`REVIEW_REDRIVE_MAX` re-drives per session. Past the bound the gate
+**fails open coherently**: the Stop hook stands down and the result
+ships banner-marked **UNVERIFIED** (`partial_banner`) — never the
+previous failure mode of closing stdin while the Stop hook kept
+denying, which left the agent running against a dead approval channel
+with every tool call default-denied.
 
 ## 4. What changes vs. today
 
