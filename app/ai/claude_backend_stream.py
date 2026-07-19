@@ -12,12 +12,16 @@ import logging
 
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
+    REVIEW_REDRIVE_MAX,
     check_exec_review_status_for_stop,
     check_review_status_for_stop,
     get_next_seq,
     parse_wait_condition,
 )
-from app.ai.stop_gates.report_reviewer import rollover_reviews
+from app.ai.stop_gates.report_reviewer import (
+    partial_banner,
+    rollover_reviews,
+)
 from app.database import async_session
 from app.errors import STREAM_ERROR_MAP, categorize_error_text
 from app.events.bus import event_bus
@@ -31,7 +35,6 @@ logger = logging.getLogger(__name__)
 # with a review gate still unsatisfied, before giving up and letting the
 # turn end. Matches the reviewer loop's iter-5 `incomplete` ceiling so a
 # gate the agent genuinely cannot satisfy still terminates.
-REVIEW_REDRIVE_MAX = 5
 
 # How long to wait on a single `stdout.readline()` before issuing
 # a stall-reaper heartbeat bump. The model can take minutes to
@@ -334,6 +337,19 @@ class _StreamMixin:
                         'this and then finish:\n\n' + gate_reason
                     )
                     return
+                if gate_reason:
+                    # Re-drive budget exhausted → fail OPEN, never a
+                    # tool-denial limbo: the Stop hook stands down (see
+                    # _deny_stop_if_review_unsatisfied) and the result
+                    # ships banner-marked UNVERIFIED so nobody mistakes
+                    # it for a reviewed deliverable.
+                    logger.warning(
+                        'Review gate still unsatisfied after %d re-drives '
+                        'for %s — failing open with UNVERIFIED banner',
+                        REVIEW_REDRIVE_MAX,
+                        self.task_id[:8],
+                    )
+                    text = partial_banner() + (text or '')
             if event.get('subtype') == 'success' and not is_error:
                 self._agent_success = True
             # ``None`` means Stop-hook reflection never fired this

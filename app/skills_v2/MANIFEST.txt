@@ -24,6 +24,9 @@ amazon-listing/scripts/listing_bulk.py
 amazon-listing/scripts/marketplace_ids.py
 amazon-listing/scripts/listing_schema.py
 amazon-listing/scripts/ocr_1688.py
+amazon-listing/scripts/bh_upload_flatfile.py
+amazon-listing/scripts/bh_fetch_report.py
+amazon-listing/scripts/bh_download_template.py
 amazon-listing/requirements.txt
 amazon-invoice/SKILL.md
 amazon-invoice/generate_invoice.py

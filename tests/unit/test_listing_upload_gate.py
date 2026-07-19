@@ -1,0 +1,76 @@
+"""Batch-keyed upload-freshness gate (stop_gates.listing_upload_gate).
+
+A task that uploaded a listing batch (UPLOAD_BATCH marker present) may
+not finish until THAT batch has a parse-feedback verdict with zero
+non-image errors — report freshness by construction, not by prompt.
+"""
+
+import json
+
+import pytest
+
+from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
+from app.ai.stop_gates.report_reviewer import rollover_reviews
+
+pytestmark = pytest.mark.unit
+
+
+def _marker(d, batch='100000000001'):
+    (d / f'UPLOAD_BATCH_{batch}.json').write_text(
+        json.dumps({'batch_id': batch}), encoding='utf-8'
+    )
+    return batch
+
+
+def _verdict(d, batch, non_image):
+    (d / f'BATCH_{batch}_VERDICT.json').write_text(
+        json.dumps({
+            'batch_id': batch,
+            'errors': non_image,
+            'warnings': 0,
+            'non_image_errors': non_image,
+        }),
+        encoding='utf-8',
+    )
+
+
+class TestUploadVerdictGate:
+    def test_no_markers_is_quiet_noop(self, tmp_path):
+        assert check_upload_verdicts(tmp_path) is None
+        assert check_upload_verdicts(None) is None
+
+    def test_marker_without_verdict_denies(self, tmp_path):
+        batch = _marker(tmp_path)
+        deny = check_upload_verdicts(tmp_path)
+        assert deny is not None and batch in deny
+        assert 'parse-feedback' in deny
+
+    def test_verdict_with_non_image_errors_denies(self, tmp_path):
+        batch = _marker(tmp_path)
+        _verdict(tmp_path, batch, non_image=3)
+        deny = check_upload_verdicts(tmp_path)
+        assert deny is not None and '3 unresolved' in deny
+
+    def test_clean_verdict_passes(self, tmp_path):
+        batch = _marker(tmp_path)
+        _verdict(tmp_path, batch, non_image=0)
+        assert check_upload_verdicts(tmp_path) is None
+
+    def test_unreadable_verdict_fails_closed(self, tmp_path):
+        batch = _marker(tmp_path)
+        (tmp_path / f'BATCH_{batch}_VERDICT.json').write_text(
+            'not json', encoding='utf-8'
+        )
+        deny = check_upload_verdicts(tmp_path)
+        assert deny is not None and 're-run' in deny
+
+    def test_rollover_moves_markers_and_verdicts(self, tmp_path):
+        # A new turn must not be gated (or satisfied) by a prior
+        # turn's batches — rollover moves them aside with the reviews.
+        batch = _marker(tmp_path)
+        _verdict(tmp_path, batch, non_image=0)
+        rollover_reviews(tmp_path)
+        assert check_upload_verdicts(tmp_path) is None
+        assert not list(tmp_path.glob('UPLOAD_BATCH_*.json'))
+        moved = list(tmp_path.glob('.prev_turns/turn_*/UPLOAD_BATCH_*'))
+        assert moved

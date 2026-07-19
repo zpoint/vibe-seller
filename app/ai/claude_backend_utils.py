@@ -404,6 +404,13 @@ async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
     return None
 
 
+# Bound on review-gate re-drives per session. Past this the gate
+# FAILS OPEN: the stream banner-marks the result UNVERIFIED and the
+# Stop hook stands down so the CLI exits cleanly (never a closed
+# approval channel with a live deny).
+REVIEW_REDRIVE_MAX = 5
+
+
 def check_review_status_for_stop(
     task_dir: Path | None, subagent_ran=None
 ) -> str | None:

@@ -367,6 +367,39 @@ shareable at all: when Amazon still `8560`s *after* a correct match,
 that region cannot share the catalog — report that (a new ASIN is
 unavoidable), don't silently fork the reviews.
 
+## Deterministic browser helpers (use these FIRST)
+
+Three env-parameterized harness scripts mechanize the finicky browser
+steps — run them through the store wrapper from the task workspace, read
+the single ``RESULT {json}`` line, and only fall back to hand-driving
+(screenshot → explore) when one reports ok=false:
+
+```bash
+S=.claude/skills/amazon-listing/scripts
+DL=~/.vibe-seller/downloads/<slug>
+
+# 1. Generate + download ONE marketplace's template (region-stamped by
+#    the ticked store — this does the ticking for you):
+SC_HOST=sellercentral.amazon.<tld> PRODUCT_TYPE=<keyword> \
+STORE_LABEL=Amazon.<tld> DOWNLOADS_DIR=$DL \
+browser-use < $S/bh_download_template.py
+
+# 2. Stage + submit the filled .txt (file-chooser intercept + Submit +
+#    batch id). Writes UPLOAD_BATCH_<id>.json to MARKER_DIR — the task
+#    CANNOT finish until that batch has a clean parse-feedback verdict:
+UPLOAD_FILE=$DL/out.txt SC_HOST=sellercentral.amazon.<tld> \
+MARKER_DIR="$PWD" browser-use < $S/bh_upload_flatfile.py
+
+# 3. Fetch THAT batch's processing report, then verdict it:
+SC_HOST=sellercentral.amazon.<tld> BATCH_ID=<id> DOWNLOADS_DIR=$DL \
+browser-use < $S/bh_fetch_report.py
+python3 $S/listing_bulk.py parse-feedback <report> --batch-id <id>
+```
+
+The helpers encode the mechanics (decoy input, region stamp, two-click
+submit, shadow-DOM rows); your judgment stays with the spec: which
+operation per row, which fields, and how to fix what the report names.
+
 ## The two scripts
 
 ```bash

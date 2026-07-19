@@ -26,6 +26,7 @@ import re
 from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
     ad_completeness_review,
+    listing_upload_gate,
     recorded_skills,
     report_reviewer,
 )
@@ -490,6 +491,13 @@ def check_review_status(task_dir, subagent_ran=None) -> str | None:
     """
     if task_dir is None:
         return None
+    # Batch-keyed upload freshness: armed purely by the presence of an
+    # UPLOAD_BATCH marker (the upload helper ran), independent of skill
+    # binding — an uploaded batch must have a clean parse-feedback
+    # verdict for THIS turn before anything else can pass the gate.
+    upload_deny = listing_upload_gate.check_upload_verdicts(task_dir)
+    if upload_deny:
+        return upload_deny
     # Identify ad-report tasks by BOUND SKILL, not filename (no escape).
     skills = recorded_skills(task_dir.name)
     is_ad_task = bool(skills & report_reviewer.AD_SKILLS)

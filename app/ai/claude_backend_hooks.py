@@ -20,6 +20,7 @@ from app.ai.bash_safety import (
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
+    REVIEW_REDRIVE_MAX,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
     build_tasklist_open_reason,
@@ -173,6 +174,14 @@ class _HookMixin:
         main agent runs to satisfy this gate. Quiet no-op for non-ads
         tasks (no ``AD_AUDIT_*.md`` in the workspace).
         """
+        # Past the re-drive budget the gate FAILS OPEN coherently: the
+        # stream banner-marks the result UNVERIFIED and this hook stands
+        # down so the CLI can actually exit. Keeping the deny alive past
+        # that point left the agent running against a closed approval
+        # channel — every tool call default-denied mid-recovery (observed
+        # live), which selects for gate ESCAPES over gate satisfaction.
+        if self._review_redrive_count >= REVIEW_REDRIVE_MAX:
+            return False
         deny = check_review_status_for_stop(
             self.task_dir,
             subagent_ran=getattr(self, '_review_subagent_ran', False),

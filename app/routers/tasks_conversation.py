@@ -4,10 +4,11 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
@@ -50,6 +51,13 @@ from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
 
+# Transcript size beyond which a follow-up starts a FRESH CLI session
+# (compacted context) instead of --resume. See the context-rot guard
+# in the message handler.
+FRESH_SESSION_MSG_LIMIT = int(
+    os.environ.get('VIBE_FRESH_SESSION_MSG_LIMIT', '400')
+)
+
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 
 
@@ -80,6 +88,7 @@ async def _spawn_followup_agent(
     revert_status: TaskStatus,
     revert_error: str | None = None,
     revert_error_category: str | None = None,
+    resume: bool = True,
 ):
     """Run agent_manager.run() off the request path.
 
@@ -131,7 +140,7 @@ async def _spawn_followup_agent(
                 system_extra=system_extra,
                 mode=mode,
                 profile_id=profile_id,
-                resume=True,
+                resume=resume,
                 auto_approve_plan=auto_approve_plan,
                 store_slug=(
                     _store_slug(store.name, store.id) if store else None
@@ -288,6 +297,31 @@ async def send_task_message(
     # Determine if we can resume a CLI session (has full context)
     is_plan_feedback = task.status == TaskStatus.PLANNED
     has_resumable_session = bool(task.session_id) and not is_profile_switch
+    # Context-rot guard: past a certain transcript size, a resumed
+    # session carries more failed-attempt residue than signal — stale
+    # file paths, superseded conclusions, and old batch state dominate
+    # the context and the agent re-verifies dead artifacts (observed
+    # live: a reviewer "verified" a prior turn's report because its
+    # path was still in context). Beyond the threshold, start a FRESH
+    # CLI session seeded with the compact history summary the
+    # non-resumable branch below already builds (history file + recent
+    # messages + plan). The task workspace (files on disk) is unchanged.
+    if has_resumable_session:
+        n_msgs = await db.scalar(
+            select(func.count())
+            .select_from(TaskMessage)
+            .where(TaskMessage.task_id == task_id)
+        )
+        if (n_msgs or 0) > FRESH_SESSION_MSG_LIMIT:
+            has_resumable_session = False
+            logger.info(
+                'Task %s transcript has %d messages (> %d) — starting '
+                'a fresh session with compacted context instead of '
+                'resuming',
+                task_id,
+                n_msgs,
+                FRESH_SESSION_MSG_LIMIT,
+            )
 
     # Plan approval is a ONE-WAY exit from plan mode (like Claude Code:
     # an approved ExitPlanMode leaves the session in normal mode for
@@ -446,6 +480,7 @@ async def send_task_message(
                 mode='plan_then_execute',
                 profile_id=requested_profile_id,
                 auto_approve_plan=_follow_up_auto_approve(task),
+                resume=has_resumable_session,
                 revert_status=TaskStatus.PLANNED,
             )
         )
@@ -508,6 +543,7 @@ async def send_task_message(
                 mode=follow_up_mode,
                 profile_id=requested_profile_id,
                 auto_approve_plan=_follow_up_auto_approve(task),
+                resume=has_resumable_session,
                 revert_status=TaskStatus(prev_status),
                 revert_error=prev_error,
                 revert_error_category=prev_error_category,
@@ -554,6 +590,7 @@ async def send_task_message(
                 mode=follow_up_mode,
                 profile_id=requested_profile_id,
                 auto_approve_plan=_follow_up_auto_approve(task),
+                resume=has_resumable_session,
                 revert_status=TaskStatus(task.status),
             )
         )
