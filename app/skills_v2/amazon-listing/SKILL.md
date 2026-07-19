@@ -334,17 +334,24 @@ for an `8560` to fix reactively:
      - **Shared catalog** (the ASIN resolves on the target marketplace):
        pin it + `operation: partialupdate` and add only this marketplace's
        offer — don't re-describe the product.
-     - **Separate catalog** (the target `/dp/<ASIN>` is "Page Not Found",
-       or the upload reports *"the offer cannot be added because the
-       product is not in the catalogue … listing a product from one
-       marketplace to another"* / an `8560`): the ASIN **cannot be
-       shared**. A match/partialupdate fails. You must **CREATE fresh** —
-       a new ASIN (GTIN-exempt) with the FULL required product data
-       (`item_name`, `color_name`, `variation_theme`, description,
-       bullets, …), exactly like the original create on the source
-       marketplace. Regional siblings (e.g. SA vs AE) are frequently
-       SEPARATE catalogs, so this is the common cross-region case — expect
-       to create, not just add an offer.
+     - **Not in the target catalog yet** (the target `/dp/<ASIN>` is
+       "Page Not Found", or the upload reports *"the offer cannot be
+       added because the product is not in the catalogue … listing a
+       product from one marketplace to another"*): an offer-only
+       partialupdate cannot work — but this is NOT a first-time
+       creation either. **CREATE on the target with the FULL product
+       data AND each row's existing ASIN pinned** (`asin: <existing>`
+       on the row): the product already has an ASIN on the source
+       marketplace, and pinning it lets the target link the SAME ASIN
+       so ratings/reviews pool internationally instead of forking.
+       Mint a NEW ASIN (GTIN-exempt, product id left blank) only when
+       the product exists on no marketplace yet, the user explicitly
+       wants a separate listing, or a pinned create irrecoverably
+       conflicts (fix what the report names first). Afterwards verify
+       each CHILD's ASIN on the target equals the source's — children
+       are the buyable entities whose reviews pool; if the parent
+       container minted a new ASIN despite matched children, say so in
+       the result rather than calling the families identical.
    - Supply the **complete offer** — `our_price` + `quantity` +
      `fulfillment_channel_code` — on each child. A fulfillment group needs
      a channel code together with its quantity, or Amazon rejects the
