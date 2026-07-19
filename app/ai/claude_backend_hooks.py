@@ -174,12 +174,10 @@ class _HookMixin:
         main agent runs to satisfy this gate. Quiet no-op for non-ads
         tasks (no ``AD_AUDIT_*.md`` in the workspace).
         """
-        # Past the re-drive budget the gate FAILS OPEN coherently: the
-        # stream banner-marks the result UNVERIFIED and this hook stands
-        # down so the CLI can actually exit. Keeping the deny alive past
-        # that point left the agent running against a closed approval
-        # channel — every tool call default-denied mid-recovery (observed
-        # live), which selects for gate ESCAPES over gate satisfaction.
+        # Past the re-drive budget the gate FAILS OPEN: the stream
+        # banner-marks the result UNVERIFIED and this hook stands down so
+        # the CLI can exit (a live deny + closed approval channel had
+        # every tool default-denied mid-recovery).
         if self._review_redrive_count >= REVIEW_REDRIVE_MAX:
             return False
         deny = check_review_status_for_stop(
