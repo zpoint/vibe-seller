@@ -152,6 +152,7 @@ def install_fake_agent(fake_agent, monkeypatch):
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )
     monkeypatch.setattr('app.task_runner_auto.agent_manager', fake_agent)
+    monkeypatch.setattr('app.task_runner_followup.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_exec.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_session_lifecycle.agent_manager', fake_agent)
     monkeypatch.setattr('app.routers.app_settings.agent_manager', fake_agent)
