@@ -37,11 +37,17 @@ VERDICT_GLOB = 'BATCH_*_VERDICT.json'
 
 
 def check_upload_verdicts(task_dir) -> str | None:
-    """Deny reason if any uploaded batch lacks a clean verdict; else None.
+    """Deny reason until every batch is verdicted and the LATEST is clean.
 
-    A batch is clean when its verdict exists and reports zero non-image
-    errors. Unreadable marker/verdict files count as unresolved (fail
-    closed — the agent rewrites them by re-running the helper/parser).
+    Two rules, matching how the upload loop really converges:
+      1. EVERY marker needs a verdict — each batch's report must have
+         been read (the anti-fake-success core).
+      2. Only the LATEST batch must be CLEAN (zero non-image errors).
+         Earlier batches are immutable history: a failed intermediate
+         that a later upload superseded can never be "fixed", so
+         requiring it clean would wedge the loop.
+    Unreadable marker/verdict files count as unresolved (fail closed —
+    the agent rewrites them by re-running the helper/parser).
     """
     if task_dir is None:
         return None
@@ -49,6 +55,8 @@ def check_upload_verdicts(task_dir) -> str | None:
         markers = sorted(Path(task_dir).glob(MARKER_GLOB))
     except OSError:
         return None
+    latest_id = None
+    latest_non_image = None
     for marker in markers:
         m = _MARKER_RE.match(marker.name)
         if not m:
@@ -61,8 +69,11 @@ def check_upload_verdicts(task_dir) -> str | None:
                 "yet. Fetch THAT batch's processing report from the SAME "
                 'marketplace you uploaded to (bh_fetch_report with '
                 f'BATCH_ID={batch_id}), then run listing_bulk.py '
-                f'parse-feedback <report> --batch-id {batch_id}. The task '
-                'cannot finish on an unverified upload.'
+                f'parse-feedback <report> --batch-id {batch_id} FROM THE '
+                'TASK WORKSPACE ROOT — the verdict is written to the '
+                'current directory and must land at '
+                f'{verdict_path}. The task cannot finish on an '
+                'unverified upload.'
             )
         try:
             verdict = json.loads(verdict_path.read_text(encoding='utf-8'))
@@ -73,12 +84,17 @@ def check_upload_verdicts(task_dir) -> str | None:
                 f'listing_bulk.py parse-feedback --batch-id {batch_id} '
                 "on the batch's processing report."
             )
-        if non_image > 0:
-            return (
-                f'Batch {batch_id} has {non_image} unresolved non-image '
-                'error(s) per its processing report. Fix exactly the '
-                'fields the report names, re-upload, and parse-feedback '
-                'the new batch. Only the missing-main-image error is '
-                'deferrable.'
-            )
+        # Batch ids are monotonically increasing within an account, so
+        # the lexically greatest marker is the newest upload.
+        if latest_id is None or batch_id > latest_id:
+            latest_id = batch_id
+            latest_non_image = non_image
+    if latest_id is not None and latest_non_image:
+        return (
+            f'Your LATEST batch {latest_id} has {latest_non_image} '
+            'unresolved non-image error(s) per its processing report. '
+            'Fix exactly the fields the report names, re-upload, and '
+            'parse-feedback the new batch. Only the missing-main-image '
+            'error is deferrable.'
+        )
     return None

@@ -51,6 +51,23 @@ class TestUploadVerdictGate:
         deny = check_upload_verdicts(tmp_path)
         assert deny is not None and '3 unresolved' in deny
 
+    def test_superseded_failed_batch_does_not_block(self, tmp_path):
+        # An intermediate failed batch is immutable history; only the
+        # LATEST batch must be clean (every batch still needs a verdict).
+        old_b = _marker(tmp_path, batch='100000000001')
+        _verdict(tmp_path, old_b, non_image=12)
+        new_b = _marker(tmp_path, batch='100000000002')
+        _verdict(tmp_path, new_b, non_image=0)
+        assert check_upload_verdicts(tmp_path) is None
+
+    def test_latest_failed_batch_blocks_despite_old_clean(self, tmp_path):
+        old_b = _marker(tmp_path, batch='100000000001')
+        _verdict(tmp_path, old_b, non_image=0)
+        new_b = _marker(tmp_path, batch='100000000002')
+        _verdict(tmp_path, new_b, non_image=2)
+        deny = check_upload_verdicts(tmp_path)
+        assert deny is not None and '100000000002' in deny
+
     def test_clean_verdict_passes(self, tmp_path):
         batch = _marker(tmp_path)
         _verdict(tmp_path, batch, non_image=0)

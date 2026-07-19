@@ -394,6 +394,8 @@ MARKER_DIR="$PWD" browser-use < $S/bh_upload_flatfile.py
 SC_HOST=sellercentral.amazon.<tld> BATCH_ID=<id> DOWNLOADS_DIR=$DL \
 browser-use < $S/bh_fetch_report.py
 python3 $S/listing_bulk.py parse-feedback <report> --batch-id <id>
+# ^ run FROM the task workspace root: the verdict JSON is written to
+#   the current directory, which is where the completion gate reads it.
 ```
 
 The helpers encode the mechanics (decoy input, region stamp, two-click
