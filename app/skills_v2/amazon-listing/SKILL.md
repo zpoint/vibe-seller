@@ -328,20 +328,30 @@ for an `8560` to fix reactively:
    set it via the top-level `"marketplace": "<CC>"` + bare `our_price` +
    `quantity` + `fulfillment_channel_code` (offer prior), not by
    re-describing the product.
-   - **Use `operation: partialupdate` to add the offer to a matched
-     ASIN.** The catalog exists under the ASIN, so you merge in only this
-     marketplace's offer. `update` (Create or Replace) instead demands
-     re-supplying EVERY required catalog field (item_name, description,
-     bullet_point, fabric_type, country_of_origin, …) and rejects the row
-     for any that's missing — i.e. re-describing the product, which the
-     ASIN match exists to avoid. Reserve `update` for when you truly mean
-     to (re)write the full catalog content; use `create` only for a
-     genuinely new ASIN.
+   - **Operation depends on whether the ASIN exists in the TARGET
+     catalog — check that FIRST** (open `amazon.<tld>/dp/<ASIN>`, or read
+     the first upload's report):
+     - **Shared catalog** (the ASIN resolves on the target marketplace):
+       pin it + `operation: partialupdate` and add only this marketplace's
+       offer — don't re-describe the product.
+     - **Separate catalog** (the target `/dp/<ASIN>` is "Page Not Found",
+       or the upload reports *"the offer cannot be added because the
+       product is not in the catalogue … listing a product from one
+       marketplace to another"* / an `8560`): the ASIN **cannot be
+       shared**. A match/partialupdate fails. You must **CREATE fresh** —
+       a new ASIN (GTIN-exempt) with the FULL required product data
+       (`item_name`, `color_name`, `variation_theme`, description,
+       bullets, …), exactly like the original create on the source
+       marketplace. Regional siblings (e.g. SA vs AE) are frequently
+       SEPARATE catalogs, so this is the common cross-region case — expect
+       to create, not just add an offer.
    - Supply the **complete offer** — `our_price` + `quantity` +
      `fulfillment_channel_code` — on each child. A fulfillment group needs
      a channel code together with its quantity, or Amazon rejects the
      offer ("does not have enough values"). The code is marketplace-
-     specific (read the target template's valid values); `fill` routes a
+     specific — use a value from the TARGET template's own valid set;
+     another marketplace's value (e.g. `fulfilment by merchant (default)`)
+     is rejected as "Invalid enumerated value … (<mkt>)". `fill` routes a
      bare `fulfillment_channel_code` to the target group and warns if a
      group has a quantity but no code.
 4. **Verify** the target ASINs equal the source ones (same ASIN ⇒ shared
