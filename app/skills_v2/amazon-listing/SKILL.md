@@ -216,18 +216,17 @@ a family that the parent shows **"Variations (N)"**.
   a long-title item. That is **NOT done**: fix the exact field the report
   names (Item Highlight is optional — clear it; the colour belongs in
   `color_name`) and re-upload. Only 18320 is a legit deferral.
-- **When the image IS the only remaining error, say so — never call it
-  "live".** A SUCCESS (OTHER) whose sole error is the missing main image
-  ("submit a compliant image to lift the suppression") means the SKU is
-  **created + priced + stocked but SEARCH-SUPPRESSED** — it is NOT buyable
-  or discoverable until the seller adds an image. That is the accepted
-  deferred done-state, but the final result MUST report it precisely:
-  "N children created, linked, priced, stocked — **SUPPRESSED pending main
-  image** (seller adds the image to go live)". Do **not** write "live",
-  "done", "全部完成", or imply the listings are sellable. The Manage
-  Inventory row will read "Search suppressed" / "No image available" and
-  the upload feed will read 0/N successful — that is expected for this
-  state, not a failure to re-upload over.
+- **When the image is the only remaining error, report it as
+  image-deferred, not "live".** A SUCCESS (OTHER) whose sole error is the
+  missing main image ("submit a compliant image to lift the suppression")
+  means the SKU is created + priced + stocked but **search-suppressed** —
+  not buyable or discoverable until the seller adds an image. That is the
+  accepted deferred done-state; report it as such (e.g. "N children
+  created, linked, priced, stocked — suppressed pending main image, seller
+  adds it to go live") rather than "live" or "done". The Manage Inventory
+  row reads "Search suppressed" / "No image available" and the upload feed
+  reads 0/N successful — expected for this state, not a failure to
+  re-upload over.
 - **A buyable child that `8560`s ("doesn't match any ASINs … include
   standard_product_id")** — Amazon is refusing to *mint a new ASIN* for
   it. Two cases, decided by whether that child's ASIN already exists:
@@ -289,17 +288,72 @@ for an `8560` to fix reactively:
    report is account-level (byte-identical across a unified account's
    marketplace subdomains), or read them off Manage Inventory. Reuse the
    **same SKUs** on the target marketplace; same SKU keeps it idempotent.
-2. **Switch to the target marketplace and download ITS template** — use
-   Amazon's own marketplace switcher, don't hand-edit URLs on a gated
-   store. Offer/stock columns are per-marketplace (see the offer prior
-   above).
+2. **Do the WHOLE target flow on the target marketplace's own subdomain —
+   the upload is marketplace-scoped.** A flat-file upload applies to the
+   marketplace of the `sellercentral.amazon.<tld>` you're on, regardless
+   of the offer columns in the file; a `.sa` upload lands on SA even when
+   the account context shows the target. So for AE, run template download +
+   upload + Check Upload Status all on `sellercentral.amazon.ae/...` (EG →
+   `.eg`, etc.); the subdomain selects the marketplace for a unified
+   account. **Confirm the header shows the target** (marketplace name /
+   currency) before uploading. If the subdomain instead lands on an
+   account-picker ("Select an account"), switch there first — fast path
+   (current layout): click the target account's `<button>` (not the inert
+   label), then **Select account**, and if a click no-ops or the layout
+   changed, screenshot and find the real control rather than uploading on
+   the wrong marketplace. Then download the target's template and
+   `inspect` it. Offer/stock columns are per-marketplace (see the offer
+   prior above).
+   - **The template is region-stamped — generate it with the TARGET store
+     ticked.** "Download Blank Template" → "Download Product Spreadsheet"
+     ("List products not currently in Amazon's catalog") → search the
+     product type (type into the search with **trusted** keystrokes, not a
+     JS value set) → Select it → in "stores where you want to create
+     offers", **tick the TARGET marketplace and untick the others** (the
+     default is the account's HOME marketplace, so a template "downloaded
+     from AE" is still stamped SA unless you fix this) → Generate. Reusing
+     another marketplace's file fails upload with
+     `UPLOAD_AND_DOWNLOAD_MARKETPLACES_DIFFERENT`, even on the right
+     subdomain.
+   - **Staging the file uses the file-chooser intercept, not the visible
+     input.** The `kat-file-upload` widget's `input#kat-file-attachment`
+     is a decoy — `setFileInputFiles` on it silently no-ops ("File not
+     uploaded"). Use the intercept + trusted-click recipe in
+     `browser-harness` § "Uploading a file" (Method 2). "Staged: False" is
+     this bug, not a rejected template.
 3. **Pin the ASIN on every row** so Amazon *matches* instead of minting:
-   `operation: update`, `external_product_id` = that row's existing ASIN
-   (e.g. `B0EXAMPLE1`), `external_product_id_type: asin`. The catalog
-   content already exists under the ASIN — you are only adding this
-   marketplace's **offer**, so set it via the top-level
-   `"marketplace": "<CC>"` + bare `our_price`/`quantity` (offer prior),
-   not by re-describing the product.
+   `external_product_id` = that row's existing ASIN (e.g. `B0EXAMPLE1`),
+   `external_product_id_type: asin`. The catalog content already exists
+   under the ASIN — you are only adding this marketplace's **offer**, so
+   set it via the top-level `"marketplace": "<CC>"` + bare `our_price` +
+   `quantity` + `fulfillment_channel_code` (offer prior), not by
+   re-describing the product.
+   - **Operation depends on whether the ASIN exists in the TARGET
+     catalog — check that FIRST** (open `amazon.<tld>/dp/<ASIN>`, or read
+     the first upload's report):
+     - **Shared catalog** (the ASIN resolves on the target marketplace):
+       pin it + `operation: partialupdate` and add only this marketplace's
+       offer — don't re-describe the product.
+     - **Separate catalog** (the target `/dp/<ASIN>` is "Page Not Found",
+       or the upload reports *"the offer cannot be added because the
+       product is not in the catalogue … listing a product from one
+       marketplace to another"* / an `8560`): the ASIN **cannot be
+       shared**. A match/partialupdate fails. You must **CREATE fresh** —
+       a new ASIN (GTIN-exempt) with the FULL required product data
+       (`item_name`, `color_name`, `variation_theme`, description,
+       bullets, …), exactly like the original create on the source
+       marketplace. Regional siblings (e.g. SA vs AE) are frequently
+       SEPARATE catalogs, so this is the common cross-region case — expect
+       to create, not just add an offer.
+   - Supply the **complete offer** — `our_price` + `quantity` +
+     `fulfillment_channel_code` — on each child. A fulfillment group needs
+     a channel code together with its quantity, or Amazon rejects the
+     offer ("does not have enough values"). The code is marketplace-
+     specific — use a value from the TARGET template's own valid set;
+     another marketplace's value (e.g. `fulfilment by merchant (default)`)
+     is rejected as "Invalid enumerated value … (<mkt>)". `fill` routes a
+     bare `fulfillment_channel_code` to the target group and warns if a
+     group has a quantity but no code.
 4. **Verify** the target ASINs equal the source ones (same ASIN ⇒ shared
    reviews) and that the offer is live in the TARGET marketplace's
    Pricing view — the feed's "N/N successful" does not prove either.
@@ -331,8 +385,8 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
   each dialect's columns, so the SAME spec drives either. **Always drive
   the upload file through `fill` — never hand-roll it**: a hand-rolled
   file skips `fill`'s guard that clears the unified template's prefilled
-  example/instruction rows, and uploading those as SKUs is what produced a
-  live **"1/8 successful"** (parent only, all children failed). See
+  example/instruction rows, and uploading those as SKUs creates only the
+  parent — the children fail. See
   `references/template-round-trip.md` § 0.
   - `inspect TEMPLATE.xlsm [--field NAME]` — dump the dialect, the field
     set, which fields are Required, the accepted enum tokens, and the

@@ -146,7 +146,7 @@ def effective_status(content: str) -> tuple[str | None, list[str]]:
     return next(s for s in statuses if s not in known), statuses
 
 
-def reviewer_verdict(task_dir) -> str | None:
+def reviewer_verdict(task_dir, subagent_ran=None) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
     Called for EVERY ads-skill-bound task (the caller established the
@@ -236,6 +236,22 @@ def reviewer_verdict(task_dir) -> str | None:
         else ''
     )
 
+    # A verdict is only trustworthy when an actual reviewer SUBAGENT
+    # produced it THIS turn. ``subagent_ran is False`` means the stream saw
+    # no review-subagent spawn since the last user turn, so an accepting
+    # verdict was self-written by the main agent — the exact self-
+    # certification bypass. Reject it. (``None`` = caller didn't supply the
+    # signal → keep legacy behavior; the ad floor still gates those.)
+    if subagent_ran is False and status in ('ok', 'incomplete'):
+        return (
+            f'{latest.name} says Status: {status}, but NO DoD reviewer '
+            'subagent ran this turn — a verdict you write yourself does '
+            'not count. Actually spawn the reviewer (Agent tool, '
+            'subagent_type="general-purpose") so it OPENS the live sources '
+            "(the processing report AND the TARGET marketplace's Manage "
+            'Inventory, over the same store browser) and writes the '
+            f'verdict to REVIEW_<date>_iter{iter_num + 1}.md.'
+        )
     if status == 'ok':
         return None
     if status == 'incomplete' and iter_num >= REVIEW_MAX_ITERS:

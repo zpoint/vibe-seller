@@ -22,6 +22,8 @@ and re-exports the ones tests reach for.
 
 import re
 
+from marketplace_ids import fulfillment_index
+
 # The Template sheet holds the flat file. Metadata lives in siblings.
 TEMPLATE_SHEET = 'Template'
 DEFN_SHEET = 'Data Definitions'
@@ -54,22 +56,21 @@ OP_TOKENS = {
 # sheet order). Anything not covered here is addressed by exact API name.
 ROLE_MATCHERS = {
     'sku': lambda n, b, lf: n == 'item_sku' or b == 'contribution_sku',
-    'operation': lambda n, b, lf: (
-        n == 'update_delete' or b == 'record_action'
-    ),
+    'operation': lambda n, b, lf: n == 'update_delete' or b == 'record_action',
     'product_type': lambda n, b, lf: (
         n == 'feed_product_type' or b == 'product_type'
     ),
     'brand': lambda n, b, lf: (
         n == 'brand_name' or (b == 'brand' and lf == 'value')
     ),
-    'parentage': lambda n, b, lf: (
-        n == 'parent_child' or b == 'parentage_level'
+    'parentage': lambda n, b, lf: n == 'parent_child' or b == 'parentage_level',
+    'parent_sku': lambda n, b, lf: (
+        n == 'parent_sku'
+        or (b == 'child_parent_sku_relationship' and lf == 'parent_sku')
     ),
-    'parent_sku': lambda n, b, lf: n == 'parent_sku'
-    or (b == 'child_parent_sku_relationship' and lf == 'parent_sku'),
-    'variation_theme': lambda n, b, lf: n == 'variation_theme'
-    or (b == 'variation_theme' and lf == 'name'),
+    'variation_theme': lambda n, b, lf: (
+        n == 'variation_theme' or (b == 'variation_theme' and lf == 'name')
+    ),
     'product_id': lambda n, b, lf: (
         n == 'external_product_id' or n == 'amzn1.volt.ca.product_id_value'
     ),
@@ -368,3 +369,90 @@ def valid_value_case(wb):
         if m:
             out[str(name).strip()] = m
     return out
+
+
+# Spec shorthands for the offer price -- resolved to the target
+# marketplace's `purchasable_offer[...]` column by `route_offer_price`.
+OFFER_PRICE_SHORTHANDS = ('our_price', 'price', 'standard_price')
+
+
+def route_offer_price(fields, cols, mkt_id, i, sku, warnings):
+    """Route a bare ``our_price`` to the TARGET marketplace's offer column.
+
+    Expands ``our_price``/``price`` into
+    ``purchasable_offer[marketplace_id=<mkt_id>]#1.our_price...``. Explicit
+    full offer columns are left exactly as written (no silent move); we
+    only WARN when the target marketplace ends up with no price -- the
+    "Missing offer / never live" trap. Mutates ``fields``.
+    """
+    target_col = our_price_col(cols, mkt_id)
+    shorthand = next((k for k in OFFER_PRICE_SHORTHANDS if k in fields), None)
+    if shorthand:
+        if mkt_id is None:
+            raise SystemExit(
+                f'error: row {i} sku={sku} sets a price but the spec has no '
+                f'\'marketplace\' -- add e.g. "marketplace": "SA"'
+            )
+        if target_col is None:
+            raise SystemExit(
+                f'error: row {i} sku={sku}: template has no offer column for '
+                f'marketplace_id={mkt_id} (account may not sell there)'
+            )
+        fields[target_col] = fields.pop(shorthand)
+    if mkt_id is not None and (target_col is None or target_col not in fields):
+        other = [
+            k
+            for k in fields
+            if k.startswith('purchasable_offer[marketplace_id=')
+            and '.our_price' in k
+            and f'marketplace_id={mkt_id}]' not in k
+        ]
+        if other:
+            warnings.append(
+                f'row {i} sku={sku}: offer price is on {other[0]} but you are '
+                f'listing on marketplace_id={mkt_id}, which has NO offer -- '
+                f'the listing will be "Missing offer" (never live). Use '
+                f'"our_price".'
+            )
+    # Fulfillment/stock is NOT marketplace-bracketed: each
+    # `fulfillment_availability#N` group is tied by position to one
+    # marketplace's offer block. Route a bare `quantity` + normalise any
+    # `fulfillment_availability#k.*` to the TARGET marketplace's index, so
+    # stock can't land on the wrong marketplace (SA offer + AE qty = dead).
+    if mkt_id is not None:
+        n = fulfillment_index(cols, mkt_id)
+        if n is not None:
+            if 'quantity' in fields:
+                fields[f'fulfillment_availability#{n}.quantity'] = fields.pop(
+                    'quantity'
+                )
+            # A bare `fulfillment_channel_code` routes to the SAME target
+            # group as the quantity: a fulfillment group needs BOTH a
+            # quantity AND a channel code, so a bare code left unrouted
+            # would leave the target group with stock but no channel ->
+            # Amazon's "does not have enough values" rejection.
+            if 'fulfillment_channel_code' in fields:
+                fields[
+                    f'fulfillment_availability#{n}.fulfillment_channel_code'
+                ] = fields.pop('fulfillment_channel_code')
+            for k in list(fields):
+                if k.startswith('fulfillment_availability#') and '.' in k:
+                    tgt = f'fulfillment_availability#{n}.{k.split(".", 1)[1]}'
+                    if tgt != k:
+                        fields[tgt] = fields.pop(k)
+            # Guard the exact cross-marketplace trap: a target group with a
+            # quantity but no channel code is DOA. fill can't invent the
+            # code (it is marketplace/channel-specific), so warn loudly.
+            qty_key = f'fulfillment_availability#{n}.quantity'
+            code_key = f'fulfillment_availability#{n}.fulfillment_channel_code'
+            if fields.get(qty_key) not in (None, '') and fields.get(
+                code_key
+            ) in (None, ''):
+                warnings.append(
+                    f'row {i} sku={sku}: fulfillment group #{n} '
+                    f'(marketplace_id={mkt_id}) has a quantity but no '
+                    f'fulfillment_channel_code -- Amazon rejects the offer '
+                    f'("does not have enough values"). Add a bare '
+                    f'"fulfillment_channel_code" (the merchant/default code '
+                    f'for THIS marketplace) to the row.'
+                )

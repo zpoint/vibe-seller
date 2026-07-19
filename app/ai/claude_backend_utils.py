@@ -404,18 +404,22 @@ async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
     return None
 
 
-def check_review_status_for_stop(task_dir: Path | None) -> str | None:
+def check_review_status_for_stop(
+    task_dir: Path | None, subagent_ran=None
+) -> str | None:
     """Return a deny reason for Stop if the ads-audit reviewer
     hasn't run (or returned gaps); otherwise ``None``.
 
     Thin wrapper around ``bash_safety.check_review_status`` that
     handles the empty-task_dir case for the hook caller. Quiet
     no-op for non-ads tasks (no ``AD_AUDIT_*.md`` in the workspace).
+    ``subagent_ran`` (False when the stream saw no review-subagent spawn
+    this turn) makes an accepting verdict get rejected as self-written.
     See ``amazon-ads/references/reviewer-loop.md`` for the contract.
     """
     if task_dir is None:
         return None
-    return check_review_status(task_dir)
+    return check_review_status(task_dir, subagent_ran)
 
 
 def check_exec_review_status_for_stop(

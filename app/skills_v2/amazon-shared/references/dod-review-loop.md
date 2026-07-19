@@ -66,7 +66,17 @@ Open the live source with the wrapper you were given:
 work around it. SAMPLE and cross-check: pick specific items the
 deliverable claims and confirm them against the live page / file. PROVE
 NEGATIVES BY LOOKING ("deleted", "empty", "0 errors", "all uploaded" must
-be checked, not accepted). If there was genuinely nothing substantive to
+be checked, not accepted).
+
+**Verify the CURRENT artifact, never a stale one on disk.** A report /
+export / summary file already in the workspace or downloads dir may be
+from a PRIOR turn or a DIFFERENT marketplace — verifying it is a false
+pass. Pull THIS turn's artifact fresh from the live source (e.g. download
+the newest batch's Processing Summary from the TARGET marketplace's Check
+Upload Status) and confirm its identifier — batch id, marketplace,
+timestamp — matches the work this turn actually submitted before you read
+it. If you cannot find a current artifact for this turn's work, that is a
+gap, not an `ok`. If there was genuinely nothing substantive to
 verify (a quick lookup that produced no deliverable), write `Status: ok`
 with a one-line note — do not invent work.
 

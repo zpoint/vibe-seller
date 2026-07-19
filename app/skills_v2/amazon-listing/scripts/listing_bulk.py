@@ -98,6 +98,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from listing_schema import (  # noqa: E402, F401
     DEFN_SHEET,
     DROPDOWN_SHEET,
+    OFFER_PRICE_SHORTHANDS as _OFFER_PRICE_SHORTHANDS,
     OP_TOKENS as _OP_TOKENS,
     ROLE_MATCHERS as _ROLE_MATCHERS,
     TEMPLATE_SHEET,
@@ -110,6 +111,7 @@ from listing_schema import (  # noqa: E402, F401
     load_required_fields as _load_required_fields,
     load_valid_values as _load_valid_values,
     our_price_col as _our_price_col,
+    route_offer_price as _route_offer_price,
     valid_value_case as _valid_value_case,
 )
 from marketplace_ids import (  # noqa: E402,F401
@@ -118,8 +120,6 @@ from marketplace_ids import (  # noqa: E402,F401
     ids_in_template as _marketplace_ids_in_template,
     resolve as _resolve_marketplace_id,
 )
-
-_OFFER_PRICE_SHORTHANDS = ('our_price', 'price', 'standard_price')
 
 # Item Highlight (`title_differentiation`) is an OPTIONAL field Amazon only
 # accepts when the Item Name is <= 75 chars; a longer title makes Amazon
@@ -302,67 +302,11 @@ def _row_fields(spec_row, top, schema):
     # row into fields (a value already in `fields` wins) so the price/stock
     # routes to the target marketplace either way, instead of being
     # silently dropped -> an empty offer column the agent then hand-picks.
-    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity'):
+    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity', 'fulfillment_channel_code'):
         if spec_row.get(k) not in (None, '') and k not in out:
             out[k] = spec_row[k]
     # Drop keys with no value so we never blank an intended default.
     return {k: v for k, v in out.items() if v not in (None, '')}
-
-
-def _route_offer_price(fields, cols, mkt_id, i, sku, warnings):
-    """Route a bare ``our_price`` to the TARGET marketplace's offer column.
-
-    Expands ``our_price``/``price`` into
-    ``purchasable_offer[marketplace_id=<mkt_id>]#1.our_price...``. Explicit
-    full offer columns are left exactly as written (no silent move); we
-    only WARN when the target marketplace ends up with no price -- the
-    "Missing offer / never live" trap. Mutates ``fields``.
-    """
-    target_col = _our_price_col(cols, mkt_id)
-    shorthand = next((k for k in _OFFER_PRICE_SHORTHANDS if k in fields), None)
-    if shorthand:
-        if mkt_id is None:
-            raise SystemExit(
-                f'error: row {i} sku={sku} sets a price but the spec has no '
-                f'\'marketplace\' -- add e.g. "marketplace": "SA"'
-            )
-        if target_col is None:
-            raise SystemExit(
-                f'error: row {i} sku={sku}: template has no offer column for '
-                f'marketplace_id={mkt_id} (account may not sell there)'
-            )
-        fields[target_col] = fields.pop(shorthand)
-    if mkt_id is not None and (target_col is None or target_col not in fields):
-        other = [
-            k
-            for k in fields
-            if k.startswith('purchasable_offer[marketplace_id=')
-            and '.our_price' in k
-            and f'marketplace_id={mkt_id}]' not in k
-        ]
-        if other:
-            warnings.append(
-                f'row {i} sku={sku}: offer price is on {other[0]} but you are '
-                f'listing on marketplace_id={mkt_id}, which has NO offer -- the '
-                f'listing will be "Missing offer" (never live). Use "our_price".'
-            )
-    # Fulfillment/stock is NOT marketplace-bracketed: each
-    # `fulfillment_availability#N` group is tied by position to one
-    # marketplace's offer block. Route a bare `quantity` + normalise any
-    # `fulfillment_availability#k.*` to the TARGET marketplace's index, so
-    # stock can't land on the wrong marketplace (SA offer + AE qty = dead).
-    if mkt_id is not None:
-        n = _fulfillment_index_for_marketplace(cols, mkt_id)
-        if n is not None:
-            if 'quantity' in fields:
-                fields[f'fulfillment_availability#{n}.quantity'] = fields.pop(
-                    'quantity'
-                )
-            for k in list(fields):
-                if k.startswith('fulfillment_availability#') and '.' in k:
-                    tgt = f'fulfillment_availability#{n}.{k.split(".", 1)[1]}'
-                    if tgt != k:
-                        fields[tgt] = fields.pop(k)
 
 
 def _drop_unusable_item_highlight(fields, i, sku, warnings):
