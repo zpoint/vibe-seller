@@ -174,7 +174,8 @@ class _HookMixin:
         tasks (no ``AD_AUDIT_*.md`` in the workspace).
         """
         deny = check_review_status_for_stop(
-            self.task_dir, subagent_ran=self._review_subagent_ran
+            self.task_dir,
+            subagent_ran=getattr(self, '_review_subagent_ran', False),
         )
         if not deny:
             return False

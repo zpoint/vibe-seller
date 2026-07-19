@@ -305,7 +305,8 @@ class _StreamMixin:
             # one task type.
             if self._executing and not is_error:
                 gate_reason = check_review_status_for_stop(
-                    self.task_dir, subagent_ran=self._review_subagent_ran
+                    self.task_dir,
+                    subagent_ran=getattr(self, '_review_subagent_ran', False),
                 ) or check_exec_review_status_for_stop(self.task_dir)
                 if (
                     gate_reason
