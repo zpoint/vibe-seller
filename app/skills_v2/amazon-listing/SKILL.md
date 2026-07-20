@@ -41,7 +41,16 @@ review:
     (`sellercentral.amazon.<target-tld>/skucentral?mSku=<sku>`, no
     &condition=New) for each attempted SKU and confirm it exists LIVE on
     that marketplace with the intended content and a real ASIN, and that
-    its offer/price/stock show on that marketplace's Pricing view. Do NOT
+    its offer/price/stock show on that marketplace's Pricing view.
+    FIRST, on every page you verify from, read WHICH marketplace the
+    page is actually displaying: the header account/marketplace
+    switcher label (store name + country/flag next to Settings) is the
+    ONLY truth — the URL subdomain is NOT (a `.ae` URL renders the
+    sibling marketplace's inventory when the session's switcher is
+    still on it; both a live agent run and a human reviewer have been
+    fooled by this). Record the switcher-shown marketplace in your
+    evidence; if it differs from the target, switch via the picker and
+    re-load before trusting anything on the page. Do NOT
     accept a batch-status row on some marketplace's listing/status page as
     proof — the batch id is account-level and appears on every
     marketplace. If the target marketplace's inventory is empty but
@@ -295,8 +304,15 @@ for an `8560` to fix reactively:
    the account context shows the target. So for AE, run template download +
    upload + Check Upload Status all on `sellercentral.amazon.ae/...` (EG →
    `.eg`, etc.); the subdomain selects the marketplace for a unified
-   account. **Confirm the header shows the target** (marketplace name /
-   currency) before uploading. If the subdomain instead lands on an
+   account. **Confirm the header's account/marketplace switcher shows
+   the target** (marketplace name / currency) before uploading — and
+   before EVERY verification read too: what a seller-central page
+   DISPLAYS follows the session's switcher, not the URL subdomain (a
+   `.ae` inventory URL happily renders SA's inventory when the switcher
+   is on SA — verifying "AE has it" off such a page is how a listing
+   ends up confirmed on the wrong marketplace). Read the switcher label
+   back; never infer the marketplace from the URL. If the subdomain
+   instead lands on an
    account-picker ("Select an account"), switch there first — fast path
    (current layout): click the target account's `<button>` (not the inert
    label), then **Select account**, and if a click no-ops or the layout
