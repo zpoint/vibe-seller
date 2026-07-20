@@ -329,6 +329,10 @@ jobs:
           MAX_AGENT_CONCURRENCY: 9
           AGENT_DEBUG: '1'
           VIBE_SELLER_TELEMETRY: '0'
+          # Vision e2e must be offline + deterministic: fake image
+          # generation. The vision test module skips itself unless the
+          # server reports fake mode.
+          VISION_FAKE: '1'
         run: |
           source .venv/bin/activate
           echo "=== Starting server via vibe-seller CLI ==="

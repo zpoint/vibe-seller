@@ -40,18 +40,24 @@ def _login_api() -> httpx.Client:
     return client
 
 
-# Skip the whole module unless the server is up AND carries the new
-# vision route (so we fail loudly on a stale build, not silently).
+# Skip the whole module unless the server is up, carries the vision
+# route, AND runs in VISION_FAKE mode. The fake-mode gate is the
+# contract, not a convenience: against a real server these tests would
+# (a) hit the real image API with a bogus key — the confirm flow then
+# never emits image_generated and times out (seen live on CI), and
+# (b) the settings test would overwrite a real user's configured key.
 try:
     _probe = _login_api()
-    _ok = _probe.get(f'{BASE_URL}/api/vision/config').status_code == 200
+    _resp = _probe.get(f'{BASE_URL}/api/vision/config')
+    _cfg = _resp.json() if _resp.status_code == 200 else {}
     _probe.close()
 except Exception:
-    _ok = False
-if not _ok:
+    _cfg = {}
+if not _cfg.get('fake'):
     pytest.skip(
-        'server not up or vision route missing — start the dev server '
-        'with VISION_FAKE=1 first',
+        'vision e2e requires a VISION_FAKE=1 server (offline, '
+        'deterministic, and safe to write test keys) — start it with '
+        'VISION_FAKE=1 ./start.sh',
         allow_module_level=True,
     )
 

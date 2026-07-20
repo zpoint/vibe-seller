@@ -65,6 +65,9 @@ async def get_vision_config(current_user: User = Depends(get_current_user)):
         'kie_api_key_masked': vision.mask_key(key),
         'models': list(vision.MODELS.keys()),
         'default_model': vision.DEFAULT_MODEL,
+        # Surfaced so e2e tests can refuse to run against a server that
+        # would hit the real image API (they must be offline-only).
+        'fake': vision.is_fake(),
     }
 
 

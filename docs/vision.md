@@ -1,11 +1,17 @@
-# Vision — AI product-image generation
+# Vision — AI image generation
 
-Generate Amazon-ready product images (main image, 5-point infographics,
-lifestyle, colour-variant shots) from supplier photos plus the store's
-own image style, using kie.ai (Nano Banana Pro / Nano Banana 2). The
-agent proposes; the **user confirms and can edit** the prompt/model
-before anything is generated; the result renders inline in the task
-stream and is saved in the task workspace.
+General-purpose image generation for tasks: product photos, marketplace
+listing images, infographics, banners, or an image the user just wants,
+via kie.ai (Nano Banana Pro / Nano Banana 2). The agent proposes; the
+**user confirms and can edit** the prompt/model before anything is
+generated; the result renders inline in the task stream and is saved in
+the task workspace.
+
+**Layering**: the MCP tool is platform-agnostic infrastructure. Platform
+knowledge lives in skills — `amazon-image-studio` (Amazon image
+requirements, gathering references from Amazon/1688, placeholder
+pitfalls) is the first; other marketplaces (noon, MercadoLibre, …) add
+their own skills on top of the same tool.
 
 ## Pieces
 
