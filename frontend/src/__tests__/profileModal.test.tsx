@@ -51,16 +51,19 @@ const DEEPSEEK_PRESET = {
   ],
 }
 
+// A vision-capable fixture (Qwen — live-verified as vision) used to
+// assert the Vision / context badges render. Not MiniMax: MiniMax is
+// text-only, and the fixtures shouldn't imply otherwise.
 const VISION_PRESET = {
-  name: 'MiniMax',
-  description: 'MiniMax',
+  name: 'Qwen',
+  description: 'Qwen',
   env: {
-    ANTHROPIC_BASE_URL: 'https://api.minimaxi.com/anthropic',
-    ANTHROPIC_MODEL: 'MiniMax-M3[1m]',
+    ANTHROPIC_BASE_URL: 'https://dashscope.aliyuncs.com/apps/anthropic',
+    ANTHROPIC_MODEL: 'qwen3.7-plus',
   },
   models: [
-    { id: 'MiniMax-M3[1m]', label: 'M3 (1M context)', context: '1M', vision: true },
-    { id: 'MiniMax-M2.5', label: 'M2.5 (cheaper)', context: '200K', vision: true },
+    { id: 'qwen3.7-plus', label: 'Plus (vision)', context: '1M', vision: true },
+    { id: 'qwen3-vl-plus', label: 'VL-Plus (vision)', vision: true },
   ],
 }
 
@@ -227,21 +230,21 @@ describe('ProfileModal', () => {
   })
 
   it('renders model chips with context + vision badges from a preset', async () => {
-    mockPresets({ minimax: VISION_PRESET })
+    mockPresets({ qwen: VISION_PRESET })
     renderModal()
 
-    const presetBtn = await screen.findByRole('button', { name: 'MiniMax' })
+    const presetBtn = await screen.findByRole('button', { name: 'Qwen' })
     fireEvent.click(presetBtn)
 
     // Model chips + metadata badges.
-    expect(await screen.findByText('M3 (1M context)')).toBeInTheDocument()
-    expect(screen.getByText('M2.5 (cheaper)')).toBeInTheDocument()
+    expect(await screen.findByText('Plus (vision)')).toBeInTheDocument()
+    expect(screen.getByText('VL-Plus (vision)')).toBeInTheDocument()
     expect(screen.getAllByText('Vision').length).toBeGreaterThan(0)
-    expect(screen.getByText('200K')).toBeInTheDocument()
+    expect(screen.getByText('1M')).toBeInTheDocument()
 
     // Auto-named "Provider - <default model label>".
     expect((screen.getByPlaceholderText('e.g., MiniMax') as HTMLInputElement).value)
-      .toBe('MiniMax - M3 (1M context)')
+      .toBe('Qwen - Plus (vision)')
   })
 
   it('shows a text-only badge and syncs model + name when a cheaper chip is picked', async () => {

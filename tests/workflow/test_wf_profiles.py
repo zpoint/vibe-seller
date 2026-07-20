@@ -141,6 +141,35 @@ class TestProfileCrud:
                 f'{pid}: default model option must equal ANTHROPIC_MODEL'
             )
 
+    async def test_vision_labels_match_live_probe(self, admin_client):
+        """Vision flags are pinned to what a live 2-color image probe
+        (64x64 red + blue, x3) actually found — NOT web search:
+
+        - Qwen plus / flash / VL read both colors -> vision.
+        - qwen-max (400 on images), DeepSeek (empty), MiniMax (unreliable
+          / "cannot see images") -> text-only.
+        - Kimi + GLM have no account key to probe, so vision is OMITTED
+          (None) rather than guessed.
+        """
+        r = await admin_client.get('/api/profiles/presets')
+        presets = r.json()['presets']
+
+        def vis(pid, mid):
+            m = next(o for o in presets[pid]['models'] if o['id'] == mid)
+            return m.get('vision')
+
+        # Live-verified vision-capable
+        assert vis('qwen', 'qwen3.7-plus') is True
+        assert vis('qwen', 'qwen3.6-flash') is True
+        assert vis('qwen', 'qwen3-vl-plus') is True
+        # Live-verified text-only
+        assert vis('qwen', 'qwen3.7-max') is False
+        assert vis('deepseek', 'deepseek-v4-pro[1m]') is False
+        assert vis('minimax', 'MiniMax-M3[1m]') is False
+        # No key to verify -> no vision claim
+        assert vis('kimi', 'k3[1m]') is None
+        assert vis('glm', 'glm-5.2[1m]') is None
+
     async def test_presets_match_vendor_docs(self, admin_client):
         """Pin the load-bearing values for the vendor-doc-aligned
         presets so a typo or accidental revert is caught by CI rather

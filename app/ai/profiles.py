@@ -268,30 +268,33 @@ PROVIDER_PRESETS = {
 # way Anthropic does — the suffix only tells Claude Code to advertise
 # the window).
 PROVIDER_MODELS = {
-    # NOTE: the coding endpoint (api.kimi.com/coding) only accepts the
-    # short-form ids below — the older ``kimi-k2.5`` etc. live on the
-    # *general* platform API (api.moonshot.ai) and 400 here, so they are
-    # intentionally NOT offered for this preset. Availability is also
-    # tier-gated per account; the save-time probe rejects any the user
-    # can't actually call.
+    # Model dropdown options per provider (id + label + optional context
+    # / vision badges). First entry is the default and MUST equal the
+    # preset's ANTHROPIC_MODEL (pinned by a test). The UI also offers a
+    # free-text field, and every choice is endpoint-validated on save.
+    #
+    # VISION LABELS ARE LIVE-VERIFIED where a key exists: each id below
+    # was probed with a 64x64 solid-red AND solid-blue image, 3x, and is
+    # only marked vision=True if it named BOTH correctly every time.
+    # DeepSeek/MiniMax/Qwen were verified with the account keys. Kimi and
+    # GLM have NO key available, so their vision is intentionally OMITTED
+    # (no badge) rather than guessed. context is doc-sourced (not
+    # practical to probe a 1M window).
+    #
+    # Kimi coding endpoint only accepts the short-form ids below; older
+    # kimi-k2.5 etc. live on api.moonshot.ai and 400 here.
     'kimi': [
-        {
-            'id': 'k3[1m]',
-            'label': 'K3 (1M context)',
-            'context': '1M',
-            'vision': True,
-        },
-        {'id': 'k3', 'label': 'K3 (256K)', 'context': '256K', 'vision': True},
+        {'id': 'k3[1m]', 'label': 'K3 (1M context)', 'context': '1M'},
+        {'id': 'k3', 'label': 'K3 (256K)', 'context': '256K'},
         {'id': 'kimi-for-coding', 'label': 'Kimi for Coding (cheaper)'},
         {
             'id': 'kimi-for-coding-highspeed',
             'label': 'Kimi for Coding — high-speed',
         },
     ],
-    # M3 has a 1M window; the M2.x line is ~200K. Text-only: a live
-    # image probe (solid-red PNG + "what color?") had M3 answer "Black"
-    # and M2.5 return nothing — the endpoint accepts the image block but
-    # the model does not actually read it, so vision is not usable here.
+    # MiniMax: text-only. Live probe (red+blue x3) had M3 name red then
+    # reply "i cannot see images" / wrong color, and M2.x return empty —
+    # it accepts image blocks but does not reliably read them.
     'minimax': [
         {
             'id': 'MiniMax-M3[1m]',
@@ -319,51 +322,26 @@ PROVIDER_MODELS = {
             'vision': False,
         },
     ],
-    # GLM is text-only across the line — a poor fit for screenshot-driven
-    # browser tasks; the badge makes that visible before the user picks.
+    # GLM: vision omitted (no key to live-verify). context doc-sourced.
     'glm': [
-        {
-            'id': 'glm-5.2[1m]',
-            'label': 'GLM-5.2 (1M context)',
-            'context': '1M',
-            'vision': False,
-        },
-        {
-            'id': 'glm-4.7',
-            'label': 'GLM-4.7',
-            'context': '200K',
-            'vision': False,
-        },
+        {'id': 'glm-5.2[1m]', 'label': 'GLM-5.2 (1M context)', 'context': '1M'},
+        {'id': 'glm-4.7', 'label': 'GLM-4.7', 'context': '200K'},
         {
             'id': 'glm-4.5-air',
             'label': 'GLM-4.5-Air (fast, cheap)',
             'context': '128K',
-            'vision': False,
         },
     ],
     'glm_intl': [
-        {
-            'id': 'glm-5.2[1m]',
-            'label': 'GLM-5.2 (1M context)',
-            'context': '1M',
-            'vision': False,
-        },
-        {
-            'id': 'glm-4.7',
-            'label': 'GLM-4.7',
-            'context': '200K',
-            'vision': False,
-        },
+        {'id': 'glm-5.2[1m]', 'label': 'GLM-5.2 (1M context)', 'context': '1M'},
+        {'id': 'glm-4.7', 'label': 'GLM-4.7', 'context': '200K'},
         {
             'id': 'glm-4.5-air',
             'label': 'GLM-4.5-Air (fast, cheap)',
             'context': '128K',
-            'vision': False,
         },
     ],
-    # DeepSeek V4: 1M context, but the public API documents no image
-    # input — labeled text-only (conservative) despite the live endpoint
-    # accepting image payloads without error.
+    # DeepSeek: text-only (live probe returned empty text on images).
     'deepseek': [
         {
             'id': 'deepseek-v4-pro[1m]',
@@ -378,11 +356,9 @@ PROVIDER_MODELS = {
             'vision': False,
         },
     ],
-    # Qwen text models (qwen3.x) 400 on image input (live probe) → they
-    # are text-only. The separate Qwen-VL series genuinely reads images
-    # — verified live on this endpoint (solid-red PNG → "Red") — so it's
-    # offered for screenshot-driven work. VL context is left unlabeled
-    # (unverified); the vision flag is what matters here.
+    # Qwen (live-verified on the pay-go endpoint): qwen3.7-max rejects
+    # images (400) -> text-only; qwen3.7-plus / qwen3.6-flash / the VL
+    # series read red+blue correctly -> vision.
     'qwen': [
         {
             'id': 'qwen3.7-max',
@@ -392,24 +368,22 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus',
+            'label': 'Qwen3.7-Plus (vision)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, cheap)',
+            'label': 'Qwen3.6-Flash (fast, vision)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
         {
             'id': 'qwen3-vl-plus',
             'label': 'Qwen3-VL-Plus (vision)',
             'vision': True,
         },
-        {'id': 'qwen-vl-max', 'label': 'Qwen-VL-Max (vision)', 'vision': True},
     ],
-    # International pay-go mirrors the China tier's model list.
     'qwen_intl': [
         {
             'id': 'qwen3.7-max',
@@ -419,39 +393,40 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus',
+            'label': 'Qwen3.7-Plus (vision)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, cheap)',
+            'label': 'Qwen3.6-Flash (fast, vision)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
         {
             'id': 'qwen3-vl-plus',
             'label': 'Qwen3-VL-Plus (vision)',
             'vision': True,
         },
-        {'id': 'qwen-vl-max', 'label': 'Qwen-VL-Max (vision)', 'vision': True},
     ],
+    # Coding Plan serves qwen3.7-plus (same id verified as vision on
+    # pay-go).
     'qwen_coding': [
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus',
+            'label': 'Qwen3.7-Plus (vision)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
     ],
-    # Token Plan flagship is qwen3.8-max-preview (Token-Plan-only —
-    # 401s on pay-as-you-go). ~960K usable context per Alibaba's doc.
+    # Token Plan flagship qwen3.8-max-preview is Token-Plan-only (401s on
+    # pay-go, no key to probe) -> vision omitted. The 3.7 ids reuse the
+    # pay-go-verified labels.
     'qwen_token': [
         {
             'id': 'qwen3.8-max-preview',
             'label': 'Qwen3.8-Max-Preview (flagship)',
             'context': '1M',
-            'vision': False,
         },
         {
             'id': 'qwen3.7-max',
@@ -461,15 +436,15 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'qwen3.7-plus',
-            'label': 'Qwen3.7-Plus',
+            'label': 'Qwen3.7-Plus (vision)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
         {
             'id': 'qwen3.6-flash',
-            'label': 'Qwen3.6-Flash (fast, cheap)',
+            'label': 'Qwen3.6-Flash (fast, vision)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
     ],
 }
