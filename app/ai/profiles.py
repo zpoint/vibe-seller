@@ -351,12 +351,22 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'glm-4.7',
-            'label': 'GLM-4.7 (value)',
+            'label': 'GLM-4.7',
             'context': '200K',
             'vision': False,
         },
-        {'id': 'glm-5.1', 'label': 'GLM-5.1', 'vision': False},
-        {'id': 'glm-4.6', 'label': 'GLM-4.6', 'vision': False},
+        {
+            'id': 'glm-5.1',
+            'label': 'GLM-5.1',
+            'context': '200K',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.6',
+            'label': 'GLM-4.6',
+            'context': '200K',
+            'vision': False,
+        },
     ],
     'glm_intl': [
         {
@@ -367,12 +377,22 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'glm-4.7',
-            'label': 'GLM-4.7 (value)',
+            'label': 'GLM-4.7',
             'context': '200K',
             'vision': False,
         },
-        {'id': 'glm-5.1', 'label': 'GLM-5.1', 'vision': False},
-        {'id': 'glm-4.6', 'label': 'GLM-4.6', 'vision': False},
+        {
+            'id': 'glm-5.1',
+            'label': 'GLM-5.1',
+            'context': '200K',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.6',
+            'label': 'GLM-4.6',
+            'context': '200K',
+            'vision': False,
+        },
     ],
     # DeepSeek: text-only (live probe returned empty text on images).
     'deepseek': [
