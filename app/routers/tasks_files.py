@@ -33,8 +33,15 @@ logger = logging.getLogger(__name__)
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
 
 
-def apply_report_reviewer_gate(task_id, task_root, final_result):
+def apply_report_reviewer_gate(
+    task_id, task_root, final_result, review_writers=None
+):
     """Reviewer sign-off for review-declaring skills at ``set_task_result``.
+
+    ``review_writers`` — the live session's per-file verdict-authorship
+    map (who wrote each review file this turn), supplied by the caller
+    from ``agent_manager``; an accepting verdict then counts only when
+    the reviewer subagent itself wrote the file.
 
     The active reviewer is enforced here (not only in the Stop hook) so a
     backend that finishes via this endpoint can't complete with the
@@ -55,7 +62,9 @@ def apply_report_reviewer_gate(task_id, task_root, final_result):
     )
     if not needs_review:
         return None, final_result
-    deny = report_reviewer.reviewer_verdict(task_root)
+    deny = report_reviewer.reviewer_verdict(
+        task_root, review_writers=review_writers
+    )
     if not deny:
         return None, final_result
     attempt = record_attempt(task_id, 'ads_report_reviewer')

@@ -107,6 +107,12 @@ async def spawn_followup_agent(
                 # captured any learnings; conversational turns have
                 # nothing new to learn from.
                 skip_reflection=True,
+                # The conversation router already persisted the user's
+                # message before spawning us — persisting the prompt
+                # again in AgentSession.start() duplicated every
+                # follow-up message (fresh-session and dead-session
+                # resume paths both start with empty message_history).
+                persist_prompt=False,
             )
     except Exception:
         logger.exception(

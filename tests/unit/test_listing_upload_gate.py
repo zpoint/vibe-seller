@@ -91,3 +91,60 @@ class TestUploadVerdictGate:
         assert not list(tmp_path.glob('UPLOAD_BATCH_*.json'))
         moved = list(tmp_path.glob('.prev_turns/turn_*/UPLOAD_BATCH_*'))
         assert moved
+
+
+def _pending(d):
+    (d / 'UPLOAD_PENDING.json').write_text(
+        json.dumps({'template': 'WIDGETS.xlsm', 'store': 'Amazon.sa'}),
+        encoding='utf-8',
+    )
+
+
+class TestPendingMarkerArming:
+    """The template-download marker arms the gate even when the upload
+    helper failed and the agent submitted by hand (no batch marker) —
+    the observed bypass that let an unverified manual upload finish."""
+
+    def test_pending_without_any_batch_denies(self, tmp_path):
+        _pending(tmp_path)
+        deny = check_upload_verdicts(tmp_path)
+        assert deny is not None
+        assert 'parse-feedback' in deny and 'UPLOAD_PENDING' in deny
+
+    def test_pending_with_clean_verdict_only_passes(self, tmp_path):
+        # Manual upload: no UPLOAD_BATCH marker, but the agent fetched
+        # the report and verdicted the batch — satisfied.
+        _pending(tmp_path)
+        _verdict(tmp_path, '100000000001', non_image=0)
+        assert check_upload_verdicts(tmp_path) is None
+
+    def test_pending_with_failed_verdict_only_denies(self, tmp_path):
+        # Manual upload whose report shows errors must still block —
+        # "latest batch clean" ranges over verdict-only ids too.
+        _pending(tmp_path)
+        _verdict(tmp_path, '100000000001', non_image=4)
+        deny = check_upload_verdicts(tmp_path)
+        assert deny is not None and '4 unresolved' in deny
+
+    def test_verdict_only_latest_judged_without_pending(self, tmp_path):
+        # Even with no pending marker, a verdict-only batch (manual
+        # upload, manually verdicted) is judged for cleanliness.
+        _verdict(tmp_path, '100000000002', non_image=1)
+        deny = check_upload_verdicts(tmp_path)
+        assert deny is not None and '100000000002' in deny
+
+    def test_pending_removed_disarms(self, tmp_path):
+        # The sanctioned no-upload exit: delete the marker.
+        _pending(tmp_path)
+        (tmp_path / 'UPLOAD_PENDING.json').unlink()
+        assert check_upload_verdicts(tmp_path) is None
+
+    def test_rollover_moves_pending(self, tmp_path):
+        # A next-turn follow-up must not inherit this turn's pending
+        # marker (it would demand a verdict for an upload that turn
+        # never made).
+        _pending(tmp_path)
+        rollover_reviews(tmp_path)
+        assert check_upload_verdicts(tmp_path) is None
+        assert not list(tmp_path.glob('UPLOAD_PENDING*.json'))
+        assert list(tmp_path.glob('.prev_turns/turn_*/UPLOAD_PENDING*'))

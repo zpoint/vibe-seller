@@ -163,6 +163,65 @@ class TestReviewStopGate:
         assert check_review_status(tmp_path) is None
         assert check_review_status(tmp_path, subagent_ran=None) is None
 
+    def test_launch_and_stop_bypass_denied_by_authorship(
+        self, tmp_path, monkeypatch
+    ):
+        # The observed live bypass: the main agent self-writes an ok
+        # verdict, gets denied (subagent_ran=False), LAUNCHES an async
+        # reviewer — which flips subagent_ran=True at spawn time — and
+        # stops before the reviewer writes anything. With the authorship
+        # map supplied, the on-disk verdict is attributed to 'main' and
+        # must still be rejected even though a subagent "ran".
+        self._ok_review_task(tmp_path, monkeypatch)
+        deny = check_review_status(
+            tmp_path,
+            subagent_ran=True,
+            review_writers={'REVIEW_2026-07-09_iter1.md': 'main'},
+        )
+        assert deny is not None and 'not' in deny and 'subagent' in deny
+
+    def test_subagent_written_verdict_accepted(self, tmp_path, monkeypatch):
+        # Same on-disk verdict, but the stream attributed the Write to a
+        # subagent (parent_tool_use_id was set) → accept.
+        self._ok_review_task(tmp_path, monkeypatch)
+        assert (
+            check_review_status(
+                tmp_path,
+                subagent_ran=True,
+                review_writers={'REVIEW_2026-07-09_iter1.md': 'subagent'},
+            )
+            is None
+        )
+
+    def test_unattributed_verdict_denied_when_writers_supplied(
+        self, tmp_path, monkeypatch
+    ):
+        # Writers map supplied but the file isn't in it (e.g. written
+        # via a bash heredoc to dodge Write tracking) → fail closed;
+        # the deny tells the agent the reviewer must write it itself.
+        self._ok_review_task(tmp_path, monkeypatch)
+        deny = check_review_status(
+            tmp_path, subagent_ran=True, review_writers={}
+        )
+        assert deny is not None and 'subagent' in deny
+
+    def test_gaps_verdict_authorship_irrelevant(self, tmp_path, monkeypatch):
+        # Authorship only guards ACCEPTING verdicts — a main-written
+        # 'gaps' still denies on its own content, not on authorship.
+        monkeypatch.setattr(
+            'app.ai.bash_safety.recorded_skills',
+            lambda _tid: {'amazon-ads'},
+        )
+        (tmp_path / 'REVIEW_2026-07-09_iter1.md').write_text(
+            '# Review\nStatus: gaps\n', encoding='utf-8'
+        )
+        deny = check_review_status(
+            tmp_path,
+            subagent_ran=True,
+            review_writers={'REVIEW_2026-07-09_iter1.md': 'main'},
+        )
+        assert deny is not None and 'gaps' in deny
+
     def test_review_file_nonstandard_name_accepted(self, tmp_path, monkeypatch):
         # A weak model may name the review file <PRODUCT>_REVIEW_<date>.md
         # instead of REVIEW_<date>_iter<N>.md. As long as it has a Status

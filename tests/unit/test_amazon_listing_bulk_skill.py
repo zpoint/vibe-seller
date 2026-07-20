@@ -1358,3 +1358,99 @@ class TestReviewContractTargetMarketplace:
         # A listing on the wrong marketplace / only a batch id must not pass.
         assert 'gap' in text
         assert 'wrong marketplace' in text or 'different marketplace' in text
+
+
+# --- region-stamp guard (wrong-marketplace template must not fill) ---
+
+
+def test_fill_hard_fails_on_wrong_region_template(mkt_template, tmp_path):
+    # The live incident: the store tick silently failed, the template
+    # came back stamped for a different marketplace, and the upload
+    # then "succeeded" on the wrong storefront. Declaring the target
+    # must make that a hard error at fill time.
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'EG',  # not stamped in this SA+AE template
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'fields': {
+                        'item_name': 'x',
+                        'feed_product_type': 'socks',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as e:
+        _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    msg = str(e.value)
+    assert 'region-stamped' in msg and 'regenerate' in msg
+
+
+def test_fill_cli_marketplace_flag_also_guarded(mkt_template, tmp_path):
+    spec = _spec(
+        tmp_path,
+        {
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'fields': {
+                        'item_name': 'x',
+                        'feed_product_type': 'socks',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as e:
+        _run([
+            'fill',
+            mkt_template,
+            '--spec',
+            spec,
+            '--out',
+            out,
+            '--marketplace',
+            'EG',
+        ])
+    assert 'region-stamped' in str(e.value)
+
+
+def test_fill_auto_adopt_single_stamp_warns_loudly(template, tmp_path, capsys):
+    # No declared marketplace + single-stamped template: auto-adopt is
+    # kept (legacy flows), but the adopted storefront must be shouted.
+    spec = _spec(
+        tmp_path,
+        {
+            'product_type': 'socks',
+            'brand': 'acme',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'fields': {
+                        'item_name': 'x',
+                        'feed_product_type': 'socks',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', spec, '--out', out])
+    err = capsys.readouterr().err
+    assert 'auto-adopting' in err and 'MKTSA' in err
+
+
+def test_inspect_prints_region_stamp(mkt_template, capsys):
+    _run(['inspect', mkt_template])
+    out = capsys.readouterr().out
+    assert 'marketplaces:' in out
+    assert 'A17E79C6D8DWNP (SA)' in out and 'A2VIGQ35RCS4UG (AE)' in out

@@ -718,9 +718,17 @@ async def set_task_result(
             deny.reason[:200],
         )
 
-    # Active reviewer sign-off (see apply_report_reviewer_gate).
+    # Active reviewer sign-off (see apply_report_reviewer_gate). The
+    # live session's verdict-authorship map makes an accepting verdict
+    # count only when the reviewer subagent itself wrote the file.
+    session = agent_manager.get_session(task_id)
     deny_reason, final_result = apply_report_reviewer_gate(
-        task_id, task_root, final_result
+        task_id,
+        task_root,
+        final_result,
+        review_writers=(
+            getattr(session, '_review_file_writers', None) if session else None
+        ),
     )
     if deny_reason:
         raise HTTPException(status_code=400, detail=deny_reason)

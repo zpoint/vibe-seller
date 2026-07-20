@@ -98,6 +98,7 @@ class AgentSession(_HookMixin, _StreamMixin):
         auto_approve_plan: bool = False,
         task_dir: Path | None = None,
         skip_reflection: bool = False,
+        persist_prompt: bool = True,
     ):
         self.task_id = task_id
         self.prompt = prompt
@@ -110,6 +111,14 @@ class AgentSession(_HookMixin, _StreamMixin):
         self.auto_approve_plan = auto_approve_plan
         self.task_dir = task_dir
         self.skip_reflection = skip_reflection
+        # Whether start() should persist self.prompt as a role='user'
+        # TaskMessage. True for initial runs (the prompt exists nowhere
+        # else); False for follow-up spawns — the conversation router
+        # already persisted the user's message, and persisting it again
+        # here duplicated every follow-up message on the fresh-session
+        # and dead-session-resume paths (observed live: identical user
+        # rows ~100ms apart).
+        self.persist_prompt = persist_prompt
         self.resume_session_id: str | None = None
         self._proc: asyncio.subprocess.Process | None = None
         self._task: asyncio.Task | None = None
@@ -183,6 +192,24 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
         self._review_redrive_count: int = 0  # review-gate re-drive bound
+        # Review-gate stream signals. `_review_subagent_ran` flips when
+        # a review-ish Agent/Task spawn is seen (weak, spawn-time).
+        # `_review_file_writers` maps each REVIEW/EXEC_REVIEW file
+        # written this turn to 'subagent' or 'main' by whether the
+        # Write/Edit event carried a parent_tool_use_id — the strong
+        # authorship signal the gates trust (a verdict counts only when
+        # the reviewer subagent itself wrote it).
+        self._review_subagent_ran: bool = False
+        self._review_file_writers: dict[str, str] = {}
+        # Async-subagent lifecycle: ids of Agent/Task tool_use blocks
+        # spawned this turn, and the subset confirmed ASYNC (launch ack
+        # "Async agent launched…") that have not yet produced a
+        # <task-notification>. A turn must not end while this is
+        # non-empty — the CLI emits its `result` even with background
+        # agents still running, and closing stdin then default-denies
+        # every one of their remaining tool calls (observed live).
+        self._agent_spawn_ids: set[str] = set()
+        self._async_agents: dict[str, str] = {}
         # PreToolUse-hook state. See app.ai.bash_safety and
         # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()
@@ -420,8 +447,12 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Persist the initial user prompt so it appears in the
         # history file when sessions are reconstructed (e.g. on
         # profile switch).  Skip when replaying history — those
-        # messages are already in the DB.
-        if not self.message_history:
+        # messages are already in the DB — and skip for follow-up
+        # spawns (persist_prompt=False): the conversation router
+        # already saved the user's message, and saving it again here
+        # duplicated it (fresh-session and dead-session-resume paths
+        # both arrive with an empty message_history).
+        if self.persist_prompt and not self.message_history:
             await self._emit_message('user', self.prompt)
 
         # Build the user prompt, optionally embedding prior

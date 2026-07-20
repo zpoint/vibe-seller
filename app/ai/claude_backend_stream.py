@@ -9,6 +9,7 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import logging
+import re
 
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
@@ -19,6 +20,7 @@ from app.ai.claude_backend_utils import (
     parse_wait_condition,
 )
 from app.ai.stop_gates.report_reviewer import (
+    is_review_file_name,
     partial_banner,
     rollover_reviews,
 )
@@ -222,6 +224,94 @@ class _StreamMixin:
             # task_id.
             self.done.set()
 
+    def _async_agents_pending_reason(self) -> str | None:
+        """Deny reason while background subagents are still running.
+
+        The CLI emits its ``result`` (end-of-turn) as soon as the MAIN
+        agent stops — async subagents launched with the Agent tool keep
+        running. Ending the turn then is always wrong: closing stdin
+        default-denies every remaining tool call the subagent makes
+        (observed live — a DoD reviewer died mid-verification while the
+        shipped result claimed it was "running in the background").
+        A turn ends only when its subagents have.
+        """
+        pending = getattr(self, '_async_agents', None)
+        if not pending:
+            return None
+        ids = ', '.join(v or k for k, v in pending.items())
+        return (
+            f'{len(pending)} background subagent(s) you launched '
+            f'this turn are still running ({ids}). A turn must not '
+            'end while its subagents are running — once you stop, '
+            'their remaining tool calls are denied and their work is '
+            'lost, so any "it will report later" claim would be '
+            "false. WAIT for each one's <task-notification> "
+            'completion message and incorporate its result before '
+            'finishing. If a subagent is no longer needed, tell the '
+            'user what you launched and why you are abandoning it.'
+        )
+
+    def _track_async_agents(self, event: dict):
+        """Maintain the set of still-running ASYNC subagents.
+
+        Two signals, both on ``user`` events:
+
+        - launch ack: the tool_result for an Agent/Task spawn whose text
+          starts "Async agent launched successfully" (sync spawns return
+          the subagent's final answer instead) → the agent is running in
+          the background and the turn must not end under it.
+        - completion: the CLI injects a ``<task-notification …>`` user
+          message when a background agent finishes. Match its
+          task-id/tool-use-id/agent-id attributes against what we
+          tracked; if the notification carries none we can match,
+          clear the whole set (fail open — never wedge a turn on a
+          notification format change).
+        """
+        blocks = event.get('message', {}).get('content', [])
+        if isinstance(blocks, str):
+            blocks = [{'type': 'text', 'text': blocks}]
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get('type') == 'tool_result':
+                tid = block.get('tool_use_id')
+                if tid not in self._agent_spawn_ids:
+                    continue
+                raw = block.get('content')
+                if isinstance(raw, list):
+                    text = ' '.join(
+                        b.get('text', '')
+                        for b in raw
+                        if isinstance(b, dict) and b.get('type') == 'text'
+                    )
+                else:
+                    text = str(raw or '')
+                if 'Async agent launched' in text:
+                    m = re.search(r'agentId:\s*([A-Za-z0-9_-]+)', text)
+                    self._async_agents[tid] = m.group(1) if m else ''
+            elif block.get('type') == 'text':
+                text = block.get('text', '')
+                if '<task-notification' not in text:
+                    continue
+                ids = set(
+                    re.findall(
+                        r'(?:task-id|tool-use-id|agent-id)'
+                        r'="([^"]+)"',
+                        text,
+                    )
+                )
+                matched = [
+                    k
+                    for k, v in self._async_agents.items()
+                    if k in ids or (v and v in ids)
+                ]
+                for k in matched:
+                    del self._async_agents[k]
+                if not matched:
+                    # Unattributable notification — assume it was ours
+                    # rather than block the turn forever.
+                    self._async_agents.clear()
+
     async def _handle_event(self, event: dict):
         """Route stream-json events to SSE."""
         etype = event.get('type', '')
@@ -232,6 +322,9 @@ class _StreamMixin:
                 self.task_id[:8],
                 json.dumps(event, ensure_ascii=False)[:2000],
             )
+
+        if etype == 'user':
+            self._track_async_agents(event)
 
         if etype == 'assistant':
             # Capture error category from assistant error events
@@ -253,12 +346,24 @@ class _StreamMixin:
                     self._had_tool_use = True
                     tool_name = block.get('name', '')
                     tool_input = block.get('input', {})
+                    # Subagent-originated events carry the id of the
+                    # Agent/Task tool_use that spawned them; the main
+                    # agent's own events have it null. This is the
+                    # authorship signal for review verdicts and the
+                    # spawn-tracking key for async agents.
+                    parent_id = event.get('parent_tool_use_id')
                     # A DoD/review verdict only counts when a real reviewer
                     # SUBAGENT produced it. The main agent can't fabricate
                     # this tool_use it never made, so flag a review-ish
                     # Agent/Task spawn; the Stop gate rejects a self-written
                     # verdict when this stayed False.
                     if tool_name in ('Agent', 'Task'):
+                        if not parent_id:
+                            # Track main-agent spawns so the launch ack
+                            # (tool_result) can flag async agents.
+                            _bid = block.get('id')
+                            if _bid:
+                                self._agent_spawn_ids.add(_bid)
                         _blob = json.dumps(
                             tool_input, ensure_ascii=False
                         ).lower()
@@ -267,6 +372,17 @@ class _StreamMixin:
                             for k in ('review', 'verif', 'dod', 'audit')
                         ):
                             self._review_subagent_ran = True
+                    # Review-verdict authorship: record WHO wrote each
+                    # review-named .md this turn. A file last written by
+                    # the main agent can never satisfy the review gates
+                    # (see report_reviewer.reviewer_verdict).
+                    if tool_name in ('Write', 'Edit', 'MultiEdit'):
+                        _fp = str(tool_input.get('file_path', ''))
+                        _base = _fp.rsplit('/', 1)[-1]
+                        if is_review_file_name(_base):
+                            self._review_file_writers[_base] = (
+                                'subagent' if parent_id else 'main'
+                            )
                     if tool_name == 'TodoWrite':
                         todos = tool_input.get('todos', [])
                         await event_bus.emit(
@@ -307,10 +423,24 @@ class _StreamMixin:
             # shared gate helpers, so this covers every review gate, not
             # one task type.
             if self._executing and not is_error:
-                gate_reason = check_review_status_for_stop(
-                    self.task_dir,
-                    subagent_ran=getattr(self, '_review_subagent_ran', False),
-                ) or check_exec_review_status_for_stop(self.task_dir)
+                gate_reason = (
+                    self._async_agents_pending_reason()
+                    or check_review_status_for_stop(
+                        self.task_dir,
+                        subagent_ran=getattr(
+                            self, '_review_subagent_ran', False
+                        ),
+                        review_writers=getattr(
+                            self, '_review_file_writers', None
+                        ),
+                    )
+                    or check_exec_review_status_for_stop(
+                        self.task_dir,
+                        review_writers=getattr(
+                            self, '_review_file_writers', None
+                        ),
+                    )
+                )
                 if (
                     gate_reason
                     and self._review_redrive_count < REVIEW_REDRIVE_MAX

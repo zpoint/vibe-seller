@@ -412,7 +412,7 @@ REVIEW_REDRIVE_MAX = 5
 
 
 def check_review_status_for_stop(
-    task_dir: Path | None, subagent_ran=None
+    task_dir: Path | None, subagent_ran=None, review_writers=None
 ) -> str | None:
     """Return a deny reason for Stop if the ads-audit reviewer
     hasn't run (or returned gaps); otherwise ``None``.
@@ -422,15 +422,18 @@ def check_review_status_for_stop(
     no-op for non-ads tasks (no ``AD_AUDIT_*.md`` in the workspace).
     ``subagent_ran`` (False when the stream saw no review-subagent spawn
     this turn) makes an accepting verdict get rejected as self-written.
+    ``review_writers`` (per-file authorship from the stream) makes an
+    accepting verdict count ONLY when the reviewer subagent itself
+    wrote the file — see ``report_reviewer.reviewer_verdict``.
     See ``amazon-ads/references/reviewer-loop.md`` for the contract.
     """
     if task_dir is None:
         return None
-    return check_review_status(task_dir, subagent_ran)
+    return check_review_status(task_dir, subagent_ran, review_writers)
 
 
 def check_exec_review_status_for_stop(
-    task_dir: Path | None,
+    task_dir: Path | None, review_writers=None
 ) -> str | None:
     """Return a deny reason for Stop if the ads-execution reviewer
     hasn't returned ok; otherwise ``None``.
@@ -442,4 +445,4 @@ def check_exec_review_status_for_stop(
     """
     if task_dir is None:
         return None
-    return check_exec_review_status(task_dir)
+    return check_exec_review_status(task_dir, review_writers)

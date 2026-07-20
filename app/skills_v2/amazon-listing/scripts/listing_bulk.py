@@ -115,11 +115,19 @@ from listing_schema import (  # noqa: E402, F401
     valid_value_case as _valid_value_case,
 )
 from marketplace_ids import (  # noqa: E402,F401
+    COUNTRY_BY_ID as _COUNTRY_BY_ID,
     MARKETPLACE_IDS,  # re-exported for callers/tests
     fulfillment_index as _fulfillment_index_for_marketplace,
     ids_in_template as _marketplace_ids_in_template,
     resolve as _resolve_marketplace_id,
 )
+
+
+def _mkt_label(mkt_id):
+    """'A2VIGQ35RCS4UG (AE)'-style label for messages."""
+    cc = _COUNTRY_BY_ID.get(mkt_id)
+    return f'{mkt_id} ({cc})' if cc else str(mkt_id)
+
 
 # Item Highlight (`title_differentiation`) is an OPTIONAL field Amazon only
 # accepts when the Item Name is <= 75 chars; a longer title makes Amazon
@@ -230,6 +238,15 @@ def cmd_inspect(args):
     data_row = _data_start_row(ws, header_row)
     print(f'template : {tt[:80]}')
     print(f'dialect  : {schema.dialect}')
+    mkts = _marketplace_ids_in_template(cols)
+    if mkts:
+        print(
+            'marketplaces: '
+            + ', '.join(_mkt_label(m) for m in mkts)
+            + '   <- the template is REGION-STAMPED for these; verify '
+            'this is the marketplace you intend to list on BEFORE '
+            'filling'
+        )
     print(f'sheets   : {wb.sheetnames}')
     print(f'header at Excel row {header_row}; data starts row {data_row}')
     print(f'total fields: {len(cols)}   required fields: {len(required)}')
@@ -361,10 +378,35 @@ def cmd_fill(args):
     # The offer price is per-marketplace; resolve the target once (CLI
     # --marketplace wins, else spec's top-level "marketplace", else the
     # template itself if it names exactly one marketplace).
-    mkt_id = _resolve_marketplace_id(
-        getattr(args, 'marketplace', None) or spec.get('marketplace'),
-        _marketplace_ids_in_template(cols),
-    )
+    template_ids = _marketplace_ids_in_template(cols)
+    requested = getattr(args, 'marketplace', None) or spec.get('marketplace')
+    mkt_id = _resolve_marketplace_id(requested, template_ids)
+    # Region-stamp guard. A template generated with the wrong store
+    # ticked is stamped for the wrong marketplace, and every later step
+    # then faithfully "succeeds" on the wrong storefront (observed
+    # live). Declaring the target makes that a hard error here; not
+    # declaring it on a single-stamped template auto-adopts the stamp,
+    # so say LOUDLY which marketplace is about to receive the listing.
+    if template_ids and requested and mkt_id not in template_ids:
+        raise SystemExit(
+            f'error: you are filling for {_mkt_label(mkt_id)} but this '
+            'template is region-stamped for '
+            + ', '.join(_mkt_label(m) for m in template_ids)
+            + ' — it has no offer columns for your target. The template '
+            'was generated with the wrong store ticked. Do NOT fill or '
+            'upload it; regenerate with the target store ticked '
+            '(bh_download_template verifies the tick) and fill that one.'
+        )
+    if template_ids and not requested and mkt_id:
+        print(
+            f'warning: no marketplace declared — auto-adopting the '
+            f"template's own stamp {_mkt_label(mkt_id)}. The listing "
+            'will land on THAT storefront; if that is not the intended '
+            'target, STOP and regenerate the template. Declare '
+            '--marketplace <CC> (or spec "marketplace") to make a '
+            'mismatch fail instead.',
+            file=sys.stderr,
+        )
 
     unknown_fields = set()
     warnings = []

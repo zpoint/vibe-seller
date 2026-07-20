@@ -386,14 +386,27 @@ S=.claude/skills/amazon-listing/scripts
 DL=~/.vibe-seller/downloads/<slug>
 
 # 1. Generate + download ONE marketplace's template (region-stamped by
-#    the ticked store — this does the ticking for you):
+#    the ticked store — this does the ticking for you AND verifies it
+#    took: kat-checkbox ignores JS clicks, so the states are read back
+#    and returned as "stores"; ok=false means the target never got
+#    ticked — do NOT generate/fill from that state). Writes
+#    UPLOAD_PENDING.json to MARKER_DIR: from here the task cannot
+#    finish until an uploaded batch has a parse-feedback verdict (or
+#    you delete the marker because no upload happened after all):
 SC_HOST=sellercentral.amazon.<tld> PRODUCT_TYPE=<keyword> \
-STORE_LABEL=Amazon.<tld> DOWNLOADS_DIR=$DL \
+STORE_LABEL=Amazon.<tld> DOWNLOADS_DIR=$DL MARKER_DIR="$PWD" \
 browser-use < $S/bh_download_template.py
+# Then confirm the stamp before filling: `listing_bulk.py inspect`
+# prints "marketplaces:" — your target MUST be listed, and `fill`
+# requires --marketplace <CC> and hard-fails on a wrong-region
+# template instead of listing on the wrong storefront.
 
 # 2. Stage + submit the filled .txt (file-chooser intercept + Submit +
 #    batch id). Writes UPLOAD_BATCH_<id>.json to MARKER_DIR — the task
-#    CANNOT finish until that batch has a clean parse-feedback verdict:
+#    CANNOT finish until that batch has a clean parse-feedback verdict.
+#    If this reports ok=false and you complete the upload BY HAND, the
+#    gate still applies (UPLOAD_PENDING arms it): find the batch id on
+#    the status page and parse-feedback it like any other batch:
 UPLOAD_FILE=$DL/out.txt SC_HOST=sellercentral.amazon.<tld> \
 MARKER_DIR="$PWD" browser-use < $S/bh_upload_flatfile.py
 

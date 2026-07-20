@@ -183,6 +183,7 @@ class _HookMixin:
         deny = check_review_status_for_stop(
             self.task_dir,
             subagent_ran=getattr(self, '_review_subagent_ran', False),
+            review_writers=getattr(self, '_review_file_writers', None),
         )
         if not deny:
             return False
@@ -201,10 +202,37 @@ class _HookMixin:
         is in the ``set_task_result`` MCP endpoint; this is a backstop
         for backends that do emit Stop events.
         """
-        deny = check_exec_review_status_for_stop(self.task_dir)
+        deny = check_exec_review_status_for_stop(
+            self.task_dir,
+            review_writers=getattr(self, '_review_file_writers', None),
+        )
         if not deny:
             return False
         logger.info('Stop denied %s — exec-review', self.task_id[:8])
+        await self._send_hook_response(
+            request_id, {'decision': 'block', 'reason': deny}
+        )
+        return True
+
+    async def _deny_stop_if_async_agents_running(self, request_id) -> bool:
+        """Deny Stop while background subagents launched this turn are
+        still running; return True if denied.
+
+        Same fail-open bound as the review gates: past the re-drive
+        budget the hook stands down so a lost completion notification
+        can never wedge the turn (the result then ships banner-marked
+        by the stream path).
+        """
+        if self._review_redrive_count >= REVIEW_REDRIVE_MAX:
+            return False
+        deny = self._async_agents_pending_reason()
+        if not deny:
+            return False
+        logger.info(
+            'Stop denied %s — %d async subagent(s) still running',
+            self.task_id[:8],
+            len(self._async_agents),
+        )
         await self._send_hook_response(
             request_id, {'decision': 'block', 'reason': deny}
         )
@@ -399,6 +427,8 @@ class _HookMixin:
                 )
             else:
                 if await self._deny_stop_if_tasklist_open(request_id):
+                    return
+                if await self._deny_stop_if_async_agents_running(request_id):
                     return
                 if await self._deny_stop_if_review_unsatisfied(request_id):
                     return

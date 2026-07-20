@@ -484,10 +484,14 @@ def _is_server_reviewed(audit_text: str) -> bool:
     return False
 
 
-def check_review_status(task_dir, subagent_ran=None) -> str | None:
+def check_review_status(
+    task_dir, subagent_ran=None, review_writers=None
+) -> str | None:
     """Deny reason if the DoD reviewer hasn't returned ``ok`` (or
     ``incomplete`` at iter ≥ 5); else ``None``. Fires for ads skills AND
     any skill declaring a ``review:`` block; no-op otherwise.
+    ``review_writers`` — per-file authorship map from the stream (see
+    ``report_reviewer.reviewer_verdict``).
     """
     if task_dir is None:
         return None
@@ -516,7 +520,9 @@ def check_review_status(task_dir, subagent_ran=None) -> str | None:
             # decides whether the task needed one (real deliverable →
             # gaps) or had nothing to verify (quick lookup → signs off
             # fast).
-            return report_reviewer.reviewer_verdict(task_dir, subagent_ran)
+            return report_reviewer.reviewer_verdict(
+                task_dir, subagent_ran, review_writers
+            )
         return None  # Nothing bound that requires review.
 
     # This path also gates the ENDING-TURN bypass (streaming result
@@ -547,7 +553,9 @@ def check_review_status(task_dir, subagent_ran=None) -> str | None:
         )
 
     # Reviewer sign-off — shared with the set_task_result path.
-    return report_reviewer.reviewer_verdict(task_dir, subagent_ran)
+    return report_reviewer.reviewer_verdict(
+        task_dir, subagent_ran, review_writers
+    )
 
 
 # ── Ad-tuning execution-review guard ───────────────────────────────
@@ -566,12 +574,15 @@ _EXEC_REVIEW_FILE_GLOB = 'EXEC_REVIEW_*_iter*.md'
 _EXEC_REVIEW_MAX_ITERS = 5
 
 
-def check_exec_review_status(task_dir) -> str | None:
+def check_exec_review_status(task_dir, review_writers=None) -> str | None:
     """Return a deny reason if the ads-execution reviewer hasn't
     returned ``ok`` (or ``incomplete`` at iter ≥ 5); otherwise None.
 
     Quiet no-op when ``EXECUTION_LOG.md`` is absent — the task is
-    not in execution mode.
+    not in execution mode. ``review_writers`` — per-file authorship
+    from the stream; an accepting verdict counts only when the
+    reviewer subagent itself wrote the file (same rule as the report
+    gate, see ``report_reviewer.reviewer_verdict``).
     """
     if task_dir is None:
         return None
@@ -649,6 +660,24 @@ def check_exec_review_status(task_dir) -> str | None:
             )
     except OSError:
         pass
+    # Authorship: an accepting exec verdict must have been WRITTEN by
+    # the reviewer subagent this turn — the same launch-and-stop /
+    # self-certification bypass as the report gate. Fail-closed when
+    # the stream signal is available (bounded by the redrive budget).
+    if (
+        review_writers is not None
+        and status in ('ok', 'incomplete')
+        and review_writers.get(latest.name) != 'subagent'
+    ):
+        return (
+            f'{latest.name} says Status: {status}, but it was not '
+            'written by the ``ads-execution-review`` subagent this '
+            'turn — a verdict the main agent writes itself does not '
+            'count. Spawn the reviewer and have IT write '
+            f'``EXEC_REVIEW_*_iter{iter_num + 1}.md`` with its own '
+            'Write tool; if it is still running, wait for its '
+            'completion notification first.'
+        )
     if status == 'ok':
         return None
     if status == 'incomplete' and iter_num >= _EXEC_REVIEW_MAX_ITERS:

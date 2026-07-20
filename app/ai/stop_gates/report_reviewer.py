@@ -57,6 +57,17 @@ _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 _REVIEW_NAME_RE = re.compile(r'(?:^|[^a-z])review(?:[^a-z]|$)', re.IGNORECASE)
 
 
+def is_review_file_name(name: str) -> bool:
+    """True when *name* looks like a review-verdict artifact.
+
+    Same token rule the gates use to FIND verdicts (``REVIEW_…``,
+    ``EXEC_REVIEW_…``, ``<PRODUCT>_REVIEW_…``, lowercase variants), so
+    the stream's authorship tracking and the gates agree on which
+    files are verdicts.
+    """
+    return name.endswith('.md') and bool(_REVIEW_NAME_RE.search(name))
+
+
 def rollover_reviews(task_dir) -> None:
     """Move the PRIOR turn's review verdicts aside at the start of a new
     execution turn, so this turn is reviewed on a clean slate.
@@ -84,6 +95,7 @@ def rollover_reviews(task_dir) -> None:
         # turn's batches. See stop_gates.listing_upload_gate.
         stale += list(d.glob('UPLOAD_BATCH_*.json'))
         stale += list(d.glob('BATCH_*_VERDICT.json'))
+        stale += list(d.glob('UPLOAD_PENDING*.json'))
         if not stale:
             return
         root = d / PREV_TURNS_DIR
@@ -151,7 +163,9 @@ def effective_status(content: str) -> tuple[str | None, list[str]]:
     return next(s for s in statuses if s not in known), statuses
 
 
-def reviewer_verdict(task_dir, subagent_ran=None) -> str | None:
+def reviewer_verdict(
+    task_dir, subagent_ran=None, review_writers=None
+) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
     Called for EVERY ads-skill-bound task (the caller established the
@@ -161,6 +175,15 @@ def reviewer_verdict(task_dir, subagent_ran=None) -> str | None:
     cross-checks; on a task with nothing substantive to verify (a quick
     metric lookup) it signs off ``Status: ok`` fast. The server never
     pre-judges "report vs lookup"; it only requires the verdict.
+
+    ``review_writers`` (when the backend supplies it) maps each review
+    file written THIS turn to ``'subagent'`` or ``'main'`` by who made
+    the Write/Edit call. An accepting verdict is trusted only when the
+    reviewer subagent itself wrote the file: ``subagent_ran`` alone is
+    a spawn-time signal, and a main agent that self-writes ``ok`` then
+    LAUNCHES an (async) reviewer and stops satisfies it without any
+    review having happened — observed live. ``None`` = signal not
+    available (other backends) → fall back to ``subagent_ran``.
     """
     if task_dir is None:
         return None
@@ -242,12 +265,38 @@ def reviewer_verdict(task_dir, subagent_ran=None) -> str | None:
     )
 
     # A verdict is only trustworthy when an actual reviewer SUBAGENT
-    # produced it THIS turn. ``subagent_ran is False`` means the stream saw
-    # no review-subagent spawn since the last user turn, so an accepting
-    # verdict was self-written by the main agent — the exact self-
-    # certification bypass. Reject it. (``None`` = caller didn't supply the
-    # signal → keep legacy behavior; the ad floor still gates those.)
-    if subagent_ran is False and status in ('ok', 'incomplete'):
+    # produced it THIS turn.
+    #
+    # Strong signal (``review_writers`` supplied): the file itself must
+    # have been written from INSIDE a subagent (the backend attributes
+    # each Write/Edit via the event's parent_tool_use_id). This closes
+    # the launch-and-stop bypass: spawning an async reviewer flips
+    # ``subagent_ran`` at spawn time, but the accepting verdict on disk
+    # is still the main agent's own file until the reviewer WRITES its
+    # verdict. Fail-closed (bounded by the caller's redrive budget).
+    if review_writers is not None and status in ('ok', 'incomplete'):
+        if review_writers.get(latest.name) != 'subagent':
+            return (
+                f'{latest.name} says Status: {status}, but it was not '
+                'written by a DoD reviewer subagent this turn — a '
+                'verdict the main agent writes (or transcribes) itself '
+                'does not count. The reviewer subagent must write the '
+                'verdict file with ITS OWN Write tool. If your reviewer '
+                'is still running, WAIT for its completion notification '
+                'and make sure it writes '
+                f'REVIEW_<date>_iter{iter_num + 1}.md itself; if it '
+                'already finished without writing one, spawn it again '
+                '(Agent tool, subagent_type="general-purpose") and '
+                'instruct it to open the live sources and write the '
+                'verdict file before returning.'
+            )
+    # Weak signal fallback: ``subagent_ran is False`` means the stream
+    # saw no review-subagent spawn since the last user turn, so an
+    # accepting verdict was self-written by the main agent — the exact
+    # self-certification bypass. Reject it. (``None`` = caller didn't
+    # supply the signal → keep legacy behavior; the ad floor still
+    # gates those.)
+    elif subagent_ran is False and status in ('ok', 'incomplete'):
         return (
             f'{latest.name} says Status: {status}, but NO DoD reviewer '
             'subagent ran this turn — a verdict you write yourself does '
