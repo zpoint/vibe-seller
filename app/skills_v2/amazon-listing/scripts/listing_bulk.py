@@ -116,6 +116,7 @@ from listing_schema import (  # noqa: E402, F401
 )
 from marketplace_ids import (  # noqa: E402,F401
     MARKETPLACE_IDS,  # re-exported for callers/tests
+    browse_node_guard as _browse_node_guard,
     fulfillment_index as _fulfillment_index_for_marketplace,
     ids_in_template as _marketplace_ids_in_template,
     label as _mkt_label,
@@ -374,6 +375,8 @@ def cmd_fill(args):
     # Region-stamp guard: hard-fail a declared-target mismatch; shout
     # when auto-adopting a single stamp. See marketplace_ids.stamp_guard.
     fatal, warn = _stamp_guard(requested, mkt_id, template_ids)
+    # Browse-node ids belong to the PRIMARY marketplace only (see guard).
+    fatal = fatal or _browse_node_guard(rows, spec, mkt_id, ws, header_row)
     if fatal:
         raise SystemExit(fatal)
     if warn:

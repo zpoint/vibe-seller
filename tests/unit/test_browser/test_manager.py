@@ -313,10 +313,14 @@ class TestWriteBrowserUseWrapper:
         assert 'curl' in content
         assert '/json/version' in content
 
-    def test_ziniao_aux_is_chrome_direct(self, tmp_path: Path, monkeypatch):
-        """Ziniao -aux is Chrome-direct: it gets a BU_NAME but no
-        BU_CDP_WS (it must NOT be routed through the store CDP proxy),
-        and it is excluded from the timeout/reload self-heal path."""
+    def test_ziniao_aux_routes_through_own_proxy(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """Ziniao -aux gets an explicit client-aux endpoint on THIS
+        store's proxy and joins the self-heal path. The old
+        Chrome-direct exemption exported no endpoint; the daemon's
+        ambient Chrome discovery then attached to a DIFFERENT store's
+        browser (wrong Amazon account, wrong downloads dir)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
@@ -325,15 +329,15 @@ class TestWriteBrowserUseWrapper:
         write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
-        # Ziniao gets a dedicated aux case-arm (Chrome direct, no proxy).
+        # aux has its own case-arm exporting the stable proxy client.
         assert 'test-store-aux)' in content
-        # aux is excluded from the wedge-recovery (timeout/reload) branch.
-        assert '[ "$SESSION" != "test-store-aux" ]' in content
+        assert 'client-aux' in content
+        # aux is NOT excluded from wedge recovery anymore.
+        assert '[ "$SESSION" != "test-store-aux" ]' not in content
 
-    def test_chrome_has_no_aux_case(self, tmp_path: Path, monkeypatch):
-        """Chrome stores route everything through CDPMuxProxy — there is
-        no Chrome-direct aux case-arm (a -aux session is a normal proxy
-        session for Chrome)."""
+    def test_chrome_aux_also_gets_client_aux(self, tmp_path: Path, monkeypatch):
+        """Chrome stores route everything through CDPMuxProxy too; aux
+        gets the same stable client-aux id (uniform across backends)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
             'app.browser.wrapper.shutil.which',
@@ -342,8 +346,7 @@ class TestWriteBrowserUseWrapper:
         write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
 
         content = (tmp_path / 'bin' / 'storec' / 'browser-use').read_text()
-        # No dedicated Chrome-direct aux case-arm.
-        assert 'storec-aux)\n' not in content
+        assert 'client-aux' in content
 
 
 class TestRemoveBrowserUseWrapper:

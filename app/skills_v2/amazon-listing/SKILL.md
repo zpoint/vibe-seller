@@ -331,6 +331,15 @@ for an `8560` to fix reactively:
      another marketplace's file fails upload with
      `UPLOAD_AND_DOWNLOAD_MARKETPLACES_DIFFERENT`, even on the right
      subdomain.
+   - **Browse-node / category ids are marketplace-scoped — a
+     dual-marketplace template carries the PRIMARY marketplace's
+     classifications only.** Ticking extra stores adds offer columns
+     for them, but `recommended_browse_nodes` values and the embedded
+     browse data still belong to the template's PRIMARY (the store the
+     generator treats as first). To set browse nodes on marketplace X,
+     generate the template with X as primary; otherwise leave
+     `recommended_browse_nodes` blank and let Amazon classify from the
+     product type. `fill` hard-fails a cross-primary browse-node spec.
    - **Staging the file uses the file-chooser intercept, not the visible
      input.** The `kat-file-upload` widget's `input#kat-file-attachment`
      is a decoy — `setFileInputFiles` on it silently no-ops ("File not

@@ -143,6 +143,67 @@ def stamp_guard(requested, mkt_id, template_ids):
     return None, None
 
 
+_PRIMARY_RE = re.compile(r'primaryMarketplaceId=amzn1\.mp\.o\.(A[0-9A-Z]{8,})')
+
+
+def primary_in_template(ws, header_row):
+    """The settings blob's primaryMarketplaceId, or None.
+
+    A dual-marketplace template (extra stores ticked at generation)
+    carries offer columns for every stamped marketplace, but its
+    embedded browse classifications / valid values are localised to the
+    PRIMARY marketplace only. The blob lives in an unused header-region
+    cell; scan the rows above the data region for it.
+    """
+    for row in ws.iter_rows(
+        min_row=1, max_row=max(header_row, 3), values_only=True
+    ):
+        for cell in row:
+            if cell is None or 'primaryMarketplaceId' not in str(cell):
+                continue
+            m = _PRIMARY_RE.search(str(cell))
+            if m:
+                return m.group(1)
+    return None
+
+
+def browse_node_guard(rows, spec, mkt_id, ws, header_row):
+    """Fatal message when browse nodes cross marketplaces, else None.
+
+    Browse-node / category ids are MARKETPLACE-SCOPED: the ids a
+    template recommends belong to its PRIMARY marketplace. Filling
+    ``recommended_browse_nodes`` while targeting a different stamped
+    marketplace ships another country's category ids — the listing
+    lands unclassified or in a wrong category. Regenerate the template
+    with the TARGET as primary (tick it as the store), or drop the
+    field and let Amazon classify from the product type.
+    """
+    primary = primary_in_template(ws, header_row)
+    if not primary or not mkt_id or mkt_id == primary:
+        return None
+
+    def _sets_nodes(d):
+        for k, v in (d or {}).items():
+            if isinstance(v, dict) and _sets_nodes(v):
+                return True
+            if 'recommended_browse_nodes' in str(k) and v not in (None, ''):
+                return True
+        return False
+
+    if not any(
+        _sets_nodes(r) for r in list(rows) + [spec.get('defaults') or {}]
+    ):
+        return None
+    return (
+        f'error: rows set recommended_browse_nodes but the target is '
+        f"{label(mkt_id)} while this template's PRIMARY marketplace "
+        f'is {label(primary)}. Browse-node ids are marketplace-scoped '
+        "— this would ship another country's category ids. Regenerate "
+        'the template with the target store as PRIMARY, or remove '
+        'recommended_browse_nodes from the spec.'
+    )
+
+
 def resolve(marketplace, template_ids=None):
     """Country code ('SA') / raw id / template auto-detect -> marketplace id.
 
