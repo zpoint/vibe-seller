@@ -6,10 +6,12 @@ import logging
 import mimetypes
 import os
 from pathlib import Path
+import re
 import tempfile
+import uuid
 import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
@@ -323,3 +325,61 @@ async def download_task_file(
         filename=resolved.name,
         media_type=mime or 'application/octet-stream',
     )
+
+
+_UPLOAD_ALLOWED_TYPES = {
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'application/pdf',
+}
+_UPLOAD_MAX_SIZE = 15 * 1024 * 1024  # 15MB
+
+
+@router.post('/{task_id}/files/upload')
+async def upload_task_file(
+    task_id: str,
+    file: UploadFile,
+    _user: User = Depends(get_current_user),
+):
+    """Save a user-supplied file into the task workspace ``uploads/``.
+
+    This is how chat attachments reach the AGENT: the file lands inside
+    the task workspace (the agent's cwd), and the returned ``abs_path``
+    is inserted into the user's message text, so the agent can Read it
+    directly (images included — the model reads them as vision input).
+    Unlike ``/api/attachments`` (DB-tracked blobs under the data dir,
+    invisible to the agent), this path is agent-first by design.
+    """
+    task_dir = _validate_task_id(task_id)
+    task_dir.mkdir(parents=True, exist_ok=True)
+    if file.content_type not in _UPLOAD_ALLOWED_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f'File type not allowed: {file.content_type}',
+        )
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail='Empty file')
+    if len(data) > _UPLOAD_MAX_SIZE:
+        raise HTTPException(status_code=413, detail='File too large (max 15MB)')
+
+    raw = Path(file.filename or 'upload').name
+    stem = re.sub(r'[^A-Za-z0-9._-]', '_', Path(raw).stem) or 'upload'
+    ext = Path(raw).suffix.lower()
+    if ext not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf'):
+        ext = mimetypes.guess_extension(file.content_type or '') or '.bin'
+    out_dir = task_dir / 'uploads'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f'{stem}{ext}'
+    if out_path.exists():
+        out_path = out_dir / f'{stem}-{uuid.uuid4().hex[:6]}{ext}'
+    out_path.write_bytes(data)
+
+    rel_path = f'uploads/{out_path.name}'
+    return {
+        'path': rel_path,
+        'abs_path': str(out_path),
+        'url': f'/api/tasks/{task_id}/files/{rel_path}',
+    }

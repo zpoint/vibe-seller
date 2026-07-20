@@ -1,0 +1,297 @@
+"""Workflow tests for the confirm-gated image generation flow.
+
+Exercises the real API + event bus (kie.ai stubbed via VISION_FAKE):
+  - config PUT (admin) then GET returns masked, never the secret
+  - generate fails immediately (400) when no key is configured
+  - the full gate: generate emits image_request, blocks; confirm with an
+    edited prompt resolves it; the PNG is saved and image_generated fires
+  - cancel returns a cancelled status and writes nothing
+"""
+
+import asyncio
+import json
+import shutil
+import uuid
+
+import pytest
+
+from app import vision
+from app.events.bus import event_bus
+from app.workspace.manager import VIBE_SELLER_DIR
+
+pytestmark = pytest.mark.workflow
+
+_TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
+
+
+async def _drain_until(queue, event_type, timeout=5.0):
+    """Return the first bus payload of ``event_type`` within timeout."""
+
+    async def _loop():
+        while True:
+            raw = await queue.get()
+            data = json.loads(raw)
+            if data.get('type') == event_type:
+                return data
+
+    return await asyncio.wait_for(_loop(), timeout)
+
+
+async def test_config_put_get_masked(admin_client, tmp_path, monkeypatch):
+    monkeypatch.setattr(vision, 'VISION_CONFIG_PATH', tmp_path / 'vision.json')
+    monkeypatch.delenv('KIE_API_KEY', raising=False)
+
+    r = await admin_client.put(
+        '/api/vision/config', json={'kie_api_key': 'sk-secret-9876'}
+    )
+    assert r.status_code == 200
+    assert r.json()['kie_api_key_set'] is True
+
+    g = await admin_client.get('/api/vision/config')
+    body = g.json()
+    assert body['kie_api_key_set'] is True
+    assert body['kie_api_key_masked'].endswith('9876')
+    assert 'secret' not in body['kie_api_key_masked']  # body never leaks
+    assert 'nano-banana-pro' in body['models']
+
+
+async def test_generate_fails_without_key(admin_client, monkeypatch):
+    monkeypatch.delenv('KIE_API_KEY', raising=False)
+    monkeypatch.delenv('VISION_FAKE', raising=False)
+    monkeypatch.setattr(vision, 'load_vision_config', lambda: {})
+
+    tid = str(uuid.uuid4())
+    r = await admin_client.post(
+        f'/api/tasks/{tid}/image/generate',
+        json={'prompt': 'a main image', 'model': 'nano-banana-pro'},
+    )
+    assert r.status_code == 400
+    assert 'not configured' in r.json()['detail']
+
+
+async def test_confirm_flow_saves_and_emits(admin_client, monkeypatch):
+    monkeypatch.setenv('VISION_FAKE', '1')  # no network
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    queue = event_bus.subscribe()
+    try:
+        gen = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={
+                    'prompt': '主图：纯白背景',
+                    'model': 'nano-banana-pro',
+                    'output_name': 'main.png',
+                    'kind': 'main',
+                },
+            )
+        )
+        req = await _drain_until(queue, 'image_request')
+        assert req['task_id'] == tid
+        assert req['prompt'] == '主图：纯白背景'
+        request_id = req['request_id']
+
+        # User edits the prompt, then confirms.
+        c = await admin_client.post(
+            f'/api/tasks/{tid}/image/confirm',
+            json={
+                'request_id': request_id,
+                'action': 'confirm',
+                'prompt': '主图：纯白背景，产品占85%',
+                'model': 'nano-banana-pro',
+            },
+        )
+        assert c.json()['ok'] is True
+
+        gen_resp = await asyncio.wait_for(gen, timeout=10)
+        body = gen_resp.json()
+        assert body['status'] == 'ok'
+        assert body['prompt'] == '主图：纯白背景，产品占85%'  # edit won
+        assert body['path'] == 'generated_images/main.png'
+
+        saved = task_dir / 'generated_images' / 'main.png'
+        assert saved.is_file()
+        assert saved.read_bytes()[:8] == b'\x89PNG\r\n\x1a\n'
+
+        gen_evt = await _drain_until(queue, 'image_generated')
+        assert gen_evt['request_id'] == request_id
+        assert (
+            gen_evt['url']
+            == f'/api/tasks/{tid}/files/generated_images/main.png'
+        )
+    finally:
+        event_bus.unsubscribe(queue)
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_upload_reference_saves_file(admin_client):
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    try:
+        r = await admin_client.post(
+            f'/api/tasks/{tid}/image/upload-reference',
+            files={
+                'file': ('my ref.png', b'\x89PNG\r\n\x1a\nfake', 'image/png')
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body['path'].startswith('generated_images/refs/')
+        assert (task_dir / body['path']).is_file()
+        assert body['url'] == f'/api/tasks/{tid}/files/{body["path"]}'
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_added_references_merged_into_generation(
+    admin_client, monkeypatch
+):
+    monkeypatch.setenv('VISION_FAKE', '1')
+    captured = {}
+
+    async def _fake_gen(*, prompt, model, reference_images, task_dir, **kw):
+        captured['refs'] = reference_images
+        return b'\x89PNG\r\n\x1a\nx'
+
+    monkeypatch.setattr(vision, 'generate_image', _fake_gen)
+
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    queue = event_bus.subscribe()
+    try:
+        gen = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={
+                    'prompt': 'p',
+                    'model': 'nano-banana-pro',
+                    'reference_images': ['https://example.com/a.jpg'],
+                },
+            )
+        )
+        req = await _drain_until(queue, 'image_request')
+        await admin_client.post(
+            f'/api/tasks/{tid}/image/confirm',
+            json={
+                'request_id': req['request_id'],
+                'action': 'confirm',
+                'added_references': ['generated_images/refs/mine.png'],
+            },
+        )
+        await asyncio.wait_for(gen, timeout=10)
+        # Agent's reference plus the user-added one both reach generation.
+        assert captured['refs'] == [
+            'https://example.com/a.jpg',
+            'generated_images/refs/mine.png',
+        ]
+    finally:
+        event_bus.unsubscribe(queue)
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_new_request_supersedes_pending(admin_client, monkeypatch):
+    """Single-pending-per-task: a second generate for the same task
+    resolves the first as 'superseded' and emits image_request_expired
+    for the old card. Confirms never time out otherwise."""
+    monkeypatch.setenv('VISION_FAKE', '1')
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    queue = event_bus.subscribe()
+    try:
+        gen1 = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={'prompt': 'first', 'model': 'nano-banana-pro'},
+            )
+        )
+        req1 = await _drain_until(queue, 'image_request')
+
+        gen2 = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={'prompt': 'second', 'model': 'nano-banana-pro'},
+            )
+        )
+        expired = await _drain_until(queue, 'image_request_expired')
+        assert expired['request_id'] == req1['request_id']
+
+        body1 = (await asyncio.wait_for(gen1, timeout=10)).json()
+        assert body1['status'] == 'superseded'
+
+        req2 = await _drain_until(queue, 'image_request')
+        assert req2['prompt'] == 'second'
+        await admin_client.post(
+            f'/api/tasks/{tid}/image/confirm',
+            json={'request_id': req2['request_id'], 'action': 'confirm'},
+        )
+        body2 = (await asyncio.wait_for(gen2, timeout=10)).json()
+        assert body2['status'] == 'ok'
+    finally:
+        event_bus.unsubscribe(queue)
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_chat_upload_returns_abs_path(admin_client):
+    """Chat attachments land in the workspace and return an abs path
+    (inserted into the message so the agent can Read the image)."""
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    try:
+        r = await admin_client.post(
+            f'/api/tasks/{tid}/files/upload',
+            files={'file': ('样图 1.png', b'\x89PNG\r\n\x1a\nx', 'image/png')},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body['path'].startswith('uploads/')
+        abs_path = body['abs_path']
+        assert abs_path.startswith(str(task_dir))
+        assert (task_dir / body['path']).read_bytes().startswith(b'\x89PNG')
+        # Unsupported type fails fast.
+        r2 = await admin_client.post(
+            f'/api/tasks/{tid}/files/upload',
+            files={'file': ('x.sh', b'#!/bin/sh', 'text/x-sh')},
+        )
+        assert r2.status_code == 400
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_ref_proxy_rejects_bad_and_private_urls(admin_client):
+    # Non-http scheme is rejected.
+    r = await admin_client.get(
+        '/api/vision/ref-proxy', params={'url': 'ftp://x/y'}
+    )
+    assert r.status_code == 400
+    # SSRF guard: loopback/private hosts are rejected.
+    for host in ('127.0.0.1', 'localhost', '10.0.0.5', '169.254.1.1'):
+        rp = await admin_client.get(
+            '/api/vision/ref-proxy',
+            params={'url': f'http://{host}/x.png'},
+        )
+        assert rp.status_code == 400, host
+
+
+async def test_cancel_flow_writes_nothing(admin_client, monkeypatch):
+    monkeypatch.setenv('VISION_FAKE', '1')
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    queue = event_bus.subscribe()
+    try:
+        gen = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={'prompt': 'x', 'model': 'nano-banana-pro'},
+            )
+        )
+        req = await _drain_until(queue, 'image_request')
+        await admin_client.post(
+            f'/api/tasks/{tid}/image/confirm',
+            json={'request_id': req['request_id'], 'action': 'cancel'},
+        )
+        body = (await asyncio.wait_for(gen, timeout=10)).json()
+        assert body['status'] == 'cancelled'
+        assert not (task_dir / 'generated_images').exists()
+    finally:
+        event_bus.unsubscribe(queue)
+        shutil.rmtree(task_dir, ignore_errors=True)

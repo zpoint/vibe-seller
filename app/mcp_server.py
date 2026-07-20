@@ -40,14 +40,24 @@ _config: dict[str, str | None] = {
 }
 
 
-async def call_api(method: str, path: str, body: dict | None = None) -> dict:
-    """Call the vibe-seller API."""
+async def call_api(
+    method: str,
+    path: str,
+    body: dict | None = None,
+    timeout: float | None = 60,
+) -> dict:
+    """Call the vibe-seller API.
+
+    ``timeout`` defaults to 60s; image generation passes ``None`` (no
+    timeout) because that endpoint blocks awaiting a human confirmation
+    before it calls out to the image model.
+    """
     url = f'{_config["api_base"]}{path}'
     headers: dict[str, str] = {}
     cookies: dict[str, str] = {}
     if _config['auth_token']:
         cookies['auth_token'] = _config['auth_token']
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         if method == 'GET':
             resp = await client.get(url, headers=headers, cookies=cookies)
         elif method == 'POST':
@@ -214,6 +224,22 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 'POST',
                 f'/api/tasks/{_config["task_id"]}/result',
                 {'result': arguments['result']},
+            )
+        elif name == 'vibe_seller_generate_image':
+            # Blocks server-side awaiting the user's confirm/edit, then
+            # generates. NO timeout — like AskUserQuestion, it waits for
+            # the user however long they take.
+            result = await call_api(
+                'POST',
+                f'/api/tasks/{_config["task_id"]}/image/generate',
+                {
+                    'prompt': arguments['prompt'],
+                    'model': arguments.get('model'),
+                    'reference_images': arguments.get('reference_images', []),
+                    'output_name': arguments.get('output_name'),
+                    'kind': arguments.get('kind'),
+                },
+                timeout=None,
             )
         elif name == 'vibe_seller_list_skills':
             result = await call_api('GET', '/api/workspace/skills')

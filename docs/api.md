@@ -275,6 +275,18 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 | GET | `/api/ziniao-accounts/{id}/browsers` | List browser profiles (returns structured status JSON on error) |
 | POST | `/api/ziniao-accounts/{id}/restart` | Kill + relaunch Ziniao in WebDriver mode (Mac only, requires `running_normal` state) |
 
+## `vision.py` — Vision (AI image generation)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/vision/config` | kie.ai key status (masked), available models |
+| PUT | `/api/vision/config` | Set the kie.ai key (admin only) |
+| POST | `/api/tasks/{id}/image/generate` | MCP-tool entry; confirm-gated generation |
+| POST | `/api/tasks/{id}/image/confirm` | Resolve a pending image request (confirm/edit/cancel) |
+
+See [vision.md](vision.md) for the confirm-gate flow and SSE events
+(`image_request`, `image_generated`).
+
 ## `main.py` — App-level Endpoints
 
 | Method | Path | Description |

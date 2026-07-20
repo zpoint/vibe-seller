@@ -547,4 +547,81 @@ TOOLS = [
             'required': ['slug', 'skill_md'],
         },
     },
+    {
+        'name': 'vibe_seller_generate_image',
+        'description': (
+            'Generate a product image (Amazon main image, infographic, '
+            'lifestyle, or variant shot) from a text prompt plus optional '
+            'reference images, using the configured vision model '
+            '(kie.ai / Nano Banana). Use this whenever the user wants you '
+            'to CREATE or EDIT a product photo — e.g. "参考我的店铺作图风格, '
+            '这个1688链接产品, 生成一个主图及一个描述图". '
+            "IMPORTANT contract: (1) Write the `prompt` in the USER's "
+            'language (Chinese task → Chinese prompt). (2) NEVER describe '
+            "the product's material/texture/knit in words — pass the "
+            'supplier/1688 photo and the brand-style photo as '
+            '`reference_images` and instruct the model to replicate the '
+            'references faithfully; do not invent features not present in '
+            'them. (3) This call PAUSES for the user to review and edit '
+            'the prompt/model before anything is generated — that is '
+            'expected; wait for the result. (4) It fails immediately if '
+            'no vision key is configured — tell the user to set it in '
+            'Settings → AI → Vision. On success it returns the saved '
+            'workspace `path`; view it to self-audit against the '
+            'reference (colour, shape, texture, wording) and regenerate '
+            'with a corrected prompt if it differs.'
+        ),
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'prompt': {
+                    'type': 'string',
+                    'description': (
+                        "Image prompt in the user's language. Describe "
+                        'layout, background (pure white RGB 255 for a '
+                        'main image), any on-image text (infographic '
+                        'only, spelled exactly), and compliance — but '
+                        "NOT the product's material/texture (that comes "
+                        'from the reference images).'
+                    ),
+                    'minLength': 1,
+                },
+                'reference_images': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                    'description': (
+                        'Reference image URLs (e.g. a 1688 product photo, '
+                        'an existing store listing image) and/or '
+                        "workspace-relative file paths. The product's "
+                        'true appearance is taken from these.'
+                    ),
+                },
+                'model': {
+                    'type': 'string',
+                    'enum': ['nano-banana-pro', 'nano-banana-2'],
+                    'description': (
+                        'nano-banana-pro (default) for infographics and '
+                        'anything with on-image text; nano-banana-2 for '
+                        'cheaper/faster main and variant shots.'
+                    ),
+                },
+                'output_name': {
+                    'type': 'string',
+                    'description': (
+                        'Output file name, e.g. "main.png" or '
+                        '"infographic-1.png". Saved under the task '
+                        'workspace and shown inline.'
+                    ),
+                },
+                'kind': {
+                    'type': 'string',
+                    'description': (
+                        'Optional label: "main", "infographic", '
+                        '"lifestyle", "variant".'
+                    ),
+                },
+            },
+            'required': ['prompt'],
+        },
+    },
 ]

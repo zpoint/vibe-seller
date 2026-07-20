@@ -10,6 +10,8 @@ import { ExecutionSeparator } from './ExecutionSeparator'
 import { ToolCallGroup } from './ToolCallCard'
 import { ThinkingBlock, WorkingIndicator } from './ThinkingBlock'
 import { QuestionBanner } from '../QuestionBanner'
+import { ImageRequestCard } from './ImageRequestCard'
+import { GeneratedImageCard } from './GeneratedImageCard'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 
@@ -251,6 +253,13 @@ interface ConversationStreamProps {
   onSubmitAll: (overrideAnswers?: Record<string, string>) => void
   onConfirmPlan: () => void
   onRequestChanges?: () => void
+  onImageDecision?: (
+    requestId: string,
+    action: 'confirm' | 'cancel',
+    prompt: string,
+    model: string,
+    addedReferences: string[],
+  ) => void
   questionBannerRef: React.RefObject<HTMLDivElement | null>
   isActive: boolean
   userNearBottom?: React.RefObject<boolean>
@@ -272,6 +281,7 @@ export function ConversationStream({
   onSubmitAll,
   onConfirmPlan,
   onRequestChanges,
+  onImageDecision,
   questionBannerRef,
   isActive,
   userNearBottom,
@@ -398,6 +408,33 @@ export function ConversationStream({
               />
             )
           }
+          case 'image_request':
+            return (
+              <ImageRequestCard
+                key={item.id}
+                taskId={task.id}
+                requestId={item.imageRequest!.requestId}
+                prompt={item.imageRequest!.prompt}
+                model={item.imageRequest!.model}
+                models={item.imageRequest!.models}
+                referenceImages={item.imageRequest!.referenceImages}
+                kind={item.imageRequest!.kind}
+                resolved={item.imageRequest!.resolved}
+                expired={item.imageRequest!.expired}
+                onDecision={onImageDecision || (() => {})}
+              />
+            )
+          case 'generated_image':
+            return (
+              <GeneratedImageCard
+                key={item.id}
+                url={item.generatedImage!.url}
+                path={item.generatedImage!.path}
+                prompt={item.generatedImage!.prompt}
+                model={item.generatedImage!.model}
+                kind={item.generatedImage!.kind}
+              />
+            )
           default:
             return null
         }

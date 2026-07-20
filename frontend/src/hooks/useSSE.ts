@@ -362,6 +362,62 @@ export function useSSE({
             return prev
           })
         }
+        // Image generation: the agent's tool call is paused server-side
+        // waiting for the user to review/edit the prompt+model. Append a
+        // confirm card; when the generated image arrives, mark the card
+        // resolved and append the image inline.
+        if (data.type === 'image_request') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setConversationItems(items => [...items, {
+              id: `imgreq-${data.request_id}`,
+              type: 'image_request' as const,
+              timestamp: new Date().toISOString(),
+              imageRequest: {
+                requestId: data.request_id,
+                prompt: data.prompt || '',
+                model: data.model || 'nano-banana-pro',
+                models: data.models || [],
+                referenceImages: data.reference_images || [],
+                outputName: data.output_name,
+                kind: data.kind,
+                resolved: false,
+              },
+            }])
+          }
+        }
+        // A newer request superseded this card (single-pending-per-task
+        // invariant) — kill its controls so a late click can't 404.
+        if (data.type === 'image_request_expired') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setConversationItems(items => items.map(it =>
+              it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
+                ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, expired: true } }
+                : it))
+          }
+        }
+        if (data.type === 'image_generated') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setConversationItems(items => {
+              const marked = items.map(it =>
+                it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
+                  ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true } }
+                  : it)
+              return [...marked, {
+                id: `imggen-${data.request_id}`,
+                type: 'generated_image' as const,
+                timestamp: new Date().toISOString(),
+                generatedImage: {
+                  requestId: data.request_id,
+                  path: data.path,
+                  url: data.url,
+                  prompt: data.prompt,
+                  model: data.model,
+                  kind: data.kind,
+                },
+              }]
+            })
+          }
+        }
         if (data.type === 'schedule_triggered') {
           loadSchedulesRef.current?.()
           loadScheduleTasksRef.current?.()

@@ -167,7 +167,14 @@
     "executePlan": "执行计划",
     "approvePlan": "确认执行",
     "planReadyConfirm": "计划已就绪，请审核后确认执行或编辑修改。",
-    "collapsibleSectionKeywords": ["假设", "风险", "问题", "潜在", "备注", "注意"],
+    "collapsibleSectionKeywords": [
+      "假设",
+      "风险",
+      "问题",
+      "潜在",
+      "备注",
+      "注意"
+    ],
     "planTab": "计划",
     "executeTab": "执行",
     "planRevising": "正在根据您的反馈修改计划...",
@@ -190,7 +197,9 @@
     "planFeedbackHint": "发送反馈修改计划，或确认执行",
     "planFeedbackPlaceholder": "建议修改...",
     "wakeMessagePlaceholder": "发送消息以恢复任务...",
-    "followupPlaceholder": "发送后续消息..."
+    "followupPlaceholder": "发送后续消息...",
+    "attachImage": "上传图片/文件",
+    "attachedImage": "图片"
   },
   "events": {
     "title": "事件",
@@ -485,7 +494,14 @@
     "needProxy": "使用代理",
     "proxyHint": "通过代理转发浏览器流量",
     "tab_stores": "店铺",
-    "tab_integrations": "集成"
+    "tab_integrations": "集成",
+    "visionConfig": "视觉（图片生成）",
+    "visionHint": "kie.ai API 密钥，用于 AI 商品图生成（Nano Banana）。配置后 agent 才能生成主图或信息图。",
+    "visionKeySet": "已配置",
+    "visionKeyMissing": "未配置",
+    "visionKeyPlaceholder": "kie.ai API 密钥",
+    "visionAdminOnly": "仅管理员可设置视觉 API 密钥。",
+    "visionSaved": "已保存。"
   },
   "integrations": {
     "gws": {
@@ -700,7 +716,6 @@
     "minuteSuffix": "分",
     "scheduleType": "执行频率",
     "description": "描述",
-    "editSchedule": "编辑定时任务",
     "editScheduleFor": "编辑 {{storeName}} 的定时任务",
     "mode": "执行模式",
     "fanoutMode": "分发（每个店铺一个任务）",
@@ -772,5 +787,18 @@
     "noReleaseNotes": "本次发布未提供说明。",
     "viewFullChangelog": "在 GitHub 查看完整更新日志",
     "remindLater": "稍后提醒"
+  },
+  "vision": {
+    "confirmTitle": "确认图片生成",
+    "promptLabel": "提示词（生成前可编辑）",
+    "modelLabel": "模型",
+    "referencesLabel": "参考图",
+    "confirmGenerate": "生成",
+    "cancel": "取消",
+    "handled": "已处理。",
+    "generatedTitle": "生成的图片",
+    "uploading": "上传中…",
+    "dropHint": "拖拽图片到此处，或点击上传参考图",
+    "expired": "已过期——已被下方更新的请求替代"
   }
 }
