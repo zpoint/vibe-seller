@@ -42,7 +42,12 @@ CREATE TABLE IF NOT EXISTS emails (
 CREATE INDEX IF NOT EXISTS idx_emails_sender ON emails(sender);
 CREATE INDEX IF NOT EXISTS idx_emails_date   ON emails(date);
 CREATE INDEX IF NOT EXISTS idx_emails_folder ON emails(folder);
-CREATE INDEX IF NOT EXISTS idx_emails_recv   ON emails(received_epoch);
+-- NOTE: the index on received_epoch is created in init_email_db, NOT
+-- here. On a DB predating the column, `CREATE TABLE IF NOT EXISTS` is a
+-- no-op (won't add the column), so indexing received_epoch in this same
+-- script throws "no such column" and aborts the whole sync before any
+-- mail is fetched. init_email_db guarantees the column exists first,
+-- then creates the index.
 
 CREATE TABLE IF NOT EXISTS sync_state (
     folder            TEXT PRIMARY KEY,
@@ -81,20 +86,26 @@ def init_email_db(account_id: str) -> Path:
     conn = sqlite3.connect(str(path))
     try:
         conn.execute('PRAGMA journal_mode=WAL')
+        # Base schema: tables + indexes that only reference columns
+        # present since the first release. Deliberately omits the
+        # received_epoch index (see _SCHEMA_SQL note) so this call cannot
+        # throw on a legacy DB lacking that column.
         conn.executescript(_SCHEMA_SQL)
-        # Migrate DBs created before received_epoch existed: add the
-        # column + index, then backfill from the same axis the sweep
-        # filter uses. Idempotent — ADD COLUMN throws once the column
-        # exists, so we probe pragma first.
+        # Bring a legacy (pre-received_epoch) DB up to the current schema
+        # BEFORE anything references the column. Idempotent: probe pragma,
+        # ALTER only when the column is missing.
         cols = {
             r[1] for r in conn.execute('PRAGMA table_info(emails)').fetchall()
         }
         if 'received_epoch' not in cols:
             conn.execute('ALTER TABLE emails ADD COLUMN received_epoch INTEGER')
-            conn.execute(
-                'CREATE INDEX IF NOT EXISTS idx_emails_recv '
-                'ON emails(received_epoch)'
-            )
+        # Column is now guaranteed on both fresh and legacy DBs, so the
+        # index is safe to create here for every DB.
+        conn.execute(
+            'CREATE INDEX IF NOT EXISTS idx_emails_recv '
+            'ON emails(received_epoch)'
+        )
+        # Backfill from the same axis the sweep filter uses.
         conn.execute(
             'UPDATE emails SET received_epoch = '
             "CAST(strftime('%s', COALESCE(fetched_at, date)) AS INTEGER) "
