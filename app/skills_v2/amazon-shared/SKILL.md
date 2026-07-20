@@ -181,19 +181,28 @@ the store display name can DIFFER per marketplace on one account
 (brand/storefront names vary) — reconcile by catalog contents, not by
 name alone.
 
-When the label shows the wrong marketplace and you need to switch:
+When the label shows the wrong marketplace and you need to switch,
+use the account-switcher PAGE — it is directly addressable (verified
+live; do NOT fight the header dropdown, whose kat/Vue rows ignore JS
+clicks and render off-viewport):
 
-1. **The switcher is a custom component (kat/Vue): JS `.click()`
-   no-ops.** Use trusted coordinate clicks (`click_at_xy`) on the
-   header switcher button, then on the target row in the dropdown —
-   rows are (account × country) pairs; "See all" expands the full
-   list. Re-read the label after.
-2. **If the dropdown won't open or has no row for the target**: open
-   the target subdomain in a FRESH tab (`new_tab`) and re-read the
-   label; a fresh tab often picks up the domain's own marketplace
-   context. (The aux browser is NOT an option here — it has no seller
-   login; all seller-central work stays in the MAIN session.)
-3. Only after both fail, ask the user — with what you observed.
+1. `new_tab('https://sellercentral.amazon.<tld>/account-switcher/default/merchantMarketplace')`
+   (the old `/gp/account/switcher` path 404s).
+2. Click the target ACCOUNT's button (it shows the store display
+   name, with “(当前)/(current)” when active) — it expands that
+   account's marketplace list.
+3. Click the target marketplace by its LOCALIZED FULL name — on a
+   Chinese session AE is “阿拉伯联合酋长国” (NOT the short “阿联酋”),
+   SA is “沙特阿拉伯”; unregistered rows say “（待注册）”. Read the
+   expanded list and match flexibly rather than assuming one string.
+4. Click the confirm button “选择账户 / Select account”, wait for the
+   redirect (`/home?mons_sel_dir_mcid=…`), then RE-READ the header
+   label to verify it now shows the target marketplace.
+5. If the page or any step is missing, open the target subdomain in a
+   fresh tab and re-read the label; only after that fails too, ask the
+   user — with what you observed. (The aux browser is NOT an option
+   for any of this — it has no seller login; all seller-central work
+   stays in the MAIN session.)
 
 ### 4b. Detecting the version
 
