@@ -260,6 +260,7 @@ pytest --e2e tests/e2e        # E2E only (requires running server)
 - [docs/browser.md](docs/browser.md) — browser backends, Ziniao, WSL, CDP proxy
 - [docs/ziniao-concurrency.md](docs/ziniao-concurrency.md) — Ziniao WebDriver mechanism, multi-store concurrency, the "browsers kill each other" root cause + per-store-recovery fix
 - [docs/events.md](docs/events.md) — SSE event bus, event types, business events
+- [docs/vision.md](docs/vision.md) — AI product-image generation (kie.ai/Nano Banana): Settings→AI→Vision key, `vibe_seller_generate_image` MCP tool, the user confirm-gate flow, inline image display
 - [docs/windows-setup.md](docs/windows-setup.md) — Windows+WSL2 deployment: SSH bootstrap, WSL2 mirrored networking (MUST be Win 11 25H2/build 26200+ for external port access), `winchrome` native-Chrome backend, systemd service, Tailscale, auto-start, full troubleshooting cheatsheet
 - [docs/macos-setup.md](docs/macos-setup.md) — macOS deployment: `launchd` LaunchAgent for auto-start on login + crash-restart, the `EX_CONFIG`/TCC/PATH gotchas, deploy flow, troubleshooting cheatsheet
 - [docker/E2E_TESTING.md](docker/E2E_TESTING.md) — local E2E testing with Docker, iterative debugging

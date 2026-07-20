@@ -28,6 +28,7 @@ amazon-listing/scripts/bh_upload_flatfile.py
 amazon-listing/scripts/bh_fetch_report.py
 amazon-listing/scripts/bh_download_template.py
 amazon-listing/requirements.txt
+amazon-image-studio/SKILL.md
 amazon-invoice/SKILL.md
 amazon-invoice/generate_invoice.py
 amazon-invoice/requirements.txt

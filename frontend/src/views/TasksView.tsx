@@ -6,6 +6,8 @@ import { FrontendEvent } from '../lib/telemetryEvents'
 import { formatScheduleBadge } from '../lib/scheduleBadge'
 import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
+import { useChatUploads } from '../hooks/useChatUploads'
+import { ChatAttachButton } from '../components/conversation/ChatAttachButton'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -60,6 +62,7 @@ interface TasksViewProps {
   toggleOtherInput: (questionText: string) => void
   setOtherAnswer: (questionText: string, text: string) => void
   submitAllAnswers: (overrideAnswers?: Record<string, string>) => void
+  submitImageDecision: (requestId: string, action: 'confirm' | 'cancel', prompt: string, model: string, addedReferences: string[]) => void
   sendChatMessage: () => void
   setSelectedTask: React.Dispatch<React.SetStateAction<Task | null>>
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>
@@ -123,6 +126,7 @@ export function TasksView({
   toggleOtherInput,
   setOtherAnswer,
   submitAllAnswers,
+  submitImageDecision,
   sendChatMessage,
   setSelectedTask,
   setTasks,
@@ -179,6 +183,9 @@ export function TasksView({
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 192)}px`
   }, [chatInput, selectedTask?.id])
+
+  const { chatFileInputRef, chatUploading, uploadChatFiles } = useChatUploads(
+    selectedTask, chatInput, setChatInput, chatInputRef, t('tasks.attachedImage'))
 
   // Phase helpers — driven by centralized UI config
   const taskCfg = selectedTask ? getUI(selectedTask.status) : null
@@ -567,6 +574,7 @@ export function TasksView({
                   onSetOtherAnswer={setOtherAnswer}
                   onSubmitAll={submitAllAnswers}
                   onConfirmPlan={handleConfirmPlan}
+                  onImageDecision={submitImageDecision}
                   onRequestChanges={() => {
                     const input = chatInputRef.current
                     if (input) { input.focus(); input.placeholder = t('tasks.planFeedbackPlaceholder') }
@@ -701,12 +709,30 @@ export function TasksView({
 
               {/* Unified send bar */}
               <div className="flex gap-2 items-end">
+                <ChatAttachButton
+                  fileInputRef={chatFileInputRef}
+                  uploading={chatUploading}
+                  disabled={!canSend && !isActive}
+                  onFiles={uploadChatFiles}
+                />
                 <textarea
                   ref={chatInputRef}
                   data-testid="chat-input"
                   rows={1}
                   value={chatInput}
                   onChange={e => setChatInput(e.target.value)}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => {
+                    e.preventDefault()
+                    if (e.dataTransfer.files?.length) uploadChatFiles(e.dataTransfer.files)
+                  }}
+                  onPaste={e => {
+                    const imgs = Array.from(e.clipboardData?.items || [])
+                      .filter(i => i.kind === 'file' && i.type.startsWith('image/'))
+                      .map(i => i.getAsFile())
+                      .filter((f): f is File => !!f)
+                    if (imgs.length) { e.preventDefault(); uploadChatFiles(imgs) }
+                  }}
                   onKeyDown={e => {
                     // Bail on IME composition keystrokes. Chinese /
                     // Japanese / Korean IMEs dispatch an Enter

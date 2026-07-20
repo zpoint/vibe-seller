@@ -167,7 +167,12 @@
     "executePlan": "Execute Plan",
     "approvePlan": "Approve & Execute",
     "planReadyConfirm": "Plan is ready. Review above, then approve or edit.",
-    "collapsibleSectionKeywords": ["assumption", "issue", "potential", "note"],
+    "collapsibleSectionKeywords": [
+      "assumption",
+      "issue",
+      "potential",
+      "note"
+    ],
     "planTab": "Plan",
     "executeTab": "Execute",
     "planRevising": "Revising plan based on your feedback...",
@@ -190,7 +195,9 @@
     "planFeedbackHint": "Send feedback to revise the plan, or confirm to execute",
     "planFeedbackPlaceholder": "Suggest changes...",
     "wakeMessagePlaceholder": "Send a message to resume...",
-    "followupPlaceholder": "Send a follow-up message..."
+    "followupPlaceholder": "Send a follow-up message...",
+    "attachImage": "Attach image/file",
+    "attachedImage": "Image"
   },
   "events": {
     "title": "Events",
@@ -485,7 +492,14 @@
     "needProxy": "Use proxy",
     "proxyHint": "Route browser traffic through a proxy",
     "tab_stores": "Stores",
-    "tab_integrations": "Integrations"
+    "tab_integrations": "Integrations",
+    "visionConfig": "Vision (Image Generation)",
+    "visionHint": "kie.ai API key for AI product-image generation (Nano Banana). Required before the agent can generate main images or infographics.",
+    "visionKeySet": "Key set",
+    "visionKeyMissing": "Not configured",
+    "visionKeyPlaceholder": "kie.ai API key",
+    "visionAdminOnly": "Only an admin can set the Vision API key.",
+    "visionSaved": "Saved."
   },
   "integrations": {
     "gws": {
@@ -720,7 +734,6 @@
     "minuteSuffix": "m",
     "scheduleType": "Schedule Type",
     "description": "Description",
-    "editSchedule": "Edit Schedule",
     "editScheduleFor": "Edit Schedule for {{storeName}}",
     "mode": "Mode",
     "fanoutMode": "Fan out (one task per store)",
@@ -792,5 +805,18 @@
     "noReleaseNotes": "No release notes provided.",
     "viewFullChangelog": "View full changelog on GitHub",
     "remindLater": "Remind me later"
+  },
+  "vision": {
+    "confirmTitle": "Review image generation",
+    "promptLabel": "Prompt (edit before generating)",
+    "modelLabel": "Model",
+    "referencesLabel": "Reference images",
+    "confirmGenerate": "Generate",
+    "cancel": "Cancel",
+    "handled": "Handled.",
+    "generatedTitle": "Generated image",
+    "uploading": "Uploading…",
+    "dropHint": "Drag an image here or click to add a reference",
+    "expired": "Expired — replaced by a newer request below"
   }
 }

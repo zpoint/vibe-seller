@@ -6,6 +6,7 @@ import { GeneralPanel } from '../components/settings/GeneralPanel'
 import { StoresPanel } from '../components/settings/StoresPanel'
 import { EmailAccountsPanel } from '../components/settings/EmailAccountsPanel'
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
+import { VisionPanel } from '../components/settings/VisionPanel'
 import { ExternalConfigOverrideModal } from '../components/ExternalConfigOverrideModal'
 import {
   isExternalConfigOverrideDetail,
@@ -99,6 +100,7 @@ export function SettingsView({
         {tabs.map(tab => (
           <button
             key={tab}
+            data-testid={`settings-tab-${tab}`}
             onClick={() => setSettingsTab(tab)}
             className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex-shrink-0 ${
               settingsTab === tab
@@ -243,6 +245,8 @@ export function SettingsView({
               <p className="text-sm text-gray-500 text-center py-4">{t('profiles.noProfiles')}</p>
             )}
           </div>
+
+          <VisionPanel isAdmin={currentUser?.role === 'admin'} />
         </div>
       ) : settingsTab === 'integrations' ? (
         <IntegrationsPanel />

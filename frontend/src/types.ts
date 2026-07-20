@@ -126,6 +126,7 @@ export type ConversationItemType =
   | 'plan' | 'user_message' | 'agent_message'
   | 'streaming' | 'question' | 'execution_separator'
   | 'result' | 'tool_call' | 'thinking'
+  | 'image_request' | 'generated_image'
 
 export interface PlanVersion {
   version: number
@@ -143,6 +144,25 @@ export interface ConversationItem {
   result?: string
   toolCall?: { tool: string; input?: Record<string, unknown> }
   thinking?: { content: string; isStreaming: boolean }
+  imageRequest?: {
+    requestId: string
+    prompt: string
+    model: string
+    models: string[]
+    referenceImages: string[]
+    outputName?: string
+    kind?: string
+    resolved?: boolean
+    expired?: boolean
+  }
+  generatedImage?: {
+    requestId: string
+    path: string
+    url: string
+    prompt?: string
+    model?: string
+    kind?: string
+  }
 }
 
 export type AppView = 'tasks' | 'workspace' | 'settings'

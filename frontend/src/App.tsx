@@ -485,6 +485,19 @@ export default function App() {
   const toggleOtherInput = (questionText: string) => { setShowOtherInput(prev => { const show = !prev[questionText]; if (show) { setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } else { setOtherInputs(p => ({ ...p, [questionText]: '' })); setSelectedAnswers(p => { const n = { ...p }; delete n[questionText]; return n }) } return { ...prev, [questionText]: show } }) }
   const setOtherAnswer = (questionText: string, text: string) => { setOtherInputs(prev => ({ ...prev, [questionText]: text })); if (text.trim()) { setSelectedAnswers(prev => ({ ...prev, [questionText]: text.trim() })) } else { setSelectedAnswers(prev => { const n = { ...prev }; delete n[questionText]; return n }) } }
   const submitAllAnswers = async (overrideAnswers?: Record<string, string>) => { if (!selectedTask || !pendingQuestions) return; const answers = overrideAnswers || selectedAnswers; await api.post(`/api/tasks/${selectedTask.id}/questions/answer`, { request_id: pendingQuestions.request_id, answers }); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}) }
+  const submitImageDecision = async (requestId: string, action: 'confirm' | 'cancel', prompt: string, model: string, addedReferences: string[] = []) => {
+    if (!selectedTask) return
+    // Optimistically mark the card resolved so its controls disable at
+    // once; a confirm also gets the inline image via the image_generated
+    // SSE event.
+    setConversationItems(items => items.map(it =>
+      it.type === 'image_request' && it.imageRequest?.requestId === requestId
+        ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true } }
+        : it))
+    try {
+      await api.post(`/api/tasks/${selectedTask.id}/image/confirm`, { request_id: requestId, action, prompt, model, added_references: addedReferences })
+    } catch { /* the tool call will time out server-side if unresolved */ }
+  }
   const sendingRef = useRef(false)
   const sendChatMessage = () =>
     sendChatMessageHandler({
@@ -641,7 +654,7 @@ export default function App() {
           openCreateModal={() => setShowCreateTask(true)} selectTask={selectTask}
           stopAgent={stopAgent} retryTask={retryTask} continueTask={continueTask} deleteTask={deleteTask}
           selectAnswer={selectAnswer} toggleOtherInput={toggleOtherInput}
-          setOtherAnswer={setOtherAnswer} submitAllAnswers={submitAllAnswers} sendChatMessage={sendChatMessage}
+          setOtherAnswer={setOtherAnswer} submitAllAnswers={submitAllAnswers} submitImageDecision={submitImageDecision} sendChatMessage={sendChatMessage}
           setSelectedTask={setSelectedTask} setTasks={setTasks} setCurrentUser={setCurrentUser}
           setEditingProfile={setEditingProfile} setShowProfileModal={setShowProfileModal}
           questionBannerRef={questionBannerRef}

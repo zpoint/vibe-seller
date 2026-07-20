@@ -547,4 +547,85 @@ TOOLS = [
             'required': ['slug', 'skill_md'],
         },
     },
+    {
+        'name': 'vibe_seller_generate_image',
+        'description': (
+            'Generate an image from a text prompt plus optional '
+            'reference images, using the configured vision model. '
+            'General-purpose: product photos, marketplace listing '
+            'images, infographics, banners, illustrations, or an image '
+            'the user just wants for fun — any platform, any purpose. '
+            'For platform-specific image work (e.g. Amazon listing '
+            'images), load the matching skill first if one exists; it '
+            "carries that platform's requirements and workflows. "
+            "Contract: (1) Write the `prompt` in the USER's language. "
+            '(2) When the image must depict a REAL product or person, '
+            'pass photos of it as `reference_images` and instruct the '
+            'model to replicate them faithfully — never describe its '
+            'appearance (material/texture/shape) in words, and state '
+            "each reference image's role by position in the prompt "
+            '("image 1 is the style reference; images 2-3 are the '
+            'product"). (3) This call PAUSES for the user to review and '
+            'edit the prompt/model before anything is generated — that '
+            'is expected; wait for the result. (4) It fails immediately '
+            'if no vision key is configured — tell the user to set it '
+            'in Settings → AI → Vision. On success it returns the saved '
+            'workspace `path`; view the file to self-audit against the '
+            'references and the requested text, and regenerate with a '
+            'corrected prompt if anything differs.'
+        ),
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'prompt': {
+                    'type': 'string',
+                    'description': (
+                        "Image prompt in the user's language. Describe "
+                        'composition, background, style, and any '
+                        'on-image text (spelled exactly). If reference '
+                        'images are passed, assign each a role by '
+                        'position and do NOT describe the referenced '
+                        "subject's appearance in words."
+                    ),
+                    'minLength': 1,
+                },
+                'reference_images': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                    'description': (
+                        'Reference image URLs and/or workspace-relative '
+                        'file paths, in the order the prompt refers to '
+                        "them. Up to 14. The referenced subject's true "
+                        'appearance is taken from these.'
+                    ),
+                },
+                'model': {
+                    'type': 'string',
+                    'enum': ['nano-banana-pro', 'nano-banana-2'],
+                    'description': (
+                        'nano-banana-pro (default): highest quality and '
+                        'reliable on-image text rendering. '
+                        'nano-banana-2: cheaper/faster, good for images '
+                        'without text.'
+                    ),
+                },
+                'output_name': {
+                    'type': 'string',
+                    'description': (
+                        'Output file name, e.g. "banner.png". Saved '
+                        'under the task workspace and shown inline to '
+                        'the user.'
+                    ),
+                },
+                'kind': {
+                    'type': 'string',
+                    'description': (
+                        'Optional short label shown on the confirm card '
+                        '(e.g. "main", "infographic", "banner", "fun").'
+                    ),
+                },
+            },
+            'required': ['prompt'],
+        },
+    },
 ]

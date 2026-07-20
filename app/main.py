@@ -61,6 +61,7 @@ from app.routers.tasks_schedule_state import (
 )
 from app.routers.telemetry import router as telemetry_router
 from app.routers.users import router as users_router
+from app.routers.vision import router as vision_router
 from app.routers.wecom_bots import router as wecom_bots_router
 from app.routers.workspace import router as workspace_router
 from app.routers.workspace_assistant import router as ws_assistant_router
@@ -300,6 +301,7 @@ app.include_router(dida365_oauth_router)
 app.include_router(ws_assistant_router)
 app.include_router(wecom_bots_router)
 app.include_router(system_router)
+app.include_router(vision_router)
 
 
 @app.get('/api/health')
