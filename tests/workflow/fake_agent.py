@@ -54,8 +54,16 @@ class FakeAgentScenario:
     )
     thinking_text: str | None = None  # e.g. 'Analyzing...'
     extra_results: list[str] | None = (
-        None  # additional results emitted as 'assistant' (post-dedup)
+        None  # additional results — each is its own turn card
+        # (role='result'), mirroring the real backend's per-turn
+        # result semantics; the LAST one becomes task.result
     )
+    # Post-result process life (the vibe-kanban turn model): messages
+    # emitted AFTER the result card while the "process" is still
+    # alive, and a sleep before the session finishes — models a CLI
+    # that keeps running subagents past the turn's result.
+    post_result_activity: list[tuple[str, str]] | None = None
+    exit_delay: float = 0.0
     gate: asyncio.Event | None = None  # if set, _do_work waits on it
     # If set, called as result_fn(task_id) to compute the result text
     # (and run side effects — e.g. read this task's batch_results.json
@@ -585,7 +593,18 @@ class FakeAgent(AIAgentBackend):
         await self._create_message(task_id, 'result', result_text)
         if scenario.extra_results:
             for extra in scenario.extra_results:
-                await self._create_message(task_id, 'assistant', extra)
+                await self._create_message(task_id, 'result', extra)
+            async with _db.async_session() as db:
+                task = await db.get(Task, task_id)
+                if task:
+                    task.result = scenario.extra_results[-1]
+                    task.updated_at = datetime.now(UTC).isoformat()
+                    await db.commit()
+        if scenario.post_result_activity:
+            for role, content in scenario.post_result_activity:
+                await self._create_message(task_id, role, content)
+        if scenario.exit_delay > 0:
+            await _real_sleep(scenario.exit_delay)
 
     async def _do_execute(
         self,
@@ -640,7 +659,18 @@ class FakeAgent(AIAgentBackend):
         await self._create_message(task_id, 'result', result_text)
         if scenario.extra_results:
             for extra in scenario.extra_results:
-                await self._create_message(task_id, 'assistant', extra)
+                await self._create_message(task_id, 'result', extra)
+            async with _db.async_session() as db:
+                task = await db.get(Task, task_id)
+                if task:
+                    task.result = scenario.extra_results[-1]
+                    task.updated_at = datetime.now(UTC).isoformat()
+                    await db.commit()
+        if scenario.post_result_activity:
+            for role, content in scenario.post_result_activity:
+                await self._create_message(task_id, role, content)
+        if scenario.exit_delay > 0:
+            await _real_sleep(scenario.exit_delay)
 
     async def stop(self, task_id: str) -> bool:
         # Cancel the asyncio task if still running

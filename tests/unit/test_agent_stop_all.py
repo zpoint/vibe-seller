@@ -17,10 +17,17 @@ from app.ai.claude_backend_manager import ClaudeCodeBackend
 pytestmark = pytest.mark.unit
 
 
-def _session(running: bool):
+def _session(running: bool, proc_alive: bool | None = None):
     s = mock.MagicMock()
     s.running = running
     s.stop = mock.AsyncMock()
+    if proc_alive is None:
+        proc_alive = running
+    if proc_alive:
+        s._proc = mock.MagicMock()
+        s._proc.returncode = None  # alive
+    else:
+        s._proc = None
     return s
 
 
@@ -58,3 +65,20 @@ async def test_stop_all_no_running_sessions_returns_zero():
     mgr = ClaudeCodeBackend()
     mgr._sessions = {'t1': _session(False)}
     assert await mgr.stop_all() == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_all_includes_closed_stdin_but_alive_process():
+    """A session whose turn terminator fired (running=False, stdin
+    closed) but whose PROCESS is still alive — the post-close grace
+    window, or a provider stalling between result and exit — must
+    still be stopped on shutdown, or the claude subtree is orphaned
+    across the restart."""
+    mgr = ClaudeCodeBackend()
+    wedged = _session(False, proc_alive=True)
+    mgr._sessions = {'t1': wedged}
+
+    stopped = await mgr.stop_all()
+
+    assert stopped == 1
+    wedged.stop.assert_awaited_once()

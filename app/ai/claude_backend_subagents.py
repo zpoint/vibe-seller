@@ -109,6 +109,12 @@ class _SubagentMixin:
                 if 'Async agent launched' in text:
                     m = re.search(r'agentId:\s*([A-Za-z0-9_-]+)', text)
                     self._async_agents[tid] = m.group(1) if m else ''
+                    # Selects the longer linger tier for this whole
+                    # process: late notifications and NESTED subagent
+                    # spawns are invisible to this tracker, so a
+                    # process that used async agents at all gets the
+                    # grace window. See claude_backend_turns.
+                    self._had_async_spawns = True
             elif block.get('type') == 'text':
                 text = block.get('text', '')
                 if '<task-notification' not in text:

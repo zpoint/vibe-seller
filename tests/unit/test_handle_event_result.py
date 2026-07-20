@@ -1,7 +1,10 @@
-"""Unit tests for result event deduplication in AgentSession.
+"""Unit tests for result-event turn semantics in AgentSession.
 
-Verifies that only the first execution-phase result event is emitted
-as role='result'; subsequent results are demoted to 'assistant'.
+A CLI process hosts MANY turns (initial turn, gate redrives,
+task-notification continuations, injected follow-ups). Every ACCEPTED
+execute-phase result is a turn boundary and emits its own
+role='result' card; ``_result_text`` tracks the LAST non-empty one —
+the process's final word is the deliverable.
 """
 
 from unittest.mock import Mock, patch
@@ -22,8 +25,8 @@ def _make_session(mode: str = 'execute') -> AgentSession:
     )
 
 
-class TestHandleEventResultDedup:
-    """_handle_event should deduplicate result events."""
+class TestHandleEventResultTurns:
+    """Per-turn result cards, last-result-wins deliverable."""
 
     async def test_first_result_emitted_as_result(self):
         """First result during execution → role='result'."""
@@ -42,10 +45,12 @@ class TestHandleEventResultDedup:
         assert len(emitted) == 1
         assert emitted[0] == ('result', 'Big result')
         assert session._result_text == 'Big result'
-        assert session._first_result_emitted is True
+        assert session._turn_result_seen is True
 
-    async def test_subsequent_results_demoted_to_assistant(self):
-        """Second and third result events → role='assistant'."""
+    async def test_each_nonempty_result_is_a_turn_card_last_wins(self):
+        """Later results (task-notification continuations) are their
+        own turn boundaries — each gets a card, and the LAST non-empty
+        text becomes the deliverable."""
         session = _make_session('execute')
         emitted: list[tuple[str, str]] = []
 
@@ -60,12 +65,12 @@ class TestHandleEventResultDedup:
             await session._handle_event({'type': 'result', 'result': 'Ack 1'})
             await session._handle_event({'type': 'result', 'result': 'Ack 2'})
 
-        assert len(emitted) == 3
-        assert emitted[0] == ('result', 'First big result')
-        assert emitted[1] == ('assistant', 'Ack 1')
-        assert emitted[2] == ('assistant', 'Ack 2')
-        # _result_text stays as the first result
-        assert session._result_text == 'First big result'
+        assert emitted == [
+            ('result', 'First big result'),
+            ('result', 'Ack 1'),
+            ('result', 'Ack 2'),
+        ]
+        assert session._result_text == 'Ack 2'
 
     async def test_planning_phase_results_demoted(self):
         """Results during planning phase → always 'assistant'."""
@@ -85,10 +90,10 @@ class TestHandleEventResultDedup:
         assert len(emitted) == 1
         assert emitted[0] == ('assistant', 'Plan summary')
         assert session._result_text == ''
-        assert session._first_result_emitted is False
+        assert session._turn_result_seen is False
 
-    async def test_first_execution_result_after_planning(self):
-        """After planning phase, first execution result gets the card."""
+    async def test_execution_results_after_planning(self):
+        """After planning, every execution result is a turn card."""
         session = _make_session('plan_then_execute')
         emitted: list[tuple[str, str]] = []
 
@@ -103,12 +108,13 @@ class TestHandleEventResultDedup:
             })
             # Simulate plan approval → execution starts
             session._executing = True
+            session._plan_saved = True
             # Execution result
             await session._handle_event({
                 'type': 'result',
                 'result': 'Execution done',
             })
-            # Extra execution result
+            # Notification-continuation result
             await session._handle_event({
                 'type': 'result',
                 'result': 'Background ack',
@@ -116,26 +122,70 @@ class TestHandleEventResultDedup:
 
         assert emitted[0] == ('assistant', 'Plan done')
         assert emitted[1] == ('result', 'Execution done')
-        assert emitted[2] == ('assistant', 'Background ack')
-        assert session._result_text == 'Execution done'
+        assert emitted[2] == ('result', 'Background ack')
+        assert session._result_text == 'Background ack'
 
-    async def test_error_result_flag_preserved(self):
-        """is_error flag is set regardless of dedup logic."""
+    async def test_error_then_success_ships_success(self):
+        """An intermediate error a later turn recovered from must not
+        ship FAILED — the LAST accepted result's error state wins."""
         session = _make_session('execute')
-        emitted: list[tuple[str, str]] = []
 
-        async def _mock_emit(role, content):
-            emitted.append((role, content))
+        async def _noop(*a, **k):
+            pass
 
-        with patch.object(session, '_emit_message', _mock_emit):
+        with patch.object(session, '_emit_message', _noop):
             await session._handle_event({
                 'type': 'result',
                 'result': 'Error occurred',
                 'is_error': True,
             })
+            assert session._last_result_is_error is True
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Recovered fine',
+            })
+
+        assert session._last_result_is_error is False
+        # The exit-time fold never fired an error.
+        assert session._is_error_result is False
+        assert session._result_text == 'Recovered fine'
+
+    async def test_success_then_error_marks_error(self):
+        session = _make_session('execute')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Looked good',
+            })
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Late failure',
+                'is_error': True,
+            })
+
+        assert session._last_result_is_error is True
+
+    async def test_forced_error_survives_later_success(self):
+        """A forced error (circuit breaker, rc!=0) is sticky — a
+        benign last result must not clear it."""
+        session = _make_session('execute')
+        session._is_error_result = True  # e.g. circuit breaker fired
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'All done, honest',
+            })
 
         assert session._is_error_result is True
-        assert emitted[0] == ('result', 'Error occurred')
+        assert session._last_result_is_error is False
 
     async def test_empty_first_execute_result_still_emits_turn_end(self):
         """First execute-phase result emits even when text is empty.
@@ -156,14 +206,11 @@ class TestHandleEventResultDedup:
             await session._handle_event({'type': 'result', 'result': ''})
 
         assert emitted == [('result', '')]
-        assert session._first_result_emitted is True
+        assert session._turn_result_seen is True
 
     async def test_empty_subsequent_result_dropped(self):
-        """After the first result, empty results are dropped.
-
-        The end-of-turn signal already fired with the first result;
-        a trailing empty result carries no information.
-        """
+        """Within a turn, a trailing empty result carries no
+        information — dropped, and it never clears the deliverable."""
         session = _make_session('execute')
         emitted: list[tuple[str, str]] = []
 
@@ -178,7 +225,34 @@ class TestHandleEventResultDedup:
             await session._handle_event({'type': 'result', 'result': ''})
 
         assert emitted == [('result', 'First')]
-        assert session._first_result_emitted is True
+        assert session._result_text == 'First'
+
+    async def test_empty_first_of_new_turn_emits_but_keeps_deliverable(
+        self,
+    ):
+        """A follow-up injection opens a new turn; its empty turn-end
+        signal still emits a card but must NOT clear the prior turn's
+        deliverable text."""
+        session = _make_session('execute')
+        emitted: list[tuple[str, str]] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        with patch.object(session, '_emit_message', _mock_emit):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Turn one deliverable',
+            })
+            # Simulate the injection reset send_user_message performs.
+            session._turn_result_seen = False
+            await session._handle_event({'type': 'result', 'result': ''})
+
+        assert emitted == [
+            ('result', 'Turn one deliverable'),
+            ('result', ''),
+        ]
+        assert session._result_text == 'Turn one deliverable'
 
     async def test_empty_planning_phase_result_dropped(self):
         """Empty planning-phase result is dropped — no end-of-turn
@@ -194,10 +268,10 @@ class TestHandleEventResultDedup:
             await session._handle_event({'type': 'result', 'result': ''})
 
         assert emitted == []
-        assert session._first_result_emitted is False
+        assert session._turn_result_seen is False
 
     async def test_auto_mode_first_result(self):
-        """Auto mode behaves same as execute — first result wins."""
+        """Auto mode behaves same as execute."""
         session = _make_session('auto')
         assert session._executing is True
         emitted: list[tuple[str, str]] = []
@@ -216,8 +290,42 @@ class TestHandleEventResultDedup:
             })
 
         assert emitted[0] == ('result', 'Auto result')
-        assert emitted[1] == ('assistant', 'Extra ack')
-        assert session._result_text == 'Auto result'
+        assert emitted[1] == ('result', 'Extra ack')
+        assert session._result_text == 'Extra ack'
+
+    async def test_legacy_linger_zero_closes_at_result(self):
+        """With linger=0 (the rollout default) the turn terminator
+        still fires inline at the accepted result — byte-identical to
+        the pre-migration close-at-result behavior."""
+        session = _make_session('execute')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'done',
+            })
+        assert session._input_closed is True
+
+    async def test_linger_configured_keeps_channel_open(self):
+        """With a linger window, the result event does NOT close
+        stdin — the quiescence watchdog owns termination."""
+        session = _make_session('execute')
+
+        async def _noop(*a, **k):
+            pass
+
+        with (
+            patch.object(session, '_emit_message', _noop),
+            patch.object(session, '_turn_linger_seconds', return_value=5.0),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'done',
+            })
+        assert session._input_closed is False
 
 
 class TestReviewGateRedrive:
@@ -257,7 +365,7 @@ class TestReviewGateRedrive:
             })
 
         # The placeholder result was NOT finalized as the turn's result.
-        assert session._first_result_emitted is False
+        assert session._turn_result_seen is False
         assert session._result_text == ''
         # The agent was re-driven with the gate's deny reason.
         assert len(sent) == 1
@@ -303,7 +411,7 @@ class TestReviewGateRedrive:
         assert role == 'result'
         assert content.endswith('Final answer')
         assert 'Unverified result' in content
-        assert session._first_result_emitted is True
+        assert session._turn_result_seen is True
 
     async def test_satisfied_gate_ends_turn_normally(self):
         """Gate satisfied (helpers return None) → result finalizes."""
@@ -332,7 +440,7 @@ class TestReviewGateRedrive:
             })
 
         assert emitted == [('result', 'Verified answer')]
-        assert session._first_result_emitted is True
+        assert session._turn_result_seen is True
         assert session._review_redrive_count == 0
 
     # ── The core regression: the control channel must stay OPEN while a
@@ -490,7 +598,7 @@ class TestHandleEventReflectionGuard:
         # Result emitted with empty text — turn-end signal goes out,
         # reflection content does NOT become the answer.
         assert emitted == [('result', '')]
-        assert session._first_result_emitted is True
+        assert session._turn_result_seen is True
         assert session._result_text == ''
         # Always cleared so a later turn does not adopt stale state.
         assert session._pre_reflection_result is None
@@ -571,7 +679,7 @@ class TestAsyncAgentTurnHold:
                 'result': 'reviewer is running in the background',
             })
 
-        assert session._first_result_emitted is False
+        assert session._turn_result_seen is False
         assert len(sent) == 1 and 'still running' in sent[0]
         assert session._review_redrive_count == 1
 
@@ -608,7 +716,7 @@ class TestAsyncAgentTurnHold:
             })
 
         assert session._async_agents == {}
-        assert session._first_result_emitted is True
+        assert session._turn_result_seen is True
 
     async def test_task_notification_releases_turn(self):
         session = _make_session('auto')
@@ -653,7 +761,7 @@ class TestAsyncAgentTurnHold:
                 'result': 'final answer',
             })
 
-        assert session._first_result_emitted is True
+        assert session._turn_result_seen is True
 
     async def test_unattributable_notification_fails_open(self):
         # A notification whose ids we can't match must clear the set —

@@ -1,13 +1,17 @@
 """Regression guard: ``AgentSession.running`` must turn False once
 stdin is closed, not only when the OS reaps the subprocess.
 
-Pre-fix race (CI run 25490774935, test_compaction step 8): the
-agent's ``result`` event closed stdin, but ``running`` still
-returned True because the subprocess hadn't exited yet (a small
-window — ~100ms in the failing log). A follow-up POST arriving in
-that window took the inline-stdin path
-(``agent_manager.send_message``) which silently no-op'd — the test
-then waited 600s for a result that would never come.
+Under the process-per-turn model stdin stays open past result
+events (the quiescence watchdog owns the close), so ``running``
+now reports True for the whole live turn — but the invariant these
+tests pin is unchanged: once the TURN TERMINATOR fires (watchdog /
+legacy result-close / plan-skip / stop()) and ``_input_closed``
+flips, ``running`` must be False so a follow-up routes to a fresh
+``--resume`` spawn. Delivery is additionally confirmed per-write
+(``send_user_message`` returns False on a dead pipe and the router
+falls through to the spawn path) — the original race (CI run
+25490774935: a follow-up silently no-op'd into a dying pipe, test
+waited 600s) is closed at both ends.
 
 The contract: if ``running`` is True, ``send_user_message`` must
 deliver a message the agent will process. Once stdin is closed, the

@@ -269,10 +269,21 @@ class ClaudeCodeBackend(AIAgentBackend):
         client. Best-effort: a failure on one session never blocks the
         others or shutdown.
         """
+        # Include sessions whose turn terminator already fired but
+        # whose PROCESS is still alive (the post-close grace window, or
+        # a provider stalling between result and exit) — ``running``
+        # means "input-capable", not "process alive", and skipping
+        # those here would orphan a live claude subtree across the
+        # restart. ``stop()`` handles the closed-stdin case itself
+        # (interrupt write no-ops, signal escalation still runs).
         running = [
             (tid, s)
             for tid, s in list(self._sessions.items())
-            if s and s.running
+            if s
+            and (
+                s.running
+                or (s._proc is not None and s._proc.returncode is None)
+            )
         ]
         if not running:
             return 0
@@ -298,11 +309,16 @@ class ClaudeCodeBackend(AIAgentBackend):
         return True
 
     async def send_message(self, task_id: str, message: str) -> bool:
+        """True only when the message reached the live session's stdin.
+
+        The router falls back to a fresh ``--resume`` spawn on False —
+        a follow-up racing the turn terminator must be re-routed, not
+        silently dropped into a dying pipe.
+        """
         session = self._sessions.get(task_id)
         if not session or not session.running:
             return False
-        await session.send_user_message(message)
-        return True
+        return await session.send_user_message(message)
 
     async def approve_plan(self, task_id: str) -> bool:
         """Approve the pending plan in a running session."""
