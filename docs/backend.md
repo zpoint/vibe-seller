@@ -129,6 +129,40 @@ Detects when an external tool (e.g. cc-switch — https://github.com/farion1231/
 - `tests/unit/test_external_config.py` — detection across no-settings / no-env / malformed JSON / non-`ANTHROPIC` keys / single + multiple overrides; default-profile escape hatch; load-bearing pieces of the user message; future-key prefix-match.
 - `tests/workflow/test_wf_external_config_override.py` — end-to-end across the profile router (409) and the task runner (fail-fast).
 
+## Profile Endpoint Validation (`ai/profile_validation.py`)
+
+Every non-`default` profile routes the agent through an Anthropic-compatible endpoint declared entirely in the profile's `env` (`ANTHROPIC_BASE_URL` + a token + `ANTHROPIC_MODEL`). Nothing used to check that those three actually work together, so a typo'd base URL, a wrong/expired key, or a model id the provider has since retired all saved cleanly and only surfaced later as an opaque agent error. This module lets the config page probe the config on save.
+
+`validate_profile_env(env, *, client=None)` (async) makes one minimal `/v1/messages` request against the profile's own endpoint and returns a `ProfileValidationResult`:
+
+| Field | Meaning |
+|---|---|
+| `ok` | The gate the router/UI enforces. |
+| `code` | Stable machine-readable outcome: `ok`, `no_endpoint` (native Claude — no base URL, no-op pass), `missing_key`, `missing_model`, `unreachable`, `auth`, `not_found`, `http_error`, `protocol`. |
+| `error` | Human-facing message, often the provider's own text (e.g. a retired model id) — the stale-model signal. |
+| `reported_model` | The `model` string the endpoint echoed back on success. Reveals silent fallbacks: lenient providers (e.g. MiniMax) 200 on an unknown model and report the real served model instead of rejecting. |
+
+Design notes:
+
+- Auth mirrors Claude Code so a pass here means a pass at runtime: `ANTHROPIC_AUTH_TOKEN` → `Authorization: Bearer`, `ANTHROPIC_API_KEY` → `x-api-key` (both if both set). The token is **never logged**.
+- No `ANTHROPIC_BASE_URL` → no-op pass (`no_endpoint`): the native-Claude/`default` shape has no third-party endpoint to probe.
+- `client` is injectable so unit tests drive it with an `httpx.MockTransport`.
+
+### Wired into
+
+- `routers/profiles.py` — `POST /api/profiles/validate` calls it and returns `result.to_dict()` (always HTTP 200; verdict in the body). Persistence-free — the endpoint never writes a profile. See [api.md](api.md#profilespy--ai-agent-profiles).
+- `frontend/src/components/ProfileModal.tsx` — the save handler awaits `/api/profiles/validate` first and blocks the save (showing `error`) when `ok` is false.
+
+### Provider presets & model options (`ai/profiles.py`)
+
+`PROVIDER_PRESETS` holds the per-provider env template (base URL, timeouts, per-tier model aliases). `PROVIDER_MODELS` holds the config UI's model dropdown per provider — each option is `{id, label, context?, vision?}`; the first entry is the default and must equal the preset's `ANTHROPIC_MODEL` (pinned by a test). `get_provider_presets()` merges the two for the UI. Both are convenience shortlists (the UI also offers free-text "Custom"), and every choice is endpoint-validated on save, so a stale entry is caught rather than silently breaking a run.
+
+### Test surface
+
+- `tests/unit/test_profile_validation.py` — the full verdict matrix via `httpx.MockTransport` (success/auth/not-found/stale-model/unreachable/wrong-protocol/non-JSON/missing-key/missing-model, trailing-slash join, header mapping).
+- `tests/workflow/test_wf_profiles.py` — the `/validate` endpoint contract (200, no persistence) and the model-options contract.
+- `tests/ai/test_profile_validation_live.py` — `ai`-marked, against real vendor endpoints using CI's `{PROVIDER}_API_KEY` secrets: good key/model → ok, bad model → rejected or reports-a-different-model, bad key → rejected (each provider self-skips without a key).
+
 ## Plugin Framework
 
 `app/plugins.py` is the inversion-of-control seam: **core knows no
