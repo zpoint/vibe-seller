@@ -583,7 +583,27 @@
     "noProfiles": "暂无自定义配置文件。创建一个开始使用。",
     "confirmDelete": "确定要删除配置文件 \"{name}\" 吗？此操作无法撤销。",
     "loadGlobalMcp": "加载全局 MCP 服务器",
-    "loadGlobalMcpHint": "包含全局 Claude 设置中的 MCP 服务器。关闭可减少工具数量，加速第三方 API 调用。"
+    "loadGlobalMcpHint": "包含全局 Claude 设置中的 MCP 服务器。关闭可减少工具数量，加速第三方 API 调用。",
+    "apiKey": "API 密钥",
+    "apiKeyPlaceholder": "粘贴你的服务商 API 密钥",
+    "apiKeyRequired": "请填写 API 密钥",
+    "showApiKey": "显示 API 密钥",
+    "hideApiKey": "隐藏 API 密钥",
+    "baseUrlPlaceholder": "保存前请将 Base URL 中的占位符 {{placeholder}} 替换为真实值。",
+    "model": "模型",
+    "modelPlaceholder": "例如 deepseek-v4-pro[1m]",
+    "customModel": "自定义…",
+    "vision": "视觉",
+    "textOnly": "纯文本",
+    "advancedEnv": "高级环境变量",
+    "advancedEnvHint": "Base URL 及其他设置，已由预设自动填充。展开可查看或编辑。",
+    "advancedCount": "{{count}} 项",
+    "setAsDefault": "创建后设为我的默认 AI",
+    "setAsDefaultHint": "除非你另行选择，新任务将使用该 AI 提供商。",
+    "validating": "正在测试连接…",
+    "validationFailed": "连接测试失败",
+    "validationFailedHint": "无法验证该接口。请修正下方配置，或检查 API 密钥、Base URL 与模型。",
+    "validationError": "无法执行连接测试"
   },
   "errors": {
     "externalConfigOverride": {

@@ -38,6 +38,12 @@ jobs:
           GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
           GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
           GLM_MODEL: ${{ secrets.GLM_MODEL }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          KIMI_BASE_URL: ${{ secrets.KIMI_BASE_URL }}
+          KIMI_MODEL: ${{ secrets.KIMI_MODEL }}
         run: |
           if [ -n "${{ github.event.inputs.test_task }}" ]; then
             uv run pytest tests/ai/${{ github.event.inputs.test_task }} -v

@@ -152,6 +152,11 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | POST | `/api/profiles` | Create AI profile |
 | PUT | `/api/profiles/{id}` | Update AI profile |
 | DELETE | `/api/profiles/{id}` | Delete AI profile |
+| PATCH | `/api/profiles/{id}/set-default` | Set a profile as the user's default |
+| POST | `/api/profiles/validate` | Probe a profile's endpoint config (no persistence) |
+| GET | `/api/profiles/presets` | Provider presets + per-provider model options |
+
+`POST /api/profiles/validate` takes `{"env": {...}}` and makes one minimal Anthropic `/v1/messages` request against the config's own `ANTHROPIC_BASE_URL` (mirroring Claude Code's auth). It **always returns HTTP 200** — the verdict is in the body: `{"ok": bool, "code": str, "error": str, "reported_model": str | null}`. The Settings UI hits it on save so an unreachable base URL, a wrong/expired key, a wrong protocol, or a retired model id is caught on the config page rather than on the next agent run. See [backend.md § Profile Endpoint Validation](backend.md#profile-endpoint-validation-aiprofile_validationpy).
 
 ## `workspace.py` — Workspace & Knowledge & Skills
 

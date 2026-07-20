@@ -10,6 +10,7 @@ from app.ai.external_config import (
     ExternalConfigOverrideError,
     assert_profile_compatible,
 )
+from app.ai.profile_validation import validate_profile_env
 from app.ai.profiles import ProfileManager, profile_kind
 from app.auth import get_current_user
 from app.database import get_db
@@ -126,6 +127,23 @@ async def set_default_profile(
         {'provider_kind': profile_kind(profile)},
     )
     return {'ok': True, 'default_profile_id': profile_id}
+
+
+@router.post('/validate')
+async def validate_profile(
+    data: dict,
+    _user: User = Depends(get_current_user),
+):
+    """Probe a profile's endpoint config without persisting anything.
+
+    The Settings UI hits this on save so an unreachable base URL, a
+    wrong/expired key, or a model id the provider has retired is caught
+    on the config page rather than on the next agent run. Always returns
+    200 — the verdict is the body's ``ok`` flag (with ``code``/``error``
+    for display and ``reported_model`` echoed back on success).
+    """
+    result = await validate_profile_env(data.get('env') or {})
+    return result.to_dict()
 
 
 @router.get('/presets')
