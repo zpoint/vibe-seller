@@ -101,6 +101,7 @@ export interface Profile {
   name: string
   description: string
   env: Record<string, string>
+  load_global_mcp?: boolean
 }
 export interface AuthUser {
   id: string; username: string; email: string | null; role: string; is_active: boolean;

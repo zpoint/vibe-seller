@@ -583,7 +583,24 @@
     "noProfiles": "No custom profiles yet. Create one to get started.",
     "confirmDelete": "Delete profile \"{name}\"? This cannot be undone.",
     "loadGlobalMcp": "Load global MCP servers",
-    "loadGlobalMcpHint": "Include MCP servers from global Claude settings. Disable to reduce tool count and speed up third-party APIs."
+    "loadGlobalMcpHint": "Include MCP servers from global Claude settings. Disable to reduce tool count and speed up third-party APIs.",
+    "apiKey": "API Key",
+    "apiKeyPlaceholder": "Paste your provider API key",
+    "apiKeyRequired": "API key is required",
+    "model": "Model",
+    "modelPlaceholder": "e.g., deepseek-v4-pro[1m]",
+    "customModel": "Custom…",
+    "vision": "Vision",
+    "textOnly": "Text only",
+    "advancedEnv": "Advanced environment variables",
+    "advancedEnvHint": "Base URL and other settings — pre-filled by the preset. Expand to review or edit.",
+    "advancedCount": "{{count}} set",
+    "setAsDefault": "Use as my default after creating",
+    "setAsDefaultHint": "New tasks will use this AI provider unless you pick another one.",
+    "validating": "Testing connection…",
+    "validationFailed": "Connection test failed",
+    "validationFailedHint": "The endpoint could not be verified. Fix the config below, or check the API key, base URL and model.",
+    "validationError": "Could not run the connection test"
   },
   "errors": {
     "externalConfigOverride": {

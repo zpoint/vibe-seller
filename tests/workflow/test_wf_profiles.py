@@ -2,6 +2,7 @@
 
 import pytest
 
+from app.ai.profile_validation import ProfileValidationResult
 from tests.workflow.conftest import wait_for_task
 
 pytestmark = pytest.mark.workflow
@@ -46,7 +47,7 @@ class TestProfileCrud:
             },
         )
         assert r.status_code == 200
-        assert r.json()['env']['ANTHROPIC_MODEL'] == 'kimi-k2.5'
+        assert r.json()['env']['ANTHROPIC_MODEL'] == 'k3[1m]'
 
     async def test_update_profile_env_vars(self, admin_client):
         # Create
@@ -104,6 +105,21 @@ class TestProfileCrud:
             assert 'name' in presets[name]
             assert 'env' in presets[name]
 
+    async def test_presets_expose_model_options(self, admin_client):
+        """Every preset ships a non-empty model dropdown whose first
+        (default) option matches the env's ANTHROPIC_MODEL — the UI and
+        the injected env must agree on the default model."""
+        r = await admin_client.get('/api/profiles/presets')
+        presets = r.json()['presets']
+        for pid, preset in presets.items():
+            models = preset.get('models')
+            assert models, f'{pid} has no model options'
+            for opt in models:
+                assert opt['id'] and opt['label']
+            assert models[0]['id'] == preset['env']['ANTHROPIC_MODEL'], (
+                f'{pid}: default model option must equal ANTHROPIC_MODEL'
+            )
+
     async def test_presets_match_vendor_docs(self, admin_client):
         """Pin the load-bearing values for the vendor-doc-aligned
         presets so a typo or accidental revert is caught by CI rather
@@ -143,11 +159,11 @@ class TestProfileCrud:
             'https://coding.dashscope.aliyuncs.com/apps/anthropic'
         )
         # Coding Plan uses one model uniformly across tiers + subagent
-        assert qwen_cp['ANTHROPIC_MODEL'] == 'qwen3.6-plus'
-        assert qwen_cp['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'qwen3.6-plus'
-        assert qwen_cp['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'qwen3.6-plus'
-        assert qwen_cp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.6-plus'
-        assert qwen_cp['CLAUDE_CODE_SUBAGENT_MODEL'] == 'qwen3.6-plus'
+        assert qwen_cp['ANTHROPIC_MODEL'] == 'qwen3.7-plus'
+        assert qwen_cp['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'qwen3.7-plus'
+        assert qwen_cp['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'qwen3.7-plus'
+        assert qwen_cp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.7-plus'
+        assert qwen_cp['CLAUDE_CODE_SUBAGENT_MODEL'] == 'qwen3.7-plus'
 
         # The two qwen tiers MUST diverge on base URL — collapsing them
         # back into one preset is what this PR's split was undoing.
@@ -239,3 +255,83 @@ class TestDefaultProfile:
         # Should reset to 'default'
         me2 = await admin_client.get('/api/auth/me')
         assert me2.json()['default_profile_id'] == 'default'
+
+
+class TestProfileValidateEndpoint:
+    """``POST /api/profiles/validate`` — the pre-save endpoint probe.
+
+    The actual network round-trip is unit-tested in
+    ``test_profile_validation.py``; here we pin the endpoint contract:
+    always 200, verdict in the body, no persistence.
+    """
+
+    async def test_validate_ok_passthrough(self, admin_client, monkeypatch):
+        async def fake(env, **kwargs):
+            assert env['ANTHROPIC_MODEL'] == 'deepseek-v4-pro[1m]'
+            return ProfileValidationResult(
+                ok=True, reported_model='deepseek-v4-pro'
+            )
+
+        monkeypatch.setattr('app.routers.profiles.validate_profile_env', fake)
+        r = await admin_client.post(
+            '/api/profiles/validate',
+            json={
+                'env': {
+                    'ANTHROPIC_BASE_URL': 'https://api.deepseek.com/anthropic',
+                    'ANTHROPIC_AUTH_TOKEN': 'sk-x',
+                    'ANTHROPIC_MODEL': 'deepseek-v4-pro[1m]',
+                }
+            },
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body['ok'] is True
+        assert body['reported_model'] == 'deepseek-v4-pro'
+
+    async def test_validate_failure_is_200_with_reason(
+        self, admin_client, monkeypatch
+    ):
+        async def fake(env, **kwargs):
+            return ProfileValidationResult(
+                ok=False, code='auth', error='authentication failed'
+            )
+
+        monkeypatch.setattr('app.routers.profiles.validate_profile_env', fake)
+        r = await admin_client.post(
+            '/api/profiles/validate',
+            json={'env': {'ANTHROPIC_BASE_URL': 'https://x/anthropic'}},
+        )
+        # A bad config is a normal 200 verdict, not an HTTP error — the
+        # frontend reads ``ok`` directly instead of branching on status.
+        assert r.status_code == 200
+        body = r.json()
+        assert body['ok'] is False
+        assert body['code'] == 'auth'
+        assert 'authentication failed' in body['error']
+
+    async def test_validate_does_not_persist(self, admin_client, monkeypatch):
+        async def fake(env, **kwargs):
+            return ProfileValidationResult(ok=True)
+
+        monkeypatch.setattr('app.routers.profiles.validate_profile_env', fake)
+        before = {
+            p['id']
+            for p in (await admin_client.get('/api/profiles')).json()[
+                'profiles'
+            ]
+        }
+        await admin_client.post(
+            '/api/profiles/validate',
+            json={
+                'env': {'ANTHROPIC_BASE_URL': 'https://x/anthropic'},
+                'id': 'should-not-be-created',
+                'name': 'Ghost',
+            },
+        )
+        after = {
+            p['id']
+            for p in (await admin_client.get('/api/profiles')).json()[
+                'profiles'
+            ]
+        }
+        assert before == after

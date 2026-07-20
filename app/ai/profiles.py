@@ -23,36 +23,45 @@ DEFAULT_PROFILES = {
 
 # Hardcoded provider presets — everything except the API key
 PROVIDER_PRESETS = {
+    # Kimi K3 (launched 2026-07-16, 1M context). The ``[1m]`` suffix
+    # selects the 1M-context variant and is a Claude-Code-env-var-only
+    # convention (bare ``k3`` is the 256K form); Moonshot's docs state
+    # this explicitly. Kimi does not distinguish a small/fast tier, so
+    # every model slot uses the same id.
+    # https://www.kimi.com/code/docs/en/third-party-tools/other-coding-agents.html
     'kimi': {
         'name': 'Kimi',
-        'description': 'Kimi K2.5 via Moonshot',
+        'description': 'Kimi K3 (1M context) via Moonshot',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.kimi.com/coding/',
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
             'ENABLE_TOOL_SEARCH': 'False',
-            'ANTHROPIC_MODEL': 'kimi-k2.5',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'kimi-k2.5',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'kimi-k2.5',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'kimi-k2.5',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'kimi-k2.5',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'kimi-k2.5',
+            'ANTHROPIC_MODEL': 'k3[1m]',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'k3[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'k3[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'k3[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'k3[1m]',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'k3[1m]',
         },
     },
+    # MiniMax-M3 with the ``[1m]`` suffix per MiniMax's Claude Code doc
+    # (all tier slots use the 1M-context id). No distinct small/fast.
+    # https://platform.minimax.io/docs/token-plan/claude-code
     'minimax': {
         'name': 'MiniMax',
-        'description': 'MiniMax-M3',
+        'description': 'MiniMax-M3 (1M context)',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.minimaxi.com/anthropic',
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'MiniMax-M3',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'MiniMax-M3',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'MiniMax-M3',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'MiniMax-M3',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'MiniMax-M3',
+            'ANTHROPIC_MODEL': 'MiniMax-M3[1m]',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'MiniMax-M3[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'MiniMax-M3[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'MiniMax-M3[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'MiniMax-M3[1m]',
         },
     },
     # GLM-5.2: the ``[1m]`` suffix selects the 1M-context variant (same
@@ -140,7 +149,7 @@ PROVIDER_PRESETS = {
     'qwen_coding': {
         'name': 'Qwen (Coding Plan)',
         'description': (
-            'Qwen3.6-Plus via Alibaba Cloud DashScope Coding Plan '
+            'Qwen3.7-Plus via Alibaba Cloud DashScope Coding Plan '
             '(monthly subscription)'
         ),
         'load_global_mcp': False,
@@ -150,14 +159,178 @@ PROVIDER_PRESETS = {
             ),
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
-            'ANTHROPIC_MODEL': 'qwen3.6-plus',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'qwen3.6-plus',
-            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.6-plus',
-            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.6-plus',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-plus',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.6-plus',
+            'ANTHROPIC_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
         },
     },
+}
+
+
+# Selectable model ids per provider, surfaced as a dropdown in the
+# config UI so a user can trade the flagship for a cheaper/older model
+# (e.g. MiniMax M2.5 instead of M3) without hand-editing env vars.
+#
+# Each entry: ``id`` (exact API string), ``label`` (UI text), and
+# best-effort ``context`` / ``vision`` metadata shown as badges. The
+# FIRST entry is the default and MUST equal the preset's
+# ``ANTHROPIC_MODEL`` (pinned by a test). The UI always also offers a
+# free-text "Custom" entry, and every choice is endpoint-validated on
+# save, so this is a convenience shortlist — not an exhaustive or
+# load-bearing catalog. Vendors rev these often; stale entries are
+# caught at save time by the validation probe rather than silently
+# breaking a task run.
+#
+# ``vision`` matters because the agent feeds browser screenshots to the
+# model — a text-only model degrades badly on browser automation. It is
+# doc-sourced (conservative): DeepSeek V4's public API documents no
+# image input, so it is labeled text-only even though the live endpoint
+# does not reject image payloads. Omit ``vision`` when genuinely
+# unknown rather than guessing. ``context`` is the model's native
+# window (these providers don't gate 1M behind the ``[1m]`` suffix the
+# way Anthropic does — the suffix only tells Claude Code to advertise
+# the window).
+PROVIDER_MODELS = {
+    # NOTE: the coding endpoint (api.kimi.com/coding) only accepts the
+    # short-form ids below — the older ``kimi-k2.5`` etc. live on the
+    # *general* platform API (api.moonshot.ai) and 400 here, so they are
+    # intentionally NOT offered for this preset. Availability is also
+    # tier-gated per account; the save-time probe rejects any the user
+    # can't actually call.
+    'kimi': [
+        {
+            'id': 'k3[1m]',
+            'label': 'K3 (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {'id': 'k3', 'label': 'K3 (256K)', 'context': '256K', 'vision': True},
+        {'id': 'kimi-for-coding', 'label': 'Kimi for Coding (cheaper)'},
+        {
+            'id': 'kimi-for-coding-highspeed',
+            'label': 'Kimi for Coding — high-speed',
+        },
+    ],
+    # M3 has a 1M window; the M2.x line is ~200K. All accept image input
+    # (confirmed against the live endpoint). Ids are case-sensitive.
+    'minimax': [
+        {
+            'id': 'MiniMax-M3[1m]',
+            'label': 'M3 (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': True},
+        {
+            'id': 'MiniMax-M2.7',
+            'label': 'M2.7 (cheaper)',
+            'context': '200K',
+            'vision': True,
+        },
+        {
+            'id': 'MiniMax-M2.5',
+            'label': 'M2.5 (cheaper)',
+            'context': '200K',
+            'vision': True,
+        },
+        {
+            'id': 'MiniMax-M2.1',
+            'label': 'M2.1',
+            'context': '200K',
+            'vision': True,
+        },
+    ],
+    # GLM is text-only across the line — a poor fit for screenshot-driven
+    # browser tasks; the badge makes that visible before the user picks.
+    'glm': [
+        {
+            'id': 'glm-5.2[1m]',
+            'label': 'GLM-5.2 (1M context)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.7',
+            'label': 'GLM-4.7',
+            'context': '200K',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.5-air',
+            'label': 'GLM-4.5-Air (fast, cheap)',
+            'context': '128K',
+            'vision': False,
+        },
+    ],
+    'glm_intl': [
+        {
+            'id': 'glm-5.2[1m]',
+            'label': 'GLM-5.2 (1M context)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.7',
+            'label': 'GLM-4.7',
+            'context': '200K',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.5-air',
+            'label': 'GLM-4.5-Air (fast, cheap)',
+            'context': '128K',
+            'vision': False,
+        },
+    ],
+    # DeepSeek V4: 1M context, but the public API documents no image
+    # input — labeled text-only (conservative) despite the live endpoint
+    # accepting image payloads without error.
+    'deepseek': [
+        {
+            'id': 'deepseek-v4-pro[1m]',
+            'label': 'V4 Pro (1M context)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'deepseek-v4-flash',
+            'label': 'V4 Flash (fast, cheap)',
+            'context': '1M',
+            'vision': False,
+        },
+    ],
+    # Qwen split: Max is text-only, Plus/Flash are vision-capable.
+    'qwen': [
+        {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max (flagship)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'qwen3.7-plus',
+            'label': 'Qwen3.7-Plus',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'qwen3.6-flash',
+            'label': 'Qwen3.6-Flash (fast, cheap)',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    'qwen_coding': [
+        {
+            'id': 'qwen3.7-plus',
+            'label': 'Qwen3.7-Plus',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
 }
 
 
@@ -257,8 +430,13 @@ class ProfileManager:
 
     @staticmethod
     def get_provider_presets() -> dict:
-        """Return hardcoded provider presets for the UI."""
-        return PROVIDER_PRESETS
+        """Return provider presets for the UI, each augmented with its
+        ``models`` dropdown options. Builds a fresh dict so the module
+        globals are never mutated."""
+        return {
+            pid: {**preset, 'models': PROVIDER_MODELS.get(pid, [])}
+            for pid, preset in PROVIDER_PRESETS.items()
+        }
 
 
 def profile_kind(profile: dict | None) -> str:

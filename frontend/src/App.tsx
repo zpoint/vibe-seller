@@ -741,9 +741,22 @@ export default function App() {
         <ProfileModal
           isOpen={showProfileModal}
           onClose={() => setShowProfileModal(false)}
-          onSave={async (profile) => {
-            if (editingProfile) { await updateProfile(editingProfile.id, profile) } else { const newProfile = await createProfile(profile); if (profiles.length === 0) setSelectedProfileId(newProfile.id) }
-            setShowProfileModal(false)
+          onSave={async (profile, opts) => {
+            if (editingProfile) { await updateProfile(editingProfile.id, profile); return }
+            // Create errors (e.g. external-config 409) propagate so the
+            // modal can surface them and stay open.
+            const newProfile = await createProfile(profile)
+            if (opts.setAsDefault) {
+              // Best-effort: the profile is already created, so a
+              // set-default hiccup must not lose it or trap the modal.
+              try {
+                await api.patch(`/api/profiles/${newProfile.id}/set-default`)
+                setCurrentUser(prev => prev ? { ...prev, default_profile_id: newProfile.id } : prev)
+                setSelectedProfileId(newProfile.id)
+              } catch (err) { console.error('set-default after create failed', err) }
+            } else if (profiles.length === 0) {
+              setSelectedProfileId(newProfile.id)
+            }
           }}
           editingProfile={editingProfile}
         />
