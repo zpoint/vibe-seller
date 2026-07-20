@@ -90,15 +90,16 @@ because those break the mux. `--headed` is also blocked (managed by
 the wrapper). For non-seller-center pages, use
 `--session <slug>-aux`. **Behavior depends on backend:**
 
-- **Both backends (wrapper format v3)** — ALL sessions including
-  `-aux` go through the store's OWN CDPMuxProxy; aux rides the
-  stable `client-aux` proxy client. The former Ziniao "aux =
-  direct Chrome" exemption is GONE: it exported no CDP endpoint,
-  and the daemon's ambient Chrome discovery then attached to a
-  DIFFERENT store's browser (wrong Amazon account, wrong downloads
-  dir) — observed live with two Ziniao stores. If you see an aux
-  session showing another store's account, the wrapper predates v3:
-  restart the server to regenerate wrappers.
+- **Wrapper format v4** — every session carries an EXPLICIT
+  `BU_CDP_WS` (an endpoint-less daemon ambiently attached to a
+  DIFFERENT store's browser — observed live; that class is now
+  unrepresentable). Ziniao stores: `-aux` is the store's DEDICATED
+  login-less Chromium, lazily started via
+  `POST /api/stores/{id}/browser/aux/start` (own CDPMuxProxy, own
+  `downloads/{slug}-aux/` dir, NO seller login — never use it for
+  seller central). Chrome stores: aux is a stable `client-aux` on
+  the main proxy. If an aux session shows another store's account,
+  the wrapper predates v3/v4 — restart the server to regenerate.
 
 ## VIBE_TASK_ID — the recurring footgun
 

@@ -329,9 +329,12 @@ class TestWriteBrowserUseWrapper:
         write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
 
         content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
-        # aux has its own case-arm exporting the stable proxy client.
+        # v4: ziniao aux lazily starts its DEDICATED login-less browser
+        # via the API and attaches to the ws it returns.
         assert 'test-store-aux)' in content
-        assert 'client-aux' in content
+        assert 'browser/aux/start' in content
+        # The main (Ziniao) proxy endpoint is never baked for aux.
+        assert 'ws://127.0.0.1:9222/client-aux' not in content
         # aux is NOT excluded from wedge recovery anymore.
         assert '[ "$SESSION" != "test-store-aux" ]' not in content
 

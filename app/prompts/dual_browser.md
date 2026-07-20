@@ -1,24 +1,31 @@
 ## Browser Routing Rules
 
-### MANDATORY: Seller center → Ziniao (no exceptions)
-Any seller/merchant center dashboard (where this store has a seller
-account) MUST use the **Ziniao Browser**. This is non-negotiable because:
-- Ziniao has the store's saved credentials and 2FA auto-fill
-- Ziniao provides the correct IP environment for the seller account
-- Opening seller center in Chrome aux will lack login state and may
-  trigger platform security alerts
+Every store has exactly TWO browsers. Route by what the page needs:
 
-Use your judgment to identify seller center URLs — they are typically
-the platform's dedicated seller/merchant portal (e.g. "seller central",
-"seller portal", "merchant dashboard", "vendor central").
+### Seller / merchant center → the MAIN (Ziniao) browser — no exceptions
+Any seller/merchant dashboard where this store holds an account MUST
+use the main **Ziniao Browser** (the plain `browser-use` wrapper /
+per-task session):
+- It holds the store's saved credentials and auto-fills password / 2FA.
+- It provides IP isolation — the correct network environment for the
+  seller account; logging in from anywhere else may trigger platform
+  security alerts.
+- Trade-off: it restricts which sites it can open (many non-seller
+  URLs are blocked or gated).
 
-### Everything else → Chrome Auxiliary
-For all non-seller-center URLs (search engines, logistics, tracking,
-carrier portals, documentation, etc.) use the **Chrome Auxiliary Browser**.
-It has a persistent profile — cookies and saved passwords persist
-across tasks.
+Use your judgment to identify seller-center URLs — the platform's
+dedicated seller/merchant portal ("seller central", "merchant
+dashboard", "vendor central", …).
 
-Ziniao may block non-seller URLs, so always use Chrome aux for those.
+### Everything the main browser restricts → the AUX browser
+`--session {slug}-aux` is this store's **independent, login-less
+Chromium** — started lazily on first use, isolated per store. It exists
+precisely for what Ziniao blocks: public product pages, supplier sites
+(e.g. 1688), search engines, logistics/carrier portals, documentation.
+- It has NO seller login, and must NEVER be used for seller-center
+  work (uploads, inventory edits, reports) — anything it shows you
+  about the seller account is not your account's state.
+- Its profile persists across tasks (cookies for public sites survive).
 
 ### Custom routing
 If the user has configured custom routing rules, check

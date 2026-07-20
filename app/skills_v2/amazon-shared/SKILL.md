@@ -189,15 +189,10 @@ When the label shows the wrong marketplace and you need to switch:
    rows are (account × country) pairs; "See all" expands the full
    list. Re-read the label after.
 2. **If the dropdown won't open or has no row for the target**: open
-   the target subdomain in a FRESH tab (`new_tab`), and if it still
-   renders the wrong context, try your OTHER session (`{slug}-aux` or
-   the main session — whichever you're not on): sessions carry
-   independent marketplace pins, and one of them is often already on
-   the target (verified live: a main session pinned to one country
-   while the aux session rendered the target correctly). Do the
-   target-marketplace work — template, upload, verification — in
-   whichever session+tab shows the TARGET label on the TARGET
-   subdomain.
+   the target subdomain in a FRESH tab (`new_tab`) and re-read the
+   label; a fresh tab often picks up the domain's own marketplace
+   context. (The aux browser is NOT an option here — it has no seller
+   login; all seller-central work stays in the MAIN session.)
 3. Only after both fail, ask the user — with what you observed.
 
 ### 4b. Detecting the version

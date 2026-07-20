@@ -57,7 +57,10 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # no-endpoint aux fell back to browser_harness's ambient local-Chrome
 # discovery, which attached to another store's browser (wrong Amazon
 # account, wrong downloads dir) — observed live with two Ziniao stores.
-WRAPPER_FORMAT_VERSION = 3
+# v4: Ziniao-aux is a DEDICATED login-less Chromium (per-store, lazy):
+# the aux branch calls /browser/aux/start and attaches to the returned
+# aux-proxy ws. Chrome-backend aux stays a client on the main proxy.
+WRAPPER_FORMAT_VERSION = 4
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
 
 
@@ -173,10 +176,22 @@ def write_browser_use_wrapper(
     # unset endpoint must be unrepresentable: every allowed session
     # gets its own explicit client on its own store's proxy.
 
+    # Ziniao aux runs its OWN lazy-started browser (see env_inject), so
+    # it must not force the MAIN browser up; chrome aux rides the main
+    # proxy and therefore does need it.
+    if backend == 'ziniao':
+        aux_autostart_arm = (
+            f'{slug}-aux)\n'
+            f'                ;;  # aux: own browser, started in env step\n'
+            f'              '
+        )
+    else:
+        aux_autostart_arm = ''
+
     auto_start_block = textwrap.dedent(f"""\
         # Auto-start: ensure CDP proxy is responding.
         case "$SESSION" in
-          {slug}|{slug}-*)
+          {aux_autostart_arm}{slug}|{slug}-*)
             if ! curl -sf -o /dev/null \\
                  --max-time 2 "{cdp_http_url}/json/version" \\
                  2>/dev/null; then
@@ -217,17 +232,48 @@ def write_browser_use_wrapper(
 
     # Inject the CDP endpoint + daemon identity as ENV VARS (0.13 model).
     #   BU_NAME    — session/daemon name (reaper keys off bu-<BU_NAME>.pid)
-    #   BU_CDP_WS  — attach to this store's CDP proxy, always explicit.
-    # aux gets its own stable proxy client ("aux") so it never shares
-    # the task client's tab pool; per-task sessions mirror the 0.12
-    # proxy client id so the mux's per-task isolation is unchanged.
+    #   BU_CDP_WS  — always explicit; NO session is ever endpoint-less
+    #                (an unset endpoint falls back to ambient Chrome
+    #                discovery, which attached to another store's
+    #                browser — observed live).
+    # Ziniao aux = the store's DEDICATED login-less Chromium: lazily
+    # started via the aux/start API, daemon attaches to the returned
+    # aux-proxy ws. Chrome aux = a stable extra client on the main
+    # proxy. Per-task sessions mirror the 0.12 proxy client id.
+    if backend == 'ziniao':
+        aux_env_arm = (
+            f'{slug}-aux)\n'
+            f'            _aux_resp=$(curl -s -X POST \\{auth_header}\n'
+            f'              -H "Content-Type: application/json" \\\n'
+            f'              --max-time 90 \\\n'
+            f'              "http://{LOCALHOST}:{port}/api/stores/'
+            f'{store_id or "UNKNOWN"}/browser/aux/start" \\\n'
+            f'              2>/dev/null) || true\n'
+            f'            BU_CDP_WS=$(printf \'%s\' "$_aux_resp" | '
+            f"python3 -c 'import sys,json;"
+            f'print(json.load(sys.stdin).get("ws",""))\' '
+            f'2>/dev/null) || true\n'
+            f'            if [ -z "${{BU_CDP_WS:-}}" ]; then\n'
+            f'              echo "ERROR: aux browser start failed: '
+            f'$(printf \'%s\' "$_aux_resp" | head -c 300)" >&2\n'
+            f'              exit 1\n'
+            f'            fi\n'
+            f'            export BU_CDP_WS\n'
+            f'            ;;\n'
+            f'          '
+        )
+    else:
+        aux_env_arm = (
+            f'{slug}-aux)\n'
+            f'            export BU_CDP_WS='
+            f'"ws://{LOCALHOST}:{proxy_port}/client-aux"\n'
+            f'            ;;\n'
+            f'          '
+        )
     env_inject = textwrap.dedent(f"""\
         export BU_NAME="$SESSION"
         case "$SESSION" in
-          {slug}-aux)
-            export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-aux"
-            ;;
-          {slug}|{slug}-*)
+          {aux_env_arm}{slug}|{slug}-*)
             CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}"
             export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}"
             ;;
