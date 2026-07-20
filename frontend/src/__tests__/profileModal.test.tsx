@@ -64,6 +64,28 @@ const VISION_PRESET = {
   ],
 }
 
+const ALIBABA_PAYGO = {
+  name: 'Qwen (Pay-as-you-go, China)',
+  group: 'Alibaba Cloud',
+  variant: 'Pay-as-you-go (China)',
+  env: {
+    ANTHROPIC_BASE_URL: 'https://dashscope.aliyuncs.com/apps/anthropic',
+    ANTHROPIC_MODEL: 'qwen3.7-max',
+  },
+  models: [{ id: 'qwen3.7-max', label: 'Qwen3.7-Max', context: '1M', vision: false }],
+}
+
+const ALIBABA_CODING = {
+  name: 'Qwen (Coding Plan)',
+  group: 'Alibaba Cloud',
+  variant: 'Coding Plan',
+  env: {
+    ANTHROPIC_BASE_URL: 'https://coding.dashscope.aliyuncs.com/apps/anthropic',
+    ANTHROPIC_MODEL: 'qwen3.7-plus',
+  },
+  models: [{ id: 'qwen3.7-plus', label: 'Qwen3.7-Plus', context: '1M', vision: false }],
+}
+
 function mockPresets(presets: Record<string, unknown>) {
   ;(global.fetch as unknown) = vi.fn().mockResolvedValue({
     json: async () => ({ presets }),
@@ -238,5 +260,75 @@ describe('ProfileModal', () => {
     expect(savedEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('deepseek-v4-flash')
     // The distinct fast tier is left untouched.
     expect(savedEnv.ANTHROPIC_SMALL_FAST_MODEL).toBe('deepseek-v4-flash')
+  })
+
+  it('collapses grouped providers under one button with a variant sub-row', async () => {
+    mockPresets({ qwen: ALIBABA_PAYGO, qwen_coding: ALIBABA_CODING })
+    renderModal()
+
+    // Top level shows the GROUP, not the individual plans.
+    const groupBtn = await screen.findByRole('button', { name: /Alibaba Cloud/ })
+    expect(screen.queryByRole('button', { name: 'Coding Plan' })).toBeNull()
+
+    // Selecting the group reveals its variant sub-buttons.
+    fireEvent.click(groupBtn)
+    expect(
+      await screen.findByRole('button', { name: 'Pay-as-you-go (China)' })
+    ).toBeInTheDocument()
+    const coding = screen.getByRole('button', { name: 'Coding Plan' })
+
+    // Picking a variant applies that preset (auto-name + model chip).
+    fireEvent.click(coding)
+    expect((screen.getByPlaceholderText('e.g., MiniMax') as HTMLInputElement).value)
+      .toBe('Qwen (Coding Plan) - Qwen3.7-Plus')
+    expect(screen.getByText('Qwen3.7-Plus')).toBeInTheDocument()
+  })
+
+  it('seeds the Custom advanced template and drops blank rows on save', async () => {
+    // The selector (and its Custom button) render only when presets exist.
+    mockPresets({ deepseek: DEEPSEEK_PRESET })
+    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
+    const { onSave } = renderModal()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Custom' }))
+
+    // Advanced expands with the common env keys pre-seeded (empty).
+    expect(
+      await screen.findByDisplayValue('API_TIMEOUT_MS')
+    ).toBeInTheDocument()
+    expect(screen.getByDisplayValue('CLAUDE_CODE_SUBAGENT_MODEL')).toBeInTheDocument()
+
+    // Fill the primary fields...
+    fireEvent.change(screen.getByPlaceholderText('e.g., MiniMax'), {
+      target: { value: 'My Custom' },
+    })
+    fireEvent.change(
+      screen.getByPlaceholderText('Paste your provider API key'),
+      { target: { value: 'sk-c' } }
+    )
+    fireEvent.change(
+      screen.getByPlaceholderText('https://api.example.com/anthropic'),
+      { target: { value: 'https://api.c.com/anthropic' } }
+    )
+    fireEvent.change(
+      screen.getByPlaceholderText('e.g., deepseek-v4-pro[1m]'),
+      { target: { value: 'my-model' } }
+    )
+    // ...and exactly one advanced value (API_TIMEOUT_MS is the first row).
+    fireEvent.change(screen.getAllByPlaceholderText('value')[0], {
+      target: { value: '3000000' },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+
+    const env = onSave.mock.calls[0][0].env
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('sk-c')
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://api.c.com/anthropic')
+    expect(env.ANTHROPIC_MODEL).toBe('my-model')
+    expect(env.API_TIMEOUT_MS).toBe('3000000')
+    // Untouched (blank) template keys are dropped, not persisted empty.
+    expect(env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined()
+    expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()
   })
 })

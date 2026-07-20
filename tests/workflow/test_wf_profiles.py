@@ -99,11 +99,32 @@ class TestProfileCrud:
             'glm_intl',
             'deepseek',
             'qwen',
+            'qwen_intl',
             'qwen_coding',
+            'qwen_token',
         ):
             assert name in presets
             assert 'name' in presets[name]
             assert 'env' in presets[name]
+
+    async def test_grouped_presets_expose_group_and_variant(self, admin_client):
+        """The Alibaba Cloud and GLM variants carry group + variant so
+        the UI can render them under one collapsible top-level entry."""
+        r = await admin_client.get('/api/profiles/presets')
+        presets = r.json()['presets']
+        alibaba = {
+            pid
+            for pid, p in presets.items()
+            if p.get('group') == 'Alibaba Cloud'
+        }
+        assert alibaba == {'qwen', 'qwen_intl', 'qwen_coding', 'qwen_token'}
+        glm = {pid for pid, p in presets.items() if p.get('group') == 'GLM'}
+        assert glm == {'glm', 'glm_intl'}
+        for pid in alibaba | glm:
+            assert presets[pid]['variant'], f'{pid} missing variant label'
+        # Standalone providers stay ungrouped.
+        assert not presets['kimi'].get('group')
+        assert not presets['deepseek'].get('group')
 
     async def test_presets_expose_model_options(self, admin_client):
         """Every preset ships a non-empty model dropdown whose first
@@ -165,9 +186,29 @@ class TestProfileCrud:
         assert qwen_cp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.7-plus'
         assert qwen_cp['CLAUDE_CODE_SUBAGENT_MODEL'] == 'qwen3.7-plus'
 
-        # The two qwen tiers MUST diverge on base URL — collapsing them
-        # back into one preset is what this PR's split was undoing.
-        assert qwen['ANTHROPIC_BASE_URL'] != qwen_cp['ANTHROPIC_BASE_URL']
+        # Token Plan: distinct base URL + the qwen3.8-max-preview
+        # flagship + the explicit ~960K context window per Alibaba docs.
+        qwen_tp = presets['qwen_token']['env']
+        assert qwen_tp['ANTHROPIC_BASE_URL'] == (
+            'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic'
+        )
+        assert qwen_tp['ANTHROPIC_MODEL'] == 'qwen3.8-max-preview'
+        assert qwen_tp['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'qwen3.8-max-preview'
+        assert qwen_tp['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] == '983616'
+
+        # International pay-go carries the per-workspace placeholder host.
+        qwen_intl = presets['qwen_intl']['env']
+        assert '{WorkspaceId}' in qwen_intl['ANTHROPIC_BASE_URL']
+        assert qwen_intl['ANTHROPIC_MODEL'] == 'qwen3.7-max'
+
+        # The four Alibaba plans MUST all diverge on base URL.
+        bases = {
+            qwen['ANTHROPIC_BASE_URL'],
+            qwen_cp['ANTHROPIC_BASE_URL'],
+            qwen_tp['ANTHROPIC_BASE_URL'],
+            qwen_intl['ANTHROPIC_BASE_URL'],
+        }
+        assert len(bases) == 4
 
     async def test_profile_env_injection_roundtrip(self, admin_client):
         env = {

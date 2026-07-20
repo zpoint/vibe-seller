@@ -157,6 +157,8 @@ Design notes:
 
 `PROVIDER_PRESETS` holds the per-provider env template (base URL, timeouts, per-tier model aliases). `PROVIDER_MODELS` holds the config UI's model dropdown per provider — each option is `{id, label, context?, vision?}`; the first entry is the default and must equal the preset's `ANTHROPIC_MODEL` (pinned by a test). `get_provider_presets()` merges the two for the UI. Both are convenience shortlists (the UI also offers free-text "Custom"), and every choice is endpoint-validated on save, so a stale entry is caught rather than silently breaking a run.
 
+A preset may also carry `group` + `variant`: presets sharing a `group` (e.g. `Alibaba Cloud` → Pay-as-you-go China/International, Coding Plan, Token Plan; `GLM` → China/International) collapse into one top-level button in the picker that reveals a variant sub-row, instead of cluttering the flat list. `vision` is best-effort and app-specific (does the provider's `/apps/anthropic` endpoint accept image blocks the agent's screenshots ride on) — e.g. Qwen models are text-only here because that endpoint rejects Anthropic image blocks, and DeepSeek is labeled text-only per its API docs.
+
 ### Test surface
 
 - `tests/unit/test_profile_validation.py` — the full verdict matrix via `httpx.MockTransport` (success/auth/not-found/stale-model/unreachable/wrong-protocol/non-JSON/missing-key/missing-model, trailing-slash join, header mapping).

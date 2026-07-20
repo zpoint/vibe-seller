@@ -70,6 +70,8 @@ PROVIDER_PRESETS = {
     # model's 1M window is reached. https://docs.bigmodel.cn/cn/guide/models/text/glm-5.2
     'glm': {
         'name': 'GLM (China)',
+        'group': 'GLM',
+        'variant': 'China',
         'description': 'GLM-5.2 (1M context) via ZhiPu BigModel',
         'load_global_mcp': False,
         'env': {
@@ -86,6 +88,8 @@ PROVIDER_PRESETS = {
     },
     'glm_intl': {
         'name': 'GLM (International)',
+        'group': 'GLM',
+        'variant': 'International',
         'description': 'GLM-5.2 (1M context) via Z.AI',
         'load_global_mcp': False,
         'env': {
@@ -128,9 +132,12 @@ PROVIDER_PRESETS = {
     # https://help.aliyun.com/zh/model-studio/claude-code
     # https://help.aliyun.com/zh/model-studio/claude-code-coding-plan
     'qwen': {
-        'name': 'Qwen (Pay-as-you-go)',
+        'name': 'Qwen (Pay-as-you-go, China)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Pay-as-you-go (China)',
         'description': (
-            'Qwen3.7-Max via Alibaba Cloud DashScope, pay-as-you-go billing'
+            'Qwen3.7-Max via Alibaba Cloud Bailian, pay-as-you-go billing '
+            '(Beijing region)'
         ),
         'load_global_mcp': False,
         'env': {
@@ -144,12 +151,43 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-max',
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-max',
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-max',
+        },
+    },
+    # International (Singapore) pay-as-you-go uses a per-workspace MaaS
+    # host — the user must replace {WorkspaceId} in the Base URL with
+    # their real Workspace ID (the placeholder deliberately fails the
+    # save-time probe until they do). Same models as the China tier.
+    'qwen_intl': {
+        'name': 'Qwen (Pay-as-you-go, International)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Pay-as-you-go (International)',
+        'description': (
+            'Qwen3.7-Max via Alibaba Cloud Model Studio, pay-as-you-go '
+            '(Singapore). Replace {WorkspaceId} in the Base URL.'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com'
+                '/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'qwen3.7-max',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'qwen3.6-flash',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-max',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-max',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-max',
         },
     },
     'qwen_coding': {
         'name': 'Qwen (Coding Plan)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Coding Plan',
         'description': (
-            'Qwen3.7-Plus via Alibaba Cloud DashScope Coding Plan '
+            'Qwen3.7-Plus via Alibaba Cloud Bailian Coding Plan '
             '(monthly subscription)'
         ),
         'load_global_mcp': False,
@@ -165,6 +203,35 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
             'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
+        },
+    },
+    # Token Plan (个人版 and 团队版 share this config; they differ only by
+    # which sk-sp- key you use). Newer Bailian plan with the
+    # qwen3.8-max-preview flagship on a distinct MaaS base URL; the
+    # ~960K context window is set explicitly per Alibaba's doc.
+    # qwen3.8-max-preview is Token-Plan-only (401s on pay-as-you-go).
+    # https://help.aliyun.com/zh/model-studio/claude-code
+    'qwen_token': {
+        'name': 'Qwen (Token Plan)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Token Plan',
+        'description': (
+            'Qwen3.8-Max-Preview via Alibaba Cloud Bailian Token Plan '
+            '(个人版 / 团队版)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'qwen3.8-max-preview',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.8-max-preview',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.8-max-preview',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-max',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
         },
     },
 }
@@ -302,7 +369,10 @@ PROVIDER_MODELS = {
             'vision': False,
         },
     ],
-    # Qwen split: Max is text-only, Plus/Flash are vision-capable.
+    # Qwen: labeled text-only for this app. The Qwen-VL lineage has
+    # native vision, but the Bailian /apps/anthropic endpoint rejects
+    # Anthropic image blocks (live probe: HTTP 400 InvalidParameter),
+    # so screenshots can't be fed through it here.
     'qwen': [
         {
             'id': 'qwen3.7-max',
@@ -314,13 +384,34 @@ PROVIDER_MODELS = {
             'id': 'qwen3.7-plus',
             'label': 'Qwen3.7-Plus',
             'context': '1M',
-            'vision': True,
+            'vision': False,
         },
         {
             'id': 'qwen3.6-flash',
             'label': 'Qwen3.6-Flash (fast, cheap)',
             'context': '1M',
-            'vision': True,
+            'vision': False,
+        },
+    ],
+    # International pay-go mirrors the China tier's model list.
+    'qwen_intl': [
+        {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max (flagship)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'qwen3.7-plus',
+            'label': 'Qwen3.7-Plus',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'qwen3.6-flash',
+            'label': 'Qwen3.6-Flash (fast, cheap)',
+            'context': '1M',
+            'vision': False,
         },
     ],
     'qwen_coding': [
@@ -328,7 +419,35 @@ PROVIDER_MODELS = {
             'id': 'qwen3.7-plus',
             'label': 'Qwen3.7-Plus',
             'context': '1M',
-            'vision': True,
+            'vision': False,
+        },
+    ],
+    # Token Plan flagship is qwen3.8-max-preview (Token-Plan-only —
+    # 401s on pay-as-you-go). ~960K usable context per Alibaba's doc.
+    'qwen_token': [
+        {
+            'id': 'qwen3.8-max-preview',
+            'label': 'Qwen3.8-Max-Preview (flagship)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'qwen3.7-plus',
+            'label': 'Qwen3.7-Plus',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'qwen3.6-flash',
+            'label': 'Qwen3.6-Flash (fast, cheap)',
+            'context': '1M',
+            'vision': False,
         },
     ],
 }

@@ -23,6 +23,10 @@ interface ProviderPreset {
   env: Record<string, string>
   load_global_mcp?: boolean
   models?: ModelOption[]
+  // Presets sharing a `group` (e.g. "Alibaba Cloud", "GLM") collapse
+  // into one top-level button that reveals its `variant` sub-buttons.
+  group?: string
+  variant?: string
 }
 
 interface ProfileModalProps {
@@ -51,6 +55,18 @@ const MODEL_TIER_KEYS = [
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'ANTHROPIC_SMALL_FAST_MODEL',
+  'CLAUDE_CODE_SUBAGENT_MODEL',
+]
+// For a from-scratch (Custom) profile the Advanced section is otherwise
+// empty; we seed it with the keys presets commonly set so the user only
+// fills values. Blank rows are dropped on save, so leaving any untouched
+// is fine. (Excludes the promoted primary fields: base URL, model, key.)
+const CUSTOM_ENV_TEMPLATE = [
+  'API_TIMEOUT_MS',
+  'ANTHROPIC_SMALL_FAST_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   'CLAUDE_CODE_SUBAGENT_MODEL',
 ]
 
@@ -107,6 +123,9 @@ function ProfileForm({
   )
   const [presets, setPresets] = useState<Record<string, ProviderPreset>>({})
   const [selectedPreset, setSelectedPreset] = useState('')
+  // Which grouped provider's variant row is expanded (e.g. "Alibaba
+  // Cloud"). Empty when a standalone/custom top-level entry is active.
+  const [selectedGroup, setSelectedGroup] = useState('')
   const [error, setError] = useState('')
   // Default to on: the whole point is to save the extra click.
   const [setAsDefault, setSetAsDefault] = useState(true)
@@ -217,6 +236,7 @@ function ProfileForm({
     if (!preset) return
 
     setSelectedPreset(presetId)
+    setSelectedGroup(preset.group ?? '')
     setLoadGlobalMcp(preset.load_global_mcp ?? false)
     setError('')
     setShowAdvanced(false)
@@ -233,6 +253,52 @@ function ProfileForm({
     const label =
       preset.models?.find((m) => m.id === defaultModel)?.label ?? defaultModel
     setName(label ? `${preset.name} - ${label}` : preset.name)
+  }
+
+  // Top-level provider entries: standalone presets stay as-is; presets
+  // sharing a `group` collapse into one entry (first occurrence wins
+  // ordering). Selecting a group reveals its variant row below.
+  const providerEntries = useMemo(() => {
+    const seen = new Set<string>()
+    const entries: Array<
+      | { kind: 'preset'; id: string; label: string }
+      | { kind: 'group'; group: string }
+    > = []
+    for (const [id, p] of Object.entries(presets)) {
+      if (p.group) {
+        if (!seen.has(p.group)) {
+          seen.add(p.group)
+          entries.push({ kind: 'group', group: p.group })
+        }
+      } else {
+        entries.push({ kind: 'preset', id, label: p.name })
+      }
+    }
+    return entries
+  }, [presets])
+
+  const groupVariants = (group: string) =>
+    Object.entries(presets)
+      .filter(([, p]) => p.group === group)
+      .map(([id, p]) => ({ id, label: p.variant || p.name }))
+
+  const selectCustom = () => {
+    setSelectedPreset('custom')
+    setSelectedGroup('')
+    setName('')
+    setNameEdited(false)
+    setLoadGlobalMcp(false)
+    setError('')
+    setModelCustom(false)
+    // Seed the common env keys (empty) so Advanced isn't blank — the
+    // user just fills values; blanks are dropped on save. Reveal it.
+    setEnvVars([
+      { key: 'ANTHROPIC_AUTH_TOKEN', value: '' },
+      { key: BASE_URL_KEY, value: '' },
+      { key: MODEL_KEY, value: '' },
+      ...CUSTOM_ENV_TEMPLATE.map((key) => ({ key, value: '' })),
+    ])
+    setShowAdvanced(true)
   }
 
   const addEnvVar = () => {
@@ -259,7 +325,9 @@ function ProfileForm({
   const buildEnv = (): Record<string, string> => {
     const env: Record<string, string> = {}
     envVars.forEach(({ key, value }) => {
-      if (key.trim()) env[key.trim()] = value
+      // Drop blank-valued rows: the Custom template and any cleared
+      // preset key count as "not set" rather than persisting an empty.
+      if (key.trim() && value.trim()) env[key.trim()] = value
     })
     return env
   }
@@ -353,37 +421,43 @@ function ProfileForm({
         )}
 
         <div className="space-y-4">
-          {/* Provider preset selector — only when creating */}
+          {/* Provider preset selector — only when creating. Grouped
+              providers (Alibaba Cloud, GLM) show a variant sub-row. */}
           {!editingProfile && Object.keys(presets).length > 0 && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {t('profiles.envPresets')}
               </label>
               <div className="flex flex-wrap gap-2">
-                {Object.entries(presets).map(([id, preset]) => (
-                  <button
-                    key={id}
-                    onClick={() => applyPreset(id)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                      selectedPreset === id
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {preset.name}
-                  </button>
-                ))}
+                {providerEntries.map((entry) =>
+                  entry.kind === 'preset' ? (
+                    <button
+                      key={entry.id}
+                      onClick={() => applyPreset(entry.id)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPreset === entry.id
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {entry.label}
+                    </button>
+                  ) : (
+                    <button
+                      key={entry.group}
+                      onClick={() => setSelectedGroup(entry.group)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        selectedGroup === entry.group
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {entry.group} ›
+                    </button>
+                  )
+                )}
                 <button
-                  onClick={() => {
-                    setSelectedPreset('custom')
-                    setName('')
-                    setNameEdited(false)
-                    setEnvVars([])
-                    setLoadGlobalMcp(false)
-                    setError('')
-                    setShowAdvanced(false)
-                    setModelCustom(false)
-                  }}
+                  onClick={selectCustom}
                   className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     selectedPreset === 'custom'
                       ? 'bg-indigo-600 text-white'
@@ -393,6 +467,25 @@ function ProfileForm({
                   {t('profiles.custom')}
                 </button>
               </div>
+
+              {/* Variant sub-row for the selected group */}
+              {selectedGroup && (
+                <div className="flex flex-wrap gap-2 mt-2 pl-3 border-l-2 border-indigo-200">
+                  {groupVariants(selectedGroup).map((v) => (
+                    <button
+                      key={v.id}
+                      onClick={() => applyPreset(v.id)}
+                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                        selectedPreset === v.id
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
