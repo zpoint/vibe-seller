@@ -283,13 +283,28 @@ PROVIDER_MODELS = {
     #
     # Kimi coding endpoint only accepts the short-form ids below; older
     # kimi-k2.5 etc. live on api.moonshot.ai and 400 here.
+    # Vision: K3 (and the K2.7-code aliases) are natively multimodal per
+    # Moonshot's official vision guide (platform.kimi.ai/docs/guide/
+    # use-kimi-vision-model), cross-checked via context7. Doc-verified,
+    # NOT live-probed (no key); the coding endpoint carries images per
+    # Kimi Code's own changelog. Give me a Kimi key to confirm live.
     'kimi': [
-        {'id': 'k3[1m]', 'label': 'K3 (1M context)', 'context': '1M'},
-        {'id': 'k3', 'label': 'K3 (256K)', 'context': '256K'},
-        {'id': 'kimi-for-coding', 'label': 'Kimi for Coding (cheaper)'},
+        {
+            'id': 'k3[1m]',
+            'label': 'K3 (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {'id': 'k3', 'label': 'K3 (256K)', 'context': '256K', 'vision': True},
+        {
+            'id': 'kimi-for-coding',
+            'label': 'Kimi for Coding (cheaper)',
+            'vision': True,
+        },
         {
             'id': 'kimi-for-coding-highspeed',
             'label': 'Kimi for Coding — high-speed',
+            'vision': True,
         },
     ],
     # MiniMax: text-only. Live probe (red+blue x3) had M3 name red then
@@ -322,23 +337,48 @@ PROVIDER_MODELS = {
             'vision': False,
         },
     ],
-    # GLM: vision omitted (no key to live-verify). context doc-sourced.
+    # GLM 5.2 / 4.7 / 4.5-air are TEXT-ONLY (confirmed): GLM's vision
+    # capability lives in a SEPARATE model line (glm-4.5v / glm-4v), not
+    # these. Not live-probed (no key), but this is stable, not a
+    # fast-moving fact.
     'glm': [
-        {'id': 'glm-5.2[1m]', 'label': 'GLM-5.2 (1M context)', 'context': '1M'},
-        {'id': 'glm-4.7', 'label': 'GLM-4.7', 'context': '200K'},
+        {
+            'id': 'glm-5.2[1m]',
+            'label': 'GLM-5.2 (1M context)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.7',
+            'label': 'GLM-4.7',
+            'context': '200K',
+            'vision': False,
+        },
         {
             'id': 'glm-4.5-air',
             'label': 'GLM-4.5-Air (fast, cheap)',
             'context': '128K',
+            'vision': False,
         },
     ],
     'glm_intl': [
-        {'id': 'glm-5.2[1m]', 'label': 'GLM-5.2 (1M context)', 'context': '1M'},
-        {'id': 'glm-4.7', 'label': 'GLM-4.7', 'context': '200K'},
+        {
+            'id': 'glm-5.2[1m]',
+            'label': 'GLM-5.2 (1M context)',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'glm-4.7',
+            'label': 'GLM-4.7',
+            'context': '200K',
+            'vision': False,
+        },
         {
             'id': 'glm-4.5-air',
             'label': 'GLM-4.5-Air (fast, cheap)',
             'context': '128K',
+            'vision': False,
         },
     ],
     # DeepSeek: text-only (live probe returned empty text on images).

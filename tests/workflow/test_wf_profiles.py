@@ -166,9 +166,11 @@ class TestProfileCrud:
         assert vis('qwen', 'qwen3.7-max') is False
         assert vis('deepseek', 'deepseek-v4-pro[1m]') is False
         assert vis('minimax', 'MiniMax-M3[1m]') is False
-        # No key to verify -> no vision claim
-        assert vis('kimi', 'k3[1m]') is None
-        assert vis('glm', 'glm-5.2[1m]') is None
+        # GLM: text-only (confirmed — vision is the separate glm-4.5v /
+        # glm-4v line, not these). Kimi K3: vision per Moonshot's official
+        # vision guide + context7 (doc-verified, no key to live-probe).
+        assert vis('glm', 'glm-5.2[1m]') is False
+        assert vis('kimi', 'k3[1m]') is True
 
     async def test_presets_match_vendor_docs(self, admin_client):
         """Pin the load-bearing values for the vendor-doc-aligned
