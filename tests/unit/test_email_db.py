@@ -270,6 +270,83 @@ class TestReceivedEpochWatermark:
         conn.close()
         assert nulls == 0
 
+    def test_init_upgrades_db_missing_received_epoch_column(
+        self, account_id, tmp_path
+    ):
+        """The real legacy case: an ``emails`` table created before the
+        ``received_epoch`` column existed at all (column absent, not just
+        NULL). ``init_email_db`` must add the column + index and backfill
+        WITHOUT throwing.
+
+        Regression for the production incident where every account's sync
+        failed with ``sqlite3.OperationalError: no such column:
+        received_epoch`` — the received_epoch index in the schema script
+        ran against a legacy table before the migration could add the
+        column, aborting the sync before any mail was fetched.
+        """
+        path = db_path_for_account(account_id)
+        conn = sqlite3.connect(str(path))
+        # Exactly the pre-received_epoch schema shipped to clients.
+        conn.executescript(
+            """
+            CREATE TABLE emails (
+                message_id    TEXT NOT NULL,
+                folder        TEXT NOT NULL DEFAULT 'INBOX',
+                subject       TEXT,
+                sender        TEXT,
+                recipient     TEXT,
+                date          TEXT,
+                body_text     TEXT,
+                body_html     TEXT,
+                raw_headers   TEXT,
+                attachments   TEXT,
+                flags         TEXT,
+                fetched_at    TEXT,
+                email_account TEXT,
+                PRIMARY KEY (message_id, folder)
+            );
+            CREATE INDEX idx_emails_date ON emails(date);
+            CREATE TABLE sync_state (
+                folder TEXT PRIMARY KEY, watermark_date TEXT,
+                last_polled_at TEXT, seen_message_ids TEXT
+            );
+            """
+        )
+        conn.execute(
+            'INSERT INTO emails(message_id, folder, subject, fetched_at, '
+            'date) VALUES(?,?,?,?,?)',
+            ('<otp@ex.com>', 'INBOX', 'OTP', self.NEW, self.NEW),
+        )
+        conn.commit()
+        conn.close()
+
+        # Must not raise (the incident was an uncaught OperationalError).
+        init_email_db(account_id)
+
+        conn = sqlite3.connect(str(path))
+        try:
+            cols = {r[1] for r in conn.execute('PRAGMA table_info(emails)')}
+            indexes = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                )
+            }
+            epoch = conn.execute(
+                "SELECT received_epoch FROM emails WHERE message_id='<otp@ex.com>'"
+            ).fetchone()[0]
+        finally:
+            conn.close()
+
+        assert 'received_epoch' in cols  # column added
+        assert 'idx_emails_recv' in indexes  # index created after column
+        # Pre-existing row backfilled onto the epoch axis.
+        assert epoch == int(datetime.fromisoformat(self.NEW).timestamp())
+
+        # And the watermark filter now works on the upgraded DB.
+        emails, _ = get_new_emails_since(account_id, 0)
+        assert {e['message_id'] for e in emails} == {'<otp@ex.com>'}
+
 
 class TestSyncState:
     def test_round_trip(self, account_id, initialized_db):
