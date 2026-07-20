@@ -124,6 +124,28 @@ When a message is sent to a `completed` or `failed` task:
 
 This differs from the `waiting` → `queued` wake path: waiting tasks are explicitly paused by the agent for external events, while follow-ups are user-initiated continuation of finished work.
 
+### Fresh-session context-rot guard
+
+`resume=True` is a request, not a guarantee. When the task transcript
+exceeds `VIBE_FRESH_SESSION_MSG_LIMIT` (default 400 `task_messages`
+rows), the follow-up handler in `tasks_conversation.py` treats the
+session as **non-resumable** and starts a **fresh CLI session** seeded
+with the compacted context the non-resume branch already builds
+(`app/ai/compaction.py`: full raw history → a JSON file under
+`~/.vibe-seller/task_history/`, last 5 messages inline, plan inline,
+plus an instruction to read the file). The task workspace — files on
+disk, markers, reports — is unchanged.
+
+Why fresh instead of resuming-and-summarizing: the observed failure
+mode on long transcripts is context **rot**, not size — superseded
+conclusions and stale artifact paths persist as "facts" and the agent
+re-verifies dead state. A model-written summary *distills* that
+narrative; a fresh session re-grounds in current reality (disk state,
+live pages) and pulls raw history on demand. Division of labor:
+**Claude Code's native auto-compaction handles intra-turn context
+pressure inside a session; this guard handles inter-turn rot between
+sessions.** The limit is a row-count heuristic — tune via the env var.
+
 ### Plan Feedback
 
 Users send feedback via the unified chat input at the bottom of the conversation view — no separate design buttons or plan-editing UI. When a message is sent while the task is in `planned` status:

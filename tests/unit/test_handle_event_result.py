@@ -295,8 +295,14 @@ class TestReviewGateRedrive:
                 'result': 'Final answer',
             })
 
-        # Bound hit → normal end-of-turn: result card emitted.
-        assert emitted == [('result', 'Final answer')]
+        # Bound hit → the turn still ends (no wedge), but the result is
+        # banner-marked UNVERIFIED so an unreviewed deliverable is never
+        # mistaken for a reviewed one.
+        assert len(emitted) == 1
+        role, content = emitted[0]
+        assert role == 'result'
+        assert content.endswith('Final answer')
+        assert 'Unverified result' in content
         assert session._first_result_emitted is True
 
     async def test_satisfied_gate_ends_turn_normally(self):

@@ -79,6 +79,11 @@ def rollover_reviews(task_dir) -> None:
     try:
         d = Path(task_dir)
         stale = [p for p in d.glob('*.md') if _REVIEW_NAME_RE.search(p.name)]
+        # Upload markers/verdicts are turn-scoped like reviews: a new
+        # turn's gate must not be satisfied (or armed) by a prior
+        # turn's batches. See stop_gates.listing_upload_gate.
+        stale += list(d.glob('UPLOAD_BATCH_*.json'))
+        stale += list(d.glob('BATCH_*_VERDICT.json'))
         if not stale:
             return
         root = d / PREV_TURNS_DIR

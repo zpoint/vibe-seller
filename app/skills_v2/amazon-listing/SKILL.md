@@ -334,17 +334,24 @@ for an `8560` to fix reactively:
      - **Shared catalog** (the ASIN resolves on the target marketplace):
        pin it + `operation: partialupdate` and add only this marketplace's
        offer — don't re-describe the product.
-     - **Separate catalog** (the target `/dp/<ASIN>` is "Page Not Found",
-       or the upload reports *"the offer cannot be added because the
-       product is not in the catalogue … listing a product from one
-       marketplace to another"* / an `8560`): the ASIN **cannot be
-       shared**. A match/partialupdate fails. You must **CREATE fresh** —
-       a new ASIN (GTIN-exempt) with the FULL required product data
-       (`item_name`, `color_name`, `variation_theme`, description,
-       bullets, …), exactly like the original create on the source
-       marketplace. Regional siblings (e.g. SA vs AE) are frequently
-       SEPARATE catalogs, so this is the common cross-region case — expect
-       to create, not just add an offer.
+     - **Not in the target catalog yet** (the target `/dp/<ASIN>` is
+       "Page Not Found", or the upload reports *"the offer cannot be
+       added because the product is not in the catalogue … listing a
+       product from one marketplace to another"*): an offer-only
+       partialupdate cannot work — but this is NOT a first-time
+       creation either. **CREATE on the target with the FULL product
+       data AND each row's existing ASIN pinned** (`asin: <existing>`
+       on the row): the product already has an ASIN on the source
+       marketplace, and pinning it lets the target link the SAME ASIN
+       so ratings/reviews pool internationally instead of forking.
+       Mint a NEW ASIN (GTIN-exempt, product id left blank) only when
+       the product exists on no marketplace yet, the user explicitly
+       wants a separate listing, or a pinned create irrecoverably
+       conflicts (fix what the report names first). Afterwards verify
+       each CHILD's ASIN on the target equals the source's — children
+       are the buyable entities whose reviews pool; if the parent
+       container minted a new ASIN despite matched children, say so in
+       the result rather than calling the families identical.
    - Supply the **complete offer** — `our_price` + `quantity` +
      `fulfillment_channel_code` — on each child. A fulfillment group needs
      a channel code together with its quantity, or Amazon rejects the
@@ -366,6 +373,41 @@ hoping. If the marketplaces sit on separate catalogs the ASIN may not be
 shareable at all: when Amazon still `8560`s *after* a correct match,
 that region cannot share the catalog — report that (a new ASIN is
 unavoidable), don't silently fork the reviews.
+
+## Deterministic browser helpers (use these FIRST)
+
+Three env-parameterized harness scripts mechanize the finicky browser
+steps — run them through the store wrapper from the task workspace, read
+the single ``RESULT {json}`` line, and only fall back to hand-driving
+(screenshot → explore) when one reports ok=false:
+
+```bash
+S=.claude/skills/amazon-listing/scripts
+DL=~/.vibe-seller/downloads/<slug>
+
+# 1. Generate + download ONE marketplace's template (region-stamped by
+#    the ticked store — this does the ticking for you):
+SC_HOST=sellercentral.amazon.<tld> PRODUCT_TYPE=<keyword> \
+STORE_LABEL=Amazon.<tld> DOWNLOADS_DIR=$DL \
+browser-use < $S/bh_download_template.py
+
+# 2. Stage + submit the filled .txt (file-chooser intercept + Submit +
+#    batch id). Writes UPLOAD_BATCH_<id>.json to MARKER_DIR — the task
+#    CANNOT finish until that batch has a clean parse-feedback verdict:
+UPLOAD_FILE=$DL/out.txt SC_HOST=sellercentral.amazon.<tld> \
+MARKER_DIR="$PWD" browser-use < $S/bh_upload_flatfile.py
+
+# 3. Fetch THAT batch's processing report, then verdict it:
+SC_HOST=sellercentral.amazon.<tld> BATCH_ID=<id> DOWNLOADS_DIR=$DL \
+browser-use < $S/bh_fetch_report.py
+python3 $S/listing_bulk.py parse-feedback <report> --batch-id <id>
+# ^ run FROM the task workspace root: the verdict JSON is written to
+#   the current directory, which is where the completion gate reads it.
+```
+
+The helpers encode the mechanics (decoy input, region stamp, two-click
+submit, shadow-DOM rows); your judgment stays with the spec: which
+operation per row, which fields, and how to fix what the report names.
 
 ## The two scripts
 

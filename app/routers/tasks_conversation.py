@@ -4,22 +4,19 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.compaction import build_history_prompt, dump_history_file
-from app.ai.external_config import (
-    ExternalConfigOverrideError,
-    assert_profile_compatible,
-)
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.auth import get_current_user
-from app.browser.manager import browser_manager, store_slug as _store_slug
-from app.database import async_session, get_db
+from app.browser.manager import browser_manager
+from app.database import get_db
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.store import Store
@@ -38,8 +35,11 @@ from app.task_runner import (
     get_store_emails,
     reopen_parent_if_child_active,
 )
-from app.task_runner_auto import auto_run_task, finalize_followup_session
+from app.task_runner_auto import auto_run_task
 from app.task_runner_exec import execute_planned_task
+from app.task_runner_followup import (
+    spawn_followup_agent as _spawn_followup_agent,
+)
 from app.task_states import (
     RETRIABLE,
     WAKEABLE,
@@ -49,6 +49,13 @@ from app.task_states import (
 from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
+
+# Transcript size beyond which a follow-up starts a FRESH CLI session
+# (compacted context) instead of --resume. See the context-rot guard
+# in the message handler.
+FRESH_SESSION_MSG_LIMIT = int(
+    os.environ.get('VIBE_FRESH_SESSION_MSG_LIMIT', '400')
+)
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 
@@ -66,111 +73,6 @@ def _follow_up_auto_approve(task: Task) -> bool:
     then wait forever for an approval that never arrives.
     """
     return bool(task.schedule_id) or not task.plan_mode
-
-
-async def _spawn_followup_agent(
-    task_id: str,
-    store: Store | None,
-    *,
-    prompt: str,
-    system_extra: str,
-    mode: str,
-    profile_id: str,
-    auto_approve_plan: bool,
-    revert_status: TaskStatus,
-    revert_error: str | None = None,
-    revert_error_category: str | None = None,
-):
-    """Run agent_manager.run() off the request path.
-
-    The HTTP handler can't await the run because acquiring the
-    agent-concurrency semaphore can take seconds-to-minutes under
-    load (catalog-sync fanout, parallel e2e workers). Awaiting it
-    inline blocks the response past the client's read timeout.
-
-    On success, schedules ``finalize_followup_session`` so the
-    session still transitions out of RUNNING/DESIGNING when it
-    ends. On failure (started=False or exception), reverts the
-    task back to its prior terminal state via a fresh DB session
-    so the UI doesn't get stuck mid-transition.
-    """
-    started = False
-    try:
-        # cc-switch / external override may have appeared since the
-        # initial task ran — re-check before each follow-up spawn so
-        # the agent never silently routes to whatever endpoint the
-        # external tool configured. Treat as a normal launch failure
-        # so the existing revert path runs (task back to its prior
-        # terminal status, error surfaced on the task card).
-        try:
-            assert_profile_compatible(profile_id)
-        except ExternalConfigOverrideError as override_err:
-            # Expected, user-actionable condition — don't ``raise``
-            # into the outer ``except Exception`` (it would log a
-            # full stack trace via ``logger.exception``). Instead
-            # update the revert vars in-place and skip past the
-            # agent_manager.run call so the existing revert path
-            # below runs with the structured detail.
-            #
-            # JSON-encode so the frontend's
-            # ``ExternalConfigOverrideErrorCard`` renders the
-            # localized template (same shape as auto_run_task).
-            revert_error = json.dumps(override_err.to_api_detail())
-            revert_error_category = 'external_config_override'
-            logger.info(
-                'Follow-up for task %s blocked by external config '
-                'override (%s); will revert.',
-                task_id,
-                override_err.overriding_keys,
-            )
-            started = False
-        else:
-            started = await agent_manager.run(
-                task_id,
-                prompt,
-                system_extra=system_extra,
-                mode=mode,
-                profile_id=profile_id,
-                resume=True,
-                auto_approve_plan=auto_approve_plan,
-                store_slug=(
-                    _store_slug(store.name, store.id) if store else None
-                ),
-                # Follow-up turns are conversational — reflection is
-                # for initial task knowledge capture. Re-running it
-                # on every follow-up forces a text-emitting
-                # reflection phase that overwrites the agent's
-                # actual response when the model put its answer
-                # only in a thinking block (e.g. GLM-4.7 on terse
-                # follow-ups). The initial task's reflection already
-                # captured any learnings; conversational turns have
-                # nothing new to learn from.
-                skip_reflection=True,
-            )
-    except Exception:
-        logger.exception(
-            'Background follow-up agent run failed for task %s', task_id
-        )
-    if started:
-        asyncio.create_task(finalize_followup_session(task_id, store))
-        return
-    # Revert to prior terminal state — the request handler already
-    # committed RUNNING/DESIGNING and emitted task_update; we need
-    # to roll that back so the UI doesn't sit on a phantom phase.
-    async with async_session() as db2:
-        task_obj = await db2.get(Task, task_id)
-        if task_obj is None:
-            return
-        task_obj.status = revert_status.value
-        if revert_error is not None or revert_error_category is not None:
-            task_obj.error = revert_error
-            task_obj.error_category = revert_error_category
-        task_obj.updated_at = datetime.now(UTC).isoformat()
-        await db2.commit()
-    await event_bus.emit(
-        'task_update',
-        {'task_id': task_id, 'status': revert_status.value},
-    )
 
 
 async def get_next_seq(db: AsyncSession, task_id: str) -> int:
@@ -288,6 +190,31 @@ async def send_task_message(
     # Determine if we can resume a CLI session (has full context)
     is_plan_feedback = task.status == TaskStatus.PLANNED
     has_resumable_session = bool(task.session_id) and not is_profile_switch
+    # Context-rot guard: past a certain transcript size, a resumed
+    # session carries more failed-attempt residue than signal — stale
+    # file paths, superseded conclusions, and old batch state dominate
+    # the context and the agent re-verifies dead artifacts (observed
+    # live: a reviewer "verified" a prior turn's report because its
+    # path was still in context). Beyond the threshold, start a FRESH
+    # CLI session seeded with the compact history summary the
+    # non-resumable branch below already builds (history file + recent
+    # messages + plan). The task workspace (files on disk) is unchanged.
+    if has_resumable_session:
+        n_msgs = await db.scalar(
+            select(func.count())
+            .select_from(TaskMessage)
+            .where(TaskMessage.task_id == task_id)
+        )
+        if (n_msgs or 0) > FRESH_SESSION_MSG_LIMIT:
+            has_resumable_session = False
+            logger.info(
+                'Task %s transcript has %d messages (> %d) — starting '
+                'a fresh session with compacted context instead of '
+                'resuming',
+                task_id,
+                n_msgs,
+                FRESH_SESSION_MSG_LIMIT,
+            )
 
     # Plan approval is a ONE-WAY exit from plan mode (like Claude Code:
     # an approved ExitPlanMode leaves the session in normal mode for
@@ -446,6 +373,7 @@ async def send_task_message(
                 mode='plan_then_execute',
                 profile_id=requested_profile_id,
                 auto_approve_plan=_follow_up_auto_approve(task),
+                resume=has_resumable_session,
                 revert_status=TaskStatus.PLANNED,
             )
         )
@@ -508,6 +436,7 @@ async def send_task_message(
                 mode=follow_up_mode,
                 profile_id=requested_profile_id,
                 auto_approve_plan=_follow_up_auto_approve(task),
+                resume=has_resumable_session,
                 revert_status=TaskStatus(prev_status),
                 revert_error=prev_error,
                 revert_error_category=prev_error_category,
@@ -554,6 +483,7 @@ async def send_task_message(
                 mode=follow_up_mode,
                 profile_id=requested_profile_id,
                 auto_approve_plan=_follow_up_auto_approve(task),
+                resume=has_resumable_session,
                 revert_status=TaskStatus(task.status),
             )
         )

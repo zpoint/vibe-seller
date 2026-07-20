@@ -594,6 +594,35 @@ def _report_comment_errors(path):
     return out
 
 
+def _write_verdict(batch_id, n_err, n_warn, error_msgs):
+    """Write ``BATCH_<id>_VERDICT.json`` to CWD (the task workspace).
+
+    The machine-checkable verdict the completion gate matches against the
+    ``UPLOAD_BATCH_<id>.json`` marker bh_upload_flatfile wrote: the task
+    cannot finish while a batch has non-image errors. When the caller
+    could not extract per-error text, every error counts as non-image
+    (conservative -- never lets an unknown error pass as deferrable).
+    """
+    if not batch_id:
+        return
+    non_image = [
+        m
+        for m in error_msgs
+        if '18320' not in m and 'main image' not in m.lower()
+    ]
+    strict = error_msgs or n_err == 0
+    with open(f'BATCH_{batch_id}_VERDICT.json', 'w', encoding='utf-8') as fh:
+        json.dump(
+            {
+                'batch_id': batch_id,
+                'errors': n_err,
+                'warnings': n_warn,
+                'non_image_errors': len(non_image) if strict else n_err,
+            },
+            fh,
+        )
+
+
 def cmd_parse_feedback(args):
     """Summarise Amazon's processing report: per-SKU errors/warnings.
 
@@ -610,6 +639,12 @@ def cmd_parse_feedback(args):
         print(
             f'\n{n_err} error(s), {n_warn} warning(s) across '
             f'{len({s for s, *_ in comment_errs})} SKU(s).'
+        )
+        _write_verdict(
+            getattr(args, 'batch_id', None),
+            n_err,
+            n_warn,
+            [m for _s, _f, sev, m in comment_errs if sev == 'error'],
         )
         if n_err:
             print(
@@ -702,6 +737,12 @@ def cmd_parse_feedback(args):
             n_err, n_warn = c_err, c_warn
 
     print(f'\nsummary: {n_err} error(s), {n_warn} warning(s)')
+    _write_verdict(
+        getattr(args, 'batch_id', None),
+        n_err,
+        n_warn,
+        [m for _s, _f, m in cell_errs] if cell_errs else [],
+    )
     if n_err:
         sys.exit(1)
 
@@ -729,6 +770,10 @@ def main():
 
     p = sub.add_parser('parse-feedback', help='summarise a processing report')
     p.add_argument('file')
+    p.add_argument(
+        '--batch-id',
+        help='write BATCH_<id>_VERDICT.json for the completion gate',
+    )
     p.set_defaults(func=cmd_parse_feedback)
 
     args = ap.parse_args()
