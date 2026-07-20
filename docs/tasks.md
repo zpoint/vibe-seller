@@ -192,6 +192,30 @@ Assembly order (fixed for all task types):
 
 **Task dispatch**: All task launch paths (create, retry, continue, execute-plan, scheduled) route through `TaskQueueScheduler`. Store tasks are gated by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, `QUEUE`). No-store tasks (`store_id=None`) always dispatch immediately — they bypass the *per-store* browser config, session tracking, and store CDP proxy. They still get the store-less `web` browser wrapper (`bin/_web`), which lazy-starts its own Chrome + CDP proxy on first use via `POST /api/browser/web/start` (so a no-store task that never browses pays nothing). Per-store tasks can run concurrently when sharing the same platform/country, with CDP-level isolation provided by `CDPMuxProxy`.
 
+## Turn Lifecycle
+
+See [docs/backend.md § Turn Lifecycle](backend.md#turn-lifecycle-process-per-turn-model)
+for the full model and configuration. Task-level summary:
+
+- **What starts a turn**: task creation / plan approval (first turn of
+  the process), a gate redrive, a `<task-notification>` continuation
+  (an async subagent finished and the main agent resumes), or a
+  follow-up message injected into the live process.
+- **What ends a turn**: an accepted result event (gates pass, no async
+  subagents pending) emits the turn's `role='result'` card. **What
+  ends the PROCESS** — and only then the task's RUNNING state — is the
+  quiescence watchdog closing stdin after the linger window, the hard
+  idle bound, `stop()`, or the plan-skip close.
+- **Task status vs turn state**: the task stays RUNNING until the
+  process exits (`done` → `_finalize_terminal_state`); a result card
+  can therefore be visible while the status is still RUNNING — that is
+  the linger window, and mid-window follow-ups are injected into the
+  live process instead of spawning a `--resume` session.
+- **Router fallback**: if the follow-up write misses the live pipe
+  (raced the terminator), `send_message` returns False and the
+  conversation router falls through to the resume/fresh-session spawn
+  (the user message is already persisted; `persist_prompt=False`).
+
 ## Event Flow During Execution
 
 Auto mode:
