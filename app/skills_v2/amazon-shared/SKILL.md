@@ -169,6 +169,37 @@ menu at all. Canonical per-country paths live in
 Only fall back to the menu (§4c/§4d) when you need to *discover* a page
 whose URL you don't have.
 
+### 4a-bis. Marketplace context is per-SESSION-and-DOMAIN — read the
+### switcher label, and know how to unstick it
+
+What a seller-central page displays follows the **header
+account/marketplace switcher label** (store name + country), NOT the
+URL subdomain — a session can be pinned so that even
+`sellercentral.amazon.ae/...` renders the sibling marketplace. The
+label is the only truth; read it back on every page you act on. Note
+the store display name can DIFFER per marketplace on one account
+(brand/storefront names vary) — reconcile by catalog contents, not by
+name alone.
+
+When the label shows the wrong marketplace and you need to switch:
+
+1. **The switcher is a custom component (kat/Vue): JS `.click()`
+   no-ops.** Use trusted coordinate clicks (`click_at_xy`) on the
+   header switcher button, then on the target row in the dropdown —
+   rows are (account × country) pairs; "See all" expands the full
+   list. Re-read the label after.
+2. **If the dropdown won't open or has no row for the target**: open
+   the target subdomain in a FRESH tab (`new_tab`), and if it still
+   renders the wrong context, try your OTHER session (`{slug}-aux` or
+   the main session — whichever you're not on): sessions carry
+   independent marketplace pins, and one of them is often already on
+   the target (verified live: a main session pinned to one country
+   while the aux session rendered the target correctly). Do the
+   target-marketplace work — template, upload, verification — in
+   whichever session+tab shows the TARGET label on the TARGET
+   subdomain.
+3. Only after both fail, ask the user — with what you observed.
+
 ### 4b. Detecting the version
 
 Load `/home` and check where you land / what renders:
