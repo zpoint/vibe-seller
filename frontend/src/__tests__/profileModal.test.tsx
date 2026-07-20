@@ -86,6 +86,16 @@ const ALIBABA_CODING = {
   models: [{ id: 'qwen3.7-plus', label: 'Qwen3.7-Plus', context: '1M', vision: false }],
 }
 
+const INTL_PRESET = {
+  name: 'Qwen Intl',
+  env: {
+    ANTHROPIC_BASE_URL:
+      'https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/apps/anthropic',
+    ANTHROPIC_MODEL: 'qwen3.7-max',
+  },
+  models: [{ id: 'qwen3.7-max', label: 'Qwen3.7-Max', context: '1M', vision: false }],
+}
+
 function mockPresets(presets: Record<string, unknown>) {
   ;(global.fetch as unknown) = vi.fn().mockResolvedValue({
     json: async () => ({ presets }),
@@ -270,17 +280,18 @@ describe('ProfileModal', () => {
     const groupBtn = await screen.findByRole('button', { name: /Alibaba Cloud/ })
     expect(screen.queryByRole('button', { name: 'Coding Plan' })).toBeNull()
 
-    // Selecting the group reveals its variant sub-buttons.
+    // Selecting the group reveals its variant sub-buttons AND applies
+    // the first variant immediately (fields populate, not left stale).
     fireEvent.click(groupBtn)
     expect(
       await screen.findByRole('button', { name: 'Pay-as-you-go (China)' })
     ).toBeInTheDocument()
-    const coding = screen.getByRole('button', { name: 'Coding Plan' })
+    const nameInput = screen.getByPlaceholderText('e.g., MiniMax') as HTMLInputElement
+    expect(nameInput.value).toBe('Qwen (Pay-as-you-go, China) - Qwen3.7-Max')
 
-    // Picking a variant applies that preset (auto-name + model chip).
-    fireEvent.click(coding)
-    expect((screen.getByPlaceholderText('e.g., MiniMax') as HTMLInputElement).value)
-      .toBe('Qwen (Coding Plan) - Qwen3.7-Plus')
+    // Switching to another variant re-applies that preset.
+    fireEvent.click(screen.getByRole('button', { name: 'Coding Plan' }))
+    expect(nameInput.value).toBe('Qwen (Coding Plan) - Qwen3.7-Plus')
     expect(screen.getByText('Qwen3.7-Plus')).toBeInTheDocument()
   })
 
@@ -330,5 +341,29 @@ describe('ProfileModal', () => {
     // Untouched (blank) template keys are dropped, not persisted empty.
     expect(env.CLAUDE_CODE_SUBAGENT_MODEL).toBeUndefined()
     expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()
+  })
+
+  it('blocks save until a {placeholder} in the Base URL is replaced', async () => {
+    mockPresets({ intl: INTL_PRESET })
+    renderModal()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Qwen Intl' }))
+    fireEvent.change(
+      screen.getByPlaceholderText('Paste your provider API key'),
+      { target: { value: 'sk-i' } }
+    )
+
+    // Name + key are set, but the {WorkspaceId} placeholder blocks save.
+    const createBtn = screen.getByRole('button', { name: 'Create' })
+    expect(createBtn).toBeDisabled()
+
+    // Replace the placeholder with a real host -> save unblocks.
+    const baseInput = screen.getByDisplayValue(/\{WorkspaceId\}/)
+    fireEvent.change(baseInput, {
+      target: {
+        value: 'https://ws-abc.ap-southeast-1.maas.aliyuncs.com/apps/anthropic',
+      },
+    })
+    expect(createBtn).toBeEnabled()
   })
 })

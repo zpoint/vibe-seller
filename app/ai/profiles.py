@@ -152,6 +152,9 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-max',
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
             'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-max',
+            # Qwen 1M via the doc's token-count method; the [1m]
+            # suffix 400s on the DashScope endpoint (live-verified).
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
     # International (Singapore) pay-as-you-go uses a per-workspace MaaS
@@ -180,6 +183,9 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-max',
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
             'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-max',
+            # Qwen 1M via the doc's token-count method; the [1m]
+            # suffix 400s on the DashScope endpoint (live-verified).
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
     'qwen_coding': {
@@ -203,6 +209,7 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
             'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
     # Token Plan (个人版 and 团队版 share this config; they differ only by

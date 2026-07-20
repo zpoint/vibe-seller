@@ -215,6 +215,27 @@ async def test_missing_key_reported_without_network():
     assert result.code == 'missing_key'
 
 
+async def test_unreplaced_placeholder_rejected_without_network():
+    """A base URL with an unfilled {WorkspaceId}-style placeholder must
+    be rejected before any network call (Alibaba International tier)."""
+    async with _client(_no_call) as c:
+        result = await validate_profile_env(
+            {
+                'ANTHROPIC_BASE_URL': (
+                    'https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com'
+                    '/apps/anthropic'
+                ),
+                'ANTHROPIC_AUTH_TOKEN': 'tok',
+                'ANTHROPIC_MODEL': 'qwen3.7-max',
+            },
+            client=c,
+        )
+
+    assert not result.ok
+    assert result.code == 'placeholder'
+    assert '{WorkspaceId}' in result.error
+
+
 async def test_missing_model_reported_without_network():
     async with _client(_no_call) as c:
         result = await validate_profile_env(

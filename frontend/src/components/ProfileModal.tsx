@@ -333,7 +333,11 @@ function ProfileForm({
   }
 
   const apiKeyMissing = !getEnvValue(apiKeyName).trim()
-  const canSubmit = !!name.trim() && !apiKeyMissing && !validating
+  // A preset base URL can ship a {Placeholder} (e.g. Alibaba's
+  // {WorkspaceId}); it must be replaced before the profile is usable.
+  const baseHasPlaceholder = /\{[^}]+\}/.test(getEnvValue(BASE_URL_KEY))
+  const canSubmit =
+    !!name.trim() && !apiKeyMissing && !baseHasPlaceholder && !validating
 
   const handleSave = async () => {
     setError('')
@@ -343,6 +347,14 @@ function ProfileForm({
     }
     if (apiKeyMissing) {
       setError(t('profiles.apiKeyRequired') || 'API key is required')
+      return
+    }
+    if (baseHasPlaceholder) {
+      const ph = getEnvValue(BASE_URL_KEY).match(/\{[^}]+\}/)?.[0] ?? ''
+      setError(
+        t('profiles.baseUrlPlaceholder', { placeholder: ph }) ||
+          `Replace ${ph} in the Base URL before saving`
+      )
       return
     }
 
@@ -445,7 +457,17 @@ function ProfileForm({
                   ) : (
                     <button
                       key={entry.group}
-                      onClick={() => setSelectedGroup(entry.group)}
+                      onClick={() => {
+                        // Open the group AND apply its first variant so
+                        // the fields populate immediately (rather than
+                        // leaving the previously-selected provider's
+                        // values in place). Re-clicking an already-open
+                        // group is a no-op so a typed key isn't wiped.
+                        if (selectedGroup === entry.group) return
+                        const first = groupVariants(entry.group)[0]
+                        if (first) applyPreset(first.id)
+                        else setSelectedGroup(entry.group)
+                      }}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                         selectedGroup === entry.group
                           ? 'bg-indigo-600 text-white'

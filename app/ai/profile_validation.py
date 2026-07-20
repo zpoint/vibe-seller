@@ -30,10 +30,16 @@ Design notes:
 
 import json
 import logging
+import re
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Matches an unfilled ``{Placeholder}`` left in a preset base URL (e.g.
+# the Alibaba International ``{WorkspaceId}`` template). Saving one is a
+# guaranteed runtime failure, so the probe rejects it before any call.
+_PLACEHOLDER_RE = re.compile(r'\{[^}]+\}')
 
 BASE_URL_KEY = 'ANTHROPIC_BASE_URL'
 MODEL_KEY = 'ANTHROPIC_MODEL'
@@ -198,6 +204,18 @@ async def validate_profile_env(
     base_url = (env.get(BASE_URL_KEY) or '').strip()
     if not base_url:
         return ProfileValidationResult(ok=True, code='no_endpoint')
+
+    placeholder = _PLACEHOLDER_RE.search(base_url)
+    if placeholder:
+        return ProfileValidationResult(
+            ok=False,
+            code='placeholder',
+            error=(
+                f'Base URL still contains the placeholder '
+                f'{placeholder.group(0)} — replace it with your real '
+                'value before saving.'
+            ),
+        )
 
     headers = _auth_headers(env)
     if not headers:

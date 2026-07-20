@@ -174,6 +174,13 @@ class TestProfileCrud:
         assert qwen['ANTHROPIC_MODEL'] == 'qwen3.7-max'
         assert qwen['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.6-flash'
         assert qwen['ANTHROPIC_SMALL_FAST_MODEL'] == 'qwen3.6-flash'
+        # Qwen gets its 1M window from the token count, not a [1m]
+        # suffix (that 400s on DashScope — live-verified). No Qwen id
+        # may carry the suffix.
+        assert qwen['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] == '1000000'
+        assert not any('[1m]' in v for v in qwen.values()), (
+            'Qwen ids must not use the [1m] suffix'
+        )
 
         qwen_cp = presets['qwen_coding']['env']
         assert qwen_cp['ANTHROPIC_BASE_URL'] == (
