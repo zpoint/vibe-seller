@@ -57,6 +57,30 @@ _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 _REVIEW_NAME_RE = re.compile(r'(?:^|[^a-z])review(?:[^a-z]|$)', re.IGNORECASE)
 
 
+def exec_authorship_deny(review_writers, name, status, iter_num):
+    """Deny reason when an accepting EXEC_REVIEW verdict was not
+    written by the reviewer subagent this turn; else ``None``.
+
+    Same authorship rule as ``reviewer_verdict`` (see there for the
+    launch-and-stop bypass this closes), phrased for the
+    execution-review loop. ``None`` writers = signal unavailable →
+    legacy behavior.
+    """
+    if review_writers is None or status not in ('ok', 'incomplete'):
+        return None
+    if review_writers.get(name) == 'subagent':
+        return None
+    return (
+        f'{name} says Status: {status}, but it was not written by '
+        'the ``ads-execution-review`` subagent this turn — a verdict '
+        'the main agent writes itself does not count. Spawn the '
+        'reviewer and have IT write '
+        f'``EXEC_REVIEW_*_iter{iter_num + 1}.md`` with its own Write '
+        'tool; if it is still running, wait for its completion '
+        'notification first.'
+    )
+
+
 def is_review_file_name(name: str) -> bool:
     """True when *name* looks like a review-verdict artifact.
 

@@ -101,6 +101,48 @@ def ids_in_template(cols):
     return ids
 
 
+def label(mkt_id):
+    """'A2VIGQ35RCS4UG (AE)'-style label for messages."""
+    cc = COUNTRY_BY_ID.get(mkt_id)
+    return f'{mkt_id} ({cc})' if cc else str(mkt_id)
+
+
+def stamp_guard(requested, mkt_id, template_ids):
+    """Region-stamp guard for ``fill`` → ``(fatal, warning)`` strings.
+
+    A template generated with the wrong store ticked is stamped for the
+    wrong marketplace, and every later step then faithfully "succeeds"
+    on the wrong storefront (observed live). Declaring the target makes
+    that a hard error (*fatal*); not declaring it on a single-stamped
+    template auto-adopts the stamp, so *warning* says LOUDLY which
+    marketplace is about to receive the listing.
+    """
+    if not template_ids:
+        return None, None
+    stamped = ', '.join(label(m) for m in template_ids)
+    if requested and mkt_id not in template_ids:
+        return (
+            f'error: you are filling for {label(mkt_id)} but this '
+            f'template is region-stamped for {stamped} — it has no '
+            'offer columns for your target. The template was generated '
+            'with the wrong store ticked. Do NOT fill or upload it; '
+            'regenerate with the target store ticked '
+            '(bh_download_template verifies the tick) and fill that '
+            'one.',
+            None,
+        )
+    if not requested and mkt_id:
+        return None, (
+            'warning: no marketplace declared — auto-adopting the '
+            f"template's own stamp {label(mkt_id)}. The listing will "
+            'land on THAT storefront; if that is not the intended '
+            'target, STOP and regenerate the template. Declare '
+            '--marketplace <CC> (or spec "marketplace") to make a '
+            'mismatch fail instead.'
+        )
+    return None, None
+
+
 def resolve(marketplace, template_ids=None):
     """Country code ('SA') / raw id / template auto-detect -> marketplace id.
 

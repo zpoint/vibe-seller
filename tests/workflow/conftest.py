@@ -148,6 +148,7 @@ def install_fake_agent(fake_agent, monkeypatch):
         'app.ai.claude_backend_manager.agent_backend', fake_agent
     )
     monkeypatch.setattr('app.routers.tasks.agent_manager', fake_agent)
+    monkeypatch.setattr('app.routers.tasks_files.agent_manager', fake_agent)
     monkeypatch.setattr(
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )

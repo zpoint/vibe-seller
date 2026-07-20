@@ -160,6 +160,25 @@ STOP_REFLECTION_CALLBACK = 'stop_reflection'
 MAX_REPEAT_TOOL_CALLS = Options.MAX_REPEAT_TOOL_CALLS.get_int()
 
 
+def check_tool_loop(
+    recent_calls: list[str], tool_name: str, tool_input: dict
+) -> bool:
+    """True if the agent is stuck in a degenerate tool loop.
+
+    Appends the call signature to *recent_calls* (the session's
+    rolling window, mutated in place) and reports whether the last
+    ``MAX_REPEAT_TOOL_CALLS`` signatures are all identical.
+    """
+    sig = f'{tool_name}:{json.dumps(tool_input, sort_keys=True)}'
+    recent_calls.append(sig)
+    if len(recent_calls) > MAX_REPEAT_TOOL_CALLS:
+        del recent_calls[:-MAX_REPEAT_TOOL_CALLS]
+    return (
+        len(recent_calls) >= MAX_REPEAT_TOOL_CALLS
+        and len(set(recent_calls)) == 1
+    )
+
+
 async def get_next_seq(db, task_id: str) -> int:
     """Get next sequence number for task messages."""
     result = await db.execute(

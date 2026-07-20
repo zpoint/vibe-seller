@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
+from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
     record_attempt,
@@ -33,15 +34,13 @@ logger = logging.getLogger(__name__)
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
 
 
-def apply_report_reviewer_gate(
-    task_id, task_root, final_result, review_writers=None
-):
+def apply_report_reviewer_gate(task_id, task_root, final_result):
     """Reviewer sign-off for review-declaring skills at ``set_task_result``.
 
-    ``review_writers`` — the live session's per-file verdict-authorship
-    map (who wrote each review file this turn), supplied by the caller
-    from ``agent_manager``; an accepting verdict then counts only when
-    the reviewer subagent itself wrote the file.
+    The live session's per-file verdict-authorship map (who wrote each
+    review file this turn) is read from ``agent_manager``; an accepting
+    verdict then counts only when the reviewer subagent itself wrote
+    the file.
 
     The active reviewer is enforced here (not only in the Stop hook) so a
     backend that finishes via this endpoint can't complete with the
@@ -62,8 +61,10 @@ def apply_report_reviewer_gate(
     )
     if not needs_review:
         return None, final_result
+    session = agent_manager.get_session(task_id)
     deny = report_reviewer.reviewer_verdict(
-        task_root, review_writers=review_writers
+        task_root,
+        review_writers=getattr(session, '_review_file_writers', None),
     )
     if not deny:
         return None, final_result

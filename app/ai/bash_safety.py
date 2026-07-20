@@ -660,24 +660,12 @@ def check_exec_review_status(task_dir, review_writers=None) -> str | None:
             )
     except OSError:
         pass
-    # Authorship: an accepting exec verdict must have been WRITTEN by
-    # the reviewer subagent this turn — the same launch-and-stop /
-    # self-certification bypass as the report gate. Fail-closed when
-    # the stream signal is available (bounded by the redrive budget).
-    if (
-        review_writers is not None
-        and status in ('ok', 'incomplete')
-        and review_writers.get(latest.name) != 'subagent'
-    ):
-        return (
-            f'{latest.name} says Status: {status}, but it was not '
-            'written by the ``ads-execution-review`` subagent this '
-            'turn — a verdict the main agent writes itself does not '
-            'count. Spawn the reviewer and have IT write '
-            f'``EXEC_REVIEW_*_iter{iter_num + 1}.md`` with its own '
-            'Write tool; if it is still running, wait for its '
-            'completion notification first.'
-        )
+    # Authorship (shared rule, one home — see report_reviewer).
+    deny = report_reviewer.exec_authorship_deny(
+        review_writers, latest.name, status, iter_num
+    )
+    if deny:
+        return deny
     if status == 'ok':
         return None
     if status == 'incomplete' and iter_num >= _EXEC_REVIEW_MAX_ITERS:

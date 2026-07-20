@@ -31,12 +31,12 @@ from sqlalchemy import select
 
 from app.ai.claude_backend_hooks import _HookMixin
 from app.ai.claude_backend_stream import _StreamMixin
+from app.ai.claude_backend_subagents import _SubagentMixin
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
     DRAIN_TIMEOUT,
     INTERRUPT_TIMEOUT,
-    MAX_REPEAT_TOOL_CALLS,
     SIGNAL_TIMEOUT,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
@@ -82,7 +82,7 @@ def permission_mode_for_agent(agent_mode: str) -> str:
     return 'plan' if agent_mode == 'plan_then_execute' else 'bypassPermissions'
 
 
-class AgentSession(_HookMixin, _StreamMixin):
+class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
     """Manages a single claude -p subprocess for a task."""
 
     def __init__(
@@ -111,13 +111,10 @@ class AgentSession(_HookMixin, _StreamMixin):
         self.auto_approve_plan = auto_approve_plan
         self.task_dir = task_dir
         self.skip_reflection = skip_reflection
-        # Whether start() should persist self.prompt as a role='user'
-        # TaskMessage. True for initial runs (the prompt exists nowhere
-        # else); False for follow-up spawns — the conversation router
+        # False for follow-up spawns/retries: the conversation router
         # already persisted the user's message, and persisting it again
-        # here duplicated every follow-up message on the fresh-session
-        # and dead-session-resume paths (observed live: identical user
-        # rows ~100ms apart).
+        # in start() duplicated every follow-up message (fresh-session
+        # and dead-session-resume paths).
         self.persist_prompt = persist_prompt
         self.resume_session_id: str | None = None
         self._proc: asyncio.subprocess.Process | None = None
@@ -192,47 +189,15 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
         self._review_redrive_count: int = 0  # review-gate re-drive bound
-        # Review-gate stream signals. `_review_subagent_ran` flips when
-        # a review-ish Agent/Task spawn is seen (weak, spawn-time).
-        # `_review_file_writers` maps each REVIEW/EXEC_REVIEW file
-        # written this turn to 'subagent' or 'main' by whether the
-        # Write/Edit event carried a parent_tool_use_id — the strong
-        # authorship signal the gates trust (a verdict counts only when
-        # the reviewer subagent itself wrote it).
-        self._review_subagent_ran: bool = False
-        self._review_file_writers: dict[str, str] = {}
-        # Async-subagent lifecycle: ids of Agent/Task tool_use blocks
-        # spawned this turn, and the subset confirmed ASYNC (launch ack
-        # "Async agent launched…") that have not yet produced a
-        # <task-notification>. A turn must not end while this is
-        # non-empty — the CLI emits its `result` even with background
-        # agents still running, and closing stdin then default-denies
-        # every one of their remaining tool calls (observed live).
-        self._agent_spawn_ids: set[str] = set()
-        self._async_agents: dict[str, str] = {}
+        # Review-authorship + async-subagent stream signals — see
+        # claude_backend_subagents._init_subagent_state.
+        self._init_subagent_state()
         # PreToolUse-hook state. See app.ai.bash_safety and
         # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()
         self._catalog_read: bool = False
         # Serialize message persistence so seq + created_at stay in order
         self._emit_lock: asyncio.Lock = asyncio.Lock()
-
-    def _check_tool_loop(self, tool_name: str, tool_input: dict) -> bool:
-        """Return True if agent is stuck in a degenerate loop.
-
-        Tracks the last N tool call signatures. If all N are
-        identical, the agent is looping on garbage calls.
-        """
-        sig = f'{tool_name}:{json.dumps(tool_input, sort_keys=True)}'
-        self._recent_tool_calls.append(sig)
-        if len(self._recent_tool_calls) > MAX_REPEAT_TOOL_CALLS:
-            self._recent_tool_calls = self._recent_tool_calls[
-                -MAX_REPEAT_TOOL_CALLS:
-            ]
-        if len(self._recent_tool_calls) >= MAX_REPEAT_TOOL_CALLS:
-            if len(set(self._recent_tool_calls)) == 1:
-                return True
-        return False
 
     async def _cleanup_browser_daemons(self):
         """Kill browser-use daemons spawned for this task.
