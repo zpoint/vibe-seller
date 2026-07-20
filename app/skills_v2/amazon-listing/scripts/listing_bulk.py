@@ -118,7 +118,9 @@ from marketplace_ids import (  # noqa: E402,F401
     MARKETPLACE_IDS,  # re-exported for callers/tests
     fulfillment_index as _fulfillment_index_for_marketplace,
     ids_in_template as _marketplace_ids_in_template,
+    label as _mkt_label,
     resolve as _resolve_marketplace_id,
+    stamp_guard as _stamp_guard,
 )
 
 # Item Highlight (`title_differentiation`) is an OPTIONAL field Amazon only
@@ -230,6 +232,11 @@ def cmd_inspect(args):
     data_row = _data_start_row(ws, header_row)
     print(f'template : {tt[:80]}')
     print(f'dialect  : {schema.dialect}')
+    mkts = _marketplace_ids_in_template(cols)
+    if mkts:
+        # The template is REGION-STAMPED for these — verify the target
+        # marketplace is among them BEFORE filling.
+        print('marketplaces: ' + ', '.join(_mkt_label(m) for m in mkts))
     print(f'sheets   : {wb.sheetnames}')
     print(f'header at Excel row {header_row}; data starts row {data_row}')
     print(f'total fields: {len(cols)}   required fields: {len(required)}')
@@ -361,10 +368,16 @@ def cmd_fill(args):
     # The offer price is per-marketplace; resolve the target once (CLI
     # --marketplace wins, else spec's top-level "marketplace", else the
     # template itself if it names exactly one marketplace).
-    mkt_id = _resolve_marketplace_id(
-        getattr(args, 'marketplace', None) or spec.get('marketplace'),
-        _marketplace_ids_in_template(cols),
-    )
+    template_ids = _marketplace_ids_in_template(cols)
+    requested = getattr(args, 'marketplace', None) or spec.get('marketplace')
+    mkt_id = _resolve_marketplace_id(requested, template_ids)
+    # Region-stamp guard: hard-fail a declared-target mismatch; shout
+    # when auto-adopting a single stamp. See marketplace_ids.stamp_guard.
+    fatal, warn = _stamp_guard(requested, mkt_id, template_ids)
+    if fatal:
+        raise SystemExit(fatal)
+    if warn:
+        print(warn, file=sys.stderr)
 
     unknown_fields = set()
     warnings = []

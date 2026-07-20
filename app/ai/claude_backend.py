@@ -31,12 +31,12 @@ from sqlalchemy import select
 
 from app.ai.claude_backend_hooks import _HookMixin
 from app.ai.claude_backend_stream import _StreamMixin
+from app.ai.claude_backend_subagents import _SubagentMixin
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
     DRAIN_TIMEOUT,
     INTERRUPT_TIMEOUT,
-    MAX_REPEAT_TOOL_CALLS,
     SIGNAL_TIMEOUT,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
@@ -82,7 +82,7 @@ def permission_mode_for_agent(agent_mode: str) -> str:
     return 'plan' if agent_mode == 'plan_then_execute' else 'bypassPermissions'
 
 
-class AgentSession(_HookMixin, _StreamMixin):
+class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
     """Manages a single claude -p subprocess for a task."""
 
     def __init__(
@@ -98,6 +98,7 @@ class AgentSession(_HookMixin, _StreamMixin):
         auto_approve_plan: bool = False,
         task_dir: Path | None = None,
         skip_reflection: bool = False,
+        persist_prompt: bool = True,
     ):
         self.task_id = task_id
         self.prompt = prompt
@@ -110,6 +111,11 @@ class AgentSession(_HookMixin, _StreamMixin):
         self.auto_approve_plan = auto_approve_plan
         self.task_dir = task_dir
         self.skip_reflection = skip_reflection
+        # False for follow-up spawns/retries: the conversation router
+        # already persisted the user's message, and persisting it again
+        # in start() duplicated every follow-up message (fresh-session
+        # and dead-session-resume paths).
+        self.persist_prompt = persist_prompt
         self.resume_session_id: str | None = None
         self._proc: asyncio.subprocess.Process | None = None
         self._task: asyncio.Task | None = None
@@ -183,29 +189,15 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
         self._review_redrive_count: int = 0  # review-gate re-drive bound
+        # Review-authorship + async-subagent stream signals — see
+        # claude_backend_subagents._init_subagent_state.
+        self._init_subagent_state()
         # PreToolUse-hook state. See app.ai.bash_safety and
         # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()
         self._catalog_read: bool = False
         # Serialize message persistence so seq + created_at stay in order
         self._emit_lock: asyncio.Lock = asyncio.Lock()
-
-    def _check_tool_loop(self, tool_name: str, tool_input: dict) -> bool:
-        """Return True if agent is stuck in a degenerate loop.
-
-        Tracks the last N tool call signatures. If all N are
-        identical, the agent is looping on garbage calls.
-        """
-        sig = f'{tool_name}:{json.dumps(tool_input, sort_keys=True)}'
-        self._recent_tool_calls.append(sig)
-        if len(self._recent_tool_calls) > MAX_REPEAT_TOOL_CALLS:
-            self._recent_tool_calls = self._recent_tool_calls[
-                -MAX_REPEAT_TOOL_CALLS:
-            ]
-        if len(self._recent_tool_calls) >= MAX_REPEAT_TOOL_CALLS:
-            if len(set(self._recent_tool_calls)) == 1:
-                return True
-        return False
 
     async def _cleanup_browser_daemons(self):
         """Kill browser-use daemons spawned for this task.
@@ -420,8 +412,12 @@ class AgentSession(_HookMixin, _StreamMixin):
         # Persist the initial user prompt so it appears in the
         # history file when sessions are reconstructed (e.g. on
         # profile switch).  Skip when replaying history — those
-        # messages are already in the DB.
-        if not self.message_history:
+        # messages are already in the DB — and skip for follow-up
+        # spawns (persist_prompt=False): the conversation router
+        # already saved the user's message, and saving it again here
+        # duplicated it (fresh-session and dead-session-resume paths
+        # both arrive with an empty message_history).
+        if self.persist_prompt and not self.message_history:
             await self._emit_message('user', self.prompt)
 
         # Build the user prompt, optionally embedding prior

@@ -20,14 +20,10 @@ from app.ai.bash_safety import (
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
-    REVIEW_REDRIVE_MAX,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
-    build_tasklist_open_reason,
-    check_exec_review_status_for_stop,
-    check_review_status_for_stop,
     check_skill_prereqs,
-    get_open_tasklist_items,
+    check_tool_loop,
     validate_fanout_plan_text,
 )
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
@@ -151,65 +147,6 @@ class _HookMixin:
             else:
                 await self._send_control_response(request_id, 'allow')
 
-    async def _deny_stop_if_tasklist_open(self, request_id: str) -> bool:
-        """Deny stop if TaskList has open items; return True if denied."""
-        items = get_open_tasklist_items(self.task_id)
-        if not items:
-            return False
-        logger.info('Stop denied %s — %d open', self.task_id[:8], len(items))
-        await self._send_hook_response(
-            request_id,
-            {'decision': 'block', 'reason': build_tasklist_open_reason(items)},
-        )
-        return True
-
-    async def _deny_stop_if_review_unsatisfied(self, request_id: str) -> bool:
-        """Deny stop if the ads-audit reviewer hasn't returned
-        ``Status: ok`` (or ``incomplete`` at iter 5+); return True if
-        denied.
-
-        See ``check_review_status_for_stop`` in
-        ``claude_backend_utils`` for the contract and
-        ``amazon-ads/references/reviewer-loop.md`` for the loop the
-        main agent runs to satisfy this gate. Quiet no-op for non-ads
-        tasks (no ``AD_AUDIT_*.md`` in the workspace).
-        """
-        # Past the re-drive budget the gate FAILS OPEN: the stream
-        # banner-marks the result UNVERIFIED and this hook stands down so
-        # the CLI can exit (a live deny + closed approval channel had
-        # every tool default-denied mid-recovery).
-        if self._review_redrive_count >= REVIEW_REDRIVE_MAX:
-            return False
-        deny = check_review_status_for_stop(
-            self.task_dir,
-            subagent_ran=getattr(self, '_review_subagent_ran', False),
-        )
-        if not deny:
-            return False
-        logger.info(
-            'Stop denied %s — ads-audit reviewer unsatisfied',
-            self.task_id[:8],
-        )
-        await self._send_hook_response(
-            request_id,
-            {'decision': 'block', 'reason': deny},
-        )
-        return True
-
-    async def _deny_stop_if_exec_review_unsatisfied(self, request_id):
-        """Stop-hook variant of the exec-review gate. The primary gate
-        is in the ``set_task_result`` MCP endpoint; this is a backstop
-        for backends that do emit Stop events.
-        """
-        deny = check_exec_review_status_for_stop(self.task_dir)
-        if not deny:
-            return False
-        logger.info('Stop denied %s — exec-review', self.task_id[:8])
-        await self._send_hook_response(
-            request_id, {'decision': 'block', 'reason': deny}
-        )
-        return True
-
     async def _handle_hook_callback(self, request_id: str, request: dict):
         """Handle a HookCallback control request."""
         callback_id = request.get('callback_id', '')
@@ -309,7 +246,9 @@ class _HookMixin:
             if read_skill:
                 self._loaded_skills.add(read_skill)
                 record_skill_load(self.task_id, read_skill)
-            if self._check_tool_loop(inner_name, inner_input):
+            if check_tool_loop(
+                self._recent_tool_calls, inner_name, inner_input
+            ):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
                     self.task_id[:8],
@@ -399,6 +338,8 @@ class _HookMixin:
                 )
             else:
                 if await self._deny_stop_if_tasklist_open(request_id):
+                    return
+                if await self._deny_stop_if_async_agents_running(request_id):
                     return
                 if await self._deny_stop_if_review_unsatisfied(request_id):
                     return
@@ -494,7 +435,7 @@ class _HookMixin:
             await self._handle_ask_user_question(request_id, tool_input)
         else:
             # Circuit breaker check
-            if self._check_tool_loop(tool_name, tool_input):
+            if check_tool_loop(self._recent_tool_calls, tool_name, tool_input):
                 logger.warning(
                     'Circuit breaker: agent %s stuck in loop (%s), stopping',
                     self.task_id[:8],

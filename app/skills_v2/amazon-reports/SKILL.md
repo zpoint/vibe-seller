@@ -1173,11 +1173,15 @@ into each country's folder yourself:
 
 ```python
 import pandas as pd
+
 df = pd.read_csv('unified_advertised_product.csv')
 col = [c for c in df.columns if '站点' in c or 'marketplace' in c.lower()][0]
-for mkt, sub in df.groupby(col):        # AMAZON_SA / AMAZON_AE / AMAZON_AU
-    cc = mkt.split('_')[-1].lower()      # sa / ae / au
-    sub.to_csv(f'reports_{{MM}}_{cc}_{{slug}}/Sponsored_Products_Advertised_product_report_{{Mon}}.csv', index=False)
+for mkt, sub in df.groupby(col):  # AMAZON_SA / AMAZON_AE / AMAZON_AU
+    cc = mkt.split('_')[-1].lower()  # sa / ae / au
+    sub.to_csv(
+        f'reports_{{MM}}_{cc}_{{slug}}/Sponsored_Products_Advertised_product_report_{{Mon}}.csv',
+        index=False,
+    )
 ```
 
 **Verify content, not just that a file exists:** after splitting, confirm

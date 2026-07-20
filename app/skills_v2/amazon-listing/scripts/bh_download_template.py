@@ -8,10 +8,27 @@ unticked. Run through the STORE WRAPPER:
 
   SC_HOST=sellercentral.amazon.ae PRODUCT_TYPE=socks \
   STORE_LABEL=Amazon.ae DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \
+  MARKER_DIR="$PWD" \
   browser-use < .claude/skills/amazon-listing/scripts/bh_download_template.py
 
 Prints exactly one ``RESULT {json}`` line:
-  ok / template (downloaded path) / picked (product type) / reason
+  ok / template (downloaded path) / picked (product type) /
+  stores (label -> ticked, read back AFTER ticking) / reason
+
+The store tick is VERIFIED, never assumed: kat-checkbox often ignores a
+JS ``.click()`` (shadow DOM), and a template generated WITHOUT the
+target store ticked is region-stamped for the wrong marketplace — the
+whole upload then succeeds on the wrong storefront. After ticking, the
+checkbox states are read back; an unticked target is retried with a
+trusted coordinate click; if the target STILL isn't ticked, the result
+is ``ok: false`` with the observed states. Other leaves left ticked are
+fine — a bundled multi-marketplace template works (``fill`` routes the
+offer by marketplace), so we never fight the other checkboxes.
+
+On success it also writes ``UPLOAD_PENDING.json`` into MARKER_DIR (pass
+your task workspace): the completion gate then refuses to end the turn
+until the batch you upload has a parse-feedback verdict (or you remove
+the marker because no upload happened).
 
 On any miss it screenshots and reports the step that failed — explore
 from the screenshot rather than blind-retrying.
@@ -26,12 +43,50 @@ HOST = os.environ['SC_HOST']
 PTYPE = os.environ['PRODUCT_TYPE']
 STORE = os.environ['STORE_LABEL']
 DL = os.path.expanduser(os.environ['DOWNLOADS_DIR'])
-out = {'ok': False, 'template': None, 'picked': None}
+MARKER_DIR = os.environ.get('MARKER_DIR', '.')
+out = {'ok': False, 'template': None, 'picked': None, 'stores': None}
 
 _WALK = (
     'function* w(r){for(const e of r.querySelectorAll("*")){yield e;'
     'if(e.shadowRoot) yield* w(e.shadowRoot);}}'
 )
+
+
+def _store_states():
+    """Read back every Amazon.* leaf checkbox: label, state, coords.
+
+    State comes from the component property OR the attribute —
+    whichever the kat build maintains — so a stale attribute can't
+    report a click that never took effect.
+    """
+    raw = js(
+        _WALK + 'const res=[];'
+        'for(const e of w(document)){'
+        'if((e.tagName||"").toLowerCase()!=="kat-checkbox") continue;'
+        'const lbl=(e.getAttribute("label")||e.textContent||"").trim();'
+        'if(!/^Amazon\\./i.test(lbl)) continue;'
+        'const on=(e.checked===true)||(e.hasAttribute("checked")&&'
+        'e.getAttribute("checked")!=="false");'
+        'const r=e.getBoundingClientRect();'
+        'res.push({label:lbl,on:on,x:Math.round(r.x+r.width/2),'
+        'y:Math.round(r.y+r.height/2)});}'
+        'return JSON.stringify(res);'
+    )
+    return json.loads(raw) if raw else []
+
+
+def _target_unticked():
+    """States list + the target entry when it still needs a tick.
+
+    Only the TARGET's tick is load-bearing: an unticked target stamps
+    the template for the wrong region. Extra ticked leaves are fine (a
+    bundled template routes by marketplace at fill time), so they are
+    reported but never fought.
+    """
+    states = _store_states()
+    tgt = next((s for s in states if s['label'].lower() == STORE.lower()), None)
+    needs_click = tgt if (tgt is not None and not tgt['on']) else None
+    return states, tgt, needs_click
 
 
 def _click_text(pattern):
@@ -115,25 +170,10 @@ else:
             out['picked'] = info.get('label')
             click_at_xy(info['box']['x'], info['box']['y'])
             time.sleep(4)
-            # Store checkboxes: tick the TARGET leaf, untick other
-            # Amazon.* leaves (never touch region parents like Europe —
-            # unticking a parent clears all its children).
-            js(
-                _WALK + 'for(const e of w(document)){'
-                'if((e.tagName||"").toLowerCase()!=="kat-checkbox")'
-                'continue;'
-                'const lbl=(e.getAttribute("label")||e.textContent||"")'
-                '.trim();'
-                'if(!/^Amazon\\./i.test(lbl)) continue;'
-                'const on=e.hasAttribute("checked")&&'
-                'e.getAttribute("checked")!=="false";'
-                f'const want=(lbl.toLowerCase()==="{STORE.lower()}");'
-                'if(want!==on) e.click();}'
-                'return "stores set";'
-            )
-            time.sleep(2)
-            # Generate sits low in the modal — extend the viewport so
-            # the trusted click lands.
+            # Extend the viewport BEFORE ticking: the store checkboxes
+            # and the Generate button sit low in the modal, and both the
+            # coordinate readback and the trusted clicks need on-screen
+            # coordinates.
             cdp(
                 'Emulation.setDeviceMetricsOverride',
                 width=1920,
@@ -142,7 +182,60 @@ else:
                 mobile=False,
             )
             time.sleep(1)
-            if not _click_text('^generate spreadsheet$'):
+            # Store checkboxes: make sure the TARGET leaf is ticked
+            # (never touch region parents like Europe — unticking a
+            # parent clears all its children; extra ticked leaves are
+            # fine, `fill` routes by marketplace). Fast path is a JS
+            # click; kat-checkbox often IGNORES it (shadow DOM), so the
+            # target's state is read back and retried with a trusted
+            # coordinate click. Never proceed on an unverified target
+            # tick — the template is region-stamped by these boxes.
+            js(
+                _WALK + 'for(const e of w(document)){'
+                'if((e.tagName||"").toLowerCase()!=="kat-checkbox")'
+                'continue;'
+                'const lbl=(e.getAttribute("label")||e.textContent||"")'
+                '.trim();'
+                f'if(lbl.toLowerCase()!=="{STORE.lower()}") continue;'
+                'const on=(e.checked===true)||(e.hasAttribute("checked")&&'
+                'e.getAttribute("checked")!=="false");'
+                'if(!on) e.click();}'
+                'return "stores set";'
+            )
+            time.sleep(2)
+            states, tgt, needs_click = _target_unticked()
+            for _attempt in range(2):
+                if not needs_click:
+                    break
+                click_at_xy(needs_click['x'], needs_click['y'])
+                time.sleep(1.5)
+                states, tgt, needs_click = _target_unticked()
+            out['stores'] = {s['label']: bool(s['on']) for s in states}
+            if not states:
+                _fail(
+                    'no Amazon.* store checkboxes found in the generator '
+                    'modal — the page layout changed; explore from the '
+                    'screenshot'
+                )
+            elif tgt is None:
+                _fail(
+                    f'target store {STORE!r} is not among the Amazon.* '
+                    'checkboxes (see "stores") — wrong STORE_LABEL '
+                    'spelling, or this account has no such storefront. '
+                    'Do NOT generate: the template would be '
+                    'region-stamped for a different marketplace.'
+                )
+            elif needs_click:
+                _fail(
+                    f'store tick UNVERIFIED: {STORE!r} is still NOT '
+                    'ticked after JS + trusted-click retries (see '
+                    '"stores" for the observed states). Do NOT generate '
+                    'from this state — the template would be '
+                    'region-stamped for the wrong marketplace. Tick it '
+                    'by hand (trusted click on the checkbox coords), '
+                    'verify, then re-run.'
+                )
+            elif not _click_text('^generate spreadsheet$'):
                 _fail('Generate Spreadsheet button not found')
             else:
                 template = None
@@ -163,4 +256,20 @@ else:
                         'Generate clicked but no new .xlsm landed in ' + DL
                     )
                     capture_screenshot()
+                else:
+                    # Arm the upload gate: a downloaded template means an
+                    # upload is intended this turn; the turn can't end
+                    # until the uploaded batch has a verdict (or the
+                    # agent removes this marker because no upload
+                    # happened). See stop_gates/listing_upload_gate.
+                    marker = os.path.join(MARKER_DIR, 'UPLOAD_PENDING.json')
+                    with open(marker, 'w') as fh:
+                        json.dump(
+                            {
+                                'template': template,
+                                'store': STORE,
+                                'host': HOST,
+                            },
+                            fh,
+                        )
                 print('RESULT ' + json.dumps(out))

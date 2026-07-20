@@ -77,14 +77,23 @@ for anything structurally verifiable:
   compaction-clobber regression). *This is what an LLM judge cannot
   reproduce and must not replace.*
 - `listing_submitted` — **implemented as the batch-marker gate**
-  (`stop_gates/listing_upload_gate.py`): the upload helper
+  (`stop_gates/listing_upload_gate.py`): the download helper
+  (`amazon-listing/scripts/bh_download_template.py`) writes an
+  `UPLOAD_PENDING.json` marker when a template lands (an upload is now
+  intended this turn), the upload helper
   (`amazon-listing/scripts/bh_upload_flatfile.py`) records every
   submitted batch as an `UPLOAD_BATCH_<id>.json` marker in the task
   workspace, and `listing_bulk.py parse-feedback --batch-id <id>` writes
   the matching `BATCH_<id>_VERDICT.json` after reading THAT batch's
   processing report. Completion is denied until every marker has a
   verdict and the **latest** batch has zero non-image errors (earlier
-  batches are immutable history a later upload supersedes). Freshness is
+  batches are immutable history a later upload supersedes); "latest"
+  ranges over marker AND verdict-only ids, so a batch uploaded BY HAND
+  (the upload helper failed, the agent fell back to manual clicking —
+  no batch marker exists) is judged too, and the pending marker keeps
+  the gate armed for exactly that fallback: pending with no batch
+  activity at all denies until the agent verdicts the batch it uploaded
+  or deletes the marker because no upload happened. Freshness is
   keyed to the batch id the upload actually produced — a reviewer can't
   pass the turn on a stale report. Markers/verdicts roll over with the
   review files at each new turn (`rollover_reviews`). ("Uploaded?"
@@ -105,12 +114,25 @@ against reality**, then loops until the bar is met. "Did the ads get
 fully drilled?" / "Did the listing actually get created and succeed?" are
 answered by **going and looking**, not by reading the writer's prose.
 
-- **Verdict authorship is enforced, not assumed.** The stream marks the
-  session when it observes a review/verify `Agent`/`Task` subagent spawn
-  (a tool_use the main agent cannot fabricate); `reviewer_verdict`
-  rejects an accepting `Status: ok`/terminal-`incomplete` verdict when
-  no reviewer subagent ran this turn — a verdict the writer wrote itself
-  does not count (`subagent_ran` in `stop_gates/report_reviewer.py`).
+- **Verdict authorship is enforced, not assumed.** The stream attributes
+  every review-file `Write`/`Edit` to `subagent` or `main` via the
+  event's `parent_tool_use_id` (a signal the main agent cannot
+  fabricate); `reviewer_verdict` rejects an accepting `Status:
+  ok`/terminal-`incomplete` verdict unless the reviewer subagent itself
+  wrote the file (`review_writers` in `stop_gates/report_reviewer.py`;
+  the spawn-time `subagent_ran` flag remains as the fallback signal for
+  backends without stream attribution). Spawn-time alone was bypassed
+  live: the main agent self-wrote `ok`, was denied, LAUNCHED an async
+  reviewer — flipping the spawn flag — and stopped before the reviewer
+  wrote anything.
+- **A turn cannot end under a running subagent.** The CLI emits its
+  `result` as soon as the MAIN agent stops; async subagents keep
+  running, and closing stdin then default-denies their remaining tool
+  calls. The stream tracks async-agent launches (`Async agent launched`
+  ack) and completions (`<task-notification>`), and both the Stop hook
+  and the result path re-drive the agent while any launched subagent is
+  still running — bounded by the same redrive budget, failing open with
+  the UNVERIFIED banner so a lost notification can't wedge the turn.
 - **Agent-spawned reviewer subagent with browser + tool access.** It runs
   in the task context (so it can drive the store's Ziniao `browser-use`
   wrapper and MCP tools) but in a **separate, adversarial context** whose

@@ -494,3 +494,303 @@ class TestHandleEventReflectionGuard:
         assert session._result_text == ''
         # Always cleared so a later turn does not adopt stale state.
         assert session._pre_reflection_result is None
+
+
+class TestAsyncAgentTurnHold:
+    """A `result` while async subagents launched this turn are still
+    running must NOT end the turn — the CLI emits its result as soon as
+    the MAIN agent stops, and closing stdin then default-denies every
+    remaining subagent tool call (observed live: a DoD reviewer died
+    mid-verification while the shipped result claimed it was 'running
+    in the background')."""
+
+    def _spawn_async_agent(self, session, agent_id='agent-abc123'):
+        """Feed the spawn tool_use + async launch ack into the stream."""
+        return [
+            {
+                'type': 'assistant',
+                'parent_tool_use_id': None,
+                'message': {
+                    'content': [
+                        {
+                            'type': 'tool_use',
+                            'id': 'toolu_spawn1',
+                            'name': 'Agent',
+                            'input': {'prompt': 'DoD review the upload'},
+                        }
+                    ]
+                },
+            },
+            {
+                'type': 'user',
+                'parent_tool_use_id': None,
+                'message': {
+                    'content': [
+                        {
+                            'type': 'tool_result',
+                            'tool_use_id': 'toolu_spawn1',
+                            'content': (
+                                'Async agent launched successfully. '
+                                '(internal metadata)\n'
+                                f'agentId: {agent_id}'
+                            ),
+                        }
+                    ]
+                },
+            },
+        ]
+
+    async def test_result_with_running_async_agent_redrives(self):
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+        emitted, sent = [], []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        async def _mock_send(msg):
+            sent.append(msg)
+
+        with (
+            patch.object(session, '_emit_message', _mock_emit),
+            patch.object(session, 'send_user_message', _mock_send),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value=None,
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            for ev in self._spawn_async_agent(session):
+                await session._handle_event(ev)
+            await session._handle_event({
+                'type': 'result',
+                'result': 'reviewer is running in the background',
+            })
+
+        assert session._first_result_emitted is False
+        assert len(sent) == 1 and 'still running' in sent[0]
+        assert session._review_redrive_count == 1
+
+    async def test_sync_spawn_does_not_hold_turn(self):
+        # A sync Task tool blocks the main agent; its tool_result is the
+        # subagent's ANSWER, not a launch ack — no turn hold.
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+
+        async def _noop(*a, **k):
+            pass
+
+        with (
+            patch.object(session, '_emit_message', _noop),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value=None,
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            events = self._spawn_async_agent(session)
+            events[1]['message']['content'][0]['content'] = (
+                'Review complete: Status ok, verdict written.'
+            )
+            for ev in events:
+                await session._handle_event(ev)
+            await session._handle_event({
+                'type': 'result',
+                'result': 'done',
+            })
+
+        assert session._async_agents == {}
+        assert session._first_result_emitted is True
+
+    async def test_task_notification_releases_turn(self):
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+
+        async def _noop(*a, **k):
+            pass
+
+        with (
+            patch.object(session, '_emit_message', _noop),
+            patch(
+                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                return_value=None,
+            ),
+            patch(
+                'app.ai.claude_backend_stream'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            for ev in self._spawn_async_agent(session):
+                await session._handle_event(ev)
+            assert session._async_agents
+            await session._handle_event({
+                'type': 'user',
+                'message': {
+                    'content': [
+                        {
+                            'type': 'text',
+                            'text': (
+                                '<task-notification tool-use-id='
+                                '"toolu_spawn1" status="completed">'
+                                'done</task-notification>'
+                            ),
+                        }
+                    ]
+                },
+            })
+            assert session._async_agents == {}
+            await session._handle_event({
+                'type': 'result',
+                'result': 'final answer',
+            })
+
+        assert session._first_result_emitted is True
+
+    async def test_unattributable_notification_fails_open(self):
+        # A notification whose ids we can't match must clear the set —
+        # a format change may never wedge the turn forever.
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            for ev in self._spawn_async_agent(session):
+                await session._handle_event(ev)
+            assert session._async_agents
+            await session._handle_event({
+                'type': 'user',
+                'message': {
+                    'content': [
+                        {
+                            'type': 'text',
+                            'text': '<task-notification>done</task-notification>',
+                        }
+                    ]
+                },
+            })
+        assert session._async_agents == {}
+
+    async def test_notification_by_agent_id_matches(self):
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            for ev in self._spawn_async_agent(session, agent_id='ag-77'):
+                await session._handle_event(ev)
+            await session._handle_event({
+                'type': 'user',
+                'message': {
+                    'content': [
+                        {
+                            'type': 'text',
+                            'text': (
+                                '<task-notification agent-id="ag-77">'
+                                'finished</task-notification>'
+                            ),
+                        }
+                    ]
+                },
+            })
+        assert session._async_agents == {}
+
+
+class TestReviewFileAuthorshipTracking:
+    """The stream attributes each review-file Write/Edit to 'subagent'
+    or 'main' via the event's parent_tool_use_id — the signal the gates
+    use to reject a self-written accepting verdict."""
+
+    def _write_event(self, parent, path='REVIEW_2026-07-20_iter1.md'):
+        return {
+            'type': 'assistant',
+            'parent_tool_use_id': parent,
+            'message': {
+                'content': [
+                    {
+                        'type': 'tool_use',
+                        'id': 'toolu_w1',
+                        'name': 'Write',
+                        'input': {'file_path': f'/ws/{path}'},
+                    }
+                ]
+            },
+        }
+
+    async def test_main_write_recorded_as_main(self):
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(self._write_event(None))
+        assert session._review_file_writers == {
+            'REVIEW_2026-07-20_iter1.md': 'main'
+        }
+
+    async def test_subagent_write_recorded_as_subagent(self):
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(self._write_event('toolu_parent9'))
+        assert session._review_file_writers == {
+            'REVIEW_2026-07-20_iter1.md': 'subagent'
+        }
+
+    async def test_main_overwrite_after_subagent_downgrades(self):
+        # Last writer wins: a main-agent rewrite of the reviewer's file
+        # must not keep the 'subagent' attribution.
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(self._write_event('toolu_parent9'))
+            await session._handle_event(self._write_event(None))
+        assert session._review_file_writers == {
+            'REVIEW_2026-07-20_iter1.md': 'main'
+        }
+
+    async def test_non_review_files_not_tracked(self):
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(
+                self._write_event(None, path='PREVIEW.md')
+            )
+            await session._handle_event(
+                self._write_event(None, path='notes.txt')
+            )
+        assert session._review_file_writers == {}
+
+    async def test_exec_review_tracked_too(self):
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(
+                self._write_event(None, path='EXEC_REVIEW_2026-07-20_iter1.md')
+            )
+        assert session._review_file_writers == {
+            'EXEC_REVIEW_2026-07-20_iter1.md': 'main'
+        }

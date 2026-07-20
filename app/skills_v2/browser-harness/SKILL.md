@@ -88,7 +88,7 @@ wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
 js('<javascript>')  # run JS; returns the SERIALIZABLE result only
 cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
-                                # e.g. cdp('Page.navigate', url='...')
+# e.g. cdp('Page.navigate', url='...')
 ```
 
 - **`js()` returns serializable values only.** `js("document.title")` and

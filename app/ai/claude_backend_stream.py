@@ -19,6 +19,7 @@ from app.ai.claude_backend_utils import (
     parse_wait_condition,
 )
 from app.ai.stop_gates.report_reviewer import (
+    is_review_file_name,
     partial_banner,
     rollover_reviews,
 )
@@ -233,6 +234,9 @@ class _StreamMixin:
                 json.dumps(event, ensure_ascii=False)[:2000],
             )
 
+        if etype == 'user':
+            self._track_async_agents(event)
+
         if etype == 'assistant':
             # Capture error category from assistant error events
             # (e.g. {"error": "authentication_failed"})
@@ -253,12 +257,24 @@ class _StreamMixin:
                     self._had_tool_use = True
                     tool_name = block.get('name', '')
                     tool_input = block.get('input', {})
+                    # Subagent-originated events carry the id of the
+                    # Agent/Task tool_use that spawned them; the main
+                    # agent's own events have it null. This is the
+                    # authorship signal for review verdicts and the
+                    # spawn-tracking key for async agents.
+                    parent_id = event.get('parent_tool_use_id')
                     # A DoD/review verdict only counts when a real reviewer
                     # SUBAGENT produced it. The main agent can't fabricate
                     # this tool_use it never made, so flag a review-ish
                     # Agent/Task spawn; the Stop gate rejects a self-written
                     # verdict when this stayed False.
                     if tool_name in ('Agent', 'Task'):
+                        if not parent_id:
+                            # Track main-agent spawns so the launch ack
+                            # (tool_result) can flag async agents.
+                            _bid = block.get('id')
+                            if _bid:
+                                self._agent_spawn_ids.add(_bid)
                         _blob = json.dumps(
                             tool_input, ensure_ascii=False
                         ).lower()
@@ -267,6 +283,17 @@ class _StreamMixin:
                             for k in ('review', 'verif', 'dod', 'audit')
                         ):
                             self._review_subagent_ran = True
+                    # Review-verdict authorship: record WHO wrote each
+                    # review-named .md this turn. A file last written by
+                    # the main agent can never satisfy the review gates
+                    # (see report_reviewer.reviewer_verdict).
+                    if tool_name in ('Write', 'Edit', 'MultiEdit'):
+                        _fp = str(tool_input.get('file_path', ''))
+                        _base = _fp.rsplit('/', 1)[-1]
+                        if is_review_file_name(_base):
+                            self._review_file_writers[_base] = (
+                                'subagent' if parent_id else 'main'
+                            )
                     if tool_name == 'TodoWrite':
                         todos = tool_input.get('todos', [])
                         await event_bus.emit(
@@ -307,10 +334,24 @@ class _StreamMixin:
             # shared gate helpers, so this covers every review gate, not
             # one task type.
             if self._executing and not is_error:
-                gate_reason = check_review_status_for_stop(
-                    self.task_dir,
-                    subagent_ran=getattr(self, '_review_subagent_ran', False),
-                ) or check_exec_review_status_for_stop(self.task_dir)
+                gate_reason = (
+                    self._async_agents_pending_reason()
+                    or check_review_status_for_stop(
+                        self.task_dir,
+                        subagent_ran=getattr(
+                            self, '_review_subagent_ran', False
+                        ),
+                        review_writers=getattr(
+                            self, '_review_file_writers', None
+                        ),
+                    )
+                    or check_exec_review_status_for_stop(
+                        self.task_dir,
+                        review_writers=getattr(
+                            self, '_review_file_writers', None
+                        ),
+                    )
+                )
                 if (
                     gate_reason
                     and self._review_redrive_count < REVIEW_REDRIVE_MAX

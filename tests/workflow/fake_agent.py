@@ -203,6 +203,7 @@ class FakeAgent(AIAgentBackend):
         store_slug: str | None = None,
         on_start=None,
         skip_reflection: bool = False,
+        persist_prompt: bool = True,
     ) -> bool:
         if self._running.get(task_id):
             return False
