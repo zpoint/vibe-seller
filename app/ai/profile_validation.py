@@ -41,6 +41,16 @@ logger = logging.getLogger(__name__)
 # guaranteed runtime failure, so the probe rejects it before any call.
 _PLACEHOLDER_RE = re.compile(r'\{[^}]+\}')
 
+# Trailing ``[1m]`` 1M-context tag on a model id (e.g. ``glm-5.2[1m]``).
+# This is a Claude Code CLIENT convention, confirmed in the CLI source
+# (``parseUserSpecifiedModel`` in src/utils/model/model.ts does
+# ``normalizedModel.replace(/\[1m]$/i, '')`` and requests the
+# ``context-1m-2025-08-07`` beta). Some endpoints (DeepSeek, MiniMax)
+# also accept the literal suffix server-side; others (Z.AI/GLM,
+# DashScope/Qwen) 400 on it. We strip it exactly as the client does so
+# the probe reflects real runtime behavior for every provider.
+_CONTEXT_TAG_RE = re.compile(r'\[1m\]$', re.IGNORECASE)
+
 BASE_URL_KEY = 'ANTHROPIC_BASE_URL'
 MODEL_KEY = 'ANTHROPIC_MODEL'
 AUTH_TOKEN_KEY = 'ANTHROPIC_AUTH_TOKEN'
@@ -234,13 +244,22 @@ async def validate_profile_env(
             error=f'Model is required (set {MODEL_KEY}).',
         )
 
+    # Strip a trailing beta-context tag (e.g. ``glm-5.2[1m]`` ->
+    # ``glm-5.2``) before probing. ``[1m]`` is a Claude Code CLIENT
+    # convention — the client parses it, requests the 1M-context beta,
+    # and sends the BARE model id to the API. Some endpoints reject the
+    # literal suffixed string (Z.AI: ``[1211] Unknown Model``; DashScope:
+    # 400), so probing the raw string would false-negative a config that
+    # works at runtime. We mirror the client and probe the bare id.
+    probe_model = _CONTEXT_TAG_RE.sub('', model)
+
     url = _probe_url(base_url)
     headers.update({
         'anthropic-version': _ANTHROPIC_VERSION,
         'content-type': 'application/json',
     })
     body = {
-        'model': model,
+        'model': probe_model,
         'max_tokens': _PROBE_MAX_TOKENS,
         'messages': [{'role': 'user', 'content': 'ping'}],
     }

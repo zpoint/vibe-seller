@@ -60,7 +60,8 @@ async def test_valid_response_round_trips_and_reports_model():
     assert captured['url'] == 'https://api.deepseek.com/anthropic/v1/messages'
     assert captured['auth'] == 'Bearer sk-test-token'
     assert captured['version'] == '2023-06-01'
-    assert captured['body']['model'] == 'deepseek-v4-pro[1m]'
+    # The [1m] beta tag is stripped before probing (mirrors the client).
+    assert captured['body']['model'] == 'deepseek-v4-pro'
 
 
 async def test_trailing_slash_base_url_joins_cleanly():
@@ -213,6 +214,28 @@ async def test_missing_key_reported_without_network():
 
     assert not result.ok
     assert result.code == 'missing_key'
+
+
+async def test_context_tag_stripped_before_probe():
+    """A ``[1m]`` beta-context tag is stripped before probing, mirroring
+    Claude Code — the raw API (e.g. Z.AI) 400s on the literal suffix, so
+    probing ``glm-5.2[1m]`` must actually send ``glm-5.2``."""
+    captured = {}
+
+    def handler(request):
+        captured['model'] = json.loads(request.content)['model']
+        return httpx.Response(200, json={'type': 'message', 'content': []})
+
+    env = {
+        'ANTHROPIC_BASE_URL': 'https://api.z.ai/api/anthropic',
+        'ANTHROPIC_AUTH_TOKEN': 'tok',
+        'ANTHROPIC_MODEL': 'glm-5.2[1m]',
+    }
+    async with _client(handler) as c:
+        result = await validate_profile_env(env, client=c)
+
+    assert result.ok
+    assert captured['model'] == 'glm-5.2'
 
 
 async def test_unreplaced_placeholder_rejected_without_network():

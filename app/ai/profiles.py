@@ -79,10 +79,10 @@ PROVIDER_PRESETS = {
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
             'ANTHROPIC_MODEL': 'glm-5.2[1m]',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'glm-4.5-air',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'glm-4.7',
             'ANTHROPIC_DEFAULT_SONNET_MODEL': 'glm-5.2[1m]',
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'glm-5.2[1m]',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'glm-4.5-air',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'glm-4.7',
             'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
         },
     },
@@ -97,10 +97,10 @@ PROVIDER_PRESETS = {
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
             'ANTHROPIC_MODEL': 'glm-5.2[1m]',
-            'ANTHROPIC_SMALL_FAST_MODEL': 'glm-4.5-air',
+            'ANTHROPIC_SMALL_FAST_MODEL': 'glm-4.7',
             'ANTHROPIC_DEFAULT_SONNET_MODEL': 'glm-5.2[1m]',
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'glm-5.2[1m]',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'glm-4.5-air',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'glm-4.7',
             'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
         },
     },
@@ -337,10 +337,12 @@ PROVIDER_MODELS = {
             'vision': False,
         },
     ],
-    # GLM 5.2 / 4.7 / 4.5-air are TEXT-ONLY (confirmed): GLM's vision
-    # capability lives in a SEPARATE model line (glm-4.5v / glm-4v), not
-    # these. Not live-probed (no key), but this is stable, not a
-    # fast-moving fact.
+    # GLM is TEXT-ONLY — live-verified on Z.AI (glm-5.2 / glm-4.7 both
+    # misnamed a red/blue image); GLM's vision is a SEPARATE model line
+    # (glm-4.5v / glm-4v). Ids below are live-verified alive on Z.AI. The
+    # flagship default carries the ``[1m]`` 1M-context tag, which Claude
+    # Code strips before calling the API (the save-time probe strips it
+    # too — the raw endpoint 400s on the literal suffix).
     'glm': [
         {
             'id': 'glm-5.2[1m]',
@@ -350,16 +352,12 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'glm-4.7',
-            'label': 'GLM-4.7',
+            'label': 'GLM-4.7 (value)',
             'context': '200K',
             'vision': False,
         },
-        {
-            'id': 'glm-4.5-air',
-            'label': 'GLM-4.5-Air (fast, cheap)',
-            'context': '128K',
-            'vision': False,
-        },
+        {'id': 'glm-5.1', 'label': 'GLM-5.1', 'vision': False},
+        {'id': 'glm-4.6', 'label': 'GLM-4.6', 'vision': False},
     ],
     'glm_intl': [
         {
@@ -370,16 +368,12 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'glm-4.7',
-            'label': 'GLM-4.7',
+            'label': 'GLM-4.7 (value)',
             'context': '200K',
             'vision': False,
         },
-        {
-            'id': 'glm-4.5-air',
-            'label': 'GLM-4.5-Air (fast, cheap)',
-            'context': '128K',
-            'vision': False,
-        },
+        {'id': 'glm-5.1', 'label': 'GLM-5.1', 'vision': False},
+        {'id': 'glm-4.6', 'label': 'GLM-4.6', 'vision': False},
     ],
     # DeepSeek: text-only (live probe returned empty text on images).
     'deepseek': [
