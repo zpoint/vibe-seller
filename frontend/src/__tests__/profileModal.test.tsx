@@ -343,6 +343,29 @@ describe('ProfileModal', () => {
     expect(env.ANTHROPIC_DEFAULT_OPUS_MODEL).toBeUndefined()
   })
 
+  it('keeps the model an editable text field that chips only fill', async () => {
+    mockPresets({ deepseek: DEEPSEEK_PRESET })
+    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
+    const { onSave } = renderModal()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek' }))
+    // The chip pre-filled the always-visible model text field.
+    const modelInput = screen.getByPlaceholderText(
+      'e.g., deepseek-v4-pro[1m]'
+    ) as HTMLInputElement
+    expect(modelInput.value).toBe('deepseek-v4-pro[1m]')
+
+    // Typing your own model id is allowed and is what gets saved.
+    fireEvent.change(modelInput, { target: { value: 'deepseek-v4-custom' } })
+    fireEvent.change(
+      screen.getByPlaceholderText('Paste your provider API key'),
+      { target: { value: 'sk-z' } }
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    expect(onSave.mock.calls[0][0].env.ANTHROPIC_MODEL).toBe('deepseek-v4-custom')
+  })
+
   it('blocks save until a {placeholder} in the Base URL is replaced', async () => {
     mockPresets({ intl: INTL_PRESET })
     renderModal()

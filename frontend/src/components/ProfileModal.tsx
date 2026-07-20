@@ -112,7 +112,6 @@ function ProfileForm({
   // clobbers a name the user typed; editing an existing profile starts
   // "edited" so we never rename it out from under them.
   const [nameEdited, setNameEdited] = useState(!!editingProfile)
-  const [modelCustom, setModelCustom] = useState(false)
   const [envVars, setEnvVars] = useState<EnvRow[]>(
     editingProfile
       ? Object.entries(editingProfile.env).map(([k, v]) => ({ key: k, value: v }))
@@ -189,9 +188,6 @@ function ProfileForm({
   }, [presets, envVars])
   const modelOptions = matchedPreset?.models ?? []
   const currentModel = getEnvValue(MODEL_KEY)
-  const isKnownModel = modelOptions.some((m) => m.id === currentModel)
-  const showModelText =
-    modelOptions.length === 0 || modelCustom || !isKnownModel
 
   const applyAutoName = (modelLabel: string) => {
     if (nameEdited) return
@@ -225,8 +221,8 @@ function ProfileForm({
     })
   }
 
+  // Chips are a quick-fill for the always-editable model text field.
   const chooseModel = (opt: ModelOption) => {
-    setModelCustom(false)
     syncModel(opt.id)
     applyAutoName(opt.label)
   }
@@ -240,7 +236,6 @@ function ProfileForm({
     setLoadGlobalMcp(preset.load_global_mcp ?? false)
     setError('')
     setShowAdvanced(false)
-    setModelCustom(false)
     setNameEdited(false)
 
     // Fill all env vars from preset + empty ANTHROPIC_AUTH_TOKEN row
@@ -289,7 +284,6 @@ function ProfileForm({
     setNameEdited(false)
     setLoadGlobalMcp(false)
     setError('')
-    setModelCustom(false)
     // Seed the common env keys (empty) so Advanced isn't blank — the
     // user just fills values; blanks are dropped on save. Reveal it.
     setEnvVars([
@@ -545,8 +539,10 @@ function ProfileForm({
             />
           </div>
 
-          {/* Model — chips (with context/vision badges) when the base
-              URL matches a known provider, else free-text. */}
+          {/* Model — always an editable text field; the chips (with
+              context/vision badges) are quick-fill shortcuts. Clicking a
+              chip fills the field; typing your own value clears the chip
+              highlight. */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('profiles.model')}
@@ -554,7 +550,7 @@ function ProfileForm({
             {modelOptions.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {modelOptions.map((m) => {
-                  const active = !showModelText && currentModel === m.id
+                  const active = currentModel === m.id
                   return (
                     <button
                       key={m.id}
@@ -599,31 +595,18 @@ function ProfileForm({
                     </button>
                   )
                 })}
-                <button
-                  type="button"
-                  onClick={() => setModelCustom(true)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    showModelText
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {t('profiles.customModel')}
-                </button>
               </div>
             )}
-            {showModelText && (
-              <input
-                type="text"
-                value={currentModel}
-                onChange={(e) => {
-                  syncModel(e.target.value)
-                  applyAutoName(e.target.value)
-                }}
-                className="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder={t('profiles.modelPlaceholder')}
-              />
-            )}
+            <input
+              type="text"
+              value={currentModel}
+              onChange={(e) => {
+                syncModel(e.target.value)
+                applyAutoName(e.target.value)
+              }}
+              className="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              placeholder={t('profiles.modelPlaceholder')}
+            />
           </div>
 
           {/* Base URL */}

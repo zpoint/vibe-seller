@@ -288,33 +288,35 @@ PROVIDER_MODELS = {
             'label': 'Kimi for Coding — high-speed',
         },
     ],
-    # M3 has a 1M window; the M2.x line is ~200K. All accept image input
-    # (confirmed against the live endpoint). Ids are case-sensitive.
+    # M3 has a 1M window; the M2.x line is ~200K. Text-only: a live
+    # image probe (solid-red PNG + "what color?") had M3 answer "Black"
+    # and M2.5 return nothing — the endpoint accepts the image block but
+    # the model does not actually read it, so vision is not usable here.
     'minimax': [
         {
             'id': 'MiniMax-M3[1m]',
             'label': 'M3 (1M context)',
             'context': '1M',
-            'vision': True,
+            'vision': False,
         },
-        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': True},
+        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': False},
         {
             'id': 'MiniMax-M2.7',
             'label': 'M2.7 (cheaper)',
             'context': '200K',
-            'vision': True,
+            'vision': False,
         },
         {
             'id': 'MiniMax-M2.5',
             'label': 'M2.5 (cheaper)',
             'context': '200K',
-            'vision': True,
+            'vision': False,
         },
         {
             'id': 'MiniMax-M2.1',
             'label': 'M2.1',
             'context': '200K',
-            'vision': True,
+            'vision': False,
         },
     ],
     # GLM is text-only across the line — a poor fit for screenshot-driven
@@ -376,10 +378,11 @@ PROVIDER_MODELS = {
             'vision': False,
         },
     ],
-    # Qwen: labeled text-only for this app. The Qwen-VL lineage has
-    # native vision, but the Bailian /apps/anthropic endpoint rejects
-    # Anthropic image blocks (live probe: HTTP 400 InvalidParameter),
-    # so screenshots can't be fed through it here.
+    # Qwen text models (qwen3.x) 400 on image input (live probe) → they
+    # are text-only. The separate Qwen-VL series genuinely reads images
+    # — verified live on this endpoint (solid-red PNG → "Red") — so it's
+    # offered for screenshot-driven work. VL context is left unlabeled
+    # (unverified); the vision flag is what matters here.
     'qwen': [
         {
             'id': 'qwen3.7-max',
@@ -399,6 +402,12 @@ PROVIDER_MODELS = {
             'context': '1M',
             'vision': False,
         },
+        {
+            'id': 'qwen3-vl-plus',
+            'label': 'Qwen3-VL-Plus (vision)',
+            'vision': True,
+        },
+        {'id': 'qwen-vl-max', 'label': 'Qwen-VL-Max (vision)', 'vision': True},
     ],
     # International pay-go mirrors the China tier's model list.
     'qwen_intl': [
@@ -420,6 +429,12 @@ PROVIDER_MODELS = {
             'context': '1M',
             'vision': False,
         },
+        {
+            'id': 'qwen3-vl-plus',
+            'label': 'Qwen3-VL-Plus (vision)',
+            'vision': True,
+        },
+        {'id': 'qwen-vl-max', 'label': 'Qwen-VL-Max (vision)', 'vision': True},
     ],
     'qwen_coding': [
         {
