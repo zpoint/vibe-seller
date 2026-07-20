@@ -587,6 +587,8 @@
     "apiKey": "API 密钥",
     "apiKeyPlaceholder": "粘贴你的服务商 API 密钥",
     "apiKeyRequired": "请填写 API 密钥",
+    "showApiKey": "显示 API 密钥",
+    "hideApiKey": "隐藏 API 密钥",
     "baseUrlPlaceholder": "保存前请将 Base URL 中的占位符 {{placeholder}} 替换为真实值。",
     "model": "模型",
     "modelPlaceholder": "例如 deepseek-v4-pro[1m]",

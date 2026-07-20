@@ -298,7 +298,7 @@ PROVIDER_MODELS = {
         {'id': 'k3', 'label': 'K3 (256K)', 'context': '256K', 'vision': True},
         {
             'id': 'kimi-for-coding',
-            'label': 'Kimi for Coding (cheaper)',
+            'label': 'Kimi for Coding',
             'vision': True,
         },
         {
@@ -317,16 +317,15 @@ PROVIDER_MODELS = {
             'context': '1M',
             'vision': False,
         },
-        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': False},
         {
             'id': 'MiniMax-M2.7',
-            'label': 'M2.7 (cheaper)',
+            'label': 'M2.7',
             'context': '200K',
             'vision': False,
         },
         {
             'id': 'MiniMax-M2.5',
-            'label': 'M2.5 (cheaper)',
+            'label': 'M2.5',
             'context': '200K',
             'vision': False,
         },
@@ -385,7 +384,7 @@ PROVIDER_MODELS = {
         },
         {
             'id': 'deepseek-v4-flash',
-            'label': 'V4 Flash (fast, cheap)',
+            'label': 'V4 Flash (fast)',
             'context': '1M',
             'vision': False,
         },

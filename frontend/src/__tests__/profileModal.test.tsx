@@ -140,6 +140,20 @@ describe('ProfileModal', () => {
     expect(createBtn).toBeEnabled()
   })
 
+  it('toggles the API key between masked and plaintext via the eye button', () => {
+    renderModal()
+    const keyInput = screen.getByPlaceholderText(
+      'Paste your provider API key'
+    ) as HTMLInputElement
+    expect(keyInput.type).toBe('password')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show API key' }))
+    expect(keyInput.type).toBe('text')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide API key' }))
+    expect(keyInput.type).toBe('password')
+  })
+
   it('validates a good config then saves with setAsDefault=true (custom)', async () => {
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
     const { onSave, onClose } = renderModal()
@@ -382,8 +396,11 @@ describe('ProfileModal', () => {
     // Name + key are set, but the {WorkspaceId} placeholder blocks save.
     const createBtn = screen.getByRole('button', { name: 'Create' })
     expect(createBtn).toBeDisabled()
+    // ...and the reason is discoverable: a hint naming the placeholder
+    // (so the disabled button isn't a mystery).
+    expect(screen.getByText(/\{WorkspaceId\}/)).toBeInTheDocument()
 
-    // Replace the placeholder with a real host -> save unblocks.
+    // Replace the placeholder with a real host -> save unblocks + hint gone.
     const baseInput = screen.getByDisplayValue(/\{WorkspaceId\}/)
     fireEvent.change(baseInput, {
       target: {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
+import { ApiKeyEyeButton } from './ApiKeyEyeButton'
 
 interface Profile {
   id: string
@@ -129,6 +130,7 @@ function ProfileForm({
   // Default to on: the whole point is to save the extra click.
   const [setAsDefault, setSetAsDefault] = useState(true)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [showApiKey, setShowApiKey] = useState(false)
   const [validating, setValidating] = useState(false)
 
   // Fetch provider presets once on mount
@@ -329,9 +331,19 @@ function ProfileForm({
   const apiKeyMissing = !getEnvValue(apiKeyName).trim()
   // A preset base URL can ship a {Placeholder} (e.g. Alibaba's
   // {WorkspaceId}); it must be replaced before the profile is usable.
-  const baseHasPlaceholder = /\{[^}]+\}/.test(getEnvValue(BASE_URL_KEY))
+  const basePlaceholder = getEnvValue(BASE_URL_KEY).match(/\{[^}]+\}/)?.[0] ?? ''
+  const baseHasPlaceholder = !!basePlaceholder
   const canSubmit =
     !!name.trim() && !apiKeyMissing && !baseHasPlaceholder && !validating
+  // Why the Create/Save button is disabled — surfaced as a tooltip so a
+  // disabled button is never a dead end the user can't explain.
+  const submitHint = !name.trim()
+    ? t('profiles.nameRequired')
+    : apiKeyMissing
+      ? t('profiles.apiKeyRequired')
+      : baseHasPlaceholder
+        ? t('profiles.baseUrlPlaceholder', { placeholder: basePlaceholder })
+        : ''
 
   const handleSave = async () => {
     setError('')
@@ -344,10 +356,8 @@ function ProfileForm({
       return
     }
     if (baseHasPlaceholder) {
-      const ph = getEnvValue(BASE_URL_KEY).match(/\{[^}]+\}/)?.[0] ?? ''
       setError(
-        t('profiles.baseUrlPlaceholder', { placeholder: ph }) ||
-          `Replace ${ph} in the Base URL before saving`
+        t('profiles.baseUrlPlaceholder', { placeholder: basePlaceholder })
       )
       return
     }
@@ -527,16 +537,24 @@ function ProfileForm({
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('profiles.apiKey')} <span className="text-red-500">*</span>
             </label>
-            <input
-              type="password"
-              value={getEnvValue(apiKeyName)}
-              onChange={(e) => setEnvValue(apiKeyName, e.target.value)}
-              autoComplete="off"
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
-                apiKeyMissing ? 'border-red-300' : ''
-              }`}
-              placeholder={t('profiles.apiKeyPlaceholder')}
-            />
+            <div className="relative">
+              <input
+                type={showApiKey ? 'text' : 'password'}
+                value={getEnvValue(apiKeyName)}
+                onChange={(e) => setEnvValue(apiKeyName, e.target.value)}
+                autoComplete="off"
+                className={`w-full px-3 py-2 pr-10 border rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                  apiKeyMissing ? 'border-red-300' : ''
+                }`}
+                placeholder={t('profiles.apiKeyPlaceholder')}
+              />
+              <ApiKeyEyeButton
+                visible={showApiKey}
+                onToggle={() => setShowApiKey((v) => !v)}
+                showLabel={t('profiles.showApiKey')}
+                hideLabel={t('profiles.hideApiKey')}
+              />
+            </div>
           </div>
 
           {/* Model — always an editable text field; the chips (with
@@ -609,18 +627,27 @@ function ProfileForm({
             />
           </div>
 
-          {/* Base URL */}
+          {/* Base URL — turns red with a hint while an unfilled
+              {placeholder} (e.g. {WorkspaceId}) is still in it. */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {BASE_URL_KEY}
+              {baseHasPlaceholder && <span className="text-red-500"> *</span>}
             </label>
             <input
               type="text"
               value={getEnvValue(BASE_URL_KEY)}
               onChange={(e) => setEnvValue(BASE_URL_KEY, e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className={`w-full px-3 py-2 border rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
+                baseHasPlaceholder ? 'border-red-400 bg-red-50' : ''
+              }`}
               placeholder="https://api.example.com/anthropic"
             />
+            {baseHasPlaceholder && (
+              <p className="mt-1 text-xs text-red-600">
+                {t('profiles.baseUrlPlaceholder', { placeholder: basePlaceholder })}
+              </p>
+            )}
           </div>
 
           {/* Advanced env vars — collapsed by default */}
@@ -743,17 +770,23 @@ function ProfileForm({
             >
               {t('common.cancel')}
             </button>
-            <button
-              onClick={handleSave}
-              disabled={!canSubmit}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {validating
-                ? t('profiles.validating')
-                : editingProfile
-                  ? t('common.save')
-                  : t('common.create')}
-            </button>
+            {/* Wrapper carries the tooltip: a disabled <button> doesn't
+                reliably fire hover/title, so hovering the span explains
+                why Create is blocked. */}
+            <span title={!canSubmit ? submitHint : undefined}>
+              <button
+                onClick={handleSave}
+                disabled={!canSubmit}
+                title={!canSubmit ? submitHint : undefined}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {validating
+                  ? t('profiles.validating')
+                  : editingProfile
+                    ? t('common.save')
+                    : t('common.create')}
+              </button>
+            </span>
           </div>
         </div>
       </div>

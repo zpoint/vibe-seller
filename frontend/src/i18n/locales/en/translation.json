@@ -587,6 +587,8 @@
     "apiKey": "API Key",
     "apiKeyPlaceholder": "Paste your provider API key",
     "apiKeyRequired": "API key is required",
+    "showApiKey": "Show API key",
+    "hideApiKey": "Hide API key",
     "baseUrlPlaceholder": "Replace the placeholder {{placeholder}} in the Base URL before saving.",
     "model": "Model",
     "modelPlaceholder": "e.g., deepseek-v4-pro[1m]",
