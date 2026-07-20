@@ -226,12 +226,25 @@ async def send_task_message(
     # never re-plan. (Bug: approved plan tasks sit in DESIGNING/COMPLETED
     # between turns and used to re-plan every turn.) ``is_plan_only``
     # schedule tasks only ever plan; PLANNED plan-feedback routes above.
+    # FAILED is included ONLY together with ``started_at is None``: a
+    # plan-mode task that failed BEFORE any plan was approved died in
+    # the planning phase, so a follow-up must resume PLANNING — without
+    # this it fell through to auto mode and executed the review-first
+    # task unreviewed under bypassPermissions. A COMPLETED task with no
+    # ``started_at`` (the plan-skip path: agent delivered a result
+    # without ExitPlanMode) stays auto — its work is already done and
+    # accepted as-is by the plan-skip contract.
     plan_phase_active = task.plan_mode and (
         task.is_plan_only
         or (
             task.started_at is None
             and task.status
-            in (TaskStatus.PENDING, TaskStatus.QUEUED, TaskStatus.DESIGNING)
+            in (
+                TaskStatus.PENDING,
+                TaskStatus.QUEUED,
+                TaskStatus.DESIGNING,
+                TaskStatus.FAILED,
+            )
         )
     )
 

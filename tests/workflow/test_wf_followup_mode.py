@@ -127,6 +127,56 @@ class TestFollowUpMode:
         run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
         assert run_calls and run_calls[-1].mode == 'execute'
 
+    async def test_failed_during_planning_followup_resumes_planning(
+        self, admin_client, install_fake_agent
+    ):
+        """A plan-mode task that FAILED before any plan was approved
+        (``started_at`` is None — it is stamped at approval) died in the
+        PLANNING phase. A follow-up must resume planning, not silently
+        execute the review-first task unreviewed in auto mode (the bug:
+        FAILED fell outside the plan-phase status set, so the follow-up
+        ran with mode='auto' under bypassPermissions)."""
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            plan='## replanned'
+        )
+        task_id = await _seed_task(
+            status='failed', plan_mode=True, started_at=None
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'continue please'},
+        )
+        assert r.status_code == 200
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls, 'FakeAgent.run was not invoked'
+        assert run_calls[-1].mode == 'plan_then_execute', (
+            f'Follow-up mode was {run_calls[-1].mode!r}; a review-first '
+            'task whose planning failed must resume PLANNING, not '
+            'execute unreviewed.'
+        )
+
+    async def test_failed_after_approval_followup_is_auto(
+        self, admin_client, install_fake_agent
+    ):
+        """Counterpart: a plan-mode task that failed AFTER approval
+        (``started_at`` set) continues in auto — approval is one-way;
+        the plan must NOT pop again on Continue."""
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            result='resumed'
+        )
+        task_id = await _seed_task(
+            status='failed',
+            plan_mode=True,
+            started_at='2026-07-03T03:41:46+00:00',
+        )
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'continue please'},
+        )
+        assert r.status_code == 200
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls and run_calls[-1].mode == 'auto'
+
     async def test_auto_mode_followup_is_auto(
         self, admin_client, install_fake_agent
     ):
