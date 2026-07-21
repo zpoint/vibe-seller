@@ -396,7 +396,13 @@ class _StreamMixin:
                     await self.send_user_message(
                         'You cannot finish yet — a required review gate '
                         'is not satisfied. Do NOT just re-answer; act on '
-                        'this and then finish:\n\n' + gate_reason
+                        'this and then finish. If you genuinely cannot '
+                        'satisfy it, finish normally and state the '
+                        'remaining caveats IN YOUR RESULT — never call '
+                        'vibe_seller_set_task_error for caveats or '
+                        'partial work (that channel marks the whole task '
+                        'FAILED and is only for a task with no usable '
+                        'deliverable):\n\n' + gate_reason
                     )
                     return
                 if gate_reason:

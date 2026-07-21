@@ -543,54 +543,6 @@ async def stop_agent(
     return {'ok': True, 'task_id': task_id, 'status': 'agent_stopped'}
 
 
-class SetTaskErrorRequest(BaseModel):
-    error: str
-
-
-@router.post('/{task_id}/error')
-async def set_task_error(
-    task_id: str,
-    body: SetTaskErrorRequest,
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
-):
-    """Record an unrecoverable error for a task.
-
-    Called by the agent via the `vibe_seller_set_task_error`
-    MCP tool. Saves `task.error` and `task.error_category`
-    but does NOT transition status — status transitions are
-    owned by `auto_run_task` cleanup after the agent session
-    exits. It detects a non-empty `task.error` and marks the
-    task FAILED at the same cleanup step where successful
-    tasks become COMPLETED. This keeps post-task knowledge
-    commit + metadata sync running even on failure.
-    """
-    task = await db.get(Task, task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail='Task not found')
-    if task.status not in {TaskStatus.RUNNING, TaskStatus.DESIGNING}:
-        raise HTTPException(
-            status_code=400,
-            detail=(f'Cannot set error on task in status {task.status}'),
-        )
-    task.error = body.error
-    task.error_category = task.error_category or 'agent_reported'
-    task.updated_at = datetime.now(UTC).isoformat()
-    await db.commit()
-    # Emit status=task.status (not FAILED) so the UI doesn't
-    # flip the badge prematurely. The FAILED transition lands
-    # later via auto_run_task cleanup and re-emits task_update.
-    await event_bus.emit(
-        'task_update',
-        {
-            'task_id': task_id,
-            'status': task.status,
-            'error': task.error,
-        },
-    )
-    return {'ok': True, 'task_id': task_id, 'status': task.status}
-
-
 class SetTaskResultRequest(BaseModel):
     result: str
 
@@ -726,6 +678,12 @@ async def set_task_result(
         raise HTTPException(status_code=400, detail=deny_reason)
 
     task.result = final_result
+    # Recovery: a valid result supersedes an earlier agent-reported
+    # error this turn (error → recovered → result must not ship as
+    # FAILED). Infra-detected errors are not cleared.
+    if task.error and task.error_category == 'agent_reported':
+        task.error = None
+        task.error_category = None
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
 

@@ -19,7 +19,9 @@ import logging
 
 from app.ai.claude_backend_manager import agent_manager
 from app.database import async_session
+from app.events.bus import event_bus
 from app.models.task import Task
+from app.task_states import TaskStatus, assert_transition
 
 logger = logging.getLogger(__name__)
 
@@ -220,3 +222,44 @@ async def wait_for_session_with_retry(task_id: str, session):
     if not await _wait_for_session_end(task_id, retry):
         return None
     return retry
+
+
+def make_exec_on_start(task_id: str):
+    """RUNNING transition deferred until the concurrency slot is held.
+
+    Mirrors ``auto_run_task``'s ``_on_start``: a task waiting for the
+    agent semaphore keeps its pre-run status (PLANNED/QUEUED) so the
+    stall reaper never mistakes a queued fan-out task for a stalled
+    one (it reaped tasks whose ``updated_at`` was still the creation
+    instant), and a task that left the expected state while queued
+    (reaper-failed, user stop, retry) ABORTS the spawn instead of
+    running a full agent session against a dead task.
+    """
+
+    async def _on_start() -> bool:
+        async with async_session() as db:
+            t = await db.get(Task, task_id)
+            if not t or t.status not in (
+                TaskStatus.PLANNED,
+                TaskStatus.QUEUED,
+                TaskStatus.RUNNING,  # approve-path already transitioned
+            ):
+                logger.warning(
+                    'Exec on_start: task %s in status %s — aborting spawn',
+                    task_id[:8],
+                    getattr(t, 'status', 'missing'),
+                )
+                return False
+            if t.status != TaskStatus.RUNNING:
+                assert_transition(t.status, TaskStatus.RUNNING)
+                t.status = TaskStatus.RUNNING
+                t.started_at = t.started_at or datetime.now(UTC).isoformat()
+            t.updated_at = datetime.now(UTC).isoformat()
+            await db.commit()
+        await event_bus.emit(
+            'task_update',
+            {'task_id': task_id, 'status': TaskStatus.RUNNING},
+        )
+        return True
+
+    return _on_start

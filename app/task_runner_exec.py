@@ -31,6 +31,7 @@ from app.task_runner import (
 )
 from app.task_session_lifecycle import (
     _wait_for_session_end,
+    make_exec_on_start as _make_exec_on_start,
     wait_for_session_with_retry,
 )
 from app.task_states import (
@@ -200,20 +201,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                         )
                         return
 
-                if task.status != TaskStatus.RUNNING:
-                    assert_transition(task.status, TaskStatus.RUNNING)
-                    task.status = TaskStatus.RUNNING
-                    task.started_at = datetime.now(UTC).isoformat()
-                    task.updated_at = datetime.now(UTC).isoformat()
-                    await db.commit()
-                    await event_bus.emit(
-                        'task_update',
-                        {
-                            'task_id': task_id,
-                            'status': TaskStatus.RUNNING,
-                        },
-                    )
-
             bundle = await build_system_extra(
                 task,
                 store,
@@ -241,6 +228,16 @@ async def execute_planned_task(task_id: str, store: Store | None):
                     _store_slug(store.name, store.id) if store else None
                 ),
                 skip_reflection=task.skip_reflection,
+                # RUNNING is committed only AFTER the concurrency
+                # semaphore is acquired (mirrors auto_run_task's
+                # _on_start). Setting it before run() left fan-out
+                # tasks RUNNING-and-silent while queued for a slot:
+                # updated_at never moved, the stall reaper failed them
+                # as "stalled" (they were queued, not stalled), and
+                # the queued run then started the agent anyway on the
+                # already-FAILED task. on_start returning False makes
+                # run() release the slot and skip the spawn entirely.
+                on_start=_make_exec_on_start(task_id),
             )
 
             # Event-driven wait on the freshly-registered session.
@@ -556,21 +553,14 @@ async def execute_woken_task(task_id: str, store: Store | None):
                     )
                     return
 
-            # Transition to running — preserve wait_condition
-            assert_transition(task.status, TaskStatus.RUNNING)
-            task.status = TaskStatus.RUNNING
-            task.started_at = datetime.now(UTC).isoformat()
-            task.updated_at = datetime.now(UTC).isoformat()
+            # Preserve wait_condition bookkeeping now; the RUNNING
+            # transition itself is deferred to on_start so a wake that
+            # queues behind the agent semaphore isn't reaped as
+            # "stalled" while it waits.
             condition['resumed'] = True
             task.wait_condition = json.dumps(condition)
+            task.updated_at = datetime.now(UTC).isoformat()
             await db.commit()
-            await event_bus.emit(
-                'task_update',
-                {
-                    'task_id': task_id,
-                    'status': TaskStatus.RUNNING,
-                },
-            )
 
         # Build system prompt (MCP config only — no browser start)
         store_emails: list[str] = []
@@ -600,6 +590,9 @@ async def execute_woken_task(task_id: str, store: Store | None):
             profile_id=(task.ai_profile_id or DEFAULT_PROFILE_ID),
             message_history=history,
             resume=True,
+            # RUNNING deferred to post-semaphore, same contract as
+            # execute_planned_task above.
+            on_start=_make_exec_on_start(task_id),
             store_slug=(_store_slug(store.name, store.id) if store else None),
             skip_reflection=task.skip_reflection,
         )
