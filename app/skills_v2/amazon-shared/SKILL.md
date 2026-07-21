@@ -175,7 +175,7 @@ whose URL you don't have.
 What a seller-central page displays follows the **header
 account/marketplace switcher label** (store name + country), NOT the
 URL subdomain — a session can be pinned so that even
-`sellercentral.amazon.ae/...` renders the sibling marketplace. The
+`sellercentral.amazon.<tld>/...` renders a SIBLING marketplace. The
 label is the only truth; read it back on every page you act on. Note
 the store display name can DIFFER per marketplace on one account
 (brand/storefront names vary) — reconcile by catalog contents, not by
@@ -186,31 +186,38 @@ use the account-switcher PAGE — it is directly addressable (verified
 live; do NOT fight the header dropdown, whose kat/Vue rows ignore JS
 clicks and render off-viewport):
 
+The page is the same everywhere — its LANGUAGE follows the session and
+its ROWS are whatever marketplaces this account holds — so drive it by
+STRUCTURE, never by hardcoded country/label strings. Read the page,
+match against the target you already know (the country you were asked
+for, its `sellercentral.amazon.<tld>`, its marketplace id), and click:
+
 1. `new_tab('https://sellercentral.amazon.<tld>/account-switcher/default/merchantMarketplace')`
-   (the old `/gp/account/switcher` path 404s).
-2. Click the target ACCOUNT's row (it shows the store display name
-   with “(current)/(当前)”) to EXPAND its marketplace list. This step
-   is mandatory — before expanding, the page shows ONLY the currently
-   active marketplace, so the target looks absent (a live agent
-   wrongly concluded "no marketplace list / no confirm button" and
-   gave up; both were there after expanding).
-3. Click the target marketplace by its LOCALIZED FULL name — on a
-   Chinese session AE is “阿拉伯联合酋长国” (NOT the short “阿联酋”),
-   SA is “沙特阿拉伯”; unregistered rows say “（待注册）”. Read the
-   expanded list and match flexibly rather than assuming one string.
-4. Click the confirm button “Select account / 选择账户” (it is
-   always present on this page — do not conclude it is missing), wait
-   for the redirect (`/amazonsell/business` or
-   `/home?mons_sel_dir_mcid=…`), then RE-READ the switcher label
-   (e.g. `infineo | Saudi Arabia`) to verify the target marketplace.
-   NOTE: this page's language follows the session — match both
-   English (Saudi Arabia / United Arab Emirates / Select account) and
-   Chinese (沙特阿拉伯 / 阿拉伯联合酋长国 / 选择账户).
-5. If the page or any step is missing, open the target subdomain in a
-   fresh tab and re-read the label; only after that fails too, ask the
-   user — with what you observed. (The aux browser is NOT an option
-   for any of this — it has no seller login; all seller-central work
-   stays in the MAIN session.)
+   (the old `/gp/account/switcher` path 404s). `<tld>` is the target
+   country's TLD (see §1).
+2. Click the ACCOUNT row to EXPAND its marketplace list — mandatory:
+   before expanding, only the currently-active marketplace shows, so
+   the target looks absent (a live agent wrongly concluded "no
+   marketplace list / no confirm button" and gave up; both appear only
+   after expanding). The active row is flagged (a parenthesised
+   "current"-type marker in the session's language).
+3. Click the target marketplace's row. Match it to the country you
+   want by its full name AS RENDERED in the session's language (it is
+   the localized country name, not a short form or a code) — enumerate
+   the expanded rows and pick the one naming your target country;
+   skip rows flagged as pending/not-registered. Don't assume a fixed
+   string.
+4. Click the confirm/select-account button (always present on this
+   page — do not conclude it is missing; it's the primary button in
+   the session's language). Wait for the redirect (lands on a home /
+   business dashboard, often with a `mons_sel_dir_mcid=` param), then
+   RE-READ the switcher label and confirm it now names the target
+   country before trusting anything on subsequent pages.
+5. If the page or any step is genuinely absent, open the target
+   subdomain in a fresh tab and re-read the label; only after that
+   fails too, ask the user — with what you observed. (The aux browser
+   is NOT an option here — it has no seller login; all seller-central
+   work stays in the MAIN session.)
 
 ### 4b. Detecting the version
 
