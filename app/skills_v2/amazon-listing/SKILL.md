@@ -403,8 +403,24 @@ unavoidable), don't silently fork the reviews.
 
 Three env-parameterized harness scripts mechanize the finicky browser
 steps — run them through the store wrapper from the task workspace, read
-the single ``RESULT {json}`` line, and only fall back to hand-driving
-(screenshot → explore) when one reports ok=false:
+the single ``RESULT {json}`` line.
+
+**These helpers are VISION-FREE by design** — they locate controls by
+DOM geometry (`getBoundingClientRect` + `scrollIntoView`), force a tall
+viewport, and click by coordinate through CDP. They do NOT need you to
+read a screenshot, so they work identically on a no-vision model. When
+a helper misbehaves, your first move is to **re-run it with its env
+knobs**, NOT to abandon it for hand-driving (hand-driving leans on
+screenshots you may not be able to read, and is what turns a 1-call
+step into 15 flailing turns):
+- `bh_upload_flatfile.py`: `UPLOAD_LOAD_WAIT` (default 15s, page settle)
+  and `UPLOAD_INTROSPECT_WAIT` (default 12s, type-detection) — bump both
+  on a slow/heavy account before concluding the upload "won't work".
+
+Only fall back to hand-driving when a helper reports ok=false for a
+STRUCTURAL reason it names (widget genuinely absent, region-stamp
+mismatch) — and even then, prefer fixing the input (regenerate the
+template, fix the spec) over clicking by hand:
 
 ```bash
 S=.claude/skills/amazon-listing/scripts
