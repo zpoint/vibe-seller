@@ -142,7 +142,14 @@ named "mouse004 Auto" may target keyboard SKUs, not a mouse.
 Header shows: campaign name, Status badge, Budget, **Top-of-Search
 boost** (displayed as `Top Slot: N%` between Budget and Bidding
 Strategy for manual campaigns with TOS configured), Bidding
-Strategy, Running From date, Last Updated.
+Strategy, Running From date, Last Updated. **Top-right action icons:**
+a date-range picker, **pause/resume**, **duplicate**, and a round
+**blue pencil = Edit** (opens the campaign editor — see § 9 for
+adding/removing keywords & negatives).
+
+`target_filter` query param on the Targets tab switches the view:
+`target_filter=all` (positive keywords, default) vs
+`target_filter=negative` (negative keywords).
 
 **Brand Ads have different CTR/ROAS norms.** Brand Video ads measure
 view-through differently — never compare CTR directly to Product Ads.
@@ -310,10 +317,15 @@ low-performing queries (add as negatives).
 
 ## 7. Export Data
 
-Both Targets tab and Customer Queries tab have **Export Data** button
-at top-right. Triggers CSV download of the current filtered view.
-**Unreliable in this environment** — see § 4 caveat. Prefer DOM eval
-extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT re-click
+**Two distinct exports:**
+
+- **List-level `Export all campaigns`** — on the Campaigns tab
+  (top-right of the list, § 2). One file covering every campaign in the
+  current filter; the reliable bulk read when you need account-wide
+  campaign data.
+- **Per-tab `Export Data`** — on the Products / Targets / Customer
+  Queries tabs, exports the current filtered view. **Unreliable in this
+  environment** — see § 4 caveat. Prefer DOM eval extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT re-click
 or retry** — a no-op export button is an environment quirk, not a
 transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
 retrying just burns steps.
@@ -380,13 +392,32 @@ of appearing at top of search results. Bid Percentage boost up to
 Action buttons at bottom: **Cancel & Go Back**, **Save As Draft**,
 **Launch Campaign**.
 
-## 9. Add Negative Keywords to Existing Campaign
+## 9. Edit an Existing Campaign — Add / Remove Keywords & Negatives
 
-Open Campaign Detail → Targets tab. The Targets tab manages positive
-keywords. For negatives, look for a "Negative Targets" section or
-sub-tab on the same page (noon UI varies; explore the tab headers).
+**There is no in-place "Add target" / "Add negative" button on the
+Targets tab** (verified live 2026-07-21) — the tab only *reads* and
+inline-edits bids (§ 5). To change the keyword or negative SET of a
+live campaign you re-enter the campaign editor:
 
-When creating a new campaign, use step 4 "Negative Targeting" above.
+1. On the campaign-detail header (top-right, beside the **pause** and
+   **duplicate** icons) click the round **blue pencil = Edit** button.
+   It opens the same builder as § 8 in edit mode:
+   `…/campaign/v2?project=PRJ{project_id}&mpCode=noon&campaignCode={campaign_id}&mode=edit`
+2. Scroll to the numbered sections:
+   - **§ 5 Targeting → Manual Targeting Settings** — add positive
+     keywords / category / product targets, or remove existing rows.
+   - **§ 6 Negative Targeting (Optional)** — add or remove negative
+     keywords (limits: 30 day + 30 phrase negatives, § 8).
+3. **Save** to apply. Deleting a keyword/negative is the same flow:
+   open the editor, remove the row, Save. (The Targets-tab Status
+   toggle only *pauses* a keyword; it does not remove it.)
+
+> **State-changing — confirm first.** Adding/removing keywords or
+> negatives re-saves a live campaign (per the "surface, don't
+> auto-execute" rail below). Present the proposed change (current vs
+> proposed vs reason) and get user confirmation before you Save; do a
+> round-trip (add → verify → remove → verify) only on an explicitly
+> designated test/paused campaign.
 
 ## 10. Vantage Analytics
 
