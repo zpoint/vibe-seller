@@ -46,6 +46,28 @@ MARKETPLACE_IDS = {
 # id -> country code, for reverse lookups / labelling.
 COUNTRY_BY_ID = {v: k for k, v in MARKETPLACE_IDS.items()}
 
+# ISO-2 / common code -> Amazon's full country NAME, for coercing a
+# ``country_of_origin`` an agent filled as a code ("CN") into the value
+# Amazon's valid set actually holds ("china"). listing_bulk applies this
+# ONLY when the mapped name is in the field's valid set, so a category
+# that genuinely uses codes is left untouched.
+COUNTRY_ALIASES = {
+    'cn': 'china',
+    'us': 'united states',
+    'usa': 'united states',
+    'uk': 'united kingdom',
+    'gb': 'united kingdom',
+    'ae': 'united arab emirates',
+    'sa': 'saudi arabia',
+    'in': 'india',
+    'jp': 'japan',
+    'de': 'germany',
+    'vn': 'vietnam',
+    'bd': 'bangladesh',
+    'tr': 'turkey',
+    'pk': 'pakistan',
+}
+
 _MKT_ID_IN_COLUMN = re.compile(r'marketplace_id=([A-Za-z0-9]+)')
 _FULFILL_GROUP = re.compile(r'fulfillment_availability#(\d+)\.')
 

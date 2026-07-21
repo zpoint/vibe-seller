@@ -115,6 +115,7 @@ from listing_schema import (  # noqa: E402, F401
     valid_value_case as _valid_value_case,
 )
 from marketplace_ids import (  # noqa: E402,F401
+    COUNTRY_ALIASES as _COUNTRY_ALIASES,
     MARKETPLACE_IDS,  # re-exported for callers/tests
     browse_node_guard as _browse_node_guard,
     fulfillment_index as _fulfillment_index_for_marketplace,
@@ -463,7 +464,12 @@ def cmd_fill(args):
             # Canonicalise to the template's exact-case enum token when
             # this field has a known valid set -- some fields are
             # case-strict on Amazon's side (e.g. UAE/KSA vs uae/ksa).
-            canon = case.get(fname, {}).get(str(fval).strip().lower())
+            fcase = case.get(fname, {})
+            key = str(fval).strip().lower()
+            canon = fcase.get(key)
+            if not canon and 'country' in fname and key in _COUNTRY_ALIASES:
+                # ISO-2 / common alias -> the field's valid full name.
+                canon = fcase.get(_COUNTRY_ALIASES[key])
             target[cols[fname][0] - 1].value = canon if canon else fval
 
     wb.save(args.out)
