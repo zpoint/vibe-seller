@@ -13,6 +13,8 @@ import zipfile
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
 from app.ai.claude_backend_manager import agent_manager
@@ -25,8 +27,12 @@ from app.ai.stop_gates import (
 from app.ai.stop_gates.ad_rules import resolve_rules
 from app.auth import get_current_user
 from app.browser.manager import store_slug
+from app.database import get_db
+from app.events.bus import event_bus
 from app.models.store import Store
+from app.models.task import Task
 from app.models.user import User
+from app.task_states import TaskStatus
 from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
@@ -393,3 +399,93 @@ async def upload_task_file(
         'abs_path': str(out_path),
         'url': f'/api/tasks/{task_id}/files/{rel_path}',
     }
+
+
+def record_agent_error(task, error_text: str) -> dict | None:
+    """Apply the set_task_error contract to *task* (mutates, no commit).
+
+    ``set_task_error`` means UNRECOVERABLE failure. A task that already
+    produced a valid result this turn is not that — under gate pressure
+    agents were observed using the error channel as an "explain my
+    remaining caveats so I may end" escape hatch, and a non-empty
+    ``task.error`` deterministically flips the task FAILED at cleanup,
+    hiding a complete deliverable behind a failure badge.
+
+    With a non-empty ``task.result``: the text is appended to the
+    result as a caveat block, ``task.error`` stays untouched, and a
+    payload is returned for the endpoint to send back so the agent
+    knows not to retry the error channel. Without a result: classic
+    behavior (``task.error`` set, returns None).
+    """
+    if task.result and task.result.strip():
+        caveat = error_text.strip()
+        task.result = (
+            f'{task.result}\n\n> ⚠️ **Agent-reported caveats**\n> '
+            + caveat.replace('\n', '\n> ')
+        )
+        return {
+            'status': task.status,
+            'recorded_as': 'caveat',
+            'note': (
+                'A valid result already exists for this turn, so this '
+                'was appended to it as a caveat — the task will NOT be '
+                'marked failed. set_task_error is only for tasks with '
+                'no usable deliverable.'
+            ),
+        }
+    task.error = error_text
+    task.error_category = task.error_category or 'agent_reported'
+    return None
+
+
+class SetTaskErrorRequest(BaseModel):
+    error: str
+
+
+@router.post('/{task_id}/error')
+async def set_task_error(
+    task_id: str,
+    body: SetTaskErrorRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """Record an unrecoverable error (`vibe_seller_set_task_error`).
+
+    Saves `task.error` (+category) without transitioning status —
+    cleanup marks the task FAILED on a non-empty error. When a valid
+    result already exists this turn, the text is recorded as a CAVEAT
+    on the result instead (see ``record_agent_error``) and the task
+    completes normally.
+    """
+    task = await db.get(Task, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail='Task not found')
+    if task.status not in {TaskStatus.RUNNING, TaskStatus.DESIGNING}:
+        raise HTTPException(
+            status_code=400,
+            detail=(f'Cannot set error on task in status {task.status}'),
+        )
+    # Caveat-vs-error contract lives in ``record_agent_error`` (see
+    # tasks_files): with a valid result already on the task, the text
+    # becomes a caveat on the result and the task will NOT fail.
+    payload = record_agent_error(task, body.error)
+    task.updated_at = datetime.now(UTC).isoformat()
+    await db.commit()
+    if payload is not None:
+        await event_bus.emit(
+            'task_update',
+            {'task_id': task_id, 'status': task.status, 'error': None},
+        )
+        return {'ok': True, 'task_id': task_id, **payload}
+    # Emit status=task.status (not FAILED) so the UI doesn't
+    # flip the badge prematurely. The FAILED transition lands
+    # later via auto_run_task cleanup and re-emits task_update.
+    await event_bus.emit(
+        'task_update',
+        {
+            'task_id': task_id,
+            'status': task.status,
+            'error': task.error,
+        },
+    )
+    return {'ok': True, 'task_id': task_id, 'status': task.status}

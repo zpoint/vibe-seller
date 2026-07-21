@@ -54,3 +54,6 @@ review-*.png
 
 # Build artifacts (wheel/sdist staging)
 build/
+
+# local investigation handoff notes (contain live-account data)
+refactor.md

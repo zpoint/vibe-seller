@@ -260,6 +260,15 @@ class FakeAgent(AIAgentBackend):
         self._tasks[task_id] = t
         return True
 
+    def loaded_skills_and_workspace(self, task_id: str):
+        """Mirror ClaudeCodeBackend: (loaded_skills, task_dir).
+
+        The fake binds no skills and has no workspace, so the
+        set_task_result endpoint's skill-declared exit gates resolve
+        to a no-op — matching a real task that loaded no skills.
+        """
+        return set(), None
+
     def get_session(self, task_id: str) -> _FakeSession | None:
         """Return the fake session for a task, if any."""
         return self._sessions.get(task_id)
