@@ -41,7 +41,16 @@ review:
     (`sellercentral.amazon.<target-tld>/skucentral?mSku=<sku>`, no
     &condition=New) for each attempted SKU and confirm it exists LIVE on
     that marketplace with the intended content and a real ASIN, and that
-    its offer/price/stock show on that marketplace's Pricing view. Do NOT
+    its offer/price/stock show on that marketplace's Pricing view.
+    FIRST, on every page you verify from, read WHICH marketplace the
+    page is actually displaying: the header account/marketplace
+    switcher label (store name + country/flag next to Settings) is the
+    ONLY truth — the URL subdomain is NOT (a `.ae` URL renders the
+    sibling marketplace's inventory when the session's switcher is
+    still on it; both a live agent run and a human reviewer have been
+    fooled by this). Record the switcher-shown marketplace in your
+    evidence; if it differs from the target, switch via the picker and
+    re-load before trusting anything on the page. Do NOT
     accept a batch-status row on some marketplace's listing/status page as
     proof — the batch id is account-level and appears on every
     marketplace. If the target marketplace's inventory is empty but
@@ -295,8 +304,15 @@ for an `8560` to fix reactively:
    the account context shows the target. So for AE, run template download +
    upload + Check Upload Status all on `sellercentral.amazon.ae/...` (EG →
    `.eg`, etc.); the subdomain selects the marketplace for a unified
-   account. **Confirm the header shows the target** (marketplace name /
-   currency) before uploading. If the subdomain instead lands on an
+   account. **Confirm the header's account/marketplace switcher shows
+   the target** (marketplace name / currency) before uploading — and
+   before EVERY verification read too: what a seller-central page
+   DISPLAYS follows the session's switcher, not the URL subdomain (a
+   `.ae` inventory URL happily renders SA's inventory when the switcher
+   is on SA — verifying "AE has it" off such a page is how a listing
+   ends up confirmed on the wrong marketplace). Read the switcher label
+   back; never infer the marketplace from the URL. If the subdomain
+   instead lands on an
    account-picker ("Select an account"), switch there first — fast path
    (current layout): click the target account's `<button>` (not the inert
    label), then **Select account**, and if a click no-ops or the layout
@@ -315,6 +331,15 @@ for an `8560` to fix reactively:
      another marketplace's file fails upload with
      `UPLOAD_AND_DOWNLOAD_MARKETPLACES_DIFFERENT`, even on the right
      subdomain.
+   - **Browse-node / category ids are marketplace-scoped — a
+     dual-marketplace template carries the PRIMARY marketplace's
+     classifications only.** Ticking extra stores adds offer columns
+     for them, but `recommended_browse_nodes` values and the embedded
+     browse data still belong to the template's PRIMARY (the store the
+     generator treats as first). To set browse nodes on marketplace X,
+     generate the template with X as primary; otherwise leave
+     `recommended_browse_nodes` blank and let Amazon classify from the
+     product type. `fill` hard-fails a cross-primary browse-node spec.
    - **Staging the file uses the file-chooser intercept, not the visible
      input.** The `kat-file-upload` widget's `input#kat-file-attachment`
      is a decoy — `setFileInputFiles` on it silently no-ops ("File not
@@ -378,8 +403,21 @@ unavoidable), don't silently fork the reviews.
 
 Three env-parameterized harness scripts mechanize the finicky browser
 steps — run them through the store wrapper from the task workspace, read
-the single ``RESULT {json}`` line, and only fall back to hand-driving
-(screenshot → explore) when one reports ok=false:
+the single ``RESULT {json}`` line.
+
+If a helper misbehaves, first **re-run it with its env knobs** — a
+transient timing miss is usually just a too-short wait, not a reason to
+throw the helper away and hand-drive the whole flow:
+- `bh_upload_flatfile.py`: `UPLOAD_LOAD_WAIT` (default 15s, page settle)
+  and `UPLOAD_INTROSPECT_WAIT` (default 12s, type-detection) — bump both
+  on a slow/heavy account before concluding the upload "won't work".
+
+Fall back to exploring by hand when a helper reports ok=false for a
+STRUCTURAL reason it names (widget genuinely absent, region-stamp
+mismatch); prefer fixing the input (regenerate the template, fix the
+spec) over hand-clicking, and use whatever tools you have — including
+vision/screenshots if your model supports them — to find the real
+control:
 
 ```bash
 S=.claude/skills/amazon-listing/scripts

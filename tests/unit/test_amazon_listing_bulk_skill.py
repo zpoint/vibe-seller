@@ -1392,6 +1392,103 @@ def test_fill_hard_fails_on_wrong_region_template(mkt_template, tmp_path):
     assert 'region-stamped' in msg and 'regenerate' in msg
 
 
+def _stamp_primary(template_path, mkt_id):
+    """Plant a settings blob naming ``mkt_id`` as primary (header region)."""
+    wb = openpyxl.load_workbook(template_path)
+    ws = wb[listing_bulk.TEMPLATE_SHEET]
+    ws.cell(
+        row=1,
+        column=8,
+        value=(
+            'settings=feedType=1&primaryMarketplaceId=amzn1.mp.o.'
+            + mkt_id
+            + '&dataRow=4'
+        ),
+    )
+    wb.save(template_path)
+
+
+def test_fill_blocks_browse_nodes_across_marketplaces(mkt_template, tmp_path):
+    # A dual-marketplace template's browse classifications belong to its
+    # PRIMARY marketplace only. Filling recommended_browse_nodes while
+    # targeting the OTHER stamped marketplace ships another country's
+    # category ids — hard error.
+    _stamp_primary(mkt_template, 'A2VIGQ35RCS4UG')  # primary = AE
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',  # stamped, but not primary
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'fields': {
+                        'item_name': 'x',
+                        'feed_product_type': 'socks',
+                        'recommended_browse_nodes': '12067121031',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as e:
+        _run(['fill', mkt_template, '--spec', spec, '--out', out])
+    msg = str(e.value)
+    assert 'marketplace-scoped' in msg and 'recommended_browse_nodes' in msg
+
+
+def test_fill_allows_browse_nodes_on_primary(mkt_template, tmp_path):
+    # Target == primary: browse nodes are the right country's — no error.
+    _stamp_primary(mkt_template, 'A17E79C6D8DWNP')  # primary = SA
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'fields': {
+                        'item_name': 'x',
+                        'feed_product_type': 'socks',
+                        'recommended_browse_nodes': '99999',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+
+
+def test_fill_without_browse_nodes_ignores_primary(mkt_template, tmp_path):
+    # No browse nodes in the spec: cross-primary fill stays allowed
+    # (offer columns are per-marketplace; that is the supported path).
+    _stamp_primary(mkt_template, 'A2VIGQ35RCS4UG')  # primary = AE
+    spec = _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'fields': {
+                        'item_name': 'x',
+                        'feed_product_type': 'socks',
+                    },
+                }
+            ],
+        },
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])
+
+
 def test_fill_cli_marketplace_flag_also_guarded(mkt_template, tmp_path):
     spec = _spec(
         tmp_path,

@@ -52,7 +52,15 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 #   - a running vN never nukes a wrapper written by a newer vN+1
 #     (rollback / mixed-process safety).
 # See docs/browser-use-0.13-migration.md § wrapper-format versioning.
-WRAPPER_FORMAT_VERSION = 2
+# v3: killed the Ziniao-aux "Chrome direct" exemption — aux now gets an
+# explicit BU_CDP_WS on its own store's proxy (client-aux). The old
+# no-endpoint aux fell back to browser_harness's ambient local-Chrome
+# discovery, which attached to another store's browser (wrong Amazon
+# account, wrong downloads dir) — observed live with two Ziniao stores.
+# v4: Ziniao-aux is a DEDICATED login-less Chromium (per-store, lazy):
+# the aux branch calls /browser/aux/start and attaches to the returned
+# aux-proxy ws. Chrome-backend aux stays a client on the main proxy.
+WRAPPER_FORMAT_VERSION = 4
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
 
 
@@ -96,8 +104,12 @@ def write_browser_use_wrapper(
       ``BU_NAME``); rejects any other session and agent-supplied
       ``BU_NAME``/``BU_CDP_URL``/``BU_CDP_WS``/``--mcp``/``--connect``/
       ``--profile``.
-    - Injects ``BU_CDP_WS=ws://proxy/client-{task_id}`` (both backends;
-      aux on Ziniao is Chrome-direct so it gets no proxy endpoint).
+    - Injects an EXPLICIT ``BU_CDP_WS`` for every session (both
+      backends): per-task sessions get ``client-{task_id}``, aux gets
+      the stable ``client-aux`` — always on this store's own proxy.
+      No session is ever left endpoint-less (an unset endpoint falls
+      back to browser_harness's ambient Chrome discovery, which can
+      attach to a different store's browser).
     - Points ``BH_RUNTIME_DIR``/``BH_TMP_DIR`` at vibe-seller-managed
       dirs (shared, so daemon files carry ``BU_NAME`` for the reaper).
     - Auto-starts the CDP proxy via authenticated API call if down.
@@ -153,21 +165,33 @@ def write_browser_use_wrapper(
             f'\n                  -H "Authorization: Bearer {api_token}" \\'
         )
 
-    # For Ziniao stores, -aux sessions bypass the proxy (Chrome direct).
-    # For Chrome stores, ALL sessions go through CDPMuxProxy (no aux).
+    # ALL sessions — aux included, both backends — go through the
+    # store's own CDPMuxProxy with an explicit BU_CDP_WS. The old
+    # Ziniao-aux "Chrome direct" exemption exported NO endpoint and
+    # relied on browser_harness's ambient local-Chrome discovery, which
+    # attaches to whatever debug port it finds first — observed live:
+    # one store's aux daemon landed inside a DIFFERENT store's browser
+    # (its proxy owned the default port), driving the wrong Amazon
+    # account and dropping downloads in the wrong store's dir. An
+    # unset endpoint must be unrepresentable: every allowed session
+    # gets its own explicit client on its own store's proxy.
+
+    # Ziniao aux runs its OWN lazy-started browser (see env_inject), so
+    # it must not force the MAIN browser up; chrome aux rides the main
+    # proxy and therefore does need it.
     if backend == 'ziniao':
-        aux_case_open = (
+        aux_autostart_arm = (
             f'{slug}-aux)\n'
-            f'                ;;  # aux session — Chrome direct, no proxy\n'
+            f'                ;;  # aux: own browser, started in env step\n'
             f'              '
         )
     else:
-        aux_case_open = ''
+        aux_autostart_arm = ''
 
     auto_start_block = textwrap.dedent(f"""\
         # Auto-start: ensure CDP proxy is responding.
         case "$SESSION" in
-          {aux_case_open}{slug}|{slug}-*)
+          {aux_autostart_arm}{slug}|{slug}-*)
             if ! curl -sf -o /dev/null \\
                  --max-time 2 "{cdp_http_url}/json/version" \\
                  2>/dev/null; then
@@ -208,14 +232,48 @@ def write_browser_use_wrapper(
 
     # Inject the CDP endpoint + daemon identity as ENV VARS (0.13 model).
     #   BU_NAME    — session/daemon name (reaper keys off bu-<BU_NAME>.pid)
-    #   BU_CDP_WS  — attach to this task's CDP proxy client (non-aux)
-    # aux (Ziniao) is Chrome-direct: no BU_CDP_WS → browser_harness
-    # discovers local Chrome. CLIENT_ID mirrors the 0.12 proxy client id
-    # so the mux proxy's per-task isolation is unchanged.
+    #   BU_CDP_WS  — always explicit; NO session is ever endpoint-less
+    #                (an unset endpoint falls back to ambient Chrome
+    #                discovery, which attached to another store's
+    #                browser — observed live).
+    # Ziniao aux = the store's DEDICATED login-less Chromium: lazily
+    # started via the aux/start API, daemon attaches to the returned
+    # aux-proxy ws. Chrome aux = a stable extra client on the main
+    # proxy. Per-task sessions mirror the 0.12 proxy client id.
+    if backend == 'ziniao':
+        aux_env_arm = (
+            f'{slug}-aux)\n'
+            f'            _aux_resp=$(curl -s -X POST \\{auth_header}\n'
+            f'              -H "Content-Type: application/json" \\\n'
+            f'              --max-time 90 \\\n'
+            f'              "http://{LOCALHOST}:{port}/api/stores/'
+            f'{store_id or "UNKNOWN"}/browser/aux/start" \\\n'
+            f'              2>/dev/null) || true\n'
+            f'            BU_CDP_WS=$(printf \'%s\' "$_aux_resp" | '
+            f"python3 -c 'import sys,json;"
+            f'print(json.load(sys.stdin).get("ws",""))\' '
+            f'2>/dev/null) || true\n'
+            f'            if [ -z "${{BU_CDP_WS:-}}" ]; then\n'
+            f'              echo "ERROR: aux browser start failed: '
+            f'$(printf \'%s\' "$_aux_resp" | head -c 300)" >&2\n'
+            f'              exit 1\n'
+            f'            fi\n'
+            f'            export BU_CDP_WS\n'
+            f'            ;;\n'
+            f'          '
+        )
+    else:
+        aux_env_arm = (
+            f'{slug}-aux)\n'
+            f'            export BU_CDP_WS='
+            f'"ws://{LOCALHOST}:{proxy_port}/client-aux"\n'
+            f'            ;;\n'
+            f'          '
+        )
     env_inject = textwrap.dedent(f"""\
         export BU_NAME="$SESSION"
         case "$SESSION" in
-          {aux_case_open}{slug}|{slug}-*)
+          {aux_env_arm}{slug}|{slug}-*)
             CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}"
             export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}"
             ;;
@@ -237,7 +295,6 @@ def write_browser_use_wrapper(
     # blindly re-running could double-apply. The agent re-issues on the
     # reported error against a fresh daemon.
     #
-    # aux (Ziniao, Chrome-direct) is never self-healed — matches 0.12.
     # exec {$ARGV[0]} @ARGV (explicit-program form), NOT bare
     # `exec @ARGV`. With an empty PASSTHROUGH (the primary heredoc
     # usage: `browser-use <<'PY' … PY`) @ARGV holds a single element,
@@ -252,20 +309,16 @@ def write_browser_use_wrapper(
         ' ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}'
     )
     selfheal_block = textwrap.dedent(f"""\
-        if [ "$SESSION" != "{slug}-aux" ]; then
-          set +e
-          {run_line}
-          _vs_rc=$?
-          set -e
-          if [ "$_vs_rc" -eq 142 ]; then
-            echo "[wrapper] browser-use timed out (120s) — reloading daemon '$SESSION'" >&2
-            BU_NAME="$SESSION" "$REAL_BU" --reload >/dev/null 2>&1 || true
-          fi
-          exit "$_vs_rc"
+        set +e
+        {run_line}
+        _vs_rc=$?
+        set -e
+        if [ "$_vs_rc" -eq 142 ]; then
+          echo "[wrapper] browser-use timed out (120s) — reloading daemon '$SESSION'" >&2
+          BU_NAME="$SESSION" "$REAL_BU" --reload >/dev/null 2>&1 || true
         fi
+        exit "$_vs_rc"
     """)
-
-    exec_line = 'exec "$REAL_BU" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}'
 
     script = textwrap.dedent(f"""\
         #!/usr/bin/env bash
@@ -358,10 +411,8 @@ def write_browser_use_wrapper(
 
     script += auto_start_block + '\n'
     script += env_inject + '\n'
-    # Self-heal path runs first (and exits) for proxy sessions; aux falls
-    # through to a plain exec.
+    # Every session (aux included) runs the bounded self-heal path.
     script += selfheal_block + '\n'
-    script += exec_line + '\n'
 
     # encoding='utf-8': the script contains non-ASCII (e.g. '→'); Windows'
     # default cp1252 can't encode it.

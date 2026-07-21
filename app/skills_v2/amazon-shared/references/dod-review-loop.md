@@ -68,6 +68,15 @@ deliverable claims and confirm them against the live page / file. PROVE
 NEGATIVES BY LOOKING ("deleted", "empty", "0 errors", "all uploaded" must
 be checked, not accepted).
 
+**Verify on the page's ACTUAL marketplace, read from the switcher.**
+What a seller-central page displays follows the session's
+account/marketplace switcher (header label), NOT the URL subdomain — a
+`.ae` inventory URL renders SA's inventory when the switcher is on SA.
+Before accepting any on-page evidence, read the switcher label and
+record it alongside the evidence; if it isn't the target marketplace,
+switch and re-load first. A verification whose evidence lacks the
+displayed-marketplace label is not a verification.
+
 **Verify the CURRENT artifact, never a stale one on disk.** A report /
 export / summary file already in the workspace or downloads dir may be
 from a PRIOR turn or a DIFFERENT marketplace — verifying it is a false

@@ -117,8 +117,21 @@ def _fail(reason):
 t0 = time.time()
 new_tab(f'https://{HOST}/product-search/bulk/generate')
 time.sleep(13)
-if not _click_text('^download product spreadsheet$'):
-    _fail('Download Product Spreadsheet button not found')
+# The seller-central UI language follows the SESSION (ZH sessions are
+# common) — every text match below carries the Chinese variant too.
+_DPS = '^(download product spreadsheet|下载商品电子表格)$'
+_entered = _click_text(_DPS)
+if not _entered:
+    # Some layouts gate the generator behind the Download Blank
+    # Template entry — take it once, then retry.
+    _click_text('^(download blank template|下载空白模板)$')
+    time.sleep(5)
+    _entered = _click_text(_DPS)
+if not _entered:
+    _fail(
+        'Download Product Spreadsheet button not found (tried EN+ZH '
+        'and the Download Blank Template entry)'
+    )
 else:
     time.sleep(7)
     # Product-type search wants TRUSTED keystrokes (a JS value set does
@@ -128,7 +141,7 @@ else:
         'const tag=(e.tagName||"").toLowerCase();'
         'const ph=(e.placeholder||(e.getAttribute&&'
         'e.getAttribute("placeholder"))||"");'
-        'if(tag==="input" && /product keyword/i.test(ph)){'
+        'if(tag==="input" && /product keyword|商品关键|关键词/i.test(ph)){'
         'const r=e.getBoundingClientRect();'
         'return JSON.stringify({x:Math.round(r.x+r.width/2),'
         'y:Math.round(r.y+r.height/2)});}}'
@@ -156,11 +169,11 @@ else:
             'for(const e of w(document)){'
             'const t=(e.innerText||(e.getAttribute&&'
             'e.getAttribute("label"))||"").trim();'
-            'if(/^select$/i.test(t)){const r=e.getBoundingClientRect();'
+            'if(/^(select|选择)$/i.test(t)){const r=e.getBoundingClientRect();'
             'if(r.width && (!best||r.y<best.y)){'
             'best={x:Math.round(r.x+r.width/2),'
             'y:Math.round(r.y+r.height/2)}; label=prev;}}'
-            'if(t && t.length<40) prev=t;}'
+            'if(t && t.length<40 && !/^(select|选择)$/i.test(t)) prev=t;}'
             'return best?JSON.stringify({box:best,label:label}):null;'
         )
         if not sel:
@@ -235,7 +248,7 @@ else:
                     'by hand (trusted click on the checkbox coords), '
                     'verify, then re-run.'
                 )
-            elif not _click_text('^generate spreadsheet$'):
+            elif not _click_text('^(generate spreadsheet|生成电子表格)$'):
                 _fail('Generate Spreadsheet button not found')
             else:
                 template = None

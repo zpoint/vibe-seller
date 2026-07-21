@@ -31,6 +31,24 @@ logger = logging.getLogger(__name__)
 
 PROFILES_DIR = VIBE_SELLER_DIR / 'browser_profiles'
 
+
+def _clear_singleton_locks(user_data_dir: pathlib.Path) -> None:
+    """Remove stale Chrome ``Singleton{Lock,Socket,Cookie}`` files.
+
+    A crash/SIGKILL (or a killed prior launch on a reused profile)
+    leaves these behind and the next ``launch_persistent_context``
+    fails with "Failed to launch the browser process". Best-effort;
+    only call when no Chrome is bound to the dir. Mirrors
+    ``ziniao._clear_singleton_locks`` but kept local to avoid a
+    backend→backend import.
+    """
+    for name in ('SingletonLock', 'SingletonSocket', 'SingletonCookie'):
+        try:
+            (user_data_dir / name).unlink(missing_ok=True)
+        except OSError as e:
+            logger.debug('Singleton-lock cleanup skipped (%s)', e)
+
+
 # Chromium can fail to launch on a transient dbus / shared-memory /
 # port race, especially under CI container load. A single flake
 # shouldn't kill a real user task — retry a couple of times before
@@ -110,6 +128,14 @@ class ChromeBackend(BrowserBackend):
         # Managed by stores.py (rename/delete on store CRUD).
         user_data_dir = PROFILES_DIR / store_slug
         user_data_dir.mkdir(parents=True, exist_ok=True)
+        # A crashed/killed prior launch (or a lazily-restarted aux
+        # browser reusing this profile) leaves Singleton{Lock,Socket,
+        # Cookie} behind; the next launch_persistent_context then dies
+        # with "Failed to launch the browser process" (observed live —
+        # the aux browser failed to start on every retry until these
+        # were cleared). Safe here: start() only runs when no Chrome is
+        # bound to this dir.
+        _clear_singleton_locks(user_data_dir)
         # Must run before EVERY launch (Chrome clobbers Preferences on
         # exit) so Taobao-style session-cookie logins survive restarts.
         _enable_session_restore(user_data_dir)

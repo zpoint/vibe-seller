@@ -115,7 +115,9 @@ from listing_schema import (  # noqa: E402, F401
     valid_value_case as _valid_value_case,
 )
 from marketplace_ids import (  # noqa: E402,F401
+    COUNTRY_ALIASES as _COUNTRY_ALIASES,
     MARKETPLACE_IDS,  # re-exported for callers/tests
+    browse_node_guard as _browse_node_guard,
     fulfillment_index as _fulfillment_index_for_marketplace,
     ids_in_template as _marketplace_ids_in_template,
     label as _mkt_label,
@@ -123,15 +125,12 @@ from marketplace_ids import (  # noqa: E402,F401
     stamp_guard as _stamp_guard,
 )
 
-# Item Highlight (`title_differentiation`) is an OPTIONAL field Amazon only
-# accepts when the Item Name is <= 75 chars; a longer title makes Amazon
-# reject the highlight with error 100476 ("Provide an Item Name that is 75
-# characters or less to use Item Highlights") -- a non-blocking SUCCESS
-# (OTHER) error that leaves the SKU in inventory but flagged "Action
-# required". The marketing item_name is routinely > 75 chars, so a spec
-# that fills Item Highlight (e.g. with the colour) silently poisons every
-# child. `fill` drops the optional highlight when the title is too long so
-# the SKU lands clean; the value belongs in `color_name`, never here.
+# Item Highlight (`title_differentiation`) is OPTIONAL and Amazon only
+# accepts it when Item Name is <= 75 chars; a longer title makes it
+# reject with 100476 (non-blocking SUCCESS-OTHER, leaves the SKU
+# flagged "Action required"). Marketing titles routinely exceed 75, so
+# `fill` drops the highlight when the title is too long; the value
+# belongs in `color_name`, never here.
 _ITEM_HIGHLIGHT_ATTR = 'title_differentiation'
 _ITEM_NAME_ATTR = 'item_name'
 _ITEM_HIGHLIGHT_MAX_TITLE = 75
@@ -365,15 +364,15 @@ def cmd_fill(args):
     valid = _load_valid_values(wb)
     case = _valid_value_case(wb)
 
-    # The offer price is per-marketplace; resolve the target once (CLI
-    # --marketplace wins, else spec's top-level "marketplace", else the
-    # template itself if it names exactly one marketplace).
+    # Offer price is per-marketplace; resolve target (CLI --marketplace
+    # > spec "marketplace" > sole template stamp).
     template_ids = _marketplace_ids_in_template(cols)
     requested = getattr(args, 'marketplace', None) or spec.get('marketplace')
     mkt_id = _resolve_marketplace_id(requested, template_ids)
-    # Region-stamp guard: hard-fail a declared-target mismatch; shout
-    # when auto-adopting a single stamp. See marketplace_ids.stamp_guard.
+    # Guards (marketplace_ids): region-stamp mismatch + browse-node
+    # cross-marketplace fill (nodes are the template PRIMARY's only).
     fatal, warn = _stamp_guard(requested, mkt_id, template_ids)
+    fatal = fatal or _browse_node_guard(rows, spec, mkt_id, ws, header_row)
     if fatal:
         raise SystemExit(fatal)
     if warn:
@@ -381,9 +380,9 @@ def cmd_fill(args):
 
     unknown_fields = set()
     warnings = []
-    # Data begins at the template's data row (unified: the `dataRow=N` the
-    # settings blob names, with rows header_row+1..N-1 an example region
-    # Amazon SKIPS; legacy: header_row+1). Writing into that skipped gap
+    # Data begins at the template's data row (unified: `dataRow=N` from
+    # the settings blob, rows header_row+1..N-1 a SKIPPED example region;
+    # legacy: header_row+1). Writing into that skipped gap
     # silently drops SKUs.
     write_at = _data_start_row(ws, header_row)
     # Clear everything below the field-name row, so the template's prefilled
@@ -457,10 +456,14 @@ def cmd_fill(args):
             if fname not in cols:
                 unknown_fields.add(fname)
                 continue
-            # Canonicalise to the template's exact-case enum token when
-            # this field has a known valid set -- some fields are
-            # case-strict on Amazon's side (e.g. UAE/KSA vs uae/ksa).
-            canon = case.get(fname, {}).get(str(fval).strip().lower())
+            # Canonicalise to the template's exact-case enum token
+            # (some fields are case-strict on Amazon's side).
+            fcase = case.get(fname, {})
+            key = str(fval).strip().lower()
+            canon = fcase.get(key)
+            if not canon and 'country' in fname and key in _COUNTRY_ALIASES:
+                # ISO-2 / common alias -> the field's valid full name.
+                canon = fcase.get(_COUNTRY_ALIASES[key])
             target[cols[fname][0] - 1].value = canon if canon else fval
 
     wb.save(args.out)

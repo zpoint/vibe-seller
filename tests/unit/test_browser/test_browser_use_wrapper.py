@@ -57,9 +57,29 @@ def _generate_wrapper(
     content = re.sub(
         r'REAL_BU="[^"]*"', f'REAL_BU="{_stub_real_bu(tmp_path)}"', content
     )
-    content = content.replace('curl ', '/usr/bin/true ')
+    content = content.replace('curl ', f'"{_stub_curl(tmp_path)}" ')
     wrapper.write_text(content)
     return wrapper
+
+
+def _stub_curl(tmp_path: Path) -> Path:
+    """Offline curl stand-in: answers the aux/start API with a fixed ws
+    (so the v4 ziniao-aux lazy-start branch can be exercised) and
+    succeeds silently for everything else (health checks)."""
+    stub = tmp_path / 'curl-stub'
+    if not stub.exists():
+        stub.write_text(
+            '#!/usr/bin/env bash\n'
+            'for a in "$@"; do\n'
+            '  case "$a" in *browser/aux/start*)\n'
+            '    echo \'{"ok":true,"proxy_port":9450,'
+            '"ws":"ws://127.0.0.1:9450/client-aux"}\'; exit 0;;\n'
+            '  esac\n'
+            'done\n'
+            'exit 0\n'
+        )
+        stub.chmod(0o755)
+    return stub
 
 
 def _run_wrapper(
@@ -230,7 +250,9 @@ class TestWrapperFlagBlocking:
             'VIBE_TASK_ID': 'a1b2c3d4-0000-0000-0000-000000000000',
         }
         result = _run_wrapper(wrapper, '--session', 'test-store-aux', env=env)
-        assert result.returncode == 0
+        assert result.returncode == 0, result.stderr
+        # v4: ziniao aux attaches to the ws the aux/start API returned.
+        assert 'BU_CDP_WS=ws://127.0.0.1:9450/client-aux' in result.stdout
 
     def test_session_override_allowed_without_task(self, tmp_path: Path):
         wrapper = _generate_wrapper(tmp_path, store_name='test-store')
@@ -268,8 +290,16 @@ class TestWrapperEnvInjection:
         assert 'export BU_NAME="$SESSION"' in content
         assert 'export BU_CDP_WS="ws://' in content
 
-    def test_ziniao_aux_has_no_cdp_ws(self, tmp_path: Path):
-        """Ziniao -aux is Chrome-direct: BU_NAME set, but no BU_CDP_WS."""
+    def test_ziniao_aux_gets_own_proxy_client(self, tmp_path: Path):
+        """Ziniao -aux gets an EXPLICIT endpoint on this store's proxy.
+
+        The old "Chrome direct" exemption exported no BU_CDP_WS, so the
+        daemon fell back to ambient Chrome discovery and attached to a
+        DIFFERENT store's browser (wrong Amazon account, wrong
+        downloads dir) — observed live with two Ziniao stores. Every
+        allowed session must carry an explicit endpoint; aux uses the
+        stable client-aux id so it never shares a task client's tabs.
+        """
         wrapper = _generate_wrapper(
             tmp_path, store_name='test-store', backend='ziniao'
         )
@@ -278,7 +308,10 @@ class TestWrapperEnvInjection:
         )
         assert result.returncode == 0, result.stderr
         assert 'BU_NAME=test-store-aux' in result.stdout
-        assert 'BU_CDP_WS=' not in result.stdout
+        # v4: the DEDICATED login-less aux browser's proxy (returned by
+        # the lazy aux/start API) — NOT the main (Ziniao) proxy.
+        assert 'BU_CDP_WS=ws://127.0.0.1:9450/client-aux' in result.stdout
+        assert 'BU_CDP_WS=ws://127.0.0.1:9222' not in result.stdout
 
     def test_autostart_polls(self, tmp_path: Path):
         bin_dir = tmp_path / 'bin'
@@ -316,15 +349,21 @@ class TestWrapperWedgeRecovery:
         assert '_vs_rc" -eq 142' in content
         assert 'BU_NAME="$SESSION" "$REAL_BU" --reload' in content
 
-    def test_aux_session_does_not_self_heal(self, tmp_path: Path):
-        """-aux (Chrome-direct) falls through to a plain exec."""
+    def test_aux_session_also_self_heals(self, tmp_path: Path):
+        """-aux runs the same bounded self-heal path as every session.
+
+        It used to fall through to a plain exec as part of the removed
+        Chrome-direct exemption; on the store's own proxy there is no
+        reason to exempt aux from wedge recovery.
+        """
         bin_dir = tmp_path / 'bin'
         with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             write_browser_use_wrapper(
                 'test-store', 'ziniao', 9222, store_id='s1'
             )
         content = (bin_dir / 'test-store' / 'browser-use').read_text()
-        assert '[ "$SESSION" != "test-store-aux" ]' in content
+        assert '[ "$SESSION" != "test-store-aux" ]' not in content
+        assert 'BU_NAME="$SESSION" "$REAL_BU" --reload' in content
 
     def test_perl_exec_reaches_real_bu_with_metachar_path(self, tmp_path: Path):
         """Executable regression guard: the timeout trampoline must reach
@@ -388,7 +427,9 @@ class TestWrapperAutoStartFailure:
     def test_api_failure_exits_with_error(self, tmp_path: Path):
         wrapper = _generate_wrapper(tmp_path, store_name='test-store')
         content = wrapper.read_text()
-        content = content.replace('/usr/bin/true ', '/usr/bin/false ')
+        # Break the (stubbed) curl so both the health check and the
+        # start API fail — the wrapper must error out, not fall through.
+        content = content.replace(str(_stub_curl(tmp_path)), '/usr/bin/false')
         wrapper.write_text(content)
         result = _run_wrapper(wrapper, env=_env_without_task())
         assert result.returncode == 1

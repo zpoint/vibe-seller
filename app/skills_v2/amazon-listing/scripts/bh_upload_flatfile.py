@@ -42,14 +42,34 @@ def _finish(reason=None):
     print('RESULT ' + json.dumps(out))
 
 
+# Waits are env-tunable — a heavy account / slow session needs longer
+# than the mac defaults (verified live: 12s/10s left the widget not yet
+# interactive and the type-detection not yet run; 15s/12s worked).
+_LOAD_WAIT = int(os.environ.get('UPLOAD_LOAD_WAIT', '15'))
+_INTROSPECT_WAIT = int(os.environ.get('UPLOAD_INTROSPECT_WAIT', '12'))
+
 new_tab(f'https://{HOST}/product-search/bulk')
-time.sleep(12)
+time.sleep(_LOAD_WAIT)
+# A short viewport leaves the file button AND the Submit button below
+# the fold, so coordinate clicks land on empty space (observed live —
+# the upload "succeeded" per setFileInputFiles yet nothing attached, and
+# Submit stayed disabled). Force a tall viewport so every control the
+# coordinate clicks below target is actually on-screen.
+cdp(
+    'Emulation.setDeviceMetricsOverride',
+    width=1920,
+    height=3000,
+    deviceScaleFactor=1,
+    mobile=False,
+)
+time.sleep(1)
 cdp('Page.enable')
 cdp('Page.setInterceptFileChooserDialog', enabled=True)
 drain_events()
 box = js(
     "var u=document.querySelector('kat-file-upload');"
     'if(!u) return null;'
+    'u.scrollIntoView({block:"center"});'
     "var b=u.shadowRoot.querySelector('#select-file')"
     "||u.shadowRoot.querySelector('button');"
     'var r=b.getBoundingClientRect();'
@@ -79,7 +99,7 @@ else:
     else:
         cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
         cdp('Page.setInterceptFileChooserDialog', enabled=False)
-        time.sleep(10)  # introspect-feed runs
+        time.sleep(_INTROSPECT_WAIT)  # introspect-feed runs
         state = js(
             'var t=document.body.innerText;'
             'return {detected:/automatically detected/i.test(t),'
@@ -109,6 +129,7 @@ else:
                     'var b=els.find(function(e){return /submit products/i'
                     ".test(e.innerText||e.getAttribute('label')||'');});"
                     'if(!b) return null;'
+                    'b.scrollIntoView({block:"center"});'
                     'var r=b.getBoundingClientRect();'
                     'return {x:Math.round(r.x+r.width/2),'
                     'y:Math.round(r.y+r.height/2)};'
