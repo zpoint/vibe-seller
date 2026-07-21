@@ -87,6 +87,7 @@ interface TasksViewProps {
   onScheduleUpdated: (schedule: Schedule) => void
   selectedStore: Store | null
   stores: Store[]
+  onOpenVisionSetup?: () => void
 }
 
 export function TasksView({
@@ -149,6 +150,7 @@ export function TasksView({
   onScheduleUpdated,
   selectedStore,
   stores,
+  onOpenVisionSetup,
 }: TasksViewProps) {
   const { t } = useTranslation()
   // Gating predicate for the schedule "Run Now" button: true
@@ -582,6 +584,7 @@ export function TasksView({
                   questionBannerRef={questionBannerRef}
                   isActive={isActive}
                   userNearBottom={userNearBottom}
+                  onOpenVisionSetup={onOpenVisionSetup}
                 />
               )}
 

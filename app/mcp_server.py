@@ -25,8 +25,24 @@ from urllib.parse import quote
 
 import httpx
 
+from app import vision
 from app.config import BACKEND_PORT, LOCALHOST
 from app.mcp_tool_schemas import TOOLS
+
+# Tools that require a configured capability and are hidden from the
+# tool list until that capability is set up — so the agent never sees
+# (or dead-end-calls) a tool it cannot use, and the tool list stays
+# clean. Industry practice: conditionally register rather than
+# advertise-then-error. When hidden, a one-line breadcrumb in the base
+# system prompt tells the agent to guide the user to configure it.
+def _visible_tools() -> list:
+    """The tool list for this task, minus capability-gated tools whose
+    prerequisite is not configured. Read at ``tools/list`` time from the
+    local config — the MCP process is per-task, so the set is stable
+    within a task (no ``list_changed`` needed)."""
+    if vision.get_kie_api_key() or vision.is_fake():
+        return TOOLS
+    return [t for t in TOOLS if t.get('name') != 'vibe_seller_generate_image']
 
 # MCP server runs as a standalone process, communicating via stdin/stdout JSON-RPC.
 # This is a minimal implementation of the MCP protocol for tool serving.
@@ -310,7 +326,7 @@ def main():
                 response = {
                     'jsonrpc': '2.0',
                     'id': req_id,
-                    'result': {'tools': TOOLS},
+                    'result': {'tools': _visible_tools()},
                 }
             elif method == 'tools/call':
                 tool_name = request.get('params', {}).get('name', '')
