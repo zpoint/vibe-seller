@@ -188,16 +188,24 @@ clicks and render off-viewport):
 
 1. `new_tab('https://sellercentral.amazon.<tld>/account-switcher/default/merchantMarketplace')`
    (the old `/gp/account/switcher` path 404s).
-2. Click the target ACCOUNT's button (it shows the store display
-   name, with “(当前)/(current)” when active) — it expands that
-   account's marketplace list.
+2. Click the target ACCOUNT's row (it shows the store display name
+   with “(current)/(当前)”) to EXPAND its marketplace list. This step
+   is mandatory — before expanding, the page shows ONLY the currently
+   active marketplace, so the target looks absent (a live agent
+   wrongly concluded "no marketplace list / no confirm button" and
+   gave up; both were there after expanding).
 3. Click the target marketplace by its LOCALIZED FULL name — on a
    Chinese session AE is “阿拉伯联合酋长国” (NOT the short “阿联酋”),
    SA is “沙特阿拉伯”; unregistered rows say “（待注册）”. Read the
    expanded list and match flexibly rather than assuming one string.
-4. Click the confirm button “选择账户 / Select account”, wait for the
-   redirect (`/home?mons_sel_dir_mcid=…`), then RE-READ the header
-   label to verify it now shows the target marketplace.
+4. Click the confirm button “Select account / 选择账户” (it is
+   always present on this page — do not conclude it is missing), wait
+   for the redirect (`/amazonsell/business` or
+   `/home?mons_sel_dir_mcid=…`), then RE-READ the switcher label
+   (e.g. `infineo | Saudi Arabia`) to verify the target marketplace.
+   NOTE: this page's language follows the session — match both
+   English (Saudi Arabia / United Arab Emirates / Select account) and
+   Chinese (沙特阿拉伯 / 阿拉伯联合酋长国 / 选择账户).
 5. If the page or any step is missing, open the target subdomain in a
    fresh tab and re-read the label; only after that fails too, ask the
    user — with what you observed. (The aux browser is NOT an option
