@@ -11,7 +11,7 @@ from unittest import mock
 import pytest
 
 from app.browser import aux_browser, idle_sweep
-from app.browser.idle_sweep import _HOLD_STATUSES, sweep_idle_browsers
+from app.browser.idle_sweep import sweep_idle_browsers
 from app.browser.manager import WEB_BROWSER_SLUG, browser_manager
 from app.env_options import Options
 from app.task_states import TaskStatus
@@ -151,5 +151,5 @@ class TestSweepGuards:
         # A WAITING task must not pin a browser for hours — wrappers
         # lazily restart on wake. Pinned at the constant level so a
         # future edit is a conscious choice.
-        assert TaskStatus.WAITING not in _HOLD_STATUSES
-        assert TaskStatus.RUNNING in _HOLD_STATUSES
+        assert TaskStatus.WAITING not in idle_sweep._HOLD_STATUSES
+        assert TaskStatus.RUNNING in idle_sweep._HOLD_STATUSES

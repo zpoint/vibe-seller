@@ -25,6 +25,7 @@ from app.browser import aux_browser
 from app.browser.idle_sweep import sweep_idle_browsers
 from app.browser.manager import browser_manager
 from app.env_options import Options
+from app.models.task import Task
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -131,8 +132,6 @@ class TestSweepWithRealTasks:
     async def test_waiting_task_does_not_hold_browser(
         self, admin_client, install_fake_agent, browsers, override_async_session
     ):
-        from app.models.task import Task
-
         register, stopped = browsers
         store_id = await _create_store(admin_client, 'Sweep Waiting Store')
         install_fake_agent.default_scenario = FakeAgentScenario(
@@ -160,8 +159,6 @@ class TestSweepWithRealTasks:
         # A task that hasn't STARTED yet (queued for the agent
         # semaphore — the #90 scenario) must still hold the browser it
         # is about to use.
-        from app.models.task import Task
-
         register, stopped = browsers
         store_id = await _create_store(admin_client, 'Sweep Queued Store')
         install_fake_agent.default_scenario = FakeAgentScenario(
