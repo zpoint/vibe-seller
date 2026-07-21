@@ -405,22 +405,19 @@ Three env-parameterized harness scripts mechanize the finicky browser
 steps — run them through the store wrapper from the task workspace, read
 the single ``RESULT {json}`` line.
 
-**These helpers are VISION-FREE by design** — they locate controls by
-DOM geometry (`getBoundingClientRect` + `scrollIntoView`), force a tall
-viewport, and click by coordinate through CDP. They do NOT need you to
-read a screenshot, so they work identically on a no-vision model. When
-a helper misbehaves, your first move is to **re-run it with its env
-knobs**, NOT to abandon it for hand-driving (hand-driving leans on
-screenshots you may not be able to read, and is what turns a 1-call
-step into 15 flailing turns):
+If a helper misbehaves, first **re-run it with its env knobs** — a
+transient timing miss is usually just a too-short wait, not a reason to
+throw the helper away and hand-drive the whole flow:
 - `bh_upload_flatfile.py`: `UPLOAD_LOAD_WAIT` (default 15s, page settle)
   and `UPLOAD_INTROSPECT_WAIT` (default 12s, type-detection) — bump both
   on a slow/heavy account before concluding the upload "won't work".
 
-Only fall back to hand-driving when a helper reports ok=false for a
+Fall back to exploring by hand when a helper reports ok=false for a
 STRUCTURAL reason it names (widget genuinely absent, region-stamp
-mismatch) — and even then, prefer fixing the input (regenerate the
-template, fix the spec) over clicking by hand:
+mismatch); prefer fixing the input (regenerate the template, fix the
+spec) over hand-clicking, and use whatever tools you have — including
+vision/screenshots if your model supports them — to find the real
+control:
 
 ```bash
 S=.claude/skills/amazon-listing/scripts
