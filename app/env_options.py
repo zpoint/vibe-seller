@@ -57,6 +57,14 @@ class Options(enum.Enum):
     TURN_LINGER_QUIET_S = ('VIBE_TURN_LINGER_QUIET_S', '5')
     TURN_HARD_IDLE_S = ('VIBE_TURN_HARD_IDLE_S', '600')
 
+    # Browser lifecycle: terminate a store's browser (main/aux/web)
+    # when no active task is bound to it AND its CDP mux has been
+    # idle this long (0 = never). TAB_CAP bounds how many tabs one
+    # client (task) may keep open — the oldest is closed beyond it
+    # (0 = unbounded). See app/browser/idle_sweep.py.
+    BROWSER_IDLE_S = ('VIBE_BROWSER_IDLE_S', '300')
+    TAB_CAP = ('VIBE_TAB_CAP', '12')
+
     # Sync
     KNOWLEDGE_REPO_URL = ('KNOWLEDGE_REPO_URL', '')
     SKILLS_REPO_URL = ('SKILLS_REPO_URL', '')
