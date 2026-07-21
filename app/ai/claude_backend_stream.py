@@ -9,6 +9,7 @@ import asyncio
 from datetime import UTC, datetime
 import json
 import logging
+import time
 
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
@@ -76,33 +77,41 @@ class _StreamMixin:
         """Read stdout line by line, parse stream-json events."""
         try:
             while self._proc and self._proc.stdout:
-                # Wrap readline in a timeout so we can bump the
-                # stall-reaper heartbeat while the subprocess is
-                # legitimately waiting on a slow upstream response.
-                #
-                # Some provider transports (observed with deepseek
-                # via claude-code) emit ZERO stream deltas during
-                # tool-input composition: a multi-KB Write call's
-                # `content` arg is generated server-side and the
-                # CLI only forwards the complete tool_use at the
-                # end. Composition can take 5+ min; with no events
-                # arriving, `Task.updated_at` goes stale and the
-                # stall reaper kills a healthy agent mid-generation
-                # (see task 73032910 — heartbeat dies during 32KB
-                # audit-report Write). Subprocess-alive IS the
-                # signal the agent is still healthy.
+                # Timed readline serves two masters: the stall-
+                # reaper heartbeat (a healthy provider can compose a
+                # multi-KB tool input for 5+ min with ZERO deltas —
+                # deepseek, task 73032910 — and must not be reaped
+                # while the subprocess is alive) and the turn
+                # watchdog (a pending soft linger needs finer wakeups
+                # than 60s or a 5s quiet-tier close lands a minute
+                # late — so shrink the timeout only while a close is
+                # actually plausible).
+                timeout_s = _READLINE_HEARTBEAT_TIMEOUT_S
+                linger = self._turn_linger_seconds()
+                if (
+                    linger > 0
+                    and self._turn_result_seen
+                    and not self._input_closed
+                ):
+                    timeout_s = min(timeout_s, max(1.0, linger))
                 try:
                     line = await asyncio.wait_for(
                         self._proc.stdout.readline(),
-                        timeout=_READLINE_HEARTBEAT_TIMEOUT_S,
+                        timeout=timeout_s,
                     )
                 except TimeoutError:
                     if self._proc and self._proc.returncode is None:
-                        # Subprocess still running → upstream is
-                        # generating, just slowly. Bump heartbeat
-                        # (internally throttled to ≤1 DB write/60s,
-                        # so this is cheap) and keep waiting.
-                        await self._maybe_bump_updated_at()
+                        # Subprocess still running. Give the turn
+                        # watchdog its tick (soft linger / hard idle /
+                        # post-close kill escalation), then bump the
+                        # stall-reaper heartbeat — UNLESS stdin is
+                        # already closed and the CLI is overstaying:
+                        # keeping the heartbeat then would shield a
+                        # wedged process from every backstop (the
+                        # documented GLM stall-after-result).
+                        await self._maybe_close_idle_turn()
+                        if self._stdin_closed_at is None:
+                            await self._maybe_bump_updated_at()
                         continue
                     # Subprocess died with no output — exit loop so
                     # the wait/cleanup path runs.
@@ -112,6 +121,10 @@ class _StreamMixin:
                 text = line.decode('utf-8', errors='replace').strip()
                 if not text:
                     continue
+                # Any stdout traffic (events, control requests,
+                # subagent activity) means the turn is alive — reset
+                # the quiescence timer.
+                self._last_activity_at = time.monotonic()
 
                 try:
                     event = json.loads(text)
@@ -142,6 +155,14 @@ class _StreamMixin:
                     'system',
                     f'Agent exited with code {return_code}',
                 )
+
+            # The LAST accepted result's error state is the turn's:
+            # an intermediate error a later turn recovered from must
+            # not ship FAILED, and a final error must. Forced errors
+            # (circuit breaker, rc!=0 above) are already set and are
+            # never cleared by a benign last result.
+            if getattr(self, '_last_result_is_error', False):
+                self._is_error_result = True
 
             # Fallback: categorize from result text if no
             # structured error was captured from stream events.
@@ -404,58 +425,68 @@ class _StreamMixin:
                     text = self._pre_reflection_result
                 reflection_suppressed = self._pre_reflection_result == ''
                 self._pre_reflection_result = None
-            # The result event existence is the "turn ended" signal
-            # that downstream consumers (UI, the e2e test poll, the
-            # follow-up agent loop) depend on. Drop it only when it
-            # is NOT the canonical end-of-turn for this session.
+            # A result message is the "turn ended" signal downstream
+            # consumers (UI, the e2e test poll, the follow-up agent
+            # loop) depend on — and a process now hosts MANY turns
+            # (initial turn, gate redrives, task-notification
+            # continuations, injected follow-ups). Every ACCEPTED
+            # execute-phase result is a turn boundary and gets its own
+            # ``result`` card; ``_result_text`` tracks the LAST one
+            # (the process's final word is the deliverable).
             #
             # Keep:
             #   - any non-empty text (real result)
             #   - reflection_suppressed (text intentionally cleared)
-            #   - first execute-phase result, even if empty — this is
-            #     the only end-of-turn signal a chat-mode follow-up
-            #     session ever produces, and weaker models (GLM-4.7,
-            #     observed) sometimes emit their answer only in a
-            #     ``thinking`` block, leaving the result text empty.
+            #   - the first result of a TURN even if empty — the only
+            #     end-of-turn signal a chat-mode follow-up session
+            #     ever produces, and weaker models (GLM-4.7, observed)
+            #     sometimes emit their answer only in a ``thinking``
+            #     block, leaving the result text empty.
             # Drop:
-            #   - empty subsequent results (no useful payload, and the
-            #     first result already carried the end-of-turn signal)
+            #   - empty non-first results (no payload, no new turn)
             #   - empty planning-phase results
-            is_first_execute_result = (
-                self._executing and not self._first_result_emitted
+            is_turn_first_result = (
+                self._executing and not self._turn_result_seen
             )
-            should_emit = (
-                text or reflection_suppressed or is_first_execute_result
-            )
-            if should_emit:
+            should_emit = text or reflection_suppressed or is_turn_first_result
+            if should_emit and self._executing:
+                self._last_result_event = text
+                # Last-wins, assigned not sticky: a recovered turn
+                # (error result, then a later success) must not ship
+                # FAILED; the fold into ``_is_error_result`` happens
+                # at process exit. Forced errors (circuit breaker,
+                # rc!=0) set ``_is_error_result`` directly and are
+                # never cleared here.
+                self._last_result_is_error = bool(is_error)
+                # Last non-empty wins; an empty turn-end signal (GLM
+                # thinking-only turn) never clears an earlier turn's
+                # deliverable.
+                if text:
+                    self._result_text = text
+                self._turn_result_seen = True
+                await self._emit_message('result', text)
+            elif should_emit:
+                # Planning-phase results are conversation, not a turn
+                # boundary.
                 self._last_result_event = text
                 if is_error:
                     self._is_error_result = True
-                # First execution-phase result → green card;
-                # subsequent results → regular assistant message
-                if is_first_execute_result:
-                    self._result_text = text
-                    await self._emit_message('result', text)
-                    self._first_result_emitted = True
-                else:
-                    logger.debug(
-                        'Demoting extra result to assistant for task %s',
-                        self.task_id[:8],
-                    )
-                    await self._emit_message('assistant', text)
-            # Close stdin when execution finishes so CLI exits.
-            # Skip during planning phase — multi-turn feedback
-            # needs the session alive.  Also close if the agent
-            # exited plan_then_execute without ever calling
-            # ExitPlanMode (no plan saved) to avoid a deadlock
-            # where we wait for stdout and the CLI waits for stdin.
-            if self._executing or not self._plan_saved:
-                if self._proc and self._proc.stdin:
-                    try:
-                        self._proc.stdin.close()
-                    except Exception:
-                        pass
-                self._input_closed = True
+                await self._emit_message('assistant', text)
+            # Turn termination. The CLI never exits on its own with
+            # stdin open (spike-verified), so closing stdin IS the
+            # terminator — the question is when. With a linger window
+            # configured, the quiescence watchdog in
+            # _maybe_close_idle_turn owns it (close only when gates
+            # pass, no async subagents pending, and the stream has
+            # been quiet); linger=0 preserves the legacy close-at-
+            # result. The plan-skip close stays unconditional: an
+            # agent that exited plan_then_execute without ExitPlanMode
+            # deadlocks otherwise (we wait for stdout, CLI waits for
+            # stdin).
+            if not self._plan_saved and not self._executing:
+                await self._close_stdin('plan_skip', emit=False)
+            elif self._executing and self._turn_linger_seconds() <= 0:
+                await self._close_stdin('legacy_result_close', emit=False)
 
         elif etype == 'content_block_delta':
             delta = event.get('delta', {})

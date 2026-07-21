@@ -44,6 +44,17 @@ class Options(enum.Enum):
     ANTHROPIC_API_KEY = ('ANTHROPIC_API_KEY', '')
     MAX_REPEAT_TOOL_CALLS = ('VIBE_MAX_REPEAT_TOOL_CALLS', '6')
 
+    # Turn lifecycle: how long a quiescent CLI process may linger
+    # after its turn's result before stdin is closed to end it.
+    # 0 = close at the result event (legacy behavior). The async
+    # tier applies when background subagents were launched this
+    # process; the quiet tier otherwise. HARD_IDLE closes a process
+    # that emits NO stream events at all for that long, regardless
+    # of gates (0 = disabled). See app/ai/claude_backend_turns.py.
+    TURN_LINGER_S = ('VIBE_TURN_LINGER_S', '0')
+    TURN_LINGER_QUIET_S = ('VIBE_TURN_LINGER_QUIET_S', '0')
+    TURN_HARD_IDLE_S = ('VIBE_TURN_HARD_IDLE_S', '0')
+
     # Sync
     KNOWLEDGE_REPO_URL = ('KNOWLEDGE_REPO_URL', '')
     SKILLS_REPO_URL = ('SKILLS_REPO_URL', '')
@@ -70,3 +81,10 @@ class Options(enum.Enum):
             return int(self.get())
         except ValueError:
             return int(self.default)
+
+    def get_float(self) -> float:
+        """Return the env var as a float, or the default on failure."""
+        try:
+            return float(self.get())
+        except ValueError:
+            return float(self.default)

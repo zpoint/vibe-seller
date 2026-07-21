@@ -166,7 +166,8 @@ The primary execution path routes through the `AIAgentBackend` abstraction in `a
   - `approve_plan()` / `reject_plan()` — plan approval within a running session
   - Post-task reflection (execution) — auto-updates knowledge/skills via REFLECTION_PROMPT
   - **Control protocol**: ExitPlanMode triggers `hook_callback` → respond `permissionDecision: 'ask'` → CLI sends `can_use_tool` → handler saves plan, sends `{behavior: 'allow', updatedPermissions: [SetMode]}` or `{behavior: 'deny', message: '...'}`
-  - **stdin lifecycle**: stdin stays open during planning (multi-turn feedback); closed via `_executing` flag only after plan approved and execution result received
+  - **Turn lifecycle (process-per-turn model)**: a turn is one CLI process, and the turn ends when the process exits. The CLI never exits on its own while stdin is open (spike-verified vs claude 2.1.215), so closing stdin is the turn terminator — owned by the **quiescence watchdog** (`app/ai/claude_backend_turns.py`): stdin closes only when an accepted result exists for the current turn, the review/exec gates pass, no tracked async subagents are pending, no AskUserQuestion is parked, and the stream has been idle for the linger window (`VIBE_TURN_LINGER_S` when async subagents were launched / `VIBE_TURN_LINGER_QUIET_S` otherwise; `0` = close at the result event, the current default until the flip). Backstops: `VIBE_TURN_HARD_IDLE_S` closes on total stream silence regardless of holds, and a post-close kill escalation `_force_kill()`s a process that stays alive past the grace (bounds the GLM stall-after-result wedge the old design left unbounded). Every ACCEPTED execute-phase result event is a **turn boundary**: it emits its own `role='result'` card (a process hosts many turns — redrives, task-notification continuations, injected follow-ups) and the LAST non-empty one is the deliverable (`_result_text`, last-wins; explicit `set_task_result` still takes precedence). `_last_result_is_error` is per-result (assigned, not sticky) and folded into `_is_error_result` at exit so a recovered turn ships COMPLETED while forced errors (circuit breaker, rc!=0) stay FAILED. During planning stdin always stays open (multi-turn feedback); the plan-skip close (result with no plan saved) is immediate to avoid a deadlock.
+  - **Follow-up delivery**: `send_user_message` returns a delivery bool and OPENS A NEW TURN (`_turn_result_seen` reset); the conversation router falls through to the resume/fresh-session spawn when the write misses the live pipe, so a follow-up racing the turn terminator is re-routed instead of silently dropped.
   - **`_emit_lock`**: serializes message persistence per session to prevent seq/timestamp races
   - **Session-end signalling**: each session exposes two `asyncio.Event`s — `done` (idempotent end-of-session signal, typically set from `_stream_output`'s `finally` but also from `stop()`'s defensive early-return path; `asyncio.Event.set()` is idempotent, so extra calls are harmless and waiters observe only the first) and `plan_saved_event` (set when `_save_design_plan` commits a plan, cleared on approve/reject so reuse doesn't short-circuit). `_wait_for_session_end` in `task_runner_auto.py` blocks on these instead of polling `is_running()`. No time-based backstop: `_stream_output`'s `finally` is a Python-level guarantee and `AgentSession.stop()` already caps subprocess-exit latency via signal escalation; `_recover_from_db` in `app/scheduler/task_queue.py` is the absolute restart-time backstop for any task stuck in RUNNING/DESIGNING. Shared by `auto_run_task`, `execute_planned_task`, `execute_woken_task`, and `finalize_followup_session`
   - **Resume-failure retry — owned by the orchestrator**, not the manager. Every lifecycle path (`auto_run_task`, `finalize_followup_session`, `execute_planned_task`'s fresh-session branch, `execute_woken_task`) calls one helper `wait_for_session_with_retry(task_id, session)` in `app/task_session_lifecycle.py` (extracted there so both `task_runner_auto.py` and `task_runner_exec.py` import from one place), which does `_wait_for_session_end → _maybe_retry_without_resume → _wait_for_session_end` in a single coroutine. `_maybe_retry_without_resume` checks for the resume-failure pattern (`session._proc.returncode != 0` AND `session.resume_session_id` set AND no `_result_text`); if matched, it clears stale `task.session_id` / `task.result` / `task.error` (so the post-retry finalizer sees only this attempt's outcome — without this, prior `task.result` from earlier rounds misclassifies the retry as success), then calls `agent_manager.retry_without_resume(task_id)` which creates a fresh `AgentSession` inheriting all args (`prompt`, `system_prompt_extra`, `mode`, `profile_id`, `message_history`, `store_slug`, `task_dir`, `auto_approve_plan`, `skip_reflection`, `no_store`) from the prior session. Single owner per task — eliminates the prior race where the manager's hidden `_release_on_done` retry path could either miss a finalize (orphaned retry) or let the orchestrator finalize on prior-run residue while a retry was still running. The detector is heuristic (any rc!=0 startup with resume + no result triggers retry, not just stderr-confirmed `No conversation found`); a future refinement is to surface a typed `session.resume_rejected` flag from `claude_backend_stream` instead of inferring
@@ -190,6 +191,30 @@ Assembly order (fixed for all task types):
 `start_agent()` (ad-hoc) intentionally skips full context — it's for raw interaction.
 
 **Task dispatch**: All task launch paths (create, retry, continue, execute-plan, scheduled) route through `TaskQueueScheduler`. Store tasks are gated by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, `QUEUE`). No-store tasks (`store_id=None`) always dispatch immediately — they bypass the *per-store* browser config, session tracking, and store CDP proxy. They still get the store-less `web` browser wrapper (`bin/_web`), which lazy-starts its own Chrome + CDP proxy on first use via `POST /api/browser/web/start` (so a no-store task that never browses pays nothing). Per-store tasks can run concurrently when sharing the same platform/country, with CDP-level isolation provided by `CDPMuxProxy`.
+
+## Turn Lifecycle
+
+See [docs/backend.md § Turn Lifecycle](backend.md#turn-lifecycle-process-per-turn-model)
+for the full model and configuration. Task-level summary:
+
+- **What starts a turn**: task creation / plan approval (first turn of
+  the process), a gate redrive, a `<task-notification>` continuation
+  (an async subagent finished and the main agent resumes), or a
+  follow-up message injected into the live process.
+- **What ends a turn**: an accepted result event (gates pass, no async
+  subagents pending) emits the turn's `role='result'` card. **What
+  ends the PROCESS** — and only then the task's RUNNING state — is the
+  quiescence watchdog closing stdin after the linger window, the hard
+  idle bound, `stop()`, or the plan-skip close.
+- **Task status vs turn state**: the task stays RUNNING until the
+  process exits (`done` → `_finalize_terminal_state`); a result card
+  can therefore be visible while the status is still RUNNING — that is
+  the linger window, and mid-window follow-ups are injected into the
+  live process instead of spawning a `--resume` session.
+- **Router fallback**: if the follow-up write misses the live pipe
+  (raced the terminator), `send_message` returns False and the
+  conversation router falls through to the resume/fresh-session spawn
+  (the user message is already persisted; `persist_prompt=False`).
 
 ## Event Flow During Execution
 

@@ -146,6 +146,22 @@ def apply_agent_venv_path(
         prepend_to_path(env, wrapper_bin)
 
 
+def permission_mode_for_agent(agent_mode: str) -> str:
+    """Translate the agent's logical mode to Claude Code's
+    ``--permission-mode`` CLI flag value.
+
+    - ``plan_then_execute`` → ``plan`` (agent starts in plan mode so
+      ExitPlanMode is valid; we transition to bypass via SetMode on
+      approval).
+    - Anything else (``execute``, ``auto``, ...) → ``bypassPermissions``.
+
+    This is a hot rule: break the ``plan_then_execute`` branch and
+    plan-only Tasks can't call ExitPlanMode (Claude Code returns
+    ``"You are not in plan mode"``). A unit test pins the mapping.
+    """
+    return 'plan' if agent_mode == 'plan_then_execute' else 'bypassPermissions'
+
+
 # Graceful shutdown timeouts (seconds)
 INTERRUPT_TIMEOUT = 5  # wait for graceful Result after interrupt
 SIGNAL_TIMEOUT = 2  # between signal escalation steps

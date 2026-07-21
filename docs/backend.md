@@ -214,6 +214,54 @@ gates/guards/skills arrive via externally-installed plugin wheels.
 
 Test surface: `tests/unit/test_plugins.py`.
 
+## Turn Lifecycle (process-per-turn model)
+
+A **turn is one CLI process**, and the turn ends when the process
+exits. The `claude` CLI never exits on its own while stdin is open
+(spike-verified), so **closing stdin is the turn terminator** — owned
+by the quiescence watchdog in `ai/claude_backend_turns.py`
+(`_TurnLifecycleMixin`, ticked from the stream's readline-timeout
+branch).
+
+**When stdin may close (soft linger)** — ALL of:
+- an accepted result exists for the current turn (`_turn_result_seen`),
+- the review/exec gates pass (same composite + fail-open budget as the
+  result branch),
+- no tracked async subagents are pending,
+- no AskUserQuestion is parked and not in the planning phase,
+- the stream has been idle for the tier window.
+
+**Never** while a question is pending or plan approval is parked.
+
+**A process hosts many turns** (gate redrives, `<task-notification>`
+continuations, injected follow-ups): every accepted execute-phase
+result event is a turn boundary that emits its own `role='result'`
+card, and the LAST non-empty one is the deliverable (`task.result`;
+an explicit `set_task_result` still wins). `_last_result_is_error` is
+per-result and folded into `_is_error_result` at process exit, so a
+turn that recovered from an intermediate error ships COMPLETED while
+forced errors (circuit breaker, rc≠0) stay FAILED.
+
+**Backstops** (both strictly tighter than the pre-migration design):
+- hard idle — total stream silence for `VIBE_TURN_HARD_IDLE_S` closes
+  regardless of gate/async holds (a live subagent streams events
+  through the parent; silence that long means the work is dead);
+- post-close kill escalation — a process still alive ~120s after any
+  close is `_force_kill()`ed and its stall-reaper heartbeat stops
+  (bounds the GLM stall-after-result wedge).
+
+**Follow-up delivery**: `send_user_message` returns a delivery bool
+and opens a new turn; on a missed write (the message raced the turn
+terminator) the conversation router falls through to the
+resume/fresh-session spawn, so the message is re-routed, never
+silently dropped.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VIBE_TURN_LINGER_S` | `0` | Soft-linger window (s) when async subagents were launched this process. `0` = close at the result event (legacy behavior) |
+| `VIBE_TURN_LINGER_QUIET_S` | `0` | Soft-linger window (s) for processes with no async subagents |
+| `VIBE_TURN_HARD_IDLE_S` | `0` | Close after this much total stream silence regardless of holds. `0` = disabled |
+
 ## Configuration
 
 All config in `config.py`. Key settings:

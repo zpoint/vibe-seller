@@ -179,13 +179,17 @@ async def send_task_message(
             # Agent running with same profile - just send message.
             # Skip when PLANNED: agent is blocked on plan approval
             # hook and can't process stdin; must use reject_plan.
-            await agent_manager.send_message(task_id, content)
-            return {
-                'ok': True,
-                'task_id': task_id,
-                'profile_id': requested_profile_id,
-                'profile_switched': False,
-            }
+            # Delivery is confirmed: a message racing the turn
+            # terminator (stdin just closed) returns False and falls
+            # through to the resume/fresh-session spawn below instead
+            # of being silently dropped into a dying pipe.
+            if await agent_manager.send_message(task_id, content):
+                return {
+                    'ok': True,
+                    'task_id': task_id,
+                    'profile_id': requested_profile_id,
+                    'profile_switched': False,
+                }
 
     # Determine if we can resume a CLI session (has full context)
     is_plan_feedback = task.status == TaskStatus.PLANNED

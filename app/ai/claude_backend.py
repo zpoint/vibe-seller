@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+import time
 import uuid
 
 from sqlalchemy import select
@@ -32,6 +33,7 @@ from sqlalchemy import select
 from app.ai.claude_backend_hooks import _HookMixin
 from app.ai.claude_backend_stream import _StreamMixin
 from app.ai.claude_backend_subagents import _SubagentMixin
+from app.ai.claude_backend_turns import _TurnLifecycleMixin
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
@@ -41,6 +43,7 @@ from app.ai.claude_backend_utils import (
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
     apply_agent_venv_path,
+    permission_mode_for_agent,
     resolve_claude_binary,
 )
 from app.ai.compaction import build_history_prompt, dump_history_file
@@ -66,23 +69,9 @@ from app.workspace.manager import (
 logger = logging.getLogger(__name__)
 
 
-def permission_mode_for_agent(agent_mode: str) -> str:
-    """Translate the agent's logical mode to Claude Code's
-    ``--permission-mode`` CLI flag value.
-
-    - ``plan_then_execute`` → ``plan`` (agent starts in plan mode so
-      ExitPlanMode is valid; we transition to bypass via SetMode on
-      approval).
-    - Anything else (``execute``, ``auto``, ...) → ``bypassPermissions``.
-
-    This is a hot rule: break the ``plan_then_execute`` branch and
-    plan-only Tasks can't call ExitPlanMode (Claude Code returns
-    ``"You are not in plan mode"``). A unit test pins the mapping.
-    """
-    return 'plan' if agent_mode == 'plan_then_execute' else 'bypassPermissions'
-
-
-class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
+class AgentSession(
+    _HookMixin, _StreamMixin, _SubagentMixin, _TurnLifecycleMixin
+):
     """Manages a single claude -p subprocess for a task."""
 
     def __init__(
@@ -148,7 +137,6 @@ class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
         self.done: asyncio.Event = asyncio.Event()
         self.plan_saved_event: asyncio.Event = asyncio.Event()
         self._executing: bool = mode in ('execute', 'auto')
-        self._first_result_emitted: bool = False
         # Every assistant text emitted during the exec phase, in
         # order. Used by the Stop-hook handler to capture multi-
         # message output — e.g. an agent that writes the full report
@@ -176,15 +164,13 @@ class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
         # AskUserQuestion).
         self._had_tool_use: bool = False
         self._stopping: bool = False
-        # True once the agent has emitted its final ``result`` event
-        # for the current turn — at which point we close stdin so the
-        # CLI exits.  Future follow-up messages MUST start a fresh
-        # ``--resume`` session, not write to the dying process: the
-        # write would silently land in a closed pipe.  This flag lets
-        # ``running`` reflect "session is input-capable" rather than
-        # the looser "process not yet reaped", closing a race the
-        # router used to lose when a follow-up POST arrived in the
-        # ~100ms window between result and proc exit.
+        # True once the TURN TERMINATOR has fired — the quiescence
+        # watchdog / legacy result-close / plan-skip close / stop()
+        # closed stdin (or stdout hit EOF). ``running`` then reports
+        # "not input-capable" so follow-ups route to a fresh
+        # ``--resume`` session instead of a dying pipe; delivery is
+        # additionally confirmed per-write via ``_send_stdin``'s
+        # return value.
         self._input_closed: bool = False
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
@@ -192,6 +178,9 @@ class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
         # Review-authorship + async-subagent stream signals — see
         # claude_backend_subagents._init_subagent_state.
         self._init_subagent_state()
+        # Turn lifecycle (quiescence watchdog) state — see
+        # claude_backend_turns._init_turn_state.
+        self._init_turn_state()
         # PreToolUse-hook state. See app.ai.bash_safety and
         # app.ai.claude_backend_utils.check_skill_prereqs.
         self._loaded_skills: set[str] = set()
@@ -548,8 +537,10 @@ class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
             except Exception:
                 logger.exception('Fallback .mcp.json write also failed')
 
-    async def _send_stdin(self, msg: dict, *, label: str = 'stdin'):
-        """Write a JSON message to the subprocess stdin."""
+    async def _send_stdin(self, msg: dict, *, label: str = 'stdin') -> bool:
+        """Write a JSON message to stdin; True = reached a live pipe
+        (the router falls back to a ``--resume`` spawn on False so a
+        follow-up racing the turn terminator is never lost)."""
         if not self._proc or not self._proc.stdin or self._input_closed:
             # Dropping an approval/hook reply after the channel is closed
             # is a contract violation (the CLI default-denies the tool).
@@ -563,7 +554,7 @@ class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
                     label,
                     self.task_id[:8],
                 )
-            return
+            return False
         line = json.dumps(msg, ensure_ascii=False) + '\n'
         if AGENT_DEBUG:
             logger.info(
@@ -581,7 +572,11 @@ class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
             OSError,
             RuntimeError,
         ):
-            pass
+            return False
+        # A successful write is turn activity — the watchdog must not
+        # close under a message the CLI is about to act on.
+        self._last_activity_at = time.monotonic()
+        return True
 
     async def _send_interrupt(self):
         """Send an SDK interrupt control request.
@@ -740,11 +735,15 @@ class AgentSession(_HookMixin, _StreamMixin, _SubagentMixin):
         if evt:
             evt.set()
 
-    async def send_user_message(self, message: str):
-        """Send a follow-up user message to the running agent."""
+    async def send_user_message(self, message: str) -> bool:
+        """Send a follow-up user message; True = delivered. A
+        delivered message OPENS A NEW TURN — ``_turn_result_seen``
+        resets so the next accepted result is that turn's own card
+        (gate redrives route through here too)."""
         if self._stopping:
-            return
-        await self._send_stdin({
+            return False
+        self._turn_result_seen = False
+        return await self._send_stdin({
             'type': 'user',
             'message': {
                 'role': 'user',

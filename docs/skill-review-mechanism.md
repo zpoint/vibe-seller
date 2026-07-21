@@ -133,6 +133,12 @@ answered by **going and looking**, not by reading the writer's prose.
   and the result path re-drive the agent while any launched subagent is
   still running — bounded by the same redrive budget, failing open with
   the UNVERIFIED banner so a lost notification can't wedge the turn.
+  Under the process-per-turn model
+  (`app/ai/claude_backend_turns.py`) this hold is additionally
+  structural: the quiescence watchdog refuses to close stdin while
+  tracked async subagents are pending or the gates are unsatisfied, so
+  the notification loop runs to completion and the redrive is the
+  backstop rather than the primary mechanism.
 - **Agent-spawned reviewer subagent with browser + tool access.** It runs
   in the task context (so it can drive the store's Ziniao `browser-use`
   wrapper and MCP tools) but in a **separate, adversarial context** whose

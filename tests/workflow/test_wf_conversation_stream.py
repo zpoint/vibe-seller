@@ -193,12 +193,13 @@ class TestMessageOrdering:
 
 
 class TestMultipleResults:
-    """Multi-turn tasks should only produce one result card.
+    """A process hosts many turns; each turn gets its own result card.
 
-    Inspired by real-world scenario: agent scrapes docs, launches
-    background tasks; each completion notification triggers a new
-    turn whose result is a short acknowledgment.  Only the first
-    substantive result should appear as role='result'.
+    Real-world scenario: agent scrapes docs, launches background
+    subagents; each completion notification triggers a new turn whose
+    result is a short acknowledgment. Every accepted result is a turn
+    boundary (its own role='result' card) and the LAST one is the
+    deliverable (task.result) — the process's final word wins.
     """
 
     @staticmethod
@@ -206,10 +207,11 @@ class TestMultipleResults:
         r = await client.post('/api/stores', json={'name': 'Dedup Test Store'})
         return r.json()['id']
 
-    async def test_extra_results_stored_as_assistant(
+    async def test_extra_results_are_turn_cards_last_wins(
         self, admin_client, install_fake_agent
     ):
-        """Extra results after the first are persisted as assistant."""
+        """Each notification-continuation result is its own card; the
+        last one is the deliverable."""
         store_id = await self._create_store(admin_client)
         install_fake_agent.default_scenario = FakeAgentScenario(
             result=(
@@ -233,18 +235,12 @@ class TestMultipleResults:
         r2 = await admin_client.get(f'/api/tasks/{task_id}/messages')
         msgs = r2.json()
         result_msgs = [m for m in msgs if m['role'] == 'result']
-        asst_msgs = [
-            m
-            for m in msgs
-            if m['role'] == 'assistant'
-            and (
-                'Background task' in m['content']
-                or 'Already complete' in m['content']
-            )
-        ]
-        assert len(result_msgs) == 1
+        assert len(result_msgs) == 3
         assert 'Scraped 32' in result_msgs[0]['content']
-        assert len(asst_msgs) == 2
+        assert 'Already complete' in result_msgs[-1]['content']
+        # Last-wins: the process's final word is the deliverable.
+        r3 = await admin_client.get(f'/api/tasks/{task_id}')
+        assert 'Already complete' in r3.json()['result']
 
     async def test_single_result_unchanged(
         self, admin_client, install_fake_agent
@@ -273,7 +269,7 @@ class TestMultipleResults:
     async def test_plan_mode_extra_results(
         self, admin_client, install_fake_agent
     ):
-        """Plan-mode task with extra results: one result card."""
+        """Plan-mode task: execution turns each get a result card."""
         install_fake_agent.default_scenario = FakeAgentScenario(
             plan='## Plan\n1. Scrape docs',
             result='Scraping completed successfully.',
@@ -293,5 +289,6 @@ class TestMultipleResults:
         r2 = await admin_client.get(f'/api/tasks/{task_id}/messages')
         msgs = r2.json()
         result_msgs = [m for m in msgs if m['role'] == 'result']
-        assert len(result_msgs) == 1
+        assert len(result_msgs) == 2
         assert 'Scraping completed' in result_msgs[0]['content']
+        assert 'Confirmed' in result_msgs[1]['content']
