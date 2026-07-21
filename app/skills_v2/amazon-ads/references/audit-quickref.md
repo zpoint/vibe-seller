@@ -51,9 +51,17 @@ Completeness is the #1 thing the reviewer checks. Get the FULL active
 set before drilling.
 
 - **Amazon**: open Campaign Manager via the in-page menu (not a typed
-  URL). **Clear the "Find a campaign" search box** (a stale term hides
-  most campaigns) and set the date to 30 days. The grid virtualizes —
-  do NOT count DOM rows; use **Bulk Operations**. On that page, **reuse
+  URL). **Clear the campaign-search box with a real `click_at_xy` on its
+  ✕ (`aria-label="Clear search terms"`) — NOT by setting the input value
+  and NOT via the list-level "clear filters" control** (a persisted term
+  hides most campaigns; the native-setter clear is a false-CLEARED trap —
+  see `mechanics.md` §2a). **Verify by the grid's `aria-rowcount`**
+  (language-neutral), never by the input going blank: a real clear makes
+  it jump to the whole-account count, and that number is your
+  completeness target. Also clear the default status filter so
+  paused/archived campaigns count too. Then set the date
+  to 30 days. The grid virtualizes — do NOT count DOM rows; use **Bulk
+  Operations**. On that page, **reuse
   the newest existing export first** — walk shadow roots for the
   `<a download …/bulk-operations/download/…xlsx>` links and, if the
   newest one's filename date range covers your window, just click it
