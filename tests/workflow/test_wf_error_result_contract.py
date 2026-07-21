@@ -102,9 +102,7 @@ class TestErrorAfterResultIsCaveat:
         assert 'service unreachable' in (data.get('error') or '')
 
         gate.set()
-        final = await wait_for_task(
-            admin_client, task_id, target='failed'
-        )
+        final = await wait_for_task(admin_client, task_id, target='failed')
         assert final['status'] == 'failed'
 
 

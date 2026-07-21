@@ -85,9 +85,7 @@ class TestQueuedExecKeepsPreRunStatus:
                 break
             await asyncio.sleep(0.02)
         assert install_fake_agent.is_running(holder_id)
-        install_fake_agent.default_scenario = FakeAgentScenario(
-            result='B done'
-        )
+        install_fake_agent.default_scenario = FakeAgentScenario(result='B done')
 
         pre = (await admin_client.get(f'/api/tasks/{b_id}')).json()
         r2 = await admin_client.post(f'/api/tasks/{b_id}/execute-plan')
