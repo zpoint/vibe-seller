@@ -4,6 +4,7 @@ import logging
 import os
 
 from fastapi import FastAPI
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
@@ -351,8 +352,32 @@ async def list_plugins():
     ]
 
 
+class SPAStaticFiles(StaticFiles):
+    """Static files with a client-side-routing (history API) fallback.
+
+    The frontend is a single-page app with real path URLs (``/settings``,
+    ``/tasks/<id>``, …) that exist only in the browser router. A hard
+    load of such a path (refresh, bookmark, deep-link) reaches the server
+    as ``GET /settings`` — there is no such file, so plain StaticFiles
+    404s. This is the standard SPA fallback: any unmatched, non-``/api``
+    path serves ``index.html`` so the app boots and its router renders
+    the route. Not migration scaffolding — the permanent counterpart of
+    path-based client routing.
+    """
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            # Never mask a real API 404 with the SPA shell.
+            if exc.status_code == 404 and not path.startswith('api/'):
+                return await super().get_response('index.html', scope)
+            raise
+
+
 # Serve frontend static files (after API routes)
 if FRONTEND_DIST.exists():
     app.mount(
-        '/', StaticFiles(directory=str(FRONTEND_DIST), html=True), name='static'
+        '/', SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
+        name='static',
     )

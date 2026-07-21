@@ -210,7 +210,11 @@ export function initTelemetry(serverInstallId: string | null): void {
     posthog.init(POSTHOG_PROJECT_KEY, {
       api_host: POSTHOG_HOST,
       autocapture: true,
-      capture_pageview: true,
+      // 'history_change' (not bare `true`) captures a $pageview on
+      // client-side History API navigations, not just the first load —
+      // required now that the app uses a real path-based router. Without
+      // it, only the initial URL would ever be reported.
+      capture_pageview: 'history_change',
       capture_pageleave: true,
       persistence: 'localStorage',
       disable_session_recording: true,
