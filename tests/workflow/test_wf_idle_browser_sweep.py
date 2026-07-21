@@ -21,7 +21,7 @@ from unittest import mock
 
 import pytest
 
-from app.browser import aux_browser, idle_sweep
+from app.browser import aux_browser
 from app.browser.idle_sweep import sweep_idle_browsers
 from app.browser.manager import browser_manager
 from app.env_options import Options

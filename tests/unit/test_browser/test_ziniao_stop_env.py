@@ -26,9 +26,7 @@ class TestZiniaoStopSendsStopBrowser:
             calls.append((port, data))
             return {'statusCode': '0'}, 'localhost'
 
-        monkeypatch.setattr(
-            ziniao_mod, 'try_connect_ziniao', _fake_connect
-        )
+        monkeypatch.setattr(ziniao_mod, 'try_connect_ziniao', _fake_connect)
         backend = ZiniaoBackend()
         backend._stop_data = {
             'action': 'stopBrowser',
@@ -55,9 +53,7 @@ class TestZiniaoStopSendsStopBrowser:
             called.append(1)
             return None, None
 
-        monkeypatch.setattr(
-            ziniao_mod, 'try_connect_ziniao', _fake_connect
-        )
+        monkeypatch.setattr(ziniao_mod, 'try_connect_ziniao', _fake_connect)
         await ZiniaoBackend().stop(BrowserSessionInfo())
         assert called == []
 

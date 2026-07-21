@@ -135,9 +135,7 @@ class TestSweepGuards:
         state, stopped = env
         state['nostore'] = True
         browser_manager._active_sessions[WEB_BROWSER_SLUG] = mock.Mock()
-        browser_manager._backends[WEB_BROWSER_SLUG] = _FakeBackend(
-            _FakeProxy()
-        )
+        browser_manager._backends[WEB_BROWSER_SLUG] = _FakeBackend(_FakeProxy())
         assert await sweep_idle_browsers() == 0
         state['nostore'] = False
         assert await sweep_idle_browsers() == 1
