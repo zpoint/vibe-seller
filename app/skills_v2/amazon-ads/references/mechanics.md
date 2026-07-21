@@ -127,48 +127,78 @@ jump straight to the campaigns you want.
 > store that actually has 145 — the agent read the filtered list as if
 > it were the whole account.
 >
-> **Phase 1 (Discover) must enumerate the WHOLE account, so before you
-> read the list you must clear the search and confirm it's empty:**
+> **Phase 1 (Discover) must enumerate the WHOLE account. A persisted
+> search term silently hides most campaigns, and clearing it correctly is
+> harder than it looks — three dead ends bite here (all verified live).
+> Match by language-STABLE anchors: the UI text is localized, but
+> `aria-label`s stay English and `aria-rowcount` is numeric — key on
+> those, never on visible label text.**
 >
-> ```js
-> // pass this to js("""…""") — clears any persisted "Find a campaign" term
-> (function(){
->   var inp=[...document.querySelectorAll('input')]
->     .find(function(i){return /Find a campaign|查找广告活动/
->       .test(i.getAttribute('placeholder')||'');});
->   if(!inp) return 'NO_SEARCH_INPUT';
->   var set=Object.getOwnPropertyDescriptor(
->     window.HTMLInputElement.prototype,'value').set;
->   set.call(inp,'');
->   inp.dispatchEvent(new Event('input',{bubbles:true}));
->   inp.dispatchEvent(new KeyboardEvent('keydown',{bubbles:true,key:'Enter'}));
->   return 'CLEARED';
-> })()
+> 1. ⚠️ **The native-setter clear is a FALSE-CLEARED trap.** The search is
+>    a React-controlled input; `value` setter + `input`/`Enter` zeroes the
+>    DOM `.value` **without resetting the applied filter**. The grid keeps
+>    showing the filtered subset, yet a follow-up `input.value === ''`
+>    check now *passes* — so you "confirm cleared" and read a filtered list
+>    as the whole account.
+> 2. ⚠️ **The list-level "clear filters" / "remove all" control does NOT
+>    clear the search box.** It removes the *status/type filter chips*
+>    only; the search term is a separate control and survives it. (An
+>    audit that used only that control reported a tiny total for an account
+>    with an order of magnitude more campaigns.)
+> 3. ⚠️ **A synthetic `dispatchEvent(new MouseEvent('click'))` on the ✕
+>    does nothing** — the widget only reacts to a *trusted* pointer event.
+>    You must issue a **real coordinate click**.
+>
+> **The one method that works: real `click_at_xy` on the search box's own
+> clear ✕**, located by the English `aria-label` `Clear search terms`.
+> There can be two such ✕ on the page (a metrics search + the campaign
+> search); the campaign one sits just above the campaign grid, so pick the
+> closest ✕ above the grid — no dependence on placeholder language:
+>
+> ```python
+> xy = js(r'''
+>   var grid=document.querySelector("[role=grid],[role=treegrid]");
+>   var gtop=grid?grid.getBoundingClientRect().top:1e9;
+>   var cands=[...document.querySelectorAll('button[aria-label]')]
+>     .filter(function(b){return /clear search/i.test(b.getAttribute("aria-label")||"");})
+>     .map(function(b){return {b:b,r:b.getBoundingClientRect()};})
+>     .filter(function(o){return o.r.width>0 && o.r.top<gtop;});   // ✕ above the grid
+>   if(!cands.length) return "null";                                // no ✕ => already empty
+>   cands.sort(function(a,z){return z.r.top-a.r.top;});             // closest above grid
+>   var e=cands[0].b; e.scrollIntoView({block:"center"});
+>   var r=e.getBoundingClientRect();
+>   return JSON.stringify({x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)});
+> ''')
+> import json
+> if xy!="null":
+>     c=json.loads(xy); click_at_xy(c["x"], c["y"])   # REAL click — dispatchEvent is ignored
 > ```
 >
-> Then **verify the true total** before trusting any row count — the
-> grid's `aria-rowcount` (minus the header row) is authoritative and
-> reflects the full filtered set, not just the rendered rows:
+> Then **verify by the grid's own total, never by the input value** —
+> `aria-rowcount` (minus the header row) is language-neutral and covers the
+> full filtered set. A real clear makes it jump to the whole-account count:
 >
-> ```js
-> (function(){
->   var g=document.querySelector('[role=grid],[role=treegrid]');
->   var inp=[...document.querySelectorAll('input')]
->     .find(function(i){return /Find a campaign|查找广告活动/
->       .test(i.getAttribute('placeholder')||'');});
->   return JSON.stringify({searchVal:inp?inp.value:null,
->     totalRows:(+g.getAttribute('aria-rowcount'))-1});
-> })()
+> ```python
+> print(js('var g=document.querySelector("[role=grid],[role=treegrid]"); return g?(+g.getAttribute("aria-rowcount"))-1:null;'))
 > ```
 >
-> If `searchVal` is non-empty, you did not clear it — stop and clear
-> before reading. The grid **virtualizes** (≈13 DOM rows regardless of
-> total), so `querySelectorAll('.ag-center-cols-container [role=row]')`
-> NEVER gives you the full list once the account has >~15 campaigns. For
-> the full enumeration use **bulk download** (§2d) — it is the only
-> reliable way to capture every campaign's name/id/status/type/spend in
-> one shot. Treat any DOM-scrape of the campaign list as a spot-check,
-> never as the manifest.
+> **That number is your completeness target.** If it did NOT rise after the
+> clear, the search is still applied — re-run the ✕ click; do not proceed
+> on a total that looks small for the account. Also clear the default
+> status filter (its own chip ×) so paused/archived campaigns count. The
+> grid **virtualizes** (only ~a dozen DOM rows exist regardless of total),
+> so scraping `[role=row]` NEVER yields the full list once the account has
+> more than ~15 campaigns. For the full enumeration use **bulk download**
+> (§2d); if that is unavailable (see the 404 note in §2d), the
+> grid-with-`aria-rowcount` path above is the backstop — paginate the
+> `Next Page` control until you have collected that many ids.
+>
+> **Amazon ships more than one console layout** (grid vs card, different
+> class names, LTR/RTL). The selectors above are the common ag-grid case;
+> if `[role=grid]`/the ✕ aren't found, the *invariant* still holds — a
+> persisted search/status filter hides rows, so find the list's own
+> total-count element and its search-clear affordance for whatever layout
+> you're on, and trust that total over any DOM row scrape.
 
 The default status filter is "Active : Enabled" (a removable chip
 near the table). The "Remove all" link near the top *doesn't* clear
@@ -228,6 +258,18 @@ keyword and category and auto-target groups.
 The "Total: N" cell in the table footer is the authoritative count.
 
 ### 2d. Bulk download (cross-campaign capture)
+
+> ⚠️ **If the bulk-operations page 404s / has no export UI, do NOT fall
+> back to a raw grid scrape — you will silently under-count.** Some
+> accounts (observed on a multi-country consolidated ad account) return
+> 404 on `…/campaign-manager/bulk-operations?entityId=…` and expose no
+> Bulk Operations nav link. When that happens, enumerate from the grid
+> the SAFE way (§2a): clear the "Find a campaign" search via its ✕,
+> remove the "Active: Enabled" status chip, read the authoritative
+> `Total: N` / `aria-rowcount`, and **paginate `Next Page` until you have
+> collected all N ids**. The grid path is only reliable once the search
+> and status filters are provably cleared (verified by the total), which
+> is exactly the step a 404-driven fallback tends to skip.
 
 **FIRST, reuse the newest existing export — do NOT generate a fresh job
 by default.** For a read-only audit you need a recent snapshot, not a

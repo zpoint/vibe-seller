@@ -36,6 +36,36 @@ back to the user ("please do X manually"). Work the problem:
   itself. If you catch yourself scrolling a grid and re-reading, stop —
   export instead.
 
+- **A persisted search/status filter silently hides campaigns — clear
+  it FIRST, and trust the grid's own total, not a scraped row count.**
+  The Campaign Manager's campaign-search box keeps whatever term was last
+  typed (stored in the browser profile, not the URL), so it stays applied
+  when you open the list and can show a small fraction of a much larger
+  account. **Before enumerating, if the campaign-search input has a
+  non-empty value, campaigns are hidden — clear it.** Three traps make
+  this the most common under-count cause, all verified live:
+    - **The list-level "clear filters" / "remove all" control does NOT
+      clear it** — that only drops the status/type filter *chips*; the
+      search term survives.
+    - **Setting the input `.value` does NOT clear it** — the field is
+      React-controlled: it re-applies the old filter, and a `value===''`
+      check then *falsely* passes ("false-cleared").
+    - **A synthetic `dispatchEvent` click on the ✕ does nothing** — the
+      widget only honors a *trusted* pointer event.
+  **What works: a REAL coordinate click (`click_at_xy`) on the search
+  box's own clear ✕** — locate it by the aria-label `Clear search terms`
+  (aria-labels stay English even on a localized UI; the visible
+  placeholder/footer text does not, so never key on that). Then read the
+  grid's **`aria-rowcount`** (language-neutral; the full filtered total,
+  not the ~13 virtualized DOM rows) — a real clear makes it jump. **A
+  suspiciously low total = a filter still applied; do not report it.**
+  Also clear the default status filter so paused/archived campaigns
+  count. Amazon ships more than one console layout — the exact selectors
+  are the common ag-grid case, but the invariant holds on all of them:
+  trust the grid's own total over any DOM scrape. Snippet + fallbacks:
+  [`mechanics.md`](references/mechanics.md) §2a (**load it before your
+  first campaign-list read**).
+
 - **Data is scoped to whatever marketplace the console is showing — so a
   country's absence is never proof it's empty.** Amazon's ad console comes
   in more than one shape, and you must not assume which you're on:
