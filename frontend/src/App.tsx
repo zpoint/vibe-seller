@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { ProfileModal } from './components/ProfileModal'
 import { LoginPage } from './components/LoginPage'
@@ -46,7 +47,20 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
 
-  const [appView, setAppView] = useState<AppView>('tasks')
+  // View + settings-tab are now URL-derived (TanStack Router), not
+  // useState — so every section has its own address (Back / deep-link /
+  // bookmark work). `setAppView`/`setSettingsTab` are kept as the same
+  // callable props the children already take, but they navigate.
+  const navigate = useNavigate()
+  const pathname = useRouterState({ select: (s) => s.location.pathname })
+  const appView: AppView = pathname.startsWith('/workspace')
+    ? 'workspace'
+    : pathname.startsWith('/settings')
+      ? 'settings'
+      : 'tasks'
+  const setAppView = (v: AppView) => {
+    navigate({ to: v === 'workspace' ? '/workspace' : v === 'settings' ? '/settings' : '/tasks' })
+  }
   // Mobile: the sidebar collapses into a slide-in drawer toggled by a
   // hamburger; desktop keeps it as a resident column.
   const isMobile = useIsMobile()
@@ -152,7 +166,16 @@ export default function App() {
   const [allUsers, setAllUsers] = useState<AuthUser[]>([])
   const [showAddUser, setShowAddUser] = useState(false)
   const [newUserForm, setNewUserForm] = useState({ username: '', email: '', password: '', role: 'member' })
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('stores')
+  // URL-derived: /settings/$tab. The URL slug is the human-friendly
+  // form ('ai'); SettingsView's internal id is 'aiAgent' — map both ways
+  // so the URL stays clean while the child's props are unchanged.
+  const slugToTab: Record<string, SettingsTab> = { ai: 'aiAgent' }
+  const tabToSlug: Partial<Record<SettingsTab, string>> = { aiAgent: 'ai' }
+  const _tabSlug = pathname.match(/^\/settings\/([^/]+)/)?.[1] || 'stores'
+  const settingsTab = (slugToTab[_tabSlug] || _tabSlug) as SettingsTab
+  const setSettingsTab = (tab: SettingsTab) => {
+    navigate({ to: '/settings/$tab', params: { tab: tabToSlug[tab] || tab } })
+  }
   const [authRequired, setAuthRequired] = useState(false)
 
   // Any 401 from the shared API client fires this — we drop the
