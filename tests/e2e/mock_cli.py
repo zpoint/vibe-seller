@@ -132,6 +132,181 @@ ASK_MARKER = '[[MOCK_ASK_FREE_TEXT]]'
 # tag in sync with MANUAL_ANSWER_TAG there.
 ASK_QUESTION = 'Which marketplaces should I audit? (free-text-e2e)'
 
+# Turn-lifecycle markers (process-per-turn model, PR #87):
+# - ASYNC: a well-behaved run — spawn an async subagent, WAIT for its
+#   task-notification, then emit the final result and exit.
+# - PREMATURE: the backstop path — emit a result while the subagent is
+#   still running; the backend must redrive instead of ending the
+#   turn; the mock then finishes properly.
+# - LINGER: emit the result and then stay alive reading stdin until
+#   the backend's quiescence watchdog closes it (EOF) — proving the
+#   watchdog, not the mock, terminates the turn.
+ASYNC_MARKER = '[[MOCK_ASYNC_SUBAGENT]]'
+PREMATURE_MARKER = '[[MOCK_PREMATURE_RESULT]]'
+LINGER_MARKER = '[[MOCK_LINGER_WAIT]]'
+
+_SPAWN_ID = 'toolu_mock_spawn_1'
+
+
+def emit_async_spawn():
+    """Main-agent Agent tool_use + the async launch ack."""
+    emit({
+        'type': 'assistant',
+        'message': {
+            'role': 'assistant',
+            'content': [
+                {
+                    'type': 'tool_use',
+                    'id': _SPAWN_ID,
+                    'name': 'Agent',
+                    'input': {
+                        'description': 'Review the deliverable',
+                        'prompt': 'Independently review the output file.',
+                    },
+                }
+            ],
+        },
+    })
+    emit({
+        'type': 'user',
+        'message': {
+            'role': 'user',
+            'content': [
+                {
+                    'type': 'tool_result',
+                    'tool_use_id': _SPAWN_ID,
+                    'content': (
+                        'Async agent launched successfully. (internal '
+                        'metadata)\nagentId: mock-reviewer-1'
+                    ),
+                }
+            ],
+        },
+    })
+
+
+def emit_subagent_activity_and_notification():
+    """Subagent events (parent_tool_use_id set) then the completion
+    notification the CLI injects into the parent."""
+    emit({
+        'type': 'assistant',
+        'parent_tool_use_id': _SPAWN_ID,
+        'message': {
+            'role': 'assistant',
+            'content': [
+                {'type': 'text', 'text': 'Reviewing the deliverable...'}
+            ],
+        },
+    })
+    time.sleep(DELAY)
+    emit({
+        'type': 'assistant',
+        'parent_tool_use_id': _SPAWN_ID,
+        'message': {
+            'role': 'assistant',
+            'content': [
+                {'type': 'text', 'text': 'Review passed: no gaps found.'}
+            ],
+        },
+    })
+    time.sleep(DELAY)
+    emit({
+        'type': 'user',
+        'message': {
+            'role': 'user',
+            'content': [
+                {
+                    'type': 'text',
+                    'text': (
+                        '<task-notification tool-use-id="'
+                        + _SPAWN_ID
+                        + '" status="completed">reviewer finished'
+                        '</task-notification>'
+                    ),
+                }
+            ],
+        },
+    })
+
+
+def wait_for_user_message(timeout: float = 30.0) -> str:
+    """Read the next stream-json ``user`` message from stdin (e.g. a
+    review-gate redrive) and return its text; '' on timeout."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if select.select([sys.stdin], [], [], 0.1)[0]:
+            line = sys.stdin.readline()
+            if not line:
+                return ''
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if msg.get('type') == 'user':
+                content = msg.get('message', {}).get('content', '')
+                if isinstance(content, list):
+                    content = ' '.join(
+                        b.get('text', '')
+                        for b in content
+                        if isinstance(b, dict)
+                    )
+                return content or ''
+    return ''
+
+
+def run_async_subagent():
+    """Well-behaved async flow: wait for the reviewer's notification
+    BEFORE the final result — no redrive should fire."""
+    emit_system()
+    time.sleep(DELAY)
+    emit_thinking('Producing the deliverable, then a background review.')
+    emit_async_spawn()
+    time.sleep(DELAY)
+    emit_subagent_activity_and_notification()
+    time.sleep(DELAY)
+    final = f'{RESULT} (reviewer confirmed: no gaps)'
+    emit_text(final)
+    emit_result(final)
+
+
+def run_premature_result():
+    """Backstop flow: result emitted while the subagent still runs.
+    The backend must REDRIVE (not end the turn); on the redrive
+    message the mock completes the review and finishes properly."""
+    emit_system()
+    time.sleep(DELAY)
+    emit_async_spawn()
+    time.sleep(DELAY)
+    emit_result('premature: reviewer still running in the background')
+    # The backend's redrive arrives as a user message on stdin.
+    redrive = wait_for_user_message(timeout=60.0)
+    if 'subagent' not in redrive:
+        emit_text(f'ERROR: expected a redrive, got: {redrive[:120]!r}')
+        emit_result('mock error: no redrive received')
+        return
+    emit_subagent_activity_and_notification()
+    time.sleep(DELAY)
+    final = f'{RESULT} (finished after the redrive + review)'
+    emit_text(final)
+    emit_result(final)
+
+
+def run_linger_wait():
+    """Emit the result then STAY ALIVE until the backend's quiescence
+    watchdog closes stdin (readline returns EOF) — the mock never
+    exits on its own, exactly like the real CLI."""
+    emit_system()
+    time.sleep(DELAY)
+    emit_text(RESULT)
+    emit_result(RESULT)
+    while True:
+        line = sys.stdin.readline()
+        if not line:  # EOF — the watchdog closed the pipe
+            break
+
 
 def read_initial_prompt(max_lines: int = 10) -> str:
     """Read the first stream-json ``user`` message from stdin and
@@ -333,6 +508,12 @@ if __name__ == '__main__':
     prompt = read_initial_prompt()
     if ASK_MARKER in prompt:
         run_ask_question()
+    elif ASYNC_MARKER in prompt:
+        run_async_subagent()
+    elif PREMATURE_MARKER in prompt:
+        run_premature_result()
+    elif LINGER_MARKER in prompt:
+        run_linger_wait()
     elif mode == 'plan_then_execute':
         run_plan_then_execute()
     else:

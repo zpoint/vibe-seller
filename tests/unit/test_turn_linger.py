@@ -46,10 +46,15 @@ class TestTierSelection:
         s._had_async_spawns = True
         assert s._turn_linger_seconds() == 60.0
 
-    def test_defaults_are_legacy_zero(self):
-        # Rollout stage 1: no env vars set → close at the result event.
+    def test_defaults_are_active_tiers(self, monkeypatch):
+        # Rollout stage 2 (the flip): with no env overrides the linger
+        # is ACTIVE — 5s quiet tier, 60s async tier.
+        monkeypatch.delenv(Options.TURN_LINGER_S.env_var, raising=False)
+        monkeypatch.delenv(Options.TURN_LINGER_QUIET_S.env_var, raising=False)
         s = _session()
-        assert s._turn_linger_seconds() == 0.0
+        assert s._turn_linger_seconds() == 5.0
+        s._had_async_spawns = True
+        assert s._turn_linger_seconds() == 60.0
 
 
 class TestCloseGuards:
