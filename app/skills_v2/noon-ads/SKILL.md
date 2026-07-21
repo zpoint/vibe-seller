@@ -16,12 +16,23 @@ in the three reference files (see § 11).
 
 **URL**: `https://admanager.noon.partners/en-{cc}/home?mpCode=noon&project=PRJ{project_id}`
 
-Left nav (`ul role=menu`): **Campaigns**, **Budget**, **Billing**,
-**Vantage** (Beta), **Settings**. Country switcher at bottom.
+Left nav is an **icon rail** (not a text `ul[role=menu]`): **Campaigns**,
+**Recommendations**, **Budget**, **Vantage**, **Billing**, **Settings**
+— the labels render as `role=menuitem` spans, so match by text, not by
+`ul[role=menu] a`.
+
+> ⚠️ **The Ad Manager was redesigned (verified live 2026-07-21).** The
+> `/home` landing is now an **Overview** dashboard (KPI panels +
+> promos), NOT the campaign list. The "Ad Manager" card carries three
+> tabs — **Overview | Performance | Campaigns** — and the campaign list
+> lives under the **Campaigns** tab at `…/home?…&tab=campaigns`. A page
+> that also shows a **Sale Event Optimizer** widget (event budget/bid
+> boosts) and a **Recommendations** panel is the current build. See § 2
+> for how to enumerate the list — the old paginator is gone.
 
 ## 1. Campaigns Overview Metrics
 
-Top-level KPI cards:
+Overview-tab KPI cards:
 
 | Metric | Formula / Notes |
 |--------|-----------------|
@@ -38,14 +49,60 @@ Top-level KPI cards:
 
 A time-series performance chart below lets you toggle any metric.
 
-## 2. Campaign List Filters
+## 2. Campaign List — Filters, True Totals, Full Enumeration
 
-- Status (Active/Paused/etc.)
-- Ad Type
-- Date range
+Open the **Campaigns** tab (`…/home?…&tab=campaigns`). Filters above
+the list:
 
-Columns: Performance (chart), ROAS, Revenue, Spends, eCPC, CTR,
-Orders, Campaign Details, Status, Budget.
+- **Search** box (by campaign name)
+- **Date range** (default `Last 30 days`)
+- **Ad Type**: `All types` / `Product` / `Brand` / `Display`
+- **Targeting**: `All targeting` / `Auto` / `Manual`
+- **Status count control** (segmented): `Live N` · `Paused N` · `All N`
+  + a `More status filter` dropdown. The counts are the **true totals**
+  for the current filter — read them directly; there is no page math.
+- **Export all campaigns** (top-right of the list) — a list-level bulk
+  export (distinct from the per-tab Export Data in § 7).
+
+Columns (horizontally scrollable): Campaign, Status, Budget, Revenue,
+ROAS, Ad Spend, eCPC, Orders, Views, Clicks, ATC, … Actions.
+
+### Enumerate EVERY campaign — the paginator is gone
+
+The Ant-Design pager (`li.ant-pagination-item-N`, "15 items per page")
+**no longer exists**. The list is now a **lazy-loaded, inner-scroll
+table**: only ~15–20 rows render on first paint, and **`window.scroll`
+does nothing** — you must scroll the list's own container until every
+row loads. Skipping this silently under-counts: an unscrolled read that
+sees the first ~20 rows can miss more than half the Live campaigns when
+the `Live N` chip is much larger, which then fails the completeness
+gate.
+
+Phase 1 (Discover) MUST, per country:
+
+1. **Read the true total** from the status chips — the `Live N` / `All N`
+   numbers are your completeness target:
+   ```bash
+   browser-use <<'PY'
+   print(js("return JSON.stringify([...document.querySelectorAll('*')].filter(e=>e.children.length<=2 && /^(Live|Paused|All)\\s*\\d+$/i.test(e.textContent.replace(/\\s+/g,' ').trim())).map(e=>e.textContent.replace(/\\s+/g,' ').trim()))"))
+   PY
+   ```
+2. **Scroll the list container to the bottom** (match its class by the
+   `CampaignListRevamp_` prefix — the hashed suffix changes per build;
+   fall back to any inner `overflow-y:auto` scroller taller than its
+   viewport). Repeat until the campaign-link count stops growing:
+   ```bash
+   browser-use <<'PY'
+   for _ in range(12):
+       js("[...document.querySelectorAll('*')].filter(e=>{var s=getComputedStyle(e);return (s.overflowY==='auto'||s.overflowY==='scroll') && e.scrollHeight>e.clientHeight+50;}).forEach(e=>e.scrollTop=e.scrollHeight)")
+       wait(1)
+   print("links:", js('return document.querySelectorAll("a[href*=\\"/campaign/details/\\"]").length'))
+   PY
+   ```
+3. **Extract IDs** with the still-valid `a[href*="/campaign/details/"]`
+   read (§ 3) and de-dupe. Only when the distinct count matches the chip
+   total (e.g. `Live N`) is the manifest complete. Re-run this whole
+   loop **after every country switch** (`/en-{cc}/`).
 
 ## 3. Campaign Detail Page
 
@@ -70,53 +127,13 @@ print(js("""
 PY
 ```
 
-> ⚠️ **The campaign list is PAGINATED (~15 per page) — that eval only
-> returns the CURRENT page.** The footer reads `Showing 15 items per
-> page` and a pager (`1 2 3 4 5 →`) sits bottom-right. A single eval
-> captures ~15 campaigns; an account with 70 campaigns across 5 pages
-> will be silently under-reported by ~80% if you stop at page 1. This
-> has produced a real audit that reported "12 active campaigns (all
-> manual targeting)" for a noon account that actually had **~70
-> campaigns across 5 pages, including Auto-targeting and Product-Ad
-> campaigns** the page-1-only read never saw.
->
-> **Phase 1 (Discover) MUST enumerate every page before concluding the
-> campaign set:**
->
-> 1. Read the pager to learn the last page number, then **page through
->    all of them**, unioning campaign IDs into one set. The pager is an
->    **Ant Design** component — click the explicit **page-number anchor**
->    `li.ant-pagination-item-N a` (verified reliable 2026-06-08); the
->    generic next-chevron snippet below is an unreliable fallback (the
->    `/next|›|→/` match returns `no-next` on this paginator):
->    ```bash
->    # RELIABLE: jump to each page by its number, 1..last
->    browser-use <<'PY'
->    print(js("var a=document.querySelector('li.ant-pagination-item-2 a'); if(a){a.click(); return 'page-2';} else return 'no-page-2';"))
->    PY
->    # how many pages exist:
->    browser-use <<'PY'
->    print(js("return JSON.stringify([...document.querySelectorAll('li.ant-pagination-item')].map(function(li){return li.getAttribute('title')||li.textContent.trim();}));"))
->    PY
->    # fallback chevron (often fails on Ant Design — prefer the anchor):
->    # browser-use <<'PY'
->    # print(js("var b=[...document.querySelectorAll('button,a,[role=button]')].find(function(e){return /next|›|→|>/.test(e.getAttribute('aria-label')||e.textContent||'') && !e.disabled;}); if(b){b.click(); return 'clicked-next';} else return 'no-next';"))
->    # PY
->    ```
->    Re-extract `a[href*="/campaign/details/"]` after each page and
->    merge into a de-duped set (IDs repeat if you re-read the same page).
-> 2. **Establish the true total** before trusting any count: the last
->    pager number × page-size (minus the short last page) is your
->    completeness target. If the distinct campaign-id count you
->    collected is less than `(last_page − 1) × 15`, you have NOT read
->    every page — keep going. Many noon list footers also expose a
->    page-size selector; bumping it (e.g. 15 → 100) collapses the
->    account to a single page and is the most reliable read when
->    available.
-> 3. Only after the union is complete (count stable, all pages visited)
->    do you have the manifest. Treat a single-page read as a spot-check,
->    never as the full campaign set. The same caveat applies per
->    country — re-paginate after every country switch.
+> ⚠️ **The link extraction above only returns the rows currently
+> rendered.** The list lazy-loads on inner scroll, so a raw read
+> captures ~15–20 of what may be many more. **Enumerate the full set
+> via the § 2 procedure** (read the `Live N` / `All N` chip totals, then
+> scroll the list container until the distinct link count matches).
+> Treat a single unscrolled read as a spot-check, never the full set —
+> under-counting here fails the completeness gate.
 
 **Campaign names can be misleading.** Verify actual products via
 the **Products tab** — do not trust the campaign name. A campaign
@@ -125,7 +142,14 @@ named "mouse004 Auto" may target keyboard SKUs, not a mouse.
 Header shows: campaign name, Status badge, Budget, **Top-of-Search
 boost** (displayed as `Top Slot: N%` between Budget and Bidding
 Strategy for manual campaigns with TOS configured), Bidding
-Strategy, Running From date, Last Updated.
+Strategy, Running From date, Last Updated. **Top-right action icons:**
+a date-range picker, **pause/resume**, **duplicate**, and a round
+**blue pencil = Edit** (opens the campaign editor — see § 9 for
+adding/removing keywords & negatives).
+
+`target_filter` query param on the Targets tab switches the view:
+`target_filter=all` (positive keywords, default) vs
+`target_filter=negative` (negative keywords).
 
 **Brand Ads have different CTR/ROAS norms.** Brand Video ads measure
 view-through differently — never compare CTR directly to Product Ads.
@@ -205,9 +229,10 @@ verifying a fresh file appears in the downloads dir.
 
 **Tab-activation gotcha.** After clicking the Targets tab (via the
 `js()` by-text pattern above), verify by URL — read
-`js("return location.href")` and confirm it includes `?tab=targets`.
-The `aria-selected` state can lag for a second after click and
-isn't a reliable activation signal.
+`js("return location.href")` and confirm it includes **`tab=target`**
+(singular; the current build also appends `&target_filter=all`). The
+`aria-selected` state can lag for a second after click and isn't a
+reliable activation signal.
 
 **Recommended-Bid cell suffix.** The Recommended Bid column
 extracts as e.g. `0.75 0.60-0.90 Apply` — the literal "Apply"
@@ -292,10 +317,15 @@ low-performing queries (add as negatives).
 
 ## 7. Export Data
 
-Both Targets tab and Customer Queries tab have **Export Data** button
-at top-right. Triggers CSV download of the current filtered view.
-**Unreliable in this environment** — see § 4 caveat. Prefer DOM eval
-extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT re-click
+**Two distinct exports:**
+
+- **List-level `Export all campaigns`** — on the Campaigns tab
+  (top-right of the list, § 2). One file covering every campaign in the
+  current filter; the reliable bulk read when you need account-wide
+  campaign data.
+- **Per-tab `Export Data`** — on the Products / Targets / Customer
+  Queries tabs, exports the current filtered view. **Unreliable in this
+  environment** — see § 4 caveat. Prefer DOM eval extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT re-click
 or retry** — a no-op export button is an environment quirk, not a
 transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
 retrying just burns steps.
@@ -362,13 +392,32 @@ of appearing at top of search results. Bid Percentage boost up to
 Action buttons at bottom: **Cancel & Go Back**, **Save As Draft**,
 **Launch Campaign**.
 
-## 9. Add Negative Keywords to Existing Campaign
+## 9. Edit an Existing Campaign — Add / Remove Keywords & Negatives
 
-Open Campaign Detail → Targets tab. The Targets tab manages positive
-keywords. For negatives, look for a "Negative Targets" section or
-sub-tab on the same page (noon UI varies; explore the tab headers).
+**There is no in-place "Add target" / "Add negative" button on the
+Targets tab** (verified live 2026-07-21) — the tab only *reads* and
+inline-edits bids (§ 5). To change the keyword or negative SET of a
+live campaign you re-enter the campaign editor:
 
-When creating a new campaign, use step 4 "Negative Targeting" above.
+1. On the campaign-detail header (top-right, beside the **pause** and
+   **duplicate** icons) click the round **blue pencil = Edit** button.
+   It opens the same builder as § 8 in edit mode:
+   `…/campaign/v2?project=PRJ{project_id}&mpCode=noon&campaignCode={campaign_id}&mode=edit`
+2. Scroll to the numbered sections:
+   - **§ 5 Targeting → Manual Targeting Settings** — add positive
+     keywords / category / product targets, or remove existing rows.
+   - **§ 6 Negative Targeting (Optional)** — add or remove negative
+     keywords (limits: 30 day + 30 phrase negatives, § 8).
+3. **Save** to apply. Deleting a keyword/negative is the same flow:
+   open the editor, remove the row, Save. (The Targets-tab Status
+   toggle only *pauses* a keyword; it does not remove it.)
+
+> **State-changing — confirm first.** Adding/removing keywords or
+> negatives re-saves a live campaign (per the "surface, don't
+> auto-execute" rail below). Present the proposed change (current vs
+> proposed vs reason) and get user confirmation before you Save; do a
+> round-trip (add → verify → remove → verify) only on an explicitly
+> designated test/paused campaign.
 
 ## 10. Vantage Analytics
 
@@ -447,8 +496,10 @@ When that contradiction fires, in order:
    If campaigns show up: trust them, audit, move on.
 2. **Check the on-page filters.** noon's overview has Status and
    Ad Type dropdowns — clear them and re-read.
-3. **Open the country's `/campaigns` page directly** instead of
-   `/home`; the home view is more cache-prone.
+3. **Open the Campaigns tab directly** — `…/home?…&tab=campaigns`
+   (there is no separate `/campaigns` path) — and scroll the list
+   container to force a fresh lazy-load, rather than trusting the
+   Overview view.
 4. Only after all three return zero with a fresh "Last Updated"
    timestamp may you report the country as actually empty —
    and even then, surface the contradiction with the store
