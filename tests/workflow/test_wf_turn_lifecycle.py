@@ -14,6 +14,7 @@ import asyncio
 
 import pytest
 
+from app.models.task import Task
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -143,8 +144,6 @@ class TestTurnScopedVerdict:
     async def test_injected_followup_clears_prior_result_and_error(
         self, admin_client, install_fake_agent, override_async_session
     ):
-        from app.models.task import Task
-
         store_id = await _create_store(admin_client, 'Verdict Scope Store')
         install_fake_agent.default_scenario = FakeAgentScenario(
             result='turn one verdict',
