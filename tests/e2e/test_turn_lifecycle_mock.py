@@ -71,9 +71,7 @@ def _events(msgs: list[dict], needle: str) -> list[dict]:
 
 
 class TestAsyncSubagentFlow:
-    def test_notification_loop_completes_without_redrive(
-        self, api, store_id
-    ):
+    def test_notification_loop_completes_without_redrive(self, api, store_id):
         task = create_task(
             api,
             'async subagent turn test',
