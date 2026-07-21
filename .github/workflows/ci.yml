@@ -229,7 +229,8 @@ jobs:
           E2E_BASE_URL: http://127.0.0.1:7777
           MOCK_CLI: tests/e2e/mock_cli.py
         run: >
-          uv run pytest tests/e2e/test_conversation_ui.py --e2e -v
+          uv run pytest tests/e2e/test_conversation_ui.py
+          tests/e2e/test_turn_lifecycle_mock.py --e2e -v
           --log-cli-level=INFO
 
       - name: Stop mock CLI server

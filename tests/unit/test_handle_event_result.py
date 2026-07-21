@@ -293,10 +293,12 @@ class TestHandleEventResultTurns:
         assert emitted[1] == ('result', 'Extra ack')
         assert session._result_text == 'Extra ack'
 
-    async def test_legacy_linger_zero_closes_at_result(self):
-        """With linger=0 (the rollout default) the turn terminator
+    async def test_legacy_linger_zero_closes_at_result(self, monkeypatch):
+        """With linger=0 (the escape hatch) the turn terminator
         still fires inline at the accepted result — byte-identical to
         the pre-migration close-at-result behavior."""
+        monkeypatch.setenv('VIBE_TURN_LINGER_S', '0')
+        monkeypatch.setenv('VIBE_TURN_LINGER_QUIET_S', '0')
         session = _make_session('execute')
 
         async def _noop(*a, **k):
@@ -483,9 +485,14 @@ class TestReviewGateRedrive:
         assert session._input_closed is False
         session._proc.stdin.close.assert_not_called()
 
-    async def test_satisfied_gate_closes_control_channel(self):
-        """Gate satisfied → stdin DOES close so the CLI exits (the fix
-        must not regress normal end-of-turn)."""
+    async def test_satisfied_gate_closes_control_channel(self, monkeypatch):
+        """Gate satisfied + linger=0 (escape hatch) → stdin DOES close
+        so the CLI exits — the legacy end-of-turn must not regress.
+        (Under the active default tiers the quiescence watchdog owns
+        the close instead; see test_linger_configured_keeps_channel_
+        open.)"""
+        monkeypatch.setenv('VIBE_TURN_LINGER_S', '0')
+        monkeypatch.setenv('VIBE_TURN_LINGER_QUIET_S', '0')
         session = _make_session('auto')
         session.task_dir = '/tmp/fake-task'
         session._proc = Mock()

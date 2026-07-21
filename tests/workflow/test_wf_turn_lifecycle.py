@@ -14,6 +14,7 @@ import asyncio
 
 import pytest
 
+from app.models.task import Task
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -130,4 +131,54 @@ class TestPostResultWindow:
             if m['role'] == 'user' and m['content'] == 'do not lose me'
         ]
         assert len(user_msgs) == 1
+        await wait_for_task(admin_client, task_id)
+
+
+class TestTurnScopedVerdict:
+    """A delivered follow-up opens a new turn — the prior turn's
+    task-level verdict (result/error) must not survive it. Without the
+    clear, ``_save_result``'s preserve-existing rule refuses the new
+    turn's streamed result and the UI shows a stale verdict next to
+    the new turn's answer."""
+
+    async def test_injected_followup_clears_prior_result_and_error(
+        self, admin_client, install_fake_agent, override_async_session
+    ):
+        store_id = await _create_store(admin_client, 'Verdict Scope Store')
+        install_fake_agent.default_scenario = FakeAgentScenario(
+            result='turn one verdict',
+            exit_delay=2.0,
+        )
+        r = await admin_client.post(
+            '/api/tasks',
+            json={'title': 'Turn-scoped verdict', 'store_id': store_id},
+        )
+        task_id = r.json()['id']
+
+        # Wait for turn 1's verdict to land while the process lives on.
+        for _ in range(200):
+            data = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+            if data.get('result'):
+                break
+            await asyncio.sleep(0.02)
+        assert data['result'] == 'turn one verdict'
+        assert install_fake_agent.is_running(task_id)
+
+        # A prior error too (e.g. turn 1 called set_task_error).
+        async with override_async_session() as db:
+            task = await db.get(Task, task_id)
+            task.error = 'turn one error'
+            task.error_category = 'agent_reported'
+            await db.commit()
+
+        r2 = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'please continue with the next part'},
+        )
+        assert r2.status_code == 200 and r2.json()['ok'] is True
+
+        data = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert not data.get('result')
+        assert not data.get('error')
+
         await wait_for_task(admin_client, task_id)

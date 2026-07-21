@@ -258,9 +258,9 @@ silently dropped.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIBE_TURN_LINGER_S` | `0` | Soft-linger window (s) when async subagents were launched this process. `0` = close at the result event (legacy behavior) |
-| `VIBE_TURN_LINGER_QUIET_S` | `0` | Soft-linger window (s) for processes with no async subagents |
-| `VIBE_TURN_HARD_IDLE_S` | `0` | Close after this much total stream silence regardless of holds. `0` = disabled |
+| `VIBE_TURN_LINGER_S` | `60` | Soft-linger window (s) when async subagents were launched this process. `0` = close at the result event (legacy behavior) |
+| `VIBE_TURN_LINGER_QUIET_S` | `5` | Soft-linger window (s) for processes with no async subagents |
+| `VIBE_TURN_HARD_IDLE_S` | `600` | Close after this much total stream silence regardless of holds. `0` = disabled |
 
 ## Configuration
 

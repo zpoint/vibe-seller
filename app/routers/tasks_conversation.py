@@ -184,6 +184,29 @@ async def send_task_message(
             # through to the resume/fresh-session spawn below instead
             # of being silently dropped into a dying pipe.
             if await agent_manager.send_message(task_id, content):
+                # The task-level verdict is TURN-SCOPED: a delivered
+                # follow-up opens a new turn, so the prior turn's
+                # result/error must not survive it (the finished-task
+                # spawn path below clears the same fields). Without
+                # this, a turn-1 ``set_task_result``/``set_task_error``
+                # sticks: ``_save_result``'s preserve-existing rule
+                # then refuses the new turn's streamed result and the
+                # UI shows the stale verdict next to the new turn's
+                # answer. Gate redrives do NOT pass through here, so
+                # a converging turn keeps its accepted result.
+                task.result = None
+                task.error = None
+                task.error_category = None
+                task.updated_at = datetime.now(UTC).isoformat()
+                await db.commit()
+                await event_bus.emit(
+                    'task_update',
+                    {
+                        'task_id': task_id,
+                        'status': task.status,
+                        'error': None,
+                    },
+                )
                 return {
                     'ok': True,
                     'task_id': task_id,
