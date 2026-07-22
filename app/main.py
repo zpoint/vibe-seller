@@ -4,10 +4,10 @@ import logging
 import os
 
 from fastapi import FastAPI
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import telemetry
 from app.ai.claude_backend_manager import agent_manager
@@ -378,6 +378,7 @@ class SPAStaticFiles(StaticFiles):
 # Serve frontend static files (after API routes)
 if FRONTEND_DIST.exists():
     app.mount(
-        '/', SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
+        '/',
+        SPAStaticFiles(directory=str(FRONTEND_DIST), html=True),
         name='static',
     )

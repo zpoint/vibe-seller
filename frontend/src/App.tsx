@@ -19,6 +19,7 @@ import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { parseNav, settingsTabToSlug } from './lib/route'
+import { buildConversationItems } from './lib/conversation'
 import { api, AUTH_EXPIRED_EVENT } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
@@ -244,22 +245,12 @@ export default function App() {
 
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
-  // Fresh-pathname ref so the async login default-landing can check the
-  // CURRENT url when stores resolve (the effect closure's `pathname` is
-  // stale). Replaces the old userActedRef click-guard — with routing,
-  // "the user went somewhere" is just "the url is no longer /tasks".
-  const pathnameRef = useRef(pathname)
-  pathnameRef.current = pathname
   useEffect(() => {
     if (!currentUser) return
-    loadZiniaoAccounts(); loadProfiles()
-    // Default landing = first store (preserves prior behavior), but ONLY
-    // when the user hasn't deep-linked somewhere specific: if the path is
-    // the bare /tasks default, jump to the first store; otherwise honor
-    // the URL (a shared /tasks/<id>, /stores/<id>, /settings/... link).
-    loadStores().then(f => {
-      if (f?.length && pathnameRef.current === '/tasks') selectStore(f[0])
-    })
+    // Populate the sidebar; the LANDING view is whatever the URL says
+    // (/ redirects to /tasks = all-stores). No auto-jump to a store — it
+    // would race with (and override) an explicit nav or a deep-link.
+    loadZiniaoAccounts(); loadProfiles(); loadStores()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser])
 
@@ -453,83 +444,14 @@ export default function App() {
       else { setPendingQuestions(null) }
     } catch { setPendingQuestions(null) }
 
-    // Build conversation items from messages + task state
-    const convItems: ConversationItem[] = []
+    // Rebuild the conversation stream from persisted messages + task
+    // state (pure logic in lib/conversation).
+    let convItems: ConversationItem[] = []
     try {
       const msgs = await api.get(`/api/tasks/${taskId}/messages`)
       setAgentMessages(msgs.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })))
-      let hasSeenResult = false
-      for (const m of msgs as { role: string; content: string; created_at?: string }[]) {
-        const ts = m.created_at || new Date().toISOString()
-        if (m.role === 'user') {
-          convItems.push({ id: `hist-user-${convItems.length}`, type: 'user_message', timestamp: ts, message: { role: 'user', content: m.content } })
-        } else if (m.role === 'assistant') {
-          convItems.push({ id: `hist-asst-${convItems.length}`, type: 'agent_message', timestamp: ts, message: { role: 'assistant', content: m.content } })
-        } else if (m.role === 'result') {
-          if (!hasSeenResult) {
-            convItems.push({ id: `hist-result-${convItems.length}`, type: 'result', timestamp: ts, result: m.content })
-            hasSeenResult = true
-          } else {
-            convItems.push({ id: `hist-asst-${convItems.length}`, type: 'agent_message', timestamp: ts, message: { role: 'assistant', content: m.content } })
-          }
-        } else if (m.role === 'tool_use') {
-          try {
-            const toolInfo = JSON.parse(m.content)
-            convItems.push({ id: `hist-tool-${convItems.length}`, type: 'tool_call', timestamp: ts, toolCall: toolInfo })
-          } catch { /* skip malformed */ }
-        } else if (m.role === 'thinking') {
-          convItems.push({ id: `hist-think-${convItems.length}`, type: 'thinking', timestamp: ts, thinking: { content: m.content, isStreaming: false } })
-        }
-      }
+      convItems = buildConversationItems(msgs, fullTask)
     } catch { /* ignore */ }
-    if (fullTask.plan_history) {
-      try {
-        const history = JSON.parse(fullTask.plan_history) as { version: number; content: string; created_at: string }[]
-        for (const h of history) {
-          convItems.push({ id: `hist-plan-${h.version}`, type: 'plan', timestamp: h.created_at, plan: { version: h.version, content: h.content, isCurrent: h.version === history.length } })
-        }
-      } catch { /* fallback below */ }
-    }
-    if (!convItems.some(i => i.type === 'plan') && fullTask.plan) {
-      convItems.push({ id: `hist-plan-1`, type: 'plan', timestamp: new Date().toISOString(), plan: { version: 1, content: fullTask.plan, isCurrent: true } })
-    }
-    // Add execution separator for tasks already in execute phase
-    const execPhaseStatuses = ['running', 'waiting', 'completed', 'failed']
-    if (execPhaseStatuses.includes(fullTask.status) && fullTask.plan) {
-      convItems.push({ id: `hist-exec-sep`, type: 'execution_separator', timestamp: new Date().toISOString() })
-    }
-    // task.result is the authoritative result content (it may have
-    // been resolved from a file pointer by routers/tasks.py
-    // set_task_result; that resolution emits an SSE result event but
-    // intentionally does NOT persist a TaskMessage). The persisted
-    // role='result' messages are short CLI-transcript snippets and
-    // must not win over task.result on history rebuild.
-    if (fullTask.result) {
-      const existingIdx = convItems.findIndex(i => i.type === 'result')
-      const finalResult = {
-        id: 'hist-result-final',
-        type: 'result' as const,
-        timestamp: new Date().toISOString(),
-        result: fullTask.result,
-      }
-      if (existingIdx >= 0) {
-        // Demote the persisted transcript-result to a regular agent
-        // message so it's still visible in conversation history,
-        // and put the canonical result in its place.
-        const stale = convItems[existingIdx]
-        convItems[existingIdx] = finalResult
-        if (stale.type === 'result' && stale.result) {
-          convItems.push({
-            id: `hist-asst-from-stale-result-${convItems.length}`,
-            type: 'agent_message',
-            timestamp: stale.timestamp,
-            message: { role: 'assistant', content: stale.result },
-          })
-        }
-      } else {
-        convItems.push(finalResult)
-      }
-    }
     setConversationItems(convItems)
 
     const stepsData = await api.get(`/api/tasks/${taskId}/steps`); setSteps(stepsData)
