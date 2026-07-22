@@ -62,7 +62,7 @@ def check(
     gaps: list[str] = []
     if not audit.manifest_present:
         gaps.append(
-            '没有找到 `store-data/<slug>/reviews/_MANIFEST.json`。review-collect '
+            '没有找到 `reviews/_MANIFEST.json`（任务本地目录）。review-collect '
             '任务必须：先枚举每个 (platform, country) 的商品全集（amazon: All '
             'Listings Report 的 ASIN；noon: 商品目录），写入 _MANIFEST.json 的 '
             '`expected`，再逐商品下钻评论、写 per-product JSON、把 product_id '

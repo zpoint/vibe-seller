@@ -30,12 +30,23 @@ set per combo BEFORE collecting reviews, and write it into the manifest's
   `../amazon-reports/SKILL.md` for the hamburger-menu report nav +
   download flow). Parse it for every ASIN sold in that country. That ASIN
   set is `expected` for `(amazon, <country>)`.
-- **noon**: open the noon catalog (load `../noon-listing/SKILL.md`) and
-  union every product id across all catalog pages (paginated — page to
-  the end). That id set is `expected` for `(noon, <country>)`.
+- **noon**: open the noon **Seller Center catalog** (load
+  `../noon-listing/SKILL.md`) and union every product id across all
+  catalog pages (paginated — page to the end). That id set is `expected`
+  for `(noon, <country>)`. **In this same pass, capture each product's
+  `seller_sku` (partner SKU) and build the full noon-id → `seller_sku`
+  map up front** — do NOT defer it to per-product later. The `seller_sku`
+  lives ONLY in the Seller Center catalog: it is **not** on the public
+  product page, and it is **not** the page's LD+JSON `sku` (that value is
+  the noon product id / NSKU, not the seller SKU). Grabbing every
+  product's `seller_sku` here — while you're already paging the catalog —
+  is what lets each noon file carry it on the first submit; a noon file
+  without `seller_sku` fails the gate and forces a wasted converge round.
 
-Write `_MANIFEST.json` now with each combo's `expected` filled and
-`collected: []`. Use `vibe_seller_write_workspace_file`.
+Write `reviews/_MANIFEST.json` now with each combo's `expected` filled
+and `collected: []`. Use the built-in **Write** tool — the `reviews/`
+dir is task-local (inside your working dir), NOT the shared workspace,
+so do **not** use `vibe_seller_write_workspace_file` for review files.
 
 ## Step 2 — collect each product's reviews, newest-first, to the end
 
@@ -45,8 +56,10 @@ history, then write one `<product_id>.json` (the `reviews/v1` shape) and
 add the id to that combo's `collected`.
 
 **Amazon** (`product_id` = ASIN):
-1. Open the reviews page (newest first). The overall rating + rating
-   count are on this page header. (TLD map: `../amazon-shared/SKILL.md` §1.)
+1. Open the reviews page (newest first) in the store's default browser —
+   the Ziniao browser is already signed in, so storefront pages load
+   without a separate login. The overall rating + rating count are on
+   this page header. (TLD map: `../amazon-shared/SKILL.md` §1.)
    ```bash
    browser-use <<'PY'
    new_tab("https://www.amazon.<tld>/product-reviews/<asin>/?sortBy=recent")
@@ -54,6 +67,16 @@ add the id to that combo's `collected`.
    print(page_info())
    PY
    ```
+   **If it redirects to sign-in (`/ap/signin`)** — the default (Ziniao)
+   session is normally already signed in; if it isn't, complete the
+   sign-in (`../amazon-shared/SKILL.md` §2 login loop). If no account is
+   pre-filled, **STOP and ask the operator via `AskUserQuestion`** for
+   the account (email + password) — never bake credentials into this
+   skill, and never loop. Sign in with whatever the operator provides,
+   then reload the reviews page. Do **NOT** silently fall back to a
+   degraded page and leave the product uncollected: if you truly cannot
+   sign in, record the ASIN as a NAMED gap (still uncollected in the
+   manifest), never a stale file.
 2. Extract each review block via `js("return …")` returning JSON:
    stars, date, title, body, verified flag, variant, and the review id
    (`data-hook="review"` carries an `id`; fall back to a stable hash of
@@ -83,29 +106,51 @@ add the id to that combo's `collected`.
    NOT by matching English text labels.
 
 **noon** (`product_id` = noon product id):
-1. Open the product page, scroll to the reviews section, switch the sort
-   to newest/by-date (verify the exact control on the live page — it has
-   moved between noon redesigns), page/scroll through all reviews.
+1. Open the product page. **Read the overall rating + rating count from
+   this page's header and record them as `rating`/`rating_count`** — the
+   value on the page you opened, never copied from a sibling variant,
+   another country, or a previous run. Then scroll to the reviews
+   section, switch the sort to newest/by-date (verify the exact control on
+   the live page — it has moved between noon redesigns), and page/scroll
+   through all reviews.
 2. Extract the same fields. Record `review_pages_fetched` (or scroll
    batches). Load `../noon-shared/SKILL.md` if the page structure is
    unfamiliar.
-3. **Emit the `asin`**: resolve the noon product to its matching Amazon
-   ASIN (you enumerated the Amazon catalog in Step 1 — match by
-   MSKU/SKU/title) and write it as the top-level `asin` field. The
-   downstream consumer stores noon ratings against that ASIN; a noon
-   file without `asin` is dropped.
+3. **Emit noon's own identity — `seller_sku`, not an Amazon ASIN.** Write
+   the noon **`seller_sku`** (the seller/partner SKU of THIS noon listing;
+   each colour / size variant has its own) as a top-level field. That is
+   noon's native id and the rating is keyed on it. Do **not** resolve the
+   product to an Amazon ASIN, and never let two noon products share one
+   identity — each variant is its own product with its own rating. (This
+   skill is platform-agnostic; relating noon to Amazon is a private
+   consumer's job, not yours.)
 
-Then `vibe_seller_write_workspace_file`
-`store-data/<slug>/reviews/<platform>/<country>/<product_id>.json` and append
-the id to the combo's `collected` in `_MANIFEST.json`. **Write the file
-before moving to the next product** (survives context compaction — a
-written file is the durable record; an in-memory list is not).
+Then use the built-in **Write** tool to write
+`reviews/<platform>/<country>/<product_id>.json` (task-local, NOT
+`vibe_seller_write_workspace_file`) and append the id to the combo's
+`collected` in `reviews/_MANIFEST.json`. **Write the file before moving
+to the next product** (survives context compaction — a written file is
+the durable record; an in-memory list is not).
 
 ### Idempotent re-runs
 
-Full history every run. A re-run re-pages everything and **upserts** the
-JSON, deduping reviews by `id`. Writing a product that already has a file
-just refreshes it — never an error, never a duplicate.
+Full history every run. Your task-local `reviews/` dir starts **empty**
+every run (retry wipes the workspace), so there is nothing to "resume" —
+you collect the full set fresh each time. Within a run, re-writing a
+product you already did this run just refreshes it — never an error.
+
+**Freshness is earned, not stamped. Collect LIVE — never copy.** Every
+product's `rating`/`reviews` MUST come from opening its page in the
+browser THIS run. Do **NOT** read, copy, `cp`, or script pre-existing
+review JSON from anywhere else on disk (e.g. `store-data/…/reviews`, a
+backup, another store, a `_MANIFEST` that claims "already collected")
+into your `reviews/` dir, and do **NOT** write a file with a
+freshly-stamped `collected_at` whose rating/reviews you did not read off
+the live page this run. A file's existence proves it was written this
+run; it does **not** prove the data is real — copying stale content with
+a new timestamp is the exact failure this design forbids. If a page
+genuinely can't be read this run, report that product as a NAMED gap;
+never fabricate or copy a file for it.
 
 ## Step 3 — parallelize (carefully)
 

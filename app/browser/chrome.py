@@ -269,7 +269,13 @@ class ChromeBackend(BrowserBackend):
             pid=pid,
         )
 
-    async def stop(self, info: BrowserSessionInfo) -> None:
+    async def stop(self, info: BrowserSessionInfo | None = None) -> None:
+        # ``info`` is unused (teardown works off the instance's own
+        # handles) but kept for the BrowserBackend interface. It defaults
+        # to None so lifecycle owners that don't track a SessionInfo —
+        # e.g. the aux browser — can call ``stop()`` to release the proxy,
+        # context and Playwright driver instead of raising TypeError and
+        # leaking a live Chromium.
         try:
             if self._proxy:
                 if self._proxy.has_active_clients():
