@@ -29,7 +29,7 @@ from app.errors import STREAM_ERROR_MAP, categorize_error_text
 from app.events.bus import event_bus
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-from app.task_states import TaskStatus
+from app.task_states import TaskStatus, can_transition
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +278,19 @@ class _StreamMixin:
                     self._had_tool_use = True
                     tool_name = block.get('name', '')
                     tool_input = block.get('input', {})
+                    # Interactive-Q&A finalize signal: a real tool
+                    # action after the last answered question means the
+                    # agent is working toward completion (an explicit
+                    # ``set_task_result`` is such a tool). AskUserQuestion
+                    # itself is the question, not progress on it; and
+                    # reflection-phase tool calls run after the turn is
+                    # already done — neither counts. See
+                    # ``_finalize_terminal_state``.
+                    if (
+                        not self._reflection_active
+                        and 'AskUserQuestion' not in tool_name
+                    ):
+                        self._tool_use_since_answer = True
                     # Subagent-originated events carry the id of the
                     # Agent/Task tool_use that spawned them; the main
                     # agent's own events have it null. This is the
@@ -756,6 +769,7 @@ class _StreamMixin:
     async def _emit_message(self, role: str, content: str):
         """Emit a task message event via SSE and persist to DB."""
         await self._emit_ephemeral(role, content)
+        reconciled_to: str | None = None
         try:
             async with self._emit_lock:
                 async with async_session() as db:
@@ -776,7 +790,51 @@ class _StreamMixin:
                     task = await db.get(Task, self.task_id)
                     if task is not None:
                         task.updated_at = datetime.now(UTC).isoformat()
+                        # Invariant: a session emitting messages holds
+                        # the concurrency slot and is live, so it can
+                        # never legitimately be QUEUED/PENDING. Enforce
+                        # it at the source (once) so a missed on_start
+                        # transition can't strand the task QUEUED —
+                        # which disables the input bar client-side AND
+                        # hides the task from the RUNNING-only stall
+                        # reaper. Plan-mode's first emits are the design
+                        # phase → DESIGNING; auto mode → RUNNING.
+                        if not self._status_reconciled:
+                            self._status_reconciled = True
+                            target = (
+                                TaskStatus.DESIGNING
+                                if task.plan_mode
+                                else TaskStatus.RUNNING
+                            )
+                            if task.status in (
+                                TaskStatus.QUEUED,
+                                TaskStatus.PENDING,
+                            ) and can_transition(task.status, target):
+                                logger.warning(
+                                    'Task %s streamed output while still '
+                                    '%s — reconciling to %s (on_start '
+                                    'transition was missed)',
+                                    self.task_id[:8],
+                                    task.status,
+                                    target,
+                                )
+                                task.status = target
+                                if (
+                                    target == TaskStatus.RUNNING
+                                    and not task.started_at
+                                ):
+                                    task.started_at = datetime.now(
+                                        UTC
+                                    ).isoformat()
+                                reconciled_to = target
                     await db.commit()
+            # Broadcast the corrected status OUTSIDE the txn/lock so
+            # every client (and the reaper's next pass) leaves QUEUED.
+            if reconciled_to is not None:
+                await event_bus.emit(
+                    'task_update',
+                    {'task_id': self.task_id, 'status': reconciled_to},
+                )
         except Exception as e:
             logger.warning(
                 'Failed to persist message for task %s: %s',

@@ -92,7 +92,7 @@ Usage: `const { t } = useTranslation(); t('key')` or `t('key', { count: 5 })`
 |-------|---------|
 | `task_created` | Prepend new task to list when its `store_id` matches the active view (or null + All-stores). Deduped by id so the originating tab — which already inserts the task from the POST response — doesn't double-add. |
 | `task_update` | Update task status in list |
-| `task_message` | Route by role: `delta` → streaming bubble, `assistant` → agent message, `tool_use` → tool call card, `thinking`/`thinking_delta` → thinking block, `result` → result card |
+| `task_message` | Route by role: `delta` → streaming bubble, `assistant` → agent message, `tool_use` → tool call card, `thinking`/`thinking_delta` → thinking block, `result` → result card. **Also reconciles status**: a task streaming output can't be `queued`/`pending`, so any of these promotes it to `running` (or `designing` when `plan_mode`) — defensive against a missed/clobbered `task_update(running)` (the `pending→queued→running` race); never disturbs terminal/active states. |
 | `task_todos` | Update todo progress bar |
 | `task_questions` | Show question banner |
 | `agent_done` | Mark agent session complete |

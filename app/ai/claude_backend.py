@@ -163,6 +163,34 @@ class AgentSession(
         # wrote questions as prose instead of calling
         # AskUserQuestion).
         self._had_tool_use: bool = False
+        # Interactive-Q&A finalize signals (read by task_runner's
+        # `_finalize_terminal_state`). A session that called
+        # AskUserQuestion, got answered, and then ended its final
+        # segment with PROSE ONLY — no follow-up tool action, not even
+        # the explicit ``vibe_seller_set_task_result`` (itself a
+        # tool_use) — is asking again / awaiting input, NOT done, even
+        # though the streaming-prose fallback populated ``task.result``.
+        # ``_asked_user_question``: an AskUserQuestion was emitted this
+        # session (never reset). ``_tool_use_since_answer``: a real
+        # (non-reflection, non-AskUserQuestion) tool ran after the most
+        # recent answer — reset to False each time a question is
+        # answered. ``_reflection_active``: the post-task reflection
+        # phase has begun, so its tool calls (e.g. Read) must NOT count
+        # as agent work toward completion.
+        self._asked_user_question: bool = False
+        self._tool_use_since_answer: bool = False
+        self._reflection_active: bool = False
+        # One-shot: has the "streaming ⇒ not queued" invariant been
+        # enforced for this session yet? A task only sits in
+        # QUEUED/PENDING while it waits for the agent-concurrency slot;
+        # the moment its session emits a message the slot is held and
+        # the agent is live, so the status MUST already be RUNNING/
+        # DESIGNING. Normally ``on_start`` transitions it before the
+        # first emit — this flag arms a backstop in ``_emit_message``
+        # for the case where that transition never landed (a
+        # QUEUED-but-active session observed in production), which also
+        # kept the RUNNING-only stall reaper blind.
+        self._status_reconciled: bool = False
         self._stopping: bool = False
         # True once the TURN TERMINATOR has fired — the quiescence
         # watchdog / legacy result-close / plan-skip close / stop()

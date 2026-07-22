@@ -782,6 +782,30 @@ async def _finalize_terminal_state(
             )
             return
 
+        # Interactive Q&A that isn't finished: the agent called
+        # AskUserQuestion, got answered, then ended its final segment
+        # with PROSE ONLY — no follow-up tool action and no explicit
+        # `vibe_seller_set_task_result` (itself a tool_use). That shape
+        # is "asking again / awaiting more input", not "done" — but the
+        # streaming-prose fallback already populated `task.result`, so
+        # the empty-result waiting-park above (gated on `not
+        # task.result`) never saw it and the task would silently
+        # COMPLETE mid-conversation. Park WAITING so the operator can
+        # answer. Real ClaudeCodeBackend only: FakeAgent sessions lack
+        # these attrs (getattr default False), so workflow finalizer
+        # tests are unaffected.
+        if getattr(session, '_asked_user_question', False) and not getattr(
+            session, '_tool_use_since_answer', False
+        ):
+            logger.info(
+                'Task %s: agent followed an answered AskUserQuestion '
+                'with prose only (no tool action) — parking WAITING for '
+                'operator input instead of completing',
+                task_id[:8],
+            )
+            await park_waiting_for_text_only_response(task, db, task_id)
+            return
+
         if await maybe_wait_for_children(task, task_id, db):
             return
 
