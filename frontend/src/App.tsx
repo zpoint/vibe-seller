@@ -8,6 +8,7 @@ import { MobileMenuButton } from './components/MobileMenuButton'
 import { useWsFiles } from './hooks/useWsFiles'
 import { useUpdateCheck } from './hooks/useUpdateCheck'
 import { useSessionKeepalive } from './hooks/useSessionKeepalive'
+import { useServerInfo } from './hooks/useServerInfo'
 import { useIsMobile } from './hooks/useIsMobile'
 import { useMobileBackStack } from './hooks/useMobileBackStack'
 import { CreateTaskModal } from './components/CreateTaskModal'
@@ -32,7 +33,6 @@ import { fetchBrowserProfiles as fetchBrowserProfilesHandler, restartZiniao as r
 import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMessage'
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
-  ServerPlatform,
   WsStructured, ZiniaoAccount, ZiniaoBrowserProfile,
   AppView, PendingFile, Schedule, EmailAccount, ConversationItem,
 } from './types'
@@ -43,8 +43,7 @@ export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const [serverPlatform, setServerPlatform] = useState<ServerPlatform | null>(null)
-  const [serverVersion, setServerVersion] = useState<string>('')
+  const { serverPlatform, serverVersion } = useServerInfo()
   const [loginIdentifier, setLoginIdentifier] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -198,19 +197,6 @@ export default function App() {
     }
     window.addEventListener(AUTH_EXPIRED_EVENT, onExpired)
     return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onExpired)
-  }, [])
-
-  // /api/system/info on mount: platform + version (top-left).
-  useEffect(() => {
-    fetch('/api/system/info', { credentials: 'include' })
-      .then(r => r.ok ? r.json() : null)
-      .then(info => {
-        if (info?.platform) setServerPlatform(info.platform)
-        const v = String(info?.version || ''), c = String(info?.commit || '')
-        const pick = v && !v.includes('+') && !v.includes('dev') ? v : (c || v)
-        if (pick) setServerVersion(pick)
-      })
-      .catch(() => {})
   }, [])
 
   // Auth check on mount — first check if auth is required
