@@ -185,11 +185,22 @@ _DEFER_RE = re.compile(
     # should have used the account-wide bulk export instead). These
     # phrasings ("仅获取第1页(50/150)", "第2-3页…待翻页获取", "待翻页",
     # "N total 但只…") slipped past because the old list had only the
-    # generic "未获取".
+    # generic "未获取". The disclosure lives in the report's free-prose
+    # limitation note, written in the USER'S language (reports are
+    # language-followed — see the result_language gate), so match BOTH
+    # Chinese AND English phrasings, not Chinese alone.
     r'|仅\s*获取第|只\s*获取\s*(?:了)?\s*(?:当前|第一?)\s*页'
     r'|只\s*导出\s*(?:了)?\s*(?:当前|第一?)\s*页|待\s*翻页|未\s*翻页'
     r'|页[^。\n]{0,8}?(?:未获取|待获取|未翻页|未采集)'
-    r'|待[^。\n]{0,6}?翻页|翻页[^。\n]{0,6}?(?:获取|采集)',
+    r'|待[^。\n]{0,6}?翻页|翻页[^。\n]{0,6}?(?:获取|采集)'
+    # English equivalents:
+    r'|only\s+(?:got|read|captured|scraped|fetched|the\s+first)[^.\n]{0,18}?\bpage'
+    r'|(?:first\s+page|page\s*1)\s+only|page\s*1\s+of\s+\d'
+    r'|(?:remaining|further|other|additional)\s+pages\b[^.\n]{0,20}?'
+    r'(?:pending|not\b|un|missing|to\s?do)'
+    r'|pages?\s*\d+\s*[-–]\s*\d+[^.\n]{0,20}?(?:not\b|pending|un|missing)'
+    r'|pending\s+pagination|without\s+paginating'
+    r'|(?:did\s*n.?t|did\s+not|not)\s+paginat(?:e|ed)',
     re.IGNORECASE,
 )
 

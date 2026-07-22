@@ -94,7 +94,10 @@ gate.
 Phase 1 (Discover) MUST, per country:
 
 1. **Read the true total** from the status chips — the `Live N` / `All N`
-   numbers are your completeness target:
+   numbers are your completeness target. The chip *label* (`Live` today)
+   is English on the noon partner console, but rely on the **number** and
+   the **`/campaign/details/` links** — both language-neutral — so this
+   works whatever the seller-market locale; don't key on the label word:
    ```bash
    browser-use <<'PY'
    print(js("return JSON.stringify([...document.querySelectorAll('*')].filter(e=>e.children.length<=2 && /^(Live|Paused|All)\\s*\\d+$/i.test(e.textContent.replace(/\\s+/g,' ').trim())).map(e=>e.textContent.replace(/\\s+/g,' ').trim()))"))
