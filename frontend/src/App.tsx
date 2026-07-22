@@ -18,6 +18,7 @@ import { WorkspaceView } from './views/WorkspaceView'
 import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
+import { parseNav, settingsTabToSlug } from './lib/route'
 import { api, AUTH_EXPIRED_EVENT } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
@@ -53,11 +54,8 @@ export default function App() {
   // callable props the children already take, but they navigate.
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
-  const appView: AppView = pathname.startsWith('/workspace')
-    ? 'workspace'
-    : pathname.startsWith('/settings')
-      ? 'settings'
-      : 'tasks'
+  const nav = parseNav(pathname)
+  const appView = nav.appView
   const setAppView = (v: AppView) => {
     navigate({ to: v === 'workspace' ? '/workspace' : v === 'settings' ? '/settings' : '/tasks' })
   }
@@ -166,26 +164,21 @@ export default function App() {
   const [allUsers, setAllUsers] = useState<AuthUser[]>([])
   const [showAddUser, setShowAddUser] = useState(false)
   const [newUserForm, setNewUserForm] = useState({ username: '', email: '', password: '', role: 'member' })
-  // URL-derived: /settings/$tab. The URL slug is the human-friendly
-  // form ('ai'); SettingsView's internal id is 'aiAgent' — map both ways
-  // so the URL stays clean while the child's props are unchanged.
-  const slugToTab: Record<string, SettingsTab> = { ai: 'aiAgent' }
-  const tabToSlug: Partial<Record<SettingsTab, string>> = { aiAgent: 'ai' }
-  const _tabSlug = pathname.match(/^\/settings\/([^/]+)/)?.[1] || 'stores'
-  const settingsTab = (slugToTab[_tabSlug] || _tabSlug) as SettingsTab
+  // URL-derived: /settings/$tab (SettingsView keeps its identical props;
+  // slug↔id mapping lives in lib/route). Setter navigates.
+  const settingsTab = nav.settingsTab
   const setSettingsTab = (tab: SettingsTab) => {
-    navigate({ to: '/settings/$tab', params: { tab: tabToSlug[tab] || tab } })
+    navigate({ to: '/settings/$tab', params: { tab: settingsTabToSlug(tab) } })
   }
 
   // Selection is URL-derived too: the open task / store / schedule are
   // route params, so they deep-link and Back closes them. The rich
   // objects still live in state (loaded on param change); these are the
   // ids the effects below reconcile against.
-  const routeTaskId = pathname.match(/^\/tasks\/([^/]+)/)?.[1] ?? null
-  const routeStoreId = pathname.match(/^\/stores\/([^/]+)/)?.[1] ?? null
-  const routeScheduleId = pathname.match(/^\/schedules\/([^/]+)/)?.[1] ?? null
-  const taskSubTab: 'onetime' | 'scheduled' =
-    pathname.startsWith('/schedules') ? 'scheduled' : 'onetime'
+  const routeTaskId = nav.taskId
+  const routeStoreId = nav.storeId
+  const routeScheduleId = nav.scheduleId
+  const taskSubTab = nav.taskSubTab
   const setTaskSubTab = (tab: 'onetime' | 'scheduled') => {
     navigate({ to: tab === 'scheduled' ? '/schedules' : '/tasks' })
   }

@@ -63,24 +63,26 @@ describe('submitCreateTask state reset contract', () => {
     'utf-8',
   )
 
-  const selectTaskBody = extractFunctionBody(appSource, 'selectTask')
+  // The task loader (opening a task now navigates; the route effect
+  // calls loadTaskById, which holds the per-task state resets).
+  const selectTaskBody = extractFunctionBody(appSource, 'loadTaskById')
   const submitCreateBody = extractFunctionBody(appSource, 'submitCreateTask')
 
   const selectTaskResets = extractResetCalls(selectTaskBody)
   const submitCreateResets = extractResetCalls(submitCreateBody)
 
-  // These are set by selectTask with loaded data, not reset to empty.
+  // These are set by loadTaskById with loaded data, not reset to empty.
   // submitCreateTask doesn't need them since a new task has no data.
   const loadOnlyCalls = new Set([
     'setSelectedTask',  // set with new task object, not cleared
-    'setSteps',         // selectTask loads from API; submitCreateTask clears
+    'setSteps',         // loadTaskById loads from API; submitCreateTask clears
   ])
 
   const requiredResets = new Set(
     [...selectTaskResets].filter(s => !loadOnlyCalls.has(s)),
   )
 
-  it('selectTask should have state resets (sanity check)', () => {
+  it('loadTaskById should have state resets (sanity check)', () => {
     expect(selectTaskResets.size).toBeGreaterThan(5)
   })
 
