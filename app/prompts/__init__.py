@@ -63,6 +63,7 @@ WAITING_INSTRUCTION_PROMPT: str = _load('waiting_instruction.md')
 DUAL_BROWSER_PROMPT: str = _load('dual_browser.md')
 TICKTICK_TOOLS_PROMPT: str = _load('ticktick_tools.md')
 WORKSPACE_ASSISTANT_PROMPT: str = _load('workspace_assistant.md')
+VISION_SETUP_BREADCRUMB: str = _load('vision_setup_breadcrumb.md')
 CATALOG_RESTRICTION_PROMPT_L2: str = (
     'You are regenerating ONLY the L2 global catalog '
     '(knowledge/CATALOG.md). Do NOT touch any store '

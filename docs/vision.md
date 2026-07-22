@@ -31,6 +31,29 @@ secret, so **not** the DB, mirroring `profiles.json`. It is read back
 masked (last-4). Admin-only to set. The `KIE_API_KEY` env var overrides
 the file (for CI). See `app/vision.py`.
 
+## Not configured → tool hidden, agent guides the user
+
+Image generation is **conditionally registered**: when no key is set
+(and not `VISION_FAKE`), `mcp_server._visible_tools()` drops
+`vibe_seller_generate_image` from `tools/list`, so the agent never sees
+(or dead-end-calls) a tool it can't use and the tool list stays clean —
+industry practice over advertise-then-error. The MCP process is
+per-task, so the set is read once at task start (no `list_changed`;
+a key added mid-task appears on the next task).
+
+Discoverability is one line, in ONE place — **not** per-skill:
+`VISION_SETUP_BREADCRUMB` in `app/task_runner.py`, appended by
+`_build_system_extra()` **only** under the same unconfigured condition
+(configured tasks pay zero tokens). It tells the agent to guide the user
+to Settings → AI → Vision and to emit the link `[Settings → AI →
+Vision](#vision-setup)`. The frontend (`MessageBubble`) renders that
+`#vision-setup` href as an inline CTA button that navigates to the
+Vision settings panel — the visible text may be translated, the href is
+the stable contract. Skills carry nothing about setup.
+
+Tests: `tests/unit/test_mcp_tool_visibility.py` (hide/show/fake) +
+`tests/unit/test_prompt_assembly.py::TestVisionSetupBreadcrumb`.
+
 ## Routes
 
 | Method | Path | Notes |

@@ -30,6 +30,7 @@ from app.prompts import (
     CATALOG_RESTRICTION_PROMPT_L2,
 )
 from app.task_runner import (
+    VISION_SETUP_BREADCRUMB,
     PromptBundle,
     TaskHeader,
     build_system_extra,
@@ -214,6 +215,49 @@ def no_store_task():
 
 
 # ── Tests ────────────────────────────────────────────────────
+
+
+class TestVisionSetupBreadcrumb:
+    """The vision-setup breadcrumb is injected ONLY when image
+    generation is unconfigured — the same condition under which
+    mcp_server hides the vibe_seller_generate_image tool. A configured
+    (or fake/CI) task must pay zero extra prompt tokens."""
+
+    @pytest.mark.asyncio
+    async def test_breadcrumb_present_when_unconfigured(
+        self, _patch_async_session, task, store, monkeypatch
+    ):
+        monkeypatch.setattr('app.vision.get_kie_api_key', lambda: None)
+        monkeypatch.setattr('app.vision.is_fake', lambda: False)
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        assert VISION_SETUP_BREADCRUMB in bundle.system_extra
+        assert '#vision-setup' in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_breadcrumb_absent_when_key_configured(
+        self, _patch_async_session, task, store, monkeypatch
+    ):
+        monkeypatch.setattr('app.vision.get_kie_api_key', lambda: 'sk-x')
+        monkeypatch.setattr('app.vision.is_fake', lambda: False)
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        assert VISION_SETUP_BREADCRUMB not in bundle.system_extra
+        assert '#vision-setup' not in bundle.system_extra
+
+    @pytest.mark.asyncio
+    async def test_breadcrumb_absent_in_fake_mode(
+        self, _patch_async_session, task, store, monkeypatch
+    ):
+        # Fake/CI mode keeps the tool available, so no breadcrumb.
+        monkeypatch.setattr('app.vision.get_kie_api_key', lambda: None)
+        monkeypatch.setattr('app.vision.is_fake', lambda: True)
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        assert VISION_SETUP_BREADCRUMB not in bundle.system_extra
 
 
 class TestAutoStoreTask:

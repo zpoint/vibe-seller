@@ -263,6 +263,7 @@ interface ConversationStreamProps {
   questionBannerRef: React.RefObject<HTMLDivElement | null>
   isActive: boolean
   userNearBottom?: React.RefObject<boolean>
+  onOpenVisionSetup?: () => void
 }
 
 export function ConversationStream({
@@ -285,6 +286,7 @@ export function ConversationStream({
   questionBannerRef,
   isActive,
   userNearBottom,
+  onOpenVisionSetup,
 }: ConversationStreamProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -356,9 +358,9 @@ export function ConversationStream({
             return <MessageBubble key={item.id} role="user" content={item.message!.content} />
           }
           case 'agent_message':
-            return <MessageBubble key={item.id} role="assistant" content={item.message!.content} />
+            return <MessageBubble key={item.id} role="assistant" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
           case 'streaming':
-            return <MessageBubble key={item.id} role="_streaming" content={item.message!.content} />
+            return <MessageBubble key={item.id} role="_streaming" content={item.message!.content} onOpenVisionSetup={onOpenVisionSetup} />
           case 'execution_separator':
             return <ExecutionSeparator key={item.id} />
           case 'thinking':

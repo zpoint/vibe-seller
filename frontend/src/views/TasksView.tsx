@@ -87,6 +87,7 @@ interface TasksViewProps {
   onScheduleUpdated: (schedule: Schedule) => void
   selectedStore: Store | null
   stores: Store[]
+  onOpenVisionSetup?: () => void
 }
 
 export function TasksView({
@@ -149,6 +150,7 @@ export function TasksView({
   onScheduleUpdated,
   selectedStore,
   stores,
+  onOpenVisionSetup,
 }: TasksViewProps) {
   const { t } = useTranslation()
   // Gating predicate for the schedule "Run Now" button: true
@@ -573,15 +575,14 @@ export function TasksView({
                   onToggleOther={toggleOtherInput}
                   onSetOtherAnswer={setOtherAnswer}
                   onSubmitAll={submitAllAnswers}
-                  onConfirmPlan={handleConfirmPlan}
-                  onImageDecision={submitImageDecision}
+                  onConfirmPlan={handleConfirmPlan} onImageDecision={submitImageDecision}
                   onRequestChanges={() => {
                     const input = chatInputRef.current
                     if (input) { input.focus(); input.placeholder = t('tasks.planFeedbackPlaceholder') }
                   }}
                   questionBannerRef={questionBannerRef}
-                  isActive={isActive}
-                  userNearBottom={userNearBottom}
+                  isActive={isActive} userNearBottom={userNearBottom}
+                  onOpenVisionSetup={onOpenVisionSetup}
                 />
               )}
 
