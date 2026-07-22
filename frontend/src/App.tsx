@@ -660,6 +660,7 @@ export default function App() {
       {/* Main content area */}
       {appView === 'tasks' ? (
         <TasksView
+          onOpenVisionSetup={() => { setAppView('settings'); setSettingsTab('aiAgent') }}
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}
           tasks={tasks} tasksLoading={tasksLoading} selectedTask={selectedTask} steps={steps} screenshots={screenshots} logs={logs}

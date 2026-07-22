@@ -15,6 +15,10 @@ class ClientState:
     ws: ServerConnection
     target_ids: set[str] = field(default_factory=set)
     session_ids: set[str] = field(default_factory=set)
+    # Creation order of owned targets — the LRU basis for the per-client
+    # tab cap (every navigation is a new_tab, so a long task accumulates
+    # tabs unboundedly without it). Kept in sync with target_ids.
+    target_order: list[str] = field(default_factory=list)
 
 
 @dataclass

@@ -91,6 +91,12 @@ class ZiniaoBackend(BrowserBackend):
 
     def __init__(self):
         self._proxy: CDPMuxProxy | None = None
+        # Per-store stopBrowser payload + control-app port, captured at
+        # start() so stop() can actually terminate the Ziniao env (not
+        # just the mux proxy). Per-store safe: stopBrowser closes THIS
+        # env only, never the shared Ziniao client.
+        self._stop_data: dict | None = None
+        self._socket_port: int | None = None
 
     async def start(self, browser_config: dict) -> BrowserSessionInfo:
         # Credentials come from ZiniaoAccount (injected by BrowserManager)
@@ -150,6 +156,8 @@ class ZiniaoBackend(BrowserBackend):
             stop_data['browserId'] = browser_oauth
         else:
             stop_data['browserOauth'] = browser_oauth
+        self._stop_data = stop_data
+        self._socket_port = socket_port
         MAX_ZINIAO_ATTEMPTS = 4
         cdp_port = None
         target_host = None
@@ -529,3 +537,18 @@ class ZiniaoBackend(BrowserBackend):
                 self._proxy = None
         except Exception as e:
             logger.warning(f'Error stopping ziniao backend: {e}')
+        # Terminate the Ziniao browser ENV itself (per-store stopBrowser
+        # — never the shared client). Without this, stop() only tore
+        # down the proxy and the Chromium env lived forever, piling up
+        # tabs until store deletion or a machine reboot.
+        if self._stop_data and self._socket_port:
+            try:
+                await try_connect_ziniao(
+                    self._socket_port, self._stop_data, timeout=10
+                )
+                logger.info('Ziniao env stopped (per-store stopBrowser sent)')
+            except Exception as e:
+                logger.warning('Ziniao stopBrowser failed: %s', e)
+            finally:
+                self._stop_data = None
+                self._socket_port = None

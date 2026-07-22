@@ -7,6 +7,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import vision
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
@@ -23,6 +24,7 @@ from app.prompts import (
     DESIGN_SYSTEM_PROMPT,
     DESIGN_SYSTEM_PROMPT_AUTO,
     SCHEDULED_PRETASK_PROMPT,
+    VISION_SETUP_BREADCRUMB,
     WAITING_INSTRUCTION_PROMPT,
     render_prompt,
 )
@@ -188,6 +190,11 @@ async def build_system_extra(
 
     parts.append(ticktick_context())
     parts.append(await build_system_context(task))
+
+    # Image-gen breadcrumb — same gate the MCP server uses to hide the
+    # tool, so a configured task pays zero extra tokens.
+    if not vision.get_kie_api_key() and not vision.is_fake():
+        parts.append(VISION_SETUP_BREADCRUMB)
 
     # Reflection reminder — full prompt delivered via Stop hook
     if not is_catalog:
