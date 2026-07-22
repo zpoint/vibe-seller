@@ -40,7 +40,11 @@ export function parseNav(pathname: string): NavState {
   return {
     appView,
     settingsTab: slugToSettingsTab(tabSlug),
-    taskId: pathname.match(/^\/tasks\/([^/]+)/)?.[1] ?? null,
+    // A task path is either flat (/tasks/$id, no-store tasks) or nested
+    // under its store (/stores/$storeId/tasks/$id) — the nested form keeps
+    // the store selected while the task is open. Match both; the store id
+    // comes from the /stores/ prefix, present only in the nested form.
+    taskId: pathname.match(/^\/(?:stores\/[^/]+\/)?tasks\/([^/]+)/)?.[1] ?? null,
     storeId: pathname.match(/^\/stores\/([^/]+)/)?.[1] ?? null,
     scheduleId: pathname.match(/^\/schedules\/([^/]+)/)?.[1] ?? null,
     taskSubTab: pathname.startsWith('/schedules') ? 'scheduled' : 'onetime',

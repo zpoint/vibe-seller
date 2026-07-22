@@ -244,10 +244,10 @@ export default function App() {
   // The URL is the source of truth for what's open. Each effect loads
   // the rich object when its route param appears and clears it when the
   // param is gone (Back / navigating away). Guards prevent reload loops.
-  // List scope from the route alone: a store, or the all-stores list on
-  // the tasks view (the open task is orthogonal — /tasks and /tasks/$id
-  // share the 'all' scope). loadedScopeRef loads it once per scope
-  // change, incl. the initial landing.
+  // List scope from the route alone: a store (either /stores/$id or a task
+  // open under it, /stores/$id/tasks/$tid), or the all-stores list on the
+  // tasks view (/tasks and the flat /tasks/$id for no-store tasks).
+  // loadedScopeRef loads it once per scope change, incl. initial landing.
   const listScopeKey = routeStoreId
     ? `store:${routeStoreId}`
     : appView === 'tasks' && taskSubTab === 'onetime'
@@ -422,7 +422,16 @@ export default function App() {
   // (selectScope / loadTaskById) so URL is the single source of truth.
   const selectStore = (store: Store) => navigate({ to: '/stores/$storeId', params: { storeId: store.id } })
   const selectAllTasks = () => navigate({ to: '/tasks' })
-  const selectTask = (task: Task) => navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
+  // A store task opens under its store (/stores/$storeId/tasks/$taskId) so
+  // the URL keeps the store scope — otherwise the flat route drops it and
+  // the sidebar snaps back to All Stores. No-store tasks use the flat form.
+  const selectTask = (task: Task) =>
+    task.store_id
+      ? navigate({
+          to: '/stores/$storeId/tasks/$taskId',
+          params: { storeId: task.store_id, taskId: task.id },
+        })
+      : navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
 
   const loadTaskById = async (taskId: string) => {
     let fullTask: Task
