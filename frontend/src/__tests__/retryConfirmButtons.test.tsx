@@ -52,6 +52,8 @@ function makeProps(over: Record<string, unknown> = {}) {
     showOtherInput: {},
     chatInput: '',
     setChatInput: noop,
+    chatAttachments: [],
+    setChatAttachments: noop,
     debugMode: false,
     setDebugMode: noop,
     profiles: [],

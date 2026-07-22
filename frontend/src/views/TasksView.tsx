@@ -7,7 +7,7 @@ import { formatScheduleBadge } from '../lib/scheduleBadge'
 import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
-import { ChatAttachButton } from '../components/conversation/ChatAttachButton'
+import { ChatComposer } from '../components/conversation/ChatComposer'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -15,7 +15,7 @@ import { ExternalConfigOverrideErrorCard } from '../components/ExternalConfigOve
 import { SubtaskList } from '../components/SubtaskList'
 import { MobileMenuButton } from '../components/MobileMenuButton'
 import { getUI, hasProgressingTask } from '../taskStates'
-import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem } from '../types'
+import type { Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile, Schedule, Store, ConversationItem, StagedAttachment } from '../types'
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr)
@@ -44,6 +44,8 @@ interface TasksViewProps {
   showOtherInput: Record<string, boolean>
   chatInput: string
   setChatInput: (v: string) => void
+  chatAttachments: StagedAttachment[]
+  setChatAttachments: React.Dispatch<React.SetStateAction<StagedAttachment[]>>
   debugMode: boolean
   setDebugMode: React.Dispatch<React.SetStateAction<boolean>>
   profiles: Profile[]
@@ -110,6 +112,8 @@ export function TasksView({
   showOtherInput,
   chatInput,
   setChatInput,
+  chatAttachments,
+  setChatAttachments,
   debugMode,
   setDebugMode,
   profiles,
@@ -186,8 +190,8 @@ export function TasksView({
     el.style.height = `${Math.min(el.scrollHeight, 192)}px`
   }, [chatInput, selectedTask?.id])
 
-  const { chatFileInputRef, chatUploading, uploadChatFiles } = useChatUploads(
-    selectedTask, chatInput, setChatInput, chatInputRef, t('tasks.attachedImage'))
+  const { chatFileInputRef, chatUploading, uploadChatFiles, removeAttachment } =
+    useChatUploads(selectedTask?.id ?? null, setChatAttachments)
 
   // Phase helpers — driven by centralized UI config
   const taskCfg = selectedTask ? getUI(selectedTask.status) : null
@@ -195,7 +199,8 @@ export function TasksView({
   // Unified send bar state
   const canSend = taskCfg?.canSendMessage ?? false
   const isActive = taskCfg?.isActive ?? false
-  const hasText = chatInput.trim().length > 0
+  // A message may be text-only, attachment-only, or both.
+  const hasText = chatInput.trim().length > 0 || chatAttachments.length > 0
 
   // Placeholder changes by state
   const getPlaceholder = () => {
@@ -708,74 +713,14 @@ export function TasksView({
                 </div>
               )}
 
-              {/* Unified send bar */}
-              <div className="flex gap-2 items-end">
-                <ChatAttachButton
-                  fileInputRef={chatFileInputRef}
-                  uploading={chatUploading}
-                  disabled={!canSend && !isActive}
-                  onFiles={uploadChatFiles}
-                />
-                <textarea
-                  ref={chatInputRef}
-                  data-testid="chat-input"
-                  rows={1}
-                  value={chatInput}
-                  onChange={e => setChatInput(e.target.value)}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => {
-                    e.preventDefault()
-                    if (e.dataTransfer.files?.length) uploadChatFiles(e.dataTransfer.files)
-                  }}
-                  onPaste={e => {
-                    const imgs = Array.from(e.clipboardData?.items || [])
-                      .filter(i => i.kind === 'file' && i.type.startsWith('image/'))
-                      .map(i => i.getAsFile())
-                      .filter((f): f is File => !!f)
-                    if (imgs.length) { e.preventDefault(); uploadChatFiles(imgs) }
-                  }}
-                  onKeyDown={e => {
-                    // Bail on IME composition keystrokes. Chinese /
-                    // Japanese / Korean IMEs dispatch an Enter
-                    // `keydown` to confirm a composition BEFORE the
-                    // real submit Enter ~50ms later — without this
-                    // guard both fire sendChatMessage, producing
-                    // duplicate user messages. keyCode===229 catches
-                    // older Safari / Firefox builds where
-                    // isComposing is unreliable.
-                    if (e.nativeEvent.isComposing || e.keyCode === 229) return
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault()
-                      if (hasText) sendChatMessage()
-                    }
-                  }}
-                  placeholder={getPlaceholder()}
-                  disabled={!canSend && !isActive}
-                  className="flex-1 px-3 py-2 text-sm leading-5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed resize-none overflow-y-auto"
-                />
-                {canSend && hasText ? (
-                  <button
-                    onClick={sendChatMessage}
-                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
-                  >
-                    {t('tasks.send')}
-                  </button>
-                ) : isActive && !hasText ? (
-                  <button
-                    onClick={stopAgent}
-                    className="px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    {t('tasks.stopTask')}
-                  </button>
-                ) : (
-                  <button
-                    disabled
-                    className="px-4 py-2 text-sm font-medium text-white bg-gray-300 rounded-lg cursor-not-allowed"
-                  >
-                    {t('tasks.send')}
-                  </button>
-                )}
-              </div>
+              <ChatComposer
+                fileInputRef={chatFileInputRef} uploading={chatUploading}
+                uploadFiles={uploadChatFiles} attachments={chatAttachments}
+                onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
+                input={chatInput} setInput={setChatInput} hasContent={hasText}
+                canSend={canSend} isActive={isActive} onSend={sendChatMessage}
+                onStop={stopAgent} placeholder={getPlaceholder()}
+              />
               </div>
             </div>
           </>
