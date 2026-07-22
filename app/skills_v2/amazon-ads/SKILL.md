@@ -36,6 +36,23 @@ back to the user ("please do X manually"). Work the problem:
   itself. If you catch yourself scrolling a grid and re-reading, stop —
   export instead.
 
+- **The grid's OWN inline "导出 / Export" button is a PAGE-SCOPED trap —
+  it is NOT the bulk export.** On the Campaign Manager grid the Export
+  control opens a menu whose "当前表格数据 / current table data → 下载 /
+  Download" option dumps **only the ~50 rows on the current grid page**,
+  not the account. It looks exactly like "the export," so trusting it is
+  the single most common way a run under-counts a large account —
+  **verified live: it returned 50 of 146 campaigns, and the grid's own
+  "下一页 / Next Page" then silently refused to advance (JS click returns
+  `clicked:false`; the grid virtualizes), trapping the run at page 1.**
+  Do **NOT** enumerate by paging the grid or by its inline Export. The
+  account-wide export is the **Bulk Operations download** (`mechanics.md`
+  §2d) — one XLSX covering every campaign regardless of grid pagination
+  (reuse the newest `bulk-*.xlsx` first). **After any download, verify its
+  campaign-row count equals the grid's `aria-rowcount`; if it's ~50 (one
+  page), you grabbed the page-scoped file — discard it and use Bulk
+  Operations.** A file whose count ≠ the grid total is not the account.
+
 - **A persisted search/status filter silently hides campaigns — clear
   it FIRST, and trust the grid's own total, not a scraped row count.**
   The Campaign Manager's campaign-search box keeps whatever term was last

@@ -142,6 +142,28 @@ HOW TO VERIFY (principle-guided — you are capable; adapt to what you see)
   do NOT run a bare `browser-use` and do NOT search for the wrapper — if
   `{wrapper}` doesn't run, report that as a gap, don't work around it.
   Cross-check the REPORT against what you see.
+- ENUMERATION FIRST — establish the account TOTAL independently, do NOT
+  trust the report's denominator or AUDIT_SCOPE. Coverage that only checks
+  "every id the agent enumerated got drilled" is self-certifying: if the
+  agent read one grid page (or the grid's inline "导出→当前表格数据" export,
+  which dumps a single ~50-row page), it under-enumerates and then drills
+  that partial set to D==A — passing every downstream check while missing
+  most of the account. So for EACH (platform, country): open the live
+  console, clear the persisted search + status filters, and read the
+  grid's own **`aria-rowcount`** (Amazon) — OR, for **noon**, read the
+  **`Live N` / `All N` status chip** on the Campaigns tab AND scroll the
+  lazy-loaded list to the bottom (the list only renders ~20 rows until
+  scrolled; `window.scroll` does nothing — scroll its inner container),
+  confirming the unique `a[href*="/campaign/details/"]` count reaches the
+  chip. **Do NOT accept a noon count read off a pre-existing export file
+  or an unscrolled list** — that is exactly how a noon audit reports
+  "20/20" while the `Live` chip shows 45. That chip/`aria-rowcount` is the
+  true total. Then confirm the report's `进度` line `<T> total` and its
+  active count are consistent with it. **A report whose `进度` says
+  "N total, 1 pages" while the live grid shows a larger `aria-rowcount`,
+  or that self-discloses "仅获取第1页 / 待翻页 / 第2-3页未获取", is an
+  UNDER-ENUMERATION gap even if every id it listed was drilled** — the
+  active set itself is short. Cite the live total vs the report's total.
 - SAMPLE, don't trust: pick several campaigns the report claims it drilled
   and confirm on the live console (or the export) that the search
   terms / spend / orders it lists actually match. A mismatch, or a

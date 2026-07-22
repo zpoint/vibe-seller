@@ -259,6 +259,17 @@ The "Total: N" cell in the table footer is the authoritative count.
 
 ### 2d. Bulk download (cross-campaign capture)
 
+> ⚠️ **Do NOT confuse this with the Campaign Manager grid's own inline
+> "导出 / Export" button.** That grid button opens a menu — "当前表格数据 /
+> current table data → 下载" — that exports **only the ~50 rows on the
+> current grid page**, not the account. It is a page-scoped trap that
+> looks like the bulk export; verified live it returned 50 of 146
+> campaigns, after which the grid's "下一页 / Next Page" silently refused
+> to advance (`clicked:false`; the grid virtualizes). **The account-wide
+> export is ONLY the Bulk Operations flow below.** After downloading,
+> confirm the file's campaign-row count matches the grid's `aria-rowcount`
+> — a ~50-row file means you grabbed the page-scoped export; discard it.
+
 > ⚠️ **If the bulk-operations page 404s / has no export UI, do NOT fall
 > back to a raw grid scrape — you will silently under-count.** Some
 > accounts (observed on a multi-country consolidated ad account) return

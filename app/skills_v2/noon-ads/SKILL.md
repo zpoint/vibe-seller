@@ -78,10 +78,26 @@ sees the first ~20 rows can miss more than half the Live campaigns when
 the `Live N` chip is much larger, which then fails the completeness
 gate.
 
+> ⚠️ **Enumerate LIVE from the scrolled list — never from a pre-existing
+> or downloaded export file.** A leftover `Campaign_*.csv` /
+> `Export all campaigns` file in `~/.vibe-seller/downloads/` (from a
+> prior run, or a first-paint export before you scrolled) captures only
+> the rows that were loaded when it was written — typically the first
+> ~20. Drilling that file makes the audit look done at `20/20` while the
+> account has far more Live campaigns. (Live failure this fixes: an agent
+> reused a 20-row export and reported noon SA `20/20` when the `Live`
+> chip showed **45**.) **Any campaign set whose count is below the
+> `Live N` chip is stale — re-enumerate by scrolling (below); and if you
+> do use `Export all campaigns`, first scroll the list fully, then verify
+> the file's row count equals the chip before trusting it.**
+
 Phase 1 (Discover) MUST, per country:
 
 1. **Read the true total** from the status chips — the `Live N` / `All N`
-   numbers are your completeness target:
+   numbers are your completeness target. The chip *label* (`Live` today)
+   is English on the noon partner console, but rely on the **number** and
+   the **`/campaign/details/` links** — both language-neutral — so this
+   works whatever the seller-market locale; don't key on the label word:
    ```bash
    browser-use <<'PY'
    print(js("return JSON.stringify([...document.querySelectorAll('*')].filter(e=>e.children.length<=2 && /^(Live|Paused|All)\\s*\\d+$/i.test(e.textContent.replace(/\\s+/g,' ').trim())).map(e=>e.textContent.replace(/\\s+/g,' ').trim()))"))

@@ -60,7 +60,11 @@ set before drilling.
   it jump to the whole-account count, and that number is your
   completeness target. Also clear the default status filter so
   paused/archived campaigns count too. Then set the date
-  to 30 days. The grid virtualizes — do NOT count DOM rows; use **Bulk
+  to 30 days. The grid virtualizes — do NOT count DOM rows, and do NOT
+  use the grid's **own inline 导出/Export button** (its "当前表格数据 /
+  current table data → 下载" option dumps only the current ~50-row page —
+  a page-scoped trap, NOT the account; verified live it returned 50/146
+  then the grid's Next-Page refused to advance). Use **Bulk
   Operations**. On that page, **reuse
   the newest existing export first** — walk shadow roots for the
   `<a download …/bulk-operations/download/…xlsx>` links and, if the
@@ -78,12 +82,22 @@ set before drilling.
     (≥ ~28 days for "30 天"); if it doesn't, generate a fresh 30-day export
     (Campaign Manager date picker defaults to **2 days** — set it to 30
     first). Never label the report "最近30天" off a 2-day file.
-- **noon**: open the Ad Manager home. The list is **paginated ~15/page**
-  — page through ALL pages and union the campaign ids. Click the
-  page-number anchor with dispatched events (the chevron doesn't work):
-  `var a=document.querySelector('li.ant-pagination-item-N a'); a.dispatchEvent(new MouseEvent('mousedown',{bubbles:true})); a.dispatchEvent(new MouseEvent('mouseup',{bubbles:true})); a.dispatchEvent(new MouseEvent('click',{bubbles:true}));`
-  then wait ~3s and re-extract `a[href*="/campaign/details/"]`. Details:
-  load `../../noon-ads/SKILL.md` §3.
+- **noon**: open the Ad Manager **Campaigns** tab
+  (`…/home?…&tab=campaigns`). ⚠️ **The old Ant-Design paginator is GONE —
+  do NOT click `li.ant-pagination-item-N` (it no longer exists).** The
+  list is now a **lazy-loaded inner-scroll table**: only ~20 rows render
+  on first paint and `window.scroll` does nothing. Enumerate live, and
+  do **NOT** enumerate from a pre-existing/downloaded export file — a
+  stale export silently under-counts (the live failure: an agent drilled
+  a leftover 20-campaign export and reported "20/20" while the account
+  had 45 Live). Steps: (1) read the **`Live N` / `All N` status chip** as
+  the completeness target; (2) scroll the **list's own container** (not
+  the window) to the bottom repeatedly until the unique
+  `a[href*="/campaign/details/"]` count stops growing AND **equals that
+  chip count**; (3) only then is the manifest complete — that chip count
+  is `<A>`. If your id count is less than the chip, you have not scrolled
+  the full list. Exact selectors + scroll snippet: `../../noon-ads/SKILL.md`
+  "Enumerate EVERY campaign".
 
 Then write the **进度 line** for that section (the reviewer reads it):
 `**进度**: drilled <D>/<A> active (<T> total, <P> pages)` — `<A>` is the

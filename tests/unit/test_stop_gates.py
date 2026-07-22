@@ -428,6 +428,47 @@ class TestAdCompletenessReview:
         )
         assert completeness_gate.check(report) is None
 
+    def test_self_disclosed_pagination_truncation_flagged(self):
+        # Regression: an audit that under-enumerated (read only grid page 1
+        # via the inline Export trap, missing pages 2-3) but drilled every
+        # id it DID find reports D==A and used to pass — while its own prose
+        # admitted "仅获取第1页(50/150)" / "待翻页获取". The gate must catch
+        # the self-disclosed truncation, not trust the D==A denominator.
+        drill = (
+            '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
+            '| wireless mouse | 1.0 | 9.0 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
+        )
+        report = (
+            '# 广告优化建议\n\n'
+            '## Amazon SA\n\n**进度**: drilled 20/20 active (50 total, 1 pages)\n'
+            + drill
+            + '\n### ⚠️ 限制说明\n- Amazon SA: 仅获取第1页(50/150)，'
+            '第2-3页 ~100 个活动待翻页获取\n'
+        )
+        deny = completeness_gate.check(report)
+        assert deny is not None
+        assert deny.gate == 'ad_completeness_review'
+
+    def test_self_disclosed_truncation_english_flagged(self):
+        # Reports are written in the user's language; an English-authored
+        # task yields an English limitation note. The same truncation
+        # disclosure must be caught in English, not only Chinese. The
+        # structural labels (进度/建议) stay Chinese literals per output-spec.
+        drill = (
+            '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
+            '| wireless mouse | 1.0 | 9.0 | raise to 1.2 (ROAS 9>5) |\n'
+        )
+        report = (
+            '# Ad optimization\n\n'
+            '## Amazon SA\n\n**进度**: drilled 20/20 active (50 total, 1 pages)\n'
+            + drill
+            + '\n### Limitations\n- Amazon SA: only fetched page 1; '
+            'pages 2-3 pending — grid pagination unresponsive\n'
+        )
+        deny = completeness_gate.check(report)
+        assert deny is not None
+        assert deny.gate == 'ad_completeness_review'
+
     def test_under_drilled_combo_flagged(self):
         report = (
             '## noon EG\n\n**进度**: drilled 12/46 active (70 total, 5 pages)\n'
