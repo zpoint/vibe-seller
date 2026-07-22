@@ -258,28 +258,37 @@ export default function App() {
   // The URL is the source of truth for what's open. Each effect loads
   // the rich object when its route param appears and clears it when the
   // param is gone (Back / navigating away). Guards prevent reload loops.
+  // List scope from the route alone: a store, or the all-stores list on
+  // the tasks view (the open task is orthogonal — /tasks and /tasks/$id
+  // share the 'all' scope). loadedScopeRef loads it once per scope
+  // change, incl. the initial landing.
+  const listScopeKey = routeStoreId
+    ? `store:${routeStoreId}`
+    : appView === 'tasks' && taskSubTab === 'onetime'
+      ? 'all'
+      : ''
+  const loadedScopeRef = useRef<string>('')
   useEffect(() => {
-    if (!currentUser) return
+    if (!currentUser || !listScopeKey) return
+    if (loadedScopeRef.current === listScopeKey) return
     if (routeStoreId) {
-      if (selectedStore?.id !== routeStoreId) {
-        const s = stores.find(x => x.id === routeStoreId)
-        if (s) selectScope(s)
-      }
-    } else if (
-      appView === 'tasks' && taskSubTab === 'onetime' && !routeTaskId
-    ) {
-      // Bare /tasks → all-stores list.
-      if (selectedStore || !showAllTasks) selectScope(null)
+      const s = stores.find(x => x.id === routeStoreId)
+      if (!s) return // stores not loaded yet — reruns when `stores` arrives
+      loadedScopeRef.current = listScopeKey
+      selectScope(s)
+    } else {
+      loadedScopeRef.current = listScopeKey
+      selectScope(null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, currentUser, stores])
+  }, [listScopeKey, currentUser, stores])
 
   useEffect(() => {
     if (!currentUser) return
     if (routeTaskId) {
       if (selectedTask?.id !== routeTaskId) loadTaskById(routeTaskId)
     } else if (selectedTask) {
-      setSelectedTask(null)
+      setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeTaskId, currentUser])
@@ -406,14 +415,13 @@ export default function App() {
     setShowProxy(false); setNewStoreProxyServer(''); setNewStoreProxyBypass(''); setShowCreateStore(false); await loadStores()
   }
 
-  // Select a store (or all-stores when `store` is null) and load its task
-  // list. The in-flight key ('<store_id>' or '__none__') guards against a
-  // slow response for the previous scope clobbering the newly-selected
-  // one (stale-response-wins race).
+  // Load a store's (or all-stores') task LIST. List-only — the open task
+  // is owned by its route effect, so this must not touch it (raced with
+  // loadTaskById). in-flight key = stale-response-wins guard.
   const selectScope = async (store: Store | null) => {
     setNavOpen(false)
-    setSelectedStore(store); setShowAllTasks(!store); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
-    setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
+    setSelectedStore(store); setShowAllTasks(!store)
+    setTasks([]); setTasksLoading(true)
     const key = store ? store.id : '__none__'
     inFlightTasksKeyRef.current = key
     try {
