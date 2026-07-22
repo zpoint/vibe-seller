@@ -24,6 +24,7 @@ from app.prompts import (
     DESIGN_SYSTEM_PROMPT,
     DESIGN_SYSTEM_PROMPT_AUTO,
     SCHEDULED_PRETASK_PROMPT,
+    VISION_SETUP_BREADCRUMB,
     WAITING_INSTRUCTION_PROMPT,
     render_prompt,
 )
@@ -112,22 +113,6 @@ def _format_header(
     return desc, 'auto', ''
 
 
-# Injected ONLY when image generation is unconfigured (same condition
-# that hides the vibe_seller_generate_image MCP tool). Keeps the tool
-# list clean while still letting the agent guide the user to enable it.
-# Single source for this guidance — skills carry nothing about setup.
-VISION_SETUP_BREADCRUMB = (
-    'Image generation is available but not set up: there is no'
-    ' `vibe_seller_generate_image` tool right now because no vision API'
-    ' key is configured. If the user wants an image (or a skill needs'
-    ' one), do NOT attempt to generate it — briefly tell them to add a'
-    ' kie.ai key, and include this exact markdown link so they can jump'
-    ' straight to the setting (you may translate the link TEXT, but keep'
-    ' the target unchanged): [Settings → AI → Vision](#vision-setup).'
-    ' Then continue once they have enabled it and asked again.'
-)
-
-
 async def build_system_extra(
     task: 'Task',
     store: 'Store | None',
@@ -206,10 +191,8 @@ async def build_system_extra(
     parts.append(ticktick_context())
     parts.append(await build_system_context(task))
 
-    # Capability breadcrumb: image generation is hidden (no MCP tool)
-    # until a vision key is configured — tell the agent how to guide the
-    # user to enable it. Gated on the SAME condition the MCP server uses
-    # to hide the tool, so a configured task pays zero extra tokens.
+    # Image-gen breadcrumb — same gate the MCP server uses to hide the
+    # tool, so a configured task pays zero extra tokens.
     if not vision.get_kie_api_key() and not vision.is_fake():
         parts.append(VISION_SETUP_BREADCRUMB)
 

@@ -29,6 +29,7 @@ from app import vision
 from app.config import BACKEND_PORT, LOCALHOST
 from app.mcp_tool_schemas import TOOLS
 
+
 # Tools that require a configured capability and are hidden from the
 # tool list until that capability is set up — so the agent never sees
 # (or dead-end-calls) a tool it cannot use, and the tool list stays
@@ -43,6 +44,7 @@ def _visible_tools() -> list:
     if vision.get_kie_api_key() or vision.is_fake():
         return TOOLS
     return [t for t in TOOLS if t.get('name') != 'vibe_seller_generate_image']
+
 
 # MCP server runs as a standalone process, communicating via stdin/stdout JSON-RPC.
 # This is a minimal implementation of the MCP protocol for tool serving.
