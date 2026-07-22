@@ -49,21 +49,33 @@ email. One round trip, no user prompt:
 # 1. Trigger immediate IMAP poll (don't wait 5 min for auto-sync):
 vibe_seller_sync_email_now(account_email='<bound-email>')
 
-# 2. Get the per-account DB path:
+# 2. Get the per-account DB path — COPY the exact db_path string it
+#    returns; do NOT hand-build the path from the account id:
 vibe_seller_email_info(store_id='<store-id>')
 # Returns: { accounts: [{ email, db_path, ... }] }
 ```
 
-Then read the latest Noon OTP email. The body is HTML — the 6-digit
-code sits on its own line inside a styled `<div>`. Extract it with
-a regex on `body_html` (not `body_text`, which has escaped markup):
+> ⚠️ **Use the `db_path` string verbatim from `email_info` — never
+> retype the account UUID into a path.** `sqlite3 <bad-path>` does NOT
+> error on a missing file: it **creates a new empty DB and returns zero
+> rows**, so a one-character typo in the UUID silently looks like "no OTP
+> email arrived." (Live failure: an agent hand-retyped the account UUID
+> with two hex digits transposed in the tail — `…b7a` where the real id
+> ended `…ba7` — queried the empty DB it just created, found nothing,
+> then grepped random 6-digit numbers out of an unrelated dump and
+> submitted two wrong codes — see the "Invalid OTP" note below.)
+
+Then read the **latest** Noon OTP email — the one that arrived *after*
+you clicked to send the code (noon issues a fresh code on every send /
+"Try again", and older codes are already invalid). The body is HTML —
+the 6-digit code sits on its own line inside a styled `<div>`. Extract
+it from `body_html` (not `body_text`), newest first by `received_epoch`:
 
 ```bash
-sqlite3 <db_path> "SELECT body_html FROM emails \
-  WHERE folder='INBOX' \
-    AND sender LIKE '%verify@noon.com%' \
+sqlite3 "<db_path-from-email_info>" "SELECT body_html FROM emails \
+  WHERE sender LIKE '%verify@noon.com%' \
     AND subject='Verify your email' \
-  ORDER BY date DESC LIMIT 1" \
+  ORDER BY received_epoch DESC LIMIT 1" \
 | python3 -c "
 import sys, re
 html = sys.stdin.read()
@@ -74,6 +86,11 @@ for m in re.findall(r'>\s*(\d{6})\s*<', html):
         print(m); break
 "
 ```
+
+If this prints nothing, the DB path is wrong or the sync hasn't landed
+— re-run `email_info` (copy the path), re-run `sync_email_now`, and
+retry. **Do NOT** fall back to grepping 6-digit numbers out of other
+files/dumps; those are IDs/timestamps, not the OTP.
 
 Then fill it and continue:
 ```bash
@@ -87,26 +104,33 @@ js("Array.from(document.querySelectorAll('button')).find(b=>/maybe later/i.test(
 PY
 ```
 
-> **Anti-bot OTP input — verify Continue actually enables.** On some
-> builds the OTP field is a React **controlled component with anti-bot
-> protection**: it renders into the DOM only after a *physical* click in
-> the input area, and it rejects programmatic input entirely —
-> `fill_input`, the native `HTMLInputElement.value` setter, React-fiber
-> `onChange`, and CDP `Input.insertText` / `dispatchKeyEvent` all fail
-> (the field clears or vanishes right after the event and the
-> **Continue button stays disabled**). This has blocked automated login
-> across ~10 independent attempts. **Do not loop retrying** — after
-> filling, check that Continue is enabled (or that `page_info()` still
-> shows the OTP value); if it isn't, treat this build as
-> automation-blocked and fall back to **Case B** (have the user type the
-> OTP in the Ziniao browser). A session established that way persists,
-> so later tasks reuse the cookie and skip OTP entirely. If you later
-> discover a working automated path, update this note.
+> **The programmatic fill WORKS — noon's OTP input is not anti-bot
+> protected.** Setting the input via the native
+> `HTMLInputElement.value` setter + dispatching `input`/`change` (what
+> `fill_input` does) registers fine: Continue enables and the form
+> submits. If you enter a **correct, fresh** code it logs you in. Do NOT
+> assume the input is blocked.
 
-> **Don't ask the user at all in Case A** *when the automated fill
-> succeeds*. The whole point of the binding is that the agent can finish
-> login unattended — but if the anti-bot input above blocks the fill,
-> escalating to Case B is correct, not a failure.
+> **`Invalid OTP` (with a `Trace ID`) means the CODE is wrong or stale —
+> NOT that the input was blocked.** The server accepted and validated
+> your submission; the value you typed just wasn't the current code. This
+> is the #1 noon-login failure and it is almost always one of: (a) you
+> read an **empty DB** because the `db_path` was hand-typed with a typo
+> (see the ⚠️ above — always copy it from `email_info`); (b) you used a
+> **stale** code from a previous send instead of the newest email; or (c)
+> you grepped a **random 6-digit number** out of a non-email file. Fix
+> the retrieval and re-fill — do NOT conclude "anti-bot" and give up.
+> (Live failure this note fixes: an agent queried an empty typo'd DB,
+> submitted `127660` then `667599` — neither was a real code — got
+> `Invalid OTP` twice, and wrongly reported noon as "anti-bot blocked".)
+
+> **Only escalate to Case B if a verified-fresh, correct code is rejected
+> repeatedly** (re-fetched from the right DB, newest email, entered
+> exactly) **or** the account genuinely can't receive mail. A scheduled
+> unattended run has no human to type the OTP, so a real
+> can't-retrieve-the-code situation must surface as an explicit
+> "noon needs re-login" escalation, not a silent partial report. Once a
+> login succeeds, the Ziniao session cookie persists across later tasks.
 
 ### Case B — Ask the user (only when Case A doesn't apply)
 
