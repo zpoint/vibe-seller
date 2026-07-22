@@ -102,10 +102,14 @@ describe('Settings tab redesign', () => {
       expect(appSource).toMatch(
         /import\s*{[^}]*\btype\s+SettingsTab\b[^}]*}\s*from\s*['"]\.\/views\/SettingsView['"]/,
       )
-      expect(appSource).toMatch(/useState<SettingsTab>/)
+      // The active tab is URL-derived now (TanStack Router), not
+      // useState — App references the shared type and reads it from the
+      // route (lib/route parseNav).
+      expect(appSource).toMatch(/:\s*SettingsTab\b/)
+      expect(appSource).toMatch(/parseNav|nav\.settingsTab/)
       // No legacy keys leak into App.tsx
-      expect(appSource).not.toMatch(/useState<[^>]*['"]security['"]/)
-      expect(appSource).not.toMatch(/useState<[^>]*['"]channels['"]/)
+      expect(appSource).not.toMatch(/['"]security['"]/)
+      expect(appSource).not.toMatch(/['"]channels['"]/)
     })
   })
 })
