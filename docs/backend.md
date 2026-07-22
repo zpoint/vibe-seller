@@ -262,6 +262,13 @@ silently dropped.
 | `VIBE_TURN_LINGER_QUIET_S` | `5` | Soft-linger window (s) for processes with no async subagents |
 | `VIBE_TURN_HARD_IDLE_S` | `600` | Close after this much total stream silence regardless of holds. `0` = disabled |
 
+Browser lifecycle (see docs/browser.md § Browser Lifecycle):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VIBE_BROWSER_IDLE_S` | `300` | Idle window before a browser with no live task is terminated. `0` = never |
+| `VIBE_TAB_CAP` | `12` | Max tabs one task may keep open; oldest closed beyond it. `0` = unbounded |
+
 ## Configuration
 
 All config in `config.py`. Key settings:

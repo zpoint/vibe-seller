@@ -15,6 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select
 
 from app.ai.profiles import resolve_schedule_profile
+from app.browser.idle_sweep import sweep_idle_browsers
 from app.config import DEFAULT_USER_ID
 from app.database import async_session
 from app.events.bus import event_bus
@@ -58,6 +59,7 @@ def start_scheduler():
     _register_email_sync()
     _register_plan_reaper()
     _register_stall_reaper()
+    _register_idle_browser_sweeper()
     _register_finalize_reaper()
     _register_task_cleanup()
 
@@ -122,6 +124,22 @@ def _register_task_cleanup():
         coalesce=True,
     )
     logger.info('Task-cleanup job registered (daily at 03:30 server time)')
+
+
+def _register_idle_browser_sweeper() -> None:
+    """Terminate browsers no active task is using (1-min cadence; the
+    real pacing is VIBE_BROWSER_IDLE_S inside the sweep — see
+    app/browser/idle_sweep.py)."""
+    scheduler.add_job(
+        sweep_idle_browsers,
+        'interval',
+        minutes=1,
+        id='idle_browser_sweeper',
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+    )
+    logger.info('Idle-browser sweeper registered (every 1 min)')
 
 
 def _register_stall_reaper():

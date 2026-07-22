@@ -167,6 +167,36 @@ Key behaviors:
 - `pkill` (SIGTERM) may not fully terminate Ziniao (daemon auto-restarts); SIGKILL (`pkill -9`) is required
 - WebDriver permission error (`statusCode: -10003`) means the BOSS account hasn't enabled WebDriver on the Ziniao Open Platform. Guide: https://open.ziniao.com/docSupport?docId=99
 
+## Browser Lifecycle — idle termination + tab cap
+
+Browsers start lazily but historically were **never stopped**
+(`stop_session`'s only caller was store deletion), so every launched
+browser lived until reboot — accumulating one tab per agent navigation
+(`new_tab` is the only primitive the skills use), ending in
+thousand-tab windows. Two mechanisms bound this
+(`app/browser/idle_sweep.py`, `VIBE_*` knobs in `env_options.py`):
+
+- **Idle-browser sweeper** (1-min cron job): stops a store's main
+  browser, its aux browser, or the store-less `web` browser when BOTH
+  hold — no live task is bound to it (PENDING/QUEUED/DESIGNING/
+  PLANNED/RUNNING; **WAITING does not hold** — a parked task can wait
+  hours and the wrapper lazily restarts the browser on wake), AND its
+  CDP mux reports no connected clients and ≥ `VIBE_BROWSER_IDLE_S`
+  (default 300s; 0 disables) since the last activity. Activity = any
+  client CDP message or upstream `Target.*` event (the latter also
+  captures a HUMAN using the window). Termination uses the existing
+  per-store-safe paths — `stop_session` / `stop_aux` — and never
+  touches the shared Ziniao client (see docs/ziniao-concurrency.md).
+- **Ziniao envs really stop now**: `ZiniaoBackend.stop()` sends the
+  per-store `stopBrowser` captured at start (previously it only tore
+  down the mux proxy and the Chromium env lived forever).
+- **Per-client tab cap** (`VIBE_TAB_CAP`, default 12; 0 disables): the
+  mux LRU-closes a client's oldest tab beyond the cap on every
+  `Target.createTarget`, strictly within that client's ownership — a
+  long task can no longer accumulate unbounded tabs mid-run. A closed
+  old tab an agent revisits yields a normal target-not-found error it
+  recovers from.
+
 ## Daemon Reaper
 
 `app/browser/daemon_reaper.py` — periodic background service that

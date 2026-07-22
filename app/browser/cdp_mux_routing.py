@@ -12,6 +12,7 @@ import websockets
 from websockets.asyncio.server import ServerConnection
 
 from app.browser.cdp_mux_types import ClientState, RequestMapping
+from app.env_options import Options
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +79,17 @@ class _RoutingMixin:
                 ws=ws,
                 target_ids=old_state.target_ids,
                 session_ids=set(),
+                target_order=[
+                    t
+                    for t in old_state.target_order
+                    if t in old_state.target_ids
+                ],
             )
         else:
             client = ClientState(client_id=client_id, ws=ws)
 
         self._clients[client_id] = client
+        self.mark_activity()
         logger.info(
             'CDPMuxProxy client connected: %s (total: %d)',
             client_id,
@@ -134,6 +141,7 @@ class _RoutingMixin:
         self, client_id: str, raw: str | bytes
     ) -> None:
         """Process a message from a client, forward upstream."""
+        self.mark_activity()
         msg = json.loads(raw)
         method = msg.get('method', '')
         original_id = msg.get('id')
@@ -314,11 +322,13 @@ class _RoutingMixin:
             elif target_id:
                 self._target_to_client[target_id] = mapping.client_id
                 client.target_ids.add(target_id)
+                client.target_order.append(target_id)
                 logger.debug(
                     'CDP target %s -> client %s',
                     target_id[:16],
                     mapping.client_id[:8],
                 )
+                await self._enforce_tab_cap(client)
                 # Replay cached attachedToTarget event
                 cached_entry = self._pending_attached.pop(target_id, None)
                 if cached_entry:
@@ -361,6 +371,45 @@ class _RoutingMixin:
 
         await self._send_client(client, msg)
 
+    async def _enforce_tab_cap(self, client: ClientState) -> None:
+        """Close the client's OLDEST tabs beyond ``VIBE_TAB_CAP``.
+
+        Every navigation is a ``new_tab`` (the only primitive the
+        skills use), so a long-running task accumulates one tab per
+        step and nothing in-session ever closes one — the browser
+        window ends up with hundreds of dead tabs. LRU-close by
+        creation order, per client only (ownership isolation means
+        this can never touch another task's or a human's tabs). A
+        closed old tab an agent later switches back to yields a
+        normal CDP target-not-found error it recovers from — the
+        same failure mode as a crashed tab, and far cheaper than
+        unbounded accumulation. 0 disables.
+        """
+        cap = Options.TAB_CAP.get_int()
+        if cap <= 0:
+            return
+        while len(client.target_order) > cap:
+            oldest = client.target_order.pop(0)
+            if oldest not in client.target_ids:
+                continue
+            client.target_ids.discard(oldest)
+            self._target_to_client.pop(oldest, None)
+            logger.info(
+                'CDPMuxProxy tab cap (%d): closing oldest tab %s of client %s',
+                cap,
+                oldest[:16],
+                client.client_id[:8],
+            )
+            # Fire-and-forget upstream close: no request mapping is
+            # registered, so the response is dropped by design; the
+            # browser's targetDestroyed event does the bookkeeping
+            # for any other observer.
+            await self._send_upstream({
+                'id': self._next_global_id(),
+                'method': 'Target.closeTarget',
+                'params': {'targetId': oldest},
+            })
+
     def _filter_targets(
         self,
         targets: list[dict],
@@ -382,6 +431,10 @@ class _RoutingMixin:
 
     async def _route_target_event(self, msg: dict) -> None:
         """Route root-level Target.* events by ownership."""
+        # Target events fire on tab creation/navigation/destruction —
+        # including HUMAN use of the window — so they count as
+        # activity for the idle-browser sweeper.
+        self.mark_activity()
         method = msg.get('method', '')
         params = msg.get('params', {})
 
@@ -479,6 +532,8 @@ class _RoutingMixin:
             client = self._clients.get(owner_id)
             if client:
                 client.target_ids.discard(target_id)
+                if target_id in client.target_order:
+                    client.target_order.remove(target_id)
                 await self._send_client(client, msg)
 
     async def _handle_target_info_changed(self, msg: dict) -> None:

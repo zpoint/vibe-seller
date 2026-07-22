@@ -147,6 +147,15 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
             str, tuple[asyncio.Task, ClientState]
         ] = {}
 
+        # Last observed browser activity (monotonic): any client CDP
+        # message, client connect, or upstream Target.* event (the
+        # latter also captures a human using the window — new tabs /
+        # navigations surface as target events). The idle-browser
+        # sweeper reads this via idle_seconds(); it is deliberately
+        # NOT bumped by HTTP health probes (/json/version), which are
+        # infrastructure, not use.
+        self.last_activity: float = time.monotonic()
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -210,6 +219,13 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
 
     def has_active_clients(self) -> bool:
         return bool(self._clients)
+
+    def mark_activity(self) -> None:
+        self.last_activity = time.monotonic()
+
+    def idle_seconds(self) -> float:
+        """Seconds since the last client message / target event."""
+        return time.monotonic() - self.last_activity
 
     # ------------------------------------------------------------------
     # Client cleanup
