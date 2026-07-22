@@ -121,3 +121,59 @@ class TestContinueVsRetry:
         assert task.status == 'pending'
         # Prior conversation wiped by the destructive retry.
         assert await _msg_count(task_id) == 0
+
+    async def test_retry_clears_workspace_files(
+        self, admin_client, mock_workspace
+    ):
+        """Retry wipes the on-disk task workspace, so a prior run's review
+        dumps can't survive to be reused/gamed. This is the disk-side
+        counterpart to test_retry_clears_context (which pins the DB side).
+        """
+        task_id = await _seed_failed_task()
+        # A leftover review dump from a prior run.
+        stale = (
+            mock_workspace.root
+            / 'tasks'
+            / task_id
+            / 'reviews'
+            / 'amazon'
+            / 'ae'
+            / 'B0STALE.json'
+        )
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text('{"schema":"reviews/v1","rating":4.1}')
+
+        r = await admin_client.post(f'/api/tasks/{task_id}/retry', json={})
+        assert r.status_code == 200
+
+        # The destructive retry cleared the workspace → stale file gone.
+        assert not stale.exists()
+
+    async def test_continue_preserves_workspace_files(
+        self, admin_client, install_fake_agent, mock_workspace
+    ):
+        """Continue (POST /messages) must NOT wipe the workspace — it is
+        the resume path, so banked run data (ad-audit reports/TSVs, an
+        in-progress review dir) has to persist."""
+        install_fake_agent.default_scenario = FakeAgentScenario()
+        task_id = await _seed_failed_task()
+        banked = (
+            mock_workspace.root
+            / 'tasks'
+            / task_id
+            / 'reviews'
+            / 'amazon'
+            / 'ae'
+            / 'B0BANKED.json'
+        )
+        banked.parent.mkdir(parents=True, exist_ok=True)
+        banked.write_text('{"schema":"reviews/v1","rating":4.1}')
+
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'continue, reuse progress'},
+        )
+        assert r.status_code == 200
+
+        # Continue preserved the banked file.
+        assert banked.exists()

@@ -43,10 +43,11 @@ TASK = 'task-123'
 
 @pytest.fixture
 def reviews_root(tmp_path, monkeypatch):
-    """Point review_manifest at a tmp store dir and stub slug lookup."""
+    """Point review_manifest at the TASK-LOCAL reviews dir + stub slug."""
     monkeypatch.setattr(rm, 'VIBE_SELLER_DIR', tmp_path)
     monkeypatch.setattr(rm, 'store_slug_for_task', lambda task_id: SLUG)
-    root = tmp_path / 'store-data' / SLUG / 'reviews'
+    # Task-local: tasks/<task_id>/reviews (not shared store-data/<slug>).
+    root = tmp_path / 'tasks' / TASK / 'reviews'
     root.mkdir(parents=True)
     # Each test starts with clean gate progress state.
     completeness.reset_progress(TASK)
@@ -69,6 +70,8 @@ def _product(rating=4.1, reviews=None, collected_at='2026-06-17T09:00:00Z'):
 
 
 def _write(root, platform, country, pid, doc):
+    # Freshness is structural now: the task-local reviews dir is emptied
+    # on retry, so a file simply existing here == collected this run.
     d = root / platform / country
     d.mkdir(parents=True, exist_ok=True)
     (d / f'{pid}.json').write_text(json.dumps(doc), encoding='utf-8')
@@ -87,27 +90,27 @@ def _manifest(root, combos):
 class TestValidateProductFile:
     def test_well_formed(self, reviews_root):
         _write(reviews_root, 'amazon', 'us', 'B0AAA', _product())
-        assert rm.validate_product_file(SLUG, 'amazon', 'us', 'B0AAA') is None
+        assert rm.validate_product_file(TASK, 'amazon', 'us', 'B0AAA') is None
 
     def test_missing_file(self, reviews_root):
-        assert rm.validate_product_file(SLUG, 'amazon', 'us', 'NOPE')
+        assert rm.validate_product_file(TASK, 'amazon', 'us', 'NOPE')
 
     def test_null_rating_is_defect(self, reviews_root):
         _write(reviews_root, 'amazon', 'us', 'B0AAA', _product(rating=None))
         assert 'rating' in rm.validate_product_file(
-            SLUG, 'amazon', 'us', 'B0AAA'
+            TASK, 'amazon', 'us', 'B0AAA'
         )
 
     def test_rating_zero_is_ok(self, reviews_root):
         # A product with no rating yet uses 0, not null — that is valid.
         _write(reviews_root, 'amazon', 'us', 'B0AAA', _product(rating=0))
-        assert rm.validate_product_file(SLUG, 'amazon', 'us', 'B0AAA') is None
+        assert rm.validate_product_file(TASK, 'amazon', 'us', 'B0AAA') is None
 
     def test_reviews_not_a_list(self, reviews_root):
         doc = _product()
         doc['reviews'] = 'oops'
         _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
-        assert rm.validate_product_file(SLUG, 'amazon', 'us', 'B0AAA')
+        assert rm.validate_product_file(TASK, 'amazon', 'us', 'B0AAA')
 
     def test_missing_collected_at(self, reviews_root):
         _write(
@@ -117,13 +120,13 @@ class TestValidateProductFile:
             'B0AAA',
             _product(collected_at=None),
         )
-        assert rm.validate_product_file(SLUG, 'amazon', 'us', 'B0AAA')
+        assert rm.validate_product_file(TASK, 'amazon', 'us', 'B0AAA')
 
     def test_bad_json(self, reviews_root):
         d = reviews_root / 'amazon' / 'us'
         d.mkdir(parents=True)
         (d / 'B0AAA.json').write_text('{not json', encoding='utf-8')
-        assert rm.validate_product_file(SLUG, 'amazon', 'us', 'B0AAA')
+        assert rm.validate_product_file(TASK, 'amazon', 'us', 'B0AAA')
 
 
 class TestAuditRun:
@@ -170,6 +173,26 @@ class TestAuditRun:
         audit = rm.audit_run(TASK)
         assert audit.shortfalls and audit.defects
         assert audit.total_ok == 1 and audit.total_expected == 2
+
+    def test_reviews_dir_is_task_local(self, reviews_root, tmp_path):
+        # Freshness is structural: the audited dir is the task-local
+        # tasks/<task_id>/reviews, NOT the shared store-data tree — so a
+        # prior run / another task can't leave files the gate would see.
+        assert rm.reviews_dir(TASK) == tmp_path / 'tasks' / TASK / 'reviews'
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', _product())
+        _manifest(
+            reviews_root,
+            [
+                {
+                    'platform': 'amazon',
+                    'country': 'us',
+                    'expected': ['B0AAA'],
+                    'collected': ['B0AAA'],
+                }
+            ],
+        )
+        audit = rm.audit_run(TASK)
+        assert audit.total_ok == 1 and not audit.defects
 
 
 # ── completeness reviewer (soft) ─────────────────────────────────────

@@ -913,35 +913,36 @@ class TestRetryCleanState:
         assert data['session_id'] is None
 
 
-class TestRetryPreservesWorkspaceFiles:
-    async def test_retry_keeps_banked_task_artifacts(
+class TestRetryClearsWorkspaceFiles:
+    async def test_retry_wipes_prior_run_artifacts(
         self, admin_client, install_fake_agent, mock_workspace
     ):
-        """Retry must NOT wipe the per-task workspace.
+        """Retry is a DESTRUCTIVE fresh restart — it WIPES the per-task
+        workspace so a prior run's files (e.g. review dumps) can't survive
+        to be reused/gamed as "already collected".
 
-        Retry is the resume path for incremental tasks: ad audits
-        bank a growing report (AD_AUDIT_*.md) and TSVs in the task
-        dir across sessions. The endpoint used to call
-        ``prepare_task_workspace(clean=True)`` which rmtree'd the
-        dir — every retry silently destroyed that banked progress
-        (observed live: a 256KB 12-iteration audit report wiped).
+        This reverses the earlier "retry preserves banked files" contract:
+        incremental resume that WANTS to keep banked progress now goes
+        through Continue (POST /messages), which never wipes — pinned by
+        test_wf_continue_vs_retry.test_continue_preserves_workspace_files.
         """
-        store_id = await _make_store(admin_client, 'Retry keep store')
+        store_id = await _make_store(admin_client, 'Retry clear store')
         install_fake_agent.default_scenario = FakeAgentScenario(
             result='First run result',
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Retry keep-files test', 'store_id': store_id},
+            json={'title': 'Retry clear-files test', 'store_id': store_id},
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
 
-        # Simulate banked progress from the first session.
+        # A prior run's artifact in the task workspace.
         task_dir = mock_workspace.root / 'tasks' / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
-        banked = task_dir / 'AD_AUDIT_2026-06-10.md'
-        banked.write_text('# 广告优化建议\n(12 iterations of work)\n')
+        stale = task_dir / 'reviews' / 'amazon' / 'ae' / 'B0STALE.json'
+        stale.parent.mkdir(parents=True, exist_ok=True)
+        stale.write_text('{"schema":"reviews/v1","rating":4.1}')
 
         install_fake_agent.default_scenario = FakeAgentScenario(
             result='Second run result',
@@ -949,9 +950,9 @@ class TestRetryPreservesWorkspaceFiles:
         r2 = await admin_client.post(f'/api/tasks/{task_id}/retry')
         assert r2.status_code == 200
 
-        assert banked.exists(), (
-            'retry wiped the task workspace — banked incremental '
-            'artifacts (report/TSVs) must survive retry'
+        assert not stale.exists(), (
+            "retry did NOT wipe the task workspace — a prior run's review "
+            'dumps survived and could be reused/gamed'
         )
         await wait_for_task(admin_client, task_id)
 

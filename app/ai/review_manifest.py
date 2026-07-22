@@ -1,25 +1,31 @@
 """Read-only inspection of a review-collect run's on-disk output.
 
 The ``review-collect`` skill writes one JSON file per product plus a
-``_MANIFEST.json`` index under
-``~/.vibe-seller/store-data/<slug>/reviews/<platform>/<country>/``. The two
-review stop-gates (``review_completeness_review``,
-``review_output_gate``) both need to answer the same question — *did
-this run actually collect every product it enumerated, and is each
-product file well-formed?* — so the disk-walking lives here once and the
-gates only format the verdict.
+``_MANIFEST.json`` index under the run's OWN task workspace,
+``~/.vibe-seller/tasks/<task_id>/reviews/<platform>/<country>/``. The two
+review stop-gates (``review_completeness_review``, ``review_output_gate``)
+both need to answer the same question — *did this run actually collect
+every product it enumerated, and is each product file well-formed?* — so
+the disk-walking lives here once and the gates only format the verdict.
+
+Why task-local and not shared: review dumps are per-run OUTPUT, not
+curated knowledge. Keeping them inside ``tasks/<task_id>/`` means one task
+can never see another's (or a previous run's) files, and ``retry`` wipes
+the workspace — so a run always starts from an EMPTY reviews dir. That
+makes freshness structural: *a product file exists ⟺ it was collected
+this run*. No server-side write-log or ``collected_at`` heuristic is
+needed (both were gameable — an agent could preserve or re-stamp stale
+files); an empty-at-start dir can't be gamed with leftover data.
 
 Why disk and not the report text: the gate's contract is
 ``check(result_text, task_id, rules)``, but the report is the agent's
 human-facing summary and can be fabricated independently of what was
 written. The collected JSON is the source of truth the ALC sync reads,
-so the gates validate THAT, resolving the store slug from the task's
-``store_id`` (read-only DB lookup, same pattern as
-``ad_negation_allowlist``). Everything here is best-effort and never
+so the gates validate THAT. Everything here is best-effort and never
 raises — a lookup failure degrades to ``None`` (gate no-ops).
 
 Data contract — ``reviews/v1`` (also documented in
-``app/skills/review-collect/references/output-spec.md``):
+``app/skills_v2/review-collect/references/output-spec.md``):
 
 ``_MANIFEST.json``::
 
@@ -67,7 +73,9 @@ def store_slug_for_task(task_id: str) -> str | None:
     Mirrors ``ad_negation_allowlist`` DB access: a 2s read-only
     connection, swallow every error. Returns None when the task has no
     store (non-store tasks never run this gate meaningfully) or the DB
-    is unavailable.
+    is unavailable — the gate then no-ops. Used only to confirm this is a
+    resolvable store review run and to label the verdict; the review
+    files themselves live under the task workspace, keyed by task_id.
     """
     db = _db_path()
     if not task_id or not db.exists():
@@ -92,28 +100,37 @@ def store_slug_for_task(task_id: str) -> str | None:
         return None
 
 
-def reviews_dir(slug: str) -> Path:
-    """``store-data/<slug>/reviews`` under the live vibe-seller dir.
+def reviews_dir(task_id: str) -> Path:
+    """``tasks/<task_id>/reviews`` — the run's OWN task workspace.
 
-    Review dumps are durable RUN DATA, so they live under ``store-data/``
-    (per the workspace contract in ``app/prompts/design_system.md`` — the
-    ``stores/`` tree is curated knowledge and ``store_data_migrate`` would
-    relocate any run subdir out of it anyway).
+    Task-local (not shared ``store-data/``) so no other task or prior run
+    can leave files here, and ``retry`` clears it — see the module
+    docstring for why that makes freshness structural.
     """
-    return VIBE_SELLER_DIR / 'store-data' / slug / 'reviews'
+    return VIBE_SELLER_DIR / 'tasks' / task_id / 'reviews'
 
 
 def validate_product_file(
-    slug: str, platform: str, country: str, product_id: str
+    task_id: str,
+    platform: str,
+    country: str,
+    product_id: str,
 ) -> str | None:
     """Return a short defect reason, or None when the file is well-formed.
 
     Well-formed = readable JSON object with a numeric ``rating``, a
-    ``reviews`` list, a truthy ``collected_at``, and — for noon, whose
-    ratings ride the Amazon ASIN downstream — a non-empty ``asin`` (a
-    noon file without it is dropped by the consumer).
+    ``reviews`` list, a truthy ``collected_at``, and — for noon — a
+    non-empty ``seller_sku`` (noon's OWN per-variant identity; each
+    colour / size carries a distinct seller/partner SKU). noon ratings
+    are keyed on that noon-native id, NOT on an Amazon ASIN — this skill
+    is platform-agnostic and knows nothing about any downstream
+    consumer's schema.
+
+    Freshness needs no check here: the reviews dir is task-local and
+    emptied on retry, so a file existing at gate time means THIS run
+    wrote it (see module docstring).
     """
-    path = reviews_dir(slug) / platform / country / f'{product_id}.json'
+    path = reviews_dir(task_id) / platform / country / f'{product_id}.json'
     if not path.exists():
         return '文件缺失 (missing)'
     try:
@@ -131,8 +148,11 @@ def validate_product_file(
         return 'reviews 不是数组 (reviews not a list)'
     if not data.get('collected_at'):
         return '缺 collected_at'
-    if platform.lower() == 'noon' and not (data.get('asin') or '').strip():
-        return '缺 asin (noon 需要匹配的 Amazon ASIN)'
+    if (
+        platform.lower() == 'noon'
+        and not (data.get('seller_sku') or '').strip()
+    ):
+        return '缺 seller_sku (noon 用商品自身的 seller/partner SKU 作身份，逐变体唯一)'
     return None
 
 
@@ -168,7 +188,7 @@ def audit_run(task_id: str) -> ReviewAudit | None:
     if not slug:
         return None
 
-    manifest_path = reviews_dir(slug) / MANIFEST_NAME
+    manifest_path = reviews_dir(task_id) / MANIFEST_NAME
     if not manifest_path.exists():
         return ReviewAudit(slug=slug, manifest_present=False)
     try:
@@ -202,7 +222,7 @@ def audit_run(task_id: str) -> ReviewAudit | None:
             )
         for product_id in expected:
             reason = validate_product_file(
-                slug, platform, country, str(product_id)
+                task_id, platform, country, str(product_id)
             )
             if reason is None:
                 out.total_ok += 1

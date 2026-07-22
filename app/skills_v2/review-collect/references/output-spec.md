@@ -16,24 +16,35 @@ and versioned (`reviews/v1`): no downstream-consumer concepts leak in.
 ## File layout
 
 ```
-store-data/<slug>/reviews/_MANIFEST.json                       # run index
-store-data/<slug>/reviews/<platform>/<country>/<product_id>.json  # one per product
+reviews/_MANIFEST.json                       # run index (task-local)
+reviews/<platform>/<country>/<product_id>.json  # one per product
 ```
+
+Paths are **task-local** — relative to your working dir, i.e.
+`~/.vibe-seller/tasks/<task_id>/reviews/`. This is per-run scratch that
+`retry` wipes, so every run starts from an empty `reviews/` dir; never
+write review files to the shared `store-data/` tree.
 
 - `platform` ∈ `amazon`, `noon`. `country` is the lowercase marketplace code
   (e.g. `us`, `eg`, `uk`).
 - For `platform=amazon`, `product_id` = the **ASIN** (uppercase, e.g.
-  `B0EXAMPLE1`).
-- For `platform=noon`, `product_id` = the **noon product id**, and the
-  JSON MUST also carry a top-level **`asin`** field — the Amazon ASIN of
-  the same physical product (you know the catalog at collection time, so
-  resolve it here). The downstream consumer keys noon ratings to that
-  ASIN; a noon file without `asin` is dropped downstream. Amazon files
-  need no `asin` (the `product_id` already is it).
+  `B0EXAMPLE1`); no extra identity field is needed.
+- For `platform=noon`, `product_id` = the **noon product id** and the
+  JSON MUST also carry a top-level **`seller_sku`** — noon's OWN
+  seller/partner SKU for that listing (each colour / size variant has a
+  distinct one). That is noon's native identity, and the rating you write
+  is **noon's rating for that noon product** — never mapped onto an Amazon
+  ASIN. This skill is platform-agnostic: it does not know or care how a
+  private consumer later relates noon and Amazon data, so do **not** emit
+  an `asin` for noon, and never let two different noon products collapse
+  onto one identity (each variant is its own product with its own rating).
 
-Write every file with `vibe_seller_write_workspace_file` (paths starting
-`stores/<slug>/...`). The built-in Write tool cannot write through the
-workspace symlink.
+Write every review file with the built-in **Write** tool to the
+task-local `reviews/...` path above. Do **not** use
+`vibe_seller_write_workspace_file` for review files — that targets the
+shared workspace; review dumps are per-run task-local data. (The
+symlink-write caveat only applies to the shared `stores/`, `knowledge/`,
+`store-data/` trees, which `reviews/` is not.)
 
 ## `<product_id>.json` — required shape
 
@@ -65,16 +76,23 @@ workspace symlink.
 }
 ```
 
-**The gates REQUIRE these three, per file** (a file missing any is
+**The gates REQUIRE these, per file** (a file missing/violating any is
 counted missing/malformed and named in the diff):
 
-1. `rating` — the product's current overall rating, a **non-null
-   number** (e.g. `4.1`). A product page with no rating yet must still
-   carry a number — use `0` and set `rating_count: 0` (not `null`).
+1. `rating` — the product's current overall rating **read off the page
+   this run**, a **non-null number** (e.g. `4.1`). A product page with no
+   rating yet must still carry a number — use `0` and set
+   `rating_count: 0` (not `null`).
 2. `reviews` — an **array** (may be empty `[]` for a product with a
    rating but no written reviews; never omit the key).
 3. `collected_at` — a truthy ISO-8601 UTC timestamp of when this file
-   was collected.
+   was collected. It must be from **this run**: the gate treats a file
+   whose `collected_at` predates the run's start as **stale** (= not
+   collected) and denies it. You cannot pass by preserving a previous
+   run's files — re-open the page and read the current rating.
+4. `seller_sku` (**noon only**) — noon's own seller/partner SKU for the
+   product, its native per-variant identity. Amazon files don't need it
+   (`product_id` is the ASIN).
 
 The other keys are part of the contract and should be filled, but the
 gates key on the three above:
@@ -156,7 +174,6 @@ files, don't pad the report.
 
 ## Workspace hygiene
 
-The task dir holds the `REVIEW_COLLECT_<date>.md` and nothing else.
-Throwaway scripts → `/tmp/`. The JSON dataset lives under
-`store-data/<slug>/reviews/`, not the task dir. Remove scratch files before
-the final `set_task_result`.
+The JSON dataset lives in the task-local `reviews/` dir alongside the
+`REVIEW_COLLECT_<date>.md` report. Throwaway scripts → `/tmp/`, never the
+task dir. Remove scratch files before the final `set_task_result`.

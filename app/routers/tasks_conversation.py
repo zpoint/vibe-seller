@@ -712,15 +712,17 @@ async def retry_task(
     )
     # If this child was retried, revert parent to WAITING
     await reopen_parent_if_child_active(task, db)
-    # Refresh per-task workspace WITHOUT wiping it (best-effort).
-    # Retry is the resume path for incremental tasks (ad audits
-    # bank a growing report + TSVs across sessions); `clean=True`
-    # here rmtree'd the task dir and silently destroyed that
-    # banked progress on every retry. prepare_task_workspace with
-    # clean=False still refreshes infra (symlinks, .claude copy)
-    # while task-authored files persist.
+    # Retry is a DESTRUCTIVE fresh restart, so WIPE the per-task
+    # workspace (best-effort). Leftover run data — above all the review
+    # dumps under tasks/<id>/reviews/ — must not survive into the new
+    # run: a prior run's files let the agent "resume" stale data or bless
+    # them via a DoD-reviewer subagent instead of re-collecting, which is
+    # exactly the freshness hole this closes. Incremental resume that
+    # WANTS to keep banked progress (ad-audit reports/TSVs) goes through
+    # Continue (POST /messages), which never wipes — see
+    # test_wf_continue_vs_retry.
     try:
-        await workspace_manager.prepare_task_workspace(task_id)
+        await workspace_manager.prepare_task_workspace(task_id, clean=True)
     except Exception:
         logger.exception(
             'Failed to refresh workspace for task %s on retry',

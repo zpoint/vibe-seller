@@ -37,6 +37,13 @@ _backends: dict[str, ChromeBackend] = {}
 _ports: dict[str, int] = {}
 _lock = asyncio.Lock()
 
+# Hard bounds so a hung browser op can never hold ``_lock`` — and thus
+# wedge aux starts for EVERY store — indefinitely. A healthy cold start
+# is a few seconds; a start that can't finish in _START_TIMEOUT is
+# wedged, so failing fast (and surfacing it) beats blocking forever.
+_START_TIMEOUT = 60.0
+_STOP_TIMEOUT = 10.0
+
 
 def _ws(port: int) -> str:
     return f'ws://{LOCALHOST}:{port}/client-aux'
@@ -65,22 +72,44 @@ async def start_aux(store: Store, headless: bool) -> dict:
         if port and store.id in _backends and await _alive(port):
             return {'ok': True, 'proxy_port': port, 'ws': _ws(port)}
 
-        # Stale/dead instance — tear down before relaunch.
+        # Stale/dead instance — tear down before relaunch. Bounded: a
+        # hung teardown must not hold _lock forever. Drop the registry
+        # entry up front so a timed-out stop can't leave a dead port
+        # advertised.
         old = _backends.pop(store.id, None)
+        _ports.pop(store.id, None)
         if old is not None:
             try:
-                await old.stop()
+                await asyncio.wait_for(old.stop(), timeout=_STOP_TIMEOUT)
             except Exception:
-                logger.debug('aux stop before relaunch failed', exc_info=True)
+                logger.warning(
+                    'aux stop before relaunch failed/timed out',
+                    exc_info=True,
+                )
 
         slug = store_slug(store.name, store.id)
         port = _free_port()
         backend = ChromeBackend()
-        await backend.start({
-            'proxy_port': port,
-            'store_slug': f'{slug}-aux',
-            'headless': headless,
-        })
+        try:
+            await asyncio.wait_for(
+                backend.start({
+                    'proxy_port': port,
+                    'store_slug': f'{slug}-aux',
+                    'headless': headless,
+                }),
+                timeout=_START_TIMEOUT,
+            )
+        except Exception:
+            # Never register a half-started backend, and never hold the
+            # lock past the bound. Best-effort cleanup, then surface the
+            # failure so the caller retries instead of hanging.
+            try:
+                await asyncio.wait_for(backend.stop(), timeout=_STOP_TIMEOUT)
+            except Exception:
+                logger.debug(
+                    'aux cleanup after failed start failed', exc_info=True
+                )
+            raise
         _backends[store.id] = backend
         _ports[store.id] = port
         logger.info(
