@@ -146,7 +146,7 @@ export default function App() {
   const [newStoreProxyBypass, setNewStoreProxyBypass] = useState('')
 
   // Schedule state
-  const [taskSubTab, setTaskSubTab] = useState<'onetime' | 'scheduled'>('onetime')
+  // taskSubTab is URL-derived (see above): /tasks vs /schedules.
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [selectedSchedule, setSelectedSchedule] = useState<Schedule | null>(null)
   const [scheduleTasks, setScheduleTasks] = useState<Task[]>([])
@@ -175,6 +175,19 @@ export default function App() {
   const settingsTab = (slugToTab[_tabSlug] || _tabSlug) as SettingsTab
   const setSettingsTab = (tab: SettingsTab) => {
     navigate({ to: '/settings/$tab', params: { tab: tabToSlug[tab] || tab } })
+  }
+
+  // Selection is URL-derived too: the open task / store / schedule are
+  // route params, so they deep-link and Back closes them. The rich
+  // objects still live in state (loaded on param change); these are the
+  // ids the effects below reconcile against.
+  const routeTaskId = pathname.match(/^\/tasks\/([^/]+)/)?.[1] ?? null
+  const routeStoreId = pathname.match(/^\/stores\/([^/]+)/)?.[1] ?? null
+  const routeScheduleId = pathname.match(/^\/schedules\/([^/]+)/)?.[1] ?? null
+  const taskSubTab: 'onetime' | 'scheduled' =
+    pathname.startsWith('/schedules') ? 'scheduled' : 'onetime'
+  const setTaskSubTab = (tab: 'onetime' | 'scheduled') => {
+    navigate({ to: tab === 'scheduled' ? '/schedules' : '/tasks' })
   }
   const [authRequired, setAuthRequired] = useState(false)
 
@@ -229,24 +242,76 @@ export default function App() {
   // expiry — only meaningful when auth is on (otherwise never 401s).
   useSessionKeepalive(authChecked && !!currentUser && authRequired)
 
-  // Device/browser Back pops the mobile drill-down instead of leaving.
+  // Mobile: device Back closes the nav drawer. Task/schedule detail are
+  // routes now, so their Back is handled by the router.
   useMobileBackStack({
     isMobile, navOpen,
-    hasTask: !!selectedTask, hasSchedule: !!selectedSchedule,
     closeNav: () => setNavOpen(false),
-    closeTask: () => setSelectedTask(null),
-    closeSchedule: () => setSelectedSchedule(null),
   })
 
   const debugInitialized = useRef(false)
   useEffect(() => { if (!debugInitialized.current) { debugInitialized.current = true; return } if (currentUser) api.patch('/api/auth/me/debug-mode', { debug_mode: debugMode }).catch(() => {}) }, [debugMode])
-  const userActedRef = useRef(false)  // Login default-select guard: flips true on any manual selectStore/selectAllTasks. A plain state ref wouldn't distinguish "clicked All Stores" from initial state (same values).
+  // Fresh-pathname ref so the async login default-landing can check the
+  // CURRENT url when stores resolve (the effect closure's `pathname` is
+  // stale). Replaces the old userActedRef click-guard — with routing,
+  // "the user went somewhere" is just "the url is no longer /tasks".
+  const pathnameRef = useRef(pathname)
+  pathnameRef.current = pathname
   useEffect(() => {
     if (!currentUser) return
-    userActedRef.current = false; loadZiniaoAccounts(); loadProfiles()
-    loadStores().then(f => { if (userActedRef.current) return; if (f?.length) selectStore(f[0]); else selectAllTasks() })
+    loadZiniaoAccounts(); loadProfiles()
+    // Default landing = first store (preserves prior behavior), but ONLY
+    // when the user hasn't deep-linked somewhere specific: if the path is
+    // the bare /tasks default, jump to the first store; otherwise honor
+    // the URL (a shared /tasks/<id>, /stores/<id>, /settings/... link).
+    loadStores().then(f => {
+      if (f?.length && pathnameRef.current === '/tasks') selectStore(f[0])
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser])
+
+  // ─── URL → selection reconciliation ────────────────
+  // The URL is the source of truth for what's open. Each effect loads
+  // the rich object when its route param appears and clears it when the
+  // param is gone (Back / navigating away). Guards prevent reload loops.
+  useEffect(() => {
+    if (!currentUser) return
+    if (routeStoreId) {
+      if (selectedStore?.id !== routeStoreId) {
+        const s = stores.find(x => x.id === routeStoreId)
+        if (s) selectScope(s)
+      }
+    } else if (
+      appView === 'tasks' && taskSubTab === 'onetime' && !routeTaskId
+    ) {
+      // Bare /tasks → all-stores list.
+      if (selectedStore || !showAllTasks) selectScope(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, currentUser, stores])
+
+  useEffect(() => {
+    if (!currentUser) return
+    if (routeTaskId) {
+      if (selectedTask?.id !== routeTaskId) loadTaskById(routeTaskId)
+    } else if (selectedTask) {
+      setSelectedTask(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeTaskId, currentUser])
+
+  useEffect(() => {
+    if (!currentUser) return
+    if (routeScheduleId) {
+      if (selectedSchedule?.id !== routeScheduleId) {
+        const s = schedules.find(x => x.id === routeScheduleId)
+        if (s) loadSchedule(s)
+      }
+    } else if (selectedSchedule) {
+      setSelectedSchedule(null); setScheduleTasks([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeScheduleId, currentUser, schedules])
 
   // ─── Data loaders ──────────────────────────────────
   const loadStores = async (): Promise<Store[]> => { const f: Store[] = await api.get('/api/stores'); setStores(f); return f }
@@ -256,7 +321,9 @@ export default function App() {
   const loadSchedules = async () => {
     try { setSchedules(await api.get('/api/schedules')) } catch { setSchedules([]) }
   }
-  const selectSchedule = (schedule: Schedule) =>
+  // Loader (called by the route-param effect). The click handler
+  // `selectSchedule` below only navigates; the URL change drives this.
+  const loadSchedule = (schedule: Schedule) =>
     selectScheduleHandler(schedule, {
       api,
       inFlightScheduleIdRef,
@@ -264,6 +331,8 @@ export default function App() {
       setSelectedTask,
       setScheduleTasks,
     })
+  const selectSchedule = (schedule: Schedule) =>
+    navigate({ to: '/schedules/$scheduleId', params: { scheduleId: schedule.id } })
   // Reset the in-flight ref whenever the schedule selection is
   // cleared (deleteSchedule / selectStore / selectAllTasks all
   // call setSelectedSchedule(null)). Without this, a late /tasks
@@ -359,7 +428,7 @@ export default function App() {
   // one (stale-response-wins race).
   const selectScope = async (store: Store | null) => {
     setNavOpen(false)
-    userActedRef.current = true; setSelectedStore(store); setShowAllTasks(!store); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
+    setSelectedStore(store); setShowAllTasks(!store); setSelectedTask(null); setSteps([]); setScreenshots({}); setLogs([])
     setSelectedSchedule(null); setScheduleTasks([]); setTasks([]); setTasksLoading(true)
     const key = store ? store.id : '__none__'
     inFlightTasksKeyRef.current = key
@@ -371,12 +440,15 @@ export default function App() {
     }
     loadSchedules()
   }
-  const selectStore = (store: Store) => selectScope(store)
-  const selectAllTasks = () => selectScope(null)
+  // Click handlers navigate; the route-param effects call the loaders
+  // (selectScope / loadTaskById) so URL is the single source of truth.
+  const selectStore = (store: Store) => navigate({ to: '/stores/$storeId', params: { storeId: store.id } })
+  const selectAllTasks = () => navigate({ to: '/tasks' })
+  const selectTask = (task: Task) => navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
 
-  const selectTask = async (task: Task) => {
-    let fullTask = task
-    try { fullTask = await api.get(`/api/tasks/${task.id}`) } catch { /* ignore */ }
+  const loadTaskById = async (taskId: string) => {
+    let fullTask: Task
+    try { fullTask = await api.get(`/api/tasks/${taskId}`) } catch { return }
     setSelectedTask(fullTask); setLogs([]); setScreenshots({}); setAgentMessages([])
     if (fullTask.todos) { try { setTodoItems(JSON.parse(fullTask.todos)) } catch { setTodoItems([]) } } else { setTodoItems([]) }
     setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput('')
@@ -391,7 +463,7 @@ export default function App() {
     // Build conversation items from messages + task state
     const convItems: ConversationItem[] = []
     try {
-      const msgs = await api.get(`/api/tasks/${task.id}/messages`)
+      const msgs = await api.get(`/api/tasks/${taskId}/messages`)
       setAgentMessages(msgs.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })))
       let hasSeenResult = false
       for (const m of msgs as { role: string; content: string; created_at?: string }[]) {
@@ -467,7 +539,7 @@ export default function App() {
     }
     setConversationItems(convItems)
 
-    const stepsData = await api.get(`/api/tasks/${task.id}/steps`); setSteps(stepsData)
+    const stepsData = await api.get(`/api/tasks/${taskId}/steps`); setSteps(stepsData)
     for (const s of stepsData) {
       if (s.screenshot_id) {
         try {
