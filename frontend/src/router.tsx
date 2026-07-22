@@ -8,9 +8,11 @@
  * (type-safe `navigate`, no notFound on deep-links); their rendering is
  * still done by `App`, so they carry no component.
  *
- * Paths: /tasks · /tasks/$taskId · /stores/$storeId · /schedules ·
- * /schedules/$scheduleId · /workspace · /settings/$tab. `/` and
- * `/settings` redirect to sensible defaults.
+ * Paths: /tasks · /tasks/$taskId · /stores/$storeId ·
+ * /stores/$storeId/tasks/$taskId · /schedules · /schedules/$scheduleId ·
+ * /workspace · /settings/$tab. `/` and `/settings` redirect to sensible
+ * defaults. A store-scoped task lives under its store so opening it keeps
+ * the store selected (the flat /tasks/$taskId form is for no-store tasks).
  *
  * Routes are declared inline (not via a helper) so TanStack can infer
  * each literal path into the type-safe `navigate`/`redirect` surface.
@@ -47,6 +49,11 @@ const storeRoute = createRoute({
   path: 'stores/$storeId',
   component: () => null,
 })
+const storeTaskRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'stores/$storeId/tasks/$taskId',
+  component: () => null,
+})
 const schedulesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'schedules',
@@ -80,6 +87,7 @@ const routeTree = rootRoute.addChildren([
   tasksRoute,
   taskRoute,
   storeRoute,
+  storeTaskRoute,
   schedulesRoute,
   scheduleRoute,
   workspaceRoute,

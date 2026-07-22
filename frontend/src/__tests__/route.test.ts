@@ -38,8 +38,16 @@ describe('parseNav — selection params', () => {
     expect(n.storeId).toBeNull()
     expect(n.scheduleId).toBeNull()
   })
-  it('a task path does not set a store id (flat scheme)', () => {
+  it('a flat task path (no-store task) sets no store id', () => {
     expect(parseNav('/tasks/t1').storeId).toBeNull()
+    expect(parseNav('/tasks/t1').taskId).toBe('t1')
+  })
+  it('a store-scoped task path sets both store and task id', () => {
+    const n = parseNav('/stores/s1/tasks/t1')
+    expect(n.storeId).toBe('s1')
+    expect(n.taskId).toBe('t1')
+    expect(n.appView).toBe('tasks')
+    expect(n.taskSubTab).toBe('onetime')
   })
 })
 
