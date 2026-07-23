@@ -596,7 +596,15 @@ TOOLS = [
                         'Reference image URLs and/or workspace-relative '
                         'file paths, in the order the prompt refers to '
                         "them. Up to 14. The referenced subject's true "
-                        'appearance is taken from these.'
+                        'appearance is taken from these. When the user '
+                        'provides MULTIPLE photos of the SAME product '
+                        '(different angles/views/details), pass them ALL '
+                        'as references for ONE generation — they are views '
+                        'of a single subject, not separate products. Do '
+                        'NOT generate one image per photo. Only make '
+                        'separate calls if the user clearly asked for '
+                        'several DISTINCT products/images; if unsure which '
+                        'they meant, ask before generating.'
                     ),
                 },
                 'model': {
