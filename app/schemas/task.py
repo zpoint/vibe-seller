@@ -12,6 +12,10 @@ class TaskCreate(BaseModel):
     skip_reflection: bool | None = None
     profile_id: str | None = None
     schedule_id: str | None = None
+    # When true, create the task PENDING but do NOT auto-start it — the
+    # client uploads attachments into the workspace first, then POSTs
+    # /start, so the files are present before the agent reads its prompt.
+    defer_start: bool = False
 
 
 class TaskResponse(BaseModel):

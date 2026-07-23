@@ -581,6 +581,7 @@ export default function App() {
           form.append('file', pf.file)
           await fetch(`/api/attachments/${taskId}`, { method: 'POST', body: form, credentials: 'include' })
         },
+        startTask: async (taskId) => { await api.post(`/api/tasks/${taskId}/start`, {}) },
         onCreated: () => {
           setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([]); setAgentMessages([]); setTodoItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput(''); setChatAttachments([])
         },

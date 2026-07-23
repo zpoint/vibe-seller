@@ -199,8 +199,12 @@ async def create_task(
 
     # Route through queue for store tasks (enforces
     # platform/country concurrency rules), or launch
-    # directly for no-store tasks.
-    await schedule_or_run(task.id, store)
+    # directly for no-store tasks. When the client will upload
+    # attachments first (defer_start), skip the launch — the client
+    # POSTs /start once the files are in the workspace, so the agent's
+    # prompt sees them (see build_system_extra uploaded-files note).
+    if not data.defer_start:
+        await schedule_or_run(task.id, store)
 
     return task
 

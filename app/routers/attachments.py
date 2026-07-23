@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -7,11 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
-from app.config import ATTACHMENTS_DIR
 from app.database import get_db
 from app.models.task import Task
 from app.models.task_attachment import TaskAttachment
 from app.models.user import User
+from app.workspace.manager import VIBE_SELLER_DIR
+
+_TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
 
 router = APIRouter(prefix='/api/attachments', tags=['attachments'])
 
@@ -47,8 +50,20 @@ async def upload_attachment(
         raise HTTPException(status_code=400, detail='File too large (max 10MB)')
 
     attachment_id = str(uuid.uuid4())
-    ext = Path(file.filename or 'file').suffix or '.bin'
-    file_path = ATTACHMENTS_DIR / f'{attachment_id}{ext}'
+    # Write into the TASK WORKSPACE uploads/ (the agent's cwd) so the agent
+    # can Read it — data/attachments was a DB blob invisible to the agent,
+    # so create-time uploads never reached it (unlike the chat flow, which
+    # promotes into uploads/). build_system_extra surfaces these paths.
+    ext = Path(file.filename or 'file').suffix.lower() or '.bin'
+    stem = (
+        re.sub(r'[^A-Za-z0-9._-]', '_', Path(file.filename or 'upload').stem)
+        or 'upload'
+    )
+    out_dir = _TASKS_DIR / task_id / 'uploads'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_path = out_dir / f'{stem}{ext}'
+    if file_path.exists():
+        file_path = out_dir / f'{stem}-{attachment_id[:6]}{ext}'
     file_path.write_bytes(content)
 
     attachment = TaskAttachment(
