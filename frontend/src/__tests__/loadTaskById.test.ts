@@ -100,6 +100,35 @@ describe('loadTaskById stale-response guard', () => {
     expect(fns.setSteps).toHaveBeenCalledWith([])
   })
 
+  it('recovers a pending image-confirm card on load', async () => {
+    const get = (url: string): Promise<unknown> => {
+      if (url.endsWith('/image/pending')) return Promise.resolve({
+        pending: true, request_id: 'r9', prompt: 'white bg',
+        model: 'nano-banana-pro', models: ['nano-banana-pro'],
+        reference_images: ['uploads/a.png'], kind: 'main',
+      })
+      if (/\/api\/tasks\/[^/]+$/.test(url)) return Promise.resolve({ id: 'T', todos: null })
+      if (url.endsWith('/questions/pending')) return Promise.resolve({ pending: false })
+      return Promise.resolve([])  // messages, steps
+    }
+    const { deps, fns } = makeDeps(get)
+    await loadTaskById('T', deps)
+    // The final conversation set includes the re-rendered confirm card.
+    const items = fns.setConversationItems.mock.calls.at(-1)![0] as { type: string; imageRequest?: { requestId: string; resolved?: boolean; referenceImages?: string[] } }[]
+    const card = items.find(i => i.type === 'image_request')
+    expect(card).toBeTruthy()
+    expect(card!.imageRequest!.requestId).toBe('r9')
+    expect(card!.imageRequest!.resolved).toBe(false)
+    expect(card!.imageRequest!.referenceImages).toEqual(['uploads/a.png'])
+  })
+
+  it('does not add a card when no image is pending', async () => {
+    const { deps, fns } = makeDeps(router(id => Promise.resolve({ id, todos: null })))
+    await loadTaskById('none', deps)
+    const items = fns.setConversationItems.mock.calls.at(-1)![0] as { type: string }[]
+    expect(items.some(i => i.type === 'image_request')).toBe(false)
+  })
+
   it('clears the previous task detail up front so the switch is instant', async () => {
     const { deps, fns } = makeDeps(router(id => Promise.resolve({ id, todos: null })))
     await loadTaskById('X', deps)

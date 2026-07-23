@@ -141,6 +141,58 @@ async def test_confirm_flow_saves_and_emits(admin_client, monkeypatch):
         shutil.rmtree(task_dir, ignore_errors=True)
 
 
+async def test_no_pending_image_request(admin_client):
+    r = await admin_client.get(f'/api/tasks/{uuid.uuid4()}/image/pending')
+    assert r.status_code == 200
+    assert r.json() == {'pending': False}
+
+
+async def test_pending_image_request_recoverable(admin_client, monkeypatch):
+    """A client that opens the task AFTER image_request fired can recover
+    the confirm card via GET …/image/pending, then confirm it."""
+    monkeypatch.setenv('VISION_FAKE', '1')
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    queue = event_bus.subscribe()
+    try:
+        gen = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={
+                    'prompt': '主图：纯白背景',
+                    'model': 'nano-banana-pro',
+                    'reference_images': ['uploads/ref.png'],
+                    'output_name': 'main.png',
+                    'kind': 'main',
+                },
+            )
+        )
+        req = await _drain_until(queue, 'image_request')
+        rid = req['request_id']
+
+        # Recover the card (no SSE replay — this is the reconnect path).
+        p = (await admin_client.get(f'/api/tasks/{tid}/image/pending')).json()
+        assert p['pending'] is True
+        assert p['request_id'] == rid
+        assert p['prompt'] == '主图：纯白背景'
+        assert p['reference_images'] == ['uploads/ref.png']
+        assert p['kind'] == 'main'
+        assert 'nano-banana-pro' in p['models']
+
+        # Confirming it clears the pending state.
+        c = await admin_client.post(
+            f'/api/tasks/{tid}/image/confirm',
+            json={'request_id': rid, 'action': 'confirm'},
+        )
+        assert c.json()['ok'] is True
+        await asyncio.wait_for(gen, timeout=10)
+        p2 = (await admin_client.get(f'/api/tasks/{tid}/image/pending')).json()
+        assert p2 == {'pending': False}
+    finally:
+        event_bus.unsubscribe(queue)
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
 async def test_upload_reference_saves_file(admin_client):
     tid = str(uuid.uuid4())
     task_dir = _TASKS_DIR / tid
