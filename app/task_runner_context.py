@@ -477,6 +477,13 @@ async def build_system_context(task: Task) -> str:
         'sub-tasks.',
     ])
 
+    # Files the user uploaded to this task (create-time attachments or
+    # chat uploads) — surfaced so the agent reads them instead of asking
+    # where the image is. Guarded: only added when uploads exist.
+    note = uploaded_files_note(task)
+    if note:
+        lines.append('\n' + note)
+
     return '\n'.join(lines)
 
 
@@ -596,3 +603,28 @@ async def build_all_stores_context(
         *_NO_STORE_WRITE_POLICY,
     ])
     return '\n'.join(lines)
+
+
+def uploaded_files_note(task: Task) -> str:
+    """Surface files the user uploaded to this task so the agent reads
+    them directly instead of asking where the image is.
+
+    Create-time attachments and chat uploads both land in the task
+    workspace ``uploads/`` dir. Listing their absolute paths here (rather
+    than in ``task.description``) keeps the visible description clean while
+    still reaching the agent — the create-flow equivalent of the chat
+    flow's ``Attached file:`` lines.
+    """
+    up = VIBE_SELLER_DIR / 'tasks' / task.id / 'uploads'
+    try:
+        files = sorted(str(p) for p in up.iterdir() if p.is_file())
+    except OSError:
+        return ''
+    if not files:
+        return ''
+    listing = '\n'.join(f'- {p}' for p in files)
+    return (
+        'The user attached the following file(s) to this task. Read them '
+        'directly (images are visual references / product photos — do NOT '
+        'ask the user to provide them again):\n' + listing
+    )

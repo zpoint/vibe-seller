@@ -41,6 +41,8 @@ export interface SubmitCreateTaskDeps {
   onCreated?: (task: Task) => void
   /** Optional per-attachment uploader (UI runs the real fetch). */
   uploadAttachment?: (taskId: string, pf: PendingFile) => Promise<void>
+  /** Launch a deferred task after its attachments are uploaded. */
+  startTask?: (taskId: string) => Promise<void>
 }
 
 export interface SubmitCreateTaskInput {
@@ -55,6 +57,10 @@ export async function submitCreateTask(
   input: SubmitCreateTaskInput,
   deps: SubmitCreateTaskDeps,
 ): Promise<Task> {
+  const hasFiles = input.files.length > 0
+  // Defer the agent start when there are attachments: the files must be
+  // uploaded into the workspace BEFORE the agent reads its prompt,
+  // otherwise it starts with no image and asks "where is the image?".
   const task = await deps.api.post('/api/tasks', {
     store_id: deps.storeId,
     title: input.title,
@@ -62,13 +68,8 @@ export async function submitCreateTask(
     plan_mode: deps.planMode,
     platform: input.platform || null,
     country: input.country || null,
+    defer_start: hasFiles,
   })
-
-  if (deps.uploadAttachment) {
-    for (const pf of input.files) {
-      await deps.uploadAttachment(task.id, pf)
-    }
-  }
 
   // Dedup-on-prepend: SSE `task_created` may have arrived first
   // (see header comment).  Both insert sites must enforce the
@@ -77,7 +78,19 @@ export async function submitCreateTask(
     prev.some(p => p.id === task.id) ? prev : [task, ...prev],
   )
   deps.setSelectedTask(task)
-  deps.onCreated?.(task)
+  deps.onCreated?.(task)  // close the modal immediately — don't block on uploads
+
+  // Upload attachments, THEN launch. Runs in the background so the modal
+  // closes at once; the deferred task only starts once its files are in
+  // the workspace (agent-visible).
+  if (hasFiles) {
+    void (async () => {
+      if (deps.uploadAttachment) {
+        for (const pf of input.files) await deps.uploadAttachment(task.id, pf)
+      }
+      await deps.startTask?.(task.id)
+    })().catch(() => { /* SSE / status will reflect any failure */ })
+  }
 
   // Race-guard refetch — see header comment.
   deps.api
