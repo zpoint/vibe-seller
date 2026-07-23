@@ -48,34 +48,40 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   let fullTask: Task
   try { fullTask = (await api.get(`/api/tasks/${taskId}`)) as Task } catch { return }
   if (!fresh()) return
-  deps.setSelectedTask(fullTask); deps.setLogs([]); deps.setScreenshots({}); deps.setAgentMessages([])
+  // Switch the selection AND clear ALL of the previous task's detail up
+  // front — conversation and steps included. On a high-latency link the
+  // follow-up fetches take a moment; without clearing here the OLD task's
+  // conversation/steps linger under the new header, so the switch reads
+  // as "nothing happened" until the new data lands. Clear now → the pane
+  // flips to the new task immediately and fills in as data arrives.
+  deps.setSelectedTask(fullTask)
+  deps.setLogs([]); deps.setScreenshots({}); deps.setAgentMessages([])
+  deps.setConversationItems([]); deps.setSteps([])
   if (fullTask.todos) { try { deps.setTodoItems(JSON.parse(fullTask.todos)) } catch { deps.setTodoItems([]) } } else { deps.setTodoItems([]) }
   deps.setSelectedAnswers({}); deps.setOtherInputs({}); deps.setShowOtherInput({}); deps.setChatInput(''); deps.setChatAttachments([])
   deps.setPendingQuestions(null)  // Clear immediately to avoid stale UI
 
-  // Recover pending question if agent is waiting
-  try {
-    const q = (await api.get(`/api/tasks/${fullTask.id}/questions/pending`)) as { pending?: boolean } & PendingQuestions
-    if (!fresh()) return
-    if (q.pending) deps.setPendingQuestions({ request_id: q.request_id, questions: q.questions })
-    else deps.setPendingQuestions(null)
-  } catch { if (fresh()) deps.setPendingQuestions(null) }
-
-  // Rebuild the conversation stream from persisted messages + task state.
-  let convItems: ConversationItem[] = []
-  try {
-    const msgs = (await api.get(`/api/tasks/${taskId}/messages`)) as { role: string; content: string }[]
-    if (!fresh()) return
-    deps.setAgentMessages(msgs.map(m => ({ role: m.role, content: m.content })))
-    convItems = buildConversationItems(msgs, fullTask)
-  } catch { /* ignore */ }
+  // Fetch the detail pieces CONCURRENTLY rather than in series — on a
+  // slow link four sequential round-trips (question + messages + steps)
+  // stack up into a visible delay; in parallel it is a single round-trip.
+  const [q, msgs, stepsData] = await Promise.all([
+    api.get(`/api/tasks/${fullTask.id}/questions/pending`).catch(() => null) as Promise<({ pending?: boolean } & PendingQuestions) | null>,
+    api.get(`/api/tasks/${taskId}/messages`).catch(() => []) as Promise<{ role: string; content: string }[]>,
+    api.get(`/api/tasks/${taskId}/steps`).catch(() => []) as Promise<TaskStep[]>,
+  ])
   if (!fresh()) return
-  deps.setConversationItems(convItems)
 
-  const stepsData = (await api.get(`/api/tasks/${taskId}/steps`)) as TaskStep[]
-  if (!fresh()) return
+  deps.setPendingQuestions(q?.pending ? { request_id: q.request_id, questions: q.questions } : null)
+  deps.setAgentMessages(msgs.map(m => ({ role: m.role, content: m.content })))
+  deps.setConversationItems(buildConversationItems(msgs, fullTask))
   deps.setSteps(stepsData)
+
   for (const s of stepsData) {
+    // Bail the whole loop the moment a newer selection supersedes this
+    // one — otherwise a stale load keeps fetching screenshots one by one,
+    // hogging the browser's connection pool and delaying the NEW task's
+    // requests (the "switch releases after a few seconds" symptom).
+    if (!fresh()) return
     if (!s.screenshot_id) continue
     try {
       const resp = await fetch(`/api/screenshots/${s.screenshot_id}`, { credentials: 'include' })
