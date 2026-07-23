@@ -814,7 +814,6 @@
     "confirmTitle": "Review image generation",
     "promptLabel": "Prompt (edit before generating)",
     "modelLabel": "Model",
-    "providerLabel": "Provider",
     "perImageUnit": "image",
     "referencesLabel": "Reference images",
     "confirmGenerate": "Generate",

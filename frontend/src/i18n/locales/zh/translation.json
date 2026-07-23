@@ -816,7 +816,6 @@
     "confirmTitle": "确认图片生成",
     "promptLabel": "提示词（生成前可编辑）",
     "modelLabel": "模型",
-    "providerLabel": "厂商",
     "perImageUnit": "张",
     "referencesLabel": "参考图",
     "confirmGenerate": "生成",
