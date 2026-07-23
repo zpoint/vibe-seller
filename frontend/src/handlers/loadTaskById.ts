@@ -1,5 +1,5 @@
 import { buildConversationItems } from '../lib/conversation'
-import type { Task, TaskStep, TodoItem, AgentMessage, ConversationItem, StagedAttachment } from '../types'
+import type { Task, TaskStep, TodoItem, AgentMessage, ConversationItem, StagedAttachment, ImageModelOption } from '../types'
 
 interface PendingQuestions {
   request_id: string
@@ -64,16 +64,42 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   // Fetch the detail pieces CONCURRENTLY rather than in series — on a
   // slow link four sequential round-trips (question + messages + steps)
   // stack up into a visible delay; in parallel it is a single round-trip.
-  const [q, msgs, stepsData] = await Promise.all([
+  type PendingImage = {
+    pending?: boolean; request_id: string; prompt?: string; model?: string
+    models?: ImageModelOption[]; reference_images?: string[]; output_name?: string; kind?: string
+  }
+  const [q, msgs, stepsData, pendingImg] = await Promise.all([
     api.get(`/api/tasks/${fullTask.id}/questions/pending`).catch(() => null) as Promise<({ pending?: boolean } & PendingQuestions) | null>,
     api.get(`/api/tasks/${taskId}/messages`).catch(() => []) as Promise<{ role: string; content: string }[]>,
     api.get(`/api/tasks/${taskId}/steps`).catch(() => []) as Promise<TaskStep[]>,
+    api.get(`/api/tasks/${taskId}/image/pending`).catch(() => null) as Promise<PendingImage | null>,
   ])
   if (!fresh()) return
 
   deps.setPendingQuestions(q?.pending ? { request_id: q.request_id, questions: q.questions } : null)
   deps.setAgentMessages(msgs.map(m => ({ role: m.role, content: m.content })))
-  deps.setConversationItems(buildConversationItems(msgs, fullTask))
+  const convItems = buildConversationItems(msgs, fullTask)
+  // Re-render a still-pending image-confirm card (the SSE image_request
+  // fired before this client connected — recover it so the task isn't
+  // stuck waiting on a confirm the UI never showed).
+  if (pendingImg?.pending) {
+    convItems.push({
+      id: `imgreq-${pendingImg.request_id}`,
+      type: 'image_request',
+      timestamp: new Date().toISOString(),
+      imageRequest: {
+        requestId: pendingImg.request_id,
+        prompt: pendingImg.prompt || '',
+        model: pendingImg.model || 'nano-banana-pro',
+        models: pendingImg.models || [],
+        referenceImages: pendingImg.reference_images || [],
+        outputName: pendingImg.output_name,
+        kind: pendingImg.kind,
+        resolved: false,
+      },
+    })
+  }
+  deps.setConversationItems(convItems)
   deps.setSteps(stepsData)
 
   for (const s of stepsData) {
