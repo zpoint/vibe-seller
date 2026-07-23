@@ -20,7 +20,7 @@ import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { parseNav, settingsTabToSlug } from './lib/route'
-import { buildConversationItems } from './lib/conversation'
+import { loadTaskById as loadTaskByIdHandler } from './handlers/loadTaskById'
 import { api, AUTH_EXPIRED_EVENT } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
@@ -74,6 +74,9 @@ export default function App() {
   // changed, so a slow response for the previous store can't clobber
   // the newly-selected store's list (stale-response-wins race).
   const inFlightTasksKeyRef = useRef<string | null>(null)
+  // Monotonic token for loadTaskById: only the latest selection applies
+  // its fetched state (stale-response-wins guard for fast task switches).
+  const loadTaskSeqRef = useRef(0)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   const [steps, setSteps] = useState<TaskStep[]>([])
   const [screenshots, setScreenshots] = useState<Record<string, string>>({})
@@ -434,40 +437,13 @@ export default function App() {
         })
       : navigate({ to: '/tasks/$taskId', params: { taskId: task.id } })
 
-  const loadTaskById = async (taskId: string) => {
-    let fullTask: Task
-    try { fullTask = await api.get(`/api/tasks/${taskId}`) } catch { return }
-    setSelectedTask(fullTask); setLogs([]); setScreenshots({}); setAgentMessages([])
-    if (fullTask.todos) { try { setTodoItems(JSON.parse(fullTask.todos)) } catch { setTodoItems([]) } } else { setTodoItems([]) }
-    setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput(''); setChatAttachments([])
-    setPendingQuestions(null)  // Clear immediately to avoid stale UI
-    // Recover pending question if agent is waiting
-    try {
-      const q = await api.get(`/api/tasks/${fullTask.id}/questions/pending`)
-      if (q.pending) { setPendingQuestions({ request_id: q.request_id, questions: q.questions }) }
-      else { setPendingQuestions(null) }
-    } catch { setPendingQuestions(null) }
-
-    // Rebuild the conversation stream from persisted messages + task
-    // state (pure logic in lib/conversation).
-    let convItems: ConversationItem[] = []
-    try {
-      const msgs = await api.get(`/api/tasks/${taskId}/messages`)
-      setAgentMessages(msgs.map((m: { role: string; content: string }) => ({ role: m.role, content: m.content })))
-      convItems = buildConversationItems(msgs, fullTask)
-    } catch { /* ignore */ }
-    setConversationItems(convItems)
-
-    const stepsData = await api.get(`/api/tasks/${taskId}/steps`); setSteps(stepsData)
-    for (const s of stepsData) {
-      if (s.screenshot_id) {
-        try {
-          const resp = await fetch(`/api/screenshots/${s.screenshot_id}`, { credentials: 'include' })
-          if (resp.ok) { const blob = await resp.blob(); const reader = new FileReader(); reader.onload = () => { const b64 = (reader.result as string).split(',')[1]; setScreenshots(prev => ({ ...prev, [s.id]: b64 })) }; reader.readAsDataURL(blob) }
-        } catch { /* ignore */ }
-      }
-    }
-  }
+  const loadTaskById = (taskId: string) =>
+    loadTaskByIdHandler(taskId, {
+      api, seqRef: loadTaskSeqRef,
+      setSelectedTask, setLogs, setScreenshots, setAgentMessages, setTodoItems,
+      setSelectedAnswers, setOtherInputs, setShowOtherInput, setChatInput,
+      setChatAttachments, setPendingQuestions, setConversationItems, setSteps,
+    })
 
   const stopAgent = async () => { if (!selectedTask) return; try { await api.post(`/api/tasks/${selectedTask.id}/agent/stop`) } catch { /* ignore */ }; setPendingQuestions(null) }
   const handlerDeps = {

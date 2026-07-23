@@ -33,10 +33,10 @@ function extractResetCalls(code: string): Set<string> {
 
 /**
  * Extract the body of a function defined as `const name = async (...) => {`
- * with brace-matching to handle nested blocks.
+ * or `function name(...) {` with brace-matching to handle nested blocks.
  */
 function extractFunctionBody(source: string, name: string): string {
-  const startPattern = new RegExp(`const\\s+${name}\\s*=`)
+  const startPattern = new RegExp(`const\\s+${name}\\s*=|function\\s+${name}\\b`)
   const match = startPattern.exec(source)
   if (!match) throw new Error(`Function ${name} not found in source`)
 
@@ -62,10 +62,16 @@ describe('submitCreateTask state reset contract', () => {
     path.resolve(__dirname, '../App.tsx'),
     'utf-8',
   )
+  // loadTaskById was extracted into its own handler; its per-task state
+  // resets (and the guard) now live there.
+  const loadTaskSource = fs.readFileSync(
+    path.resolve(__dirname, '../handlers/loadTaskById.ts'),
+    'utf-8',
+  )
 
   // The task loader (opening a task now navigates; the route effect
   // calls loadTaskById, which holds the per-task state resets).
-  const selectTaskBody = extractFunctionBody(appSource, 'loadTaskById')
+  const selectTaskBody = extractFunctionBody(loadTaskSource, 'loadTaskById')
   const submitCreateBody = extractFunctionBody(appSource, 'submitCreateTask')
 
   const selectTaskResets = extractResetCalls(selectTaskBody)
