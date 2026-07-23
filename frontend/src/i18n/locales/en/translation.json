@@ -500,7 +500,10 @@
     "visionKeyMissing": "Not configured",
     "visionKeyPlaceholder": "kie.ai API key",
     "visionAdminOnly": "Only an admin can set the Vision API key.",
-    "visionSaved": "Saved."
+    "visionSaved": "Saved.",
+    "visionModels": "Available image models",
+    "visionDefaultModel": "default",
+    "visionPerImage": "image"
   },
   "integrations": {
     "gws": {
@@ -811,6 +814,8 @@
     "confirmTitle": "Review image generation",
     "promptLabel": "Prompt (edit before generating)",
     "modelLabel": "Model",
+    "providerLabel": "Provider",
+    "perImageUnit": "image",
     "referencesLabel": "Reference images",
     "confirmGenerate": "Generate",
     "cancel": "Cancel",

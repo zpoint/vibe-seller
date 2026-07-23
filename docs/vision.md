@@ -2,10 +2,34 @@
 
 General-purpose image generation for tasks: product photos, marketplace
 listing images, infographics, banners, or an image the user just wants,
-via kie.ai (Nano Banana Pro / Nano Banana 2). The agent proposes; the
-**user confirms and can edit** the prompt/model before anything is
-generated; the result renders inline in the task stream and is saved in
-the task workspace.
+via kie.ai's unified API. The agent proposes; the **user confirms and can
+edit** the prompt/model before anything is generated; the result renders
+inline in the task stream and is saved in the task workspace.
+
+## Model catalog (one key, many providers)
+
+kie.ai is a unified aggregator — a **single** configured key reaches every
+image model through the same `POST /api/v1/jobs/createTask` endpoint. The
+selectable set is a curated, static catalog in `app/vision.py`
+(`IMAGE_MODELS`), one `ImageModel` per row: our stable `id` (the contract
+the agent/frontend/tool pass and we validate) → kie.ai's exact `slug`,
+plus the `provider`/`label` for the two-level Provider→Model picker and a
+representative per-image `usd` price. The confirm card and Settings show
+the price as **$** (English) or **¥** (Chinese, fixed `USD_CNY` rate — an
+illustrative hint, not a bill). Default is **Nano Banana Pro**.
+
+The one thing that genuinely differs per model is the **reference-image
+input**: field name and cardinality (`image_input`/`input_urls`/
+`image_urls` arrays, or a single `image_url`). `generate_image()` builds
+the `input` payload from each model's `ref_field`/`ref_array`, so a
+non-nano model actually receives its references instead of silently
+dropping them — this is the load-bearing part, pinned by
+`test_generate_image_builds_per_model_input`. Prices/slugs were captured
+from kie.ai's public pricing API + docs (2026-07); refresh manually.
+
+Current curated models: Google Nano Banana Pro (default) / Nano Banana 2,
+OpenAI GPT Image 2, ByteDance Seedream 5 Pro, Black Forest Flux-2 Pro,
+Qwen Image Edit, Ideogram V3 Remix.
 
 **Layering**: the MCP tool is platform-agnostic infrastructure. Platform
 knowledge lives in skills — `amazon-image-studio` (Amazon image

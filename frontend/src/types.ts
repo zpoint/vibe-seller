@@ -129,6 +129,18 @@ export interface EventActivity {
   action: string; content: string; extra_data: string | null; created_at: string;
 }
 
+// One selectable image model, as served by GET /api/vision/config and
+// the image_request SSE event. Price is a per-image hint in both USD
+// and (fixed-rate) CNY; the UI shows one based on the active language.
+export interface ImageModelOption {
+  id: string
+  provider: string
+  label: string
+  usd: number
+  cny: number
+  default?: boolean
+}
+
 // ─── Conversation stream types ───────────────────────
 export type ConversationItemType =
   | 'plan' | 'user_message' | 'agent_message'
@@ -156,7 +168,7 @@ export interface ConversationItem {
     requestId: string
     prompt: string
     model: string
-    models: string[]
+    models: ImageModelOption[]
     referenceImages: string[]
     outputName?: string
     kind?: string
