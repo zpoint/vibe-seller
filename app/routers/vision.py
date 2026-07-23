@@ -18,6 +18,7 @@ event, and return the saved path to the agent.
 from __future__ import annotations
 
 import ipaddress
+import json
 import logging
 from pathlib import Path
 import re
@@ -30,8 +31,11 @@ from fastapi.responses import Response
 import httpx
 
 from app import vision
+from app.ai.claude_backend_utils import get_next_seq
 from app.auth import get_current_user
+from app.database import async_session
 from app.events.bus import event_bus
+from app.models.task_message import TaskMessage
 from app.models.user import User
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -228,6 +232,28 @@ async def generate_task_image(
             'kind': kind,
         },
     )
+    # Persist the generated image so it re-renders inline on reload.
+    # image_generated is otherwise a live-only SSE event, and the
+    # conversation is rebuilt from persisted messages
+    # (buildConversationItems) — without this record the image vanishes on
+    # navigation and only the agent's text path survives.
+    async with async_session() as db:
+        seq = await get_next_seq(db, task_id)
+        db.add(
+            TaskMessage(
+                task_id=task_id,
+                role='generated_image',
+                content=json.dumps({
+                    'path': rel_path,
+                    'url': file_url,
+                    'prompt': final_prompt,
+                    'model': final_model,
+                    'kind': kind,
+                }),
+                seq=seq,
+            )
+        )
+        await db.commit()
     return {
         'status': 'ok',
         'path': rel_path,

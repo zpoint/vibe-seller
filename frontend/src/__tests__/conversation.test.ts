@@ -62,4 +62,31 @@ describe('buildConversationItems', () => {
     )
     expect(items).toHaveLength(0)
   })
+
+  it('reconstructs a generated image so it re-renders on reload', () => {
+    const items = buildConversationItems(
+      [{
+        role: 'generated_image',
+        content: JSON.stringify({
+          path: 'generated_images/main.png',
+          url: '/api/tasks/t1/files/generated_images/main.png',
+          prompt: 'white bg', model: 'nano-banana-pro', kind: 'main',
+        }),
+      }],
+      task(),
+    )
+    expect(items).toHaveLength(1)
+    expect(items[0].type).toBe('generated_image')
+    expect(items[0].generatedImage?.url)
+      .toBe('/api/tasks/t1/files/generated_images/main.png')
+    expect(items[0].generatedImage?.path).toBe('generated_images/main.png')
+  })
+
+  it('skips malformed generated_image JSON without throwing', () => {
+    const items = buildConversationItems(
+      [{ role: 'generated_image', content: 'not json{' }],
+      task(),
+    )
+    expect(items).toHaveLength(0)
+  })
 })

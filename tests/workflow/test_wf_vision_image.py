@@ -125,6 +125,17 @@ async def test_confirm_flow_saves_and_emits(admin_client, monkeypatch):
             gen_evt['url']
             == f'/api/tasks/{tid}/files/generated_images/main.png'
         )
+
+        # The image is persisted as a message so it re-renders on reload
+        # (image_generated alone is a live-only SSE event).
+        msgs = (await admin_client.get(f'/api/tasks/{tid}/messages')).json()
+        gen_msgs = [m for m in msgs if m['role'] == 'generated_image']
+        assert len(gen_msgs) == 1
+        payload = json.loads(gen_msgs[0]['content'])
+        assert payload['path'] == 'generated_images/main.png'
+        assert payload['url'] == (
+            f'/api/tasks/{tid}/files/generated_images/main.png'
+        )
     finally:
         event_bus.unsubscribe(queue)
         shutil.rmtree(task_dir, ignore_errors=True)
