@@ -121,13 +121,19 @@ BACKEND_PID=$!
 # Hyper-V excluded ranges): uvicorn binds AFTER lifespan startup,
 # so the process is still alive when the check runs even though
 # the bind is about to fail with EADDRINUSE.
+#
+# `--noproxy '*'` is mandatory: this is a loopback probe, but if the
+# user's shell exports http_proxy/ALL_PROXY (e.g. a clash/VPN proxy on
+# 127.0.0.1:7890), curl routes even 127.0.0.1 through it — so a proxy
+# that is down (or can't loop back to us) yields a false "did not
+# become healthy" while the server is actually fine.
 HEALTH_URL="http://127.0.0.1:$PORT/api/health"
 HEALTHY=false
 for _ in $(seq 1 30); do
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
         break
     fi
-    if curl -fsS -o /dev/null --max-time 2 "$HEALTH_URL" 2>/dev/null; then
+    if curl -fsS --noproxy '*' -o /dev/null --max-time 2 "$HEALTH_URL" 2>/dev/null; then
         HEALTHY=true
         break
     fi
