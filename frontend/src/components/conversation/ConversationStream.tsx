@@ -423,6 +423,7 @@ export function ConversationStream({
                 kind={item.imageRequest!.kind}
                 resolved={item.imageRequest!.resolved}
                 expired={item.imageRequest!.expired}
+                generating={item.imageRequest!.generating}
                 onDecision={onImageDecision || (() => {})}
               />
             )

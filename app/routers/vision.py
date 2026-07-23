@@ -181,6 +181,20 @@ async def generate_task_image(
     added = [r for r in (decision.get('added_references') or []) if r]
     final_refs = list(reference_images) + added
 
+    # Signal generation-in-progress. The kie.ai call below can take a
+    # minute or more; without this the UI would show only the generic
+    # "agent is working" spinner. The frontend flips the confirm card into
+    # a "generating…" state on this event and clears it on image_generated.
+    await event_bus.emit(
+        'image_generating',
+        {
+            'task_id': task_id,
+            'request_id': request_id,
+            'model': final_model,
+            'kind': kind,
+        },
+    )
+
     try:
         png = await vision.generate_image(
             prompt=final_prompt,

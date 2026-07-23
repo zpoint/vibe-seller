@@ -36,6 +36,15 @@ export function ChatComposer({
       {/* Staged attachment chips (thumbnails, not paths) */}
       <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
+      {/* While the agent is working, a follow-up is queued and delivered
+       *  when the current step finishes (it can't interrupt a running
+       *  tool such as image generation) — set that expectation. */}
+      {isActive && hasContent && (
+        <div className="text-[11px] text-gray-400" data-testid="chat-queued-hint">
+          {t('tasks.queuedWhileWorking')}
+        </div>
+      )}
+
       <div className="flex gap-2 items-end">
         <ChatAttachButton
           fileInputRef={fileInputRef}

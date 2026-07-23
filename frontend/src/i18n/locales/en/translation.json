@@ -134,6 +134,7 @@
     "freeTextPlaceholder": "Type your response...",
     "chatPlaceholder": "Type a message to the AI...",
     "send": "Send",
+    "queuedWhileWorking": "The agent is working — your message will be sent when the current step finishes.",
     "executionPlan": "Execution Plan",
     "agentChat": "Agent Session",
     "agentStarting": "Agent starting...",
@@ -817,6 +818,7 @@
     "generatedTitle": "Generated image",
     "uploading": "Uploading…",
     "dropHint": "Drag an image here or click to add a reference",
-    "expired": "Expired — replaced by a newer request below"
+    "expired": "Expired — replaced by a newer request below",
+    "generating": "Generating image… this can take 1–2 minutes"
   }
 }

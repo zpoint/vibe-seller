@@ -409,7 +409,18 @@ export function useSSE({
           if (selectedTaskIdRef.current === data.task_id) {
             setConversationItems(items => items.map(it =>
               it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
-                ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, expired: true } }
+                ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, expired: true, generating: false } }
+                : it))
+          }
+        }
+        // User confirmed; the (minutes-long) generation is now running.
+        // Flip the card into a "generating…" state so the user sees real
+        // progress instead of the generic "agent is working" spinner.
+        if (data.type === 'image_generating') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setConversationItems(items => items.map(it =>
+              it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
+                ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, generating: true } }
                 : it))
           }
         }
@@ -418,7 +429,7 @@ export function useSSE({
             setConversationItems(items => {
               const marked = items.map(it =>
                 it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
-                  ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true } }
+                  ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, generating: false } }
                   : it)
               return [...marked, {
                 id: `imggen-${data.request_id}`,
