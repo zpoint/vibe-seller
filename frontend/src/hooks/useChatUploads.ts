@@ -1,47 +1,56 @@
 import { useRef, useState } from 'react'
-import type { Task } from '../types'
+import type { StagedAttachment } from '../types'
 
-/** Chat attachments: upload files into the task workspace and insert
- *  each returned absolute path into the message text, so the agent can
- *  Read the file directly (images become vision input). Drag, paste
- *  and click-upload in the send bar all land here. */
+/** Chat attachments: upload files to STAGING (outside the agent's cwd)
+ *  and hold them as removable chips. Nothing is written into the message
+ *  text and nothing reaches the agent until the user hits Send — the
+ *  server promotes staged files into the workspace only then. Drag, paste
+ *  and click-upload in the send bar all land here.
+ *
+ *  Attachment state is owned by the caller (App) so the send handler can
+ *  read the ids and clear them after a successful send. */
 export function useChatUploads(
-  selectedTask: Task | null,
-  chatInput: string,
-  setChatInput: (v: string) => void,
-  chatInputRef: React.RefObject<HTMLTextAreaElement | null>,
-  attachedLabel: string,
+  taskId: string | null,
+  setAttachments: React.Dispatch<React.SetStateAction<StagedAttachment[]>>,
 ) {
   const chatFileInputRef = useRef<HTMLInputElement>(null)
   const [chatUploading, setChatUploading] = useState(false)
 
   const uploadChatFiles = async (files: FileList | File[]) => {
-    if (!selectedTask) return
+    if (!taskId) return
     setChatUploading(true)
     try {
-      const paths: string[] = []
       for (const f of Array.from(files)) {
         const fd = new FormData()
         fd.append('file', f)
         const resp = await fetch(
-          `/api/tasks/${selectedTask.id}/files/upload`,
+          `/api/tasks/${taskId}/staged`,
           { method: 'POST', body: fd, credentials: 'include' },
         )
         if (resp.ok) {
-          const data = await resp.json()
-          paths.push(data.abs_path)
+          const d = await resp.json()
+          setAttachments(prev => [...prev, {
+            id: d.id,
+            filename: d.filename,
+            contentType: d.content_type,
+            url: d.url,
+          }])
         }
-      }
-      if (paths.length) {
-        const cur = chatInput.trim()
-        const insert = paths.map(p => `${attachedLabel}: ${p}`).join('\n')
-        setChatInput(cur ? `${cur}\n${insert}` : insert)
-        chatInputRef.current?.focus()
       }
     } finally {
       setChatUploading(false)
     }
   }
 
-  return { chatFileInputRef, chatUploading, uploadChatFiles }
+  /** Drop a staged attachment before sending (the chip's ✕). Removes the
+   *  chip immediately; the server-side discard is best-effort. */
+  const removeAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id))
+    if (taskId) {
+      fetch(`/api/tasks/${taskId}/staged/${id}`,
+        { method: 'DELETE', credentials: 'include' }).catch(() => {})
+    }
+  }
+
+  return { chatFileInputRef, chatUploading, uploadChatFiles, removeAttachment }
 }

@@ -34,7 +34,7 @@ import { sendChatMessage as sendChatMessageHandler } from './handlers/sendChatMe
 import type {
   Store, Task, TaskStep, AgentMessage, TodoItem, AuthUser, Profile,
   WsStructured, ZiniaoAccount, ZiniaoBrowserProfile,
-  AppView, PendingFile, Schedule, EmailAccount, ConversationItem,
+  AppView, PendingFile, Schedule, EmailAccount, ConversationItem, StagedAttachment,
 } from './types'
 
 export default function App() {
@@ -104,6 +104,7 @@ export default function App() {
   const [otherInputs, setOtherInputs] = useState<Record<string, string>>({})
   const [showOtherInput, setShowOtherInput] = useState<Record<string, boolean>>({})
   const [chatInput, setChatInput] = useState('')
+  const [chatAttachments, setChatAttachments] = useState<StagedAttachment[]>([])
   const [conversationItems, setConversationItems] = useState<ConversationItem[]>([])
   const questionBannerRef = useRef<HTMLDivElement>(null)
   const [debugMode, setDebugMode] = useState(false)
@@ -438,7 +439,7 @@ export default function App() {
     try { fullTask = await api.get(`/api/tasks/${taskId}`) } catch { return }
     setSelectedTask(fullTask); setLogs([]); setScreenshots({}); setAgentMessages([])
     if (fullTask.todos) { try { setTodoItems(JSON.parse(fullTask.todos)) } catch { setTodoItems([]) } } else { setTodoItems([]) }
-    setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput('')
+    setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput(''); setChatAttachments([])
     setPendingQuestions(null)  // Clear immediately to avoid stale UI
     // Recover pending question if agent is waiting
     try {
@@ -514,9 +515,10 @@ export default function App() {
   const sendingRef = useRef(false)
   const sendChatMessage = () =>
     sendChatMessageHandler({
-      api, selectedTask, chatInput, profileId: selectedProfileId,
-      conversationItems, sendingRef,
-      setChatInput, setAgentMessages, setConversationItems, setSelectedTask, setTasks,
+      api, selectedTask, chatInput, attachments: chatAttachments,
+      profileId: selectedProfileId, conversationItems, sendingRef,
+      setChatInput, setAttachments: setChatAttachments, setAgentMessages,
+      setConversationItems, setSelectedTask, setTasks,
     })
 
   // ─── Profile helpers ───────────────────────────────
@@ -604,7 +606,7 @@ export default function App() {
           await fetch(`/api/attachments/${taskId}`, { method: 'POST', body: form, credentials: 'include' })
         },
         onCreated: () => {
-          setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([]); setAgentMessages([]); setTodoItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput('')
+          setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([]); setAgentMessages([]); setTodoItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput(''); setChatAttachments([])
         },
       },
     )
@@ -662,7 +664,8 @@ export default function App() {
           agentMessages={agentMessages} todoItems={todoItems} pendingQuestions={pendingQuestions}
           conversationItems={conversationItems}
           selectedAnswers={selectedAnswers} otherInputs={otherInputs} showOtherInput={showOtherInput}
-          chatInput={chatInput} setChatInput={setChatInput} debugMode={debugMode} setDebugMode={setDebugMode}
+          chatInput={chatInput} setChatInput={setChatInput}
+          chatAttachments={chatAttachments} setChatAttachments={setChatAttachments} debugMode={debugMode} setDebugMode={setDebugMode}
           profiles={profiles} selectedProfileId={selectedProfileId} setSelectedProfileId={setSelectedProfileId}
           currentUser={currentUser} showAllTasks={showAllTasks}
           openCreateModal={() => setShowCreateTask(true)} selectTask={selectTask}

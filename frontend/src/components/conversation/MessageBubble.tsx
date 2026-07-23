@@ -21,12 +21,43 @@ interface MessageBubbleProps {
   onOpenVisionSetup?: () => void
 }
 
+// Attachments are encoded into a user message as markdown images
+// (``![filename](url)``) by the /messages endpoint. Parse them out so the
+// bubble shows a thumbnail (or a PDF chip), never the raw path/URL text.
+const ATTACHMENT_RE = /!\[([^\]]*)\]\(([^)]+)\)/g
+
+function parseUserContent(content: string) {
+  const images: { alt: string; url: string }[] = []
+  const text = content.replace(ATTACHMENT_RE, (_m, alt, url) => {
+    images.push({ alt, url })
+    return ''
+  }).trim()
+  return { text, images }
+}
+
 export function MessageBubble({ role, content, onOpenVisionSetup }: MessageBubbleProps) {
   if (role === 'user') {
+    const { text, images } = parseUserContent(content)
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-gray-100 rounded-2xl rounded-br-md px-4 py-3 text-[16px] leading-relaxed text-gray-800 whitespace-pre-wrap">
-          {content}
+        <div className="max-w-[80%] bg-gray-100 rounded-2xl rounded-br-md px-4 py-3 text-[16px] leading-relaxed text-gray-800">
+          {text && <div className="whitespace-pre-wrap">{text}</div>}
+          {images.length > 0 && (
+            <div className={`flex flex-wrap gap-2 justify-end ${text ? 'mt-2' : ''}`}>
+              {images.map((im, i) => /\.pdf$/i.test(im.alt) || /\.pdf$/i.test(im.url) ? (
+                <a key={i} href={im.url} target="_blank" rel="noreferrer"
+                  className="flex items-center gap-2 px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-600 hover:bg-gray-50">
+                  <span className="flex items-center justify-center w-6 h-6 rounded bg-red-50 text-red-500 text-[9px] font-semibold">PDF</span>
+                  <span className="max-w-[10rem] truncate">{im.alt || 'document.pdf'}</span>
+                </a>
+              ) : (
+                <a key={i} href={im.url} target="_blank" rel="noreferrer">
+                  <img src={im.url} alt={im.alt}
+                    className="max-h-40 max-w-[12rem] rounded-lg border border-gray-200 object-cover" />
+                </a>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     )
