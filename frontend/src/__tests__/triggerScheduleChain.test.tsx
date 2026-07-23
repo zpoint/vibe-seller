@@ -233,6 +233,8 @@ describe('TasksView Run Now button reflects scheduleTasks', () => {
     showOtherInput: {},
     chatInput: '',
     setChatInput: vi.fn(),
+    chatAttachments: [],
+    setChatAttachments: vi.fn(),
     sendChatMessage: vi.fn(),
     stopAgent: vi.fn(),
     retryTask: vi.fn(),

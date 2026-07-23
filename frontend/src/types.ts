@@ -47,6 +47,14 @@ export interface PendingFile {
   preview: string;
   name: string;
 }
+/** A chat attachment uploaded to staging (outside the agent's cwd) and
+ *  waiting for Send. Carries a preview URL, never an absolute path. */
+export interface StagedAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  url: string;
+}
 export interface WsFile {
   path: string;
   name: string;

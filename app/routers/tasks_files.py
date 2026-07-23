@@ -7,6 +7,7 @@ import mimetypes
 import os
 from pathlib import Path
 import re
+import shutil
 import tempfile
 import uuid
 import zipfile
@@ -351,25 +352,127 @@ _UPLOAD_ALLOWED_TYPES = {
     'application/pdf',
 }
 _UPLOAD_MAX_SIZE = 15 * 1024 * 1024  # 15MB
+_UPLOAD_ALLOWED_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf')
+
+# Chat attachments stage OUTSIDE the task workspace so the agent's cwd
+# (``tasks/<id>/``) never sees them via ``ls``/``find`` before Send. The
+# invariant: a user attachment becomes agent-visible ONLY when the user
+# sends the message that carries it. ``promote_staged_attachments`` (call
+# it from the /messages endpoint) is the single moment that happens.
+_CHAT_STAGING_DIR = VIBE_SELLER_DIR / 'chat_staging'
+_STAGING_ID_RE = re.compile(r'^[0-9a-f]{32}$')
+# Staged-but-never-sent files are swept on the next upload for the task.
+_STAGING_TTL_SECONDS = 24 * 3600
 
 
-@router.post('/{task_id}/files/upload')
-async def upload_task_file(
-    task_id: str,
-    file: UploadFile,
-    _user: User = Depends(get_current_user),
-):
-    """Save a user-supplied file into the task workspace ``uploads/``.
+class StagedAttachment(BaseModel):
+    """A chat file uploaded to staging, not yet visible to the agent."""
 
-    This is how chat attachments reach the AGENT: the file lands inside
-    the task workspace (the agent's cwd), and the returned ``abs_path``
-    is inserted into the user's message text, so the agent can Read it
-    directly (images included — the model reads them as vision input).
-    Unlike ``/api/attachments`` (DB-tracked blobs under the data dir,
-    invisible to the agent), this path is agent-first by design.
+    id: str
+    filename: str
+    content_type: str
+    # Preview URL for the send-bar chip / transcript thumbnail. NOT an
+    # absolute path — the path is withheld from the client by design.
+    url: str
+
+
+def _normalized_upload_name(file: UploadFile) -> str:
+    """ASCII-safe, cross-platform filename for a stored upload.
+
+    Strips everything outside ``[A-Za-z0-9._-]`` — which also removes
+    every character Windows forbids in a filename (``<>:"/\\|?*`` and
+    control chars) and non-ASCII (e.g. Chinese) names that break the
+    serve URL and browser-use path handling. So a Chinese-named upload
+    still lands as a valid ASCII path on macOS, Linux, and Windows.
+    """
+    raw = Path(file.filename or 'upload').name
+    stem = re.sub(r'[^A-Za-z0-9._-]', '_', Path(raw).stem) or 'upload'
+    ext = Path(raw).suffix.lower()
+    if ext not in _UPLOAD_ALLOWED_EXTS:
+        ext = mimetypes.guess_extension(file.content_type or '') or '.bin'
+    return f'{stem}{ext}'
+
+
+def _staging_task_dir(task_id: str) -> Path:
+    """Resolve a task's staging dir, guarding traversal via task_id."""
+    base = _CHAT_STAGING_DIR.resolve()
+    d = (_CHAT_STAGING_DIR / task_id).resolve()
+    if not d.is_relative_to(base):
+        raise HTTPException(status_code=400, detail='Invalid task id')
+    return d
+
+
+def _staging_item_dir(task_id: str, staged_id: str) -> Path:
+    """Resolve one staged item's dir; reject ids that aren't hex uuids."""
+    if not _STAGING_ID_RE.match(staged_id):
+        raise HTTPException(status_code=400, detail='Invalid attachment id')
+    base = _staging_task_dir(task_id)
+    d = (base / staged_id).resolve()
+    if not d.is_relative_to(base):
+        raise HTTPException(status_code=400, detail='Invalid attachment id')
+    return d
+
+
+def _sweep_stale_staging(task_staging: Path) -> None:
+    """Best-effort removal of staged items older than the TTL."""
+    if not task_staging.is_dir():
+        return
+    cutoff = datetime.now(UTC).timestamp() - _STAGING_TTL_SECONDS
+    for child in task_staging.iterdir():
+        try:
+            if child.is_dir() and child.stat().st_mtime < cutoff:
+                shutil.rmtree(child, ignore_errors=True)
+        except OSError:
+            pass
+
+
+def _staged_file(item_dir: Path) -> Path | None:
+    """The single stored file inside a staged item dir, if present."""
+    if not item_dir.is_dir():
+        return None
+    files = [p for p in item_dir.iterdir() if p.is_file()]
+    return files[0] if files else None
+
+
+def promote_staged_attachments(
+    task_id: str, staged_ids: list[str]
+) -> list[dict]:
+    """Move staged chat files into the task ``uploads/`` (the agent's cwd).
+
+    Called at SEND time only — this is the ONE moment a chat attachment
+    becomes visible to the agent. Returns one dict per promoted file with
+    ``abs_path`` (for the agent to Read — images are vision input),
+    ``url`` (for the UI thumbnail) and ``filename``. Unknown, malformed,
+    or already-consumed ids are skipped rather than erroring, so a stale
+    client id can't fail an otherwise-valid send.
     """
     task_dir = _validate_task_id(task_id)
-    task_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = task_dir / 'uploads'
+    promoted: list[dict] = []
+    for sid in staged_ids:
+        try:
+            item = _staging_item_dir(task_id, sid)
+        except HTTPException:
+            continue
+        src = _staged_file(item)
+        if src is None:
+            continue
+        out_dir.mkdir(parents=True, exist_ok=True)
+        dest = out_dir / src.name
+        if dest.exists():
+            dest = out_dir / f'{src.stem}-{uuid.uuid4().hex[:6]}{src.suffix}'
+        shutil.move(str(src), str(dest))
+        shutil.rmtree(item, ignore_errors=True)
+        promoted.append({
+            'abs_path': str(dest),
+            'filename': dest.name,
+            'url': f'/api/tasks/{task_id}/files/uploads/{dest.name}',
+        })
+    return promoted
+
+
+async def _read_validated_upload(file: UploadFile) -> bytes:
+    """Read an upload, enforcing the image/pdf allow-list and size cap."""
     if file.content_type not in _UPLOAD_ALLOWED_TYPES:
         raise HTTPException(
             status_code=400,
@@ -380,25 +483,67 @@ async def upload_task_file(
         raise HTTPException(status_code=400, detail='Empty file')
     if len(data) > _UPLOAD_MAX_SIZE:
         raise HTTPException(status_code=413, detail='File too large (max 15MB)')
+    return data
 
-    raw = Path(file.filename or 'upload').name
-    stem = re.sub(r'[^A-Za-z0-9._-]', '_', Path(raw).stem) or 'upload'
-    ext = Path(raw).suffix.lower()
-    if ext not in ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf'):
-        ext = mimetypes.guess_extension(file.content_type or '') or '.bin'
-    out_dir = task_dir / 'uploads'
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f'{stem}{ext}'
-    if out_path.exists():
-        out_path = out_dir / f'{stem}-{uuid.uuid4().hex[:6]}{ext}'
-    out_path.write_bytes(data)
 
-    rel_path = f'uploads/{out_path.name}'
-    return {
-        'path': rel_path,
-        'abs_path': str(out_path),
-        'url': f'/api/tasks/{task_id}/files/{rel_path}',
-    }
+@router.post('/{task_id}/staged')
+async def stage_task_file(
+    task_id: str,
+    file: UploadFile,
+    _user: User = Depends(get_current_user),
+) -> StagedAttachment:
+    """Stage a chat attachment WITHOUT exposing it to the agent yet.
+
+    The file lands under ``chat_staging/<task_id>/<id>/`` — a sibling of
+    the task workspace, never in the agent's cwd — so a running agent
+    can't pick it up by scanning its directory. It only reaches the agent
+    when the user sends a message referencing it (see
+    ``promote_staged_attachments``). Returns a preview URL, never a path.
+    """
+    data = await _read_validated_upload(file)
+    base = _staging_task_dir(task_id)
+    base.mkdir(parents=True, exist_ok=True)
+    _sweep_stale_staging(base)
+    staged_id = uuid.uuid4().hex
+    item = base / staged_id
+    item.mkdir()
+    name = _normalized_upload_name(file)
+    (item / name).write_bytes(data)
+    return StagedAttachment(
+        id=staged_id,
+        filename=name,
+        content_type=file.content_type or 'application/octet-stream',
+        url=f'/api/tasks/{task_id}/staged/{staged_id}',
+    )
+
+
+@router.get('/{task_id}/staged/{staged_id}')
+async def get_staged_file(
+    task_id: str,
+    staged_id: str,
+    _user: User = Depends(get_current_user),
+):
+    """Serve a staged attachment for the send-bar chip / thumbnail."""
+    resolved = _staged_file(_staging_item_dir(task_id, staged_id))
+    if resolved is None:
+        raise HTTPException(status_code=404, detail='Attachment not found')
+    mime, _ = mimetypes.guess_type(resolved.name)
+    return FileResponse(
+        path=str(resolved),
+        filename=resolved.name,
+        media_type=mime or 'application/octet-stream',
+    )
+
+
+@router.delete('/{task_id}/staged/{staged_id}')
+async def delete_staged_file(
+    task_id: str,
+    staged_id: str,
+    _user: User = Depends(get_current_user),
+):
+    """Discard a staged attachment (the send-bar chip's ✕ button)."""
+    shutil.rmtree(_staging_item_dir(task_id, staged_id), ignore_errors=True)
+    return {'ok': True}
 
 
 def record_agent_error(task, error_text: str) -> dict | None:

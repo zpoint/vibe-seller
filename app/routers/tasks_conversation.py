@@ -28,6 +28,7 @@ from app.models.user import User
 from app.plan_states import PlanStatus
 from app.routers.dida365_oauth import refresh_token_if_needed
 from app.routers.tasks import schedule_or_run
+from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_runner import (
     TaskHeader,
@@ -100,7 +101,10 @@ async def send_task_message(
     restarted with the new profile environment and full chat history.
     """
     content = body.get('content', '').strip()
-    if not content:
+    attachment_ids = body.get('attachment_ids') or []
+    if not isinstance(attachment_ids, list):
+        attachment_ids = []
+    if not content and not attachment_ids:
         raise HTTPException(status_code=400, detail='content is required')
 
     task = await db.get(Task, task_id)
@@ -113,12 +117,39 @@ async def send_task_message(
     current_profile_id = task.ai_profile_id or DEFAULT_PROFILE_ID
     is_profile_switch = requested_profile_id != current_profile_id
 
-    # Save the user message
+    # Promote staged chat attachments into the task workspace. This is the
+    # ONE moment an attachment becomes visible to the agent: staging kept
+    # it outside the agent's cwd until the user pressed Send. From here we
+    # keep TWO content strings:
+    #   display_content — stored + shown in the transcript; images become
+    #                     markdown so the user sees a thumbnail, not a path.
+    #   agent_content   — delivered to the agent; absolute paths it Reads
+    #                     directly (images are vision input).
+    attachments = (
+        promote_staged_attachments(task_id, attachment_ids)
+        if attachment_ids
+        else []
+    )
+    display_content = content
+    agent_content = content
+    if attachments:
+        img_md = '\n'.join(
+            f'![{a["filename"]}]({a["url"]})' for a in attachments
+        )
+        file_lines = '\n'.join(
+            f'Attached file: {a["abs_path"]}' for a in attachments
+        )
+        display_content = f'{content}\n{img_md}'.strip() if content else img_md
+        agent_content = (
+            f'{content}\n{file_lines}'.strip() if content else file_lines
+        )
+
+    # Save the user message (transcript-facing content)
     seq = await get_next_seq(db, task_id)
     user_message = TaskMessage(
         task_id=task_id,
         role='user',
-        content=content,
+        content=display_content,
         seq=seq,
         profile_id=requested_profile_id if is_profile_switch else None,
     )
@@ -133,15 +164,30 @@ async def send_task_message(
 
     await db.commit()
 
-    # Emit user message to SSE so other clients see it
+    # Emit user message to SSE so other clients see it (transcript view)
     await event_bus.emit(
         'task_message',
         {
             'task_id': task_id,
             'role': 'user',
-            'content': content,
+            'content': display_content,
         },
     )
+
+    # Everything below delivers to the AGENT — use the path-bearing
+    # content so promoted attachments reach it (send_message stdin, wake
+    # trigger_data, resume/fresh-session prompt all read ``content``).
+    content = agent_content
+
+    # Canonical "message accepted" fields every return path echoes, so the
+    # client can render the exact stored bubble (thumbnails, not paths).
+    accepted = {
+        'ok': True,
+        'task_id': task_id,
+        'profile_id': requested_profile_id,
+        'content': display_content,
+        'attachments': attachments,
+    }
 
     # Handle waiting tasks: treat message as wake action
     if task.status in WAKEABLE:
@@ -163,9 +209,7 @@ async def send_task_message(
             await task_queue_scheduler.submit(task_id, task.store_id)
 
         return {
-            'ok': True,
-            'task_id': task_id,
-            'profile_id': requested_profile_id,
+            **accepted,
             'profile_switched': is_profile_switch,
             'woken': True,
         }
@@ -207,12 +251,7 @@ async def send_task_message(
                         'error': None,
                     },
                 )
-                return {
-                    'ok': True,
-                    'task_id': task_id,
-                    'profile_id': requested_profile_id,
-                    'profile_switched': False,
-                }
+                return {**accepted, 'profile_switched': False}
 
     # Determine if we can resume a CLI session (has full context)
     is_plan_feedback = task.status == TaskStatus.PLANNED
@@ -393,12 +432,7 @@ async def send_task_message(
             feedback=content,
         )
         if rejected:
-            return {
-                'ok': True,
-                'task_id': task_id,
-                'profile_id': requested_profile_id,
-                'profile_switched': is_profile_switch,
-            }
+            return {**accepted, 'profile_switched': is_profile_switch}
 
         # Session died — start fresh plan_then_execute. Spawn off
         # the request path so a saturated agent semaphore doesn't
@@ -417,12 +451,7 @@ async def send_task_message(
                 revert_status=TaskStatus.PLANNED,
             )
         )
-        return {
-            'ok': True,
-            'task_id': task_id,
-            'profile_id': requested_profile_id,
-            'profile_switched': is_profile_switch,
-        }
+        return {**accepted, 'profile_switched': is_profile_switch}
     elif task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED):
         # Follow-up on a finished task: clear stale data and
         # restart.  Auto mode → RUNNING; plan mode → DESIGNING.
@@ -482,12 +511,7 @@ async def send_task_message(
                 revert_error_category=prev_error_category,
             )
         )
-        return {
-            'ok': True,
-            'task_id': task_id,
-            'profile_id': requested_profile_id,
-            'profile_switched': is_profile_switch,
-        }
+        return {**accepted, 'profile_switched': is_profile_switch}
     else:
         await refresh_token_if_needed()
         # Mode selection for follow-ups on tasks NOT in WAITING /
@@ -528,12 +552,7 @@ async def send_task_message(
             )
         )
 
-    return {
-        'ok': True,
-        'task_id': task_id,
-        'profile_id': requested_profile_id,
-        'profile_switched': is_profile_switch,
-    }
+    return {**accepted, 'profile_switched': is_profile_switch}
 
 
 @router.get('/{task_id}/questions/pending')

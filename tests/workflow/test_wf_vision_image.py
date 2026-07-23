@@ -231,30 +231,8 @@ async def test_new_request_supersedes_pending(admin_client, monkeypatch):
         shutil.rmtree(task_dir, ignore_errors=True)
 
 
-async def test_chat_upload_returns_abs_path(admin_client):
-    """Chat attachments land in the workspace and return an abs path
-    (inserted into the message so the agent can Read the image)."""
-    tid = str(uuid.uuid4())
-    task_dir = _TASKS_DIR / tid
-    try:
-        r = await admin_client.post(
-            f'/api/tasks/{tid}/files/upload',
-            files={'file': ('样图 1.png', b'\x89PNG\r\n\x1a\nx', 'image/png')},
-        )
-        assert r.status_code == 200
-        body = r.json()
-        assert body['path'].startswith('uploads/')
-        abs_path = body['abs_path']
-        assert abs_path.startswith(str(task_dir))
-        assert (task_dir / body['path']).read_bytes().startswith(b'\x89PNG')
-        # Unsupported type fails fast.
-        r2 = await admin_client.post(
-            f'/api/tasks/{tid}/files/upload',
-            files={'file': ('x.sh', b'#!/bin/sh', 'text/x-sh')},
-        )
-        assert r2.status_code == 400
-    finally:
-        shutil.rmtree(task_dir, ignore_errors=True)
+# Chat-attachment upload coverage moved to
+# tests/workflow/test_wf_chat_attachments.py (stage-until-send redesign).
 
 
 async def test_ref_proxy_rejects_bad_and_private_urls(admin_client):
