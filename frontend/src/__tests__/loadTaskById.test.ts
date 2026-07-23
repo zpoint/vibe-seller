@@ -99,4 +99,51 @@ describe('loadTaskById stale-response guard', () => {
     expect(fns.setConversationItems).toHaveBeenCalled()
     expect(fns.setSteps).toHaveBeenCalledWith([])
   })
+
+  it('clears the previous task detail up front so the switch is instant', async () => {
+    const { deps, fns } = makeDeps(router(id => Promise.resolve({ id, todos: null })))
+    await loadTaskById('X', deps)
+    // Conversation + steps are cleared to [] before the (async) refill,
+    // so a slow link never shows the old task's content under the new head.
+    expect(fns.setConversationItems).toHaveBeenNthCalledWith(1, [])
+    expect(fns.setSteps).toHaveBeenNthCalledWith(1, [])
+  })
+
+  it('a superseded load stops fetching screenshots (frees the connection pool)', async () => {
+    // Global fetch counts screenshot requests; first one hangs so we can
+    // supersede mid-loop.
+    const firstFetch = deferred<unknown>()
+    let fetchCalls = 0
+    const fetchSpy = vi.fn(() => {
+      fetchCalls++
+      const body = { ok: true, blob: async () => ({}) }
+      return fetchCalls === 1 ? (firstFetch.promise as Promise<unknown>) : Promise.resolve(body)
+    })
+    vi.stubGlobal('fetch', fetchSpy)
+    vi.stubGlobal('FileReader', class { onload: (() => void) | null = null; readAsDataURL() {} } as unknown as typeof FileReader)
+
+    const steps = [
+      { id: 's1', screenshot_id: 'a' }, { id: 's2', screenshot_id: 'b' },
+      { id: 's3', screenshot_id: 'c' },
+    ]
+    const get = (url: string): Promise<unknown> => {
+      if (url.endsWith('/steps')) return Promise.resolve(steps)
+      if (/\/api\/tasks\/[^/]+$/.test(url)) return Promise.resolve({ id: 'A', todos: null })
+      if (url.endsWith('/questions/pending')) return Promise.resolve({ pending: false })
+      return Promise.resolve([])
+    }
+    const { deps, seqRef } = makeDeps(get)
+
+    const pA = loadTaskById('A', deps)      // reaches the screenshot loop, hangs on fetch #1
+    // Wait until A has issued its first screenshot fetch (it's now in the loop).
+    while (fetchCalls === 0) await new Promise(r => setTimeout(r, 0))
+    seqRef.current++                        // a newer selection supersedes A
+    firstFetch.resolve({ ok: true, blob: async () => ({}) })
+    await pA
+
+    // Only the in-flight first screenshot was requested; the loop bailed
+    // instead of fetching s2 and s3.
+    expect(fetchCalls).toBe(1)
+    vi.unstubAllGlobals()
+  })
 })
