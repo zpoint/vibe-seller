@@ -37,6 +37,14 @@ export function buildConversationItems(
       } catch { /* skip malformed */ }
     } else if (m.role === 'thinking') {
       convItems.push({ id: `hist-think-${convItems.length}`, type: 'thinking', timestamp: ts, thinking: { content: m.content, isStreaming: false } })
+    } else if (m.role === 'generated_image') {
+      // A generated image is persisted (role='generated_image', JSON body)
+      // so it re-renders inline on reload — image_generated is otherwise a
+      // live-only SSE event and would vanish on navigation.
+      try {
+        const g = JSON.parse(m.content)
+        convItems.push({ id: `hist-genimg-${convItems.length}`, type: 'generated_image', timestamp: ts, generatedImage: { requestId: `hist-${convItems.length}`, path: g.path, url: g.url, prompt: g.prompt, model: g.model, kind: g.kind } })
+      } catch { /* skip malformed */ }
     }
   }
   if (task.plan_history) {

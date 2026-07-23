@@ -45,6 +45,7 @@ real_sleep = asyncio.sleep
 ASYNC_SESSION_MODULES = [
     'app.database',
     'app.routers.tasks',
+    'app.routers.vision',
     'app.task_runner',
     'app.task_runner_auto',
     'app.task_runner_context',

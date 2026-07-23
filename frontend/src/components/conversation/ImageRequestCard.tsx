@@ -13,6 +13,7 @@ interface ImageRequestCardProps {
   kind?: string
   resolved?: boolean
   expired?: boolean
+  generating?: boolean
   onDecision: (
     requestId: string,
     action: 'confirm' | 'cancel',
@@ -45,6 +46,7 @@ export function ImageRequestCard({
   kind,
   resolved,
   expired,
+  generating,
   onDecision,
 }: ImageRequestCardProps) {
   const { t } = useTranslation()
@@ -208,12 +210,22 @@ export function ImageRequestCard({
         </div>
       )}
       {resolved && (
-        <div
-          data-testid="image-card-footer"
-          className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400"
-        >
-          {expired ? t('vision.expired') : t('vision.handled')}
-        </div>
+        generating ? (
+          <div
+            data-testid="image-card-generating"
+            className="px-4 py-3 bg-indigo-50/60 border-t border-indigo-100 flex items-center gap-2 text-sm text-indigo-700"
+          >
+            <span className="block w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+            {t('vision.generating')}
+          </div>
+        ) : (
+          <div
+            data-testid="image-card-footer"
+            className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400"
+          >
+            {expired ? t('vision.expired') : t('vision.handled')}
+          </div>
+        )
       )}
     </div>
   )

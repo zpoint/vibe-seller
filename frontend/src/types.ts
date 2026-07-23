@@ -162,6 +162,9 @@ export interface ConversationItem {
     kind?: string
     resolved?: boolean
     expired?: boolean
+    // Confirmed and the image is actively generating (kie.ai poll,
+    // ~1-2 min). Drives the "generating…" state in ImageRequestCard.
+    generating?: boolean
   }
   generatedImage?: {
     requestId: string
