@@ -104,7 +104,8 @@ export function ImageRequestCard({
   const unit = t('vision.perImageUnit')
   const priceHint = (m: ImageModelOption): string => {
     if (!m.usd && !m.cny) return ''
-    return zh ? `≈¥${m.cny}/${unit}` : `≈$${m.usd}/${unit}`
+    // Space after ≈ so it reads "≈ ¥0.65/张" / "≈ $0.09/image".
+    return zh ? `≈ ¥${m.cny}/${unit}` : `≈ $${m.usd}/${unit}`
   }
 
   const thumbClass =
@@ -150,11 +151,19 @@ export function ImageRequestCard({
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
           >
             {providers.map(p => (
-              <optgroup key={p} label={p || '—'}>
+              <optgroup
+                key={p}
+                label={p || '—'}
+                style={{ color: '#374151', fontWeight: 600 }}
+              >
                 {catalog
                   .filter(m => m.provider === p)
                   .map(m => (
-                    <option key={m.id} value={m.id}>
+                    <option
+                      key={m.id}
+                      value={m.id}
+                      style={{ color: '#111827', fontWeight: 400 }}
+                    >
                       {m.label}
                       {priceHint(m) && ` · ${priceHint(m)}`}
                     </option>

@@ -500,10 +500,7 @@
     "visionKeyMissing": "Not configured",
     "visionKeyPlaceholder": "kie.ai API key",
     "visionAdminOnly": "Only an admin can set the Vision API key.",
-    "visionSaved": "Saved.",
-    "visionModels": "Available image models",
-    "visionDefaultModel": "default",
-    "visionPerImage": "image"
+    "visionSaved": "Saved."
   },
   "integrations": {
     "gws": {

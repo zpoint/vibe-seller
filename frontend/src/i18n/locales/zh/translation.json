@@ -502,10 +502,7 @@
     "visionKeyMissing": "未配置",
     "visionKeyPlaceholder": "kie.ai API 密钥",
     "visionAdminOnly": "仅管理员可设置视觉 API 密钥。",
-    "visionSaved": "已保存。",
-    "visionModels": "可用图片模型",
-    "visionDefaultModel": "默认",
-    "visionPerImage": "张"
+    "visionSaved": "已保存。"
   },
   "integrations": {
     "gws": {
