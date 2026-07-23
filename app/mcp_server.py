@@ -75,7 +75,16 @@ async def call_api(
     cookies: dict[str, str] = {}
     if _config['auth_token']:
         cookies['auth_token'] = _config['auth_token']
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    # ``trust_env=False`` is load-bearing: this client ONLY ever talks to
+    # the local backend over loopback (``api_base`` is 127.0.0.1:<port>).
+    # httpx honours ``HTTP_PROXY``/``ALL_PROXY`` by default, and a machine
+    # running a proxy (e.g. clash) typically exports those with an EMPTY
+    # ``NO_PROXY`` — so without this, every internal call is routed through
+    # the proxy. When the proxy is down or can't serve loopback, the call
+    # dies with "All connection attempts failed" even though the backend
+    # is up (agents then misread it and fall back to local tools). Internal
+    # traffic must never depend on the user's proxy.
+    async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
         if method == 'GET':
             resp = await client.get(url, headers=headers, cookies=cookies)
         elif method == 'POST':
