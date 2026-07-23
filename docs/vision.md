@@ -13,23 +13,36 @@ image model through the same `POST /api/v1/jobs/createTask` endpoint. The
 selectable set is a curated, static catalog in `app/vision.py`
 (`IMAGE_MODELS`), one `ImageModel` per row: our stable `id` (the contract
 the agent/frontend/tool pass and we validate) → kie.ai's exact `slug`,
-plus the `provider`/`label` for the two-level Provider→Model picker and a
-representative per-image `usd` price. The confirm card and Settings show
-the price as **$** (English) or **¥** (Chinese, fixed `USD_CNY` rate — an
-illustrative hint, not a bill). Default is **Nano Banana Pro**.
+plus the `provider`/`label` and a per-image `usd` price. The confirm card
+shows the price as **$** (English) or **¥** (Chinese, fixed `USD_CNY`
+rate — an illustrative hint, not a bill). Default is **Nano Banana Pro ·
+2K**.
 
-The one thing that genuinely differs per model is the **reference-image
-input**: field name and cardinality (`image_input`/`input_urls`/
-`image_urls` arrays, or a single `image_url`). `generate_image()` builds
-the `input` payload from each model's `ref_field`/`ref_array`, so a
-non-nano model actually receives its references instead of silently
-dropping them — this is the load-bearing part, pinned by
-`test_generate_image_builds_per_model_input`. Prices/slugs were captured
-from kie.ai's public pricing API + docs (2026-07); refresh manually.
+**One selectable option per resolution/quality tier.** The catalog is
+defined as per-family specs (`_FAMILIES`) and flattened to one
+`ImageModel` per tier, so the card shows the *real* price of each tier
+(GPT Image 2 at 1K/2K/4K = $0.03/$0.05/$0.08, etc.) instead of a single
+hand-picked number — the earlier bug that made cross-model prices look
+inconsistent (different models were shown at different, unlabeled
+resolutions). Each variant's `extra` injects its own kie param
+(`resolution` / `quality` / `rendering_speed`), so generation targets
+that tier; pinned by `test_tier_variants_carry_their_param`.
 
-Current curated models: Google Nano Banana Pro (default) / Nano Banana 2,
-OpenAI GPT Image 2, ByteDance Seedream 5 Pro, Black Forest Flux-2 Pro,
-Qwen Image Edit, Ideogram V3 Remix.
+The other thing that differs per model is the **reference-image input**:
+field name and cardinality (`image_input`/`input_urls`/`image_urls`
+arrays, or a single `image_url`). `generate_image()` builds the `input`
+payload from each model's `ref_field`/`ref_array` + merged `extra`, so a
+non-nano model receives its references (and tier param) instead of
+silently dropping them. Prices/slugs/tier params verified against
+kie.ai's pricing API + docs (2026-07); refresh manually.
+
+Providers/models (image-to-image, tiers in parens): Google — Nano Banana
+Pro (2K/4K), Nano Banana 2 (1K/2K/4K), Nano Banana Edit; OpenAI — GPT
+Image 2 (1K/2K/4K), GPT Image 1.5 (Medium/High); ByteDance — Seedream 5
+Pro (Basic/High), Seedream 4.5; Black Forest — Flux-2 Pro (1K/2K), Flux 2
+Flex (1K/2K); Qwen — Image Edit; Ideogram — V3 Remix (Turbo/Balanced/
+Quality). Pure utilities (Recraft bg-removal, Topaz upscale) are
+intentionally excluded — they take no prompt and don't fit the card.
 
 **Layering**: the MCP tool is platform-agnostic infrastructure. Platform
 knowledge lives in skills — `amazon-image-studio` (Amazon image

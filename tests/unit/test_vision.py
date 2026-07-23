@@ -43,18 +43,20 @@ def test_is_fake(monkeypatch):
 
 def test_models_registry():
     ids = vision.model_ids()
-    # Default is first and resolvable.
-    assert vision.DEFAULT_MODEL == 'nano-banana-pro'
+    # Default is the first flattened variant (nano-banana-pro @ 2K).
+    assert vision.DEFAULT_MODEL == 'nano-banana-pro-2k'
     assert ids[0] == vision.DEFAULT_MODEL
-    assert 'nano-banana-pro' in ids
-    assert 'nano-banana-2' in ids
-    # Every model resolves to a distinct kie.ai slug and a valid
-    # reference-image field, and an unknown id falls back to default.
-    slugs = set()
+    # Tier variants exist for the multi-resolution models.
+    assert 'gpt-image-2-1k' in ids
+    assert 'gpt-image-2-4k' in ids
+    assert 'nano-banana-2-2k' in ids
+    # Ids are unique; every entry has a slug, a valid reference-image
+    # field, and a positive price. Tiers of one model share a slug (that
+    # is expected) but their ids differ.
+    assert len(ids) == len(set(ids))
     for mid in ids:
         m = vision.get_model(mid)
-        assert m.slug and m.slug not in slugs
-        slugs.add(m.slug)
+        assert m.slug
         assert m.ref_field in (
             'image_input',
             'input_urls',
@@ -62,7 +64,28 @@ def test_models_registry():
             'image_url',
         )
         assert m.usd > 0
+    # An unknown id falls back to the default.
     assert vision.get_model('does-not-exist').id == vision.DEFAULT_MODEL
+
+
+def test_tier_variants_carry_their_param():
+    """Each tier variant must inject its own kie param (resolution /
+    quality / rendering_speed) so generation targets that tier — this is
+    what makes the per-tier prices real rather than cosmetic."""
+    assert vision.get_model('gpt-image-2-4k').extra.get('resolution') == '4K'
+    assert vision.get_model('gpt-image-2-1k').extra.get('resolution') == '1K'
+    assert vision.get_model('seedream-5-pro-high').extra.get('quality') == (
+        'high'
+    )
+    assert (
+        vision.get_model('ideogram-v3-remix-turbo').extra.get('rendering_speed')
+        == 'TURBO'
+    )
+    # Prices differ across tiers of one model.
+    assert (
+        vision.get_model('gpt-image-2-4k').usd
+        > vision.get_model('gpt-image-2-1k').usd
+    )
 
 
 def test_catalog_public_shape():
@@ -143,16 +166,18 @@ async def test_generate_image_builds_per_model_input(monkeypatch, tmp_path):
     assert body['model'] == 'qwen/image-edit'
     assert body['input']['image_url'] == 'http://a/1.png'
 
-    # Array-reference model → full list under the model's own field name.
+    # Array-reference model + tier → full list under the model's own
+    # field name, and the tier's resolution param is injected.
     await vision.generate_image(
         prompt='p',
-        model='gpt-image-2',
+        model='gpt-image-2-4k',
         reference_images=refs,
         task_dir=tmp_path,
     )
     body = _FakeKieClient.last_body
     assert body['model'] == 'gpt-image-2-image-to-image'
     assert body['input']['input_urls'] == refs
+    assert body['input']['resolution'] == '4K'
 
 
 async def test_confirm_registry_resolve():

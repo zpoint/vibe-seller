@@ -7,14 +7,24 @@ the matching dispatch branches in ``handle_tool_call``.
 
 from app import vision
 
-# Agent-facing image-model enum + one-line-per-model guidance, both
-# derived from the single source of truth in ``app/vision.py`` so the
-# tool schema never drifts from the catalog the confirm card offers.
+# Agent-facing image-model enum + a CONCISE guidance line, both derived
+# from the single source of truth in ``app/vision.py`` so the tool schema
+# never drifts from the catalog the confirm card offers. The enum lists
+# every model+tier variant (the user picks the exact one on the confirm
+# card); the guidance only names the providers + the default so it costs
+# few tokens per task rather than one line per ~20 variants.
 _IMAGE_MODEL_IDS = vision.model_ids()
-_IMAGE_MODEL_GUIDE = '; '.join(
-    f'{m["id"]} ({m["provider"]}, ~${m["usd"]:.2f}/image'
-    + (', default)' if m['default'] else ')')
-    for m in vision.catalog_public()
+_IMAGE_MODEL_DEFAULT = next(
+    (m['id'] for m in vision.catalog_public() if m['default']),
+    vision.DEFAULT_MODEL,
+)
+_IMAGE_MODEL_PROVIDERS = ', '.join(
+    dict.fromkeys(m['provider'] for m in vision.catalog_public())
+)
+_IMAGE_MODEL_GUIDE = (
+    f'Providers: {_IMAGE_MODEL_PROVIDERS}. Each model offers resolution/'
+    f'quality tiers (1K/2K/4K etc.) as separate ids with their own price. '
+    f'Default {_IMAGE_MODEL_DEFAULT}'
 )
 
 TOOLS = [
@@ -637,14 +647,12 @@ TOOLS = [
                     'type': 'string',
                     'enum': _IMAGE_MODEL_IDS,
                     'description': (
-                        'Image model to use. The user can override this on '
-                        'the confirm card, so pick a sensible default and '
-                        'let them adjust. nano-banana-pro (default) is the '
+                        'Image model + tier to use. The user can override '
+                        'this on the confirm card, so pick a sensible '
+                        'default and let them adjust. The default is the '
                         'safest for on-image TEXT (infographics, banners) '
-                        'and highest quality; cheaper lanes exist for '
-                        'plain images. Options and rough per-image cost: '
-                        + _IMAGE_MODEL_GUIDE
-                        + '.'
+                        'and high quality; cheaper lanes and higher '
+                        'resolutions are available. ' + _IMAGE_MODEL_GUIDE + '.'
                     ),
                 },
                 'output_name': {
