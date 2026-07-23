@@ -68,5 +68,12 @@ prompt and proofread the result character by character.
   compare against the ORIGINAL supplier photo item by item (shape,
   colour, texture, proportions; infographic wording). Regenerate with a
   prompt naming the specific fix if anything differs.
+- **Revising on user feedback** (e.g. "background too dark, make it
+  lighter", "product too small", "remove the shadow"): call
+  `vibe_seller_generate_image` again and pass the PREVIOUSLY GENERATED
+  image (its `generated_images/…` path) as a `reference_image`, with a
+  prompt describing ONLY the requested change. This EDITS the prior
+  result — keeping the product and everything else the user was happy
+  with — instead of regenerating from the supplier photo and drifting.
 - Putting the images ON a listing is the `amazon-listing` flow (Manage
   Images / flat file) — this skill only produces the files.

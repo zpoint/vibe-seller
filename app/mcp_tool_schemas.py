@@ -572,7 +572,14 @@ TOOLS = [
             'in Settings → AI → Vision. On success it returns the saved '
             'workspace `path`; view the file to self-audit against the '
             'references and the requested text, and regenerate with a '
-            'corrected prompt if anything differs.'
+            'corrected prompt if anything differs. (5) To REVISE an image '
+            'you already generated after the user asks for a change (e.g. '
+            '"lighter background", "make the product bigger", "remove the '
+            'shadow"), call this tool again and pass the PREVIOUS generated '
+            'image (its workspace `path`, e.g. generated_images/…) as a '
+            'reference_image, with a prompt describing ONLY the change — so '
+            'the model EDITS the prior result and preserves everything else, '
+            'instead of regenerating from scratch and drifting.'
         ),
         'inputSchema': {
             'type': 'object',
