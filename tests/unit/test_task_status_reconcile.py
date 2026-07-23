@@ -10,8 +10,10 @@ from types import SimpleNamespace
 import pytest
 
 from app.ai.task_status_reconcile import (
+    agent_completed_with_result,
     qa_followup_needs_input,
     reconcile_streaming_run_status,
+    should_park_qa_followup,
 )
 from app.task_states import TaskStatus
 
@@ -75,3 +77,69 @@ class TestQaFollowupNeedsInput:
     def test_missing_attrs_default_false(self):
         # FakeAgent / non-ClaudeCode sessions lack the attrs entirely.
         assert qa_followup_needs_input(SimpleNamespace()) is False
+
+
+class TestAgentCompletedWithResult:
+    """The guard that stops qa_followup_needs_input from stranding a
+    genuinely-finished task in WAITING (regression: rc=0 + result parked)."""
+
+    def _session(self, success=True, tool=True):
+        return SimpleNamespace(_agent_success=success, _had_tool_use=tool)
+
+    def test_success_plus_tool_plus_result_is_complete(self):
+        assert (
+            agent_completed_with_result(
+                self._session(),
+                '白底主图已生成，路径：generated_images/main.png',
+            )
+            is True
+        )
+
+    def test_no_result_is_not_complete(self):
+        assert agent_completed_with_result(self._session(), '') is False
+        assert agent_completed_with_result(self._session(), '   ') is False
+        assert agent_completed_with_result(self._session(), None) is False
+
+    def test_no_success_is_not_complete(self):
+        assert (
+            agent_completed_with_result(self._session(success=False), 'done')
+            is False
+        )
+
+    def test_no_tool_work_is_not_complete(self):
+        # Prose-only with no real work is exactly the "asking again" shape
+        # the heuristic must still park.
+        assert (
+            agent_completed_with_result(self._session(tool=False), 'done')
+            is False
+        )
+
+    def test_missing_attrs_default_false(self):
+        assert agent_completed_with_result(SimpleNamespace(), 'done') is False
+
+    def test_combined_gate_completes_finished_qa_task(self):
+        # The exact stuck-task shape: asked a question, prose-only after
+        # the last answer, BUT finished cleanly with a real result → the
+        # finalizer must NOT park (qa_followup True yet completion True).
+        s = SimpleNamespace(
+            _asked_user_question=True,
+            _tool_use_since_answer=False,
+            _agent_success=True,
+            _had_tool_use=True,
+        )
+        assert qa_followup_needs_input(s) is True
+        assert (
+            agent_completed_with_result(s, 'image generated: main.png') is True
+        )
+        # The finalizer uses the combined decision: DO NOT park.
+        assert should_park_qa_followup(s, 'image generated: main.png') is False
+
+    def test_should_park_when_prose_only_and_not_finished(self):
+        # Asked, prose-only after answer, and did NOT finish → park.
+        s = SimpleNamespace(
+            _asked_user_question=True,
+            _tool_use_since_answer=False,
+            _agent_success=True,
+            _had_tool_use=False,  # no real work
+        )
+        assert should_park_qa_followup(s, '') is True

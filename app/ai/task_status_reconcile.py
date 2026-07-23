@@ -62,3 +62,36 @@ def qa_followup_needs_input(session) -> bool:
     return bool(
         getattr(session, '_asked_user_question', False)
     ) and not getattr(session, '_tool_use_since_answer', False)
+
+
+def agent_completed_with_result(session, task_result) -> bool:
+    """True when the agent GENUINELY finished this session: it exited
+    successfully, did real (non-question) tool work, and produced a
+    substantive result.
+
+    Guard for ``qa_followup_needs_input``. That heuristic parks a task in
+    WAITING when an interactive-Q&A turn ends with prose only (no closing
+    tool / ``set_task_result``) — assuming the agent is "asking again".
+    But an agent that actually finished (e.g. generated the image and
+    reported its path in prose, exiting cleanly with a 200+char result)
+    hits the same shape and would be stranded in WAITING forever. When
+    this returns True the finalizer COMPLETEs instead of parking. If the
+    agent truly meant to ask again, the task still COMPLETEs but a user
+    follow-up resumes it — recoverable, unlike a permanent WAITING.
+    """
+    return (
+        bool(getattr(session, '_agent_success', False))
+        and bool(getattr(session, '_had_tool_use', False))
+        and bool(task_result and str(task_result).strip())
+    )
+
+
+def should_park_qa_followup(session, task_result) -> bool:
+    """Finalizer decision: park an interactive-Q&A turn in WAITING because
+    it ended prose-only (``qa_followup_needs_input``) — UNLESS the agent
+    genuinely completed (``agent_completed_with_result``). Combines the
+    two so the finalizer call site stays a one-liner.
+    """
+    return qa_followup_needs_input(session) and not agent_completed_with_result(
+        session, task_result
+    )
