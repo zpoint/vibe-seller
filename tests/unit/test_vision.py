@@ -56,7 +56,10 @@ def test_models_registry():
         assert m.slug and m.slug not in slugs
         slugs.add(m.slug)
         assert m.ref_field in (
-            'image_input', 'input_urls', 'image_urls', 'image_url'
+            'image_input',
+            'input_urls',
+            'image_urls',
+            'image_url',
         )
         assert m.usd > 0
     assert vision.get_model('does-not-exist').id == vision.DEFAULT_MODEL
@@ -104,10 +107,12 @@ class _FakeKieClient:
 
     async def get(self, url, params=None, headers=None):
         if 'recordInfo' in url:
-            return _FakeResp({'data': {
-                'state': 'success',
-                'resultJson': '{"resultUrls": ["http://img/out.png"]}',
-            }})
+            return _FakeResp({
+                'data': {
+                    'state': 'success',
+                    'resultJson': '{"resultUrls": ["http://img/out.png"]}',
+                }
+            })
         return _FakeResp(content=b'PNG')  # image download
 
 
@@ -129,8 +134,10 @@ async def test_generate_image_builds_per_model_input(monkeypatch, tmp_path):
 
     # Single-reference model → plain string, primary ref only.
     await vision.generate_image(
-        prompt='p', model='qwen-image-edit',
-        reference_images=refs, task_dir=tmp_path,
+        prompt='p',
+        model='qwen-image-edit',
+        reference_images=refs,
+        task_dir=tmp_path,
     )
     body = _FakeKieClient.last_body
     assert body['model'] == 'qwen/image-edit'
@@ -138,8 +145,10 @@ async def test_generate_image_builds_per_model_input(monkeypatch, tmp_path):
 
     # Array-reference model → full list under the model's own field name.
     await vision.generate_image(
-        prompt='p', model='gpt-image-2',
-        reference_images=refs, task_dir=tmp_path,
+        prompt='p',
+        model='gpt-image-2',
+        reference_images=refs,
+        task_dir=tmp_path,
     )
     body = _FakeKieClient.last_body
     assert body['model'] == 'gpt-image-2-image-to-image'

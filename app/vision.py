@@ -88,8 +88,11 @@ IMAGE_MODELS: list[ImageModel] = [
         ref_field='image_input',
         ref_array=True,
         usd=0.09,
-        extra={'aspect_ratio': '1:1', 'resolution': '2K',
-               'output_format': 'png'},
+        extra={
+            'aspect_ratio': '1:1',
+            'resolution': '2K',
+            'output_format': 'png',
+        },
     ),
     ImageModel(
         id='nano-banana-2',

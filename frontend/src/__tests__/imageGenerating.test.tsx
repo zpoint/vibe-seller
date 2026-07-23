@@ -10,7 +10,11 @@ import { ImageRequestCard } from '../components/conversation/ImageRequestCard'
 
 const base = {
   taskId: 't1', requestId: 'r1', prompt: 'white bg', model: 'nano-banana-pro',
-  models: ['nano-banana-pro'], referenceImages: [] as string[],
+  models: [{
+    id: 'nano-banana-pro', provider: 'Google', label: 'Nano Banana Pro',
+    usd: 0.09, cny: 0.65, default: true,
+  }],
+  referenceImages: [] as string[],
   onDecision: vi.fn(),
 }
 
@@ -34,5 +38,32 @@ describe('ImageRequestCard generating state', () => {
     render(<ImageRequestCard {...base} resolved={false} />)
     expect(screen.getByTestId('image-confirm-btn')).toBeInTheDocument()
     expect(screen.queryByTestId('image-card-generating')).toBeNull()
+  })
+})
+
+describe('ImageRequestCard model selector', () => {
+  const multi = {
+    ...base,
+    models: [
+      { id: 'nano-banana-pro', provider: 'Google', label: 'Nano Banana Pro', usd: 0.09, cny: 0.65, default: true },
+      { id: 'nano-banana-2', provider: 'Google', label: 'Nano Banana 2', usd: 0.04, cny: 0.29 },
+      { id: 'gpt-image-2', provider: 'OpenAI', label: 'GPT Image 2', usd: 0.05, cny: 0.36 },
+    ],
+  }
+
+  it('offers a Provider level and a Model level, with a price hint', () => {
+    render(<ImageRequestCard {...multi} resolved={false} />)
+    const providerSel = screen.getByTestId('image-provider-select') as HTMLSelectElement
+    const modelSel = screen.getByTestId('image-model-select') as HTMLSelectElement
+    // Two providers, de-duplicated.
+    const provOpts = Array.from(providerSel.querySelectorAll('option')).map(o => o.textContent)
+    expect(provOpts).toEqual(['Google', 'OpenAI'])
+    // Default provider (Google) → only its two models are listed.
+    const modelOpts = Array.from(modelSel.querySelectorAll('option'))
+    expect(modelOpts.map(o => o.value)).toEqual(['nano-banana-pro', 'nano-banana-2'])
+    // USD hint on the option label by default (test i18n has no zh).
+    expect(modelOpts[0].textContent).toContain('$0.09')
+    // The standalone hint row is present for the selected model.
+    expect(screen.getByTestId('image-price-hint')).toBeInTheDocument()
   })
 })

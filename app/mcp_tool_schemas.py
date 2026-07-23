@@ -643,7 +643,8 @@ TOOLS = [
                         'safest for on-image TEXT (infographics, banners) '
                         'and highest quality; cheaper lanes exist for '
                         'plain images. Options and rough per-image cost: '
-                        + _IMAGE_MODEL_GUIDE + '.'
+                        + _IMAGE_MODEL_GUIDE
+                        + '.'
                     ),
                 },
                 'output_name': {

@@ -56,7 +56,9 @@ async def test_config_put_get_masked(admin_client, tmp_path, monkeypatch):
     ids = [m['id'] for m in body['models']]
     assert 'nano-banana-pro' in ids
     assert body['default_model'] == 'nano-banana-pro'
-    assert all({'provider', 'label', 'usd', 'cny'} <= set(m) for m in body['models'])
+    assert all(
+        {'provider', 'label', 'usd', 'cny'} <= set(m) for m in body['models']
+    )
 
 
 async def test_generate_fails_without_key(admin_client, monkeypatch):
