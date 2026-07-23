@@ -10,6 +10,7 @@ from app.ai.external_config import (
     assert_profile_compatible,
 )
 from app.ai.profiles import DEFAULT_PROFILE_ID
+from app.ai.task_status_reconcile import qa_followup_needs_input
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
@@ -782,6 +783,9 @@ async def _finalize_terminal_state(
             )
             return
 
+        if qa_followup_needs_input(session):  # prose-only after answer
+            await park_waiting_for_text_only_response(task, db, task_id)
+            return
         if await maybe_wait_for_children(task, task_id, db):
             return
 

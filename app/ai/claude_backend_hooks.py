@@ -363,6 +363,11 @@ class _HookMixin:
                 self._pre_reflection_result = pre
                 if pre:
                     await self._save_result(pre)
+                # Reflection tool calls (e.g. Read of metadata.json)
+                # run after the turn's work is done — they must not
+                # count as "agent worked toward completion" in the
+                # interactive-Q&A finalize check.
+                self._reflection_active = True
                 # Structured marker — makes the reflection PHASE
                 # observable independently of model wording.
                 _ev = json.dumps({'event': 'reflection_started'})
@@ -716,6 +721,10 @@ class _HookMixin:
     ):
         """Handle AskUserQuestion — emit to frontend, wait."""
         questions = tool_input.get('questions', [])
+        # Mark that this session engaged in interactive Q&A — scopes the
+        # finalize-time "prose follow-up → WAITING" check so single-turn
+        # tasks that never asked anything are unaffected.
+        self._asked_user_question = True
         self._pending_questions[request_id] = {
             'request_id': request_id,
             'questions': questions,
@@ -733,6 +742,10 @@ class _HookMixin:
         answers = self._answers.pop(request_id, {})
         self._answer_events.pop(request_id, None)
         self._pending_questions.pop(request_id, None)
+        # A fresh answer opens a new sub-turn: the agent must take a
+        # real action (or explicitly set a result) to be considered
+        # done. Until then, another prose reply means it's still asking.
+        self._tool_use_since_answer = False
         if not self.running or self._stopping:
             return
         # Expand the UI free-text sentinel into per-question answers (#211).

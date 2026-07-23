@@ -31,6 +31,7 @@ import uuid
 from sqlalchemy import select
 
 from app.ai.claude_backend_hooks import _HookMixin
+from app.ai.claude_backend_persist import _PersistMixin
 from app.ai.claude_backend_stream import _StreamMixin
 from app.ai.claude_backend_subagents import _SubagentMixin
 from app.ai.claude_backend_turns import _TurnLifecycleMixin
@@ -70,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgentSession(
-    _HookMixin, _StreamMixin, _SubagentMixin, _TurnLifecycleMixin
+    _HookMixin, _StreamMixin, _PersistMixin, _SubagentMixin, _TurnLifecycleMixin
 ):
     """Manages a single claude -p subprocess for a task."""
 
@@ -163,6 +164,10 @@ class AgentSession(
         # wrote questions as prose instead of calling
         # AskUserQuestion).
         self._had_tool_use: bool = False
+        self._asked_user_question: bool = False  # see task_status_reconcile
+        self._tool_use_since_answer: bool = False
+        self._reflection_active: bool = False
+        self._status_reconciled: bool = False
         self._stopping: bool = False
         # True once the TURN TERMINATOR has fired — the quiescence
         # watchdog / legacy result-close / plan-skip close / stop()

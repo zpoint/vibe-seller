@@ -17,13 +17,13 @@ from app.ai.claude_backend_utils import (
     check_exec_review_status_for_stop,
     check_review_status_for_stop,
     get_next_seq,
-    parse_wait_condition,
 )
 from app.ai.stop_gates.report_reviewer import (
     is_review_file_name,
     partial_banner,
     rollover_reviews,
 )
+from app.ai.task_status_reconcile import reconcile_streaming_run_status
 from app.database import async_session
 from app.errors import STREAM_ERROR_MAP, categorize_error_text
 from app.events.bus import event_bus
@@ -278,6 +278,15 @@ class _StreamMixin:
                     self._had_tool_use = True
                     tool_name = block.get('name', '')
                     tool_input = block.get('input', {})
+                    # Q&A finalize signal (see task_status_reconcile):
+                    # a real tool action after the last answer = progress
+                    # toward done. Exclude AskUserQuestion (the question)
+                    # and reflection-phase calls (after the turn ended).
+                    if (
+                        not self._reflection_active
+                        and 'AskUserQuestion' not in tool_name
+                    ):
+                        self._tool_use_since_answer = True
                     # Subagent-originated events carry the id of the
                     # Agent/Task tool_use that spawned them; the main
                     # agent's own events have it null. This is the
@@ -672,44 +681,6 @@ class _StreamMixin:
                 e,
             )
 
-    async def _save_result(self, result_text: str):
-        """Save the execution result and parse wait-condition.
-
-        Streaming-prose write is the **fallback** when the agent
-        didn't call ``vibe_seller_set_task_result`` itself. If
-        ``task.result`` is already populated (the MCP tool ran
-        earlier in the session and persisted an explicit summary
-        via ``POST /api/tasks/<id>/result``), keep the explicit
-        value — that's exactly what the agent intended the user to
-        see, and overwriting it with the raw streaming prose
-        clobbers a deliberate choice. Wait-condition parsing still
-        runs against ``result_text`` so end-of-stream
-        ``wait-condition`` blocks aren't lost.
-        """
-        try:
-            async with async_session() as db:
-                task = await db.get(Task, self.task_id)
-                if task:
-                    if not (task.result and task.result.strip()):
-                        task.result = result_text
-                    wait_cond = parse_wait_condition(result_text)
-                    if wait_cond:
-                        task.wait_condition = json.dumps(wait_cond)
-                    # Authoritative end-of-stream checkpoint. For
-                    # --resume runs this is a no-op; for fresh runs
-                    # it's a belt-and-suspenders write alongside
-                    # `_persist_session_id` on init.
-                    if self.session_id:
-                        task.session_id = self.session_id
-                    task.updated_at = datetime.now(UTC).isoformat()
-                    await db.commit()
-        except Exception as e:
-            logger.error(
-                'Failed to save result for task %s: %s',
-                self.task_id,
-                e,
-            )
-
     async def _emit_ephemeral(self, role: str, content: str):
         """Emit SSE event only — no DB persistence.
 
@@ -756,6 +727,7 @@ class _StreamMixin:
     async def _emit_message(self, role: str, content: str):
         """Emit a task message event via SSE and persist to DB."""
         await self._emit_ephemeral(role, content)
+        reconciled_to: str | None = None
         try:
             async with self._emit_lock:
                 async with async_session() as db:
@@ -776,7 +748,30 @@ class _StreamMixin:
                     task = await db.get(Task, self.task_id)
                     if task is not None:
                         task.updated_at = datetime.now(UTC).isoformat()
+                        # Backstop invariant: a session that streams is
+                        # live, so it can't still be QUEUED/PENDING.
+                        # Reconcile once (see task_status_reconcile) so a
+                        # missed on_start transition can't strand the
+                        # task — which disables the input bar AND blinds
+                        # the RUNNING-only stall reaper.
+                        if not self._status_reconciled:
+                            self._status_reconciled = True
+                            reconciled_to = reconcile_streaming_run_status(task)
+                            if reconciled_to:
+                                logger.warning(
+                                    'Task %s streamed while not RUNNING — '
+                                    'reconciled to %s',
+                                    self.task_id[:8],
+                                    reconciled_to,
+                                )
                     await db.commit()
+            # Broadcast the corrected status OUTSIDE the txn/lock so
+            # every client (and the reaper's next pass) leaves QUEUED.
+            if reconciled_to is not None:
+                await event_bus.emit(
+                    'task_update',
+                    {'task_id': self.task_id, 'status': reconciled_to},
+                )
         except Exception as e:
             logger.warning(
                 'Failed to persist message for task %s: %s',

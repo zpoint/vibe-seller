@@ -170,6 +170,24 @@ export function useSSE({
           setLogs(prev => [...prev, `[${data.log_type}] ${data.content}`])
         }
         if (data.type === 'task_message') {
+          // Invariant: a task emitting session messages is actively
+          // executing — it can never legitimately be 'queued'/'pending'
+          // while streaming output. Reconcile defensively so a missed,
+          // late, or clobbered task_update(running) (the race class in
+          // retryTaskRace/sseCreateTaskRace) doesn't leave the badge
+          // stuck on 'queued' — which disables the input bar and, on
+          // the backend, hides the task from the RUNNING-only stall
+          // reaper. Only promotes FROM the not-started states, so
+          // completed/waiting/failed tasks are never disturbed.
+          const promoteActive = (t: Task): Task =>
+            t.status === 'queued' || t.status === 'pending'
+              ? { ...t, status: t.plan_mode ? 'designing' : 'running' }
+              : t
+          setTasks(prev => prev.map(t => t.id === data.task_id ? promoteActive(t) : t))
+          if (setScheduleTasks) {
+            setScheduleTasks(prev => prev.map(t => t.id === data.task_id ? promoteActive(t) : t))
+          }
+          setSelectedTask(prev => (prev && prev.id === data.task_id ? promoteActive(prev) : prev))
           setSelectedTask(prev => {
             if (prev && prev.id === data.task_id) {
               // Update agentMessages (for debug mode)
