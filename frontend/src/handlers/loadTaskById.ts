@@ -1,5 +1,5 @@
 import { buildConversationItems } from '../lib/conversation'
-import type { Task, TaskStep, TodoItem, AgentMessage, ConversationItem, StagedAttachment } from '../types'
+import type { Task, TaskStep, TodoItem, AgentMessage, ConversationItem, StagedAttachment, ImageModelOption } from '../types'
 
 interface PendingQuestions {
   request_id: string
@@ -66,7 +66,7 @@ export async function loadTaskById(taskId: string, deps: LoadTaskDeps): Promise<
   // stack up into a visible delay; in parallel it is a single round-trip.
   type PendingImage = {
     pending?: boolean; request_id: string; prompt?: string; model?: string
-    models?: string[]; reference_images?: string[]; output_name?: string; kind?: string
+    models?: ImageModelOption[]; reference_images?: string[]; output_name?: string; kind?: string
   }
   const [q, msgs, stepsData, pendingImg] = await Promise.all([
     api.get(`/api/tasks/${fullTask.id}/questions/pending`).catch(() => null) as Promise<({ pending?: boolean } & PendingQuestions) | null>,

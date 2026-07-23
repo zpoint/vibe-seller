@@ -104,7 +104,8 @@ describe('loadTaskById stale-response guard', () => {
     const get = (url: string): Promise<unknown> => {
       if (url.endsWith('/image/pending')) return Promise.resolve({
         pending: true, request_id: 'r9', prompt: 'white bg',
-        model: 'nano-banana-pro', models: ['nano-banana-pro'],
+        model: 'nano-banana-pro',
+        models: [{ id: 'nano-banana-pro', provider: 'kie', label: 'Nano Banana Pro', usd: 0.1, cny: 0.7 }],
         reference_images: ['uploads/a.png'], kind: 'main',
       })
       if (/\/api\/tasks\/[^/]+$/.test(url)) return Promise.resolve({ id: 'T', todos: null })

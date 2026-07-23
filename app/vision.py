@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -35,14 +36,152 @@ VISION_CONFIG_PATH = VIBE_SELLER_DIR / 'vision.json'
 _KIE_BASE = 'https://api.kie.ai'
 _KIE_UPLOAD_BASE = 'https://kieai.redpandaai.co'
 
-# Models we expose in the confirm dropdown. Keys are the values the
-# frontend/agent pass; values are the exact kie.ai model identifiers.
-# Kept small on purpose — a quality lane and a fast/cheap lane.
-MODELS: dict[str, str] = {
-    'nano-banana-pro': 'nano-banana-pro',
-    'nano-banana-2': 'nano-banana-2',
-}
-DEFAULT_MODEL = 'nano-banana-pro'
+# kie.ai bills in credits at a flat $0.005/credit ($50 = 10,000 credits).
+# We surface a per-image price *hint* on the confirm card, not a bill —
+# actual cost varies by resolution/tier, so these are the representative
+# (typically 2K / standard) image-to-image prices from kie.ai's public
+# pricing API (POST api.kie.ai/client/v1/model-pricing/page), captured
+# 2026-07. Refresh manually if kie.ai revises them.
+CREDIT_USD = 0.005
+# Fixed USD→CNY for the ¥ hint shown to Chinese users. Illustrative, not
+# a live FX rate — the price itself is already approximate.
+USD_CNY = 7.2
+
+
+@dataclasses.dataclass(frozen=True)
+class ImageModel:
+    """One selectable image model, served through kie.ai's unified
+    ``jobs/createTask`` API.
+
+    ``id`` is OUR stable contract (what the agent/frontend/tool pass and
+    what we validate); ``slug`` is kie.ai's exact ``model`` string, which
+    we own the mapping to so kie's naming (slashes, ``-image-to-image``
+    variants) never leaks into our API. ``ref_field`` / ``ref_array``
+    capture the one thing that genuinely differs per model: the name and
+    cardinality of the reference-image input — ``image_input`` (nano),
+    ``input_urls`` (gpt/flux), ``image_urls`` (seedream), or a single
+    ``image_url`` (qwen/ideogram). ``extra`` is static per-model input
+    that the model's schema documents (aspect ratio, resolution, etc.).
+    """
+
+    id: str
+    slug: str
+    provider: str
+    label: str
+    ref_field: str
+    ref_array: bool
+    usd: float
+    extra: dict = dataclasses.field(default_factory=dict)
+
+
+# Curated shortlist across the major providers — all image-to-image
+# capable, all on the one configured kie.ai key. Slugs + reference field
+# names + prices verified against kie.ai docs/pricing (2026-07). The
+# FIRST entry is the default. Not exhaustive: kie.ai lists ~78 image
+# models; this is the quality-vs-cost spread most sellers want.
+IMAGE_MODELS: list[ImageModel] = [
+    ImageModel(
+        id='nano-banana-pro',
+        slug='nano-banana-pro',
+        provider='Google',
+        label='Nano Banana Pro',
+        ref_field='image_input',
+        ref_array=True,
+        usd=0.09,
+        extra={
+            'aspect_ratio': '1:1',
+            'resolution': '2K',
+            'output_format': 'png',
+        },
+    ),
+    ImageModel(
+        id='nano-banana-2',
+        slug='nano-banana-2',
+        provider='Google',
+        label='Nano Banana 2',
+        ref_field='image_input',
+        ref_array=True,
+        usd=0.04,
+        extra={'aspect_ratio': '1:1'},
+    ),
+    ImageModel(
+        id='gpt-image-2',
+        slug='gpt-image-2-image-to-image',
+        provider='OpenAI',
+        label='GPT Image 2',
+        ref_field='input_urls',
+        ref_array=True,
+        usd=0.05,
+        extra={'aspect_ratio': '1:1'},
+    ),
+    ImageModel(
+        id='seedream-5-pro',
+        slug='seedream/5-pro-image-to-image',
+        provider='ByteDance',
+        label='Seedream 5 Pro',
+        ref_field='image_urls',
+        ref_array=True,
+        usd=0.07,
+    ),
+    ImageModel(
+        id='flux-2-pro',
+        slug='flux-2/pro-image-to-image',
+        provider='Black Forest Labs',
+        label='Flux-2 Pro',
+        ref_field='input_urls',
+        ref_array=True,
+        usd=0.035,
+    ),
+    ImageModel(
+        id='qwen-image-edit',
+        slug='qwen/image-edit',
+        provider='Qwen',
+        label='Qwen Image Edit',
+        ref_field='image_url',
+        ref_array=False,
+        usd=0.03,
+    ),
+    ImageModel(
+        id='ideogram-v3-remix',
+        slug='ideogram/v3-remix',
+        provider='Ideogram',
+        label='Ideogram V3 Remix',
+        ref_field='image_url',
+        ref_array=False,
+        usd=0.035,
+        extra={'rendering_speed': 'BALANCED'},
+    ),
+]
+
+_MODELS_BY_ID: dict[str, ImageModel] = {m.id: m for m in IMAGE_MODELS}
+DEFAULT_MODEL = IMAGE_MODELS[0].id
+
+
+def model_ids() -> list[str]:
+    """Valid model ids, in display order (default first)."""
+    return [m.id for m in IMAGE_MODELS]
+
+
+def get_model(model_id: str | None) -> ImageModel:
+    """Resolve a model id to its ``ImageModel`` (falls back to default)."""
+    return _MODELS_BY_ID.get(model_id or '', _MODELS_BY_ID[DEFAULT_MODEL])
+
+
+def catalog_public() -> list[dict]:
+    """The catalog as the frontend/agent see it: id, provider, label, and
+    a per-image price hint in both USD and (fixed-rate) CNY. Never the
+    kie.ai slug — that stays server-side."""
+    return [
+        {
+            'id': m.id,
+            'provider': m.provider,
+            'label': m.label,
+            'usd': round(m.usd, 4),
+            'cny': round(m.usd * USD_CNY, 2),
+            'default': m.id == DEFAULT_MODEL,
+        }
+        for m in IMAGE_MODELS
+    ]
 
 
 # ─────────────────────────── config ───────────────────────────
@@ -213,12 +352,17 @@ async def generate_image(
     model: str,
     reference_images: list[str],
     task_dir: Path,
-    aspect_ratio: str = '1:1',
-    resolution: str = '2K',
 ) -> bytes:
     """Generate one image via kie.ai and return the PNG bytes.
 
     Raises RuntimeError on any kie.ai failure. Honours ``VISION_FAKE``.
+
+    The ``input`` payload is assembled per-model: every model here goes
+    through the same ``jobs/createTask`` endpoint, but the reference-image
+    field name and cardinality differ (see ``ImageModel``), and each model
+    carries its own static ``extra`` params. Getting this right is what
+    makes a non-nano model actually receive its references instead of
+    silently dropping them.
     """
     if is_fake():
         return _fake_png(prompt, model)
@@ -226,28 +370,28 @@ async def generate_image(
     api_key = get_kie_api_key()
     if not api_key:
         raise RuntimeError('kie.ai API key not configured')
-    kie_model = MODELS.get(model, MODELS[DEFAULT_MODEL])
+    m = get_model(model)
 
     async with httpx.AsyncClient(timeout=120) as client:
-        image_input: list[str] = []
+        resolved: list[str] = []
         for ref in reference_images or []:
             url = await _resolve_reference(client, ref, task_dir, api_key)
             if url:
-                image_input.append(url)
+                resolved.append(url)
+
+        image_input: dict = {'prompt': prompt}
+        if m.ref_array:
+            image_input[m.ref_field] = resolved
+        elif resolved:
+            # Single-reference models (qwen/image-edit, ideogram remix)
+            # take exactly one image; use the primary reference.
+            image_input[m.ref_field] = resolved[0]
+        image_input.update(m.extra)
 
         create = await client.post(
             f'{_KIE_BASE}/api/v1/jobs/createTask',
             headers={'Authorization': f'Bearer {api_key}'},
-            json={
-                'model': kie_model,
-                'input': {
-                    'prompt': prompt,
-                    'image_input': image_input,
-                    'aspect_ratio': aspect_ratio,
-                    'resolution': resolution,
-                    'output_format': 'png',
-                },
-            },
+            json={'model': m.slug, 'input': image_input},
         )
         cbody = create.json()
         task_id = (cbody.get('data') or {}).get('taskId')

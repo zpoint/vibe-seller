@@ -67,7 +67,7 @@ async def get_vision_config(current_user: User = Depends(get_current_user)):
     return {
         'kie_api_key_set': bool(key),
         'kie_api_key_masked': vision.mask_key(key),
-        'models': list(vision.MODELS.keys()),
+        'models': vision.catalog_public(),
         'default_model': vision.DEFAULT_MODEL,
         # Surfaced so e2e tests can refuse to run against a server that
         # would hit the real image API (they must be offline-only).
@@ -122,7 +122,7 @@ async def generate_task_image(
     if not prompt:
         raise HTTPException(status_code=400, detail='prompt is required')
     model = body.get('model') or vision.DEFAULT_MODEL
-    if model not in vision.MODELS:
+    if model not in vision.model_ids():
         model = vision.DEFAULT_MODEL
     reference_images = body.get('reference_images') or []
     output_name = _safe_name(body.get('output_name') or 'image.png')
@@ -142,13 +142,14 @@ async def generate_task_image(
     card = {
         'prompt': prompt,
         'model': model,
-        'models': list(vision.MODELS.keys()),
+        'models': vision.catalog_public(),
         'reference_images': reference_images,
         'output_name': output_name,
         'kind': kind,
     }
     # Keep the card payload so a client that opens the task AFTER this
-    # event fires can recover the confirm via GET …/image/pending.
+    # event fires can recover the confirm via GET …/image/pending — the
+    # recovered card carries the same catalog as the live SSE event.
     fut = vision.create_confirm(request_id, task_id, card)
     await event_bus.emit(
         'image_request',
@@ -179,7 +180,7 @@ async def generate_task_image(
     # User-edited values win over the agent's proposal.
     final_prompt = (decision.get('prompt') or prompt).strip()
     final_model = decision.get('model') or model
-    if final_model not in vision.MODELS:
+    if final_model not in vision.model_ids():
         final_model = model
     # References the user added in the confirm card (uploaded files →
     # workspace-relative paths, or pasted URLs) are appended.

@@ -52,7 +52,13 @@ async def test_config_put_get_masked(admin_client, tmp_path, monkeypatch):
     assert body['kie_api_key_set'] is True
     assert body['kie_api_key_masked'].endswith('9876')
     assert 'secret' not in body['kie_api_key_masked']  # body never leaks
-    assert 'nano-banana-pro' in body['models']
+    # models is the rich catalog (id + provider + label + price hints).
+    ids = [m['id'] for m in body['models']]
+    assert 'nano-banana-pro' in ids
+    assert body['default_model'] == 'nano-banana-pro'
+    assert all(
+        {'provider', 'label', 'usd', 'cny'} <= set(m) for m in body['models']
+    )
 
 
 async def test_generate_fails_without_key(admin_client, monkeypatch):
@@ -177,7 +183,9 @@ async def test_pending_image_request_recoverable(admin_client, monkeypatch):
         assert p['prompt'] == '主图：纯白背景'
         assert p['reference_images'] == ['uploads/ref.png']
         assert p['kind'] == 'main'
-        assert 'nano-banana-pro' in p['models']
+        # models is the rich catalog (id + provider + label + price hints),
+        # the same shape the live image_request event carries.
+        assert 'nano-banana-pro' in [m['id'] for m in p['models']]
 
         # Confirming it clears the pending state.
         c = await admin_client.post(
