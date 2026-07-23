@@ -502,7 +502,10 @@
     "visionKeyMissing": "未配置",
     "visionKeyPlaceholder": "kie.ai API 密钥",
     "visionAdminOnly": "仅管理员可设置视觉 API 密钥。",
-    "visionSaved": "已保存。"
+    "visionSaved": "已保存。",
+    "visionModels": "可用图片模型",
+    "visionDefaultModel": "默认",
+    "visionPerImage": "张"
   },
   "integrations": {
     "gws": {
@@ -813,6 +816,8 @@
     "confirmTitle": "确认图片生成",
     "promptLabel": "提示词（生成前可编辑）",
     "modelLabel": "模型",
+    "providerLabel": "厂商",
+    "perImageUnit": "张",
     "referencesLabel": "参考图",
     "confirmGenerate": "生成",
     "cancel": "取消",

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import type { ImageModelOption } from '../../types'
 
 interface AddedRef { path: string; url: string }
 
@@ -8,7 +9,7 @@ interface ImageRequestCardProps {
   requestId: string
   prompt: string
   model: string
-  models: string[]
+  models: ImageModelOption[]
   referenceImages: string[]
   kind?: string
   resolved?: boolean
@@ -49,7 +50,7 @@ export function ImageRequestCard({
   generating,
   onDecision,
 }: ImageRequestCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [editedPrompt, setEditedPrompt] = useState(prompt)
   const [editedModel, setEditedModel] = useState(model)
   const [added, setAdded] = useState<AddedRef[]>([])
@@ -87,7 +88,32 @@ export function ImageRequestCard({
     }
   }
 
-  const modelOptions = models.length ? models : [model]
+  // Two-level select: provider (level 1) → model (level 2). Fall back to
+  // a synthetic single option if the catalog didn't reach us.
+  const catalog: ImageModelOption[] = models.length
+    ? models
+    : [{ id: model, provider: '', label: model, usd: 0, cny: 0 }]
+  const selected =
+    catalog.find(m => m.id === editedModel) ?? catalog[0]
+  const providers = [...new Set(catalog.map(m => m.provider))]
+  const modelsForProvider = catalog.filter(
+    m => m.provider === selected.provider,
+  )
+
+  // ¥ for Chinese, $ for English — a per-image hint, not a bill. The ≈
+  // keeps it honest: real cost varies by resolution/tier. Form:
+  // "≈$0.09/image" / "≈¥0.65/张".
+  const zh = (i18n?.language || '').startsWith('zh')
+  const unit = t('vision.perImageUnit')
+  const priceHint = (m: ImageModelOption): string => {
+    if (!m.usd && !m.cny) return ''
+    return zh ? `≈¥${m.cny}/${unit}` : `≈$${m.usd}/${unit}`
+  }
+  const onProviderChange = (provider: string) => {
+    const first = catalog.find(m => m.provider === provider)
+    if (first) setEditedModel(first.id)
+  }
+
   const thumbClass =
     'h-28 w-28 object-contain rounded border border-gray-200 bg-white'
 
@@ -119,22 +145,51 @@ export function ImageRequestCard({
             className="w-full min-h-[160px] px-3 py-2 text-sm leading-relaxed border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y disabled:bg-gray-50 disabled:text-gray-400"
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">
-            {t('vision.modelLabel')}
-          </label>
-          <select
-            data-testid="image-model-select"
-            value={editedModel}
-            onChange={e => setEditedModel(e.target.value)}
-            disabled={resolved || busy}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
-          >
-            {modelOptions.map(m => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">
+              {t('vision.providerLabel')}
+            </label>
+            <select
+              data-testid="image-provider-select"
+              value={selected.provider}
+              onChange={e => onProviderChange(e.target.value)}
+              disabled={resolved || busy || providers.length <= 1}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
+            >
+              {providers.map(p => (
+                <option key={p} value={p}>{p || '—'}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">
+              {t('vision.modelLabel')}
+            </label>
+            <select
+              data-testid="image-model-select"
+              value={editedModel}
+              onChange={e => setEditedModel(e.target.value)}
+              disabled={resolved || busy}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
+            >
+              {modelsForProvider.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                  {priceHint(m) && ` · ${priceHint(m)}`}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        {priceHint(selected) && (
+          <p
+            data-testid="image-price-hint"
+            className="-mt-2 text-xs text-gray-500 tabular-nums"
+          >
+            {priceHint(selected)}
+          </p>
+        )}
 
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-700">

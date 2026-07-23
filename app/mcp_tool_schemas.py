@@ -5,6 +5,18 @@ Split out of ``app/mcp_server.py`` to keep each module under the
 the matching dispatch branches in ``handle_tool_call``.
 """
 
+from app import vision
+
+# Agent-facing image-model enum + one-line-per-model guidance, both
+# derived from the single source of truth in ``app/vision.py`` so the
+# tool schema never drifts from the catalog the confirm card offers.
+_IMAGE_MODEL_IDS = vision.model_ids()
+_IMAGE_MODEL_GUIDE = '; '.join(
+    f'{m["id"]} ({m["provider"]}, ~${m["usd"]:.2f}/image'
+    + (', default)' if m['default'] else ')')
+    for m in vision.catalog_public()
+)
+
 TOOLS = [
     {
         'name': 'vibe_seller_list_stores',
@@ -572,14 +584,21 @@ TOOLS = [
             'in Settings → AI → Vision. On success it returns the saved '
             'workspace `path`; view the file to self-audit against the '
             'references and the requested text, and regenerate with a '
-            'corrected prompt if anything differs. (5) To REVISE an image '
-            'you already generated after the user asks for a change (e.g. '
-            '"lighter background", "make the product bigger", "remove the '
-            'shadow"), call this tool again and pass the PREVIOUS generated '
-            'image (its workspace `path`, e.g. generated_images/…) as a '
-            'reference_image, with a prompt describing ONLY the change — so '
-            'the model EDITS the prior result and preserves everything else, '
-            'instead of regenerating from scratch and drifting.'
+            'corrected prompt if anything differs. (5) REVISING an image you '
+            'already generated — for ANY follow-up change the user asks '
+            '(lighter/darker, bigger/smaller, recolour, remove or add an '
+            'element, change composition, etc.): call this tool again and '
+            'ALWAYS include the PREVIOUS generated image (its workspace '
+            '`path`, e.g. generated_images/…) as a reference_image, with a '
+            'prompt describing ONLY the change — so the model EDITS that '
+            'result and preserves what the user already liked, instead of '
+            'regenerating from scratch and drifting. If the user also '
+            'supplies NEW photo(s) for the change (e.g. "this image is good, '
+            'add the dog from this photo into the middle"), pass BOTH the '
+            'previous generated image AND the new photo(s) as '
+            "reference_images, and state each image's role by position in "
+            'the prompt (e.g. "image 1 is the current design to keep; image '
+            '2 is the dog — place it in the center").'
         ),
         'inputSchema': {
             'type': 'object',
@@ -616,12 +635,15 @@ TOOLS = [
                 },
                 'model': {
                     'type': 'string',
-                    'enum': ['nano-banana-pro', 'nano-banana-2'],
+                    'enum': _IMAGE_MODEL_IDS,
                     'description': (
-                        'nano-banana-pro (default): highest quality and '
-                        'reliable on-image text rendering. '
-                        'nano-banana-2: cheaper/faster, good for images '
-                        'without text.'
+                        'Image model to use. The user can override this on '
+                        'the confirm card, so pick a sensible default and '
+                        'let them adjust. nano-banana-pro (default) is the '
+                        'safest for on-image TEXT (infographics, banners) '
+                        'and highest quality; cheaper lanes exist for '
+                        'plain images. Options and rough per-image cost: '
+                        + _IMAGE_MODEL_GUIDE + '.'
                     ),
                 },
                 'output_name': {
