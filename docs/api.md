@@ -288,6 +288,7 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 | PUT | `/api/vision/config` | Set the kie.ai key (admin only) |
 | POST | `/api/tasks/{id}/image/generate` | MCP-tool entry; confirm-gated generation |
 | POST | `/api/tasks/{id}/image/confirm` | Resolve a pending image request (confirm/edit/cancel) |
+| GET | `/api/tasks/{id}/image/pending` | Recover a still-pending confirm card (for clients that connect after `image_request` fired) |
 
 See [vision.md](vision.md) for the confirm-gate flow and SSE events
 (`image_request`, `image_generated`).
