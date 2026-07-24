@@ -97,7 +97,7 @@ class TestCloseGuards:
     def test_running_async_subagents_block(self):
         s = self._closable(_session())
         s._async_agents['toolu_1'] = 'agent-1'
-        assert s._turn_close_blocked() == 'async_subagents_running'
+        assert s._turn_close_blocked() == 'async_work_running'
 
     def test_unsatisfied_review_gate_blocks(self):
         s = self._closable(_session())

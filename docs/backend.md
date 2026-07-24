@@ -227,7 +227,14 @@ branch).
 - an accepted result exists for the current turn (`_turn_result_seen`),
 - the review/exec gates pass (same composite + fail-open budget as the
   result branch),
-- no tracked async subagents are pending,
+- no tracked async work is pending — **async subagents (Agent tool) OR
+  background shell commands** (Bash/PowerShell auto-backgrounded past the
+  blocking budget or `run_in_background`). Both register in `_async_agents`
+  (`ai/claude_backend_subagents.py::_track_async_agents`): subagents on
+  their "Async agent launched" ack, shells on their "…background… with
+  ID: <id>" ack, each cleared on its `<task-notification>` completion. So
+  a turn does not end while a `find`/export it launched is still running,
+  and that command finishes + is incorporated instead of being orphaned,
 - no AskUserQuestion is parked and not in the planning phase,
 - the stream has been idle for the tier window.
 
@@ -244,11 +251,27 @@ forced errors (circuit breaker, rc≠0) stay FAILED.
 
 **Backstops** (both strictly tighter than the pre-migration design):
 - hard idle — total stream silence for `VIBE_TURN_HARD_IDLE_S` closes
-  regardless of gate/async holds (a live subagent streams events
-  through the parent; silence that long means the work is dead);
+  regardless of gate/async holds (a live *subagent* streams events
+  through the parent, so silence that long means the work is dead);
 - post-close kill escalation — a process still alive ~120s after any
   close is `_force_kill()`ed and its stall-reaper heartbeat stops
   (bounds the GLM stall-after-result wedge).
+
+**Runaway background command backstop.** The hard-idle "silence = dead"
+premise holds for subagents (they stream) but NOT for background shell
+commands (a `sleep`/`find` emits nothing to the stream, so its liveness
+is invisible). A background command that never completes is therefore
+force-closed by hard idle *while still running* and killed with no
+completion record. Resuming that session on the next follow-up would
+make the CLI inject a reconciliation `<task-notification>` that collides
+with the follow-up and aborts the turn's tool calls (`CANCEL_MESSAGE`) —
+a confirm-gated `generate_image` then dies before its gate. So a
+follow-up starts a **fresh session** (compacted history, not `--resume`)
+when the prior session has an orphaned background task
+(`workspace/manager.py::session_has_orphaned_bg_task`, wired in
+`routers/tasks_conversation.py::send_task_message`). Two layers: the
+turn-level wait prevents orphans for commands that finish; this contains
+the orphan a genuine runaway still leaves.
 
 **Follow-up delivery**: `send_user_message` returns a delivery bool
 and opens a new turn; on a missed write (the message raced the turn
@@ -258,8 +281,8 @@ silently dropped.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VIBE_TURN_LINGER_S` | `60` | Soft-linger window (s) when async subagents were launched this process. `0` = close at the result event (legacy behavior) |
-| `VIBE_TURN_LINGER_QUIET_S` | `5` | Soft-linger window (s) for processes with no async subagents |
+| `VIBE_TURN_LINGER_S` | `60` | Soft-linger window (s) when async work (subagents or background shell commands) was launched this process. `0` = close at the result event (legacy behavior) |
+| `VIBE_TURN_LINGER_QUIET_S` | `5` | Soft-linger window (s) for processes with no async work |
 | `VIBE_TURN_HARD_IDLE_S` | `600` | Close after this much total stream silence regardless of holds. `0` = disabled |
 
 Browser lifecycle (see docs/browser.md § Browser Lifecycle):

@@ -8,12 +8,18 @@ mixins (``_send_hook_response``).
 
 Two structural rules live here:
 
-- **A turn cannot end under a running async subagent.** The CLI emits
-  its ``result`` as soon as the MAIN agent stops; async subagents
-  launched with the Agent tool keep running, and closing stdin then
-  default-denies every remaining tool call they make (observed live —
-  a DoD reviewer died mid-verification while the shipped result
-  claimed it was "running in the background").
+- **A turn cannot end under running async work it launched.** The CLI
+  emits its ``result`` as soon as the MAIN agent stops, but two kinds of
+  async work it launched keep running: async **subagents** (Agent tool)
+  and **background shell commands** (Claude Code auto-backgrounds any
+  Bash that exceeds its blocking budget — a slow ``find`` is the classic
+  case — and ``run_in_background`` does so explicitly). Closing stdin
+  under either default-denies its remaining tool calls / orphans the
+  process (observed live: a DoD reviewer died mid-verification claiming
+  it was "running in the background"; and an orphaned background ``find``
+  poisoned the next ``--resume`` with a reconciliation notification that
+  aborted the turn). Both are tracked in ``_async_agents`` so the turn
+  waits for each one's ``<task-notification>`` before ending.
 - **A review verdict counts only if the reviewer subagent wrote it.**
   The stream attributes each review-file Write/Edit to subagent/main
   via the event's ``parent_tool_use_id``; the gates reject an
@@ -32,6 +38,18 @@ from app.ai.claude_backend_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# A background shell command's launch ack, emitted by BashTool AND
+# PowerShellTool (identical phrasings) when a command is auto-backgrounded
+# past the blocking budget or run with run_in_background. The captured id
+# is the CLI's backgroundTaskId. Deliberately anchored on these three
+# start-only prefixes so the TaskOutput/TaskStop "(No task) found with ID"
+# messages never re-track a task the agent is only reading/stopping.
+# ``python x.py`` etc. background through Bash, so this covers them too.
+_BG_LAUNCH_RE = re.compile(
+    r'(?:moved to the background|backgrounded by user|running in '
+    r'background) with ID:\s*([A-Za-z0-9_-]+)'
+)
 
 
 class _SubagentMixin:
@@ -54,38 +72,41 @@ class _SubagentMixin:
         self._async_agents: dict[str, str] = {}
 
     def _async_agents_pending_reason(self) -> str | None:
-        """Deny reason while background subagents are still running."""
+        """Deny reason while async work launched this turn is still
+        running — async subagents (Agent tool) OR background shell
+        commands (Bash/PowerShell), both tracked in ``_async_agents``."""
         pending = getattr(self, '_async_agents', None)
         if not pending:
             return None
         ids = ', '.join(v or k for k, v in pending.items())
         return (
-            f'{len(pending)} background subagent(s) you launched '
-            f'this turn are still running ({ids}). A turn must not '
-            'end while its subagents are running — once you stop, '
-            'their remaining tool calls are denied and their work is '
-            'lost, so any "it will report later" claim would be '
-            "false. WAIT for each one's <task-notification> "
-            'completion message and incorporate its result before '
-            'finishing. If a subagent is no longer needed, tell the '
-            'user what you launched and why you are abandoning it.'
+            f'{len(pending)} background task(s) you launched this turn '
+            f'are still running ({ids}) — async subagents and/or '
+            'backgrounded shell commands. A turn must not end while they '
+            "run: once you stop, a subagent's remaining tool calls are "
+            'denied and a background command is orphaned, so any "it will '
+            'report later" claim would be false. WAIT for each one\'s '
+            '<task-notification> completion and incorporate its result '
+            'before finishing. If one is no longer needed, tell the user '
+            'what you launched and why you are abandoning it, and stop it '
+            '(TaskStop) before finishing.'
         )
 
     def _track_async_agents(self, event: dict):
-        """Maintain the set of still-running ASYNC subagents.
+        """Maintain the set of still-running ASYNC work (subagents +
+        background shell commands), all on ``user`` events:
 
-        Two signals, both on ``user`` events:
-
-        - launch ack: the tool_result for an Agent/Task spawn whose text
-          starts "Async agent launched successfully" (sync spawns return
-          the subagent's final answer instead) → the agent is running in
-          the background and the turn must not end under it.
+        - subagent launch ack: the tool_result for an Agent/Task spawn
+          whose text starts "Async agent launched successfully" (sync
+          spawns return the subagent's final answer instead).
+        - background-shell launch ack: any tool_result carrying a
+          "…background… with ID: <id>" line (Bash/PowerShell auto-
+          background or run_in_background). Keyed by that id.
         - completion: the CLI injects a ``<task-notification …>`` user
-          message when a background agent finishes. Match its
-          task-id/tool-use-id/agent-id attributes against what we
-          tracked; if the notification carries none we can match,
-          clear the whole set (fail open — never wedge a turn on a
-          notification format change).
+          message when either finishes. Match its task-id/tool-use-id/
+          agent-id (attribute OR element form) against what we tracked;
+          if the notification carries none we can match, clear the whole
+          set (fail open — never wedge a turn on a format change).
         """
         blocks = event.get('message', {}).get('content', [])
         if isinstance(blocks, str):
@@ -94,9 +115,6 @@ class _SubagentMixin:
             if not isinstance(block, dict):
                 continue
             if block.get('type') == 'tool_result':
-                tid = block.get('tool_use_id')
-                if tid not in self._agent_spawn_ids:
-                    continue
                 raw = block.get('content')
                 if isinstance(raw, list):
                     text = ' '.join(
@@ -106,23 +124,45 @@ class _SubagentMixin:
                     )
                 else:
                     text = str(raw or '')
-                if 'Async agent launched' in text:
+                # Background shell command (Bash/PowerShell) — a THIRD
+                # kind of async work, launched by ANY tool_result (not
+                # just Agent/Task spawns), so this is OUTSIDE the
+                # _agent_spawn_ids gate. Keyed by its backgroundTaskId
+                # (== the id in its later <task-notification>).
+                bg = _BG_LAUNCH_RE.search(text)
+                if bg:
+                    self._async_agents[bg.group(1)] = f'shell {bg.group(1)}'
+                    self._had_async_spawns = True
+                # Async subagent launch ack (Agent/Task spawns only).
+                tid = block.get('tool_use_id')
+                if tid in self._agent_spawn_ids and 'Async agent launched' in (
+                    text
+                ):
                     m = re.search(r'agentId:\s*([A-Za-z0-9_-]+)', text)
                     self._async_agents[tid] = m.group(1) if m else ''
                     # Selects the longer linger tier for this whole
                     # process: late notifications and NESTED subagent
                     # spawns are invisible to this tracker, so a
-                    # process that used async agents at all gets the
+                    # process that used async work at all gets the
                     # grace window. See claude_backend_turns.
                     self._had_async_spawns = True
             elif block.get('type') == 'text':
                 text = block.get('text', '')
                 if '<task-notification' not in text:
                     continue
+                # Both id shapes: attribute form (subagent notifications,
+                # ``task-id="…"``) and element form (background-shell
+                # notifications, ``<task-id>…</task-id>``).
                 ids = set(
                     re.findall(
                         r'(?:task-id|tool-use-id|agent-id)'
                         r'="([^"]+)"',
+                        text,
+                    )
+                )
+                ids |= set(
+                    re.findall(
+                        r'<(?:task-id|tool-use-id|agent-id)>([^<]+)</',
                         text,
                     )
                 )
