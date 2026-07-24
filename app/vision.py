@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import collections
 import dataclasses
 import json
 import os
@@ -74,83 +75,181 @@ class ImageModel:
     extra: dict = dataclasses.field(default_factory=dict)
 
 
-# Curated shortlist across the major providers — all image-to-image
-# capable, all on the one configured kie.ai key. Slugs + reference field
-# names + prices verified against kie.ai docs/pricing (2026-07). The
-# FIRST entry is the default. Not exhaustive: kie.ai lists ~78 image
-# models; this is the quality-vs-cost spread most sellers want.
+# Verified catalog across the major image providers — every entry is
+# image-to-image capable and runs on the one configured kie.ai key.
+# Slugs, reference-field names, per-tier params, and prices were verified
+# against kie.ai docs + pricing (2026-07).
+#
+# Defined as per-family specs and flattened to ONE selectable variant per
+# resolution/quality tier, so the confirm card shows the real price of
+# each tier (GPT Image 2 at 1K/2K/4K, etc.) instead of a single
+# hand-picked number — the bug that made cross-model prices look
+# inconsistent. FIRST flattened entry is the default.
+#
+# ``_Tier`` carries the tier's own kie param (``resolution`` /
+# ``quality`` / ``rendering_speed``); ``base_extra`` is merged under every
+# tier. A lone ``_Tier('', '', usd, {})`` = a model with no tiers.
+_Tier = collections.namedtuple('_Tier', 'suffix label usd extra')
+_Family = collections.namedtuple(
+    '_Family',
+    'fid slug provider label ref_field ref_array base_extra tiers',
+)
+
+_FAMILIES: list = [
+    _Family(
+        'nano-banana-pro',
+        'nano-banana-pro',
+        'Google',
+        'Nano Banana Pro',
+        'image_input',
+        True,
+        {'aspect_ratio': '1:1', 'output_format': 'png'},
+        [
+            _Tier('2k', '2K', 0.09, {'resolution': '2K'}),
+            _Tier('4k', '4K', 0.12, {'resolution': '4K'}),
+        ],
+    ),
+    _Family(
+        'nano-banana-2',
+        'nano-banana-2',
+        'Google',
+        'Nano Banana 2',
+        'image_input',
+        True,
+        {'aspect_ratio': '1:1'},
+        [
+            _Tier('1k', '1K', 0.04, {'resolution': '1K'}),
+            _Tier('2k', '2K', 0.06, {'resolution': '2K'}),
+            _Tier('4k', '4K', 0.09, {'resolution': '4K'}),
+        ],
+    ),
+    _Family(
+        'nano-banana-edit',
+        'google/nano-banana-edit',
+        'Google',
+        'Nano Banana Edit',
+        'image_urls',
+        True,
+        {},
+        [_Tier('', '', 0.02, {})],
+    ),
+    _Family(
+        'gpt-image-2',
+        'gpt-image-2-image-to-image',
+        'OpenAI',
+        'GPT Image 2',
+        'input_urls',
+        True,
+        {'aspect_ratio': '1:1'},
+        [
+            _Tier('1k', '1K', 0.03, {'resolution': '1K'}),
+            _Tier('2k', '2K', 0.05, {'resolution': '2K'}),
+            _Tier('4k', '4K', 0.08, {'resolution': '4K'}),
+        ],
+    ),
+    _Family(
+        'gpt-image-1.5',
+        'gpt-image/1.5-image-to-image',
+        'OpenAI',
+        'GPT Image 1.5',
+        'input_urls',
+        True,
+        {'aspect_ratio': '1:1'},
+        [
+            _Tier('medium', 'Medium', 0.02, {'quality': 'medium'}),
+            _Tier('high', 'High', 0.11, {'quality': 'high'}),
+        ],
+    ),
+    _Family(
+        'seedream-5-pro',
+        'seedream/5-pro-image-to-image',
+        'ByteDance',
+        'Seedream 5 Pro',
+        'image_urls',
+        True,
+        {},
+        [
+            _Tier('basic', 'Basic', 0.035, {'quality': 'basic'}),
+            _Tier('high', 'High', 0.07, {'quality': 'high'}),
+        ],
+    ),
+    _Family(
+        'seedream-4.5',
+        'seedream/4.5-edit',
+        'ByteDance',
+        'Seedream 4.5',
+        'image_urls',
+        True,
+        {},
+        [_Tier('', '', 0.0325, {})],
+    ),
+    _Family(
+        'flux-2-pro',
+        'flux-2/pro-image-to-image',
+        'Black Forest Labs',
+        'Flux-2 Pro',
+        'input_urls',
+        True,
+        {},
+        [
+            _Tier('1k', '1K', 0.025, {'resolution': '1K'}),
+            _Tier('2k', '2K', 0.035, {'resolution': '2K'}),
+        ],
+    ),
+    _Family(
+        'flux-2-flex',
+        'flux-2/flex-image-to-image',
+        'Black Forest Labs',
+        'Flux 2 Flex',
+        'input_urls',
+        True,
+        {},
+        [
+            _Tier('1k', '1K', 0.07, {'resolution': '1K'}),
+            _Tier('2k', '2K', 0.12, {'resolution': '2K'}),
+        ],
+    ),
+    _Family(
+        'qwen-image-edit',
+        'qwen/image-edit',
+        'Qwen',
+        'Qwen Image Edit',
+        'image_url',
+        False,
+        {},
+        [_Tier('', '', 0.03, {})],
+    ),
+    _Family(
+        'ideogram-v3-remix',
+        'ideogram/v3-remix',
+        'Ideogram',
+        'Ideogram V3 Remix',
+        'image_url',
+        False,
+        {},
+        [
+            _Tier('turbo', 'Turbo', 0.0175, {'rendering_speed': 'TURBO'}),
+            _Tier(
+                'balanced', 'Balanced', 0.035, {'rendering_speed': 'BALANCED'}
+            ),
+            _Tier('quality', 'Quality', 0.05, {'rendering_speed': 'QUALITY'}),
+        ],
+    ),
+]
+
 IMAGE_MODELS: list[ImageModel] = [
     ImageModel(
-        id='nano-banana-pro',
-        slug='nano-banana-pro',
-        provider='Google',
-        label='Nano Banana Pro',
-        ref_field='image_input',
-        ref_array=True,
-        usd=0.09,
-        extra={
-            'aspect_ratio': '1:1',
-            'resolution': '2K',
-            'output_format': 'png',
-        },
-    ),
-    ImageModel(
-        id='nano-banana-2',
-        slug='nano-banana-2',
-        provider='Google',
-        label='Nano Banana 2',
-        ref_field='image_input',
-        ref_array=True,
-        usd=0.04,
-        extra={'aspect_ratio': '1:1'},
-    ),
-    ImageModel(
-        id='gpt-image-2',
-        slug='gpt-image-2-image-to-image',
-        provider='OpenAI',
-        label='GPT Image 2',
-        ref_field='input_urls',
-        ref_array=True,
-        usd=0.05,
-        extra={'aspect_ratio': '1:1'},
-    ),
-    ImageModel(
-        id='seedream-5-pro',
-        slug='seedream/5-pro-image-to-image',
-        provider='ByteDance',
-        label='Seedream 5 Pro',
-        ref_field='image_urls',
-        ref_array=True,
-        usd=0.07,
-    ),
-    ImageModel(
-        id='flux-2-pro',
-        slug='flux-2/pro-image-to-image',
-        provider='Black Forest Labs',
-        label='Flux-2 Pro',
-        ref_field='input_urls',
-        ref_array=True,
-        usd=0.035,
-    ),
-    ImageModel(
-        id='qwen-image-edit',
-        slug='qwen/image-edit',
-        provider='Qwen',
-        label='Qwen Image Edit',
-        ref_field='image_url',
-        ref_array=False,
-        usd=0.03,
-    ),
-    ImageModel(
-        id='ideogram-v3-remix',
-        slug='ideogram/v3-remix',
-        provider='Ideogram',
-        label='Ideogram V3 Remix',
-        ref_field='image_url',
-        ref_array=False,
-        usd=0.035,
-        extra={'rendering_speed': 'BALANCED'},
-    ),
+        id=f'{fam.fid}-{tier.suffix}' if tier.suffix else fam.fid,
+        slug=fam.slug,
+        provider=fam.provider,
+        label=f'{fam.label} · {tier.label}' if tier.label else fam.label,
+        ref_field=fam.ref_field,
+        ref_array=fam.ref_array,
+        usd=tier.usd,
+        extra={**fam.base_extra, **tier.extra},
+    )
+    for fam in _FAMILIES
+    for tier in fam.tiers
 ]
 
 _MODELS_BY_ID: dict[str, ImageModel] = {m.id: m for m in IMAGE_MODELS}

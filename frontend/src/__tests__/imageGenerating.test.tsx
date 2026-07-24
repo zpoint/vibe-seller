@@ -51,18 +51,22 @@ describe('ImageRequestCard model selector', () => {
     ],
   }
 
-  it('offers a Provider level and a Model level, with a price hint', () => {
+  it('is a single dropdown grouped by provider (optgroup), with price hints', () => {
     render(<ImageRequestCard {...multi} resolved={false} />)
-    const providerSel = screen.getByTestId('image-provider-select') as HTMLSelectElement
+    // One select, no separate provider dropdown.
     const modelSel = screen.getByTestId('image-model-select') as HTMLSelectElement
-    // Two providers, de-duplicated.
-    const provOpts = Array.from(providerSel.querySelectorAll('option')).map(o => o.textContent)
-    expect(provOpts).toEqual(['Google', 'OpenAI'])
-    // Default provider (Google) → only its two models are listed.
-    const modelOpts = Array.from(modelSel.querySelectorAll('option'))
-    expect(modelOpts.map(o => o.value)).toEqual(['nano-banana-pro', 'nano-banana-2'])
+    expect(screen.queryByTestId('image-provider-select')).toBeNull()
+    // The two-level menu = one <optgroup> per provider, de-duplicated.
+    const groups = Array.from(modelSel.querySelectorAll('optgroup'))
+    expect(groups.map(g => g.label)).toEqual(['Google', 'OpenAI'])
+    // All three models present, grouped under their provider.
+    const allOpts = Array.from(modelSel.querySelectorAll('option'))
+    expect(allOpts.map(o => o.value)).toEqual([
+      'nano-banana-pro', 'nano-banana-2', 'gpt-image-2',
+    ])
+    expect(groups[1].querySelectorAll('option')).toHaveLength(1) // OpenAI
     // USD hint on the option label by default (test i18n has no zh).
-    expect(modelOpts[0].textContent).toContain('$0.09')
+    expect(allOpts[0].textContent).toContain('$0.09')
     // The standalone hint row is present for the selected model.
     expect(screen.getByTestId('image-price-hint')).toBeInTheDocument()
   })

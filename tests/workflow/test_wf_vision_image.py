@@ -54,8 +54,8 @@ async def test_config_put_get_masked(admin_client, tmp_path, monkeypatch):
     assert 'secret' not in body['kie_api_key_masked']  # body never leaks
     # models is the rich catalog (id + provider + label + price hints).
     ids = [m['id'] for m in body['models']]
-    assert 'nano-banana-pro' in ids
-    assert body['default_model'] == 'nano-banana-pro'
+    assert 'nano-banana-pro-2k' in ids
+    assert body['default_model'] == 'nano-banana-pro-2k'
     assert all(
         {'provider', 'label', 'usd', 'cny'} <= set(m) for m in body['models']
     )
@@ -69,7 +69,7 @@ async def test_generate_fails_without_key(admin_client, monkeypatch):
     tid = str(uuid.uuid4())
     r = await admin_client.post(
         f'/api/tasks/{tid}/image/generate',
-        json={'prompt': 'a main image', 'model': 'nano-banana-pro'},
+        json={'prompt': 'a main image', 'model': 'nano-banana-pro-2k'},
     )
     assert r.status_code == 400
     assert 'not configured' in r.json()['detail']
@@ -86,7 +86,7 @@ async def test_confirm_flow_saves_and_emits(admin_client, monkeypatch):
                 f'/api/tasks/{tid}/image/generate',
                 json={
                     'prompt': '主图：纯白背景',
-                    'model': 'nano-banana-pro',
+                    'model': 'nano-banana-pro-2k',
                     'output_name': 'main.png',
                     'kind': 'main',
                 },
@@ -104,7 +104,7 @@ async def test_confirm_flow_saves_and_emits(admin_client, monkeypatch):
                 'request_id': request_id,
                 'action': 'confirm',
                 'prompt': '主图：纯白背景，产品占85%',
-                'model': 'nano-banana-pro',
+                'model': 'nano-banana-pro-2k',
             },
         )
         assert c.json()['ok'] is True
@@ -123,7 +123,7 @@ async def test_confirm_flow_saves_and_emits(admin_client, monkeypatch):
         # finished image, so the UI can show a real "generating…" state.
         gen_ing = await _drain_until(queue, 'image_generating')
         assert gen_ing['request_id'] == request_id
-        assert gen_ing['model'] == 'nano-banana-pro'
+        assert gen_ing['model'] == 'nano-banana-pro-2k'
 
         gen_evt = await _drain_until(queue, 'image_generated')
         assert gen_evt['request_id'] == request_id
@@ -166,7 +166,7 @@ async def test_pending_image_request_recoverable(admin_client, monkeypatch):
                 f'/api/tasks/{tid}/image/generate',
                 json={
                     'prompt': '主图：纯白背景',
-                    'model': 'nano-banana-pro',
+                    'model': 'nano-banana-pro-2k',
                     'reference_images': ['uploads/ref.png'],
                     'output_name': 'main.png',
                     'kind': 'main',
@@ -185,7 +185,7 @@ async def test_pending_image_request_recoverable(admin_client, monkeypatch):
         assert p['kind'] == 'main'
         # models is the rich catalog (id + provider + label + price hints),
         # the same shape the live image_request event carries.
-        assert 'nano-banana-pro' in [m['id'] for m in p['models']]
+        assert 'nano-banana-pro-2k' in [m['id'] for m in p['models']]
 
         # Confirming it clears the pending state.
         c = await admin_client.post(
@@ -241,7 +241,7 @@ async def test_added_references_merged_into_generation(
                 f'/api/tasks/{tid}/image/generate',
                 json={
                     'prompt': 'p',
-                    'model': 'nano-banana-pro',
+                    'model': 'nano-banana-pro-2k',
                     'reference_images': ['https://example.com/a.jpg'],
                 },
             )
@@ -278,7 +278,7 @@ async def test_new_request_supersedes_pending(admin_client, monkeypatch):
         gen1 = asyncio.create_task(
             admin_client.post(
                 f'/api/tasks/{tid}/image/generate',
-                json={'prompt': 'first', 'model': 'nano-banana-pro'},
+                json={'prompt': 'first', 'model': 'nano-banana-pro-2k'},
             )
         )
         req1 = await _drain_until(queue, 'image_request')
@@ -286,7 +286,7 @@ async def test_new_request_supersedes_pending(admin_client, monkeypatch):
         gen2 = asyncio.create_task(
             admin_client.post(
                 f'/api/tasks/{tid}/image/generate',
-                json={'prompt': 'second', 'model': 'nano-banana-pro'},
+                json={'prompt': 'second', 'model': 'nano-banana-pro-2k'},
             )
         )
         expired = await _drain_until(queue, 'image_request_expired')
@@ -336,7 +336,7 @@ async def test_cancel_flow_writes_nothing(admin_client, monkeypatch):
         gen = asyncio.create_task(
             admin_client.post(
                 f'/api/tasks/{tid}/image/generate',
-                json={'prompt': 'x', 'model': 'nano-banana-pro'},
+                json={'prompt': 'x', 'model': 'nano-banana-pro-2k'},
             )
         )
         req = await _drain_until(queue, 'image_request')

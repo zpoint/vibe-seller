@@ -113,7 +113,7 @@ def test_confirm_card_edit_and_inline_image(authenticated_page):
                     f'{BASE_URL}/api/tasks/{task_id}/image/generate',
                     json={
                         'prompt': '主图：白色棉袜，纯白背景',
-                        'model': 'nano-banana-pro',
+                        'model': 'nano-banana-pro-2k',
                         'output_name': 'main.png',
                         'kind': 'main',
                     },
@@ -134,10 +134,12 @@ def test_confirm_card_edit_and_inline_image(authenticated_page):
             '主图：白色棉袜，纯白背景', timeout=5000
         )
 
-        # User edits the prompt and switches the model.
+        # User edits the prompt and switches the model+tier (the model
+        # dropdown is grouped by provider via <optgroup>; option values
+        # are model-tier ids like "nano-banana-2-2k").
         prompt_box.fill('主图：白色棉袜，纯白背景，产品占85%')
         page.locator('[data-testid="image-model-select"]').select_option(
-            'nano-banana-2'
+            'nano-banana-2-2k'
         )
         page.locator('[data-testid="image-confirm-btn"]').click()
 
@@ -151,6 +153,6 @@ def test_confirm_card_edit_and_inline_image(authenticated_page):
         assert result.get('body', {}).get('status') == 'ok'
         # The user's edits won.
         assert result['body']['prompt'] == '主图：白色棉袜，纯白背景，产品占85%'
-        assert result['body']['model'] == 'nano-banana-2'
+        assert result['body']['model'] == 'nano-banana-2-2k'
     finally:
         api.close()

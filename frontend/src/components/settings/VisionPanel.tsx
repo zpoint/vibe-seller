@@ -17,7 +17,7 @@ interface VisionPanelProps {
 /** Settings → AI → Vision. Configure the kie.ai image-generation key.
  *  Self-contained (own fetch/save), mirroring the other settings panels. */
 export function VisionPanel({ isAdmin }: VisionPanelProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [config, setConfig] = useState<VisionConfig | null>(null)
   const [keyInput, setKeyInput] = useState('')
   const [saving, setSaving] = useState(false)
@@ -92,42 +92,9 @@ export function VisionPanel({ isAdmin }: VisionPanelProps) {
           {t('settings.visionSaved')}
         </p>
       )}
-
-      {config?.models && config.models.length > 0 && (
-        <div data-testid="vision-models" className="mt-4 border-t border-gray-100 pt-3">
-          <p className="text-xs font-medium text-gray-600 mb-2">
-            {t('settings.visionModels')}
-          </p>
-          <ul className="space-y-1">
-            {config.models.map(m => {
-              const unit = t('settings.visionPerImage')
-              const price = i18n.language.startsWith('zh')
-                ? `≈¥${m.cny}/${unit}`
-                : `≈$${m.usd}/${unit}`
-              return (
-                <li
-                  key={m.id}
-                  className="flex items-center justify-between text-xs text-gray-600"
-                >
-                  <span className="truncate">
-                    <span className="text-gray-400">{m.provider}</span>
-                    {' · '}
-                    {m.label}
-                    {m.default && (
-                      <span className="ml-1.5 px-1 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-medium">
-                        {t('settings.visionDefaultModel')}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-gray-500 tabular-nums ml-2 shrink-0">
-                    {price}
-                  </span>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
+      {/* The selectable model catalog (with per-image price) is shown on
+          the task's image-confirm card, right before generation — not
+          here. The config page is only for the API key. */}
     </div>
   )
 }
