@@ -155,9 +155,13 @@ _FAMILIES: list = [
         'input_urls',
         True,
         {'aspect_ratio': '1:1'},
+        # Only the cheapest tier: GPT Image 1.5 · Medium ($0.02) is the
+        # cheapest OpenAI option. Its "high" tier ($0.11) is dropped — it
+        # costs MORE than the newer GPT Image 2 · 4K ($0.08) while being
+        # lower quality (GPT Image 2 leads 1.5 on text, resolution, prompt
+        # following, and editing), so it's a strictly dominated option.
         [
             _Tier('medium', 'Medium', 0.02, {'quality': 'medium'}),
-            _Tier('high', 'High', 0.11, {'quality': 'high'}),
         ],
     ),
     _Family(

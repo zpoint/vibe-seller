@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ImageModelOption } from '../../types'
+import { ModelCascadeSelect } from './ModelCascadeSelect'
 
 interface AddedRef { path: string; url: string }
 
@@ -50,7 +51,7 @@ export function ImageRequestCard({
   generating,
   onDecision,
 }: ImageRequestCardProps) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const [editedPrompt, setEditedPrompt] = useState(prompt)
   const [editedModel, setEditedModel] = useState(model)
   const [added, setAdded] = useState<AddedRef[]>([])
@@ -88,25 +89,12 @@ export function ImageRequestCard({
     }
   }
 
-  // One dropdown, grouped by provider (<optgroup> = the two-level menu).
-  // Fall back to a synthetic single option if the catalog didn't reach us.
+  // The selectable catalog (provider grouping, price formatting, and the
+  // two-level cascade live in <ModelCascadeSelect/>). Fall back to a
+  // synthetic single option if the catalog didn't reach us.
   const catalog: ImageModelOption[] = models.length
     ? models
     : [{ id: model, provider: '', label: model, usd: 0, cny: 0 }]
-  const selected =
-    catalog.find(m => m.id === editedModel) ?? catalog[0]
-  const providers = [...new Set(catalog.map(m => m.provider))]
-
-  // ¥ for Chinese, $ for English — a per-image hint, not a bill. The ≈
-  // keeps it honest: real cost varies by resolution/tier. Form:
-  // "≈$0.09/image" / "≈¥0.65/张".
-  const zh = (i18n?.language || '').startsWith('zh')
-  const unit = t('vision.perImageUnit')
-  const priceHint = (m: ImageModelOption): string => {
-    if (!m.usd && !m.cny) return ''
-    // Space after ≈ so it reads "≈ ¥0.65/张" / "≈ $0.09/image".
-    return zh ? `≈ ¥${m.cny}/${unit}` : `≈ $${m.usd}/${unit}`
-  }
 
   const thumbClass =
     'h-28 w-28 object-contain rounded border border-gray-200 bg-white'
@@ -143,43 +131,13 @@ export function ImageRequestCard({
           <label className="text-sm font-medium text-gray-700">
             {t('vision.modelLabel')}
           </label>
-          <select
-            data-testid="image-model-select"
+          <ModelCascadeSelect
+            models={catalog}
             value={editedModel}
-            onChange={e => setEditedModel(e.target.value)}
             disabled={resolved || busy}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white disabled:bg-gray-50 disabled:text-gray-400"
-          >
-            {providers.map(p => (
-              <optgroup
-                key={p}
-                label={p || '—'}
-                style={{ color: '#374151', fontWeight: 600 }}
-              >
-                {catalog
-                  .filter(m => m.provider === p)
-                  .map(m => (
-                    <option
-                      key={m.id}
-                      value={m.id}
-                      style={{ color: '#111827', fontWeight: 400 }}
-                    >
-                      {m.label}
-                      {priceHint(m) && ` · ${priceHint(m)}`}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </select>
+            onChange={setEditedModel}
+          />
         </div>
-        {priceHint(selected) && (
-          <p
-            data-testid="image-price-hint"
-            className="-mt-2 text-xs text-gray-500 tabular-nums"
-          >
-            {priceHint(selected)}
-          </p>
-        )}
 
         <div className="space-y-2">
           <label className="text-sm font-medium text-gray-700">

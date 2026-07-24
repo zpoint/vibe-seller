@@ -5,7 +5,7 @@
  * the user knows work is in progress.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import { ImageRequestCard } from '../components/conversation/ImageRequestCard'
 
 const base = {
@@ -44,30 +44,50 @@ describe('ImageRequestCard generating state', () => {
 describe('ImageRequestCard model selector', () => {
   const multi = {
     ...base,
+    model: 'nano-banana-pro',
+    // Deliberately NOT in price order, to prove the submenu re-sorts.
     models: [
-      { id: 'nano-banana-pro', provider: 'Google', label: 'Nano Banana Pro', usd: 0.09, cny: 0.65, default: true },
-      { id: 'nano-banana-2', provider: 'Google', label: 'Nano Banana 2', usd: 0.04, cny: 0.29 },
-      { id: 'gpt-image-2', provider: 'OpenAI', label: 'GPT Image 2', usd: 0.05, cny: 0.36 },
+      { id: 'nano-banana-2', provider: 'Google', label: 'Nano Banana 2 · 1K', usd: 0.04, cny: 0.29 },
+      { id: 'nano-banana-pro', provider: 'Google', label: 'Nano Banana Pro · 2K', usd: 0.09, cny: 0.65, default: true },
+      { id: 'gpt-image-2', provider: 'OpenAI', label: 'GPT Image 2 · 2K', usd: 0.05, cny: 0.36 },
     ],
   }
 
-  it('is a single dropdown grouped by provider (optgroup), with price hints', () => {
+  it('is a left→right cascade: providers → models, most expensive first', () => {
     render(<ImageRequestCard {...multi} resolved={false} />)
-    // One select, no separate provider dropdown.
-    const modelSel = screen.getByTestId('image-model-select') as HTMLSelectElement
+    // Custom popover, not a native <select>/second provider dropdown.
     expect(screen.queryByTestId('image-provider-select')).toBeNull()
-    // The two-level menu = one <optgroup> per provider, de-duplicated.
-    const groups = Array.from(modelSel.querySelectorAll('optgroup'))
-    expect(groups.map(g => g.label)).toEqual(['Google', 'OpenAI'])
-    // All three models present, grouped under their provider.
-    const allOpts = Array.from(modelSel.querySelectorAll('option'))
-    expect(allOpts.map(o => o.value)).toEqual([
-      'nano-banana-pro', 'nano-banana-2', 'gpt-image-2',
-    ])
-    expect(groups[1].querySelectorAll('option')).toHaveLength(1) // OpenAI
-    // USD hint on the option label by default (test i18n has no zh).
-    expect(allOpts[0].textContent).toContain('$0.09')
-    // The standalone hint row is present for the selected model.
-    expect(screen.getByTestId('image-price-hint')).toBeInTheDocument()
+    const trigger = screen.getByTestId('image-model-select')
+    expect(trigger.textContent).toContain('Nano Banana Pro')
+
+    // Open the cascade.
+    fireEvent.click(trigger)
+    const menu = screen.getByTestId('image-model-menu')
+    // Level 1 — providers, de-duplicated.
+    expect(within(menu).getByTestId('image-provider-Google')).toBeInTheDocument()
+    expect(within(menu).getByTestId('image-provider-OpenAI')).toBeInTheDocument()
+
+    // Level 2 — active provider is the selected model's (Google); its
+    // models are sorted most-expensive-first regardless of input order.
+    const googleIds = within(screen.getByTestId('image-model-submenu'))
+      .getAllByRole('button')
+      .map(b => b.getAttribute('data-model-id'))
+    expect(googleIds).toEqual(['nano-banana-pro', 'nano-banana-2'])
+
+    // Hovering another provider swaps the right column.
+    fireEvent.mouseEnter(within(menu).getByTestId('image-provider-OpenAI'))
+    const openaiIds = within(screen.getByTestId('image-model-submenu'))
+      .getAllByRole('button')
+      .map(b => b.getAttribute('data-model-id'))
+    expect(openaiIds).toEqual(['gpt-image-2'])
+
+    // Picking a model closes the menu and updates the trigger.
+    fireEvent.click(
+      within(screen.getByTestId('image-model-submenu')).getAllByRole('button')[0],
+    )
+    expect(screen.queryByTestId('image-model-menu')).toBeNull()
+    expect(screen.getByTestId('image-model-select').textContent).toContain(
+      'GPT Image 2',
+    )
   })
 })
