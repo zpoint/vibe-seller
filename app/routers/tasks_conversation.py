@@ -48,7 +48,11 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
-from app.workspace.manager import reset_task_runtime_state, workspace_manager
+from app.workspace.manager import (
+    reset_task_runtime_state,
+    session_has_orphaned_bg_task,
+    workspace_manager,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,12 +71,10 @@ def _follow_up_auto_approve(task: Task) -> bool:
     ``task_runner_auto.py``.
 
     Follow-up flows bypass ``auto_run_task`` and call
-    ``agent_manager.run()`` directly, so they must compute the same
-    gate locally. Without this, a plan-mode task with
-    ``schedule_id`` set (e.g. a plan-only planner whose first session
-    crashed and the user is nudging via follow-up) would leave
-    ``auto_approve_plan=False``, the agent would save its plan and
-    then wait forever for an approval that never arrives.
+    ``agent_manager.run()`` directly, so must compute the same gate
+    locally. Without this, a plan-mode task with ``schedule_id`` set
+    would leave ``auto_approve_plan=False`` and wait forever for an
+    approval that never arrives.
     """
     return bool(task.schedule_id) or not task.plan_mode
 
@@ -118,10 +120,9 @@ async def send_task_message(
     current_profile_id = task.ai_profile_id or DEFAULT_PROFILE_ID
     is_profile_switch = requested_profile_id != current_profile_id
 
-    # Promote staged chat attachments into the task workspace. This is the
-    # ONE moment an attachment becomes visible to the agent: staging kept
-    # it outside the agent's cwd until the user pressed Send. From here we
-    # keep TWO content strings:
+    # Promote staged chat attachments into the task workspace — the ONE
+    # moment an attachment becomes visible to the agent. From here we keep
+    # TWO content strings:
     #   display_content — stored + shown in the transcript; images become
     #                     markdown so the user sees a thumbnail, not a path.
     #   agent_content   — delivered to the agent; absolute paths it Reads
@@ -267,14 +268,11 @@ async def send_task_message(
     is_plan_feedback = task.status == TaskStatus.PLANNED
     has_resumable_session = bool(task.session_id) and not is_profile_switch
     # Context-rot guard: past a certain transcript size, a resumed
-    # session carries more failed-attempt residue than signal — stale
-    # file paths, superseded conclusions, and old batch state dominate
-    # the context and the agent re-verifies dead artifacts (observed
-    # live: a reviewer "verified" a prior turn's report because its
-    # path was still in context). Beyond the threshold, start a FRESH
-    # CLI session seeded with the compact history summary the
-    # non-resumable branch below already builds (history file + recent
-    # messages + plan). The task workspace (files on disk) is unchanged.
+    # session carries more failed-attempt residue than signal (stale
+    # paths, superseded conclusions) and re-verifies dead artifacts.
+    # Beyond the threshold, start a FRESH session seeded with the compact
+    # history summary the non-resumable branch below builds. Files on
+    # disk are unchanged.
     if has_resumable_session:
         n_msgs = await db.scalar(
             select(func.count())
@@ -291,25 +289,35 @@ async def send_task_message(
                 n_msgs,
                 FRESH_SESSION_MSG_LIMIT,
             )
+    # Runaway-background-task backstop: the turn now waits for a
+    # background shell to finish, but one that never completes is
+    # force-closed (HARD_IDLE) and orphaned. Resuming that session makes
+    # the CLI inject a reconciliation notification that collides with
+    # this follow-up and aborts the turn's tool calls. Start fresh
+    # instead. See session_has_orphaned_bg_task.
+    if has_resumable_session and session_has_orphaned_bg_task(
+        task_id, task.session_id
+    ):
+        has_resumable_session = False
+        logger.info(
+            'Task %s prior session left an orphaned background task — '
+            'starting a fresh session instead of resuming',
+            task_id,
+        )
 
-    # Plan approval is a ONE-WAY exit from plan mode (like Claude Code:
-    # an approved ExitPlanMode leaves the session in normal mode for
-    # good). ``started_at`` is stamped at approval and only reset by a
-    # full task retry (which also clears the plan and resets status to
-    # PENDING), so a task is still "planning" only if it hasn't started
-    # executing AND is in a pre-execution status. Past that a follow-up
-    # behaves like one on a non-plan task — resume and keep executing,
-    # never re-plan. (Bug: approved plan tasks sit in DESIGNING/COMPLETED
-    # between turns and used to re-plan every turn.) ``is_plan_only``
-    # schedule tasks only ever plan; PLANNED plan-feedback routes above.
-    # FAILED is included ONLY together with ``started_at is None``: a
-    # plan-mode task that failed BEFORE any plan was approved died in
-    # the planning phase, so a follow-up must resume PLANNING — without
-    # this it fell through to auto mode and executed the review-first
-    # task unreviewed under bypassPermissions. A COMPLETED task with no
-    # ``started_at`` (the plan-skip path: agent delivered a result
-    # without ExitPlanMode) stays auto — its work is already done and
-    # accepted as-is by the plan-skip contract.
+    # Plan approval is a ONE-WAY exit from plan mode: ``started_at`` is
+    # stamped at approval and only reset by a full retry, so a task is
+    # "planning" only if it hasn't started executing AND is pre-execution.
+    # Past that a follow-up resumes and keeps executing, never re-plans
+    # (Bug: approved plan tasks sat in DESIGNING/COMPLETED and re-planned
+    # every turn). ``is_plan_only`` schedule tasks only ever plan; PLANNED
+    # plan-feedback routes above. FAILED counts ONLY with ``started_at is
+    # None`` — a plan-mode task that failed BEFORE plan approval died in
+    # planning, so a follow-up must resume PLANNING (else it fell through
+    # to auto and ran a review-first task unreviewed under bypass). A
+    # COMPLETED task with no ``started_at`` (plan-skip: result without
+    # ExitPlanMode) stays auto — its work is done, per the plan-skip
+    # contract.
     plan_phase_active = task.plan_mode and (
         task.is_plan_only
         or (
@@ -524,20 +532,13 @@ async def send_task_message(
         return {**accepted, 'profile_switched': is_profile_switch}
     else:
         await refresh_token_if_needed()
-        # Mode selection for follow-ups on tasks NOT in WAITING /
-        # COMPLETED / FAILED. The remaining states are PENDING /
-        # QUEUED / DESIGNING / PLANNED / RUNNING.
-        #
+        # Mode selection for follow-ups NOT in WAITING/COMPLETED/FAILED
+        # (i.e. PENDING/QUEUED/DESIGNING/PLANNED/RUNNING).
         # Still in the plan phase (``plan_phase_active``) → keep
         # plan_then_execute so the resumed session stays in plan mode
-        # (otherwise ExitPlanMode returns "You are not in plan mode").
-        # Covers PENDING/QUEUED before the agent starts, DESIGNING after
-        # a crash/interrupt, and is_plan_only tasks.
-        #
-        # Non-plan task → auto. Plan-mode task past its plan phase
-        # (approved: RUNNING, or DESIGNING with started_at set) →
-        # execute: bypassPermissions, continues with context, no
-        # re-plan — exactly like a non-plan follow-up.
+        # (else ExitPlanMode errors "not in plan mode"). Non-plan task →
+        # auto. Plan-mode task past its plan phase → execute (bypass,
+        # continues with context, no re-plan) — like a non-plan follow-up.
         if plan_phase_active:
             follow_up_mode = 'plan_then_execute'
         elif not task.plan_mode:
