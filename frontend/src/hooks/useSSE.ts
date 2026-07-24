@@ -380,6 +380,19 @@ export function useSSE({
             return prev
           })
         }
+        // The user sent a chat follow-up instead of answering — retire
+        // the question card as "you replied instead" (not "answered"):
+        // drop the pending banner and mark the question item interrupted.
+        if (data.type === 'task_question_interrupted') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setPendingQuestions(prev =>
+              prev && prev.request_id === data.request_id ? null : prev)
+            setConversationItems(items => items.map(it =>
+              it.type === 'question' && it.questions?.request_id === data.request_id
+                ? { ...it, questionInterrupted: true }
+                : it))
+          }
+        }
         // Image generation: the agent's tool call is paused server-side
         // waiting for the user to review/edit the prompt+model. Append a
         // confirm card; when the generated image arrives, mark the card

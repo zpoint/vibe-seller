@@ -736,6 +736,11 @@ class FakeAgent(AIAgentBackend):
         await session.reject_plan(feedback)
         return True
 
+    async def interrupt_pending_question(self, task_id: str) -> str | None:
+        # No AskUserQuestion is pending in the fake; the gate-interrupt
+        # call in send_task_message is a no-op here.
+        return None
+
     def is_running(self, task_id: str) -> bool:
         return self._running.get(task_id, False)
 

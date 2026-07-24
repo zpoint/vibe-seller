@@ -127,6 +127,7 @@
     "confirmRunHint": "Task will pause after planning for your confirmation before executing.",
     "submitAnswers": "Submit Answers",
     "answeredQuestions": "Questions answered",
+    "interruptedQuestions": "You replied instead — not answered",
     "other": "Other...",
     "typeAnswer": "Type your answer...",
     "dismissQuestions": "Type freely instead",

@@ -127,6 +127,7 @@
     "confirmRunHint": "任务将在规划后等待确认再执行，可随时停止。",
     "submitAnswers": "提交回答",
     "answeredQuestions": "已回答问题",
+    "interruptedQuestions": "你改为发送了消息（未作答）",
     "other": "其他...",
     "typeAnswer": "输入您的回答...",
     "dismissQuestions": "自由输入回复",

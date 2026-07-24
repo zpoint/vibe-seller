@@ -8,7 +8,7 @@ import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
 import { ChatComposer } from '../components/conversation/ChatComposer'
-import { composerSendKind, isAwaitingUser } from '../handlers/composerGate'
+import { isAwaitingUser } from '../handlers/composerGate'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -205,19 +205,11 @@ export function TasksView({
 
   // The agent is parked awaiting the user (live confirm card, or a
   // pending question) → a follow-up REDIRECTS it rather than queueing.
+  // Both gates are interrupted server-side by POST /messages, so the
+  // composer always sends normally: a follow-up is a chat message (shown
+  // as a bubble), NOT a formal answer to the question card. Answering the
+  // card is still done via the card itself (options / "type freely").
   const awaitingUser = isAwaitingUser(conversationItems, !!pendingQuestions)
-
-  // During a pending question a composer message IS the answer — route it
-  // through the free-text answer channel; otherwise send normally (the
-  // image confirm gate is interrupted server-side by POST /messages).
-  const onComposerSend = () => {
-    if (composerSendKind(!!pendingQuestions, chatInput) === 'answer') {
-      submitAllAnswers({ _free_text: chatInput.trim() })
-      setChatInput('')
-      return
-    }
-    sendChatMessage()
-  }
 
   // Placeholder changes by state
   const getPlaceholder = () => {
@@ -736,7 +728,7 @@ export function TasksView({
                 onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
                 input={chatInput} setInput={setChatInput} hasContent={hasText}
                 canSend={canSend} isActive={isActive} awaitingUser={awaitingUser}
-                onSend={onComposerSend}
+                onSend={sendChatMessage}
                 onStop={stopAgent} placeholder={getPlaceholder()}
               />
               </div>

@@ -161,6 +161,9 @@ export interface ConversationItem {
   plan?: PlanVersion
   message?: { role: string; content: string }
   questions?: { request_id: string; questions: { header?: string; question: string; options?: { label: string; description?: string }[] }[] }
+  // The user sent a chat follow-up instead of answering this question —
+  // the card is retired as "you replied instead", not "answered".
+  questionInterrupted?: boolean
   result?: string
   toolCall?: { tool: string; input?: Record<string, unknown> }
   thinking?: { content: string; isStreaming: boolean }

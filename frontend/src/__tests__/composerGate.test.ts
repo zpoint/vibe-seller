@@ -3,7 +3,6 @@ import type { ConversationItem } from '../types'
 import {
   hasPendingImageConfirm,
   isAwaitingUser,
-  composerSendKind,
 } from '../handlers/composerGate'
 
 const imgItem = (over: Record<string, unknown>): ConversationItem =>
@@ -36,11 +35,5 @@ describe('composerGate', () => {
     expect(isAwaitingUser([imgItem({})], false)).toBe(true) // confirm card
     expect(isAwaitingUser([imgItem({ generating: true })], false)).toBe(false)
     expect(isAwaitingUser([], false)).toBe(false)
-  })
-
-  it('routes a composer send to the free-text ANSWER only during a pending question', () => {
-    expect(composerSendKind(true, 'one image, both refs')).toBe('answer')
-    expect(composerSendKind(true, '   ')).toBe('message') // empty → not an answer
-    expect(composerSendKind(false, 'hi')).toBe('message') // no question → message
   })
 })

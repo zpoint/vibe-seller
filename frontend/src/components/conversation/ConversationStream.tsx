@@ -64,23 +64,27 @@ function parseTaskStart(
   }
 }
 
-/** Collapsed view for questions that have already been answered. */
-function AnsweredQuestions({ questions }: { questions: { header?: string; question: string }[] }) {
+/** Collapsed view for a question that's no longer pending — either
+ *  answered, or interrupted (the user sent a chat follow-up instead of
+ *  answering the card). */
+function AnsweredQuestions({ questions, interrupted }: { questions: { header?: string; question: string }[]; interrupted?: boolean }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const summary = questions.map(q => q.header || q.question.slice(0, 40)).join(', ')
 
   return (
-    <div className="border-l-2 border-amber-200 pl-2 py-1">
+    <div className={`border-l-2 pl-2 py-1 ${interrupted ? 'border-gray-200' : 'border-amber-200'}`}>
       <button
-        className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-amber-600 w-full text-left"
+        className={`flex items-center gap-1.5 text-xs text-gray-400 w-full text-left ${interrupted ? 'hover:text-gray-600' : 'hover:text-amber-600'}`}
         onClick={() => setExpanded(e => !e)}
       >
         <span className={`text-[10px] transition-transform ${expanded ? 'rotate-90' : ''}`}>
           ▶
         </span>
-        <span className="text-amber-500">
-          {t('tasks.answeredQuestions', 'Questions answered')}
+        <span className={interrupted ? 'text-gray-400' : 'text-amber-500'}>
+          {interrupted
+            ? t('tasks.interruptedQuestions', 'You replied instead — not answered')
+            : t('tasks.answeredQuestions', 'Questions answered')}
         </span>
         {!expanded && (
           <span className="text-gray-300 truncate">
@@ -406,6 +410,7 @@ export function ConversationStream({
             return (
               <AnsweredQuestions
                 key={item.id}
+                interrupted={item.questionInterrupted}
                 questions={item.questions!.questions}
               />
             )
