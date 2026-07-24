@@ -9,6 +9,7 @@ from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.stop_gates import recorded_skills
 from app.database import async_session
 from app.env_options import Options
+from app.events.bus import event_bus
 from app.models.task import Task
 from app.workspace.manager import workspace_manager
 from app.workspace.skills_sync import skills_sync
@@ -251,6 +252,33 @@ class ClaudeCodeBackend(AIAgentBackend):
         for data in session._pending_questions.values():
             return data
         return None
+
+    async def interrupt_pending_question(self, task_id: str) -> str | None:
+        """Interrupt a pending AskUserQuestion when the user sends a chat
+        follow-up instead of answering the card. Unblocks the parked hook
+        with a note (NOT the user's message, and NOT recorded as the
+        answers) so the tool returns and the agent then reads the user's
+        message — delivered separately as its own turn. Emits
+        ``task_question_interrupted`` so the UI retires the card as "you
+        replied instead", not "answered". Returns the request_id or None.
+
+        This mirrors the image confirm-gate interrupt: a gate that is
+        merely waiting on the user must yield to a follow-up, never
+        swallow it as a formal answer."""
+        pending = self.get_pending_questions(task_id)
+        if not pending:
+            return None
+        request_id = pending.get('request_id')
+        note = (
+            '[用户没有直接回答上面的问题，而是发送了一条新消息。请阅读用户接下来'
+            '的消息并据此继续，不要把这段当作对上面问题的正式回答。]'
+        )
+        await self.submit_answer(task_id, request_id, {'_free_text': note})
+        await event_bus.emit(
+            'task_question_interrupted',
+            {'task_id': task_id, 'request_id': request_id},
+        )
+        return request_id
 
     async def stop(self, task_id: str) -> bool:
         session = self._sessions.get(task_id)

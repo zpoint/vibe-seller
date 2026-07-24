@@ -9,6 +9,7 @@ Exercises the real API + event bus (kie.ai stubbed via VISION_FAKE):
 """
 
 import asyncio
+from datetime import UTC, datetime
 import json
 import shutil
 import uuid
@@ -17,6 +18,7 @@ import pytest
 
 from app import vision
 from app.events.bus import event_bus
+from app.models.task import Task
 from app.workspace.manager import VIBE_SELLER_DIR
 
 pytestmark = pytest.mark.workflow
@@ -196,6 +198,78 @@ async def test_pending_image_request_recoverable(admin_client, monkeypatch):
         await asyncio.wait_for(gen, timeout=10)
         p2 = (await admin_client.get(f'/api/tasks/{tid}/image/pending')).json()
         assert p2 == {'pending': False}
+    finally:
+        event_bus.unsubscribe(queue)
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_followup_interrupts_pending_confirm(
+    admin_client, install_fake_agent, override_async_session, monkeypatch
+):
+    """A follow-up sent while the confirm card is shown (NOT generating)
+    INTERRUPTS the gate: the parked generate returns ``interrupted`` (no
+    image made) and the card is retired via ``image_request_interrupted``,
+    instead of buffering behind the blocked tool call."""
+    monkeypatch.setenv('VISION_FAKE', '1')
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    now = datetime.now(UTC).isoformat()
+    async with override_async_session() as db:
+        db.add(
+            Task(
+                id=tid,
+                title='white bg main',
+                created_by='system',
+                status='running',
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        await db.commit()
+    # So POST /messages takes the live send_message path (no real spawn).
+    install_fake_agent._running[tid] = True
+
+    queue = event_bus.subscribe()
+    try:
+        gen = asyncio.create_task(
+            admin_client.post(
+                f'/api/tasks/{tid}/image/generate',
+                json={
+                    'prompt': '主图：纯白背景',
+                    'model': 'nano-banana-pro-2k',
+                    'output_name': 'main.png',
+                    'kind': 'main',
+                },
+            )
+        )
+        req = await _drain_until(queue, 'image_request')
+
+        # User sends a chat message instead of confirming the card.
+        m = await admin_client.post(
+            f'/api/tasks/{tid}/messages',
+            json={'content': '其实只有一张图，两张都是参考图'},
+        )
+        assert m.status_code == 200
+
+        # The parked generate returns interrupted — nothing was generated.
+        resp = await asyncio.wait_for(gen, timeout=10)
+        assert resp.json()['status'] == 'interrupted'
+        assert not (task_dir / 'generated_images').exists()
+
+        # The card is retired with the truthful interrupted event (NOT the
+        # "replaced by a newer request" expired event).
+        ev = await _drain_until(queue, 'image_request_interrupted')
+        assert ev['request_id'] == req['request_id']
+
+        # And the follow-up was delivered to the agent, not dropped.
+        assert any(
+            c.task_id == tid and c.action == 'send_message'
+            for c in install_fake_agent.calls
+        )
+
+        # Once interrupted, the card is no longer recoverable as pending.
+        p = (await admin_client.get(f'/api/tasks/{tid}/image/pending')).json()
+        assert p == {'pending': False}
     finally:
         event_bus.unsubscribe(queue)
         shutil.rmtree(task_dir, ignore_errors=True)

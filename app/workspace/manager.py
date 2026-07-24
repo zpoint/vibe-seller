@@ -602,3 +602,31 @@ browser: {backend}
 
 # Singleton
 workspace_manager = WorkspaceManager()
+
+
+def reset_task_runtime_state(task_id: str) -> None:
+    """Wipe ALL on-disk state for a task so a retry starts truly fresh —
+    like a brand-new task. Clearing the DB rows is not enough: two stores
+    outlive it and leak prior-run context into the fresh session.
+
+    1. The task workspace ``tasks/{id}/`` (uploads, generated_images, the
+       copied .claude skills, symlinks) — rebuilt by prepare_task_workspace.
+    2. Claude Code's per-task Task/todo store. We pin a STABLE
+       ``CLAUDE_CODE_TASK_LIST_ID='vibe-<id8>'`` (claude_backend.py) so a
+       task's todos survive its own follow-ups/resumes — but that means a
+       retry inherits them too unless we delete the store here. Claude Code
+       keeps it at ``$CLAUDE_CONFIG_DIR|~/.claude / tasks/<task-list-id>/``.
+    3. Claude Code's project transcripts, keyed by the workspace CWD
+       (each ``/`` and ``.`` → ``-``), under ``.../projects/<cwd>/``.
+    """
+    task_dir = VIBE_SELLER_DIR / 'tasks' / task_id
+    shutil.rmtree(task_dir, ignore_errors=True)
+
+    claude_home = Path(
+        os.environ.get('CLAUDE_CONFIG_DIR') or (Path.home() / '.claude')
+    )
+    shutil.rmtree(
+        claude_home / 'tasks' / f'vibe-{task_id[:8]}', ignore_errors=True
+    )
+    cwd_key = str(task_dir).replace('/', '-').replace('.', '-')
+    shutil.rmtree(claude_home / 'projects' / cwd_key, ignore_errors=True)

@@ -8,6 +8,7 @@ import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
 import { ChatComposer } from '../components/conversation/ChatComposer'
+import { isAwaitingUser } from '../handlers/composerGate'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -201,6 +202,14 @@ export function TasksView({
   const isActive = taskCfg?.isActive ?? false
   // A message may be text-only, attachment-only, or both.
   const hasText = chatInput.trim().length > 0 || chatAttachments.length > 0
+
+  // The agent is parked awaiting the user (live confirm card, or a
+  // pending question) → a follow-up REDIRECTS it rather than queueing.
+  // Both gates are interrupted server-side by POST /messages, so the
+  // composer always sends normally: a follow-up is a chat message (shown
+  // as a bubble), NOT a formal answer to the question card. Answering the
+  // card is still done via the card itself (options / "type freely").
+  const awaitingUser = isAwaitingUser(conversationItems, !!pendingQuestions)
 
   // Placeholder changes by state
   const getPlaceholder = () => {
@@ -718,7 +727,8 @@ export function TasksView({
                 uploadFiles={uploadChatFiles} attachments={chatAttachments}
                 onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
                 input={chatInput} setInput={setChatInput} hasContent={hasText}
-                canSend={canSend} isActive={isActive} onSend={sendChatMessage}
+                canSend={canSend} isActive={isActive} awaitingUser={awaitingUser}
+                onSend={sendChatMessage}
                 onStop={stopAgent} placeholder={getPlaceholder()}
               />
               </div>

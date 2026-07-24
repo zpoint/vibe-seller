@@ -380,6 +380,19 @@ export function useSSE({
             return prev
           })
         }
+        // The user sent a chat follow-up instead of answering — retire
+        // the question card as "you replied instead" (not "answered"):
+        // drop the pending banner and mark the question item interrupted.
+        if (data.type === 'task_question_interrupted') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setPendingQuestions(prev =>
+              prev && prev.request_id === data.request_id ? null : prev)
+            setConversationItems(items => items.map(it =>
+              it.type === 'question' && it.questions?.request_id === data.request_id
+                ? { ...it, questionInterrupted: true }
+                : it))
+          }
+        }
         // Image generation: the agent's tool call is paused server-side
         // waiting for the user to review/edit the prompt+model. Append a
         // confirm card; when the generated image arrives, mark the card
@@ -410,6 +423,18 @@ export function useSSE({
             setConversationItems(items => items.map(it =>
               it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
                 ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, expired: true, generating: false } }
+                : it))
+          }
+        }
+        // User sent a chat message instead of confirming — retire the
+        // card (non-actionable) with a truthful "you replied instead"
+        // footer; the image was NOT generated. Distinct from _expired
+        // (which means a newer request replaced it).
+        if (data.type === 'image_request_interrupted') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setConversationItems(items => items.map(it =>
+              it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
+                ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, interrupted: true, generating: false } }
                 : it))
           }
         }

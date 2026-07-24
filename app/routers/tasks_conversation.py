@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.profiles import DEFAULT_PROFILE_ID
@@ -47,7 +48,7 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
-from app.workspace.manager import workspace_manager
+from app.workspace.manager import reset_task_runtime_state, workspace_manager
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +214,15 @@ async def send_task_message(
             'profile_switched': is_profile_switch,
             'woken': True,
         }
+
+    # A follow-up while the agent is PARKED awaiting the user — a
+    # shown-but-not-generating confirm card, or a pending AskUserQuestion
+    # — INTERRUPTS the gate so the message reaches the agent now instead
+    # of buffering behind the blocked tool (neither fires once real work
+    # resumes). The message is delivered below as the agent's next turn.
+    if not is_profile_switch:
+        await vision.interrupt_pending_confirm(task_id)
+        await agent_manager.interrupt_pending_question(task_id)
 
     # Check if agent is running and handle profile switch or send message
     if agent_manager.is_running(task_id):
@@ -668,6 +678,11 @@ async def retry_task(
     )
     await db.execute(delete(TaskLog).where(TaskLog.task_id == task_id))
 
+    # Retry = a truly fresh start: wipe on-disk runtime state (workspace +
+    # Claude Code's per-task Task/todo store + project transcripts) so a
+    # prior run's todos/refs can't leak into the new session. See helper.
+    reset_task_runtime_state(task_id)
+
     store = None
     if task.store_id:
         store = await db.get(Store, task.store_id)
@@ -684,15 +699,9 @@ async def retry_task(
     task.todos = None
     task.wait_condition = None
     task.session_id = None
-    # Clear run-scoped timestamps — without this, retrying a
-    # COMPLETED task (RETRIABLE includes COMPLETED) leaves the
-    # previous run's started_at + completed_at in the row during
-    # the window between dispatch and the new run's first state
-    # write, so the UI shows a misleading duration mid-retry.
-    # auto_run_task overwrites started_at unconditionally on the
-    # PENDING→RUNNING transition, but execute_planned_task's
-    # session-resume branch uses ``task.started_at or now()``
-    # which would preserve a stale value if we leave one here.
+    # Clear run-scoped timestamps so a retried COMPLETED task doesn't show
+    # the previous run's duration mid-retry (execute_planned_task's resume
+    # branch uses ``task.started_at or now()``, preserving a stale value).
     task.started_at = None
     task.completed_at = None
 
