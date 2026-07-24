@@ -39,6 +39,17 @@ describe('ImageRequestCard generating state', () => {
     expect(screen.getByTestId('image-confirm-btn')).toBeInTheDocument()
     expect(screen.queryByTestId('image-card-generating')).toBeNull()
   })
+
+  it('shows a truthful "you replied instead" footer when interrupted', () => {
+    render(<ImageRequestCard {...base} resolved interrupted generating={false} />)
+    const footer = screen.getByTestId('image-card-footer')
+    // The interrupted key (t returns the key in these tests), NOT the
+    // misleading "expired/replaced by a newer request" copy.
+    expect(footer.textContent).toContain('vision.interrupted')
+    expect(footer.textContent).not.toContain('vision.expired')
+    // Non-actionable: no confirm/cancel buttons remain.
+    expect(screen.queryByTestId('image-confirm-btn')).toBeNull()
+  })
 })
 
 describe('ImageRequestCard model selector', () => {

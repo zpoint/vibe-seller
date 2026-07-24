@@ -174,6 +174,9 @@ export interface ConversationItem {
     kind?: string
     resolved?: boolean
     expired?: boolean
+    // The user sent a chat message instead of confirming — the card is
+    // retired (non-actionable) and the image was NOT generated.
+    interrupted?: boolean
     // Confirmed and the image is actively generating (kie.ai poll,
     // ~1-2 min). Drives the "generating…" state in ImageRequestCard.
     generating?: boolean

@@ -135,6 +135,7 @@
     "chatPlaceholder": "输入消息给 AI...",
     "send": "发送",
     "queuedWhileWorking": "智能体正在工作——你的消息将在当前步骤完成后发送。",
+    "redirectWhileWaiting": "智能体正在等你——你的消息会立即调整它的下一步。",
     "executionPlan": "执行计划",
     "agentChat": "工作会话",
     "agentStarting": "AI 启动中...",
@@ -822,6 +823,7 @@
     "uploading": "上传中…",
     "dropHint": "拖拽图片到此处，或点击上传参考图",
     "expired": "已过期——已被下方更新的请求替代",
+    "interrupted": "你改为发送了消息——未生成此图",
     "generating": "正在生成图片…大约需要 1–2 分钟"
   }
 }

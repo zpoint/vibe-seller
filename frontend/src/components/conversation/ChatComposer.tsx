@@ -16,6 +16,10 @@ interface ChatComposerProps {
   hasContent: boolean
   canSend: boolean
   isActive: boolean
+  /** The agent is parked awaiting the user (image confirm card shown but
+   *  not generating, or a question pending) — a follow-up REDIRECTS it
+   *  now instead of queueing behind a running step. */
+  awaitingUser?: boolean
   onSend: () => void
   onStop: () => void
   placeholder: string
@@ -27,8 +31,8 @@ interface ChatComposerProps {
  *  and only reach the agent when the user sends. */
 export function ChatComposer({
   fileInputRef, uploading, uploadFiles, attachments, onRemoveAttachment,
-  inputRef, input, setInput, hasContent, canSend, isActive, onSend, onStop,
-  placeholder,
+  inputRef, input, setInput, hasContent, canSend, isActive, awaitingUser,
+  onSend, onStop, placeholder,
 }: ChatComposerProps) {
   const { t } = useTranslation()
   return (
@@ -36,10 +40,16 @@ export function ChatComposer({
       {/* Staged attachment chips (thumbnails, not paths) */}
       <AttachmentChips attachments={attachments} onRemove={onRemoveAttachment} />
 
-      {/* While the agent is working, a follow-up is queued and delivered
-       *  when the current step finishes (it can't interrupt a running
-       *  tool such as image generation) — set that expectation. */}
-      {isActive && hasContent && (
+      {/* Two distinct expectations:
+       *  - awaiting the user (confirm card / question) → the message
+       *    REDIRECTS the agent right now.
+       *  - actively working → the message queues until the current step
+       *    (e.g. image generation) finishes. */}
+      {awaitingUser && hasContent ? (
+        <div className="text-[11px] text-indigo-500" data-testid="chat-redirect-hint">
+          {t('tasks.redirectWhileWaiting')}
+        </div>
+      ) : isActive && hasContent && (
         <div className="text-[11px] text-gray-400" data-testid="chat-queued-hint">
           {t('tasks.queuedWhileWorking')}
         </div>

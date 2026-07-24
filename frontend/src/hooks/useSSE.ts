@@ -413,6 +413,18 @@ export function useSSE({
                 : it))
           }
         }
+        // User sent a chat message instead of confirming — retire the
+        // card (non-actionable) with a truthful "you replied instead"
+        // footer; the image was NOT generated. Distinct from _expired
+        // (which means a newer request replaced it).
+        if (data.type === 'image_request_interrupted') {
+          if (selectedTaskIdRef.current === data.task_id) {
+            setConversationItems(items => items.map(it =>
+              it.type === 'image_request' && it.imageRequest?.requestId === data.request_id
+                ? { ...it, imageRequest: { ...it.imageRequest!, resolved: true, interrupted: true, generating: false } }
+                : it))
+          }
+        }
         // User confirmed; the (minutes-long) generation is now running.
         // Flip the card into a "generating…" state so the user sees real
         // progress instead of the generic "agent is working" spinner.

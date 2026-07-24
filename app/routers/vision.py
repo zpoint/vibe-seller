@@ -171,6 +171,19 @@ async def generate_task_image(
                 'Do NOT retry it — the newer request is the live one.'
             ),
         }
+    if decision.get('action') == 'interrupted':
+        # The user sent a chat message instead of confirming the card.
+        # The message arrives as the next user turn; the agent should
+        # read it and act, not proceed with the un-confirmed proposal.
+        return {
+            'status': 'interrupted',
+            'message': (
+                'The user sent a message instead of confirming this '
+                'image — do NOT generate the proposed image. Read the '
+                "user's next message and act on it; re-propose an image "
+                'only if that still fits what they now want.'
+            ),
+        }
     if decision.get('action') != 'confirm':
         return {
             'status': 'cancelled',

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.profiles import DEFAULT_PROFILE_ID
@@ -213,6 +214,15 @@ async def send_task_message(
             'profile_switched': is_profile_switch,
             'woken': True,
         }
+
+    # A follow-up sent while the agent is PARKED on the image confirm card
+    # (shown, not yet generating) must interrupt the gate so it reaches the
+    # agent now instead of buffering behind the blocked generate tool. Only
+    # fires during the interruptible wait — once generating, there is no
+    # pending confirm. (A pending AskUserQuestion is handled client-side:
+    # the composer routes the message through the free-text answer channel.)
+    if not is_profile_switch:
+        await vision.interrupt_pending_confirm(task_id)
 
     # Check if agent is running and handle profile switch or send message
     if agent_manager.is_running(task_id):

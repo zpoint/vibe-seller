@@ -8,6 +8,7 @@ import { StatusBadge } from '../components/ui'
 import { ConversationStream } from '../components/conversation/ConversationStream'
 import { useChatUploads } from '../hooks/useChatUploads'
 import { ChatComposer } from '../components/conversation/ChatComposer'
+import { composerSendKind, isAwaitingUser } from '../handlers/composerGate'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -201,6 +202,22 @@ export function TasksView({
   const isActive = taskCfg?.isActive ?? false
   // A message may be text-only, attachment-only, or both.
   const hasText = chatInput.trim().length > 0 || chatAttachments.length > 0
+
+  // The agent is parked awaiting the user (live confirm card, or a
+  // pending question) → a follow-up REDIRECTS it rather than queueing.
+  const awaitingUser = isAwaitingUser(conversationItems, !!pendingQuestions)
+
+  // During a pending question a composer message IS the answer — route it
+  // through the free-text answer channel; otherwise send normally (the
+  // image confirm gate is interrupted server-side by POST /messages).
+  const onComposerSend = () => {
+    if (composerSendKind(!!pendingQuestions, chatInput) === 'answer') {
+      submitAllAnswers({ _free_text: chatInput.trim() })
+      setChatInput('')
+      return
+    }
+    sendChatMessage()
+  }
 
   // Placeholder changes by state
   const getPlaceholder = () => {
@@ -718,7 +735,8 @@ export function TasksView({
                 uploadFiles={uploadChatFiles} attachments={chatAttachments}
                 onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
                 input={chatInput} setInput={setChatInput} hasContent={hasText}
-                canSend={canSend} isActive={isActive} onSend={sendChatMessage}
+                canSend={canSend} isActive={isActive} awaitingUser={awaitingUser}
+                onSend={onComposerSend}
                 onStop={stopAgent} placeholder={getPlaceholder()}
               />
               </div>

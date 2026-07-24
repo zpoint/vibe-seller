@@ -30,6 +30,7 @@ from pathlib import Path
 import httpx
 
 from app.config import VIBE_SELLER_DIR
+from app.events.bus import event_bus
 
 VISION_CONFIG_PATH = VIBE_SELLER_DIR / 'vision.json'
 
@@ -408,6 +409,26 @@ def discard_confirm(request_id: str, task_id: str | None = None) -> None:
     _pending_payload.pop(request_id, None)
     if task_id and _pending_by_task.get(task_id) == request_id:
         _pending_by_task.pop(task_id, None)
+
+
+async def interrupt_pending_confirm(task_id: str) -> bool:
+    """Retire a pending confirm card when the user replies instead of
+    confirming. Resolves the parked future as ``interrupted`` (so the
+    blocked ``generate`` tool returns at once, telling the agent to read
+    the user's message rather than generate the proposal) and emits
+    ``image_request_interrupted`` so the card shows a truthful, retired
+    footer — distinct from ``image_request_expired`` (replaced by a newer
+    request). No-op (returns False) if nothing is pending, i.e. the image
+    is already generating or there was never a card."""
+    pending = get_pending_request(task_id)
+    if not pending:
+        return False
+    resolve_confirm(pending['request_id'], {'action': 'interrupted'})
+    await event_bus.emit(
+        'image_request_interrupted',
+        {'task_id': task_id, 'request_id': pending['request_id']},
+    )
+    return True
 
 
 # ───────────────────────── kie.ai client ──────────────────────

@@ -15,6 +15,7 @@ interface ImageRequestCardProps {
   kind?: string
   resolved?: boolean
   expired?: boolean
+  interrupted?: boolean
   generating?: boolean
   onDecision: (
     requestId: string,
@@ -48,6 +49,7 @@ export function ImageRequestCard({
   kind,
   resolved,
   expired,
+  interrupted,
   generating,
   onDecision,
 }: ImageRequestCardProps) {
@@ -226,7 +228,11 @@ export function ImageRequestCard({
             data-testid="image-card-footer"
             className="px-4 py-2 bg-gray-50 border-t border-gray-100 text-xs text-gray-400"
           >
-            {expired ? t('vision.expired') : t('vision.handled')}
+            {interrupted
+              ? t('vision.interrupted')
+              : expired
+                ? t('vision.expired')
+                : t('vision.handled')}
           </div>
         )
       )}

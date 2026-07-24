@@ -135,6 +135,7 @@
     "chatPlaceholder": "Type a message to the AI...",
     "send": "Send",
     "queuedWhileWorking": "The agent is working — your message will be sent when the current step finishes.",
+    "redirectWhileWaiting": "The agent is waiting for you — your message will redirect it right away.",
     "executionPlan": "Execution Plan",
     "agentChat": "Agent Session",
     "agentStarting": "Agent starting...",
@@ -820,6 +821,7 @@
     "uploading": "Uploading…",
     "dropHint": "Drag an image here or click to add a reference",
     "expired": "Expired — replaced by a newer request below",
+    "interrupted": "You replied instead — this image wasn't generated",
     "generating": "Generating image… this can take 1–2 minutes"
   }
 }
