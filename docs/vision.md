@@ -38,7 +38,9 @@ kie.ai's pricing API + docs (2026-07); refresh manually.
 
 Providers/models (image-to-image, tiers in parens): Google — Nano Banana
 Pro (2K/4K), Nano Banana 2 (1K/2K/4K), Nano Banana Edit; OpenAI — GPT
-Image 2 (1K/2K/4K), GPT Image 1.5 (Medium/High); ByteDance — Seedream 5
+Image 2 (1K/2K/4K), GPT Image 1.5 (Medium — cheapest OpenAI; its High
+tier is omitted as it costs more than the newer, better GPT Image 2·4K);
+ByteDance — Seedream 5
 Pro (Basic/High), Seedream 4.5; Black Forest — Flux-2 Pro (1K/2K), Flux 2
 Flex (1K/2K); Qwen — Image Edit; Ideogram — V3 Remix (Turbo/Balanced/
 Quality). Pure utilities (Recraft bg-removal, Topaz upscale) are
