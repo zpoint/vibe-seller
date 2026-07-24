@@ -18,7 +18,8 @@ stdin only when the turn is provably quiescent:
 - an accepted result exists for the current turn, AND
 - the review/exec gates pass (same composite the result branch uses),
   AND
-- no tracked async subagents are pending, AND
+- no tracked async work (subagents OR background shell commands) is
+  pending, AND
 - no stream/stdin activity for the linger window (tiered: longer when
   async subagents were launched this process — late notifications and
   NESTED subagent spawns are invisible to tracking and need the
@@ -111,7 +112,7 @@ class _TurnLifecycleMixin:
         if not self._turn_result_seen:
             return 'no_accepted_result'
         if self._async_agents:
-            return 'async_subagents_running'
+            return 'async_work_running'  # subagents and/or bg shells
         if self._review_redrive_count < REVIEW_REDRIVE_MAX:
             gate = check_review_status_for_stop(
                 self.task_dir,
