@@ -39,6 +39,12 @@ Each subscriber gets its own `asyncio.Queue`. Events are JSON-serialized with `t
 | `task_message` | `task_id`, `role`, `content` | `claude_backend.py` |
 | `task_todos` | `task_id`, `todos[]` | `claude_backend.py` |
 | `task_questions` | `task_id`, `request_id`, `questions[]` | `claude_backend.py` |
+| `task_question_interrupted` | `task_id`, `request_id` | `claude_backend_manager.py` |
+| `image_request` | `task_id`, `request_id`, `prompt`, `model`, `models[]`, `reference_images[]`, `output_name`, `kind` | `routers/vision.py` |
+| `image_generating` | `task_id`, `request_id`, `model`, `kind` | `routers/vision.py` |
+| `image_generated` | `task_id`, `request_id`, `path`, `url`, `prompt`, `model`, `kind` | `routers/vision.py` |
+| `image_request_expired` | `task_id`, `request_id` | `routers/vision.py` |
+| `image_request_interrupted` | `task_id`, `request_id` | `vision.py` |
 | `agent_done` | `task_id`, `return_code`, `mode?` | `claude_backend.py` |
 | `event_created` | `event_id`, `title`, `status` | `events.py`, `channels.py` |
 | `event_updated` | `event_id`, `status`, `old_status?` | `events.py` |
@@ -79,6 +85,27 @@ Emitted in addition to the standard `task_update` stream:
 - **`schedule_plan_timeout`** — `plan_reaper.py` failed a schedule stuck in `plan_status='planning'` whose planner Task was idle past the threshold.
 
 All four are emitted **after** the DB commit so consumers never observe an event for state that isn't yet persisted.
+
+### Image confirm-gate lifecycle
+
+The `vibe_seller_generate_image` MCP tool is confirm-gated: every call
+emits `image_request` and blocks until the user acts, so the model can
+never generate without confirmation. One task shows at most one live
+card at a time.
+
+- **`image_request`** — a card is proposed; the tool is parked on a
+  per-request future waiting for the user to confirm/edit/cancel.
+- **`image_generating`** → **`image_generated`** — the user confirmed;
+  the kie.ai call runs (can take a minute) then the saved image lands.
+- **`image_request_expired`** — a *newer* image request superseded this
+  one (agent retry / task retry). The old card is retired; the newer
+  request is the live one.
+- **`image_request_interrupted`** — the user sent a chat message instead
+  of confirming. The parked tool returns at once telling the agent to
+  read that message rather than generate the un-confirmed proposal. This
+  is distinct from `expired`: nothing replaced the card — the user
+  redirected. `task_question_interrupted` is the exact analogue for a
+  pending `AskUserQuestion` retired by a chat follow-up.
 
 ### Question Format
 
