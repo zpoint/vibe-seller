@@ -224,7 +224,7 @@ async def test_fake_png_is_png(monkeypatch):
     monkeypatch.setenv('VISION_FAKE', '1')
     data = await vision.generate_image(
         prompt='test',
-        model='nano-banana-pro',
+        model='nano-banana-pro-2k',
         reference_images=[],
         task_dir=None,  # unused in fake mode
     )
