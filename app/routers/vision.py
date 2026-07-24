@@ -139,19 +139,21 @@ async def generate_task_image(
         )
 
     request_id = uuid.uuid4().hex
-    fut = vision.create_confirm(request_id, task_id)
+    card = {
+        'prompt': prompt,
+        'model': model,
+        'models': vision.catalog_public(),
+        'reference_images': reference_images,
+        'output_name': output_name,
+        'kind': kind,
+    }
+    # Keep the card payload so a client that opens the task AFTER this
+    # event fires can recover the confirm via GET …/image/pending — the
+    # recovered card carries the same catalog as the live SSE event.
+    fut = vision.create_confirm(request_id, task_id, card)
     await event_bus.emit(
         'image_request',
-        {
-            'task_id': task_id,
-            'request_id': request_id,
-            'prompt': prompt,
-            'model': model,
-            'models': vision.catalog_public(),
-            'reference_images': reference_images,
-            'output_name': output_name,
-            'kind': kind,
-        },
+        {'task_id': task_id, 'request_id': request_id, **card},
     )
 
     # NO timeout — mirror AskUserQuestion: the tool call simply waits
@@ -291,6 +293,24 @@ async def confirm_task_image(
             detail='No pending image request (expired or already handled)',
         )
     return {'ok': True}
+
+
+@router.get('/tasks/{task_id}/image/pending')
+async def get_pending_image_request(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Recover the pending image-confirm card for a task.
+
+    The confirm gate emits ``image_request`` once over SSE, then the tool
+    blocks on a future until the user confirms. A client that opens the
+    task AFTER that event (reload, other tab, headless start) never saw
+    the card and the task would appear stuck. The frontend calls this on
+    load to re-render the card (mirrors ``/questions/pending``)."""
+    req = vision.get_pending_request(task_id)
+    if not req:
+        return {'pending': False}
+    return {'pending': True, **req}
 
 
 # ─────────────────── upload a reference image ─────────────────

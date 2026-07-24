@@ -337,19 +337,42 @@ def is_fake() -> bool:
 
 _pending_confirms: dict[str, asyncio.Future] = {}
 _pending_by_task: dict[str, str] = {}  # task_id -> request_id
+# request_id -> card payload (prompt/model/models/reference_images/…), so
+# the confirm card can be re-served when a client opens the task AFTER the
+# image_request SSE already fired (the tool blocks on the future until the
+# user confirms; without this the card is unrecoverable on reconnect).
+_pending_payload: dict[str, dict] = {}
 
 
-def create_confirm(request_id: str, task_id: str) -> asyncio.Future:
+def create_confirm(
+    request_id: str, task_id: str, payload: dict | None = None
+) -> asyncio.Future:
     """Register a pending confirmation and return its future.
 
-    Returns the request_id of a superseded prior request via
-    ``supersede_pending`` — call that first (it needs the event loop
-    running) if you want to notify the frontend.
+    ``payload`` is the card data (prompt/model/models/reference_images/
+    output_name/kind) kept so ``get_pending_request`` can re-serve the
+    card on reconnect. Returns the request_id of a superseded prior
+    request via ``supersede_pending`` — call that first (it needs the
+    event loop running) if you want to notify the frontend.
     """
     fut: asyncio.Future = asyncio.get_event_loop().create_future()
     _pending_confirms[request_id] = fut
     _pending_by_task[task_id] = request_id
+    _pending_payload[request_id] = payload or {}
     return fut
+
+
+def get_pending_request(task_id: str) -> dict | None:
+    """The still-pending confirm card for ``task_id`` (payload + id), or
+    None. Lets a client that connected after the ``image_request`` event
+    recover the card instead of the task blocking forever."""
+    req_id = _pending_by_task.get(task_id)
+    if not req_id:
+        return None
+    fut = _pending_confirms.get(req_id)
+    if fut is None or fut.done():
+        return None
+    return {'request_id': req_id, **_pending_payload.get(req_id, {})}
 
 
 def supersede_pending(task_id: str) -> str | None:
@@ -378,6 +401,7 @@ def resolve_confirm(request_id: str, payload: dict) -> bool:
 
 def discard_confirm(request_id: str, task_id: str | None = None) -> None:
     _pending_confirms.pop(request_id, None)
+    _pending_payload.pop(request_id, None)
     if task_id and _pending_by_task.get(task_id) == request_id:
         _pending_by_task.pop(task_id, None)
 
