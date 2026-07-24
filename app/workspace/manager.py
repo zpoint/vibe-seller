@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 from pathlib import Path
+import re
 import shutil
 import time
 
@@ -630,3 +631,62 @@ def reset_task_runtime_state(task_id: str) -> None:
     )
     cwd_key = str(task_dir).replace('/', '-').replace('.', '-')
     shutil.rmtree(claude_home / 'projects' / cwd_key, ignore_errors=True)
+
+
+# A background shell command's start marker in the transcript. Claude
+# Code auto-backgrounds any Bash that exceeds its blocking budget (a slow
+# ``find`` over a big tree is the classic case) and stamps it with an id.
+_BG_START_RE = re.compile(
+    r'backgroundTaskId"\s*:\s*"([\w-]+)"'
+    r'|(?:moved to the background|running in background'
+    r'|backgrounded by user) with ID: ([\w-]+)'
+)
+# A completed/stopped background task carries its id inside a
+# ``<task-notification>`` block; an orphan (killed by teardown) never does.
+_TASK_NOTIFY_ID_RE = re.compile(r'<task-id>([\w-]+)</task-id>')
+
+
+def _session_transcript_path(task_id: str, session_id: str) -> Path:
+    """Where Claude Code stores this session's transcript.
+
+    Keyed by the workspace CWD (each ``/`` and ``.`` → ``-``), matching
+    ``reset_task_runtime_state``.
+    """
+    task_dir = VIBE_SELLER_DIR / 'tasks' / task_id
+    claude_home = Path(
+        os.environ.get('CLAUDE_CONFIG_DIR') or (Path.home() / '.claude')
+    )
+    cwd_key = str(task_dir).replace('/', '-').replace('.', '-')
+    return claude_home / 'projects' / cwd_key / f'{session_id}.jsonl'
+
+
+def session_has_orphaned_bg_task(task_id: str, session_id: str | None) -> bool:
+    """True if the prior session left a background shell command running.
+
+    Resuming such a session with ``claude --resume`` makes Claude Code
+    inject a background-task reconciliation ``<task-notification>`` into
+    the input queue. When that lands in the same instant as a user
+    follow-up (the resume prompt), the CLI aborts the turn's tool calls
+    (``CANCEL_MESSAGE``) — so e.g. a confirm-gated ``generate_image``
+    dies *before* reaching its gate and the follow-up silently does
+    nothing. The caller uses this to start a FRESH session (seeded with
+    compacted history) instead of resuming, so no reconciliation fires.
+
+    An orphan = a background-start id in the transcript with no matching
+    ``<task-notification>`` (a cleanly-finished task always has one; a
+    task killed by our process-group teardown never does). Best-effort:
+    any read/parse failure returns False (resume as normal).
+    """
+    if not session_id:
+        return False
+    path = _session_transcript_path(task_id, session_id)
+    try:
+        text = path.read_text(encoding='utf-8', errors='ignore')
+    except OSError:
+        return False
+    started = {a or b for a, b in _BG_START_RE.findall(text)}
+    started.discard('')
+    if not started:
+        return False
+    notified = set(_TASK_NOTIFY_ID_RE.findall(text))
+    return bool(started - notified)
