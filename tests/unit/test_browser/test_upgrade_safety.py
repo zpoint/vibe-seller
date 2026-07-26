@@ -80,9 +80,7 @@ class TestWipeStaleWrappers:
         assert '--cdp-url "$WS"' not in content  # old injection gone
 
     def test_no_bin_dir_is_noop(self, tmp_path: Path):
-        with mock.patch(
-            'app.browser.wrapper._BIN_DIR', tmp_path / 'missing'
-        ):
+        with mock.patch('app.browser.wrapper._BIN_DIR', tmp_path / 'missing'):
             assert _wipe_generated_wrappers() == 0
 
 
