@@ -49,6 +49,32 @@ from app.models.user import User  # noqa: E402
 # trying to connect to a server that doesn't exist.
 
 
+@pytest.fixture(autouse=True)
+def _isolate_wrapper_bin_dir(tmp_path_factory, monkeypatch):
+    """Keep wrapper writes/reaps out of the developer's real
+    ``~/.vibe-seller/bin/``.
+
+    Workflow tests create stores through the real ``BrowserManager``
+    (e.g. "Retry Test Store"), which generates a wrapper on disk. With
+    no isolation those landed in the developer's live bin dir and
+    *stayed* — orphan wrappers for stores that never existed outside a
+    test run, each pinning a frozen ``proxy_port`` that a real store can
+    later be allocated. Boot-time reaping is worse: it deletes, and a
+    test DB holds only its own stores, so a reap aimed at a real bin dir
+    wipes the wrappers of stores an actual task is using right now
+    (observed — it removed every live store's wrapper mid-run).
+
+    Both directions are the same bug: the suite must not share this
+    mutable state with the machine it runs on.
+    """
+    bin_dir = tmp_path_factory.mktemp('vs_bin')
+    monkeypatch.setattr('app.browser.wrapper._BIN_DIR', bin_dir, raising=False)
+    monkeypatch.setattr(
+        'app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir, raising=False
+    )
+    return bin_dir
+
+
 def pytest_addoption(parser):
     parser.addoption(
         '--e2e',

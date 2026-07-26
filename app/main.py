@@ -29,6 +29,7 @@ from app.events_system.backends import (  # registers backends
     dida365 as dida365,
     google_calendar as google_calendar,
 )
+from app.logging_setup import build_file_handler
 from app.models.app_settings import AppSettings
 from app.models.schedule import Schedule
 from app.models.store import Store
@@ -87,7 +88,8 @@ logging.basicConfig(
     level=_log_level,
     format='%(asctime)s %(name)s %(levelname)s %(message)s',
     handlers=[
-        logging.FileHandler(str(log_file)),
+        # Bounded: DEBUG level (--dev) grew this to 5 GB unrotated.
+        build_file_handler(log_file),
         logging.StreamHandler(),
     ],
 )

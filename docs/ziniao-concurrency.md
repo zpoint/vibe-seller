@@ -12,7 +12,12 @@
   (proven against the official demo: 4/4 stores opened at once).
 - Ziniao's `startBrowser` is **flaky**: it sometimes returns a
   `debuggingPort` whose DevTools endpoint never initialises — a
-  nondeterministic, **per-store** "stale launch".
+  nondeterministic, **per-store** "stale launch". A second shape of the
+  same flake: the port *does* bind, but Ziniao's own SBP layer never
+  injects into the env's pages — no account auto-fill, no
+  `紫鸟验证码服务` OTP panel, no `已托管账号Passkey` overlay, and
+  `navigator.webdriver` left unmasked at `true`. Both shapes are treated
+  as a stale launch (see § The fix, item 1).
 - Our old recovery for a stale launch was `kill_and_relaunch_ziniao()` →
   **`pkill -9` on the entire Ziniao client**. Under a multi-store fan-out
   that meant recovering one store **destroyed every other store's live
@@ -137,6 +142,18 @@ Implemented in `app/browser/ziniao.py` + `app/browser/ziniao_utils.py`:
    `startBrowser` (bounded, `MAX_ZINIAO_ATTEMPTS`). It never calls
    `kill_and_relaunch_ziniao`. If all attempts stale, it raises for **this
    store only** — peers are untouched; the task can be retried/re-queued.
+
+   Readiness is **two gates**, both on the raw Ziniao port before the mux
+   is built. `_cdp_port_reachable` proves *Chrome* is up;
+   `_instrumentation_live` proves *Ziniao* is. The second evaluates
+   `navigator.webdriver === true` on a real http(s) page — a positive
+   read means SBP never injected, so the env has no auto-fill/OTP/passkey
+   and leaks automation to the platform (which then bounces every page to
+   the login wall). A port-only gate waved that env through and handed an
+   agent a browser it could not log in with. The instrumentation gate is
+   deliberately **fail-open**: only a positive `webdriver === true` is a
+   verdict; unreachable, eval error, or no-page-yet all pass, so a probe
+   bug can never become a store-wide outage.
 2. **Graceful-first client restart.** `kill_and_relaunch_ziniao` (still
    used by the *user-initiated* force-restart endpoints) now tries the
    `exit` action first and only falls back to `pkill -9` if the client
@@ -148,6 +165,21 @@ Implemented in `app/browser/ziniao.py` + `app/browser/ziniao_utils.py`:
    (added in the self-heal PR) previously called the global kill; it now
    re-opens only its own store (`stopBrowser` + `startBrowser`) to obtain
    a fresh `debuggingPort`, never restarting the shared client.
+5. **The per-store relaunch is budgeted.** Per-store is necessary but not
+   sufficient: `BrowserManager.start_session` also relaunches a store's
+   whole env whenever its mux looks dead, and the wrapper can reach that
+   path on *every* `browser-use` call. With the client wedged, each
+   relaunch fails the same way, so the recovery became its own storm —
+   three stores cycling stop/start every ~20 s for five minutes, which
+   hammered the shared client until it hung and left every agent on a
+   freshly-wiped, logged-out browser. `_note_relaunch` bounds it to
+   `VIBE_BROWSER_RELAUNCH_MAX` per `VIBE_BROWSER_RELAUNCH_WINDOW_S` per
+   store (cleared on a healthy launch), and `backend.start()` is capped by
+   `VIBE_BROWSER_START_TIMEOUT_S` — `start_session` holds a **global**
+   lock (deliberate: it serializes `startBrowser` so the shared client
+   isn't hit concurrently), so an unbounded per-store retry loop starves
+   every other store's launch. One broken store now fails fast instead of
+   taking the machine with it.
 
 Net effect: Ziniao's real concurrency is preserved, the unavoidable
 per-store flake is isolated to a retry (not an outage), and no store's
@@ -176,6 +208,22 @@ that port never binds (`/json/version` unreachable), so every task fails at
 browser launch. Chrome may even spawn (process visible) yet its
 remote-debugging port never comes up. The official `ziniao_webdriver_demo`
 fails identically — a fast way to confirm it's the client, not our code.
+
+**Second symptom, same root cause:** the port binds and `/json/version`
+answers, but the env comes up uninstrumented — log line `Ziniao env on
+…:… came up WITHOUT its instrumentation (SBP not injected…)`. To the user
+this looks identical (every task fails at browser launch), but the
+diagnosis differs. Confirm by hand on the store's raw debug port:
+
+```bash
+# 'true' means SBP did not inject — an anti-detect browser must mask this.
+curl -s "http://127.0.0.1:<raw_cdp_port>/json/list"   # pick a page target
+# then Runtime.evaluate `navigator.webdriver` over its webSocketDebuggerUrl
+```
+
+A wedged client can also present as `/json/version` accepting the TCP
+connection and then never responding (curl hangs to timeout) — that is
+the same wedge, not a slow machine.
 
 **Root cause (the real one):** `pkill -9` on a Ziniao Chrome leaves stale
 **`SingletonLock` / `SingletonSocket` / `SingletonCookie`** files in that

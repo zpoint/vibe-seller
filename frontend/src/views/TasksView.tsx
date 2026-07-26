@@ -728,8 +728,7 @@ export function TasksView({
                 onRemoveAttachment={removeAttachment} inputRef={chatInputRef}
                 input={chatInput} setInput={setChatInput} hasContent={hasText}
                 canSend={canSend} isActive={isActive} awaitingUser={awaitingUser}
-                onSend={sendChatMessage}
-                onStop={stopAgent} placeholder={getPlaceholder()}
+                onSend={sendChatMessage} placeholder={getPlaceholder()}
               />
               </div>
             </div>

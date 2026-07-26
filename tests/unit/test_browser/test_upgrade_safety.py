@@ -86,6 +86,77 @@ class TestWipeStaleWrappers:
             assert _wipe_generated_wrappers() == 0
 
 
+class TestWipeOrphanedWrappers:
+    """A wrapper must not outlive the store it was generated for.
+
+    Version-only reaping kept current-format wrappers forever, including
+    ones for deleted stores. Those hold a FROZEN proxy_port, and ports
+    are re-allocated from the base every boot — so the number eventually
+    lands on a live store. The orphan then finds the port already up,
+    skips the start API (its dead store_id never 404s) and points
+    BU_CDP_WS at another store's browser: wrong account, wrong downloads
+    dir. Same cross-store hole wrapper v3 closed for aux sessions.
+    """
+
+    @staticmethod
+    def _write_current(bin_dir: Path, slug: str, store_id: str) -> Path:
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
+            write_browser_use_wrapper(slug, 'ziniao', 9227, store_id=store_id)
+        return bin_dir / slug / 'browser-use'
+
+    def test_orphan_reaped_live_store_kept(self, tmp_path: Path):
+        bin_dir = tmp_path / 'bin'
+        live = self._write_current(bin_dir, 'live-store', 'store-live')
+        orphan = self._write_current(bin_dir, 'dead-store', 'store-dead')
+        assert f'{WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}' in (
+            orphan.read_text()
+        )  # current format — version alone would never reap it
+
+        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+            removed = _wipe_generated_wrappers({'store-live'})
+
+        assert removed == 1
+        assert live.exists(), 'live store wrapper must survive a restart'
+        assert not orphan.exists(), 'deleted store wrapper must be reaped'
+        assert not orphan.parent.exists(), 'empty dir should go too'
+
+    def test_no_live_ids_means_version_only(self, tmp_path: Path):
+        """Omitting the arg keeps the old behaviour — callers without a
+        DB must never trigger a mass orphan-reap."""
+        bin_dir = tmp_path / 'bin'
+        w = self._write_current(bin_dir, 'some-store', 'store-x')
+        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+            assert _wipe_generated_wrappers() == 0
+        assert w.exists()
+
+    def test_empty_live_set_never_reaps(self, tmp_path: Path):
+        """No stores loaded reads as 'wrong/unloaded DB', not 'delete
+        everything'. Guard against a caller handing us an empty set
+        while a real task is using those wrappers."""
+        bin_dir = tmp_path / 'bin'
+        w = self._write_current(bin_dir, 'live-store', 'store-live')
+        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+            assert _wipe_generated_wrappers(set()) == 0
+        assert w.exists()
+
+    def test_unattributable_wrapper_is_kept(self, tmp_path: Path):
+        """No parseable store id (e.g. the store-less `_web` wrapper) →
+        fail safe and keep it, even with an empty live set."""
+        bin_dir = tmp_path / 'bin'
+        d = bin_dir / '_web'
+        d.mkdir(parents=True)
+        w = d / 'browser-use'
+        w.write_text(
+            '#!/usr/bin/env bash\n'
+            '# Auto-generated browser-use wrapper for store: _web\n'
+            f'# {WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}\n'
+            'curl http://127.0.0.1:7777/api/browser/web/start\n'
+        )
+        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+            assert _wipe_generated_wrappers(set()) == 0
+        assert w.exists()
+
+
 class TestVersionAssertion:
     def test_warns_on_old_version(self, caplog):
         with mock.patch('app.browser.manager.version', return_value='0.12.6'):

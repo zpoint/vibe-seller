@@ -110,6 +110,57 @@ class TestSubmitStatus:
             task = await db.get(Task, 'task-1')
             assert task.status == TaskStatus.QUEUED
 
+    async def test_submit_failed_becomes_queued(
+        self, db_session, store_and_task
+    ):
+        """Retry must actually re-enqueue. FAILED is in ``STARTABLE`` so
+        ``POST /tasks/{id}/start`` accepts it, but while submit() left the
+        row FAILED the spawn was silently dropped by ``_on_start`` (which
+        only starts from PLANNED/QUEUED/RUNNING) — retry looked like it
+        worked and did nothing."""
+        await store_and_task(status=TaskStatus.FAILED)
+        scheduler = TaskQueueScheduler()
+
+        with (
+            patch('app.scheduler.task_queue.async_session', db_session),
+            patch('app.scheduler.task_queue.event_bus', new_callable=AsyncMock),
+        ):
+            await scheduler.submit('task-1', 'store-1')
+
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            assert task.status == TaskStatus.QUEUED
+
+    async def test_submit_clears_previous_run_error(
+        self, db_session, store_and_task
+    ):
+        """A retry must not carry the last run's error forward.
+
+        `task.error` is a terminal-run artifact but every consumer reads
+        it as current — the detail panel renders a red banner from it
+        with no status guard — so a retried task showed "运行中" and
+        "任务已被用户停止。" simultaneously.
+        """
+        await store_and_task(status=TaskStatus.FAILED)
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            task.error = 'Stopped by user'
+            task.error_category = 'user_stop'
+            await db.commit()
+
+        scheduler = TaskQueueScheduler()
+        with (
+            patch('app.scheduler.task_queue.async_session', db_session),
+            patch('app.scheduler.task_queue.event_bus', new_callable=AsyncMock),
+        ):
+            await scheduler.submit('task-1', 'store-1')
+
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            assert task.status == TaskStatus.QUEUED
+            assert task.error is None
+            assert task.error_category is None
+
     async def test_submit_planned_stays_planned(
         self, db_session, store_and_task
     ):

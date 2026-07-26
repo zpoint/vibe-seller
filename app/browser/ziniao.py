@@ -214,22 +214,38 @@ class ZiniaoBackend(BrowserBackend):
             )
 
             # Verify the browser ACTUALLY came up on that port before we
-            # build the proxy against it.
+            # build the proxy against it, AND that Ziniao finished
+            # wiring its own instrumentation into it (see
+            # _instrumentation_live — a port-only check passes for an
+            # env whose SBP layer never loaded, which is unusable).
             if await self._cdp_port_reachable(target_host, int(cdp_port)):
-                break
-
-            logger.warning(
-                'Ziniao reported startBrowser success but CDP %s:%s is '
-                'unreachable (stale launch) — attempt %d/%d.',
-                target_host,
-                cdp_port,
-                attempt,
-                MAX_ZINIAO_ATTEMPTS,
-            )
+                if await self._instrumentation_live(target_host, int(cdp_port)):
+                    break
+                logger.warning(
+                    'Ziniao env on %s:%s came up WITHOUT its instrumentation '
+                    '(SBP not injected: navigator.webdriver leaks true, so '
+                    'no account auto-fill / OTP / passkey overlay, and the '
+                    'platform will treat the session as a bot) — attempt '
+                    '%d/%d.',
+                    target_host,
+                    cdp_port,
+                    attempt,
+                    MAX_ZINIAO_ATTEMPTS,
+                )
+            else:
+                logger.warning(
+                    'Ziniao reported startBrowser success but CDP %s:%s is '
+                    'unreachable (stale launch) — attempt %d/%d.',
+                    target_host,
+                    cdp_port,
+                    attempt,
+                    MAX_ZINIAO_ATTEMPTS,
+                )
             if attempt >= MAX_ZINIAO_ATTEMPTS:
                 raise RuntimeError(
                     f'Ziniao reported a browser on {target_host}:{cdp_port} '
-                    f'but nothing is reachable there after '
+                    f'but it never came up healthy (unreachable, or up '
+                    f'without its instrumentation layer) after '
                     f'{MAX_ZINIAO_ATTEMPTS} startBrowser attempts. This '
                     f'store failed to launch; other stores are unaffected. '
                     f'Retry the task — if it persists, the Ziniao client may '
@@ -409,6 +425,94 @@ class ZiniaoBackend(BrowserBackend):
             if i < attempts - 1:
                 await asyncio.sleep(delay)
         return False
+
+    @staticmethod
+    async def _instrumentation_live(
+        host: str,
+        port: int,
+        *,
+        attempts: int = 3,
+        delay: float = 1.5,
+    ) -> bool:
+        """True unless the env is PROVEN to be missing Ziniao's own layer.
+
+        ``_cdp_port_reachable`` only proves *Chrome* is up. Ziniao
+        additionally injects its SBP content scripts into every page —
+        that layer is what masks ``navigator.webdriver``, auto-fills the
+        store account, and renders the ``紫鸟验证码服务`` OTP and
+        ``已托管账号Passkey`` overlays. An env can bind its debug port
+        with SBP dead; agents handed such a browser see no auto-fill,
+        leak ``webdriver=true`` to the platform, and get bounced to
+        ``/ap/signin`` on a login they cannot win. Probing the raw port
+        (before the mux exists) closes that gap.
+
+        Deliberately asymmetric: return False only on a *positive*
+        reading of ``navigator.webdriver === true`` on a real http(s)
+        page. Anything inconclusive (no page target yet, still on
+        about:blank, eval error) returns True so a probe failure can
+        never become a store-wide outage.
+        """
+        list_url = f'http://{host}:{port}/json/list'
+        expr = 'navigator.webdriver === true'
+        for i in range(attempts):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        list_url,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as resp:
+                        targets = await resp.json()
+                    pages = [
+                        t
+                        for t in targets
+                        if t.get('type') == 'page'
+                        and str(t.get('url', '')).startswith('http')
+                        and t.get('webSocketDebuggerUrl')
+                    ]
+                    if not pages:
+                        # Launcher page hasn't navigated yet — no verdict.
+                        if i < attempts - 1:
+                            await asyncio.sleep(delay)
+                        continue
+                    ws_url = pages[0]['webSocketDebuggerUrl']
+                    async with session.ws_connect(ws_url, timeout=10) as ws:
+                        await ws.send_json({
+                            'id': 1,
+                            'method': 'Runtime.evaluate',
+                            'params': {
+                                'expression': expr,
+                                'returnByValue': True,
+                            },
+                        })
+                        deadline = asyncio.get_event_loop().time() + 8
+                        while asyncio.get_event_loop().time() < deadline:
+                            remaining = (
+                                deadline - asyncio.get_event_loop().time()
+                            )
+                            msg = await asyncio.wait_for(
+                                ws.receive_json(), timeout=remaining
+                            )
+                            if msg.get('id') != 1:
+                                continue
+                            leaked = (
+                                msg.get('result', {})
+                                .get('result', {})
+                                .get('value')
+                            )
+                            # Only a positive leak is a verdict; False
+                            # (masked) and None (eval error) both pass.
+                            return leaked is not True
+            except Exception as e:
+                logger.debug('Instrumentation probe attempt %d: %s', i + 1, e)
+            if i < attempts - 1:
+                await asyncio.sleep(delay)
+        # Never got a reading — do not block the launch on that.
+        logger.debug(
+            'Instrumentation probe inconclusive for %s:%s — proceeding',
+            host,
+            port,
+        )
+        return True
 
     @staticmethod
     async def _wait_for_target_stability(

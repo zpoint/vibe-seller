@@ -65,6 +65,7 @@ TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     },
     TaskStatus.FAILED: {
         TaskStatus.PENDING,
+        TaskStatus.QUEUED,  # retry: FAILED is in STARTABLE
         TaskStatus.DESIGNING,
         TaskStatus.RUNNING,  # follow-up (auto mode)
     },

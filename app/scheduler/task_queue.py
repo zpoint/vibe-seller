@@ -74,10 +74,17 @@ class TaskQueueScheduler:
     async def submit(self, task_id: str, store_id: str | None):
         """Enqueue a task and signal the tick loop.
 
-        Only sets status to QUEUED from PENDING/WAITING — other
-        states (e.g. PLANNED being submitted for execution) are
-        left untouched so the dispatcher can transition them
-        correctly.
+        Only sets status to QUEUED from the states that have no other
+        meaning to the dispatcher — other states (e.g. PLANNED being
+        submitted for execution) are left untouched so it can
+        transition them correctly.
+
+        FAILED is included because it is in ``STARTABLE``: the retry
+        button (``POST /tasks/{id}/start``) accepts a failed task, but
+        leaving the row FAILED here made retry a silent no-op — the
+        task was enqueued and then dropped by ``_on_start``, which only
+        spawns from PLANNED/QUEUED/RUNNING. Keep this set and
+        ``STARTABLE`` in agreement.
         """
         async with self._lock:
             if store_id not in self._queues:
@@ -93,8 +100,24 @@ class TaskQueueScheduler:
             if task and task.status in (
                 TaskStatus.PENDING,
                 TaskStatus.WAITING,
+                TaskStatus.FAILED,
             ):
                 task.status = TaskStatus.QUEUED
+                # The previous run's error must not survive into this
+                # one. It is a terminal-run artifact, and every consumer
+                # reads it as current: the detail panel paints a red
+                # banner from `task.error` with no status guard, and the
+                # list sets `has_error` from it — so a retried task
+                # rendered as "运行中" AND "任务已被用户停止。" at the
+                # same time. Clearing it here (the single choke point
+                # all launch paths route through) keeps the row
+                # self-consistent instead of teaching each reader to
+                # distrust the field. NOT a frontend fix: an agent may
+                # legitimately set an error on a RUNNING task via
+                # `set_task_error` (partial failure), so the view must
+                # keep showing errors for active tasks.
+                task.error = None
+                task.error_category = None
                 task.updated_at = datetime.now(UTC).isoformat()
                 await db.commit()
                 await event_bus.emit(
@@ -102,6 +125,7 @@ class TaskQueueScheduler:
                     {
                         'task_id': task_id,
                         'status': TaskStatus.QUEUED,
+                        'error': None,
                     },
                 )
 

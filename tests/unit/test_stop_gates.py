@@ -379,6 +379,40 @@ class TestAdScaleWinnersGate:
         above = self.HEADER + self._row('5.5', 'Hold', acos='18%')
         assert scale_winners_gate.check(above) is not None
 
+    def _no_bid_row(self, roas, rec, acos='4.0%'):
+        """Campaign-level aggregate: no per-keyword bid to raise."""
+        return (
+            f'| 全活动（无逐词数据） | Delivering | 100 '
+            f'| USD 100.00 | 20 | USD 1000.00 | {acos} | {roas} | - '
+            f'| USD 1.00 | {rec} |\n'
+        )
+
+    def test_row_without_a_bid_is_not_a_scale_candidate(self):
+        """A bid rule may only judge a row that HAS a bid.
+
+        Campaign-aggregate rows (auto / Brand placements with no
+        per-term bid control) carry ``-`` in the bid cell, so "raise the
+        bid or justify the hold" is unsatisfiable — the agent cannot
+        ever pass it. Observed live: four such rows kept the report in
+        the review loop for ~34 rounds until the agent resorted to
+        renaming columns and zeroing values.
+        """
+        report = self.HEADER + self._no_bid_row(
+            '12.43', '维持出价（无逐词出价控制）'
+        )
+        assert scale_winners_gate.check(report) is None
+
+    def test_still_flags_the_same_row_when_it_does_have_a_bid(self):
+        """The guard must not neuter the gate: identical row, real bid."""
+        report = self.HEADER + self._row('12.43', '维持出价')
+        assert scale_winners_gate.check(report) is not None
+
+    def test_empty_bid_cell_also_skipped(self):
+        report = self.HEADER + self._no_bid_row('9.0', 'Hold').replace(
+            '| - |', '|  |'
+        )
+        assert scale_winners_gate.check(report) is None
+
     def test_per_store_override_raises_threshold(self):
         # A store whose notes.md sets scale_roas: 30 → a ROAS 24 bare
         # Hold is below the override and must NOT be flagged.

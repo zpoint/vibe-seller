@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import tempfile
+import time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,6 +36,7 @@ from app.config import (
     WEB_BROWSER_SLUG,
 )
 from app.database import async_session
+from app.env_options import Options
 from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.store import Store
@@ -110,45 +112,93 @@ async def _kill_all_browser_daemons() -> int:
         return 0
 
 
-def _wipe_generated_wrappers() -> int:
-    """Delete OUTDATED auto-generated browser-use wrappers on boot.
+def _wipe_generated_wrappers(live_store_ids: set[str] | None = None) -> int:
+    """Delete OUTDATED or ORPHANED auto-generated wrappers on boot.
 
-    In-place-upgrade safety: a wrapper left by an OLDER version drives a
-    stale CLI/env contract and would misbehave if invoked before the next
-    task launch regenerates it. So we remove wrappers whose embedded
-    format version is BELOW the current ``WRAPPER_FORMAT_VERSION`` (and
-    unmarked/pre-versioning ones, treated as version 0).
+    Two independent reasons to remove a wrapper:
 
-    We KEEP wrappers at the current-or-higher version: current ones
+    1. **Outdated format** (in-place-upgrade safety): a wrapper left by an
+       OLDER version drives a stale CLI/env contract and would misbehave
+       if invoked before the next task launch regenerates it. So we remove
+       wrappers whose embedded format version is BELOW the current
+       ``WRAPPER_FORMAT_VERSION`` (and unmarked/pre-versioning ones,
+       treated as version 0).
+
+    2. **Orphaned** — the store it was generated for no longer exists.
+       Version alone never reaps these, so a deleted store's wrapper
+       survived forever while holding a FROZEN ``proxy_port``. Ports are
+       re-allocated from ``_BASE_PROXY_PORT`` every boot, so that number
+       eventually lands on a *live* store; the orphan then finds the port
+       already up, skips the start API (so its dead ``store_id`` never
+       404s) and exports ``BU_CDP_WS`` straight at another store's
+       browser — wrong account, wrong downloads dir. Same cross-store
+       hole wrapper v3 closed for aux sessions (docs/browser.md).
+       Pass ``live_store_ids`` to enable this check.
+
+    We KEEP current-or-newer wrappers belonging to a live store: they
     survive a restart (no wrapper-less window → no local-Chrome fallback,
     see docs/ziniao-concurrency.md), and a running vN never deletes a
     newer vN+1's (rollback safety). User-created wrappers (no auto-gen
-    header) are untouched. See docs/browser-use-0.13-migration.md.
+    header) are untouched, and so are non-store wrappers such as
+    ``_web``/``_guard`` (no embedded store id — fail safe, keep).
+    See docs/browser-use-0.13-migration.md.
     """
     removed = 0
+    orphaned = 0
     if not BROWSER_USE_BIN_DIR.is_dir():
         return 0
+    # An EMPTY live set is far more likely "wrong/unloaded DB" than
+    # "the user deleted every store", and acting on it would delete the
+    # wrappers of stores that are actively in use. Never orphan-reap on
+    # no evidence — fall back to version-only.
+    if live_store_ids is not None and not live_store_ids:
+        live_store_ids = None
     for sub in BROWSER_USE_BIN_DIR.iterdir():
         wrapper = sub / 'browser-use'
         if not wrapper.is_file():
             continue
         try:
-            head = wrapper.read_text(errors='replace')[:400]
+            text = wrapper.read_text(errors='replace')
         except OSError:
             continue
+        head = text[:400]
         if 'Auto-generated browser-use wrapper' not in head:
             continue  # user-created wrapper — never touch
         m = re.search(rf'{re.escape(WRAPPER_FORMAT_MARKER)}\s*(\d+)', head)
         version = int(m.group(1)) if m else 0
-        if version >= WRAPPER_FORMAT_VERSION:
-            continue  # current or newer — keep (no wrapper-less window)
+        stale_format = version < WRAPPER_FORMAT_VERSION
+        # Ownership: only judge a wrapper we can actually attribute to a
+        # store. No parseable id (e.g. the store-less `_web` wrapper) →
+        # keep, so a format change here can never orphan-reap everything.
+        is_orphan = False
+        if live_store_ids is not None:
+            # Don't assume a UUID shape — match whatever the wrapper
+            # actually embeds, so a non-UUID id is still attributable.
+            owner = re.search(r'/api/stores/([^/"\s]+)/browser/', text)
+            if owner and owner.group(1) not in live_store_ids:
+                is_orphan = True
+        if not stale_format and not is_orphan:
+            continue
         try:
             wrapper.unlink()
             removed += 1
+            if is_orphan:
+                orphaned += 1
+                # Drop the now-empty dir so `ls bin/` reflects reality.
+                try:
+                    sub.rmdir()
+                except OSError:
+                    pass
         except OSError:
             pass
     if removed:
-        logger.info('Boot: wiped %d outdated browser-use wrapper(s)', removed)
+        logger.info(
+            'Boot: wiped %d browser-use wrapper(s) (%d outdated, '
+            '%d orphaned — store no longer exists)',
+            removed,
+            removed - orphaned,
+            orphaned,
+        )
     return removed
 
 
@@ -232,6 +282,12 @@ class BrowserManager:
         self._active_ziniao_account_id: str | None = None
         # store_id -> store_name for active ziniao stores
         self._ziniao_stores: dict[str, str] = {}
+        # Circuit breaker for the dead-mux relaunch path: store_id ->
+        # monotonic timestamps of recent full-env relaunches. Every
+        # browser-use call can reach that path via the wrapper, so
+        # without a budget a wedged Ziniao client turns into a restart
+        # storm that deepens the wedge and wipes agent tabs mid-task.
+        self._relaunches: dict[str, list[float]] = {}
 
     @staticmethod
     async def _cdp_alive(port: int, timeout: float = 2.0) -> bool:
@@ -278,6 +334,41 @@ class BrowserManager:
                 await asyncio.sleep(gap)
         return False
 
+    def _note_relaunch(self, store: Store) -> None:
+        """Record a dead-mux relaunch; raise once the budget is spent.
+
+        The relaunch tears down and re-creates the whole store env, and
+        the wrapper can reach it on every single ``browser-use`` call.
+        When the Ziniao client itself is wedged, each relaunch fails the
+        same way, so the unbudgeted version loops indefinitely — the
+        observed failure was three stores cycling stop/start every ~20 s
+        for five minutes, which hammered the shared client until it hung
+        and left every agent on a freshly-wiped, logged-out browser.
+        Bounding it converts that storm into one actionable failure.
+        """
+        limit = Options.BROWSER_RELAUNCH_MAX.get_int()
+        window = Options.BROWSER_RELAUNCH_WINDOW_S.get_float()
+        if limit <= 0 or window <= 0:
+            return
+        now = time.monotonic()
+        recent = [
+            t for t in self._relaunches.get(store.id, []) if now - t < window
+        ]
+        if len(recent) >= limit:
+            oldest = int(now - recent[0])
+            self._relaunches[store.id] = recent
+            raise RuntimeError(
+                f'Browser for {store.name} has been relaunched '
+                f'{len(recent)} times in the last {oldest}s and its CDP '
+                f'proxy is still dead. Refusing to restart again — '
+                f'repeated relaunches wipe the browser session and can '
+                f'wedge the shared Ziniao client. Check that Ziniao is '
+                f'running in WebDriver mode and responding, then retry '
+                f'(Settings → Ziniao → Force Restart).'
+            )
+        recent.append(now)
+        self._relaunches[store.id] = recent
+
     async def cleanup_stale_sessions(self) -> int:
         """Mark stale 'running' sessions as idle and kill orphans.
 
@@ -294,12 +385,16 @@ class BrowserManager:
         #      shape this code emits (>=0.13),
         #  (a) wipe stale wrapper scripts so a pre-upgrade (0.12-shaped)
         #      wrapper is never invoked before it self-heals on the next
-        #      task launch,
+        #      task launch, and orphaned ones whose store is gone (their
+        #      frozen proxy_port can later point at a LIVE store),
         #  (b) reap orphaned daemons (both 0.13 pid-file + legacy 0.12
         #      cmdline) — preserves daemons for active tasks (e.g. WAITING
         #      tasks that survive a restart).
         warn_on_browser_use_version_mismatch()
-        _wipe_generated_wrappers()
+        async with async_session() as db:
+            rows = await db.execute(select(Store.id))
+            live_store_ids = {sid for (sid,) in rows.all()}
+        _wipe_generated_wrappers(live_store_ids)
         await reap_orphaned_daemons()
 
         async with async_session() as db:
@@ -404,6 +499,13 @@ class BrowserManager:
                 )
                 self._active_sessions.pop(store.id, None)
             elif not await self._cdp_alive_with_retry(proxy_port):
+                # Tearing the env down and relaunching is the recovery,
+                # but it is reachable from EVERY browser-use call via
+                # the wrapper. Budget it per store, else a wedged
+                # Ziniao client produces an endless stop/start storm
+                # (each cycle also destroys the agent's tabs and login
+                # state mid-task). Past the budget, fail loudly.
+                self._note_relaunch(store)
                 logger.warning(
                     'CDP proxy :%s not responding for %s — forcing restart',
                     proxy_port,
@@ -515,8 +617,43 @@ class BrowserManager:
             store.name,
             store.browser_backend,
         )
-        info = await backend.start(browser_config)
+        # Bounded: this call runs under the GLOBAL _lock, so a store
+        # stuck in its per-store retry loop would otherwise block every
+        # other store's launch for minutes (4 Ziniao attempts × ~95 s).
+        # One broken store must fail fast, not stall the machine.
+        start_timeout = Options.BROWSER_START_TIMEOUT_S.get_float()
+        try:
+            if start_timeout > 0:
+                info = await asyncio.wait_for(
+                    backend.start(browser_config), timeout=start_timeout
+                )
+            else:
+                info = await backend.start(browser_config)
+        except TimeoutError:
+            # Tear the half-started env down so it can't linger without
+            # a proxy. ZiniaoBackend captures its per-store stopBrowser
+            # payload early in start(), so this closes THIS env only.
+            self._backends.pop(store.id, None)
+            try:
+                await backend.stop(BrowserSessionInfo())
+            except Exception as e:
+                logger.warning(
+                    'Cleanup after start timeout failed for %s: %s',
+                    store.name,
+                    e,
+                )
+            raise RuntimeError(
+                f'Browser launch for {store.name} exceeded '
+                f'{start_timeout:.0f}s and was aborted so it could not '
+                f'block other stores. This store failed to start; other '
+                f'stores are unaffected. Retry the task — if it '
+                f'persists, restart Ziniao (Settings → Ziniao).'
+            ) from None
         self._active_sessions[store.id] = info
+        # A healthy launch clears the relaunch budget — the breaker
+        # should only trip on a *run* of failures, not on occasional
+        # recoveries spread over a long session.
+        self._relaunches.pop(store.id, None)
 
         # Track active Ziniao account
         if store.browser_backend == 'ziniao' and store.ziniao_account_id:

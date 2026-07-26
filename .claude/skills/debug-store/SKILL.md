@@ -80,9 +80,15 @@ The wrapper:
 2. Validates the session name against `^<slug>(-aux|-[0-9a-fA-F]{8})?$`.
 3. Auto-starts the CDP proxy + Ziniao Chrome by calling
    `POST http://127.0.0.1:7777/api/stores/<store_id>/browser/start`
-   with a hardcoded `ai_bot` JWT. Polls until 9222 responds.
-4. Injects `--cdp-url ws://127.0.0.1:9222/client-<VIBE_TASK_ID>` so the
-   browser-use daemon connects through the mux proxy as a unique client.
+   with a hardcoded `ai_bot` JWT. Polls until **that store's** proxy port
+   responds — ports are allocated per store from `_BASE_PROXY_PORT`
+   (9222), so real stores sit on 9223, 9226, 9227… Read the actual port
+   out of the wrapper (`grep -o '127\.0\.0\.1:9[0-9]\{3\}'`) or the
+   `browser_sessions` row; never assume 9222.
+4. Exports `BU_CDP_WS=ws://127.0.0.1:<proxy_port>/client-<VIBE_TASK_ID>`
+   so the browser-use daemon connects through the mux proxy as a unique
+   client. (browser-use 0.13 dropped `--cdp-url` for this env var — the
+   wrapper *rejects* `--cdp-url`, see the blocked-flags list above.)
 5. Execs the real `browser-use` binary with the rest of the args.
 
 The wrapper blocks `--profile`, `--cdp-url`, and `--connect` flags
@@ -148,9 +154,22 @@ everything else.
 To verify the CDP proxy is actually responding:
 
 ```bash
-curl -sf -m 2 http://127.0.0.1:9222/json/version | head -1
-ps aux | grep -E "ziniaobrowser|cdp_mux_proxy" | grep -v grep
+# This store's mux port — NOT a fixed 9222 (allocated per store).
+PORT=$(grep -oE '127\.0\.0\.1:9[0-9]{3}' ~/.vibe-seller/bin/<slug>/browser-use | head -1 | cut -d: -f2)
+curl -sf -m 2 --noproxy '*' "http://127.0.0.1:$PORT/json/version"
+ps aux | grep -E "ziniaobrowser" | grep -v grep
 ```
+
+`--noproxy '*'` matters: with ClashX/etc. exported, curl sends the
+loopback request to the proxy and you get an empty body instead of a
+connection error — which reads as "the browser is up but broken".
+The mux proxy is an asyncio server **inside** the FastAPI process, so
+`grep cdp_mux_proxy` in `ps` finds nothing even when it is running.
+
+**Wedge signature:** the port accepts the TCP connection and then never
+answers (curl hangs to `-m` timeout, HTTP 000). Distinct from a clean
+"connection refused" — see
+[docs/ziniao-concurrency.md](../../../docs/ziniao-concurrency.md) runbook.
 
 ## Skipping JWT-cookie auth
 
@@ -228,10 +247,18 @@ The API surface (full list in `docs/api.md`) breaks into a few groups:
 | Group | Common routes | Use for |
 |---|---|---|
 | Auth | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | Cookie lifecycle |
-| Stores | `GET /api/stores`, `GET /api/stores/<id>`, `POST /api/stores/<id>/browser/start`, `POST /api/stores/<id>/browser/stop` | Store metadata + per-store browser lifecycle |
+| Stores | `GET /api/stores`, `GET /api/stores/<id>`, `POST /api/stores/<id>/browser/start` (`?force=1`), `POST /api/stores/<id>/browser/aux/start` | Store metadata + per-store browser lifecycle |
 | Tasks | `POST /api/tasks`, `GET /api/tasks`, `GET /api/tasks/<id>`, `POST /api/tasks/<id>/messages`, `POST /api/tasks/<id>/stop` | Create / list / inspect / message / stop tasks |
 | Schedules | `GET /api/schedules`, `POST /api/schedules`, `POST /api/schedules/<id>/run` | Cron-style routines |
 | Events | `GET /api/events/stream` (SSE), `GET /api/events/recent` | Live + historical event feed |
+
+> **There is no `browser/stop` route** — stopping is internal only
+> (`BrowserManager.stop_session` / `aux_browser.stop_aux`, called by store
+> deletion and the idle sweeper). To stop one store's env by hand, send
+> Ziniao's own per-store `stopBrowser` with that store's `browser_oauth`;
+> never kill the shared Ziniao client, which would destroy every other
+> store's live browser (see
+> [docs/ziniao-concurrency.md](../../../docs/ziniao-concurrency.md)).
 
 Keys to remember:
 
@@ -473,8 +500,14 @@ what worked, not the per-run captures.
 - **The `aux` session for non-seller-center sites:** when you need to
   visit `amazon.com/dp/<ASIN>` (public product page) for a probe
   without disrupting the main seller-central session, use
-  `--session <slug>-aux`. It's a Chrome-direct (no CDP proxy) session
-  that the wrapper allows even in task-mode.
+  `--session <slug>-aux` — the one override the wrapper allows in
+  task-mode. It is **not** "Chrome-direct": since wrapper format v3/v4
+  every session gets an explicit `BU_CDP_WS`, and for a Ziniao store
+  `-aux` is that store's own dedicated login-less Chromium on its own
+  proxy (see § Wrapper architecture above). The old endpoint-less
+  exemption is what let a daemon attach to a *different* store's
+  browser. `-aux` has **no seller login** — never use it for seller
+  central.
 
 ## Things this skill is NOT
 

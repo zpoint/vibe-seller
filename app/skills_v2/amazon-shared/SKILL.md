@@ -82,6 +82,17 @@ otherwise → ask a human.** Ziniao "has it" when the field is pre-filled
 appears for a required step, stop and ask the user — never loop forever
 on a challenge Ziniao can't satisfy.
 
+> **Not every missing affordance is a missing credential.** If *nothing*
+> Ziniao-ish works — email not pre-filled, password not pre-filled, no
+> OTP panel, no passkey overlay — that is the signature of an env whose
+> Ziniao layer didn't load, not of an unprovisioned account. Confirm
+> with `js("return navigator.webdriver")`: an anti-detect browser must
+> report `false`. If it returns `true`, the browser itself is broken —
+> say so and stop; do NOT ask the user for a password, and do not try to
+> hand-type your way in (the platform is already treating the session as
+> a bot). The launcher now rejects such envs at start, so this should be
+> rare; seeing it means the browser was wedged after launch.
+
 ### 2a. Ziniao helper panels are NATIVE overlays — screenshot, don't querySelector
 
 When a step needs a code or a passkey, Ziniao renders its own panel:
