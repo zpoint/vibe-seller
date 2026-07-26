@@ -16,9 +16,9 @@ from unittest import mock
 import pytest
 
 from app.browser import ziniao as zmod
+from app.browser.launch_guards import RelaunchBudget
 from app.browser.manager import BrowserManager
 from app.browser.ziniao import ZiniaoBackend
-from app.models.store import Store
 
 pytestmark = pytest.mark.unit
 
@@ -148,26 +148,27 @@ class TestCrossStoreIsolation:
     """One broken store must not take the others down with it."""
 
     def test_relaunch_breaker_trips_then_resets(self):
-        mgr = BrowserManager()
-        store = Store(id='s1', name='alpha', browser_backend='ziniao')
-        other = Store(id='s2', name='beta', browser_backend='ziniao')
+        budget = RelaunchBudget()
 
         # Budget is per store: 3 relaunches allowed, 4th refuses.
         for _ in range(3):
-            mgr._note_relaunch(store)
+            budget.note('s1', 'alpha')
         with pytest.raises(RuntimeError, match='Refusing to restart'):
-            mgr._note_relaunch(store)
+            budget.note('s1', 'alpha')
 
         # A DIFFERENT store is unaffected by the tripped breaker.
-        mgr._note_relaunch(other)
+        budget.note('s2', 'beta')
 
         # A healthy launch clears the budget (see start_session).
-        mgr._relaunches.pop(store.id, None)
-        mgr._note_relaunch(store)
+        budget.clear('s1')
+        budget.note('s1', 'alpha')
 
     def test_relaunch_breaker_disabled_at_zero(self, monkeypatch):
         monkeypatch.setenv('VIBE_BROWSER_RELAUNCH_MAX', '0')
-        mgr = BrowserManager()
-        store = Store(id='s1', name='alpha', browser_backend='ziniao')
+        budget = RelaunchBudget()
         for _ in range(25):
-            mgr._note_relaunch(store)  # must never raise
+            budget.note('s1', 'alpha')  # must never raise
+
+    def test_manager_wires_the_budget(self):
+        """The breaker is only useful if the manager actually holds one."""
+        assert isinstance(BrowserManager()._relaunches, RelaunchBudget)

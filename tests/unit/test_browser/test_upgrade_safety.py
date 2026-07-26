@@ -13,7 +13,7 @@ from unittest import mock
 
 import pytest
 
-from app.browser import manager
+from app.browser import wrapper as wrapper_mod
 from app.browser.manager import warn_on_browser_use_version_mismatch
 from app.browser.wrapper import (
     WRAPPER_FORMAT_MARKER,
@@ -21,7 +21,7 @@ from app.browser.wrapper import (
     write_browser_use_wrapper,
 )
 
-_wipe_generated_wrappers = manager._wipe_generated_wrappers
+_wipe_generated_wrappers = wrapper_mod.wipe_generated_wrappers
 
 pytestmark = pytest.mark.unit
 
@@ -50,7 +50,7 @@ class TestWipeStaleWrappers:
         user_wrapper = user_dir / 'browser-use'
         user_wrapper.write_text('#!/usr/bin/env bash\necho custom\n')
 
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers()
 
         assert removed == 1
@@ -64,7 +64,7 @@ class TestWipeStaleWrappers:
         legacy = _write_legacy_wrapper(bin_dir, 'acme-store')
         assert '--cdp-url "$WS"' in legacy.read_text()  # old shape
 
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             _wipe_generated_wrappers()
 
         # Regenerate via the real generator (write_task_browser_config's
@@ -81,7 +81,7 @@ class TestWipeStaleWrappers:
 
     def test_no_bin_dir_is_noop(self, tmp_path: Path):
         with mock.patch(
-            'app.browser.manager.BROWSER_USE_BIN_DIR', tmp_path / 'missing'
+            'app.browser.wrapper._BIN_DIR', tmp_path / 'missing'
         ):
             assert _wipe_generated_wrappers() == 0
 
@@ -112,7 +112,7 @@ class TestWipeOrphanedWrappers:
             orphan.read_text()
         )  # current format — version alone would never reap it
 
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers({'store-live'})
 
         assert removed == 1
@@ -125,7 +125,7 @@ class TestWipeOrphanedWrappers:
         DB must never trigger a mass orphan-reap."""
         bin_dir = tmp_path / 'bin'
         w = self._write_current(bin_dir, 'some-store', 'store-x')
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             assert _wipe_generated_wrappers() == 0
         assert w.exists()
 
@@ -135,7 +135,7 @@ class TestWipeOrphanedWrappers:
         while a real task is using those wrappers."""
         bin_dir = tmp_path / 'bin'
         w = self._write_current(bin_dir, 'live-store', 'store-live')
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             assert _wipe_generated_wrappers(set()) == 0
         assert w.exists()
 
@@ -152,7 +152,7 @@ class TestWipeOrphanedWrappers:
             f'# {WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}\n'
             'curl http://127.0.0.1:7777/api/browser/web/start\n'
         )
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             assert _wipe_generated_wrappers(set()) == 0
         assert w.exists()
 
@@ -220,7 +220,7 @@ class TestVersionAwareWipe:
         user = ud / 'browser-use'
         user.write_text('#!/usr/bin/env bash\necho hi\n')
 
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers()
 
         assert not older.exists(), 'older-version wrapper must be wiped'
@@ -240,7 +240,7 @@ class TestVersionAwareWipe:
         assert (
             f'{WRAPPER_FORMAT_MARKER} {WRAPPER_FORMAT_VERSION}' in w.read_text()
         )
-        with mock.patch('app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir):
+        with mock.patch('app.browser.wrapper._BIN_DIR', bin_dir):
             removed = _wipe_generated_wrappers()
         assert removed == 0
         assert w.exists(), 'current generated wrapper must survive boot'
