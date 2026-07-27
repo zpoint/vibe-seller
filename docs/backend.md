@@ -291,6 +291,28 @@ Browser lifecycle (see docs/browser.md § Browser Lifecycle):
 |----------|---------|-------------|
 | `VIBE_BROWSER_IDLE_S` | `300` | Idle window before a browser with no live task is terminated. `0` = never |
 | `VIBE_TAB_CAP` | `12` | Max tabs one task may keep open; oldest closed beyond it. `0` = unbounded |
+| `VIBE_BROWSER_RELAUNCH_MAX` | `3` | Dead-mux full-env relaunches allowed per store per window before `start_session` refuses. `0` = unbounded |
+| `VIBE_BROWSER_RELAUNCH_WINDOW_S` | `600` | Sliding window for the relaunch budget above. `0` = unbounded |
+| `VIBE_BROWSER_START_TIMEOUT_S` | `180` | Ceiling on one store's `backend.start()`. It runs under a global lock, so an unbounded per-store retry loop starves every other store. `0` = unbounded |
+
+Logging (`app/logging_setup.py`) — the backend log rolls on size **or**
+age, whichever comes first, keeping `LOG_BACKUP_COUNT` numbered backups
+(`backend_<port>.log.1`, …). On-disk ceiling is
+`LOG_MAX_BYTES × (LOG_BACKUP_COUNT + 1)`; defaults give 10 GiB / 2 weeks.
+`--dev` (`LOG_LEVEL=DEBUG`) is what makes this matter — DEBUG chatter from
+`aiosqlite`/`httpcore`/`websockets` once grew an unrotated log to 5 GB.
+`start.sh` applies the same policy to `backend.log` (uvicorn's
+stdout/stderr, captured by a shell redirect the handler can't reach).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOG_LEVEL` | `INFO` | `--dev` sets `DEBUG` |
+| `LOG_MAX_BYTES` | `5368709120` (5 GiB) | Roll when the log would exceed this. `0` = no size trigger |
+| `LOG_ROTATE_DAYS` | `7` | Roll when the log is this old. `0` = no age trigger |
+| `LOG_BACKUP_COUNT` | `1` | Old logs kept; the oldest is deleted as backups shift down. `0` = keep none |
+
+Setting both `LOG_MAX_BYTES=0` and `LOG_ROTATE_DAYS=0` disables rotation
+(plain unbounded `FileHandler`).
 
 ## Configuration
 

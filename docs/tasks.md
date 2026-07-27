@@ -20,7 +20,7 @@
 
 **Scheduled fires** (children of a plan-mode Schedule): auto-approve the plan at execution since the human already reviewed it at creation time. They re-inject per-store context (L3 catalog, bookmarks, emails) and reuse `Schedule.plan` as-is.
 
-Note: `queued` is used for store-task launches from `pending`/`waiting` states. `submit()` only transitions to `queued` from those states — `planned` tasks enqueued for execution stay `planned` in the DB so `_approve_plan_request` can transition them directly to `running`. The `execute_plan` endpoint explicitly sets `planned` → `queued` before enqueueing to prevent duplicate submissions. No-store tasks launch directly via `_auto_run_task()`.
+Note: `queued` is used for store-task launches from `pending`/`waiting`/`failed` states. `submit()` only transitions to `queued` from those three — `planned` tasks enqueued for execution stay `planned` in the DB so `_approve_plan_request` can transition them directly to `running`. **`failed` is in that set because it is in `STARTABLE`**: the retry button (`POST /tasks/{id}/start`) accepts a failed task, so leaving the row `failed` here made retry a silent no-op — the task was enqueued and then dropped by `_on_start`, which only spawns from `planned`/`queued`/`running`. Keep `submit()`'s set and `STARTABLE` in agreement. The `execute_plan` endpoint explicitly sets `planned` → `queued` before enqueueing to prevent duplicate submissions. No-store tasks launch directly via `_auto_run_task()`.
 
 **`queued`/`pending` means "waiting for the agent-concurrency slot" — a task in these states has NOT started and produces no output** (input bar disabled via `TASK_UI`, and the stall reaper — which is RUNNING-only — ignores it). The transition out is owned by `on_start`, which the manager awaits *after* acquiring the semaphore and *before* `session.start()` (`claude_backend_manager.run`), so a live session's status is always RUNNING/DESIGNING by the time it streams. **Invariant enforced two ways so a missed/late/clobbered `task_update(running)` can't strand the badge on `queued` (the `pending→queued→running` SSE race — see `retryTask.ts`, `sseCreateTaskRace`):** (a) backend — `_emit_message` reconciles a still-QUEUED/PENDING task to RUNNING/DESIGNING on its first streamed message (`_status_reconciled` one-shot; a backstop, inert in the normal path); (b) frontend — `useSSE` promotes a `queued`/`pending` task to `running`/`designing` on any streamed `task_message`, never touching terminal/active states. Net: **a task emitting session output is never displayed as `queued`.**
 
@@ -46,7 +46,7 @@ When the agent subprocess exits while holding an unanswered `AskUserQuestion`, `
 The operator answers via `POST /api/tasks/{id}/questions/answer` exactly as for a live session. The endpoint (`app/routers/tasks_conversation.py`) has two branches: if the agent is still running it forwards over IPC; if the session is dead and the task is WAITING with a matching `request_id`, it persists the answers into `wait_condition.answers`, flips WAITING → QUEUED, and re-queues. Store tasks go through `task_queue_scheduler`; no-store tasks are launched directly via `auto_run_task`.
 
 On re-dispatch, `auto_run_task` calls `maybe_inject_pending_answers()` which composes a user-turn prefix from `wait_condition.answers` + the stored questions, clears `wait_condition`, and passes `resume=True` so the spawned session runs `claude --resume <task.session_id>` and picks up the transcript. The resumed agent sees the operator's answers as the next user message and continues.
-- Transitions: `running` → `waiting` (agent signals wait OR incomplete todos), `waiting` → `queued` (woken) / `failed` (timeout)
+- Transitions: `running` → `waiting` (agent signals wait OR incomplete todos), `waiting` → `queued` (woken) / `failed` (timeout), `failed` → `queued` (retry)
 - State machine defined in `app/task_states.py` (backend) and `frontend/src/taskStates.ts` (frontend UI config)
 - Backend: `TaskStatus` enum, `TRANSITIONS` table, named groups (`STOPPABLE`, `ACTIVE`, `WAKEABLE`, etc.)
 - Frontend: `TASK_UI` config table maps status → which buttons/tabs/panels are visible
@@ -112,6 +112,10 @@ Both modes use `DESIGN_SYSTEM_PROMPT` (knowledge recall, critical thinking, appr
 Each agent runs in a per-task isolated directory (`~/.vibe-seller/tasks/{task_id}/`) with symlinked shared resources — see [workspace.md](workspace.md#per-task-workspace-isolation).
 
 No manual buttons needed. Users see: progress indicator + Stop button + Retry on failure or completion (RETRIABLE = `{FAILED, PENDING, COMPLETED}`). Toggle "Review Plan" in the task detail footer to switch between modes.
+
+**Stop lives only in the task header** — never in the chat composer. The composer's send slot used to render Send when the box had text and a red Stop when it was empty, but sending is exactly what empties it: the click that sent a message left a destructive button in the same pixels (measured: Send x1110–1176, Stop x1121–1176, identical y/height), so a double-click killed the run with no confirmation. General rule: **a destructive control must never occupy the position a safe control just vacated.**
+
+Retry on a **failed store task** goes `failed` → `queued` (via `submit()`) → dispatched by `_on_start`, which spawns only from `planned`/`queued`/`running`. Those two sets must stay in agreement — when `submit()` left the row `failed`, the retry returned `200 {"status":"queued"}` and was then silently dropped at spawn (`Exec on_start: task … in status failed — aborting spawn`).
 
 ### Follow-up on Completed/Failed Tasks
 

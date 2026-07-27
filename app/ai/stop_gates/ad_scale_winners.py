@@ -78,6 +78,31 @@ def _is_separator(cells: list[str]) -> bool:
     return bool(nonempty) and all(_SEP_RE.fullmatch(c) for c in nonempty)
 
 
+def _has_bid(cells: list[str], col: dict[str, int]) -> bool:
+    """True only if this row carries an actual numeric bid.
+
+    A bid rule may only judge a row that HAS a bid. Campaign-level
+    aggregate rows (``全活动``, auto/Brand placements with no per-term
+    bid control) are written with an empty or ``-`` bid cell — there is
+    nothing to raise, so "raise the bid or justify the hold" is
+    unsatisfiable. The agent then rewrites the report forever trying to
+    appease a gate it cannot pass (observed: ~34 review rounds, ending
+    in renamed columns and zeroed values). Structural, not prose: this
+    kills the whole class rather than growing ``_BLOCKER_RE`` one
+    excuse at a time.
+
+    Deliberately NOT mirrored in ``ad_bid_floor``: that gate *forbids*
+    an action ("never lower a profitable bid"), so a bid-less row that
+    still recommends a cut is itself a real defect worth catching. Only
+    a gate that *demands* an action has to prove the action is possible.
+    """
+    i = col.get('bid')
+    if i is None or i >= len(cells):
+        # Can't verify → don't flag (module-wide fail-open stance).
+        return False
+    return _NUM_RE.search(cells[i].replace(',', '')) is not None
+
+
 def _roas_from(cells: list[str], col: dict[str, int]) -> float | None:
     """Return the row's ROAS, from a ROAS column or 100/ACOS%."""
     if 'roas' in col and col['roas'] < len(cells):
@@ -139,6 +164,8 @@ def check(
                     col.setdefault('roas', i)
                 elif h in ('建议', 'recommendation'):
                     col['rec'] = i
+                elif ('出价' in h) or (h == 'bid'):
+                    col.setdefault('bid', i)
                 elif ('关键词' in h) or (h in ('keyword', 'target')):
                     col.setdefault('name', i)
             col.setdefault('name', 0)
@@ -150,6 +177,9 @@ def check(
         if rec_i >= len(cells):
             continue
         rec = cells[rec_i]
+        # No bid on this row → no bid rule. See _has_bid.
+        if not _has_bid(cells, col):
+            continue
         # Only care about rows recommended as a hold (no raise verb).
         if not _HOLD_RE.search(rec) or _RAISE_RE.search(rec):
             continue

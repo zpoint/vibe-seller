@@ -40,7 +40,7 @@ class BrowserBackend(ABC):
 
 Singleton that orchestrates browser sessions across all stores:
 
-- `start_session(store, db)` — Launches browser (Ziniao only), creates/updates `BrowserSession` DB record, generates wrapper script
+- `start_session(store, db)` — Launches browser (Ziniao only), creates/updates `BrowserSession` DB record, generates wrapper script. The launch is bounded by `VIBE_BROWSER_START_TIMEOUT_S` (default 180s) and the dead-mux relaunch path is budgeted per store — see § Browser Lifecycle
 - `stop_session(store, db)` — Closes browser, updates DB, removes wrapper script
 - `ensure_session(store, db)` — Start or reuse a session, always regenerates wrapper
 - `write_mcp_config(store, db)` — Generates browser-use wrapper WITHOUT starting browser (used at task launch)
@@ -55,13 +55,15 @@ Singleton that orchestrates browser sessions across all stores:
 
 **Ziniao guard**: Only one Ziniao account can be active per machine. `_start_session_locked` checks `_active_ziniao_account_id` — if a different account is already active, it raises `RuntimeError` with the names of conflicting stores. Chrome stores have no such account restriction (but still use CDPMuxProxy for shared browser and cookie persistence).
 
-> **Multiple stores of the SAME account run concurrently** (verified against the official Ziniao demo). Ziniao's `startBrowser` is flaky (nondeterministic per-store "stale launch"); recovery is **per store** (`stopBrowser` + retry), never a global client kill — a global kill destroys every other store's live browser and cascades. See [docs/ziniao-concurrency.md](ziniao-concurrency.md) for the full mechanism, root-cause investigation, and fix.
+`_start_session_locked` raises for two more reasons, both there to keep one broken store from becoming a machine-wide outage: the **relaunch budget** is spent (`VIBE_BROWSER_RELAUNCH_MAX` per `VIBE_BROWSER_RELAUNCH_WINDOW_S`), or `backend.start()` blew through `VIBE_BROWSER_START_TIMEOUT_S`. All three failures are per store — peers keep running and the task can be retried.
+
+> **Multiple stores of the SAME account run concurrently** (verified against the official Ziniao demo). Ziniao's `startBrowser` is flaky (nondeterministic per-store "stale launch" — either the debug port never binds, or it binds but Ziniao's SBP layer never injects, leaving the env with no account auto-fill and `navigator.webdriver` unmasked). Readiness therefore checks **both** (`_cdp_port_reachable` + `_instrumentation_live`); recovery is **per store** (`stopBrowser` + retry) and budgeted, never a global client kill — a global kill destroys every other store's live browser and cascades. See [docs/ziniao-concurrency.md](ziniao-concurrency.md) for the full mechanism, root-cause investigation, and fix.
 
 **Wrapper script generation**: `write_browser_use_wrapper()` in `app/browser/wrapper.py` generates a bash script per store. Session validation uses a regex check (`^{slug}(-aux|-{8hex})?$`). For both Chrome and Ziniao stores, the wrapper auto-starts the CDP proxy and injects `BU_CDP_WS=ws://…/client-{task_id}` (the 0.13 replacement for `--cdp-url`) pointing at CDPMuxProxy. EVERY session — aux included, both backends — gets an explicit `BU_CDP_WS` on its own store's proxy: per-task sessions use `client-{task_id}`, aux uses the stable `client-aux`. (The former Ziniao-aux "Chrome direct" exemption exported no endpoint; `browser_harness`'s ambient discovery then attached to a *different store's* browser — wrong Amazon account, wrong downloads dir — observed live with two Ziniao stores. Wrapper format v3 removed it.) The auto-start block checks the browser start API's HTTP status and exits with a clear error on non-2xx responses. A final CDP readiness check after the poll loop catches cases where the browser started but the proxy isn't ready.
 
 **Wrapper safety — the agent must never touch a local Chrome**: the agent's `PATH` prepends the store `bin/<slug>` dir, so bare `browser-use` resolves to the wrapper. Three layers keep it from ever falling through to the real `browser-use` binary (which would attach to the user's own Chrome):
 1. **Written before start** — `write_browser_use_wrapper()` runs *before* `backend.start()` in `_start_session_locked`, so a failed/stale launch still leaves a working wrapper (its auto-start block retries `browser/start` on the next call).
-2. **Version-aware boot wipe** — each wrapper embeds a monotonic `WRAPPER_FORMAT_VERSION`; `_wipe_generated_wrappers()` deletes only *older* wrappers and keeps current+newer, so a restart never leaves a wrapper-less window (and never nukes a newer version — rollback-safe).
+2. **Version-aware boot wipe** — each wrapper embeds a monotonic `WRAPPER_FORMAT_VERSION`; `_wipe_generated_wrappers()` deletes only *older* wrappers and keeps current+newer, so a restart never leaves a wrapper-less window (and never nukes a newer version — rollback-safe). It **also reaps orphans**: a wrapper whose embedded `store_id` is no longer in the DB. Version alone never caught those, so a deleted store's wrapper lived forever holding a *frozen* `proxy_port` — and since ports are re-allocated from the base every boot, that number eventually lands on a live store. The orphan then finds the port already up, skips the start API (so its dead `store_id` never 404s) and points `BU_CDP_WS` at **another store's** browser: wrong account, wrong downloads dir — the same cross-store hole v3 closed for aux. A wrapper with no parseable store id (the store-less `_web`) is kept, so the check can never mass-reap.
 3. **Guard** — `apply_agent_venv_path` puts a guard `browser-use` (`bin/_guard`) on `PATH` below the wrapper but above the venvs; if the wrapper is somehow missing, bare `browser-use` hits the guard and **exits non-zero** instead of reaching the real binary.
 
 See [docs/browser-use-0.13-migration.md § wrapper-format versioning](browser-use-0.13-migration.md) and [docs/ziniao-concurrency.md](ziniao-concurrency.md).
@@ -190,6 +192,21 @@ thousand-tab windows. Two mechanisms bound this
 - **Ziniao envs really stop now**: `ZiniaoBackend.stop()` sends the
   per-store `stopBrowser` captured at start (previously it only tore
   down the mux proxy and the Chromium env lived forever).
+- **Relaunch circuit breaker** (`VIBE_BROWSER_RELAUNCH_MAX`, default 3,
+  per `VIBE_BROWSER_RELAUNCH_WINDOW_S`, default 600s; 0 disables): the
+  counterpart to `stop_session` above. `start_session` relaunches a
+  store's whole env whenever its mux looks dead, and the wrapper reaches
+  that path on *every* `browser-use` call — so a wedged Ziniao client
+  turned recovery into a restart storm that wiped agent tabs mid-task and
+  deepened the wedge. Past the budget the start fails with an actionable
+  error; a healthy launch clears it.
+- **Bounded launch** (`VIBE_BROWSER_START_TIMEOUT_S`, default 180s; 0
+  disables): `start_session` holds a **global** lock — deliberate, it
+  serializes Ziniao `startBrowser` so the shared client isn't hit
+  concurrently — so an unbounded per-store retry loop starves every other
+  store's launch. `backend.start()` is wrapped in `asyncio.wait_for`; on
+  timeout the half-started env is torn down (per-store `stopBrowser`) and
+  only that store fails.
 - **Per-client tab cap** (`VIBE_TAB_CAP`, default 12; 0 disables): the
   mux LRU-closes a client's oldest tab beyond the cap on every
   `Target.createTarget`, strictly within that client's ownership — a

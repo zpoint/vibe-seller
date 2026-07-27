@@ -110,6 +110,29 @@ fi
 LOG_DIR="$SCRIPT_DIR/logs"
 mkdir -p "$LOG_DIR"
 
+# backend.log captures uvicorn's stdout/stderr via the shell redirect
+# below, so the app's own rotating handler (app/logging_setup.py) can't
+# bound it. Roll it here on the same policy — size OR age, one backup
+# kept — so the pair stays under 2x the cap. --dev (LOG_LEVEL=DEBUG) is
+# what makes this matter: it once grew the app log to 5 GB.
+# Exported so app/logging_setup.py rotates on exactly the same policy.
+export LOG_MAX_BYTES="${LOG_MAX_BYTES:-5368709120}"   # 5 GiB
+export LOG_ROTATE_DAYS="${LOG_ROTATE_DAYS:-7}"
+_roll_log() {
+    local f="$1" size=0 aged=""
+    [ -f "$f" ] || return 0
+    size=$(wc -c < "$f" 2>/dev/null | tr -d ' ') || size=0
+    if [ "$LOG_ROTATE_DAYS" -gt 0 ] 2>/dev/null; then
+        aged=$(find "$f" -mtime +"$LOG_ROTATE_DAYS" -print -quit 2>/dev/null)
+    fi
+    if { [ "$LOG_MAX_BYTES" -gt 0 ] 2>/dev/null \
+         && [ "$size" -ge "$LOG_MAX_BYTES" ]; } || [ -n "$aged" ]; then
+        mv -f "$f" "$f.1"   # replaces the previous backup
+        _info "Rotated $(basename "$f") (${size} bytes) → $(basename "$f").1"
+    fi
+}
+_roll_log "$LOG_DIR/backend.log"
+
 echo "Starting server on port $PORT..."
 cd "$SCRIPT_DIR"
 nohup env LOG_DIR="$LOG_DIR" BACKEND_PORT="$PORT" uv run python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT > "$LOG_DIR/backend.log" 2>&1 &

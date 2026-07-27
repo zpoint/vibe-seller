@@ -21,18 +21,21 @@ interface ChatComposerProps {
    *  now instead of queueing behind a running step. */
   awaitingUser?: boolean
   onSend: () => void
-  onStop: () => void
   placeholder: string
 }
 
 /** The task chat send bar: removable attachment chips, attach button,
- *  auto-growing textarea (drag/paste upload), and the Send/Stop button.
+ *  auto-growing textarea (drag/paste upload), and the Send button.
  *  Attachments are staged and shown as thumbnails — never a raw path —
- *  and only reach the agent when the user sends. */
+ *  and only reach the agent when the user sends.
+ *
+ *  Deliberately has NO Stop control: stopping is destructive and lives
+ *  in the task header, away from the button the user just clicked to
+ *  send. See the send-button block below. */
 export function ChatComposer({
   fileInputRef, uploading, uploadFiles, attachments, onRemoveAttachment,
   inputRef, input, setInput, hasContent, canSend, isActive, awaitingUser,
-  onSend, onStop, placeholder,
+  onSend, placeholder,
 }: ChatComposerProps) {
   const { t } = useTranslation()
   return (
@@ -97,19 +100,22 @@ export function ChatComposer({
           disabled={!canSend && !isActive}
           className="flex-1 px-3 py-2 text-sm leading-5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed resize-none overflow-y-auto"
         />
+        {/* This slot is Send-ONLY. It used to flip to a red Stop
+         *  whenever the box was empty and the task active — which is
+         *  the state sending itself creates. Send cleared the input,
+         *  React swapped Stop into the very pixels just clicked
+         *  (measured: Send x1110-1176, Stop x1121-1176, same y/height),
+         *  and a double-click or a "did that register?" click killed
+         *  the run with no confirmation. Stop lives in the task header
+         *  instead, at a fixed position that never hosts another
+         *  action. Rule: a destructive control must never occupy the
+         *  position a safe control just vacated. */}
         {canSend && hasContent ? (
           <button
             onClick={onSend}
             className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors"
           >
             {t('tasks.send')}
-          </button>
-        ) : isActive && !hasContent ? (
-          <button
-            onClick={onStop}
-            className="px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
-          >
-            {t('tasks.stopTask')}
           </button>
         ) : (
           <button

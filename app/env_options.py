@@ -36,6 +36,15 @@ class Options(enum.Enum):
     # Logging
     LOG_LEVEL = ('LOG_LEVEL', 'INFO')
 
+    # Backend log rotation (app/logging_setup.py). Rolls on size OR age,
+    # whichever comes first; at most BACKUP_COUNT old files are kept, so
+    # the on-disk ceiling is MAX_BYTES * (BACKUP_COUNT + 1). Defaults:
+    # 5 GiB / 7 days / 1 backup → never more than 10 GiB or 2 weeks.
+    # Both MAX_BYTES and ROTATE_DAYS at 0 disables rotation.
+    LOG_MAX_BYTES = ('LOG_MAX_BYTES', str(5 * 1024**3))
+    LOG_ROTATE_DAYS = ('LOG_ROTATE_DAYS', '7')
+    LOG_BACKUP_COUNT = ('LOG_BACKUP_COUNT', '1')
+
     # AI Agent
     AGENT_DEBUG = ('AGENT_DEBUG', 'false')
     MOCK_CLI = ('MOCK_CLI', '')
@@ -64,6 +73,23 @@ class Options(enum.Enum):
     # (0 = unbounded). See app/browser/idle_sweep.py.
     BROWSER_IDLE_S = ('VIBE_BROWSER_IDLE_S', '300')
     TAB_CAP = ('VIBE_TAB_CAP', '12')
+
+    # Circuit breaker on the dead-mux full-env relaunch in
+    # BrowserManager.start_session: at most RELAUNCH_MAX relaunches per
+    # store within RELAUNCH_WINDOW_S, after which the start fails with
+    # an actionable error instead of restarting forever (0 = unbounded).
+    # A wedged Ziniao client otherwise turns every browser-use call
+    # into another stop/start cycle. See app/browser/manager.py.
+    BROWSER_RELAUNCH_MAX = ('VIBE_BROWSER_RELAUNCH_MAX', '3')
+    BROWSER_RELAUNCH_WINDOW_S = ('VIBE_BROWSER_RELAUNCH_WINDOW_S', '600')
+
+    # Hard ceiling on one store's browser launch. start_session holds a
+    # GLOBAL lock (deliberate — it serializes Ziniao startBrowser so the
+    # shared client isn't hammered concurrently), so an unbounded
+    # per-store retry loop starves every OTHER store's launch. Cap it so
+    # a broken store fails fast instead of taking the machine with it
+    # (0 = unbounded). See app/browser/manager.py.
+    BROWSER_START_TIMEOUT_S = ('VIBE_BROWSER_START_TIMEOUT_S', '180')
 
     # Sync
     KNOWLEDGE_REPO_URL = ('KNOWLEDGE_REPO_URL', '')

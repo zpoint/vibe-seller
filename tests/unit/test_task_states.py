@@ -59,6 +59,7 @@ class TestTaskStates:
         failed_targets = TRANSITIONS[TaskStatus.FAILED]
         assert failed_targets == {
             TaskStatus.PENDING,
+            TaskStatus.QUEUED,  # retry: FAILED is in STARTABLE
             TaskStatus.DESIGNING,
             TaskStatus.RUNNING,  # follow-up (auto mode)
         }
@@ -195,6 +196,7 @@ _EXPECTED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     },
     TaskStatus.FAILED: {
         TaskStatus.PENDING,
+        TaskStatus.QUEUED,
         TaskStatus.DESIGNING,
         TaskStatus.RUNNING,
     },

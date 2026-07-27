@@ -14,12 +14,12 @@ from app.auth import create_token
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.daemon_reaper import reap_orphaned_daemons
+from app.browser.launch_guards import RelaunchBudget, start_backend_bounded
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
-    WRAPPER_FORMAT_MARKER,
-    WRAPPER_FORMAT_VERSION,
     remove_browser_use_wrapper,
     store_slug,
+    wipe_generated_wrappers,
     write_browser_use_wrapper,
 )
 from app.browser.ziniao_utils import (
@@ -29,7 +29,6 @@ from app.browser.ziniao_utils import (
 )
 from app.config import (
     AI_BOT_USER_ID,
-    BROWSER_USE_BIN_DIR,
     DEMO_MODE,
     LOCALHOST,
     WEB_BROWSER_SLUG,
@@ -108,48 +107,6 @@ async def _kill_all_browser_daemons() -> int:
         return total
     except Exception:
         return 0
-
-
-def _wipe_generated_wrappers() -> int:
-    """Delete OUTDATED auto-generated browser-use wrappers on boot.
-
-    In-place-upgrade safety: a wrapper left by an OLDER version drives a
-    stale CLI/env contract and would misbehave if invoked before the next
-    task launch regenerates it. So we remove wrappers whose embedded
-    format version is BELOW the current ``WRAPPER_FORMAT_VERSION`` (and
-    unmarked/pre-versioning ones, treated as version 0).
-
-    We KEEP wrappers at the current-or-higher version: current ones
-    survive a restart (no wrapper-less window → no local-Chrome fallback,
-    see docs/ziniao-concurrency.md), and a running vN never deletes a
-    newer vN+1's (rollback safety). User-created wrappers (no auto-gen
-    header) are untouched. See docs/browser-use-0.13-migration.md.
-    """
-    removed = 0
-    if not BROWSER_USE_BIN_DIR.is_dir():
-        return 0
-    for sub in BROWSER_USE_BIN_DIR.iterdir():
-        wrapper = sub / 'browser-use'
-        if not wrapper.is_file():
-            continue
-        try:
-            head = wrapper.read_text(errors='replace')[:400]
-        except OSError:
-            continue
-        if 'Auto-generated browser-use wrapper' not in head:
-            continue  # user-created wrapper — never touch
-        m = re.search(rf'{re.escape(WRAPPER_FORMAT_MARKER)}\s*(\d+)', head)
-        version = int(m.group(1)) if m else 0
-        if version >= WRAPPER_FORMAT_VERSION:
-            continue  # current or newer — keep (no wrapper-less window)
-        try:
-            wrapper.unlink()
-            removed += 1
-        except OSError:
-            pass
-    if removed:
-        logger.info('Boot: wiped %d outdated browser-use wrapper(s)', removed)
-    return removed
 
 
 def warn_on_browser_use_version_mismatch() -> str | None:
@@ -232,6 +189,11 @@ class BrowserManager:
         self._active_ziniao_account_id: str | None = None
         # store_id -> store_name for active ziniao stores
         self._ziniao_stores: dict[str, str] = {}
+        # Circuit breaker for the dead-mux relaunch path — every
+        # browser-use call can reach it via the wrapper, so without a
+        # budget a wedged Ziniao client becomes a restart storm that
+        # deepens the wedge and wipes agent tabs mid-task.
+        self._relaunches = RelaunchBudget()
 
     @staticmethod
     async def _cdp_alive(port: int, timeout: float = 2.0) -> bool:
@@ -294,12 +256,16 @@ class BrowserManager:
         #      shape this code emits (>=0.13),
         #  (a) wipe stale wrapper scripts so a pre-upgrade (0.12-shaped)
         #      wrapper is never invoked before it self-heals on the next
-        #      task launch,
+        #      task launch, and orphaned ones whose store is gone (their
+        #      frozen proxy_port can later point at a LIVE store),
         #  (b) reap orphaned daemons (both 0.13 pid-file + legacy 0.12
         #      cmdline) — preserves daemons for active tasks (e.g. WAITING
         #      tasks that survive a restart).
         warn_on_browser_use_version_mismatch()
-        _wipe_generated_wrappers()
+        async with async_session() as db:
+            rows = await db.execute(select(Store.id))
+            live_store_ids = {sid for (sid,) in rows.all()}
+        wipe_generated_wrappers(live_store_ids)
         await reap_orphaned_daemons()
 
         async with async_session() as db:
@@ -404,6 +370,13 @@ class BrowserManager:
                 )
                 self._active_sessions.pop(store.id, None)
             elif not await self._cdp_alive_with_retry(proxy_port):
+                # Tearing the env down and relaunching is the recovery,
+                # but it is reachable from EVERY browser-use call via
+                # the wrapper. Budget it per store, else a wedged
+                # Ziniao client produces an endless stop/start storm
+                # (each cycle also destroys the agent's tabs and login
+                # state mid-task). Past the budget, fail loudly.
+                self._relaunches.note(store.id, store.name)
                 logger.warning(
                     'CDP proxy :%s not responding for %s — forcing restart',
                     proxy_port,
@@ -515,8 +488,21 @@ class BrowserManager:
             store.name,
             store.browser_backend,
         )
-        info = await backend.start(browser_config)
+        # Bounded — runs under the GLOBAL _lock, so a store stuck in its
+        # own retry loop would otherwise block every other store's
+        # launch. See app/browser/launch_guards.py.
+        try:
+            info = await start_backend_bounded(
+                backend, browser_config, store.name
+            )
+        except RuntimeError:
+            self._backends.pop(store.id, None)
+            raise
         self._active_sessions[store.id] = info
+        # A healthy launch clears the relaunch budget — the breaker
+        # should only trip on a *run* of failures, not on occasional
+        # recoveries spread over a long session.
+        self._relaunches.clear(store.id)
 
         # Track active Ziniao account
         if store.browser_backend == 'ziniao' and store.ziniao_account_id:

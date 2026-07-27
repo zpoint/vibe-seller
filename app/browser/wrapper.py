@@ -44,7 +44,7 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # generated wrapper's contract (env vars, CLI shape, PATH assumptions).
 #   1 = pre-0.13 (0.12 subcommand CLI: open/click/state)
 #   2 = 0.13 heredoc + BU_CDP_WS env-injection (current)
-# Boot cleanup (BrowserManager._wipe_generated_wrappers) deletes wrappers
+# Boot cleanup (``wipe_generated_wrappers`` below) deletes wrappers
 # with a version BELOW this and never touches equal-or-higher ones. So:
 #   - a stale pre-0.13 wrapper (v1 / unmarked) is removed on upgrade;
 #   - the current version's own wrappers SURVIVE a restart (no wrapper-less
@@ -498,3 +498,93 @@ def remove_browser_use_wrapper(store_name: str, store_id: str | None = None):
     if wrapper_dir.exists():
         shutil.rmtree(wrapper_dir)
         logger.info('Removed browser-use wrapper dir: %s', wrapper_dir)
+
+
+def wipe_generated_wrappers(live_store_ids: set[str] | None = None) -> int:
+    """Delete OUTDATED or ORPHANED auto-generated wrappers on boot.
+
+    Two independent reasons to remove a wrapper:
+
+    1. **Outdated format** (in-place-upgrade safety): a wrapper left by an
+       OLDER version drives a stale CLI/env contract and would misbehave
+       if invoked before the next task launch regenerates it. So we remove
+       wrappers whose embedded format version is BELOW the current
+       ``WRAPPER_FORMAT_VERSION`` (and unmarked/pre-versioning ones,
+       treated as version 0).
+
+    2. **Orphaned** — the store it was generated for no longer exists.
+       Version alone never reaps these, so a deleted store's wrapper
+       survived forever while holding a FROZEN ``proxy_port``. Ports are
+       re-allocated from ``_BASE_PROXY_PORT`` every boot, so that number
+       eventually lands on a *live* store; the orphan then finds the port
+       already up, skips the start API (so its dead ``store_id`` never
+       404s) and exports ``BU_CDP_WS`` straight at another store's
+       browser — wrong account, wrong downloads dir. Same cross-store
+       hole wrapper v3 closed for aux sessions (docs/browser.md).
+       Pass ``live_store_ids`` to enable this check.
+
+    We KEEP current-or-newer wrappers belonging to a live store: they
+    survive a restart (no wrapper-less window → no local-Chrome fallback,
+    see docs/ziniao-concurrency.md), and a running vN never deletes a
+    newer vN+1's (rollback safety). User-created wrappers (no auto-gen
+    header) are untouched, and so are non-store wrappers such as
+    ``_web``/``_guard`` (no embedded store id — fail safe, keep).
+    See docs/browser-use-0.13-migration.md.
+    """
+    removed = 0
+    orphaned = 0
+    if not _BIN_DIR.is_dir():
+        return 0
+    # An EMPTY live set is far more likely "wrong/unloaded DB" than
+    # "the user deleted every store", and acting on it would delete the
+    # wrappers of stores that are actively in use. Never orphan-reap on
+    # no evidence — fall back to version-only.
+    if live_store_ids is not None and not live_store_ids:
+        live_store_ids = None
+    for sub in _BIN_DIR.iterdir():
+        wrapper = sub / 'browser-use'
+        if not wrapper.is_file():
+            continue
+        try:
+            text = wrapper.read_text(errors='replace')
+        except OSError:
+            continue
+        head = text[:400]
+        if 'Auto-generated browser-use wrapper' not in head:
+            continue  # user-created wrapper — never touch
+        m = re.search(rf'{re.escape(WRAPPER_FORMAT_MARKER)}\s*(\d+)', head)
+        version = int(m.group(1)) if m else 0
+        stale_format = version < WRAPPER_FORMAT_VERSION
+        # Ownership: only judge a wrapper we can actually attribute to a
+        # store. No parseable id (e.g. the store-less `_web` wrapper) →
+        # keep, so a format change here can never orphan-reap everything.
+        is_orphan = False
+        if live_store_ids is not None:
+            # Don't assume a UUID shape — match whatever the wrapper
+            # actually embeds, so a non-UUID id is still attributable.
+            owner = re.search(r'/api/stores/([^/"\s]+)/browser/', text)
+            if owner and owner.group(1) not in live_store_ids:
+                is_orphan = True
+        if not stale_format and not is_orphan:
+            continue
+        try:
+            wrapper.unlink()
+            removed += 1
+            if is_orphan:
+                orphaned += 1
+                # Drop the now-empty dir so `ls bin/` reflects reality.
+                try:
+                    sub.rmdir()
+                except OSError:
+                    pass
+        except OSError:
+            pass
+    if removed:
+        logger.info(
+            'Boot: wiped %d browser-use wrapper(s) (%d outdated, '
+            '%d orphaned — store no longer exists)',
+            removed,
+            removed - orphaned,
+            orphaned,
+        )
+    return removed
