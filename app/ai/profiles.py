@@ -307,15 +307,21 @@ PROVIDER_MODELS = {
             'vision': True,
         },
     ],
-    # MiniMax: text-only. Live probe (red+blue x3) had M3 name red then
-    # reply "i cannot see images" / wrong color, and M2.x return empty —
-    # it accepts image blocks but does not reliably read them.
+    # MiniMax: M3 is multimodal; M2.x is text-only. M3 image+video
+    # input is documented at platform.minimaxi.com/docs/llms.txt
+    # ("Anthropic API compatibility supports type=image / type=video
+    # for MiniMax-M3; M2.x only supports text and tool-calling content
+    # blocks"). Doc-verified, not live-probed. An earlier live probe
+    # (red+blue x3 against M3) returned "cannot see images" / wrong
+    # color — that contradicts the doc and likely reflected an
+    # earlier model rollout; the user-facing badge now follows the
+    # doc so the agent stops degrading on browser screenshots.
     'minimax': [
         {
             'id': 'MiniMax-M3[1m]',
             'label': 'M3 (1M context)',
             'context': '1M',
-            'vision': False,
+            'vision': True,
         },
         {
             'id': 'MiniMax-M2.7',
