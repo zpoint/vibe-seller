@@ -40,12 +40,18 @@ def _clear_attempts():
     completeness_gate._min_distance.clear()
     completeness_gate._stall_rounds.clear()
     completeness_gate._stop_blocks.clear()
+    completeness_gate._combo_min_distance.clear()
+    completeness_gate._combo_stall_rounds.clear()
+    completeness_gate._seen_combos.clear()
     yield
     _attempts.clear()
     completeness_gate._max_drilled.clear()
     completeness_gate._min_distance.clear()
     completeness_gate._stall_rounds.clear()
     completeness_gate._stop_blocks.clear()
+    completeness_gate._combo_min_distance.clear()
+    completeness_gate._combo_stall_rounds.clear()
+    completeness_gate._seen_combos.clear()
 
 
 def _scope(*combos):
@@ -923,6 +929,205 @@ class TestAdCompletenessReview:
         deny = completeness_gate.check(self._entity_block(''), scope=scope)
         assert deny is not None
         assert '[基线]' in deny.reason
+
+    # --- D5: anti-gaming tightened against the scope's active set ---
+
+    def test_anti_gaming_anchored_on_scope_active_set(self):
+        # 4 active ids in scope but only 2 drill tables in the section
+        # — the OLD check tolerated this (n_drill_tables * 2 = 4 == active
+        # self-claim). With the scope it must reject: each campaign needs
+        # at least one drill table.
+        scope = _scope((
+            'amazon',
+            'US',
+            [
+                'A0EXAMPLE123456789XYZ',
+                'A0EXAMPLE123456789ZZ1',
+                'A0EXAMPLE123456789ZZ2',
+                'A0EXAMPLE123456789ZZ3',
+            ],
+        ))
+        section = (
+            '## Amazon US\n\n'
+            '**进度**: drilled 4/4 active\n\n'
+            + self._entity_block('')  # A0EXAMPLE…XYZ block, has 1 table
+            + '\n### A0EXAMPLE123456789ZZ1 | widget-001 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        deny = completeness_gate.check(section, scope=scope)
+        assert deny is not None
+        assert '[内容]' in deny.reason
+        assert '4' in deny.reason  # the authoritative count
+
+    def test_anti_gaming_ungrounded_keeps_loose_2x_slack(self):
+        # No scope -> the old 2x slack stays so narrow single-ad audits
+        # aren't tripped by a search-term table doubling the count.
+        # active=4 with n_drill_tables=2 -> 2 * 2 = 4, NOT less than 4,
+        # so no [内容] gap. Two inlined campaign blocks (not the
+        # _campaign_block helper, which carries its own ## header that
+        # would chop this section).
+        section = (
+            '## Amazon US\n\n**进度**: drilled 2/4 active\n\n'
+            + '### 100000000000003 | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + '\n### 100000000000007 | widget-007 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        # Has [完整性] under-drilled (2/4) and likely other gaps, but
+        # [内容] specifically must NOT fire here.
+        deny = completeness_gate.check(section)
+        assert deny is not None  # still denied (under-drilled, no scope)
+        assert '[内容]' not in deny.reason
+
+    # --- D6: per-combo stall ---
+
+    def test_per_combo_stall_one_combo_frozen_does_not_mask_others(self):
+        # Round 1: noon AE under-drilled (3/3 ok by gap attribution),
+        # Amazon SA has [完整性] gap (3/5). Both are seen combos.
+        # Round 2: noon AE still 3/3 (frozen, no new progress), Amazon
+        # SA closes to 5/5 (drove its distance down).
+        # The global counter must reset for Amazon SA's progress, and
+        # noon AE's per-combo counter must increment independently.
+        tid = 'task-per-combo-stall'
+        scope = {
+            'combos': [
+                {
+                    'platform': 'noon',
+                    'country': 'AE',
+                    'active_ids': ['C_FAKE0001'],
+                    'total_active': 1,
+                },
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['A0EXAMPLE123456789XYZ'],
+                    'total_active': 1,
+                },
+            ]
+        }
+        # Build a 3-campaign Amazon SA section: 1 active block +
+        # a complete reconcile. Round 1.
+        amazon_round1 = (
+            '## Amazon SA\n\n**进度**: drilled 0/1 active\n\n'
+            + '### A0EXAMPLE123456789XYZ | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        noon_round1 = (
+            '## noon AE\n\n**进度**: drilled 0/1 active\n\n'
+            + '### C_FAKE0001 | widget-007 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        deny = completeness_gate.check(
+            amazon_round1 + '\n' + noon_round1,
+            task_id=tid,
+            scope=scope,
+        )
+        assert deny is not None  # both under-drilled
+
+        # Round 2: Amazon SA closes (drilled 1/1), noon AE still 0/1.
+        amazon_round2 = (
+            '## Amazon SA\n\n**进度**: drilled 1/1 active\n\n'
+            + '### A0EXAMPLE123456789XYZ | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + '\n搜索词对账: 定向花费 USD 100.00 / 点击 50 = 搜索词花费 '
+            'USD 100.00 / 点击 50 (✓)\n' + self.SUMMARY
+        )
+        deny2 = completeness_gate.check(
+            amazon_round2 + '\n' + noon_round1,
+            task_id=tid,
+            scope=scope,
+        )
+        assert deny2 is not None  # noon AE still under-drilled
+
+        # is_stalled must NOT fire — Amazon SA made real progress even
+        # though noon AE is frozen. The bug being closed: the OLD global
+        # counter only saw combined distance, so a frozen noon AE was
+        # masked by Amazon SA converging. Now per-combo, is_stalled needs
+        # EVERY seen combo to stall.
+        assert completeness_gate.is_stalled(tid) is False
+        # And noon AE's per-combo counter must be > 0 (we recorded
+        # at least one no-progress round).
+        assert (
+            completeness_gate._combo_stall_rounds.get((tid, 'noon AE'), 0) >= 1
+        )
+
+    def test_per_combo_stall_fires_when_every_combo_stuck(self):
+        # Round 1: both combos under-drilled (real gaps).
+        # Round 2-N: identical reports. After STALL_CAP rounds with
+        # neither combo moving, is_stalled() must fire.
+        tid = 'task-per-combo-stall-fully-stuck'
+        scope = {
+            'combos': [
+                {
+                    'platform': 'noon',
+                    'country': 'AE',
+                    'active_ids': ['C_FAKE0002'],
+                    'total_active': 1,
+                },
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['A0EXAMPLE123456789XYZ'],
+                    'total_active': 1,
+                },
+            ]
+        }
+        amazon_under = (
+            '## Amazon SA\n\n**进度**: drilled 0/1 active\n\n'
+            + '### A0EXAMPLE123456789XYZ | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        noon_under = (
+            '## noon AE\n\n**进度**: drilled 0/1 active\n\n'
+            + '### C_FAKE0002 | widget-007 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        report = amazon_under + '\n' + noon_under
+        # First call sets the initial min_distance; subsequent calls
+        # increment the per-combo stall counter without improving.
+        for i in range(completeness_gate.STALL_CAP + 1):
+            completeness_gate.check(report, task_id=tid, scope=scope)
+        # Now every seen combo should have stall_rounds >= STALL_CAP,
+        # so is_stalled() must be True.
+        assert completeness_gate.is_stalled(tid) is True
+
+    def test_legacy_global_counter_used_when_no_combos_seen(self):
+        # No scope AND no combo sections at all — the per-combo path has
+        # nothing to track, so is_stalled must fall back to the legacy
+        # global counter. We need a report that DOES emit gaps (otherwise
+        # check() returns None early and never touches stall state) but
+        # has no combo to attribute them to. A under-drilled ## section
+        # with no scope file generates [完整性] gaps that stay unattributed,
+        # which is exactly the fallback case.
+        tid = 'task-no-combo-section'
+        report = (
+            '## Amazon US\n\n'
+            '**进度**: drilled 0/4 active\n\n'
+            + '### 100000000000003 | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        for _ in range(completeness_gate.STALL_CAP + 1):
+            completeness_gate.check(report, task_id=tid)
+        # No scope means _seen_combos never gets populated for this task,
+        # so the global counter is the one that increments.
+        assert not completeness_gate._seen_combos.get(tid)
+        assert completeness_gate.is_stalled(tid) is True
 
     def test_campaign_no_searchterm_token_escapes(self):
         # SD-type campaign: no search-term report exists — explicit token.
