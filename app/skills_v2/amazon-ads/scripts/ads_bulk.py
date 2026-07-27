@@ -580,10 +580,12 @@ def cmd_archive_campaign(args):
 def cmd_scope(args):
     """Print the ACTIVE (state=enabled) Campaign ids for AUDIT_SCOPE.json.
 
-    The completeness gate checks report coverage against this
-    authoritative set (see audit-quickref Step 1), so the agent cannot
-    pass by shrinking its own denominator. With --platform/--country it
-    prints a ready combo object; otherwise just the id array.
+    The completeness gate (audit-quickref Step 1) grades coverage against
+    this set so the agent cannot pass by shrinking its own denominator:
+    with --platform/--country this prints a combo object, otherwise just
+    the id array. The combo carries both ``total_active`` (the enabled-
+    row count) and ``active_ids``; the gate requires them to agree, so a
+    hand-truncated id list is rejected — copy the object verbatim.
     """
     _wb, _ws, _header, data = load(args.file)
     active_ids = [
@@ -598,6 +600,7 @@ def cmd_scope(args):
         out = {
             'platform': args.platform,
             'country': args.country,
+            'total_active': len(active_ids),
             'active_ids': active_ids,
         }
     else:

@@ -19,6 +19,7 @@ from app.events.bus import event_bus
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_message import TaskMessage
+from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
@@ -48,6 +49,37 @@ logger = logging.getLogger(__name__)
 
 _send_task_completed = send_task_completed
 _send_task_failed = send_task_failed
+
+
+async def _fail_on_agent_error(db, task, task_id, outcome) -> bool:
+    """Land the task in FAILED if the outcome says so. True if it did.
+
+    Only an outcome with no deliverable at all — or an infra-detected
+    error — is terminal here; an agent-reported error over real output
+    was already folded into the result as a caveat by
+    ``apply_outcome``. Shared by both cleanup paths in this module,
+    which were byte-identical copies.
+    """
+    if not (outcome.kind is OutcomeKind.FAILED and task.error):
+        return False
+    assert_transition(task.status, TaskStatus.FAILED)
+    task.status = TaskStatus.FAILED
+    task.updated_at = datetime.now(UTC).isoformat()
+    await db.commit()
+    await event_bus.emit(
+        'task_update',
+        {
+            'task_id': task_id,
+            'status': TaskStatus.FAILED,
+            'error': task.error,
+        },
+    )
+    _send_task_failed(
+        task,
+        phase=TaskFailurePhase.RUNNING,
+        category=TaskFailureCategory.AGENT_SET_ERROR,
+    )
+    return True
 
 
 async def _fail_task_external_config_override(
@@ -313,6 +345,10 @@ async def execute_planned_task(task_id: str, store: Store | None):
         async with async_session() as db:
             task = await db.get(Task, task_id)
             if task and task.status == TaskStatus.RUNNING:
+                # Resolve what the run produced before anything reads
+                # result/error — see app.task_outcome.
+                outcome = resolve_outcome(task)
+                apply_outcome(task, outcome)
                 # Fallback parse
                 if not task.wait_condition and task.result:
                     parsed = parse_wait_condition(task.result)
@@ -342,27 +378,9 @@ async def execute_planned_task(task_id: str, store: Store | None):
                     )
                     return
 
-                # Agent annotated an unrecoverable error via the
-                # set_task_error MCP tool → transition to FAILED
-                # with the agent's message + category.
-                if task.error:
-                    assert_transition(task.status, TaskStatus.FAILED)
-                    task.status = TaskStatus.FAILED
-                    task.updated_at = datetime.now(UTC).isoformat()
-                    await db.commit()
-                    await event_bus.emit(
-                        'task_update',
-                        {
-                            'task_id': task_id,
-                            'status': TaskStatus.FAILED,
-                            'error': task.error,
-                        },
-                    )
-                    _send_task_failed(
-                        task,
-                        phase=TaskFailurePhase.RUNNING,
-                        category=TaskFailureCategory.AGENT_SET_ERROR,
-                    )
+                # Terminal verdict from the resolved outcome (an agent
+                # error over real output is a caveat, not a failure).
+                if await _fail_on_agent_error(db, task, task_id, outcome):
                     return
 
                 # Check if agent exited with an error result (CLI
@@ -642,6 +660,10 @@ async def execute_woken_task(task_id: str, store: Store | None):
         async with async_session() as db:
             task = await db.get(Task, task_id)
             if task and task.status == TaskStatus.RUNNING:
+                # Resolve what the run produced before anything reads
+                # result/error — see app.task_outcome.
+                outcome = resolve_outcome(task)
+                apply_outcome(task, outcome)
                 if not task.wait_condition and task.result:
                     parsed = parse_wait_condition(task.result)
                     if parsed:
@@ -671,27 +693,9 @@ async def execute_woken_task(task_id: str, store: Store | None):
                     )
                     return
 
-                # Agent annotated an unrecoverable error via the
-                # set_task_error MCP tool → transition to FAILED
-                # with the agent's message + category.
-                if task.error:
-                    assert_transition(task.status, TaskStatus.FAILED)
-                    task.status = TaskStatus.FAILED
-                    task.updated_at = datetime.now(UTC).isoformat()
-                    await db.commit()
-                    await event_bus.emit(
-                        'task_update',
-                        {
-                            'task_id': task_id,
-                            'status': TaskStatus.FAILED,
-                            'error': task.error,
-                        },
-                    )
-                    _send_task_failed(
-                        task,
-                        phase=TaskFailurePhase.RUNNING,
-                        category=TaskFailureCategory.AGENT_SET_ERROR,
-                    )
+                # Terminal verdict from the resolved outcome (an agent
+                # error over real output is a caveat, not a failure).
+                if await _fail_on_agent_error(db, task, task_id, outcome):
                     return
 
                 # Check if agent exited with an error result (CLI

@@ -33,6 +33,11 @@ class TaskResponse(BaseModel):
     plan: str | None
     plan_history: str | None = None
     result: str | None
+    # Retained even when refused, so the UI can show the best attempt
+    # while a run is still converging. See app/task_outcome.py.
+    submitted_result: str | None = None
+    review_gaps: str | None = None
+    submission_count: int = 0
     todos: str | None
     error: str | None
     error_category: str | None = None

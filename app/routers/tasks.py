@@ -30,6 +30,12 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
 from app.models.user import User
+from app.routers.task_submission import (
+    SetTaskResultRequest,
+    declared_gaps,
+    refuse as _refuse,
+    retain_submission as _retain_submission,
+)
 from app.routers.tasks_files import (
     apply_report_reviewer_gate,
     looks_like_result_path,
@@ -40,6 +46,7 @@ from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
 from app.schemas.user import TaskModeToggle
 from app.task_delete import delete_task as delete_task_record
+from app.task_outcome import apply_outcome, resolve_outcome
 from app.task_runner import (
     TaskHeader,
     build_store_context,
@@ -547,10 +554,6 @@ async def stop_agent(
     return {'ok': True, 'task_id': task_id, 'status': 'agent_stopped'}
 
 
-class SetTaskResultRequest(BaseModel):
-    result: str
-
-
 @router.post('/{task_id}/result')
 async def set_task_result(
     task_id: str,
@@ -626,6 +629,16 @@ async def set_task_result(
 
     final_result = resolved_content if resolved_content is not None else raw
 
+    # RETAIN BEFORE REVIEW. Every gate below refuses by raising, and a
+    # raise here used to discard the submission entirely — N refusals
+    # left the run holding nothing, so the finalizer had only streamed
+    # prose to offer. Submission and verdict are separate facts: what
+    # the agent submitted is recorded now, unconditionally, and a
+    # refusal only annotates it (see ``_refuse``). ``task.result`` is
+    # still set only once every gate accepts.
+    declared = declared_gaps(body)
+    await _retain_submission(db, task, final_result)
+
     # Generic soft gates — run on the resolved result text for every
     # task. Each gate gets at most SOFT_GATE_MAX_DENIALS denies per task;
     # past the cap the original text is allowed through so a stubborn
@@ -640,7 +653,7 @@ async def set_task_result(
             continue
         attempt = record_attempt(task_id, deny.gate)
         if attempt <= SOFT_GATE_MAX_DENIALS:
-            raise HTTPException(status_code=400, detail=deny.reason)
+            await _refuse(db, task, deny.reason, declared + deny.gaps)
         # Past the cap: log and allow through.
         logger.warning(
             'Soft gate %s exceeded %d denials for task %s — allowing '
@@ -658,6 +671,7 @@ async def set_task_result(
     loaded, workspace = agent_manager.loaded_skills_and_workspace(task_id)
     skill_gates = resolve_skill_gates(loaded, workspace or VIBE_SELLER_DIR)
 
+    stalled_gaps: list[str] = []
     for gate_name, gate in skill_gates:
         deny = gate.check(final_result, task_id, rules)
         if not deny:
@@ -666,28 +680,46 @@ async def set_task_result(
         # ad_completeness_review for the stall design).
         is_stalled = getattr(gate, 'is_stalled', None)
         if is_stalled is None or not is_stalled(task_id):
-            raise HTTPException(status_code=400, detail=deny.reason)
+            await _refuse(db, task, deny.reason, declared + deny.gaps)
         logger.warning(
             'Gate %s stalled for task %s — accepting best result. Gaps: %s',
             gate_name,
             task_id,
             deny.reason[:200],
         )
+        # Failed open on a stall: the result ships, but the unmet gaps
+        # ride along as caveats instead of vanishing into a log line.
+        stalled_gaps.extend(deny.gaps or (deny.reason,))
 
     # Active reviewer sign-off (see apply_report_reviewer_gate).
     deny_reason, final_result = apply_report_reviewer_gate(
         task_id, task_root, final_result
     )
     if deny_reason:
-        raise HTTPException(status_code=400, detail=deny_reason)
+        await _refuse(db, task, deny_reason, declared)
 
-    task.result = final_result
     # Recovery: a valid result supersedes an earlier agent-reported
     # error this turn (error → recovered → result must not ship as
-    # FAILED). Infra-detected errors are not cleared.
+    # FAILED). Infra-detected errors are not cleared. Cleared BEFORE
+    # resolving, so a superseded error isn't re-rendered as a caveat —
+    # the agent replaced it, it isn't an outstanding qualification.
     if task.error and task.error_category == 'agent_reported':
         task.error = None
         task.error_category = None
+
+    # ACCEPTED — top of the precedence order.
+    task.accepted_result = final_result
+    task.submitted_result = final_result
+    # A gate that failed open still had unmet items; keep them so the
+    # outcome carries its caveats. Otherwise the verdict is clean.
+    task.review_gaps = (
+        json.dumps(declared + tuple(stalled_gaps), ensure_ascii=False)
+        if (stalled_gaps or declared)
+        else None
+    )
+    # Materialise the derived view now, so the SSE result card and any
+    # reader before finalize see the same text the finalizer will.
+    apply_outcome(task, resolve_outcome(task))
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
 

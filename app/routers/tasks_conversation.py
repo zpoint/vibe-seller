@@ -31,6 +31,7 @@ from app.routers.dida365_oauth import refresh_token_if_needed
 from app.routers.tasks import schedule_or_run
 from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
+from app.task_outcome import clear_run_state
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
@@ -249,9 +250,7 @@ async def send_task_message(
                 # UI shows the stale verdict next to the new turn's
                 # answer. Gate redrives do NOT pass through here, so
                 # a converging turn keeps its accepted result.
-                task.result = None
-                task.error = None
-                task.error_category = None
+                clear_run_state(task)
                 task.updated_at = datetime.now(UTC).isoformat()
                 await db.commit()
                 await event_bus.emit(
@@ -490,7 +489,7 @@ async def send_task_message(
             # approved and executed. A follow-up continues execution
             # with full context, identical to a non-plan task — no
             # re-plan. Clear stale run-scoped state and resume.
-            task.result = None
+            clear_run_state(task)
             task.todos = None
             task.wait_condition = None
             assert_transition(task.status, TaskStatus.RUNNING)
@@ -692,11 +691,11 @@ async def retry_task(
         task.ai_profile_id = body.profile_id
 
     task.status = TaskStatus.PENDING
-    task.error = None
-    task.error_category = None
     task.plan = None
     task.plan_history = None
-    task.result = None
+    # A retry is a genuinely fresh run: every resolver input goes, and
+    # the submit counter restarts. See app/task_outcome.py.
+    clear_run_state(task, reset_submissions=True)
     task.todos = None
     task.wait_condition = None
     task.session_id = None

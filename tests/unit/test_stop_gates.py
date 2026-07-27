@@ -37,15 +37,36 @@ from app.ai.stop_gates.ad_rules import DEFAULT_RULES, resolve_rules
 def _clear_attempts():
     _attempts.clear()
     completeness_gate._max_drilled.clear()
-    completeness_gate._total_high.clear()
+    completeness_gate._min_distance.clear()
     completeness_gate._stall_rounds.clear()
-    completeness_gate._last_len.clear()
+    completeness_gate._stop_blocks.clear()
+    completeness_gate._combo_min_distance.clear()
+    completeness_gate._combo_stall_rounds.clear()
+    completeness_gate._seen_combos.clear()
     yield
     _attempts.clear()
     completeness_gate._max_drilled.clear()
-    completeness_gate._total_high.clear()
+    completeness_gate._min_distance.clear()
     completeness_gate._stall_rounds.clear()
-    completeness_gate._last_len.clear()
+    completeness_gate._stop_blocks.clear()
+    completeness_gate._combo_min_distance.clear()
+    completeness_gate._combo_stall_rounds.clear()
+    completeness_gate._seen_combos.clear()
+
+
+def _scope(*combos):
+    """AUDIT_SCOPE payload: ``_scope(('amazon', 'US', ['100000000000003']))``."""
+    return {
+        'combos': [
+            {
+                'platform': p,
+                'country': c,
+                'active_ids': list(ids),
+                'total_active': len(ids),
+            }
+            for p, c, ids in combos
+        ]
+    }
 
 
 @pytest.mark.unit
@@ -440,12 +461,14 @@ class TestAdCompletenessReview:
     """Exit-hook reviewer: structured 'what's missing' diff, converges."""
 
     def test_complete_report_passes(self):
-        # Each combo has its 进度 line AND real per-campaign drill tables
-        # (建议 column) — not a bare manifest.
+        # Each combo has its 进度 line, a real per-campaign drill block
+        # (建议 column, not a bare manifest) grounded in AUDIT_SCOPE, and
+        # a valid search-term escape (SD-type: no search-term report).
         drill = (
             '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
             '| wireless mouse | 1.0 | 9.0 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
         )
+        escape = '\n该活动类型无搜索词报告（SD）。\n'
         summary = (
             '## 汇总建议\n\n本次审计覆盖各市场，总花费与销售额见各节'
             '合计。最高优先级行动：提高核心转化词出价抢占盈利流量，'
@@ -454,13 +477,21 @@ class TestAdCompletenessReview:
         )
         report = (
             '# 广告优化建议\n\n'
-            '## Amazon US\n\n**进度**: drilled 2/2 active (175 total, 1 page)\n'
+            '## Amazon US\n\n**进度**: drilled 1/1 active (175 total, 1 page)\n\n'
+            '### 100000000000003 | wireless mouse 006 | Manual\n\n'
             + drill
-            + '## noon EG\n\n**进度**: drilled 2/2 active (70 total, 5 pages)\n'
+            + escape
+            + '## noon EG\n\n**进度**: drilled 1/1 active (70 total, 5 pages)\n\n'
+            '### C_FAKE0004 | wireless mouse 023 manual | 手动\n\n'
             + drill
+            + escape
             + summary
         )
-        assert completeness_gate.check(report) is None
+        scope = _scope(
+            ('amazon', 'US', ['100000000000003']),
+            ('noon', 'EG', ['C_FAKE0004']),
+        )
+        assert completeness_gate.check(report, scope=scope) is None
 
     def test_self_disclosed_pagination_truncation_flagged(self):
         # Regression: an audit that under-enumerated (read only grid page 1
@@ -555,10 +586,18 @@ class TestAdCompletenessReview:
 
     def test_regression_flagged(self):
         # Round 1: Amazon US fully drilled 31/31 (sets high-water mark).
+        # The scope only needs to ground ONE campaign id (a small
+        # realistic fixture) — the regression check keys off the
+        # self-reported drilled count, not the scope's active-id count.
+        scope = _scope(('amazon', 'US', ['100000000000003']))
         drill = (
             '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
             '| wireless mouse | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
             * 20
+        )
+        campaign_block = (
+            '\n### 100000000000003 | wireless mouse 006 | Manual\n\n'
+            '该活动类型无搜索词报告（SD）。\n'
         )
         summary = (
             '## 汇总建议\n\n本次审计覆盖各市场，总花费与销售额见各节'
@@ -569,15 +608,17 @@ class TestAdCompletenessReview:
         r1 = (
             '## Amazon US\n\n**进度**: drilled 31/31 active (175 total, 1 page)\n'
             + drill
+            + campaign_block
             + summary
         )
-        assert completeness_gate.check(r1, task_id='t1') is None
+        assert completeness_gate.check(r1, task_id='t1', scope=scope) is None
         # Round 2: rewrote from memory, lost work → 2/31 (regression).
         r2 = (
             '## Amazon US\n\n**进度**: drilled 2/31 active (175 total, 1 page)\n'
             + drill
+            + campaign_block
         )
-        deny = completeness_gate.check(r2, task_id='t1')
+        deny = completeness_gate.check(r2, task_id='t1', scope=scope)
         assert deny is not None
         assert '回退' in deny.reason and '31' in deny.reason
 
@@ -600,21 +641,68 @@ class TestAdCompletenessReview:
         # ...and after STALL_CAP no-progress rounds it's considered stalled.
         assert completeness_gate.is_stalled('t1') is True
 
-    def test_polish_submits_do_not_burn_stall_budget(self):
-        # Same D each round but the report text changes substantially
-        # (the agent is polishing/expanding between drilling bursts) —
-        # NOT stalled. Premature fail-open at 15/111 was caused by
-        # counting these as no-progress rounds.
-        base = (
-            '## Noon EG\n\n**进度**: drilled 3/48 active (70 total, 5 pages)\n'
+    @staticmethod
+    def _padded(drilled: int, pad: int) -> str:
+        drill = (
             '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
             '| wireless mouse | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
-            * 3
         )
-        for i in range(completeness_gate.STALL_CAP + 2):
-            report = base + ('\n更多分析内容补充。' * 40 * (i + 1))
+        return (
+            f'## Noon EG\n\n**进度**: drilled {drilled}/48 active '
+            '(70 total, 5 pages)\n'
+            + drill * drilled
+            + '\n更多分析内容补充。' * pad
+        )
+
+    def test_text_churn_alone_burns_stall_budget(self):
+        """Rewriting prose is not progress.
+
+        The old metric reset the budget on ANY >=400-char edit, so an
+        agent editing suggestion text against a bar it could not clear
+        was never "stalled" and the fail-open was unreachable — two
+        real runs took 41 and 14 submissions and never reached the cap.
+        Distance to done (unmet gaps + campaigns owed) is unchanged by
+        churn, so these rounds now consume the budget.
+        """
+        for i in range(completeness_gate.STALL_CAP + 1):
+            report = self._padded(3, 40 * (i + 1))
             assert completeness_gate.check(report, task_id='t8') is not None
-            assert completeness_gate.is_stalled('t8') is False
+        assert completeness_gate.is_stalled('t8') is True
+
+    def test_interleaved_polish_does_not_cut_off_a_progressing_agent(self):
+        """The budget is spent only by CONSECUTIVE no-progress rounds.
+
+        Guards the original concern behind the old text-delta rule: an
+        agent that polishes a few times between drilling bursts must not
+        be cut off mid-climb (that is how a fail-open once accepted
+        15/111).
+        """
+        for i in range(3):  # polish, no new drills
+            completeness_gate.check(self._padded(3, 40 * (i + 1)), task_id='t9')
+        assert completeness_gate.is_stalled('t9') is False
+
+        # A round that actually drills restores the full budget.
+        assert completeness_gate.check(self._padded(20, 10), 't9') is not None
+        assert completeness_gate.is_stalled('t9') is False
+
+        # But churn that never closes anything still runs out.
+        for _ in range(completeness_gate.STALL_CAP):
+            completeness_gate.check(self._padded(20, 99), task_id='t9')
+        assert completeness_gate.is_stalled('t9') is True
+
+    def test_deny_carries_gaps_as_data(self):
+        """The refusal is available as a list, not only as prose.
+
+        ``set_task_result`` persists these on the task so a run that
+        never gets an accepted submission can still ship its best
+        attempt with an honest list of what is missing.
+        """
+        deny = completeness_gate.check(self._padded(3, 0), task_id='t10')
+        assert deny is not None
+        assert deny.gaps, 'gate must expose its gaps as data'
+        assert all(isinstance(g, str) for g in deny.gaps)
+        # Same content as the prose the agent sees.
+        assert deny.gaps[0] in deny.reason
 
     def test_progress_resets_stall(self):
         # A climbing D must keep is_stalled() False (never cut off a
@@ -688,7 +776,8 @@ class TestAdCompletenessReview:
             + '\n搜索词对账: 定向花费 USD 942.39 / 点击 762 = '
             '搜索词花费 USD 942.39 / 点击 762 (✓ 偏差 0%)\n'
         )
-        assert completeness_gate.check(block) is None
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(block, scope=scope) is None
 
     def test_campaign_with_mismatched_reconcile_flagged(self):
         # 30d targeting vs 7d search-terms: spend 942 vs 215 — way out.
@@ -713,12 +802,338 @@ class TestAdCompletenessReview:
             + '\n搜索词对账: 定向花费 USD 1391.56 / 点击 1094 = '
             '搜索词花费 USD 1413.23 / 点击 688 (✓ 花费偏差 1.6%)\n'
         )
-        assert completeness_gate.check(block) is None
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(block, scope=scope) is None
+
+    # --- grounding the per-campaign obligation (see review_defect.md) ---
+
+    # Amazon alphanumeric entity id. The digit run is deliberately 9 long:
+    # a placeholder with 10+ consecutive digits would be matched by the OLD
+    # ``\\d{10,}`` shape by accident, which is precisely how 3 of 30 live
+    # campaigns got enforced while the other 27 were skipped — and it would
+    # make this test pass against the unfixed gate.
+    AMZ_ENTITY_ID = 'A0EXAMPLE123456789XYZ'
+
+    def _entity_block(self, tail):
+        """Campaign block keyed by an Amazon ENTITY id (no 10-digit run).
+
+        This shape used to carry NO obligation at all: the old
+        ``_CAMPAIGN_HEAD_RE`` recognised only ``\\d{10,}`` or ``C_``, so a
+        real Amazon id matched only when its random digits happened to
+        contain a 10-digit run — 3 of 30 campaigns on the live run.
+        """
+        return (
+            '## Amazon US\n\n**进度**: drilled 1/1 active (1 total)\n\n'
+            f'### {self.AMZ_ENTITY_ID} | wireless mouse 006 | Manual\n\n'
+            '#### Targeting\n' + self.DRILL + tail + self.SUMMARY
+        )
+
+    def test_amazon_entity_id_campaign_is_enforced(self):
+        # No reconcile line, no escape token: must be flagged. Before the
+        # fix this passed, because the block was never recognised.
+        deny = completeness_gate.check(
+            self._entity_block(''),
+            scope=_scope(('amazon', 'US', [self.AMZ_ENTITY_ID])),
+        )
+        assert deny is not None
+        assert '搜索词' in deny.reason
+
+    def test_pending_export_escape_is_rejected(self):
+        # 「无搜索词报告」 next to an admission that the CSV still needs
+        # exporting is self-contradicting — it must not silence the check
+        # for the very layer it says is missing. Accepted 30x on the live
+        # run; that is how the audit "completed" with no search-term data.
+        deny = completeness_gate.check(
+            self._entity_block(
+                '\n搜索词对账: 无搜索词报告（需从 Search Terms 页面导出全量 CSV）\n'
+            ),
+            scope=_scope(('amazon', 'US', [self.AMZ_ENTITY_ID])),
+        )
+        assert deny is not None
+        assert '搜索词' in deny.reason
+
+    def test_prose_reconcile_reported_as_format_not_missing(self):
+        # The agent wrote a 搜索词对账 line but in prose instead of the four
+        # numbers. That is a PARSE failure and must say so — reporting it
+        # as "missing the layer" is what convinced an agent the reviewer
+        # was broken while it looped 11 rounds without touching the block.
+        deny = completeness_gate.check(
+            self._entity_block(
+                '\n搜索词对账: 定向花费 USD 69.60（TSV）→ 当前 30 天 '
+                'USD 85.92（需回采对齐）\n'
+            ),
+            scope=_scope(('amazon', 'US', [self.AMZ_ENTITY_ID])),
+        )
+        assert deny is not None
+        assert '[搜索词·格式]' in deny.reason
+
+    def test_reconcile_with_failed_verdict_annotation_parses(self):
+        # A ✗ verdict plus a trailing annotation is still a well-formed
+        # line: it must be read as a reconciliation (and then judged on
+        # the spend band), never as an absent layer.
+        deny = completeness_gate.check(
+            self._entity_block(
+                '\n搜索词对账: 定向花费 USD 942.39 / 点击 762 = 搜索词花费 '
+                'USD 215.10 / 点击 180 (✗ — 窗口不对齐)\n'
+            ),
+            scope=_scope(('amazon', 'US', [self.AMZ_ENTITY_ID])),
+        )
+        assert deny is not None
+        assert '[对账]' in deny.reason
+        assert '[搜索词]' not in deny.reason
+
+    def test_missing_scope_is_a_gap(self):
+        # A 进度 line with no AUDIT_SCOPE entry behind it is an unverifiable
+        # claim, not a free pass.
+        deny = completeness_gate.check(
+            self._entity_block(
+                '\n搜索词对账: 定向花费 USD 100.00 / 点击 50 = 搜索词花费 '
+                'USD 100.00 / 点击 50 (✓)\n'
+            )
+        )
+        assert deny is not None
+        assert '[基线]' in deny.reason
+
+    def test_truncated_scope_rejected_by_total_active(self):
+        # noon's lazy list renders ~20 of 45 rows; an agent that enumerates
+        # without scrolling writes 1 id while the Live chip says 2. The
+        # independent total is what catches it.
+        scope = {
+            'combos': [
+                {
+                    'platform': 'noon',
+                    'country': 'EG',
+                    'active_ids': ['C_FAKE0004'],
+                    'total_active': 2,
+                }
+            ]
+        }
+        deny = completeness_gate.check(
+            self._noon_block(
+                '\n搜索词对账: 定向花费 EGP 100.00 / 点击 50 = 搜索词花费 '
+                'EGP 60.00 / 点击 30 (✓)\n'
+            ),
+            scope=scope,
+        )
+        assert deny is not None
+        assert '[基线]' in deny.reason
+
+    def test_empty_scope_ids_rejected(self):
+        # An entry with no ids satisfies "a scope exists" while grounding
+        # nothing — the same trick one level down.
+        scope = {
+            'combos': [
+                {'platform': 'amazon', 'country': 'US', 'active_ids': []}
+            ]
+        }
+        deny = completeness_gate.check(self._entity_block(''), scope=scope)
+        assert deny is not None
+        assert '[基线]' in deny.reason
+
+    # --- D5: anti-gaming tightened against the scope's active set ---
+
+    def test_anti_gaming_anchored_on_scope_active_set(self):
+        # 4 active ids in scope but only 2 drill tables in the section
+        # — the OLD check tolerated this (n_drill_tables * 2 = 4 == active
+        # self-claim). With the scope it must reject: each campaign needs
+        # at least one drill table.
+        scope = _scope((
+            'amazon',
+            'US',
+            [
+                'A0EXAMPLE123456789XYZ',
+                'A0EXAMPLE123456789ZZ1',
+                'A0EXAMPLE123456789ZZ2',
+                'A0EXAMPLE123456789ZZ3',
+            ],
+        ))
+        section = (
+            '## Amazon US\n\n'
+            '**进度**: drilled 4/4 active\n\n'
+            + self._entity_block('')  # A0EXAMPLE…XYZ block, has 1 table
+            + '\n### A0EXAMPLE123456789ZZ1 | widget-001 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        deny = completeness_gate.check(section, scope=scope)
+        assert deny is not None
+        assert '[内容]' in deny.reason
+        assert '4' in deny.reason  # the authoritative count
+
+    def test_anti_gaming_ungrounded_keeps_loose_2x_slack(self):
+        # No scope -> the old 2x slack stays so narrow single-ad audits
+        # aren't tripped by a search-term table doubling the count.
+        # active=4 with n_drill_tables=2 -> 2 * 2 = 4, NOT less than 4,
+        # so no [内容] gap. Two inlined campaign blocks (not the
+        # _campaign_block helper, which carries its own ## header that
+        # would chop this section).
+        section = (
+            '## Amazon US\n\n**进度**: drilled 2/4 active\n\n'
+            + '### 100000000000003 | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + '\n### 100000000000007 | widget-007 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        # Has [完整性] under-drilled (2/4) and likely other gaps, but
+        # [内容] specifically must NOT fire here.
+        deny = completeness_gate.check(section)
+        assert deny is not None  # still denied (under-drilled, no scope)
+        assert '[内容]' not in deny.reason
+
+    # --- D6: per-combo stall ---
+
+    def test_per_combo_stall_one_combo_frozen_does_not_mask_others(self):
+        # Round 1: noon AE under-drilled (3/3 ok by gap attribution),
+        # Amazon SA has [完整性] gap (3/5). Both are seen combos.
+        # Round 2: noon AE still 3/3 (frozen, no new progress), Amazon
+        # SA closes to 5/5 (drove its distance down).
+        # The global counter must reset for Amazon SA's progress, and
+        # noon AE's per-combo counter must increment independently.
+        tid = 'task-per-combo-stall'
+        scope = {
+            'combos': [
+                {
+                    'platform': 'noon',
+                    'country': 'AE',
+                    'active_ids': ['C_FAKE0001'],
+                    'total_active': 1,
+                },
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['A0EXAMPLE123456789XYZ'],
+                    'total_active': 1,
+                },
+            ]
+        }
+        # Build a 3-campaign Amazon SA section: 1 active block +
+        # a complete reconcile. Round 1.
+        amazon_round1 = (
+            '## Amazon SA\n\n**进度**: drilled 0/1 active\n\n'
+            + '### A0EXAMPLE123456789XYZ | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        noon_round1 = (
+            '## noon AE\n\n**进度**: drilled 0/1 active\n\n'
+            + '### C_FAKE0001 | widget-007 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        deny = completeness_gate.check(
+            amazon_round1 + '\n' + noon_round1,
+            task_id=tid,
+            scope=scope,
+        )
+        assert deny is not None  # both under-drilled
+
+        # Round 2: Amazon SA closes (drilled 1/1), noon AE still 0/1.
+        amazon_round2 = (
+            '## Amazon SA\n\n**进度**: drilled 1/1 active\n\n'
+            + '### A0EXAMPLE123456789XYZ | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + '\n搜索词对账: 定向花费 USD 100.00 / 点击 50 = 搜索词花费 '
+            'USD 100.00 / 点击 50 (✓)\n' + self.SUMMARY
+        )
+        deny2 = completeness_gate.check(
+            amazon_round2 + '\n' + noon_round1,
+            task_id=tid,
+            scope=scope,
+        )
+        assert deny2 is not None  # noon AE still under-drilled
+
+        # is_stalled must NOT fire — Amazon SA made real progress even
+        # though noon AE is frozen. The bug being closed: the OLD global
+        # counter only saw combined distance, so a frozen noon AE was
+        # masked by Amazon SA converging. Now per-combo, is_stalled needs
+        # EVERY seen combo to stall.
+        assert completeness_gate.is_stalled(tid) is False
+        # And noon AE's per-combo counter must be > 0 (we recorded
+        # at least one no-progress round).
+        assert (
+            completeness_gate._combo_stall_rounds.get((tid, 'noon AE'), 0) >= 1
+        )
+
+    def test_per_combo_stall_fires_when_every_combo_stuck(self):
+        # Round 1: both combos under-drilled (real gaps).
+        # Round 2-N: identical reports. After STALL_CAP rounds with
+        # neither combo moving, is_stalled() must fire.
+        tid = 'task-per-combo-stall-fully-stuck'
+        scope = {
+            'combos': [
+                {
+                    'platform': 'noon',
+                    'country': 'AE',
+                    'active_ids': ['C_FAKE0002'],
+                    'total_active': 1,
+                },
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['A0EXAMPLE123456789XYZ'],
+                    'total_active': 1,
+                },
+            ]
+        }
+        amazon_under = (
+            '## Amazon SA\n\n**进度**: drilled 0/1 active\n\n'
+            + '### A0EXAMPLE123456789XYZ | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        noon_under = (
+            '## noon AE\n\n**进度**: drilled 0/1 active\n\n'
+            + '### C_FAKE0002 | widget-007 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        report = amazon_under + '\n' + noon_under
+        # First call sets the initial min_distance; subsequent calls
+        # increment the per-combo stall counter without improving.
+        for i in range(completeness_gate.STALL_CAP + 1):
+            completeness_gate.check(report, task_id=tid, scope=scope)
+        # Now every seen combo should have stall_rounds >= STALL_CAP,
+        # so is_stalled() must be True.
+        assert completeness_gate.is_stalled(tid) is True
+
+    def test_legacy_global_counter_used_when_no_combos_seen(self):
+        # No scope AND no combo sections at all — the per-combo path has
+        # nothing to track, so is_stalled must fall back to the legacy
+        # global counter. We need a report that DOES emit gaps (otherwise
+        # check() returns None early and never touches stall state) but
+        # has no combo to attribute them to. A under-drilled ## section
+        # with no scope file generates [完整性] gaps that stay unattributed,
+        # which is exactly the fallback case.
+        tid = 'task-no-combo-section'
+        report = (
+            '## Amazon US\n\n'
+            '**进度**: drilled 0/4 active\n\n'
+            + '### 100000000000003 | widget-006 | Manual\n\n'
+            + '#### Targeting\n'
+            + self.DRILL
+            + self.SUMMARY
+        )
+        for _ in range(completeness_gate.STALL_CAP + 1):
+            completeness_gate.check(report, task_id=tid)
+        # No scope means _seen_combos never gets populated for this task,
+        # so the global counter is the one that increments.
+        assert not completeness_gate._seen_combos.get(tid)
+        assert completeness_gate.is_stalled(tid) is True
 
     def test_campaign_no_searchterm_token_escapes(self):
         # SD-type campaign: no search-term report exists — explicit token.
         block = self._campaign_block('\n该活动类型无搜索词报告（SD）。\n')
-        assert completeness_gate.check(block) is None
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(block, scope=scope) is None
 
     def test_collapse_row_with_traffic_flagged(self):
         block = self._campaign_block(
@@ -742,7 +1157,8 @@ class TestAdCompletenessReview:
             '\n搜索词对账: 定向花费 USD 942.39 / 点击 762 = '
             '搜索词花费 USD 942.39 / 点击 762 (✓)\n'
         )
-        assert completeness_gate.check(block) is None
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(block, scope=scope) is None
 
     def test_reconcile_tolerance_override(self):
         # 20% off: fails default 15% tolerance, passes with override 0.3.
@@ -752,9 +1168,10 @@ class TestAdCompletenessReview:
             + '\n搜索词对账: 定向花费 USD 1000.00 / 点击 800 = '
             '搜索词花费 USD 800.00 / 点击 800 (✗)\n'
         )
-        assert completeness_gate.check(block) is not None
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(block, scope=scope) is not None
         rules = resolve_rules('reconcile_tolerance: 0.3')
-        assert completeness_gate.check(block, rules=rules) is None
+        assert completeness_gate.check(block, rules=rules, scope=scope) is None
 
     def _noon_block(self, reconcile):
         return (
@@ -776,7 +1193,8 @@ class TestAdCompletenessReview:
             '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
             '搜索词花费 USD 48.00 / 点击 41 (✓ CQ 部分归因)\n'
         )
-        assert completeness_gate.check(block) is None
+        scope = _scope(('noon', 'EG', ['C_FAKE0004']))
+        assert completeness_gate.check(block, scope=scope) is None
 
     def test_noon_wrong_window_still_caught(self):
         # A 7d read of a 30d targeting page shows ~23% — below the
@@ -796,9 +1214,12 @@ class TestAdCompletenessReview:
             '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
             '搜索词花费 USD 48.00 / 点击 41 (✓)\n'
         )
-        assert completeness_gate.check(block) is None
+        scope = _scope(('noon', 'EG', ['C_FAKE0004']))
+        assert completeness_gate.check(block, scope=scope) is None
         rules = resolve_rules('noon_reconcile_floor: 0.6')
-        assert completeness_gate.check(block, rules=rules) is not None
+        assert (
+            completeness_gate.check(block, rules=rules, scope=scope) is not None
+        )
 
     def test_amazon_keeps_symmetric_tolerance(self):
         # The floor is noon-only: the same 54% ratio on an Amazon
@@ -1002,7 +1423,19 @@ class TestScaffoldAndSummary:
         assert '[汇总]' in deny.reason
 
     def test_filled_summary_passes(self):
-        assert completeness_gate.check(self.GOOD + self.SUMMARY) is None
+        # Same as GOOD, plus a grounded per-campaign drill block (the
+        # AUDIT_SCOPE precondition) so the completeness checks that now
+        # gate on the scope don't mask what this test pins: a filled
+        # (not marker-only) summary passes.
+        good = (
+            '## Amazon US\n\n**进度**: drilled 1/1 active (1 total)\n\n'
+            '### 100000000000003 | wireless mouse 006 | Manual\n\n'
+            '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
+            '| wireless mouse | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
+            '\n该活动类型无搜索词报告（SD）。\n'
+        )
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(good + self.SUMMARY, scope=scope) is None
 
 
 @pytest.mark.unit

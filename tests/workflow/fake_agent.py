@@ -19,6 +19,7 @@ from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.plan_states import PlanStatus
+from app.task_outcome import apply_outcome, resolve_outcome
 from app.task_states import TaskStatus
 
 # Real asyncio.sleep — never affected by fast_polling monkeypatch
@@ -413,7 +414,8 @@ class FakeAgent(AIAgentBackend):
                 async with _db.async_session() as db:
                     task = await db.get(Task, task_id)
                     if task:
-                        task.result = scenario.error_result
+                        task.transcript_tail = scenario.error_result
+                        apply_outcome(task, resolve_outcome(task))
                         task.updated_at = datetime.now(UTC).isoformat()
                         await db.commit()
                 if session:
@@ -432,7 +434,8 @@ class FakeAgent(AIAgentBackend):
                 task = await db.get(Task, task_id)
                 if not task:
                     return
-                task.result = result_text
+                task.transcript_tail = result_text
+                apply_outcome(task, resolve_outcome(task))
                 task.updated_at = datetime.now(UTC).isoformat()
                 await db.commit()
             if scenario.error_result and session:
@@ -450,7 +453,8 @@ class FakeAgent(AIAgentBackend):
                 task = await db.get(Task, task_id)
                 if task and task.plan:
                     result_text = scenario.error_result or scenario.result
-                    task.result = result_text
+                    task.transcript_tail = result_text
+                    apply_outcome(task, resolve_outcome(task))
                     task.updated_at = datetime.now(UTC).isoformat()
                     await db.commit()
                     if scenario.error_result and session:
@@ -587,7 +591,8 @@ class FakeAgent(AIAgentBackend):
             task = await db.get(Task, task_id)
             if not task:
                 return
-            task.result = result_text
+            task.transcript_tail = result_text
+            apply_outcome(task, resolve_outcome(task))
             if scenario.todos:
                 task.todos = json.dumps(scenario.todos, ensure_ascii=False)
             task.updated_at = datetime.now(UTC).isoformat()
@@ -606,7 +611,8 @@ class FakeAgent(AIAgentBackend):
             async with _db.async_session() as db:
                 task = await db.get(Task, task_id)
                 if task:
-                    task.result = scenario.extra_results[-1]
+                    task.transcript_tail = scenario.extra_results[-1]
+                    apply_outcome(task, resolve_outcome(task))
                     task.updated_at = datetime.now(UTC).isoformat()
                     await db.commit()
         if scenario.post_result_activity:
@@ -653,7 +659,8 @@ class FakeAgent(AIAgentBackend):
             task = await db.get(Task, task_id)
             if not task:
                 return
-            task.result = result_text
+            task.transcript_tail = result_text
+            apply_outcome(task, resolve_outcome(task))
             if scenario.todos:
                 task.todos = json.dumps(scenario.todos, ensure_ascii=False)
             task.updated_at = datetime.now(UTC).isoformat()
@@ -672,7 +679,8 @@ class FakeAgent(AIAgentBackend):
             async with _db.async_session() as db:
                 task = await db.get(Task, task_id)
                 if task:
-                    task.result = scenario.extra_results[-1]
+                    task.transcript_tail = scenario.extra_results[-1]
+                    apply_outcome(task, resolve_outcome(task))
                     task.updated_at = datetime.now(UTC).isoformat()
                     await db.commit()
         if scenario.post_result_activity:

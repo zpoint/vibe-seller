@@ -481,13 +481,16 @@ TOOLS = [
             'your last assistant message is saved as the '
             'result.\n'
             '\n'
-            'Declares **success**. If the task could not '
-            'complete its primary objective, do NOT call this '
-            'alone — call `vibe_seller_set_task_error` so the '
-            'task lands in FAILED. To preserve partial output '
-            'on a failure, call both: this with the partial '
-            'output (or its file path), then '
-            '`vibe_seller_set_task_error` with the reason.'
+            'Declares you have a deliverable. If it is PARTIAL, '
+            'still call this — pass the partial output and list '
+            'what is missing in `incomplete`. That is the right '
+            'way to end an unfinished-but-useful run.\n'
+            '\n'
+            'Reserve `vibe_seller_set_task_error` for having '
+            '**no usable deliverable at all** (browser never '
+            'started, site unreachable). It means unrecoverable '
+            'failure — do not use it to explain caveats about '
+            'work you did produce.'
         ),
         'inputSchema': {
             'type': 'object',
@@ -495,6 +498,20 @@ TOOLS = [
                 'result': {
                     'type': 'string',
                     'description': 'Result summary to record',
+                },
+                'incomplete': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                    'description': (
+                        'Optional. One short line per thing you could '
+                        'NOT finish. Use this — not '
+                        'vibe_seller_set_task_error — when you have a '
+                        'usable deliverable but it is partial. The '
+                        'items are shown to the user as caveats on the '
+                        'result. This does NOT skip any review: your '
+                        'result is checked exactly as it would be '
+                        'otherwise.'
+                    ),
                 },
             },
             'required': ['result'],

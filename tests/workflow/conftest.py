@@ -47,6 +47,7 @@ ASYNC_SESSION_MODULES = [
     'app.routers.tasks',
     'app.routers.vision',
     'app.task_runner',
+    'app.task_finalize',
     'app.task_runner_auto',
     'app.task_runner_context',
     'app.task_runner_exec',
@@ -154,6 +155,7 @@ def install_fake_agent(fake_agent, monkeypatch):
     monkeypatch.setattr(
         'app.routers.tasks_conversation.agent_manager', fake_agent
     )
+    monkeypatch.setattr('app.task_finalize.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_auto.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_followup.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_runner_exec.agent_manager', fake_agent)

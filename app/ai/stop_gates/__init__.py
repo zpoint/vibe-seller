@@ -31,10 +31,18 @@ _attempts: dict[tuple[str, str], int] = {}
 
 @dataclass(frozen=True)
 class GateDeny:
-    """Reason a gate denied the result."""
+    """Reason a gate denied the result.
+
+    ``reason`` is prose for the agent. ``gaps`` is the same refusal as
+    data — one entry per unmet item — so the server can persist it
+    alongside the retained submission and later ship it as the caveat
+    list on an INCOMPLETE outcome. Optional: a gate that has no natural
+    item list leaves it empty and only its prose is kept.
+    """
 
     gate: str
     reason: str
+    gaps: tuple[str, ...] = ()
 
 
 def record_attempt(task_id: str, gate: str) -> int:

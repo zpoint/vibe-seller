@@ -14,6 +14,7 @@ import logging
 from app.ai.claude_backend_utils import parse_wait_condition
 from app.database import async_session
 from app.models.task import Task
+from app.task_outcome import apply_outcome, resolve_outcome
 
 logger = logging.getLogger(__name__)
 
@@ -22,25 +23,35 @@ class _PersistMixin:
     """Deliverable persistence — the streaming-prose result fallback."""
 
     async def _save_result(self, result_text: str):
-        """Save the execution result and parse wait-condition.
+        """Save the streamed prose tail and parse wait-condition.
 
-        Streaming-prose write is the **fallback** when the agent
-        didn't call ``vibe_seller_set_task_result`` itself. If
-        ``task.result`` is already populated (the MCP tool ran
-        earlier in the session and persisted an explicit summary
-        via ``POST /api/tasks/<id>/result``), keep the explicit
-        value — that's exactly what the agent intended the user to
-        see, and overwriting it with the raw streaming prose
-        clobbers a deliberate choice. Wait-condition parsing still
-        runs against ``result_text`` so end-of-stream
-        ``wait-condition`` blocks aren't lost.
+        This writes ``transcript_tail``, never ``task.result``. The
+        prose is a *fallback* deliverable — legitimate when the chat
+        output IS the answer (a lookup, an answered question), which is
+        why it is kept at all rather than dropped. It must not be able
+        to become the deliverable on its own: it used to share the
+        ``result`` column, so a run whose real submissions were all
+        refused ended up filing its own narration as the deliverable
+        and shipping FAILED over a chat transcript.
+
+        Which of prose / retained submission / accepted result actually
+        becomes ``task.result`` is decided in one place at finalize —
+        see :mod:`app.task_outcome`. Wait-condition parsing still runs
+        here so end-of-stream ``wait-condition`` blocks aren't lost.
         """
         try:
             async with async_session() as db:
                 task = await db.get(Task, self.task_id)
                 if task:
-                    if not (task.result and task.result.strip()):
-                        task.result = result_text
+                    task.transcript_tail = result_text
+                    # Re-resolve now that the prose has landed, so the
+                    # result card appears as soon as the turn ends
+                    # rather than after reflection. Same single rule the
+                    # finalizer applies, and idempotent — prose only
+                    # becomes the deliverable when nothing better
+                    # exists, so an accepted result or a retained
+                    # submission still outranks it.
+                    apply_outcome(task, resolve_outcome(task))
                     wait_cond = parse_wait_condition(result_text)
                     if wait_cond:
                         task.wait_condition = json.dumps(wait_cond)

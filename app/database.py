@@ -45,6 +45,22 @@ def _ensure_added_columns(conn) -> None:
     added: list[tuple[str, str, str]] = [
         ('schedules', 'finalize_description', 'TEXT'),
         ('tasks', 'is_finalize', 'BOOLEAN NOT NULL DEFAULT 0'),
+        # Backfill: these four shipped on the model but were never
+        # added here, so any DB created before each one landed is
+        # still missing the column. Harmless to re-run; the PRAGMA
+        # guard skips every DB that already has them.
+        ('tasks', 'plan_mode', 'BOOLEAN NOT NULL DEFAULT 0'),
+        ('tasks', 'is_plan_only', 'BOOLEAN NOT NULL DEFAULT 0'),
+        ('tasks', 'skip_reflection', 'BOOLEAN NOT NULL DEFAULT 0'),
+        ('tasks', 'plan_version', 'INTEGER'),
+        # Outcome model: submission is retained separately from the
+        # accepted deliverable, and streamed prose no longer shares a
+        # column with it. See app/task_outcome.py.
+        ('tasks', 'accepted_result', 'TEXT'),
+        ('tasks', 'submitted_result', 'TEXT'),
+        ('tasks', 'review_gaps', 'TEXT'),
+        ('tasks', 'submission_count', 'INTEGER NOT NULL DEFAULT 0'),
+        ('tasks', 'transcript_tail', 'TEXT'),
     ]
     for table, column, sqltype in added:
         cols = {

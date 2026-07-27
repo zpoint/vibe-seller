@@ -26,24 +26,25 @@ from app.ai.stop_gates import GateDeny
 
 GATE_NAME = 'review_completeness_review'
 
+# PROGRESS MEANS THE GAP LIST GOT SHORTER — see the same re-keying in
+# ``app/ai/stop_gates/ad_completeness_review.py``. Resetting the budget
+# on a report-text delta made the fail-open unreachable for any gap
+# fixed by editing prose rather than by collecting more: rewriting the
+# report moves thousands of characters while closing nothing.
 STALL_CAP = 5
-# Report-text delta below this many chars counts as "unchanged".
-_STALL_MIN_DELTA = 400
 
-_ok_high: dict[str, int] = {}
-_last_len: dict[str, int] = {}
+_min_gaps: dict[str, int] = {}
 _stall_rounds: dict[str, int] = {}
 
 
 def reset_progress(task_id: str) -> None:
     """Drop per-task progress/stall state (call on terminal success)."""
-    _ok_high.pop(task_id, None)
-    _last_len.pop(task_id, None)
+    _min_gaps.pop(task_id, None)
     _stall_rounds.pop(task_id, None)
 
 
 def is_stalled(task_id: str) -> bool:
-    """True once the run has gone ``STALL_CAP`` rounds with no progress."""
+    """True once ``STALL_CAP`` rounds have failed to close a single gap."""
     return _stall_rounds.get(task_id, 0) >= STALL_CAP
 
 
@@ -89,19 +90,14 @@ def check(
     if not gaps:
         return None
 
-    # Stall tracking (read via is_stalled). Progress = collected-OK total
-    # climbed OR the report text moved more than a cosmetic delta.
-    best = _ok_high.get(task_id, 0)
-    prev_len = _last_len.get(task_id)
-    moved = prev_len is None or abs(len(result_text) - prev_len) >= (
-        _STALL_MIN_DELTA
-    )
-    if audit.total_ok > best or moved:
-        _ok_high[task_id] = max(best, audit.total_ok)
+    # Stall tracking (read via is_stalled). Progress = strictly fewer
+    # unmet gaps than the best round so far; nothing else resets it.
+    best = _min_gaps.get(task_id)
+    if best is None or len(gaps) < best:
+        _min_gaps[task_id] = len(gaps)
         _stall_rounds[task_id] = 0
     else:
         _stall_rounds[task_id] = _stall_rounds.get(task_id, 0) + 1
-    _last_len[task_id] = len(result_text)
 
     body = '\n'.join('- ' + g for g in gaps[:12])
     extra = '' if len(gaps) <= 12 else f'\n…还有 {len(gaps) - 12} 项'
@@ -113,4 +109,4 @@ def check(
         '把 product_id 加入 manifest 的 collected。补完后重新 set_task_result，'
         '评审会再列剩余缺口，直到采全：\n' + body + extra
     )
-    return GateDeny(gate=GATE_NAME, reason=reason)
+    return GateDeny(gate=GATE_NAME, reason=reason, gaps=tuple(gaps))

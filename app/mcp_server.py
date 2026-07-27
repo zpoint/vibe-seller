@@ -250,7 +250,10 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
             result = await call_api(
                 'POST',
                 f'/api/tasks/{_config["task_id"]}/result',
-                {'result': arguments['result']},
+                {
+                    'result': arguments['result'],
+                    'incomplete': arguments.get('incomplete') or [],
+                },
             )
         elif name == 'vibe_seller_generate_image':
             # Blocks server-side awaiting the user's confirm/edit, then

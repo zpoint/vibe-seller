@@ -564,10 +564,16 @@ def record_agent_error(task, error_text: str) -> dict | None:
     """
     if task.result and task.result.strip():
         caveat = error_text.strip()
-        task.result = (
-            f'{task.result}\n\n> ⚠️ **Agent-reported caveats**\n> '
-            + caveat.replace('\n', '\n> ')
+        block = '\n\n> ⚠️ **Agent-reported caveats**\n> ' + caveat.replace(
+            '\n', '\n> '
         )
+        task.result = f'{task.result}{block}'
+        # ``result`` is a DERIVED view (see app/task_outcome.py) and is
+        # rebuilt from ``accepted_result`` at finalize — append there
+        # too, or the caveat is silently dropped when the outcome is
+        # next resolved.
+        if getattr(task, 'accepted_result', None):
+            task.accepted_result = f'{task.accepted_result}{block}'
         return {
             'status': task.status,
             'recorded_as': 'caveat',
