@@ -146,8 +146,14 @@ class TestProfileCrud:
         (64x64 red + blue, x3) actually found — NOT web search:
 
         - Qwen plus / flash / VL read both colors -> vision.
-        - qwen-max (400 on images), DeepSeek (empty), MiniMax (unreliable
-          / "cannot see images") -> text-only.
+        - qwen-max (400 on images), DeepSeek (empty), MiniMax M2.x
+          (no image support per docs) -> text-only.
+        - MiniMax M3 is multimodal per the MiniMax docs
+          (platform.minimaxi.com/docs/llms.txt — M3 accepts
+          type=image / type=video; M2.x is text+tool only). Doc-verified
+          because the earlier live probe conflicted with the doc; the
+          UI badge follows the doc so the agent doesn't degrade on
+          browser screenshots.
         - Kimi + GLM have no account key to probe, so vision is OMITTED
           (None) rather than guessed.
         """
@@ -165,7 +171,12 @@ class TestProfileCrud:
         # Live-verified text-only
         assert vis('qwen', 'qwen3.7-max') is False
         assert vis('deepseek', 'deepseek-v4-pro[1m]') is False
-        assert vis('minimax', 'MiniMax-M3[1m]') is False
+        # MiniMax: M3 is multimodal per docs; M2.x stays text-only
+        # (docs explicitly say M2.x only supports text+tool blocks).
+        assert vis('minimax', 'MiniMax-M3[1m]') is True
+        assert vis('minimax', 'MiniMax-M2.7') is False
+        assert vis('minimax', 'MiniMax-M2.5') is False
+        assert vis('minimax', 'MiniMax-M2.1') is False
         # GLM: text-only (confirmed — vision is the separate glm-4.5v /
         # glm-4v line, not these). Kimi K3: vision per Moonshot's official
         # vision guide + context7 (doc-verified, no key to live-probe).
