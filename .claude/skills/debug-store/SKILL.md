@@ -178,41 +178,48 @@ everything on a JWT cookie. From a Claude Code shell, you don't have
 that cookie. Two ways to work around without touching the user's
 admin password:
 
-### Option A — temp admin user, login via API, then deactivate
+### Option A — reusable `taskbot_debug` account, login via API, then deactivate
+
+Use the single stable `taskbot_debug` account for every debug session.
+The flow below is idempotent: it creates the account on first use,
+reactivates + rotates the password on every later use, and deactivates
+it when you're done.
 
 ```bash
 # 1. Generate password + bcrypt hash
 PW=$(python3 -c "import secrets;print('tmp_'+secrets.token_hex(8))")
 HASH=$(./.venv/bin/python3 -c "from app.password import hash_password;print(hash_password('$PW'))")  # run from repo root
 
-# 2. Insert temp user (admin role)
-TMP_UID="taskbot-$(uuidgen)"
-TMP_USERNAME="taskbot_tmp_$(date +%s)"
+# 2. Upsert the stable debug user (admin role, fixed id + username)
+DBG_UID="taskbot-debug"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 sqlite3 ~/.vibe-seller/data/vibe_seller.db \
   "INSERT INTO users (id, username, email, password_hash, role, is_active,
                       plan_mode_default, debug_mode, default_profile_id,
                       created_at, updated_at)
-   VALUES ('$TMP_UID','$TMP_USERNAME',NULL,'$HASH','admin',1,1,0,'default',
-           '$NOW','$NOW');"
+   VALUES ('$DBG_UID','taskbot_debug',NULL,'$HASH','admin',1,1,0,'default',
+           '$NOW','$NOW')
+   ON CONFLICT(id) DO UPDATE SET
+     password_hash='$HASH', is_active=1, updated_at='$NOW';"
 
 # 3. Login → cookie
 curl -s -c /tmp/vs_cookie.txt -H 'Content-Type: application/json' \
   -X POST http://localhost:7777/api/auth/login \
-  -d "{\"identifier\":\"$TMP_USERNAME\",\"password\":\"$PW\"}"
+  -d "{\"identifier\":\"taskbot_debug\",\"password\":\"$PW\"}"
 
 # 4. Use the cookie for any API call
 curl -s -b /tmp/vs_cookie.txt http://localhost:7777/api/stores
 
-# 5. Cleanup — but only if no tasks reference the user (FK = restrict)
+# 5. Cleanup before ending the session
 sqlite3 ~/.vibe-seller/data/vibe_seller.db \
-  "UPDATE users SET is_active=0 WHERE id='$TMP_UID';"
-# OR DELETE if no tasks were created with created_by=this user.
+  "UPDATE users SET is_active=0 WHERE id='$DBG_UID';"
 ```
 
-The `users.is_active=0` flag blocks future logins without violating the
-`tasks.created_by` FK. This is the safest cleanup if you created any
-tasks with the temp account.
+`is_active=0` blocks future logins for this account. The
+`tasks.created_by` column uses FK = restrict, so the row itself can
+never be deleted once it owns tasks — that's fine, it's one stable
+row across all sessions. If you forget step 5 the account stays
+dormant with a throwaway password; the next session rotates it.
 
 ### Option B — drive the wrapper directly (no API auth needed)
 
