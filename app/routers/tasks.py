@@ -30,6 +30,12 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
 from app.models.user import User
+from app.routers.task_submission import (
+    SetTaskResultRequest,
+    declared_gaps,
+    refuse as _refuse,
+    retain_submission as _retain_submission,
+)
 from app.routers.tasks_files import (
     apply_report_reviewer_gate,
     looks_like_result_path,
@@ -548,60 +554,6 @@ async def stop_agent(
     return {'ok': True, 'task_id': task_id, 'status': 'agent_stopped'}
 
 
-class SetTaskResultRequest(BaseModel):
-    result: str
-    # The agent's own account of what it could NOT finish. Does not
-    # bypass a single gate — the submission is reviewed exactly as
-    # before. What it buys is an honest way to say "here is what I got,
-    # here is what is missing" without reaching for set_task_error,
-    # which means unrecoverable failure and was being used as an
-    # escape hatch because it was the only door out.
-    incomplete: list[str] | None = None
-
-
-async def _retain_submission(db: AsyncSession, task: Task, text: str) -> None:
-    """Record what the agent submitted, before any gate can refuse it.
-
-    Committed immediately so the submission survives the ``raise`` that
-    a refusal is delivered by.
-    """
-    task.submitted_result = text
-    task.submission_count = (task.submission_count or 0) + 1
-    task.updated_at = datetime.now(UTC).isoformat()
-    await db.commit()
-
-
-def _declared(body: SetTaskResultRequest) -> tuple[str, ...]:
-    """Agent-declared unfinished items, normalised."""
-    return tuple(
-        str(g).strip() for g in (body.incomplete or ()) if str(g).strip()
-    )
-
-
-async def _refuse(
-    db: AsyncSession,
-    task: Task,
-    reason: str,
-    gaps: tuple[str, ...] = (),
-) -> None:
-    """Annotate the retained submission with this refusal, then 400.
-
-    Never returns. The gaps land on the task so that if the run ends
-    without an accepted submission, the finalizer can still ship the
-    best attempt with an honest list of what it is missing rather than
-    nothing at all.
-    """
-    # A gate with no natural item list still has to leave a trace: if
-    # this run never gets an accepted submission, these gaps are the
-    # only account of WHY the retained deliverable is partial. Fall back
-    # to the prose, capped so one refusal can't swamp the result.
-    recorded = list(gaps) or [reason[:500]]
-    task.review_gaps = json.dumps(recorded, ensure_ascii=False)
-    task.updated_at = datetime.now(UTC).isoformat()
-    await db.commit()
-    raise HTTPException(status_code=400, detail=reason)
-
-
 @router.post('/{task_id}/result')
 async def set_task_result(
     task_id: str,
@@ -684,7 +636,7 @@ async def set_task_result(
     # the agent submitted is recorded now, unconditionally, and a
     # refusal only annotates it (see ``_refuse``). ``task.result`` is
     # still set only once every gate accepts.
-    declared = _declared(body)
+    declared = declared_gaps(body)
     await _retain_submission(db, task, final_result)
 
     # Generic soft gates — run on the resolved result text for every

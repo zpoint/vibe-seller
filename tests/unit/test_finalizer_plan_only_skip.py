@@ -31,7 +31,7 @@ from sqlalchemy.pool import StaticPool
 import app.database as _db
 from app.models.base import Base
 from app.models.task import Task
-import app.task_runner_auto as _auto
+import app.task_finalize as _fin
 
 pytestmark = pytest.mark.unit
 
@@ -60,9 +60,9 @@ async def env(monkeypatch):
         engine, class_=AsyncSession, expire_on_commit=False
     )
     monkeypatch.setattr(_db, 'async_session', maker)
-    monkeypatch.setattr(_auto, 'async_session', maker)
+    monkeypatch.setattr(_fin, 'async_session', maker)
     fake_mgr = _FakeManager()
-    monkeypatch.setattr(_auto, 'agent_manager', fake_mgr)
+    monkeypatch.setattr(_fin, 'agent_manager', fake_mgr)
     yield maker, fake_mgr
 
 
@@ -100,7 +100,7 @@ class TestFinalizerPlanOnlySkip:
         task_id = await _seed_task(
             maker, is_plan_only=True, result='no-op, nothing to plan'
         )
-        await _auto._finalize_terminal_state(task_id, my_session=None)
+        await _fin.finalize_terminal_state(task_id, my_session=None)
         async with maker() as db:
             t = await db.get(Task, task_id)
             assert t.status == 'failed', (
@@ -115,7 +115,7 @@ class TestFinalizerPlanOnlySkip:
         """Same rule when there's no result either — pure failure."""
         maker, _ = env
         task_id = await _seed_task(maker, is_plan_only=True, result=None)
-        await _auto._finalize_terminal_state(task_id, my_session=None)
+        await _fin.finalize_terminal_state(task_id, my_session=None)
         async with maker() as db:
             t = await db.get(Task, task_id)
             assert t.status == 'failed'
@@ -130,7 +130,7 @@ class TestFinalizerPlanOnlySkip:
         task_id = await _seed_task(
             maker, is_plan_only=False, result='did the thing'
         )
-        await _auto._finalize_terminal_state(task_id, my_session=None)
+        await _fin.finalize_terminal_state(task_id, my_session=None)
         async with maker() as db:
             t = await db.get(Task, task_id)
             assert t.status == 'completed', (
@@ -143,7 +143,7 @@ class TestFinalizerPlanOnlySkip:
         (existing behavior). Sanity check."""
         maker, _ = env
         task_id = await _seed_task(maker, is_plan_only=False, result=None)
-        await _auto._finalize_terminal_state(task_id, my_session=None)
+        await _fin.finalize_terminal_state(task_id, my_session=None)
         async with maker() as db:
             t = await db.get(Task, task_id)
             assert t.status == 'failed'

@@ -3,12 +3,85 @@
 ## Task Data Persistence
 
 - **Plan** (`task.plan`): Saved by design agent, rendered as markdown in frontend
-- **Result** (`task.result`): Saved by execute agent on completion, rendered as markdown
+- **Result** (`task.result`): the deliverable shown to the user. A **derived view** — see [Task outcome](#task-outcome) — written only by `apply_outcome`, never assigned directly
 - **Todos** (`task.todos`): JSON-serialized TodoWrite state, persisted on each update
 - **Messages** (`task_messages` table): Full agent chat history, reloaded on task select
 - **Steps** (`task_steps` table): Only from simple executor; agent tasks use todos/messages
-- On **retry**: all steps, messages, logs, todos, result, plan, and plan_history are cleared; per-task workspace is wiped (`prepare_task_workspace(clean=True)`) for a fresh start
+- On **retry**: all steps, messages, logs, todos, plan, plan_history and every outcome input are cleared (`clear_run_state(task, reset_submissions=True)`); per-task workspace is wiped (`prepare_task_workspace(clean=True)`) for a fresh start
 - Plan/result language auto-detected from task title (Chinese → 中文, else English)
+
+## Task outcome
+
+`app/task_outcome.py` owns one question — **what did this run produce?**
+Terminal status is a pure function of the answer, and nothing else may
+decide it.
+
+It used to be derived instead, by `if task.error:` in a reader that never
+looked at `task.result`. Four writers could set that pair at four
+different times, so each guard against a contradictory ending reconciled
+one writer against one other. A scheduled ad-audit run shipped FAILED
+while holding a finished report, showing the agent's chat narration as
+its result.
+
+### The four columns
+
+| Column | Written by | Role |
+|---|---|---|
+| `accepted_result` | result endpoint, on accept | a submission that cleared every gate |
+| `submitted_result` | result endpoint, on **every** submit | the last thing the agent submitted, refused or not |
+| `review_gaps` | result endpoint / `apply_outcome` | JSON `string[]` of unmet items from the last verdict |
+| `transcript_tail` | `_save_result` (end of turn) | streamed assistant prose |
+| `result` | **`apply_outcome` only** | the derived view the user sees |
+
+`submission_count` is observability: a high count with no
+`accepted_result` is the signature of a gate the agent cannot satisfy.
+
+### Precedence
+
+`resolve_outcome(task)` picks the best available deliverable:
+
+1. `accepted_result` → **DELIVERED**
+2. `submitted_result` → **INCOMPLETE**, with `review_gaps` as caveats
+3. `transcript_tail` → **DELIVERED** (a real fallback: most tasks never
+   call `set_task_result`, and for a lookup the chat output *is* the answer)
+4. nothing → **FAILED**
+
+An **infra-detected** error (browser launch, stall reaper, stopped-by-user)
+outranks all of it. An **agent-reported** error does not — an agent that
+produced output and then explained its caveats has not failed, so the
+error becomes a caveat on the result. `apply_outcome` then persists the
+consumed caveats into `review_gaps` and clears the error pair, which is
+what makes re-resolution idempotent (finalizers run more than once).
+
+`DELIVERED` and `INCOMPLETE` both map to `completed` (`TERMINAL_STATUS`):
+a partial deliverable with an honest gap list is something the user can
+act on, not a failure.
+
+### Refusal retains the submission
+
+Reviewer gates refuse by raising, and the raise happened **before**
+`task.result` was assigned — so a refusal destroyed the submission and N
+refusals left the run holding nothing. Submission and verdict are now
+separate facts: `retain_submission` commits what was submitted before any
+gate runs, and `refuse` annotates it with the gaps (falling back to the
+gate's prose, capped, when a gate has no structured item list). See
+`app/routers/task_submission.py`.
+
+### The `incomplete` exit
+
+`vibe_seller_set_task_result(result, incomplete=[...])` lets an agent say
+"here is what I got, here is what I could not". The items ride along as
+caveats. It **bypasses no gate** — the submission is reviewed exactly as
+it would be otherwise. It exists because `set_task_error` means
+*unrecoverable failure* and was being used to explain caveats over real
+output, simply because it was the only door out.
+
+### Terminal-state writer
+
+`app/task_finalize.py` (`finalize_terminal_state`) is the single writer of
+a terminal status for a RUNNING/DESIGNING task. It resolves the outcome
+first, so every branch below it — wait-condition, incomplete-todos,
+Q&A parking — reads the same `task.result` the user will see.
 
 ## Task Status Lifecycle
 

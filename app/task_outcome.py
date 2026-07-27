@@ -180,6 +180,30 @@ def resolve_outcome(task) -> TaskOutcome:
     )
 
 
+def clear_run_state(task, *, reset_submissions: bool = False) -> None:
+    """Drop every input this module resolves from. Turn-scoped.
+
+    A follow-up or a retry starts a new run, so no prior submission,
+    verdict or prose may be re-resolved as the new run's deliverable.
+    Callers used to clear ``result``/``error`` by hand at three sites;
+    centralising it here means a future input cannot be added to the
+    resolver and forgotten at one of them.
+
+    ``reset_submissions`` also zeroes the submit counter — true for a
+    retry (a genuinely fresh run), false for a follow-up turn, where
+    the count is a running total for the task.
+    """
+    task.result = None
+    task.accepted_result = None
+    task.submitted_result = None
+    task.review_gaps = None
+    task.transcript_tail = None
+    task.error = None
+    task.error_category = None
+    if reset_submissions:
+        task.submission_count = 0
+
+
 def apply_outcome(task, outcome: TaskOutcome) -> None:
     """Write *outcome* onto *task*. Does NOT set status or commit.
 
