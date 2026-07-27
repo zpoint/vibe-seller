@@ -63,6 +63,12 @@ powershell.exe -NoProfile -Command "Get-Process python,pythonw -ErrorAction Sile
 # → paths under C:\Users\<WinUser>\AppData\Local\Programs\VibeSeller\ confirm it
 ```
 
+**Need to call the HTTP API from this skill (not just read the DB)?**
+Get a session cookie via the JWT-auth workaround described in
+`debug-store/SKILL.md` § "Skipping JWT-cookie auth" — it uses a single
+stable `taskbot_debug` account, rotates the password per session, and
+deactivates on exit.
+
 **When the live server is native-Windows, everything relocates.** The
 real runtime data root is **`/mnt/c/Users/<WinUser>/.vibe-seller/`**
 (commonly `<WinUser>=Administrator`), NOT `~/.vibe-seller`. Re-point

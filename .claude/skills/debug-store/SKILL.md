@@ -180,12 +180,10 @@ admin password:
 
 ### Option A — reusable `taskbot_debug` account, login via API, then deactivate
 
-**Always reuse the single `taskbot_debug` account.** Never mint a
-per-session `taskbot_tmp_$(date +%s)`-style user — that pattern
-accumulated 20+ dead admin accounts in the settings page before it was
-banned. The flow below is idempotent: it creates the account on first
-use, reactivates + rotates the password on every later use, and
-deactivates it when you're done.
+Use the single stable `taskbot_debug` account for every debug session.
+The flow below is idempotent: it creates the account on first use,
+reactivates + rotates the password on every later use, and deactivates
+it when you're done.
 
 ```bash
 # 1. Generate password + bcrypt hash
@@ -212,16 +210,16 @@ curl -s -c /tmp/vs_cookie.txt -H 'Content-Type: application/json' \
 # 4. Use the cookie for any API call
 curl -s -b /tmp/vs_cookie.txt http://localhost:7777/api/stores
 
-# 5. Cleanup — MANDATORY before ending the session
+# 5. Cleanup before ending the session
 sqlite3 ~/.vibe-seller/data/vibe_seller.db \
   "UPDATE users SET is_active=0 WHERE id='$DBG_UID';"
 ```
 
-`is_active=0` blocks future logins without violating the
-`tasks.created_by` FK (FK = restrict, so the row can never be deleted
-once it owns tasks — which is fine: it's one stable row, not one per
-session). If you forget step 5 the account stays dormant with a
-throwaway password; the next session rotates it anyway.
+`is_active=0` blocks future logins for this account. The
+`tasks.created_by` column uses FK = restrict, so the row itself can
+never be deleted once it owns tasks — that's fine, it's one stable
+row across all sessions. If you forget step 5 the account stays
+dormant with a throwaway password; the next session rotates it.
 
 ### Option B — drive the wrapper directly (no API auth needed)
 
