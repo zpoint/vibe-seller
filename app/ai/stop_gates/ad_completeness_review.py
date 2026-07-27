@@ -40,22 +40,27 @@ GATE_NAME = 'ad_completeness_review'
 # drills slowly (a few campaigns per round) still makes real progress
 # every round — cutting it off after a fixed number of rounds would
 # accept a half-finished report (e.g. noon 3/48) while D was still
-# climbing. A round counts toward the stall budget only when NEITHER
-# the total drilled count NOR the report itself moved (an agent that
-# interleaves polish submits between drilling bursts is misprioritizing,
-# not stuck — the deny message redirects it; ending the audit at 15/111
-# because of three polish submits rewards exactly the wrong behavior,
-# which is how a fail-open accepted 15/111). Only an agent re-submitting
-# an essentially UNCHANGED report STALL_CAP times in a row is genuinely
-# wedged and gets the partial accepted. Because the active set is
-# finite, a progressing agent converges to D==A and the gate returns
-# None on its own — there is no infinite loop to bound.
+# climbing.
+#
+# PROGRESS MEANS THE DISTANCE TO DONE SHRANK — where distance is
+# ``unmet gaps + campaigns still owed``. Nothing else counts.
+#
+# This used to reset the counter whenever the drilled total climbed OR
+# the report text moved by >=400 chars. The text-delta clause made the
+# fail-open UNREACHABLE for any gap fixed by editing prose rather than
+# by drilling — rule violations, format/parse gaps. Those never move
+# the drilled total, but rewriting a suggestion column trivially moves
+# far more than 400 characters, so every round reset the counter to
+# zero. Observed: one run took 41 submissions and another 14, neither
+# ever reaching STALL_CAP, both ending with no stored deliverable.
+#
+# Distance covers both kinds of work in one number: closing a rule gap
+# drops the gap term, drilling a campaign drops the deficit term. A
+# plain gap COUNT would not — an under-drilled combo emits exactly one
+# gap entry at 3/48 and at 47/48 alike, so a slow driller would look
+# stalled. An agent making either kind of progress keeps its budget; an
+# agent rewriting the same report against a bar it cannot clear runs out.
 STALL_CAP = 5
-
-# A report-text delta below this many characters counts as "unchanged"
-# for stall purposes (cosmetic edits churn a few bytes; a new campaign
-# block adds hundreds).
-_STALL_MIN_DELTA = 400
 
 # Anti-regression: the highest drilled-count seen per (task_id, combo)
 # across this task's rounds. The convergence loop must be MONOTONIC —
@@ -66,13 +71,12 @@ _STALL_MIN_DELTA = 400
 # append. Cleared per task by ``reset_progress`` on terminal success.
 _max_drilled: dict[tuple[str, str], int] = {}
 
-# Stall tracking for the fail-open decision: the best total-drilled sum
-# (across all combos) seen for a task, the report length at the last
-# submission, and how many consecutive rounds with neither moving.
-# Updated by ``check`` each round; read by ``is_stalled``. Cleared by
+# Stall tracking for the fail-open decision: the SMALLEST distance to
+# done (unmet gaps + campaigns still owed) seen for a task so far, and
+# how many consecutive rounds have failed to beat it. Updated by
+# ``check`` each round; read by ``is_stalled``. Cleared by
 # ``reset_progress``.
-_total_high: dict[str, int] = {}
-_last_len: dict[str, int] = {}
+_min_distance: dict[str, int] = {}
 _stall_rounds: dict[str, int] = {}
 
 # Stop-path backstop: how many times we've blocked an end-of-turn while
@@ -86,19 +90,19 @@ def reset_progress(task_id: str) -> None:
     """Drop the per-task progress/stall state (call on terminal success)."""
     for key in [k for k in _max_drilled if k[0] == task_id]:
         _max_drilled.pop(key, None)
-    _total_high.pop(task_id, None)
-    _last_len.pop(task_id, None)
+    _min_distance.pop(task_id, None)
     _stall_rounds.pop(task_id, None)
     _stop_blocks.pop(task_id, None)
 
 
 def is_stalled(task_id: str) -> bool:
-    """True once the agent has gone ``STALL_CAP`` rounds with no progress.
+    """True after ``STALL_CAP`` rounds that got no closer to done.
 
-    The fail-open signal: the report still has gaps but the total
-    drilled count has not increased for ``STALL_CAP`` consecutive
-    rounds, so further "what's missing" replies won't help. Callers
-    use this to accept the best report instead of denying forever.
+    The fail-open signal: the report still has gaps and the agent has
+    not reduced the distance to done — unmet gaps plus campaigns still
+    owed — for ``STALL_CAP`` consecutive rounds, so further "what's
+    missing" replies won't help. Callers use this to accept the best
+    report instead of denying forever.
     """
     return _stall_rounds.get(task_id, 0) >= STALL_CAP
 
@@ -138,7 +142,12 @@ def drill_incomplete_reason(
     if task_id is not None:
         n = _stop_blocks.get(task_id, 0) + 1
         _stop_blocks[task_id] = n
-        if n > STALL_CAP:
+        # ``>=``, matching ``is_stalled``. These two paths bound the
+        # same contract and must agree: while the stop path fell open
+        # one round later than the submit path, an agent could end its
+        # turn but never get a submission accepted — which is how a run
+        # reached a terminal state holding no stored deliverable.
+        if n >= STALL_CAP:
             return None  # fail open — don't trap a stuck agent
     return (
         '还不能结束：审计报告尚未完成（未 drill 完所有 active campaign，'
@@ -391,6 +400,9 @@ def check(
 
     gaps: list[str] = []
     round_total = 0  # sum of drilled across all combos this round
+    # Undrilled campaigns still owed, summed across combos. Half of the
+    # stall metric — see the ``_stall_rounds`` block at the tail.
+    round_deficit = 0
 
     # 1) Per-combo-section completeness, driven by the agent's own
     #    "**进度**: drilled D/A active" line (the OUTPUT-SPEC contract).
@@ -421,6 +433,7 @@ def check(
             continue
         drilled, active = int(m.group(1)), int(m.group(2))
         round_total += drilled
+        round_deficit += max(0, active - drilled)
         if drilled < active:
             gaps.append(
                 f'[完整性] 「{head}」仅 drill {drilled}/{active} 个 active，'
@@ -633,23 +646,24 @@ def check(
         return None
 
     # Stall tracking for the fail-open decision (read via ``is_stalled``).
-    # Progress = the drilled total climbed OR the report text moved by
-    # more than a cosmetic delta — either resets the counter. Only a
-    # round that re-submits an essentially unchanged report counts
-    # toward the cap. Only meaningful when there are gaps (a complete
-    # report returned above and never reaches here).
+    # Progress = the DISTANCE TO DONE shrank. Distance is unmet gaps
+    # plus campaigns still owed, so it falls for either kind of real
+    # work: closing a rule/format gap drops the first term, drilling
+    # another campaign drops the second. Text churn moves neither.
+    #
+    # A gap COUNT alone would be wrong — an under-drilled combo emits
+    # ONE gap entry whether it is at 3/48 or 47/48, so a slow driller
+    # would look stalled. The old metric had the opposite bug: it reset
+    # on any >=400-char edit, so an agent rewriting prose against a bar
+    # it could not clear was never stalled and looped forever.
     if task_id is not None and track:
-        best = _total_high.get(task_id, 0)
-        prev_len = _last_len.get(task_id)
-        moved = prev_len is None or (
-            abs(len(result_text) - prev_len) >= _STALL_MIN_DELTA
-        )
-        if round_total > best or moved:
-            _total_high[task_id] = max(best, round_total)
+        distance = len(gaps) + round_deficit
+        best = _min_distance.get(task_id)
+        if best is None or distance < best:
+            _min_distance[task_id] = distance
             _stall_rounds[task_id] = 0
         else:
             _stall_rounds[task_id] = _stall_rounds.get(task_id, 0) + 1
-        _last_len[task_id] = len(result_text)
 
     body = '\n'.join('- ' + g for g in gaps[:12])
     extra = '' if len(gaps) <= 12 else f'\n…还有 {len(gaps) - 12} 项'
@@ -664,4 +678,4 @@ def check(
         '卡住、D 不增长的原因。每一轮只需让 D 朝 A 多走几个。补完后重新 '
         'set_task_result；评审会再列出剩余缺口，直到补齐：\n' + body + extra
     )
-    return GateDeny(gate=GATE_NAME, reason=reason)
+    return GateDeny(gate=GATE_NAME, reason=reason, gaps=tuple(gaps))

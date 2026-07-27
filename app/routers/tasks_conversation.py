@@ -252,6 +252,14 @@ async def send_task_message(
                 task.result = None
                 task.error = None
                 task.error_category = None
+                # Every input to the outcome resolver is turn-scoped —
+                # clearing only `result` would let the prior turn's
+                # submission or prose be re-resolved as this turn's
+                # deliverable. See app/task_outcome.py.
+                task.accepted_result = None
+                task.submitted_result = None
+                task.review_gaps = None
+                task.transcript_tail = None
                 task.updated_at = datetime.now(UTC).isoformat()
                 await db.commit()
                 await event_bus.emit(
@@ -491,6 +499,10 @@ async def send_task_message(
             # with full context, identical to a non-plan task — no
             # re-plan. Clear stale run-scoped state and resume.
             task.result = None
+            task.accepted_result = None
+            task.submitted_result = None
+            task.review_gaps = None
+            task.transcript_tail = None
             task.todos = None
             task.wait_condition = None
             assert_transition(task.status, TaskStatus.RUNNING)
@@ -697,6 +709,13 @@ async def retry_task(
     task.plan = None
     task.plan_history = None
     task.result = None
+    # Same turn-scoping as the follow-up path: a retry is a fresh run,
+    # so no prior submission/prose may be resolved as its deliverable.
+    task.accepted_result = None
+    task.submitted_result = None
+    task.review_gaps = None
+    task.submission_count = 0
+    task.transcript_tail = None
     task.todos = None
     task.wait_condition = None
     task.session_id = None

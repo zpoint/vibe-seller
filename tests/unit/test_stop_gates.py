@@ -37,15 +37,15 @@ from app.ai.stop_gates.ad_rules import DEFAULT_RULES, resolve_rules
 def _clear_attempts():
     _attempts.clear()
     completeness_gate._max_drilled.clear()
-    completeness_gate._total_high.clear()
+    completeness_gate._min_distance.clear()
     completeness_gate._stall_rounds.clear()
-    completeness_gate._last_len.clear()
+    completeness_gate._stop_blocks.clear()
     yield
     _attempts.clear()
     completeness_gate._max_drilled.clear()
-    completeness_gate._total_high.clear()
+    completeness_gate._min_distance.clear()
     completeness_gate._stall_rounds.clear()
-    completeness_gate._last_len.clear()
+    completeness_gate._stop_blocks.clear()
 
 
 @pytest.mark.unit
@@ -600,21 +600,68 @@ class TestAdCompletenessReview:
         # ...and after STALL_CAP no-progress rounds it's considered stalled.
         assert completeness_gate.is_stalled('t1') is True
 
-    def test_polish_submits_do_not_burn_stall_budget(self):
-        # Same D each round but the report text changes substantially
-        # (the agent is polishing/expanding between drilling bursts) —
-        # NOT stalled. Premature fail-open at 15/111 was caused by
-        # counting these as no-progress rounds.
-        base = (
-            '## Noon EG\n\n**进度**: drilled 3/48 active (70 total, 5 pages)\n'
+    @staticmethod
+    def _padded(drilled: int, pad: int) -> str:
+        drill = (
             '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
             '| wireless mouse | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
-            * 3
         )
-        for i in range(completeness_gate.STALL_CAP + 2):
-            report = base + ('\n更多分析内容补充。' * 40 * (i + 1))
+        return (
+            f'## Noon EG\n\n**进度**: drilled {drilled}/48 active '
+            '(70 total, 5 pages)\n'
+            + drill * drilled
+            + '\n更多分析内容补充。' * pad
+        )
+
+    def test_text_churn_alone_burns_stall_budget(self):
+        """Rewriting prose is not progress.
+
+        The old metric reset the budget on ANY >=400-char edit, so an
+        agent editing suggestion text against a bar it could not clear
+        was never "stalled" and the fail-open was unreachable — two
+        real runs took 41 and 14 submissions and never reached the cap.
+        Distance to done (unmet gaps + campaigns owed) is unchanged by
+        churn, so these rounds now consume the budget.
+        """
+        for i in range(completeness_gate.STALL_CAP + 1):
+            report = self._padded(3, 40 * (i + 1))
             assert completeness_gate.check(report, task_id='t8') is not None
-            assert completeness_gate.is_stalled('t8') is False
+        assert completeness_gate.is_stalled('t8') is True
+
+    def test_interleaved_polish_does_not_cut_off_a_progressing_agent(self):
+        """The budget is spent only by CONSECUTIVE no-progress rounds.
+
+        Guards the original concern behind the old text-delta rule: an
+        agent that polishes a few times between drilling bursts must not
+        be cut off mid-climb (that is how a fail-open once accepted
+        15/111).
+        """
+        for i in range(3):  # polish, no new drills
+            completeness_gate.check(self._padded(3, 40 * (i + 1)), task_id='t9')
+        assert completeness_gate.is_stalled('t9') is False
+
+        # A round that actually drills restores the full budget.
+        assert completeness_gate.check(self._padded(20, 10), 't9') is not None
+        assert completeness_gate.is_stalled('t9') is False
+
+        # But churn that never closes anything still runs out.
+        for _ in range(completeness_gate.STALL_CAP):
+            completeness_gate.check(self._padded(20, 99), task_id='t9')
+        assert completeness_gate.is_stalled('t9') is True
+
+    def test_deny_carries_gaps_as_data(self):
+        """The refusal is available as a list, not only as prose.
+
+        ``set_task_result`` persists these on the task so a run that
+        never gets an accepted submission can still ship its best
+        attempt with an honest list of what is missing.
+        """
+        deny = completeness_gate.check(self._padded(3, 0), task_id='t10')
+        assert deny is not None
+        assert deny.gaps, 'gate must expose its gaps as data'
+        assert all(isinstance(g, str) for g in deny.gaps)
+        # Same content as the prose the agent sees.
+        assert deny.gaps[0] in deny.reason
 
     def test_progress_resets_stall(self):
         # A climbing D must keep is_stalled() False (never cut off a

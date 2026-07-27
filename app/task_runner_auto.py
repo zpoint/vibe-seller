@@ -19,6 +19,7 @@ from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
 from app.models.task import Task
 from app.routers.dida365_oauth import refresh_token_if_needed
+from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
@@ -486,12 +487,18 @@ async def _finalize_terminal_state(
       plan success) or FAILED (design failure)
     - Plan saved, ownership handed to `execute_planned_task` → return
     - Wait-condition → WAITING
-    - Agent-annotated `task.error` → FAILED
+    - Resolved outcome (see app.task_outcome) → COMPLETED / FAILED
     - CLI `_is_error_result` → FAILED
     - Incomplete todos without result → WAITING (set_task_error-free)
-    - Empty result (and agent didn't signal success) → FAILED
     - Children-waiting guard
-    - Default → COMPLETED
+
+    ``task.result`` is materialised up front by
+    :func:`app.task_outcome.resolve_outcome`, which picks the best
+    available deliverable — accepted result, else a retained-but-refused
+    submission with its gaps, else the streamed prose tail. Every branch
+    below that reads ``task.result`` therefore sees the same value the
+    user will, and the terminal status comes from ``outcome.status``
+    rather than from a bare ``if task.error:``.
     """
     async with async_session() as db:
         task = await db.get(Task, task_id)
@@ -502,6 +509,11 @@ async def _finalize_terminal_state(
             TaskStatus.DESIGNING,
         }:
             return
+
+        # Resolve ONCE, before any branch reads result/error. This is
+        # the single place that decides what the run produced.
+        outcome = resolve_outcome(task)
+        apply_outcome(task, outcome)
 
         # Plan mode only: agent exited during planning without a plan.
         # Auto-mode tasks are RUNNING (not DESIGNING) so this block is
@@ -688,7 +700,13 @@ async def _finalize_terminal_state(
             )
             return
 
-        if task.error:
+        # Terminal verdict from the resolved outcome. A recorded error
+        # no longer fails a run on its own: an INCOMPLETE outcome — a
+        # refused-but-retained submission, or an agent explaining
+        # caveats over real output — completes with those caveats
+        # attached. Only FAILED (no deliverable at all, or an
+        # infra-detected error) lands in FAILED.
+        if outcome.kind is OutcomeKind.FAILED and task.error:
             assert_transition(task.status, TaskStatus.FAILED)
             task.status = TaskStatus.FAILED
             task.updated_at = datetime.now(UTC).isoformat()

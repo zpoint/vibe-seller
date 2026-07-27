@@ -29,6 +29,9 @@ export interface Store {
 export interface Task {
   id: string; store_id: string | null; parent_task_id?: string | null; title: string; description: string | null;
   status: string; plan: string | null; plan_history: string | null; result: string | null; todos: string | null;
+  // Last submission, kept even when a reviewer gate refused it, plus that
+  // refusal as a JSON string[] of unmet gaps. See app/task_outcome.py.
+  submitted_result?: string | null; review_gaps?: string | null; submission_count?: number;
   wait_condition: string | null;
   error: string | null; error_category: string | null;
   plan_mode: boolean; is_plan_only?: boolean; ai_profile_id: string | null;
