@@ -119,6 +119,24 @@ Phase 1 (Discover) MUST, per country:
    read (§ 3) and de-dupe. Only when the distinct count matches the chip
    total (e.g. `Live N`) is the manifest complete. Re-run this whole
    loop **after every country switch** (`/en-{cc}/`).
+4. **Persist the scope — required for audits.** Append this combo to
+   `./AUDIT_SCOPE.json` at the task root, with the de-duped ids **and**
+   the `Live N` chip number:
+   ```json
+   {"combos": [
+     {"platform": "noon", "country": "AE",
+      "total_active": 45,
+      "active_ids": ["C_DEMO0001", "C_DEMO0002"]}
+   ]}
+   ```
+   The server requires `total_active == len(active_ids)`, and rejects the
+   scope when they disagree. That is deliberate: the chip is rendered by
+   the server and does **not** depend on how far you scrolled, so a
+   half-scrolled list (20 ids, chip 45) is caught as stale instead of
+   being accepted as a complete `20/20` audit. If they disagree, keep
+   scrolling — don't "fix" it by editing the number down. Every id you
+   list must then get its own `### <id> | … ` drill block in the report.
+   Full field reference: `amazon-ads/references/audit-quickref.md` Step 1.
 
 ## 3. Campaign Detail Page
 

@@ -584,6 +584,11 @@ def cmd_scope(args):
     authoritative set (see audit-quickref Step 1), so the agent cannot
     pass by shrinking its own denominator. With --platform/--country it
     prints a ready combo object; otherwise just the id array.
+
+    The combo object carries ``total_active`` (the enabled-row count read
+    off the export) alongside ``active_ids``. The gate requires the two to
+    agree, which catches a scope whose id list was transcribed by hand and
+    truncated — copy the object through verbatim, don't retype the ids.
     """
     _wb, _ws, _header, data = load(args.file)
     active_ids = [
@@ -598,6 +603,7 @@ def cmd_scope(args):
         out = {
             'platform': args.platform,
             'country': args.country,
+            'total_active': len(active_ids),
             'active_ids': active_ids,
         }
     else:

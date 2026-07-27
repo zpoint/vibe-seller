@@ -103,26 +103,46 @@ Then write the **进度 line** for that section (the reviewer reads it):
 `**进度**: drilled <D>/<A> active (<T> total, <P> pages)` — `<A>` is the
 true active count you just enumerated.
 
-**Also persist the authoritative active set to `./AUDIT_SCOPE.json`** (task
-root) as you enumerate each combo — this is the ground truth the server
-checks report coverage against (you cannot pass by shrinking `<A>`; every
-listed id must get a drill block). Append one entry per combo:
+**You MUST persist the authoritative active set to `./AUDIT_SCOPE.json`**
+(task root) as you enumerate each combo. This is **required**, not
+optional: any section that writes a `进度` line without a matching combo
+entry is rejected with a `[基线]` gap, because a `D/A` you wrote yourself
+proves nothing. It is the ground truth the server checks coverage against
+— every listed id must get its own `### <id> …` drill block. Append one
+entry per combo:
 
 ```json
 {"combos": [
   {"platform": "amazon", "country": "SA",
+   "total_active": 2,
    "active_ids": ["600000000001", "600000000002"]},
-  {"platform": "noon", "country": "AE", "active_ids": ["C_DEMO0001"]}
+  {"platform": "noon", "country": "AE",
+   "total_active": 1,
+   "active_ids": ["C_DEMO0001"]}
 ]}
 ```
 
-`active_ids` = every **active** campaign id you enumerated (Amazon: the
-`state=enabled` Campaign ids from the bulk export — `ads_bulk.py scope
-<export>.xlsx` prints them; noon: the campaign ids unioned across all
-pages). `<A>` in the 进度 line must equal `len(active_ids)` for that
-combo. If you never establish a scope (a one-off "create/investigate a
-single ad" task), just omit the file — the server won't demand a full
-drill.
+- `active_ids` = every **active** campaign id you enumerated.
+  - **Amazon**: the `state=enabled` Campaign ids from the bulk export —
+    `ads_bulk.py scope <export>.xlsx --platform amazon --country <c>`
+    prints a ready combo object (ids **and** `total_active`).
+  - **noon**: the ids from every `/campaign/details/<id>` link after
+    scrolling the campaign list's inner container to the bottom — see
+    `noon-ads` SKILL § 2. A first-paint read gets ~20 rows and is wrong.
+- `total_active` = the active count **observed independently of the id
+  list**: Amazon's enabled-row count from the export, noon's `Live N`
+  status-chip number. The server requires
+  `total_active == len(active_ids)` and rejects the scope when they
+  disagree — that mismatch is exactly how a half-scrolled noon list gets
+  caught (ids 20, chip 45 → rejected as stale, not accepted as `20/20`).
+- `<A>` in the 进度 line must equal `len(active_ids)` for that combo.
+
+Auditing only part of an account on purpose (a one-off "investigate this
+one ad" task) is still fine — declare it: list just those ids and add
+`"exhaustive": false`, which skips the `total_active` cross-check. What
+you may **not** do is omit the file, or write an empty `active_ids`;
+both are rejected. A narrow scope is a claim the server can check; no
+scope is not.
 
 ## Step 2 — drill EACH active campaign, build the report with `Edit`
 

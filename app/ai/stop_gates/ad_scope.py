@@ -20,10 +20,28 @@ configured backend can spawn a review subagent (see
 The server gate keeps the fast, countable checks; the manifest heuristic
 (``建议``-column count) lives in ``ad_completeness_review``.
 
-Escape hatch: when ``AUDIT_SCOPE.json`` is ABSENT, none of this runs and
-the gate falls back to its self-reported behaviour — so a first-time run
-(no baseline enumerated yet) or a narrow "create / investigate one ad"
-task is never blocked by ground-truth enforcement.
+``AUDIT_SCOPE.json`` is a PRECONDITION, not an option. A report section
+that writes a ``**进度**: drilled D/A`` line is asserting an authoritative
+denominator, so it must back that assertion with a scope entry; absence is
+itself a gap (see ``ad_completeness_review``). There is no silent
+fall-back to self-report — that fall-back is what let an ungrounded run
+be accepted with 27 of 30 Amazon campaigns never checked.
+
+A narrow "investigate one ad" task is still cheap to satisfy: it declares
+a narrow scope (``active_ids`` = the one campaign, ``exhaustive: false``)
+rather than getting a free pass.
+
+**Self-check.** ``active_ids`` is agent-written, so an agent could shrink
+it in the JSON exactly as it used to shrink ``A`` in the prose. Each combo
+therefore carries an INDEPENDENTLY-OBSERVED total (``total_active``) that
+must equal ``len(active_ids)``:
+
+- Amazon — the ``state=enabled`` row count of the bulk export
+  (``ads_bulk.py scope`` prints both, derived from the downloaded file).
+- noon — the ``Live N`` status chip on the campaign list, which is a
+  server-rendered total independent of how far the lazy list was
+  scrolled. This is what catches the "scrolled 20 of 45 rows" failure:
+  the ids number 20, the chip says 45, the scope is rejected as stale.
 """
 
 from __future__ import annotations
@@ -64,7 +82,15 @@ def load_audit_scope(task_id: str | None) -> dict | None:
 
 
 def scope_combos(scope: dict | None) -> list[dict]:
-    """Normalised list of ``{platform, country, active_ids}`` combos."""
+    """Normalised ``{platform, country, active_ids, total_active,
+    exhaustive}`` combos.
+
+    ``total_active`` is the independently-observed active count (bulk-export
+    enabled rows / noon ``Live N`` chip) used to detect a truncated
+    ``active_ids``; ``None`` when the scope omitted it. ``exhaustive``
+    defaults to True — a scope must opt OUT of claiming completeness, so a
+    missing flag can never silently weaken the check.
+    """
     if not scope:
         return []
     out: list[dict] = []
@@ -83,10 +109,25 @@ def scope_combos(scope: dict | None) -> list[dict]:
             if isinstance(raw_ids, list)
             else []
         )
+        # Accept the platform-specific spellings the skills emit; they all
+        # mean "the count observed at enumeration time".
+        total = None
+        for key in ('total_active', 'live_total', 'active_total'):
+            v = c.get(key)
+            if isinstance(v, bool):
+                continue  # bool is an int subclass — not a count
+            if isinstance(v, int) and v >= 0:
+                total = v
+                break
+            if isinstance(v, str) and v.strip().isdigit():
+                total = int(v.strip())
+                break
         out.append({
             'platform': platform,
             'country': country,
             'active_ids': ids,
+            'total_active': total,
+            'exhaustive': c.get('exhaustive') is not False,
         })
     return out
 
@@ -126,6 +167,51 @@ def find_combo_section(sections: dict[str, str], combo: dict) -> str | None:
     return None
 
 
+# A drill block is a LEVEL-3 heading exactly ("### <id> | name | …").
+# Not level 3+: a campaign block legitimately contains deeper subsections
+# (``#### Targeting``, ``#### Search Terms``), and splitting on those too
+# would tear the reconciliation line out of the campaign block it belongs
+# to. The flip side — an agent writing its campaigns at ``#### `` so they
+# all merge into one parsed block — is handled by requiring the
+# authoritative id to appear in a level-3 heading (see
+# :func:`missing_active_ids`), which then reports them as undrilled rather
+# than silently collapsing N obligations into 1.
+_DRILL_HEAD_RE = re.compile(r'(?m)^###(?!#)\s+')
+
+
+def drill_blocks(section_text: str) -> list[tuple[str, str]]:
+    """``(heading_line, block_text)`` for every drill block in a section."""
+    out: list[tuple[str, str]] = []
+    for block in _DRILL_HEAD_RE.split(section_text)[1:]:
+        lines = block.splitlines()
+        if not lines:
+            continue
+        out.append((lines[0].strip(), block))
+    return out
+
+
+def blocks_by_active_id(
+    section_text: str, active_ids: list[str]
+) -> dict[str, str]:
+    """Map each authoritative active id to its drill block, when present.
+
+    The id must appear in the block's HEADING (same rule as
+    :func:`missing_active_ids`) — an id mentioned only in prose or a
+    summary table does not own a block. Ids with no block are simply
+    absent from the result; the caller reports them as uncovered.
+    """
+    blocks = drill_blocks(section_text)
+    found: dict[str, str] = {}
+    for cid in active_ids:
+        if not cid:
+            continue
+        for heading, body in blocks:
+            if cid in heading:
+                found[cid] = body
+                break
+    return found
+
+
 def missing_active_ids(section_text: str, active_ids: list[str]) -> list[str]:
     """Active ids from the authoritative set with no DRILL BLOCK.
 
@@ -133,8 +219,11 @@ def missing_active_ids(section_text: str, active_ids: list[str]) -> list[str]:
     — NOT merely somewhere in the section. Checking only headings closes
     the gaming hole where an agent pastes the id list into prose / a footer
     / a summary table without providing the per-campaign drill block.
+
+    Level-3 headings only — the SAME rule as :func:`blocks_by_active_id`.
+    The two must agree: if an id counted as covered here while owning no
+    parsed block there, it would carry no per-campaign search-term
+    obligation and pass unchecked.
     """
-    headings = '\n'.join(
-        ln for ln in section_text.splitlines() if ln.lstrip().startswith('###')
-    )
+    headings = '\n'.join(h for h, _ in drill_blocks(section_text))
     return [cid for cid in active_ids if cid and cid not in headings]

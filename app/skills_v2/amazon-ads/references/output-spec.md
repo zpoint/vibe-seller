@@ -69,6 +69,30 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    write `无搜索词报告` instead; zero-click campaigns may write
    `无点击，无搜索词`.
 
+   **All four numbers, or it does not count.** The reviewer parses this
+   exact shape. A line that substitutes prose for the numbers — `待导出`,
+   `需回采当前 30 天窗口`, `定向花费 X（TSV）→ 当前 30 天 Y（需回采对齐）` —
+   is **an admission that this layer was never captured**, and is rejected
+   as a format gap (`[搜索词·格式]`), not silently accepted. If you cannot
+   fill in `Y/B`, the layer is not done: go back to the search-term page,
+   pin it to the same 30-day window as the targeting table, and read it.
+
+   **Never source `Y/B` from a pre-existing TSV on disk.** A TSV written
+   on an earlier date covers an earlier window, so it cannot reconcile
+   against a fresh targeting read — and the mismatch is not fixable by
+   re-labelling it. Re-drill the search-term page live for the window you
+   are auditing. (Live failure this prevents: an agent extracted the layer
+   from 6-week-old TSVs, wrote its own `✗ — 窗口不对齐` on every line, then
+   spent 11 review rounds insisting the reviewer was misparsing instead of
+   re-drilling.)
+
+   **`无搜索词报告` is a claim about the campaign TYPE, not an excuse.**
+   It means "this campaign type has no search-term report at all" (SD).
+   Writing it next to a note that the data still needs fetching — e.g.
+   `无搜索词报告（需从 Search Terms 页面导出全量 CSV）` — contradicts itself
+   and is rejected. Either the report does not exist (say only that), or
+   it exists and you must go read it.
+
 ## The optimizer's bar (read this first)
 
 You are this store's ads optimizer. Every 建议 cell must be a call a
