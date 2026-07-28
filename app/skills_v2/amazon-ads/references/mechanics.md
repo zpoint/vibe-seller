@@ -281,6 +281,32 @@ The "Total: N" cell in the table footer is the authoritative count.
 > collected all N ids**. The grid path is only reliable once the search
 > and status filters are provably cleared (verified by the total), which
 > is exactly the step a 404-driven fallback tends to skip.
+>
+> **Some marketplaces have no Bulk Operations page at all** — verified on
+> `advertising.amazon.ae`, where `…/campaign-manager/bulk-operations`,
+> `/cm/bulk` and `/cm/home` all 404 while the same paths work on the SA
+> site. That 404 is not transient, and it is NOT a reason to declare the
+> marketplace empty. **Each marketplace is its own advertising account, so
+> an export taken on one site says nothing about another** — "the SA
+> export had no AE rows" is not evidence that AE is idle. Three routes
+> that work when Bulk Operations is absent:
+>
+> 1. **Campaign detail pages** — `/cm/sp/campaigns/<CONSOLE_ID>?entityId=…`
+>    and `/cm/sb/campaigns/<CONSOLE_ID>?entityId=…` render fine, and
+>    `document.body.innerText` carries every campaign KPI (spend, sales,
+>    orders, ACOS, ROAS) with no virtualized table to fight.
+> 2. **The unified campaign manager on a sibling site** —
+>    `advertising.amazon.<other-tld>/campaign-manager/all-campaigns` lists
+>    several countries' campaigns with a Country column. Still virtualized,
+>    so paginate it the §2a way.
+> 3. **The reports page** — `/reports?entityId=…` works and can build a
+>    Sponsored Products Advertised Product report.
+>
+> Console ids are NOT export ids: the export carries Amazon's internal
+> numeric id (`100000000001`) while the console uses an `A`-prefixed id
+> (`A0EXAMPLE1EXAMPLE1EX`). Same campaign, not interchangeable — search the
+> campaign name in Campaign Manager and read the console id out of the
+> result link's `href` before building any detail-page URL.
 
 **FIRST, reuse the newest existing export — do NOT generate a fresh job
 by default.** For a read-only audit you need a recent snapshot, not a
