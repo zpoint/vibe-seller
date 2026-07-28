@@ -14,8 +14,10 @@ from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
 from app.ai.stop_gates import (
+    CONTRADICTION_MAX_DENIALS,
     SOFT_GATE_MAX_DENIALS,
     clear_skill_bindings,
+    contradiction_banner,
     markdown_format as md_format_gate,
     record_attempt,
     recorded_skills,
@@ -713,6 +715,33 @@ async def set_task_result(
         is_stalled = getattr(gate, 'is_stalled', None)
         if is_stalled is None or not is_stalled(task_id):
             await _refuse(db, task, deny.reason, declared + deny.gaps)
+        # A CONTRADICTION is not the kind of gap the stall exists to
+        # forgive. The fail-open is there so a weak model is never trapped
+        # by work it cannot finish; accepting a figure that cannot be true
+        # is a different act, because the number ships into decisions.
+        # Keep refusing past the stall — the agent always has a legal move
+        # (fix it, or mark the campaign untrustworthy), so this cannot
+        # trap. Bounded anyway: past the cap the banner below makes the
+        # contradiction impossible to miss instead of impossible to pass.
+        if deny.contradictions:
+            n = record_attempt(task_id, f'{gate_name}:contradiction')
+            if n <= CONTRADICTION_MAX_DENIALS:
+                await _refuse(
+                    db, task, deny.reason, declared + deny.contradictions
+                )
+            logger.warning(
+                'Gate %s: %d contradiction(s) unresolved after %d refusals '
+                'for task %s — banner-marking the result. First: %s',
+                gate_name,
+                len(deny.contradictions),
+                n,
+                task_id,
+                deny.contradictions[0][:160],
+            )
+            final_result = (
+                contradiction_banner(deny.contradictions) + final_result
+            )
+            stalled_gaps.extend(deny.contradictions)
         logger.warning(
             'Gate %s stalled for task %s — accepting best result. Gaps: %s',
             gate_name,

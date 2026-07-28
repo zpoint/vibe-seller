@@ -49,6 +49,8 @@ from __future__ import annotations
 import json
 import re
 
+from openpyxl import load_workbook
+
 from app.config import VIBE_SELLER_DIR
 
 SCOPE_FILENAME = 'AUDIT_SCOPE.json'
@@ -297,6 +299,9 @@ def scope_combos(scope: dict | None) -> list[dict]:
         out.append({
             'platform': platform,
             'country': country,
+            'total_active_source': str(
+                c.get('total_active_source') or ''
+            ).strip(),
             'active_ids': ids,
             'total_active': total,
             'exhaustive': c.get('exhaustive') is not False,
@@ -399,3 +404,87 @@ def missing_active_ids(section_text: str, active_ids: list[str]) -> list[str]:
     """
     headings = '\n'.join(h for h, _ in drill_blocks(section_text))
     return [cid for cid in active_ids if cid and cid not in headings]
+
+
+# ── total_active provenance ──────────────────────────────────────────
+#
+# ``total_active == len(active_ids)`` proves the two agree, not that
+# either was observed — trivially true when both come from the same
+# parse. Live: a run declared a 12-campaign marketplace as 4/4 because
+# its script silently dropped TSVs it could not read, and every check
+# passed. The self-check needs an ANCHOR outside the agent's own
+# derivation, so the scope must say WHERE the number came from:
+#
+#   "total_active_source": "bulk:bulk-<acct>-20260628-20260728-<n>.xlsx"
+#   "total_active_source": "chip:Live 8"
+#
+# The bulk form is genuinely verifiable — the file is in the downloads
+# dir, so the server opens it and counts ``state=enabled`` campaign rows
+# itself. The chip form cannot be verified from disk, but requiring it
+# turns "leave the number unexplained" into "state a reading", which a
+# reviewer can check against the live page and which makes an invented
+# total a claim rather than an omission.
+_SOURCE_BULK_RE = re.compile(r'^bulk:\s*(?P<file>[\w.\-]+\.xlsx)$', re.I)
+_SOURCE_CHIP_RE = re.compile(r'^chip:\s*(?:live\s*)?(?P<n>\d+)$', re.I)
+
+
+def classify_total_source(source: str):
+    """``('bulk', filename)`` / ``('chip', count)`` / ``(None, None)``."""
+    m = _SOURCE_BULK_RE.match(source or '')
+    if m:
+        return 'bulk', m.group('file')
+    m = _SOURCE_CHIP_RE.match(source or '')
+    if m:
+        return 'chip', int(m.group('n'))
+    return None, None
+
+
+def count_enabled_in_export(filename: str, downloads_dir=None) -> int | None:
+    """``state=enabled`` campaign rows in a bulk export, or None.
+
+    None means "could not check" — file absent, unreadable, or openpyxl
+    missing — and callers must treat that as unverified rather than as a
+    failure, so a missing download never blocks an otherwise good report.
+    """
+    base = downloads_dir or (VIBE_SELLER_DIR / 'downloads')
+    try:
+        matches = [p for p in base.rglob(filename) if p.is_file()]
+    except OSError:
+        return None
+    if not matches:
+        return None
+    try:
+        # NOT read_only: these workbooks ship without dimension
+        # metadata, and openpyxl's read-only mode then reports 1 row per
+        # sheet and iterates nothing — the count came back None on a file
+        # that plainly has 478 rows. Slower, but it actually reads.
+        wb = load_workbook(matches[0], data_only=True)
+    except Exception:
+        return None
+    try:
+        for name in wb.sheetnames:
+            ws = wb[name]
+            rows = ws.iter_rows(values_only=True)
+            header = next(rows, None)
+            if not header:
+                continue
+            idx = {str(h).strip().lower(): i for i, h in enumerate(header) if h}
+            ent, st = idx.get('entity'), idx.get('state')
+            if ent is None or st is None:
+                continue
+            n = 0
+            for r in rows:
+                if len(r) <= max(ent, st):
+                    continue
+                if (
+                    str(r[ent] or '').strip().lower() == 'campaign'
+                    and str(r[st] or '').strip().lower() == 'enabled'
+                ):
+                    n += 1
+            if n:
+                return n
+    except Exception:
+        return None
+    finally:
+        wb.close()
+    return None

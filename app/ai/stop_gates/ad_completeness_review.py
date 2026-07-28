@@ -298,6 +298,11 @@ def check(
     declared = ad_scope.load_declared_targets(task_id)
 
     gaps: list[str] = []
+    # Gaps that are not "unfinished" but "cannot be true" (see
+    # ``GateDeny.contradictions``). Kept separate so the stall fail-open,
+    # which is right for incompleteness, cannot silently accept an
+    # impossible figure.
+    contradictions: list[str] = []
     round_total = 0  # sum of drilled across all combos this round
     # Undrilled campaigns still owed, summed across combos. Half of the
     # stall metric — see the ``_stall_rounds`` block at the tail.
@@ -481,6 +486,7 @@ def check(
                 gaps,
                 floor=floor,
                 active_ids=combo['active_ids'] if combo else None,
+                contradictions=contradictions,
             )
             if combo_label is not None:
                 for new_gap in gaps[_gaps_before_blocks:]:
@@ -647,6 +653,40 @@ def check(
         if not combo['exhaustive']:
             continue
         total = combo['total_active']
+        # Provenance. total_active must say WHERE it came from, and when
+        # it names a bulk export the server checks the file itself — the
+        # only part of this contract that is verified rather than trusted.
+        kind, ref = ad_scope.classify_total_source(
+            combo.get('total_active_source', '')
+        )
+        if total is not None and kind is None:
+            _attr(
+                label,
+                f'[基线] AUDIT_SCOPE 的 combo 「{label}」的 total_active='
+                f'{total} 没写出处（total_active_source）。这个数必须是'
+                '独立观测来的，不能跟 active_ids 出自同一次解析——两个数'
+                '来自同一个地方时，它们相等什么也证明不了（实测：某轮把'
+                '12 个活动的市场声明成 4/4 并通过了全部检查）。请补上：'
+                'Amazon 写 `"total_active_source": "bulk:<导出文件名>.xlsx"`'
+                '（服务端会打开该文件自己数 state=enabled 的活动行核对）；'
+                'noon 写 `"total_active_source": "chip:Live N"`，N 为活动'
+                '列表状态 chip 上的读数。',
+            )
+        elif kind == 'bulk' and total is not None:
+            observed = ad_scope.count_enabled_in_export(ref)
+            # observed is None = could not check (file gone / unreadable).
+            # Unverifiable is not a failure; a missing download must never
+            # block an otherwise sound report.
+            if observed is not None and total < observed:
+                _attr(
+                    label,
+                    f'[基线] combo 「{label}」声明 total_active={total}，但'
+                    f'服务端打开 `{ref}` 数到 {observed} 个 state=enabled '
+                    '的活动——你少算了。（多算是允许的：窗口内有花费、'
+                    '之后被暂停的活动仍该审。少算说明枚举没取全。）请把'
+                    f'漏掉的活动补进 active_ids 并逐个 drill，或说明为什么'
+                    f'{observed} 里有些不该算在内。',
+                )
         if total is None:
             _attr(
                 label,
@@ -896,4 +936,9 @@ def check(
         '卡住、D 不增长的原因。每一轮只需让 D 朝 A 多走几个。补完后重新 '
         'set_task_result；评审会再列出剩余缺口，直到补齐：\n' + body + extra
     )
-    return GateDeny(gate=GATE_NAME, reason=reason, gaps=tuple(gaps))
+    return GateDeny(
+        gate=GATE_NAME,
+        reason=reason,
+        gaps=tuple(gaps),
+        contradictions=tuple(contradictions),
+    )

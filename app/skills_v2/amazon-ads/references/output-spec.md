@@ -23,6 +23,18 @@ entry with `"active_ids": []` and `"total_active": 0`, plus its section
 saying so. 可以为空，但不能不写：omitting a declared combo is a `[基线]`
 gap that blocks submission.
 
+**`total_active` must record its provenance.** A combo that declares
+`total_active` also needs a `"total_active_source"` naming WHERE that
+number was read — `"bulk:<export filename>.xlsx"` (Amazon) or
+`"chip:Live N"` (noon). Reason: `total_active == len(active_ids)` only
+proves the two numbers agree, not that either was observed, and it is
+trivially true when both come from the same parse. Observed live: a run
+declared a 12-campaign marketplace as `4/4` because its script silently
+dropped TSVs it couldn't read, and every check passed. Missing the field
+while `total_active` is present is a `[基线]` gap; the exact shape and
+what the server does with each form are in
+[`audit-quickref.md`](audit-quickref.md) Step 1.
+
 ## Per (platform, country) section — required shape
 
 For every audited `(platform, country)`, the report MUST contain a
@@ -86,14 +98,56 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    `搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B (✓/✗)`
 
    `X/A` = targeting-table totals; `Y/B` = search-term-report totals.
-   The reviewer parses this line and rejects the campaign when spend or
-   clicks differ by more than `reconcile_tolerance` (default 15%,
-   `ad_rules.py`). A mismatch means the two pages were read on
-   DIFFERENT date windows (the 30d-vs-7d bug) or the term capture is
-   incomplete — re-pin both pages to the same window and recapture.
+   The reviewer parses this line and grades the SPEND pair — in two
+   directions, and NOT symmetrically (next paragraph). Clicks are
+   advisory: Amazon's search-term report strips invalid clicks, so click
+   totals can legitimately diverge on a perfect same-window read.
    Campaign types with no search-term report (e.g. Sponsored Display)
    write `无搜索词报告` instead; zero-click campaigns may write
    `无点击，无搜索词`.
+
+   **对账 是两个检查，不是一个。** 搜索词花费只可能是定向花费的一
+   *部分*——每个搜索词的花费本来就已经计在定向层里了——所以「偏低」
+   和「偏高」是两种完全不同的失败，服务端也按两种处理：
+
+   - **`Y` 低于下限 → `[对账]`，普通的「没取全」。** The capture missed
+     rows. Amazon's floor is **85%** of targeting spend
+     (`1 - reconcile_tolerance`, default 15%, `ad_rules.py`); noon's
+     floor stays **40%** (`noon_reconcile_floor`) because its Customer
+     Queries page genuinely attributes only part of campaign spend to
+     queries (measured median 0.779 across 13 live campaigns). Usual
+     cause: the two pages were read on DIFFERENT date windows (the
+     30d-vs-7d bug), or the term capture is incomplete — re-pin both
+     pages to the same window and recapture. 这一条跟别的 gap 一样，
+     实在补不上时最终会放过。
+   - **`Y` 超过 `X × 1.02` → `[对账·不可能]`，一个矛盾。** 不是精度
+     问题，是不可能。Measured on a live account (one bulk export, both
+     layers, same 30-day window, 17 enabled SP campaigns): ratio min
+     0.998, median 1.000, max 1.000 — 15 of 17 exactly 1.000, the other
+     two off only by two-decimal rounding, clicks tracking identically.
+     noon's captured layers likewise never exceed 1.000. The 2% ceiling
+     is that live maximum plus headroom for rounding and currency
+     formatting, nothing more. 真正的原因几乎总是：把 A 活动的定向表
+     跟 B 活动的搜索词配到了一起（join 错了 `Campaign ID`），或者两个
+     数取自不同账户 / 不同导出——实测出现过 1.26×、1.61×、13.3×。
+
+   **⚠️ 「不可能」这一条不吃 stall fail-open。** Every other gap
+   eventually fails open when the agent can't finish it; this one keeps
+   refusing, because the number would otherwise ship straight into bid
+   recommendations. 只有两个合法答案：
+
+   1. **把两层按同一个 `Campaign ID` 重新取一次**，改对数字。(The
+      Amazon bulk export carries BOTH layers in one workbook — read them
+      off the same file for the same campaign and this cannot happen.)
+   2. **在该活动块里声明这个活动不可信**，用一行同时说明「数据不
+      可信」*和*「本活动的出价建议请勿执行」，例如：
+      `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`
+      **半个免责声明不算。**「数据有偏差，仅供参考」只写了前半句，
+      那些带 建议 列的行读起来依然是可执行的动作——而那正是这条检查
+      要防的结果。
+
+   两个都不做，服务端会在交付的报告最前面加一条警告横幅、点名这些
+   活动。所以它永远不可能「看起来干干净净」地交付。
 
    **All four numbers, or it does not count.** The reviewer parses this
    exact shape. A line that substitutes prose for the numbers — `待导出`,

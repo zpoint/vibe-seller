@@ -2005,7 +2005,13 @@ held 213). Procedure:
    `~/.vibe-seller/downloads/<store>/Sponsored_Products_SearchTerm_*.csv`.
 3. Parse the CSV for ALL rows (every term with impressions). Sum
    `Total cost` and `Clicks` and reconcile against the Targeting-tab
-   totals — match within ~15% or the windows are misaligned.
+   totals — search-term spend must land in `[85%, 102%]` of targeting
+   spend. **Below** that band the windows are misaligned or the capture
+   is short (fixable by recapturing); **above** `102%` is not a tolerance
+   question at all — search terms cannot outspend the layer they are
+   counted in, so it means these rows belong to a different campaign, and
+   the server refuses it without a stall fail-open (`output-spec.md`
+   § the reconciliation line).
 4. Note: the CSV does NOT carry match type directly; join the
    `Keywords` column against the Targeting table to attribute source
    keyword + match type.

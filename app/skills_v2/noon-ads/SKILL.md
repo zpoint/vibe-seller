@@ -137,6 +137,7 @@ Phase 1 (Discover) MUST, per country:
    {"combos": [
      {"platform": "noon", "country": "AE",
       "total_active": 45,
+      "total_active_source": "chip:Live 45",
       "active_ids": ["C_DEMO0001", "C_DEMO0002"]}
    ]}
    ```
@@ -148,6 +149,19 @@ Phase 1 (Discover) MUST, per country:
    scrolling — don't "fix" it by editing the number down. Every id you
    list must then get its own `### <id> | … ` drill block in the report.
    Full field reference: `amazon-ads/references/audit-quickref.md` Step 1.
+
+   **`total_active_source` is required, and for noon it is the chip
+   reading** — `"chip:Live N"`, the number you read in step 1. Without
+   it the combo is a `[基线]` gap. Reason: `total_active ==
+   len(active_ids)` only proves the two numbers agree, not that either
+   was *observed* — trivially true when both come from the same parse
+   (observed live: a run declared a 12-campaign marketplace as `4/4`
+   because its script silently dropped files it couldn't read, and every
+   check passed). The chip form isn't verifiable from disk the way
+   Amazon's `"bulk:<file>.xlsx"` is, but writing the reading down turns
+   an invented total from an omission into a claim the reviewer can check
+   against the live page. Read the chip; don't back-fill it from the id
+   count.
 
 ## 3. Campaign Detail Page
 
@@ -364,6 +378,24 @@ the spec template doesn't show a Targets table.
 > rejected as `[定向层]`：出价、暂停、加投都是逐个定向做的决策，
 > 汇总行里没有可执行的对象。合计 may only be a trailing footer row.
 > 该活动确实没有数据时写「无数据」。
+
+> **These totals feed the `搜索词对账` line — TWO checks, and they are
+> not symmetric.** Query spend can only ever be a PART of the campaign's
+> targeting / top-tile spend (每个查询的花费已经计在定向层里了).
+> **Below 40% of it** → `[对账]`, an incomplete capture — noon's floor is
+> deliberately low (`noon_reconcile_floor`; this page genuinely attributes
+> only part of campaign spend, measured median 0.779 across 13 live
+> campaigns), so under it means you really did miss rows: re-read both
+> layers on the SAME 30-day window. **Above `1.02×` it** →
+> `[对账·不可能]`, a contradiction rather than imprecision (实测同窗口下
+> 这个比值上限就是 1.00) — usually the two layers came from different
+> campaigns. **That direction does NOT fail open on a stall**: either
+> re-take both layers for the same `C_…` id, or write in that campaign's
+> block ONE line carrying BOTH halves — data unreliable AND do not act on
+> it: `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`
+> (「数据有偏差，仅供参考」 by itself does not count), or the
+> server prepends a warning banner to the delivered report naming that
+> campaign. Full rule: `../amazon-ads/references/output-spec.md`.
 
 Use this to discover high-performing queries (add as keywords) or
 low-performing queries (add as negatives).

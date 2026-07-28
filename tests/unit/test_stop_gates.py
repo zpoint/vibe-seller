@@ -63,6 +63,11 @@ def _scope(*combos):
                 'country': c,
                 'active_ids': list(ids),
                 'total_active': len(ids),
+                # Provenance is part of the contract now: total_active must
+                # say where it was observed. 'chip:' is the unverifiable
+                # form, correct for fixtures not exercising the bulk-export
+                # verification path.
+                'total_active_source': f'chip:Live {len(ids)}',
             }
             for p, c, ids in combos
         ]
@@ -905,6 +910,7 @@ class TestAdCompletenessReview:
                     'country': 'EG',
                     'active_ids': ['C_FAKE0004'],
                     'total_active': 2,
+                    'total_active_source': 'chip:Live 2',
                 }
             ]
         }
@@ -1001,12 +1007,14 @@ class TestAdCompletenessReview:
                     'country': 'AE',
                     'active_ids': ['C_FAKE0001'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
                 {
                     'platform': 'amazon',
                     'country': 'SA',
                     'active_ids': ['A0EXAMPLE123456789XYZ'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
             ]
         }
@@ -1073,12 +1081,14 @@ class TestAdCompletenessReview:
                     'country': 'AE',
                     'active_ids': ['C_FAKE0002'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
                 {
                     'platform': 'amazon',
                     'country': 'SA',
                     'active_ids': ['A0EXAMPLE123456789XYZ'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
             ]
         }

@@ -15,6 +15,7 @@ Three holes, all observed on live runs of the same weekly audit:
 import json
 import os
 
+from openpyxl import Workbook
 import pytest
 
 from app.ai.stop_gates import (
@@ -83,6 +84,7 @@ _SA_SCOPE = [
         'country': 'SA',
         'active_ids': ['600000000001'],
         'total_active': 1,
+        'total_active_source': 'chip:Live 1',
     }
 ]
 
@@ -158,6 +160,7 @@ class TestDeclaredComboCoverage:
                     'country': 'AE',
                     'active_ids': [],
                     'total_active': 0,
+                    'total_active_source': 'chip:Live 0',
                 },
             ],
             targets={'amazon': ['SA', 'AE']},
@@ -205,6 +208,7 @@ class TestDeclaredComboCoverage:
                     'country': 'AE',
                     'active_ids': [],
                     'total_active': 0,
+                    'total_active_source': 'chip:Live 0',
                     'exhaustive': False,
                 },
             ],
@@ -231,6 +235,7 @@ class TestDeclaredComboCoverage:
                     'country': 'AE',
                     'active_ids': [],
                     'total_active': 0,
+                    'total_active_source': 'chip:Live 0',
                 },
             ],
             targets={'amazon': ['SA', 'AE']},
@@ -263,6 +268,7 @@ class TestDeclaredComboCoverage:
                     'country': 'AU',
                     'active_ids': [],
                     'total_active': 0,
+                    'total_active_source': 'chip:Live 0',
                 },
             ],
             targets={'amazon': ['SA', 'AU']},
@@ -295,6 +301,7 @@ class TestDeclaredComboCoverage:
                     'country': 'SA',
                     'active_ids': ['C_A1', 'C_A2'],
                     'total_active': 2,
+                    'total_active_source': 'chip:Live 2',
                 },
             ],
             targets={'amazon': ['SA'], 'noon': ['SA']},
@@ -328,6 +335,7 @@ class TestDeclaredComboCoverage:
                     'country': 'SA',
                     'active_ids': [f'60000000000{i}' for i in range(5)],
                     'total_active': 5,
+                    'total_active_source': 'chip:Live 5',
                 }
             ],
             targets={'amazon': ['SA']},
@@ -477,3 +485,201 @@ class TestTargetingLayerHasRows:
         assert not any(
             '[定向层]' in g for g in _gaps(_report(body), 't-nodata')
         )
+
+
+@pytest.mark.unit
+class TestReconcileContradictionVsIncompleteness:
+    """A mismatch is two different failures and only one is forgivable.
+
+    Measured on one live account (bulk export, both layers, same 30d
+    window, 17 enabled SP campaigns): ratio min 0.998, median 1.000,
+    max 1.000 — 15 of 17 exactly 1.000. noon's captured layers likewise
+    top out at 1.000 (median 0.779; its CQ page attributes only part of
+    spend). So nothing legitimately exceeds 1.0, and search-term spend
+    ABOVE targeting spend is impossible rather than imprecise.
+    """
+
+    def _blk(self, tgt, st):
+        return (
+            '### 600000000001 | acme widgets 004 manual | SP\n'
+            '| 关键词 | 出价 | 点击 | 花费 | ROAS | 建议 |\n'
+            '|---|---|---|---|---|---|\n'
+            '| widget | 1.20 | 6 | 5.00 | 3.5 | 维持 |\n'
+            '| widget large | 1.00 | 4 | 3.00 | 4.1 | 提高至 1.30 |\n'
+            '| 搜索词 | 来源 | 点击 | 花费 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| blue widget | widget | 9 | 5.00 | 否定（零转化） |\n'
+            f'搜索词对账: 定向花费 USD {tgt} / 点击 10 = '
+            f'搜索词花费 USD {st} / 点击 10 (✓)\n'
+        )
+
+    def _deny(self, monkeypatch, tmp_path, tid, tgt, st, extra=''):
+        _setup(monkeypatch, tmp_path, tid, scope=_SA_SCOPE)
+        body = self._blk(tgt, st) + extra
+        return acr.check(_report(body), task_id=tid, track=False)
+
+    def test_searchterm_above_targeting_is_a_contradiction(
+        self, monkeypatch, tmp_path
+    ):
+        d = self._deny(monkeypatch, tmp_path, 't-imposs', '480.00', '600.00')
+        assert d is not None
+        assert any('[对账·不可能]' in g for g in d.contradictions), d.gaps
+
+    def test_two_percent_over_is_tolerated_as_rounding(
+        self, monkeypatch, tmp_path
+    ):
+        # Live max is 1.000; 1.02 is that plus headroom for 2-decimal
+        # rounding and currency formatting, so 1.01 must NOT fire.
+        d = self._deny(monkeypatch, tmp_path, 't-round', '100.00', '101.00')
+        assert not (d and d.contradictions), d.gaps if d else None
+
+    def test_under_attribution_stays_a_soft_gap(self, monkeypatch, tmp_path):
+        # Capture missed rows — incompleteness, which the stall may forgive.
+        d = self._deny(monkeypatch, tmp_path, 't-under', '100.00', '20.00')
+        assert d is not None
+        assert not d.contradictions, d.contradictions
+        assert any('[对账]' in g for g in d.gaps), d.gaps
+
+    def test_quarantine_marker_resolves_the_contradiction(
+        self, monkeypatch, tmp_path
+    ):
+        # The second legal answer: don't fix the numbers, but tell the
+        # reader they cannot be used. This is what keeps a non-stallable
+        # check from being a trap.
+        d = self._deny(
+            monkeypatch,
+            tmp_path,
+            't-quar',
+            '480.00',
+            '600.00',
+            extra='⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议\n',
+        )
+        assert not (d and d.contradictions), d.gaps if d else None
+
+    def test_half_a_disclaimer_does_not_resolve_it(self, monkeypatch, tmp_path):
+        # "data is a bit off" without "do not execute" leaves the rows
+        # reading as actionable, which is the outcome being prevented.
+        d = self._deny(
+            monkeypatch,
+            tmp_path,
+            't-half',
+            '480.00',
+            '600.00',
+            extra='注：本活动数据有偏差，仅供参考\n',
+        )
+        assert d is not None and d.contradictions, 'must still be flagged'
+
+
+@pytest.mark.unit
+class TestTotalActiveProvenance:
+    """``total_active`` must say where it came from; bulk is verified."""
+
+    def test_missing_source_is_a_gap(self, monkeypatch, tmp_path):
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-nosrc',
+            scope=[
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['600000000001'],
+                    'total_active': 1,
+                }
+            ],
+        )
+        gaps = _gaps(_report(_DRILLED), 't-nosrc')
+        assert any('total_active_source' in g for g in gaps), gaps
+
+    def test_chip_source_accepted_unverified(self, monkeypatch, tmp_path):
+        _setup(monkeypatch, tmp_path, 't-chip', scope=_SA_SCOPE)
+        gaps = _gaps(_report(_DRILLED), 't-chip')
+        assert not any('total_active_source' in g for g in gaps), gaps
+
+    def test_bulk_source_under_the_export_count_is_a_gap(
+        self, monkeypatch, tmp_path
+    ):
+        # The one part of the contract the server VERIFIES: open the
+        # named export and count state=enabled campaign rows itself.
+
+        dl = tmp_path / 'downloads' / 'acme'
+        dl.mkdir(parents=True)
+        wb = Workbook()
+        ws = wb.active
+        ws.append(['Product', 'Entity', 'Operation', 'State'])
+        for _ in range(6):
+            ws.append(['SP', 'Campaign', '', 'enabled'])
+        ws.append(['SP', 'Campaign', '', 'paused'])
+        wb.save(dl / 'export.xlsx')
+        monkeypatch.setattr(sc, 'VIBE_SELLER_DIR', tmp_path)
+        assert sc.count_enabled_in_export('export.xlsx') == 6
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-bulk',
+            scope=[
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['600000000001'],
+                    'total_active': 1,
+                    'total_active_source': 'bulk:export.xlsx',
+                }
+            ],
+        )
+        gaps = _gaps(_report(_DRILLED), 't-bulk')
+        assert any('数到 6 个' in g for g in gaps), gaps
+
+    def test_declaring_more_than_the_export_is_fine(
+        self, monkeypatch, tmp_path
+    ):
+        # Over-declaring is legitimate: a campaign that spent inside
+        # the window and was paused before the export still deserves a
+        # drill.
+
+        dl = tmp_path / 'downloads' / 'acme'
+        dl.mkdir(parents=True)
+        wb = Workbook()
+        ws = wb.active
+        ws.append(['Product', 'Entity', 'Operation', 'State'])
+        ws.append(['SP', 'Campaign', '', 'enabled'])
+        wb.save(dl / 'export.xlsx')
+        monkeypatch.setattr(sc, 'VIBE_SELLER_DIR', tmp_path)
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-over',
+            scope=[
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['600000000001'],
+                    'total_active': 1,
+                    'total_active_source': 'bulk:export.xlsx',
+                }
+            ],
+        )
+        gaps = _gaps(_report(_DRILLED), 't-over')
+        assert not any('少算' in g for g in gaps), gaps
+
+    def test_unreadable_export_never_blocks(self, monkeypatch, tmp_path):
+        # "Could not check" must not become "failed" — a missing download
+        # cannot be allowed to block an otherwise sound report.
+        monkeypatch.setattr(sc, 'VIBE_SELLER_DIR', tmp_path)
+        assert sc.count_enabled_in_export('absent.xlsx') is None
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-gone',
+            scope=[
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['600000000001'],
+                    'total_active': 1,
+                    'total_active_source': 'bulk:absent.xlsx',
+                }
+            ],
+        )
+        gaps = _gaps(_report(_DRILLED), 't-gone')
+        assert not any('少算' in g for g in gaps), gaps

@@ -124,9 +124,11 @@ entry per combo:
 {"combos": [
   {"platform": "amazon", "country": "SA",
    "total_active": 2,
+   "total_active_source": "bulk:bulk-<acct>-20260628-20260728-<n>.xlsx",
    "active_ids": ["600000000001", "600000000002"]},
   {"platform": "noon", "country": "AE",
    "total_active": 1,
+   "total_active_source": "chip:Live 1",
    "active_ids": ["C_DEMO0001"]}
 ]}
 ```
@@ -144,6 +146,25 @@ entry per combo:
   `total_active == len(active_ids)` and rejects the scope when they
   disagree — that mismatch is exactly how a half-scrolled noon list gets
   caught (ids 20, chip 45 → rejected as stale, not accepted as `20/20`).
+- **`total_active_source` = where that number was read — REQUIRED
+  whenever `total_active` is present** (missing it is a `[基线]` gap).
+  `total_active == len(active_ids)` only proves the two numbers agree,
+  not that either was *observed*, and it is trivially true when both come
+  from the same parse. Observed live: a run declared a 12-campaign
+  marketplace as `4/4` because its script silently dropped TSVs it
+  couldn't read, and every check passed. Two accepted forms:
+  - **`"bulk:<exact export filename>.xlsx"` — Amazon.** The server finds
+    that file in the downloads dir, opens it, counts `state=enabled`
+    campaign rows itself, and checks you did not declare FEWER than that.
+    Declaring MORE is fine — a campaign that spent inside the window and
+    was paused before the export still deserves a drill. A file that is
+    missing or unreadable counts as unverified, never as a failure, so a
+    lost download can't block a sound report. Copy the filename exactly
+    as downloaded.
+  - **`"chip:Live N"` — noon**, `N` = the reading on the campaign-list
+    status chip. Not verifiable from disk, but stating the reading turns
+    an invented total from an omission into a checkable claim, and gives
+    the reviewer something to compare against the live page.
 - `<A>` in the 进度 line must equal `len(active_ids)` for that combo.
 
 A declared combo that genuinely has NO live campaigns is still written
@@ -152,7 +173,8 @@ down: an entry with `"active_ids": []` and `"total_active": 0`, plus its
 
 Auditing only part of an account on purpose (a one-off "investigate this
 one ad" task) is still fine — declare it: list just those ids and add
-`"exhaustive": false`, which skips the `total_active` cross-check. What
+`"exhaustive": false`, which skips the `total_active` cross-check (and
+with it the `total_active_source` requirement). What
 you may **not** do is omit the file, drop a combo `AUDIT_TARGETS.json`
 declares, or write an empty `active_ids` for a combo that DOES have live
 campaigns; all three are rejected. A narrow scope is a claim the server
@@ -196,12 +218,27 @@ the active set you enumerated in Step 1**:
      BEFORE exporting, and match it to the targeting window exactly;
      this is where 对账 mismatches come from. **noon: Customer Queries
      tab** (Manual and Auto).
-  3. *Reconcile*: search-term spend/clicks totals must match the
-     targeting totals within ~15%. Write the machine-checkable line
-     into the block:
+  3. *Reconcile*: write the machine-checkable line into the block:
      `搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B (✓)`
-     A mismatch = the two pages are on different date windows (the
-     30d-vs-7d bug) — re-pin both and recapture; never submit a ✗.
+     **Two checks on the spend pair, and they are NOT symmetric** —
+     search-term spend can only ever be a PART of targeting spend
+     (每个搜索词的花费已经计在定向层里了):
+     - `Y` **below the floor** (Amazon 85% of `X`; noon 40%, its Customer
+       Queries page attributes only part of campaign spend) → `[对账]`,
+       an incomplete capture: the two pages are on different date windows
+       (the 30d-vs-7d bug) or you missed rows — re-pin both and recapture.
+       Stallable like any other gap.
+     - `Y` **above `X × 1.02`** → `[对账·不可能]`, a CONTRADICTION — 实测
+       同窗口下这个比值上限就是 1.00, so it isn't imprecision, it's
+       arithmetically impossible; almost always one campaign's targeting
+       rows joined to a DIFFERENT campaign's search terms (wrong
+       `Campaign ID`). **This one does NOT fail open on a stall** — fix
+       the figures from the same `Campaign ID`, or write in that block
+       ONE line carrying BOTH halves (unreliable + do-not-execute):
+       `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`
+       —「仅供参考」 by itself does not count. Otherwise the
+       server banner-marks the delivered report and names the campaign.
+       Full rule: `output-spec.md` § the reconciliation line.
   4. `vibe_seller_write_workspace_file` BOTH TSVs (full search-term
      set in `.searchterms.tsv`, not just the top rows).
 

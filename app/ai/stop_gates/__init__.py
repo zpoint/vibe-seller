@@ -38,11 +38,22 @@ class GateDeny:
     alongside the retained submission and later ship it as the caveat
     list on an INCOMPLETE outcome. Optional: a gate that has no natural
     item list leaves it empty and only its prose is kept.
+
+    ``contradictions`` is the subset of ``gaps`` that are not "unfinished"
+    but "cannot be true" — a number the report states about itself that
+    is impossible, not merely incomplete. The stall fail-open exists so a
+    weak model is never trapped by work it cannot finish, and that logic
+    is right for incompleteness. It is wrong here: accepting an
+    impossible figure ships a report whose numbers feed real decisions.
+    Callers must therefore keep refusing while these are unmet, and — if
+    the agent never resolves them — mark the affected rows untrustworthy
+    in the delivered result rather than let them pass silently.
     """
 
     gate: str
     reason: str
     gaps: tuple[str, ...] = ()
+    contradictions: tuple[str, ...] = ()
 
 
 def record_attempt(task_id: str, gate: str) -> int:
@@ -72,6 +83,33 @@ def reset_attempts(task_id: str) -> None:
 # user explicitly asked for "let agent fix once but not mandatory" —
 # 1 is the smallest value that still gives the agent feedback.
 SOFT_GATE_MAX_DENIALS = 1
+
+# A contradiction gets a much longer leash than the stall cap. It is
+# always resolvable in one edit — fix the figures, or declare the campaign
+# untrustworthy — so refusing is not a trap, and the thing being refused
+# is a number that would otherwise ship into bid decisions. Past this cap
+# the result is accepted but banner-marked, so the failure mode is
+# "impossible to miss", never "impossible to pass".
+CONTRADICTION_MAX_DENIALS = 12
+
+
+def contradiction_banner(contradictions) -> str:
+    """Header marking a delivered report whose own numbers disagree.
+
+    Prepended by ``set_task_result`` when an agent never resolved a
+    contradiction. The report still ships — trapping the run helps nobody
+    — but it may not ship looking clean, because the affected rows carry
+    bid recommendations computed from figures that cannot be right.
+    """
+    items = '\n'.join(f'- {c}' for c in contradictions)
+    return (
+        '> ⚠️ **本报告有未解决的对账矛盾——以下活动的数字不可信，'
+        '请勿直接执行它们的出价建议。**\n>\n'
+        '> 搜索词层花费不可能超过该活动定向层的花费（同窗口下实测比值'
+        '上限为 1.00）。出现这种情况通常是两层数据取自不同活动，因此'
+        '这些活动的花费/ROAS/建议都可能是错的。其余活动不受影响。\n>\n'
+        f'{items}\n\n'
+    )
 
 
 # ── Durable per-task skill bindings ──────────────────────────────────

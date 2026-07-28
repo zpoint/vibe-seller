@@ -71,6 +71,47 @@ _AGGREGATE_ROW_RE = re.compile(
 # A markdown header underline: ``|---|---|`` (alignment colons allowed).
 _TABLE_SEP_RE = re.compile(r'^\|[\s:|-]+\|?$')
 
+# A campaign's search terms cannot spend MORE than the campaign's own
+# targeting layer — every query's cost is already counted there. Measured
+# against one live account's bulk export (both layers, same 30-day window,
+# 17 enabled SP campaigns): ratio min 0.998, median 1.000, max 1.000, with
+# 15 of 17 exactly 1.000 and the other two off only by 2-decimal rounding.
+# Clicks tracked identically. noon's captured layers likewise never exceed
+# 1.000 (median 0.779 — its Customer Queries page attributes only part of
+# spend, which is the FLOOR case below, not this one).
+#
+# So 1.02 is the live maximum plus 2% headroom for rounding and currency
+# formatting, not a guess. Above it the report is asserting something
+# arithmetically impossible about itself — observed live at 1.26, 1.61 and
+# 13.30 from a generator that joined one campaign's targeting rows to
+# another's search terms.
+IMPOSSIBLE_CEILING = 1.02
+
+# The acknowledgment that resolves a contradiction WITHOUT fixing the
+# numbers: the block itself declares its figures untrustworthy and tells
+# the reader not to act on them. This is the second of the two legal
+# answers ("fix it, or mark it clearly"), and it is what keeps the
+# non-stallable check from being a trap — it is always satisfiable by
+# writing one honest sentence. It must say BOTH things: that the data is
+# unreliable, AND that this campaign's recommendations must not be
+# executed. Half of it ("数据有偏差") would let the rows still read as
+# actionable, which is the outcome the check exists to prevent.
+_QUARANTINE_RE = re.compile(
+    r'(?=[^\n]*数据不可信|[^\n]*不可信|[^\n]*数据矛盾|[^\n]*data unreliable)'
+    r'[^\n]*(?:请勿执行|不要执行|勿执行|不可执行|do not execute|do not act)'
+)
+
+
+def _is_quarantined(block: str) -> bool:
+    """True if the block declares its own figures untrustworthy.
+
+    Matched per LINE so the disclaimer and the do-not-execute instruction
+    have to travel together — a stray 不可信 somewhere in a long block
+    must not silence the check for a campaign whose rows still present
+    themselves as actionable.
+    """
+    return any(_QUARANTINE_RE.search(ln) for ln in block.splitlines())
+
 
 def _layer_row_count(block: str, *, searchterm: bool) -> int:
     """Per-row data rows in this block's targeting OR search-term tables.
@@ -157,6 +198,7 @@ def _check_campaign_blocks(
     gaps: list[str],
     floor: float | None = None,
     active_ids: list[str] | None = None,
+    contradictions: list[str] | None = None,
 ) -> None:
     """Per-campaign search-term reconciliation + collapse checks for one
     combo section. Appends gap strings to ``gaps``.
@@ -192,6 +234,7 @@ def _check_campaign_blocks(
         ]
     missing: list[str] = []
     mismatched: list[str] = []
+    impossible: list[str] = []
     no_target_table: list[str] = []
     aggregate_only: list[str] = []
     st_aggregate_only: list[str] = []
@@ -257,12 +300,20 @@ def _check_campaign_blocks(
         # click totals legitimately diverge even on a perfect same-window
         # read (observed: spend within 2% while clicks differ 37%).
         # Requiring clicks too created irreconcilable false positives.
-        if floor is not None:
-            # noon asymmetric band (see docstring).
-            bad = s_spend < t_spend * floor or s_spend > t_spend * (1 + tol)
-        else:
-            bad = not _within(t_spend, s_spend, tol)
-        if bad:
+        #
+        # A mismatch is TWO different failures and they deserve different
+        # treatment (see ``IMPOSSIBLE_CEILING``):
+        #   * search-term spend ABOVE targeting spend cannot be true;
+        #   * search-term spend BELOW it is an incomplete capture.
+        # Only the first is a contradiction.
+        if s_spend > t_spend * IMPOSSIBLE_CEILING and not _is_quarantined(
+            block
+        ):
+            impossible.append(
+                f'「{name}」定向花费 {t_spend:g} < 搜索词花费 {s_spend:g}'
+                f'（{s_spend / t_spend:.2f}×）'
+            )
+        elif s_spend < t_spend * (floor if floor is not None else 1 - tol):
             mismatched.append(
                 f'「{name}」定向花费 {t_spend:g} vs 搜索词花费 {s_spend:g}'
             )
@@ -333,12 +384,30 @@ def _check_campaign_blocks(
             '窗口重新取数，再填上四个数字；确实没有搜索词报告的活动类型'
             '（如 SD）才写「无搜索词报告」，且该行不能同时写「需…导出」。'
         )
+    if impossible:
+        sample = '；'.join(impossible[:3])
+        more = '' if len(impossible) <= 3 else f' 等共 {len(impossible)} 个'
+        gap = (
+            f'[对账·不可能] 「{head}」有 {len(impossible)} 个活动的搜索词'
+            f'花费**超过**了该活动定向层的花费：{sample}{more}。这不是'
+            '误差，是不可能——每个搜索词的花费本来就已经计在定向层里了，'
+            '实测同窗口下这个比值最大就是 1.00。通常是把 A 活动的定向表'
+            '和 B 活动的搜索词配到了一起（join 错了 Campaign ID），或者'
+            '两个数取自不同活动/不同账户的导出。**这一条不会因为轮次用尽'
+            '而放过**：要么把两层重新按同一个 Campaign ID 取一次、改对'
+            '数字；要么在该活动块里明确写「⚠️ 数据不可信：本活动两层'
+            '对账矛盾，请勿执行本活动的出价建议」，让读报告的人知道这'
+            '几行不能用。'
+        )
+        gaps.append(gap)
+        if contradictions is not None:
+            contradictions.append(gap)
     if mismatched:
         sample = '；'.join(mismatched[:3])
         band = (
-            f'允许区间 {floor:.0%}–{1 + tol:.0%}（noon CQ 仅归因部分花费）'
+            f'下限 {floor:.0%}（noon CQ 仅归因部分花费）'
             if floor is not None
-            else f'容差 {tol:.0%}'
+            else f'下限 {1 - tol:.0%}'
         )
         gaps.append(
             f'[对账] 「{head}」搜索词与定向数据对不上（{band}）：'
