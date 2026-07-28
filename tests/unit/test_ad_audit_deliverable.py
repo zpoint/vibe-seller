@@ -357,6 +357,35 @@ class TestTargetingLayerHasRows:
         gaps = _gaps(_report(body), 't-cell')
         assert not any('[定向层]' in g for g in gaps), gaps
 
+    def test_aggregate_only_searchterm_table_is_a_gap(
+        self, monkeypatch, tmp_path
+    ):
+        # The targeting layer's evasion has an exact twin: one 汇总 row
+        # standing in for the customer queries. Declared live by a run
+        # itself — "13 个低花费 Amazon SA 活动的 Search Terms 表用汇总行
+        # 代替逐条 top-15". That model self-corrected; a weaker one would
+        # ship it, and the search-term layer was only checked for
+        # PRESENCE plus a reconciliation line.
+        _setup(monkeypatch, tmp_path, 't-st-agg', scope=_SA_SCOPE)
+        body = _DRILLED + (
+            '| 搜索词 | 来源关键词 | 点击 | 花费 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| 汇总（15 词） | — | 40 | 8.00 | 详见 TSV |\n'
+        )
+        gaps = _gaps(_report(body), 't-st-agg')
+        assert any('[搜索词层]' in g for g in gaps), gaps
+
+    def test_real_searchterm_rows_pass(self, monkeypatch, tmp_path):
+        _setup(monkeypatch, tmp_path, 't-st-ok', scope=_SA_SCOPE)
+        body = _DRILLED + (
+            '| 搜索词 | 来源关键词 | 点击 | 花费 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| blue widget large | widget | 9 | 5.00 | 否定（零转化） |\n'
+            '| **合计** | — | 9 | 5.00 | — |\n'
+        )
+        gaps = _gaps(_report(body), 't-st-ok')
+        assert not any('[搜索词层]' in g for g in gaps), gaps
+
     def test_no_data_page_is_exempt(self, monkeypatch, tmp_path):
         _setup(monkeypatch, tmp_path, 't-nodata', scope=_SA_SCOPE)
         body = _AGGREGATE_ONLY.replace(

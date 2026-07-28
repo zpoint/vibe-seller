@@ -72,14 +72,24 @@ _AGGREGATE_ROW_RE = re.compile(
 _TABLE_SEP_RE = re.compile(r'^\|[\s:|-]+\|?$')
 
 
-def _targeting_row_count(block: str) -> int:
-    """Per-target data rows across this block's targeting tables.
+def _layer_row_count(block: str, *, searchterm: bool) -> int:
+    """Per-row data rows in this block's targeting OR search-term tables.
 
     A table is identified by a header row (carries the ``建议`` column)
     IMMEDIATELY followed by the ``|---|`` separator — not by "a line
     containing 建议", because a recommendation cell legitimately contains
     the word (``建议出价 3.00``) and would otherwise read as a new header.
-    Search-term tables are skipped; they are counted by their own layer.
+    ``searchterm`` selects which table kind to count, keyed on whether the
+    first column names 搜索词.
+
+    Both layers need this, for the same reason. The targeting layer's
+    aggregate-row evasion (one 整体活动 row standing in for the keywords)
+    has an exact twin on the search-term side: a single 汇总 row standing
+    in for the customer queries. Observed live in one run's own declared
+    gaps — "13 个低花费 Amazon SA 活动的 Search Terms 表用汇总行代替逐条
+    top-15". That model self-corrected; a weaker one would ship it, and
+    the gate could not tell, because the search-term layer was only ever
+    checked for PRESENCE plus a reconciliation line.
     """
     lines = block.splitlines()
     count = 0
@@ -92,7 +102,8 @@ def _targeting_row_count(block: str) -> int:
         ):
             i += 1
             continue
-        if '搜索词' in line.strip('|').split('|')[0]:
+        is_st = '搜索词' in line.strip('|').split('|')[0]
+        if is_st is not searchterm:
             i += 1
             continue
         i += 2  # past the header and its separator
@@ -102,6 +113,16 @@ def _targeting_row_count(block: str) -> int:
                 count += 1
             i += 1
     return count
+
+
+def _targeting_row_count(block: str) -> int:
+    """Per-target data rows across this block's targeting tables."""
+    return _layer_row_count(block, searchterm=False)
+
+
+def _searchterm_row_count(block: str) -> int:
+    """Per-query data rows across this block's search-term tables."""
+    return _layer_row_count(block, searchterm=True)
 
 
 def _has_valid_escape(block: str) -> bool:
@@ -173,6 +194,7 @@ def _check_campaign_blocks(
     mismatched: list[str] = []
     no_target_table: list[str] = []
     aggregate_only: list[str] = []
+    st_aggregate_only: list[str] = []
     unparsed: list[str] = []
     for name, block in blocks:
         # A drilled block must carry the TARGETING table, not only the
@@ -199,6 +221,16 @@ def _check_campaign_blocks(
             and _targeting_row_count(block) == 0
         ):
             aggregate_only.append(name)
+        # Same rule, other layer: a search-term table that exists but
+        # names no query is a 汇总 row standing in for the customer
+        # queries. Only checked when the block has an ST table at all —
+        # a missing layer is the `missing` / escape-token path below.
+        if (
+            has_st_table
+            and not no_data_page
+            and _searchterm_row_count(block) == 0
+        ):
+            st_aggregate_only.append(name)
         m = _RECONCILE_RE.search(block)
         if not m:
             if _has_valid_escape(block):
@@ -260,6 +292,22 @@ def _check_campaign_blocks(
             'Customer Queries 为定向面），逐词/逐组列出 出价、点击、花费、'
             '订单、销售额、ACOS/ROAS 与 建议，合计行只能是最后的补充行。'
             '该活动页面确实没有数据时，在块内写明「无数据」。'
+        )
+    if st_aggregate_only:
+        sample = '、'.join(f'「{n}」' for n in st_aggregate_only[:4])
+        more = (
+            ''
+            if len(st_aggregate_only) <= 4
+            else f' 等共 {len(st_aggregate_only)} 个'
+        )
+        gaps.append(
+            f'[搜索词层] 「{head}」有 {len(st_aggregate_only)} 个活动的搜索词表'
+            f'只有一行汇总，没有任何一条具体的搜索词：{sample}{more}。'
+            '否定、提取为定向词都是逐个搜索词做的决策，汇总行里没有可执行'
+            '的对象——低花费活动也一样，花得少不等于不用逐条看。把该活动'
+            '搜索词报告里按花费排序的 top 词逐行列出（有展示的词不得折叠；'
+            '全零展示的填充行才可以折叠且必须写「0 展示」），合计行只能是'
+            '最后的补充行。完整数据已经在 <id>.searchterms.tsv 里，直接取。'
         )
     if missing:
         sample = '、'.join(f'「{n}」' for n in missing[:4])
