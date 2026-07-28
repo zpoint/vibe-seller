@@ -36,7 +36,7 @@ guess seller-central paths.
 | Single campaign | `…/cm/sp/campaigns/<campaignId>?entityId=...` | Deep-link only — needs the `entityId` scraped from the campaign-manager landing. The first path leg after `cm/sp/` switches per ad type (`sp`, `sb`, `sd`). |
 | Ad group | `…/cm/sp/campaigns/<campId>/ad-groups/<agId>/<tab>?entityId=...` where tab ∈ `ads`/`targeting`/`negative-targeting`/`search-terms`/`history` |  |
 | Campaign tabs | `…/cm/sp/campaigns/<id>/<tab>` where tab ∈ `ad-groups`/`bid-adjustments`/`negative-targeting`/`budget-rules`/`settings`/`history` | |
-| Bulk operations | `…/bulk-operations?entityId=...` | NOT `/sp/bulk-operations` (404). |
+| Bulk operations | `https://advertising.amazon.<tld>/bulk-operations?entityId=...` — **host ROOT, no path prefix** | The one row here whose `…` is NOT `…/cm/`. Every prefixed variant 404s — verified live: `/campaign-manager/bulk-operations`, `/cm/bulk-operations`, `/cm/bulk`, `/bulk/campaigns`, `/sp/bulk-operations`. An agent that assumed the neighbouring rows' `/cm/` prefix burned four navigations before finding it. |
 | Drafts | `…/cm/drafts?entityId=...` | NOT `/cm/sp/drafts/...` (only the inner path). |
 | Coupons dashboard | `https://sellercentral.amazon.<tld>/coupons/dashboard` | NOT `/promotions/coupons` (redirects elsewhere) and NOT `/cppd/coupons` (404). |
 | Coupon create | `https://sellercentral.amazon.<tld>/coupons/create-coupon` | |
@@ -283,10 +283,14 @@ The "Total: N" cell in the table footer is the authoritative count.
 > is exactly the step a 404-driven fallback tends to skip.
 >
 > **Some marketplaces have no Bulk Operations page at all** — verified on
-> `advertising.amazon.ae`, where `…/campaign-manager/bulk-operations`,
-> `/cm/bulk` and `/cm/home` all 404 while the same paths work on the SA
-> site. That 404 is not transient, and it is NOT a reason to declare the
-> marketplace empty. **Each marketplace is its own advertising account, so
+> `advertising.amazon.ae`, where the working SA form
+> (`advertising.amazon.ae/bulk-operations?entityId=…`, host root) 404s
+> along with every prefixed variant (`/campaign-manager/bulk-operations`,
+> `/cm/bulk`, `/cm/home`). Note the prefixed forms 404 on **SA too** — see
+> the URL table above; they are not the SA spelling, so a 404 on them
+> tells you nothing about the marketplace. Confirm with the host-root form
+> before concluding a site has no Bulk Operations. That 404 is not
+> transient, and it is NOT a reason to declare the marketplace empty. **Each marketplace is its own advertising account, so
 > an export taken on one site says nothing about another** — "the SA
 > export had no AE rows" is not evidence that AE is idle. Three routes
 > that work when Bulk Operations is absent:
