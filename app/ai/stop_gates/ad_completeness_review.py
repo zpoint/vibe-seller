@@ -562,15 +562,33 @@ def check(
         if task_id is not None:
             _seen_combos.setdefault(task_id, set()).add(label)
         if n == 0:
-            # An entry with no ids would satisfy "a scope exists" while
-            # grounding nothing — the same shrink-the-denominator trick
-            # one level down. A combo in scope means "audit these ids".
+            # "No live campaigns in this marketplace" is a legitimate
+            # finding — but only when the INDEPENDENT count agrees. An
+            # explicit ``total_active: 0`` is the noon ``Live 0`` chip /
+            # a bulk export with no enabled rows, i.e. observed emptiness;
+            # an absent or non-zero total with no ids is a truncated
+            # enumeration wearing the same clothes.
+            #
+            # This branch must not tell a DECLARED combo to delete itself:
+            # the delete would re-raise the missing-combo gap above, and
+            # the two remedies together were a deadlock with no legal move
+            # (caught in review before it reached a live run).
+            if combo['total_active'] == 0:
+                continue
+            declared_here = any(ad_scope.same_combo(combo, d) for d in declared)
+            keep = (
+                '该 combo 确实没有 active 活动，就把 total_active 也写成 0'
+                '（noon: 状态 chip 显示 `Live 0`；Amazon: bulk 导出没有 '
+                'state=enabled 的行），并在报告里保留该小节说明无在投活动。'
+                if declared_here
+                else '该 combo 确实没有 active 活动就整条删掉，别留空壳。'
+            )
             _attr(
                 label,
                 f'[基线] AUDIT_SCOPE 的 combo 「{label}」的 active_ids 是空的'
                 '——空名单等于没有基线，逐活动检查会退回只看报告自己写了'
                 '几个块。把该 combo 枚举到的 active campaign id 全部列进去；'
-                '该 combo 确实没有 active 活动就整条删掉，别留空壳。',
+                + keep,
             )
             continue
         if not combo['exhaustive']:

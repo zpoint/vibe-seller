@@ -26,15 +26,22 @@ state on the way to a full drill, never as the final report.
 
 ## Step 0 — scope + scaffold with append-markers
 
-Read `stores/<slug>/metadata.json` → `platform_countries`. Audit each
-(platform, country) it lists (e.g. Amazon <cc1>/<cc2> + noon <cc1>/<cc2>;
-or just a single Amazon marketplace for a single-market store). 30-day
-window. Create
+**Read `./AUDIT_TARGETS.json` FIRST** — the server writes it at the task
+root before you start: `{"combos": [{"platform": "amazon", "country":
+"SA"}, …]}`, every marketplace the store is configured for in Settings.
+That file, not your judgement, fixes the combo list — audit EVERY combo
+in it (e.g. Amazon <cc1>/<cc2> + noon <cc1>/<cc2>; or just a single
+Amazon marketplace for a single-market store), each with its own
+`AUDIT_SCOPE.json` entry (Step 1) and its own `## <Platform> <Country>`
+section. Loop over it; don't infer the list.
+(`stores/<slug>/metadata.json` → `platform_countries` is the fallback
+only when `AUDIT_TARGETS.json` is absent.) 30-day window. Create
 `./AD_AUDIT_<YYYY-MM-DD>.md` with the header.
 
 **Scaffold every section up front, each with a unique append-marker.**
-For each (platform, country) write its `## <Platform> <Country>` heading,
-its `进度` line, and ONE marker line you will append against:
+One section per `AUDIT_TARGETS.json` combo — including the ones you
+expect to be empty. For each combo write its `## <Platform> <Country>`
+heading, its `进度` line, and ONE marker line you will append against:
 
 ```
 ## noon EG
@@ -108,7 +115,9 @@ true active count you just enumerated.
 optional: any section that writes a `进度` line without a matching combo
 entry is rejected with a `[基线]` gap, because a `D/A` you wrote yourself
 proves nothing. It is the ground truth the server checks coverage against
-— every listed id must get its own `### <id> …` drill block. Append one
+— every listed id must get its own `### <id> …` drill block. **One entry
+per `AUDIT_TARGETS.json` combo, no exceptions** — a declared combo with
+no scope entry is a `[基线]` gap that blocks submission. Append one
 entry per combo:
 
 ```json
@@ -137,12 +146,17 @@ entry per combo:
   caught (ids 20, chip 45 → rejected as stale, not accepted as `20/20`).
 - `<A>` in the 进度 line must equal `len(active_ids)` for that combo.
 
+A declared combo that genuinely has NO live campaigns is still written
+down: an entry with `"active_ids": []` and `"total_active": 0`, plus its
+`## <Platform> <Country>` section stating that. 可以为空，但不能不写。
+
 Auditing only part of an account on purpose (a one-off "investigate this
 one ad" task) is still fine — declare it: list just those ids and add
 `"exhaustive": false`, which skips the `total_active` cross-check. What
-you may **not** do is omit the file, or write an empty `active_ids`;
-both are rejected. A narrow scope is a claim the server can check; no
-scope is not.
+you may **not** do is omit the file, drop a combo `AUDIT_TARGETS.json`
+declares, or write an empty `active_ids` for a combo that DOES have live
+campaigns; all three are rejected. A narrow scope is a claim the server
+can check; no scope is not.
 
 ## Step 2 — drill EACH active campaign, build the report with `Edit`
 
@@ -158,7 +172,13 @@ the active set you enumerated in Step 1**:
   the block into the report. No re-drill, no browser.
 - **Missing either** → capture it:
   1. *Targeting layer*: campaign detail → per-keyword / per-target
-     table (noon Manual: Targets tab).
+     table (noon Manual: Targets tab). **Per-target ROWS or it isn't a
+     drill** — a table whose only row restates the campaign total
+     (合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall / total) is
+     rejected as `[定向层]`; 合计 is a footer, never the only row. SP
+     Auto: one row per auto-target group; noon Auto (no Targets tab):
+     one row per Customer-Query-derived target. 页面确实无数据时在块内
+     写「无数据」。
   2. *Search-term layer* (REQUIRED — the actual customer queries):
      **Amazon: Search Terms page → Export CSV button**, then parse the
      downloaded CSV. The on-screen grid is virtualized (~13 rows
@@ -234,6 +254,15 @@ store's `notes.md` may override, e.g. `scale_roas: 6`):
 (Deeper lever selection: load `tuning-toolbox.md` only if needed.)
 
 ## Step 4 — submit + converge (the server IS the reviewer)
+
+**Submit the report FILE — pass the PATH, never a summary of it.** The
+argument is `"./AD_AUDIT_<date>.md"`, because whatever string you pass is
+what the reviewer grades. Hand it a chat summary and it grades the
+summary: a summary has no `## <Platform> <Country>` sections, so every
+combo reads as never started (a complete report was denied 24 rounds in a
+row exactly this way). The server does fall back to reading the newest
+`AD_AUDIT_*.md` when it detects narration — that is a safety net, not the
+interface. Pass the path.
 
 Call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` every **3–5
 drilled campaigns** — the server's completeness reviewer replies with

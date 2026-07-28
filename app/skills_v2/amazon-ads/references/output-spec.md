@@ -8,6 +8,21 @@ round. **Partial is accepted** — you don't have to be perfect in one
 pass; fix what the reviewer reports and re-submit. The report improves
 each round until the gaps are gone.
 
+## Scope is fixed by `AUDIT_TARGETS.json` — read it FIRST
+
+Which marketplaces the audit owes is **not** your call. Before you
+start, the server writes `AUDIT_TARGETS.json` at the task-workspace
+root — `{"combos": [{"platform": "amazon", "country": "SA"}, …]}`,
+every marketplace the store is configured for in Settings. Read it at
+the START of Phase 1 and let it drive the enumeration loop: **every
+combo it lists needs its own `AUDIT_SCOPE.json` entry AND its own
+`## <Platform> <Country>` section here.**
+
+A combo with genuinely no live campaigns is still written down — an
+entry with `"active_ids": []` and `"total_active": 0`, plus its section
+saying so. 可以为空，但不能不写：omitting a declared combo is a `[基线]`
+gap that blocks submission.
+
 ## Per (platform, country) section — required shape
 
 For every audited `(platform, country)`, the report MUST contain a
@@ -44,6 +59,17 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
 1. **Targeting table** — every keyword/target individually (bid /
    suggested range / clicks / spend / orders / ACOS-or-ROAS / CPC /
    建议), plus a **合计 row** whose totals match the campaign header.
+
+   **One aggregate row is NOT a drill — the rejected shape.** A
+   targeting table whose ONLY row restates the campaign total (first
+   cell matching 合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall /
+   total) is rejected as `[定向层]`. 把活动级数字抄进一张带 建议 列的表
+   里不算下钻——出价、暂停、加投都是逐个关键词 / 逐个定向组的决策，
+   汇总行里没有可执行的对象。Every active campaign's block needs REAL
+   per-keyword rows (SP Auto: one row per auto-target group; noon Auto,
+   which has no Targets tab: one row per Customer-Query-derived
+   target). A trailing 合计 row is fine as a footer — it just cannot be
+   the only row. 该活动的定向页确实没有数据时，在块内写「无数据」。
 2. **Search-terms table** — the ACTUAL customer queries
    (Amazon: Search Terms page → **Export CSV** (the ONLY full-coverage
    method — the on-screen grid is virtualized and shows ~13 rows);

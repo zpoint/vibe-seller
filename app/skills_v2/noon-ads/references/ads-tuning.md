@@ -22,6 +22,15 @@ report block per country under top-level headings `## Country 1:
 <code>` / `## Country 2: <code>` / … (see *Multi-country audits*
 below). Numbering of campaigns restarts within each country.
 
+**Which countries is not your call** — the server writes
+`./AUDIT_TARGETS.json` at the task root before you start, listing every
+(platform, country) the store is configured for. Read it first and cover
+every noon country in it: one `AUDIT_SCOPE.json` combo entry and one
+report block each. A country with genuinely no Live campaigns is still
+written down (`"active_ids": []`, `"total_active": 0`, plus a block
+saying so); 可以为空，但不能不写 — omitting a declared combo is a `[基线]`
+gap that blocks submission.
+
 **Active campaigns only.** The audit covers campaigns that are
 currently spending — Status `Live` or `Out of budget`. Skip `Paused`
 and `Draft`; they don't need tuning and only add noise. If the user
@@ -316,6 +325,14 @@ decision in one place.
 For Auto campaigns, omit Targets and substitute a small settings
 table (Default Bid + Bidding Strategy at minimum) with a
 recommendation column for each row.
+
+**The settings table is an addition, not the drill.** Auto still owes a
+per-target table — one row per Customer-Query-derived target, with its
+own recommendation. A targeting table whose only row restates the
+campaign total (合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall /
+total) is rejected as `[定向层]`：出价、暂停、加投都是逐个定向做的决策，
+汇总行里没有可执行的对象。合计 is allowed only as a trailing footer row;
+该活动确实没有数据时写「无数据」。
 
 **Customer Queries table** (always — at least the spending queries.
 Last column is **`recommendation`** — Negate / Harvest / Hold per row):

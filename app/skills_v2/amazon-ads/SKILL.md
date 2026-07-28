@@ -167,6 +167,14 @@ authoritative active-campaign ids per marketplace to `AUDIT_SCOPE.json`
 (run `python scripts/ads_bulk.py scope <each market's export>`) — the
 coverage floor checks against it.
 
+**Which marketplaces you owe is fixed by `AUDIT_TARGETS.json`**, written
+by the server at the task root before you start (`{"combos":
+[{"platform": "amazon", "country": "SA"}, …]}` — the store's Settings,
+not your inference). Read it first and loop over it: every combo in it
+needs an `AUDIT_SCOPE.json` entry AND a `## <Platform> <Country>` report
+section, even one with no live campaigns (`"active_ids": []`,
+`"total_active": 0`). Omitting a declared combo is a `[基线]` gap.
+
 **Before `vibe_seller_set_task_result`, you MUST pass verification — the
 report is not done until it's checked against the live console:**
 
@@ -184,6 +192,11 @@ report is not done until it's checked against the live console:**
 
 Both must pass. This is how "done" is defined for an ad report: verified
 against the live console, drilled to the word level — never a claim.
+
+**Then submit the FILE**:
+`vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` — the path, never a
+chat summary of the report. The reviewer grades whatever string you pass
+it, and a summary has no `##` combo sections to grade.
 
 ## Workflow references — the "what to do" thinking
 

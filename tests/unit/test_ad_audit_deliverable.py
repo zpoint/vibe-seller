@@ -13,6 +13,7 @@ Three holes, all observed on live runs of the same weekly audit:
 """
 
 import json
+import os
 
 import pytest
 
@@ -49,8 +50,7 @@ _SUMMARY_SECTION = (
 
 def _report(body: str) -> str:
     return (
-        '## Amazon SA\n'
-        '**进度**: drilled 1/1 active (1 total, 1 pages)\n' + body
+        '## Amazon SA\n**进度**: drilled 1/1 active (1 total, 1 pages)\n' + body
     ) + _SUMMARY_SECTION
 
 
@@ -108,15 +108,15 @@ class TestDeliverableOverNarration:
         # Phase-4 execution reads a prior audit; that audit is its INPUT.
         (tmp_path / 'AD_AUDIT_2026-01-02.md').write_text('## Amazon SA\n')
         (tmp_path / 'EXECUTION_LOG.md').write_text('applied 12 bid changes')
-        assert resolve_audit_deliverable(tmp_path, '执行完毕，12 项已应用') is None
+        assert (
+            resolve_audit_deliverable(tmp_path, '执行完毕，12 项已应用') is None
+        )
 
     def test_newest_report_wins(self, tmp_path):
         old = tmp_path / 'AD_AUDIT_2026-01-01.md'
         new = tmp_path / 'AD_AUDIT_2026-01-02.md'
         old.write_text('old')
         new.write_text('new')
-        import os
-
         os.utime(old, (1_600_000_000, 1_600_000_000))
         os.utime(new, (1_700_000_000, 1_700_000_000))
         assert resolve_audit_deliverable(tmp_path, 'done').name == new.name
@@ -159,13 +159,38 @@ class TestDeclaredComboCoverage:
             targets={'amazon': ['SA', 'AE']},
         )
         gaps = _gaps(_report(_DRILLED), 't-empty')
-        assert not any('根本没进' in g for g in gaps), gaps
+        # No [基线] gap AT ALL. Asserting only that the missing-combo gap
+        # is gone would miss a deadlock: the empty-active_ids branch used
+        # to answer "delete the entry", and deleting it re-raises the
+        # missing-combo gap — two remedies, no legal move.
+        assert not any('[基线]' in g for g in gaps), gaps
 
-    def test_no_targets_file_keeps_prior_behaviour(
+    def test_empty_combo_still_needs_an_observed_zero(
         self, monkeypatch, tmp_path
     ):
+        # active_ids: [] with no total_active is a TRUNCATED enumeration
+        # wearing the same clothes as an empty marketplace — still a gap.
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-empty-untotalled',
+            scope=[
+                *_SA_SCOPE,
+                {'platform': 'amazon', 'country': 'AE', 'active_ids': []},
+            ],
+            targets={'amazon': ['SA', 'AE']},
+        )
+        gaps = _gaps(_report(_DRILLED), 't-empty-untotalled')
+        assert any('active_ids 是空的' in g for g in gaps), gaps
+        # …and the remedy must NOT be "delete the entry" for a combo the
+        # server declared — that is the deadlock.
+        assert not any('整条删掉' in g for g in gaps), gaps
+
+    def test_no_targets_file_keeps_prior_behaviour(self, monkeypatch, tmp_path):
         _setup(monkeypatch, tmp_path, 't-none', scope=_SA_SCOPE)
-        assert not any('根本没进' in g for g in _gaps(_report(_DRILLED), 't-none'))
+        assert not any(
+            '根本没进' in g for g in _gaps(_report(_DRILLED), 't-none')
+        )
 
     def test_execution_summary_owes_no_marketplaces(
         self, monkeypatch, tmp_path
@@ -210,4 +235,6 @@ class TestTargetingLayerHasRows:
         body = _AGGREGATE_ONLY.replace(
             '钻取关键词级后再降价', '该活动定向页无数据'
         )
-        assert not any('[定向层]' in g for g in _gaps(_report(body), 't-nodata'))
+        assert not any(
+            '[定向层]' in g for g in _gaps(_report(body), 't-nodata')
+        )

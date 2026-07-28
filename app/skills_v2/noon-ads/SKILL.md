@@ -91,6 +91,17 @@ gate.
 > do use `Export all campaigns`, first scroll the list fully, then verify
 > the file's row count equals the chip before trusting it.**
 
+**Which countries you owe is fixed by `./AUDIT_TARGETS.json`** — the
+server writes it at the task root before you start (`{"combos":
+[{"platform": "noon", "country": "AE"}, …]}`, straight from the store's
+Settings). Read it FIRST, at the start of Phase 1, and loop over it:
+every noon country in it needs its own `AUDIT_SCOPE.json` combo entry
+(step 4) AND its own `## noon <CC>` report section. A country with
+genuinely no Live campaigns is still written down — an entry with
+`"active_ids": []` and `"total_active": 0`, plus a section saying so;
+可以为空，但不能不写。Omitting a declared combo is a `[基线]` gap that
+blocks submission.
+
 Phase 1 (Discover) MUST, per country:
 
 1. **Read the true total** from the status chips — the `Live N` / `All N`
@@ -346,6 +357,14 @@ on Customer Queries for Auto as you would on Targets for
 Manual — don't treat Auto sections as "lighter" just because
 the spec template doesn't show a Targets table.
 
+> **In an audit report, that means an Auto campaign's targeting
+> table is one row per Customer-Query-derived target — not one row
+> restating the campaign total.** A table whose only row is
+> 合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall / total is
+> rejected as `[定向层]`：出价、暂停、加投都是逐个定向做的决策，
+> 汇总行里没有可执行的对象。合计 may only be a trailing footer row.
+> 该活动确实没有数据时写「无数据」。
+
 Use this to discover high-performing queries (add as keywords) or
 low-performing queries (add as negatives).
 
@@ -468,7 +487,7 @@ one, how to research keywords — lives in three reference files:
 
 | Reference | Load when |
 |---|---|
-| [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | **The report contract for every audit** (shared across noon + Amazon — same shape for both platforms). 进度 line, per-campaign drill blocks (Targets table + Customer-Queries table + `搜索词对账` reconciliation line, same date window), bid rules, TSV naming. Before finishing you MUST pass BOTH the **coverage floor** (deterministic, at `set_task_result`) AND the **`ads-report-review` reviewer loop** (active verification — spawn the reviewer per `../amazon-ads/references/reviewer-loop.md`; it opens the live console/export and cross-checks your report, looping until `Status: ok`; Stop-hook enforced). A report is done only when verified against the live console, drilled to the word level. |
+| [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | **The report contract for every audit** (shared across noon + Amazon — same shape for both platforms). 进度 line, per-campaign drill blocks (Targets table + Customer-Queries table + `搜索词对账` reconciliation line, same date window), bid rules, TSV naming. Before finishing you MUST pass BOTH the **coverage floor** (deterministic, at `set_task_result`) AND the **`ads-report-review` reviewer loop** (active verification — spawn the reviewer per `../amazon-ads/references/reviewer-loop.md`; it opens the live console/export and cross-checks your report, looping until `Status: ok`; Stop-hook enforced). A report is done only when verified against the live console, drilled to the word level. **Submit the FILE — `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`, the path, never a chat summary of the report**: the reviewer grades whatever string you pass it, and a summary has no `##` combo sections. |
 | [`../amazon-ads/references/audit-quickref.md`](../amazon-ads/references/audit-quickref.md) | **The audit procedure, one page** (shared). Enumerate ALL pages → two-layer drill per campaign (Targets + Customer Queries, same window, reconcile) → build the report with Read+Edit via INSERT markers → converge with the server reviewer. |
 | [`../amazon-ads/references/format-anchor.md`](../amazon-ads/references/format-anchor.md) | _Legacy detail._ Exact per-campaign table layouts; load only if you need the precise column shape. Superseded as a contract by `output-spec.md`. |
 | [`references/ads-creation.md`](references/ads-creation.md) | Creating a new campaign. Covers targeting choice, bidding strategy, per-keyword bid heuristic, match-type strategy, negative scoping, TOS boost rules, budget choice, the Save-as-Draft → Launch UI quirk, naming convention, post-launch verification cadence. |

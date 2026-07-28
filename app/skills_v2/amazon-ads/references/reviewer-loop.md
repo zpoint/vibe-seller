@@ -93,6 +93,17 @@ loop:
 vibe_seller_set_task_result("./AD_AUDIT_<YYYY-MM-DD>.md")
 ```
 
+**That last call takes the report PATH — never a summary of it.** Pass
+`"./AD_AUDIT_<YYYY-MM-DD>.md"` exactly as written above. Whatever string
+you pass is what the completeness reviewer grades, so a chat summary gets
+graded instead of the report — and a summary has no
+`## <Platform> <Country>` sections, so every combo reads as never
+started. (Live failure: a finished report that PASSES when the reviewer
+is handed the file was denied 24 rounds because the agent submitted a
+694-character summary.) The server falls back to reading the newest
+`AD_AUDIT_*.md` when it detects narration; treat that as a safety net,
+not the interface.
+
 ## The REVIEWER_PROMPT (verbatim, agent must use this)
 
 Spawn with `subagent_type="general-purpose"`. **You (the writing agent)
