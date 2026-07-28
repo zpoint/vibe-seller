@@ -296,6 +296,17 @@ def check(
     # enumerated. Empty for tasks predating the contract / stores with no
     # recorded platforms — then nothing below changes.
     declared = ad_scope.load_declared_targets(task_id)
+    # Bulk export files cited by MORE THAN ONE combo. An export is
+    # per-marketplace, so a shared reference cannot verify any of them —
+    # see the check below.
+    _bulk_refs: list[str] = []
+    for _c in ad_scope.scope_combos(scope):
+        _k, _r = ad_scope.classify_total_source(
+            _c.get('total_active_source', '')
+        )
+        if _k == 'bulk' and _r:
+            _bulk_refs.append(_r)
+    _shared_bulk = {r for r in _bulk_refs if _bulk_refs.count(r) > 1}
 
     gaps: list[str] = []
     # Gaps that are not "unfinished" but "cannot be true" (see
@@ -671,6 +682,28 @@ def check(
                 '（服务端会打开该文件自己数 state=enabled 的活动行核对）；'
                 'noon 写 `"total_active_source": "chip:Live N"`，N 为活动'
                 '列表状态 chip 上的读数。',
+            )
+        elif kind == 'bulk' and total is not None and ref in _shared_bulk:
+            # The SAME export cited by several combos. A bulk export is
+            # PER-MARKETPLACE — one advertiser account, one market — so it
+            # can be authoritative for at most one of them, and counting
+            # its rows against another market's total is meaningless.
+            # Observed live: Amazon AE (8) and AU (4) both cited the SA
+            # export because neither has a bulk-operations page of its own,
+            # and the naive check told each of them it had "under-declared"
+            # against SA's 17 enabled rows. The agent had even written the
+            # caveat itself — "服务端如打开该文件预计 0 AE 行". Name the real
+            # problem instead of inventing an under-count.
+            _attr(
+                label,
+                f'[基线] combo 「{label}」的 total_active_source 指向 '
+                f'`{ref}`，但这个导出文件同时被多个 combo 引用。bulk 导出是'
+                '**按市场**的（一个广告账户=一个市场），所以它最多只能作为'
+                '其中一个市场的依据——拿它的行数去核另一个市场的数量没有'
+                '意义。请给这个市场自己的依据：该市场自己的 bulk 导出'
+                '（`bulk:<该市场的导出>.xlsx`）；该市场没有 bulk 页面时'
+                '（如 AE 会 404），用活动列表的总数 `list:N`，并说明是从'
+                '哪个列表读到的。',
             )
         elif kind == 'bulk' and total is not None:
             observed = ad_scope.count_enabled_in_export(ref)

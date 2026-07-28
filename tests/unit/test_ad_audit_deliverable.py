@@ -659,6 +659,52 @@ class TestTotalActiveProvenance:
         gaps = _gaps(_report(_DRILLED), 't-bulk')
         assert any('数到 6 个' in g for g in gaps), gaps
 
+    def test_one_export_cannot_verify_several_marketplaces(
+        self, monkeypatch, tmp_path
+    ):
+        # A bulk export is PER-MARKETPLACE (one advertiser account, one
+        # market), so an export cited by several combos can be
+        # authoritative for at most one of them. Observed live: Amazon AE
+        # and AU both cited the SA export because neither has a
+        # bulk-operations page, and the naive count told each it had
+        # "under-declared" against SA's enabled rows.
+        dl = tmp_path / 'downloads' / 'acme'
+        dl.mkdir(parents=True)
+        wb = Workbook()
+        ws = wb.active
+        ws.append(['Product', 'Entity', 'Operation', 'State'])
+        for _ in range(17):
+            ws.append(['SP', 'Campaign', '', 'enabled'])
+        wb.save(dl / 'sa.xlsx')
+        monkeypatch.setattr(sc, 'VIBE_SELLER_DIR', tmp_path)
+        shared = 'bulk:sa.xlsx'
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-shared',
+            scope=[
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['600000000001'],
+                    'total_active': 1,
+                    'total_active_source': shared,
+                },
+                {
+                    'platform': 'amazon',
+                    'country': 'AE',
+                    'active_ids': ['600000000002'],
+                    'total_active': 1,
+                    'total_active_source': shared,
+                },
+            ],
+        )
+        gaps = _gaps(_report(_DRILLED), 't-shared')
+        # the real problem is named…
+        assert any('同时被多个 combo 引用' in g for g in gaps), gaps
+        # …and the bogus under-count is NOT
+        assert not any('少算' in g for g in gaps), gaps
+
     def test_declaring_more_than_the_export_is_fine(
         self, monkeypatch, tmp_path
     ):
