@@ -29,6 +29,7 @@ from app.ai.stop_gates import (
     GateDeny,
     ad_bid_floor,
     ad_explicit_actions,
+    ad_rollup,
     ad_scale_winners,
     ad_scope,
 )
@@ -903,6 +904,11 @@ def check(
             'ASIN 报告无需 OTP 可直接进入获取；跨平台/同-SKU 对比、逐活动 '
             'drill 必须本次完成，不能写“待下次 audit / 无法获取 / 代表性样本”。'
         )
+
+    # 3b) The same number written three times must agree. Decidable from
+    #     the document alone, and the LLM reviewer had to catch this by
+    #     hand on two consecutive rounds (see ``ad_rollup``).
+    gaps.extend(ad_rollup.check_rollups(result_text))
 
     # 4) Garbled extraction — raw DOM attributes / lowercased ASINs.
     if _GARBLED_RE.search(result_text):

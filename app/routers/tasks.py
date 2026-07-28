@@ -742,11 +742,22 @@ async def set_task_result(
                 contradiction_banner(deny.contradictions) + final_result
             )
             stalled_gaps.extend(deny.contradictions)
+        # Log the GAPS, not ``deny.reason`` — the reason opens with a
+        # fixed instruction banner and appends the gap list at the END,
+        # so a truncated prefix of it is pure boilerplate. Six of these
+        # lines in one run read byte-identical while the underlying gaps
+        # went 14 → 8 → 7, which is worse than silence: it looks like a
+        # run repeating itself when it is converging. Say "failing open"
+        # rather than "accepting": the reviewer gate runs next and may
+        # still refuse, so the result is not accepted here.
         logger.warning(
-            'Gate %s stalled for task %s — accepting best result. Gaps: %s',
+            'Gate %s stalled for task %s — failing open with %d unmet gap(s) '
+            '(reviewer may still refuse). Gaps: %s',
             gate_name,
             task_id,
-            deny.reason[:200],
+            len(deny.gaps or ()),
+            ' | '.join(g[:110] for g in (deny.gaps or ())[:4])
+            or deny.reason[:160],
         )
         # Failed open on a stall: the result ships, but the unmet gaps
         # ride along as caveats instead of vanishing into a log line.
