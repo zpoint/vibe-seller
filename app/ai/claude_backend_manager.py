@@ -109,6 +109,7 @@ class ClaudeCodeBackend(AIAgentBackend):
                         ad_scope.write_declared_targets(
                             task_dir,
                             json.loads(store.platform_countries),
+                            slug=store_slug,
                         )
                     except (ValueError, TypeError):
                         logger.warning(

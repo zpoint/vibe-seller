@@ -68,8 +68,39 @@ def targets_path(task_id: str):
     return VIBE_SELLER_DIR / 'tasks' / task_id / TARGETS_FILENAME
 
 
+def prior_campaign_tsvs(slug: str | None, platform: str, country: str) -> int:
+    """How many per-campaign TSVs a PRIOR audit left for this combo.
+
+    Recorded history, and the only independent evidence the server has
+    about a marketplace it cannot browse. Used to challenge an
+    "``active_ids: []``, nothing live here" claim: a combo that produced
+    per-campaign TSVs before did have campaigns, so a zero now is a
+    regression that has to be explained rather than asserted.
+
+    Per-campaign files only (``<id>.tsv`` / ``<id>.searchterms.tsv``),
+    counted under the store's own directory — never a glob across
+    ``stores/*``, which would borrow another store's history.
+    """
+    if not slug:
+        return 0
+    d = (
+        VIBE_SELLER_DIR
+        / 'stores'
+        / slug
+        / 'ads'
+        / platform.strip().lower()
+        / country.strip().lower()
+    )
+    try:
+        return len([p for p in d.iterdir() if p.suffix == '.tsv'])
+    except OSError:
+        return 0
+
+
 def write_declared_targets(
-    task_dir, platform_countries: dict[str, list[str]]
+    task_dir,
+    platform_countries: dict[str, list[str]],
+    slug: str | None = None,
 ) -> None:
     """Write the SERVER's combo obligation for a task (best-effort).
 
@@ -88,7 +119,12 @@ def write_declared_targets(
 
     The agent may still declare a combo EMPTY (``active_ids: []`` /
     ``total_active: 0``) — "no live campaigns here" is a legitimate
-    finding. What it can no longer do is omit the combo silently.
+    finding. What it can no longer do is omit the combo silently, nor
+    assert emptiness for a marketplace that recently had campaigns (see
+    :func:`prior_campaign_tsvs`).
+
+    ``slug`` is recorded so the reviewer can find this store's own audit
+    history without globbing ``stores/*`` and borrowing another store's.
 
     Best-effort: an unwritable workspace degrades to the previous
     behaviour (agent-chosen combo set) rather than blocking the task.
@@ -102,13 +138,28 @@ def write_declared_targets(
     ]
     if not combos:
         return
+    payload: dict = {'combos': combos}
+    if slug:
+        payload['slug'] = slug
     try:
         (task_dir / TARGETS_FILENAME).write_text(
-            json.dumps({'combos': combos}, indent=2) + '\n',
+            json.dumps(payload, indent=2) + '\n',
             encoding='utf-8',
         )
     except OSError:  # pragma: no cover — best-effort
         pass
+
+
+def declared_slug(task_id: str | None) -> str | None:
+    """Store slug the server recorded in AUDIT_TARGETS.json, if any."""
+    if not task_id:
+        return None
+    try:
+        data = json.loads(targets_path(task_id).read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return None
+    slug = data.get('slug') if isinstance(data, dict) else None
+    return str(slug) if slug else None
 
 
 def load_declared_targets(task_id: str | None) -> list[dict]:

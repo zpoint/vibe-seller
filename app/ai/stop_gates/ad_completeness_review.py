@@ -573,9 +573,62 @@ def check(
             # the delete would re-raise the missing-combo gap above, and
             # the two remedies together were a deadlock with no legal move
             # (caught in review before it reached a live run).
-            if combo['total_active'] == 0:
-                continue
             declared_here = any(ad_scope.same_combo(combo, d) for d in declared)
+            if combo['total_active'] == 0:
+                # An empty market is the STRONGEST claim in the file: it
+                # discharges every per-campaign obligation at once. So it
+                # cannot be self-certifying, and two things must hold.
+                #
+                # (a) It must not hedge. ``exhaustive: false`` means "I
+                # audited a subset on purpose"; with an empty id list that
+                # reads "my subset was nothing" — zero obligations wearing
+                # the narrow-task escape hatch. An empty market IS a
+                # completeness claim; you cannot opt out of completeness
+                # and assert it in the same entry.
+                #
+                # (b) It must not contradict recorded history. Observed
+                # live, and why this exists: a run that never opened
+                # Amazon AE wrote total_active 0 for it while the PREVIOUS
+                # audit of the same store had drilled 10 active AE
+                # campaigns with real spend. Accepting that ships an audit
+                # missing a whole marketplace — the very hole AUDIT_SCOPE
+                # closes, moved one level down from "omit the combo" to
+                # "declare the combo empty".
+                if not combo['exhaustive']:
+                    _attr(
+                        label,
+                        f'[基线] AUDIT_SCOPE 的 combo 「{label}」同时写了 '
+                        '"active_ids": [] 和 "exhaustive": false——这两个放'
+                        '一起等于「我只审了一部分，而那部分是空的」，是零'
+                        '义务的免检牌。「没有在投活动」本身就是一个完整性'
+                        '断言：要么去掉 exhaustive（或设 true）并用 '
+                        'total_active 0 的独立观测背书，要么列出你实际'
+                        '审计的那部分 active id。',
+                    )
+                    continue
+                prior = ad_scope.prior_campaign_tsvs(
+                    ad_scope.declared_slug(task_id),
+                    combo['platform'],
+                    combo['country'],
+                )
+                if prior and declared_here:
+                    _attr(
+                        label,
+                        f'[基线] combo 「{label}」被判为「无在投活动」'
+                        f'（total_active 0），但本店此前的审计在 '
+                        f'stores/<slug>/ads/{combo["platform"]}/'
+                        f'{combo["country"].lower()}/ 留下了 {prior} 个逐'
+                        '活动 TSV——这个市场以前是有活动的，0 是一次回退，'
+                        '不能只凭断言。请真的去该市场的广告后台确认：'
+                        'Amazon 要单独为这个 marketplace 导出一份 bulk'
+                        '（每个 marketplace 是独立广告账户，SA 的导出不能'
+                        '代表 AE），确认没有 state=enabled 的行；noon 看'
+                        '活动列表状态 chip 是否为 `Live 0`。确认真的清零，'
+                        '就在该小节写明依据（导出文件名 / chip 读数 + 这些'
+                        '活动大约何时停投）；若其实仍有在投活动，把它们'
+                        '枚举进 active_ids 并逐个 drill。',
+                    )
+                continue
             keep = (
                 '该 combo 确实没有 active 活动，就把 total_active 也写成 0'
                 '（noon: 状态 chip 显示 `Live 0`；Amazon: bulk 导出没有 '

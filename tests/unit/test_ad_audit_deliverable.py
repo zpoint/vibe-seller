@@ -17,7 +17,11 @@ import os
 
 import pytest
 
-from app.ai.stop_gates import ad_completeness_review as acr, ad_scope
+from app.ai.stop_gates import (
+    ad_completeness_review as acr,
+    ad_scope,
+    ad_scope as sc,
+)
 from app.routers.tasks_files import resolve_audit_deliverable
 
 # One drilled campaign: per-keyword rows + a same-window 对账 line.
@@ -185,6 +189,113 @@ class TestDeclaredComboCoverage:
         # …and the remedy must NOT be "delete the entry" for a combo the
         # server declared — that is the deadlock.
         assert not any('整条删掉' in g for g in gaps), gaps
+
+    def test_empty_combo_may_not_also_hedge(self, monkeypatch, tmp_path):
+        # ``exhaustive: false`` + ``active_ids: []`` reads "I audited a
+        # subset, and the subset was nothing" — zero obligations wearing
+        # the narrow-task escape hatch. Seen live on two Amazon markets.
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-hedge',
+            scope=[
+                *_SA_SCOPE,
+                {
+                    'platform': 'amazon',
+                    'country': 'AE',
+                    'active_ids': [],
+                    'total_active': 0,
+                    'exhaustive': False,
+                },
+            ],
+            targets={'amazon': ['SA', 'AE']},
+        )
+        gaps = _gaps(_report(_DRILLED), 't-hedge')
+        assert any('exhaustive' in g and 'amazon AE' in g for g in gaps), gaps
+
+    def test_empty_combo_contradicting_history_is_challenged(
+        self, monkeypatch, tmp_path
+    ):
+        # A market that produced per-campaign TSVs in a PRIOR audit did
+        # have campaigns, so a zero now is a regression to justify, not
+        # assert. Live: a run that never opened Amazon AE wrote
+        # total_active 0 while the previous audit drilled 10 campaigns.
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-hist',
+            scope=[
+                *_SA_SCOPE,
+                {
+                    'platform': 'amazon',
+                    'country': 'AE',
+                    'active_ids': [],
+                    'total_active': 0,
+                },
+            ],
+            targets={'amazon': ['SA', 'AE']},
+        )
+        # Prior audit history for THIS store's amazon/ae.
+        hist = tmp_path / 'stores' / 'acme' / 'ads' / 'amazon' / 'ae'
+        hist.mkdir(parents=True)
+        (hist / '100000000001.tsv').write_text('target\tspend\n')
+        (hist / '100000000001.searchterms.tsv').write_text('query\tspend\n')
+        targets = tmp_path / 'tasks' / 't-hist' / 'AUDIT_TARGETS.json'
+        data = json.loads(targets.read_text())
+        data['slug'] = 'acme'
+        targets.write_text(json.dumps(data))
+        acr.reset_progress('t-hist')
+        gaps = _gaps(_report(_DRILLED), 't-hist')
+        assert any('无在投活动' in g and 'amazon AE' in g for g in gaps), gaps
+
+    def test_empty_combo_with_no_history_passes(self, monkeypatch, tmp_path):
+        # A market that never had campaigns is legitimately empty — the
+        # history challenge must not fire, or a genuinely-idle marketplace
+        # becomes unauditable.
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-nohist',
+            scope=[
+                *_SA_SCOPE,
+                {
+                    'platform': 'amazon',
+                    'country': 'AU',
+                    'active_ids': [],
+                    'total_active': 0,
+                },
+            ],
+            targets={'amazon': ['SA', 'AU']},
+        )
+        targets = tmp_path / 'tasks' / 't-nohist' / 'AUDIT_TARGETS.json'
+        data = json.loads(targets.read_text())
+        data['slug'] = 'acme'
+        targets.write_text(json.dumps(data))
+        acr.reset_progress('t-nohist')
+        gaps = _gaps(_report(_DRILLED), 't-nohist')
+        # The emptiness CHALLENGE must not fire. The combo still owes a
+        # report section saying it is empty, so that gap is expected.
+        assert not any('无在投活动' in g for g in gaps), gaps
+        assert not any('exhaustive' in g for g in gaps), gaps
+
+    def test_prior_tsvs_never_borrow_another_stores_history(self, tmp_path):
+        # Counting must be scoped to the store's own directory — a glob
+        # across stores/* would let one store's history challenge another.
+        monkey = tmp_path
+        (monkey / 'stores' / 'other' / 'ads' / 'amazon' / 'ae').mkdir(
+            parents=True
+        )
+        (
+            monkey / 'stores' / 'other' / 'ads' / 'amazon' / 'ae' / 'x.tsv'
+        ).write_text('t\n')
+        orig = sc.VIBE_SELLER_DIR
+        try:
+            sc.VIBE_SELLER_DIR = monkey
+            assert sc.prior_campaign_tsvs('acme', 'amazon', 'AE') == 0
+            assert sc.prior_campaign_tsvs('other', 'amazon', 'AE') == 1
+            assert sc.prior_campaign_tsvs(None, 'amazon', 'AE') == 0
+        finally:
+            sc.VIBE_SELLER_DIR = orig
 
     def test_no_targets_file_keeps_prior_behaviour(self, monkeypatch, tmp_path):
         _setup(monkeypatch, tmp_path, 't-none', scope=_SA_SCOPE)
