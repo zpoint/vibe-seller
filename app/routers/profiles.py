@@ -3,6 +3,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
@@ -11,9 +12,10 @@ from app.ai.external_config import (
     assert_profile_compatible,
 )
 from app.ai.profile_validation import validate_profile_env
-from app.ai.profiles import ProfileManager, profile_kind
+from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager, profile_kind
 from app.auth import get_current_user
 from app.database import get_db
+from app.models.schedule import Schedule
 from app.models.user import User
 from app.telemetry_events import TelemetryEvent
 
@@ -121,12 +123,33 @@ async def set_default_profile(
         raise HTTPException(status_code=404, detail='User not found')
     user.default_profile_id = profile_id
     user.updated_at = datetime.now(UTC).isoformat()
+    schedules_synced = 0
+    if user.sync_profile_to_schedules:
+        # Opt-in pref: re-pin the user's schedules that carry a
+        # concrete ai_profile_id so they move to the new default too.
+        # Rows holding 'default'/NULL already inherit the live default
+        # via resolve_schedule_profile() and are deliberately
+        # untouched; other users' schedules are out of scope.
+        result = await db.execute(
+            update(Schedule)
+            .where(
+                Schedule.created_by == user.id,
+                Schedule.ai_profile_id.is_not(None),
+                Schedule.ai_profile_id != DEFAULT_PROFILE_ID,
+            )
+            .values(ai_profile_id=profile_id)
+        )
+        schedules_synced = result.rowcount
     await db.commit()
     telemetry.send(
         TelemetryEvent.AI_PROFILE_DEFAULT_SET,
         {'provider_kind': profile_kind(profile)},
     )
-    return {'ok': True, 'default_profile_id': profile_id}
+    return {
+        'ok': True,
+        'default_profile_id': profile_id,
+        'schedules_synced': schedules_synced,
+    }
 
 
 @router.post('/validate')

@@ -32,6 +32,12 @@ class User(Base):
     default_profile_id: Mapped[str] = mapped_column(
         String(50), nullable=False, default='default'
     )
+    # When on, changing the default profile also re-pins this user's
+    # schedules that carry a concrete ai_profile_id to the new default
+    # (rows left as 'default'/NULL already inherit and are untouched).
+    sync_profile_to_schedules: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     created_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
     )

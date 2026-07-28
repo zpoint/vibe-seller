@@ -61,6 +61,8 @@ def _ensure_added_columns(conn) -> None:
         ('tasks', 'review_gaps', 'TEXT'),
         ('tasks', 'submission_count', 'INTEGER NOT NULL DEFAULT 0'),
         ('tasks', 'transcript_tail', 'TEXT'),
+        # User pref: re-pin owned schedules on default-profile change.
+        ('users', 'sync_profile_to_schedules', 'BOOLEAN NOT NULL DEFAULT 0'),
     ]
     for table, column, sqltype in added:
         cols = {

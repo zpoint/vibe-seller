@@ -598,6 +598,8 @@
     "noVariables": "No variables added yet",
     "envVars": "environment variables",
     "noProfiles": "No custom profiles yet. Create one to get started.",
+    "syncSchedulesTitle": "Sync schedules when default changes",
+    "syncSchedulesDesc": "When you switch the default profile, schedules pinned to a specific profile are moved to the new default too. Schedules already following the default are unaffected.",
     "confirmDelete": "Delete profile \"{name}\"? This cannot be undone.",
     "loadGlobalMcp": "Load global MCP servers",
     "loadGlobalMcpHint": "Include MCP servers from global Claude settings. Disable to reduce tool count and speed up third-party APIs.",
