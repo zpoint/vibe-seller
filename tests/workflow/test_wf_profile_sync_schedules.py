@@ -102,16 +102,13 @@ class TestSetDefaultSync:
         )
         async with override_async_session() as db:
             pinned = await _make_schedule(db, admin_user.id, 'prof-old')
-            inherit_default = await _make_schedule(
-                db, admin_user.id, 'default'
-            )
+            inherit_default = await _make_schedule(db, admin_user.id, 'default')
             # Legacy NULL row: the ORM column default forces 'default'
             # on insert, so simulate a pre-default DB with raw SQL.
             inherit_null = await _make_schedule(db, admin_user.id, 'x')
             await db.execute(
                 text(
-                    'UPDATE schedules SET ai_profile_id = NULL'
-                    ' WHERE id = :sid'
+                    'UPDATE schedules SET ai_profile_id = NULL WHERE id = :sid'
                 ),
                 {'sid': inherit_null.id},
             )

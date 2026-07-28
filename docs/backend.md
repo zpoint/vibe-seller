@@ -76,7 +76,7 @@ SQLAlchemy 2.0 ORM models. All extend `Base` from `app/database.py`.
 | Model | Table | Description |
 |-------|-------|-------------|
 | `AppSettings` | `app_settings` | Key-value app settings (`auth_required`, `admin_credentials_set`, `max_agent_concurrency`, `default_schedule_phase_mode`, `default_schedule_timezone`, `task_retention_days`, `google_workspace_enabled`) |
-| `User` | `users` | Team members with JWT auth. `username` (unique, required), `email` (unique, nullable, validated). Login by username or email. Admin seeds from env (`ADMIN_USERNAME`, `ADMIN_EMAIL`). |
+| `User` | `users` | Team members with JWT auth. `username` (unique, required), `email` (unique, nullable, validated). Login by username or email. Admin seeds from env (`ADMIN_USERNAME`, `ADMIN_EMAIL`). Per-user prefs: `plan_mode_default`, `debug_mode`, `default_profile_id`, `sync_profile_to_schedules` (re-pin owned schedules on default-profile change — see [subsystems.md § Schedule AI profile resolution](subsystems.md#schedule-ai-profile-resolution)). |
 | `Store` | `stores` | E-commerce stores with browser config |
 | `BrowserSession` | `browser_sessions` | Active browser sessions per store |
 | `Task` | `tasks` | Units of work created by users |

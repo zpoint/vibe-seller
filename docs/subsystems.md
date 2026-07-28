@@ -27,6 +27,12 @@ Cross-store scheduling. Three recurring task patterns:
 - **Task archiving**: terminal tasks (completed/failed) >7 days hidden by default, toggle to show
 - **Timezone resolution**: every schedule stores an IANA `timezone` column. When a client omits `timezone` on create, the router resolves it in order: (1) explicit `body.timezone`, (2) `AppSettings['default_schedule_timezone']`, (3) `get_server_timezone()` in `app/scheduler/cron.py` (wraps `tzlocal.get_localzone_name()`, UTC on failure). `build_trigger()` feeds the stored string into `ZoneInfo` so APScheduler fires in that zone. PUT `/api/schedules/:id` re-registers the APScheduler job so timezone edits take effect immediately.
 
+## Schedule AI profile resolution
+
+Every schedule carries `Schedule.ai_profile_id` with two meanings: `'default'`/NULL = **inherit** (follow the owner's current `User.default_profile_id`), any concrete value = **explicit pin** (always that profile). `resolve_schedule_profile()` (`app/ai/profiles.py`) runs **live at every fire** — cron (`scheduler/cron.py`), all-stores fan-out (`scheduler/fanout.py`), and finalize (`scheduler/finalize_reaper.py`) — and the resolved id is stamped onto the fired `Task.ai_profile_id` as the run's receipt. Switching the default profile therefore moves every unpinned schedule on its next fire with no schedule edits; pinned schedules are immune by design.
+
+**Opt-in sync on default change**: the per-user pref `User.sync_profile_to_schedules` (default off, toggle in Settings → AI profiles) makes `PATCH /api/profiles/{id}/set-default` additionally re-pin the caller's own schedules that hold a *concrete* `ai_profile_id` to the new default (`UPDATE ... WHERE created_by = me AND ai_profile_id NOT IN (NULL, 'default')`). Inherit rows and other users' schedules are untouched; the endpoint response reports how many rows moved in `schedules_synced`.
+
 ## Plan-at-creation lifecycle
 
 Plan-mode schedules (`Schedule.plan_mode=True`) author their plan
