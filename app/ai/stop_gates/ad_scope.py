@@ -52,11 +52,112 @@ import re
 from app.config import VIBE_SELLER_DIR
 
 SCOPE_FILENAME = 'AUDIT_SCOPE.json'
+# Server-written counterpart to AUDIT_SCOPE.json: the combos the store is
+# configured for. The agent fills in the campaigns; the server fixes the
+# marketplaces. See :func:`write_declared_targets`.
+TARGETS_FILENAME = 'AUDIT_TARGETS.json'
 
 
 def scope_path(task_id: str):
     """Path to a task's AUDIT_SCOPE.json (task-workspace root)."""
     return VIBE_SELLER_DIR / 'tasks' / task_id / SCOPE_FILENAME
+
+
+def targets_path(task_id: str):
+    """Path to a task's AUDIT_TARGETS.json (task-workspace root)."""
+    return VIBE_SELLER_DIR / 'tasks' / task_id / TARGETS_FILENAME
+
+
+def write_declared_targets(
+    task_dir, platform_countries: dict[str, list[str]]
+) -> None:
+    """Write the SERVER's combo obligation for a task (best-effort).
+
+    ``AUDIT_SCOPE.json`` grounds *how many* campaigns a combo owes, but
+    the agent also writes *which combos exist* — so the one number it
+    could still shrink was the combo count itself. Observed live: a store
+    configured for 5 combos got a one-combo scope, the gate agreed the
+    report was complete, and four marketplaces were never audited.
+
+    The server already knows the answer (``Store.platform_countries`` —
+    user-configured in Settings, and a monotonic union of what past tasks
+    observed, so it never shrinks). Writing it into the workspace at task
+    start makes it BOTH halves of the contract: the reviewer checks the
+    scope against it, and the agent can read it to see what it owes
+    instead of inferring the list from "reference only" prompt context.
+
+    The agent may still declare a combo EMPTY (``active_ids: []`` /
+    ``total_active: 0``) — "no live campaigns here" is a legitimate
+    finding. What it can no longer do is omit the combo silently.
+
+    Best-effort: an unwritable workspace degrades to the previous
+    behaviour (agent-chosen combo set) rather than blocking the task.
+    """
+    combos = [
+        {'platform': str(p).strip().lower(), 'country': str(c).strip().upper()}
+        for p, cs in (platform_countries or {}).items()
+        if isinstance(cs, list)
+        for c in cs
+        if str(p).strip() and str(c).strip()
+    ]
+    if not combos:
+        return
+    try:
+        (task_dir / TARGETS_FILENAME).write_text(
+            json.dumps({'combos': combos}, indent=2) + '\n',
+            encoding='utf-8',
+        )
+    except OSError:  # pragma: no cover — best-effort
+        pass
+
+
+def load_declared_targets(task_id: str | None) -> list[dict]:
+    """``[{platform, country}, …]`` the SERVER says this task must audit.
+
+    Empty when the file is absent (a task from before this contract, or a
+    store with no recorded platforms) — callers then fall back to the
+    agent-declared combo set, i.e. the previous behaviour. Absence is
+    never itself a gap: only a MISSING combo that the server did declare
+    is one.
+    """
+    if not task_id:
+        return []
+    try:
+        raw = targets_path(task_id).read_text(encoding='utf-8')
+    except OSError:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    out: list[dict] = []
+    for c in data.get('combos') or []:
+        if not isinstance(c, dict):
+            continue
+        platform = str(c.get('platform') or '').strip()
+        country = str(c.get('country') or '').strip()
+        if platform and country:
+            out.append({'platform': platform, 'country': country})
+    return out
+
+
+def same_combo(a: dict, b: dict) -> bool:
+    """True if two combos name the same (platform, country), case-insens."""
+    return (
+        a['platform'].strip().lower() == b['platform'].strip().lower()
+        and a['country'].strip().lower() == b['country'].strip().lower()
+    )
+
+
+def missing_declared_combos(
+    scope_entries: list[dict], declared: list[dict]
+) -> list[dict]:
+    """Server-declared combos with no AUDIT_SCOPE.json entry."""
+    return [
+        d for d in declared if not any(same_combo(d, s) for s in scope_entries)
+    ]
 
 
 def load_audit_scope(task_id: str | None) -> dict | None:

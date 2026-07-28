@@ -292,6 +292,10 @@ def check(
     if scope is None:
         scope = ad_scope.load_audit_scope(task_id)
     all_combos = ad_scope.scope_combos(scope)
+    # What the SERVER says this store owes, independent of what the agent
+    # enumerated. Empty for tasks predating the contract / stores with no
+    # recorded platforms — then nothing below changes.
+    declared = ad_scope.load_declared_targets(task_id)
 
     gaps: list[str] = []
     round_total = 0  # sum of drilled across all combos this round
@@ -508,6 +512,44 @@ def check(
     #      skip entirely (escape hatch: first-time / narrow single-ad
     #      tasks fall back to the self-reported checks above).
     combos = all_combos
+    # Combo self-check: ``total_active`` stops the agent shrinking the
+    # campaign count WITHIN a combo, but the combo LIST was still entirely
+    # its own. A store configured for five marketplaces produced a
+    # one-combo scope, and every check below then agreed the report was
+    # complete — four marketplaces never audited, no gap raised. The
+    # server writes what the store is configured for (AUDIT_TARGETS.json,
+    # see ``ad_scope.write_declared_targets``); a declared combo with no
+    # scope entry is a gap. Declaring it EMPTY is still allowed — that is
+    # the "no live campaigns here" finding, and it lands on the
+    # empty-``active_ids`` branch below with its own message.
+    #
+    # Only an AUDIT owes marketplace coverage. An ads EXECUTION summary
+    # binds the same skill (so the same gates apply) but has no combo
+    # section and no scope — demanding five marketplaces of it would deny
+    # a task that never claimed to audit anything. An audit announces
+    # itself either way: it has a scope, or it has combo sections.
+    is_audit = bool(all_combos) or any(
+        _COMBO_HEADER_RE.search(p.splitlines()[0])
+        for p in parts[1:]
+        if p.strip()
+    )
+    for missing_combo in (
+        ad_scope.missing_declared_combos(combos, declared) if is_audit else []
+    ):
+        label = f'{missing_combo["platform"]} {missing_combo["country"]}'
+        if task_id is not None:
+            _seen_combos.setdefault(task_id, set()).add(label)
+        _attr(
+            label,
+            f'[基线] combo 「{label}」根本没进 AUDIT_SCOPE.json——本店在设置里'
+            f'配置了这个市场（见任务目录的 {ad_scope.TARGETS_FILENAME}），'
+            '审计必须覆盖它。去把该 combo 的 active campaign 枚举出来追加成'
+            '一条 combo 记录（Amazon: bulk 导出 state=enabled 的 Campaign id；'
+            'noon: 活动列表滚到底取全部 id，并把 chip 上的 `Live N` 写进 '
+            'total_active），再逐个 drill。该市场确实一个在投活动都没有，'
+            '就写一条 "active_ids": [], "total_active": 0 的记录说明情况——'
+            '可以为空，但不能不写。',
+        )
     # Scope self-check: ``active_ids`` is agent-written, so a truncated
     # enumeration would just move the old "shrink the denominator" trick
     # from the prose into the JSON. ``total_active`` is observed

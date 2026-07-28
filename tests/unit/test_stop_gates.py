@@ -799,7 +799,7 @@ class TestAdCompletenessReview:
         block = self._campaign_block(
             '\n#### Search Terms\n'
             + self.DRILL
-            + '\n搜索词对账: 定向花费 USD 1391.56 / 点击 1094 = '
+            + '\n搜索词对账: 定向花费 USD 1391.56 / 点击 1004 = '
             '搜索词花费 USD 1413.23 / 点击 688 (✓ 花费偏差 1.6%)\n'
         )
         scope = _scope(('amazon', 'US', ['100000000000003']))
@@ -2337,7 +2337,7 @@ class TestSplitActionHead:
 
     def test_buried_pause_flagged(self):
         report = self.HEAD + (
-            '| charger | Exact | 3.78 | 2 | 34% | 维持（出价 3.78 低于'
+            '| charger | Exact | 3.33 | 2 | 34% | 维持（出价 3.33 低于'
             '地板 3.86，无法下调）；ACOS 34% ROAS 2.94，建议暂停定向词 |\n'
         )
         deny = explicit_actions_gate.check(report)
@@ -2345,7 +2345,7 @@ class TestSplitActionHead:
 
     def test_clean_pause_head_passes(self):
         report = self.HEAD + (
-            '| charger | Exact | 3.78 | 2 | 34% | 暂停定向词（出价已低于'
+            '| charger | Exact | 3.33 | 2 | 34% | 暂停定向词（出价已低于'
             'CPC×1.1 地板且 ACOS 34%>30 亏损） |\n'
         )
         assert explicit_actions_gate.check(report) is None

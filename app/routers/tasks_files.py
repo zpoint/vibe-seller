@@ -222,6 +222,65 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
     return resolve_rules(notes_text)
 
 
+# A combo section header ("## Amazon SA", "## noon AE 市场") — the shape
+# that makes a text an ad-audit REPORT rather than prose about one. Kept
+# in sync with ``bash_safety._SERVER_REVIEWED_RE``; both answer the same
+# question ("is this the audit deliverable?") and must not disagree.
+_AUDIT_SECTION_RE = re.compile(
+    r'(?im)^##.*(amazon|noon)\s+(sa|ae|mx|us|eg|com)\b'
+)
+
+
+def resolve_audit_deliverable(task_root: Path, submitted: str) -> Path | None:
+    """The audit report file this run produced, when ``submitted`` isn't it.
+
+    An ad audit's deliverable is a FILE by contract — the skill tells the
+    agent to call ``set_task_result("./AD_AUDIT_<date>.md")`` because the
+    report runs to tens of KB. When the agent instead submits a chat
+    SUMMARY of that file, every content gate downstream grades the
+    summary, and the summary is not the report: it has no combo sections,
+    so the completeness reviewer reports every combo as never started.
+
+    Observed live: a complete 20/20 Amazon SA report (82 KB, real
+    per-keyword tables, 20 reconciliation lines — it PASSES the reviewer
+    when the reviewer is handed the file) was denied 24 times because the
+    agent submitted a 694-character summary. The run stalled, failed
+    open, and stored the summary as its deliverable while the report sat
+    unread in the workspace. Grading narration also cuts the other way:
+    prose has nothing to check, so an under-drilled run can pass by
+    submitting a paragraph.
+
+    So: the artifact a run PRODUCED is what gets graded and stored, not
+    the prose it narrated. Returns the newest ``AD_AUDIT_*.md`` in
+    ``task_root`` when all of these hold, else None:
+
+    * ``submitted`` carries no combo section of its own — an agent that
+      inlines the full report is submitting the deliverable already, and
+      must not be silently downgraded to a stale file from an earlier
+      round;
+    * no ``EXECUTION_LOG.md`` — a Phase-4 execution task legitimately
+      reports what it executed, and the audit it worked from is an
+      INPUT there, not its deliverable.
+
+    Callers additionally gate on the task's bound skills, so this never
+    fires for a non-ads task that happens to hold a similarly-named file.
+    """
+    if _AUDIT_SECTION_RE.search(submitted):
+        return None
+    if (task_root / 'EXECUTION_LOG.md').exists():
+        return None
+    try:
+        candidates = [p for p in task_root.glob('AD_AUDIT_*.md') if p.is_file()]
+    except OSError:
+        return None
+    if not candidates:
+        return None
+    # Newest by mtime: a task may hold several dated reports (a resumed
+    # run, a re-audit); the one it just finished writing is the one it
+    # meant to deliver.
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
 _DOC_EXTS = ('.md', '.txt', '.html', '.csv', '.tsv', '.json')
 
 

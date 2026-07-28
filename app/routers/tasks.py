@@ -18,6 +18,8 @@ from app.ai.stop_gates import (
     clear_skill_bindings,
     markdown_format as md_format_gate,
     record_attempt,
+    recorded_skills,
+    report_reviewer,
     reset_attempts,
     resolve_skill_gates,
     result_language as language_gate,
@@ -39,6 +41,7 @@ from app.routers.task_submission import (
 from app.routers.tasks_files import (
     apply_report_reviewer_gate,
     looks_like_result_path,
+    resolve_audit_deliverable,
     resolve_store_rules,
     resolve_workspace_result_path,
 )
@@ -626,6 +629,35 @@ async def set_task_result(
                 'the full report content directly.'
             ),
         )
+
+    # A NARRATED deliverable is the mirror of the dangling pointer above:
+    # the file exists, the agent just described it instead of pointing at
+    # it. Both end the same way — every content gate grades a string that
+    # is not the report. An ad audit's deliverable is a file by contract
+    # (the skill says to submit "./AD_AUDIT_<date>.md"), so when this
+    # task's bound skills make it an ad task and the workspace holds a
+    # report the submission is not, the FILE is what gets graded and
+    # stored. See ``resolve_audit_deliverable`` for the live failure.
+    if resolved_content is None and (
+        recorded_skills(task_id) & report_reviewer.AD_SKILLS
+    ):
+        deliverable = resolve_audit_deliverable(task_root, raw)
+        if deliverable is not None:
+            try:
+                resolved_content = await asyncio.to_thread(
+                    deliverable.read_text, encoding='utf-8'
+                )
+            except OSError:
+                resolved_content = None
+            if resolved_content is not None:
+                logger.info(
+                    'Task %s submitted narration (%d chars); grading its '
+                    'audit deliverable %s (%d chars) instead',
+                    task_id,
+                    len(raw),
+                    deliverable.name,
+                    len(resolved_content),
+                )
 
     final_result = resolved_content if resolved_content is not None else raw
 

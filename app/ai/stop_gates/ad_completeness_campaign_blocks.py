@@ -58,6 +58,52 @@ _PENDING_WORK_RE = re.compile(
 )
 
 
+# A row that RESTATES the campaign total is not a per-target row. The
+# targeting layer exists so bids can be raised, lowered or paused PER
+# KEYWORD; a table whose only row is 整体活动 / 定位层汇总 / 合计 names
+# nothing to act on. Observed live: 18 of 20 Amazon SA campaigns shipped
+# exactly that shape — one aggregate row plus "需从 Target 页面钻取" —
+# and passed, because the presence check was satisfied by the HEADER row
+# alone (every markdown table has one).
+_AGGREGATE_ROW_RE = re.compile(
+    r'合计|总计|汇总|整体活动|定位层|overall|^total\b', re.IGNORECASE
+)
+# A markdown header underline: ``|---|---|`` (alignment colons allowed).
+_TABLE_SEP_RE = re.compile(r'^\|[\s:|-]+\|?$')
+
+
+def _targeting_row_count(block: str) -> int:
+    """Per-target data rows across this block's targeting tables.
+
+    A table is identified by a header row (carries the ``建议`` column)
+    IMMEDIATELY followed by the ``|---|`` separator — not by "a line
+    containing 建议", because a recommendation cell legitimately contains
+    the word (``建议出价 3.00``) and would otherwise read as a new header.
+    Search-term tables are skipped; they are counted by their own layer.
+    """
+    lines = block.splitlines()
+    count = 0
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ''
+        if not (
+            line.startswith('|') and '建议' in line and _TABLE_SEP_RE.match(nxt)
+        ):
+            i += 1
+            continue
+        if '搜索词' in line.strip('|').split('|')[0]:
+            i += 1
+            continue
+        i += 2  # past the header and its separator
+        while i < len(lines) and lines[i].strip().startswith('|'):
+            cell = lines[i].strip().strip('|').split('|')[0].strip(' *')
+            if cell and not _AGGREGATE_ROW_RE.search(cell):
+                count += 1
+            i += 1
+    return count
+
+
 def _has_valid_escape(block: str) -> bool:
     """True if the block legitimately claims "no search-term report".
 
@@ -126,6 +172,7 @@ def _check_campaign_blocks(
     missing: list[str] = []
     mismatched: list[str] = []
     no_target_table: list[str] = []
+    aggregate_only: list[str] = []
     unparsed: list[str] = []
     for name, block in blocks:
         # A drilled block must carry the TARGETING table, not only the
@@ -143,12 +190,15 @@ def _check_campaign_blocks(
                 has_st_table = True
             else:
                 has_tgt_table = True
-        if (
-            has_st_table
-            and not has_tgt_table
-            and not re.search(r'无数据|无\s*SKU', block)
-        ):
+        no_data_page = bool(re.search(r'无数据|无\s*SKU', block))
+        if has_st_table and not has_tgt_table and not no_data_page:
             no_target_table.append(name)
+        elif (
+            has_tgt_table
+            and not no_data_page
+            and _targeting_row_count(block) == 0
+        ):
+            aggregate_only.append(name)
         m = _RECONCILE_RE.search(block)
         if not m:
             if _has_valid_escape(block):
@@ -191,6 +241,25 @@ def _check_campaign_blocks(
             f'搜索词表、没有定向/关键词表：{sample}。出价与暂停决策'
             '发生在定向表上（auto 活动也要列出 auto target 组及其建议）'
             '——补上该活动的定向表（含 建议 列），或在块内注明页面无数据。'
+        )
+    if aggregate_only:
+        sample = '、'.join(f'「{n}」' for n in aggregate_only[:4])
+        more = (
+            ''
+            if len(aggregate_only) <= 4
+            else f' 等共 {len(aggregate_only)} 个'
+        )
+        gaps.append(
+            f'[定向层] 「{head}」有 {len(aggregate_only)} 个活动的定向表'
+            f'只有一行活动汇总（整体活动 / 定位层汇总 / 合计），'
+            f'没有任何一行是具体的关键词或定向组：{sample}{more}。'
+            '把活动级数字抄进一张带 建议 列的表里不算下钻——出价、暂停、'
+            '加投都是逐个关键词/定向组做的决策，汇总行里没有可执行的对象。'
+            '打开该活动的 Targeting 页（noon Manual: Targets 标签；'
+            'SP Auto: 四个 auto 定向组；noon Auto 无 Targets 页则以 '
+            'Customer Queries 为定向面），逐词/逐组列出 出价、点击、花费、'
+            '订单、销售额、ACOS/ROAS 与 建议，合计行只能是最后的补充行。'
+            '该活动页面确实没有数据时，在块内写明「无数据」。'
         )
     if missing:
         sample = '、'.join(f'「{n}」' for n in missing[:4])
