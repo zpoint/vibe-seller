@@ -80,21 +80,33 @@ def prior_campaign_tsvs(slug: str | None, platform: str, country: str) -> int:
     Per-campaign files only (``<id>.tsv`` / ``<id>.searchterms.tsv``),
     counted under the store's own directory — never a glob across
     ``stores/*``, which would borrow another store's history.
+
+    Directory names are matched CASE-INSENSITIVELY. These paths are
+    agent-created and their casing is genuinely inconsistent in the wild
+    (observed on one store: ``ads/amazon/SA`` beside ``ads/amazon/ae`` and
+    ``ads/noon/sa``). A case-sensitive lookup finds them on macOS, whose
+    default volume folds case, and silently returns 0 on Linux/WSL — which
+    would turn this evidence check into a no-op exactly where the product
+    also ships.
     """
     if not slug:
         return 0
-    d = (
-        VIBE_SELLER_DIR
-        / 'stores'
-        / slug
-        / 'ads'
-        / platform.strip().lower()
-        / country.strip().lower()
-    )
+    base = VIBE_SELLER_DIR / 'stores' / slug / 'ads'
+    want_p, want_c = platform.strip().lower(), country.strip().lower()
     try:
-        return len([p for p in d.iterdir() if p.suffix == '.tsv'])
+        plat_dirs = [d for d in base.iterdir() if d.name.lower() == want_p]
     except OSError:
         return 0
+    total = 0
+    for plat in plat_dirs:
+        try:
+            for cdir in plat.iterdir():
+                if cdir.name.lower() != want_c:
+                    continue
+                total += len([p for p in cdir.iterdir() if p.suffix == '.tsv'])
+        except OSError:
+            continue
+    return total
 
 
 def write_declared_targets(

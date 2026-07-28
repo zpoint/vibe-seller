@@ -297,6 +297,22 @@ class TestDeclaredComboCoverage:
         finally:
             sc.VIBE_SELLER_DIR = orig
 
+    def test_prior_tsvs_match_dir_casing_insensitively(self, tmp_path):
+        # Agent-created paths mix casing in the wild (ads/amazon/SA beside
+        # ads/amazon/ae). A case-sensitive lookup works on macOS, whose
+        # default volume folds case, and silently returns 0 on Linux/WSL —
+        # turning the evidence check into a no-op where it also ships.
+        d = tmp_path / 'stores' / 'acme' / 'ads' / 'AMAZON' / 'SA'
+        d.mkdir(parents=True)
+        (d / '100000000001.tsv').write_text('x')
+        orig = sc.VIBE_SELLER_DIR
+        try:
+            sc.VIBE_SELLER_DIR = tmp_path
+            assert sc.prior_campaign_tsvs('acme', 'amazon', 'sa') == 1
+            assert sc.prior_campaign_tsvs('acme', 'AMAZON', 'SA') == 1
+        finally:
+            sc.VIBE_SELLER_DIR = orig
+
     def test_no_targets_file_keeps_prior_behaviour(self, monkeypatch, tmp_path):
         _setup(monkeypatch, tmp_path, 't-none', scope=_SA_SCOPE)
         assert not any(
