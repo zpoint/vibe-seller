@@ -65,6 +65,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
             'default_profile_id': user.default_profile_id,
             'debug_mode': user.debug_mode,
             'plan_mode_default': user.plan_mode_default,
+            'sync_profile_to_schedules': user.sync_profile_to_schedules,
         }
     )
     set_session_cookie(response, token)
@@ -213,6 +214,21 @@ async def update_profile(
             {
                 'key': 'plan_mode_default',
                 'to_value': bool(body.plan_mode_default),
+            },
+        )
+        changed = True
+
+    if (
+        body.sync_profile_to_schedules is not None
+        and body.sync_profile_to_schedules
+        != current_user.sync_profile_to_schedules
+    ):
+        current_user.sync_profile_to_schedules = body.sync_profile_to_schedules
+        telemetry.send(
+            TelemetryEvent.USER_PREF_CHANGED,
+            {
+                'key': 'sync_profile_to_schedules',
+                'to_value': bool(body.sync_profile_to_schedules),
             },
         )
         changed = True

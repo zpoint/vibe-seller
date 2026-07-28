@@ -152,7 +152,7 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | POST | `/api/profiles` | Create AI profile |
 | PUT | `/api/profiles/{id}` | Update AI profile |
 | DELETE | `/api/profiles/{id}` | Delete AI profile |
-| PATCH | `/api/profiles/{id}/set-default` | Set a profile as the user's default |
+| PATCH | `/api/profiles/{id}/set-default` | Set a profile as the user's default. Response: `{'ok', 'default_profile_id', 'schedules_synced'}` — `schedules_synced` counts the caller's pinned schedules re-pinned to the new default (only when the caller's `sync_profile_to_schedules` pref is on; see [subsystems.md § Schedule AI profile resolution](subsystems.md#schedule-ai-profile-resolution)) |
 | POST | `/api/profiles/validate` | Probe a profile's endpoint config (no persistence) |
 | GET | `/api/profiles/presets` | Provider presets + per-provider model options |
 

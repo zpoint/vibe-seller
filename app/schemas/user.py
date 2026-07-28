@@ -34,6 +34,7 @@ class UserResponse(BaseModel):
     plan_mode_default: bool
     debug_mode: bool
     default_profile_id: str
+    sync_profile_to_schedules: bool
     created_at: str
 
 
@@ -73,6 +74,7 @@ class ProfileUpdate(BaseModel):
     username: str | None = None
     email: EmailStr | None = None
     plan_mode_default: bool | None = None
+    sync_profile_to_schedules: bool | None = None
 
     @field_validator('username')
     @classmethod

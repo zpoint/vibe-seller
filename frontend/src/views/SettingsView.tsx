@@ -244,6 +244,31 @@ export function SettingsView({
             {profiles.length === 0 && (
               <p className="text-sm text-gray-500 text-center py-4">{t('profiles.noProfiles')}</p>
             )}
+
+            {/* Sync pinned schedules on default change */}
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg gap-3 mt-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium">{t('profiles.syncSchedulesTitle')}</p>
+                <p className="text-xs text-gray-500">{t('profiles.syncSchedulesDesc')}</p>
+              </div>
+              <label className="inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="sr-only peer"
+                  checked={currentUser?.sync_profile_to_schedules ?? false}
+                  onChange={async e => {
+                    const newVal = e.target.checked
+                    try {
+                      await api.patch('/api/auth/me/profile', { sync_profile_to_schedules: newVal })
+                      setCurrentUser(prev => prev ? { ...prev, sync_profile_to_schedules: newVal } : prev)
+                    } catch { /* ignore */ }
+                  }}
+                />
+                <span className="w-10 h-5 bg-gray-300 rounded-full relative transition-colors peer-checked:bg-indigo-600">
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform ${currentUser?.sync_profile_to_schedules ? 'translate-x-5' : ''}`}></span>
+                </span>
+              </label>
+            </div>
           </div>
 
           <VisionPanel isAdmin={currentUser?.role === 'admin'} />

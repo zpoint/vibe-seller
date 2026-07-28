@@ -116,7 +116,7 @@ export interface Profile {
 }
 export interface AuthUser {
   id: string; username: string; email: string | null; role: string; is_active: boolean;
-  avatar_url: string | null; plan_mode_default: boolean; debug_mode: boolean; default_profile_id: string; created_at: string;
+  avatar_url: string | null; plan_mode_default: boolean; debug_mode: boolean; default_profile_id: string; sync_profile_to_schedules: boolean; created_at: string;
 }
 export interface EventItem {
   id: string; channel_message_id: string | null; channel_type: string | null;

@@ -106,6 +106,7 @@ AUTH_USER_KEYS = {
     'avatar_url',
     'plan_mode_default',
     'default_profile_id',
+    'sync_profile_to_schedules',
     'created_at',
 }
 

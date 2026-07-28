@@ -61,12 +61,15 @@ def test_ensure_added_columns_is_idempotent(tmp_path):
     # Simulate a pre-feature DB: tables without the new columns.
     con.execute('CREATE TABLE schedules (id TEXT PRIMARY KEY)')
     con.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY)')
+    con.execute('CREATE TABLE users (id TEXT PRIMARY KEY)')
     con.commit()
     shim = _ConnShim(con)
 
     _ensure_added_columns(shim)  # first run adds columns
     _ensure_added_columns(shim)  # second run must be a no-op (no error)
 
+    user_cols = {r[1] for r in con.execute('PRAGMA table_info(users)')}
+    assert 'sync_profile_to_schedules' in user_cols
     sched_cols = {r[1] for r in con.execute('PRAGMA table_info(schedules)')}
     task_cols = {r[1] for r in con.execute('PRAGMA table_info(tasks)')}
     assert 'finalize_description' in sched_cols
