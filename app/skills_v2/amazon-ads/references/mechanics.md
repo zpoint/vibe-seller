@@ -306,11 +306,19 @@ The "Total: N" cell in the table footer is the authoritative count.
 > 3. **The reports page** — `/reports?entityId=…` works and can build a
 >    Sponsored Products Advertised Product report.
 >
-> Console ids are NOT export ids: the export carries Amazon's internal
-> numeric id (`100000000001`) while the console uses an `A`-prefixed id
-> (`A0EXAMPLE1EXAMPLE1EX`). Same campaign, not interchangeable — search the
-> campaign name in Campaign Manager and read the console id out of the
-> result link's `href` before building any detail-page URL.
+> Campaign ids come in two forms and you will meet both: the bulk export
+> carries Amazon's internal numeric id (`100000000001`), while Campaign
+> Manager links expose an `A`-prefixed id (`A0EXAMPLE1EXAMPLE1EX`). They
+> denote the same campaign. **Verified: a detail URL built from the NUMERIC
+> export id resolves fine** (`/cm/sp/campaigns/<numeric>?entityId=…`
+> rendered the campaign with its status and date range), so do not assume
+> you must translate before navigating — try the id you already have.
+> If a detail URL does 404, re-resolve it the other way: search the
+> campaign NAME in Campaign Manager and read the id out of the result
+> link's `href`. (An earlier revision of this note asserted the two forms
+> were "not interchangeable"; that came from a store's notes.md and was
+> never verified — the live check contradicts it for the numeric→console
+> direction. Left as a fallback, not a prerequisite.)
 
 **FIRST, reuse the newest existing export — do NOT generate a fresh job
 by default.** For a read-only audit you need a recent snapshot, not a
