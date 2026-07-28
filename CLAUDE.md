@@ -79,6 +79,33 @@ hit; if real data already landed, scrub it and force-push. Live per-run
 captures belong in `/tmp/<task>/`, never in the repo or under
 `~/.vibe-seller/knowledge/`. See memory `feedback_no_real_brands`.
 
+## Driving the app from curl? Send what the FRONTEND would send
+
+Any time you stand in for a user — `retry`, `messages`, task create —
+**reproduce the request the UI would have made.** Read the real value out
+of the DB; never substitute a plausible-looking one.
+
+For the AI profile that means the signed-in user's `default_profile_id`
+(what the UI picker initialises from — `frontend/src/App.tsx`), or, for a
+scheduled task, the owning schedule's `ai_profile_id`. Two traps:
+
+- **`"default"` is a real profile id, not a "use the configured one"
+  token.** It resolves to plain Claude on `api.anthropic.com`, so passing
+  it silently swaps the model.
+- **Omitting `profile_id` on retry does not fall back to the user's
+  default.** `retry_task` only assigns when the field is present, so the
+  task keeps *its previous run's* profile.
+
+A debug run on the wrong model answers a question nobody asked: a
+two-hour ad-audit rerun was driven with `profile_id: "default"` while both
+the user's default and the schedule were `minimax`. The infra fixes it
+validated were real, but it proved nothing about the model the weekly
+schedule fires under. Choosing a different profile on purpose is fine —
+**announce it before starting**, because the person watching assumes the
+UI's behaviour. See [.claude/skills/debug-store/SKILL.md § Reproduce what
+the FRONTEND sends](.claude/skills/debug-store/SKILL.md) for the queries
+and the post-hoc verification (task row + `ps eww` on the agent).
+
 ## Fix from design, not from symptom
 
 When given a bug or failing test, **review the design that produced it
