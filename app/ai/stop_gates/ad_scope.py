@@ -49,8 +49,6 @@ from __future__ import annotations
 import json
 import re
 
-from openpyxl import load_workbook
-
 from app.config import VIBE_SELLER_DIR
 
 SCOPE_FILENAME = 'AUDIT_SCOPE.json'
@@ -452,6 +450,18 @@ def count_enabled_in_export(filename: str, downloads_dir=None) -> int | None:
     except OSError:
         return None
     if not matches:
+        return None
+    # Imported HERE, not at module scope. openpyxl is a dev/test + skill
+    # dependency (`pyproject.toml` test group, `amazon-ads/requirements.txt`)
+    # — NOT a server runtime dep, so a production install does not have it.
+    # A module-level import makes this file unimportable and takes the whole
+    # server down at boot with ModuleNotFoundError; I did exactly that once,
+    # chasing ruff's import-outside-top-level rule. Absence is also a
+    # legitimate state for this function, whose contract is already
+    # "None = could not check".
+    try:
+        from openpyxl import load_workbook  # noqa: PLC0415
+    except ImportError:
         return None
     try:
         # NOT read_only: these workbooks ship without dimension
