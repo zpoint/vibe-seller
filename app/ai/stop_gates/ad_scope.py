@@ -77,8 +77,14 @@ def prior_campaign_tsvs(slug: str | None, platform: str, country: str) -> int:
     per-campaign TSVs before did have campaigns, so a zero now is a
     regression that has to be explained rather than asserted.
 
-    Per-campaign files only (``<id>.tsv`` / ``<id>.searchterms.tsv``),
-    counted under the store's own directory — never a glob across
+    Counts DISTINCT CAMPAIGNS, not files. Each drilled campaign leaves two
+    (``<id>.tsv`` and ``<id>.searchterms.tsv``), so counting files doubles
+    every total and any caller comparing it against a campaign count is
+    wrong by 2x — which is exactly how a first cut of the shrink check
+    flagged 21-of-22 and 8-of-10 combos as collapsed. The stem before the
+    first ``.`` is the campaign id.
+
+    Counted under the store's own directory — never a glob across
     ``stores/*``, which would borrow another store's history.
 
     Directory names are matched CASE-INSENSITIVELY. These paths are
@@ -97,16 +103,18 @@ def prior_campaign_tsvs(slug: str | None, platform: str, country: str) -> int:
         plat_dirs = [d for d in base.iterdir() if d.name.lower() == want_p]
     except OSError:
         return 0
-    total = 0
+    campaigns: set[str] = set()
     for plat in plat_dirs:
         try:
             for cdir in plat.iterdir():
                 if cdir.name.lower() != want_c:
                     continue
-                total += len([p for p in cdir.iterdir() if p.suffix == '.tsv'])
+                for p in cdir.iterdir():
+                    if p.suffix == '.tsv':
+                        campaigns.add(p.name.split('.', 1)[0])
         except OSError:
             continue
-    return total
+    return len(campaigns)
 
 
 def write_declared_targets(

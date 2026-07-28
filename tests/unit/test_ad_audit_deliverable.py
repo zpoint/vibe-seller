@@ -278,6 +278,89 @@ class TestDeclaredComboCoverage:
         assert not any('无在投活动' in g for g in gaps), gaps
         assert not any('exhaustive' in g for g in gaps), gaps
 
+    def test_collapsed_active_count_is_challenged(self, monkeypatch, tmp_path):
+        # total_active == len(active_ids) proves internal consistency, not
+        # observation — trivially true when both come from the same
+        # agent-side derivation. Live: a run declared noon SA 4/4 where a
+        # verified audit the same day found 8, because its parser silently
+        # dropped TSVs it could not read.
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-collapse',
+            scope=[
+                *_SA_SCOPE,
+                {
+                    'platform': 'noon',
+                    'country': 'SA',
+                    'active_ids': ['C_A1', 'C_A2'],
+                    'total_active': 2,
+                },
+            ],
+            targets={'amazon': ['SA'], 'noon': ['SA']},
+        )
+        hist = tmp_path / 'stores' / 'acme' / 'ads' / 'noon' / 'sa'
+        hist.mkdir(parents=True)
+        for i in range(10):  # 10 campaigns historically, 2 declared now
+            (hist / f'C_OLD{i}.tsv').write_text('t\n')
+            (hist / f'C_OLD{i}.searchterms.tsv').write_text('q\n')
+        tgt = tmp_path / 'tasks' / 't-collapse' / 'AUDIT_TARGETS.json'
+        d = json.loads(tgt.read_text())
+        d['slug'] = 'acme'
+        tgt.write_text(json.dumps(d))
+        acr.reset_progress('t-collapse')
+        gaps = _gaps(_report(_DRILLED), 't-collapse')
+        assert any('不到历史的一半' in g and 'noon SA' in g for g in gaps), gaps
+
+    def test_normal_pause_attrition_is_not_challenged(
+        self, monkeypatch, tmp_path
+    ):
+        # Campaigns get paused, so prior >= current is ordinary. Only a
+        # COLLAPSE is suspicious; flagging every shortfall would make the
+        # check noise. 5 declared against 6 historical must stay clean.
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-attrition',
+            scope=[
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': [f'60000000000{i}' for i in range(5)],
+                    'total_active': 5,
+                }
+            ],
+            targets={'amazon': ['SA']},
+        )
+        hist = tmp_path / 'stores' / 'acme' / 'ads' / 'amazon' / 'SA'
+        hist.mkdir(parents=True)
+        for i in range(6):
+            (hist / f'10000000000{i}.tsv').write_text('t\n')
+            (hist / f'10000000000{i}.searchterms.tsv').write_text('q\n')
+        tgt = tmp_path / 'tasks' / 't-attrition' / 'AUDIT_TARGETS.json'
+        d = json.loads(tgt.read_text())
+        d['slug'] = 'acme'
+        tgt.write_text(json.dumps(d))
+        acr.reset_progress('t-attrition')
+        gaps = _gaps(_report(_DRILLED), 't-attrition')
+        assert not any('不到历史的一半' in g for g in gaps), gaps
+
+    def test_prior_tsvs_count_campaigns_not_files(self, tmp_path):
+        # Each campaign leaves TWO files; counting files doubles every
+        # total and made the shrink check flag 21-of-22 combos as
+        # collapsed.
+        d = tmp_path / 'stores' / 'acme' / 'ads' / 'amazon' / 'SA'
+        d.mkdir(parents=True)
+        (d / '100000000001.tsv').write_text('t\n')
+        (d / '100000000001.searchterms.tsv').write_text('q\n')
+        (d / '100000000002.tsv').write_text('t\n')
+        orig = sc.VIBE_SELLER_DIR
+        try:
+            sc.VIBE_SELLER_DIR = tmp_path
+            assert sc.prior_campaign_tsvs('acme', 'amazon', 'SA') == 2
+        finally:
+            sc.VIBE_SELLER_DIR = orig
+
     def test_prior_tsvs_never_borrow_another_stores_history(self, tmp_path):
         # Counting must be scoped to the store's own directory — a glob
         # across stores/* would let one store's history challenge another.

@@ -666,6 +666,48 @@ def check(
                 f'重新导出，补齐到 {total} 个 id 再提交；确认 {total} 这个数字'
                 '本身过时的话，重新读一次 chip / 重新导出并同时更新两处。',
             )
+        else:
+            # ``total_active == len(active_ids)`` proves internal
+            # consistency, NOT observation — and it is trivially true when
+            # both numbers come from the same agent-side derivation. Live:
+            # a run declared noon SA 4/4 where a verified audit the same
+            # day found 8, because its parser silently dropped TSVs it
+            # could not read; the gate then graded it against its own
+            # shrunken denominator and raised nothing about the shortfall.
+            #
+            # So cross-check the one independent record the server holds:
+            # what the store's OWN prior audits left on disk. Campaigns do
+            # get paused, so prior >= current is normal and must not be
+            # flagged — only a COLLAPSE (declared active below half of the
+            # historical campaign count) is challenged. That threshold
+            # leaves the plausible cases alone (21 vs 22, 8 vs 10, 8 vs 9
+            # on the same store) and catches the 4-vs-12 shortfall.
+            #
+            # This is a backstop, not a proof. The real fix is for
+            # ``total_active`` to carry its provenance (which export file /
+            # which chip reading) so the server can verify it directly.
+            prior = ad_scope.prior_campaign_tsvs(
+                ad_scope.declared_slug(task_id),
+                combo['platform'],
+                combo['country'],
+            )
+            if prior and n * 2 < prior:
+                _attr(
+                    label,
+                    f'[基线] combo 「{label}」只声明了 {n} 个 active，但本店'
+                    f'以往审计在 stores/<slug>/ads/{combo["platform"]}/'
+                    f'{combo["country"].lower()}/ 留下过 {prior} 个活动的 TSV'
+                    f'——不到历史的一半。total_active={total} 只证明它跟 '
+                    'active_ids 自己一致，不证明它被独立观测过：两个数来自'
+                    '同一次解析时，这个自检是空的（实测：某轮把 12 个活动的'
+                    '市场声明成 4 个，因为脚本静默跳过了读不懂的 TSV）。'
+                    '请重新独立枚举一次：Amazon 用 bulk 导出 state=enabled '
+                    '的行数，noon 把活动列表滚到底并读状态 chip 的 `Live N`，'
+                    '然后把 active_ids 和 total_active 一起改成观测值。'
+                    f'确实有大量活动已停投（{prior} → {n} 是真的），就在该'
+                    '小节写明依据（导出文件名 / chip 读数 + 大致停投时间），'
+                    '别让缩水悄悄通过。',
+                )
     if combos:
         sections = {
             p.splitlines()[0].strip(): p for p in parts[1:] if p.strip()
