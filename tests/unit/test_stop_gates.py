@@ -1896,6 +1896,24 @@ class TestCitedNumberTruthfulness:
         )
         assert explicit_actions_gate.check(report) is None
 
+    def test_named_source_keyword_cite_skipped(self):
+        # The live shape a fixed lookbehind cannot cover: the cross-
+        # referenced keyword is NAMED, so the 来源词 marker sits further
+        # from its metric than any hardcoded window. This row's own ROAS
+        # (2.94) must still be checked; the source keyword's ACOS (120%,
+        # correct for THAT row) must not be compared against this one.
+        # Seen live on a harvest recommendation, which explains itself by
+        # citing the source keyword — so this fired on nearly every one.
+        report = (
+            '| 搜索词 | 来源关键词 | 匹配 | 点击 | 花费 | 订单 | 销售额 '
+            '| ROAS | 建议 |\n|---|---|---|---|---|---|---|---|---|\n'
+            '| panty high waist | panties for ladies | Phrase | 17 '
+            '| 17.00 | 1 | 49.99 | 2.94 | 提取为定向词（Exact，建议出价 '
+            '1.05——ROAS 2.94；来源词 panties for ladies ACOS 120% '
+            '已建议暂停） |\n'
+        )
+        assert explicit_actions_gate.check(report) is None
+
     def test_no_roas_column_no_check(self):
         report = (
             '| 关键词 | 出价 | 建议 |\n|---|---|---|\n'
