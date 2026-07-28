@@ -339,6 +339,42 @@ def scope_combos(scope: dict | None) -> list[dict]:
     return out
 
 
+# Ad platforms that own a per-marketplace advertising console. Enumerated
+# because "any word followed by a country code" would match prose headings.
+AD_PLATFORMS = ('amazon', 'noon')
+
+# A ``## <Platform> <Country>`` section heading, matched by SHAPE.
+#
+# Marketplace codes are NOT enumerable here: they come from each store's
+# ``platform_countries``, which is free-form config, and Amazon alone sells
+# in 20+ marketplaces. Every literal allowlist drifts the moment a store
+# adds one — and three separate copies of the list
+# (``ad_completeness_review``, ``bash_safety``, ``tasks_files``) had all
+# drifted the same way, omitting ``AU`` while a live store was configured
+# for it.
+#
+# The effect was not a cosmetic miss. ``## Amazon AU`` failed the
+# ``_COMBO_HEADER_RE`` pre-filter in ad_completeness_review, which
+# ``continue``s — so that marketplace was silently exempt from EVERY
+# per-campaign check: reconciliation, aggregate-row, targeting-table. Four
+# AU campaigns shipped with no reconciliation line at all and no gap was
+# ever raised, because the code that raises it never ran on them.
+#
+# So: match the shape of a marketplace code (2-3 letters, upper-case as the
+# spec and every store write them) and let the AUTHORITATIVE country list
+# come from AUDIT_TARGETS / AUDIT_SCOPE via ``section_matches_combo``.
+# Over-matching here is the safe direction — it means a section gets
+# checked, not skipped.
+# Two capture groups, (platform, country), as the three regexes this
+# replaces all had — callers read both.
+COMBO_HEAD_PATTERN = r'((?i:' + '|'.join(AD_PLATFORMS) + r'))\s+([A-Z]{2,3})\b'
+# Anchored to a markdown H2, for callers asking "is this text an audit
+# report?" rather than "is this heading a combo?".
+AUDIT_SECTION_PATTERN = r'(?m)^##.*' + COMBO_HEAD_PATTERN
+COMBO_HEAD_RE = re.compile(COMBO_HEAD_PATTERN)
+AUDIT_SECTION_RE = re.compile(AUDIT_SECTION_PATTERN)
+
+
 def _token_in(token: str, text: str) -> bool:
     """True if ``token`` appears in ``text`` as a whole word (case-insens).
 

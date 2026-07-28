@@ -22,6 +22,7 @@ from starlette.background import BackgroundTask
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
+    ad_scope,
     record_attempt,
     recorded_skills,
     report_reviewer,
@@ -227,9 +228,7 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
 # that makes a text an ad-audit REPORT rather than prose about one. Kept
 # in sync with ``bash_safety._SERVER_REVIEWED_RE``; both answer the same
 # question ("is this the audit deliverable?") and must not disagree.
-_AUDIT_SECTION_RE = re.compile(
-    r'(?im)^##.*(amazon|noon)\s+(sa|ae|mx|us|eg|com)\b'
-)
+_AUDIT_SECTION_RE = re.compile(r'(?i)' + ad_scope.AUDIT_SECTION_PATTERN)
 
 
 def resolve_audit_deliverable(task_root: Path, submitted: str) -> Path | None:

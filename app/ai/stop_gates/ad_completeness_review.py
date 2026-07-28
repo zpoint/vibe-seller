@@ -190,9 +190,10 @@ def drill_incomplete_reason(
 
 # A "## <Platform> <Country>" combo section header, e.g.
 # "## Amazon US", "## noon EG 市场", "## Noon MX 市场".
-_COMBO_HEADER_RE = re.compile(
-    r'(amazon|noon)\s+(sa|ae|mx|us|eg|com)\b', re.IGNORECASE
-)
+# Shape-matched and defined ONCE in ad_scope — a literal country list here
+# drifted and silently exempted a whole marketplace from every per-campaign
+# check. See ``ad_scope.COMBO_HEAD_PATTERN``.
+_COMBO_HEADER_RE = ad_scope.COMBO_HEAD_RE
 # "**进度**: drilled 12/46 active (70 total, 5 pages)"
 # The <T> total / <P> pages suffix is not machine-enforced here: a
 # correct bulk-export enumeration legitimately records a large total as
@@ -370,8 +371,6 @@ def check(
         if not part.strip():
             continue
         head = part.splitlines()[0].strip()
-        if not _COMBO_HEADER_RE.search(head):
-            continue  # not a (platform, country) section
         # Resolve the combo up-front so every gap in this section can be
         # attributed to its combo label for D6 per-combo stall tracking.
         # Sections with no matching combo (agent invented a country, or
@@ -384,6 +383,16 @@ def check(
         combo_label = (
             f'{combo["platform"]} {combo["country"]}' if combo else None
         )
+        # A section is a (platform, country) section if the STORE says so —
+        # ``section_matches_combo`` compares against the declared combos
+        # case-insensitively — and only otherwise by shape. Authority-first
+        # matters: the shape fallback needs an upper-case marketplace code
+        # to avoid matching prose like "Amazon Ad Manager", so a report
+        # writing `## amazon us` is recognised because US is DECLARED, not
+        # because the regex happened to list it. The regex-only pre-filter
+        # this replaces is what silently exempted a whole marketplace.
+        if combo is None and not _COMBO_HEADER_RE.search(head):
+            continue  # not a (platform, country) section
         if combo_label is not None and task_id is not None:
             _seen_combos.setdefault(task_id, set()).add(combo_label)
         m = _PROGRESS_RE.search(part)

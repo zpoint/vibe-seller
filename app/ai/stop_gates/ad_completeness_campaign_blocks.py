@@ -38,6 +38,58 @@ _RECONCILE_RE = re.compile(
     r'[^\n]*?搜索词花费[^\d\n]*([\d,]+(?:\.\d+)?)'
     r'[^\n]*?点击[^\d\n]*([\d,]+)'
 )
+# A campaign's NAME is what a human calls it; the id is a lookup handle.
+# ``output-spec.md`` requires the name in both the combo table
+# (`| id | name | type | …`) and each drill heading
+# (`### <campaign id> | <name> | …`), and the ad console supplies one for
+# every campaign — so ``name == id`` never means "this campaign has no
+# name", it means the column was never read.
+#
+# Observed live: nearly every campaign in one run came back with the id copied into the
+# name column — every Amazon campaign in the run. The report was otherwise
+# complete (every campaign drilled), and the LLM reviewer did flag it, twice, as
+# 「次要」 — so it survived every round untouched. A reader is then handed
+# `100000000000001` as the identity of an ad, which is the one thing an id
+# cannot tell you.
+#
+# Two guards against false positives, both learned from over-triggering
+# thresholds elsewhere in this file:
+#   * a MAJORITY must be unnamed — a seller really can name one campaign
+#     after a SKU number, and that must not indict the whole combo;
+#   * at least ``NAME_MIN`` of them — a fraction alone flags a
+#     single-campaign combo at 1/1, which is noise, not a finding.
+NAME_MIN_UNNAMED = 3
+
+
+def _name_capture_gap(part: str, head: str, gaps: list[str]) -> None:
+    """Flag a combo whose campaign names were never captured."""
+    unnamed: list[str] = []
+    total = 0
+    for heading, _blk in ad_scope.drill_blocks(part):
+        if not _CAMPAIGN_HEAD_RE.search(heading):
+            continue  # ### 汇总 and friends
+        bits = [b.strip().strip('*') for b in heading.split('|')]
+        cid = bits[0]
+        if not cid:
+            continue
+        total += 1
+        name = bits[1] if len(bits) > 1 else ''
+        if not name or name == cid:
+            unnamed.append(cid)
+    if len(unnamed) < NAME_MIN_UNNAMED or len(unnamed) * 2 <= total:
+        return
+    sample = '、'.join(unnamed[:4])
+    more = '' if len(unnamed) <= 4 else f' 等共 {len(unnamed)} 个'
+    gaps.append(
+        f'[名称] 「{head}」有 {len(unnamed)}/{total} 个活动的 name 就是它的 '
+        f'id（{sample}{more}）——这不是"活动没有名字"，是没读活动名这一列。'
+        '广告后台的活动列表每一行都有名称，bulk 导出也带 Campaign Name。'
+        '回到活动列表（或已下载的 bulk 导出）把名称抄进来：组合表的 name 列 '
+        '和每个 `### <id> | <name> | <type>` 标题都要填。读者拿到一串 id '
+        '认不出这是哪个广告，而认出广告是他做决策的第一步。'
+    )
+
+
 _NO_SEARCHTERM_RE = re.compile(
     r'无搜索词报告|无\s*Search\s*Terms|该活动类型无搜索词|无点击(?:无搜索词)?'
     r'|0\s*点击.{0,12}无搜索词',
@@ -246,6 +298,9 @@ def _check_campaign_blocks(
             for h, b in ad_scope.drill_blocks(part)
             if _CAMPAIGN_HEAD_RE.search(h)  # skip e.g. ### 汇总
         ]
+    # Independent of the active_ids keying above: that path deliberately
+    # drops the heading prose, and the name lives in exactly that prose.
+    _name_capture_gap(part, head, gaps)
     missing: list[str] = []
     mismatched: list[str] = []
     impossible: list[str] = []

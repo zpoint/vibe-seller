@@ -26,6 +26,7 @@ import re
 from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
     ad_completeness_review,
+    ad_scope,
     listing_upload_gate,
     recorded_skills,
     report_reviewer,
@@ -460,9 +461,9 @@ _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 # register their own markers via ``register_review_marker`` (ORed in by
 # ``_is_server_reviewed``). Used only for NON-ad-skill tasks now (ad-skill
 # tasks are keyed at the task level — see ``check_review_status``).
-_SERVER_REVIEWED_RE = re.compile(
-    r'(?im)^##.*(amazon|noon)\s+(sa|ae|mx|us|eg|com)\b'
-)
+# Same shape, same single definition as the reviewer's — these two must
+# never disagree about what counts as an audit section.
+_SERVER_REVIEWED_RE = re.compile(r'(?i)' + ad_scope.AUDIT_SECTION_PATTERN)
 
 
 def _is_server_reviewed(audit_text: str) -> bool:

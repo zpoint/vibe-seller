@@ -26,10 +26,10 @@ from __future__ import annotations
 
 import re
 
+from app.ai.stop_gates import ad_scope
+
 # A combo section header: "## Amazon SA", "## noon AE 市场".
-_COMBO_HEAD_RE = re.compile(
-    r'(?im)^##\s*(amazon|noon)\s+(sa|ae|mx|us|eg|au|com)\b'
-)
+_COMBO_HEAD_RE = re.compile(r'(?m)^##\s*' + ad_scope.COMBO_HEAD_PATTERN)
 # The per-campaign table that opens a combo section. Located by its
 # HEADER CELLS rather than a column index, so a section that adds or
 # reorders a column is still read correctly instead of silently parsing
@@ -37,7 +37,7 @@ _COMBO_HEAD_RE = re.compile(
 _ID_HEADER_CELLS = ('id', '活动 id', '活动id', 'campaign id')
 _SPEND_HEADER_CELLS = ('spend', '花费', '总花费')
 # The document-level rollup: | amazon | SA | 12 | SAR 5,000.00 | …
-_PLATFORMS = ('amazon', 'noon')
+_PLATFORMS = ad_scope.AD_PLATFORMS
 
 # Displayed money is rounded to 2 decimals, so a sum of N displayed rows
 # can sit up to N*0.005 from a total computed at full precision. Allow
