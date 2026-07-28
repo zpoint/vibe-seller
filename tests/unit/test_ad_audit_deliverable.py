@@ -388,6 +388,35 @@ class TestDeclaredComboCoverage:
         finally:
             sc.VIBE_SELLER_DIR = orig
 
+    def test_prior_tsvs_ignore_stale_history(self, tmp_path):
+        # Without a recency window this count only grows — TSVs are never
+        # deleted, so a store audited for a year accumulates every campaign
+        # it ever ran and the collapse threshold drifts toward always
+        # firing. Only campaigns drilled recently count as evidence that
+        # the marketplace currently has campaigns.
+        d = tmp_path / 'stores' / 'acme' / 'ads' / 'amazon' / 'SA'
+        d.mkdir(parents=True)
+        old = 1_600_000_000  # years ago
+        for i in range(5):
+            f = d / f'10000000000{i}.tsv'
+            f.write_text('t\n')
+            os.utime(f, (old, old))
+        for i in range(5, 7):
+            (d / f'10000000000{i}.tsv').write_text('t\n')  # now
+        orig = sc.VIBE_SELLER_DIR
+        try:
+            sc.VIBE_SELLER_DIR = tmp_path
+            assert sc.prior_campaign_tsvs('acme', 'amazon', 'SA') == 2
+            # the full history is still reachable when asked for
+            assert (
+                sc.prior_campaign_tsvs(
+                    'acme', 'amazon', 'SA', within_days=36500
+                )
+                == 7
+            )
+        finally:
+            sc.VIBE_SELLER_DIR = orig
+
     def test_prior_tsvs_match_dir_casing_insensitively(self, tmp_path):
         # Agent-created paths mix casing in the wild (ads/amazon/SA beside
         # ads/amazon/ae). A case-sensitive lookup works on macOS, whose

@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 from app.config import VIBE_SELLER_DIR
 
@@ -68,14 +69,36 @@ def targets_path(task_id: str):
     return VIBE_SELLER_DIR / 'tasks' / task_id / TARGETS_FILENAME
 
 
-def prior_campaign_tsvs(slug: str | None, platform: str, country: str) -> int:
-    """How many per-campaign TSVs a PRIOR audit left for this combo.
+# How far back a TSV still counts as evidence of "recently had campaigns".
+# ~6 weekly audits. Without a window this count only ever GROWS: TSVs are
+# never deleted, so a store audited for a year accumulates every campaign
+# it ever ran and the shrink threshold below drifts toward always firing.
+PRIOR_TSV_WINDOW_DAYS = 45
+
+
+def prior_campaign_tsvs(
+    slug: str | None,
+    platform: str,
+    country: str,
+    within_days: int = PRIOR_TSV_WINDOW_DAYS,
+) -> int:
+    """Campaigns this store's RECENT audits drilled in this combo.
 
     Recorded history, and the only independent evidence the server has
     about a marketplace it cannot browse. Used to challenge an
-    "``active_ids: []``, nothing live here" claim: a combo that produced
-    per-campaign TSVs before did have campaigns, so a zero now is a
-    regression that has to be explained rather than asserted.
+    "``active_ids: []``, nothing live here" claim, and a collapse against
+    it: a combo that produced per-campaign TSVs recently did have
+    campaigns, so a zero (or a fraction) now is a regression to explain
+    rather than assert.
+
+    **This is an UPPER BOUND on the live-active count, not an equal.** A
+    prior audit drills what was active THEN, and campaigns get paused, so
+    this counts roughly "All" where the scope declares "Live". Measured on
+    one store: noon SA reads `Live 8` / `All 12` on the console, and its
+    TSV history is 12 campaigns — of which 8 were touched in the last two
+    weeks. That gap is why the caller must challenge only a COLLAPSE
+    (declared below HALF of this) rather than any shortfall; comparing for
+    equality here would flag every normally-pruned marketplace.
 
     Counts DISTINCT CAMPAIGNS, not files. Each drilled campaign leaves two
     (``<id>.tsv`` and ``<id>.searchterms.tsv``), so counting files doubles
@@ -85,7 +108,9 @@ def prior_campaign_tsvs(slug: str | None, platform: str, country: str) -> int:
     first ``.`` is the campaign id.
 
     Counted under the store's own directory — never a glob across
-    ``stores/*``, which would borrow another store's history.
+    ``stores/*``, which would borrow another store's history. Only
+    campaigns whose newest TSV is within ``within_days`` count, so the
+    bound tracks recent reality instead of growing forever.
 
     Directory names are matched CASE-INSENSITIVELY. These paths are
     agent-created and their casing is genuinely inconsistent in the wild
@@ -103,18 +128,25 @@ def prior_campaign_tsvs(slug: str | None, platform: str, country: str) -> int:
         plat_dirs = [d for d in base.iterdir() if d.name.lower() == want_p]
     except OSError:
         return 0
-    campaigns: set[str] = set()
+    cutoff = time.time() - within_days * 86400
+    newest: dict[str, float] = {}
     for plat in plat_dirs:
         try:
             for cdir in plat.iterdir():
                 if cdir.name.lower() != want_c:
                     continue
                 for p in cdir.iterdir():
-                    if p.suffix == '.tsv':
-                        campaigns.add(p.name.split('.', 1)[0])
+                    if p.suffix != '.tsv':
+                        continue
+                    cid = p.name.split('.', 1)[0]
+                    try:
+                        m = p.stat().st_mtime
+                    except OSError:
+                        continue
+                    newest[cid] = max(newest.get(cid, 0.0), m)
         except OSError:
             continue
-    return len(campaigns)
+    return sum(1 for m in newest.values() if m >= cutoff)
 
 
 def write_declared_targets(
