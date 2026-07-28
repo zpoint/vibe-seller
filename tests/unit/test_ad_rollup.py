@@ -32,7 +32,7 @@ _CONSISTENT = """## noon AE
 
 | 平台 | 国家 | 活跃活动数 | 总花费 | 总销售额 | 总订单 | ROAS |
 |---|---|---|---|---|---|---|
-| noon | AE | 2 | AED 120.00 | AED 462.17 | 13 | 3.77 |
+| noon | AE | 2 | AED 120.00 | AED 400.00 | 13 | 3.33 |
 """
 
 
@@ -96,7 +96,7 @@ class TestRollupConsistency:
 
     def test_rounding_is_tolerated(self):
         # 2-decimal display rounding must not read as a stale copy.
-        near = _CONSISTENT.replace('AED 120.00', 'AED 120.00')
+        near = _CONSISTENT.replace('AED 120.00', 'AED 120.01')
         assert check_rollups(near) == []
 
     def test_missing_recon_line_skips_row_check(self):
@@ -113,7 +113,7 @@ class TestRollupConsistency:
 
 | id | name | type | spend | sales | orders | ACOS | ROAS |
 |---|---|---|---|---|---|---|---|
-| A0000001 | w | Auto | A$1,000.00 | A$500.00 | 22 | 29.09% | 3.44 |
+| A0000001 | w | Auto | A$1,000.00 | A$3,000.00 | 22 | 29.09% | 3.44 |
 
 ### A0000001 | w | Auto
 
@@ -123,7 +123,7 @@ class TestRollupConsistency:
 
 | 平台 | 国家 | 活跃活动数 | 总花费 | 总销售额 | 总订单 | ROAS |
 |---|---|---|---|---|---|---|
-| amazon | AU | 1 | A$1,000.00 | A$500.00 | 22 | 3.44 |
+| amazon | AU | 1 | A$1,000.00 | A$3,000.00 | 22 | 3.44 |
 """
         assert check_rollups(au) == []
         assert (
@@ -131,7 +131,7 @@ class TestRollupConsistency:
                 check_rollups(
                     au.replace(
                         '| amazon | AU | 1 | A$1,000.00',
-                        '| amazon | AU | 1 | A$1,000.00',
+                        '| amazon | AU | 1 | A$900.00',
                     )
                 )
             )

@@ -123,7 +123,7 @@ campaign's targeting spend — 每个查询的花费本来就已经计在定向�
   was an artifact of reading the CQ **tab**, which renders a fixed
   top-15 with no paginator. Read via the tab's **`Export`** instead
   and the two layers agree exactly — measured on two live
-  campaigns: Auto 300.00 vs 300.00 (10000 query rows) and Manual
+  campaigns: Auto 300.00 vs 300.00 (~10k query rows) and Manual
   120.00 vs 120.00 (404 rows), against 0.265 and 0.786 from the
   same campaigns' 15-row tabs.
   So under the floor means **your capture is incomplete** — almost

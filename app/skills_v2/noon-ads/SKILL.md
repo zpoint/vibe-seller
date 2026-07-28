@@ -355,7 +355,7 @@ Or click "Apply" next to Recommended Bid to use noon's suggestion.
 >
 > | campaign | targeting spend | via 15-row tab | via Export |
 > |---|---|---|---|
-> | Auto | 300.00 | 80.00 (0.265, 15 rows) | **300.00 (1.000, 10000 rows)** |
+> | Auto | 300.00 | 80.00 (0.265, 15 rows) | **300.00 (1.000, ~10k rows)** |
 > | Manual | 120.00 | 95.00 (0.786, 15 rows) | **120.00 (1.000, 404 rows)** |
 >
 > So noon does **not** "attribute only part of spend to queries" — that

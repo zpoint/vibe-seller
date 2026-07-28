@@ -1202,7 +1202,7 @@ class TestAdCompletenessReview:
         # console, that is false — the CQ TAB renders a fixed top-15 with
         # no paginator, and the 47-74% figure was a 15-row read. Via the
         # tab's Export the two layers agree exactly: an Auto campaign
-        # 300.00 vs 300.00 (10000 query rows) and a Manual one 120.00 vs
+        # 300.00 vs 300.00 (~10k query rows) and a Manual one 120.00 vs
         # 120.00 (404 rows), against 0.265 and 0.786 from the same
         # campaigns' tabs. So 54% is an incomplete capture, and noon now
         # uses Amazon's floor.

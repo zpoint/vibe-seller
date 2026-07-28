@@ -45,11 +45,11 @@ _RECONCILE_RE = re.compile(
 # every campaign — so ``name == id`` never means "this campaign has no
 # name", it means the column was never read.
 #
-# Observed live: nearly every campaign in one run came back with the id copied into the
+# Observed live: nearly every campaign in one run came back with the id in the
 # name column — every Amazon campaign in the run. The report was otherwise
-# complete (every campaign drilled), and the LLM reviewer did flag it, twice, as
+# complete (every campaign drilled), and the LLM reviewer flagged it twice as
 # 「次要」 — so it survived every round untouched. A reader is then handed
-# `100000000000001` as the identity of an ad, which is the one thing an id
+# a bare 15-digit id as the identity of an ad, which is the one thing an id
 # cannot tell you.
 #
 # Two guards against false positives, both learned from over-triggering

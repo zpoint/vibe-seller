@@ -42,7 +42,7 @@ _PLATFORMS = ad_scope.AD_PLATFORMS
 # Displayed money is rounded to 2 decimals, so a sum of N displayed rows
 # can sit up to N*0.005 from a total computed at full precision. Allow
 # that, plus a floor for the 1-2 row case. Anything past it is a stale
-# copy, not rounding — the live misses were 5.00 and 5.00.
+# copy, not rounding — the live misses were a few units each.
 _ROW_TOL = 0.02
 _SUM_TOL_FLOOR = 0.05
 _SUM_TOL_PER_ROW = 0.006

@@ -49,11 +49,11 @@ DEFAULT_RULES: dict[str, float] = {
     # called unreliable) yields the complete set, and then the two layers
     # agree exactly:
     #
-    #   Auto campaign:   targeting 300.00 | 10000 query rows -> 300.00 (1.000)
-    #   Manual campaign: targeting 120.00 |   404 query rows -> 120.00 (1.000)
+    #   Auto campaign:   targeting T | ~10k query rows -> T (1.000)
+    #   Manual campaign: targeting T |  ~400 query rows -> T (1.000)
     #
-    # The same campaigns read off the 15-row tab give 80.00 (0.265) and
-    # 95.00 (0.786) — which is what produced the 47–74% figure. So a low
+    # The same campaigns read off the 15-row tab give ~0.27 and ~0.79 of
+    # that total — which is what produced the old low figure. So a low
     # ratio on noon is an INCOMPLETE CAPTURE exactly as on Amazon, and a
     # 0.40 floor silently accepted captures missing three quarters of the
     # data. Same floor for both platforms; the fix on the agent side is
