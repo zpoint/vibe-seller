@@ -825,10 +825,50 @@ class TestTotalActiveProvenance:
             ],
         )
         gaps = _gaps(_report(_DRILLED), 't-shared')
-        # the real problem is named…
-        assert any('同时被多个 combo 引用' in g for g in gaps), gaps
+        shared_gaps = [g for g in gaps if '当作 total_active 的依据' in g]
+        # ONE gap for the conflict, naming every combo that cites the file.
+        # Reported per combo it was unsatisfiable: the export IS the right
+        # evidence for exactly one market, so telling all of them "give
+        # this market its own evidence" tells the rightful owner its
+        # correct citation is wrong. Live, three combos sharing one export
+        # emitted three gaps that survived ~10 submissions untouched.
+        assert len(shared_gaps) == 1, gaps
+        assert '「amazon SA」' in shared_gaps[0]
+        assert '「amazon AE」' in shared_gaps[0]
+        # …the resolution is stated: keep it for one market, others switch
+        assert 'list:N' in shared_gaps[0]
         # …and the bogus under-count is NOT
         assert not any('少算' in g for g in gaps), gaps
+
+    def test_unshared_bulk_still_row_counted(self, monkeypatch, tmp_path):
+        # The conflict path must not swallow the real verification: a
+        # combo citing its OWN export is still counted against the file.
+        dl = tmp_path / 'downloads' / 'acme'
+        dl.mkdir(parents=True)
+        wb = Workbook()
+        ws = wb.active
+        ws.append(['Product', 'Entity', 'Operation', 'State'])
+        for _ in range(9):
+            ws.append(['SP', 'Campaign', '', 'enabled'])
+        wb.save(dl / 'own.xlsx')
+        monkeypatch.setattr(sc, 'VIBE_SELLER_DIR', tmp_path)
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-own',
+            scope=[
+                {
+                    'platform': 'amazon',
+                    'country': 'SA',
+                    'active_ids': ['600000000001'],
+                    'total_active': 1,
+                    'total_active_source': 'bulk:own.xlsx',
+                }
+            ],
+        )
+        gaps = _gaps(_report(_DRILLED), 't-own')
+        assert any('少算' in g for g in gaps), gaps
+        assert not any('当作 total_active 的依据' in g for g in gaps), gaps
 
     def test_declaring_more_than_the_export_is_fine(
         self, monkeypatch, tmp_path

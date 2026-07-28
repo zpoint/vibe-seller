@@ -300,14 +300,27 @@ def check(
     # Bulk export files cited by MORE THAN ONE combo. An export is
     # per-marketplace, so a shared reference cannot verify any of them —
     # see the check below.
-    _bulk_refs: list[str] = []
+    # Keep the CITING COMBOS per ref, not just a count: the conflict is
+    # one fact about a set of combos, so it is reported once naming all
+    # of them (below, after the per-combo loop) rather than as an
+    # identical gap on each. Reported per combo it was unsatisfiable —
+    # the file IS the right evidence for exactly one of them, so telling
+    # all three "give this market its own evidence" tells the rightful
+    # owner its correct citation is wrong. Live, three Amazon combos
+    # citing one export produced three gaps that survived ~10
+    # submissions untouched, and inflated the stall metric's
+    # distance-to-done threefold while nothing was actually wrong with
+    # SA's reference.
+    _bulk_by_ref: dict[str, list[str]] = {}
     for _c in ad_scope.scope_combos(scope):
         _k, _r = ad_scope.classify_total_source(
             _c.get('total_active_source', '')
         )
         if _k == 'bulk' and _r:
-            _bulk_refs.append(_r)
-    _shared_bulk = {r for r in _bulk_refs if _bulk_refs.count(r) > 1}
+            _bulk_by_ref.setdefault(_r, []).append(
+                f'{_c.get("platform")} {_c.get("country")}'
+            )
+    _shared_bulk = {r for r, labels in _bulk_by_ref.items() if len(labels) > 1}
 
     gaps: list[str] = []
     # Gaps that are not "unfinished" but "cannot be true" (see
@@ -693,19 +706,12 @@ def check(
             # export because neither has a bulk-operations page of its own,
             # and the naive check told each of them it had "under-declared"
             # against SA's 17 enabled rows. The agent had even written the
-            # caveat itself — "服务端如打开该文件预计 0 AE 行". Name the real
-            # problem instead of inventing an under-count.
-            _attr(
-                label,
-                f'[基线] combo 「{label}」的 total_active_source 指向 '
-                f'`{ref}`，但这个导出文件同时被多个 combo 引用。bulk 导出是'
-                '**按市场**的（一个广告账户=一个市场），所以它最多只能作为'
-                '其中一个市场的依据——拿它的行数去核另一个市场的数量没有'
-                '意义。请给这个市场自己的依据：该市场自己的 bulk 导出'
-                '（`bulk:<该市场的导出>.xlsx`）；该市场没有 bulk 页面时'
-                '（如 AE 会 404），用活动列表的总数 `list:N`，并说明是从'
-                '哪个列表读到的。',
-            )
+            # caveat itself — "服务端如打开该文件预计 0 AE 行".
+            #
+            # Skip the row-count comparison (that is the invented
+            # under-count); the conflict itself is reported ONCE after
+            # this loop, naming every combo involved.
+            pass
         elif kind == 'bulk' and total is not None:
             observed = ad_scope.count_enabled_in_export(ref)
             # observed is None = could not check (file gone / unreadable).
@@ -782,6 +788,24 @@ def check(
                     '小节写明依据（导出文件名 / chip 读数 + 大致停投时间），'
                     '别让缩水悄悄通过。',
                 )
+    # One shared bulk export = ONE gap, naming every combo that cites it
+    # and the resolution. Global (not ``_attr``) because the conflict is a
+    # fact about the SET of combos, matching how the other cross-cutting
+    # checks are attributed — and because per-combo attribution let one
+    # mis-citation triple the stall metric's distance-to-done.
+    for ref in sorted(_shared_bulk):
+        cited = _bulk_by_ref.get(ref, [])
+        gaps.append(
+            f'[基线] `{ref}` 同时被 {len(cited)} 个 combo 当作 '
+            f'total_active 的依据：{"、".join(f"「{c}」" for c in cited)}。'
+            'bulk 导出是**按市场**的（一个广告账户=一个市场），所以它只能'
+            '作为其中**一个**市场的依据。请保留它给它真正导出自的那个市场，'
+            '其余市场改成自己的依据：该市场自己的 bulk 导出'
+            '（`bulk:<该市场的导出>.xlsx`），没有 bulk 页面时'
+            '（如 AE 会 404）写活动列表总数 `list:N` 并说明读自哪个列表。'
+            '不用改 active_ids——只改 total_active_source。'
+        )
+
     if combos:
         sections = {
             p.splitlines()[0].strip(): p for p in parts[1:] if p.strip()
