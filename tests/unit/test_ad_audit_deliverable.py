@@ -712,3 +712,53 @@ class TestTotalActiveProvenance:
         )
         gaps = _gaps(_report(_DRILLED), 't-gone')
         assert not any('少算' in g for g in gaps), gaps
+
+
+@pytest.mark.unit
+class TestProvenanceParsingIsTolerant:
+    """Find the token inside prose; reject only self-referential sources.
+
+    The first cut anchored the patterns, and a live run supplied exactly
+    what was asked for wrapped in more context than the schema allowed —
+    every one was rejected as "no provenance", which is the same failure
+    the 搜索词对账 check already learned: answering more fully must not
+    read as not answering.
+    """
+
+    def test_bulk_token_found_inside_prose(self):
+        s = (
+            'bulk:acct123:bulk-acct123-20260628-20260728-1700000000000.xlsx '
+            '(state=enabled, 行数=21)'
+        )
+        kind, ref = sc.classify_total_source(s)
+        assert kind == 'bulk'
+        assert ref == 'bulk-acct123-20260628-20260728-1700000000000.xlsx'
+
+    def test_chip_token_found_inside_prose(self):
+        s = (
+            'noon ad manager chip:Live 7 at 2026-07-28T18:08 (scrolled '
+            'inner container until distinct link count = 7)'
+        )
+        assert sc.classify_total_source(s) == ('chip', 7)
+
+    def test_list_form_for_a_site_with_no_bulk_export(self):
+        # Amazon AE has NO bulk-operations page (404), so there is no file
+        # to name; the campaign-list total is the honest source and needs
+        # a token of its own.
+        s = 'per-campaign detail enumeration (AE Bulk 404; cm 列表 Live=N=8)'
+        assert sc.classify_total_source(s) == ('list', 8)
+        assert sc.classify_total_source('list:12') == ('list', 12)
+
+    def test_counting_own_tsvs_is_not_provenance(self):
+        # The circular case the requirement exists to catch: the agent
+        # citing the files it just wrote is not an independent observation.
+        s = (
+            'per-campaign TSV enumeration at 2026-07-28T14:15:00Z: '
+            '4 active campaigns (all with spend); 0 paused'
+        )
+        assert sc.classify_total_source(s) == (None, None)
+
+    def test_bulk_wins_when_several_tokens_appear(self):
+        # Bulk is the only form the server can verify, so prefer it.
+        s = 'chip:Live 9 cross-checked against bulk:export.xlsx'
+        assert sc.classify_total_source(s) == ('bulk', 'export.xlsx')

@@ -454,18 +454,49 @@ def missing_active_ids(section_text: str, active_ids: list[str]) -> list[str]:
 # turns "leave the number unexplained" into "state a reading", which a
 # reviewer can check against the live page and which makes an invented
 # total a claim rather than an omission.
-_SOURCE_BULK_RE = re.compile(r'^bulk:\s*(?P<file>[\w.\-]+\.xlsx)$', re.I)
-_SOURCE_CHIP_RE = re.compile(r'^chip:\s*(?:live\s*)?(?P<n>\d+)$', re.I)
+# Matched ANYWHERE in the string, not anchored, and a third form for
+# marketplaces with no bulk export at all.
+#
+# The first cut anchored these (^bulk:…$). An agent then supplied exactly
+# what was asked for, wrapped in MORE context than the schema allowed —
+#   "bulk:<acct>:bulk-<acct>-<dates>-<n>.xlsx (state=enabled, 行数=21)"
+#   "noon ad manager chip:Live 7 at 2026-07-28T18:08 (scrolled inner
+#    container until distinct link count = 7)"
+# — and every one was rejected as "no provenance". That is the same
+# failure the 搜索词对账 check already learned: an agent that answers more
+# fully must not be told it answered not at all. The timestamp and the
+# method are useful; find the token inside the prose and keep the rest.
+#
+# ``list:`` exists because Amazon AE has NO bulk-operations page (404), so
+# there is no file to name — the honest source there is the campaign-list
+# total, and without a token for it the agent had to write prose that
+# could only fail.
+_SOURCE_BULK_RE = re.compile(
+    r'bulk:\s*(?:[\w.\-]+:\s*)?(?P<file>[\w.\-]+\.xlsx)', re.I
+)
+_SOURCE_CHIP_RE = re.compile(r'chip:\s*(?:live[\s=]*)?(?P<n>\d+)', re.I)
+_SOURCE_LIST_RE = re.compile(
+    r'list:\s*(?:live[\s=]*)?(?P<n>\d+)|live\s*=\s*(?:n\s*=\s*)?(?P<n2>\d+)',
+    re.I,
+)
 
 
 def classify_total_source(source: str):
-    """``('bulk', filename)`` / ``('chip', count)`` / ``(None, None)``."""
-    m = _SOURCE_BULK_RE.match(source or '')
+    """``('bulk', filename)`` / ``('chip'|'list', count)`` / ``(None, None)``.
+
+    Tolerant by design — see the pattern comments. Bulk wins when several
+    tokens appear, because it is the only form the server can verify.
+    """
+    text = source or ''
+    m = _SOURCE_BULK_RE.search(text)
     if m:
         return 'bulk', m.group('file')
-    m = _SOURCE_CHIP_RE.match(source or '')
+    m = _SOURCE_CHIP_RE.search(text)
     if m:
         return 'chip', int(m.group('n'))
+    m = _SOURCE_LIST_RE.search(text)
+    if m:
+        return 'list', int(m.group('n') or m.group('n2'))
     return None, None
 
 
