@@ -116,14 +116,21 @@ not the same failure.** Query spend can only ever be a PART of the
 campaign's targeting spend — 每个查询的花费本来就已经计在定向层
 里了 — so:
 
-- **`Y` below 40% of `X` → `[对账]`, an incomplete capture.**
-  noon's floor is 40%, not Amazon's 85% (`noon_reconcile_floor`),
-  because the Customer Queries page genuinely attributes only part
-  of campaign spend to queries (measured median 0.779 across 13
-  live campaigns). Under that floor the date range is usually
-  misaligned (7d queries vs 30d targets) or the list wasn't read
-  to the end — re-pin both and recapture. Stallable: like the
-  other gaps it eventually fails open.
+- **`Y` below 85% of `X` → `[对账]`, an incomplete capture.**
+  noon's floor is now the SAME as Amazon's (`noon_reconcile_floor`
+  = 0.85). It used to be 40%, on the belief that Customer Queries
+  "genuinely attributes only part of campaign spend". That belief
+  was an artifact of reading the CQ **tab**, which renders a fixed
+  top-15 with no paginator. Read via the tab's **`Export`** instead
+  and the two layers agree exactly — measured on two live
+  campaigns: Auto 300.00 vs 300.00 (10000 query rows) and Manual
+  120.00 vs 120.00 (404 rows), against 0.265 and 0.786 from the
+  same campaigns' 15-row tabs.
+  So under the floor means **your capture is incomplete** — almost
+  always because you read the tab instead of exporting it (see
+  `../SKILL.md` § 6), and occasionally a misaligned window (7d
+  queries vs 30d targets). Fix the source, don't widen the band.
+  Stallable: like the other gaps it eventually fails open.
 - **`Y` above `X × 1.02` → `[对账·不可能]`, a contradiction.**
   不是误差，是不可能：实测同窗口下这个比值上限就是 1.00。Almost
   always the two layers were taken from different campaigns (or

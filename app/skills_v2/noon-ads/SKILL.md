@@ -278,13 +278,23 @@ that should have 15+), scroll the inner table container
 (`js("window.scrollBy(0, 600)")`) and re-run — the DOM may still be
 virtualizing on a slow render.
 
-**Export Data → CSV is unreliable in this environment.** Field-
-verified: clicking the Export Data button on a campaign-detail
-Targets tab produced no CSV in `~/.vibe-seller/downloads/<slug>/`
-within 10 s; the download monitor only catches bulk-sheet
-exports, not per-campaign tab exports. Use Export Data only as
-a last resort for campaigns with ≥ 50 keywords AND only after
-verifying a fresh file appears in the downloads dir.
+**On the TARGETS tab, scroll+eval is fine** — the targeting table is
+small (auto campaigns have 2–4 groups; manual ones 10–30 keywords) and
+its rows sum to the campaign's own Ad Spend exactly, which is how you
+know you got them all. Verified live: 5 spending rows summing to 120.00
+against a campaign Ad Spend of 120.00, and 2 auto groups summing to
+300.00 against 300.00. **Include PAUSED targets that still have spend in
+the window** — an agent that filtered to Live only reported 115.00 and
+lost a paused 5.00 row, which then broke its reconciliation.
+
+**But do NOT carry that habit onto Customer Queries** — that tab is
+capped at top-15 with no pagination, so scroll+eval structurally cannot
+complete it. Use its `Export` button; see § 6. (An earlier revision of
+this skill declared Export Data broadly "unreliable in this environment"
+after one Targets-tab attempt that produced no file within 10 s. On
+Customer Queries it works and is the only complete source — verified
+twice, ~15–25 s. Wait ~20 s and diff the downloads directory rather than
+concluding failure at 10 s.)
 
 **Tab-activation gotcha.** After clicking the Targets tab (via the
 `js()` by-text pattern above), verify by URL — read
@@ -329,8 +339,52 @@ Or click "Apply" next to Recommended Bid to use noon's suggestion.
 
 ## 6. Customer Queries Tab
 
-Same scroll+eval default as § 4 (Export Data is unreliable in
-this environment — see § 4 note).
+> ### ⚠️ USE **Export**, NOT the table. The tab shows only the top 15.
+>
+> The Customer Queries tab renders a **fixed top-15** and has **no
+> paginator, no load-more and no rows-per-page control** — verified live:
+> the row count stays at 15 across repeated inner-container scrolling of
+> every scrollable element on the page. Scroll+eval therefore CANNOT get
+> the full query set here, no matter how patiently you scroll.
+>
+> **The `Export` button on this tab does work** (verified twice, file
+> landed in ~15–25 s) and returns the complete set. An earlier revision
+> of this skill said "Export Data is unreliable in this environment";
+> that was wrong, and following it is what produced years of truncated
+> captures. Measured on two live campaigns:
+>
+> | campaign | targeting spend | via 15-row tab | via Export |
+> |---|---|---|---|
+> | Auto | 300.00 | 80.00 (0.265, 15 rows) | **300.00 (1.000, 10000 rows)** |
+> | Manual | 120.00 | 95.00 (0.786, 15 rows) | **120.00 (1.000, 404 rows)** |
+>
+> So noon does **not** "attribute only part of spend to queries" — that
+> belief was an artifact of reading the tab. With the export the two
+> layers agree EXACTLY, and the server now holds noon to the same
+> reconciliation floor as Amazon (85%). A low ratio means your capture is
+> incomplete, not that noon is being noon.
+>
+> **How to use it:**
+> 1. Open the campaign detail, click the **Customer Queries** tab.
+> 2. Click **`Export`** (a plain button; match on its exact text).
+> 3. Wait for `~/.vibe-seller/downloads/<slug>/` to gain
+>    **`_OVERVIEW_ALL_Report_<start>_<end>.xlsx`**. Snapshot the directory
+>    listing BEFORE clicking so you can diff, rather than guessing.
+> 4. **Rename it immediately, per campaign** — the filename carries only
+>    the date range, so the next campaign's export OVERWRITES it.
+> 5. Read it with openpyxl. It is scoped to the campaign you were on and
+>    contains BOTH layers, so read them from this ONE file and the
+>    reconciliation holds by construction:
+>    - **`(Product) Queries`** — the full query set. Columns include
+>      `Campaign Name`, `Sku`, `Query`, `Views`, `Clicks`, `Orders`,
+>      `Spends`, `Revenue`, `ROAS`.
+>    - **`(Product) Target`** — the targeting layer (`Target Value`,
+>      `Targeting Type`, `Bid`, `Spends`, …).
+>    - also `(Product) Campaign`, `(Product) Sku`, `(Product) Placement`.
+>
+> The scroll+eval walk below is still the right tool for the **Targets**
+> tab (§ 4), and it remains a fallback for a quick eyeball of the top
+> queries — just never as the source for the 搜索词对账 line.
 
 ```bash
 browser-use <<'PY'
@@ -551,7 +605,9 @@ two countries), a `page_info()` call may time out. Recovery: pipe a
 fresh `new_tab("<any_admanager_url>")` + `wait_for_load()` to
 reconnect (the daemon lifecycle is managed by the wrapper). Login
 state is preserved.
-- **Export Data is unreliable**: clicking Export Data on Targets or
+- **Export Data on Customer Queries WORKS and is REQUIRED** (§ 6) —
+  the tab shows only top-15. The note below applies to the other tabs:
+- **Export Data may be slow elsewhere**: clicking Export Data on Targets or
 Customer Queries tab may not produce a CSV in
 `~/.vibe-seller/downloads/<slug>/`. Use DOM eval extraction
 instead (§ 4 pattern).

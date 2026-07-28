@@ -35,14 +35,30 @@ DEFAULT_RULES: dict[str, float] = {
     # a live campaign (213 terms, Export CSV); 15% leaves slack for
     # same-day attribution drift.
     'reconcile_tolerance': 0.15,
-    # noon-only reconciliation FLOOR: Customer Queries attributes only
-    # part of a campaign's spend to queries (observed 47–74% across
-    # every live campaign after full pagination on a verified same-30d
-    # window), so the symmetric tolerance above is unattainable there.
-    # noon search-term spend must be ≥ this fraction of targeting
-    # spend (upper bound stays 1+reconcile_tolerance). A wrong window
-    # is still caught: a 7d read of a 30d page shows ~23% < 40%.
-    'noon_reconcile_floor': 0.4,
+    # noon reconciliation FLOOR — now the SAME as Amazon's, because the
+    # premise for a looser one was wrong.
+    #
+    # This was 0.40, justified as "Customer Queries attributes only part
+    # of a campaign's spend to queries (observed 47–74% after full
+    # pagination)". Measured directly against the live console: that
+    # partial attribution does not exist. noon's Customer Queries TAB
+    # renders a fixed TOP-15 and has no paginator, no load-more and no
+    # rows-per-page control — the row count does not budge under repeated
+    # inner-container scrolling, so "after full pagination" was in fact a
+    # 15-row read. Its **Export** button (which the noon skill wrongly
+    # called unreliable) yields the complete set, and then the two layers
+    # agree exactly:
+    #
+    #   Auto campaign:   targeting 300.00 | 10000 query rows -> 300.00 (1.000)
+    #   Manual campaign: targeting 120.00 |   404 query rows -> 120.00 (1.000)
+    #
+    # The same campaigns read off the 15-row tab give 80.00 (0.265) and
+    # 95.00 (0.786) — which is what produced the 47–74% figure. So a low
+    # ratio on noon is an INCOMPLETE CAPTURE exactly as on Amazon, and a
+    # 0.40 floor silently accepted captures missing three quarters of the
+    # data. Same floor for both platforms; the fix on the agent side is
+    # "use the export", documented in noon-ads.
+    'noon_reconcile_floor': 0.85,
     # Zero-order waste floors: a row with no orders must be cut (search
     # term → 否定; targeting keyword → 暂停/降) once EITHER threshold is
     # met — spend (store currency) or clicks. Clicks are the stronger

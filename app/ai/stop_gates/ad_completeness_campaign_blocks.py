@@ -87,6 +87,20 @@ _TABLE_SEP_RE = re.compile(r'^\|[\s:|-]+\|?$')
 # another's search terms.
 IMPOSSIBLE_CEILING = 1.02
 
+# ...but a ratio alone is not enough, because a small denominator turns
+# noise into a big ratio. Across 81 live noon reconciliation lines exactly
+# ONE exceeded the ceiling: targeting 39.00 vs search-term 41.00 — ratio
+# 1.051, but only +2.00 and ONE extra click, i.e. the two pages were read
+# moments apart. Flagging that as "impossible" would be a false positive
+# on the cheapest campaigns, which is where the ratio is least stable.
+#
+# Real mis-joins are large in ABSOLUTE terms — the four observed on Amazon
+# were +17.00, +96.08, +126.00 and +155.30. So a contradiction needs BOTH
+# a ratio above the ceiling AND a material absolute excess. 10 currency
+# units sits cleanly between the noise case (+2) and the smallest genuine
+# one (+17); SAR and AED are both ~0.27 USD, so this is roughly $3.
+IMPOSSIBLE_MIN_EXCESS = 10.0
+
 # The acknowledgment that resolves a contradiction WITHOUT fixing the
 # numbers: the block itself declares its figures untrustworthy and tells
 # the reader not to act on them. This is the second of the two legal
@@ -212,14 +226,14 @@ def _check_campaign_blocks(
     all. Ids with no block are left to the scope coverage check, which
     reports them as undrilled rather than as a missing search-term layer.
 
-    ``floor`` switches the spend check to a platform-asymmetric band
-    (noon): search-term spend must be ≥ ``floor``×targeting spend and
-    ≤ (1+tol)×. noon's Customer Queries page attributes only part of
-    campaign spend to queries — observed 47–74% across every live
-    campaign after full pagination on a verified same-30d window — so
-    symmetric tolerance produced unfixable mismatches. A wrong window
-    still gets caught: a 7d read of a 30d targeting page shows ~23%,
-    well under the 40% default floor.
+    ``floor`` is the platform's lower bound on search-term ÷ targeting
+    spend. It used to be looser for noon (0.40) on the belief that its
+    Customer Queries page only attributes part of campaign spend. That
+    belief was an artifact of reading the CQ TAB, which renders a fixed
+    top-15 with no paginator; via its Export the two layers agree
+    exactly (measured 1.000 on both an Auto campaign — 10000 query rows
+    — and a Manual one — 404 rows). Both platforms now use the same
+    floor: a low ratio means an incomplete capture, on either.
     """
     if active_ids:
         found = ad_scope.blocks_by_active_id(part, active_ids)
@@ -306,8 +320,11 @@ def _check_campaign_blocks(
         #   * search-term spend ABOVE targeting spend cannot be true;
         #   * search-term spend BELOW it is an incomplete capture.
         # Only the first is a contradiction.
-        if s_spend > t_spend * IMPOSSIBLE_CEILING and not _is_quarantined(
-            block
+        excess = s_spend - t_spend
+        if (
+            s_spend > t_spend * IMPOSSIBLE_CEILING
+            and excess > IMPOSSIBLE_MIN_EXCESS
+            and not _is_quarantined(block)
         ):
             impossible.append(
                 f'「{name}」定向花费 {t_spend:g} < 搜索词花费 {s_spend:g}'

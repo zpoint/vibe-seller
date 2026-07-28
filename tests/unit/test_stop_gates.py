@@ -1195,13 +1195,34 @@ class TestAdCompletenessReview:
             + self.SUMMARY
         )
 
-    def test_noon_cq_underreport_within_floor_passes(self):
-        # noon Customer Queries attributes only part of spend to
-        # queries (observed 47-74% live). 54% is a correct same-window
-        # read, not a window error — must pass the noon floor (40%).
+    def test_noon_partial_attribution_is_now_a_gap(self):
+        # This test used to assert the OPPOSITE: that 54% passed, because
+        # noon's Customer Queries "attributes only part of spend to
+        # queries (observed 47-74% live)". Measured against the live
+        # console, that is false — the CQ TAB renders a fixed top-15 with
+        # no paginator, and the 47-74% figure was a 15-row read. Via the
+        # tab's Export the two layers agree exactly: an Auto campaign
+        # 300.00 vs 300.00 (10000 query rows) and a Manual one 120.00 vs
+        # 120.00 (404 rows), against 0.265 and 0.786 from the same
+        # campaigns' tabs. So 54% is an incomplete capture, and noon now
+        # uses Amazon's floor.
         block = self._noon_block(
             '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
             '搜索词花费 USD 48.00 / 点击 41 (✓ CQ 部分归因)\n'
+        )
+        scope = _scope(('noon', 'EG', ['C_FAKE0004']))
+        deny = completeness_gate.check(block, scope=scope)
+        assert deny is not None
+        assert any('[对账]' in g for g in deny.gaps), deny.gaps
+        # …and it is INCOMPLETENESS, not a contradiction: still stallable.
+        assert not deny.contradictions, deny.contradictions
+
+    def test_noon_complete_export_capture_passes(self):
+        # What a correct noon capture looks like now — read from the CQ
+        # Export, the layers match (measured 1.000 on both live campaigns).
+        block = self._noon_block(
+            '\n搜索词对账: 定向花费 USD 120.00 / 点击 149 = '
+            '搜索词花费 USD 120.00 / 点击 149 (✓)\n'
         )
         scope = _scope(('noon', 'EG', ['C_FAKE0004']))
         assert completeness_gate.check(block, scope=scope) is None
@@ -1218,15 +1239,15 @@ class TestAdCompletenessReview:
         assert '[对账]' in deny.reason
 
     def test_noon_floor_override(self):
-        # notes.md can tighten the floor: 54% passes default 0.4 but
-        # fails noon_reconcile_floor: 0.6.
+        # notes.md can still move the floor per store. 90% of targeting
+        # passes the 0.85 default and fails an explicit 0.95.
         block = self._noon_block(
-            '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
-            '搜索词花费 USD 48.00 / 点击 41 (✓)\n'
+            '\n搜索词对账: 定向花费 USD 100.00 / 点击 80 = '
+            '搜索词花费 USD 90.00 / 点击 72 (✓)\n'
         )
         scope = _scope(('noon', 'EG', ['C_FAKE0004']))
         assert completeness_gate.check(block, scope=scope) is None
-        rules = resolve_rules('noon_reconcile_floor: 0.6')
+        rules = resolve_rules('noon_reconcile_floor: 0.95')
         assert (
             completeness_gate.check(block, rules=rules, scope=scope) is not None
         )
