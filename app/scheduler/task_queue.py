@@ -369,10 +369,35 @@ class TaskQueueScheduler:
                 )
             )
             for task in result.scalars().all():
-                task.status = TaskStatus.FAILED
-                task.error = 'Server restarted while task was active'
-                task.error_category = 'server_restart'
-                task.updated_at = datetime.now(UTC).isoformat()
+                now_iso = datetime.now(UTC).isoformat()
+                # An ACCEPTED deliverable means the work passed every
+                # gate and was taken. The restart cut the transport, not
+                # the job — so this is the same "stream drop, not a task
+                # failure" case ``stall_reaper`` already distinguishes,
+                # and it must be decided the same way here. The invariant
+                # lived in one path only, so a restart recorded a
+                # finished audit as a failure: a fully-drilled report,
+                # accepted after 17 submissions, came back
+                # status=failed / error_category=server_restart with its
+                # accepted_result sitting intact in the same row. Told it
+                # failed, the honest next move is to re-run hours of
+                # browser work that is already done.
+                if task.accepted_result:
+                    logger.warning(
+                        'Task %s was restarted after its deliverable was '
+                        'accepted — marking COMPLETED (transport loss, '
+                        'not a task failure)',
+                        task.id,
+                    )
+                    task.status = TaskStatus.COMPLETED
+                    if not task.result:
+                        task.result = task.accepted_result
+                    task.completed_at = now_iso
+                else:
+                    task.status = TaskStatus.FAILED
+                    task.error = 'Server restarted while task was active'
+                    task.error_category = 'server_restart'
+                task.updated_at = now_iso
 
             # Re-queue tasks that were queued or pending
             # (pending tasks may have been left behind if server

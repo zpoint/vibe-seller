@@ -234,6 +234,58 @@ class TestRecovery:
             assert task.status == TaskStatus.FAILED
             assert task.error_category == 'server_restart'
 
+    async def test_accepted_deliverable_survives_restart_as_completed(
+        self, db_session, store_and_task
+    ):
+        """An accepted deliverable means the job finished, not failed.
+
+        ``stall_reaper`` already draws this distinction ("stream drop, not
+        a task failure") but boot recovery did not, so the invariant held
+        in one path only. Live consequence: a fully-drilled ad audit,
+        accepted after 17 submissions, came back from a restart as
+        status=failed / error_category=server_restart with its
+        accepted_result intact in the same row — which invites re-running
+        hours of browser work that is already done.
+        """
+        await store_and_task(status=TaskStatus.RUNNING)
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            task.accepted_result = '## Amazon SA\n**进度**: drilled 21/21'
+            await db.commit()
+
+        scheduler = TaskQueueScheduler()
+        with patch('app.scheduler.task_queue.async_session', db_session):
+            await scheduler._recover_from_db()
+
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            assert task.status == TaskStatus.COMPLETED
+            assert task.error_category != 'server_restart'
+            # …and the deliverable is what the user sees.
+            assert task.result == '## Amazon SA\n**进度**: drilled 21/21'
+            assert task.completed_at
+
+    async def test_accepted_deliverable_does_not_clobber_result(
+        self, db_session, store_and_task
+    ):
+        # A result already written wins: accepted_result is the fallback,
+        # not an overwrite.
+        await store_and_task(status=TaskStatus.RUNNING)
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            task.accepted_result = 'accepted copy'
+            task.result = 'final narration the agent wrote'
+            await db.commit()
+
+        scheduler = TaskQueueScheduler()
+        with patch('app.scheduler.task_queue.async_session', db_session):
+            await scheduler._recover_from_db()
+
+        async with db_session() as db:
+            task = await db.get(Task, 'task-1')
+            assert task.status == TaskStatus.COMPLETED
+            assert task.result == 'final narration the agent wrote'
+
     async def test_designing_marked_failed(self, db_session, store_and_task):
         await store_and_task(status=TaskStatus.DESIGNING)
         scheduler = TaskQueueScheduler()
