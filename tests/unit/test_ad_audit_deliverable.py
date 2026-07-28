@@ -128,6 +128,131 @@ class TestDeliverableOverNarration:
         assert resolve_audit_deliverable(tmp_path, 'done').name == new.name
 
 
+def _two_copy_task(tmp_path, *, slug='acme', root_mtime, data_mtime):
+    """Task root holding BOTH audit homes, with controlled mtimes."""
+    (tmp_path / 'AUDIT_TARGETS.json').write_text(
+        json.dumps({'slug': slug, 'combos': []})
+    )
+    root = tmp_path / 'AD_AUDIT_2026-01-02.md'
+    root.write_text('task-root copy')
+    data = (
+        tmp_path
+        / 'store-data'
+        / slug
+        / 'ads-audit'
+        / '2026-01'
+        / 'AD_AUDIT_2026-01-02.md'
+    )
+    data.parent.mkdir(parents=True)
+    data.write_text('store-data copy')
+    os.utime(root, (root_mtime, root_mtime))
+    os.utime(data, (data_mtime, data_mtime))
+    return root, data
+
+
+@pytest.mark.unit
+class TestTwoWritableCopies:
+    """The report has two homes; the run is graded on the one it TOUCHED.
+
+    The workspace layout puts a dated artifact in
+    ``store-data/<slug>/ads-audit/<YYYY-MM>/`` while the skill also has
+    the agent keep a task-root copy, and only a hand-copy kept them in
+    step. Live, the store-data copy ran 12 minutes ahead of the task-root
+    one mid-round; grading the task root would have re-scored a stale
+    report and returned byte-identical gaps, hiding a converging agent.
+    """
+
+    def test_newer_store_data_copy_is_graded(self, tmp_path):
+        _root, data = _two_copy_task(
+            tmp_path, root_mtime=1_700_000_000, data_mtime=1_700_000_900
+        )
+        got = resolve_audit_deliverable(tmp_path, '审计完成，见报告')
+        assert got is not None
+        assert got.read_text() == data.read_text()
+
+    def test_newer_task_root_copy_still_wins(self, tmp_path):
+        # Symmetric: whichever was touched last, no home is privileged.
+        root, _data = _two_copy_task(
+            tmp_path, root_mtime=1_700_000_900, data_mtime=1_700_000_000
+        )
+        got = resolve_audit_deliverable(tmp_path, '审计完成，见报告')
+        assert got is not None
+        assert got.read_text() == root.read_text()
+
+    def test_other_stores_reports_are_never_candidates(self, tmp_path):
+        """``store-data`` is ONE shared tree symlinked into every task.
+
+        An unscoped ``store-data/*/`` sweep collected a second store's
+        dated reports against the live tree — grading this run on another
+        store's audit, which is worse than the stale copy the sweep was
+        added to prevent.
+        """
+        _root, _data = _two_copy_task(
+            tmp_path, root_mtime=1_700_000_000, data_mtime=1_700_000_100
+        )
+        other = (
+            tmp_path
+            / 'store-data'
+            / 'store-beef1234'
+            / 'ads-audit'
+            / '2026-01'
+            / 'AD_AUDIT_2026-01-09.md'
+        )
+        other.parent.mkdir(parents=True)
+        other.write_text('a DIFFERENT store audit')
+        os.utime(other, (1_800_000_000, 1_800_000_000))  # newest of all
+        got = resolve_audit_deliverable(tmp_path, '审计完成，见报告')
+        assert got is not None
+        assert 'store-beef1234' not in str(got)
+        assert got.read_text() != 'a DIFFERENT store audit'
+
+    def test_no_declared_slug_falls_back_to_task_root(self, tmp_path):
+        # Nothing pins the store, so don't guess which store-data subtree
+        # belongs to this run — fail closed to the task root.
+        root = tmp_path / 'AD_AUDIT_2026-01-02.md'
+        root.write_text('task-root copy')
+        stray = (
+            tmp_path
+            / 'store-data'
+            / 'acme'
+            / 'ads-audit'
+            / '2026-01'
+            / 'AD_AUDIT_2026-01-02.md'
+        )
+        stray.parent.mkdir(parents=True)
+        stray.write_text('store-data copy')
+        os.utime(root, (1_700_000_000, 1_700_000_000))
+        os.utime(stray, (1_800_000_000, 1_800_000_000))
+        got = resolve_audit_deliverable(tmp_path, '审计完成，见报告')
+        assert got is not None
+        assert got.read_text() == 'task-root copy'
+
+    @pytest.mark.parametrize('slug', ['..', '../other', 'a/b', '.'])
+    def test_slug_cannot_escape_its_store(self, tmp_path, slug):
+        # The slug is interpolated into a glob; traversal would let a
+        # server-written value reach outside the store it must pin.
+        (tmp_path / 'AUDIT_TARGETS.json').write_text(
+            json.dumps({'slug': slug, 'combos': []})
+        )
+        root = tmp_path / 'AD_AUDIT_2026-01-02.md'
+        root.write_text('task-root copy')
+        got = resolve_audit_deliverable(tmp_path, '审计完成，见报告')
+        assert got is not None
+        assert got.read_text() == 'task-root copy'
+
+    def test_hardlinked_copies_are_not_double_counted(self, tmp_path):
+        # Some runs link rather than copy; the same inode under two paths
+        # is ONE deliverable, and the shorter path is the stable name.
+        _root, data = _two_copy_task(
+            tmp_path, root_mtime=1_700_000_000, data_mtime=1_700_000_000
+        )
+        data.unlink()
+        os.link(tmp_path / 'AD_AUDIT_2026-01-02.md', data)
+        got = resolve_audit_deliverable(tmp_path, '审计完成，见报告')
+        assert got is not None
+        assert got.parent == tmp_path
+
+
 @pytest.mark.unit
 class TestDeclaredComboCoverage:
     """The store's marketplaces are the server's fact, not the agent's."""
