@@ -249,6 +249,11 @@ def _check_campaign_blocks(
     missing: list[str] = []
     mismatched: list[str] = []
     impossible: list[str] = []
+    # Below-floor campaigns the block itself declares unreliable and
+    # do-not-execute. Excused individually, but counted: quarantine is an
+    # escape hatch for what a platform will not give up, not a way to
+    # opt out of capturing a combo.
+    quarantined_low: list[str] = []
     no_target_table: list[str] = []
     aggregate_only: list[str] = []
     st_aggregate_only: list[str] = []
@@ -331,9 +336,25 @@ def _check_campaign_blocks(
                 f'（{s_spend / t_spend:.2f}×）'
             )
         elif s_spend < t_spend * (floor if floor is not None else 1 - tol):
-            mismatched.append(
-                f'「{name}」定向花费 {t_spend:g} vs 搜索词花费 {s_spend:g}'
-            )
+            # Quarantine settles this one too. The contract for a figure
+            # the agent cannot make right is "fix it, or mark it clearly",
+            # and it has to stay satisfiable — otherwise the gap is a
+            # standing order to retry something that cannot succeed.
+            #
+            # Live: two noon Brand Video campaigns whose Customer-Queries
+            # Export never finishes loading (the tab hangs; the 15-row
+            # on-page table is all the platform will give). The agent
+            # documented exactly that, marked both do-not-execute, and was
+            # still handed the same [对账] gap every round — so it kept
+            # re-attempting the export, four submissions and five
+            # browser-use failures inside five minutes, on a capture the
+            # platform does not support.
+            if _is_quarantined(block):
+                quarantined_low.append(name)
+            else:
+                mismatched.append(
+                    f'「{name}」定向花费 {t_spend:g} vs 搜索词花费 {s_spend:g}'
+                )
     if no_target_table:
         sample = '、'.join(f'「{n}」' for n in no_target_table[:4])
         gaps.append(
@@ -430,5 +451,25 @@ def _check_campaign_blocks(
             f'[对账] 「{head}」搜索词与定向数据对不上（{band}）：'
             f'{sample}。两边必须用同一个 30 天窗口——对不上通常是搜索词页'
             '日期窗口跟定向页不一致（如 7 天 vs 30 天）或搜索词抓取不全。'
-            '回到该活动，把两页锁到同一窗口重新取数。'
+            '回到该活动，把两页锁到同一窗口重新取数。数据确实取不到'
+            '（平台不提供全量导出）时，在该活动块内写明「数据不可信 + '
+            '请勿执行本活动的出价建议」并说明卡在哪一步，就不再算缺口。'
+        )
+    # Quarantine excuses individual campaigns, never a whole combo. Past
+    # a third of the drilled set the report has stopped being an audit of
+    # that market, so say so instead of accepting it silently.
+    # A FRACTION alone over-triggers at small N: a combo holding one
+    # campaign that genuinely cannot export is 1/1 = 100% quarantined, and
+    # flagging it removes the escape hatch precisely where it is the only
+    # honest answer. "Quarantined its way out of a market" needs several
+    # campaigns to be a real pattern, so require both.
+    drilled = max(len(blocks), 1)
+    if len(quarantined_low) >= 3 and len(quarantined_low) * 3 > drilled:
+        sample = '、'.join(f'「{n}」' for n in quarantined_low[:4])
+        gaps.append(
+            f'[对账] 「{head}」有 {len(quarantined_low)}/{drilled} 个活动'
+            f'因「数据不可信」被整块排除：{sample}。单个活动平台确实导不出'
+            '可以这样标注，但这里已经占到该市场的三分之一以上——那不是'
+            '个别限制，是这一层的取数方式不对。先确认是不是漏了导出入口'
+            '（活动级 Export / bulk 导出），再决定哪些确实标注排除。'
         )

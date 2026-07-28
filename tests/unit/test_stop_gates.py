@@ -1216,6 +1216,61 @@ class TestAdCompletenessReview:
         assert any('[对账]' in g for g in deny.gaps), deny.gaps
         # …and it is INCOMPLETENESS, not a contradiction: still stallable.
         assert not deny.contradictions, deny.contradictions
+        # The gap must say how to settle it when the data is genuinely
+        # unobtainable, or it is a standing order to retry the impossible.
+        low = [g for g in deny.gaps if '[对账]' in g][0]
+        assert '数据不可信' in low and '请勿执行' in low
+
+    def test_quarantined_below_floor_is_excused(self):
+        """A platform that will not export cannot be retried into one.
+
+        Live: two noon Brand Video campaigns whose Customer-Queries
+        Export never finishes loading. The agent documented the failure
+        and marked both do-not-execute, and still got the same [对账] gap
+        every round — so it kept re-attempting the export, four
+        submissions and five browser-use failures in five minutes. The
+        contradiction path already accepts "fix it, or mark it clearly";
+        below-floor has to as well.
+        """
+        block = self._noon_block(
+            '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
+            '搜索词花费 USD 48.00 / 点击 41 (✗)\n'
+            '⚠️ 数据不可信：本活动 Export 卡在 loading，只能读到页面前 15 行，'
+            '请勿执行本活动的出价建议。\n'
+        )
+        scope = _scope(('noon', 'EG', ['C_FAKE0004']))
+        deny = completeness_gate.check(block, scope=scope)
+        gaps = list(deny.gaps) if deny else []
+        assert not any('[对账]' in g for g in gaps), gaps
+
+    def test_half_quarantined_combo_is_still_a_gap(self):
+        """Quarantine excuses a campaign, never a whole market.
+
+        Otherwise the escape hatch becomes the exit: an agent that cannot
+        find the export entry point could mark every campaign unreliable
+        and ship a report that audits nothing.
+        """
+        head = '## noon EG\n\n**进度**: drilled 4/4 active (4 TSV)\n\n'
+        body = ''
+        for i in range(4):
+            body += (
+                f'### C_FAKE000{i} | wireless mouse 02{i} manual | 手动\n\n'
+                '#### Targeting\n'
+                + self.DRILL
+                + '\n#### Search Terms\n'
+                + self.DRILL
+                + '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
+                '搜索词花费 USD 48.00 / 点击 41 (✗)\n'
+                '⚠️ 数据不可信：Export 卡住，请勿执行本活动的出价建议。\n\n'
+            )
+        scope = _scope((
+            'noon',
+            'EG',
+            ['C_FAKE0000', 'C_FAKE0001', 'C_FAKE0002', 'C_FAKE0003'],
+        ))
+        deny = completeness_gate.check(head + body + self.SUMMARY, scope=scope)
+        gaps = list(deny.gaps) if deny else []
+        assert any('因「数据不可信」被整块排除' in g for g in gaps), gaps
 
     def test_noon_complete_export_capture_passes(self):
         # What a correct noon capture looks like now — read from the CQ
