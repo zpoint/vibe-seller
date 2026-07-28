@@ -109,9 +109,13 @@ back to the user ("please do X manually"). Work the problem:
   re-verify it live before you trust it.
 
 - **If a command/recipe doesn't cover your case, build it from the
-  export's own structure.** `ads_bulk.py` has `inspect` / `clone-campaign`
-  / `bid-update` / `negate` / `archive-campaign` — but if your case
-  isn't one of them (a campaign type, an entity, a field with no
+  export's own structure.** `ads_bulk.py` has `inspect` / **`scope`** /
+  `clone-campaign` / `bid-update` / `negate` / `archive-campaign` — check
+  this list before hand-parsing the workbook; `scope` in particular
+  already emits the `state=enabled` id set plus its independently-counted
+  total, which is exactly what `AUDIT_SCOPE.json` needs, so re-deriving it
+  with openpyxl is wasted work. But if your case isn't one of them (a
+  campaign type, an entity, a field with no
   helper), open the export, find a row of the kind you need (a working
   example of exactly this on this account), and emit the same columns
   with your values changed. The export **teaches you the exact tokens**

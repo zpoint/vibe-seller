@@ -41,13 +41,31 @@ Safety
 
 Usage
 -----
+ALL SIX subcommands are listed here on purpose. This block is the
+inventory an agent reads to learn what the script can do, and while it
+listed only three, agents concluded the other three did not exist and
+hand-rolled openpyxl for work already implemented here — observed live
+on an audit that re-derived ``scope`` by hand.
+
   ads_bulk.py inspect        EXPORT.xlsx
+  ads_bulk.py scope          EXPORT.xlsx [--platform amazon --country sa]
+                             # -> JSON {platform, country, total_active,
+                             #    active_ids}: the state=enabled campaign
+                             #    set + its independently-counted total,
+                             #    i.e. exactly what AUDIT_SCOPE.json needs
   ads_bulk.py clone-campaign EXPORT.xlsx --src "<name>" --new "<name>" \
                              --sku SELLER-SKU --asin B0XXXXXXXX \
                              [--daily-budget 1] [--default-bid 0.75] \
                              [--out OUT.xlsx]
   ads_bulk.py bid-update     EXPORT.xlsx --campaign "<name>" \
                              (--scale 0.85 | --set-bid 1.20) \
+                             [--out OUT.xlsx]
+  ads_bulk.py archive-campaign EXPORT.xlsx --campaign "<name>" \
+                             [--out OUT.xlsx]
+  ads_bulk.py negate         EXPORT.xlsx --campaign "<name>" \
+                             --terms "<term>[,<term>…]" \
+                             [--level adgroup|campaign] \
+                             [--match negativePhrase|negativeExact] \
                              [--out OUT.xlsx]
 
 Requires: openpyxl.

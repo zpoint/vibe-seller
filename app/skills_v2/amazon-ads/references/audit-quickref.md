@@ -180,10 +180,21 @@ the active set you enumerated in Step 1**:
      one row per Customer-Query-derived target. 页面确实无数据时在块内
      写「无数据」。
   2. *Search-term layer* (REQUIRED — the actual customer queries):
-     **Amazon: Search Terms page → Export CSV button**, then parse the
-     downloaded CSV. The on-screen grid is virtualized (~13 rows
-     visible of often 200+) — Export is the ONLY full-coverage method.
-     Set the date range BEFORE exporting. **noon: Customer Queries
+     **Amazon — prefer the BULK EXPORT you already downloaded in Step 1.**
+     Tick the search-term boxes when requesting it and the workbook
+     carries `SP Search Term Report` and `SB Search Term Report` sheets
+     covering every campaign for the same window as the targeting rows
+     (observed live: 973 SP + 331 SB rows in one file). One download
+     serves the whole account, and because BOTH layers come from the same
+     file the 对账 line reconciles by construction — no window mismatch
+     is even possible. Read the sheet with openpyxl, filtering
+     `Campaign ID`.
+     *Fallback, per campaign:* Search Terms page → Export CSV button,
+     then parse the downloaded CSV. The on-screen grid is virtualized
+     (~13 rows visible of often 200+), so never scrape it — Export is
+     the only full-coverage method **on that page**. Set the date range
+     BEFORE exporting, and match it to the targeting window exactly;
+     this is where 对账 mismatches come from. **noon: Customer Queries
      tab** (Manual and Auto).
   3. *Reconcile*: search-term spend/clicks totals must match the
      targeting totals within ~15%. Write the machine-checkable line
