@@ -54,8 +54,20 @@ async def _alive(port: int) -> bool:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(LOCALHOST, port), timeout=2
         )
+        # HTTP/1.1 + explicit close, NOT HTTP/1.0. The thing on this port
+        # is the CDPMuxProxy, whose HTTP layer is h11, and h11 REJECTS
+        # 1.0 outright — it raises
+        #   ValueError: unsupported protocol; expected HTTP/1.1
+        # and never writes a response. So the 1.0 probe could not ever see
+        # a 200: this function returned False for a perfectly healthy
+        # browser, every time. The caller uses it to decide "reuse the
+        # running aux browser", so the reuse branch was unreachable and
+        # every start tore down and relaunched a live browser — silently,
+        # with only h11 tracebacks in the server log to show for it.
+        # 1.0 also implies close-by-default, hence the explicit header.
         writer.write(
-            f'GET /json/version HTTP/1.0\r\nHost: {LOCALHOST}\r\n\r\n'.encode()
+            f'GET /json/version HTTP/1.1\r\n'
+            f'Host: {LOCALHOST}\r\nConnection: close\r\n\r\n'.encode()
         )
         await writer.drain()
         data = await asyncio.wait_for(reader.read(64), timeout=2)
