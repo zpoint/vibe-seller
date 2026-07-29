@@ -22,6 +22,7 @@ from app.ai.stop_gates import (
     SOFT_GATE_MAX_DENIALS,
     _attempts,  # noqa: PLC2701 — tests inspect/clear the counter
     ad_bid_floor as bid_floor_gate,
+    ad_completeness_progress as completeness_progress,
     ad_completeness_review as completeness_gate,
     ad_explicit_actions as explicit_actions_gate,
     ad_scale_winners as scale_winners_gate,
@@ -36,22 +37,10 @@ from app.ai.stop_gates.ad_rules import DEFAULT_RULES, resolve_rules
 @pytest.fixture(autouse=True)
 def _clear_attempts():
     _attempts.clear()
-    completeness_gate._max_drilled.clear()
-    completeness_gate._min_distance.clear()
-    completeness_gate._stall_rounds.clear()
-    completeness_gate._stop_blocks.clear()
-    completeness_gate._combo_min_distance.clear()
-    completeness_gate._combo_stall_rounds.clear()
-    completeness_gate._seen_combos.clear()
+    completeness_gate.clear_all()
     yield
     _attempts.clear()
-    completeness_gate._max_drilled.clear()
-    completeness_gate._min_distance.clear()
-    completeness_gate._stall_rounds.clear()
-    completeness_gate._stop_blocks.clear()
-    completeness_gate._combo_min_distance.clear()
-    completeness_gate._combo_stall_rounds.clear()
-    completeness_gate._seen_combos.clear()
+    completeness_gate.clear_all()
 
 
 def _scope(*combos):
@@ -1070,7 +1059,8 @@ class TestAdCompletenessReview:
         # And noon AE's per-combo counter must be > 0 (we recorded
         # at least one no-progress round).
         assert (
-            completeness_gate._combo_stall_rounds.get((tid, 'noon AE'), 0) >= 1
+            completeness_progress._combo_stall_rounds.get((tid, 'noon AE'), 0)
+            >= 1
         )
 
     def test_per_combo_stall_fires_when_every_combo_stuck(self):
@@ -1140,7 +1130,7 @@ class TestAdCompletenessReview:
             completeness_gate.check(report, task_id=tid)
         # No scope means _seen_combos never gets populated for this task,
         # so the global counter is the one that increments.
-        assert not completeness_gate._seen_combos.get(tid)
+        assert not completeness_progress._seen_combos.get(tid)
         assert completeness_gate.is_stalled(tid) is True
 
     def test_campaign_no_searchterm_token_escapes(self):

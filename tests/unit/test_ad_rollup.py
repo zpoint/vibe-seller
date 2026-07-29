@@ -376,7 +376,6 @@ class TestFooterHeaderPairing:
     """
 
     def test_footer_uses_its_own_tables_header(self):
-
         block = _TWO_TABLES.split('\n### ')[1]
         assert _total_row_spend(block) == 400.00
         # 订单 = 15 and 销售额 = 900 — NOT the leading summary's columns.

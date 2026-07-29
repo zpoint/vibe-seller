@@ -36,6 +36,10 @@ _SKILL_PATH = (
     / 'ads_bulk.py'
 )
 
+# The script imports its sibling ``ads_schema``; running it as
+# ``python .../ads_bulk.py`` puts that directory on sys.path, so the
+# loader has to do the same or the import fails only under test.
+sys.path.insert(0, str(_SKILL_PATH.parent))
 _spec = importlib.util.spec_from_file_location('ads_bulk', _SKILL_PATH)
 ads_bulk = importlib.util.module_from_spec(_spec)
 sys.modules['ads_bulk'] = ads_bulk

@@ -27,10 +27,6 @@ import re
 
 from app.ai.stop_gates import (
     GateDeny,
-    ad_bid_floor,
-    ad_explicit_actions,
-    ad_rollup,
-    ad_scale_winners,
     ad_scope,
 )
 from app.ai.stop_gates.ad_completeness_campaign_blocks import (
@@ -41,278 +37,40 @@ from app.ai.stop_gates.ad_rules import DEFAULT_RULES
 
 GATE_NAME = 'ad_completeness_review'
 
-# Fail-open is keyed on STALL, not a round count. A weak model that
-# drills slowly (a few campaigns per round) still makes real progress
-# every round — cutting it off after a fixed number of rounds would
-# accept a half-finished report (e.g. noon 3/48) while D was still
-# climbing.
-#
-# PROGRESS MEANS THE DISTANCE TO DONE SHRANK — where distance is
-# ``unmet gaps + campaigns still owed``. Nothing else counts.
-#
-# This used to reset the counter whenever the drilled total climbed OR
-# the report text moved by >=400 chars. The text-delta clause made the
-# fail-open UNREACHABLE for any gap fixed by editing prose rather than
-# by drilling — rule violations, format/parse gaps. Those never move
-# the drilled total, but rewriting a suggestion column trivially moves
-# far more than 400 characters, so every round reset the counter to
-# zero. Observed: one run took 41 submissions and another 14, neither
-# ever reaching STALL_CAP, both ending with no stored deliverable.
-#
-# Distance covers both kinds of work in one number: closing a rule gap
-# drops the gap term, drilling a campaign drops the deficit term. A
-# plain gap COUNT would not — an under-drilled combo emits exactly one
-# gap entry at 3/48 and at 47/48 alike, so a slow driller would look
-# stalled. An agent making either kind of progress keeps its budget; an
-# agent rewriting the same report against a bar it cannot clear runs out.
-STALL_CAP = 5
-
-# Anti-regression: the highest drilled-count seen per (task_id, combo)
-# across this task's rounds. The convergence loop must be MONOTONIC —
-# each round adds, never loses prior drills. If a submission reports
-# fewer drilled than a previous round (the model rewrote the whole
-# report from compacted memory and clobbered earlier work — e.g. Amazon
-# US 31/31 → 2/31), the reviewer rejects and tells it to restore +
-# append. Cleared per task by ``reset_progress`` on terminal success.
-_max_drilled: dict[tuple[str, str], int] = {}
-
-# Stall tracking for the fail-open decision: the SMALLEST distance to
-# done (unmet gaps + campaigns still owed) seen for a task so far, and
-# how many consecutive rounds have failed to beat it. Updated by
-# ``check`` each round; read by ``is_stalled``. Cleared by
-# ``reset_progress``.
-_min_distance: dict[str, int] = {}
-_stall_rounds: dict[str, int] = {}
-
-# Per-combo stall (D6): one frozen combo on a multi-combo task used to
-# mask ongoing progress on the others — the global counter only fell
-# when every combo moved at once. Track distance per (task_id, combo)
-# so each combo's convergence is judged on its own. Global
-# ``is_stalled`` only fires when every seen combo has hit STALL_CAP,
-# which is what bounds a wholly-stuck agent; a single frozen combo
-# fails open locally while the others keep their budget.
-_combo_min_distance: dict[tuple[str, str], int] = {}
-_combo_stall_rounds: dict[tuple[str, str], int] = {}
-_seen_combos: dict[str, set[str]] = {}
-
-# Stop-path backstop: how many times we've blocked an end-of-turn while
-# the audit was still under-drilled, per task. Bounds the stop-path deny
-# so a genuinely-stuck agent (can't drill more) isn't trapped forever —
-# fails open after STALL_CAP blocks, mirroring the set_task_result stall.
-_stop_blocks: dict[str, int] = {}
-
-
-def reset_progress(task_id: str) -> None:
-    """Drop the per-task progress/stall state (call on terminal success)."""
-    for key in [k for k in _max_drilled if k[0] == task_id]:
-        _max_drilled.pop(key, None)
-    for key in [k for k in _combo_min_distance if k[0] == task_id]:
-        _combo_min_distance.pop(key, None)
-    for key in [k for k in _combo_stall_rounds if k[0] == task_id]:
-        _combo_stall_rounds.pop(key, None)
-    _seen_combos.pop(task_id, None)
-    _min_distance.pop(task_id, None)
-    _stall_rounds.pop(task_id, None)
-    _stop_blocks.pop(task_id, None)
-
-
-def is_stalled(task_id: str) -> bool:
-    """True after ``STALL_CAP`` rounds that got no closer to done.
-
-    The fail-open signal: the report still has gaps and the agent has
-    not reduced the distance to done — unmet gaps plus campaigns still
-    owed — for ``STALL_CAP`` consecutive rounds, so further "what's
-    missing" replies won't help. Callers use this to accept the best
-    report instead of denying forever.
-
-    With per-combo tracking (D6) the global signal fires only when
-    EVERY seen combo has stalled — a single frozen combo on a multi-
-    combo task fails open locally while the rest keep their budget.
-    A task with no combo sections seen yet falls back to the legacy
-    global counter so narrow single-combo audits still fail open.
-    """
-    seen = _seen_combos.get(task_id)
-    if not seen:
-        return _stall_rounds.get(task_id, 0) >= STALL_CAP
-    return all(
-        _combo_stall_rounds.get((task_id, c), 0) >= STALL_CAP for c in seen
-    )
-
-
-def drill_incomplete_reason(
-    result_text: str,
-    task_id: str | None = None,
-) -> str | None:
-    """Stop-path backstop: deny reason if the audit isn't complete.
-
-    Unifies the two completion paths. ``set_task_result`` runs the full
-    :func:`check`; but an agent can also finish by simply ENDING ITS TURN,
-    which persists the streaming result WITHOUT that gate (the 3/24 bypass
-    — see ``claude_backend_stream._save_result``). The Stop hook calls
-    this so ending the turn is gated by the SAME contract as
-    ``set_task_result``.
-
-    Delegates to :func:`check` with ``track=False`` — passing ``task_id``
-    so the AUDIT_SCOPE ground-truth (#1/#2) still loads, but suppressing
-    the ``_max_drilled`` / stall mutation, so calling it on every Stop
-    attempt can't perturb the ``set_task_result`` convergence accounting.
-    This enforces the FULL contract (authoritative combo + active-id
-    coverage, two-layer per-campaign completeness), closing the hole where
-    a report with ``进度 D==A`` but missing campaigns/layers slipped
-    through the count-only check on the ending-turn path.
-
-    Bounded: after ``STALL_CAP`` blocks for a task it fails open, so an
-    agent that genuinely cannot finish is not trapped. Returns None when
-    :func:`check` passes, or once this task has been blocked ``STALL_CAP``
-    times.
-    """
-    if not result_text or not isinstance(result_text, str):
-        return None
-    deny = check(result_text, task_id, None, track=False)  # no mutation
-    if deny is None:
-        return None
-    if task_id is not None:
-        n = _stop_blocks.get(task_id, 0) + 1
-        _stop_blocks[task_id] = n
-        # ``>=``, matching ``is_stalled``. These two paths bound the
-        # same contract and must agree: while the stop path fell open
-        # one round later than the submit path, an agent could end its
-        # turn but never get a submission accepted — which is how a run
-        # reached a terminal state holding no stored deliverable.
-        if n >= STALL_CAP:
-            return None  # fail open — don't trap a stuck agent
-    return (
-        '还不能结束：审计报告尚未完成（未 drill 完所有 active campaign，'
-        '或部分 campaign 缺少定向/搜索词层）。请补齐下列缺口后再结束；'
-        '不要留待“下一轮/下次审计”：\n' + deny.reason
-    )
-
-
-# A "## <Platform> <Country>" combo section header, e.g.
-# "## Amazon US", "## noon EG 市场", "## Noon MX 市场".
-# Shape-matched and defined ONCE in ad_scope — a literal country list here
-# drifted and silently exempted a whole marketplace from every per-campaign
-# check. See ``ad_scope.COMBO_HEAD_PATTERN``.
-_COMBO_HEADER_RE = ad_scope.COMBO_HEAD_RE
-# "**进度**: drilled 12/46 active (70 total, 5 pages)"
-# The <T> total / <P> pages suffix is not machine-enforced here: a
-# correct bulk-export enumeration legitimately records a large total as
-# "1 page" (one export file), so T/P alone can't distinguish it from a
-# grid page-1-only read. Under-enumeration is caught instead by (a) the
-# self-disclosed-truncation phrasings in ``_DEFER_RE`` and (b) the
-# reviewer independently reading the live account total (reviewer-loop.md).
-_PROGRESS_RE = re.compile(
-    r'drilled\s+(\d+)\s*/\s*(\d+)\s*active', re.IGNORECASE
+# Convergence accounting lives in a sibling module (per-file line limit).
+# Re-exported here because the reviewer IS this gate's public surface: the
+# stop hook and task runner import ``is_stalled`` / ``reset_progress`` /
+# ``drill_incomplete_reason`` from this module by name.
+from app.ai.stop_gates.ad_completeness_progress import (  # noqa: E402
+    STALL_CAP,
+    _max_drilled,
+    _seen_combos,
+    clear_all,
+    drill_incomplete_reason,
+    is_stalled,
+    record_round,
+    reset_progress,
 )
 
-# A per-campaign keyword/target table header has a 建议/recommendation
-# column — the EVIDENCE of a real drill. A page-manifest table
-# (活动ID|类型|花费|ROAS, no 建议 column) does NOT match, so a section
-# claiming drills but with ~none of these is a manifest, not a drill —
-# this closes the "write drilled D/A but no real content" gaming hole.
-_DRILL_TABLE_RE = re.compile(
-    r'^\|.*(?:建议|recommendation).*\|\s*$', re.IGNORECASE | re.MULTILINE
+__all__ = [
+    'GATE_NAME',
+    'clear_all',
+    'STALL_CAP',
+    'check',
+    'drill_incomplete_reason',
+    'is_stalled',
+    'reset_progress',
+]
+
+from app.ai.stop_gates.ad_completeness_rules import (  # noqa: E402
+    _COLLAPSE_ROW_RE,
+    _COMBO_HEADER_RE,
+    _DRILL_TABLE_RE,
+    _PROGRESS_RE,
+    _ZERO_JUSTIFIED_RE,
+    _check_campaign_spend,
+    cross_cutting_gaps,
 )
-
-# Excuse phrases that defer work which must be done THIS session
-# (Brand Analytics is accessible without OTP; cross-platform / per-
-# campaign drills are not "next audit" items).
-_DEFER_RE = re.compile(
-    r'待下次\s*audit|下次\s*audit|下次任务|无法获取|未获取|本次会话未'
-    r'|留待下次|待?下次审计|下一次审计|留待后续'
-    r'|需\s*Brand\s*Registry\s*OTP|需要?\s*OTP|待\s*drill'
-    r'|pending[^。\n]*drill|代表性样本|快速扫描|仅\s*overview'
-    # Self-disclosed pagination truncation: the report ADMITS it only
-    # read part of the campaign list (the grid page-export trap — it
-    # should have used the account-wide bulk export instead). These
-    # phrasings ("仅获取第1页(50/150)", "第2-3页…待翻页获取", "待翻页",
-    # "N total 但只…") slipped past because the old list had only the
-    # generic "未获取". The disclosure lives in the report's free-prose
-    # limitation note, written in the USER'S language (reports are
-    # language-followed — see the result_language gate), so match BOTH
-    # Chinese AND English phrasings, not Chinese alone.
-    r'|仅\s*获取第|只\s*获取\s*(?:了)?\s*(?:当前|第一?)\s*页'
-    r'|只\s*导出\s*(?:了)?\s*(?:当前|第一?)\s*页|待\s*翻页|未\s*翻页'
-    r'|页[^。\n]{0,8}?(?:未获取|待获取|未翻页|未采集)'
-    r'|待[^。\n]{0,6}?翻页|翻页[^。\n]{0,6}?(?:获取|采集)'
-    # English equivalents:
-    r'|only\s+(?:got|read|captured|scraped|fetched|the\s+first)[^.\n]{0,18}?\bpage'
-    r'|(?:first\s+page|page\s*1)\s+only|page\s*1\s+of\s+\d'
-    r'|(?:remaining|further|other|additional)\s+pages\b[^.\n]{0,20}?'
-    r'(?:pending|not\b|un|missing|to\s?do)'
-    r'|pages?\s*\d+\s*[-–]\s*\d+[^.\n]{0,20}?(?:not\b|pending|un|missing)'
-    r'|pending\s+pagination|without\s+paginating'
-    r'|(?:did\s*n.?t|did\s+not|not)\s+paginat(?:e|ed)',
-    re.IGNORECASE,
-)
-
-# Garbled extraction: raw DOM attributes or lowercased ASINs left in the
-# report. A clean report has UPPERCASE ASINs / readable keywords.
-_GARBLED_RE = re.compile(
-    r'asin-expanded\s*=|aria-label\s*=|\brole\s*=\s*["\']|\bb0[a-z0-9]{8}\b'
-)
-
-# A collapse row ("其余 N 个…") hides per-row data. Only acceptable for
-# rows that are explicitly zero-impression/zero-click filler; any
-# collapsed row WITH traffic makes the report unauditable.
-_COLLAPSE_ROW_RE = re.compile(r'^\|[^\n]*其余\s*\d+\s*个[^\n]*$', re.MULTILINE)
-_ZERO_JUSTIFIED_RE = re.compile(
-    r'0\s*展示|0\s*点击|0\s*impressions?', re.IGNORECASE
-)
-
-
-# Amazon's figures MOVE. A report captures a campaign at one moment and
-# the export is generated later, and attribution keeps landing in between:
-# comparing one live report against an export produced 2.5 hours after its
-# capture, many campaigns differed — all by well under 1% (e.g. 480.00 vs
-# 482.00). Those are not errors, and flagging them would make this
-# check noise on every run.
-#
-# The failures it exists to catch are an order of magnitude larger, because
-# they are structural rather than temporal:
-#   * enabled-only filtering of the targeting layer — 10%, 20%, 90%+ low
-#   * a mis-join, one campaign's figures under another's id — unbounded
-# 5% sits an order of magnitude above the drift and an order below the
-# smallest real defect, so it separates them cleanly without tuning.
-_SPEND_REL_TOL = 0.05
-# ...and a floor, so a tiny campaign's rounding can't clear the ratio bar:
-# 0.40 vs 0.50 is 25% off and worth nothing.
-_SPEND_MIN_ABS = 1.0
-
-
-def _check_campaign_spend(part, head, ref, combo_label, attr) -> None:
-    """Compare each campaign's reported spend against the bulk export."""
-    truth = ad_scope.campaign_spend_in_export(ref)
-    if not truth:
-        return  # unreadable / absent — unverifiable is never a failure
-    wrong: list[str] = []
-    for cid, reported in ad_rollup.combo_table_spend(part).items():
-        actual = truth.get(cid)
-        # Absent from THIS export is the shared-bulk case (a marketplace
-        # citing another's file, which has none of its campaigns) — that
-        # conflict is reported on its own; do not also call it a wrong
-        # number.
-        if actual is None or reported is None:
-            continue
-        delta = abs(reported - actual)
-        if delta > actual * _SPEND_REL_TOL and delta >= _SPEND_MIN_ABS:
-            wrong.append(f'「{cid}」报告 {reported:.2f} vs 导出 {actual:.2f}')
-    if not wrong:
-        return
-    sample = '；'.join(wrong[:4])
-    more = '' if len(wrong) <= 4 else f' 等共 {len(wrong)} 个'
-    attr(
-        combo_label,
-        f'[花费核对] 「{head}」有 {len(wrong)} 个活动的花费与 `{ref}` 里'
-        f'该活动自己的 Campaign 行对不上：{sample}{more}。导出文件是平台'
-        '给的原始数字，报告必须跟它一致。两个常见原因：定向层按 '
-        '`state=enabled` 过滤了（漏掉窗口内有花费、之后被暂停的定向词，'
-        '报告会偏小），或者把另一个活动的数字写到了这个 id 下面（mis-join，'
-        '两层之间反而是自洽的，所以只有跟导出比才看得出来）。以导出的 '
-        'Campaign 行为准改正，组合表、合计 行、对账行三处一起改。'
-        f'（只报差异超过 {_SPEND_REL_TOL:.0%} 的：Amazon 归因会随时间小幅'
-        '变动，报告采集时刻和导出生成时刻之间的零点几个百分点属正常。）',
-    )
 
 
 def check(
@@ -999,108 +757,15 @@ def check(
                 '（含幅度与依据）、按影响排序的优先级。'
             )
 
-    # 2) Bid-rule violations — fold in the rule checks (short form),
-    #    forwarding the resolved thresholds so a per-store override is
-    #    honored consistently here too.
-    bf = ad_bid_floor.check(result_text, rules)
-    if bf:
-        gaps.append('[规则·不可下调] ' + bf.reason[:160])
-    sw = ad_scale_winners.check(result_text, rules)
-    if sw:
-        gaps.append('[规则·加投赢家] ' + sw.reason[:160])
-    ea = ad_explicit_actions.check(result_text, rules)
-    if ea:
-        gaps.append('[规则·明确幅度] ' + ea.reason[:400])
-
-    # 3) No-defer: work the agent excused as "next audit" / "needs OTP"
-    #    that is actually doable this session (Brand Analytics is
-    #    accessible without OTP; cross-platform + per-campaign drills are
-    #    in-scope now).
-    defers = list(dict.fromkeys(_DEFER_RE.findall(result_text)))
-    if defers:
-        sample = '、'.join(f'「{d}」' for d in defers[:5])
-        gaps.append(
-            '[不可推迟] 报告里把本应本次完成的工作推迟/找借口了：'
-            + sample
-            + '。本会话已同时打开多平台，有足够上下文与时间：Brand Analytics '
-            'ASIN 报告无需 OTP 可直接进入获取；跨平台/同-SKU 对比、逐活动 '
-            'drill 必须本次完成，不能写“待下次 audit / 无法获取 / 代表性样本”。'
-        )
-
-    # 3b) The same number written three times must agree. Decidable from
-    #     the document alone, and the LLM reviewer had to catch this by
-    #     hand on two consecutive rounds (see ``ad_rollup``).
-    gaps.extend(ad_rollup.check_rollups(result_text))
-
-    # 3c) The deliverable must open as a REPORT, not as a review verdict.
-    #     `Status: ok|gaps|incomplete` is the REVIEW file's format
-    #     (`REVIEW_<date>_iterN.md`), read by `report_reviewer`. Live, an
-    #     audit shipped with `Status: gaps` as its literal first line,
-    #     above the H1 — so the deliverable a user opens led with an
-    #     internal gate token that means nothing to them, and any reader
-    #     scanning for a verdict would find "gaps" in the report itself.
-    first = next(
-        (ln.strip() for ln in result_text.splitlines() if ln.strip()), ''
-    )
-    if re.match(r'(?i)^\**status\**\s*[:：]', first):
-        gaps.append(
-            f'[格式] 报告的第一行是 `{first[:40]}` —— 这是 review 文件'
-            '（`REVIEW_<date>_iterN.md`）的格式，不是审计报告的。报告要以'
-            '`# 广告优化建议 — <店铺> — <日期>` 开头；`Status:` 只写在 '
-            'review 文件里。把这一行从报告里删掉。'
-        )
-
-    # 4) Garbled extraction — raw DOM attributes / lowercased ASINs.
-    if _GARBLED_RE.search(result_text):
-        gaps.append(
-            '[数据] 报告含未清洗的原始 DOM 值（如 asin-expanded="…"、小写 '
-            'b0xxxxxxxx）。搜索词必须干净：要么是可读关键词，要么是大写 ASIN '
-            '(商品页投放)，并带 匹配来源/点击/花费/订单/ROAS 列——不要把 DOM '
-            '属性或小写串直接塞进表格。'
-        )
+    gaps.extend(cross_cutting_gaps(result_text, rules))
 
     if not gaps:
         return None
 
     # Stall tracking for the fail-open decision (read via ``is_stalled``).
-    # Progress = the DISTANCE TO DONE shrank. Distance is unmet gaps
-    # plus campaigns still owed, so it falls for either kind of real
-    # work: closing a rule/format gap drops the first term, drilling
-    # another campaign drops the second. Text churn moves neither.
-    #
-    # A gap COUNT alone would be wrong — an under-drilled combo emits
-    # ONE gap entry whether it is at 3/48 or 47/48, so a slow driller
-    # would look stalled. The old metric had the opposite bug: it reset
-    # on any >=400-char edit, so an agent rewriting prose against a bar
-    # it could not clear was never stalled and looped forever.
-    #
-    # D6 makes this per-combo. The legacy global counter stays as a
-    # fallback for tasks that never wrote a ``## <platform> <country>``
-    # section (narrow single-ad audits) so they keep failing open.
-    if task_id is not None and track:
-        seen = _seen_combos.get(task_id)
-        if seen:
-            for label in seen:
-                combo_distance = len(
-                    _combo_gaps.get(label, [])
-                ) + _combo_deficit.get(label, 0)
-                key = (task_id, label)
-                best = _combo_min_distance.get(key)
-                if best is None or combo_distance < best:
-                    _combo_min_distance[key] = combo_distance
-                    _combo_stall_rounds[key] = 0
-                else:
-                    _combo_stall_rounds[key] = (
-                        _combo_stall_rounds.get(key, 0) + 1
-                    )
-        else:
-            distance = len(gaps) + round_deficit
-            best = _min_distance.get(task_id)
-            if best is None or distance < best:
-                _min_distance[task_id] = distance
-                _stall_rounds[task_id] = 0
-            else:
-                _stall_rounds[task_id] = _stall_rounds.get(task_id, 0) + 1
+    record_round(
+        task_id, track, gaps, round_deficit, _combo_gaps, _combo_deficit
+    )
 
     body = '\n'.join('- ' + g for g in gaps[:12])
     extra = '' if len(gaps) <= 12 else f'\n…还有 {len(gaps) - 12} 项'

@@ -15,16 +15,11 @@ from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
 from app.ai.stop_gates import (
     CONTRADICTION_MAX_DENIALS,
-    SOFT_GATE_MAX_DENIALS,
     clear_skill_bindings,
     contradiction_banner,
-    markdown_format as md_format_gate,
     record_attempt,
-    recorded_skills,
-    report_reviewer,
     reset_attempts,
     resolve_skill_gates,
-    result_language as language_gate,
 )
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
@@ -36,16 +31,15 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.routers.task_submission import (
     SetTaskResultRequest,
+    apply_soft_gates,
     declared_gaps,
     refuse as _refuse,
+    resolve_submitted_result,
     retain_submission as _retain_submission,
 )
 from app.routers.tasks_files import (
     apply_report_reviewer_gate,
-    looks_like_result_path,
-    resolve_audit_deliverable,
     resolve_store_rules,
-    resolve_workspace_result_path,
 )
 from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
@@ -603,65 +597,9 @@ async def set_task_result(
     # ``resolve_workspace_result_path`` for the path-resolution
     # contract). Otherwise treat the value as direct content.
     raw = body.result
-    resolved_content: str | None = None
-    target = resolve_workspace_result_path(raw, task_root)
-    if target is not None:
-        # File reads are blocking; offload so the event loop stays
-        # responsive when an agent saves a multi-100KB report.
-        try:
-            resolved_content = await asyncio.to_thread(
-                target.read_text, encoding='utf-8'
-            )
-        except OSError:
-            resolved_content = None
-
-    # A DANGLING pointer must be rejected, never demoted to content: a
-    # path-like string that resolves to no file would sail through every
-    # content gate vacuously (no ad sections to check) and complete the
-    # task with a literal path as its "result" — the bypass that let a
-    # quoted pointer end a 3/46 audit. Tell the agent exactly what to do.
-    if resolved_content is None and looks_like_result_path(raw):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f'result looks like a file path but no such file exists '
-                f'in this task workspace: {raw!r}. Write the report file '
-                'first (built-in Write/Edit), then call set_task_result '
-                'with its path (e.g. "./AD_AUDIT_<date>.md") — or pass '
-                'the full report content directly.'
-            ),
-        )
-
-    # A NARRATED deliverable is the mirror of the dangling pointer above:
-    # the file exists, the agent just described it instead of pointing at
-    # it. Both end the same way — every content gate grades a string that
-    # is not the report. An ad audit's deliverable is a file by contract
-    # (the skill says to submit "./AD_AUDIT_<date>.md"), so when this
-    # task's bound skills make it an ad task and the workspace holds a
-    # report the submission is not, the FILE is what gets graded and
-    # stored. See ``resolve_audit_deliverable`` for the live failure.
-    if resolved_content is None and (
-        recorded_skills(task_id) & report_reviewer.AD_SKILLS
-    ):
-        deliverable = resolve_audit_deliverable(task_root, raw)
-        if deliverable is not None:
-            try:
-                resolved_content = await asyncio.to_thread(
-                    deliverable.read_text, encoding='utf-8'
-                )
-            except OSError:
-                resolved_content = None
-            if resolved_content is not None:
-                logger.info(
-                    'Task %s submitted narration (%d chars); grading its '
-                    'audit deliverable %s (%d chars) instead',
-                    task_id,
-                    len(raw),
-                    deliverable.name,
-                    len(resolved_content),
-                )
-
-    final_result = resolved_content if resolved_content is not None else raw
+    final_result, resolved_from_file = await resolve_submitted_result(
+        raw, task_id, task_root
+    )
 
     # RETAIN BEFORE REVIEW. Every gate below refuses by raising, and a
     # raise here used to discard the submission entirely — N refusals
@@ -673,30 +611,7 @@ async def set_task_result(
     declared = declared_gaps(body)
     await _retain_submission(db, task, final_result)
 
-    # Generic soft gates — run on the resolved result text for every
-    # task. Each gate gets at most SOFT_GATE_MAX_DENIALS denies per task;
-    # past the cap the original text is allowed through so a stubborn
-    # failure doesn't trap the agent. At set_task_result rather than the
-    # Stop hook because some backends don't emit Stop events.
-    for gate_module, gate_args in (
-        (md_format_gate, (final_result,)),
-        (language_gate, (final_result, task.title, task.description)),
-    ):
-        deny = gate_module.check(*gate_args)
-        if not deny:
-            continue
-        attempt = record_attempt(task_id, deny.gate)
-        if attempt <= SOFT_GATE_MAX_DENIALS:
-            await _refuse(db, task, deny.reason, declared + deny.gaps)
-        # Past the cap: log and allow through.
-        logger.warning(
-            'Soft gate %s exceeded %d denials for task %s — allowing '
-            'result through anyway. Reason: %s',
-            deny.gate,
-            SOFT_GATE_MAX_DENIALS,
-            task_id,
-            deny.reason[:200],
-        )
+    await apply_soft_gates(db, task, task_id, final_result, declared)
 
     # Skill-declared domain gates: the session's loaded skills name WHICH
     # reviewers apply (``gates: [...]`` in SKILL.md → get_registered_gates).
@@ -820,7 +735,7 @@ async def set_task_result(
         'ok': True,
         'task_id': task_id,
         'status': task.status,
-        'resolved_from_file': resolved_content is not None,
+        'resolved_from_file': resolved_from_file,
     }
 
 
