@@ -57,6 +57,14 @@ For every audited `(platform, country)`, the report MUST contain a
 2. **A header table** — one row per ACTIVE campaign:
    `| id | name | type | spend | sales | orders | ACOS | ROAS | status |`
 
+   **`name` 必须是活动的真实名称，不能把 id 抄进去。** 广告后台的活动
+   列表每一行都有名称，bulk 导出也带 `Campaign Name` —— 所以
+   `name == id` 从来不表示「这个活动没有名字」，只表示这一列没读。
+   读者拿到一串 15 位数字认不出这是哪个广告，而认出广告是他做任何决策
+   的第一步。服务端会检查：一个 combo 里多数活动 `name == id` 就是缺口
+   （`[名称]`）。同样的名称也要写进每个 `### <id> | <name> | <type>`
+   标题。
+
 3. **One per-campaign drill block per active campaign**, each with a
    keyword/target table whose recommendation column obeys the bid rules
    below. The block heading MUST contain the campaign id so the
@@ -82,6 +90,24 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    which has no Targets tab: one row per Customer-Query-derived
    target). A trailing 合计 row is fine as a footer — it just cannot be
    the only row. 该活动的定向页确实没有数据时，在块内写「无数据」。
+
+   **必须包含窗口内有花费的 PAUSED 定向词 —— 不要按 `state=enabled`
+   过滤。** 这一层问的是「这个活动这 30 天把钱花在了哪里」，而钱花在
+   哪里跟那个词**现在**是什么状态无关：一个已暂停的关键词在被暂停之前
+   照样花了钱，那笔钱仍然计在活动总花费里。按 enabled 过滤会让定向层
+   系统性地少算，于是搜索词层看起来比定向层还高 —— 而搜索词层不可能
+   超过活动本身，所以你会得到一个「算术上不可能」的对账，然后去猜一个
+   不存在的平台缺陷。
+
+   实测（一份 bulk 导出，同一个 30 天窗口）：三个活动的定向层
+   全部行相加都精确等于 campaign 行、也精确等于搜索词层；只取 enabled
+   行则分别少算到 1.10× / 1.26× / 13.3× 的假矛盾，最严重的一个丢掉了该
+   活动 92% 的花费（4 个定向词里 3 个已暂停）。导出文件里 paused 的行
+   一行不缺、数字全对 —— 丢数据的是过滤动作，不是平台。
+
+   自检：定向层 合计 必须等于活动的 campaign 行花费。不等就是漏了行，
+   优先怀疑你把 paused 过滤掉了。
+
 2. **Search-terms table** — the ACTUAL customer queries
    (Amazon: Search Terms page → **Export CSV** (the ONLY full-coverage
    method — the on-screen grid is virtualized and shows ~13 rows);
@@ -112,14 +138,17 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
 
    - **`Y` 低于下限 → `[对账]`，普通的「没取全」。** The capture missed
      rows. Amazon's floor is **85%** of targeting spend
-     (`1 - reconcile_tolerance`, default 15%, `ad_rules.py`); noon's
-     floor stays **40%** (`noon_reconcile_floor`) because its Customer
-     Queries page genuinely attributes only part of campaign spend to
-     queries (measured median 0.779 across 13 live campaigns). Usual
-     cause: the two pages were read on DIFFERENT date windows (the
-     30d-vs-7d bug), or the term capture is incomplete — re-pin both
-     pages to the same window and recapture. 这一条跟别的 gap 一样，
-     实在补不上时最终会放过。
+     (`1 - reconcile_tolerance`, default 15%, `ad_rules.py`). **noon now
+     uses the same 85% floor.** The old 40% was calibrated on Customer-
+     Queries readings taken off the on-page table, which renders a fixed
+     top-15 with no paginator — so it measured a UI cap, not the
+     platform. Via that tab's **Export**, noon's two layers agree
+     exactly (an Auto campaign matching across ~10k query rows and a
+     Manual one across ~400). Usual causes, in order: the search-term
+     capture is incomplete (noon: you read the 15-row tab instead of the
+     Export), or the two pages were read on DIFFERENT date windows (the
+     30d-vs-7d bug) — use the Export and re-pin both pages to the same
+     window. 这一条跟别的 gap 一样，实在补不上时最终会放过。
    - **`Y` 超过 `X × 1.02` → `[对账·不可能]`，一个矛盾。** 不是精度
      问题，是不可能。Measured on a live account (one bulk export, both
      layers, same 30-day window, 17 enabled SP campaigns): ratio min
@@ -127,16 +156,25 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
      two off only by two-decimal rounding, clicks tracking identically.
      noon's captured layers likewise never exceed 1.000. The 2% ceiling
      is that live maximum plus headroom for rounding and currency
-     formatting, nothing more. 真正的原因几乎总是：把 A 活动的定向表
-     跟 B 活动的搜索词配到了一起（join 错了 `Campaign ID`），或者两个
-     数取自不同账户 / 不同导出——实测出现过 1.26×、1.61×、13.3×。
+     formatting, nothing more.
+
+     **最常见的原因是你把定向层按 `state=enabled` 过滤了。** 暂停之前
+     花掉的钱仍然计在活动总花费里，所以过滤掉 paused 定向词会让定向层
+     少算，搜索词层于是显得更高。实测三个活动：全部定向行相加都精确
+     等于 campaign 行、也精确等于搜索词层；只取 enabled 则变成 1.10×、
+     1.26×、13.3× 的假矛盾（最严重的丢掉该活动 92% 的花费）。**先检查
+     定向层 合计 是否等于 campaign 行花费**，再考虑别的解释。
+
+     其次才是：把 A 活动的定向表跟 B 活动的搜索词配到了一起（join 错了
+     `Campaign ID`），或者两个数取自不同账户 / 不同导出。
 
    **⚠️ 「不可能」这一条不吃 stall fail-open。** Every other gap
    eventually fails open when the agent can't finish it; this one keeps
    refusing, because the number would otherwise ship straight into bid
    recommendations. 只有两个合法答案：
 
-   1. **把两层按同一个 `Campaign ID` 重新取一次**，改对数字。(The
+   1. **先确认定向层没有按 `state=enabled` 过滤**（合计 == campaign 行
+      花费），再**把两层按同一个 `Campaign ID` 重新取一次**，改对数字。(The
       Amazon bulk export carries BOTH layers in one workbook — read them
       off the same file for the same campaign and this cannot happen.)
    2. **在该活动块里声明这个活动不可信**，用一行同时说明「数据不
