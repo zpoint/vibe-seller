@@ -229,6 +229,31 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
      search terms of campaign B (wrong `Campaign ID`), or the two figures
      taken from different accounts / different exports.
 
+   **Missing CLICKS is not a reason to quarantine the whole campaign.**
+   A page that renders the clicks column as 0 (the AE Manual targeting
+   page does this under an unstable load) costs you `CPC = spend ÷ clicks`
+   and therefore the `CPC×1.1` floor — so **bid** recommendations for that
+   campaign are unreliable. It costs you nothing else. Pausing a target
+   that spent with zero conversions, or negating a wasteful query, needs
+   no CPC at all, and those are usually the most valuable actions in the
+   block.
+
+   So when spend reconciles but clicks are missing, do NOT write the
+   whole-campaign 「数据不可信 + 请勿执行」. Instead:
+
+   - write `维持` on every row whose action would have been a bid change,
+     and say why on the row: `维持（点击列未渲染，CPC 无法成立，出价不可
+     信）`;
+   - keep the pause / negate / 拓词 recommendations, which stand on
+     spend, orders and conversions;
+   - add one line to the block: `⚠️ 本活动点击列缺失：出价建议不可用，
+     暂停/否定建议仍然有效`.
+
+   Seen live: three Amazon AE campaigns carrying AED ~1,100 of spend were
+   quarantined whole for exactly this, one of them reconciling at
+   1.000×. Every pause and negate recommendation in them was sound and
+   became unexecutable along with the bid advice.
+
    **⚠️ 「不可能」这一条不吃 stall fail-open。** Every other gap
    eventually fails open when the agent can't finish it; this one keeps
    refusing, because the number would otherwise ship straight into bid
