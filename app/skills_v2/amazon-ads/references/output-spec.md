@@ -10,13 +10,25 @@ each round until the gaps are gone.
 
 ## Scope is fixed by `AUDIT_TARGETS.json` — read it FIRST
 
-Which marketplaces the audit owes is **not** your call. Before you
-start, the server writes `AUDIT_TARGETS.json` at the task-workspace
-root — `{"combos": [{"platform": "amazon", "country": "SA"}, …]}`,
+Which marketplaces the audit owes is **not** your call, and it is **not
+the task description's call either**. Before you start, the server writes
+`AUDIT_TARGETS.json` at the task-workspace root — `{"combos": [{"platform": "amazon", "country": "SA"}, …]}`,
 every marketplace the store is configured for in Settings. Read it at
 the START of Phase 1 and let it drive the enumeration loop: **every
 combo it lists needs its own `AUDIT_SCOPE.json` entry AND its own
 `## <Platform> <Country>` section here.**
+
+**A market list in the task title, description or plan does NOT narrow
+this.** Those are prose, often written once and reused across stores, and
+they go stale the moment a store adds a marketplace in Settings —
+`AUDIT_TARGETS.json` is regenerated from that config on every run, so it
+is the only list that is current. Seen live: a weekly schedule whose
+description said "SA+AE" ran for a store since configured for SA+AE+AU;
+the agent read the prose, announced it would skip AU, and would have been
+denied for a missing combo it had been told twice to skip. If the two
+disagree, `AUDIT_TARGETS.json` wins and the description is out of date —
+audit every declared combo and note the discrepancy in the report rather
+than silently dropping a market.
 
 A combo with genuinely no live campaigns is still written down — an
 entry with `"active_ids": []` and `"total_active": 0`, plus its section

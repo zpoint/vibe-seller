@@ -29,7 +29,9 @@ state on the way to a full drill, never as the final report.
 **Read `./AUDIT_TARGETS.json` FIRST** — the server writes it at the task
 root before you start: `{"combos": [{"platform": "amazon", "country":
 "SA"}, …]}`, every marketplace the store is configured for in Settings.
-That file, not your judgement, fixes the combo list — audit EVERY combo
+That file — not your judgement, and **not a market list in the task
+description** (prose goes stale when a store gains a marketplace; this
+file is regenerated from store config every run) — fixes the combo list — audit EVERY combo
 in it (e.g. Amazon <cc1>/<cc2> + noon <cc1>/<cc2>; or just a single
 Amazon marketplace for a single-market store), each with its own
 `AUDIT_SCOPE.json` entry (Step 1) and its own `## <Platform> <Country>`
