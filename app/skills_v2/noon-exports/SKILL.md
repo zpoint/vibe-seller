@@ -271,7 +271,33 @@ Status shows "Completed" (1-10 minutes depending on size).
 - **Export files land in `~/.vibe-seller/downloads/<store-slug>/`**,
   not `~/Downloads`.
 
+## 4. What the Transaction View does NOT give you
+
+The Transaction View is **order-grained for sales but lumped for FBN
+fees**. Two things a finance/profitability task usually needs are not in
+it:
+
+- **Per-SKU storage / return fees.** The whole month's FBN storage
+  settles as a single `balance_transfer` row whose `Others including
+  VAT` is opaque. Per-SKU monthly / long-term / non-saleable storage and
+  RTV removal fees come from the **FBN Reports** page — see
+  `noon-fbn` § 8 and `noon-fbn/references/fee-reports.md`. That
+  reference also carries the reconciliation proving the four reports sum
+  to this settlement (with a **one-month lag** and a **VAT gross-up**).
+- **Per-SKU ad spend.** `statement_fee` rows give only an account-level
+  `Advertising Fee`. Per-SKU spend comes from Ad Manager's
+  `Export all campaigns` — see `noon-ads` § 7.1.
+
+**This export is, however, the SKU bridge for both.** Its `SKUs` column
+is the noon-internal key (`Z…Z-<n>`) and `Partner SKUs` the seller's own
+code, on the same row — the only place the two keyspaces meet. Keep the
+transaction CSV alongside the fee/ads files; without it the per-SKU
+numbers cannot be mapped to seller SKUs.
+
 ## See also
 
 - `noon-shared` — login, page structure (prerequisite)
+- `noon-fbn` § 8 + `references/fee-reports.md` — per-SKU FBN storage /
+  RTV-removal fees, and the reconciliation against § 2's settlement line
+- `noon-ads` § 7.1 — per-SKU ad spend export
 - `amazon-reports` — Amazon equivalent + general "Download Behavior" pattern

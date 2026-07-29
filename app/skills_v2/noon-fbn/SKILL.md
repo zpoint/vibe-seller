@@ -1,6 +1,6 @@
 ---
 name: noon-fbn
-description: "Noon Fulfilled-by-noon (FBN) — ASN creation flow, ASN status enum, inventory export, barcode print. Load when scheduling a shipment, managing FBN inventory, creating an ASN, or exporting warehouse stock."
+description: "Noon Fulfilled-by-noon (FBN) — ASN creation flow, ASN status enum, inventory export, barcode print, and the FBN Reports page for PER-SKU storage / RTV-removal fee reports. Load when scheduling a shipment, managing FBN inventory, creating an ASN, exporting warehouse stock, or pulling per-SKU storage / return fees."
 requires: [noon-shared]
 review:
   criteria: |
@@ -10,11 +10,25 @@ review:
       showing in the list is not done.
     - If an inventory export was requested, the CSV exists and is
       non-empty with the expected columns.
+    - If per-SKU FBN fees were requested: ALL FOUR Finance reports
+      (Monthly Storage, Long Term Storage, Non Saleable Storage, RTV
+      Removal) exist for EVERY requested country x service month, each
+      as its own file whose name states the country and month. A report
+      that was missing on the page and never generated is a gap, not
+      "not applicable" — the only acceptable empty report is one that
+      downloads with a header row and genuinely zero data rows.
+    - The reconciliation in references/fee-reports.md § 4 was actually
+      computed and closes: sum(charged_amount) over the four reports for
+      service month M-1, x (1+VAT), equals month M's Transaction View
+      balance_transfer. An unreconciled pull is not done.
   verify_by: |
     Open the FBN ASN page (fbn.noon.partners/.../asn); confirm the new
     ASN number + status + shipment contents match. If inventory export
     was asked, open the CSV and confirm non-zero rows + warehouse/stock
-    columns.
+    columns. For per-SKU fees: list the output dir and confirm one file
+    per (report type x country), each with a sku (or barcode) column and
+    a charged_amount column; then print the § 4 reconciliation showing
+    the detail total, the VAT gross-up, and the settlement it matches.
 ---
 
 # Noon — FBN (Fulfilled by noon)
@@ -162,12 +176,53 @@ the page; don't hardcode.
 The My ASN & Storage page has a **Print Barcodes** button at the top
 to generate printable barcodes for FBN shipments.
 
+## 8. FBN Reports — per-SKU storage & RTV removal fees
+
+**URL**: `https://fbn.noon.partners/en-{cc}/fbnreports?project=PRJ{project_id}`
+
+The Transaction View export gives the month's FBN storage as **one
+lumped `balance_transfer` row with no SKU attribution**. This page is
+where the per-SKU breakdown lives — four Finance reports that together
+reconcile exactly to that settlement:
+
+| Report | Key | Gives you |
+|---|---|---|
+| Monthly Storage Charge | `sku` | per-SKU monthly storage fee + average stock |
+| Long Term Storage Charge | `sku` | per-SKU long-term (aged 6m/12m) storage fee |
+| Non Saleable Storage Charge | `sku` | per-SKU non-saleable ageing storage fee |
+| RTV Removal Charge | `barcode` | per-barcode removal/return fee + `shipped_qty` |
+
+Four things that will bite you, each covered in the reference:
+
+1. **No country field in the modal** — country comes from the
+   `en-{cc}` URL segment. The report *list* is project-wide, so you
+   only switch URL to generate, not to download.
+2. **Downloads are named by report type only** (no country, no month) —
+   rename each file immediately or SA/AE overwrite each other.
+3. **`charged_amount` is ex-VAT and the settlement lags by one month** —
+   month M's settlement is service month M−1, grossed up by VAT
+   (SA 15% / AE 5%).
+4. **RTV Removal has no `sku`** — join `barcode` → the storage reports'
+   `pbarcode` → `sku`. And FBN/ads SKUs are noon-internal
+   (`Z…Z-<n>`), NOT the seller codes in the Transaction View's
+   `Partner SKUs`; that export's `SKUs` column is the bridge.
+
+> **Read `references/fee-reports.md`** before generating or downloading
+> anything here — it has the generation flow, the download/rename
+> pattern, the reconciliation formula, and the join keys.
+
 ## Tips
 
 - **Don't "Agree & Proceed" ASN unless committing** — it reserves
   quota that counts against your allocation.
+- **A country can be missing a fee report entirely.** Reconcile (see
+  the reference § 4); if the sum doesn't close, generate the missing
+  report rather than assuming rounding.
 
 ## See also
 
+- `noon-fbn/references/fee-reports.md` — per-SKU fee reports in full
 - `noon-shared` — login, page structure (prerequisite)
 - `noon-listing` — Add FBN Stock from listing edit page
+- `noon-exports` — Transaction View (the settlement + the SKU bridge)
+- `noon-ads` — per-SKU ad spend (same keyspace trap)

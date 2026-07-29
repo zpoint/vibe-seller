@@ -351,17 +351,158 @@ low-performing queries (add as negatives).
 
 ## 7. Export Data
 
-**Two distinct exports:**
+**Two distinct exports — opposite reliability. Do not conflate them.**
 
-- **List-level `Export all campaigns`** — on the Campaigns tab
-  (top-right of the list, § 2). One file covering every campaign in the
-  current filter; the reliable bulk read when you need account-wide
-  campaign data.
-- **Per-tab `Export Data`** — on the Products / Targets / Customer
-  Queries tabs, exports the current filtered view. **Unreliable in this
-  environment** — see § 4 caveat. Prefer DOM eval extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT re-click
-or retry** — a no-op export button is an environment quirk, not a
-transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
+| | `Export all campaigns` (list level) | `Export Data` (per tab) |
+|---|---|---|
+| Where | Campaigns tab, top-right of the list (§ 2) | Products / Targets / Customer Queries tabs |
+| Reliability | **Works** — but ASYNC, takes ~1–5 min | **Unreliable here** — often a silent no-op |
+| On no file | keep waiting (§ 7.1) | give up immediately, use DOM eval |
+
+### 7.1 `Export all campaigns` — the per-SKU ad-spend source
+
+This is the only practical way to get **ad spend per SKU**. It honours
+the list's **date-range filter**, so set the range first.
+
+**Async, and the button is your progress indicator:**
+
+1. Click it once. It flips to **`disabled`** while noon builds the file.
+2. The file lands in `~/.vibe-seller/downloads/<slug>/` as
+   **`_OVERVIEW_ALL_Report_{from}_{to}.xlsx`** (e.g.
+   `_OVERVIEW_ALL_Report_2026-06-01_2026-06-30.xlsx`), typically after
+   1–5 min for a few dozen campaigns.
+3. **`disabled: true` means "generating", not "broken".** Poll the
+   download dir; do NOT re-click — and do NOT apply § 4's
+   "don't retry the export" rule here, that one is about the *per-tab*
+   button.
+
+> ⚠️ **The filename carries the date range but NOT the country.** An SA
+> and an AE export for the same range produce the **same filename**.
+> Rename on arrival (`ads_overview_{CC}_{YYYY-MM}.xlsx`) before starting
+> the other country's export.
+
+Country comes from the `en-{cc}` URL segment, same as everywhere else.
+
+**Setting a custom month range** (the presets are Last 30 days / Last 7
+days / Yesterday / Today):
+
+```bash
+browser-use <<'PY'
+import time, json
+def rect(expr):
+    r = js("(function(){%s})()" % expr)
+    return json.loads(r) if r and r.startswith('{') else None
+def click_text(t, lo=0, hi=99999):
+    r = rect("""
+      var want=%s, lo=%d, hi=%d;
+      var el=Array.from(document.querySelectorAll('div,li,span,button,a,p')).filter(e=>
+        e.children.length===0 && (e.textContent||'').trim()===want
+        && e.getBoundingClientRect().height>4
+        && e.getBoundingClientRect().y>lo && e.getBoundingClientRect().y<hi);
+      if(!el.length) return 'nf';
+      var b=el[0].getBoundingClientRect();
+      return JSON.stringify({x:Math.round(b.x+b.width/2), y:Math.round(b.y+b.height/2)});
+    """ % (json.dumps(t), lo, hi))
+    if not r: return False
+    click_at_xy(r['x'], r['y']); time.sleep(2); return True
+
+# 1. open the range dropdown (the button showing the current preset), 2. Custom range
+r = rect("""var b=Array.from(document.querySelectorAll('button')).find(x=>
+             /Last 30 days|Last 7 days|Custom|20\\d\\d/i.test(x.textContent||'')
+             && x.getBoundingClientRect().y<260);
+           if(!b) return 'nf'; var q=b.getBoundingClientRect();
+           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""")
+click_at_xy(r['x'], r['y']); time.sleep(2)
+click_text("Custom range")
+
+# 3. page the calendar back with the  <  arrow (y 350-395, x 580-620) until the
+#    header reads the month you want, then click the first day then the last day,
+#    then Apply. Verify the range button text before exporting.
+click_text("Apply")
+print(js("""(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>
+  x.getBoundingClientRect().y<260 && /20\\d\\d|Last|Custom/i.test(x.textContent||''));
+  return b?b.textContent.trim():'?'})()"""))
+PY
+```
+
+Then click the export (the handler is on the **`<button>`**, not the
+label `<span>` inside it — clicking the span does nothing):
+
+```bash
+browser-use <<'PY'
+import time, json
+r = js("""(function(){
+  var d=document.querySelector('[class*=CampaignStatusTabs_headerExportAction]');
+  if(!d) return 'nf';
+  var b=d.querySelector('button')||d, q=b.getBoundingClientRect();
+  return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2), dis:String(b.disabled)});
+})()""")
+c=json.loads(r); print("export btn:", c)
+click_at_xy(c['x'], c['y'])          # ONCE. then poll the download dir.
+PY
+```
+
+### 7.2 What's inside the workbook
+
+Ten sheets — `(Product)` and `(Brand)` families:
+
+| Sheet | Grain | Columns |
+|---|---|---|
+| `(Product|Brand) Campaign` | campaign | Campaign Name, Views, Clicks, Orders, ATC, Spends, Revenue, CTR, ROAS, CPC, CPS, CVR |
+| **`(Product|Brand) Sku`** | **campaign x SKU** | as above **+ `Sku`** |
+| `(Product|Brand) Target` | keyword / target | + Target Value, Targeting Type, Bid, Strategy |
+| `(Product|Brand) Placement` | placement | + Placement Type |
+| `(Product|Brand) Queries` | search term | + Sku, Query |
+
+**Per-SKU ad spend** = `Spends` from `(Product) Sku` **+** `(Brand) Sku`,
+grouped by `Sku`. Verified live: the SKU sheets sum **exactly** to the
+Campaign sheets, so this is a complete decomposition — no residual.
+
+```python
+frames = [xl.parse(s)[['Sku','Spends','Orders','Clicks','Views','Revenue']]
+          for s in ['(Product) Sku', '(Brand) Sku']]
+per_sku = pd.concat(frames).groupby('Sku', as_index=False).sum()
+```
+
+Three things to handle:
+
+- **`header` is not a SKU.** Brand-ad banner spend is booked against a
+  literal `Sku` value of `header` (a few % of spend). It is real spend
+  attributable to no SKU — keep it as an explicit "unattributed"
+  bucket; don't silently drop it or let it pollute a SKU.
+- **Parent vs variant SKUs.** `(Product) Sku` mixes noon-internal
+  variant (`Z…Z-<n>`) and parent (`Z…Z`) forms; `(Brand) Sku` is
+  mostly variant. These are noon-internal keys, **not** the seller
+  codes in the Transaction View's `Partner SKUs` — bridge via that
+  export's `SKUs` column (see
+  `noon-fbn/references/fee-reports.md` § 5).
+- **`Queries` sheets are capped at 30,000 rows.** Exactly 30000 means
+  truncated, not complete. Narrow the range if you need full
+  search-term coverage.
+
+### 7.3 Reconciling ad spend against the statement
+
+Ad spend does **not** tie exactly to the Transaction View's
+`Advertising Fee` (`statement_fee` rows, `Non-Order Fees`):
+
+```
+sum(Spends over the calendar month) x (1 + VAT)  ~=  sum(statement_fee Advertising Fee)
+```
+
+within a couple of percent (observed ~2–3%). The gap is structural, not
+an error: **ad statements are issued on a weekly cycle** whose periods
+straddle month boundaries, while the export is filtered on *performance*
+date. For per-SKU attribution use the **export** (so the per-SKU parts
+sum to the reported total); use `statement_fee` only when you need the
+amount actually invoiced.
+
+### 7.4 Per-tab `Export Data`
+
+Exports the current filtered view on Products / Targets / Customer
+Queries. **Unreliable in this environment** — see § 4 caveat. Prefer DOM
+eval extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT
+re-click or retry** — a no-op export button is an environment quirk, not
+a transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
 retrying just burns steps.
 
 ```bash
