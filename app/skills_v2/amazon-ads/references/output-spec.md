@@ -239,15 +239,25 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    block.
 
    So when spend reconciles but clicks are missing, do NOT write the
-   whole-campaign 「数据不可信 + 请勿执行」. Instead:
+   whole-campaign 「数据不可信 + 请勿执行」. Drop only what actually
+   depends on the missing column:
 
-   - write `维持` on every row whose action would have been a bid change,
-     and say why on the row: `维持（点击列未渲染，CPC 无法成立，出价不可
-     信）`;
-   - keep the pause / negate / 拓词 recommendations, which stand on
-     spend, orders and conversions;
-   - add one line to the block: `⚠️ 本活动点击列缺失：出价建议不可用，
-     暂停/否定建议仍然有效`.
+   - **A LOWER is unsafe** — `下调至 X` is floored at `CPC × 1.1`, and with
+     no clicks there is no CPC. Write `维持（点击列未渲染，CPC 无法成立，
+     降价地板算不出来）` instead. The tell is visible in the text itself:
+     a row whose bid is 2-4 printing `新出价不低于 CPC×1.1=0.05` has
+     divided by zero clicks, and 0.05 is not a floor.
+   - **A RAISE is fine** — `提高至 X` triggers on `ROAS ≥ 5`, and ROAS is
+     sales ÷ spend. Both columns rendered; only clicks did not. Keep it.
+   - **Pause / negate / 拓词 are fine** — they stand on spend, orders and
+     conversions, never on CPC. Keep them; they are usually the most
+     valuable actions in the block.
+   - add one line to the block: `⚠️ 本活动点击列缺失：降价建议不可用
+     （CPC 地板算不出），提价/暂停/否定建议仍然有效`.
+
+   Never print a `CPC×1.1=…` floor derived from zero clicks. If clicks are
+   0 and spend is not, say the floor is unavailable rather than quoting a
+   number that came from dividing by nothing.
 
    Seen live: three Amazon AE campaigns carrying AED ~1,100 of spend were
    quarantined whole for exactly this, one of them reconciling at
