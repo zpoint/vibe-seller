@@ -166,14 +166,38 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    money is not theirs to make. Use exactly one of:
 
    - targeting rows: `提高至 <bid>` / `下调至 <bid>` / `暂停` / `维持`
-   - search-term rows: `拓词`（add it as its own keyword）/ `否定词组` /
-     `否定精确` / `维持`
+   - search-term rows **that are keyword queries** — the action AND the
+     match type, because both directions have one:
+     `添加为关键词（精准|词组，建议出价 X）` (older spelling `拓词` is still
+     read) / `否定关键词（精准|词组）` (older `否定精确` / `否定词组` still
+     read) / `维持`
+   - search-term rows **that are category / product placements** — the
+     match column says `Subcat`, `Category`, `Product`, an ASIN, or the
+     like: `否定投放` / `维持`
 
-   Bare `否定` is NOT acceptable on a search-term row: phrase-negating and
-   exact-negating a query have very different blast radius, and only the
-   audit knows which one the data supports. Likewise a converting query
-   that deserves its own keyword must say `拓词` — nothing downstream can
-   infer that from `维持`.
+   Bare `否定` is NOT acceptable on a KEYWORD search-term row: phrase-
+   negating and exact-negating a query have very different blast radius,
+   and only the audit knows which one the data supports. Likewise a
+   converting query that deserves its own keyword must say so explicitly —
+   nothing downstream can infer that from `维持`.
+
+   **State the match type when ADDING a keyword too, not only when
+   negating.** Both carry one, and the blast radius argument is the same in
+   both directions: added as 精准 the new keyword serves only that exact
+   query; as 词组 it also absorbs every query containing it, taking traffic
+   from the broad target that surfaced it. The console has to pre-select
+   something, so when you leave it unstated it falls back to 精准 (the
+   narrower option) and marks the row `报告未指定` — a visible admission
+   that the page chose, not you. Do not make that the normal case.
+
+   **But match type is a property of keywords, so that rule stops at a
+   category/product placement.** A `Subcat` or ASIN row has no phrase-vs-
+   exact variant to choose between and cannot be promoted to a keyword —
+   negating it just drops that placement, so `否定投放` is the whole
+   action and `拓词` does not apply. Do not invent a match type to satisfy
+   the keyword rule: writing `否定精确` on a category row states a
+   distinction the platform does not have, and the console executes what
+   the action head says.
 
 3. **The reconciliation line** — machine-checkable, same 30-day window
    on BOTH pages:

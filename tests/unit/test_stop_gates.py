@@ -2560,3 +2560,138 @@ class TestAutoGroupPauseVsCarry:
             self._report('维持（剪枝零单浪费词后观察）')
         )
         assert deny is None or 'auto 定向承接' not in deny.reason
+
+
+@pytest.mark.unit
+class TestPlacementKeywordVerb:
+    """A category/product placement has no keyword match type.
+
+    A noon ``Subcat`` row (and Amazon ``Category``/``Product``/ASIN
+    targeting) is a PLACEMENT, not a customer query: match mode is a
+    property of keywords, so there is no phrase-vs-exact variant to
+    choose between and nothing to promote to its own keyword. Negating
+    it simply drops the placement.
+
+    The spec used to list one keyword-only vocabulary for every
+    search-term row, so a live audit that wrote the only correct verb it
+    had (``否定商品定向``) was rendered as "no executable action" while
+    inventing ``否定精确`` would have passed. That is backwards, and it
+    stayed possible because the rule lived only in prose.
+    """
+
+    def _report(self, st_rows: str) -> str:
+        return (
+            '### C_TEST1234567 | test | Manual\n\n'
+            '| 定向词 | 匹配 | 出价 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| widget | Phrase | 0.8 | 3 | 维持 |\n\n'
+            '| 搜索词 | 来源关键词 | 匹配 | 点击 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|---|\n' + st_rows
+        )
+
+    def test_exact_negation_on_subcat_flagged(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '否定精确（40 点击零转化） |\n'
+            )
+        )
+        assert deny is not None and '品类/商品投放' in deny.reason
+
+    def test_harvest_on_placement_flagged(self):
+        """You cannot promote a category placement to a keyword."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Widgets/Subcategory-2 | Widgets/Subcategory-2 | Category | 9 | 2 | '
+                '拓词（ROAS 6.1） |\n'
+            )
+        )
+        assert deny is not None and '品类/商品投放' in deny.reason
+
+    def test_plain_negation_on_placement_passes(self):
+        """``否定投放`` is the whole action — nothing to disambiguate."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '否定投放（40 点击 / 90.00 花费零转化，浪费） |\n'
+            )
+        )
+        assert deny is None or '品类/商品投放' not in deny.reason
+
+    def test_hold_on_placement_passes(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 9 | 2 | '
+                '维持——转化词，ROAS 4.74 |\n'
+            )
+        )
+        assert deny is None or '品类/商品投放' not in deny.reason
+
+    def test_keyword_row_still_requires_the_exact_verb(self):
+        """The exception must not leak onto ordinary keyword queries."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| bluetooth speaker | widget | Phrase | 40 | 0 | '
+                '否定精确（40 点击零转化） |\n'
+            )
+        )
+        assert deny is None or '品类/商品投放' not in deny.reason
+
+
+@pytest.mark.unit
+class TestNewKeywordSpelling:
+    """The clearer wording must not buy an exemption from the old checks.
+
+    「拓词」 was jargon a reviewer had to be taught, so the console renames
+    it 添加为关键词 and the spec now prefers that spelling. Every check
+    written against the old verbs has to recognise the new one, or the
+    rename silently drops coverage: an extraction with no suggested bid,
+    or a keyword-only verb on a category placement, would both pass.
+    """
+
+    def _report(self, st_rows: str) -> str:
+        return (
+            '### C_TEST1234567 | test | Manual\n\n'
+            '| 定向词 | 匹配 | 出价 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| widget | Phrase | 0.8 | 3 | 维持 |\n\n'
+            '| 搜索词 | 来源关键词 | 匹配 | 点击 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|---|\n' + st_rows
+        )
+
+    def test_new_spelling_still_needs_a_suggested_bid(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| blue widget | widget | Phrase | 9 | 3 | '
+                '添加为关键词（精准——ROAS 6.1>5） |\n'
+            )
+        )
+        assert deny is not None and '建议出价' in deny.reason
+
+    def test_new_spelling_with_a_bid_passes(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| blue widget | widget | Phrase | 9 | 3 | '
+                '添加为关键词（精准，建议出价 0.95——ROAS 6.1>5） |\n'
+            )
+        )
+        assert deny is None or '建议出价' not in deny.reason
+
+    def test_new_spelling_on_a_placement_is_still_flagged(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '否定关键词（精准，40 点击零转化） |\n'
+            )
+        )
+        assert deny is not None and '品类/商品投放' in deny.reason
+
+    def test_negated_mention_is_not_read_as_an_extraction(self):
+        """「不可添加关键词」 explains why it CAN'T be done."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 9 | 2 | '
+                '维持——品类位不可添加关键词 |\n'
+            )
+        )
+        assert deny is None or '建议出价' not in deny.reason

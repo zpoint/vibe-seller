@@ -221,10 +221,19 @@ the active set you enumerated in Step 1**:
   mis-summed because of it.
 
   2. *Search-term layer* (REQUIRED — the actual customer queries).
-     **`建议` must name the exact action** — `拓词` / `否定词组` /
-     `否定精确` / `维持`, never a bare `否定`: the console turns your
-     recommendation into the pre-selected button, and phrase-vs-exact
-     negation differ enough that only the audit can choose. Amazon rows
+     **`建议` must name the exact action AND its match type** —
+     `添加为关键词（精准|词组，建议出价 X）` / `否定关键词（精准|词组）` /
+     `维持`, never a bare `否定`: the console turns your recommendation into
+     the pre-selected button, and 精准-vs-词组 differs enough in blast
+     radius that only the audit can choose — when adding as well as when
+     negating. Leave it unstated and the console falls back to 精准 and
+     labels the row `报告未指定`. (`拓词` / `否定精确` / `否定词组` are still
+     read, but prefer the explicit spelling.)
+     **Exception — category / product placements** (`Subcat`, `Category`,
+     `Product`, an ASIN): match type belongs to keywords, so those rows
+     have no phrase-vs-exact variant and cannot be promoted to a keyword.
+     Use `否定投放` / `维持` only, and never invent a match type to fit
+     the keyword rule. Amazon rows
      carry `Ad Group ID` + `Keyword ID` + `Keyword Text`, so fill
      `广告组` / `来源关键词` from them; noon's `(Product) Queries` has only
      `Campaign Name` / `Sku` / `Query`, so put the SKU in `广告组`, write

@@ -826,5 +826,94 @@
     "expired": "已过期——已被下方更新的请求替代",
     "interrupted": "你改为发送了消息——未生成此图",
     "generating": "正在生成图片…大约需要 1–2 分钟"
+  },
+  "audit": {
+    "eyebrow": "30 天广告审计",
+    "cardEyebrow": "广告审计 · 决策台",
+    "heroTitle": "{{markets}} 个国家 · {{campaigns}} 个在投活动",
+    "heroMeta": "逐行下钻 {{rows}} 条定向词与搜索词。每一行都已按审计的建议预选好动作——同意就不用动，不同意点另一个。当前预选了 {{preselected}} 行要改。盈亏线 ROAS {{breakeven}}。",
+    "cardSummary": "已审 {{rows}} 行 · 预选 {{acting}} 行要改",
+    "openConsole": "打开决策台",
+    "missingNames": "本次报告只采集到 {{got}}/{{total}} 个活动的名称，其余显示 ID。",
+    "searchPlaceholder": "活动名 / ID / 关键词 / 搜索词",
+    "allMarkets": "全部国家",
+    "onlyChanged": "只看有改动的活动",
+    "expandAll": "全部展开",
+    "collapseAll": "全部收起",
+    "noMatches": "没有符合筛选条件的活动。",
+    "adGroup": "广告组",
+    "sku": "SKU",
+    "noName": "名称未采集",
+    "noNameHint": "报告没有采集这个活动的名称。",
+    "quarantineBadge": "数据不可信 · 请勿执行",
+    "quarantineTitle": "本活动的出价建议不可执行：",
+    "reconOk": "花费两测一致 ✓",
+    "reconBad": "花费两测不符 ✗",
+    "reconHint": "定向层 {{currency}} {{tSpend}} / {{tClicks}} 点击 vs 搜索词层 {{currency}} {{sSpend}} / {{sClicks}} 点击",
+    "legend": {
+      "bleeding": "亏损：ROAS 低于盈亏线六成",
+      "problem": "有问题：花过钱但 0 点击 / 0 订单 / ROAS 低于盈亏线（花费 ≥ {{min}} 才算）",
+      "idle": "没跑起来：0 花费 0 点击，缺数据而非亏钱"
+    },
+    "act": {
+      "raise": "提高出价",
+      "lower": "降低出价",
+      "pause": "暂停",
+      "keep": "维持",
+      "add": "添加为关键词",
+      "neg": "否定关键词",
+      "negt": "否定投放"
+    },
+    "match": {
+      "exact": "精准",
+      "phrase": "词组"
+    },
+    "col": {
+      "target": "定向词 / 关键词",
+      "searchTerm": "搜索词",
+      "match": "匹配",
+      "bid": "出价",
+      "clicks": "点击",
+      "spend": "花费",
+      "orders": "订单",
+      "sales": "销售额",
+      "roas": "ROAS",
+      "yourAction": "你的动作"
+    },
+    "row": {
+      "matchTypeLabel": "匹配方式",
+      "matchTypeDefault": "默认精准 · 报告未指定",
+      "matchTypeDefaultHint": "报告只写了「{{advice}}」，没说精准还是词组；这里是页面的默认值，不是审计的判断。",
+      "agentSuggests": "agent 建议",
+      "noExecutableAction": "⚠ agent 未给出可执行动作（{{reason}}）——需要审计侧补明确动作",
+      "zeroClicks": "⚠ 0 点击",
+      "bidUnsafeHint": "该行花费 > 0 但点击 = 0：降价地板 CPC×1.1 算不出来，降价目标不可信（提价靠 ROAS，不受影响）。",
+      "quarantinedHint": "本活动数据不可信，建议不可执行。"
+    },
+    "layer": {
+      "targeting": "定向层",
+      "searchTerms": "搜索词层",
+      "rowCount": "{{count}} 行",
+      "toChange": "{{count}} 行要改",
+      "restoreAgent": "恢复 agent 建议",
+      "keepAll": "全部维持",
+      "noTargets": "无定向层数据。",
+      "noTerms": "无搜索词数据。"
+    },
+    "tile": {
+      "campaigns": "{{count}} 个活动",
+      "untrusted": "{{count}} 个数据不可信"
+    },
+    "foot": {
+      "toChange": "要改的行",
+      "edited": "我改过 agent 的",
+      "keeping": "维持不动",
+      "forced": "· 另有 {{count}} 行被系统锁为维持（数据不可信 / 0 点击）",
+      "impact": "涉及花费",
+      "viewJson": "查看决策 JSON",
+      "jsonTitle": "决策集 —— 这就是发给 agent 的内容",
+      "handToAgent": "交给 agent 执行",
+      "sending": "发送中…"
+    }
   }
 }

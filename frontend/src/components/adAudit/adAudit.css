@@ -1,0 +1,642 @@
+/* Audit console styles.
+ *
+ * Everything is scoped under `.adaudit` and written as plain CSS rather than
+ * Tailwind utilities. Two reasons: the console is a dense data surface whose
+ * type/spacing scale was tuned as a whole (bigger figures needed bigger
+ * cells to stop looking cramped), and keeping it in one stylesheet means the
+ * scale can be adjusted in one place instead of across hundreds of class
+ * attributes.
+ *
+ * Reviewer-facing TEXT lives in i18n, never here — no content in
+ * ::before/::after.
+ */
+
+.adaudit {
+  --ink: #0f172a;
+  --ink-2: #52525b;
+  --ink-3: #8b8b94;
+  --card: #fff;
+  --bg-subtle: #f7f8fa;
+  --hairline: #e5e7eb;
+  --row-alt: #f1f3f6;
+  --brand: #4f46e5;
+  --brand-bg: #eef0ff;
+  --pos: #15803d;
+  --pos-bg: #ecfdf3;
+  --warn: #b45309;
+  --warn-bg: #fffbeb;
+  --neg: #b91c1c;
+  --info: #0369a1;
+  --info-bg: #eff8ff;
+  --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r-card: 11px;
+  --r-btn: 8px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--bg-subtle);
+}
+
+.adaudit *,
+.adaudit *::before,
+.adaudit *::after {
+  box-sizing: border-box;
+}
+
+/* ── shell ─────────────────────────────────────────────────────── */
+.adaudit-canvas {
+  padding: 26px 30px 40px;
+  min-width: 0;
+}
+.adaudit-hero h2 {
+  font-size: 27px;
+  font-weight: 650;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+.adaudit-eyebrow {
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.adaudit-herometa {
+  color: var(--ink-2);
+  margin-top: 6px;
+  max-width: 92ch;
+}
+
+/* ── legend: colour only means something if it is stated ────────── */
+.adaudit-legend {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.adaudit-lg {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.adaudit-sw {
+  width: 24px;
+  height: 15px;
+  border-radius: 3px;
+  flex: none;
+  border: 1px solid var(--hairline);
+}
+.adaudit-sw-bleed {
+  background: #fef5f5;
+  box-shadow: inset 3px 0 0 var(--neg);
+}
+.adaudit-sw-prob {
+  background: #fffcf5;
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.adaudit-sw-idle {
+  background: #fff;
+  box-shadow: inset 3px 0 0 #dce1e8;
+}
+
+/* ── market tiles ──────────────────────────────────────────────── */
+.adaudit-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(262px, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+.adaudit-tile {
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  padding: 15px 16px;
+}
+.adaudit-tile-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.adaudit-tile-cc {
+  font-size: 19px;
+  font-weight: 650;
+  font-style: italic;
+}
+.adaudit-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 11px;
+}
+.adaudit-tile-grid dt {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.adaudit-tile-grid dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 15px;
+}
+
+/* ── toolbar ───────────────────────────────────────────────────── */
+.adaudit-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 20px 0 12px;
+}
+.adaudit button {
+  font: inherit;
+  font-size: 13px;
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-btn);
+  padding: 7px 13px;
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.adaudit button:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+.adaudit button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.adaudit button[data-on='true'] {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+  font-weight: 600;
+}
+.adaudit input[type='search'] {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-btn);
+  padding: 7px 12px;
+  min-width: 240px;
+  background: var(--card);
+}
+
+/* ── campaign block ────────────────────────────────────────────── */
+.adaudit-plathead {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin: 20px 0 10px;
+  font-weight: 600;
+}
+.adaudit-sectionhead {
+  font-size: 19px;
+  font-weight: 650;
+  font-style: italic;
+  margin: 22px 0 4px;
+}
+.adaudit-grp {
+  background: var(--card);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-card);
+  margin-bottom: 14px;
+  overflow: hidden;
+}
+.adaudit-grp[data-quar='true'] {
+  border-color: #f3c4c4;
+}
+.adaudit-ghead {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 19px 20px;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  font-size: inherit;
+  color: inherit;
+}
+.adaudit-ghead:hover {
+  background: var(--bg-subtle);
+}
+.adaudit-grp[data-quar='true'] .adaudit-ghead {
+  background: #fef2f2;
+}
+.adaudit-grp[data-open='true'] .adaudit-ghead {
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* The campaign NAME is the headline of the block — it is what you are
+   deciding about, so it gets the largest type and is allowed to WRAP. Real
+   names run past 45 chars and share long prefixes, so truncating cut them
+   mid-token and left several blocks looking identical. The market chip flows
+   AS TEXT with it: as a flex sibling it wrapped onto its own line at narrow
+   widths and stranded the name below it. */
+.adaudit-gtitle {
+  flex: 1;
+  min-width: 0;
+}
+.adaudit-gname {
+  display: block;
+}
+.adaudit-cname {
+  display: inline;
+  font-size: 23px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.adaudit-gmeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 5px;
+}
+.adaudit-gstats {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+/* Below this width the two header blocks cannot share a row without the name
+   shrinking to a column of wrapped fragments — so stack them. */
+@media (max-width: 1440px) {
+  .adaudit-ghead {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 9px;
+  }
+  .adaudit-gstats {
+    justify-content: flex-start;
+  }
+}
+
+.adaudit-cid {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+}
+.adaudit-cid.dim {
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.adaudit-chip {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-btn);
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+.adaudit-chip.cc {
+  background: var(--brand-bg);
+  color: var(--brand);
+  border-color: #dde3ff;
+  font-family: var(--mono);
+  font-weight: 600;
+  margin-right: 9px;
+  vertical-align: 3px;
+}
+.adaudit-chip.ag {
+  background: var(--info-bg);
+  color: var(--info);
+  border-color: #bae0f5;
+  max-width: 52ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adaudit-chip.todo {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-color: #fcd9a0;
+  font-weight: 600;
+}
+.adaudit-chip.nomame {
+  background: var(--bg-subtle);
+  font-size: 11px;
+}
+.adaudit-stat {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.adaudit-stat b {
+  color: var(--ink);
+}
+.adaudit-recon {
+  font-size: 12.5px;
+  font-family: var(--mono);
+  border-radius: var(--r-btn);
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.adaudit-recon[data-ok='true'] {
+  background: var(--pos-bg);
+  color: var(--pos);
+}
+.adaudit-recon[data-ok='false'] {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.adaudit-qbadge {
+  font-size: 12.5px;
+  font-weight: 700;
+  background: var(--neg);
+  color: #fff;
+  border-radius: var(--r-btn);
+  padding: 6px 13px;
+  white-space: nowrap;
+}
+.adaudit-qnote {
+  margin: 0;
+  padding: 16px 18px;
+  background: #fef2f2;
+  color: #7f2323;
+  font-size: 12.5px;
+  border-bottom: 1px solid #f3c4c4;
+  line-height: 1.6;
+}
+
+/* ── layer + table ─────────────────────────────────────────────── */
+.adaudit-layerhead {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  padding: 21px 18px 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.adaudit-bulk {
+  display: flex;
+  gap: 7px;
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.adaudit-bulk button {
+  font-size: 12.5px;
+  padding: 7px 13px;
+}
+.adaudit-tscroll {
+  overflow-x: auto;
+}
+.adaudit table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: auto;
+}
+.adaudit th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+  background: #fff;
+}
+.adaudit td {
+  padding: 16px;
+  border-bottom: 1px solid var(--row-alt);
+  vertical-align: middle;
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+.adaudit tr:last-child td {
+  border-bottom: none;
+}
+/* Figures and match types never wrap; everything else is left to auto
+   layout, which spreads leftover width in proportion to content. Forcing
+   the slack into ONE column was tried both ways and looked wrong both
+   times: on the name it left a dead gap before the match column, on the
+   actions it left one at the right edge. */
+.adaudit td.num,
+.adaudit th.num {
+  text-align: right;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  font-size: 16px;
+}
+.adaudit td.mt,
+.adaudit th.mt {
+  white-space: nowrap;
+}
+.adaudit-term {
+  font-weight: 600;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.adaudit-srck {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+}
+.adaudit-why {
+  color: var(--ink-3);
+  font-size: 13px;
+  margin-top: 6px;
+  line-height: 1.55;
+}
+
+/* ── problem tiers ─────────────────────────────────────────────── */
+.adaudit .pos {
+  color: var(--pos);
+  font-weight: 600;
+}
+.adaudit .neg {
+  color: var(--neg);
+  font-weight: 700;
+}
+.adaudit .warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+/* A problem cell is the NUMBER that is wrong; the row tint says "look
+   here", the cell says "this is why". */
+.adaudit td.bad-cell {
+  color: var(--neg);
+  font-weight: 700;
+  background: #fef2f2;
+}
+.adaudit td.idle-cell {
+  color: var(--ink-3);
+}
+.adaudit td.spend-cell {
+  font-weight: 700;
+}
+.adaudit tr.row-problem {
+  background: #fffcf5;
+}
+.adaudit tr.row-bleeding {
+  background: #fef5f5;
+}
+.adaudit tr.row-problem td:first-child {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.adaudit tr.row-bleeding td:first-child {
+  box-shadow: inset 3px 0 0 var(--neg);
+}
+.adaudit tr.row-idle td:first-child {
+  box-shadow: inset 3px 0 0 #dce1e8;
+}
+/* An explicit decision outranks what the data looks like. */
+.adaudit tr.acting td:first-child,
+.adaudit tr.edited td:first-child {
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+.adaudit tr.ambig-row {
+  background: #fffbeb;
+}
+
+/* ── the two-level action control ──────────────────────────────── */
+.adaudit-acts {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+.adaudit-acts button {
+  padding: 9px 15px;
+  font-size: 14px;
+}
+/* Selected by data-act, NOT by a class name: a class called `neg` collided
+   with the global `.neg{color:red}` used for ROAS figures, so the negate
+   button rendered as red TEXT on a white face and never looked pressed. */
+.adaudit-acts button[aria-pressed='true'] {
+  font-weight: 600;
+}
+.adaudit-acts button[data-act='raise'][aria-pressed='true'] {
+  background: var(--pos);
+  color: #fff;
+  border-color: var(--pos);
+}
+.adaudit-acts button[data-act='lower'][aria-pressed='true'] {
+  background: var(--warn);
+  color: #fff;
+  border-color: var(--warn);
+}
+.adaudit-acts button[data-act='pause'][aria-pressed='true'],
+.adaudit-acts button[data-act='neg'][aria-pressed='true'],
+.adaudit-acts button[data-act='negt'][aria-pressed='true'] {
+  background: var(--neg);
+  color: #fff;
+  border-color: var(--neg);
+}
+.adaudit-acts button[data-act='add'][aria-pressed='true'] {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+.adaudit-acts button[data-act='keep'][aria-pressed='true'] {
+  background: var(--ink-2);
+  color: #fff;
+  border-color: var(--ink-2);
+}
+
+/* Visibly SUBORDINATE to the primary row — indented, smaller, introduced by
+   its own label — so the row reads as one decision with a qualifier rather
+   than as two competing sets of buttons. */
+.adaudit-mts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+.adaudit-mtlab {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  letter-spacing: 0.04em;
+}
+.adaudit-mts button {
+  padding: 5px 12px;
+  font-size: 12.5px;
+}
+.adaudit-mts button[aria-pressed='true'] {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+  font-weight: 600;
+}
+.adaudit-mtdef {
+  font-size: 11.5px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid #fcd9a0;
+  border-radius: var(--r-btn);
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.adaudit-sugg {
+  font-size: 12px;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+  margin-top: 6px;
+}
+.adaudit-ambig {
+  color: var(--warn);
+  font-weight: 600;
+}
+.adaudit-flagchip {
+  display: inline-block;
+  font-size: 11.5px;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1px solid #fcd9a0;
+  border-radius: var(--r-btn);
+  padding: 3px 8px;
+  margin-top: 6px;
+}
+.adaudit-empty {
+  padding: 16px 18px;
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+/* ── footer ────────────────────────────────────────────────────── */
+.adaudit-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 30px;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.adaudit-foot .grow {
+  flex: 1;
+}
+.adaudit-foot b {
+  color: var(--ink);
+  font-family: var(--mono);
+}
+.adaudit button.primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+  font-weight: 600;
+}
+.adaudit button.primary:hover:not(:disabled) {
+  background: #4338ca;
+}
