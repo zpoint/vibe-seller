@@ -83,6 +83,27 @@ def _header_index(cells: list[str], names: tuple[str, ...]) -> int | None:
     return None
 
 
+def _header_index_prefix(
+    cells: list[str], names: tuple[str, ...]
+) -> int | None:
+    """Header lookup that tolerates a currency suffix on the column name.
+
+    The report's per-campaign tables label money columns with the market's
+    currency — ``花费 (SAR)``, ``销售额 (AED)`` — so an exact match finds
+    nothing and any check depending on it silently does nothing. That is
+    exactly how the 合计-footer check below came out as a no-op on a block
+    that plainly contradicted itself.
+
+    PREFIX, not substring: ``花费`` must not match ``销售额``, and it must
+    not match a column that merely mentions spend later in its name.
+    """
+    for i, c in enumerate(cells):
+        lowered = c.strip().strip('*').lower()
+        if any(lowered.startswith(n) for n in names):
+            return i
+    return None
+
+
 def _combo_table(section: str) -> list[tuple[str, float | None]]:
     """``[(campaign_id, spend), …]`` from a section's campaign table."""
     rows: list[tuple[str, float | None]] = []
@@ -116,6 +137,46 @@ def _combo_table(section: str) -> list[tuple[str, float | None]]:
 # The drill block's own authoritative figure: the targeting side of the
 # reconciliation line, which IS the campaign's spend for the window.
 _RECON_RE = re.compile(r'搜索词对账[^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)')
+# The targeting table's own 合计 footer — a THIRD statement of the same
+# number, inside the same block. Live, a campaign carried a corrected
+# figure in its table AND its reconciliation while the 合计 footer still
+# held the old one: the row and
+# the reconciliation agreed with each other, so the table-vs-drill check
+# passed while the block openly contradicted itself two lines apart.
+_TOTAL_ROW_RE = re.compile(
+    r'(?m)^\|\s*\*{0,2}(?:合计|总计|汇总)\*{0,2}\s*\|(.+)$'
+)
+
+
+def _total_row_spend(block: str) -> float | None:
+    """The largest money-looking cell in the block's 合计 row.
+
+    Column position varies between the two layers and across markets, so
+    the footer is matched by NAME and its spend taken as the biggest
+    figure on the row — sales/revenue sit beside it, but a campaign's
+    sales exceeding its spend is the normal case, so the maximum is not
+    a safe pick. Take the cell whose column matches the header instead
+    when a header is available; fall back to None rather than guess.
+    """
+    m = _TOTAL_ROW_RE.search(block)
+    if m is None:
+        return None
+    # Find the targeting table header to locate the spend column.
+    spend_i = None
+    for line in block.splitlines():
+        cells = _cells(line)
+        if not cells:
+            continue
+        idx = _header_index_prefix(cells, _SPEND_HEADER_CELLS)
+        if idx is not None:
+            spend_i = idx
+            break
+    if spend_i is None:
+        return None
+    cells = _cells(m.group(0))
+    if spend_i >= len(cells):
+        return None
+    return _money(cells[spend_i])
 
 
 def _drill_spends(section: str) -> dict[str, float]:
@@ -170,6 +231,35 @@ def check_rollups(text: str) -> list[str]:
         if not rows:
             continue
         drills = _drill_spends(section)
+
+        # 1a) the block's 合计 footer vs its own reconciliation line —
+        #     both inside one block, so a mismatch is the block
+        #     contradicting itself.
+        self_contradictory = []
+        for block in section.split('\n### ')[1:]:
+            cid = block.splitlines()[0].split('|')[0].strip().strip('*')
+            if not cid:
+                continue
+            recon = _RECON_RE.search(block)
+            total = _total_row_spend(block)
+            if recon is None or total is None:
+                continue
+            rv = _money(recon.group(1))
+            if rv is None or rv == 0:
+                continue
+            if abs(total - rv) > max(_ROW_TOL, rv * 0.001):
+                self_contradictory.append(
+                    f'「{cid}」合计行 {total:.2f} vs 对账行 {rv:.2f}'
+                )
+        if self_contradictory:
+            gaps.append(
+                f'[汇总一致] 「{label}」有 {len(self_contradictory)} 个活动'
+                '块自己前后矛盾：定向表的 合计 行跟同一块里的 对账 行对不上：'
+                + '；'.join(self_contradictory[:4])
+                + '。这两个数说的是同一件事（该活动定向层 30 天总花费），'
+                '改了一个必须改另一个。以你重新核过的那个为准，把 合计 行、'
+                '对账 行、上面组合表那一行三处改成一致。'
+            )
 
         # 1) combo table row vs the campaign's own drill block
         stale = [

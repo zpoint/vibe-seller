@@ -141,3 +141,76 @@ class TestRollupConsistency:
     def test_no_combo_section_is_not_a_gap(self):
         assert check_rollups('just some prose about ads') == []
         assert check_rollups('') == []
+
+
+_WITH_FOOTER = """## noon AE
+
+| id | name | type | spend | sales | orders | ACOS | ROAS |
+|---|---|---|---|---|---|---|---|
+| C_AAA11111 | widget auto | Auto | AED 90.00 | AED 300.00 | 9 | 30.00% | 3.33 |
+
+### C_AAA11111 | widget auto | Auto
+
+| 关键词/定向 | 匹配 | 出价 (AED) | 点击 | 花费 (AED) | ROAS | 建议 |
+|---|---|---|---|---|---|---|
+| widget | Broad | 1.00 | 60 | 60.00 | 3.0 | 维持 |
+| widget large | Broad | 1.00 | 40 | 30.00 | 3.0 | 维持 |
+| **合计** | — | — | 100 | 90.00 | 3.33 | — |
+搜索词对账: 定向花费 AED 90.00 / 点击 100 = 搜索词花费 AED 90.00 / 点击 100 (✓)
+
+## 汇总建议
+
+| 平台 | 国家 | 活跃活动数 | 总花费 | 总销售额 | 总订单 | ROAS |
+|---|---|---|---|---|---|---|
+| noon | AE | 1 | AED 90.00 | AED 300.00 | 9 | 3.33 |
+"""
+
+
+@pytest.mark.unit
+class TestBlockSelfContradiction:
+    """The 合计 footer and the 对账 line state the same number.
+
+    Both live INSIDE one drill block, two lines apart, so a mismatch is
+    the block contradicting itself — and the table-vs-drill check cannot
+    see it, because that compares the combo table against the
+    reconciliation line and those two can agree while the footer is
+    stale. Live: four campaigns whose reconciliation had been corrected
+    while their footer still held the old figure — four separate blocks,
+    each disagreeing with itself by a wide margin.
+    """
+
+    def test_consistent_block_is_clean(self):
+        assert [g for g in check_rollups(_WITH_FOOTER) if '前后矛盾' in g] == []
+
+    def test_stale_footer_is_caught(self):
+        bad = _WITH_FOOTER.replace(
+            '| **合计** | — | — | 100 | 90.00 | 3.33 | — |',
+            '| **合计** | — | — | 100 | 60.00 | 3.33 | — |',
+        )
+        gaps = [g for g in check_rollups(bad) if '前后矛盾' in g]
+        assert len(gaps) == 1
+        assert '60.00' in gaps[0] and '90.00' in gaps[0]
+
+    def test_currency_suffixed_header_is_still_found(self):
+        """`花费 (AED)` must resolve, or the check is a silent no-op.
+
+        An exact header match found nothing here, so the check returned
+        None on a block that plainly disagreed with itself — the failure
+        was invisible rather than loud.
+        """
+        bad = _WITH_FOOTER.replace(
+            '| **合计** | — | — | 100 | 90.00 | 3.33 | — |',
+            '| **合计** | — | — | 100 | 60.00 | 3.33 | — |',
+        )
+        assert '花费 (AED)' in bad  # the suffixed header
+        assert [g for g in check_rollups(bad) if '前后矛盾' in g]
+
+    def test_block_without_a_footer_is_not_a_gap(self):
+        no_footer = _WITH_FOOTER.replace(
+            '| **合计** | — | — | 100 | 90.00 | 3.33 | — |\n', ''
+        )
+        assert [g for g in check_rollups(no_footer) if '前后矛盾' in g] == []
+
+    def test_rounding_is_tolerated(self):
+        near = _WITH_FOOTER.replace('100 | 90.00 | 3.33', '100 | 90.01 | 3.33')
+        assert [g for g in check_rollups(near) if '前后矛盾' in g] == []

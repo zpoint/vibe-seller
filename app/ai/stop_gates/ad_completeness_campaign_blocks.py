@@ -32,11 +32,27 @@ _CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|C_[A-Z0-9]{6,}|A[0-9A-Z]{16,}')
 
 # Machine-readable reconciliation line (output-spec):
 #   搜索词对账: 定向花费 USD 942.39 / 点击 762 = 搜索词花费 USD 942.39 / 点击 762 (✓)
+# CLICKS ARE OPTIONAL, because the gate grades SPEND and the spec itself
+# calls clicks advisory ("Amazon's search-term report strips invalid
+# clicks, so click totals can legitimately diverge"). Requiring them to
+# PARSE was stricter than the contract being enforced, and some pages
+# simply do not expose the column: three live Amazon AU campaigns wrote
+# `定向花费 X = 搜索词花费 Y` and said so on the same line — "定向页与
+# 搜索词页均不提供 clicks 列". The gate then reported the line as
+# unparseable and demanded "四个数字齐全", i.e. demanded a number the
+# platform does not publish. An unsatisfiable check is a standing order to
+# retry the impossible, which is the failure mode already fixed for the
+# below-floor and contradiction cases.
+#
+# The optional targeting-clicks group is bounded by ``[^\n=]`` so it can
+# only match BEFORE the ``=``; without that it would happily consume the
+# search-term side's click count and pair the wrong numbers.
 _RECONCILE_RE = re.compile(
-    r'搜索词对账[:：][^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
-    r'[^\n]*?点击[^\d\n]*([\d,]+)'
+    r'搜索词对账[:：]'
+    r'[^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
+    r'(?:[^\n=]*?点击[^\d\n]*([\d,]+))?'
     r'[^\n]*?搜索词花费[^\d\n]*([\d,]+(?:\.\d+)?)'
-    r'[^\n]*?点击[^\d\n]*([\d,]+)'
+    r'(?:[^\n]*?点击[^\d\n]*([\d,]+))?'
 )
 # A campaign's NAME is what a human calls it; the id is a lookup handle.
 # ``output-spec.md`` requires the name in both the combo table
@@ -246,7 +262,15 @@ def _has_valid_escape(block: str) -> bool:
     return False
 
 
-def _num(s: str) -> float:
+def _num(s: str | None) -> float | None:
+    """Parsed number, or None when the group did not match.
+
+    Clicks are optional in the reconciliation line (see ``_RECONCILE_RE``),
+    so callers must treat None as "not published" rather than zero — a
+    zero would read as a real click count of nothing.
+    """
+    if s is None:
+        return None
     return float(s.replace(',', ''))
 
 
@@ -470,9 +494,12 @@ def _check_campaign_blocks(
         gaps.append(
             f'[搜索词·格式] 「{head}」有 {len(unparsed)} 个活动写了 '
             f'搜索词对账 行，但**解析不了**（不是内容缺失，是格式不对）：'
-            f'{sample}{more}。必须是这一行、四个数字齐全：'
-            '`搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / '
-            '点击 B (✓/✗)`。写「需回采」「待导出」「→ 当前 30 天 …」这类'
+            f'{sample}{more}。必须是这一行，**两个花费数字必须有**：'
+            '`搜索词对账: 定向花费 <币> X = 搜索词花费 <币> Y (✓/✗)`。'
+            '点击数**可选**——页面确实不提供 clicks 列时省掉即可，'
+            '有就写成 `定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B`'
+            '（对账只看花费，点击仅供参考）。写「需回采」「待导出」'
+            '「→ 当前 30 天 …」这类'
             '说明**等于承认这一层没取到**——那就去把搜索词页锁到同一个 30 天'
             '窗口重新取数，再填上四个数字；确实没有搜索词报告的活动类型'
             '（如 SD）才写「无搜索词报告」，且该行不能同时写「需…导出」。'
