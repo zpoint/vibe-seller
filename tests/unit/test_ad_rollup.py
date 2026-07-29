@@ -254,3 +254,75 @@ class TestReportOpensAsAReport:
             + '\n上一轮 reviewer 给的是 Status: gaps，已按其列出的项修完。\n'
         )
         assert self._gaps(text) == []
+
+
+_TWICE = """## Amazon SA
+
+| id | name | type | spend | sales | orders | ACOS | ROAS |
+|---|---|---|---|---|---|---|---|
+| 600000000001 | acme widget video | Manual | SAR 90.00 | SAR 300.00 | 9 | 30.00% | 3.33 |
+| A00000001AAAAAAAAAAAA | acme widget video | Brand Video | SAR 90.00 | SAR 300.00 | 9 | 30.00% | 3.33 |
+
+### 600000000001 | acme widget video | Manual
+
+| 关键词/定向 | 匹配 | 出价 (SAR) | 点击 | 花费 (SAR) | ROAS | 建议 |
+|---|---|---|---|---|---|---|
+| widget | Broad | 1.00 | 100 | 90.00 | 3.33 | 维持 |
+| **合计** | — | — | 100 | 90.00 | 3.33 | — |
+搜索词对账: 定向花费 SAR 90.00 / 点击 100 = 搜索词花费 SAR 90.00 / 点击 100 (✓)
+
+### A00000001AAAAAAAAAAAA | acme widget video | Brand Video
+
+| 关键词/定向 | 匹配 | 出价 (SAR) | 点击 | 花费 (SAR) | ROAS | 建议 |
+|---|---|---|---|---|---|---|
+| widget | Broad | 1.00 | 100 | 90.00 | 3.33 | 维持 |
+| **合计** | — | — | 100 | 90.00 | 3.33 | — |
+搜索词对账: 定向花费 SAR 90.00 / 点击 100 = 搜索词花费 SAR 90.00 / 点击 100 (✓)
+
+## 汇总建议
+
+| 平台 | 国家 | 活跃活动数 | 总花费 | 总销售额 | 总订单 | ROAS |
+|---|---|---|---|---|---|---|
+| amazon | SA | 2 | SAR 180.00 | SAR 600.00 | 18 | 3.33 |
+"""
+
+
+@pytest.mark.unit
+class TestSameCampaignTwice:
+    """One campaign, two ids, two blocks — double-counted everywhere.
+
+    A Sponsored Brands campaign carries BOTH a numeric Campaign ID (what
+    the bulk export uses) and an entity-style `A…` id (what the console
+    shows). Capturing it from both sources writes it twice, and its spend
+    then lands twice in the combo table, the drilled count and the rollup.
+    The pre-existing duplicate check only catches the same ID twice.
+    """
+
+    def _gaps(self, text):
+        return [g for g in check_rollups(text) if '[重复活动]' in g]
+
+    def test_same_name_and_spend_under_two_ids_is_caught(self):
+        gaps = self._gaps(_TWICE)
+        assert len(gaps) == 1
+        assert '600000000001' in gaps[0]
+        assert 'A00000001AAAAAAAAAAAA' in gaps[0]
+
+    def test_it_says_which_id_to_keep(self):
+        """Ambiguity here would just start another edit ping-pong."""
+        assert '保留 bulk 导出里那个 id' in self._gaps(_TWICE)[0]
+
+    def test_same_name_different_spend_is_not_a_duplicate(self):
+        """Sellers really do reuse names; only identical money is proof."""
+        differing = _TWICE.replace(
+            '| **合计** | — | — | 100 | 90.00 | 3.33 | — |\n搜索词对账: 定向花费 SAR 90.00 / 点击 100 = 搜索词花费 SAR 90.00 / 点击 100 (✓)\n\n## 汇总建议',
+            '| **合计** | — | — | 40 | 30.00 | 3.33 | — |\n搜索词对账: 定向花费 SAR 30.00 / 点击 40 = 搜索词花费 SAR 30.00 / 点击 40 (✓)\n\n## 汇总建议',
+        )
+        assert self._gaps(differing) == []
+
+    def test_a_single_campaign_is_clean(self):
+        assert self._gaps(_CONSISTENT) == []
+
+    def test_unnamed_campaigns_are_not_paired(self):
+        """`name == id` means the name was never captured — not a match."""
+        anon = _TWICE.replace('acme widget video', '600000000001')
+        assert self._gaps(anon) == []

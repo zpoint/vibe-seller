@@ -215,6 +215,38 @@ def _rollup_totals(text: str) -> dict[tuple[str, str], float]:
     return out
 
 
+# Two blocks, two ids, ONE campaign. Amazon gives a Sponsored Brands
+# campaign both a numeric Campaign ID (what the bulk export uses) and an
+# entity-style `A…` id (what the console shows), so an agent that captures
+# the same campaign from both sources writes it twice. Live: two blocks
+# named identically with identical totals — one id in the export, the
+# other absent from it — double-counting that campaign in the combo table,
+# the drilled count and the rollup.
+#
+# The existing duplicate check catches the same ID twice; this catches the
+# same CAMPAIGN twice. Requires BOTH an identical name and an identical
+# 合计 spend: sellers do reuse names across campaigns, but two genuinely
+# different campaigns do not also spend the same amount to the cent.
+def _duplicate_campaigns(section: str) -> list[str]:
+    by_key: dict[tuple, list[str]] = {}
+    for block in section.split('\n### ')[1:]:
+        head = block.splitlines()[0]
+        bits = [b.strip().strip('*') for b in head.split('|')]
+        cid = bits[0]
+        name = bits[1] if len(bits) > 1 else ''
+        if not cid or not name or name == cid:
+            continue
+        total = _total_row_spend(block)
+        if total is None:
+            continue
+        by_key.setdefault((name.lower(), round(total, 2)), []).append(cid)
+    return [
+        f'「{name}」花费 {spend:.2f} 同时挂在 {" 和 ".join(ids)} 两个 id 下'
+        for (name, spend), ids in by_key.items()
+        if len(ids) > 1
+    ]
+
+
 def check_rollups(text: str) -> list[str]:
     """Gap strings for every stale copy of a number, else ``[]``."""
     if not text or not isinstance(text, str):
@@ -231,6 +263,22 @@ def check_rollups(text: str) -> list[str]:
         if not rows:
             continue
         drills = _drill_spends(section)
+
+        # 1z) the same campaign written twice under two ids
+        dupes = _duplicate_campaigns(section)
+        if dupes:
+            gaps.append(
+                f'[重复活动] 「{label}」有 {len(dupes)} 个活动在报告里出现了'
+                '两次，用了两个不同的 id：'
+                + '；'.join(dupes[:3])
+                + '。同名且花费分毫不差，说明是同一个活动被记录了两遍——'
+                'Amazon 的 Sponsored Brands 活动同时有一个数字 Campaign ID'
+                '（bulk 导出用的）和一个 `A…` 实体 id（控制台显示的），从两'
+                '个来源各抓一次就会变成两个块。删掉其中一个（**保留 bulk '
+                '导出里那个 id**，服务端按它核对花费），并把 AUDIT_SCOPE 的 '
+                'active_ids、进度行的 D/A、组合表和汇总行一起改小——现在这'
+                '个活动的花费在汇总里被算了两遍。'
+            )
 
         # 1a) the block's 合计 footer vs its own reconciliation line —
         #     both inside one block, so a mismatch is the block
