@@ -57,13 +57,14 @@ For every audited `(platform, country)`, the report MUST contain a
 2. **A header table** — one row per ACTIVE campaign:
    `| id | name | type | spend | sales | orders | ACOS | ROAS | status |`
 
-   **`name` 必须是活动的真实名称，不能把 id 抄进去。** 广告后台的活动
-   列表每一行都有名称，bulk 导出也带 `Campaign Name` —— 所以
-   `name == id` 从来不表示「这个活动没有名字」，只表示这一列没读。
-   读者拿到一串 15 位数字认不出这是哪个广告，而认出广告是他做任何决策
-   的第一步。服务端会检查：一个 combo 里多数活动 `name == id` 就是缺口
-   （`[名称]`）。同样的名称也要写进每个 `### <id> | <name> | <type>`
-   标题。
+   **`name` must be the campaign's real name — never the id copied over.**
+   The ad console shows a name on every row of the campaign list and the
+   bulk export carries `Campaign Name`, so `name == id` never means "this
+   campaign has no name"; it means the column was not read. A reader
+   handed a bare 15-digit id cannot tell which ad it is, and recognising
+   the ad is the first step of every decision they make. The server checks
+   this: a combo where most campaigns have `name == id` is a `[名称]` gap.
+   Write the same name into each `### <id> | <name> | <type>` heading.
 
 3. **One per-campaign drill block per active campaign**, each with a
    keyword/target table whose recommendation column obeys the bid rules
@@ -91,22 +92,27 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    target). A trailing 合计 row is fine as a footer — it just cannot be
    the only row. 该活动的定向页确实没有数据时，在块内写「无数据」。
 
-   **必须包含窗口内有花费的 PAUSED 定向词 —— 不要按 `state=enabled`
-   过滤。** 这一层问的是「这个活动这 30 天把钱花在了哪里」，而钱花在
-   哪里跟那个词**现在**是什么状态无关：一个已暂停的关键词在被暂停之前
-   照样花了钱，那笔钱仍然计在活动总花费里。按 enabled 过滤会让定向层
-   系统性地少算，于是搜索词层看起来比定向层还高 —— 而搜索词层不可能
-   超过活动本身，所以你会得到一个「算术上不可能」的对账，然后去猜一个
-   不存在的平台缺陷。
+   **Include PAUSED targets that spent in the window — never filter by
+   `state=enabled`.** This layer answers "where did this campaign's money
+   go over the 30 days", and where the money went does not depend on what
+   a target's state is *now*: a keyword that was paused yesterday still
+   spent before it was paused, and that spend is still in the campaign
+   total. Filtering to enabled makes the targeting layer under-count, so
+   the search-term layer reads HIGHER than it — which cannot happen, since
+   a campaign's queries cannot cost more than the campaign. You then have
+   an arithmetically impossible reconciliation and will go looking for a
+   platform defect that does not exist.
 
-   实测（一份 bulk 导出，同一个 30 天窗口）：三个活动的定向层
-   全部行相加都精确等于 campaign 行、也精确等于搜索词层；只取 enabled
-   行则分别少算到 1.10× / 1.26× / 13.3× 的假矛盾，最严重的一个丢掉了该
-   活动 92% 的花费（4 个定向词里 3 个已暂停）。导出文件里 paused 的行
-   一行不缺、数字全对 —— 丢数据的是过滤动作，不是平台。
+   Measured on one bulk export, same 30-day window, three campaigns: ALL
+   targeting rows sum exactly to the campaign row and exactly to the
+   search-term layer. Enabled-only gives 1.10x, 1.26x and 13.3x instead;
+   the worst dropped 92% of that campaign's spend (3 of its 4 targets were
+   paused). Every paused row is present in the export with correct
+   figures — the filter lost the data, not the platform.
 
-   自检：定向层 合计 必须等于活动的 campaign 行花费。不等就是漏了行，
-   优先怀疑你把 paused 过滤掉了。
+   Self-check: the targeting 合计 must equal the campaign row's spend. If
+   it does not, rows are missing, and a `state` filter is the first
+   suspect.
 
 2. **Search-terms table** — the ACTUAL customer queries
    (Amazon: Search Terms page → **Export CSV** (the ONLY full-coverage
@@ -158,23 +164,28 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
      is that live maximum plus headroom for rounding and currency
      formatting, nothing more.
 
-     **最常见的原因是你把定向层按 `state=enabled` 过滤了。** 暂停之前
-     花掉的钱仍然计在活动总花费里，所以过滤掉 paused 定向词会让定向层
-     少算，搜索词层于是显得更高。实测三个活动：全部定向行相加都精确
-     等于 campaign 行、也精确等于搜索词层；只取 enabled 则变成 1.10×、
-     1.26×、13.3× 的假矛盾（最严重的丢掉该活动 92% 的花费）。**先检查
-     定向层 合计 是否等于 campaign 行花费**，再考虑别的解释。
+     **The usual cause is a `state=enabled` filter on the targeting
+     layer.** Spend made before a target was paused still counts in the
+     campaign total, so dropping paused rows under-counts the targeting
+     side and the search-term side then reads higher. Measured on three
+     campaigns: all targeting rows sum exactly to the campaign row and to
+     the search-term layer; enabled-only turns that into 1.10x, 1.26x and
+     13.3x (the worst losing 92% of the campaign's spend). **Check first
+     whether the targeting 合计 equals the campaign row's spend**, then
+     look for another explanation.
 
-     其次才是：把 A 活动的定向表跟 B 活动的搜索词配到了一起（join 错了
-     `Campaign ID`），或者两个数取自不同账户 / 不同导出。
+     Only after that: the targeting table of campaign A joined to the
+     search terms of campaign B (wrong `Campaign ID`), or the two figures
+     taken from different accounts / different exports.
 
    **⚠️ 「不可能」这一条不吃 stall fail-open。** Every other gap
    eventually fails open when the agent can't finish it; this one keeps
    refusing, because the number would otherwise ship straight into bid
    recommendations. 只有两个合法答案：
 
-   1. **先确认定向层没有按 `state=enabled` 过滤**（合计 == campaign 行
-      花费），再**把两层按同一个 `Campaign ID` 重新取一次**，改对数字。(The
+   1. **Confirm the targeting layer is not filtered by `state=enabled`**
+      (合计 == the campaign row's spend), then **re-read both layers for
+      the same `Campaign ID`** and fix the figures. (The
       Amazon bulk export carries BOTH layers in one workbook — read them
       off the same file for the same campaign and this cannot happen.)
    2. **在该活动块里声明这个活动不可信**，用一行同时说明「数据不

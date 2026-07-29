@@ -201,11 +201,13 @@ the active set you enumerated in Step 1**:
      Auto: one row per auto-target group; noon Auto (no Targets tab):
      one row per Customer-Query-derived target. 页面确实无数据时在块内
      写「无数据」。
-     **包含窗口内有花费的 PAUSED 定向词 —— 不要按 `state=enabled` 过滤。**
-     暂停之前花掉的钱仍然计在活动总花费里，过滤掉它们会让定向层少算，
-     搜索词层于是显得比定向层还高（不可能），你就会去追一个不存在的
-     平台缺陷。自检：定向层 合计 == 该活动 campaign 行的花费；不等就是
-     漏了行。
+     **Include PAUSED targets that spent in the window — never filter by
+     `state=enabled`.** Spend made before a target was paused still counts
+     in the campaign total; dropping those rows under-counts the targeting
+     layer, the search-term layer then reads higher than it (impossible),
+     and you go chasing a platform defect that does not exist. Self-check:
+     the targeting 合计 == that campaign's row spend; if not, rows are
+     missing.
   2. *Search-term layer* (REQUIRED — the actual customer queries):
      **Amazon — prefer the BULK EXPORT you already downloaded in Step 1.**
      Tick the search-term boxes when requesting it and the workbook
