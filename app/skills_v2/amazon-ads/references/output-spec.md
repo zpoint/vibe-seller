@@ -448,7 +448,13 @@ claimed drill with no TSV (or a TSV with no block) is a gap.
 
 ## Report-level requirements
 
-- `# 广告优化建议 — <store> — <date>` header + analysis window.
+- `# 广告优化建议 — <store> — <date>` header + analysis window, as the
+  report's **first line**. Nothing above it — in particular **never a
+  `Status:` line**: `Status: ok | gaps | incomplete` is the REVIEW file's
+  format (`REVIEW_<date>_iterN.md`, read by the reviewer gate), and a
+  report that opens with it hands the reader an internal gate token
+  instead of a title. Observed live: an audit shipped with `Status: gaps`
+  as its literal first line, above the H1.
 - A `## 汇总建议` section at the end with REAL content (the reviewer
   rejects a header-only / marker-only summary): per-combo
   spend/sales/ROAS totals, the 5–10 highest-impact actions of this

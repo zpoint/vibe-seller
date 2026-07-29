@@ -1011,6 +1011,24 @@ def check(
     #     hand on two consecutive rounds (see ``ad_rollup``).
     gaps.extend(ad_rollup.check_rollups(result_text))
 
+    # 3c) The deliverable must open as a REPORT, not as a review verdict.
+    #     `Status: ok|gaps|incomplete` is the REVIEW file's format
+    #     (`REVIEW_<date>_iterN.md`), read by `report_reviewer`. Live, an
+    #     audit shipped with `Status: gaps` as its literal first line,
+    #     above the H1 — so the deliverable a user opens led with an
+    #     internal gate token that means nothing to them, and any reader
+    #     scanning for a verdict would find "gaps" in the report itself.
+    first = next(
+        (ln.strip() for ln in result_text.splitlines() if ln.strip()), ''
+    )
+    if re.match(r'(?i)^\**status\**\s*[:：]', first):
+        gaps.append(
+            f'[格式] 报告的第一行是 `{first[:40]}` —— 这是 review 文件'
+            '（`REVIEW_<date>_iterN.md`）的格式，不是审计报告的。报告要以'
+            '`# 广告优化建议 — <店铺> — <日期>` 开头；`Status:` 只写在 '
+            'review 文件里。把这一行从报告里删掉。'
+        )
+
     # 4) Garbled extraction — raw DOM attributes / lowercased ASINs.
     if _GARBLED_RE.search(result_text):
         gaps.append(

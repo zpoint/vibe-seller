@@ -10,6 +10,7 @@ that needs a model to decide, so it is pinned here.
 
 import pytest
 
+from app.ai.stop_gates import ad_completeness_review as acr
 from app.ai.stop_gates.ad_rollup import check_rollups
 
 # Two campaigns, both internally consistent, with a matching rollup.
@@ -214,3 +215,42 @@ class TestBlockSelfContradiction:
     def test_rounding_is_tolerated(self):
         near = _WITH_FOOTER.replace('100 | 90.00 | 3.33', '100 | 90.01 | 3.33')
         assert [g for g in check_rollups(near) if '前后矛盾' in g] == []
+
+
+@pytest.mark.unit
+class TestReportOpensAsAReport:
+    """The deliverable must not open with the REVIEW file's verdict line.
+
+    `Status: ok | gaps | incomplete` is the format of
+    `REVIEW_<date>_iterN.md`, which the reviewer gate reads. Live, an audit
+    shipped with `Status: gaps` as its literal first line, above the H1 —
+    so the report a user opens led with an internal gate token, and
+    anything scanning it for a verdict would read "gaps" off the report.
+    """
+
+    def _gaps(self, text):
+        deny = acr.check(text, task_id=None, track=False)
+        return [g for g in (deny.gaps if deny else []) if '[格式]' in g]
+
+    def test_status_first_line_is_a_gap(self):
+        assert len(self._gaps('Status: gaps\n\n' + _CONSISTENT)) == 1
+
+    def test_bolded_status_is_also_caught(self):
+        assert len(self._gaps('**Status: incomplete**\n\n' + _CONSISTENT)) == 1
+
+    def test_a_normal_report_passes(self):
+        text = '# 广告优化建议 — acme — 2026-01-02\n\n' + _CONSISTENT
+        assert self._gaps(text) == []
+
+    def test_status_deeper_in_the_body_is_not_flagged(self):
+        """Only the OPENING line is the review-file tell.
+
+        A report may legitimately quote a reviewer verdict when explaining
+        what the review round found; that is prose, not a mis-filed header.
+        """
+        text = (
+            '# 广告优化建议 — acme — 2026-01-02\n\n'
+            + _CONSISTENT
+            + '\n上一轮 reviewer 给的是 Status: gaps，已按其列出的项修完。\n'
+        )
+        assert self._gaps(text) == []
