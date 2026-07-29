@@ -391,3 +391,74 @@ class TestSpendAgainstExport:
     def test_unreadable_export_is_never_a_failure(self, monkeypatch, tmp_path):
         monkeypatch.setattr(ad_scope, 'VIBE_SELLER_DIR', tmp_path)
         assert ad_scope.campaign_spend_in_export('no-such-file.xlsx') is None
+
+
+@pytest.mark.unit
+class TestProgressLineMatchesScope:
+    """`进度 <D>/<A>` is prose; `active_ids` is the grounded set.
+
+    Nothing compared the two, so they could disagree silently — and did: a
+    section kept claiming "drilled 21/21 active" after a duplicated
+    campaign was dropped from the scope, so the line a human reads said 21
+    while the authority said 20. `<A>` is the denominator the whole scope
+    apparatus exists to ground; a second, unchecked copy of it reopens the
+    hole one level up.
+    """
+
+    def _gaps(self, monkeypatch, tmp_path, report, ids):
+        monkeypatch.setattr(ad_scope, 'VIBE_SELLER_DIR', tmp_path)
+        tdir = tmp_path / 'tasks' / 't-prog'
+        tdir.mkdir(parents=True, exist_ok=True)
+        (tdir / 'AUDIT_SCOPE.json').write_text(
+            json.dumps({
+                'combos': [
+                    {
+                        'platform': 'amazon',
+                        'country': 'AU',
+                        'active_ids': ids,
+                        'total_active': len(ids),
+                        'total_active_source': f'chip:Live {len(ids)}',
+                    }
+                ]
+            }),
+            encoding='utf-8',
+        )
+        acr.reset_progress('t-prog')
+        deny = acr.check(report, task_id='t-prog', track=False)
+        return [g for g in (deny.gaps if deny else []) if '进度行写的是' in g]
+
+    def test_agreement_is_clean(self, monkeypatch, tmp_path):
+        ids = [f'A0000000{i}AAAAAAAAAAAA' for i in (1, 2)]
+        report = _section([(i, f'widget {n}') for n, i in enumerate(ids)])
+        assert self._gaps(monkeypatch, tmp_path, report, ids) == []
+
+    def test_progress_claiming_more_than_the_scope(self, monkeypatch, tmp_path):
+        ids = [f'A0000000{i}AAAAAAAAAAAA' for i in (1, 2)]
+        report = _section([(i, f'widget {n}') for n, i in enumerate(ids)])
+        report = report.replace('drilled 2/2 active', 'drilled 3/3 active')
+        gaps = self._gaps(monkeypatch, tmp_path, report, ids)
+        assert len(gaps) == 1
+        assert '3/3' in gaps[0] and '2 个' in gaps[0]
+
+    def test_progress_claiming_fewer_than_the_scope(
+        self, monkeypatch, tmp_path
+    ):
+        ids = [f'A0000000{i}AAAAAAAAAAAA' for i in (1, 2, 3)]
+        report = _section([(i, f'widget {n}') for n, i in enumerate(ids)])
+        report = report.replace('drilled 3/3 active', 'drilled 2/2 active')
+        assert len(self._gaps(monkeypatch, tmp_path, report, ids)) == 1
+
+    def test_no_scope_entry_means_no_comparison(self, monkeypatch, tmp_path):
+        """Without an authority there is nothing to compare against.
+
+        That absence is already its own `[基线]` gap; saying it twice would
+        just double-count the same missing file.
+        """
+        ids = [f'A0000000{i}AAAAAAAAAAAA' for i in (1, 2)]
+        report = _section([(i, f'widget {n}') for n, i in enumerate(ids)])
+        monkeypatch.setattr(ad_scope, 'VIBE_SELLER_DIR', tmp_path)
+        acr.reset_progress('t-none')
+        deny = acr.check(report, task_id='t-none', track=False)
+        assert [
+            g for g in (deny.gaps if deny else []) if '进度行写的是' in g
+        ] == []

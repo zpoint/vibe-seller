@@ -591,18 +591,23 @@ class TestAdCompletenessReview:
 
     def test_regression_flagged(self):
         # Round 1: Amazon US fully drilled 31/31 (sets high-water mark).
-        # The scope only needs to ground ONE campaign id (a small
-        # realistic fixture) — the regression check keys off the
-        # self-reported drilled count, not the scope's active-id count.
-        scope = _scope(('amazon', 'US', ['100000000000003']))
-        drill = (
+        # The scope grounds all 31 ids and the section carries all 31
+        # blocks. That is not decoration: the 进度 line's <A> is now
+        # checked against len(active_ids), so a fixture claiming 31/31
+        # over a one-id scope is itself the inconsistency that check
+        # exists to catch — it used to pass only because nothing compared
+        # the two.
+        ids = [f'10000000000{i:04d}' for i in range(31)]
+        scope = _scope(('amazon', 'US', ids))
+        one_table = (
             '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
             '| wireless mouse | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
-            * 20
         )
-        campaign_block = (
-            '\n### 100000000000003 | wireless mouse 006 | Manual\n\n'
-            '该活动类型无搜索词报告（SD）。\n'
+        blocks = ''.join(
+            f'\n### {cid} | wireless mouse {n:03d} | Manual\n\n'
+            + one_table
+            + '该活动类型无搜索词报告（SD）。\n'
+            for n, cid in enumerate(ids)
         )
         summary = (
             '## 汇总建议\n\n本次审计覆盖各市场，总花费与销售额见各节'
@@ -611,17 +616,16 @@ class TestAdCompletenessReview:
             '活动倾斜，整体结构健康。\n'
         )
         r1 = (
-            '## Amazon US\n\n**进度**: drilled 31/31 active (175 total, 1 page)\n'
-            + drill
-            + campaign_block
+            '## Amazon US\n\n'
+            '**进度**: drilled 31/31 active (175 total, 1 page)\n'
+            + blocks
             + summary
         )
         assert completeness_gate.check(r1, task_id='t1', scope=scope) is None
         # Round 2: rewrote from memory, lost work → 2/31 (regression).
         r2 = (
-            '## Amazon US\n\n**进度**: drilled 2/31 active (175 total, 1 page)\n'
-            + drill
-            + campaign_block
+            '## Amazon US\n\n'
+            '**进度**: drilled 2/31 active (175 total, 1 page)\n' + blocks
         )
         deny = completeness_gate.check(r2, task_id='t1', scope=scope)
         assert deny is not None

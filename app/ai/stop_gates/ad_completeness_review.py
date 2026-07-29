@@ -459,6 +459,27 @@ def check(
             )
             continue
         drilled, active = int(m.group(1)), int(m.group(2))
+        # The 进度 line's <A> is PROSE the agent writes; active_ids is the
+        # grounded set (its count is itself backed by total_active_source).
+        # Nothing compared them, so the two could disagree silently — and
+        # did: a section kept claiming "drilled 21/21 active" after a
+        # duplicate campaign was dropped from the scope, leaving the line a
+        # human reads saying 21 while the authority said 20. <A> is the
+        # denominator this whole apparatus exists to ground, so an
+        # unchecked second copy of it is the hole reopening one level up.
+        if combo is not None:
+            n_auth = len(combo['active_ids'])
+            if n_auth > 0 and active != n_auth:
+                _attr(
+                    combo_label,
+                    f'[完整性] 「{head}」进度行写的是 {drilled}/{active} '
+                    f'active，但 AUDIT_SCOPE 里这个 combo 的 active_ids 是 '
+                    f'{n_auth} 个——两个数必须一致。active_ids 才是权威'
+                    '（它自己由 total_active_source 背书），进度行只是它的'
+                    '复述。把进度行改成 '
+                    f'`drilled <D>/{n_auth} active`；如果确实是 active_ids '
+                    '少了或多了，就先修 AUDIT_SCOPE 再同步进度行。',
+                )
         round_total += drilled
         round_deficit += max(0, active - drilled)
         if combo_label is not None:
