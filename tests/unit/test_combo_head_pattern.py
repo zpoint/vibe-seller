@@ -18,8 +18,10 @@ each store's free-form ``platform_countries``, and Amazon alone sells in
 defined ONCE.
 """
 
+import json
 import re
 
+from openpyxl import Workbook
 import pytest
 
 from app.ai import bash_safety
@@ -247,3 +249,145 @@ class TestCampaignNameCaptured:
         gaps = self._gaps(_section(pairs))
         assert len(gaps) == 1
         assert '4/6' in gaps[0]
+
+
+def _export(tmp_path, spends, filename='bulk-acct-20260628-20260728-1.xlsx'):
+    """A minimal bulk export: one Campaign row per (id, spend)."""
+    dl = tmp_path / 'downloads' / 'acme'
+    dl.mkdir(parents=True, exist_ok=True)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Sponsored Products Campaigns'
+    ws.append(['Product', 'Entity', 'Campaign ID', 'State', 'Spend'])
+    for cid, sp in spends.items():
+        ws.append(['Sponsored Products', 'Campaign', cid, 'enabled', sp])
+    wb.save(dl / filename)
+    return filename
+
+
+def _report_with_spend(pairs):
+    """A combo section whose table states each campaign's spend."""
+    rows = '\n'.join(
+        f'| {cid} | widget {i} | Auto | A$val{sp:.2f} | A$300.00 | 2 | 30% | 3.0 |'.replace(
+            'A$val', 'A$'
+        )
+        for i, (cid, sp) in enumerate(pairs)
+    )
+    blocks = ''.join(
+        f"""
+### {cid} | widget {i} | Auto
+
+| 关键词/定向 | 匹配 | 出价 (A$) | 点击 | 花费 (A$) | ROAS | 建议 |
+|---|---|---|---|---|---|---|
+| widget | Broad | 1.00 | 10 | {sp:.2f} | 3.0 | 维持 |
+| **合计** | — | — | 10 | {sp:.2f} | 3.0 | — |
+搜索词对账: 定向花费 A${sp:.2f} / 点击 10 = 搜索词花费 A${sp:.2f} / 点击 10 (✓)
+"""
+        for i, (cid, sp) in enumerate(pairs)
+    )
+    return (
+        f'## Amazon AU\n\n**进度**: drilled {len(pairs)}/{len(pairs)} active '
+        f'({len(pairs)} total, 1 pages)\n\n'
+        '| id | name | type | spend | sales | orders | ACOS | ROAS |\n'
+        '|---|---|---|---|---|---|---|---|\n'
+        + rows
+        + '\n'
+        + blocks
+        + '\n## 汇总建议\n\n各 combo 总览与行动清单。\n'
+    )
+
+
+@pytest.mark.unit
+class TestSpendAgainstExport:
+    """The platform's own figure is the only externally-checkable one.
+
+    Every other check in the gate is internal — combo table against drill
+    block, targeting against search-term — and internal consistency cannot
+    catch a MIS-JOIN: one campaign's numbers written under another's id is
+    perfectly self-consistent. Observed live: the agent narrated "next up
+    <id-A> (200.00 vs 180.00)" while that pair belonged to <id-B> and
+    <id-A>'s own spend was an order of magnitude smaller.
+    """
+
+    def _gaps(self, monkeypatch, tmp_path, report, spends, ids):
+        fn = _export(tmp_path, spends)
+        monkeypatch.setattr(ad_scope, 'VIBE_SELLER_DIR', tmp_path)
+        tdir = tmp_path / 'tasks' / 't-spend'
+        tdir.mkdir(parents=True, exist_ok=True)
+        (tdir / 'AUDIT_SCOPE.json').write_text(
+            json.dumps({
+                'combos': [
+                    {
+                        'platform': 'amazon',
+                        'country': 'AU',
+                        'active_ids': ids,
+                        'total_active': len(ids),
+                        'total_active_source': f'bulk:{fn}',
+                    }
+                ]
+            }),
+            encoding='utf-8',
+        )
+        acr.reset_progress('t-spend')
+        deny = acr.check(report, task_id='t-spend', track=False)
+        return [g for g in (deny.gaps if deny else []) if '花费核对' in g]
+
+    def test_matching_spend_is_clean(self, monkeypatch, tmp_path):
+        ids = ['A00000001AAAAAAAAAAAA', 'A00000002AAAAAAAAAAAA']
+        report = _report_with_spend([(ids[0], 100.00), (ids[1], 50.00)])
+        gaps = self._gaps(
+            monkeypatch,
+            tmp_path,
+            report,
+            {ids[0]: 100.00, ids[1]: 50.00},
+            ids,
+        )
+        assert gaps == []
+
+    def test_enabled_only_undercount_is_caught(self, monkeypatch, tmp_path):
+        # The live shape: report states the enabled-only subtotal while the
+        # platform's campaign row carries the full spend.
+        ids = ['A00000001AAAAAAAAAAAA']
+        report = _report_with_spend([(ids[0], 180.00)])
+        gaps = self._gaps(monkeypatch, tmp_path, report, {ids[0]: 200.00}, ids)
+        assert len(gaps) == 1
+        assert '180.00' in gaps[0] and '200.00' in gaps[0]
+        assert 'state=enabled' in gaps[0]  # names the likely cause
+
+    def test_attribution_drift_is_tolerated(self, monkeypatch, tmp_path):
+        """A report captured before the export was generated differs slightly.
+
+        Amazon keeps attributing: comparing one live report against an
+        export made hours later, many campaigns differed by well under 1%.
+        Flagging those would make this check noise on every run.
+        """
+        ids = ['A00000001AAAAAAAAAAAA']
+        report = _report_with_spend([(ids[0], 480.00)])
+        gaps = self._gaps(monkeypatch, tmp_path, report, {ids[0]: 482.00}, ids)
+        assert gaps == []
+
+    def test_tiny_campaign_ratio_is_not_a_gap(self, monkeypatch, tmp_path):
+        # 0.40 vs 0.50 is 25% off and worth nothing.
+        ids = ['A00000001AAAAAAAAAAAA']
+        report = _report_with_spend([(ids[0], 0.40)])
+        gaps = self._gaps(monkeypatch, tmp_path, report, {ids[0]: 0.50}, ids)
+        assert gaps == []
+
+    def test_campaign_absent_from_this_export_is_skipped(
+        self, monkeypatch, tmp_path
+    ):
+        """The shared-bulk case: a marketplace citing another's export.
+
+        That file has none of this market's campaigns, and the conflict is
+        already reported on its own — do not also call every figure wrong.
+        """
+        ids = ['A00000001AAAAAAAAAAAA']
+        report = _report_with_spend([(ids[0], 180.00)])
+        gaps = self._gaps(
+            monkeypatch, tmp_path, report, {'A09999999ZZZZZZZZZZZZ': 1.0}, ids
+        )
+        assert gaps == []
+
+    def test_unreadable_export_is_never_a_failure(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ad_scope, 'VIBE_SELLER_DIR', tmp_path)
+        assert ad_scope.campaign_spend_in_export('no-such-file.xlsx') is None

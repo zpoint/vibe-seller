@@ -536,6 +536,96 @@ def classify_total_source(source: str):
     return None, None
 
 
+def _open_export(filename: str, downloads_dir=None):
+    """The bulk export workbook, or None when it can't be read.
+
+    None means "could not check" — absent, unreadable, or openpyxl
+    missing — never "failed". See ``count_enabled_in_export`` for why the
+    openpyxl import has to stay inside the function.
+    """
+    base = downloads_dir or (VIBE_SELLER_DIR / 'downloads')
+    try:
+        matches = [p for p in base.rglob(filename) if p.is_file()]
+    except OSError:
+        return None
+    if not matches:
+        return None
+    try:
+        from openpyxl import load_workbook  # noqa: PLC0415
+    except ImportError:
+        return None
+    try:
+        # NOT read_only — see count_enabled_in_export.
+        return load_workbook(matches[0], data_only=True)
+    except Exception:
+        return None
+
+
+def campaign_spend_in_export(
+    filename: str, downloads_dir=None
+) -> dict[str, float] | None:
+    """``{campaign_id: spend}`` from the export's own Campaign rows.
+
+    The one fact about a campaign that the server can check INDEPENDENTLY
+    of the report: what the platform says the campaign spent. Everything
+    else the gate compares is internal to the report — the combo table
+    against the drill block (``ad_rollup``), the targeting layer against
+    the search-term layer (the reconciliation) — and internal consistency
+    cannot catch a MIS-JOIN, because writing one campaign's figures under
+    another campaign's id is perfectly self-consistent.
+
+    That is not a hypothetical. Live, an agent narrated "next up
+    <id-A> (200.00 vs 180.00)" while that pair belonged to <id-B>; <id-A>'s
+    real spend was an order of magnitude smaller and its block was already
+    correct. Had it written 200.00 across that block's table, 合计 and reconciliation line, every
+    existing check would have passed it.
+
+    Spend is summed per campaign id across every sheet that has both a
+    ``Campaign ID`` and a ``Spend`` column, counting only ``Entity ==
+    Campaign`` rows — the campaign's own total, not the sum of its
+    children (which would double-count, since ad-group and target rows
+    carry the same money).
+    """
+    wb = _open_export(filename, downloads_dir)
+    if wb is None:
+        return None
+    out: dict[str, float] = {}
+    try:
+        for name in wb.sheetnames:
+            ws = wb[name]
+            rows = ws.iter_rows(values_only=True)
+            header = next(rows, None)
+            if not header:
+                continue
+            idx = {str(h).strip().lower(): i for i, h in enumerate(header) if h}
+            ent = idx.get('entity')
+            cid = idx.get('campaign id')
+            spend = idx.get('spend')
+            if ent is None or cid is None or spend is None:
+                continue
+            for r in rows:
+                if len(r) <= max(ent, cid, spend):
+                    continue
+                if str(r[ent] or '').strip().lower() != 'campaign':
+                    continue
+                key = str(r[cid] or '').strip()
+                if not key:
+                    continue
+                try:
+                    val = float(str(r[spend]).replace(',', ''))
+                except (TypeError, ValueError):
+                    continue
+                # A campaign appears once per sheet at most, but SB
+                # campaigns are listed in BOTH the SB and SB-multi-ad-group
+                # sheets with the same figure — take it, don't add it.
+                out.setdefault(key, val)
+    except Exception:
+        return None
+    finally:
+        wb.close()
+    return out or None
+
+
 def count_enabled_in_export(filename: str, downloads_dir=None) -> int | None:
     """``state=enabled`` campaign rows in a bulk export, or None.
 

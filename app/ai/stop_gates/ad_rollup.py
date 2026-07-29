@@ -205,3 +205,13 @@ def check_rollups(text: str) -> list[str]:
                 '改完某个活动的花费后，汇总行要一起改。'
             )
     return gaps
+
+
+def combo_table_spend(section: str) -> dict[str, float | None]:
+    """``{campaign_id: spend}`` from a combo section's campaign table.
+
+    Exposed for the export cross-check in ``ad_completeness_review``: the
+    combo table is where the report states each campaign's own spend, so
+    it is what a platform figure should be compared against.
+    """
+    return dict(_combo_table(section))

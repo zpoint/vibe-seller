@@ -261,6 +261,60 @@ _ZERO_JUSTIFIED_RE = re.compile(
 )
 
 
+# Amazon's figures MOVE. A report captures a campaign at one moment and
+# the export is generated later, and attribution keeps landing in between:
+# comparing one live report against an export produced 2.5 hours after its
+# capture, many campaigns differed — all by well under 1% (e.g. 480.00 vs
+# 482.00). Those are not errors, and flagging them would make this
+# check noise on every run.
+#
+# The failures it exists to catch are an order of magnitude larger, because
+# they are structural rather than temporal:
+#   * enabled-only filtering of the targeting layer — 10%, 20%, 90%+ low
+#   * a mis-join, one campaign's figures under another's id — unbounded
+# 5% sits an order of magnitude above the drift and an order below the
+# smallest real defect, so it separates them cleanly without tuning.
+_SPEND_REL_TOL = 0.05
+# ...and a floor, so a tiny campaign's rounding can't clear the ratio bar:
+# 0.40 vs 0.50 is 25% off and worth nothing.
+_SPEND_MIN_ABS = 1.0
+
+
+def _check_campaign_spend(part, head, ref, combo_label, attr) -> None:
+    """Compare each campaign's reported spend against the bulk export."""
+    truth = ad_scope.campaign_spend_in_export(ref)
+    if not truth:
+        return  # unreadable / absent — unverifiable is never a failure
+    wrong: list[str] = []
+    for cid, reported in ad_rollup.combo_table_spend(part).items():
+        actual = truth.get(cid)
+        # Absent from THIS export is the shared-bulk case (a marketplace
+        # citing another's file, which has none of its campaigns) — that
+        # conflict is reported on its own; do not also call it a wrong
+        # number.
+        if actual is None or reported is None:
+            continue
+        delta = abs(reported - actual)
+        if delta > actual * _SPEND_REL_TOL and delta >= _SPEND_MIN_ABS:
+            wrong.append(f'「{cid}」报告 {reported:.2f} vs 导出 {actual:.2f}')
+    if not wrong:
+        return
+    sample = '；'.join(wrong[:4])
+    more = '' if len(wrong) <= 4 else f' 等共 {len(wrong)} 个'
+    attr(
+        combo_label,
+        f'[花费核对] 「{head}」有 {len(wrong)} 个活动的花费与 `{ref}` 里'
+        f'该活动自己的 Campaign 行对不上：{sample}{more}。导出文件是平台'
+        '给的原始数字，报告必须跟它一致。两个常见原因：定向层按 '
+        '`state=enabled` 过滤了（漏掉窗口内有花费、之后被暂停的定向词，'
+        '报告会偏小），或者把另一个活动的数字写到了这个 id 下面（mis-join，'
+        '两层之间反而是自洽的，所以只有跟导出比才看得出来）。以导出的 '
+        'Campaign 行为准改正，组合表、合计 行、对账行三处一起改。'
+        f'（只报差异超过 {_SPEND_REL_TOL:.0%} 的：Amazon 归因会随时间小幅'
+        '变动，报告采集时刻和导出生成时刻之间的零点几个百分点属正常。）',
+    )
+
+
 def check(
     result_text: str,
     task_id: str | None = None,
@@ -830,6 +884,20 @@ def check(
                     '补上该小节并逐个 drill 其 active campaign。',
                 )
                 continue
+            # The one figure the server can check INDEPENDENTLY of the
+            # report: what the platform says this campaign spent. Every
+            # other check is internal (table vs drill, targeting vs
+            # search-term) and internal consistency cannot catch a
+            # MIS-JOIN — one campaign's numbers under another's id is
+            # self-consistent and passes everything. Runs HERE because
+            # this is where the combo's own section is resolved; an
+            # earlier draft called it from the scope loop, where `part`
+            # was a leftover from a different section entirely.
+            _kind, _ref = ad_scope.classify_total_source(
+                combo.get('total_active_source', '')
+            )
+            if _kind == 'bulk' and _ref:
+                _check_campaign_spend(sec, label, _ref, label, _attr)
             missing = ad_scope.missing_active_ids(sec, combo['active_ids'])
             if missing:
                 n_active = len(combo['active_ids'])
