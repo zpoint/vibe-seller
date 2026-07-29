@@ -208,7 +208,19 @@ the active set you enumerated in Step 1**:
      and you go chasing a platform defect that does not exist. Self-check:
      the targeting 合计 == that campaign's row spend; if not, rows are
      missing.
-  2. *Search-term layer* (REQUIRED — the actual customer queries):
+     **Carry the group level**: add a `广告组` column — Amazon from the
+     export's `Ad Group Name` (one campaign can have several; 25 groups
+     across 23 campaigns in one live account), noon from `Sku` (noon has
+     no ad group). Keep same-group rows together.
+  2. *Search-term layer* (REQUIRED — the actual customer queries).
+     **`建议` must name the exact action** — `拓词` / `否定词组` /
+     `否定精确` / `维持`, never a bare `否定`: the console turns your
+     recommendation into the pre-selected button, and phrase-vs-exact
+     negation differ enough that only the audit can choose. Amazon rows
+     carry `Ad Group ID` + `Keyword ID` + `Keyword Text`, so fill
+     `广告组` / `来源关键词` from them; noon's `(Product) Queries` has only
+     `Campaign Name` / `Sku` / `Query`, so put the SKU in `广告组`, write
+     `—` for `来源关键词`, and never guess a source target.
      **Amazon — prefer the BULK EXPORT you already downloaded in Step 1.**
      Tick the search-term boxes when requesting it and the workbook
      carries `SP Search Term Report` and `SB Search Term Report` sheets

@@ -114,16 +114,55 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    it does not, rows are missing, and a `state` filter is the first
    suspect.
 
+   **Carry the AD-GROUP level.** A campaign is not flat: Amazon's bulk
+   export has `Ad Group ID` / `Ad Group Name` on every target row, and one
+   campaign in a single live account had 3 ad groups (25 ad groups across
+   23 campaigns, 1-63 targets each). Bids, budgets and negatives are set
+   per ad group, so a table that flattens them loses the level the user
+   acts on. Add a `广告组` column to the targeting table (Amazon: the
+   export's `Ad Group Name`; noon: the SKU — see below) and keep rows of
+   the same group together.
+
+   **noon groups by SKU, not by ad group.** Its per-campaign export has
+   sheets `(Product) Campaign | Sku | Target | Placement | Queries`; there
+   is no ad-group concept. Use `Sku` as the group column and say so in the
+   header. Do NOT invent an ad group for noon.
+
 2. **Search-terms table** — the ACTUAL customer queries
    (Amazon: Search Terms page → **Export CSV** (the ONLY full-coverage
    method — the on-screen grid is virtualized and shows ~13 rows);
    noon: Customer Queries tab). Report the **top ~20 by spend** with
-   `搜索词 | 来源关键词 | 匹配 | 点击 | 花费 | 订单 | 销售额 | ROAS |
-   建议`, state the total term count, and write the FULL set to the
-   search-terms TSV (below). **Every term with impressions > 0 is its
+   `搜索词 | 广告组 | 来源关键词 | 匹配 | 点击 | 花费 | 订单 | 销售额 |
+   ROAS | 建议`, state the total term count, and write the FULL set to the
+   search-terms TSV (below).
+
+   **What a search term hangs off differs by platform — do not fake the
+   one you don't have.** Amazon's `SP/SB Search Term Report` carries
+   `Ad Group ID`, `Keyword ID`, `Keyword Text` and `Match Type` on every
+   row, so each query IS attributable to the exact target that matched it
+   — fill `广告组` and `来源关键词` from those columns. noon's
+   `(Product) Queries` sheet carries only `Campaign Name`, `Sku` and
+   `Query`: a noon query CANNOT be attributed to a target. For noon put
+   the SKU in `广告组`, write `—` in `来源关键词`, and never guess a
+   source target. **Every term with impressions > 0 is its
    own row** — never fold live terms into a `其余 N 个` row (a collapse
    row is only allowed for all-zero-impression filler and must say
    `0 展示`). The reviewer rejects collapse rows with traffic.
+   **The `建议` column must name the EXACT action, not a category.** The
+   console renders your recommendation as the pre-selected button, so an
+   ambiguous verb forces whoever renders it to guess — and a guess about
+   money is not theirs to make. Use exactly one of:
+
+   - targeting rows: `提高至 <bid>` / `下调至 <bid>` / `暂停` / `维持`
+   - search-term rows: `拓词`（add it as its own keyword）/ `否定词组` /
+     `否定精确` / `维持`
+
+   Bare `否定` is NOT acceptable on a search-term row: phrase-negating and
+   exact-negating a query have very different blast radius, and only the
+   audit knows which one the data supports. Likewise a converting query
+   that deserves its own keyword must say `拓词` — nothing downstream can
+   infer that from `维持`.
+
 3. **The reconciliation line** — machine-checkable, same 30-day window
    on BOTH pages:
 
