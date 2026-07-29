@@ -11,7 +11,16 @@ that needs a model to decide, so it is pinned here.
 import pytest
 
 from app.ai.stop_gates import ad_completeness_review as acr
-from app.ai.stop_gates.ad_rollup import check_rollups
+
+# The private helpers ARE the unit under test here: the footer/header
+# pairing and the per-metric column lookup are exactly where the bugs were,
+# and asserting on them through check_rollups alone would not have located
+# either one.
+from app.ai.stop_gates.ad_rollup import (
+    _footer_extra_metrics,  # noqa: PLC2701
+    _total_row_spend,  # noqa: PLC2701
+    check_rollups,
+)
 
 # Two campaigns, both internally consistent, with a matching rollup.
 _CONSISTENT = """## noon AE
@@ -326,3 +335,90 @@ class TestSameCampaignTwice:
         """`name == id` means the name was never captured — not a match."""
         anon = _TWICE.replace('acme widget video', '600000000001')
         assert self._gaps(anon) == []
+
+
+_TWO_TABLES = """## Amazon AE
+
+| id | name | type | spend | sales | orders | ACOS | ROAS |
+|---|---|---|---|---|---|---|---|
+| A00000001AAAAAAAAAAAA | widget manual | Manual | AED 400.00 | AED 900.00 | 15 | 44% | 2.25 |
+
+### A00000001AAAAAAAAAAAA | widget manual | Manual
+
+| 字段 | Spend | Revenue | Clicks | Orders | Views | CTR | ROAS |
+|---|---|---|---|---|---|---|---|
+| 活动级 | 400.00 | 900.00 | 0 | 15 | 9000 | 1.2% | 2.25 |
+
+| 关键词/定向 | 匹配 | 出价 (AED) | 点击 | 花费 (AED) | 订单 | 销售额 (AED) | ROAS | 建议 |
+|---|---|---|---|---|---|---|---|---|
+| widget | Broad | 2.00 | 0 | 400.00 | 15 | 900.00 | 2.25 | 维持 |
+| **合计** | — | — | 0 | 400.00 | 15 | 900.00 | 2.25 | — |
+搜索词对账: 定向花费 AED 400.00 = 搜索词花费 AED 400.00 (✓)
+
+## 汇总建议
+
+| 平台 | 国家 | 活跃活动数 | 总花费 | 总销售额 | 总订单 | ROAS |
+|---|---|---|---|---|---|---|
+| amazon | AE | 1 | AED 400.00 | AED 900.00 | 15 | 2.25 |
+"""
+
+
+@pytest.mark.unit
+class TestFooterHeaderPairing:
+    """The 合计 row must be read against ITS OWN table's header.
+
+    Blocks carry more than one table — a live one opened with a small
+    `字段 | Spend | Revenue | Clicks | Orders | …` summary above its
+    targeting table. Reading the footer against the block's FIRST
+    spend-bearing header resolves a column against the wrong table and
+    returns another metric entirely; the spend-only predecessor escaped
+    that only because the wrong cell held an em dash and parsed as None.
+    """
+
+    def test_footer_uses_its_own_tables_header(self):
+
+        block = _TWO_TABLES.split('\n### ')[1]
+        assert _total_row_spend(block) == 400.00
+        # 订单 = 15 and 销售额 = 900 — NOT the leading summary's columns.
+        assert _footer_extra_metrics(block) == {'sales': 900.00, 'orders': 15.0}
+
+    def test_two_tables_block_is_clean(self):
+        assert [
+            g for g in check_rollups(_TWO_TABLES) if '[汇总一致]' in g
+        ] == []
+
+
+@pytest.mark.unit
+class TestSalesAndOrdersAgree:
+    """Spend matching does not make the rest of the row right.
+
+    Every divergence the LLM reviewer kept reporting sat in sales/orders
+    while spend matched — a campaign whose head row said 900 sales / 15
+    orders over a 合计 row saying 244 / 4, and a summary row claiming far
+    more than its table summed to.
+    """
+
+    def _gaps(self, text):
+        return [g for g in check_rollups(text) if '销售额/订单' in g]
+
+    def test_agreement_is_clean(self):
+        assert self._gaps(_TWO_TABLES) == []
+
+    def test_stale_sales_in_the_footer_is_caught(self):
+        bad = _TWO_TABLES.replace(
+            '| **合计** | — | — | 0 | 400.00 | 15 | 900.00 | 2.25 | — |',
+            '| **合计** | — | — | 0 | 400.00 | 4 | 240.00 | 2.25 | — |',
+        )
+        gaps = self._gaps(bad)
+        assert len(gaps) == 1
+        assert '销售额' in gaps[0] and '订单' in gaps[0]
+
+    def test_spend_still_matching_does_not_excuse_it(self):
+        """The whole point: spend agrees in the failing fixture."""
+        bad = _TWO_TABLES.replace(
+            '| **合计** | — | — | 0 | 400.00 | 15 | 900.00 | 2.25 | — |',
+            '| **合计** | — | — | 0 | 400.00 | 4 | 240.00 | 2.25 | — |',
+        )
+
+        assert _total_row_spend(bad.split('\n### ')[1]) == 400.00
+        assert self._gaps(bad)

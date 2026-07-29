@@ -36,6 +36,19 @@ _COMBO_HEAD_RE = re.compile(r'(?m)^##\s*' + ad_scope.COMBO_HEAD_PATTERN)
 # the wrong cell as money.
 _ID_HEADER_CELLS = ('id', '活动 id', '活动id', 'campaign id')
 _SPEND_HEADER_CELLS = ('spend', '花费', '总花费')
+# Spend was the only figure cross-checked, and that was too narrow. The
+# LLM reviewer kept finding the same defect in the OTHER columns: one
+# campaign's head row read sales 921 / 15 orders while its own 合计 row
+# read 244 / 4, and a marketplace's summary row claimed 1,440 sales / 70
+# orders over a table summing to 880 / 42 — spend matched in both cases,
+# so nothing fired. Sales and orders are the same "one number written
+# twice" invariant and cost the same to check.
+_SALES_HEADER_CELLS = ('sales', '销售额', '总销售额', '销售')
+_ORDERS_HEADER_CELLS = ('orders', '订单', '总订单', '订单数')
+_EXTRA_METRICS = (
+    ('sales', _SALES_HEADER_CELLS, '销售额'),
+    ('orders', _ORDERS_HEADER_CELLS, '订单'),
+)
 # The document-level rollup: | amazon | SA | 12 | SAR 5,000.00 | …
 _PLATFORMS = ad_scope.AD_PLATFORMS
 
@@ -148,35 +161,104 @@ _TOTAL_ROW_RE = re.compile(
 )
 
 
-def _total_row_spend(block: str) -> float | None:
-    """The largest money-looking cell in the block's 合计 row.
+def _footer_with_header(block: str):
+    """``(header_cells, 合计_cells)`` for the table that OWNS the footer.
 
-    Column position varies between the two layers and across markets, so
-    the footer is matched by NAME and its spend taken as the biggest
-    figure on the row — sales/revenue sit beside it, but a campaign's
-    sales exceeding its spend is the normal case, so the maximum is not
-    a safe pick. Take the cell whose column matches the header instead
-    when a header is available; fall back to None rather than guess.
+    The header has to come from the SAME table as the 合计 row. Taking the
+    block's first spend-bearing header instead pairs one table's column
+    positions with another table's footer — and blocks really do carry
+    more than one table: a live block opened with a small
+    ``字段 | Spend | Revenue | Clicks | Orders | …`` summary above its
+    targeting table, so a lookup for a column resolved against the wrong
+    header and read that campaign's SPEND as its order count.
+
+    The spend-only predecessor had the same flaw and escaped it by luck:
+    the wrong column happened to hold an em dash, which parsed as None, so
+    the check quietly did nothing instead of comparing wrong numbers.
+
+    Walks the block once, remembering the header of the table currently
+    being read, and returns it alongside the first 合计 row found inside
+    that same table.
     """
-    m = _TOTAL_ROW_RE.search(block)
-    if m is None:
-        return None
-    # Find the targeting table header to locate the spend column.
-    spend_i = None
+    header = None
     for line in block.splitlines():
         cells = _cells(line)
         if not cells:
+            header = None  # a blank line ends the table
             continue
-        idx = _header_index_prefix(cells, _SPEND_HEADER_CELLS)
-        if idx is not None:
-            spend_i = idx
-            break
-    if spend_i is None:
+        if set(''.join(cells)) <= set('-: '):
+            continue  # |---|---| separator
+        first = cells[0].strip().strip('*')
+        if first in ('合计', '总计', '汇总'):
+            if header is not None:
+                return header, cells
+            continue
+        if header is None:
+            header = cells  # first non-separator row of a table is its header
+    return None, None
+
+
+def _total_row_spend(block: str) -> float | None:
+    """The campaign's spend as stated by its targeting table's 合计 row.
+
+    Matched by COLUMN NAME against that table's own header — never by
+    position, and never by "largest number on the row" (sales sits beside
+    spend and normally exceeds it).
+    """
+    header, row = _footer_with_header(block)
+    if header is None or row is None:
         return None
-    cells = _cells(m.group(0))
-    if spend_i >= len(cells):
+    i = _header_index_prefix(header, _SPEND_HEADER_CELLS)
+    if i is None or i >= len(row):
         return None
-    return _money(cells[spend_i])
+    return _money(row[i])
+
+
+def _head_row_metrics(section: str) -> dict[str, dict[str, float | None]]:
+    """``{campaign_id: {sales, orders}}`` from the section's campaign table."""
+    out: dict[str, dict[str, float | None]] = {}
+    idx = None
+    for line in section.splitlines():
+        cells = _cells(line)
+        if not cells:
+            if idx is not None and out:
+                break
+            continue
+        if set(''.join(cells)) <= set('-: '):
+            continue
+        if idx is None:
+            id_i = _header_index(cells, _ID_HEADER_CELLS)
+            if id_i is None:
+                continue
+            idx = {'id': id_i}
+            for name, names, _l in _EXTRA_METRICS:
+                j = _header_index(cells, names)
+                if j is not None:
+                    idx[name] = j
+            continue
+        if idx['id'] >= len(cells):
+            continue
+        cid = cells[idx['id']].strip().strip('*')
+        if not cid or '总计' in cid:
+            continue
+        out[cid] = {
+            n: (_money(cells[j]) if j < len(cells) else None)
+            for n, j in idx.items()
+            if n != 'id'
+        }
+    return out
+
+
+def _footer_extra_metrics(block: str) -> dict[str, float | None]:
+    """``{sales, orders}`` from the block's own 合计 row."""
+    header, row = _footer_with_header(block)
+    if header is None or row is None:
+        return {}
+    out: dict[str, float | None] = {}
+    for name, names, _l in _EXTRA_METRICS:
+        i = _header_index_prefix(header, names)
+        out[name] = _money(row[i]) if i is not None and i < len(row) else None
+    return out
 
 
 def _drill_spends(section: str) -> dict[str, float]:
@@ -278,6 +360,34 @@ def check_rollups(text: str) -> list[str]:
                 '导出里那个 id**，服务端按它核对花费），并把 AUDIT_SCOPE 的 '
                 'active_ids、进度行的 D/A、组合表和汇总行一起改小——现在这'
                 '个活动的花费在汇总里被算了两遍。'
+            )
+
+        # 1b) the head row vs the 合计 footer on SALES and ORDERS. Spend
+        #     alone was checked, and every divergence the LLM reviewer
+        #     reported sat in these two columns instead.
+        head_rows = _head_row_metrics(section)
+        off: list[str] = []
+        for block in section.split('\n### ')[1:]:
+            cid = block.splitlines()[0].split('|')[0].strip().strip('*')
+            head = head_rows.get(cid)
+            foot = _footer_extra_metrics(block)
+            if not head or not foot:
+                continue
+            for name, _names, metric_label in _EXTRA_METRICS:
+                h, f = head.get(name), foot.get(name)
+                if h is None or f is None:
+                    continue
+                if abs(h - f) > max(_ROW_TOL, abs(h) * 0.001):
+                    off.append(
+                        f'「{cid}」{metric_label} 表内 {h:g} vs 合计行 {f:g}'
+                    )
+        if off:
+            gaps.append(
+                f'[汇总一致] 「{label}」有 {len(off)} 处销售额/订单对不上：'
+                + '；'.join(off[:4])
+                + '。花费对得上不代表整行就是对的——销售额和订单同样是同一个'
+                '数字写了两遍。多半是改花费时只改了一半，或者 合计 行是修正前'
+                '的旧快照。组合表那一行和 合计 行要一起对齐。'
             )
 
         # 1a) the block's 合计 footer vs its own reconciliation line —
