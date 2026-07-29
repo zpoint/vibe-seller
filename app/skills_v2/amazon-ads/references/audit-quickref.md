@@ -214,6 +214,12 @@ the active set you enumerated in Step 1**:
      export's `Ad Group Name` (one campaign can have several; 25 groups
      across 23 campaigns in one live account), noon from `Sku` (noon has
      no ad group). Keep same-group rows together.
+  **Both TSVs use the FIXED header in `output-spec.md` § TSVs** — tabs not
+  pipes, `currency` as its own column (never `spend_SAR` in the header),
+  `ad_group` always filled. 22 different targeting headers appeared across
+  one store before this was pinned, and the agent's own summary script
+  mis-summed because of it.
+
   2. *Search-term layer* (REQUIRED — the actual customer queries).
      **`建议` must name the exact action** — `拓词` / `否定词组` /
      `否定精确` / `维持`, never a bare `否定`: the console turns your

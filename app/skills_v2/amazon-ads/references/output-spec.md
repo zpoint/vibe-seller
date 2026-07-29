@@ -362,6 +362,52 @@ campaign, before the next (survives compaction):
   — the FULL search-term set (every row of the Export CSV / Customer
   Queries, not just the top-20 shown in the report).
 
+### The TSV schema is FIXED — same columns every time
+
+These files are the machine-readable artifact: the console renders from
+them, the execution task acts on them, and the next audit diffs against
+them. So the header is not yours to choose.
+
+**Tab-separated. First line is the header, exactly these columns, in this
+order.** Targeting (`<campaign_id>.tsv`):
+
+```
+ad_group	target	match_type	state	bid	currency	clicks	spend	orders	sales	acos	roas	suggestion
+```
+
+Search terms (`<campaign_id>.searchterms.tsv`):
+
+```
+ad_group	search_term	source_target	match_type	currency	clicks	spend	orders	sales	roas	suggestion
+```
+
+Rules that make these readable by something other than the run that
+wrote them:
+
+- **Tabs, never pipes.** A pipe-delimited file read as a TSV is one
+  column wide and every figure in it is lost.
+- **`currency` is its own column** — `SAR`, `AED`, `A$`. Never fold it
+  into a header name (`spend_SAR`, `Spend (AED)`): a reader looking for
+  `spend` then finds nothing, and the column it needs changes per market.
+- **`ad_group`** is the Amazon ad group, or the SKU on noon (which has no
+  ad group). Never blank.
+- **`source_target`** is which target the query matched — available on
+  Amazon (`Keyword ID` / `Keyword Text` in the search-term report), `—`
+  on noon, whose Queries sheet cannot attribute a query to a target.
+- **`state`** is the target's own state, and paused targets with spend in
+  the window BELONG here (see the targeting-table rule above).
+- **`suggestion`** repeats the report's `建议` verbatim, so the two never
+  drift.
+- **One row per item, no collapse rows.** No `其他 N 个` / `其余…`; a
+  zero-impression filler row must say `0 展示` and carry zero metrics.
+
+Observed live, before this was pinned: **22 different targeting headers
+and 12 search-term headers across one store's files** — `target/match/
+entity/…`, `targeting_group/status/…`, `row_id/status/match_type/…`,
+English title-case, Chinese, and two pipe-delimited. The agent's own
+summary script then mis-summed the layer and it had to recompute, because
+nothing could rely on a column being where it was last time.
+
 The reviewer cross-checks TSVs on disk against the drill blocks; a
 claimed drill with no TSV (or a TSV with no block) is a gap.
 
