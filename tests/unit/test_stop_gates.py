@@ -22,6 +22,7 @@ from app.ai.stop_gates import (
     SOFT_GATE_MAX_DENIALS,
     _attempts,  # noqa: PLC2701 — tests inspect/clear the counter
     ad_bid_floor as bid_floor_gate,
+    ad_completeness_progress as completeness_progress,
     ad_completeness_review as completeness_gate,
     ad_explicit_actions as explicit_actions_gate,
     ad_scale_winners as scale_winners_gate,
@@ -36,22 +37,10 @@ from app.ai.stop_gates.ad_rules import DEFAULT_RULES, resolve_rules
 @pytest.fixture(autouse=True)
 def _clear_attempts():
     _attempts.clear()
-    completeness_gate._max_drilled.clear()
-    completeness_gate._min_distance.clear()
-    completeness_gate._stall_rounds.clear()
-    completeness_gate._stop_blocks.clear()
-    completeness_gate._combo_min_distance.clear()
-    completeness_gate._combo_stall_rounds.clear()
-    completeness_gate._seen_combos.clear()
+    completeness_gate.clear_all()
     yield
     _attempts.clear()
-    completeness_gate._max_drilled.clear()
-    completeness_gate._min_distance.clear()
-    completeness_gate._stall_rounds.clear()
-    completeness_gate._stop_blocks.clear()
-    completeness_gate._combo_min_distance.clear()
-    completeness_gate._combo_stall_rounds.clear()
-    completeness_gate._seen_combos.clear()
+    completeness_gate.clear_all()
 
 
 def _scope(*combos):
@@ -63,6 +52,11 @@ def _scope(*combos):
                 'country': c,
                 'active_ids': list(ids),
                 'total_active': len(ids),
+                # Provenance is part of the contract now: total_active must
+                # say where it was observed. 'chip:' is the unverifiable
+                # form, correct for fixtures not exercising the bulk-export
+                # verification path.
+                'total_active_source': f'chip:Live {len(ids)}',
             }
             for p, c, ids in combos
         ]
@@ -586,18 +580,23 @@ class TestAdCompletenessReview:
 
     def test_regression_flagged(self):
         # Round 1: Amazon US fully drilled 31/31 (sets high-water mark).
-        # The scope only needs to ground ONE campaign id (a small
-        # realistic fixture) — the regression check keys off the
-        # self-reported drilled count, not the scope's active-id count.
-        scope = _scope(('amazon', 'US', ['100000000000003']))
-        drill = (
+        # The scope grounds all 31 ids and the section carries all 31
+        # blocks. That is not decoration: the 进度 line's <A> is now
+        # checked against len(active_ids), so a fixture claiming 31/31
+        # over a one-id scope is itself the inconsistency that check
+        # exists to catch — it used to pass only because nothing compared
+        # the two.
+        ids = [f'10000000000{i:04d}' for i in range(31)]
+        scope = _scope(('amazon', 'US', ids))
+        one_table = (
             '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
             '| wireless mouse | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
-            * 20
         )
-        campaign_block = (
-            '\n### 100000000000003 | wireless mouse 006 | Manual\n\n'
-            '该活动类型无搜索词报告（SD）。\n'
+        blocks = ''.join(
+            f'\n### {cid} | wireless mouse {n:03d} | Manual\n\n'
+            + one_table
+            + '该活动类型无搜索词报告（SD）。\n'
+            for n, cid in enumerate(ids)
         )
         summary = (
             '## 汇总建议\n\n本次审计覆盖各市场，总花费与销售额见各节'
@@ -606,17 +605,16 @@ class TestAdCompletenessReview:
             '活动倾斜，整体结构健康。\n'
         )
         r1 = (
-            '## Amazon US\n\n**进度**: drilled 31/31 active (175 total, 1 page)\n'
-            + drill
-            + campaign_block
+            '## Amazon US\n\n'
+            '**进度**: drilled 31/31 active (175 total, 1 page)\n'
+            + blocks
             + summary
         )
         assert completeness_gate.check(r1, task_id='t1', scope=scope) is None
         # Round 2: rewrote from memory, lost work → 2/31 (regression).
         r2 = (
-            '## Amazon US\n\n**进度**: drilled 2/31 active (175 total, 1 page)\n'
-            + drill
-            + campaign_block
+            '## Amazon US\n\n'
+            '**进度**: drilled 2/31 active (175 total, 1 page)\n' + blocks
         )
         deny = completeness_gate.check(r2, task_id='t1', scope=scope)
         assert deny is not None
@@ -799,7 +797,7 @@ class TestAdCompletenessReview:
         block = self._campaign_block(
             '\n#### Search Terms\n'
             + self.DRILL
-            + '\n搜索词对账: 定向花费 USD 1391.56 / 点击 1094 = '
+            + '\n搜索词对账: 定向花费 USD 1391.56 / 点击 1004 = '
             '搜索词花费 USD 1413.23 / 点击 688 (✓ 花费偏差 1.6%)\n'
         )
         scope = _scope(('amazon', 'US', ['100000000000003']))
@@ -905,6 +903,7 @@ class TestAdCompletenessReview:
                     'country': 'EG',
                     'active_ids': ['C_FAKE0004'],
                     'total_active': 2,
+                    'total_active_source': 'chip:Live 2',
                 }
             ]
         }
@@ -1001,12 +1000,14 @@ class TestAdCompletenessReview:
                     'country': 'AE',
                     'active_ids': ['C_FAKE0001'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
                 {
                     'platform': 'amazon',
                     'country': 'SA',
                     'active_ids': ['A0EXAMPLE123456789XYZ'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
             ]
         }
@@ -1058,7 +1059,8 @@ class TestAdCompletenessReview:
         # And noon AE's per-combo counter must be > 0 (we recorded
         # at least one no-progress round).
         assert (
-            completeness_gate._combo_stall_rounds.get((tid, 'noon AE'), 0) >= 1
+            completeness_progress._combo_stall_rounds.get((tid, 'noon AE'), 0)
+            >= 1
         )
 
     def test_per_combo_stall_fires_when_every_combo_stuck(self):
@@ -1073,12 +1075,14 @@ class TestAdCompletenessReview:
                     'country': 'AE',
                     'active_ids': ['C_FAKE0002'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
                 {
                     'platform': 'amazon',
                     'country': 'SA',
                     'active_ids': ['A0EXAMPLE123456789XYZ'],
                     'total_active': 1,
+                    'total_active_source': 'chip:Live 1',
                 },
             ]
         }
@@ -1126,7 +1130,7 @@ class TestAdCompletenessReview:
             completeness_gate.check(report, task_id=tid)
         # No scope means _seen_combos never gets populated for this task,
         # so the global counter is the one that increments.
-        assert not completeness_gate._seen_combos.get(tid)
+        assert not completeness_progress._seen_combos.get(tid)
         assert completeness_gate.is_stalled(tid) is True
 
     def test_campaign_no_searchterm_token_escapes(self):
@@ -1185,13 +1189,89 @@ class TestAdCompletenessReview:
             + self.SUMMARY
         )
 
-    def test_noon_cq_underreport_within_floor_passes(self):
-        # noon Customer Queries attributes only part of spend to
-        # queries (observed 47-74% live). 54% is a correct same-window
-        # read, not a window error — must pass the noon floor (40%).
+    def test_noon_partial_attribution_is_now_a_gap(self):
+        # This test used to assert the OPPOSITE: that 54% passed, because
+        # noon's Customer Queries "attributes only part of spend to
+        # queries (observed 47-74% live)". Measured against the live
+        # console, that is false — the CQ TAB renders a fixed top-15 with
+        # no paginator, and the 47-74% figure was a 15-row read. Via the
+        # tab's Export the two layers agree exactly: an Auto campaign
+        # 300.00 vs 300.00 (~10k query rows) and a Manual one 120.00 vs
+        # 120.00 (404 rows), against 0.265 and 0.786 from the same
+        # campaigns' tabs. So 54% is an incomplete capture, and noon now
+        # uses Amazon's floor.
         block = self._noon_block(
             '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
             '搜索词花费 USD 48.00 / 点击 41 (✓ CQ 部分归因)\n'
+        )
+        scope = _scope(('noon', 'EG', ['C_FAKE0004']))
+        deny = completeness_gate.check(block, scope=scope)
+        assert deny is not None
+        assert any('[对账]' in g for g in deny.gaps), deny.gaps
+        # …and it is INCOMPLETENESS, not a contradiction: still stallable.
+        assert not deny.contradictions, deny.contradictions
+        # The gap must say how to settle it when the data is genuinely
+        # unobtainable, or it is a standing order to retry the impossible.
+        low = [g for g in deny.gaps if '[对账]' in g][0]
+        assert '数据不可信' in low and '请勿执行' in low
+
+    def test_quarantined_below_floor_is_excused(self):
+        """A platform that will not export cannot be retried into one.
+
+        Live: two noon Brand Video campaigns whose Customer-Queries
+        Export never finishes loading. The agent documented the failure
+        and marked both do-not-execute, and still got the same [对账] gap
+        every round — so it kept re-attempting the export, four
+        submissions and five browser-use failures in five minutes. The
+        contradiction path already accepts "fix it, or mark it clearly";
+        below-floor has to as well.
+        """
+        block = self._noon_block(
+            '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
+            '搜索词花费 USD 48.00 / 点击 41 (✗)\n'
+            '⚠️ 数据不可信：本活动 Export 卡在 loading，只能读到页面前 15 行，'
+            '请勿执行本活动的出价建议。\n'
+        )
+        scope = _scope(('noon', 'EG', ['C_FAKE0004']))
+        deny = completeness_gate.check(block, scope=scope)
+        gaps = list(deny.gaps) if deny else []
+        assert not any('[对账]' in g for g in gaps), gaps
+
+    def test_half_quarantined_combo_is_still_a_gap(self):
+        """Quarantine excuses a campaign, never a whole market.
+
+        Otherwise the escape hatch becomes the exit: an agent that cannot
+        find the export entry point could mark every campaign unreliable
+        and ship a report that audits nothing.
+        """
+        head = '## noon EG\n\n**进度**: drilled 4/4 active (4 TSV)\n\n'
+        body = ''
+        for i in range(4):
+            body += (
+                f'### C_FAKE000{i} | wireless mouse 02{i} manual | 手动\n\n'
+                '#### Targeting\n'
+                + self.DRILL
+                + '\n#### Search Terms\n'
+                + self.DRILL
+                + '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
+                '搜索词花费 USD 48.00 / 点击 41 (✗)\n'
+                '⚠️ 数据不可信：Export 卡住，请勿执行本活动的出价建议。\n\n'
+            )
+        scope = _scope((
+            'noon',
+            'EG',
+            ['C_FAKE0000', 'C_FAKE0001', 'C_FAKE0002', 'C_FAKE0003'],
+        ))
+        deny = completeness_gate.check(head + body + self.SUMMARY, scope=scope)
+        gaps = list(deny.gaps) if deny else []
+        assert any('因「数据不可信」被整块排除' in g for g in gaps), gaps
+
+    def test_noon_complete_export_capture_passes(self):
+        # What a correct noon capture looks like now — read from the CQ
+        # Export, the layers match (measured 1.000 on both live campaigns).
+        block = self._noon_block(
+            '\n搜索词对账: 定向花费 USD 120.00 / 点击 149 = '
+            '搜索词花费 USD 120.00 / 点击 149 (✓)\n'
         )
         scope = _scope(('noon', 'EG', ['C_FAKE0004']))
         assert completeness_gate.check(block, scope=scope) is None
@@ -1208,15 +1288,15 @@ class TestAdCompletenessReview:
         assert '[对账]' in deny.reason
 
     def test_noon_floor_override(self):
-        # notes.md can tighten the floor: 54% passes default 0.4 but
-        # fails noon_reconcile_floor: 0.6.
+        # notes.md can still move the floor per store. 90% of targeting
+        # passes the 0.85 default and fails an explicit 0.95.
         block = self._noon_block(
-            '\n搜索词对账: 定向花费 USD 89.00 / 点击 60 = '
-            '搜索词花费 USD 48.00 / 点击 41 (✓)\n'
+            '\n搜索词对账: 定向花费 USD 100.00 / 点击 80 = '
+            '搜索词花费 USD 90.00 / 点击 72 (✓)\n'
         )
         scope = _scope(('noon', 'EG', ['C_FAKE0004']))
         assert completeness_gate.check(block, scope=scope) is None
-        rules = resolve_rules('noon_reconcile_floor: 0.6')
+        rules = resolve_rules('noon_reconcile_floor: 0.95')
         assert (
             completeness_gate.check(block, rules=rules, scope=scope) is not None
         )
@@ -1896,6 +1976,24 @@ class TestCitedNumberTruthfulness:
         )
         assert explicit_actions_gate.check(report) is None
 
+    def test_named_source_keyword_cite_skipped(self):
+        # The live shape a fixed lookbehind cannot cover: the cross-
+        # referenced keyword is NAMED, so the 来源词 marker sits further
+        # from its metric than any hardcoded window. This row's own ROAS
+        # (2.94) must still be checked; the source keyword's ACOS (120%,
+        # correct for THAT row) must not be compared against this one.
+        # Seen live on a harvest recommendation, which explains itself by
+        # citing the source keyword — so this fired on nearly every one.
+        report = (
+            '| 搜索词 | 来源关键词 | 匹配 | 点击 | 花费 | 订单 | 销售额 '
+            '| ROAS | 建议 |\n|---|---|---|---|---|---|---|---|---|\n'
+            '| panty high waist | panties for ladies | Phrase | 17 '
+            '| 17.00 | 1 | 49.99 | 2.94 | 提取为定向词（Exact，建议出价 '
+            '1.05——ROAS 2.94；来源词 panties for ladies ACOS 120% '
+            '已建议暂停） |\n'
+        )
+        assert explicit_actions_gate.check(report) is None
+
     def test_no_roas_column_no_check(self):
         report = (
             '| 关键词 | 出价 | 建议 |\n|---|---|---|\n'
@@ -2337,7 +2435,7 @@ class TestSplitActionHead:
 
     def test_buried_pause_flagged(self):
         report = self.HEAD + (
-            '| charger | Exact | 3.78 | 2 | 34% | 维持（出价 3.78 低于'
+            '| charger | Exact | 3.33 | 2 | 34% | 维持（出价 3.33 低于'
             '地板 3.86，无法下调）；ACOS 34% ROAS 2.94，建议暂停定向词 |\n'
         )
         deny = explicit_actions_gate.check(report)
@@ -2345,7 +2443,7 @@ class TestSplitActionHead:
 
     def test_clean_pause_head_passes(self):
         report = self.HEAD + (
-            '| charger | Exact | 3.78 | 2 | 34% | 暂停定向词（出价已低于'
+            '| charger | Exact | 3.33 | 2 | 34% | 暂停定向词（出价已低于'
             'CPC×1.1 地板且 ACOS 34%>30 亏损） |\n'
         )
         assert explicit_actions_gate.check(report) is None
@@ -2452,3 +2550,138 @@ class TestAutoGroupPauseVsCarry:
             self._report('维持（剪枝零单浪费词后观察）')
         )
         assert deny is None or 'auto 定向承接' not in deny.reason
+
+
+@pytest.mark.unit
+class TestPlacementKeywordVerb:
+    """A category/product placement has no keyword match type.
+
+    A noon ``Subcat`` row (and Amazon ``Category``/``Product``/ASIN
+    targeting) is a PLACEMENT, not a customer query: match mode is a
+    property of keywords, so there is no phrase-vs-exact variant to
+    choose between and nothing to promote to its own keyword. Negating
+    it simply drops the placement.
+
+    The spec used to list one keyword-only vocabulary for every
+    search-term row, so a live audit that wrote the only correct verb it
+    had (``否定商品定向``) was rendered as "no executable action" while
+    inventing ``否定精确`` would have passed. That is backwards, and it
+    stayed possible because the rule lived only in prose.
+    """
+
+    def _report(self, st_rows: str) -> str:
+        return (
+            '### C_TEST1234567 | test | Manual\n\n'
+            '| 定向词 | 匹配 | 出价 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| widget | Phrase | 0.8 | 3 | 维持 |\n\n'
+            '| 搜索词 | 来源关键词 | 匹配 | 点击 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|---|\n' + st_rows
+        )
+
+    def test_exact_negation_on_subcat_flagged(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '否定精确（40 点击零转化） |\n'
+            )
+        )
+        assert deny is not None and '品类/商品投放' in deny.reason
+
+    def test_harvest_on_placement_flagged(self):
+        """You cannot promote a category placement to a keyword."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Widgets/Subcategory-2 | Widgets/Subcategory-2 | Category | 9 | 2 | '
+                '拓词（ROAS 6.1） |\n'
+            )
+        )
+        assert deny is not None and '品类/商品投放' in deny.reason
+
+    def test_plain_negation_on_placement_passes(self):
+        """``否定投放`` is the whole action — nothing to disambiguate."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '否定投放（40 点击 / 90.00 花费零转化，浪费） |\n'
+            )
+        )
+        assert deny is None or '品类/商品投放' not in deny.reason
+
+    def test_hold_on_placement_passes(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 9 | 2 | '
+                '维持——转化词，ROAS 4.74 |\n'
+            )
+        )
+        assert deny is None or '品类/商品投放' not in deny.reason
+
+    def test_keyword_row_still_requires_the_exact_verb(self):
+        """The exception must not leak onto ordinary keyword queries."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| bluetooth speaker | widget | Phrase | 40 | 0 | '
+                '否定精确（40 点击零转化） |\n'
+            )
+        )
+        assert deny is None or '品类/商品投放' not in deny.reason
+
+
+@pytest.mark.unit
+class TestNewKeywordSpelling:
+    """The clearer wording must not buy an exemption from the old checks.
+
+    「拓词」 was jargon a reviewer had to be taught, so the console renames
+    it 添加为关键词 and the spec now prefers that spelling. Every check
+    written against the old verbs has to recognise the new one, or the
+    rename silently drops coverage: an extraction with no suggested bid,
+    or a keyword-only verb on a category placement, would both pass.
+    """
+
+    def _report(self, st_rows: str) -> str:
+        return (
+            '### C_TEST1234567 | test | Manual\n\n'
+            '| 定向词 | 匹配 | 出价 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|\n'
+            '| widget | Phrase | 0.8 | 3 | 维持 |\n\n'
+            '| 搜索词 | 来源关键词 | 匹配 | 点击 | 订单 | 建议 |\n'
+            '|---|---|---|---|---|---|\n' + st_rows
+        )
+
+    def test_new_spelling_still_needs_a_suggested_bid(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| blue widget | widget | Phrase | 9 | 3 | '
+                '添加为关键词（精准——ROAS 6.1>5） |\n'
+            )
+        )
+        assert deny is not None and '建议出价' in deny.reason
+
+    def test_new_spelling_with_a_bid_passes(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| blue widget | widget | Phrase | 9 | 3 | '
+                '添加为关键词（精准，建议出价 0.95——ROAS 6.1>5） |\n'
+            )
+        )
+        assert deny is None or '建议出价' not in deny.reason
+
+    def test_new_spelling_on_a_placement_is_still_flagged(self):
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '否定关键词（精准，40 点击零转化） |\n'
+            )
+        )
+        assert deny is not None and '品类/商品投放' in deny.reason
+
+    def test_negated_mention_is_not_read_as_an_extraction(self):
+        """「不可添加关键词」 explains why it CAN'T be done."""
+        deny = explicit_actions_gate.check(
+            self._report(
+                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 9 | 2 | '
+                '维持——品类位不可添加关键词 |\n'
+            )
+        )
+        assert deny is None or '建议出价' not in deny.reason

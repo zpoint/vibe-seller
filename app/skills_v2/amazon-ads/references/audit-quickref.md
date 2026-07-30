@@ -26,15 +26,24 @@ state on the way to a full drill, never as the final report.
 
 ## Step 0 — scope + scaffold with append-markers
 
-Read `stores/<slug>/metadata.json` → `platform_countries`. Audit each
-(platform, country) it lists (e.g. Amazon <cc1>/<cc2> + noon <cc1>/<cc2>;
-or just a single Amazon marketplace for a single-market store). 30-day
-window. Create
+**Read `./AUDIT_TARGETS.json` FIRST** — the server writes it at the task
+root before you start: `{"combos": [{"platform": "amazon", "country":
+"SA"}, …]}`, every marketplace the store is configured for in Settings.
+That file — not your judgement, and **not a market list in the task
+description** (prose goes stale when a store gains a marketplace; this
+file is regenerated from store config every run) — fixes the combo list — audit EVERY combo
+in it (e.g. Amazon <cc1>/<cc2> + noon <cc1>/<cc2>; or just a single
+Amazon marketplace for a single-market store), each with its own
+`AUDIT_SCOPE.json` entry (Step 1) and its own `## <Platform> <Country>`
+section. Loop over it; don't infer the list.
+(`stores/<slug>/metadata.json` → `platform_countries` is the fallback
+only when `AUDIT_TARGETS.json` is absent.) 30-day window. Create
 `./AD_AUDIT_<YYYY-MM-DD>.md` with the header.
 
 **Scaffold every section up front, each with a unique append-marker.**
-For each (platform, country) write its `## <Platform> <Country>` heading,
-its `进度` line, and ONE marker line you will append against:
+One section per `AUDIT_TARGETS.json` combo — including the ones you
+expect to be empty. For each combo write its `## <Platform> <Country>`
+heading, its `进度` line, and ONE marker line you will append against:
 
 ```
 ## noon EG
@@ -108,16 +117,20 @@ true active count you just enumerated.
 optional: any section that writes a `进度` line without a matching combo
 entry is rejected with a `[基线]` gap, because a `D/A` you wrote yourself
 proves nothing. It is the ground truth the server checks coverage against
-— every listed id must get its own `### <id> …` drill block. Append one
+— every listed id must get its own `### <id> …` drill block. **One entry
+per `AUDIT_TARGETS.json` combo, no exceptions** — a declared combo with
+no scope entry is a `[基线]` gap that blocks submission. Append one
 entry per combo:
 
 ```json
 {"combos": [
   {"platform": "amazon", "country": "SA",
    "total_active": 2,
+   "total_active_source": "bulk:bulk-<acct>-20260628-20260728-<n>.xlsx",
    "active_ids": ["600000000001", "600000000002"]},
   {"platform": "noon", "country": "AE",
    "total_active": 1,
+   "total_active_source": "chip:Live 1",
    "active_ids": ["C_DEMO0001"]}
 ]}
 ```
@@ -135,14 +148,39 @@ entry per combo:
   `total_active == len(active_ids)` and rejects the scope when they
   disagree — that mismatch is exactly how a half-scrolled noon list gets
   caught (ids 20, chip 45 → rejected as stale, not accepted as `20/20`).
+- **`total_active_source` = where that number was read — REQUIRED
+  whenever `total_active` is present** (missing it is a `[基线]` gap).
+  `total_active == len(active_ids)` only proves the two numbers agree,
+  not that either was *observed*, and it is trivially true when both come
+  from the same parse. Observed live: a run declared a 12-campaign
+  marketplace as `4/4` because its script silently dropped TSVs it
+  couldn't read, and every check passed. Two accepted forms:
+  - **`"bulk:<exact export filename>.xlsx"` — Amazon.** The server finds
+    that file in the downloads dir, opens it, counts `state=enabled`
+    campaign rows itself, and checks you did not declare FEWER than that.
+    Declaring MORE is fine — a campaign that spent inside the window and
+    was paused before the export still deserves a drill. A file that is
+    missing or unreadable counts as unverified, never as a failure, so a
+    lost download can't block a sound report. Copy the filename exactly
+    as downloaded.
+  - **`"chip:Live N"` — noon**, `N` = the reading on the campaign-list
+    status chip. Not verifiable from disk, but stating the reading turns
+    an invented total from an omission into a checkable claim, and gives
+    the reviewer something to compare against the live page.
 - `<A>` in the 进度 line must equal `len(active_ids)` for that combo.
+
+A declared combo that genuinely has NO live campaigns is still written
+down: an entry with `"active_ids": []` and `"total_active": 0`, plus its
+`## <Platform> <Country>` section stating that. 可以为空，但不能不写。
 
 Auditing only part of an account on purpose (a one-off "investigate this
 one ad" task) is still fine — declare it: list just those ids and add
-`"exhaustive": false`, which skips the `total_active` cross-check. What
-you may **not** do is omit the file, or write an empty `active_ids`;
-both are rejected. A narrow scope is a claim the server can check; no
-scope is not.
+`"exhaustive": false`, which skips the `total_active` cross-check (and
+with it the `total_active_source` requirement). What
+you may **not** do is omit the file, drop a combo `AUDIT_TARGETS.json`
+declares, or write an empty `active_ids` for a combo that DOES have live
+campaigns; all three are rejected. A narrow scope is a claim the server
+can check; no scope is not.
 
 ## Step 2 — drill EACH active campaign, build the report with `Edit`
 
@@ -158,19 +196,85 @@ the active set you enumerated in Step 1**:
   the block into the report. No re-drill, no browser.
 - **Missing either** → capture it:
   1. *Targeting layer*: campaign detail → per-keyword / per-target
-     table (noon Manual: Targets tab).
-  2. *Search-term layer* (REQUIRED — the actual customer queries):
-     **Amazon: Search Terms page → Export CSV button**, then parse the
-     downloaded CSV. The on-screen grid is virtualized (~13 rows
-     visible of often 200+) — Export is the ONLY full-coverage method.
-     Set the date range BEFORE exporting. **noon: Customer Queries
+     table (noon Manual: Targets tab). **Per-target ROWS or it isn't a
+     drill** — a table whose only row restates the campaign total
+     (合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall / total) is
+     rejected as `[定向层]`; 合计 is a footer, never the only row. SP
+     Auto: one row per auto-target group; noon Auto (no Targets tab):
+     one row per Customer-Query-derived target. 页面确实无数据时在块内
+     写「无数据」。
+     **Include PAUSED targets that spent in the window — never filter by
+     `state=enabled`.** Spend made before a target was paused still counts
+     in the campaign total; dropping those rows under-counts the targeting
+     layer, the search-term layer then reads higher than it (impossible),
+     and you go chasing a platform defect that does not exist. Self-check:
+     the targeting 合计 == that campaign's row spend; if not, rows are
+     missing.
+     **Carry the group level**: add a `广告组` column — Amazon from the
+     export's `Ad Group Name` (one campaign can have several; 25 groups
+     across 23 campaigns in one live account), noon from `Sku` (noon has
+     no ad group). Keep same-group rows together.
+  **Both TSVs use the FIXED header in `output-spec.md` § TSVs** — tabs not
+  pipes, `currency` as its own column (never `spend_SAR` in the header),
+  `ad_group` always filled. 22 different targeting headers appeared across
+  one store before this was pinned, and the agent's own summary script
+  mis-summed because of it.
+
+  2. *Search-term layer* (REQUIRED — the actual customer queries).
+     **`建议` must name the exact action AND its match type** —
+     `添加为关键词（精准|词组，建议出价 X）` / `否定关键词（精准|词组）` /
+     `维持`, never a bare `否定`: the console turns your recommendation into
+     the pre-selected button, and 精准-vs-词组 differs enough in blast
+     radius that only the audit can choose — when adding as well as when
+     negating. Leave it unstated and the console falls back to 精准 and
+     labels the row `报告未指定`. (`拓词` / `否定精确` / `否定词组` are still
+     read, but prefer the explicit spelling.)
+     **Exception — category / product placements** (`Subcat`, `Category`,
+     `Product`, an ASIN): match type belongs to keywords, so those rows
+     have no phrase-vs-exact variant and cannot be promoted to a keyword.
+     Use `否定投放` / `维持` only, and never invent a match type to fit
+     the keyword rule. Amazon rows
+     carry `Ad Group ID` + `Keyword ID` + `Keyword Text`, so fill
+     `广告组` / `来源关键词` from them; noon's `(Product) Queries` has only
+     `Campaign Name` / `Sku` / `Query`, so put the SKU in `广告组`, write
+     `—` for `来源关键词`, and never guess a source target.
+     **Amazon — prefer the BULK EXPORT you already downloaded in Step 1.**
+     Tick the search-term boxes when requesting it and the workbook
+     carries `SP Search Term Report` and `SB Search Term Report` sheets
+     covering every campaign for the same window as the targeting rows
+     (observed live: 973 SP + 331 SB rows in one file). One download
+     serves the whole account, and because BOTH layers come from the same
+     file the 对账 line reconciles by construction — no window mismatch
+     is even possible. Read the sheet with openpyxl, filtering
+     `Campaign ID`.
+     *Fallback, per campaign:* Search Terms page → Export CSV button,
+     then parse the downloaded CSV. The on-screen grid is virtualized
+     (~13 rows visible of often 200+), so never scrape it — Export is
+     the only full-coverage method **on that page**. Set the date range
+     BEFORE exporting, and match it to the targeting window exactly;
+     this is where 对账 mismatches come from. **noon: Customer Queries
      tab** (Manual and Auto).
-  3. *Reconcile*: search-term spend/clicks totals must match the
-     targeting totals within ~15%. Write the machine-checkable line
-     into the block:
+  3. *Reconcile*: write the machine-checkable line into the block:
      `搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B (✓)`
-     A mismatch = the two pages are on different date windows (the
-     30d-vs-7d bug) — re-pin both and recapture; never submit a ✗.
+     **Two checks on the spend pair, and they are NOT symmetric** —
+     search-term spend can only ever be a PART of targeting spend
+     (每个搜索词的花费已经计在定向层里了):
+     - `Y` **below the floor** (Amazon 85% of `X`; noon 40%, its Customer
+       Queries page attributes only part of campaign spend) → `[对账]`,
+       an incomplete capture: the two pages are on different date windows
+       (the 30d-vs-7d bug) or you missed rows — re-pin both and recapture.
+       Stallable like any other gap.
+     - `Y` **above `X × 1.02`** → `[对账·不可能]`, a CONTRADICTION — 实测
+       同窗口下这个比值上限就是 1.00, so it isn't imprecision, it's
+       arithmetically impossible; almost always one campaign's targeting
+       rows joined to a DIFFERENT campaign's search terms (wrong
+       `Campaign ID`). **This one does NOT fail open on a stall** — fix
+       the figures from the same `Campaign ID`, or write in that block
+       ONE line carrying BOTH halves (unreliable + do-not-execute):
+       `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`
+       —「仅供参考」 by itself does not count. Otherwise the
+       server banner-marks the delivered report and names the campaign.
+       Full rule: `output-spec.md` § the reconciliation line.
   4. `vibe_seller_write_workspace_file` BOTH TSVs (full search-term
      set in `.searchterms.tsv`, not just the top rows).
 
@@ -234,6 +338,15 @@ store's `notes.md` may override, e.g. `scale_roas: 6`):
 (Deeper lever selection: load `tuning-toolbox.md` only if needed.)
 
 ## Step 4 — submit + converge (the server IS the reviewer)
+
+**Submit the report FILE — pass the PATH, never a summary of it.** The
+argument is `"./AD_AUDIT_<date>.md"`, because whatever string you pass is
+what the reviewer grades. Hand it a chat summary and it grades the
+summary: a summary has no `## <Platform> <Country>` sections, so every
+combo reads as never started (a complete report was denied 24 rounds in a
+row exactly this way). The server does fall back to reading the newest
+`AD_AUDIT_*.md` when it detects narration — that is a safety net, not the
+interface. Pass the path.
 
 Call `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")` every **3–5
 drilled campaigns** — the server's completeness reviewer replies with

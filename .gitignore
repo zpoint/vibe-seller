@@ -50,7 +50,15 @@ coverage.xml
 # the maintainer's local copy + wrangler — no need to track in repo.
 cloudflare/
 rating.md
-review-*.png
+# Screenshots of a LIVE store — campaign names, SKUs, spend, search terms.
+# Every image this repo actually ships lives under docs/images/, so anything
+# at the root is a scratch capture and must never be committable. The old
+# `review-*.png` rule covered one prefix; the next capture used a different
+# one and was staged-able again, so the rule is scoped by LOCATION instead.
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
 
 # Build artifacts (wheel/sdist staging)
 build/

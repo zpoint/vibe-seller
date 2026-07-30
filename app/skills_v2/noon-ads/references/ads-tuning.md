@@ -22,6 +22,27 @@ report block per country under top-level headings `## Country 1:
 <code>` / `## Country 2: <code>` / … (see *Multi-country audits*
 below). Numbering of campaigns restarts within each country.
 
+**Which countries is not your call** — the server writes
+`./AUDIT_TARGETS.json` at the task root before you start, listing every
+(platform, country) the store is configured for. Read it first and cover
+every noon country in it: one `AUDIT_SCOPE.json` combo entry and one
+report block each. A country with genuinely no Live campaigns is still
+written down (`"active_ids": []`, `"total_active": 0`, plus a block
+saying so); 可以为空，但不能不写 — omitting a declared combo is a `[基线]`
+gap that blocks submission.
+
+**Every `total_active` must say where it came from.** A noon combo
+carries `"total_active_source": "chip:Live N"` — the status-chip
+reading from the campaign list — alongside `total_active`; on an
+empty country write `"chip:Live 0"`. Missing it is a `[基线]` gap,
+because `total_active == len(active_ids)` only proves the two
+numbers agree, not that either was observed: derive both from your
+own scroll and the check is empty (observed live: a 12-campaign
+marketplace declared as `4/4`, every check passing, because the
+script silently dropped files it couldn't read). Read the chip;
+never back-fill it from the id count. Field reference:
+`../SKILL.md § 2` step 4.
+
 **Active campaigns only.** The audit covers campaigns that are
 currently spending — Status `Live` or `Out of budget`. Skip `Paused`
 and `Draft`; they don't need tuning and only add noise. If the user
@@ -82,17 +103,51 @@ Detail page (`../SKILL.md § 3`) and capture:
   (`../SKILL.md § 6`). REQUIRED for Manual AND Auto — this is the
   search-term layer; a campaign without it is not drilled.
 
-**Reconcile, then write the proof line.** Sums of clicks/spend
-across the Customer Queries rows must reconcile to the Targets
-table (Manual) or the campaign top-tile (Auto) within ~15% — both
-read on the SAME date window. Write the machine-checkable line
-into the campaign's report block (the server reviewer parses it):
+**Reconcile, then write the proof line.** Sum spend/clicks across
+the Customer Queries rows against the Targets table (Manual) or
+the campaign top-tile (Auto) — both read on the SAME date window —
+and write the machine-checkable line into the campaign's report
+block (the server reviewer parses it):
 
 `搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B (✓)`
 
-If they don't reconcile, the date range is misaligned (e.g. 7d
-queries vs 30d targets) — re-pin both and recapture; never submit
-a ✗. Every query with impressions gets its own row (no `其余 N 个`
+**The server grades the spend pair in TWO directions, and they are
+not the same failure.** Query spend can only ever be a PART of the
+campaign's targeting spend — 每个查询的花费本来就已经计在定向层
+里了 — so:
+
+- **`Y` below 85% of `X` → `[对账]`, an incomplete capture.**
+  noon's floor is now the SAME as Amazon's (`noon_reconcile_floor`
+  = 0.85). It used to be 40%, on the belief that Customer Queries
+  "genuinely attributes only part of campaign spend". That belief
+  was an artifact of reading the CQ **tab**, which renders a fixed
+  top-15 with no paginator. Read via the tab's **`Export`** instead
+  and the two layers agree exactly — measured on two live
+  campaigns: Auto 300.00 vs 300.00 (~10k query rows) and Manual
+  120.00 vs 120.00 (404 rows), against 0.265 and 0.786 from the
+  same campaigns' 15-row tabs.
+  So under the floor means **your capture is incomplete** — almost
+  always because you read the tab instead of exporting it (see
+  `../SKILL.md` § 6), and occasionally a misaligned window (7d
+  queries vs 30d targets). Fix the source, don't widen the band.
+  Stallable: like the other gaps it eventually fails open.
+- **`Y` above `X × 1.02` → `[对账·不可能]`, a contradiction.**
+  不是误差，是不可能：实测同窗口下这个比值上限就是 1.00。Almost
+  always the two layers were taken from different campaigns (or
+  different accounts / exports). **This direction does NOT fail
+  open on a stall** — the server keeps refusing, because the
+  figure would otherwise drive bid recommendations. Exactly two
+  legal answers: re-take BOTH layers for the same `C_…` campaign
+  id and fix the numbers, or declare the campaign untrustworthy
+  in its own block with one line that says BOTH that the data is
+  unreliable AND that its recommendations must not be executed —
+  `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`。
+  半个免责声明不算：「数据有偏差，仅供参考」只写了前半句，那些
+  带 建议 列的行读起来依然是可执行的动作。Do neither and the
+  server prepends a warning banner to the delivered report,
+  naming the campaign — it can never ship looking clean.
+
+Every query with impressions gets its own row (no `其余 N 个`
 collapse; all-zero filler may collapse but must say `0 展示`).
 Write the full query set to
 `stores/<slug>/ads/noon/<country>/<id>.searchterms.tsv`.
@@ -316,6 +371,14 @@ decision in one place.
 For Auto campaigns, omit Targets and substitute a small settings
 table (Default Bid + Bidding Strategy at minimum) with a
 recommendation column for each row.
+
+**The settings table is an addition, not the drill.** Auto still owes a
+per-target table — one row per Customer-Query-derived target, with its
+own recommendation. A targeting table whose only row restates the
+campaign total (合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall /
+total) is rejected as `[定向层]`：出价、暂停、加投都是逐个定向做的决策，
+汇总行里没有可执行的对象。合计 is allowed only as a trailing footer row;
+该活动确实没有数据时写「无数据」。
 
 **Customer Queries table** (always — at least the spending queries.
 Last column is **`recommendation`** — Negate / Harvest / Hold per row):

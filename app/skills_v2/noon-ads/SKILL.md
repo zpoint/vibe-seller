@@ -91,6 +91,17 @@ gate.
 > do use `Export all campaigns`, first scroll the list fully, then verify
 > the file's row count equals the chip before trusting it.**
 
+**Which countries you owe is fixed by `./AUDIT_TARGETS.json`** — the
+server writes it at the task root before you start (`{"combos":
+[{"platform": "noon", "country": "AE"}, …]}`, straight from the store's
+Settings). Read it FIRST, at the start of Phase 1, and loop over it:
+every noon country in it needs its own `AUDIT_SCOPE.json` combo entry
+(step 4) AND its own `## noon <CC>` report section. A country with
+genuinely no Live campaigns is still written down — an entry with
+`"active_ids": []` and `"total_active": 0`, plus a section saying so;
+可以为空，但不能不写。Omitting a declared combo is a `[基线]` gap that
+blocks submission.
+
 Phase 1 (Discover) MUST, per country:
 
 1. **Read the true total** from the status chips — the `Live N` / `All N`
@@ -126,6 +137,7 @@ Phase 1 (Discover) MUST, per country:
    {"combos": [
      {"platform": "noon", "country": "AE",
       "total_active": 45,
+      "total_active_source": "chip:Live 45",
       "active_ids": ["C_DEMO0001", "C_DEMO0002"]}
    ]}
    ```
@@ -137,6 +149,19 @@ Phase 1 (Discover) MUST, per country:
    scrolling — don't "fix" it by editing the number down. Every id you
    list must then get its own `### <id> | … ` drill block in the report.
    Full field reference: `amazon-ads/references/audit-quickref.md` Step 1.
+
+   **`total_active_source` is required, and for noon it is the chip
+   reading** — `"chip:Live N"`, the number you read in step 1. Without
+   it the combo is a `[基线]` gap. Reason: `total_active ==
+   len(active_ids)` only proves the two numbers agree, not that either
+   was *observed* — trivially true when both come from the same parse
+   (observed live: a run declared a 12-campaign marketplace as `4/4`
+   because its script silently dropped files it couldn't read, and every
+   check passed). The chip form isn't verifiable from disk the way
+   Amazon's `"bulk:<file>.xlsx"` is, but writing the reading down turns
+   an invented total from an omission into a claim the reviewer can check
+   against the live page. Read the chip; don't back-fill it from the id
+   count.
 
 ## 3. Campaign Detail Page
 
@@ -253,13 +278,23 @@ that should have 15+), scroll the inner table container
 (`js("window.scrollBy(0, 600)")`) and re-run — the DOM may still be
 virtualizing on a slow render.
 
-**Export Data → CSV is unreliable in this environment.** Field-
-verified: clicking the Export Data button on a campaign-detail
-Targets tab produced no CSV in `~/.vibe-seller/downloads/<slug>/`
-within 10 s; the download monitor only catches bulk-sheet
-exports, not per-campaign tab exports. Use Export Data only as
-a last resort for campaigns with ≥ 50 keywords AND only after
-verifying a fresh file appears in the downloads dir.
+**On the TARGETS tab, scroll+eval is fine** — the targeting table is
+small (auto campaigns have 2–4 groups; manual ones 10–30 keywords) and
+its rows sum to the campaign's own Ad Spend exactly, which is how you
+know you got them all. Verified live: 5 spending rows summing to 120.00
+against a campaign Ad Spend of 120.00, and 2 auto groups summing to
+300.00 against 300.00. **Include PAUSED targets that still have spend in
+the window** — an agent that filtered to Live only reported 115.00 and
+lost a paused 5.00 row, which then broke its reconciliation.
+
+**But do NOT carry that habit onto Customer Queries** — that tab is
+capped at top-15 with no pagination, so scroll+eval structurally cannot
+complete it. Use its `Export` button; see § 6. (An earlier revision of
+this skill declared Export Data broadly "unreliable in this environment"
+after one Targets-tab attempt that produced no file within 10 s. On
+Customer Queries it works and is the only complete source — verified
+twice, ~15–25 s. Wait ~20 s and diff the downloads directory rather than
+concluding failure at 10 s.)
 
 **Tab-activation gotcha.** After clicking the Targets tab (via the
 `js()` by-text pattern above), verify by URL — read
@@ -304,8 +339,52 @@ Or click "Apply" next to Recommended Bid to use noon's suggestion.
 
 ## 6. Customer Queries Tab
 
-Same scroll+eval default as § 4 (Export Data is unreliable in
-this environment — see § 4 note).
+> ### ⚠️ USE **Export**, NOT the table. The tab shows only the top 15.
+>
+> The Customer Queries tab renders a **fixed top-15** and has **no
+> paginator, no load-more and no rows-per-page control** — verified live:
+> the row count stays at 15 across repeated inner-container scrolling of
+> every scrollable element on the page. Scroll+eval therefore CANNOT get
+> the full query set here, no matter how patiently you scroll.
+>
+> **The `Export` button on this tab does work** (verified twice, file
+> landed in ~15–25 s) and returns the complete set. An earlier revision
+> of this skill said "Export Data is unreliable in this environment";
+> that was wrong, and following it is what produced years of truncated
+> captures. Measured on two live campaigns:
+>
+> | campaign | targeting spend | via 15-row tab | via Export |
+> |---|---|---|---|
+> | Auto | 300.00 | 80.00 (0.265, 15 rows) | **300.00 (1.000, ~10k rows)** |
+> | Manual | 120.00 | 95.00 (0.786, 15 rows) | **120.00 (1.000, 404 rows)** |
+>
+> So noon does **not** "attribute only part of spend to queries" — that
+> belief was an artifact of reading the tab. With the export the two
+> layers agree EXACTLY, and the server now holds noon to the same
+> reconciliation floor as Amazon (85%). A low ratio means your capture is
+> incomplete, not that noon is being noon.
+>
+> **How to use it:**
+> 1. Open the campaign detail, click the **Customer Queries** tab.
+> 2. Click **`Export`** (a plain button; match on its exact text).
+> 3. Wait for `~/.vibe-seller/downloads/<slug>/` to gain
+>    **`_OVERVIEW_ALL_Report_<start>_<end>.xlsx`**. Snapshot the directory
+>    listing BEFORE clicking so you can diff, rather than guessing.
+> 4. **Rename it immediately, per campaign** — the filename carries only
+>    the date range, so the next campaign's export OVERWRITES it.
+> 5. Read it with openpyxl. It is scoped to the campaign you were on and
+>    contains BOTH layers, so read them from this ONE file and the
+>    reconciliation holds by construction:
+>    - **`(Product) Queries`** — the full query set. Columns include
+>      `Campaign Name`, `Sku`, `Query`, `Views`, `Clicks`, `Orders`,
+>      `Spends`, `Revenue`, `ROAS`.
+>    - **`(Product) Target`** — the targeting layer (`Target Value`,
+>      `Targeting Type`, `Bid`, `Spends`, …).
+>    - also `(Product) Campaign`, `(Product) Sku`, `(Product) Placement`.
+>
+> The scroll+eval walk below is still the right tool for the **Targets**
+> tab (§ 4), and it remains a fallback for a quick eyeball of the top
+> queries — just never as the source for the 搜索词对账 line.
 
 ```bash
 browser-use <<'PY'
@@ -345,6 +424,32 @@ wrong-category waste, harvest candidates). Allocate equal time
 on Customer Queries for Auto as you would on Targets for
 Manual — don't treat Auto sections as "lighter" just because
 the spec template doesn't show a Targets table.
+
+> **In an audit report, that means an Auto campaign's targeting
+> table is one row per Customer-Query-derived target — not one row
+> restating the campaign total.** A table whose only row is
+> 合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall / total is
+> rejected as `[定向层]`：出价、暂停、加投都是逐个定向做的决策，
+> 汇总行里没有可执行的对象。合计 may only be a trailing footer row.
+> 该活动确实没有数据时写「无数据」。
+
+> **These totals feed the `搜索词对账` line — TWO checks, and they are
+> not symmetric.** Query spend can only ever be a PART of the campaign's
+> targeting / top-tile spend (每个查询的花费已经计在定向层里了).
+> **Below 40% of it** → `[对账]`, an incomplete capture — noon's floor is
+> deliberately low (`noon_reconcile_floor`; this page genuinely attributes
+> only part of campaign spend, measured median 0.779 across 13 live
+> campaigns), so under it means you really did miss rows: re-read both
+> layers on the SAME 30-day window. **Above `1.02×` it** →
+> `[对账·不可能]`, a contradiction rather than imprecision (实测同窗口下
+> 这个比值上限就是 1.00) — usually the two layers came from different
+> campaigns. **That direction does NOT fail open on a stall**: either
+> re-take both layers for the same `C_…` id, or write in that campaign's
+> block ONE line carrying BOTH halves — data unreliable AND do not act on
+> it: `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`
+> (「数据有偏差，仅供参考」 by itself does not count), or the
+> server prepends a warning banner to the delivered report naming that
+> campaign. Full rule: `../amazon-ads/references/output-spec.md`.
 
 Use this to discover high-performing queries (add as keywords) or
 low-performing queries (add as negatives).
@@ -609,7 +714,7 @@ one, how to research keywords — lives in three reference files:
 
 | Reference | Load when |
 |---|---|
-| [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | **The report contract for every audit** (shared across noon + Amazon — same shape for both platforms). 进度 line, per-campaign drill blocks (Targets table + Customer-Queries table + `搜索词对账` reconciliation line, same date window), bid rules, TSV naming. Before finishing you MUST pass BOTH the **coverage floor** (deterministic, at `set_task_result`) AND the **`ads-report-review` reviewer loop** (active verification — spawn the reviewer per `../amazon-ads/references/reviewer-loop.md`; it opens the live console/export and cross-checks your report, looping until `Status: ok`; Stop-hook enforced). A report is done only when verified against the live console, drilled to the word level. |
+| [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | **The report contract for every audit** (shared across noon + Amazon — same shape for both platforms). 进度 line, per-campaign drill blocks (Targets table + Customer-Queries table + `搜索词对账` reconciliation line, same date window), bid rules, TSV naming. Before finishing you MUST pass BOTH the **coverage floor** (deterministic, at `set_task_result`) AND the **`ads-report-review` reviewer loop** (active verification — spawn the reviewer per `../amazon-ads/references/reviewer-loop.md`; it opens the live console/export and cross-checks your report, looping until `Status: ok`; Stop-hook enforced). A report is done only when verified against the live console, drilled to the word level. **Submit the FILE — `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`, the path, never a chat summary of the report**: the reviewer grades whatever string you pass it, and a summary has no `##` combo sections. |
 | [`../amazon-ads/references/audit-quickref.md`](../amazon-ads/references/audit-quickref.md) | **The audit procedure, one page** (shared). Enumerate ALL pages → two-layer drill per campaign (Targets + Customer Queries, same window, reconcile) → build the report with Read+Edit via INSERT markers → converge with the server reviewer. |
 | [`../amazon-ads/references/format-anchor.md`](../amazon-ads/references/format-anchor.md) | _Legacy detail._ Exact per-campaign table layouts; load only if you need the precise column shape. Superseded as a contract by `output-spec.md`. |
 | [`references/ads-creation.md`](references/ads-creation.md) | Creating a new campaign. Covers targeting choice, bidding strategy, per-keyword bid heuristic, match-type strategy, negative scoping, TOS boost rules, budget choice, the Save-as-Draft → Launch UI quirk, naming convention, post-launch verification cadence. |
@@ -641,7 +746,9 @@ two countries), a `page_info()` call may time out. Recovery: pipe a
 fresh `new_tab("<any_admanager_url>")` + `wait_for_load()` to
 reconnect (the daemon lifecycle is managed by the wrapper). Login
 state is preserved.
-- **Export Data is unreliable**: clicking Export Data on Targets or
+- **Export Data on Customer Queries WORKS and is REQUIRED** (§ 6) —
+  the tab shows only top-15. The note below applies to the other tabs:
+- **Export Data may be slow elsewhere**: clicking Export Data on Targets or
 Customer Queries tab may not produce a CSV in
 `~/.vibe-seller/downloads/<slug>/`. Use DOM eval extraction
 instead (§ 4 pattern).

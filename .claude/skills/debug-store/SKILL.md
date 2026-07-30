@@ -292,6 +292,60 @@ curl -s -b "$COOKIE" "$BASE/api/tasks/<task_id>" | jq
 (`SELECT id, name FROM stores;`) is the offline equivalent — same
 data, no auth needed for read.
 
+## Reproduce what the FRONTEND sends — never an arbitrary profile
+
+When you drive `retry` / `messages` / task-create from curl, you are
+standing in for a user clicking a button. **Read the profile the UI would
+have sent and send exactly that.** The UI initialises its picker from the
+signed-in user's `default_profile_id` (`frontend/src/App.tsx` — on
+auth-check it calls `setSelectedProfileId(u.default_profile_id)`) and
+passes it on every retry.
+
+```bash
+# The profile the UI would send for this user — use THIS, not a guess.
+PROFILE=$(sqlite3 ~/.vibe-seller/data/vibe_seller.db \
+  "SELECT default_profile_id FROM users WHERE username='<user>';")
+# For a SCHEDULED task, the schedule's own profile is the authority:
+PROFILE=$(sqlite3 ~/.vibe-seller/data/vibe_seller.db \
+  "SELECT ai_profile_id FROM schedules WHERE id='<schedule_id>';")
+
+curl -s -b "$COOKIE" -H 'Content-Type: application/json' \
+  -X POST "$BASE/api/tasks/$TASK_ID/retry" -d "{\"profile_id\":\"$PROFILE\"}"
+```
+
+**Do NOT pass `"default"`, and do NOT omit the field.**
+
+* `"default"` is a REAL profile id, not a "use the configured one" token —
+  it resolves to plain Claude via `api.anthropic.com` (`profiles.json`).
+  Sending it silently swaps the model out from under the run.
+* Omitting `profile_id` does not fall back to the user's default either.
+  `retry_task` does `if body and body.profile_id: task.ai_profile_id = …`,
+  so an absent field leaves the task on **whatever profile its previous
+  run used** — which for a scheduled task can differ from the schedule's.
+
+Why it matters: a debug run on the wrong model answers a question nobody
+asked. Observed — a two-hour ad-audit rerun was driven with
+`profile_id: "default"` while the user's default and the owning schedule
+were both `minimax`. Every infra fix it validated was real, but it proved
+nothing about the model the weekly schedule actually fires under, and the
+divergence was invisible until someone thought to check.
+
+Verify before you conclude anything about behaviour: the task row records
+the profile, and the live agent process shows the resolved endpoint.
+
+```bash
+sqlite3 ~/.vibe-seller/data/vibe_seller.db \
+  "SELECT ai_profile_id FROM tasks WHERE id='$TASK_ID';"
+# Definitive — a profile with no ANTHROPIC_BASE_URL is plain Claude:
+for p in $(pgrep -f "$TASK_ID"); do
+  ps eww -p "$p" | tr ' ' '\n' | grep -E '^ANTHROPIC_(BASE_URL|MODEL)='
+done
+```
+
+If you deliberately want a different profile (isolating a gate fix from
+model capability, say), that is legitimate — but **say so out loud before
+starting**, because the person watching assumes the UI's behaviour.
+
 ## Triggering a task via API
 
 Tasks are the primary unit of agent work. A `POST /api/tasks`
@@ -331,7 +385,7 @@ echo "$TASK_ID"
 | `title` | yes | Short imperative; this becomes the agent's primary instruction. |
 | `description` | no | Free-form context — country (`NOON EG`, `Amazon US`), date range, prior-task references. |
 | `store_id` | no\* | Required for store-scoped work. Omit for non-store tasks (always plan mode). |
-| `ai_profile_id` | no | Defaults to the user's `default_profile_id`. Override per-run (e.g. `claude_code`, `minimax`, `kimi`) — check `app/ai/profiles.py` for the live list. |
+| `ai_profile_id` | no | On task CREATE this defaults to the user's `default_profile_id`; on `retry` it does NOT — see "Reproduce what the FRONTEND sends" above. Send the user's (or the schedule's) profile explicitly. `"default"` is a real id meaning plain Claude, not "use the configured one". Live list: `app/ai/profiles.py` + `~/.vibe-seller/profiles.json`. |
 | `plan_mode` | no | `false` (default) = auto-run. `true` = plan-then-execute (PENDING → DESIGNING → PLANNED → wait for `/run`). |
 | `parent_task_id` | no | Chains tasks. The new task inherits store + workspace from the parent. |
 | `schedule_id` | no | Set only when creating a one-off ad-hoc fire of an existing schedule; normal task creation should leave this null. |

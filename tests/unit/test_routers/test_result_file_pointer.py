@@ -17,8 +17,10 @@ from pathlib import Path
 
 import pytest
 
-from app.routers.tasks import resolve_workspace_result_path
-from app.routers.tasks_files import looks_like_result_path
+from app.routers.tasks_files import (
+    looks_like_result_path,
+    resolve_workspace_result_path,
+)
 
 
 @pytest.mark.unit

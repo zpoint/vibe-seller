@@ -14,13 +14,12 @@ from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
 from app.ai.stop_gates import (
-    SOFT_GATE_MAX_DENIALS,
+    CONTRADICTION_MAX_DENIALS,
     clear_skill_bindings,
-    markdown_format as md_format_gate,
+    contradiction_banner,
     record_attempt,
     reset_attempts,
     resolve_skill_gates,
-    result_language as language_gate,
 )
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
@@ -32,15 +31,15 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.routers.task_submission import (
     SetTaskResultRequest,
+    apply_soft_gates,
     declared_gaps,
     refuse as _refuse,
+    resolve_submitted_result,
     retain_submission as _retain_submission,
 )
 from app.routers.tasks_files import (
     apply_report_reviewer_gate,
-    looks_like_result_path,
     resolve_store_rules,
-    resolve_workspace_result_path,
 )
 from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
@@ -598,36 +597,9 @@ async def set_task_result(
     # ``resolve_workspace_result_path`` for the path-resolution
     # contract). Otherwise treat the value as direct content.
     raw = body.result
-    resolved_content: str | None = None
-    target = resolve_workspace_result_path(raw, task_root)
-    if target is not None:
-        # File reads are blocking; offload so the event loop stays
-        # responsive when an agent saves a multi-100KB report.
-        try:
-            resolved_content = await asyncio.to_thread(
-                target.read_text, encoding='utf-8'
-            )
-        except OSError:
-            resolved_content = None
-
-    # A DANGLING pointer must be rejected, never demoted to content: a
-    # path-like string that resolves to no file would sail through every
-    # content gate vacuously (no ad sections to check) and complete the
-    # task with a literal path as its "result" — the bypass that let a
-    # quoted pointer end a 3/46 audit. Tell the agent exactly what to do.
-    if resolved_content is None and looks_like_result_path(raw):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f'result looks like a file path but no such file exists '
-                f'in this task workspace: {raw!r}. Write the report file '
-                'first (built-in Write/Edit), then call set_task_result '
-                'with its path (e.g. "./AD_AUDIT_<date>.md") — or pass '
-                'the full report content directly.'
-            ),
-        )
-
-    final_result = resolved_content if resolved_content is not None else raw
+    final_result, resolved_from_file = await resolve_submitted_result(
+        raw, task_id, task_root
+    )
 
     # RETAIN BEFORE REVIEW. Every gate below refuses by raising, and a
     # raise here used to discard the submission entirely — N refusals
@@ -639,30 +611,7 @@ async def set_task_result(
     declared = declared_gaps(body)
     await _retain_submission(db, task, final_result)
 
-    # Generic soft gates — run on the resolved result text for every
-    # task. Each gate gets at most SOFT_GATE_MAX_DENIALS denies per task;
-    # past the cap the original text is allowed through so a stubborn
-    # failure doesn't trap the agent. At set_task_result rather than the
-    # Stop hook because some backends don't emit Stop events.
-    for gate_module, gate_args in (
-        (md_format_gate, (final_result,)),
-        (language_gate, (final_result, task.title, task.description)),
-    ):
-        deny = gate_module.check(*gate_args)
-        if not deny:
-            continue
-        attempt = record_attempt(task_id, deny.gate)
-        if attempt <= SOFT_GATE_MAX_DENIALS:
-            await _refuse(db, task, deny.reason, declared + deny.gaps)
-        # Past the cap: log and allow through.
-        logger.warning(
-            'Soft gate %s exceeded %d denials for task %s — allowing '
-            'result through anyway. Reason: %s',
-            deny.gate,
-            SOFT_GATE_MAX_DENIALS,
-            task_id,
-            deny.reason[:200],
-        )
+    await apply_soft_gates(db, task, task_id, final_result, declared)
 
     # Skill-declared domain gates: the session's loaded skills name WHICH
     # reviewers apply (``gates: [...]`` in SKILL.md → get_registered_gates).
@@ -681,11 +630,49 @@ async def set_task_result(
         is_stalled = getattr(gate, 'is_stalled', None)
         if is_stalled is None or not is_stalled(task_id):
             await _refuse(db, task, deny.reason, declared + deny.gaps)
+        # A CONTRADICTION is not the kind of gap the stall exists to
+        # forgive. The fail-open is there so a weak model is never trapped
+        # by work it cannot finish; accepting a figure that cannot be true
+        # is a different act, because the number ships into decisions.
+        # Keep refusing past the stall — the agent always has a legal move
+        # (fix it, or mark the campaign untrustworthy), so this cannot
+        # trap. Bounded anyway: past the cap the banner below makes the
+        # contradiction impossible to miss instead of impossible to pass.
+        if deny.contradictions:
+            n = record_attempt(task_id, f'{gate_name}:contradiction')
+            if n <= CONTRADICTION_MAX_DENIALS:
+                await _refuse(
+                    db, task, deny.reason, declared + deny.contradictions
+                )
+            logger.warning(
+                'Gate %s: %d contradiction(s) unresolved after %d refusals '
+                'for task %s — banner-marking the result. First: %s',
+                gate_name,
+                len(deny.contradictions),
+                n,
+                task_id,
+                deny.contradictions[0][:160],
+            )
+            final_result = (
+                contradiction_banner(deny.contradictions) + final_result
+            )
+            stalled_gaps.extend(deny.contradictions)
+        # Log the GAPS, not ``deny.reason`` — the reason opens with a
+        # fixed instruction banner and appends the gap list at the END,
+        # so a truncated prefix of it is pure boilerplate. Six of these
+        # lines in one run read byte-identical while the underlying gaps
+        # went 14 → 8 → 7, which is worse than silence: it looks like a
+        # run repeating itself when it is converging. Say "failing open"
+        # rather than "accepting": the reviewer gate runs next and may
+        # still refuse, so the result is not accepted here.
         logger.warning(
-            'Gate %s stalled for task %s — accepting best result. Gaps: %s',
+            'Gate %s stalled for task %s — failing open with %d unmet gap(s) '
+            '(reviewer may still refuse). Gaps: %s',
             gate_name,
             task_id,
-            deny.reason[:200],
+            len(deny.gaps or ()),
+            ' | '.join(g[:110] for g in (deny.gaps or ())[:4])
+            or deny.reason[:160],
         )
         # Failed open on a stall: the result ships, but the unmet gaps
         # ride along as caveats instead of vanishing into a log line.
@@ -748,7 +735,7 @@ async def set_task_result(
         'ok': True,
         'task_id': task_id,
         'status': task.status,
-        'resolved_from_file': resolved_content is not None,
+        'resolved_from_file': resolved_from_file,
     }
 
 

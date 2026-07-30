@@ -59,7 +59,13 @@ _REASON_RE = re.compile(r'[（(，,：:—\-]\s*\S{4,}')
 # NEW targeting keyword (e.g. 提取为定向词（Exact，建议出价 0.95…）).
 # Negated mentions (「不可提取」「无法提取」 explaining WHY a category
 # placement can't be extracted) are not extraction recommendations.
-_EXTRACT_RE = re.compile(r'(?<!不可)(?<!无法)(?<!没法)提取')
+# Extraction, in either spelling. `添加为关键词` is the wording the console
+# now shows, so a report using it must still reach the suggested-bid check
+# below — otherwise the clearer phrasing would quietly buy an exemption.
+_EXTRACT_RE = re.compile(
+    r'(?<!不可)(?<!无法)(?<!没法)提取'
+    r'|(?<!不可)(?<!无法)(?<!没法)添加为?关键词'
+)
 _SUGGEST_BID_RE = re.compile(r'(?:出价|至)\s*[=＝]?\s*\d+(?:\.\d+)?')
 
 # A ROAS/ACOS number CITED inside a 建议 cell. Three review rounds
@@ -74,6 +80,17 @@ _CITED_ACOS_RE = re.compile(r'ACOS\s*[=＝:：约]?\s*(\d+(?:\.\d+)?)\s*%')
 _CITED_OTHER_RE = re.compile(
     r'来源|预计|预期|目标|另一|其他|其它|整体|全店|汇总|历史|新词'
 )
+# Clause boundaries used to scope that attribution check. A metric belongs
+# to whatever the CLAUSE attributes it to, so the search window runs from
+# the nearest preceding separator rather than a fixed character count.
+#
+# ``，`` and ``、`` are deliberately ABSENT — they join parts of one
+# attribution rather than separating two: 「维持——来源 Exact 词承接，ROAS
+# 12.0」 keeps the marker and its metric on opposite sides of a comma, so
+# treating the comma as a boundary would re-flag the very shape this skips.
+# Erring wide is the safe direction: a missed skip flags correct prose,
+# while an extra skip only reduces coverage (see :func:`_cited_metric`).
+_CLAUSE_SEPS = ('；', ';', '。', '（', '(', '——', '\n')
 
 # An absolute bid trim (「降至 1.20」「下调至1.63」). Percentage-only
 # trims (「下调 10%」) are not floor-checked — the base is ambiguous.
@@ -154,6 +171,25 @@ _DENY_AUTO_PAUSE_CARRY = (
     '浪费词、保留 auto 组承接转化词、否定后再观察 ROAS；不要一刀切'
     '暂停整组。若确需停组，把这些转化词改为「提取为定向词(Exact)」'
     '救出来。违规样例：{samples}。'
+)
+
+# Match type is a property of KEYWORDS. A category / product placement
+# (noon ``Subcat``, Amazon ``Category``/``Product``/an ASIN) has no
+# phrase-vs-exact variant and cannot be promoted to its own keyword, so a
+# recommendation claiming one asserts a distinction the platform does not
+# have. The console renders the action head as the pre-selected button, so
+# an invented match type becomes an instruction nobody can carry out.
+_PRODUCT_TARGET_RE = re.compile(r'subcat|categor|product|asin|品类|类目|商品')
+_KEYWORD_ONLY_ACT_RE = re.compile(
+    r'否定精确|否定词组|否定关键词|拓词|提取为定向词|添加为?关键词'
+)
+
+_DENY_PLACEMENT_KEYWORD_VERB = (
+    '{n} 行「品类/商品投放」搜索词用了只属于关键词的动作（否定精确／'
+    '否定词组／拓词／提取为定向词）——匹配方式是关键词的属性：品类位'
+    '（Subcat/Category/Product/ASIN）没有精确与词组之分，也无法提取成'
+    '关键词。这类行只有两种有效建议：**否定投放**（写明依据）或 '
+    '**维持**。违规样例：{samples}。'
 )
 
 _DENY_NEGATE_ON_TARGET = (
@@ -261,9 +297,32 @@ def _cellnum(cells: list[str], idx: int | None) -> float | None:
 
 def _cited_metric(rec: str, rx: re.Pattern[str]) -> float | None:
     """First value cited in ``rec`` that refers to THIS row (cites about
-    the source keyword or projected values are skipped, not compared)."""
+    the source keyword or projected values are skipped, not compared).
+
+    "Refers to this row" is decided per CLAUSE, not per fixed character
+    window. The attribution marker (``来源词`` …) and the metric it owns
+    sit in one clause, but an arbitrary number of characters apart —
+    because the referenced entity is usually NAMED, and a keyword name is
+    routinely longer than any window worth hardcoding. The previous
+    22-character lookbehind therefore missed exactly the citations it
+    existed to skip: 「…ROAS 2.94；来源词 <18-char keyword> ACOS 120%…」
+    pushed ``来源词`` one character out of range and the source keyword's
+    ACOS was compared against this row's, flagging correct prose. That
+    shape is not rare — a harvest recommendation explains itself by
+    citing the source keyword's performance, which is the reasoning the
+    output spec asks for, so the false positive recurred on nearly every
+    ``提取为定向词`` row.
+    """
     for m in rx.finditer(rec):
-        if _CITED_OTHER_RE.search(rec[max(0, m.start() - 22) : m.start()]):
+        clause_start = max(
+            (
+                rec.rfind(sep, 0, m.start()) + len(sep)
+                for sep in _CLAUSE_SEPS
+                if rec.rfind(sep, 0, m.start()) != -1
+            ),
+            default=0,
+        )
+        if _CITED_OTHER_RE.search(rec[clause_start : m.start()]):
             continue
         return float(m.group(1))
     return None
@@ -325,6 +384,7 @@ def check(
 
     bad_targeting: list[str] = []
     bad_dimension: list[str] = []
+    bad_placement_verb: list[str] = []
     bad_extract: list[str] = []
     bad_identity: list[str] = []
     bad_healthy_src: list[str] = []
@@ -470,6 +530,13 @@ def check(
                 else ''
             )
             src_act = _src_action(src, st_match) if src else ''
+            if _PRODUCT_TARGET_RE.search(
+                st_match.lower()
+            ) and _KEYWORD_ONLY_ACT_RE.search(rec):
+                bad_placement_verb.append(
+                    f'{term[:20]}｜{st_match}｜{rec[:34]}'
+                )
+                continue
             if (
                 not _is_hold(rec)
                 and not _EXTRACT_RE.search(rec)
@@ -694,6 +761,7 @@ def check(
         (bad_trim_direction, _DENY_TRIM_DIRECTION),
         (bad_phantom, _DENY_PHANTOM_RAISE),
         (bad_false_managed, _DENY_FALSE_MANAGED),
+        (bad_placement_verb, _DENY_PLACEMENT_KEYWORD_VERB),
         (bad_dimension, _DENY_SEARCHTERM),
         (bad_identity, _DENY_IDENTITY_EXTRACT),
         (bad_healthy_src, _DENY_HEALTHY_SRC_EXTRACT),

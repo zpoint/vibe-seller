@@ -100,6 +100,18 @@ class _RoutingMixin:
             async for raw in ws:
                 try:
                     await self._route_client_message(client_id, raw)
+                except websockets.ConnectionClosed:
+                    # A peer that went away mid-route is the SAME normal
+                    # event the outer handler logs at INFO — routing simply
+                    # noticed it first, because the close surfaces on the
+                    # next upstream write rather than on the read loop.
+                    # Letting the catch-all below take it logged a routine
+                    # disconnect as an ERROR with a full traceback: 11 of
+                    # them in one run, every one a `code=1001 (going away)`
+                    # close, which is what a browser does when it
+                    # navigates or exits. Re-raise so the one handler that
+                    # understands this exception gets it.
+                    raise
                 except Exception:
                     logger.exception(
                         'Error routing client %s message',

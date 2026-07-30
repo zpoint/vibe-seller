@@ -36,7 +36,7 @@ guess seller-central paths.
 | Single campaign | `…/cm/sp/campaigns/<campaignId>?entityId=...` | Deep-link only — needs the `entityId` scraped from the campaign-manager landing. The first path leg after `cm/sp/` switches per ad type (`sp`, `sb`, `sd`). |
 | Ad group | `…/cm/sp/campaigns/<campId>/ad-groups/<agId>/<tab>?entityId=...` where tab ∈ `ads`/`targeting`/`negative-targeting`/`search-terms`/`history` |  |
 | Campaign tabs | `…/cm/sp/campaigns/<id>/<tab>` where tab ∈ `ad-groups`/`bid-adjustments`/`negative-targeting`/`budget-rules`/`settings`/`history` | |
-| Bulk operations | `…/bulk-operations?entityId=...` | NOT `/sp/bulk-operations` (404). |
+| Bulk operations | `https://advertising.amazon.<tld>/bulk-operations?entityId=...` — **host ROOT, no path prefix** | The one row here whose `…` is NOT `…/cm/`. Every prefixed variant 404s — verified live: `/campaign-manager/bulk-operations`, `/cm/bulk-operations`, `/cm/bulk`, `/bulk/campaigns`, `/sp/bulk-operations`. An agent that assumed the neighbouring rows' `/cm/` prefix burned four navigations before finding it. |
 | Drafts | `…/cm/drafts?entityId=...` | NOT `/cm/sp/drafts/...` (only the inner path). |
 | Coupons dashboard | `https://sellercentral.amazon.<tld>/coupons/dashboard` | NOT `/promotions/coupons` (redirects elsewhere) and NOT `/cppd/coupons` (404). |
 | Coupon create | `https://sellercentral.amazon.<tld>/coupons/create-coupon` | |
@@ -281,6 +281,44 @@ The "Total: N" cell in the table footer is the authoritative count.
 > collected all N ids**. The grid path is only reliable once the search
 > and status filters are provably cleared (verified by the total), which
 > is exactly the step a 404-driven fallback tends to skip.
+>
+> **Some marketplaces have no Bulk Operations page at all** — verified on
+> `advertising.amazon.ae`, where the working SA form
+> (`advertising.amazon.ae/bulk-operations?entityId=…`, host root) 404s
+> along with every prefixed variant (`/campaign-manager/bulk-operations`,
+> `/cm/bulk`, `/cm/home`). Note the prefixed forms 404 on **SA too** — see
+> the URL table above; they are not the SA spelling, so a 404 on them
+> tells you nothing about the marketplace. Confirm with the host-root form
+> before concluding a site has no Bulk Operations. That 404 is not
+> transient, and it is NOT a reason to declare the marketplace empty. **Each marketplace is its own advertising account, so
+> an export taken on one site says nothing about another** — "the SA
+> export had no AE rows" is not evidence that AE is idle. Three routes
+> that work when Bulk Operations is absent:
+>
+> 1. **Campaign detail pages** — `/cm/sp/campaigns/<CONSOLE_ID>?entityId=…`
+>    and `/cm/sb/campaigns/<CONSOLE_ID>?entityId=…` render fine, and
+>    `document.body.innerText` carries every campaign KPI (spend, sales,
+>    orders, ACOS, ROAS) with no virtualized table to fight.
+> 2. **The unified campaign manager on a sibling site** —
+>    `advertising.amazon.<other-tld>/campaign-manager/all-campaigns` lists
+>    several countries' campaigns with a Country column. Still virtualized,
+>    so paginate it the §2a way.
+> 3. **The reports page** — `/reports?entityId=…` works and can build a
+>    Sponsored Products Advertised Product report.
+>
+> Campaign ids come in two forms and you will meet both: the bulk export
+> carries Amazon's internal numeric id (`100000000001`), while Campaign
+> Manager links expose an `A`-prefixed id (`A0EXAMPLE1EXAMPLE1EX`). They
+> denote the same campaign. **Verified: a detail URL built from the NUMERIC
+> export id resolves fine** (`/cm/sp/campaigns/<numeric>?entityId=…`
+> rendered the campaign with its status and date range), so do not assume
+> you must translate before navigating — try the id you already have.
+> If a detail URL does 404, re-resolve it the other way: search the
+> campaign NAME in Campaign Manager and read the id out of the result
+> link's `href`. (An earlier revision of this note asserted the two forms
+> were "not interchangeable"; that came from a store's notes.md and was
+> never verified — the live check contradicts it for the numeric→console
+> direction. Left as a fallback, not a prerequisite.)
 
 **FIRST, reuse the newest existing export — do NOT generate a fresh job
 by default.** For a read-only audit you need a recent snapshot, not a
@@ -1967,7 +2005,13 @@ held 213). Procedure:
    `~/.vibe-seller/downloads/<store>/Sponsored_Products_SearchTerm_*.csv`.
 3. Parse the CSV for ALL rows (every term with impressions). Sum
    `Total cost` and `Clicks` and reconcile against the Targeting-tab
-   totals — match within ~15% or the windows are misaligned.
+   totals — search-term spend must land in `[85%, 102%]` of targeting
+   spend. **Below** that band the windows are misaligned or the capture
+   is short (fixable by recapturing); **above** `102%` is not a tolerance
+   question at all — search terms cannot outspend the layer they are
+   counted in, so it means these rows belong to a different campaign, and
+   the server refuses it without a stall fail-open (`output-spec.md`
+   § the reconciliation line).
 4. Note: the CSV does NOT carry match type directly; join the
    `Keywords` column against the Targeting table to attribute source
    keyword + match type.

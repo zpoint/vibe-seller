@@ -1,15 +1,17 @@
 """ClaudeCodeBackend — AgentSession orchestrator / singleton."""
 
 import asyncio
+import json
 import logging
 
 from app.ai.base import AIAgentBackend
 from app.ai.claude_backend import AgentSession
 from app.ai.profiles import DEFAULT_PROFILE_ID
-from app.ai.stop_gates import recorded_skills
+from app.ai.stop_gates import ad_scope, recorded_skills
 from app.database import async_session
 from app.env_options import Options
 from app.events.bus import event_bus
+from app.models.store import Store
 from app.models.task import Task
 from app.workspace.manager import workspace_manager
 from app.workspace.skills_sync import skills_sync
@@ -89,6 +91,33 @@ class ClaudeCodeBackend(AIAgentBackend):
             task_dir = await workspace_manager.prepare_task_workspace(
                 task_id,
             )
+
+            # Declare the store's marketplaces into the workspace before
+            # the agent starts, so an audit's combo obligation is the
+            # server's fact rather than the agent's choice (see
+            # ``ad_scope.write_declared_targets``).
+            if not no_store:
+                async with async_session() as db:
+                    task = await db.get(Task, task_id)
+                    store = (
+                        await db.get(Store, task.store_id)
+                        if task and task.store_id
+                        else None
+                    )
+                if store is not None and store.platform_countries:
+                    try:
+                        ad_scope.write_declared_targets(
+                            task_dir,
+                            json.loads(store.platform_countries),
+                            slug=store_slug,
+                        )
+                    except (ValueError, TypeError):
+                        logger.warning(
+                            'Store %s has unparseable platform_countries; '
+                            'task %s gets no declared audit targets',
+                            store.id,
+                            task_id,
+                        )
 
             session = AgentSession(
                 task_id,

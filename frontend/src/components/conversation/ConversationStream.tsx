@@ -12,6 +12,8 @@ import { ThinkingBlock, WorkingIndicator } from './ThinkingBlock'
 import { QuestionBanner } from '../QuestionBanner'
 import { ImageRequestCard } from './ImageRequestCard'
 import { GeneratedImageCard } from './GeneratedImageCard'
+import { AuditResultCard } from '../adAudit/AuditResultCard'
+import { looksLikeAuditReport } from '../../lib/adAudit/parseReport'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 
@@ -268,6 +270,13 @@ interface ConversationStreamProps {
   isActive: boolean
   userNearBottom?: React.RefObject<boolean>
   onOpenVisionSetup?: () => void
+  /**
+   * Called when a reviewer commits the audit decision set. Left undefined
+   * until the execution side lands — the console then renders read-only
+   * rather than offering a button that goes nowhere.
+   */
+  onSubmitAuditDecisions?: (decisions: unknown) => void
+  auditSubmitting?: boolean
 }
 
 export function ConversationStream({
@@ -291,6 +300,8 @@ export function ConversationStream({
   isActive,
   userNearBottom,
   onOpenVisionSetup,
+  onSubmitAuditDecisions,
+  auditSubmitting,
 }: ConversationStreamProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -376,6 +387,25 @@ export function ConversationStream({
               />
             )
           case 'result':
+            // A 190 KB audit rendered as markdown is a thousand rows of
+            // tables with no way to act on any of them. Detected by
+            // STRUCTURE, not a filename — the server hands us resolved
+            // content and the deliverable has been renamed more than once.
+            if (looksLikeAuditReport(item.result)) {
+              return (
+                <div key={item.id}>
+                  <AuditResultCard
+                    report={item.result || ''}
+                    onSubmit={
+                      onSubmitAuditDecisions
+                        ? (d) => onSubmitAuditDecisions(d)
+                        : undefined
+                    }
+                    submitting={auditSubmitting}
+                  />
+                </div>
+              )
+            }
             return (
               <div key={item.id}>
                 <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">

@@ -32,12 +32,80 @@ _CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|C_[A-Z0-9]{6,}|A[0-9A-Z]{16,}')
 
 # Machine-readable reconciliation line (output-spec):
 #   搜索词对账: 定向花费 USD 942.39 / 点击 762 = 搜索词花费 USD 942.39 / 点击 762 (✓)
+# CLICKS ARE OPTIONAL, because the gate grades SPEND and the spec itself
+# calls clicks advisory ("Amazon's search-term report strips invalid
+# clicks, so click totals can legitimately diverge"). Requiring them to
+# PARSE was stricter than the contract being enforced, and some pages
+# simply do not expose the column: three live Amazon AU campaigns wrote
+# `定向花费 X = 搜索词花费 Y` and said so on the same line — "定向页与
+# 搜索词页均不提供 clicks 列". The gate then reported the line as
+# unparseable and demanded "四个数字齐全", i.e. demanded a number the
+# platform does not publish. An unsatisfiable check is a standing order to
+# retry the impossible, which is the failure mode already fixed for the
+# below-floor and contradiction cases.
+#
+# The optional targeting-clicks group is bounded by ``[^\n=]`` so it can
+# only match BEFORE the ``=``; without that it would happily consume the
+# search-term side's click count and pair the wrong numbers.
 _RECONCILE_RE = re.compile(
-    r'搜索词对账[:：][^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
-    r'[^\n]*?点击[^\d\n]*([\d,]+)'
+    r'搜索词对账[:：]'
+    r'[^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
+    r'(?:[^\n=]*?点击[^\d\n]*([\d,]+))?'
     r'[^\n]*?搜索词花费[^\d\n]*([\d,]+(?:\.\d+)?)'
-    r'[^\n]*?点击[^\d\n]*([\d,]+)'
+    r'(?:[^\n]*?点击[^\d\n]*([\d,]+))?'
 )
+# A campaign's NAME is what a human calls it; the id is a lookup handle.
+# ``output-spec.md`` requires the name in both the combo table
+# (`| id | name | type | …`) and each drill heading
+# (`### <campaign id> | <name> | …`), and the ad console supplies one for
+# every campaign — so ``name == id`` never means "this campaign has no
+# name", it means the column was never read.
+#
+# Observed live: nearly every campaign in one run came back with the id in the
+# name column — every Amazon campaign in the run. The report was otherwise
+# complete (every campaign drilled), and the LLM reviewer flagged it twice as
+# 「次要」 — so it survived every round untouched. A reader is then handed
+# a bare 15-digit id as the identity of an ad, which is the one thing an id
+# cannot tell you.
+#
+# Two guards against false positives, both learned from over-triggering
+# thresholds elsewhere in this file:
+#   * a MAJORITY must be unnamed — a seller really can name one campaign
+#     after a SKU number, and that must not indict the whole combo;
+#   * at least ``NAME_MIN`` of them — a fraction alone flags a
+#     single-campaign combo at 1/1, which is noise, not a finding.
+NAME_MIN_UNNAMED = 3
+
+
+def _name_capture_gap(part: str, head: str, gaps: list[str]) -> None:
+    """Flag a combo whose campaign names were never captured."""
+    unnamed: list[str] = []
+    total = 0
+    for heading, _blk in ad_scope.drill_blocks(part):
+        if not _CAMPAIGN_HEAD_RE.search(heading):
+            continue  # ### 汇总 and friends
+        bits = [b.strip().strip('*') for b in heading.split('|')]
+        cid = bits[0]
+        if not cid:
+            continue
+        total += 1
+        name = bits[1] if len(bits) > 1 else ''
+        if not name or name == cid:
+            unnamed.append(cid)
+    if len(unnamed) < NAME_MIN_UNNAMED or len(unnamed) * 2 <= total:
+        return
+    sample = '、'.join(unnamed[:4])
+    more = '' if len(unnamed) <= 4 else f' 等共 {len(unnamed)} 个'
+    gaps.append(
+        f'[名称] 「{head}」有 {len(unnamed)}/{total} 个活动的 name 就是它的 '
+        f'id（{sample}{more}）——这不是"活动没有名字"，是没读活动名这一列。'
+        '广告后台的活动列表每一行都有名称，bulk 导出也带 Campaign Name。'
+        '回到活动列表（或已下载的 bulk 导出）把名称抄进来：组合表的 name 列 '
+        '和每个 `### <id> | <name> | <type>` 标题都要填。读者拿到一串 id '
+        '认不出这是哪个广告，而认出广告是他做决策的第一步。'
+    )
+
+
 _NO_SEARCHTERM_RE = re.compile(
     r'无搜索词报告|无\s*Search\s*Terms|该活动类型无搜索词|无点击(?:无搜索词)?'
     r'|0\s*点击.{0,12}无搜索词',
@@ -58,6 +126,128 @@ _PENDING_WORK_RE = re.compile(
 )
 
 
+# A row that RESTATES the campaign total is not a per-target row. The
+# targeting layer exists so bids can be raised, lowered or paused PER
+# KEYWORD; a table whose only row is 整体活动 / 定位层汇总 / 合计 names
+# nothing to act on. Observed live: 18 of 20 Amazon SA campaigns shipped
+# exactly that shape — one aggregate row plus "需从 Target 页面钻取" —
+# and passed, because the presence check was satisfied by the HEADER row
+# alone (every markdown table has one).
+_AGGREGATE_ROW_RE = re.compile(
+    r'合计|总计|汇总|整体活动|定位层|overall|^total\b', re.IGNORECASE
+)
+# A markdown header underline: ``|---|---|`` (alignment colons allowed).
+_TABLE_SEP_RE = re.compile(r'^\|[\s:|-]+\|?$')
+
+# A campaign's search terms cannot spend MORE than the campaign's own
+# targeting layer — every query's cost is already counted there. Measured
+# against one live account's bulk export (both layers, same 30-day window,
+# 17 enabled SP campaigns): ratio min 0.998, median 1.000, max 1.000, with
+# 15 of 17 exactly 1.000 and the other two off only by 2-decimal rounding.
+# Clicks tracked identically. noon's captured layers likewise never exceed
+# 1.000 (median 0.779 — its Customer Queries page attributes only part of
+# spend, which is the FLOOR case below, not this one).
+#
+# So 1.02 is the live maximum plus 2% headroom for rounding and currency
+# formatting, not a guess. Above it the report is asserting something
+# arithmetically impossible about itself — observed live at 1.26, 1.61 and
+# 13.30 from a generator that joined one campaign's targeting rows to
+# another's search terms.
+IMPOSSIBLE_CEILING = 1.02
+
+# ...but a ratio alone is not enough, because a small denominator turns
+# noise into a big ratio. Across 81 live noon reconciliation lines exactly
+# ONE exceeded the ceiling: targeting 39.00 vs search-term 41.00 — ratio
+# 1.051, but only +2.00 and ONE extra click, i.e. the two pages were read
+# moments apart. Flagging that as "impossible" would be a false positive
+# on the cheapest campaigns, which is where the ratio is least stable.
+#
+# Real mis-joins are large in ABSOLUTE terms — the four observed on Amazon
+# were +17.00, +96.08, +126.00 and +155.30. So a contradiction needs BOTH
+# a ratio above the ceiling AND a material absolute excess. 10 currency
+# units sits cleanly between the noise case (+2) and the smallest genuine
+# one (+17); SAR and AED are both ~0.27 USD, so this is roughly $3.
+IMPOSSIBLE_MIN_EXCESS = 10.0
+
+# The acknowledgment that resolves a contradiction WITHOUT fixing the
+# numbers: the block itself declares its figures untrustworthy and tells
+# the reader not to act on them. This is the second of the two legal
+# answers ("fix it, or mark it clearly"), and it is what keeps the
+# non-stallable check from being a trap — it is always satisfiable by
+# writing one honest sentence. It must say BOTH things: that the data is
+# unreliable, AND that this campaign's recommendations must not be
+# executed. Half of it ("数据有偏差") would let the rows still read as
+# actionable, which is the outcome the check exists to prevent.
+_QUARANTINE_RE = re.compile(
+    r'(?=[^\n]*数据不可信|[^\n]*不可信|[^\n]*数据矛盾|[^\n]*data unreliable)'
+    r'[^\n]*(?:请勿执行|不要执行|勿执行|不可执行|do not execute|do not act)'
+)
+
+
+def _is_quarantined(block: str) -> bool:
+    """True if the block declares its own figures untrustworthy.
+
+    Matched per LINE so the disclaimer and the do-not-execute instruction
+    have to travel together — a stray 不可信 somewhere in a long block
+    must not silence the check for a campaign whose rows still present
+    themselves as actionable.
+    """
+    return any(_QUARANTINE_RE.search(ln) for ln in block.splitlines())
+
+
+def _layer_row_count(block: str, *, searchterm: bool) -> int:
+    """Per-row data rows in this block's targeting OR search-term tables.
+
+    A table is identified by a header row (carries the ``建议`` column)
+    IMMEDIATELY followed by the ``|---|`` separator — not by "a line
+    containing 建议", because a recommendation cell legitimately contains
+    the word (``建议出价 3.00``) and would otherwise read as a new header.
+    ``searchterm`` selects which table kind to count, keyed on whether the
+    first column names 搜索词.
+
+    Both layers need this, for the same reason. The targeting layer's
+    aggregate-row evasion (one 整体活动 row standing in for the keywords)
+    has an exact twin on the search-term side: a single 汇总 row standing
+    in for the customer queries. Observed live in one run's own declared
+    gaps — "13 个低花费 Amazon SA 活动的 Search Terms 表用汇总行代替逐条
+    top-15". That model self-corrected; a weaker one would ship it, and
+    the gate could not tell, because the search-term layer was only ever
+    checked for PRESENCE plus a reconciliation line.
+    """
+    lines = block.splitlines()
+    count = 0
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        nxt = lines[i + 1].strip() if i + 1 < len(lines) else ''
+        if not (
+            line.startswith('|') and '建议' in line and _TABLE_SEP_RE.match(nxt)
+        ):
+            i += 1
+            continue
+        is_st = '搜索词' in line.strip('|').split('|')[0]
+        if is_st is not searchterm:
+            i += 1
+            continue
+        i += 2  # past the header and its separator
+        while i < len(lines) and lines[i].strip().startswith('|'):
+            cell = lines[i].strip().strip('|').split('|')[0].strip(' *')
+            if cell and not _AGGREGATE_ROW_RE.search(cell):
+                count += 1
+            i += 1
+    return count
+
+
+def _targeting_row_count(block: str) -> int:
+    """Per-target data rows across this block's targeting tables."""
+    return _layer_row_count(block, searchterm=False)
+
+
+def _searchterm_row_count(block: str) -> int:
+    """Per-query data rows across this block's search-term tables."""
+    return _layer_row_count(block, searchterm=True)
+
+
 def _has_valid_escape(block: str) -> bool:
     """True if the block legitimately claims "no search-term report".
 
@@ -72,7 +262,15 @@ def _has_valid_escape(block: str) -> bool:
     return False
 
 
-def _num(s: str) -> float:
+def _num(s: str | None) -> float | None:
+    """Parsed number, or None when the group did not match.
+
+    Clicks are optional in the reconciliation line (see ``_RECONCILE_RE``),
+    so callers must treat None as "not published" rather than zero — a
+    zero would read as a real click count of nothing.
+    """
+    if s is None:
+        return None
     return float(s.replace(',', ''))
 
 
@@ -90,6 +288,7 @@ def _check_campaign_blocks(
     gaps: list[str],
     floor: float | None = None,
     active_ids: list[str] | None = None,
+    contradictions: list[str] | None = None,
 ) -> None:
     """Per-campaign search-term reconciliation + collapse checks for one
     combo section. Appends gap strings to ``gaps``.
@@ -103,14 +302,14 @@ def _check_campaign_blocks(
     all. Ids with no block are left to the scope coverage check, which
     reports them as undrilled rather than as a missing search-term layer.
 
-    ``floor`` switches the spend check to a platform-asymmetric band
-    (noon): search-term spend must be ≥ ``floor``×targeting spend and
-    ≤ (1+tol)×. noon's Customer Queries page attributes only part of
-    campaign spend to queries — observed 47–74% across every live
-    campaign after full pagination on a verified same-30d window — so
-    symmetric tolerance produced unfixable mismatches. A wrong window
-    still gets caught: a 7d read of a 30d targeting page shows ~23%,
-    well under the 40% default floor.
+    ``floor`` is the platform's lower bound on search-term ÷ targeting
+    spend. It used to be looser for noon (0.40) on the belief that its
+    Customer Queries page only attributes part of campaign spend. That
+    belief was an artifact of reading the CQ TAB, which renders a fixed
+    top-15 with no paginator; via its Export the two layers agree
+    exactly (measured 1.000 on both an Auto campaign — 10000 query rows
+    — and a Manual one — 404 rows). Both platforms now use the same
+    floor: a low ratio means an incomplete capture, on either.
     """
     if active_ids:
         found = ad_scope.blocks_by_active_id(part, active_ids)
@@ -123,9 +322,20 @@ def _check_campaign_blocks(
             for h, b in ad_scope.drill_blocks(part)
             if _CAMPAIGN_HEAD_RE.search(h)  # skip e.g. ### 汇总
         ]
+    # Independent of the active_ids keying above: that path deliberately
+    # drops the heading prose, and the name lives in exactly that prose.
+    _name_capture_gap(part, head, gaps)
     missing: list[str] = []
     mismatched: list[str] = []
+    impossible: list[str] = []
+    # Below-floor campaigns the block itself declares unreliable and
+    # do-not-execute. Excused individually, but counted: quarantine is an
+    # escape hatch for what a platform will not give up, not a way to
+    # opt out of capturing a combo.
+    quarantined_low: list[str] = []
     no_target_table: list[str] = []
+    aggregate_only: list[str] = []
+    st_aggregate_only: list[str] = []
     unparsed: list[str] = []
     for name, block in blocks:
         # A drilled block must carry the TARGETING table, not only the
@@ -143,12 +353,25 @@ def _check_campaign_blocks(
                 has_st_table = True
             else:
                 has_tgt_table = True
+        no_data_page = bool(re.search(r'无数据|无\s*SKU', block))
+        if has_st_table and not has_tgt_table and not no_data_page:
+            no_target_table.append(name)
+        elif (
+            has_tgt_table
+            and not no_data_page
+            and _targeting_row_count(block) == 0
+        ):
+            aggregate_only.append(name)
+        # Same rule, other layer: a search-term table that exists but
+        # names no query is a 汇总 row standing in for the customer
+        # queries. Only checked when the block has an ST table at all —
+        # a missing layer is the `missing` / escape-token path below.
         if (
             has_st_table
-            and not has_tgt_table
-            and not re.search(r'无数据|无\s*SKU', block)
+            and not no_data_page
+            and _searchterm_row_count(block) == 0
         ):
-            no_target_table.append(name)
+            st_aggregate_only.append(name)
         m = _RECONCILE_RE.search(block)
         if not m:
             if _has_valid_escape(block):
@@ -175,15 +398,42 @@ def _check_campaign_blocks(
         # click totals legitimately diverge even on a perfect same-window
         # read (observed: spend within 2% while clicks differ 37%).
         # Requiring clicks too created irreconcilable false positives.
-        if floor is not None:
-            # noon asymmetric band (see docstring).
-            bad = s_spend < t_spend * floor or s_spend > t_spend * (1 + tol)
-        else:
-            bad = not _within(t_spend, s_spend, tol)
-        if bad:
-            mismatched.append(
-                f'「{name}」定向花费 {t_spend:g} vs 搜索词花费 {s_spend:g}'
+        #
+        # A mismatch is TWO different failures and they deserve different
+        # treatment (see ``IMPOSSIBLE_CEILING``):
+        #   * search-term spend ABOVE targeting spend cannot be true;
+        #   * search-term spend BELOW it is an incomplete capture.
+        # Only the first is a contradiction.
+        excess = s_spend - t_spend
+        if (
+            s_spend > t_spend * IMPOSSIBLE_CEILING
+            and excess > IMPOSSIBLE_MIN_EXCESS
+            and not _is_quarantined(block)
+        ):
+            impossible.append(
+                f'「{name}」定向花费 {t_spend:g} < 搜索词花费 {s_spend:g}'
+                f'（{s_spend / t_spend:.2f}×）'
             )
+        elif s_spend < t_spend * (floor if floor is not None else 1 - tol):
+            # Quarantine settles this one too. The contract for a figure
+            # the agent cannot make right is "fix it, or mark it clearly",
+            # and it has to stay satisfiable — otherwise the gap is a
+            # standing order to retry something that cannot succeed.
+            #
+            # Live: two noon Brand Video campaigns whose Customer-Queries
+            # Export never finishes loading (the tab hangs; the 15-row
+            # on-page table is all the platform will give). The agent
+            # documented exactly that, marked both do-not-execute, and was
+            # still handed the same [对账] gap every round — so it kept
+            # re-attempting the export, four submissions and five
+            # browser-use failures inside five minutes, on a capture the
+            # platform does not support.
+            if _is_quarantined(block):
+                quarantined_low.append(name)
+            else:
+                mismatched.append(
+                    f'「{name}」定向花费 {t_spend:g} vs 搜索词花费 {s_spend:g}'
+                )
     if no_target_table:
         sample = '、'.join(f'「{n}」' for n in no_target_table[:4])
         gaps.append(
@@ -191,6 +441,41 @@ def _check_campaign_blocks(
             f'搜索词表、没有定向/关键词表：{sample}。出价与暂停决策'
             '发生在定向表上（auto 活动也要列出 auto target 组及其建议）'
             '——补上该活动的定向表（含 建议 列），或在块内注明页面无数据。'
+        )
+    if aggregate_only:
+        sample = '、'.join(f'「{n}」' for n in aggregate_only[:4])
+        more = (
+            ''
+            if len(aggregate_only) <= 4
+            else f' 等共 {len(aggregate_only)} 个'
+        )
+        gaps.append(
+            f'[定向层] 「{head}」有 {len(aggregate_only)} 个活动的定向表'
+            f'只有一行活动汇总（整体活动 / 定位层汇总 / 合计），'
+            f'没有任何一行是具体的关键词或定向组：{sample}{more}。'
+            '把活动级数字抄进一张带 建议 列的表里不算下钻——出价、暂停、'
+            '加投都是逐个关键词/定向组做的决策，汇总行里没有可执行的对象。'
+            '打开该活动的 Targeting 页（noon Manual: Targets 标签；'
+            'SP Auto: 四个 auto 定向组；noon Auto 无 Targets 页则以 '
+            'Customer Queries 为定向面），逐词/逐组列出 出价、点击、花费、'
+            '订单、销售额、ACOS/ROAS 与 建议，合计行只能是最后的补充行。'
+            '该活动页面确实没有数据时，在块内写明「无数据」。'
+        )
+    if st_aggregate_only:
+        sample = '、'.join(f'「{n}」' for n in st_aggregate_only[:4])
+        more = (
+            ''
+            if len(st_aggregate_only) <= 4
+            else f' 等共 {len(st_aggregate_only)} 个'
+        )
+        gaps.append(
+            f'[搜索词层] 「{head}」有 {len(st_aggregate_only)} 个活动的搜索词表'
+            f'只有一行汇总，没有任何一条具体的搜索词：{sample}{more}。'
+            '否定、提取为定向词都是逐个搜索词做的决策，汇总行里没有可执行'
+            '的对象——低花费活动也一样，花得少不等于不用逐条看。把该活动'
+            '搜索词报告里按花费排序的 top 词逐行列出（有展示的词不得折叠；'
+            '全零展示的填充行才可以折叠且必须写「0 展示」），合计行只能是'
+            '最后的补充行。完整数据已经在 <id>.searchterms.tsv 里，直接取。'
         )
     if missing:
         sample = '、'.join(f'「{n}」' for n in missing[:4])
@@ -209,23 +494,64 @@ def _check_campaign_blocks(
         gaps.append(
             f'[搜索词·格式] 「{head}」有 {len(unparsed)} 个活动写了 '
             f'搜索词对账 行，但**解析不了**（不是内容缺失，是格式不对）：'
-            f'{sample}{more}。必须是这一行、四个数字齐全：'
-            '`搜索词对账: 定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / '
-            '点击 B (✓/✗)`。写「需回采」「待导出」「→ 当前 30 天 …」这类'
+            f'{sample}{more}。必须是这一行，**两个花费数字必须有**：'
+            '`搜索词对账: 定向花费 <币> X = 搜索词花费 <币> Y (✓/✗)`。'
+            '点击数**可选**——页面确实不提供 clicks 列时省掉即可，'
+            '有就写成 `定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B`'
+            '（对账只看花费，点击仅供参考）。写「需回采」「待导出」'
+            '「→ 当前 30 天 …」这类'
             '说明**等于承认这一层没取到**——那就去把搜索词页锁到同一个 30 天'
             '窗口重新取数，再填上四个数字；确实没有搜索词报告的活动类型'
             '（如 SD）才写「无搜索词报告」，且该行不能同时写「需…导出」。'
         )
+    if impossible:
+        sample = '；'.join(impossible[:3])
+        more = '' if len(impossible) <= 3 else f' 等共 {len(impossible)} 个'
+        gap = (
+            f'[对账·不可能] 「{head}」有 {len(impossible)} 个活动的搜索词'
+            f'花费**超过**了该活动定向层的花费：{sample}{more}。这不是'
+            '误差，是不可能——每个搜索词的花费本来就已经计在定向层里了，'
+            '实测同窗口下这个比值最大就是 1.00。通常是把 A 活动的定向表'
+            '和 B 活动的搜索词配到了一起（join 错了 Campaign ID），或者'
+            '两个数取自不同活动/不同账户的导出。**这一条不会因为轮次用尽'
+            '而放过**：要么把两层重新按同一个 Campaign ID 取一次、改对'
+            '数字；要么在该活动块里明确写「⚠️ 数据不可信：本活动两层'
+            '对账矛盾，请勿执行本活动的出价建议」，让读报告的人知道这'
+            '几行不能用。'
+        )
+        gaps.append(gap)
+        if contradictions is not None:
+            contradictions.append(gap)
     if mismatched:
         sample = '；'.join(mismatched[:3])
         band = (
-            f'允许区间 {floor:.0%}–{1 + tol:.0%}（noon CQ 仅归因部分花费）'
+            f'下限 {floor:.0%}（noon CQ 仅归因部分花费）'
             if floor is not None
-            else f'容差 {tol:.0%}'
+            else f'下限 {1 - tol:.0%}'
         )
         gaps.append(
             f'[对账] 「{head}」搜索词与定向数据对不上（{band}）：'
             f'{sample}。两边必须用同一个 30 天窗口——对不上通常是搜索词页'
             '日期窗口跟定向页不一致（如 7 天 vs 30 天）或搜索词抓取不全。'
-            '回到该活动，把两页锁到同一窗口重新取数。'
+            '回到该活动，把两页锁到同一窗口重新取数。数据确实取不到'
+            '（平台不提供全量导出）时，在该活动块内写明「数据不可信 + '
+            '请勿执行本活动的出价建议」并说明卡在哪一步，就不再算缺口。'
+        )
+    # Quarantine excuses individual campaigns, never a whole combo. Past
+    # a third of the drilled set the report has stopped being an audit of
+    # that market, so say so instead of accepting it silently.
+    # A FRACTION alone over-triggers at small N: a combo holding one
+    # campaign that genuinely cannot export is 1/1 = 100% quarantined, and
+    # flagging it removes the escape hatch precisely where it is the only
+    # honest answer. "Quarantined its way out of a market" needs several
+    # campaigns to be a real pattern, so require both.
+    drilled = max(len(blocks), 1)
+    if len(quarantined_low) >= 3 and len(quarantined_low) * 3 > drilled:
+        sample = '、'.join(f'「{n}」' for n in quarantined_low[:4])
+        gaps.append(
+            f'[对账] 「{head}」有 {len(quarantined_low)}/{drilled} 个活动'
+            f'因「数据不可信」被整块排除：{sample}。单个活动平台确实导不出'
+            '可以这样标注，但这里已经占到该市场的三分之一以上——那不是'
+            '个别限制，是这一层的取数方式不对。先确认是不是漏了导出入口'
+            '（活动级 Export / bulk 导出），再决定哪些确实标注排除。'
         )

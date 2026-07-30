@@ -33,6 +33,25 @@ dependencies = [
     # upgrade. See docs/browser-use-0.13-migration.md.
     "browser-use>=0.13.3",
     "python-multipart",
+    # The completeness gate opens the Amazon bulk export to check the
+    # report against the platform's own figures — the campaign count
+    # (`count_enabled_in_export`) and each campaign's spend
+    # (`campaign_spend_in_export`). Both are the ONLY facts it can verify
+    # independently of the report; everything else it compares is internal
+    # to the report and so cannot catch a mis-join.
+    #
+    # This was a test/dev-only dep, and the effect was not a crash but
+    # SILENCE: both helpers are written to return None when openpyxl is
+    # absent ("could not check" must never fail a good report), so on a
+    # server without it they returned None on every run and the checks
+    # never fired at all. Verified on a live deployment — the spend check
+    # had never once run, while a campaign sat in the report at less than a
+    # quarter of the spend the export stated.
+    #
+    # The import stays LAZY inside those functions: a module-level import
+    # took the whole server down at boot once. Runtime-declaring the
+    # package is what makes the lazy import find it.
+    "openpyxl>=3.1",
     # apscheduler 3.x exposes `apscheduler.schedulers.asyncio` which
     # is what `app/scheduler/cron.py` imports. 4.x rearranged the
     # module layout and there are 4.0.0aN pre-releases on PyPI — a
@@ -77,8 +96,9 @@ dev = [
     "pytest-rerunfailures>=14.0",
     "httpx>=0.27.0",
     "ruff>=0.6.0",
-    # amazon-ads skill's ads_bulk.py (bulk sheet parse/emit) + its test.
-    "openpyxl>=3.1",
+    # openpyxl is a RUNTIME dep now (the gate's export cross-checks) —
+    # see [project].dependencies. The skill's ads_bulk.py and its test
+    # use the same install.
 ]
 
 [project.scripts]

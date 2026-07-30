@@ -826,5 +826,94 @@
     "expired": "Expired — replaced by a newer request below",
     "interrupted": "You replied instead — this image wasn't generated",
     "generating": "Generating image… this can take 1–2 minutes"
+  },
+  "audit": {
+    "eyebrow": "30-day ad audit",
+    "cardEyebrow": "Ad audit · decision console",
+    "heroTitle": "{{markets}} markets · {{campaigns}} live campaigns",
+    "heroMeta": "Drilled {{rows}} targets and search terms. Every row is pre-set to the audit's recommendation — agree and change nothing, disagree and pick another. {{preselected}} rows are pre-set to change. Breakeven ROAS {{breakeven}}.",
+    "cardSummary": "{{rows}} rows reviewed · {{acting}} pre-set to change",
+    "openConsole": "Open the decision console",
+    "missingNames": "This report only captured names for {{got}}/{{total}} campaigns; the rest show an ID.",
+    "searchPlaceholder": "Campaign name / ID / keyword / search term",
+    "allMarkets": "All markets",
+    "onlyChanged": "Only campaigns with changes",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "noMatches": "Nothing matches this filter.",
+    "adGroup": "Ad group",
+    "sku": "SKU",
+    "noName": "name not captured",
+    "noNameHint": "The report did not capture this campaign's name.",
+    "quarantineBadge": "Figures untrusted · do not execute",
+    "quarantineTitle": "Bid advice is not executable for this campaign:",
+    "reconOk": "Spend agrees both ways ✓",
+    "reconBad": "Spend disagrees ✗",
+    "reconHint": "Targeting layer {{currency}} {{tSpend}} / {{tClicks}} clicks vs search-term layer {{currency}} {{sSpend}} / {{sClicks}} clicks",
+    "legend": {
+      "bleeding": "Losing money: ROAS below 60% of breakeven",
+      "problem": "Worth a look: spent but 0 clicks / 0 orders / under breakeven (spend ≥ {{min}})",
+      "idle": "Never served: 0 spend, 0 clicks — missing data, not a loss"
+    },
+    "act": {
+      "raise": "Raise bid",
+      "lower": "Lower bid",
+      "pause": "Pause",
+      "keep": "Keep",
+      "add": "Add as keyword",
+      "neg": "Negate keyword",
+      "negt": "Negate placement"
+    },
+    "match": {
+      "exact": "Exact",
+      "phrase": "Phrase"
+    },
+    "col": {
+      "target": "Target / keyword",
+      "searchTerm": "Search term",
+      "match": "Match",
+      "bid": "Bid",
+      "clicks": "Clicks",
+      "spend": "Spend",
+      "orders": "Orders",
+      "sales": "Sales",
+      "roas": "ROAS",
+      "yourAction": "Your action"
+    },
+    "row": {
+      "matchTypeLabel": "Match type",
+      "matchTypeDefault": "Exact by default · not stated in the report",
+      "matchTypeDefaultHint": "The report only said \"{{advice}}\" — it did not say exact or phrase. This is the page's default, not the audit's call.",
+      "agentSuggests": "Agent suggests",
+      "noExecutableAction": "⚠ The agent named no executable action ({{reason}}) — the audit needs to state one",
+      "zeroClicks": "⚠ 0 clicks",
+      "bidUnsafeHint": "This row spent > 0 with 0 clicks, so the CPC×1.1 floor cannot be computed and a lower-bid target would be meaningless. Raises rely on ROAS and are unaffected.",
+      "quarantinedHint": "This campaign's figures are untrusted, so its advice is not executable."
+    },
+    "layer": {
+      "targeting": "Targeting layer",
+      "searchTerms": "Search-term layer",
+      "rowCount": "{{count}} rows",
+      "toChange": "{{count}} to change",
+      "restoreAgent": "Restore agent's advice",
+      "keepAll": "Keep everything",
+      "noTargets": "No targeting data.",
+      "noTerms": "No search-term data."
+    },
+    "tile": {
+      "campaigns": "{{count}} campaigns",
+      "untrusted": "{{count}} untrusted"
+    },
+    "foot": {
+      "toChange": "To change",
+      "edited": "I changed the agent on",
+      "keeping": "Keeping",
+      "forced": "· {{count}} more locked to Keep by the system (untrusted data / 0 clicks)",
+      "impact": "Spend under changed rows",
+      "viewJson": "View decision JSON",
+      "jsonTitle": "Decision set — this is what gets sent to the agent",
+      "handToAgent": "Hand to agent to execute",
+      "sending": "Sending…"
+    }
   }
 }
