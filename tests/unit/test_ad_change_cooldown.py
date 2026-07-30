@@ -185,3 +185,42 @@ class TestCooldownGate:
             cooldown.check(_report(rows), ads_root=tmp_path, today=TODAY)
             is None
         )
+
+
+@pytest.mark.unit
+class TestAgentWrittenPlaceholders:
+    """A real execution filled untouched rows with ``-``, not blanks.
+
+    Those rows were skipped only because the date failed to parse, so a
+    ``-`` action beside a valid date would have registered as an applied
+    change literally named "-", freezing that target for a week.
+    """
+
+    def test_dash_action_is_not_an_applied_change(self, tmp_path):
+        _tsv(
+            tmp_path,
+            'c1.tsv',
+            [_row('widget red', '-', '2026-08-09', '-')],
+        )
+        assert cooldown.recent_changes(tmp_path, 7, TODAY) == {}
+
+    def test_other_absent_markers_too(self, tmp_path):
+        for marker in ('—', '–', 'n/a', 'none', 'NULL', '--'):
+            _tsv(tmp_path, 'c1.tsv', [_row('widget red', marker, '2026-08-09')])
+            assert cooldown.recent_changes(tmp_path, 7, TODAY) == {}, marker
+
+    def test_a_real_action_beside_dash_rows_still_registers(self, tmp_path):
+        # The shape an execution actually produces: one changed row among
+        # many placeholder rows.
+        _tsv(
+            tmp_path,
+            'c1.tsv',
+            [
+                _row('widget blue', '-', '-', '-'),
+                _row('widget red', 'raise', '2026-08-09', '2.80'),
+                _row('widget green', '-', '-', '-'),
+            ],
+        )
+        assert cooldown.recent_changes(tmp_path, 7, TODAY) == {
+            'widget red': ('raise', 1)
+        }

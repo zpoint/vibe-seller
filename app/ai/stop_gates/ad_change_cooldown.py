@@ -49,6 +49,19 @@ _MOVE_RE = re.compile(
 # The report row for a target: the first cell is the target text.
 _ROW_RE = re.compile(r'^\|([^|]+)\|(.+)\|\s*$')
 
+# Placeholders an agent writes for "nothing here". Observed live: a real
+# execution filled every untouched row's applied_* columns with ``-``
+# rather than leaving them blank. Those rows were skipped only because the
+# DATE failed to parse — so a ``-`` action beside a valid date would have
+# registered as an applied change literally named "-". The codebase
+# already treats an em dash as absent data when reading figures; this is
+# the same convention, applied to the change record.
+_ABSENT = {'', '-', '--', '—', '–', 'n/a', 'na', 'none', 'null'}
+
+
+def _is_absent(raw: str | None) -> bool:
+    return (raw or '').strip().lower() in _ABSENT
+
 
 def _norm(text: str) -> str:
     """Compare targets the way a human would: case- and space-insensitive."""
@@ -97,8 +110,10 @@ def recent_changes(
             with open(path, encoding='utf-8', newline='') as fh:
                 for row in csv.DictReader(fh, delimiter='\t'):
                     action = (row.get('applied_action') or '').strip()
+                    if _is_absent(action):
+                        continue
                     day = _parse_day(row.get('applied_at') or '')
-                    if not action or day is None:
+                    if day is None:
                         continue
                     ago = (today - day).days
                     if ago < 0 or ago >= cooldown_days:
