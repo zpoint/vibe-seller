@@ -48,6 +48,23 @@ _GEN_SUBDIR = 'generated_images'
 _REF_SUBDIR = 'generated_images/refs'
 _MAX_UPLOAD = 15 * 1024 * 1024  # 15 MB
 
+# task_id -> (kie.ai taskId, model id) for a generation whose poll budget
+# ran out while the job was still running. kie.ai does not cancel the job
+# when we stop polling — it finishes and is billed — so the handle is kept
+# here and the agent's retry RESUMES it instead of buying the image twice.
+# In-memory on purpose: a server restart loses at most one in-flight job,
+# and the taskId is also logged at WARNING for manual recovery.
+_INFLIGHT: dict[str, tuple[str, str]] = {}
+
+
+def _take_inflight(task_id: str, model: str) -> str | None:
+    """Pop and return a resumable kie.ai taskId for this task + model."""
+    entry = _INFLIGHT.get(task_id)
+    if not entry or entry[1] != model:
+        return None
+    _INFLIGHT.pop(task_id, None)
+    return entry[0]
+
 
 def _safe_name(name: str) -> str:
     """Sanitise an agent-supplied output filename to a .png basename."""
@@ -214,16 +231,48 @@ async def generate_task_image(
         },
     )
 
+    # An in-flight kie.ai job for this task + model is resumed rather than
+    # re-created: our poll budget running out does not cancel the job, so
+    # a retry that creates a new one pays a second time for an image the
+    # first call already bought. Model must match — resuming another
+    # model's job would return the wrong image.
+    resume_id = _take_inflight(task_id, final_model)
     try:
         png = await vision.generate_image(
             prompt=final_prompt,
             model=final_model,
             reference_images=final_refs,
             task_dir=task_dir,
+            resume_task_id=resume_id,
+        )
+    except vision.GenerationTimeout as e:
+        # Keep the handle so the agent's retry collects this same job.
+        _INFLIGHT[task_id] = (e.kie_task_id, final_model)
+        logger.warning(
+            'Image generation for task %s still running after %ss '
+            '(model %s, kie taskId %s) — handle kept for resume',
+            task_id,
+            e.waited_s,
+            e.model_id,
+            e.kie_task_id,
+        )
+        raise HTTPException(
+            status_code=504,
+            detail=(
+                f'Generation is still running on kie.ai after {e.waited_s}s '
+                f'(model {e.model_id}). The job was NOT cancelled and will '
+                f'finish. Call this tool AGAIN with the SAME model '
+                f'({e.model_id}) — that resumes this exact job and collects '
+                f'the image at no extra cost. Do NOT switch to a different '
+                f'model: {e.model_id} is the model chosen on the confirm '
+                f'card, a different one is a different image and a second '
+                f'charge.'
+            ),
         )
     except Exception as e:  # noqa: BLE001 — relay any kie.ai failure
         logger.warning('Image generation failed for task %s: %s', task_id, e)
         raise HTTPException(status_code=502, detail=f'Generation failed: {e}')
+    _INFLIGHT.pop(task_id, None)
 
     out_dir = task_dir / _GEN_SUBDIR
     out_dir.mkdir(parents=True, exist_ok=True)

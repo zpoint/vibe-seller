@@ -229,3 +229,94 @@ async def test_fake_png_is_png(monkeypatch):
         task_dir=None,  # unused in fake mode
     )
     assert data[:8] == b'\x89PNG\r\n\x1a\n'
+
+
+def test_poll_budget_is_per_resolution_tier():
+    """A flat budget sized for 2K kills 4K jobs.
+
+    Measured live (2026-07, nano-banana-pro, same prompt + reference):
+    2K ~60s, 4K 147s on one run and past 240s on another — which the old
+    flat 60x4s budget killed at 4m17s. 4K's tail is what needs covering.
+    """
+    assert vision.poll_budget_s(vision.get_model('nano-banana-pro-2k')) == 240
+    assert vision.poll_budget_s(vision.get_model('nano-banana-pro-4k')) == 600
+    assert vision.poll_budget_s(vision.get_model('gpt-image-2-4k')) == 600
+    assert vision.poll_budget_s(vision.get_model('gpt-image-2-1k')) == 240
+    # Quality/speed-tier models carry no `resolution` — they get the
+    # default rather than a KeyError.
+    speed_tier = vision.get_model('ideogram-v3-remix-turbo')
+    assert 'resolution' not in speed_tier.extra
+    assert vision.poll_budget_s(speed_tier) == 240
+
+
+def test_every_model_has_a_poll_budget():
+    """No model may fall through to an exception on budget lookup."""
+    for m in vision.IMAGE_MODELS:
+        assert vision.poll_budget_s(m) >= 240
+
+
+class _StuckKieClient(_FakeKieClient):
+    """createTask succeeds, but the job never leaves ``waiting`` — the
+    shape that produced the real 4m17s timeout."""
+
+    async def get(self, url, params=None, headers=None):
+        if 'recordInfo' in url:
+            _StuckKieClient.polled_task = (params or {}).get('taskId')
+            return _FakeResp({'data': {'state': 'waiting'}})
+        return _FakeResp(content=b'PNG')
+
+
+async def test_timeout_carries_the_kie_task_id(monkeypatch, tmp_path):
+    """Giving up does not cancel the job — it finishes and is billed.
+
+    So the taskId must survive the exception, or the retry pays twice for
+    an image the first call already bought.
+    """
+    monkeypatch.setattr(vision.httpx, 'AsyncClient', _StuckKieClient)
+    monkeypatch.setattr(vision, 'get_kie_api_key', lambda: 'k')
+
+    async def _no_sleep(*a, **k):
+        return None
+
+    monkeypatch.setattr(vision.asyncio, 'sleep', _no_sleep)
+    monkeypatch.setenv('VISION_FAKE', '0')
+
+    with pytest.raises(vision.GenerationTimeout) as exc:
+        await vision.generate_image(
+            prompt='p',
+            model='nano-banana-pro-4k',
+            reference_images=[],
+            task_dir=tmp_path,
+        )
+    assert exc.value.kie_task_id == 'x'
+    assert exc.value.waited_s == 600
+    assert exc.value.model_id == 'nano-banana-pro-4k'
+    # Still a RuntimeError, so existing except-clauses keep working.
+    assert isinstance(exc.value, RuntimeError)
+
+
+async def test_resume_polls_existing_job_without_recreating(
+    monkeypatch, tmp_path
+):
+    """The resume path must NOT call createTask — that is the second
+    charge it exists to avoid."""
+    monkeypatch.setattr(vision.httpx, 'AsyncClient', _FakeKieClient)
+    monkeypatch.setattr(vision, 'get_kie_api_key', lambda: 'k')
+
+    async def _no_sleep(*a, **k):
+        return None
+
+    monkeypatch.setattr(vision.asyncio, 'sleep', _no_sleep)
+    monkeypatch.setenv('VISION_FAKE', '0')
+
+    _FakeKieClient.last_body = {'sentinel': 'not-overwritten'}
+    data = await vision.generate_image(
+        prompt='p',
+        model='nano-banana-pro-4k',
+        reference_images=['http://a/1.png'],
+        task_dir=tmp_path,
+        resume_task_id='prior-job-42',
+    )
+    assert data == b'PNG'
+    # createTask was never POSTed.
+    assert _FakeKieClient.last_body == {'sentinel': 'not-overwritten'}
