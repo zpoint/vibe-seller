@@ -102,6 +102,44 @@ Tests: `tests/unit/test_mcp_tool_visibility.py` (hide/show/fake) +
 | POST | `/api/tasks/{id}/image/generate` | MCP-tool entry + confirm gate (see below) |
 | POST | `/api/tasks/{id}/image/confirm` | User's approve/edit/cancel |
 
+## Poll budget is per resolution tier (and a timeout is resumable)
+
+kie.ai generation is async: `createTask` returns a `taskId`, then we poll
+`recordInfo` until `success`. Two rules, both learned from one live
+failure:
+
+**1. The budget scales with output pixels.** It used to be a flat
+`60 × 4s = 240s` with a comment sized for 2K ("Pro 2K ~ 60s"). Measured
+live against `nano-banana-pro` with the same prompt + reference: 2K lands
+in ~60s, **4K took 147s** on one run and **exceeded 240s** on another —
+a real user generation, which the flat budget killed at 4m17s. So 4K's
+*tail* is what needs covering, not its median: `poll_budget_s()` in
+`app/vision.py` reads the tier from the model's own
+`extra['resolution']` and gives 1K/2K 240s, 4K **600s**. Quality- or
+speed-tier models (`quality`, `rendering_speed`) get the default.
+`vibe_seller_generate_image`'s MCP call passes `timeout=None`
+(`mcp_server.call_api`), so nothing upstream caps this.
+
+**2. Giving up does not cancel the job — it finishes and is billed.**
+The old code raised a bare `RuntimeError('timed out')` and dropped the
+`taskId`, orphaning an image the user had already paid for. Now
+exhaustion raises `vision.GenerationTimeout`, which carries
+`kie_task_id`; the router stores it in `_INFLIGHT[task_id] = (kie_task_id,
+model)` and returns **504** whose message tells the agent to retry the
+**same** model. That retry resumes the existing job via
+`generate_image(resume_task_id=…)` — skipping both the reference upload
+and `createTask`, so the already-billed image is collected instead of
+bought twice. The handle is keyed by model as well, because resuming
+another model's job would return the wrong image.
+
+**Why the message insists on the same model.** The model on the confirm
+card is the *user's* choice. On the live failure the agent read
+`timed out`, reasoned "let me try a different model", and silently
+dropped from the 4K the user had selected to `gpt-image-2-2k` — a
+different image, a second charge, and the 4K job abandoned mid-flight.
+The 504 text and the tool description now both say: retry the same model,
+never substitute.
+
 ## Confirm-gate flow
 
 The confirmation is a **server-side block**, not a permission hook — so

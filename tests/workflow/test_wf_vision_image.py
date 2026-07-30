@@ -19,6 +19,7 @@ import pytest
 from app import vision
 from app.events.bus import event_bus
 from app.models.task import Task
+from app.routers import vision as vision_router
 from app.workspace.manager import VIBE_SELLER_DIR
 
 pytestmark = pytest.mark.workflow
@@ -424,3 +425,89 @@ async def test_cancel_flow_writes_nothing(admin_client, monkeypatch):
     finally:
         event_bus.unsubscribe(queue)
         shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_timeout_then_retry_resumes_same_kie_job(
+    admin_client, monkeypatch
+):
+    """A poll-budget timeout must not orphan the paid-for image.
+
+    kie.ai does not cancel a job when we stop polling — it finishes and is
+    billed. So the router keeps the taskId and the agent's retry with the
+    SAME model resumes that job instead of creating (and paying for) a
+    second one. Regression: a live 4K generation timed out at 4m17s, the
+    agent silently switched to a cheaper 2K model, and the 4K image the
+    user had chosen on the confirm card was paid for and thrown away.
+    """
+    monkeypatch.setenv('VISION_FAKE', '1')
+    calls = []
+
+    async def _gen(*, prompt, model, reference_images, task_dir, **kw):
+        calls.append({'model': model, 'resume': kw.get('resume_task_id')})
+        if len(calls) == 1:
+            raise vision.GenerationTimeout('kie-job-7', 600, model)
+        return b'\x89PNG\r\n\x1a\nx'
+
+    monkeypatch.setattr(vision, 'generate_image', _gen)
+
+    tid = str(uuid.uuid4())
+    task_dir = _TASKS_DIR / tid
+    queue = event_bus.subscribe()
+    try:
+        for attempt in range(2):
+            gen = asyncio.create_task(
+                admin_client.post(
+                    f'/api/tasks/{tid}/image/generate',
+                    json={'prompt': 'p', 'model': 'nano-banana-pro-4k'},
+                )
+            )
+            req = await _drain_until(queue, 'image_request')
+            await admin_client.post(
+                f'/api/tasks/{tid}/image/confirm',
+                json={'request_id': req['request_id'], 'action': 'confirm'},
+            )
+            resp = await asyncio.wait_for(gen, timeout=10)
+            if attempt == 0:
+                # 504, and the message must steer the agent back to the
+                # same model rather than a cheaper substitute.
+                assert resp.status_code == 504
+                detail = resp.json()['detail']
+                assert 'nano-banana-pro-4k' in detail
+                assert 'SAME model' in detail
+                assert 'no extra cost' in detail
+            else:
+                assert resp.status_code == 200
+
+        # First call created a job; the retry resumed that exact job.
+        assert calls[0]['resume'] is None
+        assert calls[1]['resume'] == 'kie-job-7'
+        # Handle is consumed — a third call would start fresh, not
+        # re-collect a job already downloaded.
+        assert tid not in vision_router._INFLIGHT
+    finally:
+        event_bus.unsubscribe(queue)
+        vision_router._INFLIGHT.pop(tid, None)
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_inflight_handle_is_not_reused_for_a_different_model(
+    admin_client, monkeypatch
+):
+    """Resuming another model's job would return the wrong image, so the
+    handle only applies to a retry of the SAME model."""
+    tid = str(uuid.uuid4())
+    vision_router._INFLIGHT[tid] = ('kie-job-9', 'nano-banana-pro-4k')
+    try:
+        assert vision_router._take_inflight(tid, 'gpt-image-2-2k') is None
+        # Non-matching lookup must not consume the handle either.
+        assert vision_router._INFLIGHT[tid] == (
+            'kie-job-9',
+            'nano-banana-pro-4k',
+        )
+        assert (
+            vision_router._take_inflight(tid, 'nano-banana-pro-4k')
+            == 'kie-job-9'
+        )
+        assert tid not in vision_router._INFLIGHT
+    finally:
+        vision_router._INFLIGHT.pop(tid, None)

@@ -24,6 +24,7 @@ import base64
 import collections
 import dataclasses
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -31,6 +32,8 @@ import httpx
 
 from app.config import VIBE_SELLER_DIR
 from app.events.bus import event_bus
+
+logger = logging.getLogger(__name__)
 
 VISION_CONFIG_PATH = VIBE_SELLER_DIR / 'vision.json'
 
@@ -470,16 +473,79 @@ async def _resolve_reference(
     return await _upload_local_file(client, local, api_key)
 
 
+# ── Poll budget ───────────────────────────────────────────────────
+#
+# kie.ai generation is async: createTask returns a taskId, then we poll
+# recordInfo until ``success``. The budget below is how long we are
+# willing to poll, and it is per RESOLUTION TIER because generation time
+# scales with output pixels — a flat budget sized for 2K kills 4K jobs.
+#
+# Measured against the live endpoint (2026-07, nano-banana-pro, same
+# prompt + reference): 2K lands in ~60s; 4K took 147s on one run and blew
+# past 240s on another (a real user generation, which the flat 60x4s
+# budget then killed at 4m17s). So 4K's tail is what needs covering, not
+# its median — hence 600s, ~4x the measured median.
+#
+# Giving up does NOT cancel the kie.ai job: it finishes and is billed.
+# That is why exhaustion raises :class:`GenerationTimeout` carrying the
+# taskId instead of a bare RuntimeError — see that class.
+_POLL_EVERY_S = 4
+_POLL_BUDGET_S = {'1K': 240, '2K': 240, '4K': 600}
+_POLL_BUDGET_DEFAULT_S = 240
+
+
+def poll_budget_s(m: ImageModel) -> int:
+    """Seconds we are willing to poll for *m*'s tier.
+
+    Tier comes from the model's own ``extra['resolution']`` (the param
+    the tier injects). Models whose tier is quality- or speed-based
+    rather than resolution-based (``quality`` / ``rendering_speed``) get
+    the default.
+    """
+    return _POLL_BUDGET_S.get(
+        str(m.extra.get('resolution') or ''), _POLL_BUDGET_DEFAULT_S
+    )
+
+
+class GenerationTimeout(RuntimeError):
+    """Our poll budget ran out while the kie.ai job was still running.
+
+    Carries ``kie_task_id`` because giving up on our side does NOT cancel
+    the job — it completes on kie.ai and is billed either way. Dropping
+    the id orphans an image the user paid for and makes a retry pay a
+    second time, so callers must keep it and resume polling instead
+    (``generate_image(resume_task_id=...)``).
+    """
+
+    def __init__(self, kie_task_id: str, waited_s: int, model_id: str):
+        self.kie_task_id = kie_task_id
+        self.waited_s = waited_s
+        self.model_id = model_id
+        super().__init__(
+            f'kie.ai generation still running after {waited_s}s '
+            f'(model {model_id}, kie taskId {kie_task_id})'
+        )
+
+
 async def generate_image(
     *,
     prompt: str,
     model: str,
     reference_images: list[str],
     task_dir: Path,
+    resume_task_id: str | None = None,
 ) -> bytes:
     """Generate one image via kie.ai and return the PNG bytes.
 
-    Raises RuntimeError on any kie.ai failure. Honours ``VISION_FAKE``.
+    Raises RuntimeError on any kie.ai failure, or
+    :class:`GenerationTimeout` (a subclass, carrying the kie.ai taskId)
+    when the poll budget runs out with the job still in flight. Honours
+    ``VISION_FAKE``.
+
+    ``resume_task_id`` polls an EXISTING kie.ai job instead of creating a
+    new one — the retry path after a ``GenerationTimeout``. It skips both
+    the reference upload and ``createTask``, so the already-billed image
+    is collected rather than paid for twice.
 
     The ``input`` payload is assembled per-model: every model here goes
     through the same ``jobs/createTask`` endpoint, but the reference-image
@@ -497,38 +563,50 @@ async def generate_image(
     m = get_model(model)
 
     async with httpx.AsyncClient(timeout=120) as client:
-        resolved: list[str] = []
-        for ref in reference_images or []:
-            url = await _resolve_reference(client, ref, task_dir, api_key)
-            if url:
-                resolved.append(url)
+        if resume_task_id:
+            # Resume: the job is already created (and already billed).
+            kie_task = resume_task_id
+            logger.info(
+                'Resuming kie.ai job %s (model %s) instead of creating a '
+                'new one',
+                kie_task,
+                m.id,
+            )
+        else:
+            resolved: list[str] = []
+            for ref in reference_images or []:
+                url = await _resolve_reference(client, ref, task_dir, api_key)
+                if url:
+                    resolved.append(url)
 
-        image_input: dict = {'prompt': prompt}
-        if m.ref_array:
-            image_input[m.ref_field] = resolved
-        elif resolved:
-            # Single-reference models (qwen/image-edit, ideogram remix)
-            # take exactly one image; use the primary reference.
-            image_input[m.ref_field] = resolved[0]
-        image_input.update(m.extra)
+            image_input: dict = {'prompt': prompt}
+            if m.ref_array:
+                image_input[m.ref_field] = resolved
+            elif resolved:
+                # Single-reference models (qwen/image-edit, ideogram remix)
+                # take exactly one image; use the primary reference.
+                image_input[m.ref_field] = resolved[0]
+            image_input.update(m.extra)
 
-        create = await client.post(
-            f'{_KIE_BASE}/api/v1/jobs/createTask',
-            headers={'Authorization': f'Bearer {api_key}'},
-            json={'model': m.slug, 'input': image_input},
-        )
-        cbody = create.json()
-        task_id = (cbody.get('data') or {}).get('taskId')
-        if not task_id:
-            raise RuntimeError(f'kie.ai createTask failed: {cbody}')
+            create = await client.post(
+                f'{_KIE_BASE}/api/v1/jobs/createTask',
+                headers={'Authorization': f'Bearer {api_key}'},
+                json={'model': m.slug, 'input': image_input},
+            )
+            cbody = create.json()
+            kie_task = (cbody.get('data') or {}).get('taskId')
+            if not kie_task:
+                raise RuntimeError(f'kie.ai createTask failed: {cbody}')
 
-        # Poll recordInfo until success/fail (Pro 2K ~ 60s).
+        # Poll recordInfo until success/fail. Budget is per tier — see
+        # ``poll_budget_s``.
+        budget_s = poll_budget_s(m)
         result_url = None
-        for _ in range(60):
-            await asyncio.sleep(4)
+        for _ in range(max(1, budget_s // _POLL_EVERY_S)):
+            await asyncio.sleep(_POLL_EVERY_S)
             info = await client.get(
                 f'{_KIE_BASE}/api/v1/jobs/recordInfo',
-                params={'taskId': task_id},
+                params={'taskId': kie_task},
                 headers={'Authorization': f'Bearer {api_key}'},
             )
             data = info.json().get('data') or {}
@@ -544,7 +622,7 @@ async def generate_image(
                     f'kie.ai generation failed: {data.get("failMsg")}'
                 )
         if not result_url:
-            raise RuntimeError('kie.ai generation timed out')
+            raise GenerationTimeout(kie_task, budget_s, m.id)
 
         img = await client.get(result_url)
         return img.content
