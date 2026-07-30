@@ -27,6 +27,10 @@ function formatDate(dateStr: string): string {
 
 interface TasksViewProps {
   isMobile: boolean
+  /** Audit console open state, owned by the URL. */
+  auditOpen?: boolean
+  onOpenAudit?: () => void
+  onCloseAudit?: () => void
   onOpenNav: () => void
   taskPanelActive: boolean
   taskPanelTitle: string
@@ -156,6 +160,9 @@ export function TasksView({
   selectedStore,
   stores,
   onOpenVisionSetup,
+  auditOpen,
+  onOpenAudit,
+  onCloseAudit,
 }: TasksViewProps) {
   const { t } = useTranslation()
   // Gating predicate for the schedule "Run Now" button: true
@@ -597,6 +604,9 @@ export function TasksView({
                   questionBannerRef={questionBannerRef}
                   isActive={isActive} userNearBottom={userNearBottom}
                   onOpenVisionSetup={onOpenVisionSetup}
+                  auditOpen={auditOpen}
+                  onOpenAudit={onOpenAudit}
+                  onCloseAudit={onCloseAudit}
                 />
               )}
 

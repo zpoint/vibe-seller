@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { parseReport } from '../../lib/adAudit/parseReport'
 import type { DecisionSubmission } from '../../lib/adAudit/types'
@@ -8,6 +8,14 @@ import { AuditConsole } from './AuditConsole'
 interface Props {
   /** The report markdown, as resolved by the server. */
   report: string
+  /**
+   * Whether the console is open, and how to open/close it. Driven by the
+   * URL rather than local state so the review is bookmarkable, survives a
+   * reload, and can be sent to whoever owns the budget.
+   */
+  open: boolean
+  onOpen: () => void
+  onClose: () => void
   onSubmit?: (submission: DecisionSubmission) => void
   submitting?: boolean
 }
@@ -19,9 +27,15 @@ interface Props {
  * tables with no way to act on any of them. So the result becomes a summary
  * with one way in, and the decisions get made in the console.
  */
-export function AuditResultCard({ report, onSubmit, submitting }: Props) {
+export function AuditResultCard({
+  report,
+  open,
+  onOpen,
+  onClose,
+  onSubmit,
+  submitting,
+}: Props) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
   const doc = useMemo(() => parseReport(report), [report])
   const head = useMemo(() => auditHeadline(doc), [doc])
 
@@ -56,7 +70,7 @@ export function AuditResultCard({ report, onSubmit, submitting }: Props) {
         </p>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={onOpen}
           className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
         >
           {t('audit.openConsole')}
@@ -78,7 +92,7 @@ export function AuditResultCard({ report, onSubmit, submitting }: Props) {
               <span className="flex-1" />
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={onClose}
                 className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
               >
                 {t('common.close')}

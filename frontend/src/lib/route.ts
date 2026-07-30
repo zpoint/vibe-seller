@@ -23,6 +23,13 @@ export function slugToSettingsTab(slug: string): SettingsTab {
 
 export interface NavState {
   appView: AppView
+  /**
+   * The audit review console, open as a URL rather than as component
+   * state — a reviewer working through a 40-campaign report needs to
+   * bookmark it, reload without losing their place, and send the link to
+   * whoever owns the budget.
+   */
+  auditOpen: boolean
   settingsTab: SettingsTab
   taskId: string | null
   storeId: string | null
@@ -48,5 +55,6 @@ export function parseNav(pathname: string): NavState {
     storeId: pathname.match(/^\/stores\/([^/]+)/)?.[1] ?? null,
     scheduleId: pathname.match(/^\/schedules\/([^/]+)/)?.[1] ?? null,
     taskSubTab: pathname.startsWith('/schedules') ? 'scheduled' : 'onetime',
+    auditOpen: /^\/(?:stores\/[^/]+\/)?tasks\/[^/]+\/audit\/?$/.test(pathname),
   }
 }

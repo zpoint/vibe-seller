@@ -44,6 +44,19 @@ const taskRoute = createRoute({
   path: 'tasks/$taskId',
   component: () => null,
 })
+// The audit console. A leaf under the task so the task (and its store)
+// stay selected behind it, and so the link carries everything needed to
+// reopen exactly this report.
+const taskAuditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'tasks/$taskId/audit',
+  component: () => null,
+})
+const storeTaskAuditRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: 'stores/$storeId/tasks/$taskId/audit',
+  component: () => null,
+})
 const storeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'stores/$storeId',
@@ -86,8 +99,10 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   tasksRoute,
   taskRoute,
+  taskAuditRoute,
   storeRoute,
   storeTaskRoute,
+  storeTaskAuditRoute,
   schedulesRoute,
   scheduleRoute,
   workspaceRoute,

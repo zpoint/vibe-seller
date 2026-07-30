@@ -7,6 +7,7 @@
 // the agent keeps the report's own vocabulary, because the executor must read
 // the same verb whichever language the reviewer happened to be using.
 
+import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
 import i18n from 'i18next'
@@ -60,9 +61,23 @@ async function mount(lang: 'en' | 'zh') {
     resources: { en: { translation: en }, zh: { translation: zh } },
     interpolation: { escapeValue: false },
   })
+  // The card's open state is owned by the URL in the app; here a tiny
+  // holder stands in for the router so the test drives it the same way.
+  function Harness() {
+    const [open, setOpen] = useState(false)
+    return (
+      <AuditResultCard
+        report={REPORT}
+        open={open}
+        onOpen={() => setOpen(true)}
+        onClose={() => setOpen(false)}
+        onSubmit={() => {}}
+      />
+    )
+  }
   return render(
     <I18nextProvider i18n={instance}>
-      <AuditResultCard report={REPORT} onSubmit={() => {}} />
+      <Harness />
     </I18nextProvider>,
   )
 }

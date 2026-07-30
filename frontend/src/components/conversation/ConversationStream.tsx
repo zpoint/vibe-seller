@@ -277,6 +277,10 @@ interface ConversationStreamProps {
    */
   onSubmitAuditDecisions?: (decisions: unknown) => void
   auditSubmitting?: boolean
+  /** Audit console open state, owned by the URL (see lib/route.ts). */
+  auditOpen?: boolean
+  onOpenAudit?: () => void
+  onCloseAudit?: () => void
 }
 
 export function ConversationStream({
@@ -302,6 +306,9 @@ export function ConversationStream({
   onOpenVisionSetup,
   onSubmitAuditDecisions,
   auditSubmitting,
+  auditOpen,
+  onOpenAudit,
+  onCloseAudit,
 }: ConversationStreamProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -396,6 +403,9 @@ export function ConversationStream({
                 <div key={item.id}>
                   <AuditResultCard
                     report={item.result || ''}
+                    open={!!auditOpen}
+                    onOpen={() => onOpenAudit?.()}
+                    onClose={() => onCloseAudit?.()}
                     onSubmit={
                       onSubmitAuditDecisions
                         ? (d) => onSubmitAuditDecisions(d)
