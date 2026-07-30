@@ -101,6 +101,30 @@ export function roasClass(
 export type ChoiceMap = ReadonlyMap<string, Choice | null>
 
 /**
+ * Reviewer-set target bids, by row key.
+ *
+ * A raise/lower is only executable if it says HOW MUCH. The audit
+ * supplies a number when it proposed the move itself; when the reviewer
+ * overrides a 维持 into a raise there is no proposal to inherit, and
+ * without this the agent received `action: raise, target_bid: null` —
+ * the same "name the exact action" ambiguity the report format exists to
+ * prevent, just moved into the payload.
+ */
+export type TargetBidMap = ReadonlyMap<string, number>
+
+export const NO_TARGET_BIDS: TargetBidMap = new Map<string, number>()
+
+/** The bid a raise/lower should carry: the reviewer's, else the audit's. */
+export function effectiveTargetBid(
+  row: AuditRow,
+  key: string,
+  targetBids: TargetBidMap = NO_TARGET_BIDS,
+): number | null {
+  const set = targetBids.get(key)
+  return set != null && Number.isFinite(set) ? set : row.to
+}
+
+/**
  * Everything about a report that does NOT change while reviewing: the rows,
  * the post-lock baseline, the breakeven. Choices live separately, in React
  * state, so the model stays pure functions of (state, choices).
@@ -263,6 +287,7 @@ export function buildDecisionSet(
   state: ReviewState,
   choices: ChoiceMap,
   excluded: ExcludedScopes = NOTHING_EXCLUDED,
+  targetBids: TargetBidMap = NO_TARGET_BIDS,
 ): DecisionMarket[] {
   const byCountry = new Map<string, AuditCampaign[]>()
   for (const c of state.campaigns) {
@@ -303,7 +328,10 @@ export function buildDecisionSet(
             : r.mtFromAudit
               ? 'audit'
               : 'page_default',
-          target_bid: act === 'raise' || act === 'lower' ? r.to : null,
+          target_bid:
+            act === 'raise' || act === 'lower'
+              ? effectiveTargetBid(r, k, targetBids)
+              : null,
           agent_suggested: r.sugg,
           agent_suggested_label: r.sugg ? canonicalLabelOf(r.sugg) : null,
           overridden: cur !== state.base.get(k),
@@ -373,8 +401,9 @@ export function buildSubmission(
   state: ReviewState,
   choices: ChoiceMap,
   excluded: ExcludedScopes = NOTHING_EXCLUDED,
+  targetBids: TargetBidMap = NO_TARGET_BIDS,
 ): DecisionSubmission {
-  const markets = buildDecisionSet(state, choices, excluded)
+  const markets = buildDecisionSet(state, choices, excluded, targetBids)
   const outCountries = new Set<string>()
   const outPlatforms = new Set<string>()
   const campaigns: ExcludedCampaign[] = []
@@ -401,6 +430,21 @@ export function buildSubmission(
     (a, m) => a + m.campaigns.reduce((b, c) => b + c.rows.length, 0),
     0,
   )
+  const missingBid = markets.reduce(
+    (a, m) =>
+      a +
+      m.campaigns.reduce(
+        (b, c) =>
+          b +
+          c.rows.filter(
+            (r) =>
+              (r.action === 'raise' || r.action === 'lower') &&
+              r.target_bid == null,
+          ).length,
+        0,
+      ),
+    0,
+  )
   return {
     markets,
     excluded: {
@@ -412,6 +456,8 @@ export function buildSubmission(
       campaigns_in_scope: state.campaigns.length - campaigns.length,
       campaigns_excluded: campaigns.length,
       rows_to_change: rows,
+      /** Bid moves with no amount — must be 0 before this can be sent. */
+      rows_missing_bid: missingBid,
     },
   }
 }

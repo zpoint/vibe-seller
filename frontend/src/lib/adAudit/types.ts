@@ -215,5 +215,7 @@ export interface DecisionSubmission {
     campaigns_in_scope: number
     campaigns_excluded: number
     rows_to_change: number
+    /** Raise/lower rows still missing a target bid. Blocks submission. */
+    rows_missing_bid: number
   }
 }

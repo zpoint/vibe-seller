@@ -34,6 +34,8 @@ interface Props {
   selfDropped: boolean
   onDrop: () => void
   onKeepOnly: () => void
+  targetBidOf: (key: string) => number | null
+  onTargetBid: (key: string, v: number | null) => void
 }
 
 export function AuditCampaignBlock({
@@ -51,6 +53,8 @@ export function AuditCampaignBlock({
   selfDropped,
   onDrop,
   onKeepOnly,
+  targetBidOf,
+  onTargetBid,
 }: Props) {
   const { t } = useTranslation()
   const named = hasRealName(c)
@@ -194,6 +198,8 @@ export function AuditCampaignBlock({
             onAction={onAction}
             onMatchType={onMatchType}
             onBulk={(layer, mode) => onBulk(c, layer, mode)}
+            targetBidOf={targetBidOf}
+            onTargetBid={onTargetBid}
           />
           <AuditLayerTable
             campaign={c}
@@ -205,6 +211,8 @@ export function AuditCampaignBlock({
             onAction={onAction}
             onMatchType={onMatchType}
             onBulk={(layer, mode) => onBulk(c, layer, mode)}
+            targetBidOf={targetBidOf}
+            onTargetBid={onTargetBid}
           />
         </div>
       )}

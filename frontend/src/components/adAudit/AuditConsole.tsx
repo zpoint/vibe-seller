@@ -8,9 +8,12 @@ import type {
   Layer,
   MatchType,
 } from '../../lib/adAudit/types'
+import type { TargetBidMap } from '../../lib/adAudit/review'
 import {
   MATERIAL_SPEND,
+  NO_TARGET_BIDS,
   buildSubmission,
+  effectiveTargetBid,
   buildReviewState,
   bulkSet,
   campaignChangeCount,
@@ -69,6 +72,17 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
   // What the reviewer will actually submit. Empty = the whole report; a
   // first pass is usually "just this campaign, leave the rest for next week".
   const [excluded, setExcluded] = useState<ExcludedScopes>(NOTHING_EXCLUDED)
+  // Amounts the reviewer typed for raise/lower rows the audit gave no
+  // number for. Kept apart from `choices` because a choice is an action,
+  // not a value.
+  const [targetBids, setTargetBids] = useState<TargetBidMap>(NO_TARGET_BIDS)
+  const setTargetBid = (k: string, v: number | null) =>
+    setTargetBids((prev) => {
+      const next = new Map(prev)
+      if (v == null || !Number.isFinite(v)) next.delete(k)
+      else next.set(k, v)
+      return next
+    })
   const drop = (key: string) => setExcluded((prev) => toggleScope(prev, key))
 
   const totals = totalsOf(state, choices, excluded)
@@ -106,7 +120,8 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
     (a, c) => a + c.kw.length + c.st.length,
     0,
   )
-  const decisions = showJson ? buildSubmission(state, choices, excluded) : null
+  const submission = buildSubmission(state, choices, excluded, targetBids)
+  const decisions = showJson ? submission : null
 
   return (
     <div className="adaudit">
@@ -336,6 +351,13 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
                           onAction={setAction}
                           onMatchType={setMatchType}
                           onBulk={bulk}
+                          targetBidOf={(k) => {
+                            const e = state.rows.get(k)
+                            return e
+                              ? effectiveTargetBid(e.row, k, targetBids)
+                              : null
+                          }}
+                          onTargetBid={setTargetBid}
                           inScope={campaignInScope(c, excluded)}
                           selfDropped={excluded.has(campaignKey(c.id))}
                           onDrop={() => drop(campaignKey(c.id))}
@@ -378,6 +400,13 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
             </button>
           </span>
         )}
+        {submission.totals.rows_missing_bid > 0 && (
+          <span className="adaudit-mtdef">
+            {t('audit.foot.needBids', {
+              count: submission.totals.rows_missing_bid,
+            })}
+          </span>
+        )}
         <span className="grow" />
         <span>
           {t('audit.foot.impact')}{' '}
@@ -392,8 +421,13 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
         <button
           type="button"
           className="primary"
-          disabled={submitting || totals.acting === 0 || !onSubmit}
-          onClick={() => onSubmit?.(buildSubmission(state, choices, excluded))}
+          disabled={
+            submitting ||
+            totals.acting === 0 ||
+            !onSubmit ||
+            submission.totals.rows_missing_bid > 0
+          }
+          onClick={() => onSubmit?.(submission)}
         >
           {submitting ? t('audit.foot.sending') : t('audit.foot.handToAgent')}
         </button>

@@ -888,7 +888,10 @@
       "noExecutableAction": "⚠ The agent named no executable action ({{reason}}) — the audit needs to state one",
       "zeroClicks": "⚠ 0 clicks",
       "bidUnsafeHint": "This row spent > 0 with 0 clicks, so the CPC×1.1 floor cannot be computed and a lower-bid target would be meaningless. Raises rely on ROAS and are unaffected.",
-      "quarantinedHint": "This campaign's figures are untrusted, so its advice is not executable."
+      "quarantinedHint": "This campaign's figures are untrusted, so its advice is not executable.",
+      "targetBidLabel": "New bid",
+      "fromBid": "was {{bid}}",
+      "bidRequired": "set an amount — a raise with no number is not executable"
     },
     "layer": {
       "targeting": "Targeting layer",
@@ -913,7 +916,8 @@
       "viewJson": "View decision JSON",
       "jsonTitle": "Decision set — this is what gets sent to the agent",
       "handToAgent": "Hand to agent to execute",
-      "sending": "Sending…"
+      "sending": "Sending…",
+      "needBids": "set a bid on {{count}} row(s) before sending"
     },
     "scope": {
       "drop": "Drop",

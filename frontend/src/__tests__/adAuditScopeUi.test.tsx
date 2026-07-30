@@ -81,6 +81,12 @@ async function mount(md: string, lang: 'en' | 'zh' = 'en') {
   return { get submitted() { return submitted } }
 }
 
+
+/** Campaign blocks start collapsed; the row controls only exist once open. */
+function expandFirstCampaign() {
+  fireEvent.click(screen.getAllByRole('button', { expanded: false })[0])
+}
+
 const submitBtn = () =>
   screen.getByRole('button', { name: /Hand to agent|交给 agent/ })
 
@@ -150,6 +156,53 @@ describe('scope controls', () => {
     await mount(WIDE, 'zh')
     expect(screen.getAllByRole('button', { name: '不执行' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('button', { name: '只留这个' }).length).toBeGreaterThan(0)
+    cleanup()
+  })
+})
+
+describe('a bid move must say how much', () => {
+  it('blocks submit until the reviewer sets an amount', async () => {
+    // Found live: overriding a 维持 into a raise sent
+    // `action: raise, target_bid: null` — "raise it" with no number,
+    // which is not an instruction anyone can carry out.
+    const h = await mount(WIDE)
+    expandFirstCampaign()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Raise bid' })[0])
+    expect(screen.getByText(/set a bid on 1 row/)).toBeTruthy()
+    expect((submitBtn() as HTMLButtonElement).disabled).toBe(true)
+
+    const input = screen.getByLabelText('New bid')
+    fireEvent.change(input, { target: { value: '2.90' } })
+    expect((submitBtn() as HTMLButtonElement).disabled).toBe(false)
+
+    fireEvent.click(submitBtn())
+    const row = h.submitted!.markets[0].campaigns[0].rows.find(
+      (r) => r.action === 'raise',
+    )!
+    expect(row.target_bid).toBe(2.9)
+    expect(h.submitted!.totals.rows_missing_bid).toBe(0)
+    cleanup()
+  })
+
+  it('keeps the audit’s own number when it proposed one', async () => {
+    await mount(WIDE)
+    expandFirstCampaign()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Raise bid' })[0])
+    // Nothing typed, and this fixture's advice is 暂停 (no target), so the
+    // guard is what stops it — not a silently-invented number.
+    expect(screen.getByText(/set a bid on 1 row/)).toBeTruthy()
+    cleanup()
+  })
+
+  it('clearing the field re-blocks submission', async () => {
+    await mount(WIDE)
+    expandFirstCampaign()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Raise bid' })[0])
+    const input = screen.getByLabelText('New bid')
+    fireEvent.change(input, { target: { value: '2.90' } })
+    expect((submitBtn() as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.change(input, { target: { value: '' } })
+    expect((submitBtn() as HTMLButtonElement).disabled).toBe(true)
     cleanup()
   })
 })

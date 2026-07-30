@@ -699,3 +699,21 @@
 .adaudit-ghead:hover {
   background: var(--bg-subtle);
 }
+
+/* The amount a bid move will use. Sits with the match-type row because it
+   is the same kind of thing: the qualifier that makes the action
+   executable rather than merely directional. */
+.adaudit-bidinput {
+  font: inherit;
+  font-size: 13px;
+  font-family: var(--mono);
+  width: 8ch;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-btn);
+  background: var(--card);
+}
+.adaudit-bidinput:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: -1px;
+}

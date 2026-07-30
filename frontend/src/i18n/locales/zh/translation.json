@@ -890,7 +890,10 @@
       "noExecutableAction": "⚠ agent 未给出可执行动作（{{reason}}）——需要审计侧补明确动作",
       "zeroClicks": "⚠ 0 点击",
       "bidUnsafeHint": "该行花费 > 0 但点击 = 0：降价地板 CPC×1.1 算不出来，降价目标不可信（提价靠 ROAS，不受影响）。",
-      "quarantinedHint": "本活动数据不可信，建议不可执行。"
+      "quarantinedHint": "本活动数据不可信，建议不可执行。",
+      "targetBidLabel": "新出价",
+      "fromBid": "原 {{bid}}",
+      "bidRequired": "请填金额——没有数字的调价无法执行"
     },
     "layer": {
       "targeting": "定向层",
@@ -915,7 +918,8 @@
       "viewJson": "查看决策 JSON",
       "jsonTitle": "决策集 —— 这就是发给 agent 的内容",
       "handToAgent": "交给 agent 执行",
-      "sending": "发送中…"
+      "sending": "发送中…",
+      "needBids": "还有 {{count}} 行没填新出价"
     },
     "scope": {
       "drop": "不执行",
