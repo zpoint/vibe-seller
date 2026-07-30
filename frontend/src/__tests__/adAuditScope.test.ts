@@ -7,6 +7,7 @@ import { parseReport } from '../lib/adAudit/parseReport'
 import {
   buildDecisionSet,
   buildReviewState,
+  buildSubmission,
   chooseAction,
   initialChoices,
   rowKey,
@@ -186,5 +187,43 @@ describe('submitting a narrowed scope', () => {
     const set = buildDecisionSet(state, ch, NOTHING_EXCLUDED)
     expect(set).toHaveLength(1)
     expect(set[0].campaigns[0].rows).toHaveLength(1)
+  })
+})
+
+describe('rows_to_change counts work, not payload size', () => {
+  it('excludes an overridden keep from the count', () => {
+    // A keep travels in the payload when it OVERRIDES the audit — the
+    // executor needs to know the human said hold — but it is not work,
+    // and counting it overstated the run in the footer and the follow-up.
+    const md =
+      '# Ad audit\n\n' +
+      `## amazon SA
+**进度**: drilled 1/1 active (1 total, 1 pages)
+
+| id | name | type | spend (SAR) | sales | orders | roas |
+|---|---|---|---|---|---|---|
+| 100000000001 | acme one | Auto | 120.00 | 400.00 | 20 | 3.33 |
+
+### 100000000001 | acme one | Auto | AG: acme group
+
+| 定向词 | 匹配 | 出价 | 点击 | 花费 (SAR) | 订单 | ROAS | 建议 |
+|---|---|---|---|---|---|---|---|
+| widget red | Exact | 2.00 | 40 | 80.00 | 4 | 5.00 | 维持 |
+
+| 搜索词 | 来源关键词 | 匹配 | 点击 | 花费 (SAR) | 订单 | ROAS | 建议 |
+|---|---|---|---|---|---|---|---|
+| bad widget | widget red | Broad | 30 | 60.00 | 0 | — | 否定词组（零转化） |
+` + SUMMARY
+    const state = buildReviewState(parseReport(md))
+    const c = state.campaigns[0]
+    let ch = initialChoices(state)
+    // one real change...
+    ch = chooseAction(ch, rowKey(c.id, c.kw[0]), 'pause')
+    // ...and one OVERRIDE of the audit's negation back to keep
+    ch = chooseAction(ch, rowKey(c.id, c.st[0]), 'keep')
+    const sub = buildSubmission(state, ch)
+    const all = sub.markets.flatMap((m) => m.campaigns.flatMap((x) => x.rows))
+    expect(all.map((r) => r.action).sort()).toEqual(['keep', 'pause'])
+    expect(sub.totals.rows_to_change).toBe(1)
   })
 })

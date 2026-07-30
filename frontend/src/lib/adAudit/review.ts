@@ -426,8 +426,17 @@ export function buildSubmission(
       excluded_at: level,
     })
   }
+  // Rows that DO something. A keep is included in the payload when the
+  // reviewer overrode the audit's advice — the executor needs to know the
+  // human said hold — but counting it as work would overstate what is
+  // about to happen, in the footer and in the follow-up message.
   const rows = markets.reduce(
-    (a, m) => a + m.campaigns.reduce((b, c) => b + c.rows.length, 0),
+    (a, m) =>
+      a +
+      m.campaigns.reduce(
+        (b, c) => b + c.rows.filter((r) => r.action !== 'keep').length,
+        0,
+      ),
     0,
   )
   const missingBid = markets.reduce(
