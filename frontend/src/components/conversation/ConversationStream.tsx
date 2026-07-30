@@ -14,6 +14,7 @@ import { ImageRequestCard } from './ImageRequestCard'
 import { GeneratedImageCard } from './GeneratedImageCard'
 import { AuditResultCard } from '../adAudit/AuditResultCard'
 import { looksLikeAuditReport } from '../../lib/adAudit/parseReport'
+import type { DecisionSubmission } from '../../lib/adAudit/types'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 
@@ -275,7 +276,7 @@ interface ConversationStreamProps {
    * until the execution side lands — the console then renders read-only
    * rather than offering a button that goes nowhere.
    */
-  onSubmitAuditDecisions?: (decisions: unknown) => void
+  onSubmitAuditDecisions?: (submission: DecisionSubmission) => void
   auditSubmitting?: boolean
   /** Audit console open state, owned by the URL (see lib/route.ts). */
   auditOpen?: boolean

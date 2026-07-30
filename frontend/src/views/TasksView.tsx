@@ -9,6 +9,7 @@ import { ConversationStream } from '../components/conversation/ConversationStrea
 import { useChatUploads } from '../hooks/useChatUploads'
 import { ChatComposer } from '../components/conversation/ChatComposer'
 import { isAwaitingUser } from '../handlers/composerGate'
+import { submitAuditDecisions } from '../handlers/submitAuditDecisions'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -164,6 +165,7 @@ export function TasksView({
   onOpenAudit,
   onCloseAudit,
 }: TasksViewProps) {
+  const [auditSubmitting, setAuditSubmitting] = useState(false)
   const { t } = useTranslation()
   // Gating predicate for the schedule "Run Now" button: true
   // when ANY status is still progressing (pending / queued /
@@ -607,6 +609,38 @@ export function TasksView({
                   auditOpen={auditOpen}
                   onOpenAudit={onOpenAudit}
                   onCloseAudit={onCloseAudit}
+                  auditSubmitting={auditSubmitting}
+                  onSubmitAuditDecisions={async (submission) => {
+                    if (!selectedTask) return
+                    setAuditSubmitting(true)
+                    try {
+                      await submitAuditDecisions(
+                        selectedTask.id,
+                        submission,
+                        {
+                          api,
+                          profileId: selectedProfileId,
+                          onOptimisticStatus: (status) => {
+                            setSelectedTask(prev =>
+                              prev && prev.id === selectedTask.id
+                                ? { ...prev, status }
+                                : prev,
+                            )
+                            setTasks(prev =>
+                              prev.map(t =>
+                                t.id === selectedTask.id ? { ...t, status } : t,
+                              ),
+                            )
+                          },
+                        },
+                      )
+                      // The decisions are with the agent now; close the
+                      // console so the task's stream is what you watch.
+                      onCloseAudit?.()
+                    } finally {
+                      setAuditSubmitting(false)
+                    }
+                  }}
                 />
               )}
 
