@@ -37,6 +37,7 @@ from app.ai.ad_execution_targets import extract_executed_bid_pause
 from app.ai.ad_negation_allowlist import _task_dir
 from app.ai.stop_gates import GateDeny
 from app.ai.stop_gates.ad_change_cooldown import (
+    _days_ago,
     _is_absent,
     _norm,
     _parse_day,
@@ -98,8 +99,13 @@ def unbacked_rows(
                         continue
                     day = _parse_day(row.get('applied_at') or '')
                     # Only this run's writes are gradeable; older entries
-                    # were backed by logs that no longer exist.
-                    if day is None or day != today:
+                    # were backed by logs that no longer exist. Compared
+                    # through the same skew tolerance as the cooldown —
+                    # an exact date equality here would miss every row the
+                    # agent stamped with a local date that is ahead of
+                    # ours, making this gate a no-op for those hours.
+                    ago = _days_ago(day, today) if day else None
+                    if ago is None or ago != 0:
                         continue
                     target = _norm(
                         row.get('target') or row.get('search_term') or ''

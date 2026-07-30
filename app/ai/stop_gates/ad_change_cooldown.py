@@ -63,6 +63,27 @@ def _is_absent(raw: str | None) -> bool:
     return (raw or '').strip().lower() in _ABSENT
 
 
+# A stamp DATED AHEAD of our clock is timezone skew, not corruption. The
+# agent writes the seller's local date; this process compares in UTC, so
+# for the hours each day that local runs ahead (UTC+8 for a Gulf/Asia
+# seller), "today" arrives as tomorrow. Observed live: a change applied
+# minutes earlier read as -1 days and was DISCARDED, which silently
+# switched the cooldown off for exactly the window it was needed in.
+#
+# One day of slack covers every real offset (max ±14h). Anything further
+# ahead is a bad stamp and stays ignored — we must not let a typo'd year
+# freeze a target indefinitely.
+_MAX_CLOCK_SKEW_DAYS = 1
+
+
+def _days_ago(applied: date, today: date) -> int | None:
+    """Age in days, tolerating clock skew; None when implausible."""
+    ago = (today - applied).days
+    if ago < -_MAX_CLOCK_SKEW_DAYS:
+        return None
+    return max(ago, 0)
+
+
 def _norm(text: str) -> str:
     """Compare targets the way a human would: case- and space-insensitive."""
     return re.sub(r'\s+', ' ', (text or '').replace('**', '')).strip().lower()
@@ -115,8 +136,8 @@ def recent_changes(
                     day = _parse_day(row.get('applied_at') or '')
                     if day is None:
                         continue
-                    ago = (today - day).days
-                    if ago < 0 or ago >= cooldown_days:
+                    ago = _days_ago(day, today)
+                    if ago is None or ago >= cooldown_days:
                         continue
                     target = _norm(
                         row.get('target') or row.get('search_term') or ''

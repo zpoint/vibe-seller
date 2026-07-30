@@ -224,3 +224,51 @@ class TestAgentWrittenPlaceholders:
         assert cooldown.recent_changes(tmp_path, 7, TODAY) == {
             'widget red': ('raise', 1)
         }
+
+
+@pytest.mark.unit
+class TestClockSkew:
+    """A stamp dated AHEAD of our clock is timezone skew, not corruption.
+
+    The agent writes the seller's LOCAL date; this process compares in
+    UTC. For the hours each day that local runs ahead (UTC+8 for a
+    Gulf/Asia seller) "today" arrives as tomorrow. Observed live: a change
+    applied minutes earlier read as -1 days and was discarded, silently
+    switching the cooldown off for exactly the window it was needed in.
+    Every earlier test pinned `today` to match its fixture, so none saw it.
+    """
+
+    def test_a_change_stamped_tomorrow_still_counts_as_today(self, tmp_path):
+        _tsv(
+            tmp_path,
+            'c1.tsv',
+            [_row('widget red', '提高出价', '2026-08-11', '2.00')],
+        )
+        got = cooldown.recent_changes(tmp_path, 7, TODAY)  # TODAY = 08-10
+        assert got == {'widget red': ('提高出价', 0)}
+
+    def test_it_is_still_protected_by_the_gate(self, tmp_path):
+        _tsv(
+            tmp_path,
+            'c1.tsv',
+            [_row('widget red', '提高出价', '2026-08-11', '2.00')],
+        )
+        rows = '| widget red | Exact | 2.10 | 40 | 80.00 | 4 | 5.00 | 下调至 1.80 |\n'
+        assert cooldown.check(_report(rows), ads_root=tmp_path, today=TODAY)
+
+    def test_an_implausible_future_date_is_still_ignored(self, tmp_path):
+        # A typo'd year must not freeze a target indefinitely.
+        _tsv(
+            tmp_path,
+            'c1.tsv',
+            [_row('widget red', '提高出价', '2126-08-10', '2.00')],
+        )
+        assert cooldown.recent_changes(tmp_path, 7, TODAY) == {}
+
+    def test_ordinary_past_dates_are_unaffected(self, tmp_path):
+        _tsv(
+            tmp_path,
+            'c1.tsv',
+            [_row('widget red', '提高出价', '2026-08-08', '2.00')],
+        )
+        assert cooldown.recent_changes(tmp_path, 7, TODAY)['widget red'][1] == 2
