@@ -914,6 +914,15 @@
       "jsonTitle": "Decision set — this is what gets sent to the agent",
       "handToAgent": "Hand to agent to execute",
       "sending": "Sending…"
+    },
+    "scope": {
+      "drop": "Drop",
+      "include": "Dropped — click to include",
+      "keepOnly": "Only this one",
+      "narrowed": "Submitting {{campaigns}} of {{total}} campaigns",
+      "reset": "Include everything",
+      "inherited": "Excluded with its market",
+      "inheritedHint": "Dropped by a level above — include that first."
     }
   }
 }

@@ -916,6 +916,15 @@
       "jsonTitle": "决策集 —— 这就是发给 agent 的内容",
       "handToAgent": "交给 agent 执行",
       "sending": "发送中…"
+    },
+    "scope": {
+      "drop": "不执行",
+      "include": "已排除 — 点击恢复",
+      "keepOnly": "只留这个",
+      "narrowed": "只提交 {{total}} 个活动中的 {{campaigns}} 个",
+      "reset": "全部恢复",
+      "inherited": "随所属市场排除",
+      "inheritedHint": "由上一级排除；请先恢复上一级。"
     }
   }
 }

@@ -3,6 +3,8 @@
 
 import type {
   ActionCode,
+  DecisionSubmission,
+  ExcludedCampaign,
   AuditCampaign,
   AuditDoc,
   AuditRow,
@@ -12,6 +14,13 @@ import type {
   MatchType,
   Problem,
 } from './types'
+import type { ExcludedScopes } from './scope'
+import {
+  NOTHING_EXCLUDED,
+  campaignInScope,
+  countryKey,
+  platformKey,
+} from './scope'
 import {
   CANONICAL_ACT_LABEL,
   CANONICAL_MT_LABEL,
@@ -205,6 +214,7 @@ export interface ReviewTotals {
 export function totalsOf(
   state: ReviewState,
   choices: ChoiceMap,
+  excluded: ExcludedScopes = NOTHING_EXCLUDED,
 ): ReviewTotals {
   const impact = new Map<string, number>()
   let acting = 0
@@ -213,6 +223,9 @@ export function totalsOf(
   for (const [k, cur] of choices) {
     const entry = state.rows.get(k)
     if (!entry) continue
+    // A change on a dropped campaign is not being submitted, so it must not
+    // be counted as one — the footer is a promise about what will happen.
+    if (!campaignInScope(entry.campaign, excluded)) continue
     if (isChange(cur)) {
       acting++
       const cur_ = entry.campaign.currency
@@ -249,9 +262,14 @@ export function campaignChangeCount(
 export function buildDecisionSet(
   state: ReviewState,
   choices: ChoiceMap,
+  excluded: ExcludedScopes = NOTHING_EXCLUDED,
 ): DecisionMarket[] {
   const byCountry = new Map<string, AuditCampaign[]>()
   for (const c of state.campaigns) {
+    // Out-of-scope campaigns are not "keep", they are ABSENT: the agent is
+    // told to act on what it receives, so a dropped market must not appear
+    // at all rather than appear with no rows.
+    if (!campaignInScope(c, excluded)) continue
     if (!byCountry.has(c.country)) byCountry.set(c.country, [])
     byCountry.get(c.country)!.push(c)
   }
@@ -340,5 +358,60 @@ export function auditHeadline(doc: AuditDoc) {
     acting,
     quarantined: campaigns.filter((c) => c.quarantine).length,
     breakeven: doc.summary.breakeven,
+  }
+}
+
+/**
+ * The full submission: what to act on, and what was deliberately left out.
+ *
+ * The exclusions are enumerated from the campaigns actually in the report,
+ * not from the raw key set — so the record names real campaigns a reader can
+ * look up, and a stale key for a campaign that is no longer in the report
+ * cannot invent one.
+ */
+export function buildSubmission(
+  state: ReviewState,
+  choices: ChoiceMap,
+  excluded: ExcludedScopes = NOTHING_EXCLUDED,
+): DecisionSubmission {
+  const markets = buildDecisionSet(state, choices, excluded)
+  const outCountries = new Set<string>()
+  const outPlatforms = new Set<string>()
+  const campaigns: ExcludedCampaign[] = []
+  for (const c of state.campaigns) {
+    if (campaignInScope(c, excluded)) continue
+    // Report the OUTERMOST level that dropped it: "excluded with its market"
+    // is the honest description, not "campaign excluded".
+    const level = excluded.has(countryKey(c.country))
+      ? 'country'
+      : excluded.has(platformKey(c.country, c.platform))
+        ? 'platform'
+        : 'campaign'
+    if (level === 'country') outCountries.add(c.country)
+    if (level === 'platform') outPlatforms.add(`${c.country}/${c.platform}`)
+    campaigns.push({
+      campaign_id: c.id,
+      campaign_name: hasRealName(c) ? c.name : null,
+      country: c.country,
+      platform: c.platform,
+      excluded_at: level,
+    })
+  }
+  const rows = markets.reduce(
+    (a, m) => a + m.campaigns.reduce((b, c) => b + c.rows.length, 0),
+    0,
+  )
+  return {
+    markets,
+    excluded: {
+      countries: [...outCountries],
+      platforms: [...outPlatforms],
+      campaigns,
+    },
+    totals: {
+      campaigns_in_scope: state.campaigns.length - campaigns.length,
+      campaigns_excluded: campaigns.length,
+      rows_to_change: rows,
+    },
   }
 }

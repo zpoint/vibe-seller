@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { parseReport } from '../../lib/adAudit/parseReport'
-import type { DecisionMarket } from '../../lib/adAudit/types'
+import type { DecisionSubmission } from '../../lib/adAudit/types'
 import { auditHeadline } from '../../lib/adAudit/review'
 import { AuditConsole } from './AuditConsole'
 
 interface Props {
   /** The report markdown, as resolved by the server. */
   report: string
-  onSubmit?: (decisions: DecisionMarket[]) => void
+  onSubmit?: (submission: DecisionSubmission) => void
   submitting?: boolean
 }
 

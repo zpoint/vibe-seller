@@ -4,13 +4,13 @@ import type {
   ActionCode,
   AuditCampaign,
   AuditDoc,
-  DecisionMarket,
+  DecisionSubmission,
   Layer,
   MatchType,
 } from '../../lib/adAudit/types'
 import {
   MATERIAL_SPEND,
-  buildDecisionSet,
+  buildSubmission,
   buildReviewState,
   bulkSet,
   campaignChangeCount,
@@ -21,6 +21,17 @@ import {
   roasClass,
   totalsOf,
 } from '../../lib/adAudit/review'
+import type { ExcludedScopes } from '../../lib/adAudit/scope'
+import {
+  NOTHING_EXCLUDED,
+  campaignInScope,
+  campaignKey,
+  countryKey,
+  keepOnly,
+  platformKey,
+  scopeCounts,
+  toggleScope,
+} from '../../lib/adAudit/scope'
 import { AuditCampaignBlock } from './AuditCampaignBlock'
 import './adAudit.css'
 
@@ -35,7 +46,7 @@ const fmt = (v: number | null, d = 2) =>
 interface Props {
   doc: AuditDoc
   /** Handed the decision set when the reviewer commits. */
-  onSubmit?: (decisions: DecisionMarket[]) => void
+  onSubmit?: (submission: DecisionSubmission) => void
   submitting?: boolean
 }
 
@@ -55,8 +66,13 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
   const [country, setCountry] = useState<string | null>(null)
   const [onlyChanged, setOnlyChanged] = useState(false)
   const [showJson, setShowJson] = useState(false)
+  // What the reviewer will actually submit. Empty = the whole report; a
+  // first pass is usually "just this campaign, leave the rest for next week".
+  const [excluded, setExcluded] = useState<ExcludedScopes>(NOTHING_EXCLUDED)
+  const drop = (key: string) => setExcluded((prev) => toggleScope(prev, key))
 
-  const totals = totalsOf(state, choices)
+  const totals = totalsOf(state, choices, excluded)
+  const scope = scopeCounts(state.campaigns, excluded)
   const countries = useMemo(
     () => [...new Set(state.campaigns.map((c) => c.country))],
     [state],
@@ -90,7 +106,7 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
     (a, c) => a + c.kw.length + c.st.length,
     0,
   )
-  const decisions = showJson ? buildDecisionSet(state, choices) : []
+  const decisions = showJson ? buildSubmission(state, choices, excluded) : null
 
   return (
     <div className="adaudit">
@@ -249,11 +265,55 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
             const inCountry = visible.filter((c) => c.country === cc)
             if (!inCountry.length) return null
             return (
-              <section key={cc}>
-                <h3 className="adaudit-sectionhead">{cc}</h3>
+              <section key={cc} data-dropped={excluded.has(countryKey(cc))}>
+                <h3 className="adaudit-sectionhead">
+                  {cc}
+                  <button
+                    type="button"
+                    className="adaudit-drop"
+                    aria-pressed={excluded.has(countryKey(cc))}
+                    onClick={() => drop(countryKey(cc))}
+                  >
+                    {t(
+                      excluded.has(countryKey(cc))
+                        ? 'audit.scope.include'
+                        : 'audit.scope.drop',
+                    )}
+                  </button>
+                </h3>
                 {[...new Set(inCountry.map((c) => c.platform))].map((plat) => (
-                  <div key={plat}>
-                    <div className="adaudit-plathead">{plat}</div>
+                  <div
+                    key={plat}
+                    data-dropped={excluded.has(platformKey(cc, plat))}
+                  >
+                    <div className="adaudit-plathead">
+                      {plat}
+                      <button
+                        type="button"
+                        className="adaudit-drop"
+                        aria-pressed={excluded.has(platformKey(cc, plat))}
+                        disabled={
+                          excluded.has(countryKey(cc)) &&
+                          !excluded.has(platformKey(cc, plat))
+                        }
+                        title={
+                          excluded.has(countryKey(cc)) &&
+                          !excluded.has(platformKey(cc, plat))
+                            ? t('audit.scope.inheritedHint')
+                            : undefined
+                        }
+                        onClick={() => drop(platformKey(cc, plat))}
+                      >
+                        {t(
+                          excluded.has(countryKey(cc)) &&
+                          !excluded.has(platformKey(cc, plat))
+                            ? 'audit.scope.inherited'
+                            : excluded.has(platformKey(cc, plat))
+                              ? 'audit.scope.include'
+                              : 'audit.scope.drop',
+                        )}
+                      </button>
+                    </div>
                     {inCountry
                       .filter((c) => c.platform === plat)
                       .map((c) => (
@@ -276,6 +336,12 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
                           onAction={setAction}
                           onMatchType={setMatchType}
                           onBulk={bulk}
+                          inScope={campaignInScope(c, excluded)}
+                          selfDropped={excluded.has(campaignKey(c.id))}
+                          onDrop={() => drop(campaignKey(c.id))}
+                          onKeepOnly={() =>
+                            setExcluded(keepOnly(state.campaigns, c.id))
+                          }
                         />
                       ))}
                   </div>
@@ -296,6 +362,22 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
             <> {t('audit.foot.forced', { count: state.forced })}</>
           )}
         </span>
+        {scope.droppedCampaigns > 0 && (
+          <span className="adaudit-chip todo">
+            {t('audit.scope.narrowed', {
+              campaigns: scope.campaigns,
+              total: state.campaigns.length,
+            })}
+            {'  '}
+            <button
+              type="button"
+              className="adaudit-drop"
+              onClick={() => setExcluded(NOTHING_EXCLUDED)}
+            >
+              {t('audit.scope.reset')}
+            </button>
+          </span>
+        )}
         <span className="grow" />
         <span>
           {t('audit.foot.impact')}{' '}
@@ -311,7 +393,7 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
           type="button"
           className="primary"
           disabled={submitting || totals.acting === 0 || !onSubmit}
-          onClick={() => onSubmit?.(buildDecisionSet(state, choices))}
+          onClick={() => onSubmit?.(buildSubmission(state, choices, excluded))}
         >
           {submitting ? t('audit.foot.sending') : t('audit.foot.handToAgent')}
         </button>
