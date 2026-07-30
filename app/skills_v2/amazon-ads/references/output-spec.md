@@ -433,6 +433,15 @@ audit that merely suggests must leave them exactly as it found them:
 | `applied_at` | ISO date it was applied |
 | `previous_bid` | the value replaced, so `(previous_bid, bid)` is the old→new |
 
+**Write them only AFTER the change is confirmed live.** Read the new
+value back from the console first; only then fill the columns. Writing
+them on intent — before driving the browser — means a failed apply leaves
+the record asserting a change the account never saw, and because the next
+audit reads this file, that phantom entry silently freezes a target for a
+whole cooldown window. The server cross-checks every same-day
+`applied_action` against `EXECUTION_LOG.md` and refuses a submission that
+claims more than the log backs.
+
 **Carry them forward.** When a later audit rewrites a campaign's TSV,
 rows it did not change keep whatever `applied_*` they already had.
 Dropping them silently erases the fact that a target was touched, and the

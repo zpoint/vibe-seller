@@ -26,6 +26,7 @@ from app.ai.stop_gates import (
     ad_completeness_review,
     ad_execution_fidelity,
     ad_negation_allowlist,
+    ad_writeback_backing,
 )
 from app.browser.chrome import ChromeBackend
 from app.browser.winchrome import WinChromeBackend
@@ -59,6 +60,7 @@ class BuiltinPlugin(Plugin):
         ctx.register_gate('ad_change_cooldown', ad_change_cooldown)
         ctx.register_gate('ad_completeness_review', ad_completeness_review)
         ctx.register_gate('ad_negation_allowlist', ad_negation_allowlist)
+        ctx.register_gate('ad_writeback_backing', ad_writeback_backing)
         ctx.register_gate('ad_execution_fidelity', ad_execution_fidelity)
 
     @staticmethod

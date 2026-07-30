@@ -3,7 +3,7 @@ name: amazon-ads
 description: "Amazon Sponsored Products / Sponsored Brands / Sponsored Display ads + Coupons on Seller Central / advertising console. ONE catalog covering BOTH mechanics (URLs, click paths, modal patterns, kat-* component gotchas, field input ranges) AND workflows (tuning existing campaigns, weekly review, search-term harvest, ACOS improvement). Load this skill BEFORE any browser-use action that creates, edits, captures, archives, or downloads campaigns / ad-groups / keywords / product targets / coupons on amazon.<tld> or advertising.amazon.<tld>. The catalog below points to topical references — load whichever ones the task needs. Defaults to last 30 days for tuning analysis but accepts any user-specified window."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
-gates: [ad_change_cooldown, ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
+gates: [ad_change_cooldown, ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity, ad_writeback_backing]
 ---
 
 # Amazon Ads — Catalog
