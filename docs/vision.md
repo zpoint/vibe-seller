@@ -139,6 +139,50 @@ not invent elements not in the references." The agent writes the prompt
 in the user's language and self-audits each result against the original
 supplier photo, regenerating with a specific correction if it differs.
 
+## `generated_images/` is model-owned (enforced)
+
+The directory has exactly **one writer**: the vision router, after the
+user confirms a generation. Every file there carries provenance — a
+`generated_image` task message recording the prompt and the model — and
+that message is the claim `GeneratedImageCard` renders those bytes
+under. So an image deliverable must come from the **model**, never from
+local pixel editing, no matter how the request is phrased ("just remove
+the background", "only crop it", "make it pure white" are all
+generation jobs).
+
+Two PreToolUse guards in `app/ai/image_guards.py` hold the invariant:
+
+| Guard | Denies |
+|---|---|
+| `check_local_image_edit` (Bash, registered in the `first_bash_deny` chain) | `rembg`/`backgroundremover`/`carvekit` in any form (including `pip install`); an inline snippet that both uses an imaging library and calls a produce/mutate function (`.save(`, `imwrite(`, `Image.new(`, `.paste(`, …); ImageMagick/ffmpeg against an image file; any write landing in `generated_images/` (redirect, `cp`/`mv`/`rm`/`tee`, inline save) |
+| `check_generated_image_write` (Write/Edit/MultiEdit/NotebookEdit tool args) | the file-tool hop around the above — any `generated_images/**` target |
+
+**Reading an image is never blocked** (`file`, `stat`, `Image.open` +
+numpy): only *producing* one is. Guards inspect the inline command text
+only, so skill scripts that legitimately touch images
+(`amazon-listing/scripts/ocr_1688.py` reads them for OCR) are
+unaffected. The deny message routes the agent to the correct fix —
+regenerate with the previous generated image as a `reference_image` and
+a prompt naming only the change — and states that the rule is platform
+policy, so a reflection pass does not record a local-processing
+workaround as knowledge.
+
+**Why it is a guard and not just prose.** Task `2fde3b9c` ("keep the
+content, only remove the background") generated the image with the
+tool, then could not *see* the result: the task ran on a text-only
+profile, so `Read` returned an image block the model discarded. It
+substituted a numpy pixel audit, judged the background off-white
+(254,254,253) and the product over-filled, and rebuilt the deliverable
+with `rembg` + Pillow **over the tool's own PNG at the same path**. The
+user's inline card still read `model: gpt-image-2-2k` while displaying
+a locally composited image, and the reflection wrote "prefer rembg over
+`vibe_seller_generate_image`" into store knowledge — which would have
+made every later image task do the same. Hence the companion rule in
+the tool description and `amazon-image-studio` §3: **if you cannot
+actually see the image, hand it to the user to judge** (it renders
+inline) — never substitute a pixel-measurement proxy, and never act on
+what one measured.
+
 ## Testing / VISION_FAKE
 
 `VISION_FAKE=1` short-circuits the kie.ai network and returns a

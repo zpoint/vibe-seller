@@ -15,8 +15,13 @@ from app.ai.bash_safety import (
     check_report_overwrite,
     check_report_script_write,
     check_skill_file_write,
+    first_bash_deny,
     is_catalog_path,
     should_mark_catalog_read,
+)
+from app.ai.image_guards import (
+    check_generated_image_write,
+    check_local_image_edit,
 )
 
 pytestmark = pytest.mark.unit
@@ -531,3 +536,151 @@ class TestSkillFileWriteGuard:
             )
             is None
         )
+
+
+class TestLocalImageEditBlocked:
+    """An image deliverable comes from the image model, never from local
+    pixel editing.
+
+    The incident: asked to "keep the content, only remove the
+    background", an agent generated with the tool, could not SEE the
+    result (text-only model), audited it with a numpy pixel script, and
+    rebuilt the deliverable with rembg + Pillow over the tool's own PNG
+    — leaving the user's inline card claiming a model that had not
+    produced those bytes.
+    """
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            # The exact detour, both rembg forms.
+            '~/.vibe-seller/.venv/bin/uv pip install rembg 2>&1 | tail -5',
+            'python -c "from rembg import remove; remove(open(\'a.jpg\'))"',
+            'rembg i in.png out.png',
+            # Pillow compositing onto a white canvas.
+            (
+                'python -c "from PIL import Image; '
+                "c = Image.new('RGB', (2000, 2000), 'white'); "
+                "c.paste(p, (10, 10)); c.save('out.png')\""
+            ),
+            # Heredoc form — how the agent actually ran it.
+            (
+                "python << 'PYEOF'\nfrom PIL import Image\n"
+                "im = Image.open('a.png')\nim.save('b.png')\nPYEOF"
+            ),
+            # OpenCV write.
+            'python -c "import cv2; cv2.imwrite(\'out.png\', arr)"',
+            # ImageMagick / ffmpeg.
+            'convert in.jpg -fuzz 5% -transparent white out.png',
+            'magick in.png -resize 2000x2000 out.png',
+            'mogrify -background white -flatten shot.png',
+            'ffmpeg -i clip.mp4 -frames:v 1 frame.png',
+        ],
+    )
+    def test_local_image_production_denied(self, command):
+        deny = check_local_image_edit(command)
+        assert deny is not None
+        assert 'vibe_seller_generate_image' in deny
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            'cp /tmp/fixed.png generated_images/main.png',
+            'mv /tmp/a.png generated_images/amazon_main.png',
+            'rm generated_images/amazon_main_bg_removed.png',
+            'cat /tmp/a.png > generated_images/main.png',
+            'tee generated_images/main.png < /tmp/a.png',
+            (
+                'python -c "import pathlib; '
+                "pathlib.Path('generated_images/m.png').write_bytes(b)\""
+            ),
+        ],
+    )
+    def test_writes_into_generated_images_denied(self, command):
+        """generated_images/ has one writer: the vision router."""
+        deny = check_local_image_edit(command)
+        assert deny is not None
+        assert 'generated_images/' in deny
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            # Inspecting an image is how you audit it — never blocked.
+            'file generated_images/main.png && stat -f "%z bytes" '
+            'generated_images/main.png',
+            'ls -l generated_images/',
+            (
+                'python -c "from PIL import Image; '
+                "print(Image.open('generated_images/m.png').size)\""
+            ),
+            (
+                'python -c "from PIL import Image; import numpy as np; '
+                "a = np.array(Image.open('m.png')); print(a[0, 0])\""
+            ),
+            # A skill script is invoked by name; its own PIL use (e.g.
+            # amazon-listing/scripts/ocr_1688.py reading images for OCR)
+            # is never inspected here.
+            'python scripts/ocr_1688.py ~/refs --json',
+            # openpyxl workbooks also call .save() — no imaging library
+            # in the snippet, so no deny.
+            'python scripts/ads_bulk.py --out report.xlsx',
+            'python -c "wb.save(\'out.xlsx\')"',
+            # 'convert' as an ordinary word.
+            'echo "convert the listing to FBA" >> notes.md',
+            'mkdir -p generated_images',
+        ],
+    )
+    def test_reading_and_unrelated_saves_allowed(self, command):
+        assert check_local_image_edit(command) is None
+
+    def test_empty_command_allowed(self):
+        assert check_local_image_edit('') is None
+
+    @pytest.mark.parametrize('tool', ['Write', 'Edit', 'MultiEdit'])
+    def test_file_tool_into_generated_images_denied(self, tool):
+        """The Write-tool hop around the Bash guard."""
+        deny = check_generated_image_write(
+            tool,
+            {
+                'file_path': (
+                    '/home/runner/.vibe-seller/tasks/abc/generated_images/'
+                    'main.png'
+                )
+            },
+        )
+        assert deny is not None
+        assert 'vibe_seller_generate_image' in deny
+
+    def test_relative_generated_images_path_denied(self):
+        deny = check_generated_image_write(
+            'Write', {'file_path': 'generated_images/main.png'}
+        )
+        assert deny is not None
+
+    def test_other_workspace_paths_allowed(self):
+        assert (
+            check_generated_image_write(
+                'Write', {'file_path': 'stores/acme/notes.md'}
+            )
+            is None
+        )
+
+    def test_read_tool_not_guarded(self):
+        assert (
+            check_generated_image_write(
+                'Read', {'file_path': 'generated_images/main.png'}
+            )
+            is None
+        )
+
+
+class TestLocalImageEditIsInTheGuardChain:
+    """The guard must be reachable through first_bash_deny — a guard
+    that exists but is not registered denies nothing."""
+
+    def test_rembg_denied_through_chain(self):
+        deny = first_bash_deny('uv pip install rembg')
+        assert deny is not None
+        label, reason = deny
+        assert label == 'Local-image edit'
+        assert 'vibe_seller_generate_image' in reason
