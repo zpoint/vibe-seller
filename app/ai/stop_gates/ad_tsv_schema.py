@@ -44,6 +44,19 @@ TARGETING_COLUMNS = (
     'acos',
     'roas',
     'suggestion',
+    # ── what was actually DONE to this row, and when ──────────────
+    # The TSV is the change record. It is one file per campaign under a
+    # git-backed workspace, so its own history is the audit trail — no
+    # second ledger to keep in sync with it, and `git log` on the file
+    # answers "when did we last touch this target?".
+    #
+    # Written by the EXECUTION pass (after a human approves decisions in
+    # the review console), never by the audit that merely suggests. Blank
+    # means untouched. `previous_bid` holds the value replaced, so the
+    # pair (previous_bid, bid) is the old->new of the last applied move.
+    'applied_action',
+    'applied_at',
+    'previous_bid',
 )
 SEARCHTERM_COLUMNS = (
     'ad_group',
@@ -57,6 +70,9 @@ SEARCHTERM_COLUMNS = (
     'sales',
     'roas',
     'suggestion',
+    'applied_action',
+    'applied_at',
+    'previous_bid',
 )
 
 # A header that folds the currency into the name. Called out separately

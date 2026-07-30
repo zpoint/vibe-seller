@@ -67,6 +67,18 @@ DEFAULT_RULES: dict[str, float] = {
     # should be removed/disabled outright).
     'negate_waste_spend': 10.0,
     'negate_waste_clicks': 10.0,
+    # Days a target is left alone after a change is APPLIED to it.
+    #
+    # A bid moved yesterday has yesterday's data behind it, so adjusting
+    # it again is not tuning — it is reacting to noise the change itself
+    # has not had time to produce. The correct recommendation in that
+    # window is 维持, with the reason stated (when it was changed, and
+    # that the window is not up).
+    #
+    # 7 days by default because a week covers a full weekly demand cycle.
+    # Cadence genuinely varies by seller — some tune hourly, some
+    # monthly — so this is overridable per store like every other rule.
+    'change_cooldown_days': 7.0,
 }
 
 # Per-store override patterns — matched anywhere in notes.md.
@@ -90,6 +102,10 @@ _OVERRIDE_RES: dict[str, re.Pattern[str]] = {
     ),
     'negate_waste_clicks': re.compile(
         r'negate[_ ]?waste[_ ]?clicks\s*[:=]\s*(\d+(?:\.\d+)?)',
+        re.IGNORECASE,
+    ),
+    'change_cooldown_days': re.compile(
+        r'change[_ ]?cooldown[_ ]?days\s*[:=]\s*(\d+(?:\.\d+)?)',
         re.IGNORECASE,
     ),
 }

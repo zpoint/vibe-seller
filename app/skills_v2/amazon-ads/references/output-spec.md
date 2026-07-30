@@ -415,6 +415,43 @@ override — see tuning-thresholds.md.)
 Two TSVs per drilled active campaign, written right after drilling that
 campaign, before the next (survives compaction):
 
+
+### The TSV is also the change record
+
+The per-campaign TSVs are not just this run's output — they are the only
+history of what has actually been DONE to a campaign. They live in a
+git-backed workspace, so the file's own history is the audit trail; there
+is no separate ledger, and nothing can drift out of sync with the data it
+annotates.
+
+Three columns carry it, and **only an execution pass writes them** — an
+audit that merely suggests must leave them exactly as it found them:
+
+| column | meaning |
+|---|---|
+| `applied_action` | what was actually done (`提高出价` / `否定关键词` …) |
+| `applied_at` | ISO date it was applied |
+| `previous_bid` | the value replaced, so `(previous_bid, bid)` is the old→new |
+
+**Carry them forward.** When a later audit rewrites a campaign's TSV,
+rows it did not change keep whatever `applied_*` they already had.
+Dropping them silently erases the fact that a target was touched, and the
+next audit will happily adjust it again.
+
+### Do not re-adjust a target inside its cooldown
+
+A bid moved two days ago has two days of data behind it. Moving it again
+is not tuning — it is reacting to noise the change has not had time to
+produce, and it destroys the evidence for the first move: afterwards
+nobody can say which adjustment caused what.
+
+So within `change_cooldown_days` (default 7, per-store overridable in the
+store's `notes.md`) of an `applied_at`, the recommendation for that target
+is **维持**, and the reason must name the change and its age — e.g.
+`维持（2 天前刚提过价，冷却期未满，等满一周数据再判断）`. A bare `维持`
+is not enough: it is indistinguishable from the agent simply not having
+noticed. Outside the window, judge it on the data as usual.
+
 - `stores/<slug>/ads/<platform>/<country>/<campaign_id>.tsv` — the
   targeting/keyword table.
 - `stores/<slug>/ads/<platform>/<country>/<campaign_id>.searchterms.tsv`
