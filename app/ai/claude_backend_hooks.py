@@ -26,6 +26,7 @@ from app.ai.claude_backend_utils import (
     check_tool_loop,
     validate_fanout_plan_text,
 )
+from app.ai.image_guards import check_generated_image_write
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
 from app.database import async_session
@@ -234,6 +235,16 @@ class _HookMixin:
             deny_reason = check_skill_file_write(inner_name, inner_input)
             if deny_reason:
                 logger.warning('Skill-file write guard: %s', self.task_id[:8])
+                await self._deny_pre_tool_use(request_id, deny_reason)
+                return
+            # Generated-image guard: generated_images/ is written only by
+            # the vision router, so the file tools may not land there —
+            # the Write-tool hop around the Bash-layer image guard.
+            deny_reason = check_generated_image_write(inner_name, inner_input)
+            if deny_reason:
+                logger.warning(
+                    'Generated-image write guard: %s', self.task_id[:8]
+                )
                 await self._deny_pre_tool_use(request_id, deny_reason)
                 return
             if should_mark_catalog_read(inner_name, inner_input):

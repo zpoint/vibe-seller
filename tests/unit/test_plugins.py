@@ -142,6 +142,10 @@ def test_builtin_pretool_gates_in_historical_order():
     assert names == [
         'Bash safety',
         'Bid-value sanity',
+        # Above 'Catalog-first' on purpose: an agent reaching for rembg
+        # should get "regenerate with the model", not a read-the-catalog
+        # nudge. See bash_safety.check_local_image_edit.
+        'Local-image edit',
         'Report-script guard',
         'Catalog-first',
     ]

@@ -20,6 +20,7 @@ from app.ai.bash_safety import (
     check_dangerous_kill,
     check_report_script_write,
 )
+from app.ai.image_guards import check_local_image_edit
 from app.ai.stop_gates import (
     ad_completeness_review,
     ad_execution_fidelity,
@@ -61,7 +62,10 @@ class BuiltinPlugin(Plugin):
     @staticmethod
     def _install_pretool_gates(ctx: ExtensionContext) -> None:
         # Order matches the historical first_bash_deny chain:
-        # kill → bid value → report-script → catalog-first.
+        # kill → bid value → local-image edit → report-script →
+        # catalog-first. Local-image sits above catalog-first so an
+        # agent reaching for rembg gets the "regenerate with the model"
+        # message rather than a generic read-the-catalog nudge.
         ctx.register_pretool_gate(
             'Bash safety',
             lambda cmd, task_dir, catalog_read: check_dangerous_kill(cmd),
@@ -69,6 +73,10 @@ class BuiltinPlugin(Plugin):
         ctx.register_pretool_gate(
             'Bid-value sanity',
             lambda cmd, task_dir, catalog_read: check_bid_value_shape(cmd),
+        )
+        ctx.register_pretool_gate(
+            'Local-image edit',
+            lambda cmd, task_dir, catalog_read: check_local_image_edit(cmd),
         )
         ctx.register_pretool_gate(
             'Report-script guard',

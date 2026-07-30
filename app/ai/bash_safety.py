@@ -46,16 +46,16 @@ from app.plugins import (
 # the start of a real command will be caught; a pkill *inside* a
 # matching pair of quotes won't be in command position so it's not
 # matched.
-_COMMAND_PREFIX = r'(?:^|[;&|\n(`])\s*(?:(?:sudo|time|exec|nohup)\s+)*'
-_PKILL_INVOCATION = re.compile(_COMMAND_PREFIX + r'pkill\b([^;|&\n]*)')
-_KILLALL_INVOCATION = re.compile(_COMMAND_PREFIX + r'killall\b')
+# Public — app.ai.image_guards matches the same command-position shape.
+COMMAND_PREFIX = r'(?:^|[;&|\n(`])\s*(?:(?:sudo|time|exec|nohup)\s+)*'
+_PKILL_INVOCATION = re.compile(COMMAND_PREFIX + r'pkill\b([^;|&\n]*)')
+_KILLALL_INVOCATION = re.compile(COMMAND_PREFIX + r'killall\b')
 
 # Scope flags that make a ``pkill`` invocation safe (it kills only
 # children of a known parent PID): ``-P 1234``, ``-P$$``, ``-Pf``
 # (combined short opt), ``--parent 1234``. Anything else lets pkill
 # match by name or full cmdline and is global.
 _SCOPE_FLAG = re.compile(r'(?:^|\s)(?:-\w*P\w*|--parent)\b')
-
 
 _DENY_REASON_TEMPLATE = (
     'Blocked: `{label}` matches processes outside this task. '
@@ -115,7 +115,7 @@ def check_dangerous_kill(command: str) -> str | None:
 # innocuous bash) would punish the agent for no design reason.
 
 _SEARCH_INVOCATION = re.compile(
-    _COMMAND_PREFIX + r'(find|ls|grep|rg|fd|tree)\b([^;|&\n]*)'
+    COMMAND_PREFIX + r'(find|ls|grep|rg|fd|tree)\b([^;|&\n]*)'
 )
 # Paths that point into either catalog tree. Matches absolute
 # (``/home/<user>/.vibe-seller/stores``), home-relative
@@ -274,12 +274,12 @@ _REDIRECT_TO_REPORT_RE = re.compile(
 # cp/mv landing ON an AD_AUDIT file from a non-AD_AUDIT source
 # (restoring AD_AUDIT_PREVIOUS.md over the report stays allowed).
 _COPY_TO_REPORT_RE = re.compile(
-    _COMMAND_PREFIX + r'(?:cp|mv)\s+(?:-\S+\s+)*'
+    COMMAND_PREFIX + r'(?:cp|mv)\s+(?:-\S+\s+)*'
     r'(?!\S*AD_AUDIT)\S+\s+\S*AD_AUDIT\S*\.md'
 )
 # Interpreter invocation with a script-file argument.
 _SCRIPT_FILE_RE = re.compile(
-    _COMMAND_PREFIX
+    COMMAND_PREFIX
     + r'(?:python3?|node|bash|sh)\s+[^;|&\n]*?(\S+\.(?:py|js|sh))\b'
 )
 # Code that opens a file for writing (inline ``python -c``/heredoc
