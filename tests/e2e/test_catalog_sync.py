@@ -161,6 +161,25 @@ def _trigger_catalog_sync(
     (expected to skip via staleness check).
     """
     base = f'{BASE_URL}/api/schedules/{SYSTEM_CATALOG_SYNC_ID}'
+
+    # Snapshot the batch ids that already exist, so the trigger below can
+    # be identified by the one it adds. Every task a fanout creates — the
+    # two_phase L2 prereq AND every per-store L3 — shares a single
+    # `batch_id`, so "the new batch" is exactly this call's work and
+    # nothing else's.
+    #
+    # Selecting by a 120s wall-clock window instead (what this did
+    # before) quietly defeats `--reruns 1`: a rerun fires seconds after
+    # the attempt it replaces, so the window still holds the previous
+    # attempt's tasks and the assertion trips over their already-`failed`
+    # rows. Observed live — attempt 1 lost its LLM connection
+    # mid-response at 02:42:35, the rerun triggered 9s later at 02:42:44,
+    # and the rerun then reported attempt 1's error. No retry could have
+    # passed, however healthy the second run was.
+    resp = client.get(f'{base}/tasks')
+    resp.raise_for_status()
+    seen_batches = {t['batch_id'] for t in resp.json() if t.get('batch_id')}
+
     # AI-profile routing for system schedules is configured centrally in
     # conftest's _setup_worker_profile (which pins the worker's provider
     # onto every schedule that would otherwise resolve to the
@@ -169,8 +188,8 @@ def _trigger_catalog_sync(
     resp = client.post(f'{base}/trigger')
     resp.raise_for_status()
 
-    cutoff = time.time() - 120
     start = time.time()
+    batch_id: str | None = None
 
     # Catalog sync fans out N tasks (1 L2 + 1 per store ≈ 12) that
     # serialize through the agent concurrency semaphore (default 9
@@ -186,7 +205,28 @@ def _trigger_catalog_sync(
         resp = client.get(f'{base}/tasks')
         resp.raise_for_status()
         tasks = resp.json()
-        recent = [t for t in tasks if _parse_ts(t['created_at']) > cutoff]
+
+        if batch_id is None:
+            fresh = {
+                t['batch_id']
+                for t in tasks
+                if t.get('batch_id') and t['batch_id'] not in seen_batches
+            }
+            if not fresh:
+                time.sleep(3)
+                continue
+            # Pin the batch once and never re-derive it, so a concurrent
+            # trigger later in the run cannot move the goalposts.
+            batch_id = max(
+                fresh,
+                key=lambda b: max(
+                    _parse_ts(t['created_at'])
+                    for t in tasks
+                    if t.get('batch_id') == b
+                ),
+            )
+
+        recent = [t for t in tasks if t.get('batch_id') == batch_id]
         if not recent:
             time.sleep(3)
             continue
@@ -200,7 +240,7 @@ def _trigger_catalog_sync(
             time.sleep(3)
             continue
 
-        # Wait for ALL recent tasks to finish
+        # Wait for ALL of THIS batch's tasks to finish
         if all(t['status'] in ('completed', 'failed') for t in recent):
             relevant = [
                 t
