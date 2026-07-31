@@ -134,3 +134,51 @@ class TestLocalisedKeywordText:
         )
         assert deny is not None
         assert 'widget blue' in deny.reason
+
+
+@pytest.mark.unit
+class TestReportMatchesTheRecord:
+    """After an apply, the report's own table must show the NEW bid.
+
+    Live: an execution raised a bid and appended an "Apply 结果" section
+    but left the targeting table showing the pre-change value. The review
+    console renders that table, so the next reviewer saw a bid the account
+    no longer had — and typing the value they could see produced a
+    `lower 2.8 -> 2.8` no-op. A review surface that shows stale numbers
+    is worse than one that shows none.
+    """
+
+    def _report(self, shown_bid):
+        return (
+            '# 广告优化建议 — acme — 2026-08-10\n\n## amazon SA\n'
+            '**进度**: drilled 1/1 active (1 total, 1 pages)\n\n'
+            '| 定向词 | 匹配 | 出价 | 点击 | 花费 | 订单 | ROAS | 建议 |\n'
+            '|---|---|---|---|---|---|---|---|\n'
+            f'| widget red | Exact | {shown_bid} | 40 | 80.00 | 4 | 5.00 | 维持 |\n'
+        )
+
+    def test_a_stale_table_is_flagged(self, tmp_path):
+        _tsv(tmp_path, [_row('widget red', 'raise', '2026-08-10', '2.80')])
+        # TSV row carries bid 2.90 (see _row); the report still says 2.80.
+        stale = wb.report_bid_mismatches(
+            self._report('2.80'), tmp_path, today=TODAY
+        )
+        assert stale and 'widget red' in stale[0]
+
+    def test_an_updated_table_passes(self, tmp_path):
+        _tsv(tmp_path, [_row('widget red', 'raise', '2026-08-10', '2.80')])
+        assert (
+            wb.report_bid_mismatches(
+                self._report('2.90'), tmp_path, today=TODAY
+            )
+            == []
+        )
+
+    def test_rows_we_did_not_apply_are_not_graded(self, tmp_path):
+        _tsv(tmp_path, [_row('widget red')])
+        assert (
+            wb.report_bid_mismatches(
+                self._report('1.00'), tmp_path, today=TODAY
+            )
+            == []
+        )

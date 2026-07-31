@@ -439,6 +439,29 @@ export function buildSubmission(
       ),
     0,
   )
+  // A bid move whose target EQUALS the current bid is not an
+  // instruction — it is a no-op the executor cannot act on. It happens
+  // when the report's own table is stale: the reviewer types the value
+  // they can see, which is already what the row claims. Live, a revert
+  // came out as `lower 2.8 -> 2.8` because the report still showed the
+  // pre-change bid. Blocked for the same reason a missing amount is.
+  const noopBid = markets.reduce(
+    (a, m) =>
+      a +
+      m.campaigns.reduce(
+        (b, c) =>
+          b +
+          c.rows.filter(
+            (r) =>
+              (r.action === 'raise' || r.action === 'lower') &&
+              r.target_bid != null &&
+              r.current_bid != null &&
+              Math.abs(r.target_bid - r.current_bid) < 0.005,
+          ).length,
+        0,
+      ),
+    0,
+  )
   const missingBid = markets.reduce(
     (a, m) =>
       a +
@@ -467,6 +490,8 @@ export function buildSubmission(
       rows_to_change: rows,
       /** Bid moves with no amount — must be 0 before this can be sent. */
       rows_missing_bid: missingBid,
+      /** Bid moves whose target equals the current bid. Blocks sending. */
+      rows_noop_bid: noopBid,
     },
   }
 }

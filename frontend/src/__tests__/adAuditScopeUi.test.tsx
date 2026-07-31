@@ -206,3 +206,23 @@ describe('a bid move must say how much', () => {
     cleanup()
   })
 })
+
+describe('a bid move that changes nothing is not an instruction', () => {
+  it('blocks submit when the new bid equals the current one', async () => {
+    // Live: the report's table was left at the pre-change value, so the
+    // reviewer typed what they could see and the console emitted
+    // `lower 2.8 -> 2.8` — a no-op the executor cannot act on.
+    await mount(WIDE)
+    expandFirstCampaign()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Raise bid' })[0])
+    const input = screen.getByLabelText('New bid')
+    // the fixture's row carries bid 2.00
+    fireEvent.change(input, { target: { value: '2.00' } })
+    expect(screen.getByText(/set to the same value as now/)).toBeTruthy()
+    expect((submitBtn() as HTMLButtonElement).disabled).toBe(true)
+    // a real move unblocks it
+    fireEvent.change(input, { target: { value: '2.20' } })
+    expect((submitBtn() as HTMLButtonElement).disabled).toBe(false)
+    cleanup()
+  })
+})

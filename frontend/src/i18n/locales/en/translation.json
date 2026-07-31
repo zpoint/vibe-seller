@@ -917,7 +917,8 @@
       "jsonTitle": "Decision set — this is what gets sent to the agent",
       "handToAgent": "Hand to agent to execute",
       "sending": "Sending…",
-      "needBids": "set a bid on {{count}} row(s) before sending"
+      "needBids": "set a bid on {{count}} row(s) before sending",
+      "noopBids": "{{count}} bid change(s) set to the same value as now — nothing to do"
     },
     "scope": {
       "drop": "Drop",

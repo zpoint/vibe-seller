@@ -131,7 +131,7 @@ def check(
     today: date | None = None,
 ) -> GateDeny | None:
     """Deny when the change record asserts more than the log supports."""
-    del result_text, rules
+    del rules
     if ads_root is None or log_text is None:
         # Resolved by the caller in production; without both there is
         # nothing to compare and silence is the only safe answer.
@@ -148,6 +148,19 @@ def check(
         return None
 
     bad = unbacked_rows(ads_root, log_text, today)
+    stale = report_bid_mismatches(result_text, ads_root, today)
+    if stale and not bad:
+        return GateDeny(
+            gate=GATE_NAME,
+            reason=(
+                f'{len(stale)} 行的报告表格还写着改动前的出价。审阅台渲染的'
+                '就是这张表，表里是旧价，下一个人看到的就是账户上已经不存在'
+                '的数字——照着填只会得到一个「改了等于没改」的动作。'
+                'apply 之后请把报告表格里这些行的出价一并更新成新值。'
+                f'不一致：{"；".join(stale[:5])}。'
+            ),
+            gaps=tuple(stale[:12]),
+        )
     if not bad:
         return None
     return GateDeny(
@@ -162,3 +175,72 @@ def check(
         ),
         gaps=tuple(bad[:12]),
     )
+
+
+# Tolerance for comparing a report's printed bid against the record. Wide
+# enough for formatting (2.9 vs 2.90), tight enough to catch a real
+# divergence.
+_BID_EPS = 0.005
+_REPORT_ROW_RE = re.compile(r'^\|([^|]+)\|([^|]*)\|([^|]*)\|')
+
+
+def report_bid_mismatches(
+    result_text: str,
+    ads_root: Path,
+    today: date | None = None,
+) -> list[str]:
+    """Targets whose report row still shows the pre-change bid.
+
+    The review console renders the report's own table, so a table left at
+    the old value shows the next reviewer a bid the account no longer
+    has. Typing what they can see then produces a move that changes
+    nothing. Only rows this run actually applied are graded.
+    """
+    today = today or datetime.now(UTC).date()
+    applied: dict[str, float] = {}
+    if not ads_root.is_dir():
+        return []
+    for path in ads_root.rglob('*.tsv'):
+        try:
+            with open(path, encoding='utf-8', newline='') as fh:
+                for row in csv.DictReader(fh, delimiter='\t'):
+                    if _is_absent(row.get('applied_action')):
+                        continue
+                    day = _parse_day(row.get('applied_at') or '')
+                    if day is None or _days_ago(day, today) != 0:
+                        continue
+                    target = _norm(
+                        row.get('target')
+                        or row.get('keyword')
+                        or row.get('search_term')
+                        or ''
+                    )
+                    try:
+                        bid = float(str(row.get('bid') or '').strip())
+                    except ValueError:
+                        continue
+                    if target:
+                        applied[target] = bid
+        except (OSError, csv.Error, UnicodeDecodeError):
+            logger.debug('report-bid: unreadable TSV %s', path, exc_info=True)
+    if not applied:
+        return []
+
+    bad: list[str] = []
+    for line in result_text.splitlines():
+        m = _REPORT_ROW_RE.match(line.strip())
+        if not m:
+            continue
+        target = _norm(m.group(1))
+        want = applied.get(target)
+        if want is None:
+            continue
+        try:
+            shown = float(m.group(3).strip())
+        except ValueError:
+            continue
+        if abs(shown - want) > _BID_EPS:
+            bad.append(
+                f'{m.group(1).strip()[:24]}：报告 {shown} vs 实际 {want}'
+            )
+    return bad

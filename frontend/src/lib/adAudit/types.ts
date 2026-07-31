@@ -217,5 +217,7 @@ export interface DecisionSubmission {
     rows_to_change: number
     /** Raise/lower rows still missing a target bid. Blocks submission. */
     rows_missing_bid: number
+    /** Raise/lower rows whose target equals the current bid — a no-op. */
+    rows_noop_bid: number
   }
 }

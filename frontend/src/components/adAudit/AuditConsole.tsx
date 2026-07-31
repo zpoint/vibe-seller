@@ -407,6 +407,13 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
             })}
           </span>
         )}
+        {submission.totals.rows_noop_bid > 0 && (
+          <span className="adaudit-mtdef">
+            {t('audit.foot.noopBids', {
+              count: submission.totals.rows_noop_bid,
+            })}
+          </span>
+        )}
         <span className="grow" />
         <span>
           {t('audit.foot.impact')}{' '}
@@ -425,7 +432,8 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
             submitting ||
             totals.acting === 0 ||
             !onSubmit ||
-            submission.totals.rows_missing_bid > 0
+            submission.totals.rows_missing_bid > 0 ||
+            submission.totals.rows_noop_bid > 0
           }
           onClick={() => onSubmit?.(submission)}
         >

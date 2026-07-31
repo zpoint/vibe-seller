@@ -919,7 +919,8 @@
       "jsonTitle": "决策集 —— 这就是发给 agent 的内容",
       "handToAgent": "交给 agent 执行",
       "sending": "发送中…",
-      "needBids": "还有 {{count}} 行没填新出价"
+      "needBids": "还有 {{count}} 行没填新出价",
+      "noopBids": "{{count}} 行的新出价和现价一样——等于没改"
     },
     "scope": {
       "drop": "不执行",
