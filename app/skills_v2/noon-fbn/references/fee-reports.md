@@ -60,12 +60,40 @@ Non-Saleable for one month but **no RTV Removal report at all** for one
 of its two countries). Always reconcile (§ 4); if the sum doesn't close,
 a report is missing, not "noon rounds differently".
 
+> **Two quoting rules for these heredocs, both learned the hard way.**
+> A `js()` string is Python *and* JavaScript at once, so nested quotes
+> collide: `js("...querySelector('input[placeholder="Select month"]')...")`
+> is a Python syntax error, and the `SyntaxError` you get back points at
+> the JS, not the quote. Build any JS string literal with
+> `json.dumps(value)` instead of hand-quoting. And never `return` a bare
+> JS object from `js()` — CDP hands back `[object Object]`; always
+> `JSON.stringify` it.
+
 ```bash
 browser-use <<'PY'
 import time, json
 def rect(expr):
+    """Centre point of an element, or None when it isn't on the page yet."""
     r = js("(function(){%s})()" % expr)
     return json.loads(r) if r and r.startswith('{') else None
+
+def must_click(expr, what):
+    """Click a located element, or fail with a message that names it.
+
+    ALWAYS go through this rather than `click_at_xy(rect(...)['x'], ...)`.
+    The modal renders asynchronously, so `rect()` returning None is the
+    NORMAL slow-page case — and subscripting None gives you
+    `TypeError: 'NoneType' object is not subscriptable` with no clue
+    which control was missing. Retry, then say what was not found.
+    """
+    for attempt in range(3):
+        r = rect(expr)
+        if r:
+            click_at_xy(r['x'], r['y'])
+            return True
+        time.sleep(2)
+    print(f'NOT FOUND after 3 tries: {what} — page state: {page_info()}')
+    return False
 
 def click_ph(ph):                      # click a control by its placeholder
     r = rect("""
@@ -98,11 +126,12 @@ goto_url("https://fbn.noon.partners/en-{cc}/fbnreports?project=PRJ{project_id}")
 wait_for_load(); time.sleep(7)
 js("window.scrollTo(0,0)")
 
-r = rect("""var b=Array.from(document.querySelectorAll('button')).find(
+must_click("""var b=Array.from(document.querySelectorAll('button')).find(
              x=>/generate report/i.test(x.textContent) && x.getBoundingClientRect().y<200);
            if(!b) return 'nf'; var q=b.getBoundingClientRect();
-           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""")
-click_at_xy(r['x'], r['y']); time.sleep(3)
+           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""",
+           'top-right Generate Report button')
+time.sleep(3)
 
 click_ph("Select a category"); click_opt("Finance", 150)
 click_ph("Select a report");   click_opt("<Report Name>", 200)
@@ -117,11 +146,12 @@ assert val == "<YYYY-MM>", f"service month did not take: {val}"
 
 # submit = the SECOND 'Generate Report' button (y>200); the first is the
 # page's top-right one, which would just re-open the modal.
-r = rect("""var b=Array.from(document.querySelectorAll('button')).filter(
+must_click("""var b=Array.from(document.querySelectorAll('button')).filter(
              x=>/generate report/i.test(x.textContent) && x.getBoundingClientRect().y>200);
            if(!b.length) return 'nf'; var q=b[0].getBoundingClientRect();
-           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""")
-click_at_xy(r['x'], r['y']); time.sleep(5)
+           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""",
+           "the modal's submit button")
+time.sleep(5)
 PY
 ```
 
@@ -168,12 +198,49 @@ for(var i=0;i<rows.length;i++){
 }
 return 'rownf';
 """ % CODE)
-c=json.loads(r); click_at_xy(c['x'], c['y'])
+if not r.startswith('{'):
+    print(f'row {CODE} not on screen: {r}')      # never json.loads('rownf')
+else:
+    c=json.loads(r); click_at_xy(c['x'], c['y'])
 PY
 # then, in the shell, rename the newest file before the next download:
 #   mv ~/.vibe-seller/downloads/<slug>/fbn_finance_*.csv \
 #      <out>/monthly_storage_SA_2026-06.csv
 ```
+
+### Assert what you just downloaded — the rename is a claim, not a fact
+
+The file you saved as `monthly_storage_SA_2026-01.csv` is only SA and
+only January because *you* said so. Click one row too far and the name
+is still perfect while the contents are another country's or another
+month's money. This has happened: an `ae` / `2026-05` Non Saleable
+report landed in the `sa` / `2026-01` slot, and the error only surfaced
+much later as a reconciliation that missed by 3%.
+
+Every storage report carries its own `country_code` and `service_month`.
+Check the file against its name immediately, before the next download —
+one command, and it turns a silent wrong number into an instant retry:
+
+```bash
+python3 - <<'PY'          # NOTE: needs pandas — use the project venv's
+import pandas as pd, sys  # python if bare python3 lacks it
+path, want_cc, want_sm = sys.argv[1], sys.argv[2], sys.argv[3]
+df = pd.read_csv(path)
+if len(df) == 0:
+    print(f'{path}: header only — legitimately empty, or a failed download')
+else:
+    cc = set(df['country_code'].astype(str).str.lower())
+    sm = set(df['service_month'].astype(str))
+    assert cc == {want_cc}, f'{path}: holds {cc}, expected {want_cc}'
+    assert sm == {want_sm}, f'{path}: holds {sm}, expected {want_sm}'
+    print(f'{path}: OK {cc} {sm} {len(df)} rows')
+PY
+```
+
+RTV Removal has neither column — bucket it by `currency_code` instead.
+The Ad Manager xlsx has no country column at all, so for those the only
+check is that SA's and AE's `Spends` totals **differ**; if they match,
+the second download overwrote the first.
 
 ## 4. Reconciliation — the check that proves nothing is missing
 

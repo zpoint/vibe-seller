@@ -17,6 +17,14 @@ review:
       that was missing on the page and never generated is a gap, not
       "not applicable" — the only acceptable empty report is one that
       downloads with a header row and genuinely zero data rows.
+    - Every non-empty storage report was OPENED and its own
+      `country_code` / `service_month` columns match the country and
+      month in its filename. The filename is a manual rename applied
+      after the download, so it proves nothing on its own — a
+      mis-clicked row yields a perfectly named file full of the wrong
+      country's money. Two files for the same report type and month must
+      not be byte-identical, and the two ads xlsx must not have equal
+      `Spends` totals.
     - The reconciliation in references/fee-reports.md § 4 was actually
       computed and closes: sum(charged_amount) over the four reports for
       service month M-1, x (1+VAT), equals month M's Transaction View
