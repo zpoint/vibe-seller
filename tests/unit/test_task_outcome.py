@@ -278,3 +278,100 @@ class TestApplyOutcome:
 
         apply_outcome(row, resolve_outcome(row))
         assert row.result == first
+
+
+class TestPlanDraftIsNotADeliverable:
+    """A plan-mode run that never executed must not ship its plan as a result.
+
+    Live failure this pins: a `plan_then_execute` agent wrote its plan to
+    Claude Code's native `~/.claude/plans/<slug>.md` and its turn ended
+    one step before the ExitPlanMode call it had itself listed as next.
+    No plan was saved, execution never started, and nothing was carried
+    out — but the planning narration had already landed in
+    `transcript_tail`, which `resolve_outcome` promotes to DELIVERED when
+    no error exists. The task reported SUCCESS having done no work, and
+    only an end-to-end assertion on the extracted content caught it.
+
+    The backend now records `plan_not_delivered` for exactly that shape.
+    These tests pin that such an error outranks the prose, and that it is
+    NOT demoted to a caveat the way an agent-reported error is.
+    """
+
+    PROSE = (
+        "I'll design an execution plan for this task. Let me start by "
+        'exploring the relevant skills, then write the plan file and '
+        'call ExitPlanMode to present it.'
+    )
+
+    def test_plan_draft_prose_does_not_become_the_deliverable(self):
+        out = resolve_outcome(
+            _Row(
+                transcript_tail=self.PROSE,
+                error='Agent ended plan mode without delivering a plan',
+                error_category='plan_not_delivered',
+            )
+        )
+        assert out.kind is OutcomeKind.FAILED
+        assert out.content is None, 'plan narration must not ship as a result'
+        assert out.status is TaskStatus.FAILED
+
+    def test_same_prose_ships_when_no_error_was_recorded(self):
+        """Control: prose alone IS a legitimate deliverable.
+
+        A lookup or an answered question legitimately has the chat output
+        as its answer, so the fix must be the recorded error — not a new
+        rule about what prose looks like.
+        """
+        out = resolve_outcome(_Row(transcript_tail=self.PROSE))
+        assert out.kind is OutcomeKind.DELIVERED
+        assert out.content == self.PROSE
+
+    def test_the_reason_reaches_the_verdict(self):
+        """The FAILED outcome carries the actionable reason, not the prose.
+
+        Prose-only rows never survive *any* recorded error — the caveat
+        demotion that `agent_reported` gets applies to real submissions,
+        not to narration (see `test_a_real_submission_still_wins...`).
+        So supplying the error IS the whole fix, and what matters here is
+        that the message the user sees explains what went wrong rather
+        than being the agent's own planning text.
+        """
+        out = resolve_outcome(
+            _Row(
+                transcript_tail=self.PROSE,
+                error='never delivered a plan',
+                error_category='plan_not_delivered',
+            )
+        )
+        assert out.kind is OutcomeKind.FAILED
+        assert out.reason == 'never delivered a plan'
+        assert out.category == 'plan_not_delivered'
+        assert self.PROSE not in (out.reason or '')
+
+    def test_a_real_submission_still_wins_over_the_error(self):
+        """If execution DID produce something, that outranks the flag.
+
+        Guards the documented plan-skip: an agent that skipped
+        ExitPlanMode but went on to do the work has a real deliverable,
+        and this must not be able to bury it.
+        """
+        out = resolve_outcome(
+            _Row(
+                accepted_result='contact email: hello@example.test',
+                transcript_tail=self.PROSE,
+                error='partially done',
+                error_category='agent_reported',
+            )
+        )
+        assert out.kind is OutcomeKind.DELIVERED
+        assert 'hello@example.test' in out.content
+
+    def test_apply_outcome_lands_the_task_in_failed(self):
+        row = _Row(
+            transcript_tail=self.PROSE,
+            error='Agent ended plan mode without delivering a plan',
+            error_category='plan_not_delivered',
+        )
+        row.status = TaskStatus.DESIGNING
+        apply_outcome(row, resolve_outcome(row))
+        assert row.result is None

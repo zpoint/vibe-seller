@@ -22,6 +22,68 @@ logger = logging.getLogger(__name__)
 class _PersistMixin:
     """Deliverable persistence — the streaming-prose result fallback."""
 
+    async def _settle_missing_plan(self):
+        """Decide what a ``plan_then_execute`` run with no plan produced.
+
+        ``_executing`` is the whole distinction, because two very
+        different runs are otherwise identical at that point (both: no
+        plan saved, rc 0, some prose):
+
+        * ``_executing=True`` — the documented plan-skip. Never called
+          ExitPlanMode but DID go on to do the work (some models just
+          execute a simple task directly), so the prose is a genuine
+          result. Nothing to do but note it.
+        * ``_executing=False`` — neither planned nor executed. The run
+          produced a plan DRAFT, not a deliverable: its prose narrates
+          what it intended to do. Recorded as an error, below.
+
+        This has to be recorded as an infra error rather than logged.
+        The prose reaches ``transcript_tail``, and
+        :func:`app.task_outcome.resolve_outcome` promotes prose to
+        DELIVERED whenever no error exists — so a run that navigated
+        nowhere and extracted nothing completed GREEN with its own
+        planning narration as the result. Observed live: an agent wrote
+        its plan to Claude Code's native ``~/.claude/plans/<slug>.md``
+        and its turn ended one step before the ExitPlanMode call it had
+        itself listed as the next step. The task reported success having
+        done no work.
+
+        Recording the error is enough to fix the verdict — the infra
+        branch of ``resolve_outcome`` outranks prose, so the transcript
+        is still kept and shown, it just stops counting as the answer.
+        The category is deliberately NOT ``AGENT_REPORTED``: this is the
+        platform detecting a broken run, not the agent describing one.
+        """
+        if self._executing:
+            logger.warning(
+                f'plan_then_execute skipped ExitPlanMode for task '
+                f'{self.task_id} but executed — keeping its output'
+            )
+            return
+
+        logger.error(
+            f'plan_then_execute for task {self.task_id} neither planned '
+            f'nor executed — failing it; its output is a plan draft'
+        )
+        try:
+            async with async_session() as db:
+                task = await db.get(Task, self.task_id)
+                if not task:
+                    return
+                task.error = (
+                    'Agent ended plan mode without delivering a plan: it '
+                    'never called ExitPlanMode and never entered '
+                    'execution, so nothing was carried out. Any text it '
+                    'produced is a plan draft, not a result. Retry the '
+                    'task.'
+                )
+                task.error_category = 'plan_not_delivered'
+                apply_outcome(task, resolve_outcome(task))
+                task.updated_at = datetime.now(UTC).isoformat()
+                await db.commit()
+        except Exception as e:
+            logger.error(f'Failed to record plan_not_delivered: {e}')
+
     async def _save_result(self, result_text: str):
         """Save the streamed prose tail and parse wait-condition.
 

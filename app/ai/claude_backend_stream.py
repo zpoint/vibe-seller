@@ -187,16 +187,14 @@ class _StreamMixin:
             if self._result_text and return_code == 0:
                 await self._save_result(self._result_text)
 
-            # plan_then_execute exited without plan → fail
+            # Exited plan mode with no plan — benign or a dead run,
+            # depending on whether execution ever started.
             if (
                 self.mode == 'plan_then_execute'
                 and not self._plan_saved
                 and return_code == 0
             ):
-                logger.warning(
-                    'plan_then_execute ended without ExitPlanMode for task %s',
-                    self.task_id,
-                )
+                await self._settle_missing_plan()
 
             await event_bus.emit(
                 'agent_done',
