@@ -461,9 +461,18 @@ is **维持**, and the reason must name the change and its age — e.g.
 is not enough: it is indistinguishable from the agent simply not having
 noticed. Outside the window, judge it on the data as usual.
 
-- `stores/<slug>/ads/<platform>/<country>/<campaign_id>.tsv` — the
+> **Path:** these live under `store-data/<slug>/ads/…`, NOT `stores/`.
+> Every task's system prompt routes durable run data to `store-data/`
+> and reserves `stores/` for curated knowledge. This spec used to say
+> `stores/`, and the two instructions genuinely conflicted: consecutive
+> executions of the same campaign wrote to different trees, so the change
+> record split in half and the cooldown check read a stale copy. Use
+> `store-data/` — the server reads both so older history is not lost, but
+> new writes go to one place.
+
+- `store-data/<slug>/ads/<platform>/<country>/<campaign_id>.tsv` — the
   targeting/keyword table.
-- `stores/<slug>/ads/<platform>/<country>/<campaign_id>.searchterms.tsv`
+- `store-data/<slug>/ads/<platform>/<country>/<campaign_id>.searchterms.tsv`
   — the FULL search-term set (every row of the Export CSV / Customer
   Queries, not just the top-20 shown in the report).
 
@@ -621,7 +630,7 @@ lists them as gaps:
      Central → Brands → Brand Analytics; the brand auto-fills). Pull it.
    - **Cross-platform / same-SKU comparison** (a SKU's Amazon vs noon
      performance; the same SKU across SP campaigns) — do it this session
-     using the TSVs you've written under `stores/<slug>/ads/`.
+     using the TSVs you've written under `store-data/<slug>/ads/`.
    The reviewer flags these excuse phrases.
 
 ## What "missing is acceptable" means

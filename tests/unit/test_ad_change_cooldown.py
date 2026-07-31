@@ -272,3 +272,59 @@ class TestClockSkew:
             [_row('widget red', '提高出价', '2026-08-08', '2.00')],
         )
         assert cooldown.recent_changes(tmp_path, 7, TODAY)['widget red'][1] == 2
+
+
+@pytest.mark.unit
+class TestChangeRecordLocation:
+    """The change record has lived in two trees, because the platform
+    said both: every task's system prompt routes durable run data to
+    ``store-data/<slug>/`` while the ads spec named ``stores/<slug>/ads/``.
+
+    Observed live: consecutive executions of the SAME campaign wrote to
+    different trees, so the newest change sat where the gate was not
+    looking and the cooldown read a stale entry — the exact failure it
+    exists to prevent. The schemas diverged with the paths too: the key
+    column is ``target`` in one and ``keyword`` in the other.
+    """
+
+    def _write(self, root, key_col, target, action, when, bid):
+        d = root / 'amazon' / 'SA'
+        d.mkdir(parents=True, exist_ok=True)
+        (d / 'c1.tsv').write_text(
+            f'{key_col}\tbid\tapplied_action\tapplied_at\tprevious_bid\n'
+            f'{target}\t{bid}\t{action}\t{when}\t2.00\n',
+            encoding='utf-8',
+        )
+
+    def test_reads_a_record_keyed_on_keyword_not_target(self, tmp_path):
+        self._write(
+            tmp_path, 'keyword', 'widget red', 'raise', '2026-08-09', '2.90'
+        )
+        assert cooldown.recent_changes(tmp_path, 7, TODAY) == {
+            'widget red': ('raise', 1)
+        }
+
+    def test_reads_a_record_keyed_on_target(self, tmp_path):
+        self._write(
+            tmp_path, 'target', 'widget red', 'raise', '2026-08-09', '2.90'
+        )
+        assert cooldown.recent_changes(tmp_path, 7, TODAY) == {
+            'widget red': ('raise', 1)
+        }
+
+    def test_a_stale_tree_cannot_mask_a_fresher_one(self, tmp_path):
+        # The live failure: an older entry in the tree the gate read hid a
+        # newer change written to the other tree.
+        old_tree, new_tree = tmp_path / 'stores', tmp_path / 'store-data'
+        self._write(
+            old_tree, 'target', 'widget red', 'revert', '2026-08-04', '2.80'
+        )
+        self._write(
+            new_tree, 'keyword', 'widget red', 'raise', '2026-08-10', '2.90'
+        )
+        merged: dict = {}
+        for root in (new_tree, old_tree):
+            for k, v in cooldown.recent_changes(root, 7, TODAY).items():
+                if k not in merged or v[1] < merged[k][1]:
+                    merged[k] = v
+        assert merged == {'widget red': ('raise', 0)}

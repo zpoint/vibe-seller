@@ -139,8 +139,14 @@ def recent_changes(
                     ago = _days_ago(day, today)
                     if ago is None or ago >= cooldown_days:
                         continue
+                    # The two trees also disagree on the key column
+                    # (`target` vs `keyword`), so a reader pinned to one
+                    # name silently matched nothing in the other.
                     target = _norm(
-                        row.get('target') or row.get('search_term') or ''
+                        row.get('target')
+                        or row.get('keyword')
+                        or row.get('search_term')
+                        or ''
                     )
                     if not target:
                         continue
@@ -155,8 +161,21 @@ def recent_changes(
     return out
 
 
-def ads_root_for(task_id: str | None) -> Path | None:
-    """The store's ad-history directory for this task, if it has one.
+# The change record has lived in TWO trees, because the platform said
+# both. Every task's system prompt routes durable run data to
+# ``store-data/<slug>/`` ("never in stores/"), while the ads spec named
+# ``stores/<slug>/ads/``. Observed live: one execution wrote each, so the
+# newest change sat in the tree the gate was not reading and the cooldown
+# read a stale entry — the exact failure it exists to prevent.
+#
+# The spec is now corrected to ``store-data``, but BOTH are read: history
+# written under the old convention is still real history, and a reader
+# that ignored it would forget every change made before the fix.
+_ADS_SUBTREES = ('store-data', 'stores')
+
+
+def ads_roots_for(task_id: str | None) -> list[Path]:
+    """Every directory that may hold this store's ad-change history.
 
     Keyed off the slug the SERVER recorded in ``AUDIT_TARGETS.json`` — not
     anything the agent wrote — so a report cannot point the cooldown at
@@ -164,8 +183,16 @@ def ads_root_for(task_id: str | None) -> Path | None:
     """
     slug = ad_scope.declared_slug(task_id)
     if not slug or '/' in slug or '\\' in slug or slug in {'.', '..'}:
-        return None
-    return VIBE_SELLER_DIR / 'stores' / slug / 'ads'
+        return []
+    return [VIBE_SELLER_DIR / sub / slug / 'ads' for sub in _ADS_SUBTREES]
+
+
+def ads_root_for(task_id: str | None) -> Path | None:
+    """First existing ad-history root. Kept for single-root callers."""
+    for root in ads_roots_for(task_id):
+        if root.is_dir():
+            return root
+    return None
 
 
 def check(
@@ -185,15 +212,21 @@ def check(
     """
     if not result_text:
         return None
-    if ads_root is None:
-        ads_root = ads_root_for(task_id)
-    if ads_root is None:
+    roots = [ads_root] if ads_root is not None else ads_roots_for(task_id)
+    if not roots:
         return None
     rules = rules or DEFAULT_RULES
     window = float(rules.get('change_cooldown_days', 7.0))
     if window <= 0:
         return None
-    changed = recent_changes(ads_root, window, today)
+    # Merge across trees, keeping the most RECENT change per target — a
+    # stale entry in one tree must not mask a fresher one in the other.
+    changed: dict[str, tuple[str, int]] = {}
+    for root in roots:
+        for target, hit in recent_changes(root, window, today).items():
+            prev = changed.get(target)
+            if prev is None or hit[1] < prev[1]:
+                changed[target] = hit
     if not changed:
         return None
 
