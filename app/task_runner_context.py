@@ -141,6 +141,20 @@ def build_store_context(
             f'(`ls -lt` it after triggering a download). Ignore '
             f'any other slug spelling from the task text or stale '
             f'directories.\n'
+            # The runtime already exports VIBE_TASK_ID and the wrapper
+            # derives the browser session from it (`<slug>-<first 8
+            # hex>`). An agent that regenerated it per call got a
+            # DIFFERENT, empty session every time: one live run paid 34
+            # fresh navigations and 122 sleeps because no page state
+            # carried over. Reviewer subagents DO need their own id (the
+            # CDP proxy keys clients on it), so that pattern stays
+            # documented for them — this says it is not for the main one.
+            f'Do NOT set or regenerate `VIBE_TASK_ID` — the runtime '
+            f'already set it and the wrapper derives your browser '
+            f'session from it. Overriding it per call puts every '
+            f'command in a fresh, blank session: the page you just '
+            f'opened is gone and you pay a new navigation every time.'
+            f'\n'
             f'IMPORTANT: Before using any browser-use commands, '
             f'load the browser-harness skill first '
             f'(`/browser-harness`). Do NOT guess helper names or '
@@ -189,6 +203,20 @@ def build_store_context(
             f'(`ls -lt` it after triggering a download). Ignore '
             f'any other slug spelling from the task text or stale '
             f'directories.\n'
+            # The runtime already exports VIBE_TASK_ID and the wrapper
+            # derives the browser session from it (`<slug>-<first 8
+            # hex>`). An agent that regenerated it per call got a
+            # DIFFERENT, empty session every time: one live run paid 34
+            # fresh navigations and 122 sleeps because no page state
+            # carried over. Reviewer subagents DO need their own id (the
+            # CDP proxy keys clients on it), so that pattern stays
+            # documented for them — this says it is not for the main one.
+            f'Do NOT set or regenerate `VIBE_TASK_ID` — the runtime '
+            f'already set it and the wrapper derives your browser '
+            f'session from it. Overriding it per call puts every '
+            f'command in a fresh, blank session: the page you just '
+            f'opened is gone and you pay a new navigation every time.'
+            f'\n'
             f'IMPORTANT: Before using any browser-use commands, '
             f'load the browser-harness skill first '
             f'(`/browser-harness`). Do NOT guess helper names or '

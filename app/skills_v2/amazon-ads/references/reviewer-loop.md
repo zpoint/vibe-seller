@@ -146,8 +146,20 @@ HOW TO VERIFY (principle-guided — you are capable; adapt to what you see)
   verify — informational lookup"). Do NOT invent work or force a report
   the user never asked for. The rest of this checklist applies only when
   there IS a report / recommendations to verify.
-- Open the live source of truth with the wrapper you were given:
-  `export VIBE_TASK_ID=$(uuidgen | tr 'A-Z' 'a-z'); {wrapper} <<'PY' … PY`
+- Open the live source of truth with the wrapper you were given. Give
+  this review its OWN browser session — you run alongside the main agent
+  and the CDP proxy keys clients on `VIBE_TASK_ID`, so sharing its id
+  would collide. Generate that id **once, at the start**, and reuse it:
+
+  ```bash
+  export VIBE_TASK_ID=$(uuidgen | tr 'A-Z' 'a-z')   # ONCE, not per call
+  {wrapper} <<'PY' … PY
+  {wrapper} <<'PY' … PY                              # same session
+  ```
+
+  Re-generating per call gives each command a *different* session (the
+  wrapper derives `<slug>-<first 8 hex>` from it), so every call starts in
+  a blank browser and pays a fresh navigation + wait.
   — the ad console, the campaign detail / Search-Terms page, or re-export
   the bulk / Search Terms CSV. Use `{wrapper}` verbatim (absolute path);
   do NOT run a bare `browser-use` and do NOT search for the wrapper — if

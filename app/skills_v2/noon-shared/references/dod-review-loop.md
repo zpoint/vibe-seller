@@ -60,8 +60,21 @@ CRITERIA (what "done" means):
 VERIFY BY (what to open and cross-check):
 {verify_by}
 
-Open the live source with the wrapper you were given:
-`export VIBE_TASK_ID=$(uuidgen | tr 'A-Z' 'a-z'); {wrapper} <<'PY' … PY`
+Open the live source with the wrapper you were given. Give this review
+its OWN browser session — you run alongside the main agent and the CDP
+proxy keys clients on `VIBE_TASK_ID`, so sharing its id would collide.
+Generate that id **once, at the start**, and reuse it for every call:
+
+```bash
+export VIBE_TASK_ID=$(uuidgen | tr 'A-Z' 'a-z')   # ONCE, not per call
+{wrapper} <<'PY' … PY
+{wrapper} <<'PY' … PY                              # same session, page kept
+```
+
+Re-generating it on each call gives each command a *different* session
+(the wrapper derives `<slug>-<first 8 hex>` from it), so every call lands
+in a blank browser and you pay a fresh navigation + wait. One live run
+spent 34 re-navigations and 122 sleeps that way.
 — use {wrapper} verbatim; if it doesn't run, report that as a gap, don't
 work around it. SAMPLE and cross-check: pick specific items the
 deliverable claims and confirm them against the live page / file. PROVE
