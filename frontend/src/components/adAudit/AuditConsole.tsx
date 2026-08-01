@@ -130,8 +130,12 @@ export function AuditConsole({ doc, onSubmit, submitting }: Props) {
           <div className="adaudit-eyebrow">{t('audit.eyebrow')}</div>
           <h2>
             {t('audit.heroTitle', {
-              markets: countries.length,
-              campaigns: state.campaigns.length,
+              markets: t('audit.marketCount', {
+                count: countries.length,
+              }),
+              campaigns: t('audit.campaignCount', {
+                count: state.campaigns.length,
+              }),
             })}
           </h2>
           <p className="adaudit-herometa">

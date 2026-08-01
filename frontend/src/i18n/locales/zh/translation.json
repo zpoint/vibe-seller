@@ -832,7 +832,7 @@
   "audit": {
     "eyebrow": "30 天广告审计",
     "cardEyebrow": "广告审计 · 决策台",
-    "heroTitle": "{{markets}} 个国家 · {{campaigns}} 个在投活动",
+    "heroTitle": "{{markets}} · {{campaigns}}",
     "heroMeta": "逐行下钻 {{rows}} 条定向词与搜索词。每一行都已按审计的建议预选好动作——同意就不用动，不同意点另一个。当前预选了 {{preselected}} 行要改。盈亏线 ROAS {{breakeven}}。",
     "cardSummary": "已审 {{rows}} 行 · 预选 {{acting}} 行要改",
     "openConsole": "打开决策台",
@@ -931,6 +931,8 @@
       "inherited": "随所属市场排除",
       "inheritedHint": "由上一级排除；请先恢复上一级。"
     },
-    "outOfScopeHidden": "另有 {{count}} 个活动不在本次范围内，已隐藏"
+    "marketCount_other": "{{count}} 个国家",
+    "campaignCount_other": "{{count}} 个在投活动",
+    "outOfScopeHidden_other": "另有 {{count}} 个活动不在本次范围内，已隐藏"
   }
 }

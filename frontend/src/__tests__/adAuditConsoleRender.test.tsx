@@ -85,7 +85,9 @@ async function mount(lang: 'en' | 'zh') {
 describe('AuditResultCard', () => {
   it('summarises instead of dumping the report, in English', async () => {
     await mount('en')
-    expect(screen.getByText(/1 markets · 1 live campaigns/)).toBeTruthy()
+    // Singular: a scoped console showing one campaign is now the
+    // normal case, so "1 markets" would be the string users read most.
+    expect(screen.getByText(/1 market · 1 live campaign/)).toBeTruthy()
     expect(screen.getByRole('button', { name: /Open the decision console/ })).toBeTruthy()
     // The raw markdown must NOT be on the page.
     expect(screen.queryByText(/盈亏线/)).toBeNull()

@@ -830,7 +830,7 @@
   "audit": {
     "eyebrow": "30-day ad audit",
     "cardEyebrow": "Ad audit · decision console",
-    "heroTitle": "{{markets}} markets · {{campaigns}} live campaigns",
+    "heroTitle": "{{markets}} · {{campaigns}}",
     "heroMeta": "Drilled {{rows}} targets and search terms. Every row is pre-set to the audit's recommendation — agree and change nothing, disagree and pick another. {{preselected}} rows are pre-set to change. Breakeven ROAS {{breakeven}}.",
     "cardSummary": "{{rows}} rows reviewed · {{acting}} pre-set to change",
     "openConsole": "Open the decision console",
@@ -929,6 +929,11 @@
       "inherited": "Excluded with its market",
       "inheritedHint": "Dropped by a level above — include that first."
     },
-    "outOfScopeHidden": "plus {{count}} campaign outside this task’s scope, hidden"
+    "marketCount_one": "{{count}} market",
+    "marketCount_other": "{{count}} markets",
+    "campaignCount_one": "{{count}} live campaign",
+    "campaignCount_other": "{{count}} live campaigns",
+    "outOfScopeHidden_one": "plus {{count}} campaign outside this task’s scope, hidden",
+    "outOfScopeHidden_other": "plus {{count}} campaigns outside this task’s scope, hidden"
   }
 }

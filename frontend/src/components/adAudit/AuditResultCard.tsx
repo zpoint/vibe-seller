@@ -69,9 +69,11 @@ export function AuditResultCard({
         </div>
         <p className="text-gray-900 text-base font-semibold mb-1">
           {t('audit.heroTitle', {
-            markets: head.markets,
-            campaigns: head.campaigns,
-          })}
+              markets: t('audit.marketCount', { count: head.markets }),
+              campaigns: t('audit.campaignCount', {
+                count: head.campaigns,
+              }),
+            })}
         </p>
         <p className="text-sm text-gray-600 mb-4">
           {t('audit.cardSummary', {
