@@ -30,6 +30,16 @@ what you expect to find once you look.
 | "执行刚才确认的调整" | `execute` | the campaigns being changed |
 | "我们 SA 的 ACOS 大概多少" | `investigate` | the market asked about |
 
+**Numbers or changes?** That is the line between `investigate` and
+`audit`, and it matters more than the table above. If the answer the
+person wants is a FIGURE — what did we spend, what is our ROAS, how did
+last month go — that is `investigate`, however many markets it spans:
+you are reading, not proposing. If they want to know what to CHANGE, or
+asked "is this right?", that is `audit`, and it opens a review console.
+Observed live: "这个月广告花了多少钱，回报怎么样？" was declared a
+whole-store `audit`, which put five marketplaces of drill work behind a
+question that wanted four numbers.
+
 **There is no `edit` kind.** A request to change specific bids is an
 `audit` whose scope names those campaigns — the user still reviews the
 change before it is applied, and the scope is what makes it small.
