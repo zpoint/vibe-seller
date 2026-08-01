@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.ai import ad_declaration
 from app.ai.stop_gates import (
     SOFT_GATE_MAX_DENIALS,
     _attempts,  # noqa: PLC2701 — tests inspect/clear the counter
@@ -578,7 +579,14 @@ class TestAdCompletenessReview:
     def test_non_ads_result_passes(self):
         assert completeness_gate.check('# 完成\n\n普通任务，无广告。') is None
 
-    def test_regression_flagged(self):
+    def test_regression_flagged(self, monkeypatch, tmp_path):
+        # Coverage is owed by a DECLARED whole-store audit, so this
+        # fixture declares one — otherwise the run is denied for
+        # never having said what it was doing, and the regression
+        # this test is actually about never gets exercised.
+        monkeypatch.setattr(ad_declaration, 'VIBE_SELLER_DIR', tmp_path)
+        (tmp_path / 'tasks' / 't1').mkdir(parents=True, exist_ok=True)
+        ad_declaration.write_declaration_file('t1', 'audit', {})
         # Round 1: Amazon US fully drilled 31/31 (sets high-water mark).
         # The scope grounds all 31 ids and the section carries all 31
         # blocks. That is not decoration: the 进度 line's <A> is now

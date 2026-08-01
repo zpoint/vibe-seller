@@ -200,6 +200,15 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 f'/api/tasks/{_config["task_id"]}/error',
                 {'error': arguments['error']},
             )
+        elif name == 'vibe_seller_declare_ad_task':
+            result = await call_api(
+                'POST',
+                f'/api/tasks/{_config["task_id"]}/ad-declaration',
+                {
+                    'kind': arguments.get('kind'),
+                    'scope': arguments.get('scope') or {},
+                },
+            )
         elif name == 'vibe_seller_get_schedule_state':
             key = quote(arguments['key'], safe='')
             result = await call_api(

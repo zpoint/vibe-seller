@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import re
 
+from app.ai import ad_declaration
 from app.ai.stop_gates import (
     GateDeny,
+    ad_declaration_checks,
     ad_scope,
 )
 from app.ai.stop_gates.ad_completeness_campaign_blocks import (
@@ -396,18 +398,24 @@ def check(
     # the "no live campaigns here" finding, and it lands on the
     # empty-``active_ids`` branch below with its own message.
     #
-    # Only an AUDIT owes marketplace coverage. An ads EXECUTION summary
-    # binds the same skill (so the same gates apply) but has no combo
-    # section and no scope — demanding five marketplaces of it would deny
-    # a task that never claimed to audit anything. An audit announces
-    # itself either way: it has a scope, or it has combo sections.
-    is_audit = bool(all_combos) or any(
-        _COMBO_HEADER_RE.search(p.splitlines()[0])
-        for p in parts[1:]
-        if p.strip()
-    )
+    # Only a WHOLE-STORE AUDIT owes marketplace coverage, and what
+    # makes it one is the phase DECLARATION — not the shape of the
+    # prose the agent wrote. See ``ad_declaration_checks`` for why the
+    # old inference had to go.
+    decl = ad_declaration.load_declaration(task_id)
+    # A declaration belongs to a TASK. Called without one — a direct
+    # unit-test call, a tooling probe — nothing *could* have declared, so
+    # demanding a declaration would be denying the absence of a task
+    # rather than the absence of intent. Production always passes it:
+    # ``set_task_result`` calls every gate as ``check(text, task_id, rules)``.
+    if task_id is not None:
+        for gap in ad_declaration_checks.declaration_gaps(parts, decl):
+            _attr(None, gap)
+
     for missing_combo in (
-        ad_scope.missing_declared_combos(combos, declared) if is_audit else []
+        ad_scope.missing_declared_combos(combos, declared)
+        if ad_declaration.owes_marketplace_coverage(decl)
+        else []
     ):
         label = f'{missing_combo["platform"]} {missing_combo["country"]}'
         if task_id is not None:
