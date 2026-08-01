@@ -25,6 +25,7 @@ Team collaboration platform for e-commerce store automation. Users create browse
 - UUIDs for all primary keys
 - API routes prefixed with `/api/`
 - i18n translations in `frontend/src/i18n/locales/{en,zh}/`
+- **Ad tasks declare their kind + scope before working, and are held to it.** Each agent RUN of an ad task calls `vibe_seller_declare_ad_task` (`kind` ∈ audit/create/execute/investigate, `scope` = combos/campaigns/products) before touching a browser. That declaration — not the shape of the report — decides how much marketplace coverage the completeness gate demands and whether the user gets a review console. Declarations are append-only and a new one needs a new USER message, so an agent cannot re-declare around a gate. **Never reintroduce an "is this an audit?" heuristic over the agent's own output**: that is what let a two-campaign task be told it owed five marketplaces, which it satisfied by transcribing the previous week's report. See `app/ai/ad_declaration.py` and [docs/api.md](docs/api.md).
 - Agents write to `stores/` and `knowledge/` via MCP `vibe_seller_write_workspace_file` (not the built-in Write tool — it can't write through workspace symlinks; see [docs/workspace.md](docs/workspace.md#symlink-write-caveat))
 
 ## Commands
