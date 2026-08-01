@@ -14,6 +14,58 @@ gates: [ad_change_cooldown, ad_completeness_review, ad_negation_allowlist, ad_ex
 > OTP / hosted-passkey),
 > and the ad-console vs seller-central account caveat.
 
+## 0. FIRST — declare what this task is for
+
+**Before any browser action, call `vibe_seller_declare_ad_task`.** This is
+a precondition, not a courtesy: a report with no declaration behind it is
+refused.
+
+Two things follow from the declaration and cannot be changed afterwards —
+how much the completeness gate asks of you, and whether the user gets a
+review console. Read them off what the person actually asked for, not off
+what you expect to find once you look.
+
+| They asked for | `kind` | `scope` |
+|---|---|---|
+| "审计一下广告" / "review our ads" | `audit` | omit `combos` — whole store |
+| "复核 widget-006 在 amazon 的广告" | `audit` | that platform+country, those campaign ids |
+| "把这三个词的出价降下来" | `audit` | those campaigns |
+| "帮 widget-006 建关键词广告" | `create` | the market you are creating in |
+| "执行刚才确认的调整" | `execute` | the campaigns being changed |
+| "我们 SA 的 ACOS 大概多少" | `investigate` | the market asked about |
+
+**There is no `edit` kind.** A request to change specific bids is an
+`audit` whose scope names those campaigns — the user still reviews the
+change before it is applied, and the scope is what makes it small.
+
+**The scope trap:** omitting `combos` means EVERY marketplace this store
+sells on, and you will be held to all of them. Omit it only when the
+request really is store-wide. A store selling on five marketplaces has
+been asked for all five because a one-product task left the field out.
+
+**If the request names a product, not a campaign** ("widget-006 的广告"),
+resolve it first: enumerate the campaign list, find the campaigns carrying
+that SKU family, then declare those ids. A product name alone narrows
+nothing — put it in `products` for the human reading the review page, and
+put the ids in `campaigns`.
+
+**Once per user turn, and it cannot be revised.** If a gate later asks for
+something outside your declared scope, do NOT try to re-declare — the
+server refuses it. Say so in your result and let the user redirect you.
+
+**When the user sends a NEW message that changes what you are doing,
+declare again.** That is a new phase, and it is the only way a
+declaration changes. Two cases you will hit often:
+
+- "现在把刚创建的广告复核一下" after a `create` phase → declare `audit`,
+  and its scope may name the campaigns you created earlier in this same
+  task.
+- The review console submits the user's decisions back as a follow-up
+  message → declare `execute`, scoped to the campaigns that submission
+  actually names.
+
+---
+
 This skill is a **catalog**. The actual content lives in topical
 references in `references/`. Load whichever ones apply to the task.
 

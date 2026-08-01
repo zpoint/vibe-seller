@@ -14,6 +14,8 @@ impossible: the obligation comes from what the phase DECLARED before
 working, not from the shape of the prose it produced afterwards.
 """
 
+import pathlib
+
 import pytest
 
 from app.ai import ad_declaration as ad
@@ -221,3 +223,46 @@ class TestScopePredicates:
         # free pass, which is the direction that hides work.
         assert ad.is_whole_store(ad.normalise_scope('not a dict'))
         assert ad.is_whole_store(ad.normalise_scope({'combos': ['junk']}))
+
+
+class TestEverySkillThatIsGatedTeachesTheDeclaration:
+    """A fail-closed gate needs the skill to teach the way through it.
+
+    The gate refuses an ad report that never declared. If a skill binds
+    that gate but never tells the agent to call the tool, every task
+    under it is denied with no documented remedy — a trap rather than a
+    guard rail. So the two facts are pinned together.
+    """
+
+    _SKILLS = pathlib.Path('app/skills_v2')
+
+    def _gated(self) -> list[pathlib.Path]:
+        out = []
+        for skill in sorted(self._SKILLS.glob('*/SKILL.md')):
+            head = skill.read_text(encoding='utf-8')[:2000]
+            if 'ad_completeness_review' in head:
+                out.append(skill)
+        return out
+
+    def test_there_are_gated_ad_skills_to_check(self):
+        # Guard against this whole class passing vacuously if the gate is
+        # renamed or the frontmatter key moves.
+        assert self._gated(), 'no skill binds ad_completeness_review'
+
+    def test_each_one_tells_the_agent_to_declare_first(self):
+        for skill in self._gated():
+            body = skill.read_text(encoding='utf-8')
+            assert 'vibe_seller_declare_ad_task' in body, (
+                f'{skill} binds the completeness gate, which refuses an '
+                'undeclared report, but never tells the agent to declare'
+            )
+
+    def test_each_one_warns_that_omitting_combos_means_everything(self):
+        # The specific trap that caused the incident: a narrow task that
+        # leaves `combos` out inherits the whole store's obligation.
+        for skill in self._gated():
+            body = skill.read_text(encoding='utf-8')
+            assert 'scope trap' in body.lower(), (
+                f'{skill} must warn that omitting combos means every '
+                'marketplace'
+            )
