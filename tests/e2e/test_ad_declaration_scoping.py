@@ -133,13 +133,18 @@ class TestScopeSurvivesAFollowUp:
         )
         logger.info('declarations: %s', decls)
 
-        # The follow-up opened a NEW phase rather than editing the first.
-        assert len(decls) >= 2, (
-            f'expected a second declaration for the follow-up turn: {decls}'
-        )
+        # The review declaration belongs to the FOLLOW-UP turn, not the
+        # opening one. Phase 1 asked only for a couple of numbers, loads
+        # no ad skill, and so is not gated on declaring — demanding a
+        # declaration from it would be demanding one from every task
+        # that happens to mention advertising. What matters is that the
+        # phase which DOES review declared, and did so on a later turn.
         assert [d['seq'] for d in decls] == sorted(d['seq'] for d in decls)
-
         review = decls[-1]
+        assert review['user_turn'] >= 2, (
+            f'the review declaration was made on the opening turn, so it '
+            f'cannot be a response to the narrowing follow-up: {decls}'
+        )
         assert review['kind'] == 'audit', (
             f'a bid review is an audit — it is what opens the console: {review}'
         )
