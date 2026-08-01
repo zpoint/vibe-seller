@@ -12,11 +12,18 @@ The journey mirrors the one that produced the design:
 2. Same task, new user turn: "review the bids on <one campaign>, leave
    the other alone" → an audit, scoped to that campaign.
 
-What must be true afterwards: two declarations, the second an ``audit``
-naming the asked-about campaign and NOT the other. Because the console
-renders ``scope ∩ report`` (pinned in
-``frontend/src/__tests__/adAuditDeclaration.test.ts``), a scope holding
-one campaign is a console holding one campaign.
+What must be true afterwards: the reviewing phase declared an ``audit``
+naming the asked-about campaign and NOT the other.
+
+**Scope of this test.** It covers the half that depends on a model
+reading a natural-language request — did the agent narrow correctly? The
+console's own filtering (``scope ∩ report``) is deterministic TypeScript,
+pinned separately in
+``frontend/src/__tests__/adAuditDeclaration.test.ts`` and verified in a
+real browser against a multi-campaign report. Do NOT read a pass here as
+evidence the console rendered anything: the stub console is not a
+configured marketplace, so the agent writes a plain report rather than
+the sectioned format the console parses.
 
 The failure this guards against is not hypothetical. Live, a task asked
 to create two campaigns for one product produced a report covering five
