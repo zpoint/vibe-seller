@@ -22,8 +22,18 @@ work started.
 
 from __future__ import annotations
 
+import re
+
 from app.ai import ad_declaration
 from app.ai.stop_gates.ad_completeness_rules import _COMBO_HEADER_RE
+from app.models.ad_declaration import KIND_INVESTIGATE
+
+# A table row telling someone to MOVE money: the shape that becomes an
+# actionable decision row in the review console. Same vocabulary the
+# cooldown gate grades on.
+_MOVE_RE = re.compile(
+    r'提高至|下调至|降至|下调到|提高出价|降低出价|加投|减投|暂停|否定'
+)
 
 MISSING_DECLARATION_GAP = (
     '[基线] 这份广告报告没有声明任务范围。开工前必须先调用 '
@@ -51,6 +61,22 @@ def reported_combos(parts: list[str]) -> list[tuple[str, str, str]]:
     return out
 
 
+def actionable_rows(parts: list[str]) -> int:
+    """Table rows that tell someone to move a bid, pause, or negate.
+
+    Counted on rows rather than prose: a sentence noting that ROAS looks
+    low is an observation, while a table row carrying 下调至 1.80 is a
+    decision someone is expected to act on.
+    """
+    n = 0
+    for part in parts[1:]:
+        for line in part.splitlines():
+            stripped = line.strip()
+            if stripped.startswith('|') and _MOVE_RE.search(stripped):
+                n += 1
+    return n
+
+
 def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
     """Gaps from comparing the report against its phase's declaration."""
     reported = reported_combos(parts)
@@ -62,6 +88,26 @@ def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
     if decl is None:
         return [MISSING_DECLARATION_GAP]
 
+    gaps: list[str] = []
+
+    # A phase that said it was only READING must not come back with a
+    # table of bid changes. Sharpening the investigate/audit line in the
+    # skill (a question about figures is `investigate`) opens exactly one
+    # hole if left unguarded: declare `investigate`, owe no marketplace
+    # coverage, get no console — and hand the user recommendations they
+    # have no way to act on. If the work produced decisions, it was an
+    # audit and the user is owed the console.
+    if decl['kind'] == KIND_INVESTIGATE:
+        n = actionable_rows(parts)
+        if n:
+            gaps.append(
+                f'[基线] 本次声明是 investigate（只读数据、不提改动），但报告里'
+                f'有 {n} 行给出了调价/暂停/否定这类可执行建议。要么把这些'
+                '建议去掉、只回答问题；要么这本来就是一次 audit——那样用户'
+                '才会拿到复核台去逐行确认。声明不能改，请在结果里说明，'
+                '由用户再发一条消息重新开始一轮 audit。'
+            )
+
     outside = sorted({
         label
         for label, platform, country in reported
@@ -70,8 +116,8 @@ def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
         )
     })
     if not outside:
-        return []
-    return [
+        return gaps
+    return gaps + [
         f'[基线] 本次声明的范围是「'
         f'{ad_declaration.scope_summary(decl.get("scope"))}」，'
         f'但报告里出现了范围外的市场：{"、".join(outside)}。'

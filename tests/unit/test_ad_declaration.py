@@ -292,3 +292,56 @@ class TestEverySkillThatIsGatedTeachesTheDeclaration:
                 f'{skill} must warn that omitting combos means every '
                 'marketplace'
             )
+
+
+class TestInvestigateMayNotHandOutDecisions:
+    """Reading is reading. Recommending is an audit, and owes a console.
+
+    Sharpening the investigate/audit line in the skill — a question about
+    figures is `investigate` — opens exactly one hole if left unguarded:
+    declare `investigate`, owe no marketplace coverage, get no console,
+    and hand the user a table of bid changes they have no way to act on.
+    """
+
+    def test_investigate_with_bid_changes_is_a_gap(self, monkeypatch, tmp_path):
+        _setup(monkeypatch, tmp_path, 't-inv', declare=('investigate', {}))
+        report = _section().replace(
+            '提高至 1.20（ROAS 9>5 加投赢家规则）', '下调至 0.60（ROAS 偏低）'
+        )
+        gaps = _gaps(report, 't-inv')
+        assert any('investigate' in g and '可执行建议' in g for g in gaps), gaps
+
+    def test_investigate_that_only_reports_figures_passes(
+        self, monkeypatch, tmp_path
+    ):
+        # The legitimate shape: answer the question, propose nothing.
+        _setup(monkeypatch, tmp_path, 't-inv-ok', declare=('investigate', {}))
+        report = (
+            '## amazon AE\n\n'
+            '**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
+            '### A1234567 | acme widget 001 manual | Manual\n\n'
+            '| 关键词 | 出价 | 点击 | 花费 | 订单 | ROAS |\n'
+            '|---|---|---|---|---|---|\n'
+            '| widget red | 1.00 | 40 | 80.00 | 4 | 5.00 |\n'
+        )
+        gaps = _gaps(report, 't-inv-ok')
+        assert not any('可执行建议' in g for g in gaps), gaps
+
+    def test_an_audit_may_of_course_recommend(self, monkeypatch, tmp_path):
+        # The guard must not fire on the kind whose whole job is deciding.
+        _setup(monkeypatch, tmp_path, 't-aud-ok', declare=('audit', {}))
+        gaps = _gaps(_section(), 't-aud-ok')
+        assert not any('可执行建议' in g for g in gaps), gaps
+
+    def test_prose_observations_are_not_decisions(self, monkeypatch, tmp_path):
+        # Noting that something looks off is an observation; a TABLE ROW
+        # carrying 下调至 1.80 is a decision someone will act on.
+        _setup(
+            monkeypatch, tmp_path, 't-inv-prose', declare=('investigate', {})
+        )
+        report = (
+            '## amazon AE\n\n'
+            '**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
+            'ROAS 偏低，值得下轮复核时看看要不要下调出价。\n'
+        )
+        assert not any('可执行建议' in g for g in _gaps(report, 't-inv-prose'))
