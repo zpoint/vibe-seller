@@ -10,6 +10,7 @@ import { useChatUploads } from '../hooks/useChatUploads'
 import { ChatComposer } from '../components/conversation/ChatComposer'
 import { isAwaitingUser } from '../handlers/composerGate'
 import { submitAuditDecisions } from '../handlers/submitAuditDecisions'
+import type { AdDeclaration } from '../lib/adAudit/declaration'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -166,6 +167,33 @@ export function TasksView({
   onCloseAudit,
 }: TasksViewProps) {
   const [auditSubmitting, setAuditSubmitting] = useState(false)
+  // What each phase of the open task declared it was for. Decides which
+  // result gets a review console and how much of it is actionable —
+  // previously a regex over the agent's own report prose, which handed a
+  // two-campaign task a console listing every campaign in the store.
+  const [adDeclarations, setAdDeclarations] = useState<AdDeclaration[]>([])
+  const openTaskId = selectedTask?.id
+  const openTaskStatus = selectedTask?.status
+  useEffect(() => {
+    if (!openTaskId) {
+      setAdDeclarations([])
+      return
+    }
+    let cancelled = false
+    // Re-read on status change too: a declaration is made mid-run, so
+    // the console must not depend on the task having been reopened.
+    api
+      .get(`/api/tasks/${openTaskId}/ad-declarations`)
+      .then((d) => {
+        if (!cancelled) setAdDeclarations(Array.isArray(d) ? d : [])
+      })
+      .catch(() => {
+        if (!cancelled) setAdDeclarations([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [openTaskId, openTaskStatus])
   const { t } = useTranslation()
   // Gating predicate for the schedule "Run Now" button: true
   // when ANY status is still progressing (pending / queued /
@@ -606,6 +634,7 @@ export function TasksView({
                   questionBannerRef={questionBannerRef}
                   isActive={isActive} userNearBottom={userNearBottom}
                   onOpenVisionSetup={onOpenVisionSetup}
+                  adDeclarations={adDeclarations}
                   auditOpen={auditOpen}
                   onOpenAudit={onOpenAudit}
                   onCloseAudit={onCloseAudit}

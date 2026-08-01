@@ -928,6 +928,7 @@
       "reset": "Include everything",
       "inherited": "Excluded with its market",
       "inheritedHint": "Dropped by a level above — include that first."
-    }
+    },
+    "outOfScopeHidden": "plus {{count}} campaign outside this task’s scope, hidden"
   }
 }

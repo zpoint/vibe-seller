@@ -1,6 +1,8 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { parseReport } from '../../lib/adAudit/parseReport'
+import type { AdDeclaration } from '../../lib/adAudit/declaration'
+import { droppedCampaigns, narrowToScope } from '../../lib/adAudit/declaration'
 import type { DecisionSubmission } from '../../lib/adAudit/types'
 import { auditHeadline } from '../../lib/adAudit/review'
 import { AuditConsole } from './AuditConsole'
@@ -8,6 +10,13 @@ import { AuditConsole } from './AuditConsole'
 interface Props {
   /** The report markdown, as resolved by the server. */
   report: string
+  /**
+   * What this phase declared it was about. The console renders the
+   * report reduced to that scope: the obligation being scoped is what
+   * stops out-of-scope rows being PRODUCED, and this is what stops them
+   * being ACTED ON when they turn up anyway.
+   */
+  declaration?: AdDeclaration | null
   /**
    * Whether the console is open, and how to open/close it. Driven by the
    * URL rather than local state so the review is bookmarkable, survives a
@@ -29,6 +38,7 @@ interface Props {
  */
 export function AuditResultCard({
   report,
+  declaration,
   open,
   onOpen,
   onClose,
@@ -36,7 +46,16 @@ export function AuditResultCard({
   submitting,
 }: Props) {
   const { t } = useTranslation()
-  const doc = useMemo(() => parseReport(report), [report])
+  const full = useMemo(() => parseReport(report), [report])
+  const doc = useMemo(
+    () => narrowToScope(full, declaration ?? null),
+    [full, declaration],
+  )
+  // Campaigns the report carried but this phase never claimed. Shown as
+  // a count rather than hidden silently: a reviewer who asked about one
+  // SKU should be able to tell the page filtered, not that the audit
+  // came back thin.
+  const dropped = useMemo(() => droppedCampaigns(full, doc), [full, doc])
   const head = useMemo(() => auditHeadline(doc), [doc])
 
   return (
@@ -64,6 +83,14 @@ export function AuditResultCard({
               {' · '}
               <span className="text-red-700 font-medium">
                 {t('audit.tile.untrusted', { count: head.quarantined })}
+              </span>
+            </>
+          )}
+          {dropped > 0 && (
+            <>
+              {' · '}
+              <span className="text-gray-500">
+                {t('audit.outOfScopeHidden', { count: dropped })}
               </span>
             </>
           )}

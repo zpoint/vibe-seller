@@ -930,6 +930,7 @@
       "reset": "全部恢复",
       "inherited": "随所属市场排除",
       "inheritedHint": "由上一级排除；请先恢复上一级。"
-    }
+    },
+    "outOfScopeHidden": "另有 {{count}} 个活动不在本次范围内，已隐藏"
   }
 }
