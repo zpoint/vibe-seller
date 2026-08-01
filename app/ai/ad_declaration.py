@@ -187,15 +187,31 @@ def declared_kind(task_id: str | None) -> str | None:
     return decl['kind'] if decl else None
 
 
-def owes_marketplace_coverage(decl: dict | None) -> bool:
-    """Does this phase owe every marketplace the store is configured for?
+def owed_combos(decl: dict | None, store_combos: list[dict]) -> list[dict]:
+    """Which marketplaces this phase must actually cover.
 
-    Only a whole-store AUDIT does. A scoped audit owes its own combos; a
-    create/execute/investigate phase owes none. This single predicate is
-    what stops a one-product task from being told it must cover five
-    marketplaces — the failure that made an agent transcribe a
-    four-day-old report to satisfy a gate.
+    **An audit owes what it declared. Declaring nothing declares
+    everything.**
+
+    An earlier version asked a narrower question — "is this a whole-store
+    audit?" — and treated an omitted combo list as the only way to be
+    one. The first live run walked straight through the hole it left: the
+    agent declared ``kind=audit`` and then listed all five of the store's
+    marketplaces EXPLICITLY. Semantically that is the whole store, but
+    the combo list was non-empty, so the phase was judged scoped and owed
+    no coverage at all — a full audit could then quietly cover one market.
+
+    Reading the obligation off the declared list instead makes the two
+    spellings agree, and keeps the property that mattered: a phase is
+    held to exactly what it committed to, never to more.
+
+    ``create`` / ``execute`` / ``investigate`` owe nothing. An undeclared
+    phase owes nothing here either — it is refused separately, by
+    ``ad_declaration_checks``, which is a better error than silently
+    demanding five marketplaces of a task nobody scoped.
     """
-    if not decl:
-        return False
-    return decl['kind'] == KIND_AUDIT and is_whole_store(decl.get('scope'))
+    if not decl or decl['kind'] != KIND_AUDIT:
+        return []
+    if is_whole_store(decl.get('scope')):
+        return list(store_combos)
+    return list((decl.get('scope') or {}).get('combos') or [])

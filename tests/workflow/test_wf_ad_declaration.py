@@ -168,6 +168,10 @@ class TestTheGateSeesWhatWasAccepted:
 
         loaded = ad_declaration.load_declaration(task_id)
         assert loaded is not None
-        assert not ad_declaration.owes_marketplace_coverage(loaded), (
-            'a scoped audit must not be told it owes every marketplace'
-        )
+        store = [
+            {'platform': 'amazon', 'country': 'AE'},
+            {'platform': 'noon', 'country': 'SA'},
+        ]
+        assert ad_declaration.owed_combos(loaded, store) == [
+            {'platform': 'amazon', 'country': 'AE'}
+        ], 'a scoped audit owes what it named, not every marketplace'

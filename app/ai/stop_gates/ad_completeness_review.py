@@ -412,10 +412,12 @@ def check(
         for gap in ad_declaration_checks.declaration_gaps(parts, decl):
             _attr(None, gap)
 
-    for missing_combo in (
-        ad_scope.missing_declared_combos(combos, declared)
-        if ad_declaration.owes_marketplace_coverage(decl)
-        else []
+    # An audit owes the combos it DECLARED; declaring none declares the
+    # whole store. Reading it off the declared list rather than off
+    # "were combos omitted?" is what makes the two spellings of a
+    # whole-store audit agree — see ``ad_declaration.owed_combos``.
+    for missing_combo in ad_scope.missing_declared_combos(
+        combos, ad_declaration.owed_combos(decl, declared)
     ):
         label = f'{missing_combo["platform"]} {missing_combo["country"]}'
         if task_id is not None:

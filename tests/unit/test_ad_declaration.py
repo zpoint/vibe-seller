@@ -60,25 +60,45 @@ def _section(platform='noon', country='AE', campaign='C0000001'):
     )
 
 
-class TestWhoOwesMarketplaceCoverage:
-    """Only a whole-store audit owes every marketplace. Nothing else."""
+_STORE = [
+    {'platform': 'amazon', 'country': 'AE'},
+    {'platform': 'noon', 'country': 'SA'},
+]
 
-    def test_whole_store_audit_owes_coverage(self):
-        assert ad.owes_marketplace_coverage({'kind': 'audit', 'scope': {}})
 
-    def test_scoped_audit_owes_only_its_own(self):
-        assert not ad.owes_marketplace_coverage({
-            'kind': 'audit',
-            'scope': _AE_ONLY,
-        })
+class TestWhatAPhaseOwes:
+    """An audit owes what it declared. Declaring nothing declares all."""
+
+    def test_whole_store_audit_owes_every_marketplace(self):
+        owed = ad.owed_combos({'kind': 'audit', 'scope': {}}, _STORE)
+        assert owed == _STORE
+
+    def test_listing_every_combo_owes_them_all_too(self):
+        # The hole the first live run walked through: the agent declared
+        # `audit` and then listed all five of the store's marketplaces
+        # EXPLICITLY. Semantically the whole store, but the combo list
+        # was non-empty, so the phase was judged "scoped" and owed
+        # nothing — a full audit could quietly cover one market.
+        owed = ad.owed_combos(
+            {'kind': 'audit', 'scope': {'combos': _STORE}}, _STORE
+        )
+        assert owed == _STORE
+
+    def test_scoped_audit_owes_only_what_it_named(self):
+        owed = ad.owed_combos({'kind': 'audit', 'scope': _AE_ONLY}, _STORE)
+        assert owed == _AE_ONLY['combos']
 
     def test_create_owes_nothing(self):
-        assert not ad.owes_marketplace_coverage({'kind': 'create', 'scope': {}})
+        assert ad.owed_combos({'kind': 'create', 'scope': {}}, _STORE) == []
 
-    def test_never_declared_owes_nothing(self):
-        # …because it is denied for not declaring at all — see below.
-        # Silently owing everything is what produced the incident.
-        assert not ad.owes_marketplace_coverage(None)
+    def test_execute_owes_nothing(self):
+        assert ad.owed_combos({'kind': 'execute', 'scope': {}}, _STORE) == []
+
+    def test_never_declared_owes_nothing_here(self):
+        # It is refused separately for not declaring at all, which is a
+        # better error than silently demanding five marketplaces of a
+        # task nobody scoped.
+        assert ad.owed_combos(None, _STORE) == []
 
     def test_absent_combos_means_whole_store(self):
         # Fails toward MORE coverage: an agent that omits the field is
@@ -117,7 +137,13 @@ class TestTheIncidentCannotRecur:
             targets={'amazon': ['AE', 'AU', 'SA'], 'noon': ['AE', 'SA']},
         )
         gaps = _gaps(_section(), 't-scoped')
-        assert not any('根本没进 AUDIT_SCOPE.json' in g for g in gaps), gaps
+        # It DOES owe the market it named — a scoped audit still has to
+        # enumerate that market authoritatively. What it must never be
+        # asked for is the four markets nobody mentioned.
+        for other in ('amazon AE', 'amazon AU', 'amazon SA', 'noon SA'):
+            assert not any(
+                '根本没进 AUDIT_SCOPE.json' in g and other in g for g in gaps
+            ), f'asked for {other}, which this phase never declared: {gaps}'
 
     def test_whole_store_audit_still_owes_every_marketplace(
         self, monkeypatch, tmp_path
