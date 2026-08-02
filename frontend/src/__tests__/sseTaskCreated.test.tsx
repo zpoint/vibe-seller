@@ -12,6 +12,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useState } from 'react'
 import { useSSE } from '../hooks/useSSE'
 import type { Task } from '../types'
+import { makeTask as baseTask } from '../test/factories'
 
 type Listener = ((evt: MessageEvent) => void) | null
 let esInstances: { onmessage: Listener; close: ReturnType<typeof vi.fn> }[] = []
@@ -40,13 +41,7 @@ function emit(data: Record<string, unknown>) {
 }
 
 function makeTask(id: string, store_id: string | null = null, status = 'pending'): Task {
-  return {
-    id, store_id, title: `T-${id}`, description: null,
-    status, plan: null, result: null, todos: null,
-    wait_condition: null, error: null, plan_mode: false,
-    ai_profile_id: null, schedule_id: null, batch_id: null,
-    created_at: '', started_at: null, completed_at: null,
-  }
+  return baseTask({ id, store_id, title: `T-${id}`, status, created_at: '' })
 }
 
 interface ViewProps {

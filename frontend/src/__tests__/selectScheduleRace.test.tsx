@@ -17,9 +17,23 @@ import { describe, it, expect, vi } from 'vitest'
 import { useRef } from 'react'
 import { act, renderHook } from '@testing-library/react'
 import { selectSchedule } from '../handlers/selectSchedule'
+import type { SelectScheduleApi } from '../handlers/selectSchedule'
 
 interface Sched { id: string }
 interface Tsk { id: string; schedule_id: string }
+
+/**
+ * Adapt a concrete task-list fetcher to `SelectScheduleApi`.
+ *
+ * `api.get` is generic (`get<T>(url): Promise<T>`), so a plain
+ * `() => Promise<Tsk[]>` is not assignable to it — it cannot honour a
+ * caller that asks for some other `T`. These tests only ever drive the
+ * one call site, which asks for `Tsk[]`, so narrowing here is sound and
+ * keeps the cast in a single documented place instead of at every mock.
+ */
+function taskApi(get: (url: string) => Promise<Tsk[]>): SelectScheduleApi {
+  return { get: <T,>(url: string) => get(url) as unknown as Promise<T> }
+}
 
 function deferred<T>() {
   let resolve!: (v: T) => void
@@ -37,7 +51,7 @@ describe('selectSchedule — stale-list + race guard', () => {
     const setSelectedSchedule = vi.fn()
     const setSelectedTask = vi.fn()
     // fetch blocks forever so we can observe the pre-fetch state
-    const api = { get: () => new Promise<Tsk[]>(() => {}) }
+    const api = taskApi(() => new Promise<Tsk[]>(() => {}))
 
     void selectSchedule<Sched, Tsk>(
       { id: 'B' },
@@ -69,13 +83,11 @@ describe('selectSchedule — stale-list + race guard', () => {
     const pendingA = deferred<Tsk[]>()
     const pendingB = deferred<Tsk[]>()
     let seenA = false
-    const api = {
-      get: (url: string) => {
-        if (url.includes('/schedules/A/')) { seenA = true; return pendingA.promise }
-        if (url.includes('/schedules/B/')) return pendingB.promise
-        throw new Error(`unexpected ${url}`)
-      },
-    }
+    const api = taskApi((url: string) => {
+      if (url.includes('/schedules/A/')) { seenA = true; return pendingA.promise }
+      if (url.includes('/schedules/B/')) return pendingB.promise
+      throw new Error(`unexpected ${url}`)
+    })
 
     const deps = {
       api,
@@ -119,13 +131,11 @@ describe('selectSchedule — stale-list + race guard', () => {
     const setScheduleTasks = vi.fn()
 
     const pendingA = deferred<Tsk[]>()
-    const api = {
-      get: (url: string) => {
-        if (url.includes('/schedules/A/')) return pendingA.promise
-        // B's fetch resolves immediately.
-        return Promise.resolve([{ id: 't-b', schedule_id: 'B' }] as Tsk[])
-      },
-    }
+    const api = taskApi((url: string) => {
+      if (url.includes('/schedules/A/')) return pendingA.promise
+      // B's fetch resolves immediately.
+      return Promise.resolve([{ id: 't-b', schedule_id: 'B' }] as Tsk[])
+    })
 
     const deps = {
       api,
@@ -159,12 +169,10 @@ describe('selectSchedule — stale-list + race guard', () => {
     const setScheduleTasks = vi.fn()
 
     const pendingA = deferred<Tsk[]>()
-    const api = {
-      get: (url: string) => {
-        if (url.includes('/schedules/A/')) return pendingA.promise
-        throw new Error(`unexpected ${url}`)
-      },
-    }
+    const api = taskApi((url: string) => {
+      if (url.includes('/schedules/A/')) return pendingA.promise
+      throw new Error(`unexpected ${url}`)
+    })
     const deps = {
       api,
       inFlightScheduleIdRef: result.current,

@@ -28,6 +28,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useState } from 'react'
 import { useSSE } from '../hooks/useSSE'
 import type { Task } from '../types'
+import { makeTask as baseTask } from '../test/factories'
 
 /* ── EventSource mock ──────────────────────────────── */
 
@@ -54,13 +55,7 @@ function emit(data: Record<string, unknown>) {
 }
 
 function makeTask(id: string, status = 'pending'): Task {
-  return {
-    id, store_id: null, title: 'T', description: null,
-    status, plan: null, result: null, todos: null,
-    wait_condition: null, error: null, plan_mode: false,
-    ai_profile_id: null, schedule_id: null, batch_id: null,
-    created_at: '', started_at: null, completed_at: null,
-  }
+  return baseTask({ id, title: 'T', status, created_at: '' })
 }
 
 /**

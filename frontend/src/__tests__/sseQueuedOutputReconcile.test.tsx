@@ -24,6 +24,7 @@ import { renderHook, act } from '@testing-library/react'
 import { useState } from 'react'
 import { useSSE } from '../hooks/useSSE'
 import type { Task } from '../types'
+import { makeTask as baseTask } from '../test/factories'
 
 type Listener = ((evt: MessageEvent) => void) | null
 let esInstances: { onmessage: Listener; close: ReturnType<typeof vi.fn> }[] = []
@@ -51,13 +52,7 @@ function emit(data: Record<string, unknown>) {
 }
 
 function makeTask(id: string, status = 'queued', plan_mode = false): Task {
-  return {
-    id, store_id: null, title: `T-${id}`, description: null,
-    status, plan: null, result: null, todos: null,
-    wait_condition: null, error: null, plan_mode,
-    ai_profile_id: null, schedule_id: null, batch_id: null,
-    created_at: '', started_at: null, completed_at: null,
-  }
+  return baseTask({ id, title: `T-${id}`, status, plan_mode, created_at: '' })
 }
 
 function useHarness(initial: Task[]) {

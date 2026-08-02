@@ -20,8 +20,13 @@ import { render, screen, waitFor, act } from '@testing-library/react'
 import { I18nextProvider } from 'react-i18next'
 import type { ReactElement } from 'react'
 import type { Task, Schedule, Store } from '../types'
+import {
+  makeSchedule as baseSchedule,
+  makeTask as baseTask,
+} from '../test/factories'
 import { i18nTestInstance } from '../test/helpers'
 import { TasksView } from '../views/TasksView'
+import type { TasksViewProps } from '../views/TasksView'
 import { triggerSchedule } from '../handlers/triggerSchedule'
 import { api } from '../api'
 
@@ -29,50 +34,11 @@ import { api } from '../api'
 /* ── Helpers ───────────────────────────────────────── */
 
 function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
-  return {
-    id: 'sched-1',
-    store_id: null,
-    title: 'Email review',
-    description: null,
-    platform: null,
-    country: null,
-    plan: null,
-    schedule_type: 'daily',
-    schedule_time: '09:00',
-    schedule_day: null,
-    interval_value: 1,
-    timezone: 'UTC',
-    is_active: true,
-    plan_mode: false,
-    ai_profile_id: null,
-    created_by: 'u1',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    ...overrides,
-  } as Schedule
+  return baseSchedule({ id: 'sched-1', title: 'Email review', ...overrides })
 }
 
 function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
-    id: `t-${Math.random().toString(36).slice(2, 8)}`,
-    store_id: null,
-    title: 'Email review',
-    description: null,
-    status: 'pending',
-    plan: null,
-    result: null,
-    todos: null,
-    wait_condition: null,
-    error: null,
-    plan_mode: false,
-    ai_profile_id: null,
-    schedule_id: 'sched-1',
-    batch_id: null,
-    created_at: new Date().toISOString(),
-    started_at: null,
-    completed_at: null,
-    ...overrides,
-  } as Task
+  return baseTask({ title: 'Email review', schedule_id: 'sched-1', ...overrides })
 }
 
 function wrap(ui: ReactElement) {
@@ -213,16 +179,21 @@ describe('schedule trigger integration — real handler + api + fetch stub', () 
 /* ── UI chain test — render + click → button greys out ── */
 
 describe('TasksView Run Now button reflects scheduleTasks', () => {
-  const TASKSVIEW_PROPS = {
+  // Typed against the real props, minus the two each case varies. A
+  // prop added to TasksView now breaks this line loudly instead of
+  // arriving as `undefined` and silently changing what renders.
+  const TASKSVIEW_PROPS: Omit<
+    TasksViewProps,
+    'scheduleTasks' | 'triggerSchedule'
+  > = {
     stores: [] as Store[],
     selectedStore: null,
-    storeTasks: [],
     showAllTasks: false,
     tasks: [],
     schedules: [makeSchedule()],
     selectedTask: null,
     steps: [],
-    screenshots: [],
+    screenshots: {},
     logs: [],
     agentMessages: [],
     todoItems: [],
@@ -240,8 +211,6 @@ describe('TasksView Run Now button reflects scheduleTasks', () => {
     retryTask: vi.fn(),
     debugMode: false,
     setDebugMode: vi.fn(),
-    executePlan: vi.fn(),
-    onToggleAutoMode: vi.fn(),
     selectTask: vi.fn(),
     setSelectedTask: vi.fn(),
     selectAnswer: vi.fn(),
@@ -251,17 +220,44 @@ describe('TasksView Run Now button reflects scheduleTasks', () => {
     profiles: [],
     selectedProfileId: 'default',
     setSelectedProfileId: vi.fn(),
-    onCreateTask: vi.fn(),
-    onOpenCreateTask: vi.fn(),
-    onOpenCreateSchedule: vi.fn(),
-    onSelectStore: vi.fn(),
-    onShowAllTasks: vi.fn(),
     questionBannerRef: { current: null },
     selectedSchedule: makeSchedule(),
-    onSelectSchedule: vi.fn(),
     toggleSchedulePause: vi.fn(),
-    setEditingSchedule: vi.fn(),
     deleteSchedule: vi.fn(),
+    isMobile: false,
+    onOpenNav: vi.fn(),
+    taskPanelActive: false,
+    taskPanelTitle: '',
+    tasksLoading: false,
+    currentUser: {
+      id: 'u1',
+      username: 'tester',
+      email: null,
+      role: 'admin',
+      is_active: true,
+      avatar_url: null,
+      plan_mode_default: false,
+      debug_mode: false,
+      default_profile_id: 'default',
+      sync_profile_to_schedules: false,
+      created_at: '',
+    },
+    openCreateModal: vi.fn(),
+    continueTask: vi.fn(),
+    deleteTask: vi.fn(),
+    submitImageDecision: vi.fn(),
+    setTasks: vi.fn(),
+    setCurrentUser: vi.fn(),
+    setEditingProfile: vi.fn(),
+    setShowProfileModal: vi.fn(),
+    taskSubTab: 'scheduled',
+    setTaskSubTab: vi.fn(),
+    showCreateSchedule: false,
+    setShowCreateSchedule: vi.fn(),
+    selectSchedule: vi.fn(),
+    replanSchedule: vi.fn(),
+    setSelectedSchedule: vi.fn(),
+    onScheduleUpdated: vi.fn(),
   }
 
   afterEach(() => vi.restoreAllMocks())

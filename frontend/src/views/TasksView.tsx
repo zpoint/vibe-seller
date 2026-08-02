@@ -26,7 +26,7 @@ function formatDate(dateStr: string): string {
   return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-interface TasksViewProps {
+export interface TasksViewProps {
   isMobile: boolean
   /** Audit console open state, owned by the URL. */
   auditOpen?: boolean

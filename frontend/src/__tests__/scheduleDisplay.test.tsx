@@ -7,32 +7,10 @@ import { I18nextProvider } from 'react-i18next'
 import { ScheduleList } from '../components/ScheduleList'
 import { i18nTestInstance } from '../test/helpers'
 import type { Schedule, Store } from '../types'
+import { makeSchedule as baseSchedule } from '../test/factories'
 
 function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
-  return {
-    id: `sched-${Math.random().toString(36).slice(2)}`,
-    store_id: null,
-    title: 'Test Schedule',
-    description: null,
-    platform: null,
-    country: null,
-    plan: null,
-    schedule_type: 'daily',
-    schedule_time: '09:00',
-    schedule_day: null,
-    interval_value: 1,
-    timezone: 'UTC',
-    is_active: true,
-    plan_mode: false,
-    ai_profile_id: null,
-    created_by: 'user1',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    next_run: null,
-    child_task_count: 0,
-    last_run_status: null,
-    ...overrides,
-  }
+  return baseSchedule({ title: 'Test Schedule', ...overrides })
 }
 
 const defaultProps = {
