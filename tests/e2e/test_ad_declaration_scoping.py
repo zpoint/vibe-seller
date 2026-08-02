@@ -41,6 +41,7 @@ import pytest
 
 from tests.e2e.conftest import BASE_URL
 from tests.e2e.e2e_helpers import (
+    PIPELINE_TIMEOUT,
     create_store,
     create_task,
     poll_task_status,
@@ -225,8 +226,15 @@ class TestAnUnscopedRequestStaysWide:
                 'recommendations.'
             ),
         )
+        # An unscoped audit is inherently the slower job — it drills
+        # every campaign rather than a named few — so it needs more than
+        # the shared pipeline budget. Observed: this timed out at 600s
+        # while the scoped test finished comfortably inside it.
         result = poll_task_status(
-            api_client, task['id'], {'completed', 'failed'}
+            api_client,
+            task['id'],
+            {'completed', 'failed'},
+            timeout=PIPELINE_TIMEOUT * 2,
         )
         assert result['status'] == 'completed', (
             f'task failed: {result.get("error")}'
