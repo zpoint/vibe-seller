@@ -21,11 +21,8 @@ of failure worth pinning: a guard the agent cannot clear is worse than
 no guard.
 """
 
-import inspect
-
 import pytest
 
-from app.ai import claude_backend_manager as mgr
 from app.ai.bash_safety import check_catalog_first, is_catalog_path
 
 pytestmark = pytest.mark.unit
@@ -54,6 +51,9 @@ class TestTheGuardIsSatisfiableAtAll:
 class TestRestartKeepsPerTaskHookState:
     """A follow-up or redrive rebuilds the session; these must carry."""
 
+    # The manager's real behaviour is pinned in
+    # tests/unit/test_claude_backend_resume_retry.py; this states the
+    # invariant the guards depend on.
     def test_restart_copies_catalog_read_and_loaded_skills(self):
         # Mirrors ``AgentManager._restart_session``: a new session is
         # constructed from the prior one, then per-task hook state is
@@ -77,12 +77,3 @@ class TestRestartKeepsPerTaskHookState:
         # session cannot reach back into the old one.
         new._loaded_skills.add('amazon-ads')
         assert prior._loaded_skills == {'amazon-shared'}
-
-    def test_the_manager_actually_carries_them(self):
-        # The behaviour above only helps if _restart_session does it.
-        src = inspect.getsource(mgr)
-        assert 'new_session._catalog_read = prior._catalog_read' in src, (
-            'a follow-up would re-arm the catalog-first guard, denying '
-            'the agent for something it already did'
-        )
-        assert 'new_session._loaded_skills = set(prior._loaded_skills)' in src
