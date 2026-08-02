@@ -1,8 +1,8 @@
 """A real agent, a fake ad console, and one question: did the scope hold?
 
 This closes the loop that unit tests cannot. The scoping contract has two
-halves — the agent must DECLARE what it was asked for, and the console
-must be bounded by that declaration — and only the first half depends on
+halves — the agent must keep to what it was asked for, and the console
+must be bounded by what it declared — and only the first half depends on
 a model reading a natural-language request. So this drives a real agent
 against a stand-in ad console carrying TWO campaigns and asks about ONE.
 
@@ -10,20 +10,32 @@ The journey mirrors the one that produced the design:
 
 1. "how much did we spend, what came back" → a look, not an audit.
 2. Same task, new user turn: "review the bids on <one campaign>, leave
-   the other alone" → an audit, scoped to that campaign.
+   the other alone" → a review, scoped to that campaign.
 
-What must be true afterwards: the reviewing phase declared an ``audit``
-naming the asked-about campaign and NOT the other.
+**What is asserted, and why that split.** The load-bearing assertion is
+the console's own access log: the excluded campaign's detail page must
+never be fetched. That is ground truth — a report can claim restraint it
+did not exercise, but the server records what it was actually asked for.
 
-**Scope of this test.** It covers the half that depends on a model
-reading a natural-language request — did the agent narrow correctly? The
-console's own filtering (``scope ∩ report``) is deterministic TypeScript,
-pinned separately in
+The ``vibe_seller_declare_ad_task`` call is checked only *if the agent
+made one*, because the design does not promise one here. The declaration
+requirement is carried by the ad skills, and the gate that refuses a
+report lacking one lives in that same skill bundle and only bites a
+report presenting per-marketplace coverage. A localhost stub is neither
+Amazon nor noon, so the skill need not load and the report carries no
+combo sections. Observed in CI on ``glm-4.7``: a correctly scoped review
+that named the asked-about campaign, explicitly said it had not opened
+the other, and declared nothing. That is the fail-safe direction — no
+declaration means no console, so nothing over-wide is ever offered — and
+failing the run for it would be pinning a model's habits, not a
+contract. What must never happen is a declaration WIDER than the
+request, and that is asserted whenever one exists.
+
+The console's own filtering (``scope ∩ report``) is deterministic
+TypeScript, pinned separately in
 ``frontend/src/__tests__/adAuditDeclaration.test.ts`` and verified in a
 real browser against a multi-campaign report. Do NOT read a pass here as
-evidence the console rendered anything: the stub console is not a
-configured marketplace, so the agent writes a plain report rather than
-the sectioned format the console parses.
+evidence the console rendered anything.
 
 The failure this guards against is not hypothetical. Live, a task asked
 to create two campaigns for one product produced a report covering five
@@ -60,12 +72,20 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 pytestmark = [pytest.mark.e2e]
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture
 def ads_console():
-    base, server = serve()
-    yield base
-    server.shutdown()
-    server.server_close()
+    """A fresh console per test — the access log IS the assertion.
+
+    Deliberately not module-scoped: the wide test opens both campaigns,
+    and sharing one server would leave that visit in the log for the
+    scoped test to trip over (whenever xdist lands them on the same
+    worker, so it would fail only sometimes). A stdlib HTTP server on an
+    ephemeral port is cheap; a cross-test-contaminated assertion is not.
+    """
+    console = serve()
+    yield console
+    console.shutdown()
+    console.server_close()
 
 
 def _declarations(client, task_id: str) -> list[dict]:
@@ -94,7 +114,7 @@ def _scope_text(decl: dict) -> str:
 
 @pytest.mark.e2e
 class TestScopeSurvivesAFollowUp:
-    def test_a_narrow_follow_up_declares_a_narrow_audit(
+    def test_a_narrow_follow_up_reviews_only_what_was_asked(
         self, api_client, ads_console
     ):
         ts = int(time.time())
@@ -106,9 +126,9 @@ class TestScopeSurvivesAFollowUp:
             'How much did we spend on ads and what came back?',
             store_id=store['id'],
             description=(
-                f'Our ad console is at {ads_console} — open it with the '
-                'browser-use CLI and read the last-30-days summary. Just '
-                'tell me the numbers.'
+                f'Our ad console is at {ads_console.base} — open it with '
+                'the browser-use CLI and read the last-30-days summary. '
+                'Just tell me the numbers.'
             ),
         )
         task_id = task['id']
@@ -140,30 +160,57 @@ class TestScopeSurvivesAFollowUp:
             f'phase 2 failed: {second.get("error")}'
         )
 
-        decls = _declarations(api_client, task_id)
-        assert decls, (
-            'no declaration was recorded — the ad skill is gated on one, '
-            'so a run that never declares is denied with no way forward'
+        # ── The whole point: narrow in, narrow out ───────────────────
+        #
+        # Ground truth, straight off the console: which campaign pages
+        # were actually opened. Independent of how the report is worded
+        # and of whether any skill happened to load.
+        served = ads_console.served()
+        assert ads_console.fetched_campaign(CAMPAIGN_A), (
+            f'the campaign the user asked about was never opened, so the '
+            f'review cannot have been grounded in its data: {served}'
         )
+        assert not ads_console.fetched_campaign(CAMPAIGN_B), (
+            f'the campaign the user explicitly excluded was opened — the '
+            f'narrowing follow-up did not bound the work: {served}'
+        )
+
+        # ── Each turn leaves its own answer ──────────────────────────
+        #
+        # The rebuild used to promote only the FIRST result, so turn 2's
+        # answer took turn 1's slot and rendered above the question that
+        # asked for it. A unit test cannot see this; two real turns can.
+        msgs = _messages(api_client, task_id)
+        results = [m for m in msgs if m['role'] == 'result']
+        assert len(results) >= 2, (
+            f'each turn must leave its own result; got {len(results)}: '
+            f'{[m["role"] for m in msgs]}'
+        )
+
+        # ── If it declared, the declaration must be narrow ───────────
+        #
+        # Conditional by design — see the module docstring. Absent is
+        # fail-safe (no declaration → no console); WIDER than asked is
+        # the regression this whole change exists to prevent.
+        decls = _declarations(api_client, task_id)
+        if not decls:
+            logger.info(
+                'no declaration recorded; console stays closed. Scope was '
+                'still held — verified against the console access log.'
+            )
+            return
         logger.info('declarations: %s', decls)
 
-        # The review declaration belongs to the FOLLOW-UP turn, not the
-        # opening one. Phase 1 asked only for a couple of numbers, loads
-        # no ad skill, and so is not gated on declaring — demanding a
-        # declaration from it would be demanding one from every task
-        # that happens to mention advertising. What matters is that the
-        # phase which DOES review declared, and did so on a later turn.
         assert [d['seq'] for d in decls] == sorted(d['seq'] for d in decls)
         review = decls[-1]
+        assert review['kind'] == 'audit', (
+            f'a bid review is an audit — it is what opens the console: {review}'
+        )
         assert review['user_turn'] >= 2, (
             f'the review declaration was made on the opening turn, so it '
             f'cannot be a response to the narrowing follow-up: {decls}'
         )
-        assert review['kind'] == 'audit', (
-            f'a bid review is an audit — it is what opens the console: {review}'
-        )
 
-        # ── The whole point: narrow in, narrow out ───────────────────
         named = _scope_text(review)
         assert CAMPAIGN_A in named or CAMPAIGN_A_NAME in named, (
             f'the campaign the user asked about is missing from the '
@@ -179,31 +226,15 @@ class TestScopeSurvivesAFollowUp:
         assert (review.get('scope') or {}).get('campaigns'), (
             f'scope named no campaigns, which means ALL of them: {review}'
         )
-
-        # ── The two-turn shape the console is rendered from ──────────
-        #
         # The console binds each result to the declaration in force when
-        # that result landed. Two things must therefore hold in the data,
-        # and both were violated at once by bugs no unit test caught:
-        #
-        #  * each turn must leave its OWN result — the rebuild used to
-        #    promote only the first, so turn 2's answer took turn 1's
-        #    slot and rendered above the question that asked for it;
-        #  * the audit declaration must post-date turn 1's result — if it
-        #    did not, binding-by-time would attach the audit console to
-        #    the revenue answer as well, showing two consoles.
-        msgs = _messages(api_client, task_id)
-        results = [m for m in msgs if m['role'] == 'result']
-        assert len(results) >= 2, (
-            f'each turn must leave its own result; got {len(results)}: '
-            f'{[m["role"] for m in msgs]}'
-        )
-        first_result_at = results[0]['created_at']
-        assert review['created_at'] > first_result_at, (
+        # that result landed. An audit declared BEFORE turn 1's answer
+        # would attach the console to the revenue answer as well, showing
+        # two consoles for one review.
+        assert review['created_at'] > results[0]['created_at'], (
             "the audit declaration must post-date the first turn's "
             'answer, or the console binds to that answer too: '
             f'declared {review["created_at"]}, first result '
-            f'{first_result_at}'
+            f'{results[0]["created_at"]}'
         )
 
 
@@ -211,7 +242,7 @@ class TestScopeSurvivesAFollowUp:
 class TestAnUnscopedRequestStaysWide:
     """The protection must not cost us the whole-store audit."""
 
-    def test_reviewing_everything_declares_everything(
+    def test_reviewing_everything_looks_at_everything(
         self, api_client, ads_console
     ):
         ts = int(time.time())
@@ -221,9 +252,9 @@ class TestAnUnscopedRequestStaysWide:
             'Review all our ad campaigns and tell me what to change',
             store_id=store['id'],
             description=(
-                f'Our ad console is at {ads_console} — open it with the '
-                'browser-use CLI, look at every campaign, and give me bid '
-                'recommendations.'
+                f'Our ad console is at {ads_console.base} — open it with '
+                'the browser-use CLI, look at every campaign, and give me '
+                'bid recommendations.'
             ),
         )
         # An unscoped audit is inherently the slower job — it drills
@@ -240,8 +271,21 @@ class TestAnUnscopedRequestStaysWide:
             f'task failed: {result.get("error")}'
         )
 
+        # "Every campaign" means every campaign. The narrowing machinery
+        # must not quietly clip an unscoped request down to a subset.
+        served = ads_console.served()
+        assert ads_console.fetched_campaign(CAMPAIGN_A), (
+            f'an "audit everything" request never opened {CAMPAIGN_A}: {served}'
+        )
+        assert ads_console.fetched_campaign(CAMPAIGN_B), (
+            f'an "audit everything" request never opened {CAMPAIGN_B} — '
+            f'one campaign stood in for the whole account: {served}'
+        )
+
         decls = _declarations(api_client, task['id'])
-        assert decls, 'an ad task must declare'
+        if not decls:
+            logger.info('no declaration recorded; console stays closed')
+            return
         review = decls[-1]
         assert review['kind'] == 'audit', review
         # Either spelling of "everything" is fine — no campaign list, or

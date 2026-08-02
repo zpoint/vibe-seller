@@ -111,6 +111,30 @@ Two caveats when running this way:
   contend, and the suite writes to the same `logs/backend_<port>.log` you
   read for diagnostics.
 
+### Asserting on a real agent without pinning its habits
+
+`test_ad_declaration_scoping.py` drives a real agent against
+`fake_ads_console.py`, an in-process stand-in ad console serving TWO
+campaigns, and asks about ONE. It is the template for "did the model
+respect a boundary?" tests, and the split it makes is the point:
+
+- **Assert on the stub's access log, not the agent's prose.** The
+  console records every page it served, so "the excluded campaign was
+  never opened" is ground truth. A report can describe restraint it did
+  not exercise; the server cannot be talked around.
+- **Assert mechanism conditionally.** The test checks the
+  `vibe_seller_declare_ad_task` record only *if one exists* — the
+  declaration requirement rides on the ad skills, which a localhost stub
+  does not oblige a model to load. CI on `glm-4.7` produced a correctly
+  scoped review that declared nothing; failing on that would pin one
+  model's habits instead of the contract. Absent is fail-safe (no
+  declaration → no console); **wider than asked** is the regression, and
+  that is asserted whenever a declaration is present.
+- **Give each test its own stub.** The fixture is function-scoped: the
+  whole-store test visits both campaigns, and a shared server would leave
+  that visit in the log for the scoped test to trip over — only when
+  xdist happens to land them on the same worker.
+
 ### `api_client` Fixture (conftest.py)
 
 Module-scoped fixture providing an authenticated httpx client with a **background SSE listener** that auto-answers any `AskUserQuestion` from any task. Prevents tests from hanging when LLM agents ask unexpected questions during planning or execution.
