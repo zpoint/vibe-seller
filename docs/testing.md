@@ -81,6 +81,36 @@ Consolidated helpers used by all LLM-dependent e2e tests:
 - `answer_question(client, task_id, request_id, answers)` — submit answer for pending question
 - `get_secret(*keys)` — resolve env var secrets
 
+### Running e2e against YOUR server (local development)
+
+By default the suite logs in as the seeded admin
+(`admin@vibe-seller.local` / `admin`) — what CI provisions on a clean
+`~/.vibe-seller`. On a box where that password has been changed, every
+e2e fails at fixture setup with a 401, because `api_client` authenticates
+before any test body runs.
+
+Point the suite at your own already-running server and account instead:
+
+```bash
+E2E_ADMIN_IDENTIFIER=<your username or email> \
+E2E_ADMIN_PASSWORD=<your password> \
+  pytest tests/e2e/test_ad_declaration_scoping.py --e2e
+```
+
+Both variables are required together — a half-configured override falls
+back to the seeded admin rather than logging in as someone you did not
+intend. Unset, behaviour is byte-identical to before, so **CI needs no
+new secrets**; it keeps using the seeded admin and its existing LLM keys.
+
+Two caveats when running this way:
+
+- You are driving a **real** server with **real** agent credits, against
+  whatever stores that server has. Tests create their own ephemeral
+  stores (`e2e-*`), but they run beside your real ones.
+- `./restart.sh` and `pytest` must not run at the same time — they
+  contend, and the suite writes to the same `logs/backend_<port>.log` you
+  read for diagnostics.
+
 ### `api_client` Fixture (conftest.py)
 
 Module-scoped fixture providing an authenticated httpx client with a **background SSE listener** that auto-answers any `AskUserQuestion` from any task. Prevents tests from hanging when LLM agents ask unexpected questions during planning or execution.
