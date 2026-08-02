@@ -294,6 +294,41 @@ button becoming enabled. Then `click_at_xy` the page's own **Submit** and
   ```
   The wrapper accepts `--session <slug>-aux` **only** and maps it to the aux
   session; any other `--session` value is rejected.
+- **Parallel subagents:** `browser-use --worker N` (N = 1, 2, 3).
+
+### `--worker N` — a second browser driver at the same time
+
+Subagents inherit your environment, so by default a subagent's
+`browser-use` call lands on **your** daemon and drives **your** tab.
+
+- Running a subagent and **waiting** for it: change nothing. It sees the
+  page you left, and the calls serialise.
+- Running subagents **concurrently** (with each other, or with your own
+  browsing): each concurrent driver needs its own slot, or they interleave
+  on one tab and quietly return each other's pages.
+
+```bash
+# in the subagent's prompt, hand it a slot number, then it runs:
+browser-use --worker 2 <<'PY'
+new_tab("https://example.com/report")
+print(page_info())
+PY
+```
+
+That gives the subagent its own daemon and its own tab on the **same
+logged-in browser** — no second login, same cookies, same downloads dir.
+
+Rules:
+
+- **The parent assigns the numbers.** Only you know how many subagents
+  you're launching. Never let a subagent pick its own, and never reuse a
+  number while its subagent is still running.
+- `--worker` and `--session` are mutually exclusive; a slot is a slot on
+  the main store browser, not on `-aux`.
+- Out-of-range or non-numeric slots are rejected by the wrapper.
+- Tabs are per-slot, downloads are **not** — every slot writes to the same
+  `~/.vibe-seller/downloads/<slug>/`, so have parallel workers report
+  filenames rather than assume the newest file is theirs.
 
 ## Blocked in store / web tasks
 

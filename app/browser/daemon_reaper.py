@@ -47,9 +47,33 @@ logger = logging.getLogger(__name__)
 _INTERVAL_SECONDS = 300  # 5 minutes
 
 # BU_NAME (pid-file stem after `bu-`) ends in `-{task_id[:8]}` for a
-# task daemon. Bare `{slug}` / `{slug}-aux` have no task suffix → skipped
-# (manual / aux sessions, like the old no-VIBE_TASK_ID case).
-_PIDFILE_TASK_RE = re.compile(r'-([0-9a-f]{8})$')
+# task daemon, optionally followed by a `-w{N}` parallel-worker slot
+# (`{slug}-{task[:8]}-w2`). Bare `{slug}` / `{slug}-aux` have no task
+# suffix → skipped (manual / aux sessions, like the old no-VIBE_TASK_ID
+# case).
+#
+# The optional tail is load-bearing, not cosmetic: a worker daemon is
+# spawned BY a task and must die with it. Matching only the anchored
+# 8-hex form would read `{slug}-{task}-w2` as unattributable and skip
+# it forever, so every parallel subagent would leak a daemon (and its
+# CDP mux client, against `max_clients`) for the lifetime of the
+# server. See app/browser/worker_slots.py.
+_PIDFILE_TASK_RE = re.compile(r'-([0-9a-f]{8})(?:-w\d+)?$')
+
+
+def task_prefix_for_bu_name(bu_name: str) -> str | None:
+    """The 8-char task-id prefix a daemon belongs to, or ``None``.
+
+    ``None`` means "not owned by a task" (a manual or ``-aux`` session)
+    and the reaper leaves it alone — so a naming change that stops
+    matching here does not fail loudly, it silently stops reaping. That
+    is why this is a named, tested function rather than an inline regex
+    search: `tests/unit/test_browser/test_worker_slots.py` pins the
+    names the wrapper actually emits against it.
+    """
+    m = _PIDFILE_TASK_RE.search(bu_name)
+    return m.group(1) if m else None
+
 
 # Legacy 0.12 identifiers, from the daemon's argv.
 _UUID_RE = re.compile(
@@ -96,9 +120,8 @@ async def _get_new_daemon_pids() -> dict[int, DaemonInfo]:
             # Unreadable, daemon gone, or PID reused — stale file.
             unlink_quiet(pf, sock)
             continue
-        m = _PIDFILE_TASK_RE.search(bu_name)
         result[pid] = DaemonInfo(
-            task_id_prefix=m.group(1) if m else None,
+            task_id_prefix=task_prefix_for_bu_name(bu_name),
             cleanup_paths=[pf, sock],
         )
     return result

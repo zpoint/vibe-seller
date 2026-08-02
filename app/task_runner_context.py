@@ -24,6 +24,35 @@ from app.workspace.manager import VIBE_SELLER_DIR
 logger = logging.getLogger(__name__)
 
 
+# The browser environment belongs to the wrapper, not to the agent. The
+# wrapper derives BOTH the browser-use daemon name and the CDP mux client
+# id from VIBE_TASK_ID, which the runtime exports before the agent starts
+# — an agent that rotates it lands every call in a different empty
+# session. What an agent legitimately needs is a way to say "I am a
+# SEPARATE, CONCURRENT driver", and `--worker N` is that: a validated
+# slot number, with the wrapper still choosing every identifier.
+#
+# Slot assignment has to sit with the parent, because it is the only
+# party that knows how many subagents it is about to launch; a subagent
+# picking its own slot would collide exactly as often as two subagents
+# inventing their own ids. Included in BOTH store-context variants so
+# the rule reaches every store task, Ziniao or Chrome.
+PARALLEL_WORKER_PROMPT = (
+    'PARALLEL SUBAGENTS: your subagents share your environment, so by '
+    'default they share your browser session and drive YOUR tab. That '
+    'is correct for a subagent you wait on (it sees the page you left, '
+    'and calls serialise), and WRONG for subagents you run at the same '
+    'time as yourself or as each other — they interleave on one tab and '
+    'silently return the wrong page. If you launch concurrent '
+    'browser-driving subagents, give EACH ONE a distinct slot in its '
+    'prompt and have it call `browser-use --worker N` (N = 1, 2, 3 …); '
+    'that hands it its own tab on the same logged-in browser. Assign '
+    'the numbers yourself and never reuse one while its subagent is '
+    'still running. Do NOT set or regenerate `VIBE_TASK_ID`, and do not '
+    'invent session names — the wrapper owns those.\n'
+)
+
+
 # ── Context builders ────────────────────────────────────────
 
 
@@ -120,6 +149,7 @@ def build_store_context(
             f'email providers, admin panels) require JavaScript '
             f'and login cookies. Do NOT use WebFetch or curl '
             f'for these — always use browser-use.\n'
+            f'{PARALLEL_WORKER_PROMPT}'
             f'SECURITY: Ziniao provides IP isolation for this '
             f"store. NEVER extract this store's cookies (via a "
             f'browser-use cookies helper, `js("document.cookie")`, '
@@ -167,6 +197,7 @@ def build_store_context(
             f'email providers, admin panels) require JavaScript '
             f'and login cookies. Do NOT use WebFetch or curl '
             f'for these — always use browser-use.\n'
+            f'{PARALLEL_WORKER_PROMPT}'
         )
 
     # Inject platform-countries metadata. This is a best-effort

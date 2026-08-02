@@ -22,6 +22,23 @@ _logger = logging.getLogger('e2e')
 DEFAULT_PROFILE_ID: str | None = None
 
 
+def admin_credentials() -> dict[str, str]:
+    """The account every e2e logs in as.
+
+    Defaults are the seeded admin, so CI (fresh DB) is unchanged. They
+    are overridable because a developer's own instance has long since
+    changed the admin password — with the values hardcoded, running any
+    e2e locally meant either editing this file or resetting the real
+    user's credentials.
+    """
+    return {
+        'identifier': os.environ.get(
+            'E2E_ADMIN_IDENTIFIER', 'admin@vibe-seller.local'
+        ),
+        'password': os.environ.get('E2E_ADMIN_PASSWORD', 'admin'),
+    }
+
+
 def _task_log(task_id: str) -> logging.LoggerAdapter:
     """Logger adapter that annotates log records with task_id."""
     return logging.LoggerAdapter(_logger, {'task_id': task_id[:8]})
@@ -111,13 +128,7 @@ def get_distinct_providers() -> tuple[str, str]:
 
 def login(client: httpx.Client) -> dict:
     """Login and return user info. Sets auth cookie on client."""
-    resp = client.post(
-        f'{BASE_URL}/api/auth/login',
-        json={
-            'identifier': 'admin@vibe-seller.local',
-            'password': 'admin',
-        },
-    )
+    resp = client.post(f'{BASE_URL}/api/auth/login', json=admin_credentials())
     resp.raise_for_status()
     return resp.json()
 
@@ -144,11 +155,20 @@ def get_messages(client: httpx.Client, task_id: str) -> list[dict]:
 def create_store(
     client: httpx.Client,
     name: str,
+    timeout: float = 120.0,
     **kwargs,
 ) -> dict:
-    """Create a store via API."""
+    """Create a store via API.
+
+    ``timeout`` is generous on purpose. Creating a store initialises a
+    git workspace, snapshots skills, and writes the browser wrapper; on
+    a box that is also running an agent, that overruns the client's
+    30s default. The request still SUCCEEDS server-side, so a client
+    timeout leaves an orphan store behind and reads as a mysterious
+    ReadTimeout at the top of an unrelated test.
+    """
     payload = {'name': name, **kwargs}
-    resp = client.post(f'{BASE_URL}/api/stores', json=payload)
+    resp = client.post(f'{BASE_URL}/api/stores', json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 

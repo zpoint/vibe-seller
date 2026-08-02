@@ -17,6 +17,14 @@ import stat
 import sys
 import textwrap
 
+from app.browser.worker_slots import (
+    indent_block,
+    max_worker_slots,
+    worker_flag_arm,
+    worker_init_block,
+    worker_resolve_block,
+    worker_session_regex_fragment,
+)
 from app.config import (
     BACKEND_PORT,
     BH_RUNTIME_DIR,
@@ -88,6 +96,21 @@ def write_web_browser_use_wrapper(
             f'\n                  -H "Authorization: Bearer {api_token}" \\'
         )
 
+    # Parallel worker slots — identical contract to the per-store
+    # wrapper (see app/browser/worker_slots.py). An orchestrator task
+    # that fans work out to concurrent subagents needs the same
+    # separate-daemon/separate-mux-client guarantee on the web browser.
+    slots = max_worker_slots()
+    worker_init = indent_block(worker_init_block(slots), 8)
+    worker_arm = indent_block(worker_flag_arm(slots), 12)
+    worker_resolve = indent_block(worker_resolve_block(slots), 8)
+    worker_re = worker_session_regex_fragment(slots)
+    worker_tail = f'({worker_re})?' if worker_re else ''
+    session_re = f'^web(-[0-9a-fA-F]{{8}})?{worker_tail}$'
+    session_help = 'web, web-{8-hex-chars}' + (
+        f', + optional -w1..-w{slots} worker tail' if slots else ''
+    )
+
     script = textwrap.dedent(f"""\
         #!/usr/bin/env bash
         # Auto-generated browser-use wrapper for the orchestrator web
@@ -124,18 +147,23 @@ def write_web_browser_use_wrapper(
           SESSION="web"
         fi
 
+        # Parallel worker slots (--worker N). Declared before the arg
+        # loop so `set -u` holds even when the flag is absent.
+        {worker_init}
         # 0.13 has no subcommands — the agent pipes Python via stdin
         # (heredoc) or -c. Intercept only the isolation-relevant flags.
         PASSTHROUGH=()
         while [ $# -gt 0 ]; do
           case "$1" in
+            {worker_arm}
             --session|--session=*)
               case "$1" in
                 --session) shift; _REQ_SESSION="${{1:-}}"; shift ;;
                 *)         _REQ_SESSION="${{1#--session=}}"; shift ;;
               esac
+              _SESSION_GIVEN=1
               if [ -n "${{VIBE_TASK_ID:-}}" ]; then
-                echo "ERROR: --session is auto-assigned per task ($SESSION)." >&2
+                echo "ERROR: --session is auto-assigned per task ($SESSION). Use --worker N for a parallel slot." >&2
                 exit 1
               fi
               SESSION="$_REQ_SESSION"
@@ -163,9 +191,11 @@ def write_web_browser_use_wrapper(
           esac
         done
 
-        # Validate session format: web or web-{{8 hex chars}}
-        if [[ ! "$SESSION" =~ ^web(-[0-9a-fA-F]{{8}})?$ ]]; then
-            echo "ERROR: session '$SESSION' not allowed. Allowed: web, web-{{8-hex-chars}}" >&2
+        {worker_resolve}
+        # Validate session format: web / web-{{8hex}}, optionally with a
+        # `-w<N>` parallel-worker tail.
+        if [[ ! "$SESSION" =~ {session_re} ]]; then
+            echo "ERROR: session '$SESSION' not allowed. Allowed: {session_help}" >&2
             exit 1
         fi
 
@@ -203,9 +233,11 @@ def write_web_browser_use_wrapper(
 
         # Inject the CDP endpoint + daemon identity as env vars. Each task
         # connects via CDPMuxProxy under its own client id (VIBE_TASK_ID)
-        # for tab isolation.
+        # for tab isolation; $WORKER_SUFFIX (`-w<N>` or empty) extends
+        # that to each parallel worker slot, and lands on BOTH the daemon
+        # name and the client id so the two can never disagree.
         export BU_NAME="$SESSION"
-        CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}"
+        CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}${{WORKER_SUFFIX}}"
         export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}"
 
         # Wedge recovery: bound each call with a hard timeout (perl alarm;

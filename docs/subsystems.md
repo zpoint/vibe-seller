@@ -242,11 +242,20 @@ Persistent per-account email storage with background sync and SMTP send capabili
 
 ## Browser & Task Concurrency
 
-**Concurrent per-store execution**: Multiple tasks for the same store can run concurrently (up to the proxy's `max_clients` connection limit, default 5 per CDPMuxProxy instance) when they share the same platform/country. The `CDPMuxProxy` provides per-task isolation within a single browser session via request ID rewriting and session-based event routing. Tasks that share the same platform but target different countries are queued since Ziniao needs to switch country; all other combinations run concurrently.
+**Concurrent per-store execution**: Multiple tasks for the same store can run concurrently (up to the proxy's `max_clients` connection limit, default 16 per CDPMuxProxy instance) when they share the same platform/country. The `CDPMuxProxy` provides per-task isolation within a single browser session via request ID rewriting and session-based event routing. Tasks that share the same platform but target different countries are queued since Ziniao needs to switch country; all other combinations run concurrently.
 
 **Dispatch**: All store-task launch paths (create, retry, continue, execute-plan) route through `_schedule_or_run()` which submits to `TaskQueueScheduler` when it's running.  No-store tasks launch directly.  The scheduler uses `can_schedule()` to gate by platform/country compatibility (`RUN`, `RUN_IN_NEW_TAB`, or `QUEUE`).
 
-**Per-task daemon sessions**: Each task gets its own browser-use daemon session, named via the `BU_NAME` env var (0.13): `{slug}-{VIBE_TASK_ID[:8]}`. CDPMuxProxy is the primary isolation mechanism — each task connects with a unique client ID (`/client-{task_id}`, injected as `BU_CDP_WS`) and receives isolated CDP sessions via request ID rewriting and session-based event routing. The wrapper validates the session name via regex (`^{slug}(-aux|-{8hex})?$`).
+**Per-task daemon sessions**: Each task gets its own browser-use daemon session, named via the `BU_NAME` env var (0.13): `{slug}-{VIBE_TASK_ID[:8]}`. CDPMuxProxy is the primary isolation mechanism — each task connects with a unique client ID (`/client-{task_id}`, injected as `BU_CDP_WS`) and receives isolated CDP sessions via request ID rewriting and session-based event routing. The wrapper validates the session name via regex (`^{slug}(-aux|(-{8hex})?(-w{N})?)$`).
+
+**Parallel workers within one task**: a task's *subagents* share its process and therefore its `VIBE_TASK_ID`, so two of them driving the browser at once would land on one daemon and one tab. `browser-use --worker N` gives each concurrent driver its own daemon (`{slug}-{task[:8]}-wN`) and its own mux client (`client-{task}-wN`) on the same logged-in browser. The bound is `VIBE_BROWSER_WORKER_SLOTS` (default 3, `0` disables); the parent agent assigns the numbers. See [browser.md § Parallel workers](browser.md#parallel-workers--browser-use---worker-n).
+
+> **These bounds multiply.** One store's proxy serves
+> `MAX_AGENT_CONCURRENCY × (1 + VIBE_BROWSER_WORKER_SLOTS) + 1 aux` clients
+> — 9 at the defaults, against a cap of 16. `max_agent_concurrency` is
+> user-settable up to 10 from Settings, and nothing recomputes the cap, so
+> a high setting combined with worker slots can exhaust it on a single
+> store and get clients refused with close code 4029.
 
 **Ziniao guard (account conflict)**: Only one Ziniao account can be active per machine (one Ziniao process). Multiple *profiles* (different `browserOauth`) on the same account work fine — each gets a unique `debuggingPort` and CDP proxy. But if store A uses Ziniao account #1 and store B uses account #2, store B's task will fail with a clear error: "Store(s) [Store A] are using a different Ziniao account. Stop the browser session first." Chrome stores have no such account restriction (but still use CDPMuxProxy for shared browser and cookie persistence).
 
