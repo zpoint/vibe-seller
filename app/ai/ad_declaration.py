@@ -122,8 +122,7 @@ def campaign_in_scope(scope: dict | None, campaign_id: str) -> bool:
 
 def _combo_keys(scope: dict | None) -> set[tuple[str, str]]:
     return {
-        (c['platform'], c['country'])
-        for c in (scope or {}).get('combos') or []
+        (c['platform'], c['country']) for c in (scope or {}).get('combos') or []
     }
 
 

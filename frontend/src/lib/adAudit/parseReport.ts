@@ -358,4 +358,3 @@ export function parseReport(md: string): AuditDoc {
   }
   return { sections, summary: parseSummary(summary) }
 }
-

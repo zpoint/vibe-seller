@@ -63,7 +63,7 @@ class TestBrowserEnvOwnership:
         )
         marker = 'def build_store_context('
         assert marker in src, 'build_store_context moved — update this test'
-        body = src[src.index(marker):]
+        body = src[src.index(marker) :]
         rule = body.count('Do NOT set or regenerate `VIBE_TASK_ID`')
         assert rule >= 2, (
             'both the single-store and all-stores context blocks must '
