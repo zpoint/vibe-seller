@@ -49,14 +49,21 @@ export function declarationFor(
 ): AdDeclaration | null {
   if (!decls?.length) return null
   const at = timestamp ? Date.parse(timestamp) : NaN
-  if (!Number.isNaN(at)) {
-    const eligible = decls.filter((d) => {
-      const t = Date.parse(d.created_at)
-      return Number.isNaN(t) || t <= at
-    })
-    if (eligible.length) return eligible[eligible.length - 1]
-  }
-  return decls[decls.length - 1]
+  // No usable timestamp — a synthetic stamp, or none at all. "Latest" is
+  // the only answer available and the right one for a single collapsed
+  // result item.
+  if (Number.isNaN(at)) return decls[decls.length - 1]
+  const eligible = decls.filter((d) => {
+    const t = Date.parse(d.created_at)
+    return Number.isNaN(t) || t <= at
+  })
+  // A real timestamp with NO declaration in force at that moment means
+  // this result predates any ad work — so it gets no console. Falling
+  // back to the latest here put a second, wrong console on turn 1's
+  // revenue answer as soon as earlier results started rendering in their
+  // own right: turn 2's audit declaration was retroactively applied to a
+  // result produced before it existed.
+  return eligible.length ? eligible[eligible.length - 1] : null
 }
 
 /**

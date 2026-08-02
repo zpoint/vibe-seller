@@ -109,6 +109,16 @@ describe('binding a result to its phase', () => {
     expect(declarationFor([created, audited], 'not-a-date')?.seq).toBe(2)
   })
 
+  it('a result produced BEFORE any declaration gets none', () => {
+    // Turn 1 answers "how much did we sell today?" and finishes before
+    // the ad-audit turn exists. Falling back to the latest declaration
+    // here painted a second console onto that answer.
+    expect(declarationFor([created, audited], '2026-08-01T09:00:00Z')).toBeNull()
+    expect(
+      opensConsole(declarationFor([audited], '2026-08-01T09:00:00Z')),
+    ).toBe(false)
+  })
+
   it('returns null when the task never declared anything', () => {
     expect(declarationFor([], '2026-08-01T13:00:00Z')).toBeNull()
     expect(declarationFor(undefined, '2026-08-01T13:00:00Z')).toBeNull()
