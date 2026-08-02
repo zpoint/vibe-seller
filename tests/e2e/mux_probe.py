@@ -60,9 +60,29 @@ class ClientTrace:
 
     @property
     def window(self) -> tuple[datetime, datetime] | None:
+        """Span of OBSERVED log events — not the same as being live."""
         if not self.events:
             return None
         return min(self.events), max(self.events)
+
+    def live_intervals(
+        self, log_end: datetime
+    ) -> list[tuple[datetime, datetime]]:
+        """When this client was actually CONNECTED.
+
+        A client is live from connect until its matching disconnect,
+        whether or not it happens to log anything in between. Using the
+        span of observed events instead makes a client that connects,
+        opens one tab and goes quiet look zero-width — so an honest
+        three-way overlap reads as "never concurrent". Ask the
+        connect/disconnect record, not the chatter.
+        """
+        out: list[tuple[datetime, datetime]] = []
+        ds = sorted(self.disconnects)
+        for start in sorted(self.connects):
+            end = next((d for d in ds if d >= start), log_end)
+            out.append((start, end))
+        return out
 
 
 @dataclass
@@ -72,6 +92,7 @@ class MuxTrace:
     rejections: list[str] = field(default_factory=list)
     cross_client_denials: int = 0
     peak_total: int = 0
+    last_ts: datetime | None = None
 
     def for_task(self, task_id: str) -> dict[str, ClientTrace]:
         """Clients belonging to one task: the main one and its slots.
@@ -87,16 +108,23 @@ class MuxTrace:
         }
 
     def concurrent_at_any_instant(self, ids: list[str]) -> bool:
-        """True if every id in ``ids`` had activity inside one window.
+        """True if all ``ids`` were connected at one same moment.
 
-        Uses the tightest overlap of their activity spans, which is the
-        strongest statement the log supports: connect/disconnect alone
-        would count a client that connected and went idle.
+        Sweeps the candidate instants (every interval start) and asks
+        whether some instant falls inside a live interval of EVERY id.
         """
-        wins = [self.clients[i].window for i in ids if i in self.clients]
-        if len(wins) != len(ids) or any(w is None for w in wins):
+        if not ids or any(i not in self.clients for i in ids):
             return False
-        return max(w[0] for w in wins) <= min(w[1] for w in wins)
+        end = self.last_ts or datetime.max
+        spans = {i: self.clients[i].live_intervals(end) for i in ids}
+        if any(not v for v in spans.values()):
+            return False
+        for candidate in sorted(s for v in spans.values() for s, _ in v):
+            if all(
+                any(a <= candidate <= b for a, b in v) for v in spans.values()
+            ):
+                return True
+        return False
 
 
 def _ts(day: str, ms: str) -> datetime:
@@ -128,6 +156,7 @@ def parse(log_path: Path, since: datetime | None = None) -> MuxTrace:
             when = _ts(m.group(1), m.group(2))
             if since and when < since:
                 continue
+            tr.last_ts = when
             body = m.group(3)
             if c := _CONNECT.search(body):
                 t = get(c.group(1))

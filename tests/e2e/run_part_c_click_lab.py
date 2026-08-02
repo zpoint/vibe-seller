@@ -24,7 +24,10 @@ to 5 concurrent clients, which is exactly where the old
 **On slot numbers.** The task text never names a slot. Assignment is the
 parent's job, and putting ``--worker 2`` in a task description would
 test the agent's copy-paste rather than the guidance. So the check is
-"three DISTINCT slots, all isolated", not "slots 2, 3 and 4".
+"three DISTINCT concurrent clients, all isolated" — not particular slot
+numbers, and not even that all three ARE slots: a parent may keep the
+bare client for its own page and hand slots to its two helpers, or take
+a slot itself. Both have been observed; both are correct.
 """
 
 from __future__ import annotations
@@ -226,10 +229,21 @@ def verify(task_id: str, status: str, args) -> int:
         f'  clients: main={len(mains)} slots={slots} peak_total={tr.peak_total}'
     )
 
-    if len(slots) < 3:
-        fails.append(f'expected 3 distinct slots, saw {slots}')
-    if not mains:
-        fails.append('no main client')
+    # THREE CONCURRENT DRIVERS — not three slots. A parent that keeps
+    # the bare client for the page it took itself and hands slots to its
+    # two helpers is doing exactly what was asked; so is one that puts
+    # itself on a slot too. Both were observed. What must hold is that
+    # each driver got its own isolated client.
+    if len(fam) < 3:
+        fails.append(
+            f'expected 3 concurrent clients, saw {sorted(fam)} '
+            f'(slots={slots}, main={len(mains)})'
+        )
+    if not slots:
+        fails.append(
+            'no worker slots used at all — the agent drove everything on '
+            'one client, which is the interference this feature prevents'
+        )
     if tr.collisions:
         fails.append(f'client id collisions: {tr.collisions}')
     if tr.rejections:
