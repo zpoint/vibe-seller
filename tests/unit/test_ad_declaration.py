@@ -14,6 +14,7 @@ impossible: the obligation comes from what the phase DECLARED before
 working, not from the shape of the prose it produced afterwards.
 """
 
+import json
 import pathlib
 
 import pytest
@@ -36,7 +37,7 @@ def _setup(monkeypatch, tmp_path, task_id, *, declare=None, targets=None):
     tdir = tmp_path / 'tasks' / task_id
     tdir.mkdir(parents=True, exist_ok=True)
     if targets is not None:
-        ad_scope.write_declared_targets(tdir, targets)
+        ad_scope.write_declared_targets(tdir, targets, slug='acme')
     if declare is not None:
         ad.write_declaration_file(task_id, declare[0], declare[1])
     acr.reset_progress(task_id)
@@ -400,3 +401,92 @@ class TestTheDocsAgreeWithTheObligationRule:
                 f'{d} never mentions the declaration, so an agent reading '
                 'only this file has no way to know what bounds its scope'
             )
+
+
+class TestAScopedAuditIsNotAShrinkingMarket:
+    """Naming your campaigns is not under-enumerating the marketplace.
+
+    The shrink check challenges an `active_ids` count below half the
+    campaigns the store has historical TSVs for — it caught a real
+    under-enumeration (12 campaigns declared as 4 because a script
+    silently skipped unreadable TSVs). But it compared against the whole
+    market's history with no idea the phase had DECLARED a subset.
+
+    Observed live: "just the women's socks on Amazon SA" is a handful of
+    campaigns in a market with 22 historical TSVs, so a correct scope
+    read as a collapse and the agent was told to re-enumerate a market
+    nobody asked about.
+    """
+
+    _REPORT_ROWS = (
+        '### 600000000001 | acme socks manual | Manual\n\n'
+        '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
+        '| widget red | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
+        '该活动类型无搜索词报告（SD）。\n'
+    )
+
+    def _setup_history(self, monkeypatch, tmp_path, task_id, *, declare):
+        tdir = _setup(
+            monkeypatch,
+            tmp_path,
+            task_id,
+            declare=declare,
+            targets={'amazon': ['SA']},
+        )
+        # The shrink check only runs once a combo has an authoritative
+        # active-id list to compare against.
+        (tdir / 'AUDIT_SCOPE.json').write_text(
+            json.dumps({
+                'combos': [
+                    {
+                        'platform': 'amazon',
+                        'country': 'SA',
+                        'active_ids': ['600000000001'],
+                        'total_active': 1,
+                        'total_active_source': 'chip:Live 1',
+                    }
+                ]
+            }),
+            encoding='utf-8',
+        )
+        # A market with a long history: 22 campaigns ever audited.
+        # prior_campaign_tsvs reads the legacy `stores/` tree only —
+        # see the note in the module docstring about the two trees.
+        d = tmp_path / 'stores' / 'acme' / 'ads' / 'amazon' / 'sa'
+        d.mkdir(parents=True, exist_ok=True)
+        for i in range(22):
+            (d / f'{600000000000 + i}.tsv').write_text('x', encoding='utf-8')
+        return tmp_path
+
+    def test_naming_campaigns_silences_the_shrink_challenge(
+        self, monkeypatch, tmp_path
+    ):
+        scope = {
+            'combos': [{'platform': 'amazon', 'country': 'SA'}],
+            'campaigns': ['600000000001'],
+        }
+        self._setup_history(
+            monkeypatch, tmp_path, 't-scoped-shrink', declare=('audit', scope)
+        )
+        gaps = _gaps(
+            '## amazon SA\n\n**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
+            + self._REPORT_ROWS,
+            't-scoped-shrink',
+        )
+        assert not any('不到历史的一半' in g for g in gaps), gaps
+
+    def test_a_whole_market_audit_is_still_challenged(
+        self, monkeypatch, tmp_path
+    ):
+        # The protection this must not cost us: no campaign list means
+        # the whole market, and one active out of 22 is worth querying.
+        scope = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+        self._setup_history(
+            monkeypatch, tmp_path, 't-wide-shrink', declare=('audit', scope)
+        )
+        gaps = _gaps(
+            '## amazon SA\n\n**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
+            + self._REPORT_ROWS,
+            't-wide-shrink',
+        )
+        assert any('不到历史的一半' in g for g in gaps), gaps
