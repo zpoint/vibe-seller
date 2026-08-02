@@ -5,8 +5,13 @@ import { useSessionKeepalive } from '../useSessionKeepalive'
 // Mock the shared API client — we only assert which endpoint each tick
 // hits. The 401 → AUTH_EXPIRED_EVENT behavior lives in api.ts and is
 // covered by apiAuthExpired.test.ts.
-const get = vi.fn(() => Promise.resolve({}))
-const post = vi.fn(() => Promise.resolve({}))
+// Typed to ACCEPT arguments even though the body ignores them: the
+// forwarders below spread the real call's arguments in, and a
+// zero-arity mock cannot be spread into. The assertions then read those
+// arguments back off `.mock.calls`.
+type ApiCall = (...args: unknown[]) => Promise<object>
+const get = vi.fn<ApiCall>(() => Promise.resolve({}))
+const post = vi.fn<ApiCall>(() => Promise.resolve({}))
 vi.mock('../../api', () => ({ api: { get: (...a: unknown[]) => get(...a), post: (...a: unknown[]) => post(...a) } }))
 
 describe('useSessionKeepalive', () => {

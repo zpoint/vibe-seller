@@ -8,7 +8,8 @@ import { initReactI18next } from 'react-i18next'
 import { createRef } from 'react'
 import enTranslation from '../i18n/locales/en/translation.json'
 import { ConversationStream } from '../components/conversation/ConversationStream'
-import type { Task, ConversationItem, ConversationItemType, PlanVersion, TodoItem, TaskStep } from '../types'
+import type { Task, ConversationItem, TodoItem, TaskStep } from '../types'
+import { makeTask } from './factories'
 
 // ── i18n test instance ─────────────────────────────────
 
@@ -21,74 +22,11 @@ i18nTestInstance.use(initReactI18next).init({
 })
 
 // ── Factories ──────────────────────────────────────────
+//
+// Defined in `./factories` (no rendering imports, so hook tests can use
+// them too) and re-exported here for the render-helper callers.
 
-let _idCounter = 0
-
-export function makeTask(overrides: Partial<Task> = {}): Task {
-  return {
-    id: `task-${++_idCounter}`,
-    store_id: null,
-    title: 'Test Task',
-    description: null,
-    status: 'pending',
-    plan: null,
-    result: null,
-    todos: null,
-    wait_condition: null,
-    error: null,
-    plan_mode: false,
-    ai_profile_id: null,
-    schedule_id: null,
-    batch_id: null,
-    created_at: new Date().toISOString(),
-    started_at: null,
-    completed_at: null,
-    ...overrides,
-  }
-}
-
-export function makePlan(overrides: Partial<PlanVersion> = {}): PlanVersion {
-  return {
-    version: 1,
-    content: '## Plan\n1. Step one\n2. Step two',
-    isCurrent: true,
-    ...overrides,
-  }
-}
-
-export function makeConversationItem(
-  type: ConversationItemType,
-  overrides: Partial<ConversationItem> = {},
-): ConversationItem {
-  const base: ConversationItem = {
-    id: `item-${++_idCounter}`,
-    type,
-    timestamp: new Date().toISOString(),
-  }
-
-  if (type === 'plan') {
-    base.plan = makePlan()
-  } else if (type === 'user_message') {
-    base.message = { role: 'user', content: 'Hello' }
-  } else if (type === 'agent_message') {
-    base.message = { role: 'assistant', content: 'Working on it...' }
-  } else if (type === 'streaming') {
-    base.message = { role: '_streaming', content: 'typing...' }
-  } else if (type === 'result') {
-    base.result = 'Task completed successfully'
-  } else if (type === 'question') {
-    base.questions = {
-      request_id: 'q1',
-      questions: [{ question: 'Which option?', options: [{ label: 'A' }, { label: 'B' }] }],
-    }
-  } else if (type === 'tool_call') {
-    base.toolCall = { tool: 'Read', input: { file_path: 'app/models.py' } }
-  } else if (type === 'thinking') {
-    base.thinking = { content: 'Analyzing the code...', isStreaming: false }
-  }
-
-  return { ...base, ...overrides }
-}
+export { makeTask, makePlan, makeConversationItem } from './factories'
 
 // ── ConversationStream render helper ───────────────────
 

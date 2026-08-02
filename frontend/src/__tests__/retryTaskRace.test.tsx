@@ -28,32 +28,21 @@ import { renderHook, act } from '@testing-library/react'
 import { useState } from 'react'
 import { retryTask } from '../handlers/retryTask'
 import type { Task } from '../types'
+import { makeTask as baseTask } from '../test/factories'
 
 function makeTask(
   id: string,
   status: Task['status'] = 'failed',
   extra: Partial<Task> = {},
 ): Task {
-  return {
+  return baseTask({
     id,
-    store_id: null,
     title: `T-${id}`,
-    description: null,
     status,
-    plan: null,
-    result: null,
-    todos: null,
-    wait_condition: null,
-    error: null,
-    plan_mode: false,
     ai_profile_id: 'profile-old',
-    schedule_id: null,
-    batch_id: null,
     created_at: '',
-    started_at: null,
-    completed_at: null,
     ...extra,
-  }
+  })
 }
 
 function useHarness(initial: Task[]) {

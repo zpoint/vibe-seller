@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useSSE } from '../hooks/useSSE'
 import type { Task } from '../types'
+import { makeTask as baseTask } from '../test/factories'
 
 /* ── EventSource mock ─────────────────────────────── */
 
@@ -35,13 +36,7 @@ function emit(data: Record<string, unknown>) {
 /* ── Minimal params factory ───────────────────────── */
 
 function makeTask(id: string, status = 'pending'): Task {
-  return {
-    id, store_id: null, title: 'T', description: null,
-    status, plan: null, result: null, todos: null,
-    wait_condition: null, error: null, plan_mode: false,
-    ai_profile_id: null, schedule_id: 's1', batch_id: null,
-    created_at: '', started_at: null, completed_at: null,
-  }
+  return baseTask({ id, title: 'T', status, schedule_id: 's1', created_at: '' })
 }
 
 function makeParams(overrides: Record<string, unknown> = {}) {
@@ -87,7 +82,10 @@ describe('SSE task_update patches scheduleTasks', () => {
 
     // Verify the mapper produces the right status
     const task = makeTask('t1')
-    const tasksMapper = params.setTasks.mock.calls[0][0] as (prev: Task[]) => Task[]
+    // `makeParams` casts to useSSE's prop type, so these read as plain
+    // setters rather than mocks — same cast as setScheduleTasks below.
+    const tasksMapper = (params.setTasks as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0] as (prev: Task[]) => Task[]
     expect(tasksMapper([task])[0].status).toBe('running')
 
     const schedMapper = (params.setScheduleTasks as ReturnType<typeof vi.fn>)
