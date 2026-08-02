@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -47,6 +48,10 @@ from tests.e2e.click_lab import (  # noqa: E402
 )
 from tests.e2e.mux_probe import parse  # noqa: E402
 
+# Must match the host the cookie was minted for: a jar saved against
+# 127.0.0.1 is NOT sent to "localhost", and the request then arrives
+# unauthenticated with no hint as to why.
+BASE = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7777')
 DB = Path.home() / '.vibe-seller' / 'data' / 'vibe_seller.db'
 LOG = Path('logs/backend.log')
 PAGES = (1, 2, 3)
@@ -68,7 +73,7 @@ def _curl(method: str, path: str, cookie: str, body: dict | None = None):
         cookie,
         '-X',
         method,
-        f'http://localhost:7777{path}',
+        f'{BASE}{path}',
     ]
     if body is not None:
         cmd += ['-H', 'Content-Type: application/json', '-d', json.dumps(body)]
