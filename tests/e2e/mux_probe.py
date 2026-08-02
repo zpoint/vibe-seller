@@ -158,10 +158,10 @@ def parse(log_path: Path, since: datetime | None = None) -> MuxTrace:
 def assert_slots_isolated(
     tr: MuxTrace, task_id: str, expected_slots: set[int]
 ) -> dict[str, ClientTrace]:
-    """Assert one task's main client and slots ran isolated and live.
+    """Assert a task's concurrent browser clients ran isolated and live.
 
     Returns the traces so a caller can make further, test-specific
-    assertions (e.g. joining agent timestamps onto client windows).
+    assertions (e.g. mapping subagents onto slots).
     """
     fam = tr.for_task(task_id)
     slots = {c.slot for c in fam.values() if c.slot is not None}
@@ -171,8 +171,16 @@ def assert_slots_isolated(
         'agent never used --worker, which means the prompt/skill '
         'guidance regressed, not the plumbing'
     )
+    # Deliberately NOT "there must be a bare main client". A parent that
+    # fans work out is free to take a slot for itself too, leaving every
+    # driver symmetric on -w1/-w2/-w3 and the bare id unused — observed
+    # in a real run, and arguably the tidier pattern. What has to hold
+    # is that each concurrent driver got its OWN client.
+    assert len(fam) >= 2, (
+        f'expected several concurrent clients for task {task_id[:8]}, '
+        f'saw {sorted(fam)}'
+    )
     mains = [c for c in fam.values() if c.slot is None]
-    assert mains, f'no main client for task {task_id[:8]}'
 
     # Guard against a FALSE pass on a pre-`short_cid` log. Those logs
     # truncate ownership lines to the bare head, so every worker's tabs
