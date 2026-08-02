@@ -133,6 +133,17 @@ class ClaudeCodeBackend(AIAgentBackend):
                 skip_reflection=skip_reflection,
                 persist_prompt=persist_prompt,
             )
+            # Carry per-TASK hook state from the previous turn. A
+            # follow-up comes through HERE, not through
+            # ``retry_without_resume`` — patching only that path left the
+            # common case broken. Observed live: a two-turn ad task read
+            # its store catalog in turn 1 and was denied three times in
+            # turn 2 for searching `stores/`, told to read the catalog it
+            # had already read.
+            prior_session = self._sessions.get(task_id)
+            if prior_session is not None:
+                session._catalog_read = prior_session._catalog_read
+                session._loaded_skills = set(prior_session._loaded_skills)
             if resume:
                 async with async_session() as db:
                     task = await db.get(Task, task_id)
