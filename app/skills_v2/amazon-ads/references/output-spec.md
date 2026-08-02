@@ -8,27 +8,41 @@ round. **Partial is accepted** — you don't have to be perfect in one
 pass; fix what the reviewer reports and re-submit. The report improves
 each round until the gaps are gone.
 
-## Scope is fixed by `AUDIT_TARGETS.json` — read it FIRST
+## Scope is fixed by your DECLARATION — `AUDIT_TARGETS.json` is the menu
 
-Which marketplaces the audit owes is **not** your call, and it is **not
-the task description's call either**. Before you start, the server writes
-`AUDIT_TARGETS.json` at the task-workspace root — `{"combos": [{"platform": "amazon", "country": "SA"}, …]}`,
-every marketplace the store is configured for in Settings. Read it at
-the START of Phase 1 and let it drive the enumeration loop: **every
-combo it lists needs its own `AUDIT_SCOPE.json` entry AND its own
-`## <Platform> <Country>` section here.**
+Before you start, the server writes `AUDIT_TARGETS.json` at the
+task-workspace root — `{"combos": [{"platform": "amazon", "country":
+"SA"}, …]}`, every marketplace the store is configured for in Settings.
+That file is the **menu**: what exists, kept current from store config.
 
-**A market list in the task title, description or plan does NOT narrow
-this.** Those are prose, often written once and reused across stores, and
-they go stale the moment a store adds a marketplace in Settings —
-`AUDIT_TARGETS.json` is regenerated from that config on every run, so it
-is the only list that is current. Seen live: a weekly schedule whose
-description said "SA+AE" ran for a store since configured for SA+AE+AU;
-the agent read the prose, announced it would skip AU, and would have been
-denied for a missing combo it had been told twice to skip. If the two
-disagree, `AUDIT_TARGETS.json` wins and the description is out of date —
-audit every declared combo and note the discrepancy in the report rather
-than silently dropping a market.
+What you **owe** comes from your `vibe_seller_declare_ad_task` call:
+
+* declared `combos` → exactly those, each with its own
+  `AUDIT_SCOPE.json` entry AND its own `## <Platform> <Country>` section
+  here;
+* no `combos` declared (a whole-store audit) → every combo in the menu.
+
+**A market list in the task title, description or plan still does NOT
+narrow this.** Those are prose, often written once and reused across
+stores, and they go stale the moment a store adds a marketplace. Seen
+live: a weekly schedule whose description said "SA+AE" ran for a store
+since configured for SA+AE+AU; the agent read the prose, announced it
+would skip AU, and would have been denied for a missing combo it had
+been told twice to skip.
+
+A **declaration** is not that. It is a structured, server-validated
+record of what the person asked for in THIS conversation, made before
+you looked at anything — so it cannot be a stale artefact of an earlier
+store shape. Trust it, and only it.
+
+**Do not audit past your declaration because the menu is longer.** A
+user who says "just the SA women's socks, leave the other sites" gets
+exactly that; the other four marketplaces are work nobody asked for, and
+reporting on them is an out-of-scope gap. Seen live: a scoped request was
+inflated into a five-marketplace audit — about thirty extra campaigns —
+because this section said the menu won. If you believe the declared scope
+is wrong, say so in your result and let the user widen it. You may not
+widen it yourself.
 
 A combo with genuinely no live campaigns is still written down — an
 entry with `"active_ids": []` and `"total_active": 0`, plus its section
@@ -415,9 +429,64 @@ override — see tuning-thresholds.md.)
 Two TSVs per drilled active campaign, written right after drilling that
 campaign, before the next (survives compaction):
 
-- `stores/<slug>/ads/<platform>/<country>/<campaign_id>.tsv` — the
+
+### The TSV is also the change record
+
+The per-campaign TSVs are not just this run's output — they are the only
+history of what has actually been DONE to a campaign. They live in a
+git-backed workspace, so the file's own history is the audit trail; there
+is no separate ledger, and nothing can drift out of sync with the data it
+annotates.
+
+Three columns carry it, and **only an execution pass writes them** — an
+audit that merely suggests must leave them exactly as it found them:
+
+| column | meaning |
+|---|---|
+| `applied_action` | what was actually done (`提高出价` / `否定关键词` …) |
+| `applied_at` | ISO date it was applied |
+| `previous_bid` | the value replaced, so `(previous_bid, bid)` is the old→new |
+
+**Write them only AFTER the change is confirmed live.** Read the new
+value back from the console first; only then fill the columns. Writing
+them on intent — before driving the browser — means a failed apply leaves
+the record asserting a change the account never saw, and because the next
+audit reads this file, that phantom entry silently freezes a target for a
+whole cooldown window. The server cross-checks every same-day
+`applied_action` against `EXECUTION_LOG.md` and refuses a submission that
+claims more than the log backs.
+
+**Carry them forward.** When a later audit rewrites a campaign's TSV,
+rows it did not change keep whatever `applied_*` they already had.
+Dropping them silently erases the fact that a target was touched, and the
+next audit will happily adjust it again.
+
+### Do not re-adjust a target inside its cooldown
+
+A bid moved two days ago has two days of data behind it. Moving it again
+is not tuning — it is reacting to noise the change has not had time to
+produce, and it destroys the evidence for the first move: afterwards
+nobody can say which adjustment caused what.
+
+So within `change_cooldown_days` (default 7, per-store overridable in the
+store's `notes.md`) of an `applied_at`, the recommendation for that target
+is **维持**, and the reason must name the change and its age — e.g.
+`维持（2 天前刚提过价，冷却期未满，等满一周数据再判断）`. A bare `维持`
+is not enough: it is indistinguishable from the agent simply not having
+noticed. Outside the window, judge it on the data as usual.
+
+> **Path:** these live under `store-data/<slug>/ads/…`, NOT `stores/`.
+> Every task's system prompt routes durable run data to `store-data/`
+> and reserves `stores/` for curated knowledge. This spec used to say
+> `stores/`, and the two instructions genuinely conflicted: consecutive
+> executions of the same campaign wrote to different trees, so the change
+> record split in half and the cooldown check read a stale copy. Use
+> `store-data/` — the server reads both so older history is not lost, but
+> new writes go to one place.
+
+- `store-data/<slug>/ads/<platform>/<country>/<campaign_id>.tsv` — the
   targeting/keyword table.
-- `stores/<slug>/ads/<platform>/<country>/<campaign_id>.searchterms.tsv`
+- `store-data/<slug>/ads/<platform>/<country>/<campaign_id>.searchterms.tsv`
   — the FULL search-term set (every row of the Export CSV / Customer
   Queries, not just the top-20 shown in the report).
 
@@ -575,7 +644,7 @@ lists them as gaps:
      Central → Brands → Brand Analytics; the brand auto-fills). Pull it.
    - **Cross-platform / same-SKU comparison** (a SKU's Amazon vs noon
      performance; the same SKU across SP campaigns) — do it this session
-     using the TSVs you've written under `stores/<slug>/ads/`.
+     using the TSVs you've written under `store-data/<slug>/ads/`.
    The reviewer flags these excuse phrases.
 
 ## What "missing is acceptable" means

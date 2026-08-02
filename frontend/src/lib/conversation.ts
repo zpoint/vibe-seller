@@ -16,7 +16,6 @@ export function buildConversationItems(
   task: Task,
 ): ConversationItem[] {
   const convItems: ConversationItem[] = []
-  let hasSeenResult = false
   for (const m of msgs) {
     const ts = m.created_at || new Date().toISOString()
     if (m.role === 'user') {
@@ -24,12 +23,13 @@ export function buildConversationItems(
     } else if (m.role === 'assistant') {
       convItems.push({ id: `hist-asst-${convItems.length}`, type: 'agent_message', timestamp: ts, message: { role: 'assistant', content: m.content } })
     } else if (m.role === 'result') {
-      if (!hasSeenResult) {
-        convItems.push({ id: `hist-result-${convItems.length}`, type: 'result', timestamp: ts, result: m.content })
-        hasSeenResult = true
-      } else {
-        convItems.push({ id: `hist-asst-${convItems.length}`, type: 'agent_message', timestamp: ts, message: { role: 'assistant', content: m.content } })
-      }
+      // EVERY turn's result is a result, in the position it was produced.
+      // Only the first used to qualify; later ones were demoted to plain
+      // assistant messages. A task now legitimately has several turns
+      // ("how much did we sell today?" then "review the socks ads"), and
+      // demoting the later ones put each answer somewhere other than
+      // under the question that asked for it.
+      convItems.push({ id: `hist-result-${convItems.length}`, type: 'result', timestamp: ts, result: m.content })
     } else if (m.role === 'tool_use') {
       try {
         const toolInfo = JSON.parse(m.content)
@@ -68,21 +68,36 @@ export function buildConversationItems(
   // The persisted role='result' messages are short transcript snippets
   // and must not win over task.result on history rebuild.
   if (task.result) {
-    const existingIdx = convItems.findIndex(i => i.type === 'result')
-    const finalResult = {
-      id: 'hist-result-final',
-      type: 'result' as const,
-      timestamp: new Date().toISOString(),
-      result: task.result,
+    // `task.result` is the LATEST turn's deliverable — authoritative, and
+    // possibly resolved from a file pointer that was never persisted as a
+    // message. So it refreshes the LAST result item, not the first.
+    //
+    // Replacing the FIRST one is what drew the newest answer above the
+    // question that asked for it: on a two-turn task the ad-audit console
+    // rendered between turn 1's question and turn 2's, reading as though
+    // it answered "how much did we sell today?". The earlier turn's own
+    // answer was displaced to the bottom of the thread as loose prose.
+    let lastIdx = -1
+    for (let i = convItems.length - 1; i >= 0; i--) {
+      if (convItems[i].type === 'result') { lastIdx = i; break }
     }
-    if (existingIdx >= 0) {
-      const stale = convItems[existingIdx]
-      convItems[existingIdx] = finalResult
-      if (stale.type === 'result' && stale.result) {
-        convItems.push({ id: `hist-asst-from-stale-result-${convItems.length}`, type: 'agent_message', timestamp: stale.timestamp, message: { role: 'assistant', content: stale.result } })
+    if (lastIdx >= 0) {
+      // Keep the replaced item's timestamp: the audit console binds a
+      // result to the declaration in force when it landed, so stamping
+      // "now" here would bind by rebuild time instead.
+      convItems[lastIdx] = {
+        id: 'hist-result-final',
+        type: 'result' as const,
+        timestamp: convItems[lastIdx].timestamp,
+        result: task.result,
       }
     } else {
-      convItems.push(finalResult)
+      convItems.push({
+        id: 'hist-result-final',
+        type: 'result' as const,
+        timestamp: new Date().toISOString(),
+        result: task.result,
+      })
     }
   }
   return convItems

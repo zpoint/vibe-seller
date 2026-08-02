@@ -358,19 +358,3 @@ export function parseReport(md: string): AuditDoc {
   }
   return { sections, summary: parseSummary(summary) }
 }
-
-/**
- * Whether a task result is an ad-audit report the console can render.
- *
- * Matched on STRUCTURE, not on a filename: the result the server hands the
- * frontend is the resolved markdown, and the deliverable has been renamed
- * more than once. A report needs at least one platform+marketplace section
- * with a drill-progress line — that pair is what the console reads.
- */
-export function looksLikeAuditReport(md: string | null | undefined): boolean {
-  if (!md || md.length < 200) return false
-  const hasCombo = md
-    .split(/^(?=## )/m)
-    .some((part) => COMBO_RE.test((part.split('\n')[0] || '').trim()))
-  return hasCombo && /drilled\s+\d+\/\d+\s+active/.test(md)
-}

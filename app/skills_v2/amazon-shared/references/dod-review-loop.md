@@ -60,9 +60,21 @@ CRITERIA (what "done" means):
 VERIFY BY (what to open and cross-check):
 {verify_by}
 
-Open the live source with the wrapper you were given:
-`export VIBE_TASK_ID=$(uuidgen | tr 'A-Z' 'a-z'); {wrapper} <<'PY' … PY`
-— use {wrapper} verbatim; if it doesn't run, report that as a gap, don't
+Open the live source with the wrapper you were given — call it
+directly, exactly as the main agent does:
+
+```bash
+{wrapper} <<'PY' … PY
+```
+
+Do NOT set `VIBE_TASK_ID` (or any other browser env var). The runtime
+already set it and the wrapper derives your session and CDP endpoint from
+it, so you land on the SAME logged-in browser the task is using and the
+page it opened is still there. Overriding it puts every call in a fresh,
+blank session: one live run paid 34 re-navigations and 122 sleeps that
+way.
+
+Use {wrapper} verbatim; if it doesn't run, report that as a gap, don't
 work around it. SAMPLE and cross-check: pick specific items the
 deliverable claims and confirm them against the live page / file. PROVE
 NEGATIVES BY LOOKING ("deleted", "empty", "0 errors", "all uploaded" must

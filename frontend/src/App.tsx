@@ -634,6 +634,29 @@ export default function App() {
       {/* Main content area */}
       {appView === 'tasks' ? (
         <TasksView
+          auditOpen={nav.auditOpen}
+          onOpenAudit={() =>
+            nav.taskId &&
+            navigate(
+              nav.storeId
+                ? {
+                    to: '/stores/$storeId/tasks/$taskId/audit',
+                    params: { storeId: nav.storeId, taskId: nav.taskId },
+                  }
+                : { to: '/tasks/$taskId/audit', params: { taskId: nav.taskId } },
+            )
+          }
+          onCloseAudit={() =>
+            nav.taskId &&
+            navigate(
+              nav.storeId
+                ? {
+                    to: '/stores/$storeId/tasks/$taskId',
+                    params: { storeId: nav.storeId, taskId: nav.taskId },
+                  }
+                : { to: '/tasks/$taskId', params: { taskId: nav.taskId } },
+            )
+          }
           onOpenVisionSetup={() => { setAppView('settings'); setSettingsTab('aiAgent') }}
           isMobile={isMobile} onOpenNav={() => setNavOpen(true)}
           taskPanelActive={!!taskPanelActive} taskPanelTitle={taskPanelTitle}

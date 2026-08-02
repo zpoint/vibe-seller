@@ -146,10 +146,22 @@ HOW TO VERIFY (principle-guided — you are capable; adapt to what you see)
   verify — informational lookup"). Do NOT invent work or force a report
   the user never asked for. The rest of this checklist applies only when
   there IS a report / recommendations to verify.
-- Open the live source of truth with the wrapper you were given:
-  `export VIBE_TASK_ID=$(uuidgen | tr 'A-Z' 'a-z'); {wrapper} <<'PY' … PY`
-  — the ad console, the campaign detail / Search-Terms page, or re-export
-  the bulk / Search Terms CSV. Use `{wrapper}` verbatim (absolute path);
+- Open the live source of truth — the ad console, the campaign detail /
+  Search-Terms page, or a fresh bulk / Search-Terms export — with the
+  wrapper you were given, called directly, exactly as the main agent
+  does:
+
+  ```bash
+  {wrapper} <<'PY' … PY
+  ```
+
+  Do NOT set `VIBE_TASK_ID` (or any other browser env var). The runtime
+  already set it and the wrapper derives your session and CDP endpoint
+  from it, so you land on the SAME logged-in browser the task is using
+  and the page it opened is still there. Overriding it puts every call in
+  a fresh, blank session.
+
+  Use `{wrapper}` verbatim (absolute path);
   do NOT run a bare `browser-use` and do NOT search for the wrapper — if
   `{wrapper}` doesn't run, report that as a gap, don't work around it.
   Cross-check the REPORT against what you see.

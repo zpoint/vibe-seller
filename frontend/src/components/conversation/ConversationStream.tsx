@@ -13,7 +13,9 @@ import { QuestionBanner } from '../QuestionBanner'
 import { ImageRequestCard } from './ImageRequestCard'
 import { GeneratedImageCard } from './GeneratedImageCard'
 import { AuditResultCard } from '../adAudit/AuditResultCard'
-import { looksLikeAuditReport } from '../../lib/adAudit/parseReport'
+import type { AdDeclaration } from '../../lib/adAudit/declaration'
+import { declarationFor, opensConsole } from '../../lib/adAudit/declaration'
+import type { DecisionSubmission } from '../../lib/adAudit/types'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 
@@ -275,8 +277,18 @@ interface ConversationStreamProps {
    * until the execution side lands — the console then renders read-only
    * rather than offering a button that goes nowhere.
    */
-  onSubmitAuditDecisions?: (decisions: unknown) => void
+  onSubmitAuditDecisions?: (submission: DecisionSubmission) => void
   auditSubmitting?: boolean
+  /**
+   * What each phase of this task declared it was for. Decides which
+   * result gets a console and how much of it is actionable — replacing a
+   * regex over the agent's own prose.
+   */
+  adDeclarations?: AdDeclaration[]
+  /** Audit console open state, owned by the URL (see lib/route.ts). */
+  auditOpen?: boolean
+  onOpenAudit?: () => void
+  onCloseAudit?: () => void
 }
 
 export function ConversationStream({
@@ -302,6 +314,10 @@ export function ConversationStream({
   onOpenVisionSetup,
   onSubmitAuditDecisions,
   auditSubmitting,
+  adDeclarations,
+  auditOpen,
+  onOpenAudit,
+  onCloseAudit,
 }: ConversationStreamProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -391,11 +407,22 @@ export function ConversationStream({
             // tables with no way to act on any of them. Detected by
             // STRUCTURE, not a filename — the server hands us resolved
             // content and the deliverable has been renamed more than once.
-            if (looksLikeAuditReport(item.result)) {
+            {
+            // Which phase produced this result, and did that phase say
+            // it was an audit? The old test — a combo heading plus a
+            // `drilled N/N` line — was satisfied by prose the agent
+            // chose to write, so a create task got a 51-campaign
+            // console. See lib/adAudit/declaration.ts.
+            const decl = declarationFor(adDeclarations, item.timestamp)
+            if (opensConsole(decl)) {
               return (
                 <div key={item.id}>
                   <AuditResultCard
                     report={item.result || ''}
+                    declaration={decl}
+                    open={!!auditOpen}
+                    onOpen={() => onOpenAudit?.()}
+                    onClose={() => onCloseAudit?.()}
                     onSubmit={
                       onSubmitAuditDecisions
                         ? (d) => onSubmitAuditDecisions(d)
@@ -419,6 +446,7 @@ export function ConversationStream({
                 </div>
               </div>
             )
+          }
           case 'question': {
             const isActive = pendingQuestions?.request_id === item.questions?.request_id
             if (isActive) {

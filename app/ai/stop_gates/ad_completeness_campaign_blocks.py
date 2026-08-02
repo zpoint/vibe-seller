@@ -47,8 +47,15 @@ _CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|C_[A-Z0-9]{6,}|A[0-9A-Z]{16,}')
 # The optional targeting-clicks group is bounded by ``[^\n=]`` so it can
 # only match BEFORE the ``=``; without that it would happily consume the
 # search-term side's click count and pair the wrong numbers.
+# The label may carry markdown emphasis. Agents bold it — `**搜索词对账**:`
+# — because it is a label, and the report is markdown. Requiring the colon
+# to sit flush against the characters made an otherwise-perfect line
+# unparseable, and the resulting gap said only "格式不对" without naming
+# the emphasis, so the agent had to guess what to change. Observed live on
+# eleven campaigns at once. ``ad_rollup._RECON_RE`` already tolerated it,
+# so the two readers of the same line disagreed.
 _RECONCILE_RE = re.compile(
-    r'搜索词对账[:：]'
+    r'(?:\*\*|__|\*)?\s*搜索词对账\s*(?:\*\*|__|\*)?\s*[:：]'
     r'[^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
     r'(?:[^\n=]*?点击[^\d\n]*([\d,]+))?'
     r'[^\n]*?搜索词花费[^\d\n]*([\d,]+(?:\.\d+)?)'

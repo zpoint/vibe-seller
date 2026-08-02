@@ -640,3 +640,80 @@
 .adaudit button.primary:hover:not(:disabled) {
   background: #4338ca;
 }
+
+/* ── scope: what will actually be submitted ─────────────────────── */
+/* A dropped block stays VISIBLE and readable — the reviewer still wants to
+   see what they excluded and why — but is visibly out of the run. Hiding it
+   would make "did I drop that?" unanswerable without undoing the drop. */
+.adaudit-drop {
+  font-size: 11.5px;
+  padding: 4px 9px;
+  margin-left: 9px;
+  vertical-align: 2px;
+}
+.adaudit-drop[aria-pressed='true'] {
+  background: var(--neg);
+  color: #fff;
+  border-color: var(--neg);
+  font-weight: 600;
+}
+.adaudit-scopectl {
+  display: inline-flex;
+  gap: 6px;
+  margin-right: 4px;
+}
+[data-dropped='true'] > .adaudit-ghead,
+[data-dropped='true'] > .adaudit-sectionhead,
+[data-dropped='true'] > .adaudit-plathead {
+  opacity: 0.5;
+}
+.adaudit-grp[data-dropped='true'] {
+  border-style: dashed;
+  background: var(--bg-subtle);
+}
+.adaudit-grp[data-dropped='true'] .adaudit-gbody,
+.adaudit-grp[data-dropped='true'] .adaudit-tscroll {
+  opacity: 0.45;
+}
+
+/* The header row holds TWO interactive things: the expand toggle and the
+   scope controls. They must be siblings — a button cannot contain a button,
+   which nesting them broke (invalid DOM, and the inner controls were
+   unreachable by keyboard as separate targets). */
+.adaudit-gtoggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 0;
+}
+.adaudit-gtoggle:hover {
+  background: none;
+}
+.adaudit-ghead:hover {
+  background: var(--bg-subtle);
+}
+
+/* The amount a bid move will use. Sits with the match-type row because it
+   is the same kind of thing: the qualifier that makes the action
+   executable rather than merely directional. */
+.adaudit-bidinput {
+  font: inherit;
+  font-size: 13px;
+  font-family: var(--mono);
+  width: 8ch;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-btn);
+  background: var(--card);
+}
+.adaudit-bidinput:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: -1px;
+}

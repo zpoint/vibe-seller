@@ -96,6 +96,14 @@ class _FakeSession:
         self.running = True
         self.done = asyncio.Event()
         self.plan_saved_event = asyncio.Event()
+        # Per-TASK PreToolUse guard state. The real AgentSession sets
+        # both in __init__ and the manager carries them onto a restarted
+        # session — without them a follow-up re-arms the catalog-first
+        # guard and the skill-prereq check, denying the agent for work it
+        # already did. Present here so this stub keeps matching the
+        # contract the manager actually relies on.
+        self._catalog_read = False
+        self._loaded_skills: set[str] = set()
         _FakeSession.instances.append(self)
 
     async def start(self):
@@ -213,6 +221,110 @@ class TestRetryWithoutResume:
         assert retry.task_dir == prior.task_dir
         # Registry now holds the retry, not the prior.
         assert backend.get_session('task-retry') is retry
+
+    async def test_per_task_guard_state_survives_a_follow_up(
+        self, _db, monkeypatch
+    ):
+        """A follow-up turn must not re-arm the guards either.
+
+        A follow-up comes through ``run()``, not ``retry_without_resume``
+        — fixing only the retry path left the common case broken.
+        Observed live AFTER that partial fix: a two-turn ad task read its
+        store catalog in turn 1 and was denied three times in turn 2 for
+        searching `stores/`, told to read the catalog it had already read.
+        """
+        _FakeSession.instances = []
+        _patch_backend(monkeypatch, _db)
+        backend = ClaudeCodeBackend()
+        orig_init = _FakeSession.__init__
+
+        def scripted(self, *a, **kw):
+            orig_init(self, *a, **kw)
+            self._scripted_rc = 0
+            self._scripted_result = 'done'
+            self._scripted_session_id = 'sid'
+
+        monkeypatch.setattr(_FakeSession, '__init__', scripted)
+        assert await backend.run('task-followup', 'turn one') is True
+        for _ in range(100):
+            if backend._in_flight == 0:
+                break
+            await asyncio.sleep(0.01)
+
+        first = _FakeSession.instances[0]
+        first._catalog_read = True
+        first._loaded_skills = {'amazon-shared'}
+        # Turn 1 is over — the real session clears this on exit, and the
+        # duplicate-run guard in run() keys off it.
+        first.running = False
+
+        # The user sends a follow-up: a NEW run on the same task.
+        assert await backend.run('task-followup', 'turn two') is True
+        for _ in range(100):
+            if backend._in_flight == 0:
+                break
+            await asyncio.sleep(0.01)
+
+        second = _FakeSession.instances[1]
+        assert second._catalog_read is True, (
+            'the follow-up re-armed the catalog-first guard, so the agent '
+            'is denied for reading the catalog it already read'
+        )
+        assert second._loaded_skills == {'amazon-shared'}
+
+    async def test_per_task_guard_state_survives_the_restart(
+        self, _db, monkeypatch
+    ):
+        """The catalog-first and skill-prereq guards must not re-arm.
+
+        Both track a fact about the TASK — the agent has read the store
+        manifest; a prerequisite skill is loaded — but live on the
+        session, which a follow-up or gate redrive rebuilds. Observed
+        live: an agent read `stores/<slug>/CATALOG.md` as its fourth
+        action and was then denied five times in the next turn for
+        searching `stores/`, told to "read the catalog first". It was
+        trying to reach the ad-change TSVs it needed to satisfy a
+        cooldown gate that was refusing its report — two guards blocking
+        each other, neither denial clearable from the agent's side.
+        """
+        _FakeSession.instances = []
+        _patch_backend(monkeypatch, _db)
+        backend = ClaudeCodeBackend()
+        orig_init = _FakeSession.__init__
+
+        def scripted(self, *a, **kw):
+            orig_init(self, *a, **kw)
+            self._scripted_rc = 0
+            self._scripted_result = 'done'
+            self._scripted_session_id = 'sid'
+
+        monkeypatch.setattr(_FakeSession, '__init__', scripted)
+        assert await backend.run('task-guard', 'p', resume=True) is True
+        for _ in range(100):
+            if backend._in_flight == 0:
+                break
+            await asyncio.sleep(0.01)
+
+        # The agent read the catalog and loaded a prerequisite skill.
+        prior = _FakeSession.instances[0]
+        prior._catalog_read = True
+        prior._loaded_skills = {'amazon-shared'}
+
+        assert await backend.retry_without_resume('task-guard') is True
+        for _ in range(100):
+            if backend._in_flight == 0:
+                break
+            await asyncio.sleep(0.01)
+
+        retry = _FakeSession.instances[1]
+        assert retry._catalog_read is True, (
+            'the restarted session re-armed the catalog-first guard, so '
+            'the agent is denied for reading the catalog it already read'
+        )
+        assert retry._loaded_skills == {'amazon-shared'}
+        # Copied, not shared: a later load must not reach backwards.
+        retry._loaded_skills.add('amazon-ads')
+        assert prior._loaded_skills == {'amazon-shared'}
 
     async def test_persists_retry_session_id(self, _db, monkeypatch):
         """Once the retry session emits its own session_id, the

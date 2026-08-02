@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import re
 
+from app.ai import ad_declaration
 from app.ai.stop_gates import (
     GateDeny,
+    ad_declaration_checks,
     ad_scope,
 )
 from app.ai.stop_gates.ad_completeness_campaign_blocks import (
@@ -396,18 +398,24 @@ def check(
     # the "no live campaigns here" finding, and it lands on the
     # empty-``active_ids`` branch below with its own message.
     #
-    # Only an AUDIT owes marketplace coverage. An ads EXECUTION summary
-    # binds the same skill (so the same gates apply) but has no combo
-    # section and no scope — demanding five marketplaces of it would deny
-    # a task that never claimed to audit anything. An audit announces
-    # itself either way: it has a scope, or it has combo sections.
-    is_audit = bool(all_combos) or any(
-        _COMBO_HEADER_RE.search(p.splitlines()[0])
-        for p in parts[1:]
-        if p.strip()
-    )
-    for missing_combo in (
-        ad_scope.missing_declared_combos(combos, declared) if is_audit else []
+    # Coverage is owed by the phase DECLARATION, not by the shape of the
+    # agent's prose — see ``ad_declaration_checks``.
+    decl = ad_declaration.load_declaration(task_id)
+    # A declaration belongs to a TASK. Called without one — a direct
+    # unit-test call, a tooling probe — nothing *could* have declared, so
+    # demanding a declaration would be denying the absence of a task
+    # rather than the absence of intent. Production always passes it:
+    # ``set_task_result`` calls every gate as ``check(text, task_id, rules)``.
+    if task_id is not None:
+        for gap in ad_declaration_checks.declaration_gaps(parts, decl):
+            _attr(None, gap)
+
+    # An audit owes the combos it DECLARED; declaring none declares the
+    # whole store. Reading it off the declared list rather than off
+    # "were combos omitted?" is what makes the two spellings of a
+    # whole-store audit agree — see ``ad_declaration.owed_combos``.
+    for missing_combo in ad_scope.missing_declared_combos(
+        combos, ad_declaration.owed_combos(decl, declared)
     ):
         label = f'{missing_combo["platform"]} {missing_combo["country"]}'
         if task_id is not None:
@@ -599,21 +607,24 @@ def check(
             #
             # So cross-check the one independent record the server holds:
             # what the store's OWN prior audits left on disk. Campaigns do
-            # get paused, so prior >= current is normal and must not be
-            # flagged — only a COLLAPSE (declared active below half of the
-            # historical campaign count) is challenged. That threshold
-            # leaves the plausible cases alone (21 vs 22, 8 vs 10, 8 vs 9
-            # on the same store) and catches the 4-vs-12 shortfall.
+            # get paused, so prior >= current is normal — only a
+            # COLLAPSE (below half the historical count) is challenged:
+            # leaves 21-vs-22 alone, catches the 4-vs-12 shortfall.
             #
-            # This is a backstop, not a proof. The real fix is for
-            # ``total_active`` to carry its provenance (which export file /
-            # which chip reading) so the server can verify it directly.
+            # A backstop, not a proof: the real fix is for
+            # ``total_active`` to carry its provenance.
             prior = ad_scope.prior_campaign_tsvs(
                 ad_scope.declared_slug(task_id),
                 combo['platform'],
                 combo['country'],
             )
-            if prior and n * 2 < prior:
+            # A phase that NAMED its campaigns is auditing the subset
+            # the user asked about, not shrinking the market; comparing
+            # it against every campaign the store ever ran reads a
+            # correct scope as a collapse. The check still applies to a
+            # whole-market declaration, where under-enumeration hides.
+            scoped = bool((decl or {}).get('scope', {}).get('campaigns'))
+            if prior and n * 2 < prior and not scoped:
                 _attr(
                     label,
                     f'[基线] combo 「{label}」只声明了 {n} 个 active，但本店'

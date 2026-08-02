@@ -81,6 +81,60 @@ Consolidated helpers used by all LLM-dependent e2e tests:
 - `answer_question(client, task_id, request_id, answers)` — submit answer for pending question
 - `get_secret(*keys)` — resolve env var secrets
 
+### Running e2e against YOUR server (local development)
+
+By default the suite logs in as the seeded admin
+(`admin@vibe-seller.local` / `admin`) — what CI provisions on a clean
+`~/.vibe-seller`. On a box where that password has been changed, every
+e2e fails at fixture setup with a 401, because `api_client` authenticates
+before any test body runs.
+
+Point the suite at your own already-running server and account instead:
+
+```bash
+E2E_ADMIN_IDENTIFIER=<your username or email> \
+E2E_ADMIN_PASSWORD=<your password> \
+  pytest tests/e2e/test_ad_declaration_scoping.py --e2e
+```
+
+Both variables are required together — a half-configured override falls
+back to the seeded admin rather than logging in as someone you did not
+intend. Unset, behaviour is byte-identical to before, so **CI needs no
+new secrets**; it keeps using the seeded admin and its existing LLM keys.
+
+Two caveats when running this way:
+
+- You are driving a **real** server with **real** agent credits, against
+  whatever stores that server has. Tests create their own ephemeral
+  stores (`e2e-*`), but they run beside your real ones.
+- `./restart.sh` and `pytest` must not run at the same time — they
+  contend, and the suite writes to the same `logs/backend_<port>.log` you
+  read for diagnostics.
+
+### Asserting on a real agent without pinning its habits
+
+`test_ad_declaration_scoping.py` drives a real agent against
+`fake_ads_console.py`, an in-process stand-in ad console serving TWO
+campaigns, and asks about ONE. It is the template for "did the model
+respect a boundary?" tests, and the split it makes is the point:
+
+- **Assert on the stub's access log, not the agent's prose.** The
+  console records every page it served, so "the excluded campaign was
+  never opened" is ground truth. A report can describe restraint it did
+  not exercise; the server cannot be talked around.
+- **Assert mechanism conditionally.** The test checks the
+  `vibe_seller_declare_ad_task` record only *if one exists* — the
+  declaration requirement rides on the ad skills, which a localhost stub
+  does not oblige a model to load. CI on `glm-4.7` produced a correctly
+  scoped review that declared nothing; failing on that would pin one
+  model's habits instead of the contract. Absent is fail-safe (no
+  declaration → no console); **wider than asked** is the regression, and
+  that is asserted whenever a declaration is present.
+- **Give each test its own stub.** The fixture is function-scoped: the
+  whole-store test visits both campaigns, and a shared server would leave
+  that visit in the log for the scoped test to trip over — only when
+  xdist happens to land them on the same worker.
+
 ### `api_client` Fixture (conftest.py)
 
 Module-scoped fixture providing an authenticated httpx client with a **background SSE listener** that auto-answers any `AskUserQuestion` from any task. Prevents tests from hanging when LLM agents ask unexpected questions during planning or execution.

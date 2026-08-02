@@ -9,6 +9,7 @@ import { ConversationStream } from '../components/conversation/ConversationStrea
 import { useChatUploads } from '../hooks/useChatUploads'
 import { ChatComposer } from '../components/conversation/ChatComposer'
 import { isAwaitingUser } from '../handlers/composerGate'
+import { useAuditConsole } from '../hooks/useAuditConsole'
 import { ScheduleList } from '../components/ScheduleList'
 import { ScheduleDetailView } from '../components/ScheduleDetailView'
 import { EditScheduleModal } from '../components/EditScheduleModal'
@@ -27,6 +28,10 @@ function formatDate(dateStr: string): string {
 
 interface TasksViewProps {
   isMobile: boolean
+  /** Audit console open state, owned by the URL. */
+  auditOpen?: boolean
+  onOpenAudit?: () => void
+  onCloseAudit?: () => void
   onOpenNav: () => void
   taskPanelActive: boolean
   taskPanelTitle: string
@@ -156,7 +161,18 @@ export function TasksView({
   selectedStore,
   stores,
   onOpenVisionSetup,
+  auditOpen,
+  onOpenAudit,
+  onCloseAudit,
 }: TasksViewProps) {
+  const audit = useAuditConsole({
+    selectedTask,
+    selectedProfileId,
+    setSelectedTask,
+    setTasks,
+    onCloseAudit,
+  })
+
   const { t } = useTranslation()
   // Gating predicate for the schedule "Run Now" button: true
   // when ANY status is still progressing (pending / queued /
@@ -597,6 +613,12 @@ export function TasksView({
                   questionBannerRef={questionBannerRef}
                   isActive={isActive} userNearBottom={userNearBottom}
                   onOpenVisionSetup={onOpenVisionSetup}
+                  adDeclarations={audit.declarations}
+                  auditOpen={auditOpen}
+                  onOpenAudit={onOpenAudit}
+                  onCloseAudit={onCloseAudit}
+                  auditSubmitting={audit.submitting}
+                  onSubmitAuditDecisions={audit.submit}
                 />
               )}
 

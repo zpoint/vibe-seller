@@ -1,3 +1,4 @@
+from app.models.ad_declaration import AdTaskDeclaration
 from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.email_account import EmailAccount
@@ -19,6 +20,7 @@ from app.models.ziniao_account import ZiniaoAccount
 
 _all_models = [
     AppSettings,
+    AdTaskDeclaration,
     User,
     Store,
     BrowserSession,

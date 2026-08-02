@@ -28,6 +28,14 @@ interface Props {
   onAction: (key: string, act: ActionCode) => void
   onMatchType: (key: string, mt: MatchType) => void
   onBulk: (campaign: AuditCampaign, layer: Layer, mode: 'sugg' | 'keep') => void
+  /** False when this campaign OR its market/platform was dropped. */
+  inScope: boolean
+  /** True when THIS campaign's own key is excluded, ignoring ancestors. */
+  selfDropped: boolean
+  onDrop: () => void
+  onKeepOnly: () => void
+  targetBidOf: (key: string) => number | null
+  onTargetBid: (key: string, v: number | null) => void
 }
 
 export function AuditCampaignBlock({
@@ -41,20 +49,32 @@ export function AuditCampaignBlock({
   onAction,
   onMatchType,
   onBulk,
+  inScope,
+  selfDropped,
+  onDrop,
+  onKeepOnly,
+  targetBidOf,
+  onTargetBid,
 }: Props) {
   const { t } = useTranslation()
   const named = hasRealName(c)
   const groupLabel = c.platform === 'noon' ? t('audit.sku') : t('audit.adGroup')
 
   return (
-    <div className="adaudit-grp" data-open={open} data-quar={!!c.quarantine}>
-      <button
-        type="button"
-        className="adaudit-ghead"
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        <span className="adaudit-gtitle">
+    <div
+      className="adaudit-grp"
+      data-open={open}
+      data-quar={!!c.quarantine}
+      data-dropped={!inScope}
+    >
+      <div className="adaudit-ghead">
+        <button
+          type="button"
+          className="adaudit-gtoggle"
+          aria-expanded={open}
+          onClick={onToggle}
+        >
+          <span className="adaudit-gtitle">
           <span className="adaudit-gname">
             <span className="adaudit-chip cc">{c.country}</span>
             {named ? (
@@ -84,9 +104,39 @@ export function AuditCampaignBlock({
                 {c.adGroups[0]}
               </span>
             )}
+            </span>
           </span>
-        </span>
+        </button>
         <span className="adaudit-gstats">
+          <span className="adaudit-scopectl">
+            {/* The control reflects THIS campaign's own state. When an
+                ancestor dropped it there is nothing here to toggle — the
+                button would say "click to include" and then do nothing —
+                so it is disabled and says which level to undo instead. */}
+            <button
+              type="button"
+              className="adaudit-drop"
+              aria-pressed={selfDropped}
+              disabled={!inScope && !selfDropped}
+              title={
+                !inScope && !selfDropped
+                  ? t('audit.scope.inheritedHint')
+                  : undefined
+              }
+              onClick={onDrop}
+            >
+              {t(
+                !inScope && !selfDropped
+                  ? 'audit.scope.inherited'
+                  : selfDropped
+                    ? 'audit.scope.include'
+                    : 'audit.scope.drop',
+              )}
+            </button>
+            <button type="button" className="adaudit-drop" onClick={onKeepOnly}>
+              {t('audit.scope.keepOnly')}
+            </button>
+          </span>
           {changeCount > 0 && (
             <span className="adaudit-chip todo">
               {t('audit.layer.toChange', { count: changeCount })}
@@ -124,7 +174,7 @@ export function AuditCampaignBlock({
             {t('audit.layer.rowCount', { count: c.kw.length + c.st.length })}
           </span>
         </span>
-      </button>
+      </div>
 
       {open && (
         <div>
@@ -148,6 +198,8 @@ export function AuditCampaignBlock({
             onAction={onAction}
             onMatchType={onMatchType}
             onBulk={(layer, mode) => onBulk(c, layer, mode)}
+            targetBidOf={targetBidOf}
+            onTargetBid={onTargetBid}
           />
           <AuditLayerTable
             campaign={c}
@@ -159,6 +211,8 @@ export function AuditCampaignBlock({
             onAction={onAction}
             onMatchType={onMatchType}
             onBulk={(layer, mode) => onBulk(c, layer, mode)}
+            targetBidOf={targetBidOf}
+            onTargetBid={onTargetBid}
           />
         </div>
       )}

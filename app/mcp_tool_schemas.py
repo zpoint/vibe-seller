@@ -6,6 +6,7 @@ the matching dispatch branches in ``handle_tool_call``.
 """
 
 from app import vision
+from app.mcp_ad_tool_schemas import AD_TOOLS
 
 # Agent-facing image-model enum + a CONCISE guidance line, both derived
 # from the single source of truth in ``app/vision.py`` so the tool schema
@@ -28,6 +29,7 @@ _IMAGE_MODEL_GUIDE = (
 )
 
 TOOLS = [
+    *AD_TOOLS,
     {
         'name': 'vibe_seller_list_stores',
         'description': 'List all stores in Vibe Seller',

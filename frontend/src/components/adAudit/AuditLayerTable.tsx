@@ -29,6 +29,8 @@ interface Props {
   onAction: (key: string, act: ActionCode) => void
   onMatchType: (key: string, mt: MatchType) => void
   onBulk: (layer: Layer, mode: 'sugg' | 'keep') => void
+  targetBidOf: (key: string) => number | null
+  onTargetBid: (key: string, v: number | null) => void
 }
 
 export function AuditLayerTable({
@@ -41,6 +43,8 @@ export function AuditLayerTable({
   onAction,
   onMatchType,
   onBulk,
+  targetBidOf,
+  onTargetBid,
 }: Props) {
   const { t } = useTranslation()
   if (!rows.length) {
@@ -159,6 +163,8 @@ export function AuditLayerTable({
                       locked={!!campaign.quarantine}
                       onAction={(a) => onAction(k, a)}
                       onMatchType={(m) => onMatchType(k, m)}
+                      targetBid={targetBidOf(k)}
+                      onTargetBid={(v) => onTargetBid(k, v)}
                     />
                     {r.advice && <div className="adaudit-why">{r.advice}</div>}
                   </td>

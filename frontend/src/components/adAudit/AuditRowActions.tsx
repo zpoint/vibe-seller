@@ -17,6 +17,9 @@ interface Props {
   locked: boolean
   onAction: (act: ActionCode) => void
   onMatchType: (mt: MatchType) => void
+  /** The bid this raise/lower will carry; null when nobody has set one. */
+  targetBid: number | null
+  onTargetBid: (v: number | null) => void
 }
 
 /**
@@ -34,6 +37,8 @@ export function AuditRowActions({
   locked,
   onAction,
   onMatchType,
+  targetBid,
+  onTargetBid,
 }: Props) {
   const { t } = useTranslation()
   const act = actOf(choice)
@@ -66,6 +71,38 @@ export function AuditRowActions({
           )
         })}
       </div>
+
+      {/* A bid move has to say HOW MUCH. The audit supplies a number when
+          it proposed the move; when the reviewer overrides a hold into a
+          raise there is nothing to inherit, and an amount-less raise is
+          not an instruction anyone can carry out. */}
+      {(act === 'raise' || act === 'lower') && (
+        <div className="adaudit-mts">
+          <span className="adaudit-mtlab">{t('audit.row.targetBidLabel')}</span>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            className="adaudit-bidinput"
+            value={targetBid ?? ''}
+            disabled={locked}
+            aria-label={t('audit.row.targetBidLabel')}
+            placeholder={row.bid != null ? String(row.bid) : ''}
+            onChange={(e) => {
+              const v = e.target.value.trim()
+              onTargetBid(v === '' ? null : Number(v))
+            }}
+          />
+          {row.bid != null && (
+            <span className="adaudit-mtlab">
+              {t('audit.row.fromBid', { bid: row.bid })}
+            </span>
+          )}
+          {targetBid == null && (
+            <span className="adaudit-mtdef">{t('audit.row.bidRequired')}</span>
+          )}
+        </div>
+      )}
 
       {needsMatchType(choice) && (
         <div className="adaudit-mts">

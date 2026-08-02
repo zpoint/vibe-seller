@@ -10,6 +10,76 @@ gates: [ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
 > **PREREQUISITE:** Read `../noon-shared/SKILL.md` for login, page
 > structure, and common patterns.
 
+## 0. FIRST — declare what this task is for
+
+**Before any browser action, call `vibe_seller_declare_ad_task`.** This is
+a precondition, not a courtesy: a report with no declaration behind it is
+refused.
+
+Two things follow from the declaration and cannot be changed afterwards —
+how much the completeness gate asks of you, and whether the user gets a
+review console. Read them off what the person actually asked for, not off
+what you expect to find once you look.
+
+| They asked for | `kind` | `scope` |
+|---|---|---|
+| "审计一下广告" / "review our ads" | `audit` | omit `combos` — whole store |
+| "复核 widget-006 在 amazon 的广告" | `audit` | that platform+country, those campaign ids |
+| "把这三个词的出价降下来" | `audit` | those campaigns |
+| "帮 widget-006 建关键词广告" | `create` | the market you are creating in |
+| "执行刚才确认的调整" | `execute` | the campaigns being changed |
+| "我们 SA 的 ACOS 大概多少" | `investigate` | the market asked about |
+
+**Numbers or changes?** That is the line between `investigate` and
+`audit`, and it matters more than the table above. If the answer the
+person wants is a FIGURE — what did we spend, what is our ROAS, how did
+last month go — that is `investigate`, however many markets it spans:
+you are reading, not proposing. If they want to know what to CHANGE, or
+asked "is this right?", that is `audit`, and it opens a review console.
+Observed live: "这个月广告花了多少钱，回报怎么样？" was declared a
+whole-store `audit`, which put five marketplaces of drill work behind a
+question that wanted four numbers.
+
+**There is no `edit` kind.** A request to change specific bids is an
+`audit` whose scope names those campaigns — the user still reviews the
+change before it is applied, and the scope is what makes it small.
+
+**The scope trap:** omitting `combos` means EVERY marketplace this store
+sells on, and you will be held to all of them. Omit it only when the
+request really is store-wide. A store selling on five marketplaces has
+been asked for all five because a one-product task left the field out.
+
+**If the request names a product, not a campaign** ("widget-006 的广告"),
+declare the MARKET now and the campaigns later. You cannot know campaign
+ids before you have looked, and declaring a market with no campaign list
+means **every campaign in it** — which is how a one-product request turns
+into an audit owing a whole marketplace.
+
+So: declare `{kind, combos, products}` first, enumerate the campaign list,
+find the campaigns carrying that SKU family, then call the tool AGAIN with
+the same kind and the same combos plus `campaigns: [...]`. That second
+call is a **narrowing refinement** and is accepted within the same turn.
+
+**Refining may only ever remove reach.** Same kind, same marketplaces, and
+a campaign list going from "all of them" to a named subset. You cannot add
+a marketplace, change the kind, or widen the campaign list — a wider scope
+needs a new message from the user. If a gate asks for something outside
+your scope, say so in your result and let the user redirect you; do not
+try to re-declare around it.
+
+**When the user sends a NEW message that changes what you are doing,
+declare again.** That is a new phase, and it is the only way a
+declaration changes. Two cases you will hit often:
+
+- "现在把刚创建的广告复核一下" after a `create` phase → declare `audit`,
+  and its scope may name the campaigns you created earlier in this same
+  task.
+- The review console submits the user's decisions back as a follow-up
+  message → declare `execute`, scoped to the campaigns that submission
+  actually names.
+
+---
+
 Mechanics for noon Ad Manager. The actual *thinking* — when to
 create / tune / kill a campaign, how to research keywords — lives
 in the three reference files (see § 11).
@@ -91,12 +161,15 @@ gate.
 > do use `Export all campaigns`, first scroll the list fully, then verify
 > the file's row count equals the chip before trusting it.**
 
-**Which countries you owe is fixed by `./AUDIT_TARGETS.json`** — the
-server writes it at the task root before you start (`{"combos":
-[{"platform": "noon", "country": "AE"}, …]}`, straight from the store's
-Settings). Read it FIRST, at the start of Phase 1, and loop over it:
-every noon country in it needs its own `AUDIT_SCOPE.json` combo entry
-(step 4) AND its own `## noon <CC>` report section. A country with
+**What you owe is what you DECLARED.** `./AUDIT_TARGETS.json` lists every
+country the store is configured for — the MENU, written by the server
+from Settings. Your `vibe_seller_declare_ad_task` call turns part of it
+into an obligation: the countries you declared each need their own
+`AUDIT_SCOPE.json` combo entry (step 4) AND their own `## noon <CC>`
+report section; declaring no combos at all (a whole-store audit) means
+you owe every country in the file. Do NOT expand past your declaration
+because the menu is longer — reporting on a market nobody asked about is
+an out-of-scope gap. A country with
 genuinely no Live campaigns is still written down — an entry with
 `"active_ids": []` and `"total_active": 0`, plus a section saying so;
 可以为空，但不能不写。Omitting a declared combo is a `[基线]` gap that

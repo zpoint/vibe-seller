@@ -830,7 +830,7 @@
   "audit": {
     "eyebrow": "30-day ad audit",
     "cardEyebrow": "Ad audit · decision console",
-    "heroTitle": "{{markets}} markets · {{campaigns}} live campaigns",
+    "heroTitle": "{{markets}} · {{campaigns}}",
     "heroMeta": "Drilled {{rows}} targets and search terms. Every row is pre-set to the audit's recommendation — agree and change nothing, disagree and pick another. {{preselected}} rows are pre-set to change. Breakeven ROAS {{breakeven}}.",
     "cardSummary": "{{rows}} rows reviewed · {{acting}} pre-set to change",
     "openConsole": "Open the decision console",
@@ -888,7 +888,10 @@
       "noExecutableAction": "⚠ The agent named no executable action ({{reason}}) — the audit needs to state one",
       "zeroClicks": "⚠ 0 clicks",
       "bidUnsafeHint": "This row spent > 0 with 0 clicks, so the CPC×1.1 floor cannot be computed and a lower-bid target would be meaningless. Raises rely on ROAS and are unaffected.",
-      "quarantinedHint": "This campaign's figures are untrusted, so its advice is not executable."
+      "quarantinedHint": "This campaign's figures are untrusted, so its advice is not executable.",
+      "targetBidLabel": "New bid",
+      "fromBid": "was {{bid}}",
+      "bidRequired": "set an amount — a raise with no number is not executable"
     },
     "layer": {
       "targeting": "Targeting layer",
@@ -913,7 +916,24 @@
       "viewJson": "View decision JSON",
       "jsonTitle": "Decision set — this is what gets sent to the agent",
       "handToAgent": "Hand to agent to execute",
-      "sending": "Sending…"
-    }
+      "sending": "Sending…",
+      "needBids": "set a bid on {{count}} row(s) before sending",
+      "noopBids": "{{count}} bid change(s) set to the same value as now — nothing to do"
+    },
+    "scope": {
+      "drop": "Drop",
+      "include": "Dropped — click to include",
+      "keepOnly": "Only this one",
+      "narrowed": "Submitting {{campaigns}} of {{total}} campaigns",
+      "reset": "Include everything",
+      "inherited": "Excluded with its market",
+      "inheritedHint": "Dropped by a level above — include that first."
+    },
+    "marketCount_one": "{{count}} market",
+    "marketCount_other": "{{count}} markets",
+    "campaignCount_one": "{{count}} live campaign",
+    "campaignCount_other": "{{count}} live campaigns",
+    "outOfScopeHidden_one": "plus {{count}} campaign outside this task’s scope, hidden",
+    "outOfScopeHidden_other": "plus {{count}} campaigns outside this task’s scope, hidden"
   }
 }

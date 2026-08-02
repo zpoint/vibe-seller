@@ -3,6 +3,8 @@
 
 import type {
   ActionCode,
+  DecisionSubmission,
+  ExcludedCampaign,
   AuditCampaign,
   AuditDoc,
   AuditRow,
@@ -12,6 +14,13 @@ import type {
   MatchType,
   Problem,
 } from './types'
+import type { ExcludedScopes } from './scope'
+import {
+  NOTHING_EXCLUDED,
+  campaignInScope,
+  countryKey,
+  platformKey,
+} from './scope'
 import {
   CANONICAL_ACT_LABEL,
   CANONICAL_MT_LABEL,
@@ -90,6 +99,30 @@ export function roasClass(
  *  new map, so React can see the change and nothing can mutate it behind a
  *  component's back. */
 export type ChoiceMap = ReadonlyMap<string, Choice | null>
+
+/**
+ * Reviewer-set target bids, by row key.
+ *
+ * A raise/lower is only executable if it says HOW MUCH. The audit
+ * supplies a number when it proposed the move itself; when the reviewer
+ * overrides a 维持 into a raise there is no proposal to inherit, and
+ * without this the agent received `action: raise, target_bid: null` —
+ * the same "name the exact action" ambiguity the report format exists to
+ * prevent, just moved into the payload.
+ */
+export type TargetBidMap = ReadonlyMap<string, number>
+
+export const NO_TARGET_BIDS: TargetBidMap = new Map<string, number>()
+
+/** The bid a raise/lower should carry: the reviewer's, else the audit's. */
+export function effectiveTargetBid(
+  row: AuditRow,
+  key: string,
+  targetBids: TargetBidMap = NO_TARGET_BIDS,
+): number | null {
+  const set = targetBids.get(key)
+  return set != null && Number.isFinite(set) ? set : row.to
+}
 
 /**
  * Everything about a report that does NOT change while reviewing: the rows,
@@ -205,6 +238,7 @@ export interface ReviewTotals {
 export function totalsOf(
   state: ReviewState,
   choices: ChoiceMap,
+  excluded: ExcludedScopes = NOTHING_EXCLUDED,
 ): ReviewTotals {
   const impact = new Map<string, number>()
   let acting = 0
@@ -213,6 +247,9 @@ export function totalsOf(
   for (const [k, cur] of choices) {
     const entry = state.rows.get(k)
     if (!entry) continue
+    // A change on a dropped campaign is not being submitted, so it must not
+    // be counted as one — the footer is a promise about what will happen.
+    if (!campaignInScope(entry.campaign, excluded)) continue
     if (isChange(cur)) {
       acting++
       const cur_ = entry.campaign.currency
@@ -249,9 +286,15 @@ export function campaignChangeCount(
 export function buildDecisionSet(
   state: ReviewState,
   choices: ChoiceMap,
+  excluded: ExcludedScopes = NOTHING_EXCLUDED,
+  targetBids: TargetBidMap = NO_TARGET_BIDS,
 ): DecisionMarket[] {
   const byCountry = new Map<string, AuditCampaign[]>()
   for (const c of state.campaigns) {
+    // Out-of-scope campaigns are not "keep", they are ABSENT: the agent is
+    // told to act on what it receives, so a dropped market must not appear
+    // at all rather than appear with no rows.
+    if (!campaignInScope(c, excluded)) continue
     if (!byCountry.has(c.country)) byCountry.set(c.country, [])
     byCountry.get(c.country)!.push(c)
   }
@@ -285,7 +328,10 @@ export function buildDecisionSet(
             : r.mtFromAudit
               ? 'audit'
               : 'page_default',
-          target_bid: act === 'raise' || act === 'lower' ? r.to : null,
+          target_bid:
+            act === 'raise' || act === 'lower'
+              ? effectiveTargetBid(r, k, targetBids)
+              : null,
           agent_suggested: r.sugg,
           agent_suggested_label: r.sugg ? canonicalLabelOf(r.sugg) : null,
           overridden: cur !== state.base.get(k),
@@ -340,5 +386,112 @@ export function auditHeadline(doc: AuditDoc) {
     acting,
     quarantined: campaigns.filter((c) => c.quarantine).length,
     breakeven: doc.summary.breakeven,
+  }
+}
+
+/**
+ * The full submission: what to act on, and what was deliberately left out.
+ *
+ * The exclusions are enumerated from the campaigns actually in the report,
+ * not from the raw key set — so the record names real campaigns a reader can
+ * look up, and a stale key for a campaign that is no longer in the report
+ * cannot invent one.
+ */
+export function buildSubmission(
+  state: ReviewState,
+  choices: ChoiceMap,
+  excluded: ExcludedScopes = NOTHING_EXCLUDED,
+  targetBids: TargetBidMap = NO_TARGET_BIDS,
+): DecisionSubmission {
+  const markets = buildDecisionSet(state, choices, excluded, targetBids)
+  const outCountries = new Set<string>()
+  const outPlatforms = new Set<string>()
+  const campaigns: ExcludedCampaign[] = []
+  for (const c of state.campaigns) {
+    if (campaignInScope(c, excluded)) continue
+    // Report the OUTERMOST level that dropped it: "excluded with its market"
+    // is the honest description, not "campaign excluded".
+    const level = excluded.has(countryKey(c.country))
+      ? 'country'
+      : excluded.has(platformKey(c.country, c.platform))
+        ? 'platform'
+        : 'campaign'
+    if (level === 'country') outCountries.add(c.country)
+    if (level === 'platform') outPlatforms.add(`${c.country}/${c.platform}`)
+    campaigns.push({
+      campaign_id: c.id,
+      campaign_name: hasRealName(c) ? c.name : null,
+      country: c.country,
+      platform: c.platform,
+      excluded_at: level,
+    })
+  }
+  // Rows that DO something. A keep is included in the payload when the
+  // reviewer overrode the audit's advice — the executor needs to know the
+  // human said hold — but counting it as work would overstate what is
+  // about to happen, in the footer and in the follow-up message.
+  const rows = markets.reduce(
+    (a, m) =>
+      a +
+      m.campaigns.reduce(
+        (b, c) => b + c.rows.filter((r) => r.action !== 'keep').length,
+        0,
+      ),
+    0,
+  )
+  // A bid move whose target EQUALS the current bid is not an
+  // instruction — it is a no-op the executor cannot act on. It happens
+  // when the report's own table is stale: the reviewer types the value
+  // they can see, which is already what the row claims. Live, a revert
+  // came out as `lower 2.8 -> 2.8` because the report still showed the
+  // pre-change bid. Blocked for the same reason a missing amount is.
+  const noopBid = markets.reduce(
+    (a, m) =>
+      a +
+      m.campaigns.reduce(
+        (b, c) =>
+          b +
+          c.rows.filter(
+            (r) =>
+              (r.action === 'raise' || r.action === 'lower') &&
+              r.target_bid != null &&
+              r.current_bid != null &&
+              Math.abs(r.target_bid - r.current_bid) < 0.005,
+          ).length,
+        0,
+      ),
+    0,
+  )
+  const missingBid = markets.reduce(
+    (a, m) =>
+      a +
+      m.campaigns.reduce(
+        (b, c) =>
+          b +
+          c.rows.filter(
+            (r) =>
+              (r.action === 'raise' || r.action === 'lower') &&
+              r.target_bid == null,
+          ).length,
+        0,
+      ),
+    0,
+  )
+  return {
+    markets,
+    excluded: {
+      countries: [...outCountries],
+      platforms: [...outPlatforms],
+      campaigns,
+    },
+    totals: {
+      campaigns_in_scope: state.campaigns.length - campaigns.length,
+      campaigns_excluded: campaigns.length,
+      rows_to_change: rows,
+      /** Bid moves with no amount — must be 0 before this can be sent. */
+      rows_missing_bid: missingBid,
+      /** Bid moves whose target equals the current bid. Blocks sending. */
+      rows_noop_bid: noopBid,
+    },
   }
 }

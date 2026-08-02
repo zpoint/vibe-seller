@@ -122,7 +122,8 @@ def _login_client(client: httpx.Client) -> None:
     """Login on an httpx client (sets auth cookie).
 
     Retries on transient errors (502, connection refused) since
-    the server may still be starting up.
+    the server may still be starting up. Credentials come from
+    ``admin_credentials()``.
     """
     for attempt in range(5):
         try:

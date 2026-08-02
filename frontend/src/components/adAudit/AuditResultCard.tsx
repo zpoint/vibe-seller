@@ -1,14 +1,32 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { parseReport } from '../../lib/adAudit/parseReport'
-import type { DecisionMarket } from '../../lib/adAudit/types'
+import type { AdDeclaration } from '../../lib/adAudit/declaration'
+import { droppedCampaigns, narrowToScope } from '../../lib/adAudit/declaration'
+import type { DecisionSubmission } from '../../lib/adAudit/types'
 import { auditHeadline } from '../../lib/adAudit/review'
 import { AuditConsole } from './AuditConsole'
+import { PlainResult } from '../conversation/PlainResult'
 
 interface Props {
   /** The report markdown, as resolved by the server. */
   report: string
-  onSubmit?: (decisions: DecisionMarket[]) => void
+  /**
+   * What this phase declared it was about. The console renders the
+   * report reduced to that scope: the obligation being scoped is what
+   * stops out-of-scope rows being PRODUCED, and this is what stops them
+   * being ACTED ON when they turn up anyway.
+   */
+  declaration?: AdDeclaration | null
+  /**
+   * Whether the console is open, and how to open/close it. Driven by the
+   * URL rather than local state so the review is bookmarkable, survives a
+   * reload, and can be sent to whoever owns the budget.
+   */
+  open: boolean
+  onOpen: () => void
+  onClose: () => void
+  onSubmit?: (submission: DecisionSubmission) => void
   submitting?: boolean
 }
 
@@ -19,11 +37,38 @@ interface Props {
  * tables with no way to act on any of them. So the result becomes a summary
  * with one way in, and the decisions get made in the console.
  */
-export function AuditResultCard({ report, onSubmit, submitting }: Props) {
+export function AuditResultCard({
+  report,
+  declaration,
+  open,
+  onOpen,
+  onClose,
+  onSubmit,
+  submitting,
+}: Props) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const doc = useMemo(() => parseReport(report), [report])
+  const full = useMemo(() => parseReport(report), [report])
+  const doc = useMemo(
+    () => narrowToScope(full, declaration ?? null),
+    [full, declaration],
+  )
+  // Campaigns the report carried but this phase never claimed. Shown as
+  // a count rather than hidden silently: a reviewer who asked about one
+  // SKU should be able to tell the page filtered, not that the audit
+  // came back thin.
+  const dropped = useMemo(() => droppedCampaigns(full, doc), [full, doc])
   const head = useMemo(() => auditHeadline(doc), [doc])
+  // Nothing to decide — render the report instead of an empty console.
+  //
+  // The console opens on the phase's declared kind, which is right, but
+  // a report the parser cannot read yields zero campaigns and the card
+  // then says "0 countries · 0 live campaigns". That reads as "we
+  // audited and found nothing to change" when the truth is "the report
+  // could not be read" — opposite meanings, and the reviewer has no way
+  // to tell them apart. Observed on an audit whose report carried no
+  // `## <platform> <CC>` section at all.
+  const hasRows = doc.sections.some((sec) => sec.campaigns.length > 0)
+  if (!hasRows) return <PlainResult report={report} />
 
   return (
     <>
@@ -36,9 +81,11 @@ export function AuditResultCard({ report, onSubmit, submitting }: Props) {
         </div>
         <p className="text-gray-900 text-base font-semibold mb-1">
           {t('audit.heroTitle', {
-            markets: head.markets,
-            campaigns: head.campaigns,
-          })}
+              markets: t('audit.marketCount', { count: head.markets }),
+              campaigns: t('audit.campaignCount', {
+                count: head.campaigns,
+              }),
+            })}
         </p>
         <p className="text-sm text-gray-600 mb-4">
           {t('audit.cardSummary', {
@@ -53,10 +100,18 @@ export function AuditResultCard({ report, onSubmit, submitting }: Props) {
               </span>
             </>
           )}
+          {dropped > 0 && (
+            <>
+              {' · '}
+              <span className="text-gray-500">
+                {t('audit.outOfScopeHidden', { count: dropped })}
+              </span>
+            </>
+          )}
         </p>
         <button
           type="button"
-          onClick={() => setOpen(true)}
+          onClick={onOpen}
           className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700"
         >
           {t('audit.openConsole')}
@@ -78,7 +133,7 @@ export function AuditResultCard({ report, onSubmit, submitting }: Props) {
               <span className="flex-1" />
               <button
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={onClose}
                 className="px-3 py-1.5 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50"
               >
                 {t('common.close')}

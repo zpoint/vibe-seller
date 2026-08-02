@@ -4,7 +4,6 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  looksLikeAuditReport,
   num,
   parseReport,
   splitTables,
@@ -148,26 +147,6 @@ describe('parseReport', () => {
       }),
     )
     expect(doc.sections[0].campaigns[0].kw).toHaveLength(1)
-  })
-})
-
-describe('looksLikeAuditReport', () => {
-  it('accepts a real report', () => {
-    expect(looksLikeAuditReport(report())).toBe(true)
-  })
-
-  it('rejects ordinary result markdown', () => {
-    // Matched on structure, not a filename: the deliverable has been renamed
-    // more than once and the frontend receives resolved content, not a path.
-    expect(looksLikeAuditReport('# Done\n\nI finished the task.')).toBe(false)
-    expect(looksLikeAuditReport('')).toBe(false)
-    expect(looksLikeAuditReport(null)).toBe(false)
-  })
-
-  it('rejects a report with sections but no drill progress', () => {
-    expect(looksLikeAuditReport(report().replace(/\*\*进度\*\*.*\n/, ''))).toBe(
-      false,
-    )
   })
 })
 

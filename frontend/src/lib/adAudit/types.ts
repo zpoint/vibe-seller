@@ -179,3 +179,45 @@ export interface DecisionMarket {
   currency: string
   campaigns: DecisionCampaign[]
 }
+
+/** At which level the reviewer dropped something. */
+export type ExclusionLevel = 'country' | 'platform' | 'campaign'
+
+export interface ExcludedCampaign {
+  campaign_id: string
+  campaign_name: string | null
+  country: string
+  platform: string
+  /** Which level the drop was made at — a campaign dropped with its whole
+   *  market is a different statement from one dropped on its own. */
+  excluded_at: ExclusionLevel
+}
+
+/**
+ * What the reviewer submits.
+ *
+ * `markets` is what to DO. `excluded` is what the reviewer deliberately
+ * chose not to touch — recorded explicitly because absence alone is
+ * ambiguous: a campaign missing from the payload could mean the audit never
+ * covered it, or that a human decided to leave it alone this round. Those
+ * are different facts, and both the executing agent and the next audit need
+ * to tell them apart.
+ */
+export interface DecisionSubmission {
+  markets: DecisionMarket[]
+  excluded: {
+    countries: string[]
+    /** `"<country>/<platform>"`. */
+    platforms: string[]
+    campaigns: ExcludedCampaign[]
+  }
+  totals: {
+    campaigns_in_scope: number
+    campaigns_excluded: number
+    rows_to_change: number
+    /** Raise/lower rows still missing a target bid. Blocks submission. */
+    rows_missing_bid: number
+    /** Raise/lower rows whose target equals the current bid — a no-op. */
+    rows_noop_bid: number
+  }
+}

@@ -18,6 +18,7 @@ import os
 from openpyxl import Workbook
 import pytest
 
+from app.ai import ad_declaration
 from app.ai.stop_gates import (
     ad_completeness_review as acr,
     ad_scope,
@@ -59,10 +60,25 @@ def _report(body: str) -> str:
     ) + _SUMMARY_SECTION
 
 
-def _setup(monkeypatch, tmp_path, task_id, *, scope=None, targets=None):
+def _setup(
+    monkeypatch,
+    tmp_path,
+    task_id,
+    *,
+    scope=None,
+    targets=None,
+    declare=('audit', {}),
+):
     monkeypatch.setattr(ad_scope, 'VIBE_SELLER_DIR', tmp_path)
+    monkeypatch.setattr(ad_declaration, 'VIBE_SELLER_DIR', tmp_path)
     tdir = tmp_path / 'tasks' / task_id
     tdir.mkdir(parents=True, exist_ok=True)
+    # Marketplace coverage is owed only by a WHOLE-STORE audit, and that
+    # is a DECLARED fact now, not one inferred from the report's shape.
+    # Default to the declaration these tests are about; pass
+    # ``declare=None`` to exercise the never-declared path.
+    if declare is not None:
+        ad_declaration.write_declaration_file(task_id, declare[0], declare[1])
     if scope is not None:
         (tdir / 'AUDIT_SCOPE.json').write_text(
             json.dumps({'combos': scope}), encoding='utf-8'
@@ -567,12 +583,17 @@ class TestDeclaredComboCoverage:
     def test_execution_summary_owes_no_marketplaces(
         self, monkeypatch, tmp_path
     ):
-        # Same skill, same gates — but nothing here claims to be an audit.
+        # Same skill, same gates — but this phase DECLARED itself an
+        # execution, so marketplace coverage is not its obligation. It
+        # used to escape only because its prose happened to carry no
+        # combo heading; a summary that mentioned one was denied for
+        # failing to audit five markets it never claimed to audit.
         _setup(
             monkeypatch,
             tmp_path,
             't-exec',
             targets={'amazon': ['SA', 'AE'], 'noon': ['SA']},
+            declare=('execute', {}),
         )
         gaps = _gaps('Amazon SA 广告优化执行完毕，12 项已应用。', 't-exec')
         assert gaps == [], gaps

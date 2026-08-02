@@ -26,7 +26,10 @@ describe('buildConversationItems', () => {
     ])
   })
 
-  it('first result becomes a result card, later results demote to messages', () => {
+  it('every turn keeps its own result, where it was produced', () => {
+    // Only the first used to qualify as a result; later ones were demoted
+    // to plain assistant messages, so on a multi-turn task each answer
+    // ended up somewhere other than under the question that asked for it.
     const items = buildConversationItems(
       [
         { role: 'result', content: 'first' },
@@ -34,11 +37,10 @@ describe('buildConversationItems', () => {
       ],
       task(),
     )
-    expect(items[0].type).toBe('result')
-    expect(items[1].type).toBe('agent_message')
+    expect(items.map(i => i.type)).toEqual(['result', 'result'])
   })
 
-  it('task.result is authoritative — replaces a persisted result card', () => {
+  it('task.result is authoritative — refreshes a persisted result card', () => {
     const items = buildConversationItems(
       [{ role: 'result', content: 'transcript snippet' }],
       task({ result: 'canonical result' }),
@@ -46,8 +48,45 @@ describe('buildConversationItems', () => {
     const finals = items.filter(i => i.type === 'result')
     expect(finals).toHaveLength(1)
     expect(finals[0].result).toBe('canonical result')
-    // the demoted transcript stays visible as an agent message
-    expect(items.some(i => i.type === 'agent_message' && i.message?.content === 'transcript snippet')).toBe(true)
+  })
+
+  it('a two-turn task reads in order: ask, answer, ask, answer', () => {
+    // The journey that exposed this. A seller asks for today's revenue,
+    // gets it, then asks for an ad review in the same task. `task.result`
+    // used to refresh the FIRST result slot, which drew turn 2's answer —
+    // the ad-audit console — between the two questions, reading as though
+    // it answered "how much did we sell today?", while turn 1's own
+    // answer was displaced to the bottom of the thread as loose prose.
+    const items = buildConversationItems(
+      [
+        { role: 'user', content: 'how much did we sell today?' },
+        { role: 'result', content: 'SAR 77.98, 2 units' },
+        { role: 'user', content: 'now review the socks ads' },
+        { role: 'result', content: 'transcript snippet' },
+      ],
+      task({ result: 'THE AD AUDIT REPORT' }),
+    )
+    expect(
+      items.map(i =>
+        i.type === 'result' ? `result:${i.result}` : `${i.type}:${i.message?.content}`,
+      ),
+    ).toEqual([
+      'user_message:how much did we sell today?',
+      'result:SAR 77.98, 2 units',
+      'user_message:now review the socks ads',
+      'result:THE AD AUDIT REPORT',
+    ])
+  })
+
+  it('the refreshed result keeps its own timestamp, not the rebuild time', () => {
+    // The audit console binds a result to the declaration in force when
+    // it landed; stamping "now" here would bind by rebuild time instead.
+    const items = buildConversationItems(
+      [{ role: 'result', content: 'snippet', created_at: '2026-08-02T10:00:00Z' }],
+      task({ result: 'canonical' }),
+    )
+    const final = items.find(i => i.type === 'result')
+    expect(final?.timestamp).toBe('2026-08-02T10:00:00Z')
   })
 
   it('adds an execution separator for a planned task in execute phase', () => {
