@@ -25,6 +25,14 @@ import stat
 import sys
 import textwrap
 
+from app.browser.worker_slots import (
+    indent_block,
+    max_worker_slots,
+    worker_flag_arm,
+    worker_init_block,
+    worker_resolve_block,
+    worker_session_regex_fragment,
+)
 from app.config import (
     BACKEND_PORT,
     BH_RUNTIME_DIR,
@@ -60,7 +68,13 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # v4: Ziniao-aux is a DEDICATED login-less Chromium (per-store, lazy):
 # the aux branch calls /browser/aux/start and attaches to the returned
 # aux-proxy ws. Chrome-backend aux stays a client on the main proxy.
-WRAPPER_FORMAT_VERSION = 4
+# v5: `--worker N` parallel slots. A subagent driving the browser
+# CONCURRENTLY with its parent used to inherit VIBE_TASK_ID, land on the
+# same daemon (browser_harness serves every socket connection in its own
+# unguarded asyncio task) and drive the same single tab. The flag gives
+# each concurrent caller its own daemon AND its own mux client on the
+# same logged-in browser. Wrappers written by v4 don't know the flag.
+WRAPPER_FORMAT_VERSION = 5
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
 
 
@@ -270,11 +284,16 @@ def write_browser_use_wrapper(
             f'            ;;\n'
             f'          '
         )
+    # ``$WORKER_SUFFIX`` is ``-w<N>`` for a --worker call and empty
+    # otherwise. It lands on BOTH the daemon name (via $SESSION) and the
+    # mux client id, so slot -> (daemon, client) stays bijective: a
+    # worker can never end up sharing a tab with the main session or
+    # with another slot. See app/browser/worker_slots.py.
     env_inject = textwrap.dedent(f"""\
         export BU_NAME="$SESSION"
         case "$SESSION" in
           {aux_env_arm}{slug}|{slug}-*)
-            CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}"
+            CLIENT_ID="${{VIBE_TASK_ID:-$(uuidgen 2>/dev/null || python3 -c 'import uuid;print(uuid.uuid4())')}}${{WORKER_SUFFIX}}"
             export BU_CDP_WS="ws://{LOCALHOST}:{proxy_port}/client-${{CLIENT_ID}}"
             ;;
         esac
@@ -320,6 +339,24 @@ def write_browser_use_wrapper(
         exit "$_vs_rc"
     """)
 
+    # Parallel worker slots. The bound is resolved HERE, at generation
+    # time, and baked into the script — the agent supplies a slot number
+    # and the wrapper decides whether it exists. See worker_slots.py.
+    slots = max_worker_slots()
+    worker_init = indent_block(worker_init_block(slots), 8)
+    worker_arm = indent_block(worker_flag_arm(slots), 12)
+    worker_resolve = indent_block(worker_resolve_block(slots), 8)
+    worker_re = worker_session_regex_fragment(slots)
+    # Group the tail before making it optional: a bare ``-w[1-3]?``
+    # would attach the ``?`` to the digit class and make ``-w``
+    # MANDATORY. Omitted entirely when slots are off — an empty group
+    # ``()?`` is undefined in POSIX ERE.
+    worker_tail = f'({worker_re})?' if worker_re else ''
+    session_re = f'^{slug}(-aux|(-[0-9a-fA-F]{{8}})?{worker_tail})$'
+    session_help = f'{slug}, {slug}-aux, {slug}-{{8-hex-chars}}' + (
+        f', + optional -w1..-w{slots} worker tail' if slots else ''
+    )
+
     script = textwrap.dedent(f"""\
         #!/usr/bin/env bash
         # Auto-generated browser-use wrapper for store: {store_name}
@@ -361,19 +398,24 @@ def write_browser_use_wrapper(
           SESSION="{slug}"
         fi
 
+        # Parallel worker slots (--worker N). Declared before the arg
+        # loop so `set -u` holds even when the flag is absent.
+        {worker_init}
         # 0.13 has no subcommands — the agent pipes Python via stdin
         # (heredoc) or -c. We intercept only the isolation-relevant flags
         # and pass everything else (e.g. -c '<code>') straight through.
         PASSTHROUGH=()
         while [ $# -gt 0 ]; do
           case "$1" in
+            {worker_arm}
             --session|--session=*)
               case "$1" in
                 --session) shift; _REQ_SESSION="${{1:-}}"; shift ;;
                 *)         _REQ_SESSION="${{1#--session=}}"; shift ;;
               esac
+              _SESSION_GIVEN=1
               if [ -n "${{VIBE_TASK_ID:-}}" ] && [ "$_REQ_SESSION" != "{slug}-aux" ]; then
-                echo "ERROR: --session is auto-assigned per task ($SESSION). Only --session {slug}-aux may override in task mode." >&2
+                echo "ERROR: --session is auto-assigned per task ($SESSION). Only --session {slug}-aux may override in task mode; use --worker N for a parallel slot." >&2
                 exit 1
               fi
               SESSION="$_REQ_SESSION"
@@ -401,9 +443,11 @@ def write_browser_use_wrapper(
           esac
         done
 
-        # Validate session format: {slug}, {slug}-aux, or {slug}-{{8hex}}
-        if [[ ! "$SESSION" =~ ^{slug}(-aux|-[0-9a-fA-F]{{8}})?$ ]]; then
-            echo "ERROR: session '$SESSION' not allowed. Allowed: {slug}, {slug}-aux, {slug}-{{8-hex-chars}}" >&2
+        {worker_resolve}
+        # Validate session format: {slug}, {slug}-aux, {slug}-{{8hex}},
+        # optionally with a `-w<N>` parallel-worker tail.
+        if [[ ! "$SESSION" =~ {session_re} ]]; then
+            echo "ERROR: session '$SESSION' not allowed. Allowed: {session_help}" >&2
             exit 1
         fi
 

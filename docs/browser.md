@@ -101,13 +101,58 @@ WebSocket-level CDP multiplexing proxy that allows multiple browser-use CLI proc
 - `Browser.close` is intercepted — cleans up client state without closing the browser
 - Client disconnect (clean or crash) triggers `_cleanup_client()` which closes the client's tabs and removes all routing entries
 - Startup cleanup closes orphan tabs left by prior server crashes
-- Configurable `max_clients` (default 5) — a CDPMuxProxy connection limit per proxy instance, not a system-wide concurrency cap
+- Configurable `max_clients` (default 16) — a CDPMuxProxy connection limit per proxy instance, not a system-wide concurrency cap. Sized for `MAX_AGENT_CONCURRENCY × (1 main + VIBE_BROWSER_WORKER_SLOTS) + 1 aux` plus reconnect headroom, so a worker slot the wrapper promised an agent is never denied by capacity
+- **One live connection per client id.** Registration used to be an unguarded `self._clients[client_id] = client`: a second connection displaced the first in the dict and every response for that id then routed to the newcomer's socket, while the displaced driver waited forever — no error, no log. The newest connection now wins *deliberately*: the older one is popped first (so its `finally` sees it no longer owns the id and skips the deferred cleanup that would close the survivor's tabs), then closed with code **4409**, and the collision is logged at ERROR. Taking over rather than refusing is the fail-safe direction — the common real cause is a daemon whose socket died without a clean close, and refusing would wedge every later call for that task
 
 **Upstream reconnect**: When the browser disconnects, the proxy sends error responses to all pending client requests, then attempts reconnection with exponential backoff (max 10 attempts, 1s→30s delay). Single-flight guard (`_reconnecting` flag, reset in `finally`) prevents concurrent reconnect attempts. After 10 failures, the proxy stops itself gracefully. `_reconnecting` is always cleared even if `_running` becomes false during reconnect.
 
 **Client reconnect grace period**: When a client disconnects, its tabs are not cleaned up immediately. Instead, the client enters a configurable grace period (default 480s, controlled by the `cleanup_grace` constructor parameter) during which tabs are preserved. If the client reconnects within this window, its tabs are recovered and the client resumes where it left off. Only after the grace period expires without reconnection are the client's tabs closed and routing entries removed.
 
 **Client identification**: The `VIBE_TASK_ID` environment variable is set by `ClaudeCodeBackend` when spawning the agent subprocess. The browser-use wrapper script reads it to construct the WebSocket URL `ws://127.0.0.1:{port}/client-{VIBE_TASK_ID}`, connecting directly (bypassing HTTP discovery). Falls back to a random UUID if not set.
+
+### Parallel workers — `browser-use --worker N`
+
+The two identifiers that isolate a browser driver — the browser-use daemon (`BU_NAME`) and the mux client id — are both derived from `VIBE_TASK_ID`. That is what makes a **sequential** subagent correct: it inherits the variable, lands on the same daemon, its calls serialise through one connection, and the page its parent opened is still there.
+
+A **concurrent** subagent is a different story, and the reason is upstream of us: Claude Code's Agent-tool subagents run *in the parent's process* (`src/utils/agentContext.ts` isolates them with `AsyncLocalStorage` precisely because several can run at once), and nothing writes a per-agent id into a child command's environment — `CLAUDE_CODE_AGENT_ID` is only ever read, and only for separate-process swarm teammates. So every Bash call in an agent tree sees one identical environment. Two concurrent drivers therefore share one `BU_NAME`, and `browser_harness.daemon.serve` handles each socket connection in its own asyncio task with **no lock anywhere in the package** — the two `handle()` coroutines interleave on one tab. The failure mode is silent wrong data.
+
+`--worker N` closes it without handing the environment to the agent:
+
+```bash
+browser-use --worker 2 <<'PY'
+new_tab("https://example.com/report")
+print(page_info())
+PY
+```
+
+| | main session | `--worker 2` |
+|---|---|---|
+| `BU_NAME` | `{slug}-{task[:8]}` | `{slug}-{task[:8]}-w2` |
+| `BU_CDP_WS` | `…/client-{task}` | `…/client-{task}-w2` |
+
+Same store, same proxy port, same logged-in browser — a separate **tab**, via the target-ownership isolation above. Design points:
+
+- **The caller supplies a number, never an id.** The bound (`VIBE_BROWSER_WORKER_SLOTS`, default 3; `0` disables the flag) is resolved at wrapper-generation time and baked into the script, which range-checks it and rejects non-digits and leading zeros. The session allowlist regex carries the same bound as a second gate. "Agent invents an arbitrary session id" stays unrepresentable — that pattern is what made rotating `VIBE_TASK_ID` per call harmful.
+- **The slot lands on both identifiers.** Bijective by construction, so a slot can never produce a daemon and a client id that disagree.
+- **`--worker` and `--session` are mutually exclusive.** A slot is a slot on the main store browser; `-aux` is a different browser.
+- **Slot assignment belongs to the parent agent** — only it knows how many subagents it is launching. A parent that hands the same slot to two subagents no longer corrupts data silently: they collide on one client id, and the mux logs it at ERROR and closes the loser (see the one-connection-per-id rule above).
+- **The daemon stays reapable.** `{slug}-{task[:8]}-w2` still carries its owning task id, and `daemon_reaper.task_prefix_for_bu_name` matches the `-w<N>` tail — otherwise every parallel subagent would leak a daemon, and a mux client against `max_clients`, for the life of the server.
+- **Tabs are per-slot; downloads are not.** Every slot writes to the same `~/.vibe-seller/downloads/{slug}/`.
+
+The same flag exists on the store-less `_web` wrapper, with the same contract. Implementation: `app/browser/worker_slots.py` (shared by both wrappers), agent-facing docs in `app/skills_v2/browser-harness/SKILL.md`.
+
+**Reading slots in the log.** Ownership lines truncate the client id, and slots append their suffix — so a plain `client_id[:8]` renders a task's main client and every worker as the *same string*, exactly when you need them apart. `short_cid()` (`cdp_mux_types.py`) keeps the head **and** re-attaches the slot: `1a2b3c4d`, `1a2b3c4d-w2`. Note the two renderings coexist — connect/disconnect lines carry the full id, ownership lines the short one — so anything parsing the log must fold both onto one key (`tests/e2e/mux_probe.py` does; it also refuses to certify isolation from a log written before this fix, where worker tabs were attributed to the main client and every disjointness check passes vacuously).
+
+**Test coverage.** Four tiers, each closing a different gap:
+
+| Tier | File | Proves |
+|---|---|---|
+| unit | `tests/unit/test_browser/test_worker_slots.py` | the wrapper's slot→(daemon, client) derivation, validation, reapability, log visibility |
+| unit | `tests/unit/test_browser/test_cdp_client_collision.py` | one live connection per client id; takeover doesn't destroy the survivor |
+| integration (CI, real Chromium) | `tests/integration/test_worker_slot_isolation.py` | the **real generated wrapper** — not fabricated ids — gives concurrent callers isolated tabs |
+| e2e (real LLM) | `tests/e2e/test_parallel_subagent_slots.py` | a real agent *reaches for the flag* from human intent alone; zero slots used is a **failure**, since that means the prompt guidance regressed |
+
+`tests/e2e/run_part_c_click_lab.py` is a manual sustained-load check (three subagents clicking through a stateful page for minutes); it needs a server started with a widened `VIBE_BROWSER_WORKER_SLOTS`, so it is a script rather than a collected test.
 
 **HTTP endpoints**: Serves `/json/version` and `/json/list` for browser-use CLI discovery, with `webSocketDebuggerUrl` rewritten to point at the proxy.
 

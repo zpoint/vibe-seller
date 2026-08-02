@@ -51,12 +51,23 @@ from typing import Any
 import websockets
 
 from app.browser.cdp_mux_routing import _RoutingMixin
-from app.browser.cdp_mux_types import ClientState, RequestMapping
+from app.browser.cdp_mux_types import (
+    DUPLICATE_CLIENT_CLOSE_CODE,
+    ClientState,
+    RequestMapping,
+    short_cid,
+)
 from app.browser.cdp_mux_upstream import _UpstreamMixin
 from app.config import LOCALHOST
 
 # Re-export for backwards compatibility.
-__all__ = ['CDPMuxProxy', 'ClientState', 'RequestMapping']
+__all__ = [
+    'DUPLICATE_CLIENT_CLOSE_CODE',
+    'CDPMuxProxy',
+    'ClientState',
+    'RequestMapping',
+    'short_cid',
+]
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +75,15 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_MAX_CLIENTS = 5
+# One store's proxy serves: one client per concurrent TASK on this store
+# (MAX_AGENT_CONCURRENCY, default 2), plus each task's parallel worker
+# slots (VIBE_BROWSER_WORKER_SLOTS, default 3 — see worker_slots.py),
+# plus the chrome-backend `client-aux`. That is 2*(1+3)+1 = 9 at the
+# defaults; the headroom above it covers a reconnecting daemon that
+# briefly overlaps its predecessor. The cap bounds resource use, not
+# correctness — but it must not be the thing that silently denies a
+# worker slot the wrapper just told an agent it could have.
+DEFAULT_MAX_CLIENTS = 16
 PENDING_CACHE_TTL = 30.0  # seconds before pending events are discarded
 # Grace period before closing a disconnected client's tabs.
 # If the same client_id reconnects within this window, it
@@ -231,23 +250,36 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
     # Client cleanup
     # ------------------------------------------------------------------
 
-    async def _defer_cleanup(self, client_id: str) -> None:
+    async def _defer_cleanup(self, client_id: str, client: ClientState) -> None:
         """Schedule deferred tab cleanup after grace period.
 
         The browser-use daemon may disconnect briefly (idle timeout,
         reconnect) and come back with the same client_id. Immediate
         cleanup would destroy tabs the daemon still expects to own.
+
+        ``client`` is the state of the connection that just closed, and
+        the registry entry must still BE that object for cleanup to
+        apply. When a newer connection has claimed the id (see the
+        collision path in ``_handle_client_ws``) the entry is either
+        gone or someone else's, and the targets have already been
+        transferred — proceeding would close the live client's tabs.
         """
-        client = self._clients.pop(client_id, None)
-        if not client:
+        current = self._clients.get(client_id)
+        if current is not client:
+            logger.info(
+                'CDPMuxProxy client %s closed but no longer owns its id '
+                '(superseded by a newer connection) — no cleanup',
+                short_cid(client_id, 16),
+            )
             return
+        del self._clients[client_id]
 
         if not client.target_ids and not client.session_ids:
             # Nothing to preserve — clean up immediately.
             logger.info(
                 'CDPMuxProxy client %s disconnected (empty) — '
                 'no deferred cleanup needed',
-                client_id[:16],
+                short_cid(client_id, 16),
             )
             return
 
@@ -369,7 +401,7 @@ class CDPMuxProxy(_UpstreamMixin, _RoutingMixin):
         """Send a CDP error response to a client."""
         logger.debug(
             'CDP error -> client %s: %s',
-            client_id[:8] if client_id else '?',
+            short_cid(client_id) if client_id else '?',
             message,
         )
         client = self._clients.get(client_id)

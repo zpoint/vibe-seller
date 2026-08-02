@@ -110,8 +110,10 @@ class TestWriteBrowserUseWrapper:
         assert 'export BU_CDP_WS="ws://' in content
         # Per-task session + strict validation (regex pattern)
         assert 'VIBE_TASK_ID' in content
-        # Bash regex validation for {slug}, {slug}-aux, or {slug}-{8hex}
-        assert '=~ ^storec(-aux|-[0-9a-fA-F]{8})?$' in content
+        # Bash regex validation for {slug}, {slug}-aux, {slug}-{8hex},
+        # each optionally carrying a `-w<N>` parallel-worker tail
+        # (wrapper v5 — see tests/unit/test_browser/test_worker_slots.py).
+        assert '=~ ^storec(-aux|(-[0-9a-fA-F]{8})?(-w[1-3])?)$' in content
 
     def test_blocks_cdp_url_flag(self, tmp_path: Path, monkeypatch):
         """Wrapper script blocks the --cdp-url flag."""

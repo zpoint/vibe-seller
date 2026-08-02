@@ -74,6 +74,15 @@ class Options(enum.Enum):
     BROWSER_IDLE_S = ('VIBE_BROWSER_IDLE_S', '300')
     TAB_CAP = ('VIBE_TAB_CAP', '12')
 
+    # Parallel worker slots per task on a store's (or the web) browser.
+    # `browser-use --worker N` hands the caller its OWN daemon AND its
+    # own CDP mux client, so a subagent driving the browser at the same
+    # time as its parent gets a separate tab instead of interleaving on
+    # the parent's. The wrapper bakes this bound in at generation time
+    # and validates N server-side; 0 disables the flag entirely.
+    # See app/browser/wrapper.py and docs/browser.md § Parallel workers.
+    BROWSER_WORKER_SLOTS = ('VIBE_BROWSER_WORKER_SLOTS', '3')
+
     # Circuit breaker on the dead-mux full-env relaunch in
     # BrowserManager.start_session: at most RELAUNCH_MAX relaunches per
     # store within RELAUNCH_WINDOW_S, after which the start fails with

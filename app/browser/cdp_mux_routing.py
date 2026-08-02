@@ -11,7 +11,12 @@ import uuid
 import websockets
 from websockets.asyncio.server import ServerConnection
 
-from app.browser.cdp_mux_types import ClientState, RequestMapping
+from app.browser.cdp_mux_types import (
+    DUPLICATE_CLIENT_CLOSE_CODE,
+    ClientState,
+    RequestMapping,
+    short_cid,
+)
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
@@ -26,6 +31,57 @@ class _RoutingMixin:
         path = ws.request.path if ws.request else ''
         client_id = self._extract_client_id(path)
 
+        # A client id may have at most ONE live connection. Registration
+        # below used to be an unguarded `self._clients[client_id] =
+        # client`, so a second connection silently displaced the first:
+        # every response and event for that id then routed to the
+        # newcomer's socket while the older driver waited forever, with
+        # nothing logged. Silent wrong data is the worst failure mode we
+        # can ship here, and it is precisely what two parallel browser
+        # drivers sharing one id produce.
+        #
+        # Displace deliberately instead. Pop FIRST so the older
+        # handler's `finally` sees it no longer owns the id and skips
+        # its deferred cleanup (which would otherwise close the tabs we
+        # are about to hand to the new connection), then close it with
+        # a reason it can report.
+        #
+        # Taking over rather than refusing is the fail-safe direction:
+        # the common real cause is a daemon whose socket died without a
+        # clean close (half-open), and refusing would wedge every
+        # subsequent call for that task. A genuine collision — two
+        # subagents handed the same `--worker` slot — is loud in the log
+        # and surfaces to the loser as a closed connection, not as
+        # quietly wrong page data.
+        superseded = self._clients.pop(client_id, None)
+        if superseded is not None:
+            logger.error(
+                'CDPMuxProxy client id collision: %s already had a live '
+                'connection (%d target(s), %d session(s)). Closing the '
+                'older one and transferring its targets. Two drivers '
+                'are sharing one client id — parallel subagents must '
+                'each be given a DISTINCT `--worker N` slot.',
+                client_id,
+                len(superseded.target_ids),
+                len(superseded.session_ids),
+            )
+            try:
+                await superseded.ws.close(
+                    DUPLICATE_CLIENT_CLOSE_CODE,
+                    'client id claimed by a newer connection',
+                )
+            except Exception:
+                # A peer that is already gone is the expected case, so
+                # this is not an error — but LOG it. A bare `pass` here
+                # silently ate a NameError on the close code itself, and
+                # the takeover then looked successful while the older
+                # connection stayed open.
+                logger.info(
+                    'CDPMuxProxy: could not close superseded client %s',
+                    short_cid(client_id, 16),
+                    exc_info=True,
+                )
+
         if len(self._clients) >= self.max_clients:
             logger.warning(
                 'CDPMuxProxy rejecting client %s: max_clients=%d reached',
@@ -38,11 +94,15 @@ class _RoutingMixin:
             )
             return
 
-        # Cancel deferred cleanup if same client_id reconnects.
+        # Cancel deferred cleanup if same client_id reconnects. A live
+        # connection we just superseded holds fresher state than a
+        # deferred one, so it wins; the two cannot normally coexist
+        # (reconnecting pops the deferred entry) but cancel either way.
         deferred = self._deferred_cleanups.pop(client_id, None)
         if deferred:
-            task, old_state = deferred
-            task.cancel()
+            deferred[0].cancel()
+        old_state = superseded or (deferred[1] if deferred else None)
+        if old_state is not None:
             # Sessions are CDP attachments owned by the previous
             # daemon process — they cannot be re-used by a new
             # WebSocket connection by spec, and trying to do so
@@ -63,7 +123,7 @@ class _RoutingMixin:
                     'CDPMuxProxy client %s: discarding %d stale '
                     'session(s) on reconnect (sessions are owned '
                     'by the prior daemon process)',
-                    client_id[:16],
+                    short_cid(client_id, 16),
                     len(old_state.session_ids),
                 )
                 for sid in old_state.session_ids:
@@ -121,7 +181,7 @@ class _RoutingMixin:
             logger.info(
                 'CDPMuxProxy client %s WS closed (exception): '
                 'code=%s reason=%s',
-                client_id[:16],
+                short_cid(client_id, 16),
                 e.code,
                 e.reason or '(none)',
             )
@@ -131,11 +191,14 @@ class _RoutingMixin:
             reason = getattr(ws, 'close_reason', None)
             logger.info(
                 'CDPMuxProxy client %s WS final: code=%s reason=%s',
-                client_id[:16],
+                short_cid(client_id, 16),
                 code,
                 reason or '(none)',
             )
-            await self._defer_cleanup(client_id)
+            # Pass our own ClientState: if a newer connection claimed
+            # this id while we were unwinding, it — not us — owns the
+            # targets now, and cleaning up here would close its tabs.
+            await self._defer_cleanup(client_id, client)
 
     @staticmethod
     def _extract_client_id(path: str) -> str:
@@ -212,7 +275,7 @@ class _RoutingMixin:
                 logger.debug(
                     'CDP %s -> createTarget (client=%s, gid=%d)',
                     msg.get('params', {}).get('url', ''),
-                    client_id[:8],
+                    short_cid(client_id),
                     global_id,
                 )
             if method == 'Target.attachToTarget':
@@ -220,7 +283,7 @@ class _RoutingMixin:
                 logger.debug(
                     'CDP attachToTarget target=%s (client=%s)',
                     msg.get('params', {}).get('targetId', '')[:16],
-                    client_id[:8],
+                    short_cid(client_id),
                 )
 
             self._global_request_map[global_id] = mapping
@@ -328,7 +391,7 @@ class _RoutingMixin:
             if error:
                 logger.debug(
                     'CDP createTarget FAILED client=%s: %s',
-                    mapping.client_id[:8],
+                    short_cid(mapping.client_id),
                     error,
                 )
             elif target_id:
@@ -338,7 +401,7 @@ class _RoutingMixin:
                 logger.debug(
                     'CDP target %s -> client %s',
                     target_id[:16],
-                    mapping.client_id[:8],
+                    short_cid(mapping.client_id),
                 )
                 await self._enforce_tab_cap(client)
                 # Replay cached attachedToTarget event
@@ -362,7 +425,7 @@ class _RoutingMixin:
             if error:
                 logger.debug(
                     'CDP attachToTarget FAILED client=%s: %s',
-                    mapping.client_id[:8],
+                    short_cid(mapping.client_id),
                     error,
                 )
             elif session_id:
@@ -371,7 +434,7 @@ class _RoutingMixin:
                 logger.debug(
                     'CDP session %s -> client %s (attach)',
                     session_id[:16],
-                    mapping.client_id[:8],
+                    short_cid(mapping.client_id),
                 )
 
         # --- Special: getTargets response (filter) ---
@@ -410,7 +473,7 @@ class _RoutingMixin:
                 'CDPMuxProxy tab cap (%d): closing oldest tab %s of client %s',
                 cap,
                 oldest[:16],
-                client.client_id[:8],
+                short_cid(client.client_id),
             )
             # Fire-and-forget upstream close: no request mapping is
             # registered, so the response is dropped by design; the
