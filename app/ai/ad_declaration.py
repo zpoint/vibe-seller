@@ -120,6 +120,50 @@ def campaign_in_scope(scope: dict | None, campaign_id: str) -> bool:
     return any(cid == str(i).strip() for i in ids)
 
 
+def _combo_keys(scope: dict | None) -> set[tuple[str, str]]:
+    return {
+        (c['platform'], c['country'])
+        for c in (scope or {}).get('combos') or []
+    }
+
+
+def is_narrowing(prev: dict | None, new: dict | None) -> bool:
+    """True when ``new`` sits strictly inside ``prev``.
+
+    Exists because the first version of the declaration rule could not be
+    obeyed. An agent must declare BEFORE opening a browser, yet a request
+    that names a product ("the women's socks ads") can only be turned
+    into campaign ids BY browsing. So it had two bad options: declare
+    late, or declare a scope with no campaigns — which means EVERY
+    campaign in the market, and pulls the whole market's completeness
+    obligation with it. Observed live: a request for one SKU family
+    became an audit owing all of Amazon SA.
+
+    Splitting the declaration by what is knowable when fixes it. The
+    markets come from the request and stay fixed; the campaigns are a
+    refinement, allowed once enumeration reveals them. Refining may only
+    ever REMOVE reach:
+
+    * the kind may not change,
+    * the markets must be identical — adding one is widening, which is
+      the move the whole design exists to prevent,
+    * the campaign list must go from "all of them" to a named set, or to
+      a subset of an already-named set.
+    """
+    if prev is None or new is None:
+        return False
+    if _combo_keys(prev) != _combo_keys(new):
+        return False
+    prev_c = {str(c).strip() for c in (prev.get('campaigns') or [])}
+    new_c = {str(c).strip() for c in (new.get('campaigns') or [])}
+    # Empty means "every campaign in these markets" — never a narrowing.
+    if not new_c:
+        return False
+    if not prev_c:
+        return True
+    return new_c <= prev_c
+
+
 def scope_summary(scope: dict | None) -> str:
     """One human-readable line, for gate denials and log lines."""
     if is_whole_store(scope):

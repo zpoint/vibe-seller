@@ -73,6 +73,12 @@ def _declarations(client, task_id: str) -> list[dict]:
     return r.json()
 
 
+def _messages(client, task_id: str) -> list[dict]:
+    r = client.get(f'{BASE_URL}/api/tasks/{task_id}/messages')
+    r.raise_for_status()
+    return r.json()
+
+
 def _scope_text(decl: dict) -> str:
     """Everything the scope names, flattened — for substring assertions."""
     scope = decl.get('scope') or {}
@@ -171,6 +177,32 @@ class TestScopeSurvivesAFollowUp:
         # campaign in these markets" — narrow-looking, but not narrow.
         assert (review.get('scope') or {}).get('campaigns'), (
             f'scope named no campaigns, which means ALL of them: {review}'
+        )
+
+        # ── The two-turn shape the console is rendered from ──────────
+        #
+        # The console binds each result to the declaration in force when
+        # that result landed. Two things must therefore hold in the data,
+        # and both were violated at once by bugs no unit test caught:
+        #
+        #  * each turn must leave its OWN result — the rebuild used to
+        #    promote only the first, so turn 2's answer took turn 1's
+        #    slot and rendered above the question that asked for it;
+        #  * the audit declaration must post-date turn 1's result — if it
+        #    did not, binding-by-time would attach the audit console to
+        #    the revenue answer as well, showing two consoles.
+        msgs = _messages(api_client, task_id)
+        results = [m for m in msgs if m['role'] == 'result']
+        assert len(results) >= 2, (
+            f'each turn must leave its own result; got {len(results)}: '
+            f'{[m["role"] for m in msgs]}'
+        )
+        first_result_at = results[0]['created_at']
+        assert review['created_at'] > first_result_at, (
+            "the audit declaration must post-date the first turn's "
+            'answer, or the console binds to that answer too: '
+            f'declared {review["created_at"]}, first result '
+            f'{first_result_at}'
         )
 
 

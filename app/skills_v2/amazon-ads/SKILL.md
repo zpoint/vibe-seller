@@ -54,14 +54,22 @@ request really is store-wide. A store selling on five marketplaces has
 been asked for all five because a one-product task left the field out.
 
 **If the request names a product, not a campaign** ("widget-006 的广告"),
-resolve it first: enumerate the campaign list, find the campaigns carrying
-that SKU family, then declare those ids. A product name alone narrows
-nothing — put it in `products` for the human reading the review page, and
-put the ids in `campaigns`.
+declare the MARKET now and the campaigns later. You cannot know campaign
+ids before you have looked, and declaring a market with no campaign list
+means **every campaign in it** — which is how a one-product request turns
+into an audit owing a whole marketplace.
 
-**Once per user turn, and it cannot be revised.** If a gate later asks for
-something outside your declared scope, do NOT try to re-declare — the
-server refuses it. Say so in your result and let the user redirect you.
+So: declare `{kind, combos, products}` first, enumerate the campaign list,
+find the campaigns carrying that SKU family, then call the tool AGAIN with
+the same kind and the same combos plus `campaigns: [...]`. That second
+call is a **narrowing refinement** and is accepted within the same turn.
+
+**Refining may only ever remove reach.** Same kind, same marketplaces, and
+a campaign list going from "all of them" to a named subset. You cannot add
+a marketplace, change the kind, or widen the campaign list — a wider scope
+needs a new message from the user. If a gate asks for something outside
+your scope, say so in your result and let the user redirect you; do not
+try to re-declare around it.
 
 **When the user sends a NEW message that changes what you are doing,
 declare again.** That is a new phase, and it is the only way a

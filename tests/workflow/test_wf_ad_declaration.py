@@ -103,7 +103,12 @@ class TestOnlyTheUserOpensANewPhase:
         # own remit. This is the hole the whole design closes.
         r = await _declare(admin_client, task_id, 'audit', {})
         assert r.status_code == 409
-        assert 'cannot be changed' in r.json()['detail']
+        # The refusal has to name the one legal in-turn move, or an agent
+        # that genuinely needs to record enumerated campaign ids has no
+        # way to learn it may.
+        detail = r.json()['detail']
+        assert 'NARROW' in detail
+        assert 'USER' in detail
 
     async def test_a_user_follow_up_opens_a_new_phase(
         self, admin_client, install_fake_agent
@@ -142,6 +147,118 @@ class TestOnlyTheUserOpensANewPhase:
         first = r.json()[0]
         assert first['kind'] == 'create'
         assert first['scope']['campaigns'] == ['A1234567']
+
+
+class TestNarrowingWithinATurn:
+    """Campaign ids can only be learned by looking, so they may be added.
+
+    The first version of this rule could not be obeyed: declare BEFORE
+    opening a browser, yet name campaign ids that only exist once you
+    have enumerated the account. Observed live, an agent asked to review
+    one SKU family declared the market with no campaigns — which means
+    every campaign in it — and the audit ended up owing all of Amazon SA.
+
+    So a refinement is allowed within the turn, but only ever inward.
+    """
+
+    async def test_naming_campaigns_after_enumerating_is_allowed(
+        self, admin_client, install_fake_agent
+    ):
+        task_id = await _make_task(admin_client)
+        market_only = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+        assert (
+            await _declare(admin_client, task_id, 'audit', market_only)
+        ).status_code == 200
+
+        # …now it has enumerated and knows which campaigns carry the SKU.
+        narrowed = dict(market_only, campaigns=['A1234567', 'A7654321'])
+        r = await _declare(admin_client, task_id, 'audit', narrowed)
+        assert r.status_code == 200, r.text
+        assert r.json()['scope']['campaigns'] == ['A1234567', 'A7654321']
+        # Append-only holds: the first declaration is still on the record.
+        r = await admin_client.get(f'/api/tasks/{task_id}/ad-declarations')
+        assert [d['seq'] for d in r.json()] == [1, 2]
+
+    async def test_narrowing_again_is_allowed(
+        self, admin_client, install_fake_agent
+    ):
+        task_id = await _make_task(admin_client)
+        market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+        await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            dict(market, campaigns=['A1234567', 'A7654321']),
+        )
+        r = await _declare(
+            admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
+        )
+        assert r.status_code == 200, r.text
+
+    async def test_widening_the_campaign_list_is_refused(
+        self, admin_client, install_fake_agent
+    ):
+        task_id = await _make_task(admin_client)
+        market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+        await _declare(
+            admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
+        )
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            dict(market, campaigns=['A1234567', 'A7654321']),
+        )
+        assert r.status_code == 409, r.text
+
+    async def test_dropping_the_campaign_list_is_refused(
+        self, admin_client, install_fake_agent
+    ):
+        # Going back to "every campaign in this market" is widening.
+        task_id = await _make_task(admin_client)
+        market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+        await _declare(
+            admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
+        )
+        r = await _declare(admin_client, task_id, 'audit', market)
+        assert r.status_code == 409, r.text
+
+    async def test_adding_a_marketplace_is_refused(
+        self, admin_client, install_fake_agent
+    ):
+        # The move the whole design exists to prevent.
+        task_id = await _make_task(admin_client)
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            {'combos': [{'platform': 'amazon', 'country': 'SA'}]},
+        )
+        assert r.status_code == 200
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            {
+                'combos': [
+                    {'platform': 'amazon', 'country': 'SA'},
+                    {'platform': 'noon', 'country': 'AE'},
+                ],
+                'campaigns': ['A1234567'],
+            },
+        )
+        assert r.status_code == 409, r.text
+
+    async def test_changing_the_kind_is_refused(
+        self, admin_client, install_fake_agent
+    ):
+        task_id = await _make_task(admin_client)
+        market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+        await _declare(admin_client, task_id, 'investigate', market)
+        r = await _declare(
+            admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
+        )
+        assert r.status_code == 409, r.text
 
 
 class TestTheGateSeesWhatWasAccepted:

@@ -135,18 +135,52 @@ async def declare_ad_task(
     prev = await _latest(db, task_id)
 
     if prev is not None and turns <= prev.user_turn:
-        # The agent is trying to re-declare inside the same turn. This is
-        # the escape hatch a gate-blocked agent would reach for, so it is
-        # the one that must not exist.
+        # Same turn. Allowed ONLY as a narrowing refinement.
+        #
+        # The markets come from the request and are knowable before any
+        # browsing, so they are fixed at the first declaration. Campaign
+        # ids are not: a request naming a product ("the women's socks
+        # ads") only becomes ids by enumerating the account. Requiring
+        # both upfront made the rule unfollowable — observed live, an
+        # agent declared the market with no campaigns, which means EVERY
+        # campaign in it, and a one-family request became an audit owing
+        # all of Amazon SA.
+        #
+        # Refining may only REMOVE reach: same kind, identical markets,
+        # campaigns going from "all" to a named set or to a subset of
+        # one. Widening stays impossible, which is the property that
+        # matters — an agent still cannot re-declare its way around a
+        # gate, because every legal move here makes its remit smaller.
+        try:
+            prev_scope = json.loads(prev.scope)
+        except (ValueError, TypeError):
+            prev_scope = {}
+        if kind == prev.kind and ad_declaration.is_narrowing(prev_scope, scope):
+            row = AdTaskDeclaration(
+                task_id=task_id,
+                seq=prev.seq + 1,
+                kind=kind,
+                scope=json.dumps(scope, ensure_ascii=False),
+                user_turn=turns,
+            )
+            db.add(row)
+            await db.commit()
+            await db.refresh(row)
+            ad_declaration.write_declaration_file(task_id, kind, scope)
+            return _as_dict(row)
         raise HTTPException(
             status_code=409,
             detail=(
                 f'This task already declared kind="{prev.kind}" for the '
-                'current turn, and a declaration cannot be changed. A new '
-                'declaration is only accepted after the USER sends another '
-                'message — that is what marks the start of a new phase. '
-                'Work within the declared scope, or report why it does not '
-                'fit and let the user redirect you.'
+                'current turn. Within a turn you may only NARROW it: same '
+                'kind, the same marketplaces, and a campaign list that '
+                'goes from "all of them" to a named subset — that is how '
+                'you record campaign ids you could only learn by '
+                'enumerating the account. You cannot add a marketplace, '
+                'change the kind, or widen the campaign list. A wider '
+                'scope needs a new message from the USER. Work within '
+                'what you declared, or say in your result why it does not '
+                'fit and let them redirect you.'
             ),
         )
 
