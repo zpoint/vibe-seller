@@ -226,6 +226,21 @@ class ClaudeCodeBackend(AIAgentBackend):
                 # write the same user message a second time.
                 persist_prompt=False,
             )
+            # Per-TASK hook state must survive the session boundary.
+            # Both of these describe a fact about the TASK — "the agent
+            # has seen the store manifest", "amazon-shared is loaded" —
+            # not about a process. Rebuilding the session on a follow-up
+            # or a gate redrive re-armed them, and the agent had no way
+            # to know: it read the catalog in turn 1 exactly as
+            # instructed, then in turn 2 was denied for searching
+            # `stores/` with the message "Read the catalog first".
+            #
+            # Observed live: five such denials while the agent was trying
+            # to read the ad-change TSVs it needed to satisfy a cooldown
+            # gate, plus a skill-prereq error for a skill already loaded
+            # earlier in the same task.
+            new_session._catalog_read = prior._catalog_read
+            new_session._loaded_skills = set(prior._loaded_skills)
             self._sessions[task_id] = new_session
             try:
                 await new_session.start()
