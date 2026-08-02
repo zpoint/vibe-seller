@@ -27,24 +27,24 @@ function decl(
   return { seq, kind, scope, created_at, user_turn: seq }
 }
 
-// Two marketplaces, three campaigns, one of which is the widget-006 family.
+// Two marketplaces, three campaigns, one of which is widget-006.
 const REPORT = `# 广告优化建议 — acme — 2026-08-01
 
 ## amazon AE
 
 **进度**: drilled 2/2 active (2 total, 1 page)
 
-### A1234567 | widget-006 family manual | Manual
+### A1234567 | widget-006 manual | Manual
 
 | 关键词 | 出价 | 点击 | 花费 | 订单 | ROAS | 建议 |
 |---|---|---|---|---|---|---|
-| cotton socks | 1.00 | 40 | 40.00 | 4 | 5.00 | 维持 |
+| widget red | 1.00 | 40 | 40.00 | 4 | 5.00 | 维持 |
 
-### A7654321 | widget-006 manual | Manual
+### A7654321 | sprocket-009 manual | Manual
 
 | 关键词 | 出价 | 点击 | 花费 | 订单 | ROAS | 建议 |
 |---|---|---|---|---|---|---|
-| widget red | 1.00 | 30 | 30.00 | 2 | 3.00 | 维持 |
+| sprocket small | 1.00 | 30 | 30.00 | 2 | 3.00 | 维持 |
 
 ## noon AE
 
@@ -57,7 +57,7 @@ const REPORT = `# 广告优化建议 — acme — 2026-08-01
 | something else | 0.80 | 10 | 8.00 | 0 | — | 暂停 |
 `
 
-const AMAZON_ONLY_SOCK = {
+const AMAZON_ONLY_WIDGET = {
   combos: [{ platform: 'amazon', country: 'AE' }],
   campaigns: ['A1234567'],
   products: ['WIDGET-006'],
@@ -86,7 +86,7 @@ describe('which result opens a console', () => {
 
 describe('binding a result to its phase', () => {
   const created = decl(1, 'create', {}, '2026-08-01T10:00:00Z')
-  const audited = decl(2, 'audit', AMAZON_ONLY_SOCK, '2026-08-01T12:00:00Z')
+  const audited = decl(2, 'audit', AMAZON_ONLY_WIDGET, '2026-08-01T12:00:00Z')
 
   it('gives an early result the phase that was current then', () => {
     // "Create a listing" → result → "now audit its ads" → result.
@@ -136,7 +136,7 @@ describe('narrowing the report to the declared scope', () => {
   })
 
   it('keeps only the declared campaign, on the declared marketplace', () => {
-    const d = decl(1, 'audit', AMAZON_ONLY_SOCK, '2026-08-01T12:00:00Z')
+    const d = decl(1, 'audit', AMAZON_ONLY_WIDGET, '2026-08-01T12:00:00Z')
     const narrowed = narrowToScope(full, d)
     expect(narrowed.sections).toHaveLength(1)
     expect(narrowed.sections[0].platform.toLowerCase()).toBe('amazon')
@@ -146,7 +146,7 @@ describe('narrowing the report to the declared scope', () => {
   })
 
   it('reports how many campaigns it hid', () => {
-    const d = decl(1, 'audit', AMAZON_ONLY_SOCK, '2026-08-01T12:00:00Z')
+    const d = decl(1, 'audit', AMAZON_ONLY_WIDGET, '2026-08-01T12:00:00Z')
     expect(droppedCampaigns(full, narrowToScope(full, d))).toBe(2)
   })
 
@@ -179,7 +179,7 @@ describe('narrowing the report to the declared scope', () => {
     expect(isWholeStore({})).toBe(true)
     expect(isWholeStore(undefined)).toBe(true)
     expect(isWholeStore({ combos: [] })).toBe(true)
-    expect(isWholeStore(AMAZON_ONLY_SOCK)).toBe(false)
+    expect(isWholeStore(AMAZON_ONLY_WIDGET)).toBe(false)
   })
 })
 

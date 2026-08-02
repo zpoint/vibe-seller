@@ -419,7 +419,7 @@ class TestTheRealReportShape:
         # gate was reading the ad-group name as the target.
         rows = (
             '| grp | widget red | Broad | enabled | 2.00 | 100 | 200.00 | '
-            '20 | 800.00 | 25.00% | 4.00 | 下调至 2.20（ACOS 偏高） |\n'
+            '20 | 800.00 | 25.00% | 4.00 | 下调至 1.60（ACOS 偏高） |\n'
         )
         deny = cooldown.check(
             _real_report(target_rows=rows),
@@ -434,7 +434,7 @@ class TestTheRealReportShape:
         # worse than no gate.
         rows = (
             '| grp | widget red | Broad | enabled | 2.00 | 100 | 200.00 | '
-            '20 | 800.00 | 25.00% | 4.00 | 下调至 2.20 |\n'
+            '20 | 800.00 | 25.00% | 4.00 | 下调至 1.60 |\n'
         )
         deny = cooldown.check(
             _real_report(target_rows=rows),
@@ -485,7 +485,7 @@ class TestTheRealReportShape:
         # keyword, separate bid, separate data.
         rows = (
             '| grp | widget red | Broad | enabled | 1.50 | 50 | 75.00 | 10 | '
-            '300.00 | 25.00% | 4.00 | 下调至 1.80 |\n'
+            '300.00 | 25.00% | 4.00 | 下调至 1.20 |\n'
         )
         assert (
             cooldown.check(
