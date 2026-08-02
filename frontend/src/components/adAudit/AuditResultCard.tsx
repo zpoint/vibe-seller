@@ -6,6 +6,7 @@ import { droppedCampaigns, narrowToScope } from '../../lib/adAudit/declaration'
 import type { DecisionSubmission } from '../../lib/adAudit/types'
 import { auditHeadline } from '../../lib/adAudit/review'
 import { AuditConsole } from './AuditConsole'
+import { PlainResult } from '../conversation/PlainResult'
 
 interface Props {
   /** The report markdown, as resolved by the server. */
@@ -57,6 +58,17 @@ export function AuditResultCard({
   // came back thin.
   const dropped = useMemo(() => droppedCampaigns(full, doc), [full, doc])
   const head = useMemo(() => auditHeadline(doc), [doc])
+  // Nothing to decide — render the report instead of an empty console.
+  //
+  // The console opens on the phase's declared kind, which is right, but
+  // a report the parser cannot read yields zero campaigns and the card
+  // then says "0 countries · 0 live campaigns". That reads as "we
+  // audited and found nothing to change" when the truth is "the report
+  // could not be read" — opposite meanings, and the reviewer has no way
+  // to tell them apart. Observed on an audit whose report carried no
+  // `## <platform> <CC>` section at all.
+  const hasRows = doc.sections.some((sec) => sec.campaigns.length > 0)
+  if (!hasRows) return <PlainResult report={report} />
 
   return (
     <>

@@ -182,3 +182,34 @@ describe('narrowing the report to the declared scope', () => {
     expect(isWholeStore(AMAZON_ONLY_SOCK)).toBe(false)
   })
 })
+
+describe('a console with nothing to decide', () => {
+  it('the parser really does yield nothing for an unsectioned report', () => {
+    // What a real agent produced against a stub console that is not a
+    // configured marketplace: a readable report, but with no
+    // `## <platform> <CC>` section for the parser to key on.
+    const plain = `# Bid Audit — widget-006 manual (A1234567)
+
+Live · Daily budget 20.00 · Spend 200 / Revenue 600 / ROAS 3.00
+
+| Keyword | Match | Bid | Clicks | Spend | ROAS |
+|---|---|---|---|---|---|
+| widget red | Exact | 1.00 | 60 | 120.00 | 3.00 |
+
+**No bid changes recommended this week.**
+`
+    const doc = parseReport(plain)
+    const rows = doc.sections.reduce((n, s) => n + s.campaigns.length, 0)
+    expect(rows).toBe(0)
+  })
+
+  it('an audit declaration alone is not enough to show a console', () => {
+    // opensConsole() is still true — the phase DID declare an audit —
+    // so the emptiness has to be caught where the rows are counted, not
+    // by second-guessing the declaration.
+    const audited = decl(1, 'audit', {}, '2026-08-01T12:00:00Z')
+    expect(opensConsole(audited)).toBe(true)
+    const empty = parseReport('# Just prose, no sections\n\nnothing here.\n')
+    expect(empty.sections.flatMap((s) => s.campaigns)).toHaveLength(0)
+  })
+})
