@@ -50,7 +50,13 @@ const base: DecisionSubmission = {
     },
   ],
   excluded: { countries: [], platforms: [], campaigns: [] },
-  totals: { campaigns_in_scope: 1, campaigns_excluded: 0, rows_to_change: 1 },
+  totals: {
+    campaigns_in_scope: 1,
+    campaigns_excluded: 0,
+    rows_to_change: 1,
+    rows_missing_bid: 0,
+    rows_noop_bid: 0,
+  },
 }
 
 const withExclusions = (): DecisionSubmission => ({
@@ -75,7 +81,13 @@ const withExclusions = (): DecisionSubmission => ({
       },
     ],
   },
-  totals: { campaigns_in_scope: 1, campaigns_excluded: 2, rows_to_change: 1 },
+  totals: {
+    campaigns_in_scope: 1,
+    campaigns_excluded: 2,
+    rows_to_change: 1,
+    rows_missing_bid: 0,
+    rows_noop_bid: 0,
+  },
 })
 
 describe('auditFollowUpMessage', () => {

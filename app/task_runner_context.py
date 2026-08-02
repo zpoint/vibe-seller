@@ -146,9 +146,12 @@ def build_store_context(
             # hex>`). An agent that regenerated it per call got a
             # DIFFERENT, empty session every time: one live run paid 34
             # fresh navigations and 122 sleeps because no page state
-            # carried over. Reviewer subagents DO need their own id (the
-            # CDP proxy keys clients on it), so that pattern stays
-            # documented for them — this says it is not for the main one.
+            # carried over. This holds for EVERY agent, main or
+            # subagent: nobody sets or invents an id. A subagent that
+            # needs a concurrent driver passes `browser-use --worker N`,
+            # which derives its own daemon + mux client from the id the
+            # runtime already set — the wrapper owns the browser
+            # environment. See `app/browser/worker_slots.py`.
             f'Do NOT set or regenerate `VIBE_TASK_ID` — the runtime '
             f'already set it and the wrapper derives your browser '
             f'session from it. Overriding it per call puts every '
@@ -208,9 +211,12 @@ def build_store_context(
             # hex>`). An agent that regenerated it per call got a
             # DIFFERENT, empty session every time: one live run paid 34
             # fresh navigations and 122 sleeps because no page state
-            # carried over. Reviewer subagents DO need their own id (the
-            # CDP proxy keys clients on it), so that pattern stays
-            # documented for them — this says it is not for the main one.
+            # carried over. This holds for EVERY agent, main or
+            # subagent: nobody sets or invents an id. A subagent that
+            # needs a concurrent driver passes `browser-use --worker N`,
+            # which derives its own daemon + mux client from the id the
+            # runtime already set — the wrapper owns the browser
+            # environment. See `app/browser/worker_slots.py`.
             f'Do NOT set or regenerate `VIBE_TASK_ID` — the runtime '
             f'already set it and the wrapper derives your browser '
             f'session from it. Overriding it per call puts every '
