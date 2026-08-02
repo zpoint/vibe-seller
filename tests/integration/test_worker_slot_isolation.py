@@ -25,7 +25,7 @@ Ownership is asserted against the live proxy OBJECT (``_clients``,
 logs — in-process, so it is exact.
 """
 
-import concurrent.futures
+import asyncio
 import http.server
 import os
 from pathlib import Path
@@ -114,7 +114,20 @@ async def slot_env(_browser, tmp_path):
     await cleanup_browser_tabs(_browser)
 
 
-def _drive(wrapper: Path, task_id: str, url: str, *flags: str) -> str:
+async def _drive(wrapper: Path, task_id: str, url: str, *flags: str) -> str:
+    """Async shim — see :func:`_drive_blocking`.
+
+    The proxy under test runs on THIS event loop, so a blocking wait
+    here would stop it serving: the daemon's CDP handshake then times
+    out and the test fails for a reason that has nothing to do with
+    slots. Hand the blocking work to a thread and keep the loop free.
+    """
+    return await asyncio.get_running_loop().run_in_executor(
+        None, _drive_blocking, wrapper, task_id, url, *flags
+    )
+
+
+def _drive_blocking(wrapper: Path, task_id: str, url: str, *flags: str) -> str:
     """Open ``url`` and read its token back in ONE wrapper call.
 
     Output goes to files, never pipes: a call that starts a daemon
@@ -184,12 +197,15 @@ class TestWorkerSlotIsolationRealBrowser:
             (('--worker', '1'), f'{site}/beta', 'TOKEN_BETA'),
             (('--worker', '2'), f'{site}/gamma', 'TOKEN_GAMMA'),
         ]
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            futs = [
-                pool.submit(_drive, wrapper, task_id, url, *flags)
-                for flags, url, _ in plan
-            ]
-            got = [f.result(timeout=240) for f in futs]
+        got = await asyncio.wait_for(
+            asyncio.gather(
+                *(
+                    _drive(wrapper, task_id, url, *flags)
+                    for flags, url, _ in plan
+                )
+            ),
+            timeout=300,
+        )
 
         for (flags, _, want), actual in zip(plan, got, strict=True):
             assert actual == want, (
@@ -231,8 +247,8 @@ class TestWorkerSlotIsolationRealBrowser:
         """
         proxy, wrapper = slot_env['proxy'], slot_env['wrapper']
         task_id = str(uuid.uuid4())
-        _drive(wrapper, task_id, f'{site}/alpha')
-        _drive(wrapper, task_id, f'{site}/beta')
+        await _drive(wrapper, task_id, f'{site}/alpha')
+        await _drive(wrapper, task_id, f'{site}/beta')
         ids = {
             c
             for c in set(proxy._clients) | set(proxy._deferred_cleanups)
@@ -246,13 +262,16 @@ class TestWorkerSlotIsolationRealBrowser:
         """The bound is enforced before a connection is ever made."""
         proxy, wrapper = slot_env['proxy'], slot_env['wrapper']
         task_id = str(uuid.uuid4())
-        proc = subprocess.run(
-            [str(wrapper), '--worker', '99'],
-            input='print("nope")\n',
-            capture_output=True,
-            text=True,
-            timeout=60,
-            env={**os.environ, 'VIBE_TASK_ID': task_id},
+        proc = await asyncio.get_running_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                [str(wrapper), '--worker', '99'],
+                input='print("nope")\n',
+                capture_output=True,
+                text=True,
+                timeout=60,
+                env={**os.environ, 'VIBE_TASK_ID': task_id},
+            ),
         )
         assert proc.returncode == 1
         assert 'ERROR: --worker' in proc.stderr
