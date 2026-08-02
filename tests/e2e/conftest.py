@@ -22,6 +22,7 @@ import tests.e2e.e2e_helpers as e2e_helpers
 from tests.e2e.e2e_helpers import (
     BASE_URL,
     PIPELINE_TIMEOUT,
+    admin_credentials,
     build_profile_env,
     build_smart_answers,
     fetch_presets,
@@ -56,22 +57,24 @@ def authenticated_page(page: Page):
     # First go to the page (needed for cookie context)
     page.goto(BASE_URL)
 
-    # Login via API to get auth cookie set
-    page.evaluate("""async () => {
+    # Login via API to get auth cookie set. Credentials come from the
+    # shared helper (env-overridable) so a developer's instance, whose
+    # admin password is no longer the seeded one, can run UI e2e too.
+    page.evaluate(
+        """async (creds) => {
         const response = await fetch('/api/auth/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({
-                identifier: 'admin@vibe-seller.local',
-                password: 'admin'
-            })
+            body: JSON.stringify(creds)
         });
         if (!response.ok) {
             throw new Error('Login failed: ' + await response.text());
         }
         return await response.json();
-    }""")
+    }""",
+        admin_credentials(),
+    )
 
     # Reload page to get authenticated state
     page.goto(BASE_URL)
@@ -125,10 +128,7 @@ def _login_client(client: httpx.Client) -> None:
         try:
             client.post(
                 f'{BASE_URL}/api/auth/login',
-                json={
-                    'identifier': 'admin@vibe-seller.local',
-                    'password': 'admin',
-                },
+                json=admin_credentials(),
             ).raise_for_status()
             return
         except (httpx.HTTPStatusError, httpx.ConnectError) as exc:
