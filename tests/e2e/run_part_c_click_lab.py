@@ -279,7 +279,8 @@ def verify(task_id: str, status: str, args) -> int:
             print(f'  - {f}')
         return 1
     print(
-        'PASS — three distinct slots, isolated tabs and sessions, concurrent.'
+        f'PASS — {len(fam)} concurrent clients (slots={slots}), isolated '
+        'tabs and sessions, live at the same instant.'
     )
     return 0
 
