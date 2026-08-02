@@ -47,12 +47,30 @@ class TestBrowserEnvOwnership:
             f'it and the runtime sets it: {offenders}'
         )
 
-    def test_the_browser_prompt_says_not_to(self):
+    def test_both_store_context_branches_say_not_to(self):
+        """The rule reaches an agent down either store-context path.
+
+        Scoped to ``build_store_context`` on purpose. An earlier version
+        counted occurrences across the whole module and pinned the
+        literal 2; upstream then added the rule to unrelated
+        worker-parallelism guidance and this failed for being out of
+        date rather than for a missing rule. What matters is that BOTH
+        branches that hand an agent the wrapper — single store and
+        all-stores — carry it.
+        """
         src = (REPO / 'app' / 'task_runner_context.py').read_text(
             encoding='utf-8'
         )
-        # Both the store and all-stores context blocks carry the rule.
-        assert src.count('Do NOT set or regenerate `VIBE_TASK_ID`') == 2
+        marker = 'def build_store_context('
+        assert marker in src, 'build_store_context moved — update this test'
+        body = src[src.index(marker):]
+        rule = body.count('Do NOT set or regenerate `VIBE_TASK_ID`')
+        assert rule >= 2, (
+            'both the single-store and all-stores context blocks must '
+            f'carry the "do not set VIBE_TASK_ID" rule; found {rule}. An '
+            'agent reading the uncovered one rotates the id and gets a '
+            'fresh, logged-out browser.'
+        )
 
     def test_the_wrapper_still_derives_session_and_client_from_it(self):
         """The rule only holds because the wrapper does the work."""
