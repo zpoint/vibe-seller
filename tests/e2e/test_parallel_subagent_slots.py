@@ -16,10 +16,12 @@ The task text is pure human intent by design. Naming ``--worker`` in it
 would test nothing but the agent's ability to copy a flag.
 """
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 import json
 import logging
 from pathlib import Path
+import re
 import time
 
 import pytest
@@ -70,17 +72,35 @@ def chrome_store(api_client):
             logger.warning('could not delete e2e store %s', store['id'])
 
 
-def _subagent_bash_times(task_id: str) -> dict[str, list[datetime]]:
-    """When each subagent issued a browser-use call, from its transcript.
+@dataclass
+class SubagentRun:
+    """What one subagent did, read out of its own transcript."""
 
-    Claude Code writes one JSONL per subagent under the parent session's
-    ``subagents/`` dir; that is the only place a subagent's own timeline
-    exists (the parent transcript records the spawn, not the calls).
+    name: str
+    slots: set[int]
+    first: datetime
+    last: datetime
+
+
+def _subagent_runs(task_id: str) -> list[SubagentRun]:
+    """Per-subagent slot usage and activity span.
+
+    Claude Code writes one JSONL per subagent under the parent
+    session's ``subagents/`` dir; that is the only place a subagent's
+    own timeline exists — the parent transcript records the spawn, not
+    the calls.
+
+    The slot NUMBER comes straight out of the command the subagent ran,
+    which attributes it to a client exactly. An earlier version tried
+    to infer the mapping from overlapping time windows alone; that
+    cannot work, because concurrent subagents overlap each other by
+    definition.
     """
     root = Path.home() / '.claude' / 'projects'
-    out: dict[str, list[datetime]] = {}
+    runs: list[SubagentRun] = []
     for tdir in root.glob(f'*{task_id}*'):
         for sub in tdir.glob('*/subagents/*.jsonl'):
+            slots: set[int] = set()
             stamps: list[datetime] = []
             for line in sub.read_text(errors='replace').splitlines():
                 try:
@@ -92,23 +112,35 @@ def _subagent_bash_times(task_id: str) -> dict[str, list[datetime]]:
                 if not isinstance(content, list):
                     continue
                 for c in content:
-                    if (
+                    if not (
                         isinstance(c, dict)
                         and c.get('type') == 'tool_use'
                         and c.get('name') == 'Bash'
-                        and '--worker'
-                        in str(c.get('input', {}).get('command', ''))
                     ):
-                        raw = d.get('timestamp', '').replace('Z', '+00:00')
-                        try:
-                            stamps.append(
-                                datetime.fromisoformat(raw).replace(tzinfo=None)
-                            )
-                        except ValueError:
-                            pass
-            if stamps:
-                out[sub.stem] = sorted(stamps)
-    return out
+                        continue
+                    cmd = str(c.get('input', {}).get('command', ''))
+                    found = re.findall(r'--worker[= ](\d+)', cmd)
+                    if not found:
+                        continue
+                    slots.update(int(x) for x in found)
+                    # Transcript stamps are UTC ("…Z"); the server log
+                    # is LOCAL. Comparing them naively is a silent
+                    # timezone-wide offset that breaks the join on every
+                    # box not on UTC.
+                    raw = d.get('timestamp', '').replace('Z', '+00:00')
+                    try:
+                        stamps.append(
+                            datetime.fromisoformat(raw)
+                            .astimezone()
+                            .replace(tzinfo=None)
+                        )
+                    except ValueError:
+                        pass
+            if slots and stamps:
+                runs.append(
+                    SubagentRun(sub.stem, slots, min(stamps), max(stamps))
+                )
+    return runs
 
 
 @pytest.mark.e2e
@@ -161,23 +193,40 @@ class TestParallelSubagentSlots:
             'browser — the pages are supposed to be JS-rendered and '
             'unreadable by curl; fix the fixture, not the prompt'
         )
-        fam = assert_slots_isolated(trace, task['id'], expected_slots={1, 2})
+        # Which slot each subagent used, from its OWN transcript. This
+        # is the attribution — not an inference from "nobody else used
+        # the flag", which stops holding as soon as there are two.
+        runs = _subagent_runs(task['id'])
+        assert len(runs) >= 2, (
+            f'expected at least two browser-driving subagents, got '
+            f'{[r.name for r in runs]}'
+        )
+        for r in runs:
+            assert len(r.slots) == 1, (
+                f'subagent {r.name} used slots {sorted(r.slots)} — a '
+                'subagent must stay on the one slot it was given'
+            )
+        used = [next(iter(r.slots)) for r in runs]
+        assert len(set(used)) == len(used), (
+            f'two subagents shared a slot: {used} — the parent must hand '
+            'out distinct numbers'
+        )
 
-        # Timestamp join: a subagent's own calls must land inside the
-        # activity window of a slot client. Without this the mapping
-        # "subagent -> -wN" is only inferred from "nobody else used the
-        # flag", which stops holding the moment there are two of them.
-        slot_windows = {
-            cid: c.window for cid, c in fam.items() if c.slot is not None
-        }
-        for name, stamps in _subagent_bash_times(task['id']).items():
-            assert any(
-                w and w[0] <= stamps[-1] and stamps[0] <= w[1]
-                for w in slot_windows.values()
-            ), (
-                f'subagent {name} made --worker calls at '
-                f'{stamps[0]}..{stamps[-1]} but no slot client was active '
-                f'then; windows={slot_windows}'
+        fam = assert_slots_isolated(trace, task['id'], set(used))
+
+        # And each of those slots was genuinely live while its subagent
+        # was calling. The call PRECEDES its client's connect (the call
+        # is what boots the daemon), so allow lead-in for startup rather
+        # than requiring containment.
+        by_slot = {c.slot: c for c in fam.values() if c.slot is not None}
+        startup = timedelta(seconds=180)
+        for r in runs:
+            slot = next(iter(r.slots))
+            w = by_slot[slot].window
+            assert w and w[0] - startup <= r.last and r.first <= w[1], (
+                f'subagent {r.name} ran --worker {slot} at '
+                f'{r.first:%H:%M:%S}..{r.last:%H:%M:%S} but client '
+                f'-w{slot} was only active {w[0]:%H:%M:%S}..{w[1]:%H:%M:%S}'
             )
 
         # Concurrency, not a sequence of solo runs.
