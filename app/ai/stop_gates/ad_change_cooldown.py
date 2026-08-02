@@ -46,8 +46,11 @@ _MOVE_RE = re.compile(
     r'提高至|下调至|降至|下调到|提高出价|降低出价|加投|减投|暂停|否定'
 )
 
-# The report row for a target: the first cell is the target text.
-_ROW_RE = re.compile(r'^\|([^|]+)\|(.+)\|\s*$')
+# A markdown table separator row, e.g. '|---|---|'. Marks the end of the
+# header, which is where the key column is resolved.
+_SEPARATOR_RE = re.compile(r'^\|[\s:|-]+\|$')
+# '### <campaign id> | <name> | <type>' — the block a row belongs to.
+_CAMPAIGN_HEAD_RE = re.compile(r'^###\s+([^|]+?)\s*(?:\||$)')
 
 # Placeholders an agent writes for "nothing here". Observed live: a real
 # execution filled every untouched row's applied_* columns with ``-``
@@ -109,11 +112,68 @@ def _parse_day(raw: str) -> date | None:
         return None
 
 
+# The two ad layers live in SEPARATE files — ``<id>.tsv`` holds targets
+# (keywords / product targets, the things that carry a bid) and
+# ``<id>.searchterms.tsv`` holds the queries those targets matched. They
+# share a namespace of strings: a keyword "widget red" and a search term
+# "widget red" are different objects that read identically.
+#
+# Merging them, as this gate first did, made a BID change on the keyword
+# freeze a NEGATION of the same-named search term — different layer,
+# different object, different action. Observed live, and unfixable from
+# the agent's side because the denial named only the string.
+LAYER_TARGET = 'target'
+LAYER_SEARCH_TERM = 'searchterm'
+
+
+def _layer_of_file(path: Path) -> str:
+    return (
+        LAYER_SEARCH_TERM
+        if path.name.endswith('.searchterms.tsv')
+        else LAYER_TARGET
+    )
+
+
+def _campaign_of_file(path: Path) -> str:
+    """Campaign id a history file belongs to — it is the filename.
+
+    The same keyword string lives in many campaigns, each with its own
+    bid and its own data. Moving "widget red" in one campaign says
+    nothing about "widget red" in another, so a cooldown that keyed on
+    the string alone froze rows it had no evidence about. With the layer
+    bug fixed and real matches finally surfacing, that over-reach became
+    the dominant effect: one change flagged seven rows across three
+    campaigns it was never applied to.
+    """
+    return path.name.split('.', 1)[0].strip().lower()
+
+
+# Column that holds the thing a row is ABOUT, looked up by header name.
+# Never by position: the output spec puts ``ad_group`` first in the
+# targeting table and ``search_term`` first in the search-term one, so a
+# gate assuming column 1 compares an AD GROUP name against target
+# history — it never matches, and the bid cooldown silently never fires.
+_TARGET_COLS = ('target', '定向词', 'keyword', '关键词')
+_SEARCH_TERM_COLS = ('search_term', 'search term', '搜索词')
+
+
+def row_key_column(header: list[str]) -> tuple[str, int] | None:
+    """``(layer, column index)`` for a table header, or None."""
+    cells = [h.strip().lower() for h in header]
+    for i, c in enumerate(cells):
+        if c in _SEARCH_TERM_COLS:
+            return LAYER_SEARCH_TERM, i
+    for i, c in enumerate(cells):
+        if c in _TARGET_COLS:
+            return LAYER_TARGET, i
+    return None
+
+
 def recent_changes(
     ads_root: Path,
     cooldown_days: float,
     today: date | None = None,
-) -> dict[str, tuple[str, int]]:
+) -> dict[tuple[str, str, str], tuple[str, int]]:
     """``{normalised target: (applied_action, days_ago)}`` inside the window.
 
     Reads every per-campaign TSV under ``ads_root``. Keyed by target text
@@ -123,10 +183,12 @@ def recent_changes(
     worst extend a hold, which is the safe direction.
     """
     today = today or datetime.now(UTC).date()
-    out: dict[str, tuple[str, int]] = {}
+    out: dict[tuple[str, str, str], tuple[str, int]] = {}
     if not ads_root.is_dir():
         return out
     for path in ads_root.rglob('*.tsv'):
+        layer = _layer_of_file(path)
+        campaign_id = _campaign_of_file(path)
         try:
             with open(path, encoding='utf-8', newline='') as fh:
                 for row in csv.DictReader(fh, delimiter='\t'):
@@ -150,10 +212,11 @@ def recent_changes(
                     )
                     if not target:
                         continue
-                    prev = out.get(target)
+                    key = (campaign_id, layer, target)
+                    prev = out.get(key)
                     # Keep the most RECENT change for a target.
                     if prev is None or ago < prev[1]:
-                        out[target] = (action, ago)
+                        out[key] = (action, ago)
         except (OSError, csv.Error, UnicodeDecodeError):
             # An unreadable history file must not block a report. The
             # cooldown is a guard rail, not the audit's own contract.
@@ -221,25 +284,66 @@ def check(
         return None
     # Merge across trees, keeping the most RECENT change per target — a
     # stale entry in one tree must not mask a fresher one in the other.
-    changed: dict[str, tuple[str, int]] = {}
+    changed: dict[tuple[str, str, str], tuple[str, int]] = {}
     for root in roots:
-        for target, hit in recent_changes(root, window, today).items():
-            prev = changed.get(target)
+        for key, hit in recent_changes(root, window, today).items():
+            prev = changed.get(key)
             if prev is None or hit[1] < prev[1]:
-                changed[target] = hit
+                changed[key] = hit
     if not changed:
         return None
 
     bad: list[str] = []
+    # Which table we are inside, and where its key column sits. Read from
+    # the header rather than assumed: see ``row_key_column``.
+    layer: str | None = None
+    key_col = 0
+    header: list[str] | None = None
+    campaign = ''
     for line in result_text.splitlines():
-        m = _ROW_RE.match(line.strip())
-        if not m:
+        stripped = line.strip()
+        # Campaign blocks are '### <id> | <name> | <type>'. Carried so a
+        # denial can say WHICH campaign — without it the agent cannot
+        # find the row, retries blind, and loops until it gives up.
+        cm = _CAMPAIGN_HEAD_RE.match(stripped)
+        if cm:
+            campaign = cm.group(1).strip()[:40]
+            header = None
+            layer = None
             continue
-        target = _norm(m.group(1))
-        hit = changed.get(target)
+        if not stripped.startswith('|'):
+            header = None
+            layer = None
+            continue
+        cells = [c.strip() for c in stripped.strip('|').split('|')]
+        if _SEPARATOR_RE.match(stripped):
+            found = row_key_column(header or [])
+            layer, key_col = found if found else (None, 0)
+            continue
+        if layer is None:
+            header = cells
+            continue
+        if key_col >= len(cells):
+            continue
+        target = _norm(cells[key_col])
+        # Same object means same campaign, same layer, same target. A
+        # report block that never names its campaign falls back to
+        # layer+target so the guard still applies where structure is
+        # missing.
+        cid = campaign.strip().lower()
+        hit = changed.get((cid, layer, target)) if cid else None
+        if hit is None and not cid:
+            hit = next(
+                (
+                    v
+                    for (_c, lyr, tgt), v in changed.items()
+                    if lyr == layer and tgt == target
+                ),
+                None,
+            )
         if hit is None:
             continue
-        rest = m.group(2)
+        rest = '|'.join(cells[key_col + 1 :])
         if not _MOVE_RE.search(rest):
             continue
         action, ago = hit
@@ -248,7 +352,12 @@ def check(
         # also contains a move verb in its explanation.
         if re.search(r'冷却|观察期|刚(调|改|动)过|天前', rest):
             continue
-        bad.append(f'{m.group(1).strip()[:24]}（{ago} 天前 {action}）')
+        where = f'{campaign} · ' if campaign else ''
+        layer_cn = '搜索词层' if layer == LAYER_SEARCH_TERM else '定向层'
+        bad.append(
+            f'{where}{layer_cn} 「{cells[key_col].strip()[:24]}」'
+            f'（{ago} 天前 {action}）'
+        )
 
     if not bad:
         return None
