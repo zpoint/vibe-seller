@@ -8,27 +8,41 @@ round. **Partial is accepted** — you don't have to be perfect in one
 pass; fix what the reviewer reports and re-submit. The report improves
 each round until the gaps are gone.
 
-## Scope is fixed by `AUDIT_TARGETS.json` — read it FIRST
+## Scope is fixed by your DECLARATION — `AUDIT_TARGETS.json` is the menu
 
-Which marketplaces the audit owes is **not** your call, and it is **not
-the task description's call either**. Before you start, the server writes
-`AUDIT_TARGETS.json` at the task-workspace root — `{"combos": [{"platform": "amazon", "country": "SA"}, …]}`,
-every marketplace the store is configured for in Settings. Read it at
-the START of Phase 1 and let it drive the enumeration loop: **every
-combo it lists needs its own `AUDIT_SCOPE.json` entry AND its own
-`## <Platform> <Country>` section here.**
+Before you start, the server writes `AUDIT_TARGETS.json` at the
+task-workspace root — `{"combos": [{"platform": "amazon", "country":
+"SA"}, …]}`, every marketplace the store is configured for in Settings.
+That file is the **menu**: what exists, kept current from store config.
 
-**A market list in the task title, description or plan does NOT narrow
-this.** Those are prose, often written once and reused across stores, and
-they go stale the moment a store adds a marketplace in Settings —
-`AUDIT_TARGETS.json` is regenerated from that config on every run, so it
-is the only list that is current. Seen live: a weekly schedule whose
-description said "SA+AE" ran for a store since configured for SA+AE+AU;
-the agent read the prose, announced it would skip AU, and would have been
-denied for a missing combo it had been told twice to skip. If the two
-disagree, `AUDIT_TARGETS.json` wins and the description is out of date —
-audit every declared combo and note the discrepancy in the report rather
-than silently dropping a market.
+What you **owe** comes from your `vibe_seller_declare_ad_task` call:
+
+* declared `combos` → exactly those, each with its own
+  `AUDIT_SCOPE.json` entry AND its own `## <Platform> <Country>` section
+  here;
+* no `combos` declared (a whole-store audit) → every combo in the menu.
+
+**A market list in the task title, description or plan still does NOT
+narrow this.** Those are prose, often written once and reused across
+stores, and they go stale the moment a store adds a marketplace. Seen
+live: a weekly schedule whose description said "SA+AE" ran for a store
+since configured for SA+AE+AU; the agent read the prose, announced it
+would skip AU, and would have been denied for a missing combo it had
+been told twice to skip.
+
+A **declaration** is not that. It is a structured, server-validated
+record of what the person asked for in THIS conversation, made before
+you looked at anything — so it cannot be a stale artefact of an earlier
+store shape. Trust it, and only it.
+
+**Do not audit past your declaration because the menu is longer.** A
+user who says "just the SA women's socks, leave the other sites" gets
+exactly that; the other four marketplaces are work nobody asked for, and
+reporting on them is an out-of-scope gap. Seen live: a scoped request was
+inflated into a five-marketplace audit — about thirty extra campaigns —
+because this section said the menu won. If you believe the declared scope
+is wrong, say so in your result and let the user widen it. You may not
+widen it yourself.
 
 A combo with genuinely no live campaigns is still written down — an
 entry with `"active_ids": []` and `"total_active": 0`, plus its section

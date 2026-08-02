@@ -345,3 +345,58 @@ class TestInvestigateMayNotHandOutDecisions:
             'ROAS 偏低，值得下轮复核时看看要不要下调出价。\n'
         )
         assert not any('可执行建议' in g for g in _gaps(report, 't-inv-prose'))
+
+
+class TestTheDocsAgreeWithTheObligationRule:
+    """The reviewer believes the docs, so the docs must match the code.
+
+    `owed_combos` was changed so a phase owes the combos it DECLARED —
+    but the skill references still said the obligation was fixed by
+    `AUDIT_TARGETS.json`, the server's list of every marketplace the
+    store sells on. The contract then lived in two places that
+    disagreed, and the agent followed the prose.
+
+    Observed live: a request scoped to one SKU family on Amazon SA
+    declared `amazon SA` correctly, then stopped mid-run to ask whether
+    it should audit the other four marketplaces anyway, because "复评审器
+    仍要求我补足 AE/AU/noon 三个组合" — roughly thirty extra campaigns of
+    work nobody asked for.
+    """
+
+    _DOCS = [
+        pathlib.Path('app/skills_v2/amazon-ads/SKILL.md'),
+        pathlib.Path('app/skills_v2/noon-ads/SKILL.md'),
+        pathlib.Path('app/skills_v2/amazon-ads/references/output-spec.md'),
+        pathlib.Path('app/skills_v2/amazon-ads/references/audit-quickref.md'),
+        pathlib.Path('app/skills_v2/noon-ads/references/ads-tuning.md'),
+    ]
+
+    def test_the_docs_exist(self):
+        for d in self._DOCS:
+            assert d.is_file(), f'{d} moved — update this test'
+
+    def test_no_doc_claims_the_target_file_fixes_the_obligation(self):
+        # The exact phrasings that sent the agent past its own scope.
+        banned = (
+            'Which marketplaces you owe is fixed by',
+            'Which countries you owe is fixed by',
+            'Scope is fixed by `AUDIT_TARGETS.json`',
+            'Which countries is not your call',
+            'audit EVERY combo',
+        )
+        for d in self._DOCS:
+            body = d.read_text(encoding='utf-8')
+            for phrase in banned:
+                assert phrase not in body, (
+                    f'{d} still says the obligation comes from '
+                    f'AUDIT_TARGETS.json ({phrase!r}) — an agent reading '
+                    'it will audit marketplaces the user excluded'
+                )
+
+    def test_every_doc_names_the_declaration_as_the_source_of_scope(self):
+        for d in self._DOCS:
+            body = d.read_text(encoding='utf-8')
+            assert 'declar' in body.lower(), (
+                f'{d} never mentions the declaration, so an agent reading '
+                'only this file has no way to know what bounds its scope'
+            )

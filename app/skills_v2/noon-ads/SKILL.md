@@ -161,12 +161,15 @@ gate.
 > do use `Export all campaigns`, first scroll the list fully, then verify
 > the file's row count equals the chip before trusting it.**
 
-**Which countries you owe is fixed by `./AUDIT_TARGETS.json`** — the
-server writes it at the task root before you start (`{"combos":
-[{"platform": "noon", "country": "AE"}, …]}`, straight from the store's
-Settings). Read it FIRST, at the start of Phase 1, and loop over it:
-every noon country in it needs its own `AUDIT_SCOPE.json` combo entry
-(step 4) AND its own `## noon <CC>` report section. A country with
+**What you owe is what you DECLARED.** `./AUDIT_TARGETS.json` lists every
+country the store is configured for — the MENU, written by the server
+from Settings. Your `vibe_seller_declare_ad_task` call turns part of it
+into an obligation: the countries you declared each need their own
+`AUDIT_SCOPE.json` combo entry (step 4) AND their own `## noon <CC>`
+report section; declaring no combos at all (a whole-store audit) means
+you owe every country in the file. Do NOT expand past your declaration
+because the menu is longer — reporting on a market nobody asked about is
+an out-of-scope gap. A country with
 genuinely no Live campaigns is still written down — an entry with
 `"active_ids": []` and `"total_active": 0`, plus a section saying so;
 可以为空，但不能不写。Omitting a declared combo is a `[基线]` gap that

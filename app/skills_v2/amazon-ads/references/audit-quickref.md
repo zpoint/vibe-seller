@@ -26,23 +26,25 @@ state on the way to a full drill, never as the final report.
 
 ## Step 0 — scope + scaffold with append-markers
 
-**Read `./AUDIT_TARGETS.json` FIRST** — the server writes it at the task
-root before you start: `{"combos": [{"platform": "amazon", "country":
-"SA"}, …]}`, every marketplace the store is configured for in Settings.
-That file — not your judgement, and **not a market list in the task
-description** (prose goes stale when a store gains a marketplace; this
-file is regenerated from store config every run) — fixes the combo list — audit EVERY combo
-in it (e.g. Amazon <cc1>/<cc2> + noon <cc1>/<cc2>; or just a single
-Amazon marketplace for a single-market store), each with its own
-`AUDIT_SCOPE.json` entry (Step 1) and its own `## <Platform> <Country>`
-section. Loop over it; don't infer the list.
+**Declare first, then read `./AUDIT_TARGETS.json`.** The server writes
+that file at the task root: `{"combos": [{"platform": "amazon",
+"country": "SA"}, …]}`, every marketplace the store is configured for in
+Settings. It is the MENU — not your judgement, and **not a market list
+in the task description** (prose goes stale when a store gains a
+marketplace; this file is regenerated from store config every run).
+
+**Your declaration fixes the combo list**, not the menu. Audit every
+combo you declared, each with its own `AUDIT_SCOPE.json` entry (Step 1)
+and its own `## <Platform> <Country>` section. If you declared no combos
+at all, you owe every combo in the file. Never audit a marketplace
+outside your declaration because the file lists it.
 (`stores/<slug>/metadata.json` → `platform_countries` is the fallback
 only when `AUDIT_TARGETS.json` is absent.) 30-day window. Create
 `./AD_AUDIT_<YYYY-MM-DD>.md` with the header.
 
 **Scaffold every section up front, each with a unique append-marker.**
-One section per `AUDIT_TARGETS.json` combo — including the ones you
-expect to be empty. For each combo write its `## <Platform> <Country>`
+One section per DECLARED combo — including the ones you expect to be
+empty. For each combo write its `## <Platform> <Country>`
 heading, its `进度` line, and ONE marker line you will append against:
 
 ```
@@ -177,9 +179,10 @@ Auditing only part of an account on purpose (a one-off "investigate this
 one ad" task) is still fine — declare it: list just those ids and add
 `"exhaustive": false`, which skips the `total_active` cross-check (and
 with it the `total_active_source` requirement). What
-you may **not** do is omit the file, drop a combo `AUDIT_TARGETS.json`
-declares, or write an empty `active_ids` for a combo that DOES have live
-campaigns; all three are rejected. A narrow scope is a claim the server
+you may **not** do is omit the file, drop a combo YOU DECLARED, or write
+an empty `active_ids` for a combo that DOES have live campaigns; all
+three are rejected. (A combo that is in `AUDIT_TARGETS.json` but not in
+your declaration is simply out of scope — not a gap.) A narrow scope is a claim the server
 can check; no scope is not.
 
 ## Step 2 — drill EACH active campaign, build the report with `Edit`

@@ -241,13 +241,25 @@ authoritative active-campaign ids per marketplace to `AUDIT_SCOPE.json`
 (run `python scripts/ads_bulk.py scope <each market's export>`) — the
 coverage floor checks against it.
 
-**Which marketplaces you owe is fixed by `AUDIT_TARGETS.json`**, written
-by the server at the task root before you start (`{"combos":
-[{"platform": "amazon", "country": "SA"}, …]}` — the store's Settings,
-not your inference). Read it first and loop over it: every combo in it
-needs an `AUDIT_SCOPE.json` entry AND a `## <Platform> <Country>` report
-section, even one with no live campaigns (`"active_ids": []`,
-`"total_active": 0`). Omitting a declared combo is a `[基线]` gap.
+**What you owe is what you DECLARED.** `AUDIT_TARGETS.json` at the task
+root lists every marketplace the store is configured for — it is the
+MENU, written by the server from Settings, not your inference and not a
+market list in the task description (prose goes stale when a store gains
+a marketplace). Your `vibe_seller_declare_ad_task` call is what turns
+part of that menu into an obligation:
+
+* declared `combos` → you owe exactly those, each with an
+  `AUDIT_SCOPE.json` entry AND a `## <Platform> <Country>` report
+  section, even one with no live campaigns (`"active_ids": []`,
+  `"total_active": 0`);
+* declared NO `combos` (a whole-store audit) → you owe every combo in
+  `AUDIT_TARGETS.json`, same rules.
+
+Do NOT expand past your declaration because the menu is longer. A user
+who asked about one marketplace gets one marketplace; auditing the other
+four is work nobody asked for, and reporting on them is a `[基线]`
+out-of-scope gap. If you believe the scope is wrong, say so in your
+result and let the user widen it — you may not widen it yourself.
 
 **Before `vibe_seller_set_task_result`, you MUST pass verification — the
 report is not done until it's checked against the live console:**

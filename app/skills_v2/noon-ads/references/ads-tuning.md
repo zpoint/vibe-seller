@@ -22,11 +22,13 @@ report block per country under top-level headings `## Country 1:
 <code>` / `## Country 2: <code>` / … (see *Multi-country audits*
 below). Numbering of campaigns restarts within each country.
 
-**Which countries is not your call** — the server writes
-`./AUDIT_TARGETS.json` at the task root before you start, listing every
-(platform, country) the store is configured for. Read it first and cover
-every noon country in it: one `AUDIT_SCOPE.json` combo entry and one
-report block each. A country with genuinely no Live campaigns is still
+**Which countries you owe comes from your DECLARATION.** The server
+writes `./AUDIT_TARGETS.json` at the task root listing every (platform,
+country) the store is configured for — that is the menu. Cover the noon
+countries you declared: one `AUDIT_SCOPE.json` combo entry and one
+report block each. Declaring no combos at all means you owe every noon
+country in the file. A country in the menu but outside your declaration
+is out of scope, not a gap — do not audit it because the file lists it. A country with genuinely no Live campaigns is still
 written down (`"active_ids": []`, `"total_active": 0`, plus a block
 saying so); 可以为空，但不能不写 — omitting a declared combo is a `[基线]`
 gap that blocks submission.
