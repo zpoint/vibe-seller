@@ -227,7 +227,7 @@ import pandas as pd, sys  # python if bare python3 lacks it
 path, want_cc, want_sm = sys.argv[1], sys.argv[2], sys.argv[3]
 df = pd.read_csv(path)
 if len(df) == 0:
-    print(f'{path}: header only — legitimately empty, or a failed download')
+    print(f'{path}: header only — see "An empty file is two different facts"')
 else:
     cc = set(df['country_code'].astype(str).str.lower())
     sm = set(df['service_month'].astype(str))
@@ -236,6 +236,36 @@ else:
     print(f'{path}: OK {cc} {sm} {len(df)} rows')
 PY
 ```
+
+### An empty file is two different facts — resolve which
+
+A header-only download is **not** self-explanatory, and guessing has
+already cost real money-accuracy. Run the checker rather than eyeballing:
+
+```bash
+python "$SKILL_DIR/scripts/check_fee_rows.py" <out-dir> --service-month 2026-07
+# exit 1 ⇒ at least one storage report is empty and should not be trusted
+```
+
+It splits the two cases by what the report measures:
+
+| Report | Zero rows means |
+|---|---|
+| `monthly_storage`, `longterm_storage`, `nonsaleable_storage` | **Not published yet.** Storage accrues against stock held all month; if the store held inventory there is a charge. Treat as pending. |
+| `rtv_removal` | **Genuinely zero** — removals are discrete events and a month can have none. Keep the file; it is proof the question was asked. |
+
+Two things that make this trap so quiet:
+
+- The service month is selectable in the picker and the report still
+  reaches `Complete` for a month with no data. Selectable ≠ published.
+- **Retrying does not help.** A second, independent generation of the
+  same unpublished month returns a byte-identical empty file. Verified.
+  Report it as pending; do not burn the run on retries.
+
+Measured for one project on the 3rd of the following month: that
+month's storage report came back with 0 rows while the month before it —
+generated the same day — came back populated. So the emptiness is about
+the *service month*, never about the generator.
 
 RTV Removal has neither column — bucket it by `currency_code` instead.
 The Ad Manager xlsx has no country column at all, so for those the only

@@ -373,12 +373,33 @@ with short sleeps (never one `time.sleep(120)` — see the polling loop in
 **Observed behavior:** requesting Monthly Storage Fees for the previous
 month early in the new month returns `No Data Available` on the
 detail page even though the request itself is accepted. The same
-month's range re-requested about a week later returns a Download
+month's range re-requested weeks later returns a Download
 button within ~30s. Older months (M-2, M-3) request successfully
 right away.
 
-So Storage Fees for month M is **not** available on day 7 of M+1
-but **is** available by day 13-14 of M+1. The exact day Amazon
+**The whole first third of M+1 fails, not just day 7.** Measured on one
+account across four consecutive months — every request made in M+1
+returned no data, every request made later returned the month:
+
+| Requested on | Day of M+1 | Result |
+|---|---|---|
+| day 3 | 3 | `No Data Available` |
+| day 6 | 6 | `No Data Available` |
+| day 7 | 7 | `No Data Available` (twice, different months) |
+| day 29 | 29 | Download, both marketplaces |
+
+Treat **day 15 of M+1** as the earliest a request is worth making.
+Nothing is gained by requesting sooner: repeat requests do not make
+Amazon publish, and a same-day retry returns the same nothing.
+
+**Do not read the older successes as "M+2 is required".** They look that
+way in a request history only because a monthly schedule fires early and
+nobody re-requests mid-month, so there is no observation between day 8
+and day 28. The day-29 success above is the counter-example: mid-to-late
+M+1 is enough.
+
+So Storage Fees for month M is **not** available anywhere in the first
+~12 days of M+1 but **is** available by day 13-15 of M+1. The exact day Amazon
 publishes is not documented on the page; the page header for this
 report says only "Report data 24 hours old" (about freshness of
 already-published values, not about when they appear).
@@ -390,44 +411,40 @@ the requested month is the previous calendar month:**
    the data sooner because of repeat requests.
 2. Produce every other expected file (Transaction CSV, FBA
    Customer Returns CSV, Sponsored Products advertised-product
-   XLSX) — those publish on a different cadence and ARE available
+   report) — those publish on a different cadence and ARE available
    today.
-3. A scheduled re-run after roughly day 13-14 of the following
-   month will capture the storage CSV.
+3. Report it as pending in your result and move on. The next month's
+   scheduled run picks the file up as its M+2 backfill pass.
 
-**Task-status decision for this scenario — MANDATORY exception
-to the system-prompt's "MUST call vibe_seller_set_task_error when
-primary objective could not be fully completed" rule:**
+**You do not decide the task's status for this, and you should not try.**
+There used to be a hand-written exception here telling the agent when a
+missing `storage.csv` was allowed to still count as success. It named a
+day window (`days 7-14 of M+1`), which was wrong at both ends, and it
+depended on the agent classifying its own shortfall correctly. Two live
+runs diagnosed the latency in their own words and still landed FAILED.
 
-If the ONLY missing deliverable is `storage.csv` (any country)
-and the cause is this Amazon publication-latency window
-(today is in month M+1, Amazon's detail page says
-`No Data Available`), then:
+That verdict now lives in code. `app/deliverables/` derives the expected
+file set from the store's capabilities and the calendar, counts **rows**
+in every file it finds, and separates two things the agent cannot be
+asked to separate reliably:
 
-- Call `vibe_seller_set_task_result(<full report including a
-  "Storage CSV pending Amazon publication" note>)` with the
-  partial summary.
-- **DO NOT call `vibe_seller_set_task_error`.** The task lands
-  COMPLETED — the next scheduled run picks up storage when
-  Amazon publishes it. Calling `set_task_error` here causes the
-  task to land FAILED for what is a known, expected,
-  upstream-paced data state, and that triggers false "task
-  failed" alerts downstream.
+- **pending** — the month is not published yet, so absence (or a
+  header-only file) is expected. The run completes, with the file listed
+  as awaiting upstream.
+- **gap** — the month should have published by now, or the file was
+  simply never attempted. The run completes with the gap recorded as a
+  caveat, and the gap is visible rather than absorbed into prose.
 
-This is a NARROW exception. It applies only when:
-(a) every other deliverable for the task ran successfully, AND
-(b) the only gap is `storage.csv`, AND
-(c) the agent saw `No Data Available` on the report-history
-    detail page for that exact month.
+So: just report honestly what you got and what you did not. Do not
+suppress a missing file to look complete, and do not call
+`vibe_seller_set_task_error` to flag one — an agent-reported error on a
+run that produced a real report is carried as a caveat now
+(`app/task_outcome.py`), not as a failure.
 
-If ANY other deliverable also failed, fall back to the normal
-"call BOTH set_task_result and set_task_error" pattern from the
-system prompt — the storage-latency exception does not absorb
-unrelated failures.
-
-If `No Data Available` shows for an **older** month (≥ ~30 days
-old), that's unexpected — investigate normally; do not wave away,
-and do call `set_task_error`.
+**A header-only file is not a delivered file.** An unpublished monthly
+fee report downloads as a valid CSV with its header and zero data rows.
+It is a few hundred bytes, so "the file exists and is non-empty" is not
+evidence of anything. Count rows before you claim a file.
 
 ### FBA Customer Returns — Exact dates flow (MANDATORY for month ranges)
 
@@ -454,14 +471,99 @@ preset dropdown, click "Exact dates", then set start/end from the
 calendar popups. Do **not** try `selectOption('-1')` or any programmatic
 date-set: live-verified that they leave the request on today's date.
 
+#### The calendar lives THREE shadow roots down — use this walk
+
+This is the single most expensive control on the page. A live run lost a
+whole marketplace's `return.csv` here, reporting that the widget
+"repeatedly produced same-day reports"; the same wall is reproducible
+today. The reason is that the calendar cells are not in the light DOM
+and not one shadow root down: the host is
+`kat-date-range-picker` → `.shadowRoot` → `kat-date-picker.start` (or
+`.end`) → `.shadowRoot` → `kat-calendar` → `.shadowRoot`. A coordinate
+click aimed at the calendar icon by eye, or a `querySelector` from
+`document`, finds nothing and fails **silently** — the field simply keeps
+today's date and the report you get is one day long.
+
+Both pickers' popovers render at the **same screen position**, so the
+navigation chevrons for the *end* picker are where the *start* picker's
+were. Re-read coordinates after every click; never reuse them.
+
 ```bash
 browser-use <<'PY'
-new_tab("https://sellercentral.amazon.{tld}/reportcentral/CUSTOMER_RETURNS/1")
-wait_for_load()
-import time; time.sleep(3)
-capture_screenshot()   # locate the preset dropdown + (after Exact dates) the calendar icons
+def cal(which):                     # which: 'start' or 'end'
+    """(header, day-cells) for one picker, through all three roots."""
+    return js("""
+      var rp  = document.querySelector('kat-date-range-picker');
+      var dp  = rp.shadowRoot.querySelector('kat-date-picker.%s');
+      var sr  = dp.shadowRoot;
+      var cal = sr.querySelector('kat-calendar');
+      var root = cal && (cal.shadowRoot || cal);
+      if (!root) return null;
+      var hdr = root.querySelector('[class*=header],[class*=title]');
+      var cells = [].slice.call(root.querySelectorAll('td,[role=gridcell]'))
+        .map(function(e){ var r = e.getBoundingClientRect();
+          return {t:(e.innerText||'').trim(),
+                  x:Math.round(r.x+r.width/2),
+                  y:Math.round(r.y+r.height/2)}; })
+        .filter(function(e){ return e.t && e.x > 0; });
+      return {hdr: hdr ? hdr.innerText.trim() : '', cells: cells};
+    """ % which)
+
+def icon(which):                    # the calendar icon that OPENS it
+    return js("""
+      var rp = document.querySelector('kat-date-range-picker');
+      var dp = rp.shadowRoot.querySelector('kat-date-picker.%s');
+      var ic = dp.shadowRoot.querySelector('kat-icon[name=calendar-alt]');
+      var r  = ic.getBoundingClientRect();
+      return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+    """ % which)
+
+def prev(which):                    # the "previous month" chevron
+    return js("""
+      var rp = document.querySelector('kat-date-range-picker');
+      var c  = rp.shadowRoot.querySelector('kat-date-picker.%s')
+                 .shadowRoot.querySelector('kat-calendar');
+      var root = c.shadowRoot || c;
+      var ch = root.querySelector('kat-icon[name=chevron-left]');
+      var r  = ch.getBoundingClientRect();
+      return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+    """ % which)
+
+def pick(which, target_hdr, day):
+    """Open *which*, page back to target_hdr, click *day*."""
+    import time
+    p = icon(which); click_at_xy(p['x'], p['y']); time.sleep(2)
+    for _ in range(18):                        # bounded; never while(True)
+        c = cal(which)
+        if c and c['hdr'] == target_hdr:
+            break
+        p = prev(which); click_at_xy(p['x'], p['y']); time.sleep(1.5)
+    else:
+        raise RuntimeError('never reached ' + target_hdr)
+    hit = [e for e in cal(which)['cells'] if e['t'] == str(day)]
+    if not hit:
+        raise RuntimeError('no cell %s in %s' % (day, target_hdr))
+    click_at_xy(hit[0]['x'], hit[0]['y']); time.sleep(1.5)
+
+def committed():
+    return js("""
+      var rp = document.querySelector('kat-date-range-picker');
+      return {s: rp.shadowRoot.querySelector('kat-date-picker.start')
+                    .getAttribute('value'),
+              e: rp.shadowRoot.querySelector('kat-date-picker.end')
+                    .getAttribute('value')};
+    """)
+
+pick('start', 'July 2026', 1)
+pick('end',   'July 2026', 31)
+print(committed())   # MUST show both dates; if not, the click missed
 PY
 ```
+
+**Assert `committed()` before requesting.** That readback is the whole
+point: a missed click is invisible otherwise, and the resulting one-day
+report looks like a normal file. A future month's day cells are disabled,
+so a click on them silently no-ops too.
 
 Finally request and download — the "Request .csv" control is a
 `kat-button`, so use the host→inner-button walk from "Clicking a

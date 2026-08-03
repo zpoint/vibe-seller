@@ -63,6 +63,9 @@ def _ensure_added_columns(conn) -> None:
         ('tasks', 'transcript_tail', 'TEXT'),
         # User pref: re-pin owned schedules on default-profile change.
         ('users', 'sync_profile_to_schedules', 'BOOLEAN NOT NULL DEFAULT 0'),
+        # What a store can actually produce (FBA / ads / FBN), as opposed
+        # to where it sells. See app/deliverables/manifest.py.
+        ('stores', 'capabilities', "TEXT NOT NULL DEFAULT '{}'"),
     ]
     for table, column, sqltype in added:
         cols = {

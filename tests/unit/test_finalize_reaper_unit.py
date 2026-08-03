@@ -62,6 +62,7 @@ def test_ensure_added_columns_is_idempotent(tmp_path):
     con.execute('CREATE TABLE schedules (id TEXT PRIMARY KEY)')
     con.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY)')
     con.execute('CREATE TABLE users (id TEXT PRIMARY KEY)')
+    con.execute('CREATE TABLE stores (id TEXT PRIMARY KEY)')
     con.commit()
     shim = _ConnShim(con)
 
