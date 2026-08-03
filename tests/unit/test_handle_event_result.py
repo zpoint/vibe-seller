@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from app.ai.claude_backend import AgentSession
-from app.ai.claude_backend_stream import REVIEW_REDRIVE_MAX
+from app.ai.claude_backend_utils import REVIEW_REDRIVE_MAX
 from app.ai.review_redrive import RedriveClock
 
 pytestmark = pytest.mark.unit
@@ -366,11 +366,11 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value='Reviewer never ran. Spawn the DoD reviewer.',
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -405,11 +405,11 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value='still gaps',
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -466,11 +466,11 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value='still gaps',
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -499,11 +499,11 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -539,11 +539,11 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _noop),
             patch.object(session, 'send_user_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value='Reviewer never ran — spawn the DoD reviewer.',
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -576,11 +576,11 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -742,11 +742,11 @@ class TestAsyncAgentTurnHold:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -774,11 +774,11 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -807,11 +807,11 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),

@@ -52,10 +52,7 @@ import json
 import logging
 import time
 
-from app.ai.claude_backend_utils import (
-    check_exec_review_status_for_stop,
-    check_review_status_for_stop,
-)
+from app.ai.claude_backend_review_gate import _ReviewGateMixin
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
@@ -65,7 +62,7 @@ logger = logging.getLogger(__name__)
 _POST_CLOSE_KILL_GRACE_S = 120.0
 
 
-class _TurnLifecycleMixin:
+class _TurnLifecycleMixin(_ReviewGateMixin):
     """Quiescence watchdog: when to end the CLI process."""
 
     def _init_turn_state(self):
@@ -84,6 +81,7 @@ class _TurnLifecycleMixin:
         or stdin write. ``_stdin_closed_at`` — when the watchdog closed
         stdin (arms the post-close kill escalation).
         """
+        self._init_review_gate_state()
         self._turn_result_seen: bool = False
         self._last_result_is_error: bool = False
         self._had_async_spawns: bool = False
@@ -124,17 +122,11 @@ class _TurnLifecycleMixin:
             return None
         if self._async_agents:
             return 'async_work_running'  # subagents and/or bg shells
-        if not self._review_redrive_exhausted():
-            gate = check_review_status_for_stop(
-                self.task_dir,
-                subagent_ran=getattr(self, '_review_subagent_ran', False),
-                review_writers=getattr(self, '_review_file_writers', None),
-            ) or check_exec_review_status_for_stop(
-                self.task_dir,
-                review_writers=getattr(self, '_review_file_writers', None),
-            )
-            if gate:
-                return 'review_gate_unsatisfied'
+        if (
+            not self._review_redrive_exhausted()
+            and self._review_gate_deny_reason()
+        ):
+            return 'review_gate_unsatisfied'
         return None
 
     async def _maybe_close_idle_turn(self):

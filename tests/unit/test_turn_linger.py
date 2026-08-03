@@ -69,11 +69,11 @@ class TestCloseGuards:
         s = self._closable(_session())
         with (
             patch(
-                'app.ai.claude_backend_turns.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_turns.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_exec_review_status_for_stop',
                 return_value=None,
             ),
         ):
@@ -102,7 +102,7 @@ class TestCloseGuards:
     def test_unsatisfied_review_gate_blocks(self):
         s = self._closable(_session())
         with patch(
-            'app.ai.claude_backend_turns.check_review_status_for_stop',
+            'app.ai.claude_backend_review_gate.check_review_status_for_stop',
             return_value='Reviewer never ran.',
         ):
             assert s._turn_close_blocked() == 'review_gate_unsatisfied'
@@ -114,7 +114,7 @@ class TestCloseGuards:
         s = self._closable(_session())
         s._review_redrive_count = 99
         with patch(
-            'app.ai.claude_backend_turns.check_review_status_for_stop',
+            'app.ai.claude_backend_review_gate.check_review_status_for_stop',
             return_value='Reviewer never ran.',
         ):
             assert s._turn_close_blocked() is None
@@ -162,11 +162,11 @@ class TestWatchdogTick:
         with (
             patch.object(s, '_emit_message', _emit),
             patch(
-                'app.ai.claude_backend_turns.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_turns.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_exec_review_status_for_stop',
                 return_value=None,
             ),
         ):

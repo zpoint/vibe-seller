@@ -11,11 +11,9 @@ import json
 import logging
 import time
 
+from app.ai.claude_backend_review_gate import REDRIVE_INSTRUCTION
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
-    REVIEW_REDRIVE_MAX,
-    check_exec_review_status_for_stop,
-    check_review_status_for_stop,
     get_next_seq,
 )
 from app.ai.stop_gates.report_reviewer import (
@@ -32,14 +30,6 @@ from app.models.task_message import TaskMessage
 from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
-
-# `REVIEW_REDRIVE_MAX` (imported) caps how many times a session will
-# re-drive the agent when a `result` arrives with a review gate still
-# unsatisfied — it matches the reviewer loop's iter-5 `incomplete`
-# ceiling so a gate the agent genuinely cannot satisfy still terminates.
-# The attempt cap is only HALF the bound: see `_review_redrive_exhausted`
-# and `app/ai/review_redrive.py` for the wall clock, which is what
-# actually decides on a slow provider.
 
 # How long to wait on a single `stdout.readline()` before issuing
 # a stall-reaper heartbeat bump. The model can take minutes to
@@ -361,45 +351,17 @@ class _StreamMixin:
             # Instead: keep the channel open and re-drive the agent with
             # the gate's own deny reason (the same one the Stop hook
             # uses), so it actually satisfies the gate on a LIVE channel.
-            # Bounded so an unsatisfiable gate still terminates. Uses the
-            # shared gate helpers, so this covers every review gate, not
-            # one task type.
+            # The bound, the budget and the fail-open decision live in
+            # `_ReviewGateMixin` — four call sites need the same answer
+            # and used to work it out separately.
             if self._executing and not is_error:
+                self._note_review_turn_end()
                 gate_reason = (
                     self._async_agents_pending_reason()
-                    or check_review_status_for_stop(
-                        self.task_dir,
-                        subagent_ran=getattr(
-                            self, '_review_subagent_ran', False
-                        ),
-                        review_writers=getattr(
-                            self, '_review_file_writers', None
-                        ),
-                    )
-                    or check_exec_review_status_for_stop(
-                        self.task_dir,
-                        review_writers=getattr(
-                            self, '_review_file_writers', None
-                        ),
-                    )
+                    or self._review_gate_deny_reason()
                 )
-                # A re-driven turn has just come back — bank what it
-                # cost BEFORE asking whether another one fits. The
-                # estimate is only as good as the evidence, and this
-                # result IS the evidence.
-                self._review_redrive_clock.note_turn_end()
                 if gate_reason and not self._review_redrive_exhausted():
-                    self._review_redrive_count += 1
-                    self._review_redrive_clock.note_redrive()
-                    logger.warning(
-                        'Review gate unsatisfied at result for %s — '
-                        're-driving agent (%d/%d, %s) instead of closing '
-                        'the control channel',
-                        self.task_id[:8],
-                        self._review_redrive_count,
-                        REVIEW_REDRIVE_MAX,
-                        self._review_redrive_clock.describe(),
-                    )
+                    self._note_review_redrive()
                     await self._emit_message(
                         'agent_event',
                         json.dumps({
@@ -408,49 +370,17 @@ class _StreamMixin:
                         }),
                     )
                     await self.send_user_message(
-                        'You cannot finish yet — a required review gate '
-                        'is not satisfied. Do NOT just re-answer; act on '
-                        'this and then finish. If you genuinely cannot '
-                        'satisfy it, finish normally and state the '
-                        'remaining caveats IN YOUR RESULT — never call '
-                        'vibe_seller_set_task_error for caveats or '
-                        'partial work (that channel marks the whole task '
-                        'FAILED and is only for a task with no usable '
-                        'deliverable):\n\n' + gate_reason
+                        REDRIVE_INSTRUCTION + gate_reason
                     )
                     return
                 if gate_reason:
-                    # Re-drive budget exhausted → fail OPEN, never a
-                    # tool-denial limbo: the Stop hook stands down (see
-                    # _deny_stop_if_review_unsatisfied) and the result
-                    # ships banner-marked UNVERIFIED so nobody mistakes
-                    # it for a reviewed deliverable.
-                    #
-                    # This is a TERMINAL decision for the turn, and the
-                    # flag is what makes it one. Without it the watchdog
-                    # went on blocking the close on the very things this
-                    # branch just stopped waiting for (a pending async
-                    # subagent), so a run that had failed open at 08:45
-                    # with a valid 530-char result sat until the 600s
-                    # hard-idle backstop fired at 08:55 — ten minutes
-                    # non-terminal, holding a finished deliverable, long
-                    # enough for the caller to give up on it.
-                    self._review_gate_failed_open = True
-                    logger.warning(
-                        'Review gate still unsatisfied for %s (%d/%d '
-                        're-drives, %s) — failing open with UNVERIFIED '
-                        'banner',
-                        self.task_id[:8],
-                        self._review_redrive_count,
-                        REVIEW_REDRIVE_MAX,
-                        self._review_redrive_clock.describe(),
-                    )
+                    self._note_review_gate_failed_open()
                     await self._emit_message(
                         'agent_event',
                         json.dumps({
                             'event': 'review_gate_failed_open',
                             'iter': self._review_redrive_count,
-                            'budget': self._review_redrive_clock.describe(),
+                            'budget': self._review_budget_note(),
                         }),
                     )
                     text = partial_banner() + (text or '')
