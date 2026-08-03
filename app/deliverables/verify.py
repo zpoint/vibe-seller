@@ -35,7 +35,7 @@ from pathlib import Path
 import re
 import zipfile
 
-from app.deliverables.manifest import Deliverable, DeliverableKind
+from app.deliverables.manifest import Deliverable
 
 
 class DeliverableStatus(enum.StrEnum):
@@ -53,6 +53,12 @@ class DeliverableStatus(enum.StrEnum):
 #: An XLSX sheet row is ``<row .../>``; counting them beats parsing the
 #: whole workbook and needs no third-party dependency at import time.
 _XLSX_ROW = re.compile(rb'<row[ >]')
+
+#: Bytes held back between reads so a ``<row`` split across a boundary is
+#: still matched. One less than the pattern's fixed width: enough to
+#: complete a straddling match, too few to contain a whole one (which
+#: would then be counted twice).
+_XLSX_ROW_CARRY = 4
 
 
 def _csv_rows(path: Path) -> int:
@@ -76,6 +82,11 @@ def _xlsx_rows(path: Path) -> int:
     A monthly export puts its real content on one sheet among several, so
     the maximum is the meaningful figure; summing would let a workbook of
     empty sheets with headers look populated.
+
+    Streamed with a carry-over so a tag straddling a read boundary is not
+    lost. Undercounting here is not a harmless approximation: it would
+    report a populated export as empty and manufacture a gap against a
+    file that is perfectly fine.
     """
     best = 0
     try:
@@ -88,8 +99,15 @@ def _xlsx_rows(path: Path) -> int:
             for name in sheets:
                 with zf.open(name) as fh:
                     rows = 0
+                    carry = b''
                     for chunk in iter(lambda: fh.read(65536), b''):
-                        rows += len(_XLSX_ROW.findall(chunk))
+                        buf = carry + chunk
+                        rows += len(_XLSX_ROW.findall(buf))
+                        # Retain strictly fewer bytes than the pattern's
+                        # length, so the tail can complete a match that
+                        # spans the boundary but can never hold a whole
+                        # match itself — which would double-count.
+                        carry = buf[-_XLSX_ROW_CARRY:]
                     best = max(best, max(rows - 1, 0))
     except (zipfile.BadZipFile, OSError, KeyError):
         return 0
@@ -151,6 +169,20 @@ class VerifyReport:
             1 for s in self.statuses.values() if s is DeliverableStatus.OK
         )
 
+    @property
+    def expected(self) -> int:
+        """Entries this store actually owes.
+
+        Excludes SKIPPED — a deliverable whose capability was never
+        declared is not owed, so counting it would understate a run that
+        did everything asked of it.
+        """
+        return sum(
+            1
+            for s in self.statuses.values()
+            if s is not DeliverableStatus.SKIPPED
+        )
+
     def summary(self) -> str:
         """One line the agent and the reader both understand.
 
@@ -159,7 +191,7 @@ class VerifyReport:
         about a set of 19.
         """
         return (
-            f'{self.delivered}/{len(self.statuses)} expected files present '
+            f'{self.delivered}/{self.expected} expected files present '
             f'with data; {len(self.gaps)} gap(s), '
             f'{len(self.pending)} awaiting upstream publication'
         )
@@ -195,15 +227,20 @@ def verify_workspace(
         declared = entry.requires is None or caps.get(entry.requires) is True
 
         if not path.exists():
-            if not due:
+            # Capability first, latency second. An undeclared capability
+            # means we never established that this store can produce the
+            # file at all, so it is not owed — reporting it as "awaiting
+            # upstream" would be a claim about a report that may not
+            # exist for this store, and it would pad the denominator.
+            if not declared:
+                statuses[entry.relpath] = DeliverableStatus.SKIPPED
+            elif not due:
                 statuses[entry.relpath] = DeliverableStatus.PENDING
                 pending.append(
                     f'{entry.relpath} — {entry.month} not yet published '
                     f'upstream (expected from day {entry.published_from_day} '
                     'of the following month)'
                 )
-            elif not declared:
-                statuses[entry.relpath] = DeliverableStatus.SKIPPED
             else:
                 statuses[entry.relpath] = DeliverableStatus.MISSING
                 gaps.append(f'{entry.relpath} — missing')
@@ -212,17 +249,18 @@ def verify_workspace(
         count = data_rows(path)
         rows[entry.relpath] = count
 
-        if count >= max(entry.min_rows, 1):
+        # ``min_rows`` alone decides sufficiency. An EVENT deliverable
+        # declares ``min_rows=0`` because zero occurrences is a legal
+        # answer, so this one comparison covers it — special-casing the
+        # kind here instead would silently ignore a raised threshold on a
+        # future EVENT entry that genuinely must carry rows.
+        if count >= entry.min_rows:
             statuses[entry.relpath] = DeliverableStatus.OK
             continue
 
-        # Present but carrying no data. What that means is a property of
-        # the deliverable, not of the file — which is the distinction a
-        # size check cannot make and a reviewer cannot make by eye.
-        if entry.kind is DeliverableKind.EVENT:
-            statuses[entry.relpath] = DeliverableStatus.OK
-            continue
-
+        # Short of what it owes. Whether that is "upstream has not posted
+        # the month" or "this is wrong" is the distinction a size check
+        # cannot make and a reviewer cannot make by eye.
         if not due:
             statuses[entry.relpath] = DeliverableStatus.PENDING
             pending.append(
@@ -231,9 +269,14 @@ def verify_workspace(
             )
         else:
             statuses[entry.relpath] = DeliverableStatus.EMPTY
+            shortfall = (
+                'has 0 data rows (header only)'
+                if count == 0
+                else f'has {count} data row(s), short of {entry.min_rows}'
+            )
             gaps.append(
-                f'{entry.relpath} — present but has 0 data rows '
-                f'(header only); {entry.month} should have published by now'
+                f'{entry.relpath} — present but {shortfall}; '
+                f'{entry.month} should have published by now'
             )
 
     return VerifyReport(

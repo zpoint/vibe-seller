@@ -93,6 +93,38 @@ class TestRowCounting:
             zf.writestr('xl/worksheets/sheet1.xml', sheet)
         assert data_rows(f) == 2  # 3 rows minus the header
 
+    def test_xlsx_rows_spanning_read_boundaries_are_not_lost(self, tmp_path):
+        """A ``<row`` tag split across a read boundary must still count.
+
+        Placed DELIBERATELY, not by luck: a tag is aligned to start two
+        bytes before the 64KB mark, so ``<r`` lands in one read and ``ow``
+        in the next. Merely making the sheet large does not exercise this —
+        with wide rows the odds of a tag straddling a boundary are under
+        1%, so such a test passes against the bug and proves nothing.
+
+        Chunked scanning without a carry-over drops that row. Undercounting
+        here is not benign: it reports a populated export as empty and
+        manufactures a gap against a healthy file.
+        """
+        chunk = 65536
+        head = '<worksheet><sheetData>'
+        header_row = '<row r="1"><c/></row>'
+        # Pad with an XML comment so the NEXT '<row' starts at chunk-2.
+        overhead = len('<!--') + len('-->')
+        pad = chunk - 2 - len(head) - len(header_row) - overhead
+        assert pad > 0
+        body = (
+            f'{head}{header_row}<!--{"x" * pad}-->'
+            '<row r="2"><c/></row><row r="3"><c/></row>'
+            '</sheetData></worksheet>'
+        )
+        assert body.index('<row r="2"') == chunk - 2, 'alignment broke'
+
+        f = tmp_path / 'ads.xlsx'
+        with zipfile.ZipFile(f, 'w') as zf:
+            zf.writestr('xl/worksheets/sheet1.xml', body)
+        assert data_rows(f) == 2  # 3 rows minus the header
+
     def test_empty_xlsx_has_zero_rows(self, tmp_path):
         f = tmp_path / 'ads.xlsx'
         with zipfile.ZipFile(f, 'w') as zf:
@@ -133,6 +165,25 @@ class TestEmptyFileIsNotDelivered:
         report = verify_workspace(tmp_path, [entry], today=dt.date(2026, 8, 3))
         assert report.statuses['rtv.csv'] is DeliverableStatus.OK
         assert report.ok
+
+    def test_min_rows_governs_even_for_an_event(self, tmp_path):
+        """An EVENT that declares a floor must be held to it.
+
+        Zero is legal for events only because they declare ``min_rows=0``.
+        Exempting the whole kind instead would silently ignore a raised
+        threshold on a future entry that genuinely must carry rows.
+        """
+        _write(tmp_path / 'ev.csv', 'a,b\n1,2\n')  # one row
+        entry = Deliverable(
+            relpath='ev.csv',
+            month='2026-06',
+            kind=DeliverableKind.EVENT,
+            min_rows=3,
+        )
+        report = verify_workspace(tmp_path, [entry], today=dt.date(2026, 8, 3))
+        assert report.statuses['ev.csv'] is DeliverableStatus.EMPTY
+        assert not report.ok
+        assert 'short of 3' in report.gaps[0]
 
     def test_missing_event_file_is_still_a_gap(self, tmp_path):
         """Empty proves the question was asked; absent proves nothing."""
@@ -294,9 +345,13 @@ class TestDerivedDenominator:
     def test_a_partial_run_reports_the_full_denominator(self, tmp_path):
         """The "9 of 9 expected" bug, pinned.
 
-        Producing one file out of four must read as 1/4, never as 1/1.
+        Producing one file of several must never read as 1/1. The
+        denominator is what the store *owes* — every derived entry whose
+        capability is declared — so it can exceed what the run attempted.
         """
-        store = _store({'amazon': ['SA']}, {'amazon': {'fba': True}})
+        store = _store(
+            {'amazon': ['SA']}, {'amazon': {'fba': True, 'ads': True}}
+        )
         manifest = derive_manifest(
             store, 'acme', '2026-07', fee_month='2026-06'
         )
@@ -309,11 +364,58 @@ class TestDerivedDenominator:
             tmp_path,
             manifest,
             today=dt.date(2026, 8, 3),
-            capabilities={'amazon.fba': True},
+            capabilities={'amazon.fba': True, 'amazon.ads': True},
         )
         assert report.delivered == 1
-        assert len(report.statuses) == len(manifest) > 1
+        assert report.expected == len(manifest) > 1
         assert f'1/{len(manifest)}' in report.summary()
+
+    def test_undeclared_capability_is_not_counted_as_owed(self, tmp_path):
+        """An unasserted capability must not pad the denominator.
+
+        Reporting "1/4" when one of those four is a report nobody has
+        established this store can produce understates a run that did
+        everything actually asked of it.
+        """
+        store = _store({'amazon': ['SA']}, {'amazon': {'fba': True}})
+        manifest = derive_manifest(store, 'acme', '2026-07')
+        for entry in manifest:
+            _write(tmp_path / entry.relpath, 'a,b\n1,2\n')
+        # amazon.ads is absent from capabilities → undeclared. Remove the
+        # file so it is judged on absence rather than on content.
+        ads = next(d for d in manifest if 'Advertised_product' in d.relpath)
+        (tmp_path / ads.relpath).unlink()
+
+        report = verify_workspace(
+            tmp_path,
+            manifest,
+            today=dt.date(2026, 8, 3),
+            capabilities={'amazon.fba': True},
+        )
+        assert report.statuses[ads.relpath] is DeliverableStatus.SKIPPED
+        assert report.expected == len(manifest) - 1
+        assert report.ok
+
+    def test_undeclared_capability_beats_publication_latency(self, tmp_path):
+        """Capability is checked first, so it cannot report as pending.
+
+        A not-yet-due entry whose capability is undeclared used to come
+        back PENDING — a claim that we are waiting on a report which may
+        not exist for this store at all.
+        """
+        entry = Deliverable(
+            relpath='storage.csv',
+            month='2026-07',
+            kind=DeliverableKind.ACCRUAL,
+            requires='amazon.fba',
+            published_from_day=15,
+        )
+        report = verify_workspace(
+            tmp_path, [entry], today=dt.date(2026, 8, 3), capabilities={}
+        )
+        assert report.statuses['storage.csv'] is DeliverableStatus.SKIPPED
+        assert not report.pending
+        assert report.ok
 
     def test_fee_month_is_optional(self):
         store = _store({'amazon': ['SA']}, {'amazon': {'fba': True}})
