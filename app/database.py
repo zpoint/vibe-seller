@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 import logging
 
 from sqlalchemy.ext.asyncio import (
@@ -44,6 +45,8 @@ def _ensure_added_columns(conn) -> None:
     """
     added: list[tuple[str, str, str]] = [
         ('schedules', 'finalize_description', 'TEXT'),
+        # Backfilled below — see _backfill_finalize_enabled_at.
+        ('schedules', 'finalize_enabled_at', 'TEXT'),
         ('tasks', 'is_finalize', 'BOOLEAN NOT NULL DEFAULT 0'),
         # Backfill: these four shipped on the model but were never
         # added here, so any DB created before each one landed is
@@ -78,6 +81,32 @@ def _ensure_added_columns(conn) -> None:
             conn.exec_driver_sql(
                 f'ALTER TABLE {table} ADD COLUMN {column} {sqltype}'
             )
+    _backfill_finalize_enabled_at(conn)
+
+
+def _backfill_finalize_enabled_at(conn) -> None:
+    """Arm existing finalize schedules as of NOW, not as of forever.
+
+    A schedule that already had a ``finalize_description`` before the
+    column existed is legitimately finalizing its batches, and must keep
+    doing so. But it has no record of WHEN that started, and the honest
+    reading of "unknown" here is "from this upgrade onward": every batch
+    that finished before now already completed without a finalize step,
+    so none of them is owed one. Stamping the upgrade instant keeps
+    working schedules working while making the retroactive sweep — ten
+    finalize tasks over month-old batches from one PUT — unreachable.
+
+    Runs on every boot and is self-limiting: it only touches rows that
+    have a finalize prompt and no stamp, which after the first boot is
+    only rows whose prompt was written by a client too old to stamp it.
+    """
+    conn.exec_driver_sql(
+        'UPDATE schedules SET finalize_enabled_at = ? '
+        'WHERE finalize_enabled_at IS NULL '
+        'AND finalize_description IS NOT NULL '
+        "AND TRIM(finalize_description) != ''",
+        (datetime.now(UTC).isoformat(),),
+    )
 
 
 async def init_db():

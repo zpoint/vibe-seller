@@ -17,6 +17,7 @@ failed children, fails here.
 """
 
 import asyncio
+from datetime import UTC, datetime
 import json
 from pathlib import Path
 import uuid
@@ -56,6 +57,12 @@ async def finalize_schedule(override_async_session, admin_user):
             finalize_description=(
                 'Read the batch results and write one combined summary.'
             ),
+            # A schedule that owes a finalize step also records WHEN it
+            # started owing one — the reaper finalizes batches from that
+            # point on, never the schedule's whole history. Stamped here
+            # because this fixture builds the row directly; the router
+            # stamps it on the empty → non-empty transition.
+            finalize_enabled_at=datetime.now(UTC).isoformat(),
             created_by=admin_user.id,
         )
         db.add(sched)
@@ -511,3 +518,108 @@ class TestFinalizeDescriptionScheduleApi:
             },
         )
         assert r.status_code == 400
+
+
+class TestTurningFinalizeOnDoesNotFinalizeThePast:
+    """The incident: one PUT, ten finalize tasks over month-old batches.
+
+    Eligibility was "children all terminal AND this batch has no finalize
+    task". Before the prompt was first set no batch had one, so the
+    instant it was set every batch the schedule had ever produced passed
+    both halves at once. Ten fired in the same second; four were still
+    running 27 minutes later against batches whose task workspaces and
+    downloaded files no longer existed, and two of those batches had
+    mostly FAILED children — there was nothing to combine. A plan-only
+    task queued behind them sat PENDING for twenty minutes.
+
+    The missing fact was WHEN the schedule started owing a finalize.
+    These pin that the API records it, and records it on the TRANSITION.
+    """
+
+    async def _fanout(self, admin_client, **extra):
+        r = await admin_client.post(
+            '/api/schedules',
+            json={
+                'title': 'Monthly report',
+                'schedule_type': 'days',
+                'store_id': None,
+                'phase_mode': 'fanout',
+                **extra,
+            },
+        )
+        assert r.status_code in (200, 201), r.text
+        return r.json()['id']
+
+    async def _enabled_at(self, override_async_session, sched_id):
+        async with override_async_session() as db:
+            return (await db.get(Schedule, sched_id)).finalize_enabled_at
+
+    async def test_enabling_it_later_stamps_the_moment(
+        self, admin_client, override_async_session
+    ):
+        sched_id = await self._fanout(admin_client)
+        assert await self._enabled_at(override_async_session, sched_id) is None
+
+        r = await admin_client.put(
+            f'/api/schedules/{sched_id}',
+            json={'finalize_description': 'combine the stores'},
+        )
+        assert r.status_code == 200, r.text
+        assert await self._enabled_at(override_async_session, sched_id)
+
+    async def test_creating_with_it_stamps_immediately(
+        self, admin_client, override_async_session
+    ):
+        sched_id = await self._fanout(
+            admin_client, finalize_description='combine the stores'
+        )
+        assert await self._enabled_at(override_async_session, sched_id)
+
+    async def test_editing_the_prompt_does_not_re_arm(
+        self, admin_client, override_async_session
+    ):
+        """Re-arming on every edit would strand the batch in flight.
+
+        A fanout running right now would have started before the new
+        stamp, so a later typo fix to the prompt would quietly cost it
+        its finalize step.
+        """
+        sched_id = await self._fanout(
+            admin_client, finalize_description='combine the stores'
+        )
+        first = await self._enabled_at(override_async_session, sched_id)
+
+        r = await admin_client.put(
+            f'/api/schedules/{sched_id}',
+            json={'finalize_description': 'combine the stores, then notify'},
+        )
+        assert r.status_code == 200, r.text
+        assert await self._enabled_at(override_async_session, sched_id) == first
+
+    async def test_turning_it_off_clears_the_stamp(
+        self, admin_client, override_async_session
+    ):
+        """Off then on starts a NEW era, not a revival of the first one.
+
+        Keeping the original stamp would make every batch from the
+        earlier era eligible the moment the step came back — the same
+        retroactive sweep, one indirection away.
+        """
+        sched_id = await self._fanout(
+            admin_client, finalize_description='combine the stores'
+        )
+        first = await self._enabled_at(override_async_session, sched_id)
+
+        r = await admin_client.put(
+            f'/api/schedules/{sched_id}', json={'finalize_description': None}
+        )
+        assert r.status_code == 200, r.text
+        assert await self._enabled_at(override_async_session, sched_id) is None
+
+        r = await admin_client.put(
+            f'/api/schedules/{sched_id}',
+            json={'finalize_description': 'combine again'},
+        )
+        assert r.status_code == 200, r.text
+        second = await self._enabled_at(override_async_session, sched_id)
+        assert second and second > first

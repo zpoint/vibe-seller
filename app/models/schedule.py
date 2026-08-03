@@ -76,6 +76,25 @@ class Schedule(Base):
     finalize_description: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    # When this schedule STARTED owing a finalize step (ISO-8601 UTC),
+    # stamped on the empty → non-empty transition of the field above.
+    #
+    # Exists because the reaper's eligibility test used to be "the
+    # batch's children are all terminal and no finalize task exists" —
+    # and before the field was set, NO batch had one. So setting it for
+    # the first time made every batch the schedule had ever produced
+    # eligible in the same instant: one PUT spawned ten finalize tasks,
+    # over batches a month old whose task workspaces were long deleted,
+    # saturating agent concurrency for twenty minutes.
+    #
+    # "Which batches does this schedule owe a finalize for?" is a fact
+    # about WHEN the step was configured, and nothing recorded it. A
+    # batch that finished before this instant was complete without one.
+    # Deliberately NOT ``updated_at``: that moves on every edit, so
+    # renaming a schedule would silently strand an in-flight batch.
+    finalize_enabled_at: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )
     # Plan lifecycle — see app/plan_states.py for the state machine.
     plan_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default='none'

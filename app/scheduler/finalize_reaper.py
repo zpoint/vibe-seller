@@ -72,6 +72,41 @@ _RESULTS_POINTER = (
 )
 
 
+def _batch_is_within_finalize_era(
+    children: list[Task], sched: Schedule
+) -> bool:
+    """Did this batch start AFTER the schedule gained a finalize step?
+
+    The eligibility test used to be only "children all terminal, no
+    finalize task yet". Before the prompt was first set, no batch had a
+    finalize task — so the instant it was set, every batch the schedule
+    had ever produced satisfied both halves at once. Observed: one PUT
+    spawned ten finalize tasks in the same second, four still running
+    27 minutes later over month-old batches whose workspaces and
+    downloaded files no longer existed, while a real task queued behind
+    them sat PENDING for twenty minutes.
+
+    A batch that finished before the step was configured was complete
+    without one. This is that sentence, in code.
+
+    Batch start is the EARLIEST child's ``created_at``: a fanout stamps
+    its children within seconds, and taking the earliest means a late
+    retry child added to an old batch cannot drag it into the era.
+    Both sides are ``datetime.now(UTC).isoformat()`` strings, so the
+    lexical compare is a chronological one.
+    """
+    enabled_at = sched.finalize_enabled_at
+    if not enabled_at:
+        return False
+    stamps = [c.created_at for c in children if c.created_at]
+    if not stamps:
+        # No usable stamp — refuse rather than guess. A batch that never
+        # finalizes is a visible gap someone can chase; a wrongly-fired
+        # one burns an agent slot on garbage.
+        return False
+    return min(stamps) >= enabled_at
+
+
 def _child_record(task: Task, slug: str, task_dir: str) -> dict:
     """One child's entry in batch_results.json (pure, unit-tested)."""
     return {
@@ -107,8 +142,14 @@ async def reap_finalized_batches() -> None:
             .scalars()
             .all()
         )
+        # A schedule with a prompt but no ``finalize_enabled_at`` is not
+        # armed. That pairing only exists between an ALTER TABLE and the
+        # backfill in the same boot, so treating it as "not yet" costs a
+        # tick and can never fire over history.
         sched_by_id = {
-            s.id: s for s in scheds if (s.finalize_description or '').strip()
+            s.id: s
+            for s in scheds
+            if (s.finalize_description or '').strip() and s.finalize_enabled_at
         }
         if not sched_by_id:
             return
@@ -149,6 +190,8 @@ async def reap_finalized_batches() -> None:
             continue  # still running
         sched = sched_by_id.get(children[0].schedule_id)
         if sched is None:
+            continue
+        if not _batch_is_within_finalize_era(children, sched):
             continue
         await _fire_finalize(batch_id, sched)
 
@@ -195,6 +238,11 @@ async def _fire_finalize(batch_id: str, sched: Schedule) -> None:
         # "fire only after every child is terminal" guarantee even if
         # one was added/reset since the outer scan.
         if not all(c.status in _TERMINAL for c in children):
+            return
+        # Re-verified with the terminal check, and for the same reason:
+        # the window between the outer scan and here is where a child
+        # gets added or a schedule gets edited.
+        if not _batch_is_within_finalize_era(list(children), sched):
             return
 
         # Resolve slugs from the children's stores.
