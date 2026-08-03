@@ -36,7 +36,7 @@ you looked at anything — so it cannot be a stale artefact of an earlier
 store shape. Trust it, and only it.
 
 **Do not audit past your declaration because the menu is longer.** A
-user who says "just the SA women's socks, leave the other sites" gets
+user who says "just the SA widget-006 ads, leave the other sites" gets
 exactly that; the other four marketplaces are work nobody asked for, and
 reporting on them is an out-of-scope gap. Seen live: a scoped request was
 inflated into a five-marketplace audit — about thirty extra campaigns —

@@ -36,9 +36,9 @@ person wants is a FIGURE — what did we spend, what is our ROAS, how did
 last month go — that is `investigate`, however many markets it spans:
 you are reading, not proposing. If they want to know what to CHANGE, or
 asked "is this right?", that is `audit`, and it opens a review console.
-Observed live: "这个月广告花了多少钱，回报怎么样？" was declared a
-whole-store `audit`, which put five marketplaces of drill work behind a
-question that wanted four numbers. And the other way round, observed in
+Observed live: a plain "how much did we spend on ads this month, and
+what came back?" was declared a whole-store `audit`, which put five
+marketplaces of drill work behind a question that wanted four numbers. And the other way round, observed in
 CI: "review the keyword bids on <campaign>" was declared `investigate`,
 so the bid recommendations it produced reached the user with no console
 to approve them on.

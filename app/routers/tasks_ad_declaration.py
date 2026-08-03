@@ -141,7 +141,7 @@ async def declare_ad_task(
         # 1. NARROW at the same kind. The markets come from the request
         #    and are knowable before any browsing, so they are fixed at
         #    the first declaration. Campaign ids are not: a request
-        #    naming a product ("the women's socks ads") only becomes ids
+        #    naming a product ("the widget-006 ads") only becomes ids
         #    by enumerating the account. Requiring both upfront made the
         #    rule unfollowable — observed live, an agent declared the
         #    market with no campaigns, which means EVERY campaign in it,

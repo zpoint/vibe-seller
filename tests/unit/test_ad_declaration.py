@@ -541,8 +541,9 @@ class TestAScopedAuditIsNotAShrinkingMarket:
     silently skipped unreadable TSVs). But it compared against the whole
     market's history with no idea the phase had DECLARED a subset.
 
-    Observed live: "just the women's socks on Amazon SA" is a handful of
-    campaigns in a market with 22 historical TSVs, so a correct scope
+    Observed live: "just the widget-006 family on Amazon SA" is a
+    handful of campaigns in a market with 22 historical TSVs, so a
+    correct scope
     read as a collapse and the agent was told to re-enumerate a market
     nobody asked about.
     """

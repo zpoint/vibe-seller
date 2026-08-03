@@ -135,8 +135,8 @@ def is_narrowing(prev: dict | None, new: dict | None) -> bool:
 
     Exists because the first version of the declaration rule could not be
     obeyed. An agent must declare BEFORE opening a browser, yet a request
-    that names a product ("the women's socks ads") can only be turned
-    into campaign ids BY browsing. So it had two bad options: declare
+    that names a product ("the widget-006 ads") can only be turned into
+    campaign ids BY browsing. So it had two bad options: declare
     late, or declare a scope with no campaigns — which means EVERY
     campaign in the market, and pulls the whole market's completeness
     obligation with it. Observed live: a request for one SKU family
