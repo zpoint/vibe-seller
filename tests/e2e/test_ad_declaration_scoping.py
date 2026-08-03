@@ -259,8 +259,19 @@ class TestAnUnscopedRequestStaysWide:
         )
         # An unscoped audit is inherently the slower job — it drills
         # every campaign rather than a named few — so it needs more than
-        # the shared pipeline budget. Observed: this timed out at 600s
-        # while the scoped test finished comfortably inside it.
+        # the shared pipeline budget.
+        #
+        # This override used to be doing a second, illegitimate job:
+        # absorbing an UNBOUNDED review gate. The gate's re-drive budget
+        # was counted in attempts (5), each a full agent turn, so at
+        # 100-150s/turn it could spend 500-750s on its own and push any
+        # run past any deadline — the scoped test below hit the same
+        # cliff once, which is how the real cause was found. That is
+        # fixed at the source (``app/ai/review_redrive.py`` bounds the
+        # gate by wall clock), so what is left here is only the honest
+        # statement that drilling every campaign takes longer than
+        # drilling one. If this needs doubling AGAIN, do not: something
+        # has become unbounded, and the budget is the place to look.
         result = poll_task_status(
             api_client,
             task['id'],

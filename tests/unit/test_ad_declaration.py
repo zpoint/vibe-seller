@@ -252,6 +252,83 @@ class TestScopePredicates:
         assert ad.is_whole_store(ad.normalise_scope({'combos': ['junk']}))
 
 
+class TestTheInTurnRatchet:
+    """A re-declaration may shrink reach or add obligation. Never both ways.
+
+    The ratchet used to refuse every kind change outright, on the sound
+    reasoning that an agent must not re-declare its way around a gate.
+    But that left no move at all for the OPPOSITE mistake — an agent that
+    declared `investigate`, then produced a table of bid changes, had
+    under-declared what it owed and could only comply by deleting the
+    recommendations the person had asked for.
+
+    So the rule is stated the way it was always meant: never widen reach,
+    never shed an obligation. `investigate` → `audit` satisfies both (it
+    adds coverage AND opens the console), and every other pair does not.
+    """
+
+    _SA = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+    _SA_ONE = dict(_SA, campaigns=['A1234567'])
+
+    def test_the_under_declared_phase_can_correct_itself(self):
+        assert ad.supersedes('investigate', self._SA, 'audit', self._SA)
+
+    def test_correcting_upward_may_also_narrow(self):
+        assert ad.supersedes('investigate', self._SA, 'audit', self._SA_ONE)
+
+    def test_correcting_upward_may_not_widen_the_markets(self):
+        wider = {
+            'combos': [
+                {'platform': 'amazon', 'country': 'SA'},
+                {'platform': 'noon', 'country': 'AE'},
+            ]
+        }
+        assert not ad.supersedes('investigate', self._SA, 'audit', wider)
+
+    def test_correcting_upward_may_not_widen_the_campaigns(self):
+        assert not ad.supersedes('investigate', self._SA_ONE, 'audit', self._SA)
+
+    def test_whole_store_investigate_may_narrow_as_it_upgrades(self):
+        # The safety valve for the expensive case: upgrading an unscoped
+        # `investigate` straight to `audit` would owe every marketplace,
+        # so naming the markets actually covered must be legal.
+        assert ad.supersedes('investigate', {}, 'audit', self._SA)
+
+    def test_a_named_market_may_not_become_the_whole_store(self):
+        assert not ad.supersedes('investigate', self._SA, 'audit', {})
+
+    def test_audit_may_not_downgrade_to_investigate(self):
+        # The escape. `investigate` owes no coverage and opens no
+        # console, so this is how an agent would shed both.
+        assert not ad.supersedes('audit', self._SA, 'investigate', self._SA)
+
+    def test_no_other_kind_change_is_allowed(self):
+        for prev, new in (
+            ('create', 'audit'),
+            ('audit', 'create'),
+            ('execute', 'audit'),
+            ('audit', 'execute'),
+            ('create', 'investigate'),
+            ('investigate', 'create'),
+            ('investigate', 'execute'),
+        ):
+            assert not ad.supersedes(prev, self._SA, new, self._SA), (
+                f'{prev} -> {new}'
+            )
+
+    def test_same_kind_still_needs_a_real_narrowing(self):
+        # Unchanged behaviour: re-stating an identical scope at the same
+        # kind is a no-op, and a no-op re-declaration is refused.
+        assert not ad.supersedes('audit', self._SA, 'audit', self._SA)
+        assert ad.supersedes('audit', self._SA, 'audit', self._SA_ONE)
+
+    def test_reach_within_accepts_an_unchanged_scope(self):
+        # This is the difference from `is_narrowing`, and the reason both
+        # exist: a kind correction usually leaves the scope alone.
+        assert ad.reach_within(self._SA, self._SA)
+        assert not ad.is_narrowing(self._SA, self._SA)
+
+
 class TestEverySkillThatIsGatedTeachesTheDeclaration:
     """A fail-closed gate needs the skill to teach the way through it.
 
@@ -346,6 +423,58 @@ class TestInvestigateMayNotHandOutDecisions:
             'ROAS 偏低，值得下轮复核时看看要不要下调出价。\n'
         )
         assert not any('可执行建议' in g for g in _gaps(report, 't-inv-prose'))
+
+    def test_decisions_without_marketplace_headings_still_count(
+        self, monkeypatch, tmp_path
+    ):
+        """The hole this whole check used to sit in.
+
+        The guard ran only after ``reported_combos`` found at least one
+        ``## <platform> <CC>`` section — a condition about markdown
+        layout, not about whether decisions were handed out. A report
+        written against a console on some other host, or one that simply
+        did not use per-marketplace headings, escaped entirely.
+
+        Observed in CI: a bid review declared `investigate`, delivered
+        its bid changes, raised no gap, and gave the user no console to
+        approve them on.
+        """
+        _setup(monkeypatch, tmp_path, 't-inv-flat', declare=('investigate', {}))
+        report = (
+            '关键词出价复核结果：\n\n'
+            '| 活动 | 关键词 | 当前出价 | 建议 |\n|---|---|---|---|\n'
+            '| A1234567 | widget red | 1.00 | 下调至 0.60（ROAS 偏低） |\n'
+        )
+        assert '##' not in report, 'the point is that there are no sections'
+        gaps = _gaps(report, 't-inv-flat')
+        assert any('investigate' in g and '可执行建议' in g for g in gaps), gaps
+
+    def test_the_gap_names_the_legal_correction(self, monkeypatch, tmp_path):
+        # A refusal with no way through is a refusal that gets satisfied
+        # by deleting the recommendations — which is the opposite of what
+        # the person asked for. The gap has to say "re-declare as audit".
+        _setup(monkeypatch, tmp_path, 't-inv-fix', declare=('investigate', {}))
+        report = _section().replace(
+            '提高至 1.20（ROAS 9>5 加投赢家规则）', '下调至 0.60（ROAS 偏低）'
+        )
+        gap = next(g for g in _gaps(report, 't-inv-fix') if '可执行建议' in g)
+        assert 'vibe_seller_declare_ad_task' in gap
+        assert 'audit' in gap
+
+    def test_an_undeclared_flat_report_is_still_not_demanded_a_declaration(
+        self, monkeypatch, tmp_path
+    ):
+        # The fail-safe direction stays exactly as documented in
+        # CLAUDE.md: a report claiming no marketplace coverage is never
+        # required to have declared. Moving the investigate check out
+        # from behind that condition must not drag this with it —
+        # inferring a declaration from a report is the forbidden
+        # heuristic wearing a new hat.
+        _setup(monkeypatch, tmp_path, 't-flat-none', declare=None)
+        report = '| 活动 | 建议 |\n|---|---|\n| A1234567 | 下调至 0.60 |\n'
+        assert not any(
+            '没有声明任务范围' in g for g in _gaps(report, 't-flat-none')
+        )
 
 
 class TestTheDocsAgreeWithTheObligationRule:

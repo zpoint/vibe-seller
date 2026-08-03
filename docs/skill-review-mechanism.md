@@ -196,13 +196,28 @@ with **no net progress** (server tracks progress deterministically —
 coverage counts + result delta). A weak-but-progressing model is never
 trapped; a stalled-shallow one is never rubber-stamped.
 
-At the streaming end-of-turn path the same convergence is bounded by
-`REVIEW_REDRIVE_MAX` re-drives per session. Past the bound the gate
-**fails open coherently**: the Stop hook stands down and the result
-ships banner-marked **UNVERIFIED** (`partial_banner`) — never the
-previous failure mode of closing stdin while the Stop hook kept
-denying, which left the agent running against a dead approval channel
-with every tool call default-denied.
+At the streaming end-of-turn path the same convergence is bounded **on
+two denominators**, read through one predicate
+(`AgentSession._review_redrive_exhausted`): `REVIEW_REDRIVE_MAX`
+attempts, and `VIBE_REVIEW_REDRIVE_BUDGET_S` of wall clock counted from
+the first re-drive (`app/ai/review_redrive.py`). Attempts alone were the
+original bug — a re-drive is a full agent turn, and five of them at
+100–150s each outlast any deadline a caller holds a run open for, so the
+gate could spend the entire budget and have the run killed while holding
+a finished deliverable. The clock stops re-driving once the remaining
+budget cannot fit another turn, using the longest turn observed this
+session as the estimate.
+
+Past either bound the gate **fails open coherently**: the Stop hook
+stands down and the result ships banner-marked **UNVERIFIED**
+(`partial_banner`) — never the previous failure mode of closing stdin
+while the Stop hook kept denying, which left the agent running against a
+dead approval channel with every tool call default-denied. Fail-open is
+also **terminal for the turn**: it sets `_review_gate_failed_open`, and
+the quiescence watchdog then stops blocking the close on anything the
+fail-open abandoned (the gate itself, and pending async subagents — both
+are branches of the same composite). Without that, a failed-open turn
+sat until the 600s hard-idle backstop.
 
 ## 4. What changes vs. today
 

@@ -38,7 +38,22 @@ you are reading, not proposing. If they want to know what to CHANGE, or
 asked "is this right?", that is `audit`, and it opens a review console.
 Observed live: "这个月广告花了多少钱，回报怎么样？" was declared a
 whole-store `audit`, which put five marketplaces of drill work behind a
-question that wanted four numbers.
+question that wanted four numbers. And the other way round, observed in
+CI: "review the keyword bids on <campaign>" was declared `investigate`,
+so the bid recommendations it produced reached the user with no console
+to approve them on.
+
+**If you got it wrong, correct it upward.** If you declared
+`investigate` and the work turned out to produce decisions — a table
+telling someone to raise, cut, pause or negate — call
+`vibe_seller_declare_ad_task` again with `kind: "audit"` and the same
+scope, or a narrower one. That is the ONLY kind change allowed inside a
+turn, and it is allowed because it only ever makes you owe more: the
+coverage obligation appears and the user gets the console. Going the
+other way (`audit` → `investigate`), adding a marketplace, or widening
+the campaign list are all still refused, and still need a new message
+from the user. Do not instead delete your recommendations to fit the
+declaration — the person asked what to change.
 
 **There is no `edit` kind.** A request to change specific bids is an
 `audit` whose scope names those campaigns — the user still reviews the

@@ -439,10 +439,17 @@ async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
     return None
 
 
-# Bound on review-gate re-drives per session. Past this the gate
-# FAILS OPEN: the stream banner-marks the result UNVERIFIED and the
+# ATTEMPT bound on review-gate re-drives per session. Past this the
+# gate FAILS OPEN: the stream banner-marks the result UNVERIFIED and the
 # Stop hook stands down so the CLI exits cleanly (never a closed
 # approval channel with a live deny).
+#
+# Attempts are the cheap half of the bound and say nothing about cost —
+# five of these at 100-150s/turn is 500-750s, more clock than a caller
+# gives a whole run. The wall-clock half lives in
+# ``app/ai/review_redrive.py``; ``AgentSession._review_redrive_exhausted``
+# is the ONE predicate that reads both. Do not compare against this
+# constant directly — that is how the four fail-open sites drifted apart.
 REVIEW_REDRIVE_MAX = 5
 
 

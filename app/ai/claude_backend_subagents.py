@@ -30,7 +30,6 @@ import logging
 import re
 
 from app.ai.claude_backend_utils import (
-    REVIEW_REDRIVE_MAX,
     build_tasklist_open_reason,
     check_exec_review_status_for_stop,
     check_review_status_for_stop,
@@ -201,9 +200,11 @@ class _SubagentMixin:
         Same fail-open bound as the review gates: past the re-drive
         budget the hook stands down so a lost completion notification
         can never wedge the turn (the result then ships banner-marked
-        by the stream path).
+        by the stream path). ``_review_redrive_exhausted`` is that bound
+        — attempts AND wall clock, one predicate shared with the result
+        branch and the quiescence watchdog.
         """
-        if self._review_redrive_count >= REVIEW_REDRIVE_MAX:
+        if self._review_redrive_exhausted():
             return False
         deny = self._async_agents_pending_reason()
         if not deny:
@@ -233,7 +234,7 @@ class _SubagentMixin:
         # banner-marks the result UNVERIFIED and this hook stands down so
         # the CLI can exit (a live deny + closed approval channel had
         # every tool default-denied mid-recovery).
-        if self._review_redrive_count >= REVIEW_REDRIVE_MAX:
+        if self._review_redrive_exhausted():
             return False
         deny = check_review_status_for_stop(
             self.task_dir,

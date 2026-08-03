@@ -66,6 +66,16 @@ class Options(enum.Enum):
     TURN_LINGER_QUIET_S = ('VIBE_TURN_LINGER_QUIET_S', '5')
     TURN_HARD_IDLE_S = ('VIBE_TURN_HARD_IDLE_S', '600')
 
+    # Wall clock a review gate may spend re-driving the agent before it
+    # fails open with the UNVERIFIED banner. Counted from the FIRST
+    # re-drive, alongside (not instead of) the attempt cap in
+    # app/ai/claude_backend_utils.py. Exists because five attempts at
+    # 100-150s/turn outlast any budget a caller allows a run, so the
+    # gate could consume the whole clock and have the run killed while
+    # holding a finished deliverable. 0 = attempts only (old behavior).
+    # See app/ai/review_redrive.py.
+    REVIEW_REDRIVE_BUDGET_S = ('VIBE_REVIEW_REDRIVE_BUDGET_S', '300')
+
     # Browser lifecycle: terminate a store's browser (main/aux/web)
     # when no active task is bound to it AND its CDP mux has been
     # idle this long (0 = never). TAB_CAP bounds how many tabs one

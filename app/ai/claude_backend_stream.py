@@ -33,10 +33,13 @@ from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
 
-# Max times a session will re-drive the agent when a `result` arrives
-# with a review gate still unsatisfied, before giving up and letting the
-# turn end. Matches the reviewer loop's iter-5 `incomplete` ceiling so a
-# gate the agent genuinely cannot satisfy still terminates.
+# `REVIEW_REDRIVE_MAX` (imported) caps how many times a session will
+# re-drive the agent when a `result` arrives with a review gate still
+# unsatisfied — it matches the reviewer loop's iter-5 `incomplete`
+# ceiling so a gate the agent genuinely cannot satisfy still terminates.
+# The attempt cap is only HALF the bound: see `_review_redrive_exhausted`
+# and `app/ai/review_redrive.py` for the wall clock, which is what
+# actually decides on a slow provider.
 
 # How long to wait on a single `stdout.readline()` before issuing
 # a stall-reaper heartbeat bump. The model can take minutes to
@@ -380,18 +383,22 @@ class _StreamMixin:
                         ),
                     )
                 )
-                if (
-                    gate_reason
-                    and self._review_redrive_count < REVIEW_REDRIVE_MAX
-                ):
+                # A re-driven turn has just come back — bank what it
+                # cost BEFORE asking whether another one fits. The
+                # estimate is only as good as the evidence, and this
+                # result IS the evidence.
+                self._review_redrive_clock.note_turn_end()
+                if gate_reason and not self._review_redrive_exhausted():
                     self._review_redrive_count += 1
+                    self._review_redrive_clock.note_redrive()
                     logger.warning(
                         'Review gate unsatisfied at result for %s — '
-                        're-driving agent (%d/%d) instead of closing the '
-                        'control channel',
+                        're-driving agent (%d/%d, %s) instead of closing '
+                        'the control channel',
                         self.task_id[:8],
                         self._review_redrive_count,
                         REVIEW_REDRIVE_MAX,
+                        self._review_redrive_clock.describe(),
                     )
                     await self._emit_message(
                         'agent_event',
@@ -418,11 +425,33 @@ class _StreamMixin:
                     # _deny_stop_if_review_unsatisfied) and the result
                     # ships banner-marked UNVERIFIED so nobody mistakes
                     # it for a reviewed deliverable.
+                    #
+                    # This is a TERMINAL decision for the turn, and the
+                    # flag is what makes it one. Without it the watchdog
+                    # went on blocking the close on the very things this
+                    # branch just stopped waiting for (a pending async
+                    # subagent), so a run that had failed open at 08:45
+                    # with a valid 530-char result sat until the 600s
+                    # hard-idle backstop fired at 08:55 — ten minutes
+                    # non-terminal, holding a finished deliverable, long
+                    # enough for the caller to give up on it.
+                    self._review_gate_failed_open = True
                     logger.warning(
-                        'Review gate still unsatisfied after %d re-drives '
-                        'for %s — failing open with UNVERIFIED banner',
-                        REVIEW_REDRIVE_MAX,
+                        'Review gate still unsatisfied for %s (%d/%d '
+                        're-drives, %s) — failing open with UNVERIFIED '
+                        'banner',
                         self.task_id[:8],
+                        self._review_redrive_count,
+                        REVIEW_REDRIVE_MAX,
+                        self._review_redrive_clock.describe(),
+                    )
+                    await self._emit_message(
+                        'agent_event',
+                        json.dumps({
+                            'event': 'review_gate_failed_open',
+                            'iter': self._review_redrive_count,
+                            'budget': self._review_redrive_clock.describe(),
+                        }),
                     )
                     text = partial_banner() + (text or '')
             if event.get('subtype') == 'success' and not is_error:

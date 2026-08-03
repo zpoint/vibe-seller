@@ -40,6 +40,7 @@ from app.ai.claude_backend_utils import (
     AUTO_APPROVE_CALLBACK,
     DRAIN_TIMEOUT,
     INTERRUPT_TIMEOUT,
+    REVIEW_REDRIVE_MAX,
     SIGNAL_TIMEOUT,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
@@ -49,6 +50,7 @@ from app.ai.claude_backend_utils import (
 )
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
+from app.ai.review_redrive import RedriveClock
 from app.auth import create_token
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.manager import (
@@ -179,7 +181,17 @@ class AgentSession(
         self._input_closed: bool = False
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
-        self._review_redrive_count: int = 0  # review-gate re-drive bound
+        # Review-gate re-drive bound — TWO denominators, see
+        # _review_redrive_exhausted. Attempts, and the wall clock those
+        # attempts actually cost.
+        self._review_redrive_count: int = 0
+        self._review_redrive_clock = RedriveClock(
+            Options.REVIEW_REDRIVE_BUDGET_S.get_float()
+        )
+        # Set once the gate has given up and shipped the UNVERIFIED
+        # banner. From then on nothing the gate was waiting for may keep
+        # the turn alive — see _turn_close_blocked.
+        self._review_gate_failed_open: bool = False
         # Review-authorship + async-subagent stream signals — see
         # claude_backend_subagents._init_subagent_state.
         self._init_subagent_state()
@@ -192,6 +204,26 @@ class AgentSession(
         self._catalog_read: bool = False
         # Serialize message persistence so seq + created_at stay in order
         self._emit_lock: asyncio.Lock = asyncio.Lock()
+
+    def _review_redrive_exhausted(self) -> bool:
+        """Has the review gate spent everything it is allowed to spend?
+
+        ONE predicate, because four places need this answer — the result
+        branch that decides whether to re-drive, the quiescence watchdog
+        that decides whether the gate may still hold the process open,
+        and the two Stop-hook deny chains. All four used to compare
+        against ``REVIEW_REDRIVE_MAX`` independently — four chances for
+        the fail-open state to be read differently in one session, and
+        they did drift.
+
+        Exhausted on EITHER denominator: the attempt cap, or a time
+        budget with no room left for another turn. Attempts alone were
+        the original bug — they say nothing about the clock the caller
+        is actually holding open.
+        """
+        if self._review_redrive_count >= REVIEW_REDRIVE_MAX:
+            return True
+        return self._review_redrive_clock.out_of_time()
 
     async def _cleanup_browser_daemons(self):
         """Kill browser-use daemons spawned for this task.

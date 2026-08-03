@@ -135,27 +135,32 @@ async def declare_ad_task(
     prev = await _latest(db, task_id)
 
     if prev is not None and turns <= prev.user_turn:
-        # Same turn. Allowed ONLY as a narrowing refinement.
+        # Same turn. Two legal moves, both of them ratchets — see
+        # ``ad_declaration.supersedes``.
         #
-        # The markets come from the request and are knowable before any
-        # browsing, so they are fixed at the first declaration. Campaign
-        # ids are not: a request naming a product ("the women's socks
-        # ads") only becomes ids by enumerating the account. Requiring
-        # both upfront made the rule unfollowable — observed live, an
-        # agent declared the market with no campaigns, which means EVERY
-        # campaign in it, and a one-family request became an audit owing
-        # all of Amazon SA.
+        # 1. NARROW at the same kind. The markets come from the request
+        #    and are knowable before any browsing, so they are fixed at
+        #    the first declaration. Campaign ids are not: a request
+        #    naming a product ("the women's socks ads") only becomes ids
+        #    by enumerating the account. Requiring both upfront made the
+        #    rule unfollowable — observed live, an agent declared the
+        #    market with no campaigns, which means EVERY campaign in it,
+        #    and a one-family request became an audit owing all of
+        #    Amazon SA.
+        # 2. UPGRADE `investigate` → `audit` without widening reach. A
+        #    phase that said it was only reading, and then produced
+        #    decisions, under-declared what it owes; refusing this left
+        #    it no move but to delete the recommendations the user
+        #    asked for.
         #
-        # Refining may only REMOVE reach: same kind, identical markets,
-        # campaigns going from "all" to a named set or to a subset of
-        # one. Widening stays impossible, which is the property that
-        # matters — an agent still cannot re-declare its way around a
-        # gate, because every legal move here makes its remit smaller.
+        # Neither move can widen and neither can shed an obligation,
+        # which is the property that matters: an agent still cannot
+        # re-declare its way around a gate.
         try:
             prev_scope = json.loads(prev.scope)
         except (ValueError, TypeError):
             prev_scope = {}
-        if kind == prev.kind and ad_declaration.is_narrowing(prev_scope, scope):
+        if ad_declaration.supersedes(prev.kind, prev_scope, kind, scope):
             row = AdTaskDeclaration(
                 task_id=task_id,
                 seq=prev.seq + 1,
@@ -172,15 +177,25 @@ async def declare_ad_task(
             status_code=409,
             detail=(
                 f'This task already declared kind="{prev.kind}" for the '
-                'current turn. Within a turn you may only NARROW it: same '
-                'kind, the same marketplaces, and a campaign list that '
-                'goes from "all of them" to a named subset — that is how '
-                'you record campaign ids you could only learn by '
-                'enumerating the account. You cannot add a marketplace, '
-                'change the kind, or widen the campaign list. A wider '
+                'current turn, and this call neither NARROWS it nor '
+                'corrects it upward.\n'
+                'The two legal in-turn moves are:\n'
+                '1. NARROW at the same kind — same marketplaces, and a '
+                'campaign list that goes from "all of them" to a named '
+                'subset. That is how you record campaign ids you could '
+                'only learn by enumerating the account.\n'
+                '2. Correct kind="investigate" to kind="audit" when the '
+                'work turned out to produce bid/pause/negate decisions '
+                'rather than just figures — same marketplaces or fewer, '
+                'same campaigns or fewer. This one exists so an '
+                'under-declared phase can still hand the user a review '
+                'console instead of deleting its recommendations.\n'
+                'You cannot add a marketplace, widen the campaign list, '
+                'or move to a kind that owes LESS than the one you '
+                'declared (audit → investigate is refused). A wider '
                 'scope needs a new message from the USER. Work within '
-                'what you declared, or say in your result why it does not '
-                'fit and let them redirect you.'
+                'what you declared, or say in your result why it does '
+                'not fit and let them redirect you.'
             ),
         )
 
