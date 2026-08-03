@@ -417,6 +417,43 @@ class TestDerivedDenominator:
         assert not report.pending
         assert report.ok
 
+    def test_only_monthly_storage_demands_rows(self):
+        """Long-term and non-saleable storage may legitimately be zero.
+
+        Monthly storage bills all held stock, so rows there prove the
+        service month posted. Long-term bills only aged stock and
+        non-saleable only damaged units — a small, fast-turning store has
+        genuinely none. Demanding rows from those reports a published
+        month as missing, which sends a run back for a correct file.
+        """
+        store = _store({'noon': ['sa']}, {'noon': {'fbn': True}})
+        by_name = {
+            d.relpath.rsplit('/', 1)[-1]: d
+            for d in derive_manifest(
+                store, 'acme', '2026-07', fee_month='2026-06'
+            )
+        }
+        assert by_name['monthly_storage_sa_2026-06.csv'].min_rows == 1
+        for stem in ('longterm_storage', 'nonsaleable_storage'):
+            entry = by_name[f'{stem}_sa_2026-06.csv']
+            assert entry.min_rows == 0, stem
+            # Still expected to EXIST — an absent file proves nothing.
+            assert entry.published_from_day == 15
+
+    def test_a_present_but_empty_conditional_report_is_accepted(self, tmp_path):
+        store = _store({'noon': ['sa']}, {'noon': {'fbn': True}})
+        man = derive_manifest(store, 'acme', '2026-07', fee_month='2026-06')
+        conditional = next(d for d in man if 'longterm_storage' in d.relpath)
+        _write(tmp_path / conditional.relpath, 'sku,charged_amount\n')
+        report = verify_workspace(
+            tmp_path,
+            [conditional],
+            today=dt.date(2026, 8, 20),
+            capabilities={'noon.fbn': True},
+        )
+        assert report.statuses[conditional.relpath] is DeliverableStatus.OK
+        assert report.ok
+
     def test_fee_month_is_optional(self):
         store = _store({'amazon': ['SA']}, {'amazon': {'fba': True}})
         paths = [d.relpath for d in derive_manifest(store, 'acme', '2026-07')]

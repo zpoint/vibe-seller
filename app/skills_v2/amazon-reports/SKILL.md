@@ -736,6 +736,66 @@ Or navigate directly.
 | `SELLER_TRANSACTION_DATE_RANGE` | Transaction | Per-order/per-event transaction details |
 | `SELLER_SUMMARY_DATE_RANGE` | Summary | Aggregated summary for the period |
 
+### Use the `Month` radio for a calendar month — do NOT fight the calendar
+
+`Reporting Date Range` offers two modes, and only one of them is worth
+using for a monthly report:
+
+| Mode | Controls | Use it? |
+|---|---|---|
+| `Custom Date Range` (default) | From/To pickers, calendar three shadow roots down | No — for a whole month it is all risk and no benefit |
+| **`Month`** | two plain `kat-dropdown`s: month + year | **Yes** |
+
+Switching to `Month` replaces the pickers with dropdowns whose options
+are ordinary DOM, so the whole shadow-DOM calendar walk disappears. It
+also removes the class of bug where a missed click silently leaves a
+one-day range.
+
+**The radio needs a coordinate click on the circle, not the label.**
+Clicking the word "Month" does nothing — measured live, a click ~65px to
+the right of the control (on the text) left the form unchanged, while the
+circle itself worked. A live production run burned **20 minutes** on this
+control, concluded "the click isn't activating", and fell back to JS
+`.click()`, which does not work on `kat-radiobutton` either.
+
+```bash
+browser-use <<'PY'
+import time
+new_tab("https://sellercentral.amazon.{tld}/payments/reports-repository")
+wait_for_load(); time.sleep(6)
+
+# Click the radio's own circle: take the element's LEFT edge, not centre —
+# the element box spans the label, so its centre lands on the text.
+r = js("""
+  var rs = [].slice.call(document.querySelectorAll('kat-radiobutton'));
+  for (var i=0;i<rs.length;i++){
+    if (/Month/.test(rs[i].getAttribute('label')||rs[i].innerText||'')){
+      var b = rs[i].getBoundingClientRect();
+      return {x: Math.round(b.x + 9), y: Math.round(b.y + b.height/2)};
+    }}
+  return null;
+""")
+click_at_xy(r["x"], r["y"]); time.sleep(2.5)
+
+# Readback: two dropdowns must now exist where the pickers were.
+dd = js("""
+  var d = document.querySelectorAll('kat-dropdown');
+  return [].slice.call(d).map(function(x){ return x.getAttribute('value'); });
+""")
+print("dropdowns:", dd)   # e.g. ['PAYABLE','SELLER_TRANSACTION_DATE_RANGE','6','2026']
+PY
+```
+
+**The month value is 0-indexed** (`Jan=0`), so `6` is July — and it
+conveniently defaults to last month, which is usually what a monthly run
+wants. Confirm against the visible label rather than trusting the number,
+then submit with `Request Report`.
+
+If `dd` still shows `kat-date-picker`s instead of two dropdowns, the radio
+did not take: re-read the coordinates and click again. Do not proceed —
+a request fired in `Custom Date Range` mode with empty pickers silently
+uses today.
+
 ### Export Flow
 
 ```bash

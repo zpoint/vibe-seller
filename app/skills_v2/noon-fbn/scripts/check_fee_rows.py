@@ -12,24 +12,39 @@ The list page hints at it: the *Nr. of Rows* column shows a number for a
 populated report and an ellipsis for an empty one. That hint is easy to
 miss and impossible to assert on, so check the file instead.
 
-Zero rows means different things per report, and that is the whole
-reason this script exists rather than a blanket rule:
+Zero rows means different things per report, and getting that wrong in
+either direction costs something. Three classes, not two:
 
-``monthly_storage`` / ``longterm_storage`` / ``nonsaleable_storage``
-    Storage **accrues** against stock held all month. If the store held
-    inventory, a zero-row month has not been published yet.
+``monthly_storage`` — the **witness**
+    Billed against ALL held stock, so any inventory at all produces rows.
+    It is therefore the only report whose emptiness proves the service
+    month is not posted, and the only one that can vouch for the others.
 
-``rtv_removal``
-    Removals are discrete **events**. A month with no removals is a
-    legitimate zero, and the file is still worth keeping as proof the
-    question was asked.
+``longterm_storage`` / ``nonsaleable_storage`` — **conditional** accruals
+    Long-term bills only stock aged past the threshold; non-saleable only
+    damaged or expired units. A small, fast-turning store genuinely has
+    zero of both. So zero here is real *if the witness has rows*, and
+    means "not posted" only if the witness is empty too.
+
+``rtv_removal`` — an **event** report
+    Removals are discrete occurrences. Zero is always a legitimate
+    answer, and the file is still worth keeping as proof the question
+    was asked.
+
+That middle class is why a blanket "storage accrues, so empty means
+unpublished" rule is wrong. Measured live: one project's June had 17
+monthly-storage rows — so June was published — alongside zero long-term
+and zero non-saleable, while a larger project the same month had 1 and
+162 rows. The blanket rule called the small project's published month
+missing, which sends a run back to re-fetch files that are already
+correct.
 
 Usage::
 
     python check_fee_rows.py <dir> [--service-month YYYY-MM] [--json]
 
-Exit status is 1 when any accrual report is empty, so a caller can gate
-on it; ``--json`` prints a machine-readable summary instead of prose.
+Exit status is 1 when anything is unposted or undecidable, so a caller
+can gate on it; ``--json`` prints a machine-readable summary instead.
 """
 
 from __future__ import annotations
@@ -40,13 +55,23 @@ import json
 from pathlib import Path
 import sys
 
-#: Filename stem → whether zero rows is a legal answer.
+#: Removals are discrete occurrences — zero is always a legal answer.
 EVENT_STEMS = ('rtv_removal',)
-ACCRUAL_STEMS = (
-    'monthly_storage',
-    'longterm_storage',
-    'nonsaleable_storage',
-)
+
+#: Billed against ALL held stock, so any inventory at all produces rows.
+#: This is the only report whose emptiness proves the month is unpublished,
+#: which makes it the publication **witness** for its country.
+WITNESS_STEM = 'monthly_storage'
+
+#: Also accruals, but CONDITIONAL ones: long-term storage bills only stock
+#: aged past the threshold, non-saleable only damaged/expired units. A
+#: small, fast-turning store genuinely has zero of both — measured live,
+#: one project's June had 17 monthly-storage rows (so June was published)
+#: alongside zero long-term and zero non-saleable, while a larger project
+#: the same month had 1 and 162. Treating these as unconditional reported
+#: a published month as missing, which is the expensive direction: it
+#: sends a run back to re-fetch a file that is already correct.
+CONDITIONAL_STEMS = ('longterm_storage', 'nonsaleable_storage')
 
 
 def data_rows(path: Path) -> int:
@@ -64,12 +89,26 @@ def data_rows(path: Path) -> int:
 
 
 def classify(name: str) -> str:
-    """``'accrual'``, ``'event'``, or ``''`` for a file we don't judge."""
+    """``'witness'``, ``'conditional'``, ``'event'``, or ``''``."""
     stem = name.lower()
     if any(stem.startswith(s) for s in EVENT_STEMS):
         return 'event'
-    if any(stem.startswith(s) for s in ACCRUAL_STEMS):
-        return 'accrual'
+    if stem.startswith(WITNESS_STEM):
+        return 'witness'
+    if any(stem.startswith(s) for s in CONDITIONAL_STEMS):
+        return 'conditional'
+    return ''
+
+
+def country_of(name: str) -> str:
+    """``monthly_storage_sa_2026-06.csv`` → ``sa``.
+
+    Publication is per country, so a witness only vouches for its own.
+    """
+    parts = name.rsplit('.', 1)[0].split('_')
+    for p in reversed(parts):
+        if len(p) == 2 and p.isalpha():
+            return p.lower()
     return ''
 
 
@@ -88,24 +127,57 @@ def main() -> int:
         print(f'not a directory: {root}', file=sys.stderr)
         return 2
 
-    findings = []
+    scanned = []
     for path in sorted(root.glob('*.csv')):
         kind = classify(path.name)
         if not kind:
             continue
-        rows = data_rows(path)
-        findings.append({
+        scanned.append({
             'file': path.name,
             'kind': kind,
-            'rows': rows,
-            # An empty accrual report is the actionable state; an
-            # empty event report is a fact about the month.
-            'verdict': (
-                'not_published' if kind == 'accrual' and rows == 0 else 'ok'
-            ),
+            'country': country_of(path.name),
+            'rows': data_rows(path),
         })
 
+    # Per country, does the witness prove the month published? Only
+    # monthly storage can: it bills all held stock, so rows there mean
+    # the month exists. Without a witness we cannot tell a genuine zero
+    # from an unpublished month, and we say so rather than guessing.
+    published = {
+        e['country']
+        for e in scanned
+        if e['kind'] == 'witness' and e['rows'] > 0
+    }
+    witnessed = {e['country'] for e in scanned if e['kind'] == 'witness'}
+
+    findings = []
+    for e in scanned:
+        if e['rows'] > 0 or e['kind'] == 'event':
+            verdict = 'ok'
+        elif e['kind'] == 'witness':
+            # The witness itself is empty: nothing held stock, which for
+            # an active store means the month is not posted.
+            verdict = 'not_published'
+        elif e['country'] in published:
+            # Witness says the month exists, so this zero is real.
+            verdict = 'genuinely_zero'
+        elif e['country'] in witnessed:
+            verdict = 'not_published'
+        else:
+            verdict = 'unknown'
+        findings.append({**e, 'verdict': verdict})
+
     unpublished = [f for f in findings if f['verdict'] == 'not_published']
+    unknown = [f for f in findings if f['verdict'] == 'unknown']
+
+    NOTES = {
+        'ok': '',
+        'genuinely_zero': '  (zero is real — monthly storage has rows, '
+        'so the month IS published)',
+        'not_published': '  (month not posted yet)',
+        'unknown': '  (no monthly_storage for this country to compare '
+        'against — cannot tell)',
+    }
 
     if args.as_json:
         print(
@@ -113,6 +185,7 @@ def main() -> int:
                 {
                     'checked': findings,
                     'not_published': [f['file'] for f in unpublished],
+                    'unknown': [f['file'] for f in unknown],
                 },
                 indent=2,
             )
@@ -121,22 +194,32 @@ def main() -> int:
         if not findings:
             print(f'No FBN fee CSVs found in {root}')
         for f in findings:
-            mark = '✗' if f['verdict'] == 'not_published' else '✓'
-            note = '' if f['kind'] == 'accrual' else '  (zero is legal)'
+            mark = '✗' if f['verdict'] in ('not_published', 'unknown') else '✓'
+            note = NOTES[f['verdict']]
+            if f['verdict'] == 'ok' and f['kind'] == 'event' and not f['rows']:
+                note = '  (zero is legal — removals are events)'
             print(f'{mark} {f["file"]}: {f["rows"]} data rows{note}')
+
+        month = args.service_month or 'this service month'
         if unpublished:
-            month = args.service_month or 'this service month'
             print(
-                f'\n{len(unpublished)} storage report(s) for {month} came '
-                'back empty. Storage accrues against held stock, so an '
-                'empty file means the marketplace has not posted the '
-                'service month yet — NOT that the fee was zero.\n'
-                'Do not retry: a second generation returns a '
-                'byte-identical empty file. Report these as pending and '
-                'let the next run pick them up.'
+                f'\n{len(unpublished)} report(s) for {month} are not posted '
+                'yet. Monthly storage bills ALL held stock, so its emptiness '
+                'is what proves the month is missing — NOT that the fee was '
+                'zero.\nDo not retry: a second generation returns a '
+                'byte-identical empty file. Report these as pending and let '
+                'the next run pick them up.'
+            )
+        if unknown:
+            print(
+                f'\n{len(unknown)} report(s) for {month} are empty with no '
+                'monthly_storage for their country to compare against. '
+                "Download that country's Monthly Storage Charge report and "
+                're-run: with rows there, these zeros are real; without, the '
+                'month is not posted.'
             )
 
-    return 1 if unpublished else 0
+    return 1 if (unpublished or unknown) else 0
 
 
 if __name__ == '__main__':
