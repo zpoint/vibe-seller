@@ -15,8 +15,16 @@ review:
       Removal) exist for EVERY requested country x service month, each
       as its own file whose name states the country and month. A report
       that was missing on the page and never generated is a gap, not
-      "not applicable" — the only acceptable empty report is one that
-      downloads with a header row and genuinely zero data rows.
+      "not applicable".
+    - Empty reports were CLASSIFIED, not waved through. Run
+      scripts/check_fee_rows.py over the output folder. A header-only
+      rtv_removal file is fine (removals are events; a month can have
+      none). A header-only monthly/longterm/nonsaleable storage file is
+      NOT fine — storage accrues against held stock, so zero rows means
+      the service month is not published yet. Report those as pending
+      for the month they belong to; never present one as a delivered
+      figure, and never retry them (a second generation returns a
+      byte-identical empty file).
     - Every non-empty storage report was OPENED and its own
       `country_code` / `service_month` columns match the country and
       month in its filename. The filename is a manual rename applied

@@ -44,6 +44,7 @@ noon-shared/references/dod-review-loop.md
 noon-listing/SKILL.md
 noon-fbn/SKILL.md
 noon-fbn/references/fee-reports.md
+noon-fbn/scripts/check_fee_rows.py
 noon-exports/SKILL.md
 noon-ads/SKILL.md
 noon-ads/references/ads-creation.md

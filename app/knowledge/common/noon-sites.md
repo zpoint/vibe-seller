@@ -74,7 +74,7 @@ https://fbn.noon.partners/en-{cc}/{page}?project=PRJ{project_id}
 | My Inventory | `/inventory` |
 | My Returns | `/returns` |
 | FBN Fees | `/fees` |
-| Reports | `/reports` |
+| Reports | `/fbnreports` |
 
 ### Sales & Reports
 
@@ -277,7 +277,7 @@ noon.com Seller Center
 │   ├── My Inventory         /inventory
 │   ├── My Returns           /returns
 │   ├── FBN Fees             /fees
-│   └── Reports              /reports
+│   └── Reports              /fbnreports
 ├── Sales & Reports          reports.noon.partners/en/sales/
 ├── Payments & Fees          noon-payments.noon.partners/en/
 │   ├── Statements           /statements

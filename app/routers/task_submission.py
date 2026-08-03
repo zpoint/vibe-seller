@@ -27,6 +27,8 @@ from app.ai.stop_gates import (
     report_reviewer,
     result_language as language_gate,
 )
+from app.config import VIBE_SELLER_DIR
+from app.deliverables.gate import check_deliverables
 from app.models.task import Task
 from app.routers.tasks_files import (
     looks_like_result_path,
@@ -186,13 +188,24 @@ async def apply_soft_gates(
     trap the agent in a loop it has no way to exit. Run here rather than
     from the Stop hook because some agent backends never emit Stop.
     """
+    # Deliverable check first: "you are missing three files" is more
+    # actionable than "your table is malformed", and a run that has to
+    # go back for a file will rewrite the prose anyway.
+    denials = []
+    deliverable_deny = await check_deliverables(
+        db, task, (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
+    )
+    if deliverable_deny:
+        denials.append(deliverable_deny)
     for gate_module, gate_args in (
         (md_format_gate, (final_result,)),
         (language_gate, (final_result, task.title, task.description)),
     ):
         deny = gate_module.check(*gate_args)
-        if not deny:
-            continue
+        if deny:
+            denials.append(deny)
+
+    for deny in denials:
         attempt = record_attempt(task_id, deny.gate)
         if attempt <= SOFT_GATE_MAX_DENIALS:
             await refuse(db, task, deny.reason, declared + deny.gaps)

@@ -31,6 +31,17 @@ class Store(Base):
     platform_countries: Mapped[str] = mapped_column(
         Text, nullable=False, default='{}'
     )
+    # Per-platform capability flags, e.g.
+    # ``{"amazon": {"fba": true, "ads": false}, "noon": {"fbn": true}}``.
+    # Distinct from ``platform_countries``, which says *where* a store
+    # sells, not *what* it can produce: a store may sell on a marketplace
+    # while having no FBA business and no ads account, and demanding those
+    # reports of it failed a real scheduled run. Read via
+    # ``app.deliverables.manifest.store_capabilities``, where an absent key
+    # means "undeclared" (deliverables optional) rather than false.
+    capabilities: Mapped[str] = mapped_column(
+        Text, nullable=False, default='{}'
+    )
     config: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
