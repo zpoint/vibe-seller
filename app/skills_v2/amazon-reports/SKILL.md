@@ -266,6 +266,123 @@ print(info)
 PY
 ```
 
+## Critical: One Account, Two Marketplaces — Never Reuse a Download
+
+A seller account can span several marketplaces (a MENA account serves both
+SA and AE). Seller Central then **ignores the URL subdomain and serves the
+session's last active marketplace**, and the reports come down under names
+that carry no marketplace at all:
+
+    2026JulMonthlyTransaction.csv     <- same name for SA and for AE
+    storage.csv                       <- same name for SA and for AE
+
+Both land in the one store downloads dir, so the second marketplace's
+download **silently overwrites the first**. And if that second download
+then fails, is slow, or is never actually triggered, `ls -lt` still
+returns a file under the expected name — the *first* marketplace's — and
+the agent copies one marketplace's money into both marketplaces' folders.
+
+This is not hypothetical. It reached production: a month's report set had
+one marketplace carrying a second copy of its sibling's revenue, because
+the same CSV was copied into both target directories.
+
+### Rule 1 — rename before switching marketplace
+
+Download → **immediately** move the file to its target directory under its
+final name → only then switch marketplace and download the next. Never
+download both marketplaces and sort it out afterwards.
+
+```bash
+DL=~/.vibe-seller/downloads/<slug>
+# marketplace 1: download, then move it out at once
+mv "$DL/2026JulMonthlyTransaction.csv" reports_07_<cc1>_<slug>/2026JulMonthlyTransaction.csv
+# only now switch the marketplace picker and download the second
+mv "$DL/2026JulMonthlyTransaction.csv" reports_07_<cc2>_<slug>/2026JulMonthlyTransaction.csv
+```
+
+`mv`, not `cp`: it leaves nothing behind in the downloads dir for the next
+step to pick up by mistake.
+
+### Rules 2 and 3 — one check, run it on every file
+
+Both remaining rules read the same two things off a file, so one command
+covers them. It takes the paths as arguments, finds the header row by shape
+(the first row with more than five fields — these exports carry preamble
+lines), then reads the marketplace column **by name**, and streams both the
+hash and the rows so a large export costs no memory:
+
+```bash
+python3 - reports_07_<cc1>_<slug>/2026JulMonthlyTransaction.csv \
+          reports_07_<cc2>_<slug>/2026JulMonthlyTransaction.csv <<'PY'
+import csv, hashlib, sys
+for path in sys.argv[1:]:
+    digest = hashlib.md5()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b''):
+            digest.update(chunk)
+    with open(path, newline='', encoding='utf-8-sig') as fh:
+        rows = csv.reader(fh)
+        header = next(r for r in rows if len(r) > 5)
+        cols = [c.strip().lower() for c in header]
+        name = 'marketplace' if 'marketplace' in cols else 'country_code'
+        i = cols.index(name)
+        seen = {r[i].strip().lower() for r in rows if len(r) > i and r[i].strip()}
+    print(f'{path}\n  md5={digest.hexdigest()}\n  {name}={sorted(seen)}')
+PY
+```
+
+`hashlib` rather than a shell tool on purpose: `md5sum` is coreutils, `md5`
+is macOS/BSD, and these skills run on both.
+
+### Rule 3 — the file names its own marketplace, so assert it
+
+This is the **decisive** check and the one to run on every file, because it
+proves *which* marketplace a file holds:
+
+| file | column | per-marketplace? |
+|---|---|---|
+| monthly transaction CSV | `marketplace` | **yes** — exactly one value, always |
+| `storage.csv` | `country_code` | **not necessarily** — see Rule 2 |
+
+The failure is a file whose values **do not include the marketplace you are
+writing it into**. That means you are holding the other one's export: redo
+it, never rename the file and hope.
+
+### Rule 2 — for the transaction CSV, identical hashes are a HARD FAILURE
+
+The transaction export is strictly per-marketplace, so two marketplaces can
+never legitimately produce the same bytes. Equal digests mean one export
+never happened and you are looking at one file twice. Redo that
+marketplace — reopen the picker, confirm the header shows the intended
+marketplace, download again.
+
+**`storage.csv` is the exception, and it is a real one.** On a seller
+account spanning several marketplaces this export can be account-level:
+observed in the wild as a single file, byte-identical in both marketplace
+folders, whose `country_code` column contains **both** codes. That is
+legitimate — consumers filter it by `country_code` — so do not treat a hash
+match on `storage.csv` as a failure by itself. Judge it by Rule 3: both
+codes present is fine; only the wrong code present is not.
+
+> What is never acceptable is skipping the check. A past run compared two
+> storage files, found the same MD5, concluded "the report is account-level,
+> that's fine for downstream use", and shipped **transaction** data twice on
+> the strength of that reasoning. Account-level exports do exist — that
+> intuition was not the error. Applying it to a per-marketplace file, and
+> using it as a reason not to verify, was.
+
+Rules 2 and 3 answer different questions and you want both: Rule 3 proves
+which marketplace a file is, Rule 2 catches the case where a second
+transaction export never happened at all — which is what actually reached
+production.
+
+### Rule 4 — report what is missing, never substitute
+
+If a marketplace's export cannot be produced, leave its directory empty and
+say so in the task result. An empty directory is recoverable. A directory
+holding another marketplace's numbers is silently wrong and reaches
+downstream consumers looking like real data.
+
 ## Report Types Overview
 
 ### A. Seller Central Reports (via hamburger menu → Reports)
