@@ -78,9 +78,16 @@ class TestRowCounting:
         _write(f, 'sku,title\n"WIDGET-006","two\nlines"\n')
         assert data_rows(f) == 1
 
-    def test_unreadable_file_counts_as_zero(self, tmp_path):
-        f = tmp_path / 'missing.csv'
-        assert data_rows(f) == 0
+    def test_unreadable_file_counts_as_nothing_not_zero(self, tmp_path):
+        """An unparseable file reports ``None``, not 0.
+
+        0 is a claim about the data ("nothing happened"); ``None`` is the
+        absence of a claim. They were the same value until an EVENT entry
+        declared ``min_rows=0`` and made 0 a passing grade.
+        """
+        bad = tmp_path / 'broken.xlsx'
+        bad.write_bytes(b'not a zip at all')
+        assert data_rows(bad) is None
 
     def test_xlsx_rows_are_counted(self, tmp_path):
         f = tmp_path / 'ads.xlsx'
@@ -165,6 +172,30 @@ class TestEmptyFileIsNotDelivered:
         report = verify_workspace(tmp_path, [entry], today=dt.date(2026, 8, 3))
         assert report.statuses['rtv.csv'] is DeliverableStatus.OK
         assert report.ok
+
+    def test_unparseable_file_is_never_delivered(self, tmp_path):
+        """A file nothing can be read out of answers nothing.
+
+        ``min_rows=0`` makes zero rows a legal answer, and the row counter
+        used to report 0 for a file it could not parse — so a truncated
+        download, or an HTML error page saved under a ``.csv`` name, would
+        satisfy ``count >= 0`` and pass as a legitimate empty report.
+        Producing no rows and producing nothing readable are different
+        claims and only the first one is evidence.
+        """
+        bad = tmp_path / 'rtv.xlsx'
+        bad.write_bytes(b'<html>Gateway Timeout</html>')
+        entry = Deliverable(
+            relpath='rtv.xlsx',
+            month='2026-06',
+            kind=DeliverableKind.EVENT,
+            min_rows=0,
+            published_from_day=15,
+        )
+        report = verify_workspace(tmp_path, [entry], today=dt.date(2026, 8, 3))
+        assert report.statuses['rtv.xlsx'] is DeliverableStatus.UNREADABLE
+        assert not report.ok
+        assert any('rtv.xlsx' in g for g in report.gaps)
 
     def test_min_rows_governs_even_for_an_event(self, tmp_path):
         """An EVENT that declares a floor must be held to it.
@@ -415,6 +446,43 @@ class TestDerivedDenominator:
         )
         assert report.statuses['storage.csv'] is DeliverableStatus.SKIPPED
         assert not report.pending
+        assert report.ok
+
+    def test_only_monthly_storage_demands_rows(self):
+        """Long-term and non-saleable storage may legitimately be zero.
+
+        Monthly storage bills all held stock, so rows there prove the
+        service month posted. Long-term bills only aged stock and
+        non-saleable only damaged units — a small, fast-turning store has
+        genuinely none. Demanding rows from those reports a published
+        month as missing, which sends a run back for a correct file.
+        """
+        store = _store({'noon': ['sa']}, {'noon': {'fbn': True}})
+        by_name = {
+            d.relpath.rsplit('/', 1)[-1]: d
+            for d in derive_manifest(
+                store, 'acme', '2026-07', fee_month='2026-06'
+            )
+        }
+        assert by_name['monthly_storage_sa_2026-06.csv'].min_rows == 1
+        for stem in ('longterm_storage', 'nonsaleable_storage'):
+            entry = by_name[f'{stem}_sa_2026-06.csv']
+            assert entry.min_rows == 0, stem
+            # Still expected to EXIST — an absent file proves nothing.
+            assert entry.published_from_day == 15
+
+    def test_a_present_but_empty_conditional_report_is_accepted(self, tmp_path):
+        store = _store({'noon': ['sa']}, {'noon': {'fbn': True}})
+        man = derive_manifest(store, 'acme', '2026-07', fee_month='2026-06')
+        conditional = next(d for d in man if 'longterm_storage' in d.relpath)
+        _write(tmp_path / conditional.relpath, 'sku,charged_amount\n')
+        report = verify_workspace(
+            tmp_path,
+            [conditional],
+            today=dt.date(2026, 8, 20),
+            capabilities={'noon.fbn': True},
+        )
+        assert report.statuses[conditional.relpath] is DeliverableStatus.OK
         assert report.ok
 
     def test_fee_month_is_optional(self):

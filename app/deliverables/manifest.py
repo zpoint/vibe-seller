@@ -287,17 +287,39 @@ def _fee_deliverables(
 
     if allowed('noon.fbn'):
         folder = f'reports_noon_{mm}_{slug}'
-        # Storage accrues against held stock; removals are events. Same
-        # page, same generator, different reading of an empty file.
-        accrual = ('monthly_storage', 'longterm_storage', 'nonsaleable_storage')
+        # Three readings of an empty file, from the same page and the same
+        # generator. Monthly storage bills ALL held stock, so its rows are
+        # what prove the month posted at all — an unconditional accrual.
+        # Long-term bills only stock aged past the threshold and
+        # non-saleable only damaged units, so a small, fast-turning store
+        # genuinely has zero of either; demanding rows there reports a
+        # published month as missing. Measured live on two projects in the
+        # same month: 17 monthly-storage rows with zero of both others,
+        # versus 1 and 162. See noon-fbn/scripts/check_fee_rows.py, which
+        # resolves the conditional case by using monthly storage as the
+        # per-country publication witness.
         for country in per_platform.get('noon', []):
-            for stem in accrual:
+            out.append(
+                Deliverable(
+                    relpath=f'{folder}/monthly_storage_'
+                    f'{country}_{fee_month}.csv',
+                    month=fee_month,
+                    kind=DeliverableKind.ACCRUAL,
+                    requires='noon.fbn',
+                    published_from_day=FEE_PUBLISHED_FROM_DAY,
+                )
+            )
+            for stem in ('longterm_storage', 'nonsaleable_storage'):
                 out.append(
                     Deliverable(
                         relpath=f'{folder}/{stem}_{country}_{fee_month}.csv',
                         month=fee_month,
-                        kind=DeliverableKind.ACCRUAL,
+                        # EVENT here means only "zero rows is a legal
+                        # answer"; the file must still be present, which is
+                        # what proves the question was asked.
+                        kind=DeliverableKind.EVENT,
                         requires='noon.fbn',
+                        min_rows=0,
                         published_from_day=FEE_PUBLISHED_FROM_DAY,
                     )
                 )
