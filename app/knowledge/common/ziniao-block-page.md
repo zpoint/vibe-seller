@@ -18,6 +18,41 @@ shows a message like:
 Translation: "The webpage you are accessing may involve content that does not
 comply with relevant laws, regulations and policies, and is not displayed."
 
+## Two different extension pages — `stop.html` vs `error.html`
+
+The same extension id serves both, and they mean different things:
+
+| page | meaning | who can fix it |
+|---|---|---|
+| `…/stop.html` | URL blocked by policy | whitelist the destination in the Ziniao console |
+| `…/error.html?…&url=<target>` | the extension could not complete the navigation | **not the agent** — Ziniao-side or network |
+
+`error.html` carries the destination in its own `url=` parameter, which is
+the fastest way to see what was actually being fetched. Print that
+parameter alone — the full extension URL carries several others, and the
+one you want gets lost among them:
+
+```bash
+curl -sf --noproxy '*' "http://127.0.0.1:<mux_port>/json/list" \
+  | python3 -c "import sys,json,urllib.parse as u; \
+      [print(u.parse_qs(u.urlparse(t['url']).query).get('url',['?'])[0]) \
+       for t in json.load(sys.stdin) \
+       if 'error.html' in (t.get('url') or '')][:1]"
+```
+
+**Neither page is a timeout, and both are commonly misread as one.**
+Observed live: a store retried the same noon URL twelve times, reporting
+"the browser is consistently timing out on navigation", while every tab
+held `error.html` for that exact URL. Retrying, resetting the daemon and
+rotating the session all do nothing — the navigation is being intercepted,
+not delayed.
+
+So when navigation "times out" repeatedly, **list the browser's targets
+before touching anything else**. Twelve identical extension pages is a
+configuration answer, not a flaky one. If the profile is affected and a
+sibling store reaches the same platform normally, it is that profile's
+access that differs — report it rather than burning the run on retries.
+
 ## Detection: Always Check When DOM Is Empty
 
 When inspecting the page returns "Empty DOM tree" after opening it,

@@ -35,6 +35,32 @@ filter in the toolbar. Each store shows a flag icon.
 
 ### Date Range for Last Month
 
+> ⚠️ **The page opens on a ROLLING 30-DAY window, not last month.** On
+> 3 August the inputs read `2026-07-04 → 2026-08-03`. Export without
+> touching them and you get a file that **misses the first days of the
+> month and includes days from this one** — the same trap as the Amazon
+> FBA-returns preset, and just as quiet: the CSV looks perfectly normal.
+> Observed live twice, once by hand and once in a scheduled run.
+>
+> So: set the range, then **read it back before you export**. A monthly
+> report whose window is off by three days at each end is worse than a
+> missing one, because nothing downstream can tell.
+>
+> ```bash
+> browser-use <<'PY'
+> # Read the two date inputs BY NAME. Collecting every input on the page
+> # returns unrelated controls too, and then it is guesswork which pair of
+> # values is the committed range — which is the same guessing this
+> # readback exists to remove.
+> print(js("return ['Start date','End date'].map(function(p){"
+>          "var i=document.querySelector('input[placeholder=\"'+p+'\"]');"
+>          "return p+'='+(i?i.value:'MISSING');});"))
+> # MUST show the 1st and the last day of the target month before you
+> # click Export. If it shows today's date or a 30-day window, the range
+> # never committed — set it again.
+> PY
+> ```
+
 ```bash
 browser-use <<'PY'
 fill_input("input[name=start_date]", "01 Mar 2026")   # start-date input
