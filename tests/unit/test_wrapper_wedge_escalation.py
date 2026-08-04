@@ -74,14 +74,10 @@ def wedged(tmp_path):
         'BU_NAME="$SESSION" "$REAL_BU" --reload >/dev/null 2>&1 || true',
         f'echo "reload" >> {log}',
     )
-    ladder, n_curl = re.subn(
-        r'curl -s -o /dev/null -X POST \\\n(?:\s+-H.*\\\n)?'
-        r'\s+--max-time 120 \\\n\s+"[^"]*force=1" \\\n\s+2>/dev/null'
-        r' \|\| true',
-        f'echo "force-restart" >> {log}',
-        ladder,
+    # The ladder must not reach for the shared browser at all.
+    assert 'force=1' not in ladder, (
+        'the wrapper is recycling a browser that concurrent tasks share'
     )
-    assert n_curl == 1, 'force-restart curl not stubbed'
     assert 'reload' in ladder and '--reload' not in ladder
 
     script = tmp_path / 'ladder.sh'
@@ -130,26 +126,33 @@ def test_first_timeout_reloads_the_daemon_only(wedged):
     assert 'consecutive: 1' in proc.stderr
 
 
-def test_second_timeout_force_recycles_the_browser(wedged):
-    """A reload that did not take means the daemon was not the problem."""
+def test_second_timeout_never_touches_the_shared_browser(wedged):
+    """A reload that did not take must NOT escalate to a browser recycle.
+
+    A store's browser is shared: concurrent tasks and ``--worker N`` slots
+    each get their own daemon and mux client on one browser. Recycling it
+    from a wrapper would destroy every peer's tabs and login state
+    mid-task, and every peer's next call would escalate identically — a
+    stop/start storm bounded only by the per-store relaunch budget. One
+    tenant does not get to make a store-wide lifecycle call.
+    """
     run, levers, _ = wedged
     run()
     proc = run()
 
-    assert proc.returncode == TIMEOUT_RC, proc.stderr
-    assert levers() == ['run', 'reload', 'run', 'force-restart', 'reload']
-    assert 'consecutive: 2' in proc.stderr
+    assert 'force-restart' not in levers()
+    assert levers() == ['run', 'reload', 'run']
+    assert 'recycl' not in proc.stderr.lower()
 
 
-def test_third_timeout_reports_unrecoverable_and_stops(wedged):
-    """Both levers spent: say so, with a status the caller can branch on.
+def test_second_timeout_reports_unrecoverable_and_stops(wedged):
+    """The reload is the only lever; when it fails, say so and stop.
 
-    This is the whole point. A distinct code lets a caller tell "retry on
-    a fresh daemon" from "stop and record the gap", which is what turns
-    20 minutes of identical errors into one honest report.
+    This is the whole point. A distinct status lets a caller tell "retry
+    on a fresh daemon" from "stop and record the gap", which is what
+    turns 20 minutes of identical errors into one honest report.
     """
     run, levers, _ = wedged
-    run()
     run()
     proc = run()
 
@@ -167,7 +170,7 @@ def test_third_timeout_reports_unrecoverable_and_stops(wedged):
 def test_escalation_keeps_reporting_unrecoverable(wedged):
     """Past the ladder the verdict is stable, not a fresh escalation."""
     run, _, _ = wedged
-    for _ in range(3):
+    for _ in range(2):
         run()
     proc = run()
 
@@ -178,14 +181,13 @@ def test_escalation_keeps_reporting_unrecoverable(wedged):
 def test_any_answer_resets_the_budget(wedged):
     """A reachable browser must not inherit an earlier wedge's count.
 
-    Without the reset, a store that wedged twice hours ago would be
-    declared unrecoverable on its next single hiccup, and a healthy
-    browser would be force-recycled for no reason.
+    Without the reset, a store that wedged hours ago would be declared
+    unrecoverable on its next single hiccup — and a caller would be told
+    to give up on a browser that is answering fine.
     """
     run, levers, log = wedged
     run()
-    run()
-    assert 'force-restart' in levers()
+    assert levers() == ['run', 'reload']
 
     # A non-timeout status — even a plain error — proves reachability.
     assert run(stub_rc=1).returncode == 1

@@ -318,11 +318,10 @@ def write_browser_use_wrapper(
     # alarm — macOS has no GNU ``timeout``; the interval timer survives
     # execve and SIGALRM's default action kills the exec'd browser-use).
     #
-    # Recovery ESCALATES across consecutive timeouts, because reloading
-    # the daemon only cures a wedge that lives in the daemon. When the
+    # A reload only cures a wedge that lives in the daemon. When the
     # browser itself is the wedged party — renderer resource-exhausted,
-    # the site serving a maintenance page — a daemon reload reconnects to
-    # the same sick browser and the next call times out identically.
+    # the site serving a maintenance page — the reload reconnects to the
+    # same sick browser and the next call times out identically.
     #
     # Reloading forever is worse than failing: every call looks like a
     # fresh transient timeout, so the caller keeps paying 120s to learn
@@ -330,21 +329,37 @@ def write_browser_use_wrapper(
     # reload → navigate → timeout and lost 11 of its downloads, while the
     # wrapper reported each round as an ordinary error.
     #
+    # So consecutive timeouts are counted, and the second one ends it:
+    #
     #   1st  reload THIS session's daemon (``browser-use --reload`` →
     #        browser_harness ``restart_daemon()``, scoped by BU_NAME).
-    #   2nd  the daemon was not the problem — force-recycle the store's
-    #        browser (``browser/start?force=1``, the same lever the
-    #        auto-start arm uses), then reload the daemon onto it.
-    #   3rd  both levers are spent. Say so in the error and stop: a
-    #        caller that keeps retrying past this is burning time on a
-    #        browser nothing in this wrapper can revive. An honest gap
+    #   2nd  the reload did not take. Say so and stop: a caller that
+    #        keeps retrying past this is burning time on a browser
+    #        nothing scoped to this session can revive. An honest gap
     #        beats a silent one — the caller can record the missing work
     #        and let the next run collect it.
+    #
+    # **The wrapper deliberately stops there instead of recycling the
+    # browser.** A store's browser is shared: concurrent tasks (and
+    # ``--worker N`` slots) each get their own daemon and mux client on
+    # ONE browser, so recycling it is a store-wide, multi-tenant action —
+    # it destroys every peer's tabs and login state mid-task. One tenant
+    # must not make that call. Worse, it would not even work here:
+    # ``browser/start?force=1`` only re-launches Ziniao when it is in
+    # normal (non-WebDriver) mode, and the manager tears the env down
+    # only when the CDP proxy is *dead*. In this wedge the proxy still
+    # answers, so the request is a no-op — and in the case where it is
+    # not a no-op, every peer's next call escalates the same way and the
+    # only thing standing between that and a stop/start storm is the
+    # per-store relaunch budget. Recycling a shared browser belongs to
+    # the manager, which holds the lock, knows the other tenants, and
+    # owns that budget. See ``BrowserManager._start_session_locked``.
     #
     # The counter lives beside the daemon's own pid/sock under
     # BH_RUNTIME_DIR, keyed by session, and is cleared on any non-timeout
     # exit. Per-session and not per-store: one wedged worker slot must
-    # not spend another slot's escalation budget.
+    # not spend another slot's budget — and, since the wrapper no longer
+    # touches the shared browser, a slot's wedge stays its own.
     #
     # We never auto-retry the call itself: unlike the 0.12 subcommand
     # CLI, a 0.13 heredoc can mutate the page (click/type), so blindly
@@ -383,22 +398,14 @@ def write_browser_use_wrapper(
         printf '%s' "$_vs_n" > "$_vs_wedge_file" 2>/dev/null || true
         echo "[wrapper] browser-use timed out (120s) on '$SESSION'" \\
              "(consecutive: $_vs_n)" >&2
-        if [ "$_vs_n" -ge 3 ]; then
-          echo "[wrapper] UNRECOVERABLE: daemon reload and a forced" \\
-               "browser restart both failed to restore '$SESSION'." >&2
+        if [ "$_vs_n" -ge 2 ]; then
+          echo "[wrapper] UNRECOVERABLE: reloading the daemon did not" \\
+               "restore '$SESSION'." >&2
           echo "[wrapper] Stop retrying this browser — further calls will" \\
                "time out the same way. Record the work you could not" \\
                "finish as a gap and report it; do not present partial" \\
                "output as complete." >&2
           exit {WEDGE_UNRECOVERABLE_RC}
-        fi
-        if [ "$_vs_n" -ge 2 ]; then
-          echo "[wrapper] daemon reload did not help — force-recycling" \\
-               "the store browser" >&2
-          curl -s -o /dev/null -X POST \\{auth_header}
-            --max-time 120 \\
-            "http://{LOCALHOST}:{port}/api/stores/{store_id or 'UNKNOWN'}/browser/start?force=1" \\
-            2>/dev/null || true
         fi
         BU_NAME="$SESSION" "$REAL_BU" --reload >/dev/null 2>&1 || true
         exit "$_vs_rc"

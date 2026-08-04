@@ -346,9 +346,12 @@ class TestWrapperWedgeRecovery:
         assert "perl -e 'alarm shift; exec {$ARGV[0]} @ARGV' 120" in content
         assert 'exec @ARGV' not in content  # never the shell-fallback form
         # A 142 (SIGALRM) timeout is what triggers recovery; any other
-        # status returns straight to the caller. The ladder that recovery
-        # then walks is pinned in test_wrapper_wedge_escalation.py.
-        assert '142' in content
+        # status returns straight to the caller, which is why the branch
+        # reads as an early return rather than an `-eq` guard. Assert the
+        # conditional itself — `'142' in content` would also pass on a
+        # stray mention in a comment. What recovery then does is pinned in
+        # test_wrapper_wedge_escalation.py.
+        assert '_vs_rc" -ne 142' in content
         assert 'BU_NAME="$SESSION" "$REAL_BU" --reload' in content
 
     def test_aux_session_also_self_heals(self, tmp_path: Path):
