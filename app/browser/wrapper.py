@@ -74,8 +74,19 @@ _BIN_DIR = BROWSER_USE_BIN_DIR
 # unguarded asyncio task) and drive the same single tab. The flag gives
 # each concurrent caller its own daemon AND its own mux client on the
 # same logged-in browser. Wrappers written by v4 don't know the flag.
-WRAPPER_FORMAT_VERSION = 5
+# v6: escalating wedge recovery. v5 answered every 120s timeout with the
+# same daemon reload, which cannot cure a browser that is itself wedged —
+# so the caller saw an unbounded run of identical transient-looking
+# errors and kept paying for them. v6 escalates to a forced browser
+# recycle and then reports the browser as unrecoverable.
+WRAPPER_FORMAT_VERSION = 6
 WRAPPER_FORMAT_MARKER = 'vibe-seller-wrapper-format:'
+
+#: Exit code for "this browser cannot be revived from here" — distinct
+#: from 142 (the 120s alarm) so a caller can tell "try again on a fresh
+#: daemon" from "stop trying and record the gap". Chosen from the
+#: sysexits range (EX_TEMPFAIL) to avoid colliding with 128+signal.
+WEDGE_UNRECOVERABLE_RC = 75
 
 
 def store_slug(name: str, store_id: str | None = None) -> str:
@@ -307,12 +318,53 @@ def write_browser_use_wrapper(
     # alarm — macOS has no GNU ``timeout``; the interval timer survives
     # execve and SIGALRM's default action kills the exec'd browser-use).
     #
-    # On a wedge we reload THIS session's daemon (``browser-use --reload``
-    # → browser_harness ``restart_daemon()``, scoped by BU_NAME) and
-    # surface the failure. We do NOT auto-retry: unlike the 0.12
-    # subcommand CLI, a 0.13 heredoc can mutate the page (click/type), so
-    # blindly re-running could double-apply. The agent re-issues on the
-    # reported error against a fresh daemon.
+    # A reload only cures a wedge that lives in the daemon. When the
+    # browser itself is the wedged party — renderer resource-exhausted,
+    # the site serving a maintenance page — the reload reconnects to the
+    # same sick browser and the next call times out identically.
+    #
+    # Reloading forever is worse than failing: every call looks like a
+    # fresh transient timeout, so the caller keeps paying 120s to learn
+    # nothing. Observed live: a store spent 20 minutes cycling
+    # reload → navigate → timeout and lost 11 of its downloads, while the
+    # wrapper reported each round as an ordinary error.
+    #
+    # So consecutive timeouts are counted, and the second one ends it:
+    #
+    #   1st  reload THIS session's daemon (``browser-use --reload`` →
+    #        browser_harness ``restart_daemon()``, scoped by BU_NAME).
+    #   2nd  the reload did not take. Say so and stop: a caller that
+    #        keeps retrying past this is burning time on a browser
+    #        nothing scoped to this session can revive. An honest gap
+    #        beats a silent one — the caller can record the missing work
+    #        and let the next run collect it.
+    #
+    # **The wrapper deliberately stops there instead of recycling the
+    # browser.** A store's browser is shared: concurrent tasks (and
+    # ``--worker N`` slots) each get their own daemon and mux client on
+    # ONE browser, so recycling it is a store-wide, multi-tenant action —
+    # it destroys every peer's tabs and login state mid-task. One tenant
+    # must not make that call. Worse, it would not even work here:
+    # ``browser/start?force=1`` only re-launches Ziniao when it is in
+    # normal (non-WebDriver) mode, and the manager tears the env down
+    # only when the CDP proxy is *dead*. In this wedge the proxy still
+    # answers, so the request is a no-op — and in the case where it is
+    # not a no-op, every peer's next call escalates the same way and the
+    # only thing standing between that and a stop/start storm is the
+    # per-store relaunch budget. Recycling a shared browser belongs to
+    # the manager, which holds the lock, knows the other tenants, and
+    # owns that budget. See ``BrowserManager._start_session_locked``.
+    #
+    # The counter lives beside the daemon's own pid/sock under
+    # BH_RUNTIME_DIR, keyed by session, and is cleared on any non-timeout
+    # exit. Per-session and not per-store: one wedged worker slot must
+    # not spend another slot's budget — and, since the wrapper no longer
+    # touches the shared browser, a slot's wedge stays its own.
+    #
+    # We never auto-retry the call itself: unlike the 0.12 subcommand
+    # CLI, a 0.13 heredoc can mutate the page (click/type), so blindly
+    # re-running could double-apply. The agent re-issues on the reported
+    # error against a fresh daemon.
     #
     # exec {$ARGV[0]} @ARGV (explicit-program form), NOT bare
     # `exec @ARGV`. With an empty PASSTHROUGH (the primary heredoc
@@ -328,14 +380,34 @@ def write_browser_use_wrapper(
         ' ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}'
     )
     selfheal_block = textwrap.dedent(f"""\
+        _vs_wedge_file="$BH_RUNTIME_DIR/wedge-$SESSION.n"
         set +e
         {run_line}
         _vs_rc=$?
         set -e
-        if [ "$_vs_rc" -eq 142 ]; then
-          echo "[wrapper] browser-use timed out (120s) — reloading daemon '$SESSION'" >&2
-          BU_NAME="$SESSION" "$REAL_BU" --reload >/dev/null 2>&1 || true
+        if [ "$_vs_rc" -ne 142 ]; then
+          # Any answer at all — including an ordinary error — proves the
+          # browser is reachable, so the escalation budget resets.
+          rm -f "$_vs_wedge_file" 2>/dev/null || true
+          exit "$_vs_rc"
         fi
+        _vs_n=$(cat "$_vs_wedge_file" 2>/dev/null || echo 0)
+        case "$_vs_n" in ''|*[!0-9]*) _vs_n=0 ;; esac
+        _vs_n=$((_vs_n + 1))
+        mkdir -p "$BH_RUNTIME_DIR" 2>/dev/null || true
+        printf '%s' "$_vs_n" > "$_vs_wedge_file" 2>/dev/null || true
+        echo "[wrapper] browser-use timed out (120s) on '$SESSION'" \\
+             "(consecutive: $_vs_n)" >&2
+        if [ "$_vs_n" -ge 2 ]; then
+          echo "[wrapper] UNRECOVERABLE: reloading the daemon did not" \\
+               "restore '$SESSION'." >&2
+          echo "[wrapper] Stop retrying this browser — further calls will" \\
+               "time out the same way. Record the work you could not" \\
+               "finish as a gap and report it; do not present partial" \\
+               "output as complete." >&2
+          exit {WEDGE_UNRECOVERABLE_RC}
+        fi
+        BU_NAME="$SESSION" "$REAL_BU" --reload >/dev/null 2>&1 || true
         exit "$_vs_rc"
     """)
 
