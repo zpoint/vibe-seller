@@ -78,9 +78,16 @@ class TestRowCounting:
         _write(f, 'sku,title\n"WIDGET-006","two\nlines"\n')
         assert data_rows(f) == 1
 
-    def test_unreadable_file_counts_as_zero(self, tmp_path):
-        f = tmp_path / 'missing.csv'
-        assert data_rows(f) == 0
+    def test_unreadable_file_counts_as_nothing_not_zero(self, tmp_path):
+        """An unparseable file reports ``None``, not 0.
+
+        0 is a claim about the data ("nothing happened"); ``None`` is the
+        absence of a claim. They were the same value until an EVENT entry
+        declared ``min_rows=0`` and made 0 a passing grade.
+        """
+        bad = tmp_path / 'broken.xlsx'
+        bad.write_bytes(b'not a zip at all')
+        assert data_rows(bad) is None
 
     def test_xlsx_rows_are_counted(self, tmp_path):
         f = tmp_path / 'ads.xlsx'
@@ -165,6 +172,30 @@ class TestEmptyFileIsNotDelivered:
         report = verify_workspace(tmp_path, [entry], today=dt.date(2026, 8, 3))
         assert report.statuses['rtv.csv'] is DeliverableStatus.OK
         assert report.ok
+
+    def test_unparseable_file_is_never_delivered(self, tmp_path):
+        """A file nothing can be read out of answers nothing.
+
+        ``min_rows=0`` makes zero rows a legal answer, and the row counter
+        used to report 0 for a file it could not parse — so a truncated
+        download, or an HTML error page saved under a ``.csv`` name, would
+        satisfy ``count >= 0`` and pass as a legitimate empty report.
+        Producing no rows and producing nothing readable are different
+        claims and only the first one is evidence.
+        """
+        bad = tmp_path / 'rtv.xlsx'
+        bad.write_bytes(b'<html>Gateway Timeout</html>')
+        entry = Deliverable(
+            relpath='rtv.xlsx',
+            month='2026-06',
+            kind=DeliverableKind.EVENT,
+            min_rows=0,
+            published_from_day=15,
+        )
+        report = verify_workspace(tmp_path, [entry], today=dt.date(2026, 8, 3))
+        assert report.statuses['rtv.xlsx'] is DeliverableStatus.UNREADABLE
+        assert not report.ok
+        assert any('rtv.xlsx' in g for g in report.gaps)
 
     def test_min_rows_governs_even_for_an_event(self, tmp_path):
         """An EVENT that declares a floor must be held to it.

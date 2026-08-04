@@ -43,6 +43,9 @@ class DeliverableStatus(enum.StrEnum):
 
     OK = 'ok'
     MISSING = 'missing'
+    #: Present, but nothing could be read out of it — a truncated
+    #: download or an error page saved under a data file's name.
+    UNREADABLE = 'unreadable'
     EMPTY = 'empty'
     #: Absent or empty, but the source is not published yet.
     PENDING = 'pending'
@@ -110,22 +113,31 @@ def _xlsx_rows(path: Path) -> int:
                         carry = buf[-_XLSX_ROW_CARRY:]
                     best = max(best, max(rows - 1, 0))
     except (zipfile.BadZipFile, OSError, KeyError):
-        return 0
+        # Not a readable workbook. ``None``, not 0 — see ``data_rows``.
+        return None
     return best
 
 
-def data_rows(path: Path) -> int:
-    """Data rows in *path*, or 0 when unreadable.
+def data_rows(path: Path) -> int | None:
+    """Data rows in *path*, or ``None`` when it cannot be parsed.
 
-    Unreadable counts as zero on purpose: a file we cannot parse is not
-    evidence that the question was answered.
+    ``None`` rather than 0, because the two claims are different and only
+    one of them is evidence. A deliverable that legitimately has no rows
+    still answers its question — the file was produced and it says
+    "nothing happened". A file that cannot be parsed answers nothing.
+
+    Collapsing both to 0 was safe only while every entry demanded at
+    least one row. Once an EVENT entry declares ``min_rows=0``, a
+    truncated download, a half-written file, or an HTML error page saved
+    under a ``.csv`` name would all satisfy ``count >= 0`` and be
+    reported OK.
     """
     try:
         if path.suffix.lower() in ('.xlsx', '.xlsm'):
             return _xlsx_rows(path)
         return _csv_rows(path)
     except (OSError, UnicodeDecodeError, csv.Error):
-        return 0
+        return None
 
 
 def _publication_due(entry: Deliverable, today: _dt.date) -> bool:
@@ -247,6 +259,13 @@ def verify_workspace(
             continue
 
         count = data_rows(path)
+        if count is None:
+            # Present but unparseable. Never OK, whatever ``min_rows``
+            # says — there is no reading of this file that answers the
+            # question it was collected to answer.
+            statuses[entry.relpath] = DeliverableStatus.UNREADABLE
+            gaps.append(f'{entry.relpath} could not be parsed')
+            continue
         rows[entry.relpath] = count
 
         # ``min_rows`` alone decides sufficiency. An EVENT deliverable

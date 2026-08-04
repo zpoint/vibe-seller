@@ -53,6 +53,7 @@ import argparse
 import csv
 import json
 from pathlib import Path
+import re
 import sys
 
 #: Removals are discrete occurrences — zero is always a legal answer.
@@ -86,6 +87,18 @@ def data_rows(path: Path) -> int:
             return max(sum(1 for _ in csv.reader(fh)) - 1, 0)
     except (OSError, UnicodeDecodeError, csv.Error):
         return 0
+
+
+def month_of(name: str) -> str | None:
+    """The ``YYYY-MM`` service month in a filename, if it carries one.
+
+    ``monthly_storage_sa_2026-06.csv`` -> ``'2026-06'``. Returns ``None``
+    when the name has no month token; such a file can neither be
+    certified by a witness nor act as one, because there is no month to
+    match it against.
+    """
+    m = re.search(r'(\d{4})-(0[1-9]|1[0-2])(?!\d)', name)
+    return f'{m.group(1)}-{m.group(2)}' if m else None
 
 
 def classify(name: str) -> str:
@@ -136,19 +149,29 @@ def main() -> int:
             'file': path.name,
             'kind': kind,
             'country': country_of(path.name),
+            'month': month_of(path.name),
             'rows': data_rows(path),
         })
 
-    # Per country, does the witness prove the month published? Only
-    # monthly storage can: it bills all held stock, so rows there mean
-    # the month exists. Without a witness we cannot tell a genuine zero
-    # from an unpublished month, and we say so rather than guessing.
+    # Per country AND service month, does the witness prove publication?
+    # Only monthly storage can: it bills all held stock, so rows there
+    # mean the month exists. Without a witness we cannot tell a genuine
+    # zero from an unpublished month, and we say so rather than guessing.
+    #
+    # Keyed by (country, month), never by country alone. A folder can hold
+    # more than one service month — the monthly run stages the month it is
+    # finalising beside the one it is provisionally computing — and a
+    # witness only ever vouches for its own month. Keyed by country, a
+    # populated June witness would certify an empty July conditional as a
+    # genuine zero, which is the exact misreading this script exists to
+    # prevent.
+    def key(entry):
+        return (entry['country'], entry['month'])
+
     published = {
-        e['country']
-        for e in scanned
-        if e['kind'] == 'witness' and e['rows'] > 0
+        key(e) for e in scanned if e['kind'] == 'witness' and e['rows'] > 0
     }
-    witnessed = {e['country'] for e in scanned if e['kind'] == 'witness'}
+    witnessed = {key(e) for e in scanned if e['kind'] == 'witness'}
 
     findings = []
     for e in scanned:
@@ -158,10 +181,11 @@ def main() -> int:
             # The witness itself is empty: nothing held stock, which for
             # an active store means the month is not posted.
             verdict = 'not_published'
-        elif e['country'] in published:
-            # Witness says the month exists, so this zero is real.
+        elif key(e) in published:
+            # This month's own witness says the month exists, so the
+            # zero is real.
             verdict = 'genuinely_zero'
-        elif e['country'] in witnessed:
+        elif key(e) in witnessed:
             verdict = 'not_published'
         else:
             verdict = 'unknown'
