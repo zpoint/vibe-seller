@@ -69,11 +69,11 @@ class TestCloseGuards:
         s = self._closable(_session())
         with (
             patch(
-                'app.ai.claude_backend_turns.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_turns.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_exec_review_status_for_stop',
                 return_value=None,
             ),
         ):
@@ -102,7 +102,7 @@ class TestCloseGuards:
     def test_unsatisfied_review_gate_blocks(self):
         s = self._closable(_session())
         with patch(
-            'app.ai.claude_backend_turns.check_review_status_for_stop',
+            'app.ai.claude_backend_review_gate.check_review_status_for_stop',
             return_value='Reviewer never ran.',
         ):
             assert s._turn_close_blocked() == 'review_gate_unsatisfied'
@@ -114,10 +114,38 @@ class TestCloseGuards:
         s = self._closable(_session())
         s._review_redrive_count = 99
         with patch(
-            'app.ai.claude_backend_turns.check_review_status_for_stop',
+            'app.ai.claude_backend_review_gate.check_review_status_for_stop',
             return_value='Reviewer never ran.',
         ):
             assert s._turn_close_blocked() is None
+
+    def test_a_failed_open_turn_stops_waiting_on_async_work(self):
+        """The ten-minute gap, pinned.
+
+        The result branch fails open on a COMPOSITE — pending async
+        subagents OR an unsatisfied review gate — and ships the
+        UNVERIFIED banner. This chain then went on blocking the close on
+        one half of that same composite, so a run that had failed open
+        at 08:45:35 holding a valid 530-char result did not reach a
+        terminal status until the 600s hard-idle backstop fired at
+        08:55:36. The caller had already given up.
+
+        Once the gate has failed open, nothing it stopped waiting for
+        may keep the turn alive.
+        """
+        s = self._closable(_session())
+        s._async_agents['toolu_1'] = 'agent-1'
+        assert s._turn_close_blocked() == 'async_work_running'
+        s._review_gate_failed_open = True
+        assert s._turn_close_blocked() is None
+
+    def test_a_failed_open_turn_still_waits_for_the_operator(self):
+        # Fail-open abandons the GATE's holds, not a human's. An
+        # AskUserQuestion can legitimately sit for hours.
+        s = self._closable(_session())
+        s._review_gate_failed_open = True
+        s._pending_questions['req'] = {'q': 'which sku?'}
+        assert s._turn_close_blocked() == 'ask_user_question_pending'
 
 
 class TestWatchdogTick:
@@ -134,11 +162,11 @@ class TestWatchdogTick:
         with (
             patch.object(s, '_emit_message', _emit),
             patch(
-                'app.ai.claude_backend_turns.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_turns.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_exec_review_status_for_stop',
                 return_value=None,
             ),
         ):

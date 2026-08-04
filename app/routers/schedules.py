@@ -267,6 +267,11 @@ async def create_schedule(
         timezone=data.timezone,
         phase_mode=phase_mode,
         finalize_description=data.finalize_description,
+        finalize_enabled_at=(
+            datetime.now(UTC).isoformat()
+            if (data.finalize_description or '').strip()
+            else None
+        ),
         plan_mode=effective_plan_mode,
         plan_status=PlanStatus.PLANNING.value,
         # Inherit the owner's default at fire time, not at creation:
@@ -421,6 +426,20 @@ async def update_schedule(
         schedule.plan_error = None
         # Keep old plan text so the UI can show a diff until the
         # user re-plans.
+
+    # Arm (or disarm) the finalize step. Only the empty ↔ non-empty
+    # TRANSITION moves the stamp: editing the prompt text of a schedule
+    # that already finalizes must not re-arm it, or every edit would
+    # strand whichever batch was in flight at the time. Turning the step
+    # off clears the stamp so turning it back on starts a fresh window
+    # rather than reviving every batch from the first era.
+    if 'finalize_description' in update_data:
+        was_on = bool((schedule.finalize_description or '').strip())
+        now_on = bool((update_data['finalize_description'] or '').strip())
+        if now_on and not was_on:
+            schedule.finalize_enabled_at = datetime.now(UTC).isoformat()
+        elif was_on and not now_on:
+            schedule.finalize_enabled_at = None
 
     for key, value in update_data.items():
         setattr(schedule, key, value)

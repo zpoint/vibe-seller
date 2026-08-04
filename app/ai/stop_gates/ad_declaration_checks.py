@@ -1,6 +1,6 @@
 """Does the report agree with what this phase declared it would do?
 
-Two checks, both cheap, both previously impossible because nothing
+Three checks, all cheap, all previously impossible because nothing
 recorded the task's intent.
 
 **The declaration is a precondition.** A report presenting marketplace
@@ -12,6 +12,15 @@ is the guess that turned a two-campaign task into a 51-campaign console.
 **The declaration binds the output.** A phase that declared one market
 and reported five has either under-declared or over-reached. Either way
 someone must look, and only the user may widen a scope.
+
+**A phase that said it would only read may not hand out decisions.**
+`investigate` owes no marketplace coverage and opens no console, so a
+report that declares it and then delivers a table of bid changes leaves
+the user holding recommendations with no way to approve them. Unlike the
+two above, this one does NOT depend on the report carrying
+per-marketplace sections — decisions are decisions however the markdown
+is arranged, and conditioning it on headings is what let a bid review
+declared `investigate` sail through CI untouched.
 
 Note what this module reuses: the ``## <platform> <CC>`` heading match
 that used to DECIDE whether a report was an audit. It still runs — but
@@ -67,9 +76,14 @@ def actionable_rows(parts: list[str]) -> int:
     Counted on rows rather than prose: a sentence noting that ROAS looks
     low is an observation, while a table row carrying 下调至 1.80 is a
     decision someone is expected to act on.
+
+    Scans EVERY part including the preamble. A decision is a decision
+    wherever it sits, and a report with no ``## <platform> <CC>``
+    sections at all is one single part — skipping ``parts[0]`` meant such
+    a report could carry nothing but decisions and count zero.
     """
     n = 0
-    for part in parts[1:]:
+    for part in parts:
         for line in part.splitlines():
             stripped = line.strip()
             if stripped.startswith('|') and _MOVE_RE.search(stripped):
@@ -79,15 +93,6 @@ def actionable_rows(parts: list[str]) -> int:
 
 def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
     """Gaps from comparing the report against its phase's declaration."""
-    reported = reported_combos(parts)
-    if not reported:
-        # No marketplace coverage claimed — an execution summary, a
-        # question answered. Nothing to compare, and demanding a
-        # declaration of it would deny work that never claimed to audit.
-        return []
-    if decl is None:
-        return [MISSING_DECLARATION_GAP]
-
     gaps: list[str] = []
 
     # A phase that said it was only READING must not come back with a
@@ -97,16 +102,46 @@ def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
     # coverage, get no console — and hand the user recommendations they
     # have no way to act on. If the work produced decisions, it was an
     # audit and the user is owed the console.
-    if decl['kind'] == KIND_INVESTIGATE:
+    #
+    # Checked BEFORE the marketplace-coverage question and independently
+    # of it. It used to sit behind "does this report carry
+    # ``## <platform> <CC>`` sections?", which has nothing to do with
+    # whether decisions were handed out — a report against a console on
+    # some other host, or one that simply wrote its findings without
+    # per-marketplace headings, escaped the check entirely. Observed in
+    # CI: `investigate` declared for a bid review, decisions delivered,
+    # no gate raised, no console for the user.
+    #
+    # This is not the forbidden "is this an audit?" heuristic wearing a
+    # new hat. That one INFERRED a declaration from prose and WIDENED
+    # what the phase owed. This one requires a declaration to already
+    # exist and only refuses a report that contradicts it — the auditor
+    # role, not the decider role.
+    if decl is not None and decl['kind'] == KIND_INVESTIGATE:
         n = actionable_rows(parts)
         if n:
             gaps.append(
                 f'[基线] 本次声明是 investigate（只读数据、不提改动），但报告里'
-                f'有 {n} 行给出了调价/暂停/否定这类可执行建议。要么把这些'
-                '建议去掉、只回答问题；要么这本来就是一次 audit——那样用户'
-                '才会拿到复核台去逐行确认。声明不能改，请在结果里说明，'
-                '由用户再发一条消息重新开始一轮 audit。'
+                f'有 {n} 行给出了调价/暂停/否定这类可执行建议。二选一：把这些'
+                '建议去掉、只回答问题；或者承认这本来就是一次 audit——那样'
+                '用户才会拿到复核台去逐行确认。选后者就再调用一次 '
+                '`vibe_seller_declare_ad_task`，kind 改成 "audit"，'
+                'scope 保持不变或更窄（市场只能不变或变少、活动只能不变或'
+                '变少）——这是本轮唯一允许的改 kind 动作，因为它只会让你'
+                '承担更多、不会让范围变宽。'
             )
+
+    reported = reported_combos(parts)
+    if not reported:
+        # No marketplace coverage claimed — an execution summary, a
+        # question answered. Nothing to compare, and demanding a
+        # declaration of it would deny work that never claimed to audit.
+        return gaps
+    if decl is None:
+        # ``gaps`` is necessarily empty here (the check above needs a
+        # declaration), but adding rather than replacing keeps that a
+        # property of the code instead of a fact a reader must re-derive.
+        return gaps + [MISSING_DECLARATION_GAP]
 
     outside = sorted({
         label

@@ -52,11 +52,7 @@ import json
 import logging
 import time
 
-from app.ai.claude_backend_utils import (
-    REVIEW_REDRIVE_MAX,
-    check_exec_review_status_for_stop,
-    check_review_status_for_stop,
-)
+from app.ai.claude_backend_review_gate import _ReviewGateMixin
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
@@ -66,7 +62,7 @@ logger = logging.getLogger(__name__)
 _POST_CLOSE_KILL_GRACE_S = 120.0
 
 
-class _TurnLifecycleMixin:
+class _TurnLifecycleMixin(_ReviewGateMixin):
     """Quiescence watchdog: when to end the CLI process."""
 
     def _init_turn_state(self):
@@ -85,6 +81,7 @@ class _TurnLifecycleMixin:
         or stdin write. ``_stdin_closed_at`` — when the watchdog closed
         stdin (arms the post-close kill escalation).
         """
+        self._init_review_gate_state()
         self._turn_result_seen: bool = False
         self._last_result_is_error: bool = False
         self._had_async_spawns: bool = False
@@ -101,9 +98,11 @@ class _TurnLifecycleMixin:
         """Reason the soft close must NOT happen yet; None = closable.
 
         Ordered cheapest-first. The gate composite mirrors the result
-        branch exactly (including the fail-open past the redrive
-        budget) so "accepted result" and "closable" can never disagree
-        about gate state.
+        branch exactly — same exhaustion predicate
+        (``_review_redrive_exhausted``), and the same standing-down once
+        that branch has failed open — so "accepted result" and
+        "closable" can never disagree about gate state. They did once,
+        and the disagreement cost ten minutes per run.
         """
         if self._pending_questions:
             return 'ask_user_question_pending'
@@ -111,19 +110,23 @@ class _TurnLifecycleMixin:
             return 'planning_phase'
         if not self._turn_result_seen:
             return 'no_accepted_result'
+        # The gate has already given up and shipped the banner. Every
+        # hold below is something that fail-open explicitly stopped
+        # waiting for — the gate itself, and the async subagents whose
+        # pending-reason is part of the same composite — so continuing
+        # to block on them keeps a finished, banner-marked deliverable
+        # non-terminal until the 600s hard-idle backstop. That gap is
+        # what killed a run holding a valid result (see the fail-open
+        # branch in claude_backend_stream).
+        if self._review_gate_failed_open:
+            return None
         if self._async_agents:
             return 'async_work_running'  # subagents and/or bg shells
-        if self._review_redrive_count < REVIEW_REDRIVE_MAX:
-            gate = check_review_status_for_stop(
-                self.task_dir,
-                subagent_ran=getattr(self, '_review_subagent_ran', False),
-                review_writers=getattr(self, '_review_file_writers', None),
-            ) or check_exec_review_status_for_stop(
-                self.task_dir,
-                review_writers=getattr(self, '_review_file_writers', None),
-            )
-            if gate:
-                return 'review_gate_unsatisfied'
+        if (
+            not self._review_redrive_exhausted()
+            and self._review_gate_deny_reason()
+        ):
+            return 'review_gate_unsatisfied'
         return None
 
     async def _maybe_close_idle_turn(self):

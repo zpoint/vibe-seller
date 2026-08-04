@@ -18,13 +18,14 @@ import aiohttp
 
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
+from app.browser.downloads import prepare_download_dir
 from app.browser.ziniao_utils import (
     ensure_ziniao_running,
     is_wsl,
     try_connect_ziniao,
     ziniao_host,
 )
-from app.config import DOWNLOADS_DIR, LOCALHOST
+from app.config import LOCALHOST
 
 logger = logging.getLogger(__name__)
 
@@ -267,8 +268,7 @@ class ZiniaoBackend(BrowserBackend):
         # CLI invocation saves files to the same place (instead of
         # each creating a random /tmp/browser-use-downloads-*/ dir).
         slug = browser_config.get('store_slug', 'default')
-        dl_dir = DOWNLOADS_DIR / slug
-        dl_dir.mkdir(parents=True, exist_ok=True)
+        dl_dir = prepare_download_dir(slug)
 
         # Start multi-client CDP proxy: listens on 127.0.0.1:proxy_port,
         # connects upstream (WebSocket) to target_host:cdp_port.

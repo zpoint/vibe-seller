@@ -179,7 +179,6 @@ class AgentSession(
         self._input_closed: bool = False
         # Circuit breaker: track recent tool call signatures
         self._recent_tool_calls: list[str] = []
-        self._review_redrive_count: int = 0  # review-gate re-drive bound
         # Review-authorship + async-subagent stream signals — see
         # claude_backend_subagents._init_subagent_state.
         self._init_subagent_state()

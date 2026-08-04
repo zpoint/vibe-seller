@@ -12,9 +12,23 @@ from unittest.mock import Mock, patch
 import pytest
 
 from app.ai.claude_backend import AgentSession
-from app.ai.claude_backend_stream import REVIEW_REDRIVE_MAX
+from app.ai.claude_backend_utils import REVIEW_REDRIVE_MAX
+from app.ai.review_redrive import RedriveClock
 
 pytestmark = pytest.mark.unit
+
+
+class _FakeClock:
+    """Hand-cranked monotonic source for the re-drive budget."""
+
+    def __init__(self):
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float):
+        self.t += seconds
 
 
 def _make_session(mode: str = 'execute') -> AgentSession:
@@ -352,11 +366,11 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value='Reviewer never ran. Spawn the DoD reviewer.',
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -391,11 +405,11 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value='still gaps',
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -408,12 +422,70 @@ class TestReviewGateRedrive:
         # Bound hit → the turn still ends (no wedge), but the result is
         # banner-marked UNVERIFIED so an unreviewed deliverable is never
         # mistaken for a reviewed one.
-        assert len(emitted) == 1
-        role, content = emitted[0]
-        assert role == 'result'
+        roles = [r for r, _ in emitted]
+        assert roles == ['agent_event', 'result']
+        # The fail-open is on the record. It was diagnosed once from a
+        # single log line; a transcript event is what makes the next
+        # post-mortem possible without server logs.
+        assert 'review_gate_failed_open' in emitted[0][1]
+        content = emitted[1][1]
         assert content.endswith('Final answer')
         assert 'Unverified result' in content
         assert session._turn_result_seen is True
+        # …and the turn is now TERMINAL. See
+        # test_failed_open_turn_stops_waiting_on_async_work.
+        assert session._review_gate_failed_open is True
+
+    async def test_the_clock_can_exhaust_the_budget_before_the_attempts(self):
+        """A gate may run out of TIME with attempts to spare.
+
+        The defect: five attempts at 100-150s/turn outlast any deadline
+        a caller holds a run open for, so the gate spent the whole clock
+        and the run was killed holding a finished result. One re-drive
+        has happened here — four attempts left — but the evidence says
+        the next turn cannot fit, so the gate fails open now, while
+        there is still time to land COMPLETED.
+        """
+        session = _make_session('auto')
+        session.task_dir = '/tmp/fake-task'
+        session._review_redrive_count = 1
+        clock = _FakeClock()
+        session._review_redrive_clock = RedriveClock(300, now=clock)
+        session._review_redrive_clock.note_redrive()
+        clock.advance(290)
+        emitted: list[tuple[str, str]] = []
+        sent: list[str] = []
+
+        async def _mock_emit(role, content):
+            emitted.append((role, content))
+
+        async def _mock_send(msg):
+            sent.append(msg)
+
+        with (
+            patch.object(session, '_emit_message', _mock_emit),
+            patch.object(session, 'send_user_message', _mock_send),
+            patch(
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
+                return_value='still gaps',
+            ),
+            patch(
+                'app.ai.claude_backend_review_gate'
+                '.check_exec_review_status_for_stop',
+                return_value=None,
+            ),
+        ):
+            await session._handle_event({
+                'type': 'result',
+                'result': 'Final answer',
+            })
+
+        assert session._review_redrive_count < REVIEW_REDRIVE_MAX, (
+            'attempts were NOT the binding constraint — that is the point'
+        )
+        assert sent == [], 'no further re-drive was issued'
+        assert session._review_gate_failed_open is True
+        assert 'Unverified result' in emitted[-1][1]
 
     async def test_satisfied_gate_ends_turn_normally(self):
         """Gate satisfied (helpers return None) → result finalizes."""
@@ -427,11 +499,11 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -467,11 +539,11 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _noop),
             patch.object(session, 'send_user_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value='Reviewer never ran — spawn the DoD reviewer.',
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -504,11 +576,11 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -670,11 +742,11 @@ class TestAsyncAgentTurnHold:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -702,11 +774,11 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),
@@ -735,11 +807,11 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_stream.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
                 return_value=None,
             ),
             patch(
-                'app.ai.claude_backend_stream'
+                'app.ai.claude_backend_review_gate'
                 '.check_exec_review_status_for_stop',
                 return_value=None,
             ),

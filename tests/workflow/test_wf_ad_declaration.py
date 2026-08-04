@@ -249,16 +249,130 @@ class TestNarrowingWithinATurn:
         )
         assert r.status_code == 409, r.text
 
-    async def test_changing_the_kind_is_refused(
+    async def test_shedding_an_obligation_by_changing_the_kind_is_refused(
+        self, admin_client, install_fake_agent
+    ):
+        # `investigate` owes no marketplace coverage and opens no
+        # console. Reaching it from `audit` mid-turn is how an agent
+        # would drop both, so it is the move that has to stay shut.
+        task_id = await _make_task(admin_client)
+        market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+        await _declare(admin_client, task_id, 'audit', market)
+        r = await _declare(admin_client, task_id, 'investigate', market)
+        assert r.status_code == 409, r.text
+
+    async def test_an_unrelated_kind_change_is_refused(
         self, admin_client, install_fake_agent
     ):
         task_id = await _make_task(admin_client)
         market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
-        await _declare(admin_client, task_id, 'investigate', market)
+        await _declare(admin_client, task_id, 'create', market)
         r = await _declare(
             admin_client, task_id, 'audit', dict(market, campaigns=['A1234567'])
         )
         assert r.status_code == 409, r.text
+
+
+class TestCorrectingAnUnderDeclaredPhase:
+    """The one kind change that is legal, and why it does not open a hole.
+
+    An agent that declared `investigate` ("just read me the numbers") and
+    then produced a table of bid changes has under-declared what it owes.
+    Before this, the ratchet refused every kind change, so its only way
+    to comply was to DELETE the recommendations — the opposite of what
+    the person asked for, and the state a CI run reached: a bid review
+    declared `investigate`, so the user got recommendations and no
+    console to approve them on.
+
+    `investigate` → `audit` is safe to allow precisely because it is not
+    an escape: it ADDS the coverage obligation and opens the console. The
+    reach checks are what stop it smuggling in a wider scope.
+    """
+
+    _MARKET = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
+
+    async def test_investigate_may_be_corrected_to_audit(
+        self, admin_client, install_fake_agent
+    ):
+        task_id = await _make_task(admin_client)
+        assert (
+            await _declare(admin_client, task_id, 'investigate', self._MARKET)
+        ).status_code == 200
+        r = await _declare(admin_client, task_id, 'audit', self._MARKET)
+        assert r.status_code == 200, r.text
+        assert r.json()['kind'] == 'audit'
+        assert r.json()['seq'] == 2
+
+        # Append-only holds — the correction is a new row, not a rewrite,
+        # so the record still shows what the phase originally claimed.
+        r = await admin_client.get(f'/api/tasks/{task_id}/ad-declarations')
+        assert [d['kind'] for d in r.json()] == ['investigate', 'audit']
+
+    async def test_the_correction_may_narrow_at_the_same_time(
+        self, admin_client, install_fake_agent
+    ):
+        task_id = await _make_task(admin_client)
+        await _declare(admin_client, task_id, 'investigate', self._MARKET)
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            dict(self._MARKET, campaigns=['A1234567']),
+        )
+        assert r.status_code == 200, r.text
+
+    async def test_an_unscoped_investigate_may_name_markets_as_it_upgrades(
+        self, admin_client, install_fake_agent
+    ):
+        # Without this, correcting a whole-store `investigate` would
+        # commit the phase to auditing every marketplace the store sells
+        # on — a bill big enough that the agent would rationally choose
+        # to delete its findings instead.
+        task_id = await _make_task(admin_client)
+        await _declare(admin_client, task_id, 'investigate', {})
+        r = await _declare(admin_client, task_id, 'audit', self._MARKET)
+        assert r.status_code == 200, r.text
+
+    async def test_the_correction_may_not_widen_the_markets(
+        self, admin_client, install_fake_agent
+    ):
+        task_id = await _make_task(admin_client)
+        await _declare(admin_client, task_id, 'investigate', self._MARKET)
+        r = await _declare(
+            admin_client,
+            task_id,
+            'audit',
+            {
+                'combos': [
+                    {'platform': 'amazon', 'country': 'SA'},
+                    {'platform': 'noon', 'country': 'AE'},
+                ]
+            },
+        )
+        assert r.status_code == 409, r.text
+
+    async def test_the_correction_may_not_become_whole_store(
+        self, admin_client, install_fake_agent
+    ):
+        # Dropping `combos` means EVERY marketplace — the widest value
+        # there is, not an unchanged one.
+        task_id = await _make_task(admin_client)
+        await _declare(admin_client, task_id, 'investigate', self._MARKET)
+        r = await _declare(admin_client, task_id, 'audit', {})
+        assert r.status_code == 409, r.text
+
+    async def test_the_refusal_teaches_the_correction(
+        self, admin_client, install_fake_agent
+    ):
+        # An agent that cannot learn the legal move from the refusal will
+        # satisfy the gate the other way — by deleting its findings.
+        task_id = await _make_task(admin_client)
+        await _declare(admin_client, task_id, 'create', self._MARKET)
+        r = await _declare(admin_client, task_id, 'audit', self._MARKET)
+        assert r.status_code == 409
+        detail = r.json()['detail']
+        assert 'investigate' in detail and 'audit' in detail
+        assert 'USER' in detail
 
 
 class TestTheGateSeesWhatWasAccepted:

@@ -24,7 +24,8 @@ from playwright.async_api import async_playwright
 
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
-from app.config import DOWNLOADS_DIR, LOCALHOST
+from app.browser.downloads import prepare_download_dir
+from app.config import LOCALHOST
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -215,9 +216,10 @@ class ChromeBackend(BrowserBackend):
         else:  # pragma: no cover  - loop always returns/raises above
             raise last_exc  # type: ignore[misc]
 
-        # Stable per-store download directory.
-        dl_dir = DOWNLOADS_DIR / store_slug
-        dl_dir.mkdir(parents=True, exist_ok=True)
+        # Stable per-store download directory, emptied of the previous
+        # session's files so "the newest match" and "the only match" are
+        # the same file. See app/browser/downloads.py.
+        dl_dir = prepare_download_dir(store_slug)
 
         # Start CDPMuxProxy: listens on proxy_port, connects
         # upstream to Chrome's debug_port.  Same as Ziniao flow.

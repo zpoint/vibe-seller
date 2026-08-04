@@ -39,7 +39,11 @@ import logging
 from pathlib import Path
 
 from app.config import VIBE_SELLER_DIR
-from app.models.ad_declaration import AD_TASK_KINDS, KIND_AUDIT
+from app.models.ad_declaration import (
+    AD_TASK_KINDS,
+    KIND_AUDIT,
+    KIND_INVESTIGATE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -131,8 +135,8 @@ def is_narrowing(prev: dict | None, new: dict | None) -> bool:
 
     Exists because the first version of the declaration rule could not be
     obeyed. An agent must declare BEFORE opening a browser, yet a request
-    that names a product ("the women's socks ads") can only be turned
-    into campaign ids BY browsing. So it had two bad options: declare
+    that names a product ("the widget-006 ads") can only be turned into
+    campaign ids BY browsing. So it had two bad options: declare
     late, or declare a scope with no campaigns — which means EVERY
     campaign in the market, and pulls the whole market's completeness
     obligation with it. Observed live: a request for one SKU family
@@ -161,6 +165,81 @@ def is_narrowing(prev: dict | None, new: dict | None) -> bool:
     if not prev_c:
         return True
     return new_c <= prev_c
+
+
+def _axis_within(prev_vals: set, new_vals: set) -> bool:
+    """Does one axis of a scope (combos, campaigns) reach no further?
+
+    The whole subtlety of comparing two scopes lives here, and it is
+    that ``set() <= anything`` is True while an EMPTY axis means
+    EVERYTHING. So an emptied axis is the widest value there is, not the
+    narrowest, and plain subset logic gets it exactly backwards.
+    """
+    if not prev_vals:
+        return True  # prev already reached everything; nothing is wider
+    return bool(new_vals) and new_vals <= prev_vals
+
+
+def reach_within(prev: dict | None, new: dict | None) -> bool:
+    """Does ``new`` reach no further than ``prev``?
+
+    Weaker than :func:`is_narrowing` on purpose: identical scopes pass.
+    ``is_narrowing`` answers "is this a genuine refinement?" — it is the
+    rule for re-declaring the SAME kind, where re-stating an unchanged
+    scope is a no-op worth refusing. This answers the different question
+    a kind CHANGE needs: "can this touch anything the previous
+    declaration did not?"
+
+    Empty means everything on both axes (see :func:`_axis_within`),
+    which is what makes the asymmetry matter: whole-store → one market
+    is inward, one market → whole-store is the widening move the design
+    exists to prevent.
+    """
+    if prev is None or new is None:
+        return False
+    prev_c = {str(c).strip() for c in (prev.get('campaigns') or [])}
+    new_c = {str(c).strip() for c in (new.get('campaigns') or [])}
+    combos_ok = _axis_within(_combo_keys(prev), _combo_keys(new))
+    return combos_ok and _axis_within(prev_c, new_c)
+
+
+# The ONE within-turn kind change that is allowed, and why it is safe.
+#
+# The ratchet used to refuse every kind change, on the reasoning that an
+# agent must not re-declare its way around a gate. True — but it left no
+# move at all for the opposite mistake. An agent that declared
+# `investigate` ("just read the numbers") and then produced a table of
+# bid changes has UNDER-declared what it owes: `investigate` owes no
+# marketplace coverage and opens no review console, so the user is handed
+# recommendations with no way to act on them. Its only legal option was
+# to delete the recommendations.
+#
+# So the rule is not "the kind may never change", it is **a
+# re-declaration may never reduce what the phase owes, and may never
+# widen its reach**. `investigate` → `audit` adds the coverage
+# obligation and opens the console; it is a tightening, and the reach
+# check below is what keeps it from smuggling in a wider scope.
+# `audit` → `investigate` is the escape and stays refused, as does
+# every other pair.
+KIND_UPGRADES = frozenset({(KIND_INVESTIGATE, KIND_AUDIT)})
+
+
+def supersedes(
+    prev_kind: str,
+    prev_scope: dict | None,
+    new_kind: str,
+    new_scope: dict | None,
+) -> bool:
+    """May this re-declaration replace ``prev`` WITHIN the same turn?
+
+    The whole within-turn ratchet, in one predicate — so the router
+    cannot express a rule the gates disagree with.
+    """
+    if new_kind == prev_kind:
+        return is_narrowing(prev_scope, new_scope)
+    if (prev_kind, new_kind) in KIND_UPGRADES:
+        return reach_within(prev_scope, new_scope)
+    return False
 
 
 def scope_summary(scope: dict | None) -> str:

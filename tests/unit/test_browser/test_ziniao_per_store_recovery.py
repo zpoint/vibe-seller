@@ -65,7 +65,7 @@ async def test_stale_launch_recovers_per_store_no_global_kill(cfg, tmp_path):
             new=mock.AsyncMock(side_effect=fake_reachable),
         ),
         mock.patch.object(zmod, 'CDPMuxProxy') as MockProxy,
-        mock.patch('app.browser.ziniao.DOWNLOADS_DIR', tmp_path),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
         # These MUST NOT be called — assert after.
         mock.patch('app.browser.ziniao_utils.force_kill_ziniao') as fk,
         mock.patch(
@@ -124,7 +124,7 @@ async def test_all_attempts_stale_fails_only_this_store(cfg, tmp_path):
             '_cdp_port_reachable',
             new=mock.AsyncMock(return_value=False),
         ),
-        mock.patch('app.browser.ziniao.DOWNLOADS_DIR', tmp_path),
+        mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
         mock.patch('app.browser.ziniao_utils.force_kill_ziniao') as fk,
         mock.patch(
             'app.browser.ziniao_utils.kill_and_relaunch_ziniao',
