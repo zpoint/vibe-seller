@@ -266,6 +266,105 @@ print(info)
 PY
 ```
 
+## Critical: One Account, Two Marketplaces — Never Reuse a Download
+
+A seller account can span several marketplaces (a MENA account serves both
+SA and AE). Seller Central then **ignores the URL subdomain and serves the
+session's last active marketplace**, and the reports come down under names
+that carry no marketplace at all:
+
+    2026JulMonthlyTransaction.csv     <- same name for SA and for AE
+    storage.csv                       <- same name for SA and for AE
+
+Both land in the one store downloads dir, so the second marketplace's
+download **silently overwrites the first**. And if that second download
+then fails, is slow, or is never actually triggered, `ls -lt` still
+returns a file under the expected name — the *first* marketplace's — and
+the agent copies one marketplace's money into both marketplaces' folders.
+
+This is not hypothetical. It reached production: a month's report set had
+one marketplace carrying a second copy of its sibling's revenue, because
+the same CSV was copied into both target directories.
+
+### Rule 1 — rename before switching marketplace
+
+Download → **immediately** move the file to its target directory under its
+final name → only then switch marketplace and download the next. Never
+download both marketplaces and sort it out afterwards.
+
+```bash
+DL=~/.vibe-seller/downloads/<slug>
+# marketplace 1: download, then move it out at once
+mv "$DL/2026JulMonthlyTransaction.csv" reports_07_<cc1>_<slug>/2026JulMonthlyTransaction.csv
+# only now switch the marketplace picker and download the second
+mv "$DL/2026JulMonthlyTransaction.csv" reports_07_<cc2>_<slug>/2026JulMonthlyTransaction.csv
+```
+
+`mv`, not `cp`: it leaves nothing behind in the downloads dir for the next
+step to pick up by mistake.
+
+### Rule 2 — identical bytes across two marketplaces is a HARD FAILURE
+
+Once both are in place, compare them. **Never reason your way past a
+match.**
+
+```bash
+md5 reports_07_<cc1>_<slug>/2026JulMonthlyTransaction.csv \
+    reports_07_<cc2>_<slug>/2026JulMonthlyTransaction.csv
+```
+
+Equal hashes mean one marketplace was never exported. Redo that
+marketplace: reopen the picker, confirm the header shows the intended
+marketplace, download again.
+
+> Transaction and storage reports are **per-marketplace**. They are NOT
+> account-level. A past run compared two storage files, found the same
+> MD5, concluded "the report is account-level, that's fine for downstream
+> use", and shipped one marketplace's numbers twice. If two marketplaces
+> produce byte-identical financial reports, the export did not happen —
+> report it and retry rather than explaining it away.
+
+### Rule 3 — verify the marketplace from the file itself (decisive)
+
+**Both files self-identify.** This is the strongest check available and the
+one that proves *which* marketplace a file holds. Run it on every file
+before it goes into a marketplace directory:
+
+| file | column | values |
+|---|---|---|
+| `storage.csv` | `country_code` | `SA`, `AE`, … |
+| monthly transaction CSV | `marketplace` | `amazon.sa`, `amazon.ae`, … (case varies between exports) |
+
+```bash
+# storage.csv
+awk -F'","' 'NR>1{print $5}' storage.csv | sort -u   # one value, the expected marketplace
+
+# transaction CSV — its header is the first row with >5 fields, so find it
+python3 - "$FILE" <<'PY'
+import csv, sys
+rows = list(csv.reader(open(sys.argv[1], encoding='utf-8-sig')))
+hi = next(i for i, r in enumerate(rows) if len(r) > 5)
+hdr = [h.strip().lower() for h in rows[hi]]
+mi = hdr.index('marketplace')
+print(sorted({r[mi].strip().lower() for r in rows[hi+1:] if len(r) > mi and r[mi].strip()}))
+PY
+```
+
+Anything other than the marketplace you intended means you are holding the
+other one's export — treat it exactly like Rule 2's hash match: redo the
+export, never rename the file and hope.
+
+Rules 1 and 2 still apply. This rule proves which marketplace a file is;
+Rules 1 and 2 catch the case where the second export never happened at all,
+which is what actually went wrong in production.
+
+### Rule 4 — report what is missing, never substitute
+
+If a marketplace's export cannot be produced, leave its directory empty and
+say so in the task result. An empty directory is recoverable. A directory
+holding another marketplace's numbers is silently wrong and reaches
+downstream consumers looking like real data.
+
 ## Report Types Overview
 
 ### A. Seller Central Reports (via hamburger menu → Reports)
