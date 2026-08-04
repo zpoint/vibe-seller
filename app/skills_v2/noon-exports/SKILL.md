@@ -48,8 +48,13 @@ filter in the toolbar. Each store shows a flag icon.
 >
 > ```bash
 > browser-use <<'PY'
-> print(js("return [].slice.call(document.querySelectorAll('input'))"
->          ".map(function(i){return i.value;}).filter(function(v){return v;});"))
+> # Read the two date inputs BY NAME. Collecting every input on the page
+> # returns unrelated controls too, and then it is guesswork which pair of
+> # values is the committed range — which is the same guessing this
+> # readback exists to remove.
+> print(js("return ['Start date','End date'].map(function(p){"
+>          "var i=document.querySelector('input[placeholder=\"'+p+'\"]');"
+>          "return p+'='+(i?i.value:'MISSING');});"))
 > # MUST show the 1st and the last day of the target month before you
 > # click Export. If it shows today's date or a 30-day window, the range
 > # never committed — set it again.

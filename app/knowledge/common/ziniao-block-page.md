@@ -27,13 +27,16 @@ The same extension id serves both, and they mean different things:
 | `…/stop.html` | URL blocked by policy | whitelist the destination in the Ziniao console |
 | `…/error.html?…&url=<target>` | the extension could not complete the navigation | **not the agent** — Ziniao-side or network |
 
-`error.html` carries the destination in its own query string, which is the
-fastest way to see what was actually being fetched:
+`error.html` carries the destination in its own `url=` parameter, which is
+the fastest way to see what was actually being fetched. Print that
+parameter alone — the full extension URL carries several others, and the
+one you want gets lost among them:
 
 ```bash
 curl -sf --noproxy '*' "http://127.0.0.1:<mux_port>/json/list" \
   | python3 -c "import sys,json,urllib.parse as u; \
-      [print(u.unquote(t['url'])) for t in json.load(sys.stdin) \
+      [print(u.parse_qs(u.urlparse(t['url']).query).get('url',['?'])[0]) \
+       for t in json.load(sys.stdin) \
        if 'error.html' in (t.get('url') or '')][:1]"
 ```
 
