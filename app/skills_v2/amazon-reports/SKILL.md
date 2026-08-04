@@ -303,60 +303,78 @@ mv "$DL/2026JulMonthlyTransaction.csv" reports_07_<cc2>_<slug>/2026JulMonthlyTra
 `mv`, not `cp`: it leaves nothing behind in the downloads dir for the next
 step to pick up by mistake.
 
-### Rule 2 — identical bytes across two marketplaces is a HARD FAILURE
+### Rules 2 and 3 — one check, run it on every file
 
-Once both are in place, compare them. **Never reason your way past a
-match.**
-
-```bash
-md5 reports_07_<cc1>_<slug>/2026JulMonthlyTransaction.csv \
-    reports_07_<cc2>_<slug>/2026JulMonthlyTransaction.csv
-```
-
-Equal hashes mean one marketplace was never exported. Redo that
-marketplace: reopen the picker, confirm the header shows the intended
-marketplace, download again.
-
-> Transaction and storage reports are **per-marketplace**. They are NOT
-> account-level. A past run compared two storage files, found the same
-> MD5, concluded "the report is account-level, that's fine for downstream
-> use", and shipped one marketplace's numbers twice. If two marketplaces
-> produce byte-identical financial reports, the export did not happen —
-> report it and retry rather than explaining it away.
-
-### Rule 3 — verify the marketplace from the file itself (decisive)
-
-**Both files self-identify.** This is the strongest check available and the
-one that proves *which* marketplace a file holds. Run it on every file
-before it goes into a marketplace directory:
-
-| file | column | values |
-|---|---|---|
-| `storage.csv` | `country_code` | `SA`, `AE`, … |
-| monthly transaction CSV | `marketplace` | `amazon.sa`, `amazon.ae`, … (case varies between exports) |
+Both remaining rules read the same two things off a file, so one command
+covers them. It takes the paths as arguments, finds the header row by shape
+(the first row with more than five fields — these exports carry preamble
+lines), then reads the marketplace column **by name**, and streams both the
+hash and the rows so a large export costs no memory:
 
 ```bash
-# storage.csv
-awk -F'","' 'NR>1{print $5}' storage.csv | sort -u   # one value, the expected marketplace
-
-# transaction CSV — its header is the first row with >5 fields, so find it
-python3 - "$FILE" <<'PY'
-import csv, sys
-rows = list(csv.reader(open(sys.argv[1], encoding='utf-8-sig')))
-hi = next(i for i, r in enumerate(rows) if len(r) > 5)
-hdr = [h.strip().lower() for h in rows[hi]]
-mi = hdr.index('marketplace')
-print(sorted({r[mi].strip().lower() for r in rows[hi+1:] if len(r) > mi and r[mi].strip()}))
+python3 - reports_07_<cc1>_<slug>/2026JulMonthlyTransaction.csv \
+          reports_07_<cc2>_<slug>/2026JulMonthlyTransaction.csv <<'PY'
+import csv, hashlib, sys
+for path in sys.argv[1:]:
+    digest = hashlib.md5()
+    with open(path, 'rb') as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b''):
+            digest.update(chunk)
+    with open(path, newline='', encoding='utf-8-sig') as fh:
+        rows = csv.reader(fh)
+        header = next(r for r in rows if len(r) > 5)
+        cols = [c.strip().lower() for c in header]
+        name = 'marketplace' if 'marketplace' in cols else 'country_code'
+        i = cols.index(name)
+        seen = {r[i].strip().lower() for r in rows if len(r) > i and r[i].strip()}
+    print(f'{path}\n  md5={digest.hexdigest()}\n  {name}={sorted(seen)}')
 PY
 ```
 
-Anything other than the marketplace you intended means you are holding the
-other one's export — treat it exactly like Rule 2's hash match: redo the
-export, never rename the file and hope.
+`hashlib` rather than a shell tool on purpose: `md5sum` is coreutils, `md5`
+is macOS/BSD, and these skills run on both.
 
-Rules 1 and 2 still apply. This rule proves which marketplace a file is;
-Rules 1 and 2 catch the case where the second export never happened at all,
-which is what actually went wrong in production.
+### Rule 3 — the file names its own marketplace, so assert it
+
+This is the **decisive** check and the one to run on every file, because it
+proves *which* marketplace a file holds:
+
+| file | column | per-marketplace? |
+|---|---|---|
+| monthly transaction CSV | `marketplace` | **yes** — exactly one value, always |
+| `storage.csv` | `country_code` | **not necessarily** — see Rule 2 |
+
+The failure is a file whose values **do not include the marketplace you are
+writing it into**. That means you are holding the other one's export: redo
+it, never rename the file and hope.
+
+### Rule 2 — for the transaction CSV, identical hashes are a HARD FAILURE
+
+The transaction export is strictly per-marketplace, so two marketplaces can
+never legitimately produce the same bytes. Equal digests mean one export
+never happened and you are looking at one file twice. Redo that
+marketplace — reopen the picker, confirm the header shows the intended
+marketplace, download again.
+
+**`storage.csv` is the exception, and it is a real one.** On a seller
+account spanning several marketplaces this export can be account-level:
+observed in the wild as a single file, byte-identical in both marketplace
+folders, whose `country_code` column contains **both** codes. That is
+legitimate — consumers filter it by `country_code` — so do not treat a hash
+match on `storage.csv` as a failure by itself. Judge it by Rule 3: both
+codes present is fine; only the wrong code present is not.
+
+> What is never acceptable is skipping the check. A past run compared two
+> storage files, found the same MD5, concluded "the report is account-level,
+> that's fine for downstream use", and shipped **transaction** data twice on
+> the strength of that reasoning. Account-level exports do exist — that
+> intuition was not the error. Applying it to a per-marketplace file, and
+> using it as a reason not to verify, was.
+
+Rules 2 and 3 answer different questions and you want both: Rule 3 proves
+which marketplace a file is, Rule 2 catches the case where a second
+transaction export never happened at all — which is what actually reached
+production.
 
 ### Rule 4 — report what is missing, never substitute
 
