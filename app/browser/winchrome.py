@@ -42,6 +42,7 @@ import aiohttp
 
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
+from app.browser.downloads import archive_previous
 from app.config import DOWNLOADS_DIR, LOCALHOST
 
 logger = logging.getLogger(__name__)
@@ -278,8 +279,7 @@ class WinChromeBackend(BrowserBackend):
         # the agent reads via the standard ~/.vibe-seller/downloads/<slug>
         # path, symlinked to the Windows-backed dir.
         dl_win = rf'{_DOWNLOADS_BASE_WIN}\{store_slug}'
-        dl_wsl = pathlib.Path(_win_to_wsl(dl_win))
-        dl_wsl.mkdir(parents=True, exist_ok=True)
+        dl_wsl = archive_previous(pathlib.Path(_win_to_wsl(dl_win)))
         _ensure_download_link(DOWNLOADS_DIR / store_slug, dl_wsl)
 
         # Wrap with CDPMuxProxy so multiple tasks share one Chrome. The mux

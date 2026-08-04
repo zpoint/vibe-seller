@@ -86,7 +86,7 @@ class TestInstrumentationGate:
                 new=mock.AsyncMock(),
             ),
             mock.patch.object(zmod, 'CDPMuxProxy') as MockProxy,
-            mock.patch('app.browser.ziniao.DOWNLOADS_DIR', tmp_path),
+            mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
             mock.patch('app.browser.ziniao_utils.force_kill_ziniao') as fk,
             mock.patch(
                 'app.browser.ziniao_utils.kill_and_relaunch_ziniao',
@@ -129,7 +129,7 @@ class TestInstrumentationGate:
                 '_instrumentation_live',
                 new=mock.AsyncMock(return_value=False),
             ),
-            mock.patch('app.browser.ziniao.DOWNLOADS_DIR', tmp_path),
+            mock.patch('app.browser.downloads.DOWNLOADS_DIR', tmp_path),
         ):
             with pytest.raises(RuntimeError, match='instrumentation'):
                 await ZiniaoBackend().start(cfg)
