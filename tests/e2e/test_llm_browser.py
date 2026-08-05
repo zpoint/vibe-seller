@@ -341,6 +341,27 @@ class TestLLMWebBrowserNoStore:
         assert result['status'] in ('completed', 'waiting'), (
             f'Task failed: {result.get("error")}'
         )
+        # WAITING is accepted by the polls above only so this returns
+        # promptly instead of burning the full timeout — it is NOT done.
+        # A parked task never executed, so every caller's content
+        # assertion is guaranteed to fail, and it fails by reporting the
+        # agent's planning preamble rather than the reason. Say the
+        # reason here instead. (Observed: the agent stalled waiting on an
+        # Explore subagent, then asked for direction.)
+        if result['status'] == 'waiting':
+            msgs = get_messages(api_client, data['id'])
+            last = next(
+                (
+                    m['content']
+                    for m in reversed(msgs)
+                    if m['role'] in ('assistant', 'result')
+                ),
+                '',
+            )
+            raise AssertionError(
+                'Agent parked in WAITING without executing the plan, so '
+                'nothing was extracted. It last said: ' + last[:300]
+            )
         return data
 
     def test_web_browser_reads_homepage(self, api_client, test_site):
@@ -349,7 +370,8 @@ class TestLLMWebBrowserNoStore:
             api_client,
             f'Use the browser-use CLI (your general web browser) to '
             f'navigate to {test_site}. Read the page and report the '
-            f'company name. Include the company name in your result.',
+            f'company name. Include the company name in your result. '
+            f'Do not ask questions — just do it and report.',
         )
         msgs = get_messages(api_client, data['id'])
         all_text = ' '.join(
@@ -367,7 +389,8 @@ class TestLLMWebBrowserNoStore:
             f'Use the browser-use CLI (your general web browser) to '
             f'navigate to {test_site} and find the contact page. '
             f'Extract the contact details (email, phone, address) '
-            f'and report them.',
+            f'and report them. Do not ask questions — just do it '
+            f'and report.',
         )
         msgs = get_messages(api_client, data['id'])
         all_text = ' '.join(
