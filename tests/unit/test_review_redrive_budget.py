@@ -293,3 +293,40 @@ class TestASessionPicksUpTheTurnsBudget:
         first._note_review_gate_failed_open()
         assert first._review_gate_failed_open
         assert not self._session()._review_gate_failed_open
+
+
+class TestTheLedgerIsBounded:
+    """``_ledgers`` must not grow one entry per task, forever.
+
+    Review catch on #140: the first version reset only at turn ENTRY,
+    which cannot bound the dict — a task that runs one turn and never
+    runs again leaves its entry behind for the life of the process, and
+    ``_init_review_gate_state`` allocates one for EVERY session whether
+    or not a gate ever bites. The terminal points drop it too, which is
+    what ``stop_gates.reset_attempts`` has always done and what this was
+    supposed to be modelled on.
+    """
+
+    def setup_method(self):
+        reset_ledger('task-bounded')
+
+    teardown_method = setup_method
+
+    def test_a_turn_that_never_redrives_still_gets_collected(self):
+        # Allocation is unconditional: a session asks for its budget
+        # before it knows whether a gate will bite.
+        ledger_for('task-bounded', 300.0)
+        assert 'task-bounded' in _ledgers
+
+        # Whatever ends the task — result persisted or task deleted —
+        # must take the entry with it.
+        reset_ledger('task-bounded')
+        assert 'task-bounded' not in _ledgers
+
+    def test_terminal_cleanup_is_idempotent(self):
+        # A task can reach both terminal points (result then delete), or
+        # neither (server restart). Both must be free.
+        ledger_for('task-bounded', 300.0)
+        reset_ledger('task-bounded')
+        reset_ledger('task-bounded')
+        assert 'task-bounded' not in _ledgers

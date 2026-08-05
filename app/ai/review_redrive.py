@@ -184,8 +184,13 @@ def reset_ledger(task_id: str) -> None:
     post-circuit-breaker respawn does NOT re-enter one, which is why
     they keep the spend.
 
-    Also keeps the dict bounded: without a reset per turn it would grow
-    one entry per task for the life of the process.
+    Called at BOTH ends, which is what keeps ``_ledgers`` bounded:
+    turn entry alone does not, because a task that runs one turn and
+    never runs again leaves its entry behind for the life of the
+    process. So the terminal points drop it too — the same two places
+    ``stop_gates.reset_attempts`` is called from (result persisted, task
+    deleted). Idempotent, so a task that reaches neither (or reaches
+    both) costs nothing.
     """
     _ledgers.pop(task_id, None)
 

@@ -11,6 +11,7 @@ from app import telemetry
 from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
+from app.ai.review_redrive import reset_ledger
 from app.ai.stop_gates import (
     CONTRADICTION_MAX_DENIALS,
     clear_skill_bindings,
@@ -242,9 +243,11 @@ async def delete_task(
         await delete_task_record(db, task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    # Drop the gate-attempt counters and the durable skill→gate
-    # binding file with the task (bounded server state).
+    # Drop the gate-attempt counters, the review gate's re-drive
+    # ledger, and the durable skill→gate binding file with the task
+    # (bounded server state).
     reset_attempts(task_id)
+    reset_ledger(task_id)
     clear_skill_bindings(task_id)
     return {'ok': True}
 
@@ -694,10 +697,12 @@ async def set_task_result(
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
 
-    # Result persisted — drop the per-task gate-attempt counters and
-    # any gate-owned progress state so a long-running server doesn't
-    # accumulate stale entries (and a later retry starts fresh).
+    # Result persisted — drop the per-task gate-attempt counters, the
+    # review gate's re-drive ledger, and any gate-owned progress state
+    # so a long-running server doesn't accumulate stale entries (and a
+    # later retry starts fresh).
     reset_attempts(task_id)
+    reset_ledger(task_id)
     for _name, gate in skill_gates:
         reset = getattr(gate, 'reset_progress', None)
         if reset is not None:
