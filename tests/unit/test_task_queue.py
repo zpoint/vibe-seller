@@ -315,6 +315,27 @@ class TestRecovery:
 
         assert 'task-1' in scheduler._queues.get('store-1', [])
 
+    @pytest.mark.parametrize('status', [TaskStatus.PENDING, TaskStatus.QUEUED])
+    async def test_no_store_task_re_enqueued(
+        self, db_session, store_and_task, status
+    ):
+        """A store-less task must also survive a restart.
+
+        Recovery gated the re-queue on ``task.store_id``, so a no-store
+        PENDING task had no recovery path — the third place (with
+        create's ``defer_start`` and ``/start``) where "no store"
+        silently meant "never runs". ``None`` is a valid queue lane and
+        ``_dispatch`` already handles a store-less task, which is why the
+        PLANNED recovery right below it enqueues unconditionally.
+        """
+        await store_and_task(status=status, store_id=None)
+        scheduler = TaskQueueScheduler()
+
+        with patch('app.scheduler.task_queue.async_session', db_session):
+            await scheduler._recover_from_db()
+
+        assert 'task-1' in scheduler._queues.get(None, [])
+
     async def test_planned_scheduled_re_enqueued(
         self, db_session, store_and_task
     ):

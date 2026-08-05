@@ -1,5 +1,3 @@
-import asyncio
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 import json
 import logging
@@ -45,6 +43,7 @@ from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
 from app.schemas.user import TaskModeToggle
 from app.task_delete import delete_task as delete_task_record
+from app.task_launch import schedule_or_run
 from app.task_outcome import apply_outcome, resolve_outcome
 from app.task_runner import (
     TaskHeader,
@@ -54,7 +53,6 @@ from app.task_runner import (
     get_store_emails,
     reopen_parent_if_child_active,
 )
-from app.task_runner_auto import auto_run_task
 from app.task_runner_exec import execute_planned_task
 from app.task_states import (
     DESIGNABLE,
@@ -215,33 +213,6 @@ async def create_task(
     return task
 
 
-async def schedule_or_run(
-    task_id: str,
-    store: Store | None,
-    launcher: Callable | None = None,
-):
-    """Route store tasks through the queue scheduler.
-
-    No-store tasks launch immediately (no browser conflict
-    possible).  Store tasks go through the queue so the
-    same-platform/different-country QUEUE rule is enforced.
-
-    Falls back to direct launch if the scheduler hasn't
-    started (e.g. in tests without full app lifespan).
-
-    *launcher* defaults to ``auto_run_task``; pass
-    ``execute_planned_task`` for tasks that already have
-    a plan.  Note: when routing through the queue the
-    launcher is ignored — _dispatch() picks the right
-    handler from task state.
-    """
-    fn = launcher or auto_run_task
-    if store and task_queue_scheduler.is_running:
-        await task_queue_scheduler.submit(task_id, store.id)
-    else:
-        asyncio.create_task(fn(task_id, store))
-
-
 @router.get('/{task_id}', response_model=TaskResponse)
 async def get_task(
     task_id: str,
@@ -284,6 +255,22 @@ async def start_task(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
+    """Launch a task that isn't running yet.
+
+    Two callers, one meaning — "launch this task": the manual Run
+    button, and the resume half of the deferred create flow
+    (``defer_start``: the client uploads attachments into the workspace
+    first, then POSTs here so the agent's prompt sees them).  It must
+    therefore accept every task shape ``create_task`` accepts.
+
+    Routing is delegated to ``schedule_or_run``.  This endpoint used to
+    re-derive it inline — queue-submit, and 400 unless the task had a
+    store — which predated ``defer_start``, back when /start meant only
+    "start a browser task".  Once create started deferring, that guard
+    became a dead end: a no-store task with an attachment was never
+    launched by create, was refused by /start, and sat at PENDING with
+    no error for the user to see.
+    """
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
@@ -293,23 +280,20 @@ async def start_task(
             detail=f'Cannot start task in status {task.status}',
         )
 
-    if not task.store_id:
-        raise HTTPException(
-            status_code=400,
-            detail='Cannot start browser task without a store. Assign a store first.',
-        )
+    store = None
+    if task.store_id:
+        store = await db.get(Store, task.store_id)
+        if not store:
+            raise HTTPException(status_code=404, detail='Store not found')
 
-    store = await db.get(Store, task.store_id)
-    if not store:
-        raise HTTPException(status_code=404, detail='Store not found')
-
-    # Submit to task queue scheduler (handles browser sessions + concurrency)
-    await task_queue_scheduler.submit(task_id, store.id)
+    queued = await schedule_or_run(task_id, store)
 
     return {
         'ok': True,
         'task_id': task_id,
-        'status': TaskStatus.QUEUED,
+        # Only the queue parks the task at QUEUED; a direct launch
+        # leaves it where it was until the launcher moves it.
+        'status': TaskStatus.QUEUED if queued else task.status,
     }
 
 

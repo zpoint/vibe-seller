@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import vision
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.auth import get_current_user
 from app.browser.manager import browser_manager
@@ -28,9 +27,10 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.plan_states import PlanStatus
 from app.routers.dida365_oauth import refresh_token_if_needed
-from app.routers.tasks import schedule_or_run
 from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
+from app.task_chat_context import build_chat_context
+from app.task_launch import schedule_or_run
 from app.task_outcome import clear_run_state
 from app.task_runner import (
     TaskHeader,
@@ -331,86 +331,13 @@ async def send_task_message(
         )
     )
 
-    # When resuming, skip conversation reconstruction — the CLI
-    # session already has all prior context. Only inject mode
-    # switch instructions and the plan feedback instruction.
-    conversation_context = ''
-    if has_resumable_session:
-        if is_plan_feedback:
-            conversation_context = (
-                '\n\nIMPORTANT: Your final output MUST be the '
-                'COMPLETE revised plan — not just the changes '
-                'or a summary. Include all original sections '
-                '(updated as needed) so the plan can fully '
-                'replace the previous version. '
-                'If the user asks questions, use '
-                'AskUserQuestion to ask them interactively, '
-                'then revise the plan after receiving answers.'
-            )
-    else:
-        # No resumable session — build full context from DB
-        result = await db.execute(
-            select(TaskMessage)
-            .where(TaskMessage.task_id == task_id)
-            .order_by(TaskMessage.seq)
-        )
-        messages = result.scalars().all()
-
-        # Always dump history file so the agent can read
-        # prior conversation on demand (even when a plan
-        # is shown inline).
-        prior_msgs = [
-            m
-            for m in messages
-            if m.role in ('user', 'assistant') and m.id != user_message.id
-        ]
-        history_file = None
-        if prior_msgs:
-            history_dicts = [
-                {
-                    'role': m.role,
-                    'content': m.content,
-                    'seq': m.seq,
-                }
-                for m in prior_msgs
-            ]
-            history_file = dump_history_file(task_id, history_dicts)
-
-        if is_plan_feedback and task.plan:
-            conversation_context = (
-                '\n\n## Current Plan (draft, not yet confirmed)\n'
-                'The following plan was designed in a previous '
-                'session. The user is providing feedback to '
-                'revise or extend it.\n\n'
-                'IMPORTANT: Your final output MUST be the '
-                'COMPLETE revised plan — not just the changes '
-                'or a summary. Include all original sections '
-                '(updated as needed) so the plan can fully '
-                'replace the previous version. '
-                'If the user asks questions, use '
-                'AskUserQuestion to ask them interactively, '
-                'then revise the plan after receiving '
-                'answers.\n\n' + task.plan
-            )
-        elif task.plan:
-            conversation_context = '\n\n## Task Plan\n' + task.plan
-        else:
-            if prior_msgs and history_file:
-                conversation_context = (
-                    '\n\n## Prior Conversation\n'
-                    + build_history_prompt(history_dicts, history_file)
-                )
-
-        # Add history file reference to system prompt when
-        # a plan was shown inline (agent can read full
-        # conversation from the file if needed).
-        if history_file and task.plan:
-            conversation_context += (
-                f'\n\nNote: Full conversation history '
-                f'({len(prior_msgs)} messages) is saved '
-                f'at {history_file}. Read it if you need '
-                f'context from prior discussion.'
-            )
+    conversation_context = await build_chat_context(
+        task,
+        db,
+        exclude_message_id=user_message.id,
+        is_plan_feedback=is_plan_feedback,
+        has_resumable_session=has_resumable_session,
+    )
 
     # Build full system prompt with all context
     store = await db.get(Store, task.store_id) if task.store_id else None

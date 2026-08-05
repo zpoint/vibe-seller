@@ -21,7 +21,7 @@ import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { parseNav, settingsTabToSlug } from './lib/route'
 import { loadTaskById as loadTaskByIdHandler } from './handlers/loadTaskById'
-import { api, AUTH_EXPIRED_EVENT } from './api'
+import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
 import { replanSchedule as replanScheduleHandler } from './handlers/replanSchedule'
 import { selectSchedule as selectScheduleHandler } from './handlers/selectSchedule'
@@ -576,12 +576,12 @@ export default function App() {
         planMode: selectedStore ? (currentUser?.plan_mode_default ?? false) : true,
         setTasks,
         setSelectedTask,
-        uploadAttachment: async (taskId, pf) => {
-          const form = new FormData()
-          form.append('file', pf.file)
-          await fetch(`/api/attachments/${taskId}`, { method: 'POST', body: form, credentials: 'include' })
-        },
+        uploadAttachment: (taskId, pf) => uploadTaskAttachment(taskId, pf.file),
         startTask: async (taskId) => { await api.post(`/api/tasks/${taskId}/start`, {}) },
+        // A deferred task that never launches stays PENDING with no
+        // error and emits no SSE — this alert is the only thing that
+        // tells the user their task is not going to run.
+        onStartError: (err) => alert(`${t('tasks.startFailed')}\n\n${err instanceof Error ? err.message : String(err)}`),
         onCreated: () => {
           setSteps([]); setScreenshots({}); setLogs([]); setConversationItems([]); setAgentMessages([]); setTodoItems([]); setPendingQuestions(null); setSelectedAnswers({}); setOtherInputs({}); setShowOtherInput({}); setChatInput(''); setChatAttachments([])
         },

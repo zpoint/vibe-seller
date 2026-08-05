@@ -200,7 +200,8 @@
     "wakeMessagePlaceholder": "Send a message to resume...",
     "followupPlaceholder": "Send a follow-up message...",
     "attachImage": "Attach image/file",
-    "attachedImage": "Image"
+    "attachedImage": "Image",
+    "startFailed": "Task created, but it could not be started. Its attachments may not have uploaded — open the task and retry."
   },
   "events": {
     "title": "Events",

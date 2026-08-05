@@ -43,6 +43,14 @@ export interface SubmitCreateTaskDeps {
   uploadAttachment?: (taskId: string, pf: PendingFile) => Promise<void>
   /** Launch a deferred task after its attachments are uploaded. */
   startTask?: (taskId: string) => Promise<void>
+  /**
+   * Called when the upload→launch chain fails. REQUIRED destination for
+   * that failure: a deferred task that never launches stays PENDING with
+   * no error column and emits no SSE, so there is nothing for the user to
+   * notice. This callback is the only thing standing between them and a
+   * task that silently never runs.
+   */
+  onStartError?: (err: unknown) => void
 }
 
 export interface SubmitCreateTaskInput {
@@ -89,7 +97,15 @@ export async function submitCreateTask(
         for (const pf of input.files) await deps.uploadAttachment(task.id, pf)
       }
       await deps.startTask?.(task.id)
-    })().catch(() => { /* SSE / status will reflect any failure */ })
+    })().catch(err => {
+      // Do NOT swallow. This used to `catch(() => {})` on the theory
+      // that "SSE / status will reflect any failure" — it cannot: the
+      // task never moved off PENDING, so no task_update is emitted and
+      // no `error` is stored. A no-store task created with an image hit
+      // exactly this and sat at PENDING indefinitely with the 400 from
+      // /start discarded here.
+      deps.onStartError?.(err)
+    })
   }
 
   // Race-guard refetch — see header comment.

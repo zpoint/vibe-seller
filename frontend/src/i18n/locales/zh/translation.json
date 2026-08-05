@@ -202,7 +202,8 @@
     "wakeMessagePlaceholder": "发送消息以恢复任务...",
     "followupPlaceholder": "发送后续消息...",
     "attachImage": "上传图片/文件",
-    "attachedImage": "图片"
+    "attachedImage": "图片",
+    "startFailed": "任务已创建，但未能启动。附件可能未上传成功——请打开任务后重试。"
   },
   "events": {
     "title": "事件",

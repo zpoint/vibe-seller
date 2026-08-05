@@ -46,3 +46,19 @@ export const api = {
   del: async (url: string) =>
     handleResponse(await fetch(url, { method: 'DELETE', credentials: 'include' })),
 }
+
+/**
+ * Upload one attachment into a task's workspace.
+ *
+ * Multipart, so it can't go through `api.post` (which sets a JSON
+ * content-type). It still has to REJECT on a non-2xx: a raw `fetch`
+ * resolves on 4xx/5xx, and an unchecked upload let the deferred launch
+ * proceed with the file missing from the workspace — the agent then asks
+ * for an image the user already attached.
+ */
+export const uploadTaskAttachment = async (taskId: string, file: File) => {
+  const form = new FormData()
+  form.append('file', file)
+  const r = await fetch(`/api/attachments/${taskId}`, { method: 'POST', body: form, credentials: 'include' })
+  if (!r.ok) throw new Error(`upload failed (${r.status})`)
+}

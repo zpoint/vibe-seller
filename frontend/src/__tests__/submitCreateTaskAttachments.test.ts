@@ -21,6 +21,7 @@ function deps(over: Record<string, unknown> = {}) {
       setTasks: vi.fn(), setSelectedTask: vi.fn(), onCreated: vi.fn(),
       uploadAttachment: vi.fn(async () => {}),
       startTask: vi.fn(async () => {}),
+      onStartError: vi.fn(),
       ...over,
     },
   }
@@ -58,6 +59,41 @@ describe('submitCreateTask with attachments', () => {
     await flush()
     expect(post).toHaveBeenCalledWith('/api/tasks', expect.objectContaining({ defer_start: false }))
     expect(d.uploadAttachment).not.toHaveBeenCalled()
+    expect(d.startTask).not.toHaveBeenCalled()
+  })
+
+  // The background upload→launch chain is the ONLY thing that moves a
+  // deferred task off PENDING. It used to `catch(() => {})` on the theory
+  // that "SSE / status will reflect any failure" — which cannot happen for
+  // a task that never launched: no status change, no task_update, no
+  // `error` column. A no-store task with an image hit exactly this (the
+  // /start 400) and sat at PENDING with the user shown nothing at all.
+  it('reports a failed start instead of swallowing it', async () => {
+    const boom = new Error('Cannot start browser task without a store.')
+    const { d } = deps({
+      startTask: vi.fn(async () => { throw boom }),
+      onStartError: vi.fn(),
+    })
+    await submitCreateTask({ title: 't', description: '', files: [file('a.png')] },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      d as any)
+    await flush(); await flush()
+    expect(d.onStartError).toHaveBeenCalledWith(boom)
+  })
+
+  it('reports a failed upload and never launches a task missing its files', async () => {
+    const boom = new Error('upload failed (500)')
+    const { d } = deps({
+      uploadAttachment: vi.fn(async () => { throw boom }),
+      onStartError: vi.fn(),
+    })
+    await submitCreateTask({ title: 't', description: '', files: [file('a.png')] },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      d as any)
+    await flush(); await flush()
+    expect(d.onStartError).toHaveBeenCalledWith(boom)
+    // Launching now would reproduce the original "where is the image?"
+    // bug: the agent starts with the file missing from its workspace.
     expect(d.startTask).not.toHaveBeenCalled()
   })
 })

@@ -140,19 +140,27 @@ class TestStopGate:
 
 
 class TestStartGate:
-    """POST /start accepts STARTABLE (store required), rejects rest."""
+    """POST /start accepts STARTABLE, rejects rest — store or not.
+
+    /start used to add a second gate rejecting any task without a store.
+    That predated ``defer_start``, which made /start the resume half of
+    create for ANY task carrying an attachment — so the extra gate
+    stranded no-store tasks at PENDING. Status is now the only gate;
+    launch routing belongs to ``schedule_or_run``.
+    """
 
     @pytest.mark.parametrize('status', list(TaskStatus))
     async def test_start_gate_without_store(
         self, admin_client, override_async_session, status
     ):
-        """No store_id — /start always rejects with 400 (require store)."""
+        """No store_id — STARTABLE launches, everything else 400s."""
         task_id = await _seed_task(override_async_session, status=status)
         r = await admin_client.post(f'/api/tasks/{task_id}/start')
         if status in STARTABLE:
-            # Gate passes but then rejects on missing store.
-            assert r.status_code == 400
-            assert 'store' in r.json().get('detail', '').lower()
+            assert r.status_code == 200, (
+                f'STARTABLE no-store task must launch; '
+                f'got {r.status_code}: {r.text[:200]}'
+            )
         else:
             assert r.status_code == 400
 
