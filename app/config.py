@@ -86,6 +86,11 @@ def _resolve_jwt_secret() -> str:
 
 JWT_SECRET = _resolve_jwt_secret()
 AI_BOT_USER_ID = '00000000-0000-0000-0000-000000000002'
+# ``User.role`` of the seeded bot account. It cannot log in and no
+# Settings page can edit it, so any preference read off this user is a
+# placeholder, never a choice someone made — see
+# ``resolve_schedule_profile``.
+AI_BOT_ROLE = 'ai_bot'
 
 DEFAULT_USER_ID = '00000000-0000-0000-0000-000000000001'
 
