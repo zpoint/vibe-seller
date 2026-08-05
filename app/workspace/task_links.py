@@ -108,13 +108,10 @@ def remove_task_workspace(
         return
     keep = set(preserve)
     for child in task_dir.iterdir():
-        if child.name in keep:
-            continue
-        if (
-            child.is_dir()
-            and not child.is_symlink()
-            and not _is_junction(child)
-        ):
-            shutil.rmtree(child)
-        else:
-            child.unlink()
+        if child.name not in keep:
+            # Same four cases the shared links need — symlink, Windows
+            # junction, real dir, plain file — so reuse that helper
+            # rather than re-deciding. Hand-rolling it here got the
+            # junction wrong: a reparse point is a *directory*, so
+            # ``unlink()`` raises IsADirectoryError and the retry fails.
+            _clear_workspace_link(child)

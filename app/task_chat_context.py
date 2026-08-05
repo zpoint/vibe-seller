@@ -11,16 +11,12 @@ Extracted from ``app.routers.tasks_conversation`` so the message handler
 reads as routing rather than prompt-assembly.
 """
 
-import logging
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-
-logger = logging.getLogger(__name__)
 
 _REVISED_PLAN_INSTRUCTION = (
     'IMPORTANT: Your final output MUST be the '
