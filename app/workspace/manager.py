@@ -26,6 +26,15 @@ from app.workspace.templates import WORKSPACE_CLAUDE_MD
 
 logger = logging.getLogger(__name__)
 
+# Kept when a retry wipes a task workspace (``clean=True``). ``uploads/``
+# holds files the USER supplied — create-time attachments and chat
+# uploads — not run output. They are referenced by ``task_attachments``
+# rows that a retry does not delete, and ``uploaded_files_note()`` reads
+# them off disk to build every run's prompt. Wiping them turned a retry
+# of an image task back into the "where is the image?" bug that putting
+# attachments in the workspace was meant to fix.
+PRESERVED_ON_CLEAN = ('uploads',)
+
 
 class WorkspaceManager(SkillsMixin):
     """File operations + git auto-commit for ~/.vibe-seller/."""
@@ -560,11 +569,16 @@ browser: {backend}
         no-store (orchestrator) tasks — they now have the store-less
         ``web`` browser for neutral public web work, so they need the
         skill's CLI reference too.
+
+        ``clean=True`` (retry) wipes the run's residue but KEEPS
+        ``PRESERVED_ON_CLEAN`` — see the constant.
         """
         await self.ensure_init()
         task_dir = self.root / 'tasks' / task_id
         if clean and task_dir.exists():
-            task_links.remove_task_workspace(task_dir)
+            task_links.remove_task_workspace(
+                task_dir, preserve=PRESERVED_ON_CLEAN
+            )
         task_dir.mkdir(parents=True, exist_ok=True)
 
         links: dict[str, Path] = {
@@ -610,8 +624,12 @@ def reset_task_runtime_state(task_id: str) -> None:
     like a brand-new task. Clearing the DB rows is not enough: two stores
     outlive it and leak prior-run context into the fresh session.
 
-    1. The task workspace ``tasks/{id}/`` (uploads, generated_images, the
-       copied .claude skills, symlinks) — rebuilt by prepare_task_workspace.
+    1. The task workspace ``tasks/{id}/`` (generated_images, the copied
+       .claude skills, symlinks) — rebuilt by prepare_task_workspace.
+       ``PRESERVED_ON_CLEAN`` survives: prior-run *residue* is what must
+       not leak, and the user's own attachments are neither residue nor
+       reproducible — the retry keeps their ``task_attachments`` rows,
+       and nothing re-uploads the files.
     2. Claude Code's per-task Task/todo store. We pin a STABLE
        ``CLAUDE_CODE_TASK_LIST_ID='vibe-<id8>'`` (claude_backend.py) so a
        task's todos survive its own follow-ups/resumes — but that means a
@@ -621,7 +639,10 @@ def reset_task_runtime_state(task_id: str) -> None:
        (each ``/`` and ``.`` → ``-``), under ``.../projects/<cwd>/``.
     """
     task_dir = VIBE_SELLER_DIR / 'tasks' / task_id
-    shutil.rmtree(task_dir, ignore_errors=True)
+    try:
+        task_links.remove_task_workspace(task_dir, preserve=PRESERVED_ON_CLEAN)
+    except OSError:
+        logger.exception('Failed to reset workspace for task %s', task_id)
 
     claude_home = Path(
         os.environ.get('CLAUDE_CONFIG_DIR') or (Path.home() / '.claude')

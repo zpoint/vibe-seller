@@ -234,3 +234,37 @@ async def test_venv_not_copied_to_task(ws):
     assert not (
         task_dir / '.claude' / 'skills' / 'test-skill' / '__pycache__'
     ).exists()
+
+
+@pytest.mark.unit
+def test_preserve_clears_a_junction_child(tmp_path, monkeypatch):
+    """A non-preserved child that is a junction must be rmdir'd, not unlinked.
+
+    Preserve mode walks the task dir and removes each non-preserved
+    child. Hand-rolling that removal got the Windows case wrong: a
+    junction is a directory *reparse point*, so ``Path.unlink()`` raises
+    IsADirectoryError and the whole retry fails with the user's uploads
+    half-cleaned. ``_clear_workspace_link`` already distinguishes
+    symlink / junction / real dir / plain file, so preserve mode defers
+    to it.
+
+    An EMPTY REAL DIR is the faithful POSIX stand-in for a reparse
+    point: ``os.rmdir`` removes it, ``unlink`` raises on it, and the
+    junction branch is selected by monkeypatching ``_is_junction`` (the
+    same stand-in strategy the Windows-strategy test above uses). A
+    symlink would not reproduce the bug, because POSIX ``unlink``
+    happily removes a symlink-to-dir.
+    """
+    task_dir = tmp_path / 'tasks' / 'tid-junction'
+    (task_dir / 'uploads').mkdir(parents=True)
+    (task_dir / 'uploads' / 'ref.png').write_bytes(b'\x89PNG')
+    stray = task_dir / 'stray-junction'
+    stray.mkdir()
+    monkeypatch.setattr(task_links, '_is_junction', lambda p: p == stray)
+
+    task_links.remove_task_workspace(task_dir, preserve=('uploads',))
+
+    assert not stray.exists(), 'the junction child must be cleared'
+    assert (task_dir / 'uploads' / 'ref.png').read_bytes() == b'\x89PNG', (
+        'preserved uploads must survive'
+    )

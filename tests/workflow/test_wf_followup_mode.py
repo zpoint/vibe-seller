@@ -20,6 +20,7 @@ from sqlalchemy import select
 import app.database as _db
 from app.models.schedule import Schedule
 from app.models.task import Task
+from app.models.task_message import TaskMessage
 from app.models.user import User
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -70,6 +71,68 @@ async def _seed_task(
         )
         await db.commit()
     return task_id
+
+
+class TestFirstTurnCarriesTheTask:
+    """A chat message to a task that has NEVER run still delivers the
+    task's own description.
+
+    Every other entry point puts title+description in ``bundle.prompt``
+    (``_format_header``). ``/messages`` deliberately replaces that prompt
+    with the chat message, which is right for a follow-up — the
+    description is already in the resumed session or the prior
+    conversation. With neither, it is delivered nowhere: nothing in
+    ``system_extra`` carries it. Live consequence on a PENDING task
+    carrying a description plus image attachments: the agent received a
+    bare "please start", read the images, found no instructions, and
+    stopped to ask the user what the task was — with the answer sitting
+    unread in its own ``description`` column.
+    """
+
+    async def test_first_turn_includes_description(
+        self, admin_client, install_fake_agent
+    ):
+        install_fake_agent.default_scenario = FakeAgentScenario(plan='## p')
+        task_id = await _seed_task(status='pending', plan_mode=True)
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'please start this task'},
+        )
+        assert r.status_code == 200
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls, 'FakeAgent.run was not invoked'
+        delivered = run_calls[-1].prompt + run_calls[-1].system_extra
+        assert 'design something' in delivered, (
+            'first-turn chat dropped the task description; the agent has '
+            'no way to learn what the task is'
+        )
+
+    async def test_followup_does_not_repeat_description(
+        self, admin_client, install_fake_agent
+    ):
+        """Once there IS a conversation, prior history carries the task —
+        re-injecting the description would duplicate it every turn."""
+        install_fake_agent.default_scenario = FakeAgentScenario(plan='## p')
+        task_id = await _seed_task(status='designing', plan_mode=True)
+        async with _db.async_session() as db:
+            db.add(
+                TaskMessage(
+                    task_id=task_id,
+                    role='user',
+                    content='an earlier turn',
+                    seq=0,
+                )
+            )
+            await db.commit()
+
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages', json={'content': 'next turn'}
+        )
+        assert r.status_code == 200
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls, 'FakeAgent.run was not invoked'
+        assert '## Task\n' not in run_calls[-1].system_extra
+        assert '## Prior Conversation' in run_calls[-1].system_extra
 
 
 class TestFollowUpMode:

@@ -10,6 +10,7 @@ does NOT hold, which raised ``WinError 1314`` on task creation.
 Junctions and copies need no privilege, so the app runs as a plain user.
 """
 
+from collections.abc import Sequence
 import os
 from pathlib import Path
 import shutil
@@ -77,12 +78,21 @@ def _link_shared_into_task(link_path: Path, target: Path) -> None:
         shutil.copy2(target, link_path)
 
 
-def remove_task_workspace(task_dir: Path) -> None:
+def remove_task_workspace(
+    task_dir: Path,
+    preserve: Sequence[str] = (),
+) -> None:
     """Delete a task workspace dir without touching shared resources.
 
     Clears the shared-resource links first so the final ``rmtree`` can
     never descend a junction into shared knowledge/stores, then removes
     the task-local files. Safe to call on POSIX (symlinks) too.
+
+    *preserve* names top-level entries to keep, emptying the dir around
+    them instead of removing it. Used by the retry path to keep
+    user-supplied inputs (``uploads/``) that outlive a run — deleting
+    them leaves the surviving ``task_attachments`` rows pointing at
+    nothing. Teardown callers pass nothing and get the full wipe.
 
     Raises on failure (e.g. a locked file) rather than swallowing it, so
     ``clean=True`` callers surface the error as they did before this
@@ -93,4 +103,15 @@ def remove_task_workspace(task_dir: Path) -> None:
         return
     for name in _SHARED_LINK_NAMES:
         _clear_workspace_link(task_dir / name)
-    shutil.rmtree(task_dir)
+    if not preserve or task_dir.is_symlink():
+        shutil.rmtree(task_dir)
+        return
+    keep = set(preserve)
+    for child in task_dir.iterdir():
+        if child.name not in keep:
+            # Same four cases the shared links need — symlink, Windows
+            # junction, real dir, plain file — so reuse that helper
+            # rather than re-deciding. Hand-rolling it here got the
+            # junction wrong: a reparse point is a *directory*, so
+            # ``unlink()`` raises IsADirectoryError and the retry fails.
+            _clear_workspace_link(child)

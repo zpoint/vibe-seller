@@ -413,10 +413,13 @@ class TaskQueueScheduler:
                 .order_by(Task.created_at)
             )
             for task in result.scalars().all():
-                if task.store_id:
-                    if task.store_id not in self._queues:
-                        self._queues[task.store_id] = []
-                    self._queues[task.store_id].append(task.id)
+                # store_id may be None — same reasoning as the PLANNED
+                # recovery below: None is a valid lane key and _dispatch
+                # handles a store-less task. Gating on store_id here
+                # meant a no-store PENDING task had NO recovery path,
+                # the third place (with create's defer_start and
+                # /start) where "no store" silently meant "never runs".
+                self._queues.setdefault(task.store_id, []).append(task.id)
 
             # Scheduled plan-mode tasks left in PLANNED (frozen plan
             # copied by the fanout/cron fire, awaiting a concurrency

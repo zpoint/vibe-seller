@@ -1,9 +1,10 @@
 """Unit tests for follow-up gate consistency:
 
-- ``reset_task_runtime_state`` wipes ALL on-disk state so a retry is a
+- ``reset_task_runtime_state`` wipes on-disk RUN RESIDUE so a retry is a
   true fresh start (workspace + Claude Code's per-task Task/todo store +
   project transcripts) — the fix for stale todos/refs leaking across a
-  retried task via the stable CLAUDE_CODE_TASK_LIST_ID.
+  retried task via the stable CLAUDE_CODE_TASK_LIST_ID — while keeping
+  ``uploads/``, which is the user's own input rather than residue.
 - ``interrupt_pending_question`` retires a pending AskUserQuestion with a
   NOTE (not the user's message, not recorded as answers) + emits
   ``task_question_interrupted`` — so a composer follow-up interrupts the
@@ -27,7 +28,18 @@ from app.workspace import manager as mgr
 pytestmark = pytest.mark.unit
 
 
-def test_reset_task_runtime_state_wipes_everything(tmp_path, monkeypatch):
+def test_reset_task_runtime_state_wipes_residue_keeps_uploads(
+    tmp_path, monkeypatch
+):
+    """Residue goes; the user's attachments stay.
+
+    This used to rmtree the whole workspace. ``uploads/`` is not run
+    residue — it holds files the USER attached, the retry keeps their
+    ``task_attachments`` rows, nothing re-uploads them, and every run's
+    prompt is built by reading them off disk. Wiping them turned a retry
+    of an image task back into "where is the image?" with the surviving
+    DB rows pointing at deleted files.
+    """
     vibe = tmp_path / 'vibe'
     claude = tmp_path / 'claude'
     monkeypatch.setattr(mgr, 'VIBE_SELLER_DIR', vibe)
@@ -37,6 +49,9 @@ def test_reset_task_runtime_state_wipes_everything(tmp_path, monkeypatch):
     ws = vibe / 'tasks' / tid
     (ws / 'uploads').mkdir(parents=True)
     (ws / 'uploads' / 'ref.jpg').write_text('img')
+    (ws / 'reviews').mkdir(parents=True)
+    (ws / 'reviews' / 'stale.json').write_text('{}')
+    (ws / 'notes.md').write_text('prior run scratch')
     store = claude / 'tasks' / f'vibe-{tid[:8]}'
     store.mkdir(parents=True)
     (store / '1.json').write_text('{"subject": "为产品图1生成白底主图"}')
@@ -47,7 +62,11 @@ def test_reset_task_runtime_state_wipes_everything(tmp_path, monkeypatch):
 
     mgr.reset_task_runtime_state(tid)
 
-    assert not ws.exists(), 'workspace (uploads etc.) must be wiped'
+    assert not (ws / 'reviews').exists(), 'run residue must be wiped'
+    assert not (ws / 'notes.md').exists(), 'run residue must be wiped'
+    assert (ws / 'uploads' / 'ref.jpg').read_text() == 'img', (
+        'user-supplied attachments must survive a retry'
+    )
     assert not store.exists(), 'Claude Code Task/todo store must be wiped'
     assert not proj.exists(), 'Claude Code project transcripts must be wiped'
 

@@ -28,7 +28,7 @@ from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
 from app.models.user import User
 from app.plan_states import PlanStatus
-from app.routers.tasks import schedule_or_run
+from app.task_launch import schedule_or_run
 from app.task_states import TaskStatus, can_transition
 
 logger = logging.getLogger(__name__)
