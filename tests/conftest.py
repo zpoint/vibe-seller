@@ -35,6 +35,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 # Event, ...) silently aren't created and a test that touches them
 # fails later with "no such table: <name>".
 from app import models  # noqa: F401, E402
+from app.ai.review_redrive import _ledgers  # noqa: E402, PLC2701
 from app.auth import create_token  # noqa: E402
 from app.database import get_db  # noqa: E402
 from app.main import app  # noqa: E402
@@ -316,3 +317,19 @@ def sample_browser_config():
         'headless': True,
         'args': ['--no-sandbox', '--disable-dev-shm-usage'],
     }
+
+
+@pytest.fixture(autouse=True)
+def _isolate_review_redrive_ledger():
+    """Keep one test's review-gate spend out of the next test's turn.
+
+    The re-drive budget is keyed by task so a respawn inside a turn
+    inherits it (``app/ai/review_redrive.py``). In production a turn ends
+    and an orchestrator resets it; unit tests build ``AgentSession``
+    directly, never enter an orchestrator, and reuse the same
+    ``task_id='test-task'`` — so without this a test that spends the
+    budget hands the next one a session that is already exhausted.
+    """
+    _ledgers.clear()
+    yield
+    _ledgers.clear()

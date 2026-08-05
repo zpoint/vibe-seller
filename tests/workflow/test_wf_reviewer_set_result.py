@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 
+from app.ai.review_redrive import _ledgers, ledger_for  # noqa: PLC2701
 import app.ai.stop_gates as sg
 from app.ai.stop_gates import record_skill_load, report_reviewer, reset_attempts
 from app.models.task import Task
@@ -266,3 +267,33 @@ class TestFollowUpTurnRollover:
         )
         assert r.status_code == 400
         assert 'ads-report-review' in r.json()['detail']
+
+
+async def test_set_result_and_delete_drop_the_redrive_ledger(
+    admin_client, override_async_session
+):
+    """The terminal points that drop gate-attempt counters must drop the
+    review gate's re-drive ledger too.
+
+    Unit tests can pin ``reset_ledger`` itself; only this catches a
+    missing CALL SITE. Review catch on #140: resetting at turn entry
+    alone left ``_ledgers`` growing one entry per task forever.
+    """
+    store = (
+        await admin_client.post('/api/stores', json={'name': 'Ledger Store'})
+    ).json()
+    made = await admin_client.post(
+        '/api/tasks',
+        json={'title': 'ledger', 'store_id': store['id'], 'defer_start': True},
+    )
+    task_id = made.json()['id']
+
+    # A session would allocate this when it starts; do it directly so
+    # the test does not depend on an agent run.
+    ledger_for(task_id, 300.0)
+    assert task_id in _ledgers
+
+    await admin_client.delete(f'/api/tasks/{task_id}')
+    assert task_id not in _ledgers, (
+        'deleting a task must drop its re-drive ledger'
+    )

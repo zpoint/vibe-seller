@@ -34,7 +34,7 @@ from app.ai.claude_backend_utils import (
     check_exec_review_status_for_stop,
     check_review_status_for_stop,
 )
-from app.ai.review_redrive import RedriveClock
+from app.ai.review_redrive import ledger_for
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
@@ -58,19 +58,33 @@ class _ReviewGateMixin:
     """Owns the re-drive budget and the fail-open decision."""
 
     def _init_review_gate_state(self):
-        """Per-session gate state.
+        """Gate state for this session, on the TURN's budget.
 
-        ``_review_redrive_count`` — attempts spent.
-        ``_review_redrive_clock`` — the wall clock those attempts cost.
+        ``_review_redrive_clock`` — attempts AND the wall clock they
+        cost, both read off a ledger keyed by task rather than built
+        fresh here. A session is not the unit being bounded: the gate's
+        own re-drives each spawn one, and a circuit-breaker kill is
+        picked back up in another. Building fresh state per session
+        refunded the budget on exactly the respawn the gate provoked, so
+        the gate was bounded at every point and the turn was bounded
+        nowhere — see ``review_redrive._ledgers``. ``reset_ledger`` at
+        the orchestrator entry points is what makes a NEW turn start
+        over.
+
         ``_review_gate_failed_open`` — the gate has given up and the
         banner has shipped; from then on nothing it was waiting for may
-        keep the turn alive.
+        keep the turn alive. Stays per-session: it describes what THIS
+        session already shipped.
         """
-        self._review_redrive_count: int = 0
-        self._review_redrive_clock = RedriveClock(
-            Options.REVIEW_REDRIVE_BUDGET_S.get_float()
+        self._review_redrive_clock = ledger_for(
+            self.task_id, Options.REVIEW_REDRIVE_BUDGET_S.get_float()
         )
         self._review_gate_failed_open: bool = False
+
+    @property
+    def _review_redrive_count(self) -> int:
+        """Attempts spent on this turn — the ledger is the only tally."""
+        return self._review_redrive_clock.turns
 
     def _review_gate_deny_reason(self) -> str | None:
         """Why the review/exec gates say this turn may not end yet.
@@ -109,8 +123,12 @@ class _ReviewGateMixin:
         self._review_redrive_clock.note_turn_end()
 
     def _note_review_redrive(self) -> None:
-        """Record (and log) that another re-drive is being issued."""
-        self._review_redrive_count += 1
+        """Record (and log) that another re-drive is being issued.
+
+        One increment, on the ledger — the attempt tally reads back off
+        it. Keeping a second counter beside the clock is what let the
+        two denominators disagree about what a re-drive was.
+        """
         self._review_redrive_clock.note_redrive()
         logger.warning(
             'Review gate unsatisfied at result for %s — re-driving agent '

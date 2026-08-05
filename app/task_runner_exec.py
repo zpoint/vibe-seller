@@ -12,6 +12,7 @@ from app.ai.external_config import (
     assert_profile_compatible,
 )
 from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
+from app.ai.review_redrive import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
 from app.errors import categorize_ziniao_error
@@ -113,6 +114,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
     (native plan mode). If the session died, starts a new execute
     session. Either way, the agent session is held during execution.
     """
+    reset_ledger(task_id)  # new turn — see reset_ledger
     try:
         # Write browser config (needed for retry — server may have
         # restarted since the task was created; no-store tasks get the
@@ -484,6 +486,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
 
 async def execute_woken_task(task_id: str, store: Store | None):
     """Resume a woken waiting task with trigger context."""
+    reset_ledger(task_id)  # new turn — see reset_ledger
     try:
         async with async_session() as db:
             task = await db.get(Task, task_id)
