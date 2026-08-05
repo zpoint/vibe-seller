@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy import select
 
 from app.ai.profiles import resolve_schedule_profile
+from app.config import AI_BOT_ROLE, AI_BOT_USER_ID, DEFAULT_USER_ID
 from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
@@ -111,6 +112,77 @@ class TestResolveScheduleProfile:
     async def test_none_schedule_returns_default(self, override_async_session):
         async with override_async_session() as db:
             assert await resolve_schedule_profile(None, db) == 'default'
+
+    async def test_system_schedule_inherits_human_admin_not_bot(
+        self, override_async_session
+    ):
+        """A bot-owned schedule follows the ADMIN's default.
+
+        System schedules (the nightly catalog sync) are seeded with
+        ``created_by=AI_BOT_USER_ID``. That account cannot log in and no
+        Settings page can edit it, so its ``default_profile_id`` is
+        forever the placeholder ``'default'`` — inheriting from it
+        resolved straight back to plain Claude on api.anthropic.com.
+        On an install running entirely on third-party profiles that is
+        a guaranteed nightly failure ("Not logged in · Please run
+        /login") while the admin's default pointed at a working
+        provider the whole time.
+        """
+        async with override_async_session() as db:
+            db.add(
+                User(
+                    id=AI_BOT_USER_ID,
+                    username='ai_bot',
+                    email='ai@vibe-seller.local',
+                    password_hash='disabled',
+                    role=AI_BOT_ROLE,
+                    default_profile_id='default',
+                )
+            )
+            db.add(
+                User(
+                    id=DEFAULT_USER_ID,
+                    username='human-admin',
+                    email='admin@example.com',
+                    password_hash='x',
+                    role='admin',
+                    default_profile_id='minimax',
+                )
+            )
+            await db.commit()
+
+            sched = await _make_schedule(db, AI_BOT_USER_ID, 'default')
+            assert await resolve_schedule_profile(sched, db) == 'minimax'
+
+    async def test_system_schedule_still_honors_an_explicit_pin(
+        self, override_async_session
+    ):
+        """Falling through to the admin must not override a real pin."""
+        async with override_async_session() as db:
+            db.add(
+                User(
+                    id=AI_BOT_USER_ID,
+                    username='ai_bot',
+                    email='ai@vibe-seller.local',
+                    password_hash='disabled',
+                    role=AI_BOT_ROLE,
+                    default_profile_id='default',
+                )
+            )
+            db.add(
+                User(
+                    id=DEFAULT_USER_ID,
+                    username='human-admin',
+                    email='admin@example.com',
+                    password_hash='x',
+                    role='admin',
+                    default_profile_id='minimax',
+                )
+            )
+            await db.commit()
+
+            sched = await _make_schedule(db, AI_BOT_USER_ID, 'kimi')
+            assert await resolve_schedule_profile(sched, db) == 'kimi'
 
 
 class TestSingleJobInheritsProfile:

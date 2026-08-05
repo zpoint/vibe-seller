@@ -3,6 +3,7 @@
 import json
 import os
 
+from app.config import AI_BOT_ROLE, DEFAULT_USER_ID
 from app.models.user import User
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -666,6 +667,18 @@ async def resolve_schedule_profile(sched, db) -> str:
     schedule row); in that case there is no owner to resolve, so this
     returns ``DEFAULT_PROFILE_ID`` (the global inherit sentinel) and the
     caller applies its own default.
+
+    **System schedules have no human owner.** They are seeded with
+    ``created_by=AI_BOT_USER_ID`` — a login-less account whose
+    ``default_profile_id`` is the placeholder ``'default'`` and which no
+    Settings page can ever change. Inheriting from it therefore resolved
+    right back to ``'default'``, i.e. plain Claude on
+    api.anthropic.com. On an install driven entirely by third-party
+    profiles that is not a configuration, it is a guaranteed failure:
+    the nightly catalog sync died with "Not logged in · Please run
+    /login" every night for weeks while the admin's default was set to
+    a working provider the whole time. A bot owner means "no preference
+    expressed", so fall through to the human admin who did express one.
     """
     if (
         sched
@@ -675,6 +688,8 @@ async def resolve_schedule_profile(sched, db) -> str:
         return sched.ai_profile_id
     if sched and sched.created_by:
         owner = await db.get(User, sched.created_by)
+        if owner and owner.role == AI_BOT_ROLE:
+            owner = await db.get(User, DEFAULT_USER_ID)
         if owner and owner.default_profile_id:
             return owner.default_profile_id
     return DEFAULT_PROFILE_ID
