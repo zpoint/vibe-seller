@@ -396,7 +396,8 @@ class TestReviewGateRedrive:
         so an unsatisfiable gate can't wedge the session forever."""
         session = _make_session('auto')
         session.task_dir = '/tmp/fake-task'
-        session._review_redrive_count = REVIEW_REDRIVE_MAX
+        for _ in range(REVIEW_REDRIVE_MAX):
+            session._note_review_redrive()
         emitted: list[tuple[str, str]] = []
 
         async def _mock_emit(role, content):
@@ -448,7 +449,6 @@ class TestReviewGateRedrive:
         """
         session = _make_session('auto')
         session.task_dir = '/tmp/fake-task'
-        session._review_redrive_count = 1
         clock = _FakeClock()
         session._review_redrive_clock = RedriveClock(300, now=clock)
         session._review_redrive_clock.note_redrive()

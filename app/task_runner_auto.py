@@ -9,6 +9,7 @@ from app.ai.external_config import (
     assert_profile_compatible,
 )
 from app.ai.profiles import DEFAULT_PROFILE_ID
+from app.ai.review_redrive import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
@@ -55,6 +56,9 @@ async def auto_run_task(task_id: str, store: Store | None):
     Multiple tasks for the same store can run concurrently
     with CDP-level isolation via CDPMuxProxy.
     """
+    # A new turn — the review gate's budget starts over here and
+    # nowhere else. See reset_ledger.
+    reset_ledger(task_id)
     catalog_backups: dict = {}
     schedule: Schedule | None = None
     try:

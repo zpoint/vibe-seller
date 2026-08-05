@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.ai.claude_backend import AgentSession
+from app.ai.claude_backend_utils import REVIEW_REDRIVE_MAX
 from app.env_options import Options
 
 pytestmark = pytest.mark.unit
@@ -112,7 +113,10 @@ class TestCloseGuards:
         # the gate stands down so an unsatisfiable gate can't wedge
         # the process forever.
         s = self._closable(_session())
-        s._review_redrive_count = 99
+        # Spend the budget the way the gate does — the tally lives on
+        # the turn's ledger, so there is nothing to assign here.
+        for _ in range(REVIEW_REDRIVE_MAX):
+            s._note_review_redrive()
         with patch(
             'app.ai.claude_backend_review_gate.check_review_status_for_stop',
             return_value='Reviewer never ran.',

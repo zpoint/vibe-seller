@@ -68,6 +68,16 @@ class RedriveClock:
     def longest_turn_s(self) -> float:
         return self._longest_turn_s
 
+    @property
+    def turns(self) -> int:
+        """Re-drives issued against this clock.
+
+        The attempt bound reads this rather than keeping its own tally:
+        the two denominators must agree on what a re-drive is, and they
+        cannot if each counts separately on a different lifetime.
+        """
+        return self._turns
+
     def note_redrive(self) -> None:
         """A re-drive was just sent: start the budget, time the turn."""
         now = self._now()
@@ -123,3 +133,64 @@ class RedriveClock:
             f'a {self._budget_s:.0f}s gate budget, and the longest re-driven '
             f'turn took {self._longest_turn_s:.0f}s'
         )
+
+
+# ── Turn-scoped ledger ────────────────────────────────────────────────
+#
+# A RedriveClock bounds ONE session. That was enough while a turn was
+# one session, and it is not: the gate's own re-drives each spawn a
+# session, and when the agent wanders into a degenerate tool loop the
+# circuit breaker kills the session and the turn is picked back up in a
+# fresh one. A fresh session built fresh gate state, so the bound reset
+# — observed in CI as a turn that spent 5/5 re-drives with "225s left of
+# a 300s gate budget", got broken by the circuit breaker, and came back
+# announcing "1/5, 300s left of a 300s gate budget". The gate was bounded
+# at every point and the turn was bounded nowhere; the caller's deadline
+# was what finally stopped it.
+#
+# So the ledger is keyed by TASK and outlives the session. This is not
+# the run-relative budget the module docstring above rejects — it is the
+# same gate-relative budget, simply not refunded by a respawn the gate
+# itself provoked. A genuinely new turn resets it (see reset_ledger and
+# its orchestrator call sites); a respawn within one turn inherits the
+# spend, which is the whole point.
+#
+# Same shape and lifetime as ``stop_gates._attempts``: in-memory, keyed
+# by task, dropped at the turn boundaries. Lost on server restart, which
+# is fine — the agent session would also be torn down.
+_ledgers: dict[str, RedriveClock] = {}
+
+
+def ledger_for(task_id: str, budget_s: float) -> RedriveClock:
+    """The clock for this task's CURRENT turn, created on first use.
+
+    Sessions ask for it instead of constructing their own, so a second
+    session serving the same turn continues the first one's spend.
+    """
+    clock = _ledgers.get(task_id)
+    if clock is None:
+        clock = RedriveClock(budget_s)
+        _ledgers[task_id] = clock
+    return clock
+
+
+def reset_ledger(task_id: str) -> None:
+    """Start this task's gate budget over — a NEW turn is beginning.
+
+    Called from the orchestrator entry points (``auto_run_task``,
+    ``execute_planned_task``, ``execute_woken_task``,
+    ``spawn_followup_agent``), because entering an orchestrator is
+    exactly what "a new user-initiated turn" means. A re-drive or a
+    post-circuit-breaker respawn does NOT re-enter one, which is why
+    they keep the spend.
+
+    Also keeps the dict bounded: without a reset per turn it would grow
+    one entry per task for the life of the process.
+    """
+    _ledgers.pop(task_id, None)
+
+
+def redrive_count(task_id: str) -> int:
+    """Re-drives spent on this task's current turn (0 if none)."""
+    clock = _ledgers.get(task_id)
+    return clock.turns if clock else 0

@@ -17,6 +17,7 @@ from app.ai.external_config import (
     ExternalConfigOverrideError,
     assert_profile_compatible,
 )
+from app.ai.review_redrive import reset_ledger
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
@@ -55,6 +56,9 @@ async def spawn_followup_agent(
     task back to its prior terminal state via a fresh DB session
     so the UI doesn't get stuck mid-transition.
     """
+    # A new turn — the review gate's budget starts over here and
+    # nowhere else. See reset_ledger.
+    reset_ledger(task_id)
     started = False
     try:
         # cc-switch / external override may have appeared since the
