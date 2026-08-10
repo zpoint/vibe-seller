@@ -225,6 +225,68 @@ Each row has:
 Click the product title anchor to open the edit page (see
 `noon-listing` skill).
 
+### `wait_for_load()` is NOT enough — poll until the rows render
+
+noon's portal is a React/Next app that reaches `readyState:'interactive'`
+with `document.body.innerText === ''` and paints seconds later. Right
+after `wait_for_load()` you will read an **empty page**: `js(...)` returns
+`''`, a row count returns `0`, and a `print()` of it makes the heredoc
+emit *nothing at all* (`Bash completed with no output`). None of that
+means "no results" — it means "not painted yet". Concluding `0 items`
+from it is a silent wrong answer.
+
+Always poll for a content marker before reading anything:
+
+```bash
+browser-use <<'PY'
+import time
+new_tab("https://noon-catalog.noon.partners/en/catalog?project=PRJ{pid}&tab=noon")
+wait_for_load()
+t = ""
+for _ in range(15):                     # ~45 s worst case
+    t = js("return document.body.innerText") or ""
+    if "PSKU" in t:                     # the marker for THIS page
+        break
+    time.sleep(3)
+else:
+    raise SystemExit("catalog never rendered — do not treat as empty")
+print(len(t))
+PY
+```
+
+Pick the marker per page: `PSKU` on My Catalog, `Barcode` on the Offer
+tab, `Total`/`items` for a count. Never `time.sleep(n)` once and hope.
+
+### Enumerate a subset via URL params — do NOT fight the search box
+
+The list page's filters and pagination are **URL state**. Set them in
+the URL and read the rows; that is exact, resumable, and avoids the
+search box entirely:
+
+```
+…/en/catalog?project=PRJ{project_id}&tab=noon&live_status=false&page=1
+```
+
+| Param | Values | Notes |
+|---|---|---|
+| `tab` | `noon` / `supermall` / `global` | marketplace, not country |
+| `live_status` | `false` / `true` | `false` = Not Live only |
+| `page` | 1-based | 20 rows/page; the header reads `N items`, so pages = ⌈N/20⌉ |
+
+Read `N items` first, then walk `page=1…⌈N/20⌉`. **Anchor `href`s carry
+the `code=` param you need** for each row's detail page — collect
+`(PSKU, href)` while you page, don't reconstruct URLs later (§ below).
+
+> **Do not decide "Not Live" by reading a per-row badge after a search.**
+> The `Search for SKU here…` box is a *substring* filter whose result set
+> is easy to misread: it silently keeps the previous term when refilled
+> (`fill_input` appends — clear via the ✕ first), a partial term matches
+> a different family than you intended, and a row whose badge is
+> off-screen reads as absent. Deciding a set is "all Live" from that view
+> and skipping it produces a **silent under-fill** — the failure looks
+> like success. Take the set from `live_status=false` and treat that as
+> authoritative; use the search box only to jump to one known SKU.
+
 For ad-tuning audits, this catalog read is the prerequisite step
 that establishes "what the SKU actually is" before reading any
 campaign — see `noon-ads/references/ads-tuning.md`.

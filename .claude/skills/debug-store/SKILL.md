@@ -132,6 +132,24 @@ echo "export VIBE_TASK_ID='$NEW'" > /tmp/vs_session_env.sh
 ~/.vibe-seller/bin/<slug>/browser-use open <some-url>
 ```
 
+> **A rotated `VIBE_TASK_ID` gets REAPED within 5 minutes — do not use
+> one for manual driving.** `VIBE_TASK_ID=<uuid>` resolves the session to
+> `<slug>-<8hex>`, which is exactly the shape
+> `daemon_reaper.task_prefix_for_bu_name()` reads as *"owned by a task"*.
+> There is no task row for a hand-made UUID, so the 5-minute sweep
+> classifies the daemon as orphaned and kills it. The next `js()` in your
+> heredoc then dies with a bare, undiagnosable traceback —
+> `FileNotFoundError: [Errno 2] No such file or directory` out of
+> `_ipc.connect` — because `ensure_daemon()` runs **once** before
+> `exec(code)` and nothing re-checks the socket mid-script. Confirm with:
+> `grep -i reaped logs/backend_7777.log`
+> → `Reaped 1 orphaned browser-use daemon(s): [(<pid>, '<8hex>')]`.
+>
+> For manual driving use a session the reaper **skips** — one with no
+> task suffix: unset `VIBE_TASK_ID` entirely (session `<slug>`, the
+> global one) or pass `--session <slug>-aux`. Rotation advice above
+> applies to a *wedged* daemon inside a real task, not to your shell.
+
 ## Reviving a wedged daemon
 
 ```bash
