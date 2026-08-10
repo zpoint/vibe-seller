@@ -489,17 +489,68 @@ on one known-good SKU before trusting it across the batch — compare a
 > what you can and report the gap explicitly rather than silently
 > shipping half.
 
+**The card is `div#barcode-card`.** Its input has **no `name` and no
+`placeholder`** — a `input[placeholder*='Barcode']` selector matches
+nothing and silently does nothing. Scope to the card instead, and tag the
+input so `fill_input` has a stable selector:
+
 ```bash
 browser-use <<'PY'
-fill_input("input[placeholder*='Barcode']", "X00EXAMPL1")   # "Enter Barcode" input
-# "Add Barcode" button becomes enabled — click it by text:
-js("Array.from(document.querySelectorAll('button')).find(b=>/add barcode/i.test(b.textContent))?.click()")
-# Barcode appears as a blue chip; input clears — repeat per marketplace FNSKU
+import time
+# The card sits ~y=1500 on a 839px-tall viewport. Grow the viewport for
+# headroom rather than clicking near the bottom edge (see browser-harness
+# "A control BELOW the fold").
+cdp("Emulation.setDeviceMetricsOverride", width=1920, height=1600,
+    deviceScaleFactor=1, mobile=False)
+js("document.getElementById('barcode-card').scrollIntoView({block:'center'})")
+
+def add_one(code):
+    js("var c=document.getElementById('barcode-card');"
+       "c.querySelector('input').setAttribute('data-bc','1');")
+    fill_input('#barcode-card input[data-bc="1"]', code)   # enables the button
+    box = js("""
+      var c=document.getElementById('barcode-card');
+      var b=[].slice.call(c.querySelectorAll('button'))
+              .find(function(x){return /add barcode/i.test(x.innerText||'');});
+      var r=b.getBoundingClientRect();
+      return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+    """)
+    click_at_xy(box["x"], box["y"])
+    # WAIT for the chip to appear before doing ANYTHING else (see below).
+    for _ in range(20):
+        chips = js("var c=document.getElementById('barcode-card');"
+                   "return c ? [].slice.call(c.querySelectorAll('.ant-tag-blue'))"
+                   ".map(function(e){return e.innerText.trim();}) : null;")
+        if chips and code in chips:
+            return chips
+        time.sleep(3)
+    raise SystemExit("barcode %s never committed" % code)
+
+add_one("X00EXAMPL1")      # SA FNSKU
+add_one("X00EXAMPL2")      # AE FNSKU — only after the first chip is visible
 PY
 ```
 
-Then click **Save Changes** and re-verify per the persistence rule
-below. Adding the chip alone does **not** persist it.
+> **"Add Barcode" AUTO-SAVES, and the card re-renders — this is the trap
+> that silently loses barcodes.** There is **no** Save Changes step for a
+> barcode: each add fires its own save (toast: *"All changes have been
+> saved successfully"*) and **unmounts and remounts `#barcode-card`**.
+> Two consequences, both of which look like "the barcode didn't stick":
+>
+> 1. **Reading right after the click returns an EMPTY card** — you are
+>    reading mid-render. That is not a failed add. Poll until the chip
+>    appears (above) instead of concluding failure and retrying.
+> 2. **Adding the second barcode too soon is silently dropped** — the
+>    click lands while the previous auto-save is in flight; the input
+>    clears and the button disables, so it *looks* accepted, but the code
+>    never joins the list and no error is shown. Always confirm chip *n*
+>    is present before typing chip *n+1*.
+>
+> Chips carry class `.ant-tag-blue` (the card header's "Common across
+> marketplaces" label is a plain `.ant-tag` — don't count it).
+
+Then **reload the detail page** and confirm the chips are still there.
+That reload is the only real proof; a toast is not.
 
 > **`fill_input` APPENDS to a non-empty field.** It types via key
 > events without clearing, so a second `fill_input` on the same box

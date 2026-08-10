@@ -53,6 +53,32 @@ The wrapper takes the heredoc form **only** — there is no `-c` flag
 browser-use --doctor    # verify installation / CDP connectivity
 ```
 
+## Budget every invocation: the wrapper kills it at 120 s
+
+The store wrapper runs the real `browser-use` under a **120-second
+alarm**, and a timeout is treated as evidence the *browser* is wedged:
+the wrapper bumps a strike counter, force-`--reload`s the daemon, and on
+the **second consecutive** timeout prints `UNRECOVERABLE`, exits 75, and
+tells you to stop retrying and report a gap. Any other outcome — even an
+ordinary Python error — resets the counter.
+
+**A slow-but-healthy call is indistinguishable from a wedged browser.**
+So a legitimately long heredoc does not merely get cut off: two of them
+in a row will convince the wrapper (and then you) that a perfectly good
+browser is dead, and the honest-reporting rule then makes you abandon
+real work. Keep each invocation comfortably under the limit:
+
+- **One unit of work per invocation** — one page, one SKU, one export.
+  Drive the loop from the **shell**, not inside the heredoc, and append
+  results to a file under `/tmp/<task>/` so progress survives.
+- **Count your polls.** A render-wait of `range(15)` with `sleep(3)` is
+  45 s on its own; two of those plus navigation overruns 120 s.
+- If you genuinely need a long single operation (a slow export), poll it
+  across **separate** invocations rather than sleeping inside one.
+
+A timeout also leaves the tab mid-operation, so re-read state at the
+start of the next invocation instead of assuming where you left off.
+
 ## Core Workflow
 
 1. **Navigate**: `new_tab(url)` — for the first page **and every later

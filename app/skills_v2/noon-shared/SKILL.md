@@ -277,6 +277,13 @@ Read `N items` first, then walk `page=1…⌈N/20⌉`. **Anchor `href`s carry
 the `code=` param you need** for each row's detail page — collect
 `(PSKU, href)` while you page, don't reconstruct URLs later (§ below).
 
+> **One page per `browser-use` invocation.** The store wrapper kills any
+> single invocation at **120 s** and counts it as a wedge strike (see
+> browser-harness § "Budget every invocation"). A render poll can burn
+> ~45 s on one page, so three pages in one heredoc overruns the limit and
+> gets read as a broken browser. Loop pages in the **shell**, one
+> invocation each, appending to a file.
+
 > **Do not decide "Not Live" by reading a per-row badge after a search.**
 > The `Search for SKU here…` box is a *substring* filter whose result set
 > is easy to misread: it silently keeps the previous term when refilled
