@@ -480,10 +480,14 @@ on one known-good SKU before trusting it across the batch — compare a
 > marketplace the store sells on and add every FNSKU for that SKU as a
 > separate chip. A noon SKU carrying only one barcode when the store
 > has two Amazon marketplaces is an incomplete job, not a finished one.
-> Note the marketplaces can be **separate Amazon accounts** with
-> separate logins (see the store's `notes.md` email-to-platform map) —
-> if you cannot reach one, fill what you can and report the gap
-> explicitly rather than silently shipping half.
+>
+> To get the second marketplace's report, **switch marketplace via the
+> account switcher — do not browse to the other country's domain**, which
+> presents a fresh sign-in pre-filled with the wrong account and reads as
+> "separate account, no credentials". See `amazon-shared` § 1. Only if the
+> switcher genuinely lacks that marketplace is it unreachable; then fill
+> what you can and report the gap explicitly rather than silently
+> shipping half.
 
 ```bash
 browser-use <<'PY'
