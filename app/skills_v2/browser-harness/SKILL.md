@@ -138,10 +138,18 @@ cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
   shape you can't be sure of, normalise once rather than guessing:
 
   ```python
+  import json          # stdlib modules: import them, don't rely on the namespace
+
   def jsjson(expr):
       d = js(expr)
       return json.loads(d) if isinstance(d, str) else d
   ```
+
+  Only the **helpers** above are guaranteed pre-imported. `json`, `time` and
+  friends do happen to be reachable in the heredoc namespace today (they leak
+  in through the harness's own `import *`), but that is an implementation
+  detail of the wheel, not a contract — one `__all__` upstream and it stops.
+  Import the stdlib you use.
 
 ## Locate & click an element WITHOUT vision (the preferred path)
 
