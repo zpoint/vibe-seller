@@ -9,7 +9,8 @@ allowed-tools: Bash(browser-use:*)
      from upstream, re-apply: (1) the Store/No-store task banners, (2) the
      wrapper env-injection contract (BU_NAME/BU_CDP_WS auto-injected, agent
      overrides blocked), (3) removal of cloud/remote-daemon and local-profile
-     sections we don't use. See docs/browser-use-0.13-migration.md. -->
+     sections we don't use, (4) the "js() does NOT parse JSON" bullet.
+     See docs/browser-use-0.13-migration.md. -->
 
 > **browser-use 0.13 changed everything.** There are **no subcommands**. You
 > no longer run `browser-use open <url>`. Instead you pipe Python helper code
@@ -99,6 +100,22 @@ cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
   `cdp('Runtime.evaluate', expression=..., returnByValue=False)` → `objectId`
   (note: `cdp()` params are **keyword args**, never a positional dict —
   see "Uploading a file").
+- **`js()` does NOT parse JSON — so do not `JSON.stringify` your result.**
+  The value comes straight from CDP `returnByValue`, so the JS type maps
+  to the Python type: `return [{a:1}]` gives you a **list of dicts**
+  already, while `return JSON.stringify([{a:1}])` gives you a **`str`**
+  that you must then `json.loads` yourself. Both directions bite:
+  stringifying and *not* parsing makes `for row in data` iterate
+  **characters**; not stringifying and *then* parsing raises
+  `TypeError: the JSON object must be str, bytes or bytearray, not list`.
+  Return the object directly and use it as-is. If you inherit code whose
+  shape you can't be sure of, normalise once rather than guessing:
+
+  ```python
+  def jsjson(expr):
+      d = js(expr)
+      return json.loads(d) if isinstance(d, str) else d
+  ```
 
 ## Locate & click an element WITHOUT vision (the preferred path)
 
