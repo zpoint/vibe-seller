@@ -29,41 +29,75 @@ Three options, but practically:
 
 ## Per-keyword bid: heuristic for first launch
 
-The form suggests a low/high pair per keyword. For a *new* manual
-campaign, set bids via the bulk-apply flow at **the high end of
-noon's suggested range, or just above**. Reasoning:
-- noon's auction is rating- and conversion-weighted; a fresh listing
-  loses ties to peers. Bidding at suggestion midpoint usually
-  means losing ~half the auctions.
-- Per-keyword bids combine with §5 Top-of-Search boost. A 250%
-  boost on a too-low base bid is multiplying a small number.
-- Rule of thumb: target 1.0–1.5× the high end of the suggested
-  range for the first 2 weeks; reduce on keywords that converted
-  at the starting bid.
+The form pre-fills each target with noon's suggested bid, and offers
+a low/high suggested range.
 
-Use Manual Upload tab → bulk-paste keywords → Add Keywords →
-Select All → **Apply Bids to Targets** → **Set Custom bid** →
-enter value → Apply. Faster than per-row editing for >5 keywords.
+**Do not treat noon's suggested range as the ceiling.** Campaigns
+observed winning meaningful impression share in this codebase sit at
+or ABOVE the top of the suggested range, and campaigns pinned to the
+top of the range still show single-digit SOI. The suggestion is a
+floor-ish hint, not a calibrated target.
 
-**Custom-bid input quirk**: the field's `step` attribute is `1`,
-so typing `1.00` may render as `10` or `100`. Type the integer
-form (`1`) and the input accepts it; the per-keyword input fields
-themselves use `step=0.01` so decimals work there.
+**Prefer the store's own history over any rule of thumb.** Before
+picking a number, read what already works on this account:
 
-## Match type: Phrase > Exact for noon
+```bash
+# click-weighted bid distribution from prior Customer-Queries exports
+#   stores/<slug>/ads/noon/<cc>/*.searchterms.tsv  → target_bid, clicks
+# report P25 / P50 / P75 and the realised eCPC, then start at ~P75
+```
 
-Default to **Phrase** for most keywords on noon. Reasoning:
-- noon is a low-volume site. Exact-only locks out long-tail
-  variants that may be the only buyers searching that month.
-- Phrase still respects word order and intent; you don't get
-  Auto-style random matches.
-- Reserve **Exact** for: (a) defending your own brand name,
-  (b) siphoning a competitor brand, (c) ultra-high-intent generic
-  terms where you want to outbid specifically.
+That gives an empirically-supported opening bid instead of a guess.
+Absent any history, start at the high end of noon's range and treat
+the first 3 days as calibration.
+
+**Then verify with SOI, not with ROAS.** Three days in, the question
+is "did impression share move?" (`../SKILL.md § 4`). ROAS at that
+point is noise on a low-volume site. If SOI did not move, decide
+between bid and relevance using
+`ads-tuning.md § Head terms vs modified terms` **before** raising
+again — bidding into a relevance wall just burns budget.
+
+Set the per-target bids by native-setting every narrow
+`input[type=number]` (`step=0.01`) in the targeting block — scroll
+that block into view first, or the inputs are not yet in the DOM and
+the write silently no-ops. Read the values back to confirm. This is
+the path verified live 2026-08-10.
+
+> A bulk path (`Manual Upload` tab → Add Keywords → Select All →
+> **Apply Bids to Targets** → **Set Custom bid**) is documented from
+> an earlier build, along with a quirk where that field's `step="1"`
+> made `1.00` render as `10`/`100` (type the integer form instead).
+> **Not re-verified in the current build** — if you use it, confirm
+> the resulting per-target bids before launching.
+
+## Match type: choose per keyword, not per campaign
+
+An Exact-heavy campaign starves itself and a Phrase-everything
+campaign leaks. Decide per keyword, from where that keyword's volume
+actually sits:
+
+| Keyword shape | Match | Why |
+|---|---|---|
+| Qualified / multi-word (`<category> <audience>`, `<attribute> <category>`) | **Phrase** | The variants (`… <material>`, `… <length>`) are real, same-intent demand. The same term at the same bid can draw **orders of magnitude** more impressions as Phrase than as Exact — measure it on your own account before assuming Exact is "tighter and therefore better". |
+| Bare category noun with real volume | **Exact** | Phrase on a bare noun is where wrong-audience traffic enters (opposite gender, kids, competitor brand). Exact matches only the query itself, so the leak is structurally impossible. |
+| Proven converter (has orders in your own data) | **Exact**, bid up | You already know the intent converts; buy the exact query specifically. |
+| Your own or a competitor brand | **Exact** | Defend / siphon precisely. |
+
+> Bidding a bare category noun at all is a separate decision from
+> the match type — for many listings it is not worth buying. See
+> `ads-tuning.md § Head terms vs modified terms` first, and verify
+> on the store's own data.
+
+Note that `searches/month` is measured per exact string: word order
+matters and `<noun> <modifier>` may be several times bigger than
+`<modifier> <noun>`. Size both before choosing which to bid
+(`ads-keyword-research.md § Step 1`).
 
 ## Negative keywords: scoping
 
-Cap is **20 Exact + 20 Phrase** per campaign. Spend them on:
+Cap is **100 Exact + 100 Phrase** per campaign (the counter under
+each box reads `N/100 … Selected`). Spend them on:
 
 | Negate | Match type | Why |
 |---|---|---|
@@ -79,18 +113,32 @@ list. Otherwise, harvest them from Customer Queries post-launch
 
 ## Top-of-Search bid boost
 
-`0%` to `900%` (integer field). Boosts effective bid for the
-top-of-search placement only.
+`0%` to `900%` (integer field, blank = `0`). Boosts the effective bid
+for the top-of-search placement only; PDP and category placements use
+the base bid.
+
+**Default to `0%`.** An earlier revision of this file recommended
+`150–250%` as the "typical starting point" for a new manual campaign
+and `400–900%` for a proven listing. That was not grounded in
+observed results, and the campaigns in this codebase with the
+strongest ROAS in their category run **`Top of Search 0%`** with
+ordinary per-keyword bids. Check the account's own winners
+(campaign detail header shows `Top of Search N%`) before assuming a
+boost is needed.
 
 | Setting | When |
 |---|---|
-| `0%` (default) | Only if listing is highly competitive on price+rating+title and the keyword is super high-intent. Otherwise you'll lose to anyone bidding the placement. |
-| `150–250%` | Typical starting point for a new manual campaign trying to gain visibility. Pairs with bids at the high end of the suggested range. |
-| `400–900%` | Only if (a) the listing is already proven on Amazon but starved of impressions on noon, AND (b) the daily budget can absorb high CPCs. Re-evaluate after 7 days. |
+| **`0%`** | **Default.** Start here. Establish base-bid performance first — you cannot tell whether a boost helped if you never measured without it. |
+| Small boost (`≤100%`) | Only after ≥14 days show the keyword converts at base bid but sits low in SOI *and* the low SOI is a price problem, not a relevance one (`ads-tuning.md § Head terms vs modified terms`). |
+| Large boost | Rarely justified. It multiplies the cost of the placement you understand least. If you reach for this, say why in the recommendation and set a review date. |
 
-The boost only fires for the top-of-search placement; PDP and
-category placements use the base bid. That's why a 250% boost
-doesn't 3.5× your daily spend — it's selective.
+**Budget interaction — the reason `0%` matters on a small budget.**
+The boost multiplies the bid, so top-of-search clicks cost
+`bid × (1 + boost)`. On a small daily budget a large boost concentrates
+the whole day's spend into a couple of clicks, which produces no
+readable signal: e.g. a `250%` boost on a `1.00` bid makes a
+top-of-search click `3.50`, so a `15/day` budget buys ~4 of them.
+Boost and budget must be chosen together.
 
 ## Budget: Campaign Budget vs Shared Budget
 
@@ -107,12 +155,27 @@ validates keyword performance
 within a week. Higher budgets just mean you waste money faster
 if the diagnosis was wrong.
 
-## Save as Draft → Launch — UI quirk
+## Launching
 
-After clicking **Save as Draft** on the create form, noon shows a
-success modal that *overlays* the page-level **Launch Campaign**
-button, making it un-clickable directly. Three-step recovery to
-launch a saved draft:
+**Prefer launching directly from the create form** — fill everything,
+then click **Launch Campaign** at the bottom. Verified live
+2026-08-10 across four consecutive campaigns; the header flips to
+`Edit - <name> | Product Ad | Live` on success. You do not need to
+save a draft first.
+
+> **The button is below the fold.** On a completed form it lands well
+> past the bottom of a standard viewport, and `click_at_xy` on its
+> reported coordinates silently hits nothing — the form just sits
+> there, which is easy to misread as a validation failure (there is
+> no error banner, because nothing was submitted).
+> `scrollIntoView({block: "center"})` first, re-read the rect, then
+> click. Same applies to the keyword `Exact`/`Phrase` add buttons.
+
+### Save as Draft → Launch — UI quirk (drafts only)
+
+If you do save a draft, noon shows a success modal that *overlays*
+the page-level **Launch Campaign** button, making it un-clickable
+directly. Three-step recovery to launch a saved draft:
 
 1. In the Save success modal, click **View Campaign**.
 2. On the campaign-detail page, click the **blue Edit pencil**

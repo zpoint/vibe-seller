@@ -391,20 +391,73 @@ concluding failure at 10 s.)
 `aria-selected` state can lag for a second after click and isn't a
 reliable activation signal.
 
-**Recommended-Bid cell suffix.** The Recommended Bid column
-extracts as e.g. `0.75 0.60-0.90 Apply` — the literal "Apply"
-button label is concatenated into the cell innerText. Strip
-the trailing `Apply` before formatting in the report.
+**Columns** (verified live 2026-08-10) — read them positionally, the
+header row extracts with two blank spacer cells:
 
-Columns: Target (keyword text), Bid, eCPC, Recommended Bid,
-Verticals, Engagement (Views/Clicks/Orders/CTR/CvR), Status.
+```
+Targets | Status | Bid | (blank) | Revenue | ROAS | Spends | eCPC |
+Orders | Views | Clicks | ATC | CTR | CVR | SOI | (blank) | Actions
+```
 
-**Match types** observed: `exact Match`, `phrase Match` (and likely
-`broad Match`).
+There is **no `Recommended Bid` column, no `Verticals`, and no
+combined `Engagement` column** in the current build — an earlier
+revision of this skill listed all three, plus a "strip the trailing
+`Apply`" workaround for a cell that no longer exists. Don't look for
+them.
+
+The **Target cell carries the match type inline**: it extracts as
+`<keyword> Keyword Exact Match`, `<keyword> Keyword Phrase Match`, or
+`<path> Category Match`. Split it off before using the keyword text —
+and note the **keyword is truncated** in this cell when long
+(`women's socks c...`). To recover full keyword text, read the
+campaign **editor** (§ 9), whose selected-target list is untruncated.
+
+### SOI — the column that tells you what you are LEAVING on the table
+
+`SOI` is **Share of Impressions**: the fraction of the available
+impressions for that target which your ad actually won.
+
+**The cell renders as a PERCENT** (`12.5%`), so convert before dividing
+— dividing by the displayed number is wrong by 100×:
+
+```
+available impression pool ≈ views ÷ (SOI_percent / 100)
+
+# illustrative: views 400, SOI 2.0%  →  400 / 0.02  = 20,000
+#               views 400, SOI 2.0   →  400 / 2     =    200   ← WRONG
+```
+
+This is the single most useful number on the page and has no
+equivalent in `searches/month` (§ 9): `searches/month` sizes the
+*market*, SOI tells you **how much of it you are winning**, already
+net of bid, relevance and competition. A target sitting on a large
+`searches/month` bucket with a 1% SOI is not a keyword problem — it is
+a bid-or-relevance problem, and adding more keywords will not fix it.
+
+Compute it per target and sum across the campaign to get a single
+**capture rate** — total views ÷ total available pool. A starved manual
+campaign can sit in the low single digits, meaning most of the reach it
+already owns is unclaimed *before* any new keyword is added.
+
+Cross-check it against **daily-budget utilisation** (actual spend ÷
+budget × days). When both land in the same low band they corroborate
+each other, and together they separate **"no reach"** (capture low,
+budget unspent → bid/relevance) from **"no demand"** (capture high,
+budget unspent → the keywords are simply small). Report both; either
+one alone is ambiguous.
+
+**Diagnosing a low SOI — bid vs relevance.** Raising the bid only
+helps when the platform already considers the listing a valid answer
+for that query. Compare the SOI of head terms against modified terms
+(`<category>` vs `<category> <audience>`) on the SAME campaign: if the
+modified terms hold a healthy SOI while the bare head term sits near
+zero at a comparable bid, the auction is telling you the listing is
+not relevant for the broad query, and bidding up burns money for
+impressions that will not convert. See
+`references/ads-tuning.md § Head terms vs modified terms`.
 
 Per-keyword actions:
-- **Bid input**: edit target bid directly
-- **Apply** button: applies recommended bid
+- **Bid input**: edit target bid directly (`step=0.01`)
 - **Status toggle**: enable/disable the keyword
 
 ## 5. Change Target / Keyword Price
@@ -423,7 +476,11 @@ PY
 > setter clear + read-back protocol; a naive `fill_input` on the
 > Ant Design shadow input can turn `1.30` into `11.3`.
 
-Or click "Apply" next to Recommended Bid to use noon's suggestion.
+There is no "Apply the suggested bid" shortcut on this tab in the
+current build — the Recommended Bid column it belonged to is gone
+(§ 4). Type the bid you want. noon's suggested range is still visible
+per target inside the campaign **editor** (§ 9), but treat it as a hint,
+not a target (`references/ads-creation.md § Per-keyword bid`).
 
 ## 6. Customer Queries Tab
 
@@ -495,8 +552,14 @@ full table on most campaigns; if you see fewer than ~15 rows on
 a 14d+ campaign, scroll the inner table container and re-eval.
 
 Shows the actual search terms customers used that triggered your ads.
-Columns: Customer Query Term, Target, Match Type, Target Bid, eCPC,
-Spends, Verticals, Engagement.
+Columns (from an earlier build): Customer Query Term, Target, Match
+Type, Target Bid, eCPC, Spends, Verticals, Engagement.
+
+> ⚠️ **Not re-verified.** The Targets tab's column list was written in
+> this same vocabulary (`Verticals`, `Engagement`) and turned out to
+> be stale — those columns no longer exist there (§ 4). Treat this
+> list as a hint, read the live header row before parsing positionally,
+> and prefer the **Export** (§ 7) which is the complete source anyway.
 
 **Auto campaign query routing per-product.** On Auto campaigns,
 the Customer Queries tab shows queries scoped to the product
@@ -727,26 +790,148 @@ Click Continue.
 - Search by SKU name input
 - Selected products shown in right panel
 
-**2. Bidding Strategy** (choose one):
+> ⚠️ **noon PRE-SELECTS products you did not choose.** On entering
+> step 2 the right panel already reads `Selected Products (3)` — a
+> "Preselected Recommendations" block of `High Potential` SKUs. Adding
+> your own SKU makes it **4**, and launching ships ads for three
+> products you never picked. **Clear it first**: click
+> **`Remove all (N)`** at the top of that panel, THEN search and add
+> your SKU. Re-check the counter reads `Selected Products (1)` before
+> launching — the block **re-populates when the product search text
+> changes**, so clearing it once is not enough if you search again.
+
+**1. Product Selection** — `Manual Selection` / `Bulk Upload`.
+Type into the `Search products` box (SKU or title words). Each result
+row is a `div[class*="ProductCard_cardContent"]`; the control that
+adds it is an **`img[alt="add"]`** button at the RIGHT edge of the
+row, outside `cardContent` — locate it by nearest-y to the card, not
+by descending into the card. In the selected panel each row has an
+**`img[alt="removeIcon"]`** to drop it again.
+
+**Pick the variant that actually sells.** A variant family
+(`…Z-3/-4/-5`) usually has ONE variant carrying the traffic and the
+others near zero; the SKU that a title search surfaces first is not
+necessarily it. Check the existing campaign's Products tab (§ 3) or a
+prior Export `Sku` sheet before choosing. For a product with no noon
+history, noon's own `High Potential` badge on the card is a
+defensible tiebreak.
+
+**2. Bidding Strategy** (choose one) — verified live 2026-08-10, the
+radio group renders **three** options:
 
 | Strategy | Behavior |
 |----------|----------|
-| **Dynamic Bid Up & Down** (New) | Scale up for top placements, down during low conversion. Auto Targeting only. |
-| **Dynamic Bid Down Only** | Only lowers bid when conversion is low. Auto + Manual Targeting. |
-| **Fixed** | Set default bid amount; no dynamic adjustment. |
+| **Maximize ROAS** | Default selection. noon optimises toward return. |
+| **Maximize Orders** | noon optimises toward order count. |
+| **Fixed** | Your exact per-target bids are honoured; no dynamic adjustment. |
+
+Use **Fixed** for Manual Targeting — per-keyword bids are honoured
+as-is, which is the only way to read per-keyword performance without
+dynamic-bid noise.
+
+> The older `Dynamic Bid (Up & Down)` / `Dynamic Bid (Down Only)`
+> names are **not** what this form offers. They still appear in the
+> campaign LIST for previously-created Auto campaigns
+> (`Auto targeting - Dynamic down only`), so don't treat a list value
+> as a form option.
 
 **3. Targeting**:
-- **Auto Targeting**: noon automatically matches ads with relevant
-  parameters. Configure **Default Bid Amount** and **Minimum Bid**.
-- **Manual Targeting** (with supported strategies): pick keywords.
+- **Auto Targeting** (default): noon matches ads automatically.
+- **Manual Targeting**: pick keywords / categories / products.
 
-**4. Negative Targeting (Optional)**: Exclude specific keywords to
-prevent your ad from appearing in irrelevant searches. Limits:
-**30 Days negative targets** and **30 Phrase negative targets**.
+> **Negative Targeting is available under Auto too** (§ 4 renders with
+> Auto selected). This is the only lever you get on an Auto campaign —
+> use it. Observed live: an Auto campaign matched a store's socks
+> listing to unrelated categories (`beauty/…`, `luggage-and-bags/…`) and
+> to opposite-audience queries that drew clicks and **zero** orders.
+> Seed the negative list at creation rather than waiting to harvest.
 
-**5. Top Of Search Placement Bidding (Optional)**: Increase chances
-of appearing at top of search results. Bid Percentage boost up to
-**900%** to compete for premium placements.
+### Categories tab — use the search box, not the tree
+
+The `Categories` tab renders a top-level category tree with a `Refine`
+control per row. **`Refine` does not expand** via `click_at_xy` or JS
+`.click()` in the current build — do not burn time on it.
+
+Instead use the tab's **`Search by Category name`** input: typing a
+product word returns matching categories at every depth, each as a full
+path plus its display name, e.g.
+
+```
+fashion/<gender>/clothing/<mid-category>            Mid Category
+fashion/<gender>/clothing/<mid-category>/<leaf>     Leaf Category
+```
+
+Each result row carries its own add control — **`img[alt="addButton"]`**
+(note: NOT `alt="add"`, which is the *product* picker's control; the two
+tabs use different alt text). Once added, the category appears in the
+selected-target table with its own editable bid, and the Targets tab
+(§ 4) shows it as `<path> Category Match`.
+
+> **Depth is the decision, and it is not obvious.** A bare top-level
+> category (`fashion/<gender>`) is the whole department; the leaf is a
+> single product type. Both are one click apart in this list. Pick
+> deliberately and record which depth you chose, because performance
+> between depths is not comparable.
+
+> **ant radios ignore `click_at_xy`.** Both the strategy and targeting
+> groups are ant-design radios whose real `<input>` is visually
+> replaced; coordinate clicks land on the skin and silently do
+> nothing (the group keeps its previous `checked`). Drive them with
+> JS `.click()` on the input, then READ BACK `checked` — same class of
+> gotcha as Amazon's `kat-dropdown`:
+> ```bash
+> browser-use <<'PY'
+> print(js("""var rs=[].slice.call(document.querySelectorAll('input[type=radio]'))
+>   .filter(function(e){return e.getBoundingClientRect().width>=5;});
+>   rs[2].click(); return JSON.stringify(rs.map(function(e){return e.checked;}));"""))
+> PY
+> ```
+> Indices shift once Manual Targeting expands its settings block, so
+> re-query the list before each click rather than caching positions.
+
+**4. Negative Targeting (Optional)**: Exclude keywords so your ad
+doesn't show on irrelevant searches. Limits are **100 Exact + 100
+Phrase** (the counter under each box reads `0/100 … Selected`); an
+earlier revision of this skill said 30/30.
+
+The two boxes are **`ant-select` in tags mode**, not plain inputs —
+their `<input>` is ~4px wide and is skipped by any
+`width > 60` filter. Add terms one at a time: set the inner input's
+value with the native setter, dispatch `input`, then dispatch
+`keydown`/`keypress`/`keyup` for `Enter` to commit the tag. Pasting a
+comma-separated list into the placeholder does **not** commit.
+
+### Adding keywords — the search box IS the keyword tool
+
+Under **Manual Targeting Settings** the `Keywords` tab has a
+`Search for keywords` box. Type a term and each result renders as a
+card carrying **`searches/month: <range>`** plus an `Exact` and a
+`Phrase` button — clicking one adds that keyword at that match type.
+The same box doubles as a free keyword-volume lookup; see § 9 and
+`references/ads-keyword-research.md`.
+
+> **Scroll the result row into view before clicking.** The card list
+> grows downward and rows quickly sit past the viewport bottom
+> (~839px). `click_at_xy` cannot reach an off-screen y and fails
+> **silently** — the run reports every keyword as added while the
+> selected-target table stays empty. Always: `scrollIntoView({block:
+> "center"})` on the button → re-read `getBoundingClientRect()` →
+> reject `y < 0 || y > 800` → click → and verify by counting the
+> per-target bid inputs afterwards.
+
+Each added target gets a bid input (`input[type=number]`,
+`step=0.01`, width < 60px) pre-filled with noon's suggested bid. To
+set them all, native-set every narrow number input on the page — but
+**scroll the targeting section into view first**, because the inputs
+are not in the DOM until that block renders (an off-screen read finds
+0 and silently sets nothing).
+
+**5. Top Of Search Placement Bidding (Optional)**: percentage boost
+on top-of-search placements, up to **900%**. Two `Increase bid by`
+fields (top-of-search, product-pages); blank = `0`. See
+`references/ads-creation.md` before setting this — the default of
+**0** is what the best-performing campaigns observed in this codebase
+actually run.
 
 **6. General Settings**:
 - Campaign Name (required)
@@ -759,6 +944,22 @@ of appearing at top of search results. Bid Percentage boost up to
 
 Action buttons at bottom: **Cancel & Go Back**, **Save As Draft**,
 **Launch Campaign**.
+
+> **`Launch Campaign` sits below the fold.** On a full form it lands
+> around y≈1378 in an 839px viewport, so `click_at_xy` on its
+> reported coordinates hits nothing and the page just stays on the
+> form — which reads as a silent validation failure. There is no error
+> banner because nothing was submitted. `scrollIntoView({block:
+> "center"})` the button, re-read its rect, then click. Success is
+> visible in the header, which switches to
+> `Edit - <campaign name> | Product Ad | Live`.
+
+### Post-launch verification (do this every time)
+
+Re-read the campaign list and confirm, per new campaign: status
+`Live`, the intended **daily budget**, `Manual targeting - Fixed`,
+and — most importantly — that the campaign carries **only the SKU you
+chose**. The preselect trap above is silent and only shows up here.
 
 ## 9. Edit an Existing Campaign — Add / Remove Keywords & Negatives
 
@@ -775,10 +976,34 @@ live campaign you re-enter the campaign editor:
    - **§ 5 Targeting → Manual Targeting Settings** — add positive
      keywords / category / product targets, or remove existing rows.
    - **§ 6 Negative Targeting (Optional)** — add or remove negative
-     keywords (limits: 30 day + 30 phrase negatives, § 8).
+     keywords (limits: **100 Exact + 100 Phrase**, § 8).
 3. **Save** to apply. Deleting a keyword/negative is the same flow:
    open the editor, remove the row, Save. (The Targets-tab Status
    toggle only *pauses* a keyword; it does not remove it.)
+
+### The editor is also a READ-ONLY research tool
+
+Opening the editor changes nothing until you Save, which makes it the
+cheapest way to get two things the Targets tab cannot give you:
+
+- **Untruncated keyword text.** The selected-target list shows each
+  target in full, where the Targets tab truncates (§ 4).
+- **`searches/month` per target**, plus noon's suggested bid range.
+  A target rendering **no `searches/month` line at all is below
+  noon's reporting threshold** — i.e. a dead keyword. Scanning for
+  missing lines is the fastest dead-weight audit available, and it
+  needs no export.
+
+Both are reachable by parsing `document.body.innerText`: a target
+block reads `<keyword>` → `searches/month` → `<range>` →
+`Keyword <Exact|Phrase>` → `Suggested` → `<low>` → `-` → `<high>`.
+
+For using the `Search for keywords` box as a keyword-volume lookup
+across a whole category, see
+`references/ads-keyword-research.md § Step 1`.
+
+> **Leave without saving.** Navigating away discards everything. Never
+> click Save during a read-only pass.
 
 > **State-changing — confirm first.** Adding/removing keywords or
 > negatives re-saves a live campaign (per the "surface, don't
@@ -807,7 +1032,7 @@ one, how to research keywords — lives in three reference files:
 | [`../amazon-ads/references/format-anchor.md`](../amazon-ads/references/format-anchor.md) | _Legacy detail._ Exact per-campaign table layouts; load only if you need the precise column shape. Superseded as a contract by `output-spec.md`. |
 | [`references/ads-creation.md`](references/ads-creation.md) | Creating a new campaign. Covers targeting choice, bidding strategy, per-keyword bid heuristic, match-type strategy, negative scoping, TOS boost rules, budget choice, the Save-as-Draft → Launch UI quirk, naming convention, post-launch verification cadence. |
 | [`references/ads-tuning.md`](references/ads-tuning.md) | **Any task that reads existing campaigns and proposes changes** — phrasings like "review all ads", "audit the campaigns", "give me an improvement plan", "weekly ad review", "tune ads", "fix ACOS / ROAS". Defines the steps and noon-specific click paths (Customer Queries tab, Targets tab, etc.); the **output contract** lives in `output-spec.md` (shared with Amazon — same shape for both platforms). |
-| [`references/ads-keyword-research.md`](references/ads-keyword-research.md) | Building the initial keyword list for a Manual campaign. Covers buyer-vs-seller language, storefront autocomplete (English + Arabic), peer-listing reading, cross-checking against existing campaigns to avoid self-competition, parallel negative-list build, match-type assignment. |
+| [`references/ads-keyword-research.md`](references/ads-keyword-research.md) | Building the initial keyword list for a Manual campaign. **Step 1 is noon's built-in keyword-volume tool** (`searches/month` per term, via the editor's `Search for keywords` box) — every keyword you ship must carry its volume bucket, volume is per-country, and word order changes it. Then buyer-vs-seller language, storefront autocomplete (English + local language), peer-listing reading, cross-checking against existing campaigns to avoid self-competition, parallel negative-list build, match-type assignment. |
 
 Safety rails:
 

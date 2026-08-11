@@ -201,6 +201,82 @@ catch yourself writing one of those, go back and capture the
 data — then write the specific keyword names, current bids,
 and target bids in the recommendation.
 
+## Head terms vs modified terms — diagnosing a starved campaign
+
+When a campaign has good ROAS but almost no volume, the reflex is
+"add more keywords" or "raise bids". Before either, read the **SOI**
+column (`../SKILL.md § 4`) and split the targets two ways:
+
+- **Bare head term** — the category noun alone (`<category>`).
+- **Modified term** — category plus an audience/attribute qualifier
+  (`<category> <audience>`, `<attribute> <category>`).
+
+Then compare SOI *and* conversion between the two groups **within
+the same campaign**, at comparable bids.
+
+| Pattern | Reading | Action |
+|---|---|---|
+| Modified terms hold decent SOI; bare head term near 0% at a similar bid | The auction does not consider this listing a valid answer for the broad query. **Relevance, not price.** | Do NOT bid up the head term. Grow the modified terms. |
+| Both groups low SOI | Genuinely underbid or budget-capped | Raise bids / budget, re-read SOI in 3 days |
+| Head term has SOI but converts far below the modified terms | You are buying unqualified traffic | Move spend to modified terms; negate the qualifiers you don't serve |
+
+**Why this matters more on a niche listing than a category leader.**
+A bare category query carries mixed intent — different audiences,
+form factors, price tiers. A listing that serves one slice of that
+category will convert on it at a materially lower rate than on the
+qualified variant, *and* the platform will already be showing it
+less. Both effects point the same way, so bidding harder on the head
+term is the worst of both: you pay more for traffic you convert
+worse.
+
+**The reach is usually available without the head term.** Qualified
+variants frequently sit in the *same* `searches/month` bucket as the
+bare noun (see `ads-keyword-research.md § Step 1`). Check before
+concluding you must bid the broad term to get volume — normally you
+do not, and the qualified variant is both bigger-converting and
+structurally immune to the wrong-audience leakage that a broad match
+on a bare noun creates.
+
+> ⚠️ **Do not transfer a head-term result between stores.** Two
+> stores in the same category and country can have opposite results
+> on the identical keyword, because the bare query's dominant intent
+> matches one of them and not the other. A sibling store's winning
+> configuration is a hypothesis to TEST against the target store's
+> own numbers, never evidence for it. Verify on the store you are
+> tuning — its own SQP / Customer Queries / SOI — before adopting.
+> If the two disagree, the target store's data wins.
+
+## Category (Subcat) targets — check the AD TYPE before citing one
+
+Category targets show on the Targets tab as `<path> Category Match`.
+Before drawing a lesson from one — especially a cross-campaign or
+cross-store one — record **which ad type it ran on**.
+
+Observed across two stores sharing an account: every campaign carrying
+category targets was a **Brand Ad**. Aggregated across one store's
+Brand Ads the category legs looked excellent; the same store's *other*
+Brand Ad had a category leg that produced clicks and almost no orders.
+Neither store had ever put a category target on a **Product Ad**, so
+"category targeting works here" was not established for Product Ads at
+all — the UI permits it (Manual Targeting → Categories, § 8), it simply
+had no track record.
+
+Two traps this closes:
+
+1. **Do not aggregate category performance across ad types.** Brand and
+   Product ads buy different placements; a Brand-Ad category ROAS is not
+   a forecast for a Product-Ad category target.
+2. **Do not aggregate across campaigns of wildly different health.** One
+   store's category numbers were dominated by a single failing Brand Ad,
+   making category targeting look worthless store-wide; split by campaign
+   and the picture reversed.
+
+When you do propose one, state the **depth** explicitly — a top-level
+department and a leaf product type are one click apart in the picker
+(§ 8) and are not comparable. Start with a low bid relative to the
+campaign's keyword bids so the category cannot drain the keyword budget
+before you can read it.
+
 ## Notes
 
 - **Cover every active campaign — no silent skipping.** Every
@@ -651,8 +727,10 @@ independently re-read live. Mechanisms:
   **Section 4 Negative Targeting**: two `<input type=search>`
   fields — Exact (`id=rc_select_0`) and Phrase (`id=rc_select_1`).
   Type each term + Enter (verify a `.ant-select-selection-item`
-  tag appears). **Limit is 20 Exact + 20 Phrase** (older docs say
-  30/30 — the live cap is 20). The edit page is a **single-page
+  tag appears). **Limit is 100 Exact + 100 Phrase** — read the
+  counter under each box (`N/100 … Selected`) rather than trusting
+  any number written here; it has changed twice (30 → 20 → 100).
+  The edit page is a **single-page
   form** (no per-section save); the bottom has three controls:
   `Cancel & Go Back`, `Save and Pause`, `Save and Launch`.
   **Click the one that MATCHES the campaign's current status** —
