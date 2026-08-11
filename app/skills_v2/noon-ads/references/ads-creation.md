@@ -79,7 +79,7 @@ actually sits:
 
 | Keyword shape | Match | Why |
 |---|---|---|
-| Qualified / multi-word (`<category> <audience>`, `<attribute> <category>`) | **Phrase** | The variants (`… <material>`, `… <length>`) are real, same-intent demand. Observed on one account: the same term drew ~40× the impressions as Phrase vs Exact at an identical bid. |
+| Qualified / multi-word (`<category> <audience>`, `<attribute> <category>`) | **Phrase** | The variants (`… <material>`, `… <length>`) are real, same-intent demand. The same term at the same bid can draw **orders of magnitude** more impressions as Phrase than as Exact — measure it on your own account before assuming Exact is "tighter and therefore better". |
 | Bare category noun with real volume | **Exact** | Phrase on a bare noun is where wrong-audience traffic enters (opposite gender, kids, competitor brand). Exact matches only the query itself, so the leak is structurally impossible. |
 | Proven converter (has orders in your own data) | **Exact**, bid up | You already know the intent converts; buy the exact query specifically. |
 | Your own or a competitor brand | **Exact** | Defend / siphon precisely. |

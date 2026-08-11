@@ -84,9 +84,10 @@ Three rules that fall out of this data:
    neighbour. Never copy a sized list across countries; re-run it.
 3. **Word order is significant.** noon matches literally and does not
    normalise word order, so `<noun> <modifier>` and
-   `<modifier> <noun>` are different keywords with different volumes —
-   observed differing by 4–20×. Check both orders of every
-   multi-word candidate and keep whichever is larger.
+   `<modifier> <noun>` are different keywords, and they can land in
+   **different volume buckets entirely** — not a rounding difference.
+   Check both orders of every multi-word candidate and keep whichever
+   bucket is larger.
 
 Cross-check the result against the **SOI** column on the campaign's
 Targets tab (`noon-ads` § 4). `searches/month` sizes the market; SOI

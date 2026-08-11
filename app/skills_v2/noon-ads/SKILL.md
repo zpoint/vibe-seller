@@ -417,8 +417,14 @@ campaign **editor** (§ 9), whose selected-target list is untruncated.
 `SOI` is **Share of Impressions**: the fraction of the available
 impressions for that target which your ad actually won.
 
+**The cell renders as a PERCENT** (`12.5%`), so convert before dividing
+— dividing by the displayed number is wrong by 100×:
+
 ```
-available impression pool ≈ views ÷ SOI
+available impression pool ≈ views ÷ (SOI_percent / 100)
+
+# illustrative: views 400, SOI 2.0%  →  400 / 0.02  = 20,000
+#               views 400, SOI 2.0   →  400 / 2     =    200   ← WRONG
 ```
 
 This is the single most useful number on the page and has no
@@ -429,11 +435,16 @@ net of bid, relevance and competition. A target sitting on a large
 a bid-or-relevance problem, and adding more keywords will not fix it.
 
 Compute it per target and sum across the campaign to get a single
-"capture rate". Observed live on a real store: a manual campaign whose
-targets summed to ~11% capture — i.e. ~8× headroom on keywords it
-already owned, before adding a single new one. Its daily-budget
-utilisation was ~11% too; the two numbers corroborate each other and
-together separate "no reach" from "no demand".
+**capture rate** — total views ÷ total available pool. A starved manual
+campaign can sit in the low single digits, meaning most of the reach it
+already owns is unclaimed *before* any new keyword is added.
+
+Cross-check it against **daily-budget utilisation** (actual spend ÷
+budget × days). When both land in the same low band they corroborate
+each other, and together they separate **"no reach"** (capture low,
+budget unspent → bid/relevance) from **"no demand"** (capture high,
+budget unspent → the keywords are simply small). Report both; either
+one alone is ambiguous.
 
 **Diagnosing a low SOI — bid vs relevance.** Raising the bid only
 helps when the platform already considers the listing a valid answer
@@ -465,7 +476,11 @@ PY
 > setter clear + read-back protocol; a naive `fill_input` on the
 > Ant Design shadow input can turn `1.30` into `11.3`.
 
-Or click "Apply" next to Recommended Bid to use noon's suggestion.
+There is no "Apply the suggested bid" shortcut on this tab in the
+current build — the Recommended Bid column it belonged to is gone
+(§ 4). Type the bid you want. noon's suggested range is still visible
+per target inside the campaign **editor** (§ 9), but treat it as a hint,
+not a target (`references/ads-creation.md § Per-keyword bid`).
 
 ## 6. Customer Queries Tab
 
