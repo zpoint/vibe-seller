@@ -3,8 +3,14 @@
 How to build a buyer-validated keyword list for a noon Manual
 campaign. The shortcut everyone makes is "ask the LLM for keywords"
 — that produces seller-side language (technical, spec-heavy) that
-real buyers don't type. This playbook avoids that trap by going
-through noon's actual storefront.
+real buyers don't type. This playbook avoids that trap by sizing
+every candidate in noon's own keyword tool (Step 1) and validating
+intent against noon's actual storefront (Steps 2–4).
+
+**Never ship a keyword you have not sized.** Every keyword you hand
+back must carry its `searches/month` bucket. A plausible-sounding
+term with no volume costs the same to add as a good one and quietly
+caps the campaign's reach.
 
 Pair with `ads-creation.md` (how to feed the resulting list into
 the create form) and `../SKILL.md § 6` (how to harvest from existing
@@ -24,7 +30,71 @@ The seller term carries SKU/spec language; buyers search the
 category + a use-case modifier. Always validate via the actual
 storefront search before adding a keyword.
 
-## Step 1 — Storefront autocomplete (English)
+## Step 1 — noon's own keyword-volume tool (do this FIRST)
+
+**The Ad Manager ships a keyword tool with search-volume estimates.**
+Earlier revisions of this playbook sent you straight to storefront
+autocomplete; that is now Step 2. Autocomplete tells you a term
+*exists*, this tells you **how big it is** — and it is the only way to
+satisfy "don't add a keyword you haven't sized".
+
+Open any campaign in the editor (`…&mode=edit`, `noon-ads` § 9 — a
+read-only pass, do NOT Save) and use the **`Search for keywords`** box
+under Manual Targeting Settings. One seed term returns ~100 related
+keywords, each with:
+
+- **`searches/month`** as a bucket — observed ladder:
+  `< 10` · `10-50` · `50-100` · `100-250` · `250-500` · `500-1000` ·
+  `1000-5000` · `5000-10000`
+- a **suggested bid range**
+
+Drive it without saving anything:
+
+```bash
+browser-use <<'PY'
+import re, time
+js("""var el=[].slice.call(document.querySelectorAll('input'))
+  .filter(function(e){return (e.placeholder||'').indexOf('Search for keywords')>=0;})[0];
+  var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+  s.call(el,'<seed>'); el.dispatchEvent(new Event('input',{bubbles:true})); return 1;""")
+time.sleep(6)
+t = js("return (document.body.innerText||'')")
+lines=[l.strip() for l in t.split(chr(10))]
+for i,l in enumerate(lines):
+    m=re.match(r"^searches/month:\s*(.+)$", l)
+    if m and i>0 and lines[i-1].strip() not in ("Exact","Phrase"):
+        print(lines[i-1].strip(), "|", m.group(1).strip())
+PY
+```
+
+Run 8–15 seeds across the category and union the results — that is a
+sized vocabulary for the whole category in a few minutes. A term the
+tool does not return at all is below threshold: treat as **no volume**
+and do not bid it.
+
+Three rules that fall out of this data:
+
+1. **Size every keyword before it ships.** "It sounds right" is not a
+   reason to bid; the bucket is. Keep the bucket next to each keyword
+   in your deliverable so the user can audit the claim.
+2. **Volume is per COUNTRY — re-run per marketplace.** Local-language
+   head terms routinely differ by two orders of magnitude between two
+   countries that share a language, because the dialect differs. The
+   same seed can return `1000-5000` in one and `< 10` in its
+   neighbour. Never copy a sized list across countries; re-run it.
+3. **Word order is significant.** noon matches literally and does not
+   normalise word order, so `<noun> <modifier>` and
+   `<modifier> <noun>` are different keywords with different volumes —
+   observed differing by 4–20×. Check both orders of every
+   multi-word candidate and keep whichever is larger.
+
+Cross-check the result against the **SOI** column on the campaign's
+Targets tab (`noon-ads` § 4). `searches/month` sizes the market; SOI
+says how much of it you are winning. A big bucket with a low SOI is a
+bid/relevance problem, not a keyword gap — adding more keywords will
+not fix it.
+
+## Step 2 — Storefront autocomplete (English)
 
 Noon's storefront search has live autocomplete reflecting *actual
 recent searches by buyers in this country*. This is the gold-
@@ -50,7 +120,7 @@ Workflow:
 Manual campaign — Manual Targeting allows dozens of keywords but
 each one dilutes budget attention.
 
-## Step 2 — Storefront autocomplete (local language)
+## Step 3 — Storefront autocomplete (local language)
 
 In any marketplace whose buyers don't search primarily in English,
 **a substantial fraction of buyers search in the local language**
@@ -80,14 +150,14 @@ Validate each local-language candidate the same way as English:
 type into search, see if results match your category, record only
 if so.
 
-## Step 3 — Peer-listing reading
+## Step 4 — Peer-listing reading
 
 With a candidate list in hand, do a final filter pass against
 peer listings on noon (same category, same buyer intent, *that
 are selling well*).
 
 Workflow:
-1. Search a top-volume buyer term (from Step 1/2) on the storefront.
+1. Search a top-volume buyer term (from Steps 1–3) on the storefront.
 2. Open 3–5 of the top results that have visible review counts
    ≥50 (these are *selling*, not just listed).
 3. Read each peer's title carefully. Extract:
@@ -103,7 +173,7 @@ This catches false positives from your own seller-side bias.
 but if every selling peer says "soft" or "breathable" instead,
 the buyer doesn't search "cotton" — they search the use-case.
 
-## Step 4 — Cross-check against your existing campaigns
+## Step 5 — Cross-check against your existing campaigns
 
 Before adding a keyword to a NEW manual campaign, check whether
 it's already running in any of your existing campaigns:
@@ -124,7 +194,7 @@ auction inventory to noon. Always:
 - **Only in seller-suggested lists, not in any active campaign**:
   safe to add.
 
-## Step 5 — Build the negative list (in parallel)
+## Step 6 — Build the negative list (in parallel)
 
 While doing buyer-side keyword research, log everything that's
 *close to your category but wrong*:
@@ -139,7 +209,7 @@ While doing buyer-side keyword research, log everything that's
 Negatives are as important as positives. Every wasted Click on a
 wrong query is real money you could have spent on a relevant one.
 
-## Step 6 — Match-type assignment
+## Step 7 — Match-type assignment
 
 For each validated keyword:
 
