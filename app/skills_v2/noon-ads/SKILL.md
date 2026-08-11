@@ -824,6 +824,40 @@ dynamic-bid noise.
 - **Auto Targeting** (default): noon matches ads automatically.
 - **Manual Targeting**: pick keywords / categories / products.
 
+> **Negative Targeting is available under Auto too** (§ 4 renders with
+> Auto selected). This is the only lever you get on an Auto campaign —
+> use it. Observed live: an Auto campaign matched a store's socks
+> listing to unrelated categories (`beauty/…`, `luggage-and-bags/…`) and
+> to opposite-audience queries that drew clicks and **zero** orders.
+> Seed the negative list at creation rather than waiting to harvest.
+
+### Categories tab — use the search box, not the tree
+
+The `Categories` tab renders a top-level category tree with a `Refine`
+control per row. **`Refine` does not expand** via `click_at_xy` or JS
+`.click()` in the current build — do not burn time on it.
+
+Instead use the tab's **`Search by Category name`** input: typing a
+product word returns matching categories at every depth, each as a full
+path plus its display name, e.g.
+
+```
+fashion/<gender>/clothing/<mid-category>            Mid Category
+fashion/<gender>/clothing/<mid-category>/<leaf>     Leaf Category
+```
+
+Each result row carries its own add control — **`img[alt="addButton"]`**
+(note: NOT `alt="add"`, which is the *product* picker's control; the two
+tabs use different alt text). Once added, the category appears in the
+selected-target table with its own editable bid, and the Targets tab
+(§ 4) shows it as `<path> Category Match`.
+
+> **Depth is the decision, and it is not obvious.** A bare top-level
+> category (`fashion/<gender>`) is the whole department; the leaf is a
+> single product type. Both are one click apart in this list. Pick
+> deliberately and record which depth you chose, because performance
+> between depths is not comparable.
+
 > **ant radios ignore `click_at_xy`.** Both the strategy and targeting
 > groups are ant-design radios whose real `<input>` is visually
 > replaced; coordinate clicks land on the skin and silently do

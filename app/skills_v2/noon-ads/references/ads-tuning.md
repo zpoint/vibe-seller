@@ -246,6 +246,37 @@ on a bare noun creates.
 > tuning — its own SQP / Customer Queries / SOI — before adopting.
 > If the two disagree, the target store's data wins.
 
+## Category (Subcat) targets — check the AD TYPE before citing one
+
+Category targets show on the Targets tab as `<path> Category Match`.
+Before drawing a lesson from one — especially a cross-campaign or
+cross-store one — record **which ad type it ran on**.
+
+Observed across two stores sharing an account: every campaign carrying
+category targets was a **Brand Ad**. Aggregated across one store's
+Brand Ads the category legs looked excellent; the same store's *other*
+Brand Ad had a category leg that produced clicks and almost no orders.
+Neither store had ever put a category target on a **Product Ad**, so
+"category targeting works here" was not established for Product Ads at
+all — the UI permits it (Manual Targeting → Categories, § 8), it simply
+had no track record.
+
+Two traps this closes:
+
+1. **Do not aggregate category performance across ad types.** Brand and
+   Product ads buy different placements; a Brand-Ad category ROAS is not
+   a forecast for a Product-Ad category target.
+2. **Do not aggregate across campaigns of wildly different health.** One
+   store's category numbers were dominated by a single failing Brand Ad,
+   making category targeting look worthless store-wide; split by campaign
+   and the picture reversed.
+
+When you do propose one, state the **depth** explicitly — a top-level
+department and a leaf product type are one click apart in the picker
+(§ 8) and are not comparable. Start with a low bid relative to the
+campaign's keyword bids so the category cannot drain the keyword budget
+before you can read it.
+
 ## Notes
 
 - **Cover every active campaign — no silent skipping.** Every
