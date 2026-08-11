@@ -189,6 +189,35 @@ like `STR{project_id}-N{CC}` reuses the same numeric value with
 `STR` prefix and country suffix. Direct URL navigation works for
 most pages; sidebar only for Support/Help.
 
+> ⚠️ **Two different country mechanisms — do not assume one from the
+> other.** Portals whose path carries `/en-{cc}/` (Ad Manager, FBN) are
+> country-scoped **by URL**: navigate and you are in that country.
+> Portals whose path is only `/en/` (**My Catalog, Imports, Exports,
+> Sales, Transaction View, Vantage**) are scoped by a **sidebar store
+> switcher** that persists across sessions — the URL is identical for
+> every country, so a page can silently show a DIFFERENT market than the
+> one you were just working in.
+>
+> **Read the flag before trusting any `/en/` page**, and say which
+> country the data is from when you report it:
+> ```bash
+> browser-use <<'PY'
+> print(js("""var f=document.querySelector('.ns-side-nav__store-flag');
+>   return f ? getComputedStyle(f).backgroundImage : 'no switcher';"""))
+> # → url("…/images/flags/<cc>.svg")
+> PY
+> ```
+> To switch, click the `.ns-store-list__item` whose `[class*=item-flag]`
+> background-image ends in the target `<cc>.svg` — the entries can share
+> an identical store NAME across countries, so match on the flag, never
+> on the label.
+>
+> Live failure this prevents: a whole-catalogue stock/live-status audit
+> was read off this page while the switcher sat on a neighbouring
+> market, and the resulting "these SKUs have stock but no ads" list was
+> used to plan campaigns in the *other* country. Nothing in the URL,
+> the page title, or the project id revealed the mismatch.
+
 | Page | URL |
 |------|-----|
 | Create listing | `noon-catalog.noon.partners/en/catalog/create` |
