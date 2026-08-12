@@ -41,6 +41,9 @@ start-windows.bat
 # Brainstorming artifacts
 docs/superpowers/
 
+# Personal career/resume materials (keep out of the public fork)
+resume/
+
 # IDE
 .vscode/
 .idea/
