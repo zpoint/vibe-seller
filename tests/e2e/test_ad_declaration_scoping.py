@@ -16,6 +16,9 @@ The journey mirrors the one that produced the design:
 the console's own access log: the excluded campaign's detail page must
 never be fetched. That is ground truth — a report can claim restraint it
 did not exercise, but the server records what it was actually asked for.
+An access-log assertion only carries meaning if the request *entails* the
+fetch, so both tests ask for keyword bids, which exist nowhere but on a
+campaign's own page. ``tests/unit/test_fake_ads_console.py`` pins that.
 
 The ``vibe_seller_declare_ad_task`` call is checked only *if the agent
 made one*, because the design does not promise one here. The declaration
@@ -247,14 +250,31 @@ class TestAnUnscopedRequestStaysWide:
     ):
         ts = int(time.time())
         store = create_store(api_client, f'e2e-adwide-{ts}')
+        # Ask for what only the campaign PAGES hold. The assertion below
+        # is the console access log — "was each campaign's detail page
+        # opened?" — so the request has to be one that cannot be answered
+        # without opening them, or the test measures browsing habits
+        # instead of scope.
+        #
+        # It did, once. "Look at every campaign and give me bid
+        # recommendations" is answerable straight off /campaigns, which
+        # already carries per-campaign spend/revenue/orders/ROAS. Opening
+        # a campaign was then optional work, and whether the agent
+        # bothered was a coin flip: the same model passed one CI run and
+        # failed the next, both times having read BOTH campaigns off the
+        # list — never the subset-clip this test exists to catch. Bids
+        # live ONLY in each campaign's keyword table, so asking for them
+        # makes the click load-bearing, exactly as the scoped test above
+        # does with its one campaign. Keep it that way: if you reword
+        # this, check the new wording is unanswerable from the list.
         task = create_task(
             api_client,
             'Review all our ad campaigns and tell me what to change',
             store_id=store['id'],
             description=(
                 f'Our ad console is at {ads_console.base} — open it with '
-                'the browser-use CLI, look at every campaign, and give me '
-                'bid recommendations.'
+                'the browser-use CLI, go through every campaign, and give '
+                'me a keyword-by-keyword bid recommendation for each one.'
             ),
         )
         # An unscoped audit is inherently the slower job — it drills

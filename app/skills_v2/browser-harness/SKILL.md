@@ -9,7 +9,8 @@ allowed-tools: Bash(browser-use:*)
      from upstream, re-apply: (1) the Store/No-store task banners, (2) the
      wrapper env-injection contract (BU_NAME/BU_CDP_WS auto-injected, agent
      overrides blocked), (3) removal of cloud/remote-daemon and local-profile
-     sections we don't use, (4) the "js() does NOT parse JSON" bullet.
+     sections we don't use, (4) the "js() does NOT parse JSON" bullet,
+     (5) the "a screenshot is not a data source" rule.
      See docs/browser-use-0.13-migration.md. -->
 
 > **browser-use 0.13 changed everything.** There are **no subcommands**. You
@@ -96,6 +97,21 @@ start of the next invocation instead of assuming where you left off.
    overwritten each call); `print()` it and **Read that PNG** to view it.
    Use it only to disambiguate a crowded layout — never *depend* on it. If
    your model can't view images, skip screenshots entirely and use step 2.
+
+   **A screenshot is not a data source.** Never take a value you will act
+   on or report — an ID, a number, a row, a column that exists, a count —
+   from an image. Read it from the DOM with `js(...)`. A screenshot
+   answers "where is it on screen", nothing else.
+
+   This is not caution about edge cases; it is the observed default. On
+   a page holding exactly two rows, models on two different providers
+   each described a table that did not exist — invented columns
+   (`ACOS`, `CPC`, `Bid`), invented campaigns, invented statuses — then
+   spent a dozen turns hunting for the data they had "seen", and one
+   named a nonexistent campaign in its final report to the user. Nothing
+   was wrong with the PNG. **When the DOM and the picture disagree, the
+   DOM is right and the picture is a hallucination** — do not go looking
+   for the difference, and never reconcile by trusting the image.
 4. **Interact**: get an element's centre coords from step 2, then
    `click_at_xy(x, y)`; set input values with `js(...)`. Re-read with
    `page_info()` / `js(...)` after to confirm.
@@ -109,7 +125,7 @@ Helpers are pre-imported into the heredoc namespace:
 ```python
 new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
-capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/shot.png); Read it to VIEW
+capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/shot.png); LAYOUT only, never data
 click_at_xy(x, y)  # click at pixel coordinates
 wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
@@ -182,6 +198,15 @@ els = js("""
 print(els)          # pick the one whose text matches, then click_at_xy(it.x, it.y)
 PY
 ```
+
+**A plain `<a href>` is a navigation, not a click.** Read the href and
+`new_tab(href)`. Clicking one means landing inside the *anchor's* own
+rect, and an anchor is usually a small target inside a much larger
+parent: the centre of the table row or cell holding it is typically not
+on the anchor at all, so `click_at_xy` hits dead space and silently does
+nothing — no error, no navigation, and `page_info()` still shows the old
+page. Reserve clicking for controls that have no href (buttons, `kat-*`,
+JS handlers).
 
 ### A control BELOW the fold that won't scroll into view
 
