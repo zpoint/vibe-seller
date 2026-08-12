@@ -169,6 +169,19 @@ def write_browser_use_wrapper(
     # the sibling path resolves the same after an in-place upgrade.
     daemon_bin = Path(sys.executable).parent
     candidate = daemon_bin / 'browser-use'
+    if not candidate.is_file():
+        # Windows installs console shims as ``browser-use.exe`` (there is
+        # no bare ``browser-use`` sibling), and a cmd/bat-launched server
+        # may not have the venv bin on PATH, so ``shutil.which`` misses it
+        # too. Scan for the PATHEXT shim next to the daemon interpreter
+        # explicitly before falling back to a PATH lookup — a bare-string
+        # fallback would re-resolve through the agent PATH (wrapper dir
+        # first) and recurse into itself.
+        for _ext in ('', '.exe', '.cmd', '.bat'):
+            _trial = daemon_bin / f'browser-use{_ext}'
+            if _trial.is_file():
+                candidate = _trial
+                break
     real_bu = (
         str(candidate) if candidate.is_file() else shutil.which('browser-use')
     )

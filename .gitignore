@@ -21,6 +21,7 @@ data/
 server.log
 logs/
 logs_*/
+logs_*.txt
 
 # Playwright MCP
 .playwright-mcp/
@@ -33,6 +34,9 @@ logs_*/
 
 # Lock files
 uv.lock
+
+# Windows local launcher (contains the DeepSeek API key — never commit)
+start-windows.bat
 
 # Brainstorming artifacts
 docs/superpowers/

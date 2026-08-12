@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 
 from sqlalchemy import func, select
@@ -20,7 +21,7 @@ from app.env_options import Options
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-from app.platform import prepend_to_path, venv_bin_dir
+from app.platform import IS_WINDOWS, prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,22 @@ def resolve_claude_binary() -> str:
     2.1.154+ shipped a request-body change that strict Anthropic-
     compatible providers reject with HTTP 400).
     """
+    if IS_WINDOWS:
+        # npm on Windows installs shims as ``claude.cmd`` (plus a bare
+        # ``claude`` POSIX shell script). Python's CreateProcess cannot
+        # execute a bare-name shell script, so the resolved binary MUST
+        # be the ``.cmd`` shim (or a full path to it). Prefer the
+        # project-local install, then the global npm shim.
+        for cand in (
+            VIBE_SELLER_DIR / 'node_modules' / '.bin' / 'claude.cmd',
+            VIBE_SELLER_DIR / 'node_modules' / '.bin' / 'claude',
+        ):
+            if cand.is_file():
+                return str(cand)
+        found = shutil.which('claude.cmd') or shutil.which('claude')
+        if found:
+            return found
+        return 'claude'
     local = VIBE_SELLER_DIR / 'node_modules' / '.bin' / 'claude'
     if local.is_file() and os.access(local, os.X_OK):
         return str(local)
