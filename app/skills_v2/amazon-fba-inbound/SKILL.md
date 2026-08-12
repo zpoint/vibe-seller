@@ -50,6 +50,33 @@ is worth knowing before you look for one:
 - the old v0 partnered flow (`/shipments/{id}/transport`) answers
   `400 This API is deprecated`
 
+### The trap: the SEND partners *are* in the option list
+
+The carriers Amazon names as its SEND partners **do** come back from
+`listTransportationOptions`, by `carrier.alphaCode`. Picking one does
+**not** book a SEND shipment — it books that company as a carrier *you*
+arranged. Same haulier, different product, and the difference is
+everything: no Amazon-arranged freight, no Amazon-issued tracking, no
+partnered price, and the shipment then waits on you for pallet or
+tracking details.
+
+Verified end to end on a live account: confirming a SEND partner's
+`USE_YOUR_OWN_CARRIER` option produced a shipment with
+`freightInformation: null`, no quote, and Amazon's own auto-name
+**`FBA STA …`** — while every genuine SEND shipment on that same account
+is named **`FBA SEA …`**. Amazon distinguishes the two products in the
+name it gives them.
+
+**Litmus test, if you are ever unsure which one you have:** call
+`getInboundPlan` on the plan. A SEND plan is refused by name; an
+ordinary one reads back. It also tells you *when* the difference is
+decided — the plan is one kind or the other from creation, so no choice
+at the transport step converts it.
+
+So: if the task wants SEND, use the portal. If it wants one of those
+carriers as your own forwarder, the API is fine — just don't confuse the
+two, and say in your report which one you booked.
+
 Amazon has confirmed the same gap for the sibling AGL programme
 (`amzn/selling-partner-api-models` issue 4419: *"We don't support Amazon
 Global Logistics Program via the new FBA Inbound v2024 APIs as of
