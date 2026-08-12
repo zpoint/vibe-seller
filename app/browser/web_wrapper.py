@@ -77,6 +77,16 @@ def write_web_browser_use_wrapper(
     # point, so this path resolves the same after an in-place upgrade.
     daemon_bin = Path(sys.executable).parent
     candidate = daemon_bin / 'browser-use'
+    if not candidate.is_file():
+        # Windows shims are ``browser-use.exe`` (no bare sibling) and a
+        # cmd/bat-launched server may lack the venv bin on PATH, so
+        # ``shutil.which`` misses it — same recursion-into-self hazard as
+        # write_browser_use_wrapper. Scan the daemon dir explicitly.
+        for _ext in ('', '.exe', '.cmd', '.bat'):
+            _trial = daemon_bin / f'browser-use{_ext}'
+            if _trial.is_file():
+                candidate = _trial
+                break
     real_bu = (
         str(candidate) if candidate.is_file() else shutil.which('browser-use')
     )

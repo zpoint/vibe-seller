@@ -36,6 +36,7 @@ from app.routers.tasks_files import (
     resolve_audit_deliverable,
     resolve_workspace_result_path,
 )
+from app.text_utils import sanitize_text
 
 
 class SetTaskResultRequest(BaseModel):

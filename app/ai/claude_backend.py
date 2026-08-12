@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+import tempfile
 import time
 import uuid
 
@@ -68,6 +69,13 @@ from app.workspace.manager import (
 )
 
 logger = logging.getLogger(__name__)
+
+# System prompts longer than this are passed to claude via
+# ``--append-system-prompt-file`` instead of inline. Inline is fine below
+# the threshold but risks blowing past a platform command-line limit
+# (Windows ``cmd.exe`` 8191 chars; Linux 128KB per argv) once the prompt
+# grows — the app's store-context system prompt routinely runs 10-20KB.
+INLINE_SYSTEM_PROMPT_LIMIT = 6000
 
 
 class AgentSession(
@@ -325,7 +333,42 @@ class AgentSession(
                 )
 
             if system_prompt.strip():
-                cmd.extend(['--append-system-prompt', system_prompt])
+                if len(system_prompt) > INLINE_SYSTEM_PROMPT_LIMIT:
+                    # Long system prompts can exceed the platform's
+                    # command-line length limit. On Windows the npm
+                    # ``.cmd`` shim is spawned through ``cmd.exe``,
+                    # which caps the whole command line at 8191 chars —
+                    # a 17KB design_system.md made the agent die
+                    # instantly with ``命令行太长`` ("The command line is
+                    # too long"). Passing the prompt via file instead
+                    # sidesteps the limit on every platform, not just
+                    # Windows: Linux caps a single argv at 128KB, so a
+                    # very large prompt would break there too. The file
+                    # is written to a task-scoped temp path and read
+                    # once by claude at startup.
+                    sp_file = (
+                        Path(tempfile.gettempdir())
+                        / f'vibe-seller-sp-{self.task_id[:8]}.md'
+                    )
+                    try:
+                        sp_file.write_text(
+                            system_prompt, encoding='utf-8'
+                        )
+                    except OSError as e:
+                        logger.warning(
+                            'Could not write system prompt file %s: %s',
+                            sp_file,
+                            e,
+                        )
+                    else:
+                        cmd.extend(
+                            [
+                                '--append-system-prompt-file',
+                                str(sp_file),
+                            ]
+                        )
+                if '--append-system-prompt-file' not in cmd:
+                    cmd.extend(['--append-system-prompt', system_prompt])
 
         # Prepare env
         env = ProfileManager.get_env_for_profile(self.profile_id)
