@@ -447,19 +447,117 @@ The modal "Your changes have been saved" with a green check confirms success.
 
 ### 3.2 Offer Tab — Barcode
 
-Labeled "Common across marketplaces". Multiple barcodes can be added.
+Labeled "Common across marketplaces". Multiple barcodes can be added;
+each added barcode shows as a removable chip.
+
+> **The barcode is the Amazon FNSKU — NOT the ASIN.** The value the
+> seller wants here is the code printed on the FBA label, shape `X00` +
+> 7 chars (10 total, digits + caps), e.g. `X00EXAMPL1`. An **ASIN**
+> (`B0…`, e.g. `B0EXAMPLE1`) is a *different identifier* and is the
+> wrong value — the physical unit in the warehouse carries the FNSKU,
+> so a scan against an ASIN never matches. Do not infer the value from
+> the field's shape ("10 chars, caps+digits" fits both); read it from
+> an FNSKU source below.
+
+**Where to get the FNSKU** (per Amazon marketplace, per seller-SKU):
+
+| Source | How |
+|---|---|
+| Manage FBA Inventory report (best — all SKUs at once) | `sellercentral.amazon.{tld}/reportcentral/FBA_MYI_UNSUPPRESSED_INVENTORY/1` → Download the newest row. TSV columns `sku`, `fnsku`, `asin`. Amazon regenerates it daily, so a fresh row is usually already there — no request/wait needed. |
+| Amazon Fulfilled Inventory report | `/reportcentral/AFNInventoryReport/1` — same `fnsku` column, but only SKUs with stock. |
+| FBA Inventory UI | per-SKU `FNSKU` column, one SKU at a time. |
+
+The noon PSKU and the Amazon seller-SKU are normally the **same
+string** for a store that lists the same catalogue on both platforms,
+so joining the two is a plain SKU-to-SKU match. Verify that assumption
+on one known-good SKU before trusting it across the batch — compare a
+**Live** noon SKU that already has a barcode against the report.
+
+> **Amazon SA and AE issue DIFFERENT FNSKUs for the same SKU, and noon
+> wants BOTH on the one SKU.** noon's barcode field is "Common across
+> marketplaces" — it does not split by country — while Amazon mints a
+> per-marketplace FNSKU. So pull the report from **each** Amazon
+> marketplace the store sells on and add every FNSKU for that SKU as a
+> separate chip. A noon SKU carrying only one barcode when the store
+> has two Amazon marketplaces is an incomplete job, not a finished one.
+>
+> To get the second marketplace's report, **switch marketplace via the
+> account switcher — do not browse to the other country's domain**, which
+> presents a fresh sign-in pre-filled with the wrong account and reads as
+> "separate account, no credentials". See `amazon-shared` § 1. Only if the
+> switcher genuinely lacks that marketplace is it unreachable; then fill
+> what you can and report the gap explicitly rather than silently
+> shipping half.
+
+**The card is `div#barcode-card`.** Its input has **no `name` and no
+`placeholder`** — a `input[placeholder*='Barcode']` selector matches
+nothing and silently does nothing. Scope to the card instead, and tag the
+input so `fill_input` has a stable selector:
 
 ```bash
 browser-use <<'PY'
-fill_input("input[placeholder*='Barcode']", "TEST1234567890")   # "Enter Barcode" input
-# "Add Barcode" button becomes enabled — click it by text:
-js("Array.from(document.querySelectorAll('button')).find(b=>/add barcode/i.test(b.textContent))?.click()")
-# Barcode appears as a blue chip; input clears
+import time
+# The card sits ~y=1500 on a 839px-tall viewport. Grow the viewport for
+# headroom rather than clicking near the bottom edge (see browser-harness
+# "A control BELOW the fold").
+cdp("Emulation.setDeviceMetricsOverride", width=1920, height=1600,
+    deviceScaleFactor=1, mobile=False)
+js("document.getElementById('barcode-card').scrollIntoView({block:'center'})")
+
+def add_one(code):
+    js("var c=document.getElementById('barcode-card');"
+       "c.querySelector('input').setAttribute('data-bc','1');")
+    fill_input('#barcode-card input[data-bc="1"]', code)   # enables the button
+    box = js("""
+      var c=document.getElementById('barcode-card');
+      var b=[].slice.call(c.querySelectorAll('button'))
+              .find(function(x){return /add barcode/i.test(x.innerText||'');});
+      var r=b.getBoundingClientRect();
+      return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+    """)
+    click_at_xy(box["x"], box["y"])
+    # WAIT for the chip to appear before doing ANYTHING else (see below).
+    for _ in range(20):
+        chips = js("var c=document.getElementById('barcode-card');"
+                   "return c ? [].slice.call(c.querySelectorAll('.ant-tag-blue'))"
+                   ".map(function(e){return e.innerText.trim();}) : null;")
+        if chips and code in chips:
+            return chips
+        time.sleep(3)
+    raise SystemExit("barcode %s never committed" % code)
+
+add_one("X00EXAMPL1")      # SA FNSKU
+add_one("X00EXAMPL2")      # AE FNSKU — only after the first chip is visible
 PY
 ```
 
-Each added barcode shows as a removable chip (Amazon-ASIN-style
-strings like `XNNNXXXNNN` are typical — 10 chars, digits + caps).
+> **"Add Barcode" AUTO-SAVES, and the card re-renders — this is the trap
+> that silently loses barcodes.** There is **no** Save Changes step for a
+> barcode: each add fires its own save (toast: *"All changes have been
+> saved successfully"*) and **unmounts and remounts `#barcode-card`**.
+> Two consequences, both of which look like "the barcode didn't stick":
+>
+> 1. **Reading right after the click returns an EMPTY card** — you are
+>    reading mid-render. That is not a failed add. Poll until the chip
+>    appears (above) instead of concluding failure and retrying.
+> 2. **Adding the second barcode too soon is silently dropped** — the
+>    click lands while the previous auto-save is in flight; the input
+>    clears and the button disables, so it *looks* accepted, but the code
+>    never joins the list and no error is shown. Always confirm chip *n*
+>    is present before typing chip *n+1*.
+>
+> Chips carry class `.ant-tag-blue` (the card header's "Common across
+> marketplaces" label is a plain `.ant-tag` — don't count it).
+
+Then **reload the detail page** and confirm the chips are still there.
+That reload is the only real proof; a toast is not.
+
+> **`fill_input` APPENDS to a non-empty field.** It types via key
+> events without clearing, so a second `fill_input` on the same box
+> yields `oldvalue||newvalue`. Clear first — click the field's native
+> clear (✕) control, or use the native-setter route — before typing a
+> replacement. This bites hardest on reused boxes (the catalog search
+> box, date inputs); see also `noon-exports` § date-range inputs.
 
 ### 3.3 Offer Tab — Stock
 

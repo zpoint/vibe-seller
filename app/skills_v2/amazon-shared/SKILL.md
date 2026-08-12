@@ -37,6 +37,34 @@ byte-identical across the marketplaces' subdomains (account-level). Stranded Inv
 a specific listing, always specify which marketplace; "the inventory
 for store X" is ambiguous.
 
+> **To reach another marketplace, SWITCH the account — do not navigate to
+> that marketplace's domain.** Hitting `sellercentral.amazon.{other-tld}`
+> directly lands on a *fresh* `/ap/signin` that Ziniao pre-fills with the
+> **current** marketplace's email. That looks exactly like "this is a
+> separate account I have no credentials for", and signing in anyway
+> would authenticate the wrong account. Instead:
+>
+> ```
+> https://sellercentral.amazon.{current-tld}/account-switcher/default/merchantMarketplace
+> ```
+>
+> Entries read `<Country>` when available and `<Country> (pending
+> registration)` when not — only the former can be selected. Selection is
+> two steps: click the country row (it ticks), **then** the "Select
+> account" button that appears; a single click looks like a no-op. Success
+> shows `?mons_sel_mkid=amzn1.mp.o.…` on the URL and the new country in
+> the header. Every subsequent page on the SAME domain then serves that
+> marketplace's data — so per-marketplace reports are pulled from the
+> original domain after switching, not from the other country's domain.
+>
+> **Confirm the switch changed the data, not just the chrome.** These
+> report pages cache aggressively; compare something content-bearing
+> (e.g. the newest report row's date differed — 09/08 on one marketplace
+> vs 10/08 on the other) or a row count, before trusting a second export.
+> A store's `notes.md` email-to-platform map can imply separate accounts
+> per marketplace when one unified account actually holds several — check
+> the switcher before concluding a marketplace is unreachable.
+
 ## 2. Sign-in flow (browser-side)
 
 The first hit per session typically redirects through Amazon sign-in

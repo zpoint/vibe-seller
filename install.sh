@@ -128,9 +128,11 @@ _warn()    { printf "%s[!]%s %s\n" "$_Y" "$_Z" "$*" >&2; }
 _error()   { printf "%s[error]%s %s\n" "$_R" "$_Z" "$*" >&2; }
 _check()   { command -v "$1" > /dev/null 2>&1; }
 
-# Canonical set of user-local bin dirs where our installers drop
-# binaries: uv → ~/.local/bin or ~/.cargo/bin; node/pnpm → the npm
-# prefix's bin. Prints a PATH value with these prepended.
+# Canonical set of bin dirs where our installers drop binaries:
+# uv → ~/.local/bin or ~/.cargo/bin; node/pnpm → Homebrew's bin on
+# macOS (`install_node` runs `brew install node`, and pnpm then lands in
+# that node's npm prefix) or the npm prefix's bin elsewhere. Prints a
+# PATH value with these prepended.
 #
 # SINGLE SOURCE OF TRUTH: main()'s dependency checks AND start.sh (via
 # `install.sh --print-path`) prepend the *same* dirs. Without this, a
@@ -138,12 +140,38 @@ _check()   { command -v "$1" > /dev/null 2>&1; }
 # where they are used — install.sh finds uv only because it bootstraps
 # this PATH internally, and that export dies with the subprocess, so a
 # login shell (or start.sh) that lacks ~/.local/bin can't run uv.
+#
+# Homebrew's bin is load-bearing, not belt-and-braces. A non-interactive
+# `ssh host './restart.sh'` gets a minimal PATH with no /opt/homebrew/bin,
+# so on the project's own documented macOS deployment target the check
+# reported uv/node/pnpm "missing" while the server was at that moment
+# running under /opt/homebrew/bin/uv. restart.sh stops before start.sh
+# checks, so that false negative took the service DOWN and left it down.
+# Resolve it from `brew` when available (honours a custom prefix) and
+# fall back to the two canonical locations: /opt/homebrew (Apple
+# Silicon) and /usr/local (Intel).
 _compute_bootstrap_path() {
     local p="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+    # Homebrew bin dirs first — see the note above. `brew --prefix` is
+    # only consulted if brew already resolves; a bare command
+    # substitution of a missing command exits 127, which `2>/dev/null`
+    # silences but does NOT neutralize under `set -e`.
+    local brew_bins=() brew_prefix=''
+    if command -v brew >/dev/null 2>&1; then
+        brew_prefix="$(brew --prefix 2>/dev/null || true)"
+        [[ -n "$brew_prefix" ]] && brew_bins+=("$brew_prefix/bin")
+    fi
+    brew_bins+=(/opt/homebrew/bin /usr/local/bin)
+    local d
+    for d in "${brew_bins[@]}"; do
+        if [[ -d "$d" && ":$p:" != *":$d:"* ]]; then
+            p="$d:$p"
+        fi
+    done
+
     # Only probe npm's prefix if npm resolves under the augmented PATH.
-    # A command substitution of a missing command exits 127, which
-    # `2>/dev/null` silences but does NOT neutralize under `set -e`;
-    # guarding with the `if` keeps a missing npm a no-op.
+    # Same 127-under-`set -e` reasoning as above.
     local npm_bin=''
     if PATH="$p" command -v npm >/dev/null 2>&1; then
         npm_bin="$(PATH="$p" npm config get prefix 2>/dev/null || true)/bin"

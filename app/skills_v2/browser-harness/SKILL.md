@@ -9,7 +9,9 @@ allowed-tools: Bash(browser-use:*)
      from upstream, re-apply: (1) the Store/No-store task banners, (2) the
      wrapper env-injection contract (BU_NAME/BU_CDP_WS auto-injected, agent
      overrides blocked), (3) removal of cloud/remote-daemon and local-profile
-     sections we don't use. See docs/browser-use-0.13-migration.md. -->
+     sections we don't use, (4) the "js() does NOT parse JSON" bullet,
+     (5) the "a screenshot is not a data source" rule.
+     See docs/browser-use-0.13-migration.md. -->
 
 > **browser-use 0.13 changed everything.** There are **no subcommands**. You
 > no longer run `browser-use open <url>`. Instead you pipe Python helper code
@@ -52,6 +54,32 @@ The wrapper takes the heredoc form **only** — there is no `-c` flag
 browser-use --doctor    # verify installation / CDP connectivity
 ```
 
+## Budget every invocation: the wrapper kills it at 120 s
+
+The store wrapper runs the real `browser-use` under a **120-second
+alarm**, and a timeout is treated as evidence the *browser* is wedged:
+the wrapper bumps a strike counter, force-`--reload`s the daemon, and on
+the **second consecutive** timeout prints `UNRECOVERABLE`, exits 75, and
+tells you to stop retrying and report a gap. Any other outcome — even an
+ordinary Python error — resets the counter.
+
+**A slow-but-healthy call is indistinguishable from a wedged browser.**
+So a legitimately long heredoc does not merely get cut off: two of them
+in a row will convince the wrapper (and then you) that a perfectly good
+browser is dead, and the honest-reporting rule then makes you abandon
+real work. Keep each invocation comfortably under the limit:
+
+- **One unit of work per invocation** — one page, one SKU, one export.
+  Drive the loop from the **shell**, not inside the heredoc, and append
+  results to a file under `/tmp/<task>/` so progress survives.
+- **Count your polls.** A render-wait of `range(15)` with `sleep(3)` is
+  45 s on its own; two of those plus navigation overruns 120 s.
+- If you genuinely need a long single operation (a slow export), poll it
+  across **separate** invocations rather than sleeping inside one.
+
+A timeout also leaves the tab mid-operation, so re-read state at the
+start of the next invocation instead of assuming where you left off.
+
 ## Core Workflow
 
 1. **Navigate**: `new_tab(url)` — for the first page **and every later
@@ -69,6 +97,21 @@ browser-use --doctor    # verify installation / CDP connectivity
    overwritten each call); `print()` it and **Read that PNG** to view it.
    Use it only to disambiguate a crowded layout — never *depend* on it. If
    your model can't view images, skip screenshots entirely and use step 2.
+
+   **A screenshot is not a data source.** Never take a value you will act
+   on or report — an ID, a number, a row, a column that exists, a count —
+   from an image. Read it from the DOM with `js(...)`. A screenshot
+   answers "where is it on screen", nothing else.
+
+   This is not caution about edge cases; it is the observed default. On
+   a page holding exactly two rows, models on two different providers
+   each described a table that did not exist — invented columns
+   (`ACOS`, `CPC`, `Bid`), invented campaigns, invented statuses — then
+   spent a dozen turns hunting for the data they had "seen", and one
+   named a nonexistent campaign in its final report to the user. Nothing
+   was wrong with the PNG. **When the DOM and the picture disagree, the
+   DOM is right and the picture is a hallucination** — do not go looking
+   for the difference, and never reconcile by trusting the image.
 4. **Interact**: get an element's centre coords from step 2, then
    `click_at_xy(x, y)`; set input values with `js(...)`. Re-read with
    `page_info()` / `js(...)` after to confirm.
@@ -82,7 +125,7 @@ Helpers are pre-imported into the heredoc namespace:
 ```python
 new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
-capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/shot.png); Read it to VIEW
+capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/shot.png); LAYOUT only, never data
 click_at_xy(x, y)  # click at pixel coordinates
 wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
@@ -99,6 +142,30 @@ cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
   `cdp('Runtime.evaluate', expression=..., returnByValue=False)` → `objectId`
   (note: `cdp()` params are **keyword args**, never a positional dict —
   see "Uploading a file").
+- **`js()` does NOT parse JSON — so do not `JSON.stringify` your result.**
+  The value comes straight from CDP `returnByValue`, so the JS type maps
+  to the Python type: `return [{a:1}]` gives you a **list of dicts**
+  already, while `return JSON.stringify([{a:1}])` gives you a **`str`**
+  that you must then `json.loads` yourself. Both directions bite:
+  stringifying and *not* parsing makes `for row in data` iterate
+  **characters**; not stringifying and *then* parsing raises
+  `TypeError: the JSON object must be str, bytes or bytearray, not list`.
+  Return the object directly and use it as-is. If you inherit code whose
+  shape you can't be sure of, normalise once rather than guessing:
+
+  ```python
+  import json          # stdlib modules: import them, don't rely on the namespace
+
+  def jsjson(expr):
+      d = js(expr)
+      return json.loads(d) if isinstance(d, str) else d
+  ```
+
+  Only the **helpers** above are guaranteed pre-imported. `json`, `time` and
+  friends do happen to be reachable in the heredoc namespace today (they leak
+  in through the harness's own `import *`), but that is an implementation
+  detail of the wheel, not a contract — one `__all__` upstream and it stops.
+  Import the stdlib you use.
 
 ## Locate & click an element WITHOUT vision (the preferred path)
 
@@ -131,6 +198,15 @@ els = js("""
 print(els)          # pick the one whose text matches, then click_at_xy(it.x, it.y)
 PY
 ```
+
+**A plain `<a href>` is a navigation, not a click.** Read the href and
+`new_tab(href)`. Clicking one means landing inside the *anchor's* own
+rect, and an anchor is usually a small target inside a much larger
+parent: the centre of the table row or cell holding it is typically not
+on the anchor at all, so `click_at_xy` hits dead space and silently does
+nothing — no error, no navigation, and `page_info()` still shows the old
+page. Reserve clicking for controls that have no href (buttons, `kat-*`,
+JS handlers).
 
 ### A control BELOW the fold that won't scroll into view
 
