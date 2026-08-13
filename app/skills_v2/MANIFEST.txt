@@ -34,6 +34,7 @@ amazon-invoice/SKILL.md
 amazon-invoice/generate_invoice.py
 amazon-invoice/requirements.txt
 amazon-reports/SKILL.md
+amazon-fba-inbound/SKILL.md
 review-collect/SKILL.md
 review-collect/references/output-spec.md
 review-collect/references/collect-quickref.md
