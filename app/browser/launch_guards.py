@@ -15,6 +15,7 @@ manager is already at the repo's file-size ceiling.
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import time
 
@@ -101,3 +102,111 @@ async def start_backend_bounded(backend, browser_config: dict, store_name: str):
             f'failed to start; other stores are unaffected. Retry the '
             f'task — if it persists, restart Ziniao (Settings → Ziniao).'
         ) from None
+
+
+class BrowserBusyError(RuntimeError):
+    """The global launch lock could not be taken in time.
+
+    Distinct from a launch *failure*: nothing about this store is known
+    to be wrong, and retrying is the right response — which is why the
+    routes map it to 503 rather than 500.
+    """
+
+
+class GlobalLaunchLock:
+    """The manager's global lock, with a ceiling on how long you wait.
+
+    ``BrowserManager`` serializes every launch on one lock so concurrent
+    starts cannot hammer the shared anti-detect client. The lock itself
+    was an ``asyncio.Lock``, so **a wedged holder made every later
+    caller wait for ever** — and an HTTP handler that waits for ever
+    sends no response at all. On 2026-08-24 that is exactly what a task
+    saw: ``POST /api/stores/{id}/browser/start?force=1`` with proxies
+    unset returned ``HTTP 000 (240.003041s)``, and the agent's only
+    possible reading was *"the infrastructure is broken"* — no status,
+    no message, nothing naming what to restart.
+
+    A hang is worse than a failure here. The task looks alive, its whole
+    budget drains, the wrapper's own 90 s curl gives up first, and no
+    retry can help because the next call queues behind the same holder.
+    So the wait is bounded and the refusal **names the holder and how
+    long it has been in there**, which is the one fact that separates
+    "somebody else is legitimately launching, try again" from "the
+    client is wedged, restart it".
+
+    Nothing is force-released. The holder may be inside Ziniao's own
+    client and interrupting it is how a half-built browser env is left
+    behind; ``start_backend_bounded`` is what stops a launch running
+    away, and this only stops *waiting* on one.
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._holder: str | None = None
+        self._since: float = 0.0
+
+    @property
+    def holder(self) -> str | None:
+        """What is inside the lock right now, or ``None``."""
+        return self._holder
+
+    def held_for(self) -> float:
+        """Seconds the current holder has been in, or ``0.0``."""
+        return time.monotonic() - self._since if self._holder else 0.0
+
+    def _busy_message(self, what: str, waited: float) -> str:
+        held = self.held_for()
+        holder = self._holder or 'an unnamed caller'
+        launch_cap = Options.BROWSER_START_TIMEOUT_S.get_float()
+        if launch_cap <= 0:
+            # A launch has no ceiling either, so there is no duration
+            # that would make this holder *late* — saying "within the 0s
+            # a launch may take" would read as the opposite of what 0
+            # means. Report the fact and stop short of a verdict.
+            verdict = (
+                f'It has been in there {held:.0f}s. Launches are '
+                f'unbounded here (VIBE_BROWSER_START_TIMEOUT_S=0), so '
+                f'nothing can say whether that is a launch in progress '
+                f'or a stuck holder — check Ziniao if it does not '
+                f'clear.'
+            )
+        elif held > launch_cap:
+            verdict = (
+                f'It has been in there {held:.0f}s, past the '
+                f'{launch_cap:.0f}s a launch may take, so it is stuck — '
+                f'restart Ziniao (Settings → Ziniao) rather than '
+                f'retrying.'
+            )
+        else:
+            verdict = (
+                f'It has been in there {held:.0f}s, within the '
+                f'{launch_cap:.0f}s a launch may take, so this is '
+                f'ordinary contention — retry shortly.'
+            )
+        return (
+            f'Browser subsystem busy: {what} waited {waited:.0f}s for '
+            f'the launch lock, which is held by {holder}. {verdict}'
+        )
+
+    @asynccontextmanager
+    async def hold(self, what: str):
+        """Take the lock, or raise :class:`BrowserBusyError` saying why not."""
+        timeout = Options.BROWSER_LOCK_WAIT_S.get_float()
+        started = time.monotonic()
+        if timeout <= 0:
+            await self._lock.acquire()
+        else:
+            try:
+                await asyncio.wait_for(self._lock.acquire(), timeout)
+            except TimeoutError:
+                msg = self._busy_message(what, time.monotonic() - started)
+                logger.warning('%s', msg)
+                raise BrowserBusyError(msg) from None
+        self._holder = what
+        self._since = time.monotonic()
+        try:
+            yield
+        finally:
+            self._holder = None
+            self._since = 0.0
+            self._lock.release()

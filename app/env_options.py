@@ -110,6 +110,17 @@ class Options(enum.Enum):
     # (0 = unbounded). See app/browser/manager.py.
     BROWSER_START_TIMEOUT_S = ('VIBE_BROWSER_START_TIMEOUT_S', '180')
 
+    # How long a caller may WAIT for the manager's global launch lock
+    # before being told the subsystem is busy. Without a ceiling here a
+    # wedged holder makes every later `POST /browser/start` hang with no
+    # response at all — the observed failure was a 240 s curl returning
+    # HTTP 000, which the agent can only read as "the machine is
+    # broken". Deliberately SHORTER than the wrapper's own 90 s curl so
+    # the caller gets a real 503 it can act on instead of a timeout, and
+    # shorter than BROWSER_START_TIMEOUT_S so a peer's legitimate launch
+    # is reported as "busy, retry" rather than waited out.
+    BROWSER_LOCK_WAIT_S = ('VIBE_BROWSER_LOCK_WAIT_S', '60')
+
     # Sync
     KNOWLEDGE_REPO_URL = ('KNOWLEDGE_REPO_URL', '')
     SKILLS_REPO_URL = ('SKILLS_REPO_URL', '')

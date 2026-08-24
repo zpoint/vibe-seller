@@ -185,8 +185,46 @@ Net effect: Ziniao's real concurrency is preserved, the unavoidable
 per-store flake is isolated to a retry (not an outage), and no store's
 recovery can ever tear down a peer.
 
+## Waiting on the global lock is bounded too (2026-08-24)
+
+The lock above is what makes one store's launch everyone's business, and
+`start_backend_bounded` caps how long a launch may *run*. It did not cap how
+long a peer may **wait**, and an `asyncio.Lock` waits for ever.
+
+So a wedged holder stopped being a slow launch and became a **hang**:
+
+```
+POST /api/stores/{id}/browser/start?force=1      (proxies unset)
+  → HTTP 000 (240.003041s)
+```
+
+No status, no body, nothing naming what to restart. The agent's own reading was
+*"the infrastructure is broken"* — which is all `HTTP 000` can mean — and no
+retry could help, because the next call queued behind the same holder. A hang is
+worse than a failure here: the task looks alive, its budget drains, and the
+wrapper's own 90 s curl gives up before the server has said anything at all.
+
+`GlobalLaunchLock` (`app/browser/launch_guards.py`) bounds the **wait**:
+
+- `VIBE_BROWSER_LOCK_WAIT_S`, default **60 s** — deliberately shorter than the
+  wrapper's 90 s curl, so the caller gets a real response, and shorter than
+  `VIBE_BROWSER_START_TIMEOUT_S` (180 s), so a peer's legitimate launch is
+  reported rather than waited out.
+- The refusal **names the holder and how long it has been in there**, which is
+  the one fact that separates *"somebody is launching, retry shortly"* from
+  *"held past the launch cap — restart Ziniao"*.
+- Routes map it to **503, not 500**: nothing is known to be wrong with this
+  store.
+- **Nothing is force-released.** The holder may be inside Ziniao's client, and
+  interrupting it is how a half-built env is left behind. This bounds waiting,
+  not the work.
+- `0` disables the ceiling, for an operator who wants the old behaviour back.
+
 ## Tests
 
+- **CI-safe unit** (`tests/unit/test_browser/test_launch_lock.py`): a wedged
+  holder is refused rather than waited out, the lock survives the refusal, and
+  the message distinguishes contention from a stuck holder.
 - **CI-safe unit** (`tests/unit/test_browser/test_ziniao_per_store_recovery.py`):
   mocks the Ziniao API, forces stale launches, and asserts recovery is
   per-store `stopBrowser` + retry with **no** `force_kill_ziniao` /
