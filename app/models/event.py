@@ -5,6 +5,7 @@ from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 
 
 class Event(Base):
@@ -21,15 +22,15 @@ class Event(Base):
         String, ForeignKey('stores.id'), nullable=True
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     event_date: Mapped[str | None] = mapped_column(String, nullable=True)
     deadline: Mapped[str | None] = mapped_column(String, nullable=True)
     platform: Mapped[str | None] = mapped_column(String, nullable=True)
-    source_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_text: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     status: Mapped[str] = mapped_column(String, nullable=False, default='draft')
     sync_backend: Mapped[str | None] = mapped_column(String, nullable=True)
     sync_id: Mapped[str | None] = mapped_column(String, nullable=True)
-    sync_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sync_error: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     # New tracking fields
     case_id: Mapped[str | None] = mapped_column(String, nullable=True)
     assignees: Mapped[str | None] = mapped_column(

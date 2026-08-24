@@ -31,6 +31,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `plugins.py` | Plugin framework (IoC registry) — core reads gates/guards/backends/skills/services from here instead of hardcoding them. See [Plugin Framework](#plugin-framework). |
 | `builtin_plugin.py` | The OSS "builtin plugin" — registers every core contribution through the plugin API. |
 | `utils/` | Shared utilities (crypto, etc.) |
+| `text_utils.py` | Surrogate-safe text: `SafeStr` (request fields), `SafeText` (DB columns), `sanitize_text` (file writes). Agent text can carry a lone surrogate that no UTF-8 encode accepts — see [Lone surrogates](#lone-surrogates-in-agent-text). |
 | `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`, `reap_task_agents`, `collect_agent_descendants`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
 
 ### Shutdown cleanup — reaping task agents
@@ -108,6 +109,33 @@ Request/response schemas in `app/schemas/`. Key conventions:
 - Schemas mirror model fields but handle JSON parsing (models store JSON as TEXT, schemas use native Python types)
 - Response schemas use `Config.from_attributes = True` for ORM → schema conversion
 - Request schemas only include user-provided fields (IDs and timestamps are auto-generated)
+- **Any field carrying agent- or user-authored prose is `SafeStr`, not `str`** — see below
+
+### Lone surrogates in agent text
+
+Claude's `stream-json` occasionally emits an unpaired surrogate
+(U+D800–U+DFFF). JSON escapes them losslessly, so the request body is
+valid on the wire and `json.loads` hands back a `str` that Python
+**cannot encode to UTF-8**. Everything downstream then dies with
+`surrogates not allowed`, and the agent sees an opaque tool error it
+cannot fix (the character is invisible in its own output), so it retries
+the same text.
+
+Two layers, because there are two ways in:
+
+| Layer | Covers |
+|---|---|
+| `SafeStr` on request fields | Everything a request touches — including consumers that are *not* writes: the result gates hand the text to a language detector (a Rust extension) that encodes to UTF-8, so a submission crashed **before** any persistence |
+| `SafeText` on DB columns | Text that never passed through a request body — the stream reader persisting `task_messages`, plan text, internally assembled prose |
+
+File writes are sanitized inside the managers that own them
+(`workspace/manager.py`, `workspace/skills_manager.py`).
+
+Composing `SafeStr` with `StringConstraints` has one trap:
+`Annotated[SafeStr, StringConstraints(...)]` silently **drops** the
+constraint. Wrap the constrained type instead —
+`Annotated[Annotated[str, StringConstraints(...)], SANITIZE_SURROGATES]`
+(see `routers/tasks_schedule_state.py`).
 
 ## External Config Detection (`ai/external_config.py`)
 

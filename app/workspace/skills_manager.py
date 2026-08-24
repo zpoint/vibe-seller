@@ -19,6 +19,8 @@ import re
 import shutil
 import tempfile
 
+from app.text_utils import sanitize_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -98,7 +100,7 @@ class SkillsMixin:
         skill_dir.mkdir(parents=True, exist_ok=True)
         skill_md = skill_dir / 'SKILL.md'
         if content is not None:
-            skill_md.write_text(content, encoding='utf-8')
+            skill_md.write_text(sanitize_text(content), encoding='utf-8')
         else:
             default = f"""---
 name: {name}
@@ -226,7 +228,11 @@ description: {description}
         skill_dir = skills_dir / slug
         existed = skill_dir.is_dir()
         skill_dir.mkdir(parents=True, exist_ok=True)
-        (skill_dir / 'SKILL.md').write_text(skill_md, encoding='utf-8')
+        # Agent-authored text — sanitize at the encode. See
+        # ``app.text_utils``.
+        (skill_dir / 'SKILL.md').write_text(
+            sanitize_text(skill_md), encoding='utf-8'
+        )
         for rel, content in (files or {}).items():
             p = Path(rel)
             if (
@@ -238,7 +244,7 @@ description: {description}
                 raise ValueError(f'Invalid skill file path: {rel!r}')
             dest = skill_dir / p
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content, encoding='utf-8')
+            dest.write_text(sanitize_text(content), encoding='utf-8')
         lockfile = self._read_lockfile()
         now = datetime.now(UTC).isoformat()
         fm = self._parse_yaml_frontmatter(skill_md)

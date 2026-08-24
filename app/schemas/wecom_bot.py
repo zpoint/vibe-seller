@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict
 
+from app.text_utils import SafeStr
+
 
 class WeComBotCreate(BaseModel):
     name: str
@@ -41,11 +43,11 @@ class WeComBotSummary(BaseModel):
 
 
 class WeComBotTestRequest(BaseModel):
-    content: str | None = None
+    content: SafeStr | None = None
 
 
 class WeComBotSendRequest(BaseModel):
-    content: str
+    content: SafeStr
     msgtype: str = 'text'
 
 

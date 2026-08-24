@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 
 
 class EventActivity(Base):
@@ -25,8 +26,10 @@ class EventActivity(Base):
     action: Mapped[str] = mapped_column(
         String, nullable=False
     )  # created, status_changed, note_added, etc.
-    content: Mapped[str] = mapped_column(Text, nullable=False)
-    extra_data: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    content: Mapped[str] = mapped_column(SafeText, nullable=False)
+    extra_data: Mapped[str | None] = mapped_column(
+        SafeText, nullable=True
+    )  # JSON
     created_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
     )

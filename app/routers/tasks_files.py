@@ -36,6 +36,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.task_states import TaskStatus
+from app.text_utils import SafeStr
 from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
@@ -729,7 +730,7 @@ def record_agent_error(task, error_text: str) -> dict | None:
 
 
 class SetTaskErrorRequest(BaseModel):
-    error: str
+    error: SafeStr
 
 
 @router.post('/{task_id}/error')

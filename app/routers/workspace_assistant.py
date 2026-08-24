@@ -12,6 +12,7 @@ from app.database import async_session
 from app.models.store import Store
 from app.models.user import User
 from app.prompts import WORKSPACE_ASSISTANT_PROMPT
+from app.text_utils import SafeStr
 
 router = APIRouter(
     prefix='/api/workspace/assistant', tags=['workspace-assistant']
@@ -19,7 +20,7 @@ router = APIRouter(
 
 
 class MessageRequest(BaseModel):
-    content: str
+    content: SafeStr
     profile_id: str | None = None
 
 

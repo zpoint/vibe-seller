@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 
 
 class Task(Base):
@@ -31,36 +32,38 @@ class Task(Base):
     )
     assigned_to: Mapped[str | None] = mapped_column(String, nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     platform: Mapped[str | None] = mapped_column(String, nullable=True)
     country: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(
         String, nullable=False, default='pending'
     )
     priority: Mapped[int] = mapped_column(Integer, default=0)
-    input_data: Mapped[str | None] = mapped_column(Text, nullable=True)
-    plan: Mapped[str | None] = mapped_column(Text, nullable=True)
-    plan_history: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_data: Mapped[str | None] = mapped_column(SafeText, nullable=True)
+    plan: Mapped[str | None] = mapped_column(SafeText, nullable=True)
+    plan_history: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     # DERIVED VIEW of the outcome — what the user sees. Written ONLY
     # by ``app.task_outcome.apply_outcome``; never an input to
     # resolution. Keeping it output-only is what stops a prose fallback
     # that has been materialised here from later being mistaken for an
     # accepted deliverable and outranking fresher prose.
-    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     # A submission that cleared every gate. Written only by the result
     # endpoint on accept — the top of the precedence order.
-    accepted_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    accepted_result: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     # The last thing the agent SUBMITTED, accepted or not. A gate
     # refusal used to raise before `result` was assigned, so N refusals
     # left the run holding nothing and the finalizer had only chat
     # narration to fall back on. Submission and verdict are separate
     # facts: this is written on every submit, the verdict lands in
     # `review_gaps`, and `result` is set only once a verdict accepts.
-    submitted_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    submitted_result: Mapped[str | None] = mapped_column(
+        SafeText, nullable=True
+    )
     # JSON list of unmet gaps from the most recent refusal; NULL once a
     # submission is accepted. Becomes the caveat list on an INCOMPLETE
     # outcome so a partial deliverable ships with its own gap report.
-    review_gaps: Mapped[str | None] = mapped_column(Text, nullable=True)
+    review_gaps: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     # How many times the agent submitted this task's result. Pure
     # observability: a high count with no `result` is the signature of
     # a gate the agent cannot satisfy.
@@ -71,9 +74,9 @@ class Task(Base):
     # deliverable — legitimate when the chat output IS the answer
     # (a lookup, a question), never allowed to outrank a real
     # submission. Precedence lives in app/task_outcome.py.
-    transcript_tail: Mapped[str | None] = mapped_column(Text, nullable=True)
-    todos: Mapped[str | None] = mapped_column(Text, nullable=True)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    transcript_tail: Mapped[str | None] = mapped_column(SafeText, nullable=True)
+    todos: Mapped[str | None] = mapped_column(SafeText, nullable=True)
+    error: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     error_category: Mapped[str | None] = mapped_column(String, nullable=True)
     started_at: Mapped[str | None] = mapped_column(String, nullable=True)
     completed_at: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -91,7 +94,7 @@ class Task(Base):
     skip_reflection: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
-    wait_condition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    wait_condition: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     batch_id: Mapped[str | None] = mapped_column(
         String, nullable=True, index=True
     )

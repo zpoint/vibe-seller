@@ -28,6 +28,7 @@ from app.models.schedule_state import NO_STORE_SCOPE, ScheduleState
 from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.models.user import User
+from app.text_utils import SANITIZE_SURROGATES
 
 # Canonical cursor key for the scheduled email sweep. Kept in sync
 # with scheduled_pretask.md and _EPOCH_TYPED_KEYS below.
@@ -65,9 +66,16 @@ class SetScheduleStateRequest(BaseModel):
     # (`"   "` → `""`); `min_length=1` then fires 422 at the pydantic
     # boundary. Downstream code can trust `body.value` to be a
     # non-empty, non-whitespace string.
+    # SafeStr wraps the CONSTRAINED type, not the other way round:
+    # ``Annotated[SafeStr, StringConstraints(...)]`` silently drops the
+    # constraint, which would quietly retire the non-empty contract
+    # described above.
     value: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1),
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1),
+        ],
+        SANITIZE_SURROGATES,
     ]
 
 

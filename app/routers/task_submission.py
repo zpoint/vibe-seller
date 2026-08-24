@@ -36,18 +36,18 @@ from app.routers.tasks_files import (
     resolve_audit_deliverable,
     resolve_workspace_result_path,
 )
-from app.text_utils import sanitize_text
+from app.text_utils import SafeStr
 
 
 class SetTaskResultRequest(BaseModel):
-    result: str
+    result: SafeStr
     # The agent's own account of what it could NOT finish. Does not
     # bypass a single gate — the submission is reviewed exactly as
     # before. What it buys is an honest way to say "here is what I got,
     # here is what is missing" without reaching for set_task_error,
     # which means unrecoverable failure and was being used as an
     # escape hatch because it was the only door out.
-    incomplete: list[str] | None = None
+    incomplete: list[SafeStr] | None = None
 
 
 logger = logging.getLogger(__name__)

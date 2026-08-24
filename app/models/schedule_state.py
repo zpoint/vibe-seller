@@ -1,9 +1,10 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 
 # Sentinel store_id for cursors that don't belong to any specific
 # store — i.e. non-fanout schedules whose fired tasks have no
@@ -51,7 +52,7 @@ class ScheduleState(Base):
         primary_key=True,
     )
     key: Mapped[str] = mapped_column(String, primary_key=True)
-    value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    value: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     updated_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
     )

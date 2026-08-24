@@ -12,7 +12,6 @@ from app.schemas.workspace import (
     SkillSaveRequest,
     StoreProfileCreateRequest,
 )
-from app.text_utils import sanitize_text
 from app.workspace.catalog_validation import reject_wrong_stubs
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
@@ -90,11 +89,6 @@ async def write_file(
     _user: User = Depends(get_current_user),
 ):
     try:
-        # Agent-supplied content can carry lone surrogates (claude
-        # stream-json quirk); ``write_text(encoding='utf-8')`` in the
-        # workspace manager would crash on them, so sanitize the boundary
-        # input before it is written or catalog-validated.
-        body.content = sanitize_text(body.content)
         # Enforce the catalog stub contract at the write boundary: a
         # CATALOG.md that marks a substantive file "Empty/stub" is
         # rejected so the sync agent must summarize it (catalog-first

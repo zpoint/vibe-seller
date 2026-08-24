@@ -35,7 +35,6 @@ from app.routers.task_submission import (
     refuse as _refuse,
     resolve_submitted_result,
     retain_submission as _retain_submission,
-    sanitize_text,
 )
 from app.routers.tasks_files import (
     apply_report_reviewer_gate,
@@ -584,12 +583,6 @@ async def set_task_result(
     # task's workspace, read the file and use its contents (see
     # ``resolve_workspace_result_path`` for the path-resolution
     # contract). Otherwise treat the value as direct content.
-    # Agent text arrives over MCP and can carry lone surrogates (claude
-    # stream-json quirk); they crash the SQLite bind in _retain_submission,
-    # so sanitize the boundary input before it is persisted or graded.
-    body.result = sanitize_text(body.result)
-    if body.incomplete:
-        body.incomplete = [sanitize_text(g) for g in body.incomplete]
     raw = body.result
     final_result, resolved_from_file = await resolve_submitted_result(
         raw, task_id, task_root

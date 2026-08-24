@@ -29,40 +29,116 @@ logger = logging.getLogger(__name__)
 AGENT_DEBUG = Options.AGENT_DEBUG.get_bool()
 
 
+def _is_spawnable(path: Path) -> bool:
+    """True when this OS can hand ``path`` straight to CreateProcess/exec.
+
+    ``os.access(..., X_OK)`` is meaningless on Windows — it answers True
+    for any existing file. That is precisely how npm's POSIX shell shim
+    (``.bin/claude``, no extension, ``#!/bin/sh`` inside) got selected
+    and then died in ``CreateProcess`` with ``WinError 2``. On Windows
+    executability IS the extension, so the candidate list carries it and
+    existence is the only check left to make.
+    """
+    if IS_WINDOWS:
+        return path.is_file()
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _claude_candidates() -> tuple[Path, ...]:
+    """Project-local claude paths to try, most preferred first."""
+    node_modules = VIBE_SELLER_DIR / 'node_modules'
+    if IS_WINDOWS:
+        # The npm package's entry point is a NATIVE executable on every
+        # platform (``"bin": {"claude": "bin/claude.exe"}``), so target
+        # it directly instead of one of npm's generated shims. Spawning
+        # ``claude.cmd`` makes CreateProcess route through ``cmd.exe``,
+        # which (a) caps the ENTIRE command line at 8191 chars — the
+        # assembled 10-20KB system prompt died there instantly with
+        # ``命令行太长`` — and (b) re-parses every argument under cmd
+        # quoting rules, so a path holding ``&`` or ``^`` (``--add-dir``)
+        # breaks. The ``.exe`` goes straight to CreateProcess: 32767
+        # chars, no shell, no quoting layer. The ``.cmd`` stays as a
+        # fallback in case the package layout ever changes.
+        return (
+            node_modules
+            / '@anthropic-ai'
+            / 'claude-code'
+            / 'bin'
+            / 'claude.exe',
+            node_modules / '.bin' / 'claude.cmd',
+        )
+    return (node_modules / '.bin' / 'claude',)
+
+
 def resolve_claude_binary() -> str:
     """Return the Claude Code binary path the daemon should spawn.
 
-    Prefers the project-local install at
-    ``<VIBE_SELLER_DIR>/node_modules/.bin/claude`` (analogous to the
-    Python venv at ``<VIBE_SELLER_DIR>/.venv/``); falls back to
-    ``claude`` on ``PATH`` when the project-local install is absent.
+    Prefers the project-local install under
+    ``<VIBE_SELLER_DIR>/node_modules/`` (analogous to the Python venv at
+    ``<VIBE_SELLER_DIR>/.venv/``); falls back to ``claude`` on ``PATH``
+    when the project-local install is absent.
 
     Pinning the version vibe-seller uses to whatever ``install.sh``
     installs, instead of trusting whatever the user has globally,
     insulates the daemon from upstream regressions (e.g. Claude Code
     2.1.154+ shipped a request-body change that strict Anthropic-
     compatible providers reject with HTTP 400).
+
+    The contract is "a path THIS OS can execute" — see
+    ``_is_spawnable`` and ``_claude_candidates`` for why that differs
+    per platform. The packaged Windows installer bundles its own
+    ``claude.exe`` and puts that dir on ``PATH``
+    (``installer/windows/README.md``), so it resolves via the ``PATH``
+    fallback and never sees a shim.
     """
-    if IS_WINDOWS:
-        # npm on Windows installs shims as ``claude.cmd`` (plus a bare
-        # ``claude`` POSIX shell script). Python's CreateProcess cannot
-        # execute a bare-name shell script, so the resolved binary MUST
-        # be the ``.cmd`` shim (or a full path to it). Prefer the
-        # project-local install, then the global npm shim.
-        for cand in (
-            VIBE_SELLER_DIR / 'node_modules' / '.bin' / 'claude.cmd',
-            VIBE_SELLER_DIR / 'node_modules' / '.bin' / 'claude',
-        ):
-            if cand.is_file():
-                return str(cand)
-        found = shutil.which('claude.cmd') or shutil.which('claude')
-        if found:
-            return found
-        return 'claude'
-    local = VIBE_SELLER_DIR / 'node_modules' / '.bin' / 'claude'
-    if local.is_file() and os.access(local, os.X_OK):
-        return str(local)
+    for cand in _claude_candidates():
+        if _is_spawnable(cand):
+            return str(cand)
+    found = shutil.which('claude')
+    if found:
+        # On Windows PATHEXT makes this find claude.exe / claude.cmd.
+        return found
     return 'claude'
+
+
+# Windows CreateProcess accepts at most 32767 chars for the WHOLE
+# command line (POSIX allows 128KB per argv entry, so it is not a
+# concern there). The assembled system prompt is the only large
+# argument — the task prompt and every later message go over stdin as
+# stream-json — and it runs 10-20KB with store context, so only a very
+# long conversation history can approach the cap. Warn instead of
+# truncating: silently dropping instructions is worse than a spawn
+# failure a log line can explain. Keeping the prompt on the command
+# line requires spawning the native ``claude.exe`` rather than npm's
+# ``claude.cmd`` shim, whose ``cmd.exe`` hop caps it at 8191 — see
+# ``_claude_candidates`` in claude_backend_utils.
+WINDOWS_CMDLINE_LIMIT = 32767
+
+
+def append_system_prompt(
+    cmd: list[str], system_prompt: str, task_id: str
+) -> None:
+    """Put the assembled system prompt on the command line.
+
+    Also logs when the result is close to the Windows cap: over it,
+    CreateProcess fails with an error that names no argument, so the
+    size is worth recording while we still know it.
+    """
+    cmd.extend(['--append-system-prompt', system_prompt])
+    if not IS_WINDOWS:
+        return
+    # +3 per argument: the separating space and the quotes subprocess
+    # adds when an argument contains whitespace.
+    total = sum(len(arg) + 3 for arg in cmd)
+    if total > WINDOWS_CMDLINE_LIMIT * 0.9:
+        logger.warning(
+            '[%s] command line is %d chars, near the Windows %d cap — '
+            'a spawn failure here is the system prompt being too long, '
+            'not a claude error',
+            task_id[:8],
+            total,
+            WINDOWS_CMDLINE_LIMIT,
+        )
 
 
 # A `browser-use` that always ERRORS — sits on the agent PATH just below

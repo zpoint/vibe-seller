@@ -1,11 +1,13 @@
 from pydantic import BaseModel, ConfigDict
 
+from app.text_utils import SafeStr
+
 
 class TaskCreate(BaseModel):
     store_id: str | None = None
     parent_task_id: str | None = None
-    title: str
-    description: str | None = None
+    title: SafeStr
+    description: SafeStr | None = None
     platform: str | None = None
     country: str | None = None
     plan_mode: bool | None = None

@@ -66,6 +66,37 @@ Git for Windows) for reproducible, reviewable bumps.
   5. Reboot → tray auto-starts from the Startup shortcut
   6. Uninstall removes the app; `%LOCALAPPDATA%\vibe-seller` data remains
 
+## Process-spawn rules on native Windows
+
+Two spawn details are Windows-specific and both bit us on a dev
+(npm-installed) box. The **packaged** install is unaffected — it bundles
+`claude.exe` and puts that dir on `PATH` — but the rules are here
+because this is the only native-Windows doc.
+
+- **Resolve `claude.exe`, never the npm `.cmd`/bare shim.** npm lays down
+  `claude`, `claude.cmd` and `claude.ps1` side by side, and
+  `os.access(path, os.X_OK)` answers **True for all of them** on Windows
+  (it cannot tell an executable from any readable file), so the resolver
+  used to hand `CreateProcess` a `#!/bin/sh` script → `WinError 2` on
+  every task. The package's real entry point is a native binary on every
+  platform (`"bin": {"claude": "bin/claude.exe"}`), so that is what
+  `resolve_claude_binary()` targets. It also keeps `cmd.exe` out of the
+  spawn, which matters because…
+- **`cmd.exe` caps a command line at 8191 chars; `CreateProcess` allows
+  32767.** The assembled system prompt (10–20KB with store context) is
+  the only large argument — the task prompt and every later message go
+  over stdin as stream-json. Via the `.cmd` shim that prompt blew the
+  8191 cap and the agent died instantly with `命令行太长`; spawning the
+  `.exe` directly gives 4× the headroom and skips cmd's re-quoting of
+  every argument (a `--add-dir` path containing `&` or `^` would
+  otherwise break). `claude_backend.py` logs a warning when a command
+  line gets within 10% of the cap.
+- **`browser-use` wrappers embed an absolute `REAL_BU`.** Windows
+  installs the console script as `browser-use.exe` with no
+  extensionless sibling, so the old bare-name fallback made the wrapper
+  exec itself. See [docs/browser.md](../../docs/browser.md) §&nbsp;Wrapper
+  safety.
+
 ## Known first-run-CI risks (expected to need iteration)
 
 - **claude CLI fetch** (`Get-ClaudeCli` in `build.ps1`) — the native
