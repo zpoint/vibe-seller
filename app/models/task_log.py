@@ -1,10 +1,11 @@
 import time
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 
 
 class TaskLog(Base):
@@ -19,7 +20,7 @@ class TaskLog(Base):
     log_type: Mapped[str] = mapped_column(
         String, nullable=False, default='info'
     )
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(SafeText, nullable=False)
     timestamp_ms: Mapped[int] = mapped_column(
         Integer, default=lambda: int(time.time() * 1000)
     )

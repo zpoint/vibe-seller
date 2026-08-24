@@ -5,6 +5,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 
 from sqlalchemy import func, select
@@ -20,7 +21,7 @@ from app.env_options import Options
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
-from app.platform import prepend_to_path, venv_bin_dir
+from app.platform import IS_WINDOWS, prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -28,24 +29,164 @@ logger = logging.getLogger(__name__)
 AGENT_DEBUG = Options.AGENT_DEBUG.get_bool()
 
 
+def _is_spawnable(path: Path) -> bool:
+    """True when this OS can hand ``path`` straight to CreateProcess/exec.
+
+    ``os.access(..., X_OK)`` is meaningless on Windows — it answers True
+    for any existing file. That is precisely how npm's POSIX shell shim
+    (``.bin/claude``, no extension, ``#!/bin/sh`` inside) got selected
+    and then died in ``CreateProcess`` with ``WinError 2``. On Windows
+    executability IS the extension, so the candidate list carries it and
+    existence is the only check left to make.
+    """
+    if IS_WINDOWS:
+        return path.is_file()
+    return path.is_file() and os.access(path, os.X_OK)
+
+
+def _claude_candidates() -> tuple[Path, ...]:
+    """Project-local claude paths to try, most preferred first."""
+    node_modules = VIBE_SELLER_DIR / 'node_modules'
+    if IS_WINDOWS:
+        # The npm package's entry point is a NATIVE executable on every
+        # platform (``"bin": {"claude": "bin/claude.exe"}``), so target
+        # it directly instead of one of npm's generated shims. Spawning
+        # ``claude.cmd`` makes CreateProcess route through ``cmd.exe``,
+        # which (a) caps the ENTIRE command line at 8191 chars — the
+        # assembled 10-20KB system prompt died there instantly with
+        # ``命令行太长`` — and (b) re-parses every argument under cmd
+        # quoting rules, so a path holding ``&`` or ``^`` (``--add-dir``)
+        # breaks. The ``.exe`` goes straight to CreateProcess: 32767
+        # chars, no shell, no quoting layer. The ``.cmd`` stays as a
+        # fallback in case the package layout ever changes.
+        return (
+            node_modules
+            / '@anthropic-ai'
+            / 'claude-code'
+            / 'bin'
+            / 'claude.exe',
+            node_modules / '.bin' / 'claude.cmd',
+        )
+    return (node_modules / '.bin' / 'claude',)
+
+
 def resolve_claude_binary() -> str:
     """Return the Claude Code binary path the daemon should spawn.
 
-    Prefers the project-local install at
-    ``<VIBE_SELLER_DIR>/node_modules/.bin/claude`` (analogous to the
-    Python venv at ``<VIBE_SELLER_DIR>/.venv/``); falls back to
-    ``claude`` on ``PATH`` when the project-local install is absent.
+    Prefers the project-local install under
+    ``<VIBE_SELLER_DIR>/node_modules/`` (analogous to the Python venv at
+    ``<VIBE_SELLER_DIR>/.venv/``); falls back to ``claude`` on ``PATH``
+    when the project-local install is absent.
 
     Pinning the version vibe-seller uses to whatever ``install.sh``
     installs, instead of trusting whatever the user has globally,
     insulates the daemon from upstream regressions (e.g. Claude Code
     2.1.154+ shipped a request-body change that strict Anthropic-
     compatible providers reject with HTTP 400).
+
+    The contract is "a path THIS OS can execute" — see
+    ``_is_spawnable`` and ``_claude_candidates`` for why that differs
+    per platform. The packaged Windows installer bundles its own
+    ``claude.exe`` and puts that dir on ``PATH``
+    (``installer/windows/README.md``), so it resolves via the ``PATH``
+    fallback and never sees a shim.
     """
-    local = VIBE_SELLER_DIR / 'node_modules' / '.bin' / 'claude'
-    if local.is_file() and os.access(local, os.X_OK):
-        return str(local)
+    for cand in _claude_candidates():
+        if _is_spawnable(cand):
+            return str(cand)
+    found = shutil.which('claude')
+    if found:
+        # On Windows PATHEXT makes this find claude.exe / claude.cmd.
+        return found
     return 'claude'
+
+
+# Windows CreateProcess accepts at most 32767 chars for the WHOLE
+# command line (POSIX allows 128KB per argv entry, so it is not a
+# concern there). The assembled system prompt is the only large
+# argument — the task prompt and every later message go over stdin as
+# stream-json — and it runs 10-20KB with store context, so only a very
+# long conversation history can approach the cap. Warn instead of
+# truncating: silently dropping instructions is worse than a spawn
+# failure a log line can explain. Keeping the prompt on the command
+# line requires spawning the native ``claude.exe`` rather than npm's
+# ``claude.cmd`` shim, whose ``cmd.exe`` hop caps it at 8191 — see
+# ``_claude_candidates`` in claude_backend_utils.
+WINDOWS_CMDLINE_LIMIT = 32767
+
+
+# Spawning one of these routes through ``cmd.exe`` (CreateProcess runs
+# ``%COMSPEC% /c`` for a batch file), which is where the 8191-char cap
+# comes from. ``_claude_candidates`` prefers the native ``.exe`` exactly
+# to avoid them, but a global ``npm i -g`` install has no ``.exe`` on
+# PATH — only ``claude.cmd`` — so the fallback is reachable and needs a
+# prompt delivery that does not ride the command line.
+_BATCH_SHIM_SUFFIXES = ('.cmd', '.bat')
+
+
+def _is_batch_shim(binary: str) -> bool:
+    return IS_WINDOWS and binary.lower().endswith(_BATCH_SHIM_SUFFIXES)
+
+
+def append_system_prompt(
+    cmd: list[str],
+    system_prompt: str,
+    task_id: str,
+    task_dir: Path | None = None,
+) -> None:
+    """Put the assembled system prompt where claude will read it.
+
+    Inline on the command line — the simple path, and the only one on
+    POSIX or against a native ``claude.exe``. When the resolved binary
+    is a Windows batch shim, the whole command line has to fit in 8191
+    chars, which a 10-20KB store-context prompt does not: that case
+    writes the prompt into the task dir and passes
+    ``--append-system-prompt-file`` instead. The task dir is per-task,
+    gitignored, and wiped on retry, so nothing lands in a shared
+    world-readable temp dir.
+
+    Also logs when the command line comes close to the Windows cap:
+    over it, CreateProcess fails with an error that names no argument,
+    so the size is worth recording while we still know it.
+    """
+    if cmd and _is_batch_shim(cmd[0]) and task_dir is not None:
+        sp_file = task_dir / '.system-prompt.md'
+        try:
+            sp_file.write_text(system_prompt, encoding='utf-8')
+        except OSError as e:
+            logger.error(
+                '[%s] could not write %s (%s) — falling back to an inline '
+                'prompt, which a cmd.exe shim caps at 8191 chars',
+                task_id[:8],
+                sp_file,
+                e,
+            )
+        else:
+            logger.info(
+                '[%s] claude resolved to a batch shim (%s); passing the '
+                '%d-char system prompt by file to stay under the '
+                'cmd.exe command-line cap',
+                task_id[:8],
+                cmd[0],
+                len(system_prompt),
+            )
+            cmd.extend(['--append-system-prompt-file', str(sp_file)])
+            return
+    cmd.extend(['--append-system-prompt', system_prompt])
+    if not IS_WINDOWS:
+        return
+    # +3 per argument: the separating space and the quotes subprocess
+    # adds when an argument contains whitespace.
+    total = sum(len(arg) + 3 for arg in cmd)
+    if total > WINDOWS_CMDLINE_LIMIT * 0.9:
+        logger.warning(
+            '[%s] command line is %d chars, near the Windows %d cap — '
+            'a spawn failure here is the system prompt being too long, '
+            'not a claude error',
+            task_id[:8],
+            total,
+            WINDOWS_CMDLINE_LIMIT,
+        )
 
 
 # A `browser-use` that always ERRORS — sits on the agent PATH just below

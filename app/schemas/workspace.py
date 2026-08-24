@@ -1,8 +1,10 @@
 from pydantic import BaseModel
 
+from app.text_utils import SafeStr
+
 
 class FileWriteRequest(BaseModel):
-    content: str
+    content: SafeStr
 
 
 class FileResetRequest(BaseModel):
@@ -11,16 +13,16 @@ class FileResetRequest(BaseModel):
 
 
 class SkillCreateRequest(BaseModel):
-    name: str
-    description: str = ''
+    name: SafeStr
+    description: SafeStr = ''
     origin_url: str = ''
 
 
 class SkillSaveRequest(BaseModel):
     """Upsert a user-space skill: full SKILL.md + optional bundles."""
 
-    skill_md: str
-    files: dict[str, str] = {}
+    skill_md: SafeStr
+    files: dict[str, SafeStr] = {}
 
 
 class StoreProfileCreateRequest(BaseModel):

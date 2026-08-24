@@ -36,10 +36,11 @@ can open a new phase.
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 
 # What an ad task can be. ``edit`` is deliberately absent: "change these
 # three bids" is a one-campaign AUDIT, and the scope carries the
@@ -78,7 +79,7 @@ class AdTaskDeclaration(Base):
     kind: Mapped[str] = mapped_column(String, nullable=False)
     # JSON. See app.ai.ad_declaration for the shape and the
     # whole-store rule (absent combos = the whole store).
-    scope: Mapped[str] = mapped_column(Text, nullable=False, default='{}')
+    scope: Mapped[str] = mapped_column(SafeText, nullable=False, default='{}')
     # How many user messages the task had when this was accepted. The
     # next declaration must see MORE — that is what makes re-declaring
     # something only the user can trigger.

@@ -18,13 +18,12 @@ off those files. See docs/browser-use-0.13-migration.md.
 """
 
 import logging
-from pathlib import Path
 import re
 import shutil
 import stat
-import sys
 import textwrap
 
+from app.browser.bu_binary import resolve_browser_use
 from app.browser.worker_slots import (
     indent_block,
     max_worker_slots,
@@ -152,32 +151,10 @@ def write_browser_use_wrapper(
     wrapper_dir.mkdir(parents=True, exist_ok=True)
     wrapper_path = wrapper_dir / 'browser-use'
 
-    # Prefer the browser-use binary that lives in the same bin/ as the
-    # daemon's Python interpreter. This is the ONLY place it exists in
-    # `uv tool install vibe-seller` mode — the tool venv's bin is not
-    # on PATH, so shutil.which() would fall through to the bare-string
-    # fallback and produce a wrapper that fails at exec time with
-    # "command not found". In `./start.sh` (dev clone) mode both paths
-    # find it; the sibling lookup is just authoritative.
-    #
-    # Do NOT .resolve() here: uv tool venvs (and `uv venv`) symlink the
-    # interpreter to a base Python (pyenv / homebrew / conda). Following
-    # that symlink lands in a dir that often has its OWN `browser-use`
-    # from a different (typically older) install — picking it up would
-    # bypass our pinned `browser-use>=0.13` and produce a wrapper that
-    # drives the wrong CLI. 0.13 keeps the `browser-use` entry point, so
-    # the sibling path resolves the same after an in-place upgrade.
-    daemon_bin = Path(sys.executable).parent
-    candidate = daemon_bin / 'browser-use'
-    real_bu = (
-        str(candidate) if candidate.is_file() else shutil.which('browser-use')
-    )
-    if not real_bu:
-        logger.warning(
-            'browser-use binary not found on PATH; '
-            'wrapper will use "browser-use" as fallback'
-        )
-        real_bu = 'browser-use'
+    # An absolute REAL_BU is a correctness requirement, not a nicety —
+    # see app/browser/bu_binary.py. Raises rather than emitting a
+    # wrapper that would exec itself.
+    real_bu = resolve_browser_use()
 
     port = api_port or BACKEND_PORT
 

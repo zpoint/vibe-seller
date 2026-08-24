@@ -36,6 +36,7 @@ from app.schemas.email_account import (
     StoreEmailLinkResponse,
 )
 from app.telemetry_events import TelemetryEvent
+from app.text_utils import SafeStr
 from app.utils.crypto import decrypt_password, encrypt_password
 
 logger = logging.getLogger(__name__)
@@ -358,10 +359,10 @@ async def test_smtp_account(
 
 
 class _SendEmailRequest(BaseModel):
-    to: str | list[str]
-    subject: str
-    body: str
-    body_html: str | None = None
+    to: SafeStr | list[SafeStr]
+    subject: SafeStr
+    body: SafeStr
+    body_html: SafeStr | None = None
 
 
 @router.post('/api/email-accounts/{account_id}/send')

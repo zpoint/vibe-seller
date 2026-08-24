@@ -43,6 +43,7 @@ from app.ai.claude_backend_utils import (
     SIGNAL_TIMEOUT,
     STOP_REFLECTION_CALLBACK,
     TOOL_APPROVAL_CALLBACK,
+    append_system_prompt,
     apply_agent_venv_path,
     permission_mode_for_agent,
     resolve_claude_binary,
@@ -325,7 +326,7 @@ class AgentSession(
                 )
 
             if system_prompt.strip():
-                cmd.extend(['--append-system-prompt', system_prompt])
+                append_system_prompt(cmd, system_prompt, self.task_id, ws_dir)
 
         # Prepare env
         env = ProfileManager.get_env_for_profile(self.profile_id)

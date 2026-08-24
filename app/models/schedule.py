@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 from app.utils.timezone import get_server_timezone
 
 
@@ -22,10 +23,10 @@ class Schedule(Base):
         String, ForeignKey('stores.id'), nullable=True
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     platform: Mapped[str | None] = mapped_column(String, nullable=True)
     country: Mapped[str | None] = mapped_column(String, nullable=True)
-    plan: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     schedule_type: Mapped[str] = mapped_column(
         String, nullable=False
     )  # 'minutes' | 'hours' | 'days' | 'weekly' | 'monthly'
@@ -74,7 +75,7 @@ class Schedule(Base):
     # the prompt's job. Null ⇒ no finalize step (default fanout).
     # See app/scheduler/finalize_reaper.py.
     finalize_description: Mapped[str | None] = mapped_column(
-        Text, nullable=True
+        SafeText, nullable=True
     )
     # When this schedule STARTED owing a finalize step (ISO-8601 UTC),
     # stamped on the empty → non-empty transition of the field above.
@@ -109,7 +110,7 @@ class Schedule(Base):
     current_planning_task_id: Mapped[str | None] = mapped_column(
         String, nullable=True
     )
-    plan_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plan_error: Mapped[str | None] = mapped_column(SafeText, nullable=True)
     created_by: Mapped[str] = mapped_column(
         String, ForeignKey('users.id'), nullable=False
     )

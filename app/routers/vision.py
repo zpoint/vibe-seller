@@ -37,6 +37,7 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task_message import TaskMessage
 from app.models.user import User
+from app.text_utils import sanitize_json
 from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(prefix='/api', tags=['vision'])
@@ -99,6 +100,7 @@ async def put_vision_config(
 ):
     if current_user.role != 'admin':
         raise HTTPException(status_code=403, detail='Admin access required')
+    body = sanitize_json(body)
     vision.save_vision_config(body.get('kie_api_key', ''))
     key = vision.get_kie_api_key()
     return {
@@ -121,7 +123,13 @@ async def generate_task_image(
     Fails at once if no kie.ai key is configured. Otherwise emits an
     ``image_request`` event, waits for the user to confirm/edit/cancel,
     then generates + saves the image and returns its workspace path.
+
+    The body is untyped, so ``SafeStr`` cannot reach it: sanitize here
+    instead. The prompt goes out over httpx, which encodes UTF-8 with
+    ``ensure_ascii=False`` — a lone surrogate would raise before the
+    request is made. See app.text_utils.
     """
+    body = sanitize_json(body)
     if not vision.get_kie_api_key() and not vision.is_fake():
         raise HTTPException(
             status_code=400,
@@ -337,6 +345,7 @@ async def confirm_task_image(
     current_user: User = Depends(get_current_user),
 ):
     """Resolve a pending image request (confirm/edit/cancel)."""
+    body = sanitize_json(body)
     request_id = body.get('request_id')
     action = body.get('action')
     if not request_id or action not in ('confirm', 'cancel'):

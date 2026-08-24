@@ -28,6 +28,7 @@ import httpx
 from app import vision
 from app.config import BACKEND_PORT, LOCALHOST
 from app.mcp_tool_schemas import TOOLS
+from app.text_utils import sanitize_json
 
 
 # Tools that require a configured capability and are hidden from the
@@ -71,6 +72,11 @@ async def call_api(
     before it calls out to the image model.
     """
     url = f'{_config["api_base"]}{path}'
+    # Sanitize BEFORE httpx serializes: it dumps with
+    # ``ensure_ascii=False`` and encodes UTF-8, so a lone surrogate in
+    # agent text raises HERE, in this process, and the server-side
+    # SafeStr fields never see the request. See app.text_utils.
+    body = sanitize_json(body) if body else body
     headers: dict[str, str] = {}
     cookies: dict[str, str] = {}
     if _config['auth_token']:

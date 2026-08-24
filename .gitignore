@@ -21,6 +21,7 @@ data/
 server.log
 logs/
 logs_*/
+logs_*.txt
 
 # Playwright MCP
 .playwright-mcp/
@@ -33,6 +34,11 @@ logs_*/
 
 # Lock files
 uv.lock
+
+# Local Windows launcher — these carry an API key inline, so the file
+# stays out of the repo. A SHAREABLE launcher must read its key from the
+# environment / an AI profile instead, and needs a different name.
+start-windows.bat
 
 # Brainstorming artifacts
 docs/superpowers/

@@ -10,13 +10,14 @@ from app.scheduler.cron import (
     remove_cron_job,
     resume_cron_job,
 )
+from app.text_utils import SafeStr
 
 router = APIRouter(prefix='/api/cron', tags=['cron'])
 
 
 class CronJobCreate(BaseModel):
     job_id: str
-    task_title: str
+    task_title: SafeStr
     cron_expression: str  # "minute hour day month day_of_week"
     store_id: str | None = None
 

@@ -3,10 +3,11 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import Integer, String, Text
+from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
+from app.text_utils import SafeText
 
 
 class TaskMessage(Base):
@@ -19,7 +20,7 @@ class TaskMessage(Base):
     role: Mapped[str] = mapped_column(
         String, nullable=False
     )  # user, assistant, system, tool_use, result, delta
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(SafeText, nullable=False)
     seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     profile_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[str] = mapped_column(

@@ -11,12 +11,10 @@ and the agent drives the browser by piping Python via a heredoc/`-c`.
 """
 
 import logging
-from pathlib import Path
-import shutil
 import stat
-import sys
 import textwrap
 
+from app.browser.bu_binary import resolve_browser_use
 from app.browser.worker_slots import (
     indent_block,
     max_worker_slots,
@@ -70,22 +68,10 @@ def write_web_browser_use_wrapper(
     wrapper_dir.mkdir(parents=True, exist_ok=True)
     wrapper_path = wrapper_dir / 'browser-use'
 
-    # Same binary-resolution rationale as write_browser_use_wrapper:
-    # prefer the browser-use next to the daemon interpreter, never
-    # .resolve() (uv venvs symlink to a base Python with its own,
-    # possibly older, browser-use). 0.13 keeps the `browser-use` entry
-    # point, so this path resolves the same after an in-place upgrade.
-    daemon_bin = Path(sys.executable).parent
-    candidate = daemon_bin / 'browser-use'
-    real_bu = (
-        str(candidate) if candidate.is_file() else shutil.which('browser-use')
-    )
-    if not real_bu:
-        logger.warning(
-            'browser-use binary not found on PATH; '
-            'web wrapper will use "browser-use" as fallback'
-        )
-        real_bu = 'browser-use'
+    # An absolute REAL_BU is a correctness requirement, not a nicety —
+    # see app/browser/bu_binary.py. Raises rather than emitting a
+    # wrapper that would exec itself.
+    real_bu = resolve_browser_use()
 
     port = api_port or BACKEND_PORT
     cdp_http_url = f'http://{LOCALHOST}:{proxy_port}'

@@ -17,6 +17,7 @@ import git as gitlib
 
 from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
+from app.text_utils import sanitize_text
 from app.workspace import task_links, venv_bootstrap
 from app.workspace.skills_manager import SkillsMixin
 from app.workspace.store_data_migrate import migrate_store_data
@@ -244,12 +245,18 @@ class WorkspaceManager(SkillsMixin):
         )
 
     async def write_file(self, rel_path: str, content: str) -> None:
-        """Write a file and auto-commit."""
+        """Write a file and auto-commit.
+
+        Content reaching here is agent-authored, so it is sanitized at
+        this boundary: a lone surrogate would make the UTF-8 encode
+        below raise and surface to the agent as an opaque tool error.
+        See ``app.text_utils``.
+        """
         await self.ensure_init()
         file_path = self._safe_path(rel_path)
         self._reject_l1_write(rel_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content, encoding='utf-8')
+        file_path.write_text(sanitize_text(content), encoding='utf-8')
         await self._auto_commit(f'Update {rel_path}')
 
     async def delete_file(self, rel_path: str) -> None:
