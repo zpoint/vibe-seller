@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.browser import aux_browser
+from app.browser.launch_guards import BrowserBusyError
 from app.browser.manager import browser_manager
 from app.config import BASE_DIR
 from app.database import get_db
@@ -53,6 +54,9 @@ async def start_web_browser(
     """
     try:
         await browser_manager.start_web_session(db)
+    except BrowserBusyError as e:
+        # Busy is not broken — see the same branch in stores.py.
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(
             status_code=500,

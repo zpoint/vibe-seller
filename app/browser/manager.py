@@ -14,7 +14,11 @@ from app.auth import create_token
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
 from app.browser.daemon_reaper import reap_orphaned_daemons
-from app.browser.launch_guards import RelaunchBudget, start_backend_bounded
+from app.browser.launch_guards import (
+    GlobalLaunchLock,
+    RelaunchBudget,
+    start_backend_bounded,
+)
 from app.browser.web_wrapper import write_web_browser_use_wrapper
 from app.browser.wrapper import (
     remove_browser_use_wrapper,
@@ -183,7 +187,9 @@ class BrowserManager:
         self._proxy_ports: dict[str, int] = {}
         self._next_proxy_port = _BASE_PROXY_PORT
         # Serialize start/stop to avoid races
-        self._lock = asyncio.Lock()
+        # Bounded on purpose — a wedged holder must not turn every
+        # later caller into a request that never answers.
+        self._lock = GlobalLaunchLock()
         # Track the active Ziniao account (only one can run
         # per machine).
         self._active_ziniao_account_id: str | None = None
@@ -329,7 +335,7 @@ class BrowserManager:
 
         Serialized via lock to prevent wrapper-generation races.
         """
-        async with self._lock:
+        async with self._lock.hold(f'start_session({store.name})'):
             return await self._start_session_locked(store, db)
 
     @staticmethod
@@ -534,7 +540,7 @@ class BrowserManager:
         return session
 
     async def stop_session(self, store: Store, db: AsyncSession) -> None:
-        async with self._lock:
+        async with self._lock.hold(f'stop_session({store.name})'):
             await self._stop_session_locked(store, db)
 
     def remove_browser_entry(
@@ -590,7 +596,7 @@ class BrowserManager:
         authenticated API call.  No browser is started here;
         the agent invokes the wrapper later.
         """
-        async with self._lock:
+        async with self._lock.hold('write_browser_config_for_store'):
             # Both backends need a proxy port for CDPMuxProxy.
             result = await db.execute(
                 select(BrowserSession).where(
@@ -642,7 +648,7 @@ class BrowserManager:
         ``POST /api/browser/web/start`` on first use, so no-store tasks
         that never touch the browser pay nothing.
         """
-        async with self._lock:
+        async with self._lock.hold('write_web_browser_config'):
             proxy_port = await self._web_proxy_port(db)
             token = create_token(AI_BOT_USER_ID, 'ai_bot')
             headless = await self._read_headless_setting(db)
@@ -676,7 +682,7 @@ class BrowserManager:
         concurrent orchestrator tasks racing the lazy auto-start can't
         launch two Chromes.
         """
-        async with self._lock:
+        async with self._lock.hold('start_web_session'):
             proxy_port = await self._web_proxy_port(db)
             if (
                 WEB_BROWSER_SLUG in self._active_sessions
@@ -744,7 +750,7 @@ class BrowserManager:
             # failing the task. Serialized on the manager lock so a
             # concurrent fanout does ONE relaunch and peers just re-check
             # (WSL is kill-only → its relaunch raises, guidance propagates).
-            async with self._lock:
+            async with self._lock.hold(f'ziniao-relaunch({store.name})'):
                 try:
                     await ensure_ziniao_running(**kwargs)
                     return  # a peer already relaunched into WebDriver

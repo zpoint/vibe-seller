@@ -8,6 +8,7 @@ from httpx import AsyncClient
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.browser.launch_guards import BrowserBusyError
 from app.browser.ziniao_utils import ZiniaoNormalModeError
 from app.models.store import Store
 from app.models.user import User
@@ -184,6 +185,63 @@ class TestBrowserStartForce:
             )
         assert response.status_code == 500
         assert 'normal mode' in response.json()['detail']
+
+    @pytest.mark.asyncio
+    async def test_a_busy_launch_lock_is_503_not_a_hang(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """The HTTP contract this route regressed to `HTTP 000` without.
+
+        A wedged holder of the manager's global launch lock used to make
+        this handler wait for ever, so the caller got no response at all
+        — 240s and `HTTP 000`, which names nothing to restart. 503
+        rather than 500 because nothing is known to be wrong with THIS
+        store, and the detail must carry the holder so an operator can
+        tell contention from a stuck client.
+        """
+        store = await self._make_ziniao_store(async_db_session)
+        with mock.patch(
+            'app.routers.stores.browser_manager.start_session',
+            side_effect=BrowserBusyError(
+                'Browser subsystem busy: start_session(Z Store) waited '
+                '60s for the launch lock, which is held by '
+                'start_session(other).'
+            ),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start'
+            )
+        assert response.status_code == 503
+        assert 'held by start_session(other)' in response.json()['detail']
+
+    @pytest.mark.asyncio
+    async def test_a_busy_lock_is_503_with_force_too(
+        self,
+        authenticated_client: AsyncClient,
+        async_db_session: AsyncSession,
+    ):
+        """`force=1` is for normal mode; a busy lock is not that.
+
+        Falling into the force branch would kill and relaunch Ziniao
+        because somebody else was mid-launch — which is the storm the
+        relaunch budget exists to stop.
+        """
+        store = await self._make_ziniao_store(async_db_session)
+        relaunch = mock.AsyncMock(return_value=True)
+        with (
+            mock.patch(
+                'app.routers.stores.browser_manager.start_session',
+                side_effect=BrowserBusyError('busy: held by peer'),
+            ),
+            mock.patch('app.routers.stores.kill_and_relaunch_ziniao', relaunch),
+        ):
+            response = await authenticated_client.post(
+                f'/api/stores/{store.id}/browser/start?force=1'
+            )
+        assert response.status_code == 503
+        relaunch.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_force_true_relaunches_and_retries(

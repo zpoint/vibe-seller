@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import telemetry
 from app.auth import get_current_user
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
+from app.browser.launch_guards import BrowserBusyError
 from app.browser.manager import (
     browser_manager,
     store_slug as _store_slug,
@@ -414,6 +415,13 @@ async def start_browser(
         raise HTTPException(status_code=404, detail='Store not found')
     try:
         await browser_manager.start_session(store, db)
+    except BrowserBusyError as e:
+        # 503, not 500: nothing is known to be wrong with THIS store —
+        # somebody else holds the launch lock. A hang here is what the
+        # caller used to get instead, and `HTTP 000` after 240s is not
+        # something an agent or an operator can act on. The message
+        # names the holder and how long it has been in there.
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except ZiniaoNormalModeError as e:
         # Ziniao is sitting in normal (UI) mode. Only the
         # `Force Restart` button (UI) can relaunch in WebDriver
