@@ -125,7 +125,8 @@ Two layers, because there are two ways in:
 
 | Layer | Covers |
 |---|---|
-| `SafeStr` on request fields | Everything a request touches — including consumers that are *not* writes: the result gates hand the text to a language detector (a Rust extension) that encodes to UTF-8, so a submission crashed **before** any persistence |
+| `sanitize_json` in `mcp_server.call_api` | The agent's actual ingress. `httpx` serializes `json=` with `ensure_ascii=False` and then encodes UTF-8, so a surrogate raises **inside the MCP process** and no request is ever made — the server-side guards below would never see it |
+| `SafeStr` on request fields | Everything a request touches — including consumers that are *not* writes: the result gates hand the text to a language detector (a Rust extension) that encodes to UTF-8, so a submission crashed **before** any persistence. Also covers clients that are not our MCP server (the UI, curl) |
 | `SafeText` on DB columns | Text that never passed through a request body — the stream reader persisting `task_messages`, plan text, internally assembled prose |
 
 File writes are sanitized inside the managers that own them

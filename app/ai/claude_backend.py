@@ -326,7 +326,7 @@ class AgentSession(
                 )
 
             if system_prompt.strip():
-                append_system_prompt(cmd, system_prompt, self.task_id)
+                append_system_prompt(cmd, system_prompt, self.task_id, ws_dir)
 
         # Prepare env
         env = ProfileManager.get_env_for_profile(self.profile_id)

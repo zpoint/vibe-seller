@@ -9,6 +9,7 @@ These tests pin the guard at the encode boundary — the column type and
 ``sanitize_text`` — so no future writer has to remember it.
 """
 
+import httpx
 import pytest
 from sqlalchemy import (
     Column,
@@ -20,7 +21,12 @@ from sqlalchemy import (
     select as sa_select,
 )
 
-from app.text_utils import SafeText, sanitize_text
+from app import mcp_server
+from app.text_utils import (
+    SafeText,
+    sanitize_json,
+    sanitize_text,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -184,6 +190,15 @@ class TestAgentFacingRequestModels:
                 'app.routers.workspace_assistant.MessageRequest',
                 ('content',),
             ),
+            (
+                'app.routers.tasks_schedule_state.RegisterFinalizeRequest',
+                ('description',),
+            ),
+            ('app.routers.cron.CronJobCreate', ('task_title',)),
+            (
+                'app.routers.email_accounts._SendEmailRequest',
+                ('to', 'subject', 'body'),
+            ),
         ],
     )
     def test_field_sanitizes_surrogates(self, model_path, fields):
@@ -226,3 +241,76 @@ class TestAgentFacingRequestModels:
         if isinstance(value, dict):
             return ''.join(str(v) for v in value.values())
         return str(value)
+
+
+class TestOutboundMcpPayloads:
+    """The agent's real ingress is the MCP process, not FastAPI.
+
+    ``httpx`` serializes ``json=`` with ``ensure_ascii=False`` and then
+    encodes UTF-8, so a lone surrogate raises in ``app/mcp_server.py``
+    BEFORE the request exists — the server-side ``SafeStr`` fields never
+    see it and the agent gets an opaque tool failure. The payload has to
+    be cleaned on the way out too.
+    """
+
+    def test_httpx_cannot_encode_a_raw_surrogate(self):
+        # The premise. If httpx ever switches to ensure_ascii=True this
+        # fails, and the sanitize below becomes belt-and-braces.
+        with pytest.raises(UnicodeEncodeError):
+            httpx.Request('POST', 'http://x/y', json={'result': LONE})
+
+    def test_sanitized_payload_encodes(self):
+        body = sanitize_json({'result': f'r {LONE}', 'n': 3})
+        req = httpx.Request('POST', 'http://x/y', json=body)
+        assert b'result' in req.content
+
+    def test_sanitize_json_walks_nested_structures(self):
+        raw = {
+            'result': f'a{LONE}',
+            'incomplete': [f'b{LONE}', 'clean'],
+            'files': {'notes.md': f'c{LONE}'},
+            'count': 7,
+            'flag': True,
+            'nothing': None,
+        }
+        out = sanitize_json(raw)
+        assert out['result'] == 'a�'
+        assert out['incomplete'] == ['b�', 'clean']
+        assert out['files']['notes.md'] == 'c�'
+        # Non-strings survive unchanged — this goes on the wire as JSON.
+        assert out['count'] == 7
+        assert out['flag'] is True
+        assert out['nothing'] is None
+
+    async def test_call_api_sanitizes_before_the_wire(self, monkeypatch):
+        """End to end for the seam: what an MCP tool sends is encodable."""
+        sent = {}
+
+        class _Resp:
+            @staticmethod
+            def json():
+                return {'ok': True}
+
+        class _Client:
+            def __init__(self, **_kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_a):
+                return False
+
+            async def post(self, url, json=None, **_kw):
+                # Encode exactly as the real client would, so removing
+                # the sanitize fails this test the way production failed.
+                httpx.Request('POST', url, json=json)
+                sent.update(json)
+                return _Resp()
+
+        monkeypatch.setattr(mcp_server.httpx, 'AsyncClient', _Client)
+        out = await mcp_server.call_api(
+            'POST', '/api/tasks/t1/result', {'result': f'report {LONE}'}
+        )
+        assert out == {'ok': True}
+        assert sent['result'] == 'report �'

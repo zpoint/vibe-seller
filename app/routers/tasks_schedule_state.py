@@ -247,8 +247,11 @@ class RegisterFinalizeRequest(BaseModel):
     # 422s on null/empty/whitespace rather than registering a blank
     # finalize the reaper would then fire with no guidance.
     description: Annotated[
-        str,
-        StringConstraints(strip_whitespace=True, min_length=1),
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1),
+        ],
+        SANITIZE_SURROGATES,
     ]
 
 

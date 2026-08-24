@@ -93,13 +93,26 @@ def resolve_browser_use(daemon_bin: Path | None = None) -> str:
             'the wrapper exec itself. Check PATH ordering in the server '
             'process.'
         )
-    return str(found)
+    # Absolute, but NOT resolved: a relative daemon_bin, or a relative
+    # PATH entry behind shutil.which, would otherwise put a cwd-dependent
+    # path in a wrapper that runs from anywhere. ``absolute()`` is purely
+    # lexical, so it cannot follow a venv's interpreter symlink into a
+    # base Python whose bin holds an older browser-use.
+    return str(found.absolute())
 
 
 def _is_within(path: Path, parent: Path) -> bool:
-    """True when ``path`` is ``parent`` or sits underneath it."""
+    """True when ``path`` is ``parent`` or sits underneath it.
+
+    Compares fully RESOLVED paths — unlike the value we return, which
+    must stay unresolved. A lexical check is dodgeable: a PATH entry
+    outside the wrapper tree can be a symlink whose target is a
+    generated wrapper inside it, and the new wrapper would then exec the
+    old one. Resolving is safe here because the answer is only ever used
+    to reject.
+    """
     try:
-        path.absolute().relative_to(parent.absolute())
-    except ValueError:
+        path.resolve().relative_to(parent.resolve())
+    except (ValueError, OSError):
         return False
     return True

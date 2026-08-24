@@ -71,6 +71,25 @@ class SafeText(TypeDecorator):
         return value
 
 
+def sanitize_json(value):
+    """Recursively sanitize the strings in a JSON-able structure.
+
+    Needed on the OUTBOUND side too: ``httpx`` serializes ``json=`` with
+    ``ensure_ascii=False`` and then encodes to UTF-8, so a lone surrogate
+    raises inside the MCP process — before the request reaches the
+    server\'s ``SafeStr`` fields at all. The agent just sees a failed
+    tool call. Sanitizing the payload as it leaves keeps the two sides
+    consistent: identical text, cleaned once, wherever it enters.
+    """
+    if isinstance(value, str):
+        return sanitize_text(value)
+    if isinstance(value, dict):
+        return {k: sanitize_json(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [sanitize_json(v) for v in value]
+    return value
+
+
 def _coerce_safe(value):
     """Sanitize a str; leave anything else for pydantic to reject."""
     if isinstance(value, str):

@@ -5,6 +5,7 @@ from unittest import mock
 
 import pytest
 
+from app.browser.bu_binary import BrowserUseNotFound
 from app.browser.chrome import ChromeBackend
 from app.browser.manager import (
     BrowserManager,
@@ -68,11 +69,11 @@ class TestWriteBrowserUseWrapper:
         # Point sys.executable at a tmp dir with no browser-use
         # sibling so the wrapper falls back to shutil.which.
         monkeypatch.setattr(
-            'app.browser.wrapper.sys.executable',
+            'app.browser.bu_binary.sys.executable',
             str(tmp_path / 'fake-venv' / 'bin' / 'python'),
         )
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
@@ -97,7 +98,7 @@ class TestWriteBrowserUseWrapper:
         """Chrome wrapper injects BU_CDP_WS (both backends use the proxy)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('storec', 'chrome', 9222, store_id='store-2')
@@ -119,7 +120,7 @@ class TestWriteBrowserUseWrapper:
         """Wrapper script blocks the --cdp-url flag."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
@@ -134,7 +135,7 @@ class TestWriteBrowserUseWrapper:
         """Wrapper script blocks --mcp flag."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
@@ -148,7 +149,7 @@ class TestWriteBrowserUseWrapper:
         """Overwrites wrapper on port change."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
@@ -161,7 +162,7 @@ class TestWriteBrowserUseWrapper:
         """Multiple stores get separate wrapper dirs."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
@@ -186,7 +187,7 @@ class TestWriteBrowserUseWrapper:
             'app.browser.wrapper.DOWNLOADS_DIR', tmp_path / 'downloads'
         )
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         name = '云帆科技'
@@ -214,7 +215,7 @@ class TestWriteBrowserUseWrapper:
             'app.browser.wrapper.DOWNLOADS_DIR', tmp_path / 'downloads'
         )
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         name = '云帆科技'
@@ -248,7 +249,7 @@ class TestWriteBrowserUseWrapper:
             'app.browser.wrapper.DOWNLOADS_DIR', tmp_path / 'downloads'
         )
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         # Bait: a header-matching script in the bin dir's PARENT —
@@ -266,30 +267,36 @@ class TestWriteBrowserUseWrapper:
         assert bin_dir.exists()
         assert (tmp_path / 'browser-use').exists()
 
-    def test_fallback_when_binary_not_found(self, tmp_path: Path, monkeypatch):
-        """Uses 'browser-use' as fallback if binary not found."""
+    def test_refuses_to_write_when_binary_not_found(
+        self, tmp_path: Path, monkeypatch
+    ):
+        """No absolute path ⇒ no wrapper. The bare-name fallback WAS the bug.
+
+        A wrapper forwarding to bare ``browser-use`` re-resolves through
+        the agent PATH, where the wrapper dir comes first, and execs
+        itself. Failing here is safe: ``bin/_guard`` still backstops the
+        agent PATH. See app/browser/bu_binary.py.
+        """
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
-        # No sibling next to sys.executable AND shutil.which
-        # returns None — the wrapper should fall back to the
-        # bare-string "browser-use".
         monkeypatch.setattr(
-            'app.browser.wrapper.sys.executable',
+            'app.browser.bu_binary.sys.executable',
             str(tmp_path / 'fake-venv' / 'bin' / 'python'),
         )
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: None,
         )
-        write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
-
-        content = (tmp_path / 'bin' / 'test-store' / 'browser-use').read_text()
-        assert 'REAL_BU="browser-use"' in content
+        with pytest.raises(BrowserUseNotFound):
+            write_browser_use_wrapper(
+                'test-store', 'ziniao', 9222, store_id='s1'
+            )
+        assert not (tmp_path / 'bin' / 'test-store' / 'browser-use').exists()
 
     def test_ziniao_auto_start_block(self, tmp_path: Path, monkeypatch):
         """Ziniao wrapper includes auto-start curl logic."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper(
@@ -305,7 +312,7 @@ class TestWriteBrowserUseWrapper:
         """Chrome wrapper now has auto-start logic (same as Ziniao)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
@@ -325,7 +332,7 @@ class TestWriteBrowserUseWrapper:
         browser (wrong Amazon account, wrong downloads dir)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
@@ -345,7 +352,7 @@ class TestWriteBrowserUseWrapper:
         gets the same stable client-aux id (uniform across backends)."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s2')
@@ -359,7 +366,7 @@ class TestRemoveBrowserUseWrapper:
         """Removes wrapper directory on session stop."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('test-store', 'ziniao', 9222, store_id='s1')
@@ -488,7 +495,7 @@ class TestRemoveBrowserEntry:
         """remove_browser_entry removes wrapper dir."""
         monkeypatch.setattr('app.browser.wrapper._BIN_DIR', tmp_path / 'bin')
         monkeypatch.setattr(
-            'app.browser.wrapper.shutil.which',
+            'app.browser.bu_binary.shutil.which',
             lambda x: '/usr/local/bin/browser-use',
         )
         write_browser_use_wrapper('storec', 'chrome', 9222, store_id='s1')

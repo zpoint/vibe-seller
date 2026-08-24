@@ -49,6 +49,7 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
+from app.text_utils import sanitize_json
 from app.workspace.manager import (
     reset_task_runtime_state,
     session_has_orphaned_bg_task,
@@ -104,6 +105,9 @@ async def send_task_message(
     If profile_id differs from the task's current profile, the agent is
     restarted with the new profile environment and full chat history.
     """
+    # Untyped body — sanitize here, since SafeStr cannot reach it. The
+    # content is written to the agent's stdin, which encodes UTF-8.
+    body = sanitize_json(body)
     content = body.get('content', '').strip()
     attachment_ids = body.get('attachment_ids') or []
     if not isinstance(attachment_ids, list):
@@ -522,6 +526,9 @@ async def answer_question(
        spawn a fresh session with ``claude --resume <session_id>`` and
        deliver the answers as the next user turn.
     """
+    # Untyped body — sanitize here, since SafeStr cannot reach it. The
+    # answers are forwarded over IPC, which encodes UTF-8.
+    body = sanitize_json(body)
     request_id = body.get('request_id', '')
     answers = body.get('answers', {})
     if not request_id:

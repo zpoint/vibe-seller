@@ -98,3 +98,61 @@ class TestPosix:
         # reached through it, so precedence here must not change.
         _npm_layout(posix, posix_shim=False)
         assert cbu.resolve_claude_binary() == 'claude'
+
+
+class TestSystemPromptDelivery:
+    """How the prompt reaches claude depends on what we are spawning.
+
+    Inline is right for a native binary (32767-char CreateProcess limit,
+    no shell). A batch shim routes through ``cmd.exe``, whose 8191-char
+    cap a 10-20KB store-context prompt blows straight past — that case
+    has to go by file or the agent dies before it starts.
+    """
+
+    PROMPT = 'store context ' * 1000  # ~14KB, a realistic size
+
+    def test_native_exe_keeps_the_prompt_inline(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
+        cmd = [r'C:\vibe\node_modules\@anthropic-ai\claude-code\claude.exe']
+        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
+        assert '--append-system-prompt' in cmd
+        assert '--append-system-prompt-file' not in cmd
+        assert self.PROMPT in cmd
+
+    def test_batch_shim_passes_the_prompt_by_file(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
+        cmd = [r'C:\Users\me\AppData\Roaming\npm\claude.cmd']
+        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
+        assert '--append-system-prompt-file' in cmd
+        assert self.PROMPT not in cmd
+        sp_file = tmp_path / '.system-prompt.md'
+        assert sp_file.read_text(encoding='utf-8') == self.PROMPT
+        # In the task dir, which is per-task and wiped on retry — never a
+        # predictable name in a shared, world-readable temp dir.
+        assert str(sp_file) in cmd
+
+    def test_bat_shim_too(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
+        cmd = [r'C:\tools\claude.BAT']
+        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
+        assert '--append-system-prompt-file' in cmd
+
+    def test_posix_is_never_routed_through_a_file(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(cbu, 'IS_WINDOWS', False)
+        # A POSIX path can legitimately end in .cmd; only Windows spawns
+        # batch files through a shell.
+        cmd = ['/usr/local/bin/claude.cmd']
+        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
+        assert '--append-system-prompt-file' not in cmd
+        assert self.PROMPT in cmd
+
+    def test_unwritable_task_dir_falls_back_to_inline(
+        self, monkeypatch, tmp_path
+    ):
+        """Degraded, but loud — better than no prompt at all."""
+        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
+        cmd = [r'C:\npm\claude.cmd']
+        missing = tmp_path / 'no' / 'such' / 'dir'
+        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', missing)
+        assert '--append-system-prompt-file' not in cmd
+        assert self.PROMPT in cmd

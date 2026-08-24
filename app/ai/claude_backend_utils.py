@@ -115,15 +115,63 @@ def resolve_claude_binary() -> str:
 WINDOWS_CMDLINE_LIMIT = 32767
 
 
-def append_system_prompt(
-    cmd: list[str], system_prompt: str, task_id: str
-) -> None:
-    """Put the assembled system prompt on the command line.
+# Spawning one of these routes through ``cmd.exe`` (CreateProcess runs
+# ``%COMSPEC% /c`` for a batch file), which is where the 8191-char cap
+# comes from. ``_claude_candidates`` prefers the native ``.exe`` exactly
+# to avoid them, but a global ``npm i -g`` install has no ``.exe`` on
+# PATH — only ``claude.cmd`` — so the fallback is reachable and needs a
+# prompt delivery that does not ride the command line.
+_BATCH_SHIM_SUFFIXES = ('.cmd', '.bat')
 
-    Also logs when the result is close to the Windows cap: over it,
-    CreateProcess fails with an error that names no argument, so the
-    size is worth recording while we still know it.
+
+def _is_batch_shim(binary: str) -> bool:
+    return IS_WINDOWS and binary.lower().endswith(_BATCH_SHIM_SUFFIXES)
+
+
+def append_system_prompt(
+    cmd: list[str],
+    system_prompt: str,
+    task_id: str,
+    task_dir: Path | None = None,
+) -> None:
+    """Put the assembled system prompt where claude will read it.
+
+    Inline on the command line — the simple path, and the only one on
+    POSIX or against a native ``claude.exe``. When the resolved binary
+    is a Windows batch shim, the whole command line has to fit in 8191
+    chars, which a 10-20KB store-context prompt does not: that case
+    writes the prompt into the task dir and passes
+    ``--append-system-prompt-file`` instead. The task dir is per-task,
+    gitignored, and wiped on retry, so nothing lands in a shared
+    world-readable temp dir.
+
+    Also logs when the command line comes close to the Windows cap:
+    over it, CreateProcess fails with an error that names no argument,
+    so the size is worth recording while we still know it.
     """
+    if cmd and _is_batch_shim(cmd[0]) and task_dir is not None:
+        sp_file = task_dir / '.system-prompt.md'
+        try:
+            sp_file.write_text(system_prompt, encoding='utf-8')
+        except OSError as e:
+            logger.error(
+                '[%s] could not write %s (%s) — falling back to an inline '
+                'prompt, which a cmd.exe shim caps at 8191 chars',
+                task_id[:8],
+                sp_file,
+                e,
+            )
+        else:
+            logger.info(
+                '[%s] claude resolved to a batch shim (%s); passing the '
+                '%d-char system prompt by file to stay under the '
+                'cmd.exe command-line cap',
+                task_id[:8],
+                cmd[0],
+                len(system_prompt),
+            )
+            cmd.extend(['--append-system-prompt-file', str(sp_file)])
+            return
     cmd.extend(['--append-system-prompt', system_prompt])
     if not IS_WINDOWS:
         return

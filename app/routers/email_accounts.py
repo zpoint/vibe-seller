@@ -359,7 +359,7 @@ async def test_smtp_account(
 
 
 class _SendEmailRequest(BaseModel):
-    to: str | list[str]
+    to: SafeStr | list[SafeStr]
     subject: SafeStr
     body: SafeStr
     body_html: SafeStr | None = None

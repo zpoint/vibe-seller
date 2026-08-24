@@ -87,6 +87,48 @@ class TestResolveBrowserUse:
             resolve_browser_use(tmp_path / 'empty')
 
 
+class TestAbsoluteContract:
+    """The returned path goes into a script that runs from anywhere."""
+
+    def test_relative_which_result_is_made_absolute(
+        self, tmp_path, monkeypatch
+    ):
+        _shim(tmp_path / 'rel', 'browser-use')
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(
+            bu_binary.shutil, 'which', lambda _n: 'rel/browser-use'
+        )
+        got = resolve_browser_use(tmp_path / 'empty')
+        assert Path(got).is_absolute()
+        assert got == str(tmp_path / 'rel' / 'browser-use')
+
+    def test_relative_daemon_bin_is_made_absolute(self, tmp_path, monkeypatch):
+        _shim(tmp_path / 'venv-bin', 'browser-use')
+        monkeypatch.chdir(tmp_path)
+        got = resolve_browser_use(Path('venv-bin'))
+        assert Path(got).is_absolute()
+
+    def test_symlink_into_the_wrapper_tree_is_rejected(
+        self, tmp_path, monkeypatch
+    ):
+        """A lexical containment check is dodgeable by a symlink.
+
+        The PATH entry sits outside the wrapper tree, but its target is a
+        generated wrapper inside it — so the new wrapper would exec the
+        old one. Same recursion, one indirection away.
+        """
+        wrapper_root = tmp_path / 'vibe-bin'
+        real_wrapper = _shim(wrapper_root / 'store-1', 'browser-use')
+        link_dir = tmp_path / 'outside'
+        link_dir.mkdir()
+        link = link_dir / 'browser-use'
+        link.symlink_to(real_wrapper)
+        monkeypatch.setattr(bu_binary, 'BROWSER_USE_BIN_DIR', wrapper_root)
+        monkeypatch.setattr(bu_binary.shutil, 'which', lambda _n: str(link))
+        with pytest.raises(BrowserUseNotFound, match='wrapper tree'):
+            resolve_browser_use(tmp_path / 'empty')
+
+
 class TestGeneratedWrappers:
     """End to end: what lands in the generated script's REAL_BU."""
 
