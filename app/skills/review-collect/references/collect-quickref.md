@@ -79,6 +79,13 @@ the id to the combo's `collected` in `_MANIFEST.json`. **Write the file
 before moving to the next product** (survives context compaction — a
 written file is the durable record; an in-memory list is not).
 
+**Only write a product you actually read.** A page that timed out, was
+blocked or rendered empty gets **no file** — not a `rating: 0` one. It is
+a gap, the reviewer names it next round, and you re-collect it; a blank
+written in its place is applied downstream as a real zero over the rating
+the product has. See `output-spec.md` §"A page you could not read is a
+GAP, not a `0`".
+
 ### Idempotent re-runs
 
 Full history every run. A re-run re-pages everything and **upserts** the
