@@ -69,41 +69,12 @@ workspace symlink.
 counted missing/malformed and named in the diff):
 
 1. `rating` — the product's current overall rating, a **non-null
-   number** (e.g. `4.1`). A product page that **loaded and showed no
-   ratings** must still carry a number — use `0` and set
-   `rating_count: 0` (not `null`). A page you could **not read** is a
-   different thing — see below.
+   number** (e.g. `4.1`). A product page with no rating yet must still
+   carry a number — use `0` and set `rating_count: 0` (not `null`).
 2. `reviews` — an **array** (may be empty `[]` for a product with a
    rating but no written reviews; never omit the key).
 3. `collected_at` — a truthy ISO-8601 UTC timestamp of when this file
    was collected.
-
-### A page you could not read is a GAP, not a `0`
-
-If the page timed out, was blocked, rendered empty, or its tab wedged —
-**do not write the file at all.** Leave it absent and let the converge
-loop do its job: `review_completeness_review` names it next round and
-you re-collect it. A missing file costs one more round, which is what
-the loop is for.
-
-Writing `rating: 0 / rating_count: 0 / reviews: []` instead publishes a
-measurement nobody took, and per file it is **indistinguishable from a
-genuine zero** — same keys, same `review_pages_fetched`, nothing to tell
-them apart. So the downstream consumer cannot tell either: it applies the
-blank as a real zero and silently replaces a rating the product actually
-has. A gap is visible and self-healing; a false zero is neither.
-
-The tell only appears in aggregate, too late and not something the
-consumer can check: a sweep that loses its browser part-way writes the
-whole remainder of a combo as blanks **sharing a single `collected_at`**,
-where genuine readings carry the spread of timestamps you would expect
-from reading pages one at a time. If you find yourself about to emit a
-run of blanks with one timestamp, that is the bug, not the data.
-
-This is the same rule the noon per-country note in `SKILL.md`
-§"noon specifics" already states for one platform — a page that renders
-empty or "not available" must not be recorded as a rating — written once
-for all of them.
 
 The other keys are part of the contract and should be filled, but the
 gates key on the three above:
@@ -151,8 +122,7 @@ gates key on the three above:
   count — record it honestly; under-reporting it is the failure the gate
   closes. The reviewer denies until `collected` covers `expected`.
 - `collected` — the product ids for which a well-formed `<product_id>.json`
-  exists. Add an id here **after** its JSON is written. A product whose
-  page you could not read belongs in neither the file tree nor here.
+  exists. Add an id here **after** its JSON is written.
 - `reviews` / `pages` — running totals for the combo (informational).
 
 The reviewer cross-checks: for every id in `expected`, the file
