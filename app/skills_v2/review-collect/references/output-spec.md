@@ -80,9 +80,31 @@ symlink-write caveat only applies to the shared `stores/`, `knowledge/`,
 counted missing/malformed and named in the diff):
 
 1. `rating` — the product's current overall rating **read off the page
-   this run**, a **non-null number** (e.g. `4.1`). A product page with no
-   rating yet must still carry a number — use `0` and set
-   `rating_count: 0` (not `null`).
+   this run**, a **non-null number** (e.g. `4.1`). A product page that
+   **loaded and showed no ratings** must still carry a number — use `0`
+   and set `rating_count: 0` (not `null`).
+
+   **A page you could not read is not a `0`.** `SKILL.md` and
+   `collect-quickref.md` §Step 2 already say what to do — *report that
+   product as a NAMED gap; never fabricate or copy a file for it* — and
+   this key was the one place the contract could still be read as licence
+   to satisfy it with a blank instead. It is not: write **no file**. A
+   timeout, a block page, an empty render or a wedged tab is a gap, the
+   reviewer names it next round, and that costs one round.
+
+   A `rating: 0 / rating_count: 0 / reviews: []` file written in its
+   place is **indistinguishable from a genuine zero** — same keys, same
+   `review_pages_fetched`, same fresh `collected_at`. So no consumer can
+   tell the two apart, and because a rating cache is an unconditional
+   overwrite, the blank silently replaces a rating the product actually
+   has. A gap is visible and self-healing; a false zero is neither.
+
+   The only tell is in aggregate, which is too late and not something a
+   consumer can check: a sweep that loses its browser part-way writes a
+   run of blanks **sharing one `collected_at`**, where real readings
+   carry the spread of timestamps that reading pages one at a time
+   produces. If you are about to emit a run of identical blanks, that is
+   the bug — not the data.
 2. `reviews` — an **array** (may be empty `[]` for a product with a
    rating but no written reviews; never omit the key).
 3. `collected_at` — a truthy ISO-8601 UTC timestamp of when this file
