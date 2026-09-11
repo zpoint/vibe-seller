@@ -22,6 +22,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.claude_backend_manager import agent_manager
+from app.ai.profiles import resolve_schedule_profile
 from app.database import async_session
 from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
@@ -97,6 +98,14 @@ async def spawn_planning_task(
     author a new version, or edit the schedule prompt (which flips
     ``plan_status`` to ``stale`` and requires a re-plan before the
     next fire).
+
+    The profile comes from :func:`resolve_schedule_profile`, the same
+    resolver the fire path uses, so the plan is authored by the
+    provider that will run the schedule. Reading
+    ``schedule.ai_profile_id`` directly missed that: ``'default'`` is
+    the inherit sentinel *and* the column default, so every unpinned
+    schedule planned on the empty-env profile no matter what its
+    owner had configured.
     """
     task = Task(
         store_id=None,
@@ -107,7 +116,7 @@ async def spawn_planning_task(
         status=TaskStatus.PENDING,
         plan_mode=True,
         is_plan_only=True,
-        ai_profile_id=schedule.ai_profile_id or 'default',
+        ai_profile_id=await resolve_schedule_profile(schedule, db),
     )
     db.add(task)
     # Flush so we get the task.id before linking the Schedule pointer,

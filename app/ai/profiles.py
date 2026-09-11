@@ -643,6 +643,26 @@ def profile_kind_for_id(profile_id: str | None) -> str:
     return profile_kind(ProfileManager.get_profile(profile_id))
 
 
+async def resolve_owner_profile(owner, db) -> str | None:
+    """Resolve an owner's AI profile, falling through a bot account.
+
+    A bot account (``role == AI_BOT_ROLE``) is login-less: its
+    ``default_profile_id`` is the placeholder ``'default'`` and no
+    Settings page can ever change it. Inheriting from it is therefore
+    not a configuration but a guaranteed fall-back to plain Claude on
+    api.anthropic.com — and on an install driven entirely by
+    third-party profiles, a guaranteed failure. **A bot owner means
+    "no preference expressed", so fall through to the human admin who
+    did express one.**
+
+    Returns ``None`` when nobody expressed a preference, leaving the
+    caller to apply its own default.
+    """
+    if owner and owner.role == AI_BOT_ROLE:
+        owner = await db.get(User, DEFAULT_USER_ID)
+    return owner.default_profile_id if owner else None
+
+
 async def resolve_schedule_profile(sched, db) -> str:
     """Resolve which AI profile a schedule's fired task should use.
 
@@ -668,17 +688,12 @@ async def resolve_schedule_profile(sched, db) -> str:
     returns ``DEFAULT_PROFILE_ID`` (the global inherit sentinel) and the
     caller applies its own default.
 
-    **System schedules have no human owner.** They are seeded with
-    ``created_by=AI_BOT_USER_ID`` — a login-less account whose
-    ``default_profile_id`` is the placeholder ``'default'`` and which no
-    Settings page can ever change. Inheriting from it therefore resolved
-    right back to ``'default'``, i.e. plain Claude on
-    api.anthropic.com. On an install driven entirely by third-party
-    profiles that is not a configuration, it is a guaranteed failure:
-    the nightly catalog sync died with "Not logged in · Please run
-    /login" every night for weeks while the admin's default was set to
-    a working provider the whole time. A bot owner means "no preference
-    expressed", so fall through to the human admin who did express one.
+    **System schedules have no human owner** — they are seeded with
+    ``created_by=AI_BOT_USER_ID``, and the nightly catalog sync died
+    with "Not logged in · Please run /login" every night for weeks
+    because of it. That fall-through is
+    :func:`resolve_owner_profile`'s, shared with task creation so the
+    two paths cannot drift apart again.
     """
     if (
         sched
@@ -688,8 +703,7 @@ async def resolve_schedule_profile(sched, db) -> str:
         return sched.ai_profile_id
     if sched and sched.created_by:
         owner = await db.get(User, sched.created_by)
-        if owner and owner.role == AI_BOT_ROLE:
-            owner = await db.get(User, DEFAULT_USER_ID)
-        if owner and owner.default_profile_id:
-            return owner.default_profile_id
+        resolved = await resolve_owner_profile(owner, db)
+        if resolved:
+            return resolved
     return DEFAULT_PROFILE_ID
