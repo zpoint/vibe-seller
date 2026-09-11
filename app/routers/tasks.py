@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import telemetry
 from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
+from app.ai.profiles import (
+    DEFAULT_PROFILE_ID,
+    profile_kind_for_id,
+    resolve_owner_profile,
+)
 from app.ai.review_redrive import reset_ledger
 from app.ai.stop_gates import (
     CONTRADICTION_MAX_DENIALS,
@@ -164,7 +168,9 @@ async def create_task(
         plan_mode=plan_mode,
         skip_reflection=bool(data.skip_reflection),
         ai_profile_id=(
-            data.profile_id or current_user.default_profile_id or 'default'
+            data.profile_id
+            or await resolve_owner_profile(current_user, db)
+            or DEFAULT_PROFILE_ID
         ),
     )
     db.add(task)
