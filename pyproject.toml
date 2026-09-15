@@ -126,10 +126,33 @@ include = ["app*"]
 #                   `pip install vibe-seller` ships a working web UI
 #                   without a clone.
 #
+#   prompts/**/*    The system-prompt templates. `app/prompts/__init__.py`
+#   skills_v2/**/*  reads them at IMPORT time, so a wheel without them
+#                   does not fail late — the server cannot start at all.
+#
+# Every glob here is listed EXPLICITLY on purpose. `app/prompts` and
+# `app/skills_v2` each carry an `__init__.py`, so they are packages in
+# their own right rather than data of `app`, and their non-`.py` files
+# were reaching the wheel only through setuptools-scm's git file finder
+# (`include-package-data` is on by default). That finder needs a usable
+# `.git` at build time; where it has none — an exported tree, a build
+# that copies the source away from the repo — it returns nothing and
+# fails SILENTLY. The wheel then builds clean, installs clean, and dies
+# on first import with
+# `FileNotFoundError: app/prompts/design_system.md`. Naming the globs
+# removes that dependency; `tests/unit/test_wheel_package_data.py`
+# pins it by building without `.git`.
+#
 # The Playwright Chromium binary is the only piece NOT in the wheel —
 # it's ~150 MB and ships separately via `playwright install chromium`,
 # which `install.sh` runs after `uv tool install vibe-seller`.
-app = ["knowledge/**/*", "skills/**/*", "static/**/*"]
+app = [
+    "knowledge/**/*",
+    "prompts/**/*",
+    "skills/**/*",
+    "skills_v2/**/*",
+    "static/**/*",
+]
 
 [tool.setuptools_scm]
 # Version is derived from the latest `v*` git tag at build time.
