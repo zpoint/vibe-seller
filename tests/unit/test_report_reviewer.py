@@ -326,3 +326,48 @@ class TestSkillDodAddendum:
         assert deny is not None
         assert 'Reviewer never ran' in deny
         assert 'Definition of Done declared by skill' not in deny
+
+    def test_retry_denials_also_carry_the_contract(self, tmp_path):
+        # The contract matters MOST on a retry: that is when the agent
+        # re-launches the reviewer and could hand it a narrower
+        # checklist again. Appending only to the "never ran" branch left
+        # every retry path bare.
+        (tmp_path / 'REVIEW_2026-09-15_iter1.md').write_text(
+            'Status: gaps\n', encoding='utf-8'
+        )
+        deny = rr.reviewer_verdict(
+            tmp_path,
+            skill_reviews={
+                'noon-listing': self._Review(
+                    'the SKU is ACTUALLY created', 'Open the page'
+                )
+            },
+        )
+        assert deny is not None
+        assert 'found gaps' in deny
+        assert 'the SKU is ACTUALLY created' in deny
+
+    def test_untrusted_verdict_denial_carries_the_contract(self, tmp_path):
+        (tmp_path / 'REVIEW_2026-09-15_iter1.md').write_text(
+            'Status: ok\n', encoding='utf-8'
+        )
+        deny = rr.reviewer_verdict(
+            tmp_path,
+            review_writers={'REVIEW_2026-09-15_iter1.md': 'main'},
+            skill_reviews={'s': self._Review('ACTUALLY created')},
+        )
+        assert deny is not None
+        assert 'ACTUALLY created' in deny
+
+    def test_accepting_verdict_returns_none_not_an_addendum(self, tmp_path):
+        (tmp_path / 'REVIEW_2026-09-15_iter1.md').write_text(
+            'Status: ok\n', encoding='utf-8'
+        )
+        assert (
+            rr.reviewer_verdict(
+                tmp_path,
+                review_writers={'REVIEW_2026-09-15_iter1.md': 'subagent'},
+                skill_reviews={'s': self._Review('ACTUALLY created')},
+            )
+            is None
+        )

@@ -132,7 +132,8 @@ read it in-page before filling; do not assume.
   Fill the Arabic seller size per row on the live **Sizes tab** (edit each
   size) after import. Verified live: a parent + S/M/L children imported
   correctly (one parent hash, children `-1/-2/-3`, all shown bound on the
-  Sizes tab) but with `Seller Size (AR) = --` until filled by hand.
+  Sizes tab) but with **Seller Size (AR) holding the English
+  `size_variation` string** until replaced by hand.
 - **Leave a field BLANK unless the task specified it.** This is the
   default, not a preference. A NIS sheet has ~150 columns and almost all
   of them are optional; filling one "because it is there" invents data
@@ -156,9 +157,12 @@ read it in-page before filling; do not assume.
 - **Pre-flight the sheet BEFORE uploading — always:**
 
   ```bash
+  # Your CWD is the task workspace, not the skill dir — address the
+  # script through the synced skill path.
+  S=.claude/skills/noon-listing/scripts
   # --markets is the marketplaces the TASK covers, not the ones the
   # store has. "Only list on the UAE site" means --markets AE.
-  python scripts/validate_nis.py FILLED.xlsx --markets AE
+  python3 $S/validate_nis.py FILLED.xlsx --markets AE
   ```
 
   It fails the file on the traps that have each burned a live import: a

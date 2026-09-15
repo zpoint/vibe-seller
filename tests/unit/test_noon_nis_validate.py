@@ -48,6 +48,7 @@ HEADERS = [
     'brand',
     'seller_sku',
     'widget_finish',
+    'shipping_length_unit',
     'hs_code',
     'shipping_weight_unit',
     'product_title_en',
@@ -64,6 +65,7 @@ VALID = {
     'family': ['widgets'],
     'product_type': ['Widget Parts'],
     'widget_finish': ['Matte', 'Gloss'],
+    'shipping_length_unit': ['Centimeter', 'Inch', 'Meter'],
     'shipping_weight_unit': ['Gram', 'Kilogram'],
 }
 
@@ -74,6 +76,8 @@ GOOD_ROW = {
     'brand': 'acme',
     'seller_sku': 'WIDGET-006',
     'widget_finish': 'Matte',
+    # short unit form; the sheet spells it out (noon accepts both)
+    'shipping_length_unit': 'cm',
     'hs_code': '611595',
     'shipping_weight_unit': 'Gram',
     'product_title_en': 'acme Widget Six Pack, Cotton Blend, For Everyone',
@@ -151,6 +155,33 @@ class TestSampleRow:
         errors, _ = validate_nis.validate(_book(tmp_path, [GOOD_ROW, {}]))
         assert errors == []
 
+    def test_any_row_without_a_sku_is_an_error(self, tmp_path):
+        # Not the sample row's shape (it carries content, not just the
+        # category). Every per-row check keys off seller_sku, so without
+        # this the row would skip validation and the file report OK.
+        orphan = {
+            'product_title_en': 'acme Widget Six Pack',
+            'product_title_ar': 'منتج تجريبي من أكمي',
+        }
+        errors, _ = validate_nis.validate(_book(tmp_path, [GOOD_ROW, orphan]))
+        assert any('no seller_sku' in e for e in errors)
+
+
+class TestEmptySheet:
+    """An empty data region must fail closed, not report OK."""
+
+    def test_header_only_sheet_is_an_error(self, tmp_path):
+        path = _book(tmp_path, [])
+        errors, _ = validate_nis.validate(path)
+        assert any('no data rows' in e for e in errors)
+
+    def test_header_only_sheet_exits_non_zero(self, tmp_path):
+        assert validate_nis.main([str(_book(tmp_path, []))]) == 1
+
+    def test_only_blank_rows_is_an_error(self, tmp_path):
+        errors, _ = validate_nis.validate(_book(tmp_path, [{}, {}]))
+        assert any('no data rows' in e for e in errors)
+
 
 class TestSelectValues:
     def test_value_outside_valid_values_is_an_error(self, tmp_path):
@@ -160,12 +191,34 @@ class TestSelectValues:
             "widget_finish='Sparkly' is not a valid value" in e for e in errors
         )
 
-    def test_display_form_columns_are_exempt(self, tmp_path):
+    def test_display_form_is_accepted(self, tmp_path):
         # ``Widgets`` vs the sheet's ``widgets``: noon accepts the UI
         # display form for category columns, proven by an import that
         # created SKUs while using it.
         errors, _ = validate_nis.validate(_book(tmp_path, [GOOD_ROW]))
         assert not any('family=' in e for e in errors)
+
+    def test_display_form_columns_are_still_checked(self, tmp_path):
+        # The tolerance is normalisation, NOT an exemption: an unknown
+        # value in the same column must still fail. (Reverting to the
+        # blanket skip makes this pass silently.)
+        bad = dict(GOOD_ROW, family='NotAWidget')
+        errors, _ = validate_nis.validate(_book(tmp_path, [bad]))
+        assert any("family='NotAWidget'" in e for e in errors)
+
+    def test_punctuation_and_spacing_differences_are_accepted(self, tmp_path):
+        row = dict(GOOD_ROW, product_type='Widget-Parts')
+        errors, _ = validate_nis.validate(_book(tmp_path, [row]))
+        assert not any('product_type=' in e for e in errors)
+
+    def test_short_unit_alias_is_accepted(self, tmp_path):
+        errors, _ = validate_nis.validate(_book(tmp_path, [GOOD_ROW]))
+        assert not any('shipping_length_unit' in e for e in errors)
+
+    def test_near_miss_unit_is_rejected(self, tmp_path):
+        row = dict(GOOD_ROW, shipping_length_unit='cmm')
+        errors, _ = validate_nis.validate(_book(tmp_path, [row]))
+        assert any("shipping_length_unit='cmm'" in e for e in errors)
 
     def test_weight_unit_warns_but_does_not_block(self, tmp_path):
         row = dict(GOOD_ROW, shipping_weight_unit='g')

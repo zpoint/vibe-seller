@@ -235,8 +235,8 @@ def skill_dod_addendum(skill_reviews) -> str:
     )
 
 
-def reviewer_verdict(
-    task_dir, subagent_ran=None, review_writers=None, skill_reviews=None
+def _verdict_reason(
+    task_dir, subagent_ran=None, review_writers=None
 ) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
@@ -291,7 +291,6 @@ def reviewer_verdict(
             'Write its result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in this '
             'workspace; re-run until Status: ok or iter '
             f'{REVIEW_MAX_ITERS} with Status: incomplete.'
-            + skill_dod_addendum(skill_reviews)
         )
 
     def _iter_of(p):
@@ -403,3 +402,22 @@ def reviewer_verdict(
         f'Unknown reviewer status {status!r} in {latest.name}. '
         'Must be one of: ok | gaps | incomplete.'
     )
+
+
+def reviewer_verdict(
+    task_dir, subagent_ran=None, review_writers=None, skill_reviews=None
+) -> str | None:
+    """Deny reason if the reviewer hasn't signed off; else ``None``.
+
+    Thin wrapper over ``_verdict_reason`` whose only job is to append the
+    bound skills' Definition of Done to EVERY deny. Doing it here rather
+    than at each ``return`` is deliberate: the contract matters most on a
+    RETRY (``Status: gaps`` / ``incomplete`` / an untrusted verdict),
+    because that is exactly when the agent re-launches the reviewer and
+    could hand it a narrower checklist again. Appending per-branch left
+    those paths bare and would leave any future branch bare too.
+    """
+    deny = _verdict_reason(task_dir, subagent_ran, review_writers)
+    if deny is None:
+        return None
+    return deny + skill_dod_addendum(skill_reviews)

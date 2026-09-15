@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import re
 import sys
 
 try:
@@ -47,23 +48,38 @@ except ImportError:  # pragma: no cover - environment issue, not logic
 HEADER_ROW = 9
 FIRST_DATA_ROW = HEADER_ROW + 1
 
-# Columns whose live-accepted values legitimately differ from the
-# ``valid values`` sheet. Proven against a control import that CREATED
-# its SKUs while disagreeing with the sheet on every one of them: the
-# category columns were sent in the UI's display casing/spacing, and
-# the dimension units in their short form where the sheet spells them
-# out. The sheet is a UI-facing list for these columns, so enforcing it
-# would reject files noon demonstrably accepts.
-_DISPLAY_FORM_COLUMNS = frozenset({
-    'family',
-    'product_type',
-    'product_subtype',
-    'shipping_length_unit',
-    'shipping_height_unit',
-    'shipping_width_depth_unit',
-    'product_length_unit',
-    'product_width_depth_unit',
-})
+
+# The ``valid values`` sheet is UI-facing: a control import that CREATED
+# its SKUs disagreed with it on casing, spacing and punctuation for the
+# category columns (and used a short unit form where the sheet spells it
+# out). So compare NORMALISED -- case/punctuation/whitespace-insensitive
+# -- rather than exempting those columns wholesale, which would let a
+# genuine typo through unchecked.
+def _norm(value) -> str:
+    """Casefolded, punctuation-stripped form for tolerant comparison."""
+    return re.sub(r'[^a-z0-9]', '', str(value).strip().lower())
+
+
+# Short unit forms noon accepts where the sheet spells the unit out.
+# ``cm`` is proven (the control import that created its SKUs used it);
+# the rest follow the same pattern. Spelled out here rather than skipped
+# so a near-miss like ``cmm`` still fails.
+_VALUE_ALIASES = {
+    'cm': 'Centimeter',
+    'mm': 'Millimeter',
+    'm': 'Meter',
+    'in': 'Inch',
+}
+
+
+def _accepts(value, allowed) -> bool:
+    """True when ``value`` matches ``allowed`` modulo display form."""
+    canonical = {_norm(a) for a in allowed}
+    if _norm(value) in canonical:
+        return True
+    alias = _VALUE_ALIASES.get(str(value).strip().lower())
+    return alias is not None and _norm(alias) in canonical
+
 
 # Warn-only rather than error: a control import that CREATED used the
 # spelled-out ``Gram`` while the failing one used ``g``, but noon never
@@ -143,23 +159,38 @@ def _get(ws, hdr, row, field):
     return None if v in (None, '') else v
 
 
-def check_sample_rows(ws, hdr, rows) -> list[str]:
-    """A data row with a category but no ``seller_sku`` is the template's
-    own sample row. Leaving it in makes noon's Error File report only it,
-    masking the real rows' content errors."""
+def check_row_identity(ws, hdr, rows) -> list[str]:
+    """Every non-empty data row must carry a ``seller_sku``.
+
+    Two shapes of the same defect. A row holding ONLY the category
+    columns is the template's own sample row: leaving it in makes noon's
+    Error File report just that row and mask every real row's
+    ``content_error``. Any OTHER row without a SKU is malformed — and
+    because every per-row check below keys off ``seller_sku``, such a
+    row would otherwise skip validation entirely and the file would
+    still be reported OK.
+    """
     errs = []
+    category = ('family', 'product_type', 'product_subtype')
     for r in rows:
         if _get(ws, hdr, r, 'seller_sku'):
             continue
-        if any(
-            _get(ws, hdr, r, f)
-            for f in ('family', 'product_type', 'product_subtype')
-        ):
+        others = [
+            h
+            for h in hdr
+            if h not in category and _get(ws, hdr, r, h) is not None
+        ]
+        if not others and any(_get(ws, hdr, r, f) for f in category):
             errs.append(
                 f'ERROR row {r}: template sample row still present '
                 '(category set, seller_sku empty). Delete it — while it '
                 "is in the file noon's Error File reports only this row "
                 "and hides every real row's content_error."
+            )
+        else:
+            errs.append(
+                f'ERROR row {r}: no seller_sku. Every NIS data row needs '
+                'one; a row without it is skipped by every other check.'
             )
     return errs
 
@@ -173,12 +204,12 @@ def check_select_values(ws, hdr, rows, valid) -> list[str]:
         for field, allowed in valid.items():
             if field not in hdr:
                 continue
-            if field in _DISPLAY_FORM_COLUMNS | _WARN_ONLY_COLUMNS:
+            if field in _WARN_ONLY_COLUMNS:
                 continue
             v = _get(ws, hdr, r, field)
             if v is None:
                 continue
-            if str(v).strip() not in allowed:
+            if not _accepts(v, allowed):
                 sample = ', '.join(sorted(allowed)[:6])
                 errs.append(
                     f'ERROR row {r}: {field}={str(v)!r} is not a valid '
@@ -201,7 +232,7 @@ def check_unit_columns(ws, hdr, rows, valid) -> list[str]:
             v = _get(ws, hdr, r, field)
             if not allowed or v is None:
                 continue
-            if str(v).strip() not in allowed:
+            if not _accepts(v, allowed):
                 errs = ', '.join(sorted(allowed))
                 warns.append(
                     f'WARNING row {r}: {field}={str(v)!r} is not in the '
@@ -328,7 +359,18 @@ def validate(path: Path, template: Path | None = None, markets=None):
         valid = _valid_values(load_workbook(template))
 
     rows = _data_rows(ws, hdr)
-    errors = check_sample_rows(ws, hdr, rows)
+    if not rows:
+        # Fail closed: an empty sheet creates nothing, which is the very
+        # outcome this pre-flight exists to catch. Reporting OK here
+        # would green-light it.
+        return (
+            [
+                f'ERROR: {path.name} has no data rows below row '
+                f'{HEADER_ROW} — nothing would be created.'
+            ],
+            [],
+        )
+    errors = check_row_identity(ws, hdr, rows)
     errors += check_select_values(ws, hdr, rows, valid)
     errors += check_hs_code(ws, hdr, rows)
     parity_errs, parity_warns = check_locale_parity(ws, hdr, rows)
