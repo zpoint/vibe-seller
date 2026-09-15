@@ -9,13 +9,23 @@ review:
       /catalog/{noon_sku}/p, and the Offer tab shows the base price /
       sale price / stock / barcode as entered (committed on the live
       page). Content/Sizes match the request.
+    - For a NIS import: the import's **Report File** is non-empty and
+      every row carries a `catalog_sku`. `Status: Complete` and
+      `Total Processed Rows: N` are NOT evidence of creation — an import
+      that created nothing shows both, with a 4-byte Report File.
+    - Every bilingual field the request supplied in English also has its
+      Arabic half on the live Content tab (title, long description, each
+      feature bullet) — not a stub a fraction of the English length.
     - An edit is done only when the live page reflects it (green success
       + updated values), not on a toast alone.
   verify_by: |
     Open the created SKU's catalog page and its Offer tab; confirm price
     / stock / barcode match what was entered. For an edit, reload the tab
     and confirm the new values persisted. A feed/toast without the live
-    page reflecting it is a gap.
+    page reflecting it is a gap. For a NIS import, additionally download
+    the import's Report File and confirm one row per SKU with a
+    `catalog_sku`, and open the Content tab to confirm the Arabic half of
+    every filled English field. Import-row counters are not evidence.
 ---
 
 # Noon — Listing Operations
@@ -114,21 +124,84 @@ read it in-page before filling; do not assume.
   ⚠️ **NIS has no Arabic-size column — only `size_variation` (Seller Size
   EN) and `size_map` (noon Size).** So after a NIS create the sized
   product's **Seller Size (AR)** — a `*`-mandatory field on the Sizes tab
-  — shows `--` (empty), and the family is bound but not content-complete.
+  — is not authored by you: noon back-fills it with the *English*
+  `size_variation` string, so the field looks satisfied while showing
+  English text in the Arabic column. (An earlier revision of this skill
+  said it shows `--`; re-verified, it is the copied English value.)
+  Either way the family is bound but not content-complete.
   Fill the Arabic seller size per row on the live **Sizes tab** (edit each
   size) after import. Verified live: a parent + S/M/L children imported
   correctly (one parent hash, children `-1/-2/-3`, all shown bound on the
   Sizes tab) but with `Seller Size (AR) = --` until filled by hand.
+- **Leave a field BLANK unless the task specified it.** This is the
+  default, not a preference. A NIS sheet has ~150 columns and almost all
+  of them are optional; filling one "because it is there" invents data
+  the seller never agreed to. Every invented value in the one audited
+  run was wrong: `hs_code` was a guessed 4-digit customs code (rejected
+  for length), a select attribute carried a value nobody claimed
+  (rejected as out-of-enum), and one answer of "100 AED" was fanned out
+  to `msrp_ae`, `msrp_sa` **and** `msrp_eg` — pricing two marketplaces
+  the user never priced, one of which the seller does not sell in.
+
+  > ⚠️ **On noon an invented value is effectively permanent.** A blank
+  > cell in a NIS *update* means "no change", NOT "clear" — verified: an
+  > update whose `msrp_*` cells were emptied imported with 0 errors and
+  > left the live values untouched. Clearing them on the Content tab did
+  > not persist either. So the only reliable moment to not have a wrong
+  > value is **before the first upload**.
+
+  If a field seems needed but the task did not give it, ASK — do not
+  infer it from the English copy, the other marketplaces, or the
+  Amazon listing.
+- **Pre-flight the sheet BEFORE uploading — always:**
+
+  ```bash
+  # --markets is the marketplaces the TASK covers, not the ones the
+  # store has. "Only list on the UAE site" means --markets AE.
+  python scripts/validate_nis.py FILLED.xlsx --markets AE
+  ```
+
+  It fails the file on the traps that have each burned a live import: a
+  leftover template sample row, a select value that is not in the
+  template's `valid values` sheet, an out-of-range `hs_code`, an English
+  field whose Arabic half is empty, and a per-marketplace field
+  (`msrp_*`, `vat_rate_*`) set outside the task's scope. A live import costs minutes
+  and its error reporting is unreliable (below); this costs nothing.
+- **DELETE the template's sample row(s) before uploading.** The
+  downloaded template ships a row carrying only `family` /
+  `product_type` / `product_subtype` and no `seller_sku`. Leave it in
+  and noon's Error File reports **only** that row's
+  `seller_sku is missing` and silently drops every real row's
+  `content_error`, while the counters read `1 error / N processed` —
+  which reads as success. Verified: the same import's Error File still
+  showed only the sample row 6.5 h later, and its Report File was empty.
 - **Upload flow (filled NIS sheet):** Imports → Add Import → Type=Content,
   Subtype=NIS Create/Update → **Next** → drag/drop or pick the `.xlsx`
   (the hidden `input[type=file]` accepts `.csv,.xlsx`) → **Submit**. The
   import runs async (a `IMP…` code); it shows Completed even on row
   failures, so verify the SKUs actually appear in My Catalog.
+- **`Total Processed Rows` is NOT "created" — the Report File is.**
+  The counter counts rows that passed *partner-level* validation; rows
+  that then fail content validation still count toward it. The only
+  trustworthy signal is the import's **Report File**: one row per SKU
+  with a filled `catalog_sku` (and `sku_parent` for a variation family).
+  A failed import's Report File is **4 bytes** — a UTF-8 BOM and a
+  newline. Download it every time; do not report success without it.
 - **Reading the error file is the debug loop.** An import that shows
   Completed but creates nothing failed row validation; open the import's
   Result/error CSV — its trailing `partner_error` / `content_error` /
   `creation_error` columns name the exact problem. Fix those cells
-  (use the exact valid-value strings) and re-upload.
+  (use the exact valid-value strings) and re-upload. If the error file
+  names only a row you did not write, you still have a sample row in the
+  file (above) — remove it and re-upload to see the real errors.
+- **Fill BOTH halves of every bilingual pair.** The `English + Arabic`
+  template pairs each localised field (`product_title_*`,
+  `long_description_*`, `feature_bullet_N_*`, `colour_name_*`). Filling
+  only `_en` imports clean — no error, no warning — and ships a
+  half-translated listing; shipped once with all four Arabic feature
+  bullets empty and Arabic title/description stubs a third the length of
+  their English source. `validate_nis.py` fails the file on a missing
+  `_ar`, and warns when one is suspiciously short.
 
 ### 1.3 Pricing import — optional high-base + long sale (a seller pattern)
 

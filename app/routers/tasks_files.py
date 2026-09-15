@@ -68,8 +68,9 @@ def apply_report_reviewer_gate(task_id, task_root, final_result):
     UNVERIFIED — never a silent "done".
     """
     skills = recorded_skills(task_id)
+    skill_reviews = skills_requiring_review(skills, task_root)
     needs_review = bool(skills & report_reviewer.AD_SKILLS) or bool(
-        skills_requiring_review(skills, task_root)
+        skill_reviews
     )
     if not needs_review:
         return None, final_result
@@ -77,6 +78,7 @@ def apply_report_reviewer_gate(task_id, task_root, final_result):
     deny = report_reviewer.reviewer_verdict(
         task_root,
         review_writers=getattr(session, '_review_file_writers', None),
+        skill_reviews=skill_reviews,
     )
     if not deny:
         return None, final_result

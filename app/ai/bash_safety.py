@@ -508,9 +508,9 @@ def check_review_status(
     is_ad_task = bool(skills & report_reviewer.AD_SKILLS)
     # Phase 2: any non-ad skill that declares a ``review:`` block also
     # requires the active reviewer verdict before the turn may end.
-    needs_general_review = not is_ad_task and bool(
-        skills_requiring_review(skills, task_dir)
-    )
+    # Threaded into the deny (see ``report_reviewer.skill_dod_addendum``).
+    skill_reviews = skills_requiring_review(skills, task_dir)
+    needs_general_review = not is_ad_task and bool(skill_reviews)
     try:
         audit_files = list(task_dir.glob('AD_AUDIT_*.md'))
     except OSError:
@@ -522,7 +522,7 @@ def check_review_status(
             # gaps) or had nothing to verify (quick lookup → signs off
             # fast).
             return report_reviewer.reviewer_verdict(
-                task_dir, subagent_ran, review_writers
+                task_dir, subagent_ran, review_writers, skill_reviews
             )
         return None  # Nothing bound that requires review.
 
@@ -555,7 +555,7 @@ def check_review_status(
 
     # Reviewer sign-off — shared with the set_task_result path.
     return report_reviewer.reviewer_verdict(
-        task_dir, subagent_ran, review_writers
+        task_dir, subagent_ran, review_writers, skill_reviews
     )
 
 

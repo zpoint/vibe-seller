@@ -43,6 +43,7 @@ save-skill/SKILL.md
 noon-shared/SKILL.md
 noon-shared/references/dod-review-loop.md
 noon-listing/SKILL.md
+noon-listing/scripts/validate_nis.py
 noon-fbn/SKILL.md
 noon-fbn/references/fee-reports.md
 noon-fbn/scripts/check_fee_rows.py

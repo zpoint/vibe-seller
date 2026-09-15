@@ -187,8 +187,56 @@ def effective_status(content: str) -> tuple[str | None, list[str]]:
     return next(s for s in statuses if s not in known), statuses
 
 
+def skill_dod_addendum(skill_reviews) -> str:
+    """Render the bound skills' ``review:`` contract for the reviewer.
+
+    ``skill_reviews`` maps skill name → its parsed ``SkillReview``
+    (duck-typed here: anything with ``criteria`` / ``verify_by`` string
+    attributes) — see ``app.ai.skill_review.skills_requiring_review``.
+
+    Why this exists: the skill author writes the Definition of Done in
+    SKILL.md, but the reviewer subagent's prompt is written by the agent
+    being reviewed. Parsing ``criteria`` / ``verify_by`` and then using
+    only ``is not None`` — which is what this module did — let the
+    author of the work also set the bar for it. Observed: a noon listing
+    task whose skill said "the SKU is ACTUALLY created and live … open
+    the created SKU's catalog page" spawned a reviewer told only to
+    re-read three counters off the import row. It signed off; nothing
+    had been created. Putting the contract in the deny text makes the
+    agent restate the skill's bar, not its own.
+    """
+    if not skill_reviews:
+        return ''
+    parts = []
+    for name in sorted(skill_reviews):
+        review = skill_reviews[name]
+        criteria = (getattr(review, 'criteria', '') or '').strip()
+        verify_by = (getattr(review, 'verify_by', '') or '').strip()
+        if not criteria and not verify_by:
+            continue
+        block = [
+            f'\n\nDefinition of Done declared by skill `{name}` — '
+            'the reviewer must be held to THIS, not to a narrower '
+            'checklist of your own:'
+        ]
+        if criteria:
+            block.append(f'\n[criteria]\n{criteria}')
+        if verify_by:
+            block.append(f'\n[verify_by]\n{verify_by}')
+        parts.append(''.join(block))
+    if not parts:
+        return ''
+    return ''.join(parts) + (
+        '\n\nPass the criteria and verify_by text above to the reviewer '
+        'verbatim in its prompt. A reviewer prompt that checks only that '
+        'a job was SUBMITTED (feed accepted, counters look right, file '
+        'uploaded) when the contract asks whether it TOOK EFFECT does '
+        'not satisfy this gate.'
+    )
+
+
 def reviewer_verdict(
-    task_dir, subagent_ran=None, review_writers=None
+    task_dir, subagent_ran=None, review_writers=None, skill_reviews=None
 ) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
@@ -243,6 +291,7 @@ def reviewer_verdict(
             'Write its result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in this '
             'workspace; re-run until Status: ok or iter '
             f'{REVIEW_MAX_ITERS} with Status: incomplete.'
+            + skill_dod_addendum(skill_reviews)
         )
 
     def _iter_of(p):
