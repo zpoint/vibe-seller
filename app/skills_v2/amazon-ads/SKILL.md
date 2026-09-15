@@ -253,7 +253,9 @@ causes shortcutting). Just two files, then run:**
 
 Write the report to `AD_AUDIT_<YYYY-MM-DD>.md`, and persist the
 authoritative active-campaign ids per marketplace to `AUDIT_SCOPE.json`
-(run `python scripts/ads_bulk.py scope <each market's export>`) — the
+(run `python3 .claude/skills/amazon-ads/scripts/ads_bulk.py scope
+<each market's export>` — your CWD is the task workspace, so the
+script must be addressed through the synced skill path) — the
 coverage floor checks against it.
 
 **What you owe is what you DECLARED.** `AUDIT_TARGETS.json` at the task
