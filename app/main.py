@@ -3,8 +3,9 @@ from contextlib import asynccontextmanager
 import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -79,6 +80,11 @@ from app.scheduler.cron import (
 from app.scheduler.email_sync import sync_all_email_accounts
 from app.scheduler.task_queue import task_queue_scheduler
 from app.telemetry_events import TelemetryEvent
+from app.uploads import (
+    MAX_UPLOAD_SIZE,
+    declared_body_too_large,
+    human_size,
+)
 from app.version import get_version
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
@@ -279,6 +285,34 @@ app.add_middleware(
     allow_methods=['*'],
     allow_headers=['*'],
 )
+
+
+@app.middleware('http')
+async def limit_upload_body(request: Request, call_next):
+    """Refuse an over-sized body before anything reads it.
+
+    This has to be middleware, not a route dependency: FastAPI awaits
+    ``request.form()`` while solving a route's parameters, so by the
+    time a ``Depends`` guard runs Starlette has already parsed the
+    multipart body and spooled it to a temp file. Rejecting here costs
+    the client one round trip and costs the server nothing.
+
+    ``app.uploads.save_upload`` still enforces the cap while writing —
+    this only handles the honest case where the body announces its own
+    size. A chunked request with no ``Content-Length`` falls through to
+    that backstop.
+    """
+    if declared_body_too_large(request.headers.get('content-length')):
+        return JSONResponse(
+            status_code=413,
+            content={
+                'detail': (
+                    f'File too large (max {human_size(MAX_UPLOAD_SIZE)})'
+                )
+            },
+        )
+    return await call_next(request)
+
 
 # Routers
 app.include_router(auth_router)

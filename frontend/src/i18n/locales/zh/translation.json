@@ -205,9 +205,9 @@
     "attachedImage": "图片",
     "attachmentsLabel": "附件",
     "attachmentsHint": "拖入图片、粘贴（Ctrl+V），或点击选择文件",
-    "attachmentsTypes": "支持 PNG、JPEG、GIF、WebP、PDF，单个最大 10MB",
+    "attachmentsTypes": "支持 PNG、JPEG、GIF、WebP、PDF，单个最大 {{size}}",
     "attachmentUnsupported": "{{name}}：不支持的文件类型，未添加",
-    "attachmentTooLarge": "{{name}}：超过 10MB，未添加",
+    "attachmentTooLarge": "{{name}}：超过 {{size}}，未添加",
     "attachmentClipboardItem": "剪贴板内容",
     "startFailed": "任务已创建，但未能启动。附件可能未上传成功——请打开任务后重试。"
   },

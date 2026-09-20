@@ -2,13 +2,13 @@ import { useRef, useCallback, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { PendingFile, Store } from '../types'
 import { usePasteFiles } from '../hooks/usePasteFiles'
+import { formatUploadLimit, getMaxUploadSize } from '../uploadLimits'
 import { uuid } from '../uuid'
 
 /** Kept in sync with the file input's `accept` and the hint text. */
 const ACCEPTED_TYPES = [
   'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf',
 ]
-const MAX_FILE_SIZE = 10 * 1024 * 1024
 const EXT_BY_TYPE: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -78,8 +78,11 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
         skipped.push(t('tasks.attachmentUnsupported', { name: label }))
         continue
       }
-      if (original.size > MAX_FILE_SIZE) {
-        skipped.push(t('tasks.attachmentTooLarge', { name: label }))
+      if (original.size > getMaxUploadSize()) {
+        skipped.push(t('tasks.attachmentTooLarge', {
+          name: label,
+          size: formatUploadLimit(),
+        }))
         continue
       }
       // Accepted, so the type is one `withFilename` has an extension
@@ -239,7 +242,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
               }`}
             >
               <p className="text-sm text-gray-500">{t('tasks.attachmentsHint')}</p>
-              <p className="text-xs text-gray-400 mt-1">{t('tasks.attachmentsTypes')}</p>
+              <p className="text-xs text-gray-400 mt-1">{t('tasks.attachmentsTypes', { size: formatUploadLimit() })}</p>
               <input
                 ref={fileInputRef}
                 type="file"

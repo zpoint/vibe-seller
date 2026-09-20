@@ -20,6 +20,7 @@ import i18n from 'i18next'
 import enTranslation from '../i18n/locales/en/translation.json'
 import zhTranslation from '../i18n/locales/zh/translation.json'
 import { CreateTaskModal } from '../components/CreateTaskModal'
+import { formatUploadLimit, getMaxUploadSize, initUploadLimits } from '../uploadLimits'
 
 const makeI18n = () => {
   const inst = i18n.createInstance()
@@ -82,6 +83,9 @@ function dragEvent(kind: 'drop' | 'dragover', files: File[], types?: string[]): 
 beforeEach(() => {
   URL.createObjectURL = vi.fn(() => 'blob:preview')
   URL.revokeObjectURL = vi.fn()
+  // The limit module is process-global; reset it so a test that
+  // overrides the cap cannot leak into the next one.
+  initUploadLimits({ max_upload_size: String(100 * 1024 * 1024) })
 })
 
 describe('New Task dialog: pasting an image', () => {
@@ -139,10 +143,10 @@ describe('New Task dialog: pasting an image', () => {
 describe('New Task dialog: a file the box refuses', () => {
   it('says why an oversized file was not attached', () => {
     renderModal()
-    fireEvent(document.body, clipboardEvent([pngFile('huge.png', 20 * 1024 * 1024)]))
+    fireEvent(document.body, clipboardEvent([pngFile('huge.png', getMaxUploadSize() + 1)]))
     expect(screen.queryByAltText('huge.png')).not.toBeInTheDocument()
     expect(screen.getByTestId('attachment-rejected')).toHaveTextContent(
-      /huge\.png.*10MB/,
+      new RegExp(`huge\\.png.*${formatUploadLimit()}`),
     )
   })
 
@@ -168,7 +172,7 @@ describe('New Task dialog: a file the box refuses', () => {
     renderModal()
     fireEvent(document.body, clipboardEvent([
       pngFile('good.png'),
-      pngFile('huge.png', 20 * 1024 * 1024),
+      pngFile('huge.png', getMaxUploadSize() + 1),
     ]))
     expect(screen.getByAltText('good.png')).toBeInTheDocument()
     expect(screen.getByTestId('attachment-rejected')).toHaveTextContent('huge.png')
@@ -176,10 +180,37 @@ describe('New Task dialog: a file the box refuses', () => {
 
   it('clears the notice once a later batch is accepted', () => {
     renderModal()
-    fireEvent(document.body, clipboardEvent([pngFile('huge.png', 20 * 1024 * 1024)]))
+    fireEvent(document.body, clipboardEvent([pngFile('huge.png', getMaxUploadSize() + 1)]))
     expect(screen.getByTestId('attachment-rejected')).toBeInTheDocument()
     fireEvent(document.body, clipboardEvent([pngFile('fine.png')]))
     expect(screen.queryByTestId('attachment-rejected')).not.toBeInTheDocument()
+  })
+})
+
+describe('New Task dialog: the limit comes from the server', () => {
+  it('states the served cap in the hint instead of a hardcoded number', () => {
+    initUploadLimits({ max_upload_size: String(64 * 1024 * 1024) })
+    renderModal()
+    expect(screen.getByText(/up to 64MB/)).toBeInTheDocument()
+  })
+
+  it('enforces the served cap, and says the same number when refusing', () => {
+    initUploadLimits({ max_upload_size: String(64 * 1024 * 1024) })
+    renderModal()
+    // Would have been accepted under the old 100MB default.
+    fireEvent(document.body, clipboardEvent([pngFile('big.png', 80 * 1024 * 1024)]))
+    expect(screen.queryByAltText('big.png')).not.toBeInTheDocument()
+    expect(screen.getByTestId('attachment-rejected')).toHaveTextContent(
+      /big\.png.*64MB/,
+    )
+  })
+
+  it('ignores a missing or junk value and keeps the fallback', () => {
+    initUploadLimits({ max_upload_size: String(64 * 1024 * 1024) })
+    initUploadLimits({})
+    expect(getMaxUploadSize()).toBe(64 * 1024 * 1024)
+    initUploadLimits({ max_upload_size: 'not-a-number' })
+    expect(getMaxUploadSize()).toBe(64 * 1024 * 1024)
   })
 })
 

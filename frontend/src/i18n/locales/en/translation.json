@@ -203,9 +203,9 @@
     "attachedImage": "Image",
     "attachmentsLabel": "Attachments",
     "attachmentsHint": "Drop images here, paste (Ctrl+V), or click to browse",
-    "attachmentsTypes": "PNG, JPEG, GIF, WebP, PDF up to 10MB",
+    "attachmentsTypes": "PNG, JPEG, GIF, WebP, PDF up to {{size}}",
     "attachmentUnsupported": "{{name}}: unsupported file type, not attached",
-    "attachmentTooLarge": "{{name}}: larger than 10MB, not attached",
+    "attachmentTooLarge": "{{name}}: larger than {{size}}, not attached",
     "attachmentClipboardItem": "Clipboard item",
     "startFailed": "Task created, but it could not be started. Its attachments may not have uploaded — open the task and retry."
   },

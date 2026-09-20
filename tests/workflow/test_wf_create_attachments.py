@@ -19,6 +19,7 @@ import shutil
 
 import pytest
 
+from app.uploads import MAX_UPLOAD_SIZE
 from app.workspace.manager import VIBE_SELLER_DIR
 
 from .conftest import wait_for_task
@@ -170,5 +171,65 @@ async def test_retry_keeps_uploaded_attachments(admin_client):
         rows = await admin_client.get(f'/api/attachments/{tid}')
         assert rows.status_code == 200
         assert len(rows.json()) == 1
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_a_file_over_the_old_10mb_cap_now_uploads(admin_client):
+    """The size a user actually hit.
+
+    A product detail image ("详情图") is routinely 10-30MB; the old
+    10MB ceiling refused one at 10.16MB, and the frontend skipped it
+    silently, so paste and drag both looked broken. The cap now lives
+    in ``app/uploads.py`` and is enforced while streaming.
+    """
+    store_id = await _store(admin_client)
+    r = await admin_client.post(
+        '/api/tasks',
+        json={'title': 'big image', 'store_id': store_id, 'defer_start': True},
+    )
+    tid = r.json()['id']
+    task_dir = _TASKS_DIR / tid
+    # Just past the retired 10MB ceiling, well under the current one.
+    big = _PNG + b'\x00' * (12 * 1024 * 1024)
+    try:
+        up = await admin_client.post(
+            f'/api/attachments/{tid}',
+            files={'file': ('detail.png', big, 'image/png')},
+        )
+        assert up.status_code == 200, up.text[:200]
+        assert up.json()['file_size'] == len(big)
+        saved = [p for p in (task_dir / 'uploads').iterdir() if p.is_file()]
+        assert len(saved) == 1
+        assert saved[0].stat().st_size == len(big)
+    finally:
+        shutil.rmtree(task_dir, ignore_errors=True)
+
+
+async def test_an_upload_past_the_cap_is_refused_and_leaves_nothing(
+    admin_client,
+):
+    """Over the cap must 413 AND leave no partial file for the agent."""
+    store_id = await _store(admin_client)
+    r = await admin_client.post(
+        '/api/tasks',
+        json={'title': 'too big', 'store_id': store_id, 'defer_start': True},
+    )
+    tid = r.json()['id']
+    task_dir = _TASKS_DIR / tid
+    oversize = _PNG + b'\x00' * (MAX_UPLOAD_SIZE + 1)
+    try:
+        up = await admin_client.post(
+            f'/api/attachments/{tid}',
+            files={'file': ('huge.png', oversize, 'image/png')},
+        )
+        assert up.status_code == 413, up.status_code
+        uploads = task_dir / 'uploads'
+        leftovers = (
+            [p for p in uploads.iterdir() if p.is_file()]
+            if uploads.exists()
+            else []
+        )
+        assert leftovers == [], f'partial file left behind: {leftovers}'
     finally:
         shutil.rmtree(task_dir, ignore_errors=True)

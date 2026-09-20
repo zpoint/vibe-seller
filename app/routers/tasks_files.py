@@ -37,6 +37,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.task_states import TaskStatus
 from app.text_utils import SafeStr
+from app.uploads import ALLOWED_UPLOAD_EXTS, reject_disallowed_type, save_upload
 from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(prefix='/api/tasks', tags=['tasks'])
@@ -486,16 +487,6 @@ async def download_task_file(
     )
 
 
-_UPLOAD_ALLOWED_TYPES = {
-    'image/png',
-    'image/jpeg',
-    'image/gif',
-    'image/webp',
-    'application/pdf',
-}
-_UPLOAD_MAX_SIZE = 15 * 1024 * 1024  # 15MB
-_UPLOAD_ALLOWED_EXTS = ('.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf')
-
 # Chat attachments stage OUTSIDE the task workspace so the agent's cwd
 # (``tasks/<id>/``) never sees them via ``ls``/``find`` before Send. The
 # invariant: a user attachment becomes agent-visible ONLY when the user
@@ -530,7 +521,7 @@ def _normalized_upload_name(file: UploadFile) -> str:
     raw = Path(file.filename or 'upload').name
     stem = re.sub(r'[^A-Za-z0-9._-]', '_', Path(raw).stem) or 'upload'
     ext = Path(raw).suffix.lower()
-    if ext not in _UPLOAD_ALLOWED_EXTS:
+    if ext not in ALLOWED_UPLOAD_EXTS:
         ext = mimetypes.guess_extension(file.content_type or '') or '.bin'
     return f'{stem}{ext}'
 
@@ -613,21 +604,6 @@ def promote_staged_attachments(
     return promoted
 
 
-async def _read_validated_upload(file: UploadFile) -> bytes:
-    """Read an upload, enforcing the image/pdf allow-list and size cap."""
-    if file.content_type not in _UPLOAD_ALLOWED_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f'File type not allowed: {file.content_type}',
-        )
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail='Empty file')
-    if len(data) > _UPLOAD_MAX_SIZE:
-        raise HTTPException(status_code=413, detail='File too large (max 15MB)')
-    return data
-
-
 @router.post('/{task_id}/staged')
 async def stage_task_file(
     task_id: str,
@@ -642,7 +618,7 @@ async def stage_task_file(
     when the user sends a message referencing it (see
     ``promote_staged_attachments``). Returns a preview URL, never a path.
     """
-    data = await _read_validated_upload(file)
+    reject_disallowed_type(file)
     base = _staging_task_dir(task_id)
     base.mkdir(parents=True, exist_ok=True)
     _sweep_stale_staging(base)
@@ -650,7 +626,13 @@ async def stage_task_file(
     item = base / staged_id
     item.mkdir()
     name = _normalized_upload_name(file)
-    (item / name).write_bytes(data)
+    try:
+        await save_upload(file, item / name)
+    except BaseException:
+        # A refused upload must not leave an empty staging dir behind
+        # for _sweep_stale_staging to trip over later.
+        shutil.rmtree(item, ignore_errors=True)
+        raise
     return StagedAttachment(
         id=staged_id,
         filename=name,

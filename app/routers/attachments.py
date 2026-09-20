@@ -12,20 +12,12 @@ from app.database import get_db
 from app.models.task import Task
 from app.models.task_attachment import TaskAttachment
 from app.models.user import User
+from app.uploads import reject_disallowed_type, save_upload
 from app.workspace.manager import VIBE_SELLER_DIR
 
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
 
 router = APIRouter(prefix='/api/attachments', tags=['attachments'])
-
-ALLOWED_TYPES = {
-    'image/png',
-    'image/jpeg',
-    'image/gif',
-    'image/webp',
-    'application/pdf',
-}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 @router.post('/{task_id}')
@@ -39,15 +31,7 @@ async def upload_attachment(
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
 
-    if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f'File type not allowed: {file.content_type}',
-        )
-
-    content = await file.read()
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail='File too large (max 10MB)')
+    reject_disallowed_type(file)
 
     attachment_id = str(uuid.uuid4())
     # Write into the TASK WORKSPACE uploads/ (the agent's cwd) so the agent
@@ -64,7 +48,9 @@ async def upload_attachment(
     file_path = out_dir / f'{stem}{ext}'
     if file_path.exists():
         file_path = out_dir / f'{stem}-{attachment_id[:6]}{ext}'
-    file_path.write_bytes(content)
+    # Streamed, and refused mid-write past the cap — the size is never
+    # learned by first materialising the whole upload in memory.
+    file_size = await save_upload(file, file_path)
 
     attachment = TaskAttachment(
         id=attachment_id,
@@ -72,7 +58,7 @@ async def upload_attachment(
         file_name=file.filename or 'untitled',
         file_path=str(file_path),
         file_type=file.content_type or 'application/octet-stream',
-        file_size=len(content),
+        file_size=file_size,
     )
     db.add(attachment)
     await db.commit()

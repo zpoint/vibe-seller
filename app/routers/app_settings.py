@@ -20,6 +20,7 @@ from app.scheduler.task_cleanup import (
     TASK_RETENTION_KEY,
 )
 from app.telemetry_events import TelemetryEvent
+from app.uploads import MAX_UPLOAD_SIZE
 from app.utils.timezone import get_server_timezone
 from app.workspace import gws_integration
 from app.workspace.skills_sync import skills_sync
@@ -120,6 +121,11 @@ async def get_settings(db: AsyncSession = Depends(get_db)):
     # doesn't init PostHog while the backend stays silent.
     if telemetry._disabled_via_env():
         settings['telemetry_enabled'] = 'false'
+    # Server capability, not a stored setting — same shape as
+    # max_agent_concurrency above. The upload dialog derives both its
+    # hint text and its "too large" message from this, so the number
+    # lives in app/uploads.py and nowhere else.
+    settings['max_upload_size'] = str(MAX_UPLOAD_SIZE)
     install_id = telemetry.install_id()
     if install_id:
         settings['install_id'] = install_id
