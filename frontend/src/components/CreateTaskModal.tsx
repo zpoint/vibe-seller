@@ -9,6 +9,39 @@ const ACCEPTED_TYPES = [
   'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf',
 ]
 const MAX_FILE_SIZE = 10 * 1024 * 1024
+const EXT_BY_TYPE: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'application/pdf': 'pdf',
+}
+
+/** Give a nameless clipboard file a real name.
+ *
+ *  The upload sends `PendingFile.file`, and the server derives the
+ *  stored extension from `File.name` alone
+ *  (`app/routers/attachments.py`) — a blank name lands in the agent's
+ *  cwd as `uploads/upload.bin`, so the screenshot the user pasted no
+ *  longer reads as an image. A display-only label cannot fix that: it
+ *  never reaches the wire. Rename the File itself and let the label
+ *  derive from it, so what is shown and what is uploaded cannot drift
+ *  apart. ASCII on purpose — the server strips anything else out of
+ *  the stem. */
+function withFilename(file: File): File {
+  if (file.name) return file
+  return new File([file], `pasted.${EXT_BY_TYPE[file.type]}`, {
+    type: file.type,
+    lastModified: file.lastModified,
+  })
+}
+
+/** True when a drag carries files. `dataTransfer.files` is empty
+ *  during dragover for security reasons, so `types` is the only
+ *  signal available that early. */
+function dragHasFiles(e: DragEvent): boolean {
+  return Array.from(e.dataTransfer?.types ?? []).includes('Files')
+}
 
 interface CreateTaskModalProps {
   showAllTasks: boolean
@@ -37,22 +70,26 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
   const addFiles = useCallback((files: FileList | File[]) => {
     const newPending: PendingFile[] = []
     const skipped: string[] = []
-    for (const file of Array.from(files)) {
-      // A pasted screenshot often arrives nameless.
-      const name = file.name || t('tasks.attachmentClipboardItem')
-      if (!ACCEPTED_TYPES.includes(file.type)) {
-        skipped.push(t('tasks.attachmentUnsupported', { name }))
+    for (const original of Array.from(files)) {
+      // A pasted screenshot can arrive nameless; say something about
+      // it rather than opening the complaint with an empty string.
+      const label = original.name || t('tasks.attachmentClipboardItem')
+      if (!ACCEPTED_TYPES.includes(original.type)) {
+        skipped.push(t('tasks.attachmentUnsupported', { name: label }))
         continue
       }
-      if (file.size > MAX_FILE_SIZE) {
-        skipped.push(t('tasks.attachmentTooLarge', { name }))
+      if (original.size > MAX_FILE_SIZE) {
+        skipped.push(t('tasks.attachmentTooLarge', { name: label }))
         continue
       }
+      // Accepted, so the type is one `withFilename` has an extension
+      // for. Name it before staging: `file.name` is what gets uploaded.
+      const file = withFilename(original)
       newPending.push({
         id: uuid(),
         file,
         preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
-        name,
+        name: file.name,
       })
     }
     setModalFiles(prev => [...prev, ...newPending])
@@ -72,22 +109,32 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
     })
   }
 
-  const handleDragOver = (e: DragEvent) => { e.preventDefault(); setDragOver(true) }
+  const handleDragOver = (e: DragEvent) => {
+    if (!dragHasFiles(e)) return
+    e.preventDefault()
+    setDragOver(true)
+  }
   const handleDragLeave = (e: DragEvent) => { e.preventDefault(); setDragOver(false) }
   const handleDrop = (e: DragEvent) => {
+    setDragOver(false)
+    if (!e.dataTransfer.files.length) return
     e.preventDefault()
     // The dialog-wide guard below would otherwise attach it twice.
     e.stopPropagation()
-    setDragOver(false)
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
+    addFiles(e.dataTransfer.files)
   }
 
   /** A file dropped anywhere else over the open dialog. Without this
    *  the browser navigates the tab to the dropped file and the
-   *  half-typed task is gone, so a near-miss attaches instead. */
+   *  half-typed task is gone, so a near-miss attaches instead.
+   *
+   *  Files only. Cancelling every drop would also cancel dragging
+   *  selected text into the title or description, which the browser
+   *  handles natively and which this dialog has no business eating. */
   const handleDialogDrop = (e: DragEvent) => {
+    if (!e.dataTransfer.files.length) return
     e.preventDefault()
-    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
+    addFiles(e.dataTransfer.files)
   }
 
   const handleClose = () => {
@@ -110,7 +157,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
       onClick={(e) => { if (e.target === e.currentTarget) handleClose() }}
-      onDragOver={(e) => e.preventDefault()}
+      onDragOver={(e) => { if (dragHasFiles(e)) e.preventDefault() }}
       onDrop={handleDialogDrop}
     >
       <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>

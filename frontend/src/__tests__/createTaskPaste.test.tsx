@@ -13,7 +13,7 @@
  * Also pinned: a file the dialog refuses has to SAY so. Silently
  * skipping it is indistinguishable from a dead drop zone.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 import i18n from 'i18next'
@@ -56,7 +56,7 @@ function clipboardEvent(files: File[]): Event {
   return ev
 }
 
-function renderModal() {
+function renderModal(over: { onSubmit?: (...a: unknown[]) => Promise<void> } = {}) {
   return render(
     <I18nextProvider i18n={makeI18n()}>
       <CreateTaskModal
@@ -64,10 +64,19 @@ function renderModal() {
         storeName="acme"
         selectedStore={null}
         onClose={vi.fn()}
-        onSubmit={vi.fn(async () => {})}
+        onSubmit={over.onSubmit ?? vi.fn(async () => {})}
       />
     </I18nextProvider>,
   )
+}
+
+/** A drag event carrying files, or carrying only text. */
+function dragEvent(kind: 'drop' | 'dragover', files: File[], types?: string[]): Event {
+  const ev = new Event(kind, { bubbles: true, cancelable: true })
+  Object.defineProperty(ev, 'dataTransfer', {
+    value: { files, types: types ?? (files.length ? ['Files'] : []) },
+  })
+  return ev
 }
 
 beforeEach(() => {
@@ -174,13 +183,42 @@ describe('New Task dialog: a file the box refuses', () => {
   })
 })
 
+describe('New Task dialog: what actually gets uploaded', () => {
+  it('gives a nameless clipboard image a real filename, not just a label', async () => {
+    const onSubmit = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
+    renderModal({ onSubmit })
+    const nameless = new File([new Uint8Array(8)], '', { type: 'image/png' })
+    fireEvent(document.body, clipboardEvent([nameless]))
+
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } })
+    fireEvent.click(screen.getByRole('button', { name: /create/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+
+    // The server derives the stored extension from File.name alone
+    // (app/routers/attachments.py), so a display-only label would
+    // still land the screenshot in the agent's cwd as `upload.bin`.
+    const pending = onSubmit.mock.calls[0][2] as Array<{ file: File; name: string }>
+    expect(pending[0].file.name).toBe('pasted.png')
+    expect(pending[0].name).toBe('pasted.png')
+  })
+
+  it('leaves an already-named file alone', async () => {
+    const onSubmit = vi.fn<(...args: unknown[]) => Promise<void>>(async () => {})
+    renderModal({ onSubmit })
+    fireEvent(document.body, clipboardEvent([pngFile('report.png')]))
+    fireEvent.change(screen.getByLabelText(/title/i), { target: { value: 'T' } })
+    fireEvent.click(screen.getByRole('button', { name: /create/i }))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    const pending = onSubmit.mock.calls[0][2] as Array<{ file: File }>
+    expect(pending[0].file.name).toBe('report.png')
+  })
+})
+
 describe('New Task dialog: a file dropped beside the box', () => {
   it('attaches instead of letting the browser navigate away', () => {
     const { container } = renderModal()
     const overlay = container.firstElementChild as HTMLElement
-    const file = pngFile('dropped.png')
-    const ev = new Event('drop', { bubbles: true, cancelable: true })
-    Object.defineProperty(ev, 'dataTransfer', { value: { files: [file] } })
+    const ev = dragEvent('drop', [pngFile('dropped.png')])
     fireEvent(overlay, ev)
     expect(ev.defaultPrevented).toBe(true)
     expect(screen.getByAltText('dropped.png')).toBeInTheDocument()
@@ -189,9 +227,29 @@ describe('New Task dialog: a file dropped beside the box', () => {
   it('attaches a file dropped on the zone exactly once', () => {
     renderModal()
     const zone = screen.getByText(/drop images here/i).parentElement as HTMLElement
-    const ev = new Event('drop', { bubbles: true, cancelable: true })
-    Object.defineProperty(ev, 'dataTransfer', { value: { files: [pngFile('zone.png')] } })
-    fireEvent(zone, ev)
+    fireEvent(zone, dragEvent('drop', [pngFile('zone.png')]))
     expect(screen.getAllByAltText('zone.png')).toHaveLength(1)
+  })
+
+  it('leaves a text drag into the description to the browser', () => {
+    renderModal()
+    const desc = screen.getByLabelText(/description/i)
+    const ev = dragEvent('drop', [], ['text/plain'])
+    fireEvent(desc, ev)
+    // Cancelling this would silently eat dragged text — the dialog
+    // only has business claiming drags that carry files.
+    expect(ev.defaultPrevented).toBe(false)
+  })
+
+  it('does not claim a text drag on dragover either', () => {
+    renderModal()
+    const zone = screen.getByText(/drop images here/i).parentElement as HTMLElement
+    const text = dragEvent('dragover', [], ['text/plain'])
+    fireEvent(zone, text)
+    expect(text.defaultPrevented).toBe(false)
+
+    const withFile = dragEvent('dragover', [], ['Files'])
+    fireEvent(zone, withFile)
+    expect(withFile.defaultPrevented).toBe(true)
   })
 })
