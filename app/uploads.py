@@ -107,3 +107,106 @@ async def save_upload(file: UploadFile, dest: Path) -> int:
         dest.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail='Empty file')
     return total
+
+
+class _BodyTooLarge(Exception):
+    """Raised inside the receive channel; converted to a 413 below."""
+
+
+def _is_multipart(scope) -> bool:
+    for key, value in scope.get('headers', ()):
+        if key == b'content-type':
+            return value.lower().startswith(b'multipart/form-data')
+    return False
+
+
+def _content_length(scope) -> str | None:
+    for key, value in scope.get('headers', ()):
+        if key == b'content-length':
+            return value.decode('latin-1')
+    return None
+
+
+async def _send_413(send) -> None:
+    body = (
+        b'{"detail":"File too large (max '
+        + human_size(MAX_UPLOAD_SIZE).encode()
+        + b')"}'
+    )
+    await send({
+        'type': 'http.response.start',
+        'status': 413,
+        'headers': [
+            (b'content-type', b'application/json'),
+            (b'content-length', str(len(body)).encode()),
+        ],
+    })
+    await send({'type': 'http.response.body', 'body': body})
+
+
+class UploadBodyLimitMiddleware:
+    """Bound an upload's body before anything buffers it.
+
+    Pure ASGI rather than ``@app.middleware('http')`` because only the
+    ``receive`` channel sees bytes before the multipart parser does.
+    FastAPI awaits ``request.form()`` while solving a route's
+    parameters and Starlette spools each part to a temp file on the
+    way, so by the time any route code — or any ``Depends`` guard —
+    runs, an unbounded body is already on disk.
+
+    A ``Content-Length`` check alone does not close that: a chunked
+    request declares no length, and ``save_upload`` bounds only MEMORY
+    because the spool has already happened by then. Counting on
+    ``receive`` bounds the spool itself, declared or chunked alike.
+
+    Scoped to ``multipart/form-data``: applying it to every route would
+    quietly become a global API body cap and answer a large JSON
+    ``PUT`` with "File too large".
+
+    Must be registered BEFORE ``CORSMiddleware``. Starlette's
+    ``add_middleware`` inserts at the front of the list, so the last
+    one added ends up outermost — and a 413 emitted outside CORS
+    reaches a cross-origin caller as an opaque network error instead of
+    a readable status.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http' or not _is_multipart(scope):
+            await self.app(scope, receive, send)
+            return
+
+        if declared_body_too_large(_content_length(scope)):
+            await _send_413(send)
+            return
+
+        ceiling = MAX_UPLOAD_SIZE + _MULTIPART_SLACK
+        seen = 0
+
+        async def counting_receive():
+            nonlocal seen
+            message = await receive()
+            if message['type'] == 'http.request':
+                seen += len(message.get('body', b''))
+                if seen > ceiling:
+                    raise _BodyTooLarge
+            return message
+
+        responded = False
+
+        async def watching_send(message):
+            nonlocal responded
+            if message['type'] == 'http.response.start':
+                responded = True
+            await send(message)
+
+        try:
+            await self.app(scope, counting_receive, watching_send)
+        except _BodyTooLarge:
+            # The parser was mid-read, so nothing has been sent yet in
+            # every realistic case — but check, because sending a
+            # second response start would break the connection.
+            if not responded:
+                await _send_413(send)

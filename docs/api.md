@@ -17,7 +17,7 @@ All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/settings` | Return app settings (public) |
+| GET | `/api/settings` | Return app settings (public). Also carries server capabilities that are not stored settings: `max_agent_concurrency`, `default_schedule_timezone`, `install_id`, and `max_upload_size` (bytes, from `MAX_UPLOAD_SIZE` in `app/uploads.py` — the browser reads this instead of hardcoding a cap; see [Upload limits](#upload-limits)) |
 | PUT | `/api/settings` | Update settings (admin only). Keys: `auth_required`, `max_agent_concurrency` (int, 1-10, live-updates semaphore), `default_schedule_phase_mode` (`fanout` \| `single` — default mode pre-selected when creating new all-stores schedules), `default_schedule_timezone` (IANA name, validated via `ZoneInfo`; GET seeds with `get_server_timezone()` when unset), `task_retention_days` (int, 0-3650, default 30; controls the daily auto-cleanup job — 0 disables it. See [docs/tasks.md § Task deletion + auto-cleanup](tasks.md#task-deletion--auto-cleanup)), `google_workspace_enabled` |
 | GET | `/api/settings/google-workspace/status` | Report `gws` binary presence, auth status, version, and whether the umbrella bundle is enabled/installed |
 | POST | `/api/settings/google-workspace/enable` | Admin only. Validates prereqs (400 if gws missing or unauthenticated), runs `gws generate-skills`, installs the 19-skill umbrella at `.claude/skills/gws/`, sets `google_workspace_enabled=true` |
@@ -246,9 +246,39 @@ Note: SSE endpoint was renamed from `/api/events` to `/api/sse` to free up `/api
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/attachments/{task_id}` | Upload attachment |
+| POST | `/api/attachments/{task_id}` | Upload attachment. `400` on a disallowed type, `413` past the shared cap — see [Upload limits](#upload-limits) |
 | GET | `/api/attachments/{task_id}` | List attachments |
 | GET | `/api/attachments/file/{attachment_id}` | Download attachment |
+
+### Upload limits
+
+Every multipart upload route shares one contract, defined in
+`app/uploads.py`: the same MIME allow-list (PNG / JPEG / GIF / WebP /
+PDF) and one ceiling, `MAX_UPLOAD_SIZE` (100MB). It previously lived in
+four places — create-task attachments at 10MB, chat staging at 15MB, the
+vision reference image at 15MB, and a hardcoded copy in the browser — so
+the same file was accepted by one box and refused by the next.
+
+Routes covered: `POST /api/attachments/{task_id}`,
+`POST /api/tasks/{task_id}/staged`, and
+`POST /api/tasks/{task_id}/image/upload-reference`.
+
+Size is enforced **while streaming**, in two layers:
+
+| Layer | What it bounds | Response |
+|---|---|---|
+| `UploadBodyLimitMiddleware` (ASGI, `app/uploads.py`) | The request body itself, counted on the receive channel — so a chunked upload with no `Content-Length` cannot spool an unbounded temp file before the route runs | `413` |
+| `save_upload()` | Memory while writing; aborts mid-write and deletes the partial file | `413` |
+
+The middleware applies **only to `multipart/form-data`** — it is not a
+global request-body cap, so a large JSON `PUT` is unaffected. It is
+registered before `CORSMiddleware` so CORS stays outermost and a 413
+reaches a cross-origin caller as a readable status rather than an opaque
+network error.
+
+The frontend never states the limit itself: `max_upload_size` from
+`GET /api/settings` drives both the hint text and the "too large"
+message (`frontend/src/uploadLimits.ts`).
 
 ## `channels.py` — Message Channels
 

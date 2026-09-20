@@ -38,6 +38,7 @@ from app.events.bus import event_bus
 from app.models.task_message import TaskMessage
 from app.models.user import User
 from app.text_utils import sanitize_json
+from app.uploads import save_upload
 from app.workspace.manager import VIBE_SELLER_DIR
 
 router = APIRouter(prefix='/api', tags=['vision'])
@@ -47,7 +48,11 @@ logger = logging.getLogger(__name__)
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
 _GEN_SUBDIR = 'generated_images'
 _REF_SUBDIR = 'generated_images/refs'
-_MAX_UPLOAD = 15 * 1024 * 1024  # 15 MB
+# Not an upload cap — the ceiling on a REMOTE image this server will
+# buffer in memory and proxy back to the browser (see the preview
+# proxy below). Deliberately separate from MAX_UPLOAD_SIZE, and
+# deliberately small: this one is held whole in RAM.
+_MAX_PROXIED_IMAGE = 15 * 1024 * 1024  # 15 MB
 
 # task_id -> (kie.ai taskId, model id) for a generation whose poll budget
 # ran out while the job was still running. kie.ai does not cancel the job
@@ -401,12 +406,6 @@ async def upload_reference(
     task_dir = (_TASKS_DIR / task_id).resolve()
     if not task_dir.is_relative_to(_TASKS_DIR.resolve()):
         raise HTTPException(status_code=400, detail='Invalid task id')
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail='Empty file')
-    if len(data) > _MAX_UPLOAD:
-        raise HTTPException(status_code=413, detail='File too large (max 15MB)')
-
     name = _safe_name(file.filename or 'ref.png')
     # _safe_name forces .png; keep the real extension for non-png images.
     orig_ext = Path(file.filename or '').suffix.lower()
@@ -419,7 +418,10 @@ async def upload_reference(
         out_path = (
             out_dir / f'{out_path.stem}-{uuid.uuid4().hex[:6]}{out_path.suffix}'
         )
-    out_path.write_bytes(data)
+    # Shared contract: one cap, enforced while streaming. This used to
+    # read the whole upload into memory and then judge its length
+    # against a fourth private copy of the limit.
+    await save_upload(file, out_path)
 
     rel_path = f'{_REF_SUBDIR}/{out_path.name}'
     return {
@@ -472,7 +474,7 @@ async def ref_proxy(url: str, current_user: User = Depends(get_current_user)):
     ctype = resp.headers.get('content-type', '')
     if resp.status_code != 200 or not ctype.startswith('image/'):
         raise HTTPException(status_code=502, detail='Not an image')
-    if len(resp.content) > _MAX_UPLOAD:
+    if len(resp.content) > _MAX_PROXIED_IMAGE:
         raise HTTPException(status_code=413, detail='Image too large')
     return Response(
         content=resp.content,

@@ -10,6 +10,7 @@ import re
 import pytest
 
 from app.task_states import TaskStatus
+from app.uploads import MAX_UPLOAD_SIZE
 from tests.workflow.conftest import wait_for_task
 
 pytestmark = pytest.mark.workflow
@@ -430,3 +431,24 @@ class TestVersionContracts:
         body = r.json()
         assert body.get('status') == 'ok'
         assert 'version' in body
+
+
+async def test_settings_serves_the_upload_cap_the_frontend_reads(
+    admin_client,
+):
+    """`GET /api/settings` is how the browser learns the upload cap.
+
+    The dialog's hint text, its size check, and its "too large" message
+    all derive from this one key (see frontend/src/uploadLimits.ts). If
+    it stops being served, or stops matching the constant the server
+    actually enforces, the UI silently reverts to a hardcoded guess —
+    which is how three different caps got out of step in the first
+    place.
+    """
+    r = await admin_client.get('/api/settings')
+    assert r.status_code == 200
+    body = r.json()
+    assert 'max_upload_size' in body, sorted(body)
+    # Served as a string, because every value in this payload is.
+    assert body['max_upload_size'] == str(MAX_UPLOAD_SIZE)
+    assert int(body['max_upload_size']) > 0
