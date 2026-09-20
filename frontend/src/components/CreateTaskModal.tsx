@@ -1,7 +1,14 @@
-import { useRef, useCallback, useState, type DragEvent, type ClipboardEvent } from 'react'
+import { useRef, useCallback, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { PendingFile, Store } from '../types'
+import { usePasteFiles } from '../hooks/usePasteFiles'
 import { uuid } from '../uuid'
+
+/** Kept in sync with the file input's `accept` and the hint text. */
+const ACCEPTED_TYPES = [
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf',
+]
+const MAX_FILE_SIZE = 10 * 1024 * 1024
 
 interface CreateTaskModalProps {
   showAllTasks: boolean
@@ -20,25 +27,42 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
   const [selectedPlatform, setSelectedPlatform] = useState('')
   const [selectedCountry, setSelectedCountry] = useState('')
   const [dragOver, setDragOver] = useState(false)
+  /** Why the last batch of files did not all make it in. Silent
+   *  skipping reads as "attachments are broken" — the user has no way
+   *  to tell a rejected file from a dead drop zone. */
+  const [rejected, setRejected] = useState<string[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
   const addFiles = useCallback((files: FileList | File[]) => {
-    const allowed = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf']
-    const maxSize = 10 * 1024 * 1024
     const newPending: PendingFile[] = []
+    const skipped: string[] = []
     for (const file of Array.from(files)) {
-      if (!allowed.includes(file.type)) continue
-      if (file.size > maxSize) continue
+      // A pasted screenshot often arrives nameless.
+      const name = file.name || t('tasks.attachmentClipboardItem')
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        skipped.push(t('tasks.attachmentUnsupported', { name }))
+        continue
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        skipped.push(t('tasks.attachmentTooLarge', { name }))
+        continue
+      }
       newPending.push({
         id: uuid(),
         file,
         preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
-        name: file.name,
+        name,
       })
     }
     setModalFiles(prev => [...prev, ...newPending])
-  }, [])
+    setRejected(skipped)
+  }, [t])
+
+  // Ctrl/Cmd+V anywhere in the dialog — including right after clicking
+  // the drop zone, which leaves focus on `document.body` and so never
+  // reaches a React `onPaste`. See `usePasteFiles`.
+  usePasteFiles(addFiles)
 
   const removeFile = (id: string) => {
     setModalFiles(prev => {
@@ -52,21 +76,18 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
   const handleDragLeave = (e: DragEvent) => { e.preventDefault(); setDragOver(false) }
   const handleDrop = (e: DragEvent) => {
     e.preventDefault()
+    // The dialog-wide guard below would otherwise attach it twice.
+    e.stopPropagation()
     setDragOver(false)
     if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
   }
 
-  const handlePaste = (e: ClipboardEvent) => {
-    const items = e.clipboardData?.items
-    if (!items) return
-    const files: File[] = []
-    for (const item of Array.from(items)) {
-      if (item.kind === 'file') {
-        const f = item.getAsFile()
-        if (f) files.push(f)
-      }
-    }
-    if (files.length) addFiles(files)
+  /** A file dropped anywhere else over the open dialog. Without this
+   *  the browser navigates the tab to the dropped file and the
+   *  half-typed task is gone, so a near-miss attaches instead. */
+  const handleDialogDrop = (e: DragEvent) => {
+    e.preventDefault()
+    if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files)
   }
 
   const handleClose = () => {
@@ -89,7 +110,8 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40"
       onClick={(e) => { if (e.target === e.currentTarget) handleClose() }}
-      onPaste={handlePaste}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={handleDialogDrop}
     >
       <div className="bg-white rounded-t-2xl sm:rounded-xl shadow-2xl w-full sm:max-w-lg sm:mx-4 max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-gray-200">
@@ -159,7 +181,7 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Attachments <span className="text-gray-400 font-normal">(optional)</span></label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">{t('tasks.attachmentsLabel')} <span className="text-gray-400 font-normal">({t('common.optional')})</span></label>
             <div
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
@@ -169,8 +191,8 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
                 dragOver ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-gray-400'
               }`}
             >
-              <p className="text-sm text-gray-500">Drop images here, paste, or click to browse</p>
-              <p className="text-xs text-gray-400 mt-1">PNG, JPEG, GIF, WebP, PDF up to 10MB</p>
+              <p className="text-sm text-gray-500">{t('tasks.attachmentsHint')}</p>
+              <p className="text-xs text-gray-400 mt-1">{t('tasks.attachmentsTypes')}</p>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -180,6 +202,13 @@ export function CreateTaskModal({ showAllTasks, storeName, selectedStore, onClos
                 onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = '' }}
               />
             </div>
+            {rejected.length > 0 && (
+              <ul className="mt-2 space-y-0.5" data-testid="attachment-rejected">
+                {rejected.map((msg, i) => (
+                  <li key={i} className="text-xs text-red-600">{msg}</li>
+                ))}
+              </ul>
+            )}
             {modalFiles.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-3">
                 {modalFiles.map(pf => (
