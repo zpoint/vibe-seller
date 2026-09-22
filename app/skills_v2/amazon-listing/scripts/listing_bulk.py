@@ -105,6 +105,7 @@ from listing_schema import (  # noqa: E402, F401
     ROLE_MATCHERS as _ROLE_MATCHERS,
     TEMPLATE_SHEET,
     Schema as _Schema,
+    apply_shortfall as _apply_shortfall,
     base_attr as _base_attr,
     data_start_row as _data_start_row,
     enum_violation as _enum_violation,
@@ -744,6 +745,8 @@ def cmd_parse_feedback(args):
         )
         if c_err or c_warn:
             n_err, n_warn = c_err, c_warn
+
+    n_err = _apply_shortfall(rows, n_err)
 
     print(f'\nsummary: {n_err} error(s), {n_warn} warning(s)')
     _write_verdict(

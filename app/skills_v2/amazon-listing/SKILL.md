@@ -570,6 +570,13 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
     tables **and the per-cell comments (批注) on the report's `Template`
     tab**, emitted as `sku=… field=… : MESSAGE`. The 批注 are the
     precise, field-level fixes — the engine of the self-correct loop.
+    It also compares **SKUs successful against SKUs processed** and
+    fails on a shortfall: Amazon labels a SKU "successful with other
+    errors" at WARNING severity while the status page counts it as NOT
+    successful, so a report with no ERROR line can still mean half the
+    batch never landed. `N/M` on the status page is the arithmetic that
+    settles it — a 2/4 was once signed off as complete because nothing
+    said ERROR.
 - **`ocr_1688.py`** — local, GPU-free OCR (rapidocr-onnxruntime) of the
   supplier's detail images, where the spec table / size chart live.
 

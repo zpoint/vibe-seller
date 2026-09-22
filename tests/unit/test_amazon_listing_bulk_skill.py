@@ -2068,3 +2068,41 @@ def test_decorated_key_never_crosses_marketplaces(
     )
     err = capsys.readouterr().err
     assert 'SKIPPED' in err and 'marketplace_id' in err
+
+
+def test_parse_feedback_flags_a_shortfall_with_no_error_lines(tmp_path, capsys):
+    """2 of 4 landing is not "clean" just because nothing said ERROR.
+
+    Amazon labels a SKU "successful with other errors" at WARNING
+    severity while the status page counts it as NOT successful, so a
+    report full of warnings can still mean half the batch never landed.
+    Observed live: a 2/4 batch was signed off as complete on exactly
+    this reading.
+    """
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'Number of SKUs processed\t\t4\n'
+        'Number of SKUs successful\t\t2\n'
+        'Number of SKUs unsuccessful due to errors\t\t0\n'
+        'SKU\tError Type\tError Code\tError Message\n'
+        'K-1\tWARNING\t18448\tmissing few key attributes\n',
+        encoding='utf-8',
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', str(report), '--batch-id', '100000000001'])
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert 'SHORTFALL' in out and '2/4' in out
+
+
+def test_parse_feedback_is_quiet_when_every_sku_landed(tmp_path, capsys):
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'Number of SKUs processed\t\t4\n'
+        'Number of SKUs successful\t\t4\n'
+        'SKU\tError Type\tError Code\tError Message\n'
+        'K-1\tWARNING\t18448\tmissing few key attributes\n',
+        encoding='utf-8',
+    )
+    _run(['parse-feedback', str(report), '--batch-id', '100000000002'])
+    assert 'SHORTFALL' not in capsys.readouterr().out

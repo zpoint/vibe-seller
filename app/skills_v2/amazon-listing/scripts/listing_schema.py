@@ -705,3 +705,60 @@ def enum_violation(fields, valid):
         if allowed and str(fval).strip().lower() not in allowed:
             return fname, fval, allowed
     return None
+
+
+_COUNT_LABELS = (
+    ('processed', ('skus processed', 'records processed', '已处理')),
+    ('successful', ('skus successful', 'records successful', '成功')),
+)
+
+
+def summary_counts(rows):
+    """``{processed, successful}`` from a Feed Processing Summary.
+
+    The per-row verdict is not the whole story: Amazon can report a SKU
+    as "successful with other errors" (severity WARNING in the cell
+    comments) while the status page counts it as NOT successful. A
+    batch that landed 2 of 4 therefore reads as "0 errors" if you only
+    count ERROR lines — which is how one was signed off as complete.
+    The summary's own counts are the arithmetic that cannot be argued
+    with, so they are extracted and compared.
+    """
+    out = {}
+    for row in rows:
+        text = ' '.join(c for c in row if c).strip().lower()
+        if not text:
+            continue
+        nums = [c.strip() for c in row if c.strip().isdigit()]
+        if not nums:
+            continue
+        for key, needles in _COUNT_LABELS:
+            if key in out or not any(n in text for n in needles):
+                continue
+            if 'unsuccessful' in text or 'with other error' in text:
+                continue
+            out[key] = int(nums[-1])
+    return out
+
+
+def apply_shortfall(rows, n_err):
+    """Raise the error count when fewer SKUs landed than were sent.
+
+    Amazon calls a SKU "successful with other errors" (WARNING severity)
+    while the status page counts it as NOT successful, so an
+    all-WARNING report can still mean half the batch never landed --
+    observed live on a 2/4 that was signed off as clean because no line
+    said ERROR. Arithmetic beats severity labels.
+    """
+    counts = summary_counts(rows)
+    done, total = counts.get('successful'), counts.get('processed')
+    if done is None or not total or done >= total:
+        return n_err
+    short = total - done
+    print(
+        f'\nSHORTFALL: {done}/{total} SKUs successful -- {short} did NOT '
+        'land, whatever the severity labels say. Read the per-SKU '
+        'comments above for those rows, fix, and re-upload; this batch '
+        'is not done.'
+    )
+    return max(n_err, short)
