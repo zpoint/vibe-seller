@@ -99,6 +99,7 @@ from listing_identity import mint_guard as _mint_guard  # noqa: E402
 from listing_schema import (  # noqa: E402, F401
     DEFN_SHEET,
     DROPDOWN_SHEET,
+    ENUM_HINT as _ENUM_HINT,
     OFFER_PRICE_SHORTHANDS as _OFFER_PRICE_SHORTHANDS,
     OP_TOKENS as _OP_TOKENS,
     ROLE_MATCHERS as _ROLE_MATCHERS,
@@ -106,6 +107,7 @@ from listing_schema import (  # noqa: E402, F401
     Schema as _Schema,
     base_attr as _base_attr,
     data_start_row as _data_start_row,
+    enum_violation as _enum_violation,
     expand_repeats as _expand_repeats,
     field_columns as _field_columns,
     find_header_row as _find_header_row,
@@ -370,21 +372,12 @@ def cmd_fill(args):
         # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).
         _drop_unusable_item_highlight(fields, i, sku, warnings)
 
-        # Enum validation. A value outside a NON-EMPTY valid set is a
-        # guaranteed per-row rejection (Amazon answers 90244, "select an
-        # approved value from the list"), so it stops the fill rather
-        # than joining a pile of warnings. This used to warn, on the
-        # theory that a new category might carry a token the sheet has
-        # not caught up with; what actually happened is that an agent
-        # read the warning, judged the sheet wrong, uploaded anyway, and
-        # spent another forty-minute feed cycle being told the same
-        # thing by Amazon — twice in one run. `--allow-unlisted-enum`
-        # is there for the genuine stale-sheet case, and makes that
-        # judgement explicit instead of implied by ignoring stderr.
-        for fname, fval in fields.items():
-            allowed = valid.get(fname)
-            if not allowed or str(fval).strip().lower() in allowed:
-                continue
+        # Enum validation: a value outside a NON-EMPTY valid set cannot
+        # land (Amazon answers 90244), so it stops the fill. See
+        # listing_schema.enum_violation for why this is not a warning.
+        bad = _enum_violation(fields, valid)
+        if bad:
+            fname, fval, allowed = bad
             msg = (
                 f'row {i} sku={sku}: {fname}={fval!r} is not one of this '
                 f"template's valid values {sorted(allowed)}"
@@ -392,17 +385,7 @@ def cmd_fill(args):
             if getattr(args, 'allow_unlisted_enum', False):
                 warnings.append(msg + ' (allowed by --allow-unlisted-enum)')
             else:
-                raise SystemExit(
-                    'error: '
-                    + msg
-                    + '. Amazon rejects the row with 90244 ("select an '
-                    'approved value from the list for your product '
-                    'category"), so this cannot succeed as written. '
-                    'Valid values are per template AND per marketplace — '
-                    "read the TARGET template's own set (inspect --field "
-                    f'{fname}). Pass --allow-unlisted-enum only if you '
-                    "have checked the template's sheet is stale."
-                )
+                raise SystemExit('error: ' + msg + _ENUM_HINT.format(f=fname))
 
         # A key `fill` does not consume is a value the agent believes it
         # set. Naming it here is the difference between a local warning

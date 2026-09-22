@@ -679,3 +679,29 @@ def expand_repeats(fields, schema, mkt_id):
                 f'{len(slots)} slots -- dropped {len(value) - len(slots)}'
             )
     return out, warns
+
+
+ENUM_HINT = (
+    '. Amazon rejects the row with 90244 ("select an approved value '
+    'from the list for your product category"), so this cannot succeed '
+    'as written. Valid sets are per template AND per marketplace — read '
+    "the TARGET template's own (inspect --field {f}). Pass "
+    '--allow-unlisted-enum only if you have checked that sheet is stale.'
+)
+
+
+def enum_violation(fields, valid):
+    """First (field, value, allowed) outside a NON-EMPTY valid set.
+
+    `fill` treats this as fatal rather than a warning. The warning
+    version existed so a new category could carry a token the
+    valid-value sheet had not caught up with; what it actually bought
+    was an agent reading the warning, judging the sheet wrong, uploading
+    anyway, and spending a forty-minute feed cycle being told the same
+    thing by Amazon (90244) — twice in one run.
+    """
+    for fname, fval in fields.items():
+        allowed = valid.get(fname)
+        if allowed and str(fval).strip().lower() not in allowed:
+            return fname, fval, allowed
+    return None
