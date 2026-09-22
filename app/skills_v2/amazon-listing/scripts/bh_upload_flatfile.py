@@ -11,16 +11,25 @@ STORE WRAPPER with env parameters, from the task workspace:
 
 Prints exactly one ``RESULT {json}`` line:
   ok / staged / detected / region_error / batch_id / marketplace /
-  submit_label / reason
+  intended_marketplace / file_marketplace / submit_label / reason
 
 Two things it refuses to do, because both fail SILENTLY by hand:
 
-* **Upload onto the wrong marketplace.** The file's own ``settings=``
-  blob carries ``primaryMarketplaceId``; the live page carries
-  ``ue_mid``. A ``.ae`` URL happily renders under an SA session — an
-  AE-stamped file then lands in SA's upload history and the agent
-  verifies "AE" off a page that was never AE. Both sides are
-  machine-readable ids, so the mismatch is a hard stop before staging.
+* **Upload onto the wrong marketplace.** THREE things must name the
+  same marketplace, because any two of them agreeing is not enough:
+
+  1. the one you MEANT — read off ``SC_HOST``'s domain (that is what
+     you were saying when you typed ``…amazon.ae``), or stated outright
+     with ``SC_MARKETPLACE=<id|CC>``;
+  2. the file's own ``settings=`` stamp (``primaryMarketplaceId``);
+  3. the live page's ``ue_mid`` — where the feed will actually land.
+
+  A ``.ae`` URL renders happily under an SA session, so the host alone
+  proves nothing. Checking only (2) against (3) is not enough either:
+  an SA-stamped file uploaded on an SA session, by an agent that
+  believed it was doing AE, passes that check and still lists on the
+  wrong storefront — observed live, twice. Any disagreement is a hard
+  stop before staging.
 * **Guess at page text.** Seller Central runs in whatever language the
   SESSION is set to — one account can render English, Chinese or Arabic
   on the same URL — so matching any fixed wording reports "not detected"
@@ -54,6 +63,7 @@ out = {
     'marketplace': None,
     'file_marketplace': None,
     'submit_label': None,
+    'intended_marketplace': None,
     'host': HOST,
     'file': F,
 }
@@ -71,6 +81,73 @@ def _finish(reason=None):
 # interactive and the type-detection not yet run; 15s/12s worked).
 _LOAD_WAIT = int(os.environ.get('UPLOAD_LOAD_WAIT', '15'))
 _INTROSPECT_WAIT = int(os.environ.get('UPLOAD_INTROSPECT_WAIT', '12'))
+
+# Domain -> marketplace id. Public platform constants (identical for
+# every seller), inline because this script is fed to browser-use on
+# stdin and cannot import its siblings. The HOST is how the caller says
+# which marketplace they mean, so it is the declaration of intent.
+_HOST_MARKETPLACES = {
+    'com': 'ATVPDKIKX0DER',
+    'ca': 'A2EUQ1WTGCTBG2',
+    'com.mx': 'A1AM78C64UM0Y8',
+    'com.br': 'A2Q3Y263D00KWC',
+    'co.uk': 'A1F83G8C2ARO7P',
+    'de': 'A1PA6795UKMFR9',
+    'fr': 'A13V1IB3VIYZZH',
+    'it': 'APJ6JRA9NG5V4',
+    'es': 'A1RKKUPIHCS9HS',
+    'nl': 'A1805IZSGTT6HS',
+    'se': 'A2NODRKZP88ZB9',
+    'pl': 'A1C3SOZRARQ6R3',
+    'com.be': 'AMEN7PMS3EDWL',
+    'com.tr': 'A33AVAJ2PDY3EV',
+    'ie': 'A28R8C7NBKEWEA',
+    'ae': 'A2VIGQ35RCS4UG',
+    'sa': 'A17E79C6D8DWNP',
+    'eg': 'ARBP9OOSHTCHU',
+    'in': 'A21TJRUUN4KGV',
+    'co.jp': 'A1VC38T7YXB528',
+    'com.au': 'A39IBJ37TRP1C6',
+    'sg': 'A19VAU5U5O7RUS',
+}
+_COUNTRY_HOSTS = {
+    'US': 'com',
+    'CA': 'ca',
+    'MX': 'com.mx',
+    'BR': 'com.br',
+    'UK': 'co.uk',
+    'GB': 'co.uk',
+    'DE': 'de',
+    'FR': 'fr',
+    'IT': 'it',
+    'ES': 'es',
+    'NL': 'nl',
+    'SE': 'se',
+    'PL': 'pl',
+    'BE': 'com.be',
+    'TR': 'com.tr',
+    'IE': 'ie',
+    'AE': 'ae',
+    'SA': 'sa',
+    'EG': 'eg',
+    'IN': 'in',
+    'JP': 'co.jp',
+    'AU': 'com.au',
+    'SG': 'sg',
+}
+
+
+def _intended_marketplace():
+    """The marketplace the CALLER meant: SC_MARKETPLACE, else SC_HOST."""
+    want = (os.environ.get('SC_MARKETPLACE') or '').strip()
+    if want:
+        tld = _COUNTRY_HOSTS.get(want.upper())
+        if tld:
+            return _HOST_MARKETPLACES[tld]
+        return want.upper()
+    tail = HOST.split('amazon.', 1)[-1] if 'amazon.' in HOST else ''
+    return _HOST_MARKETPLACES.get(tail.strip('/').lower())
+
 
 # The upload file's marketplace stamp, straight out of its settings blob.
 _STAMP_RE = re.compile(r'primaryMarketplaceId=amzn1\.mp\.o\.(A[0-9A-Z]{8,})')
@@ -160,17 +237,29 @@ if not out['marketplace']:
         'it). Confirm the page is a logged-in seller-central page and '
         're-run; do not upload blind.'
     )
-if out['marketplace'] != out['file_marketplace']:
+out['intended_marketplace'] = _intended_marketplace()
+_want = out['intended_marketplace']
+_seen = {
+    'you asked for (SC_HOST/SC_MARKETPLACE)': _want,
+    'the file is stamped for': out['file_marketplace'],
+    'this session is on': out['marketplace'],
+}
+if len({v for v in _seen.values() if v}) > 1:
     out['region_error'] = True
     capture_screenshot()
     _finish(
-        'MARKETPLACE MISMATCH — this file is stamped for '
-        f'{out["file_marketplace"]} but the live session is on '
-        f'{out["marketplace"]} (URL host {HOST} does NOT decide this). '
-        'Uploading here would list on the wrong storefront. Either '
-        "switch the session's marketplace in the account switcher and "
-        're-run, or regenerate the template with the intended store '
-        'ticked (bh_download_template) and fill that one.'
+        'MARKETPLACE MISMATCH — '
+        + '; '.join(f'{k} {v}' for k, v in _seen.items() if v)
+        + '. All three must name the SAME marketplace, and the URL host '
+        'does NOT decide where a feed lands. Switch the account switcher '
+        'to the marketplace you want (then re-read ue_mid), and '
+        'regenerate the template with that store ticked '
+        '(bh_download_template) so its stamp matches too.'
+    )
+if not _want:
+    out['reason_note'] = (
+        f'could not tell which marketplace {HOST} means; pass '
+        'SC_MARKETPLACE=<id|CC> to state it'
     )
 
 # A short viewport leaves the file button AND the Submit button below

@@ -145,6 +145,31 @@ def test_upload_helper_compares_marketplace_ids():
         assert src.index(missing) < stage, 'proof check runs after staging'
 
 
+def test_upload_helper_checks_the_INTENDED_marketplace_too():
+    """Two ids agreeing is not enough — they can agree on the wrong one.
+
+    Observed live: an AE rebuild was uploaded on `sellercentral.amazon.ae`
+    while the session was still on SA, with an SA-stamped template. File
+    stamp == live `ue_mid`, so a two-way check passed, and the feed
+    listed on SA. The marketplace the CALLER meant is the third party,
+    and the host is how they said it.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    assert '_intended_marketplace' in src, 'intent is never derived'
+    assert 'SC_MARKETPLACE' in src, 'no way to state the intent outright'
+    # All three must be compared together, before anything is staged.
+    check = src.index('_seen = {')
+    assert src.index('MARKETPLACE MISMATCH') > check
+    assert check < src.index('DOM.setFileInputFiles')
+    for part in (
+        "'the file is stamped for'",
+        "'this session is on'",
+    ):
+        assert part in src, f'{part} missing from the comparison'
+
+
 def test_upload_helper_reads_submit_state_structurally():
     """Readiness = the Submit button enabling, not an English string."""
     src = (

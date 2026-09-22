@@ -341,9 +341,14 @@ for an `8560` to fix reactively:
    ends up confirmed on the wrong marketplace). Read the switcher label
    back; never infer the marketplace from the URL. The machine-readable
    form of that check is the page's own `ue_mid` global (the live
-   marketplace id, identical in every console language) — which is what
-   `bh_upload_flatfile` compares against the file's
-   `primaryMarketplaceId` stamp, refusing to submit on a mismatch.
+   marketplace id, identical in every console language).
+   `bh_upload_flatfile` refuses to submit unless **three** things name
+   the same marketplace: the one you meant (from `SC_HOST`'s domain, or
+   `SC_MARKETPLACE=<id|CC>`), the file's `primaryMarketplaceId` stamp,
+   and the live `ue_mid`. **Two of them agreeing is not enough** — an
+   SA-stamped file uploaded on an SA session by an agent that believed
+   it was doing AE satisfies a file-vs-session check and still lists on
+   the wrong storefront (observed live, twice).
    Verify your reads the same way: `js("return ue_mid")` beats squinting
    at a localised label. If the subdomain instead lands on an
    account-picker ("Select an account"), switch there first — fast path
