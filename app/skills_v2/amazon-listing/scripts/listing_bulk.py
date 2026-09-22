@@ -106,6 +106,7 @@ from listing_schema import (  # noqa: E402, F401
     Schema as _Schema,
     base_attr as _base_attr,
     data_start_row as _data_start_row,
+    expand_repeats as _expand_repeats,
     field_columns as _field_columns,
     find_header_row as _find_header_row,
     is_sku_field as _is_sku_field,
@@ -344,6 +345,11 @@ def cmd_fill(args):
             spec_row.get('operation'), schema.dialect
         )
         fields = _row_fields(spec_row, spec, schema)
+        # A list value means a REPEATED field (5 bullet points, several
+        # materials): spread it across #1..#N of the target marketplace
+        # instead of collapsing it onto #1 and losing the rest.
+        fields, rep_warn = _expand_repeats(fields, schema, mkt_id)
+        warnings.extend(f'row {i}: {w}' for w in rep_warn)
         # Map any bare/undecorated content field name to this template's
         # actual column (unified decorates them), so the SAME spec fills
         # either dialect. Offer shorthands (our_price/quantity) have no

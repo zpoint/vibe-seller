@@ -945,6 +945,15 @@ _UNI_BRAND = f'brand[marketplace_id={_SA}][language_tag=en_AE]#1.value'
 _UNI_ID_TYPE = 'amzn1.volt.ca.product_id_type'
 _UNI_ID_VALUE = 'amzn1.volt.ca.product_id_value'
 _UNI_COLOR = f'color[marketplace_id={_SA}][language_tag=en_AE]#1.value'
+# A repeated field: three SA slots plus ONE on the other marketplace,
+# so a spread list is proved not to spill across storefronts.
+_UNI_BULLETS = [
+    f'bullet_point[marketplace_id={_SA}][language_tag=en_AE]#{n}.value'
+    for n in (1, 2, 3)
+]
+_UNI_BULLET_AE = (
+    f'bullet_point[marketplace_id={_AE}][language_tag=en_AE]#1.value'
+)
 _UNI_QTY = 'fulfillment_availability#1.quantity'
 # The offer column carries the `[audience=ALL]` insert a fixed template
 # string can't match -- the routing must find it structurally.
@@ -968,6 +977,8 @@ _UNI_FIELDS = [
     _UNI_COLOR,
     _UNI_QTY,
     _UNI_PRICE,
+    *_UNI_BULLETS,
+    _UNI_BULLET_AE,
 ]
 _UNI_REQUIRED = {
     _UNI_SKU,
@@ -1717,3 +1728,68 @@ def test_explicit_asin_type_counts_as_a_pin(template, tmp_path):
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
     assert _read_rows(out)[0]['external_product_id'] == 'B0EXAMPLE1'
+
+
+def test_list_value_spreads_across_repeated_columns(unified_template, tmp_path):
+    """Three bullets belong in three columns, not all in #1.
+
+    `resolve_field` answers with ONE column, so a list used to collapse
+    onto `#1.value` and the rest vanished — and joining them with
+    newlines was worse: the TSV export broke the cell into extra rows
+    that upload as garbage SKUs. Cost a live run eight steps. The spread
+    must also stay inside the target marketplace's own block.
+    """
+    spec = {
+        'marketplace': 'SA',
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'fields': {'bullet_point': ['one', 'two', 'three']},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsm')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    row = _read_unified_rows(out)[0]
+    assert [row[c] for c in _UNI_BULLETS] == ['one', 'two', 'three']
+    # The other marketplace's slot must stay untouched.
+    assert not row[_UNI_BULLET_AE]
+
+
+def test_overflowing_repeated_list_warns(unified_template, tmp_path, capsys):
+    """More values than slots is dropped data — say so, don't be silent."""
+    spec = {
+        'marketplace': 'SA',
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'fields': {'bullet_point': ['a', 'b', 'c', 'd', 'e']},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsm')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    err = capsys.readouterr().err
+    assert 'bullet_point' in err and 'dropped 2' in err

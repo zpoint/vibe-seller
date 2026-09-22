@@ -514,3 +514,77 @@ def row_fields(spec_row, top, schema):
             out[k] = spec_row[k]
     # Drop keys with no value so we never blank an intended default.
     return {k: v for k, v in out.items() if v not in (None, '')}
+
+
+_SLOT_RE = re.compile(r'#(\d+)\.')
+
+
+def slot_index(name):
+    """The `#N` ordinal of a repeated column (`…#3.value` -> 3)."""
+    m = _SLOT_RE.search(name)
+    return int(m.group(1)) if m else 1
+
+
+def repeat_slots(schema, name, mkt_id=None):
+    """Ordered `.value` columns for a repeated field, `#1` first.
+
+    Scoped to ONE marketplace when the columns are marketplace-decorated,
+    so spreading a list can never spill into another storefront's block.
+    """
+    base = base_attr(name)
+    alias = FIELD_ALIASES.get(base)
+    for target in (base, alias):
+        if not target:
+            continue
+        cands = [
+            c
+            for c in schema.cols
+            if base_attr(c) == target and leaf(c) == 'value'
+        ]
+        if mkt_id:
+            scoped = [c for c in cands if f'marketplace_id={mkt_id}' in c]
+            bare = [c for c in cands if 'marketplace_id=' not in c]
+            cands = scoped or bare or cands
+        if cands:
+            return sorted(cands, key=slot_index)
+    return []
+
+
+def expand_repeats(fields, schema, mkt_id):
+    """Spread a LIST value across a repeated field's #1..#N columns.
+
+    `bullet_point` is five separate columns (`…#1.value` … `…#5.value`),
+    but `resolve_field` answers with one, so a spec that naturally says
+    ``"bullet_point": ["a", "b", ...]`` used to land entirely in #1 —
+    and a newline-joined string landed there too, which the TSV export
+    then broke into extra rows that upload as garbage SKUs. Observed
+    live: an agent lost eight steps unpicking that before hand-writing
+    the five decorated column names itself.
+
+    Returns ``(fields, warnings)``; a non-list value is untouched.
+    """
+    out, warns = {}, []
+    for name, value in fields.items():
+        if not isinstance(value, list | tuple):
+            out[name] = value
+            continue
+        slots = repeat_slots(schema, name, mkt_id)
+        if len(slots) < 2:
+            # Not a repeated field in THIS template — keep the first
+            # value rather than writing a Python list into a cell.
+            out[schema.resolve_field(name)] = value[0] if value else ''
+            if len(value) > 1:
+                warns.append(
+                    f'{name} got {len(value)} values but this template '
+                    f'has {len(slots) or 1} column for it -- kept the '
+                    'first, dropped the rest'
+                )
+            continue
+        for col, val in zip(slots, value, strict=False):
+            out[col] = val
+        if len(value) > len(slots):
+            warns.append(
+                f'{name} got {len(value)} values but the template has '
+                f'{len(slots)} slots -- dropped {len(value) - len(slots)}'
+            )
+    return out, warns
