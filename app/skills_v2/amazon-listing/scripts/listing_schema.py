@@ -85,7 +85,39 @@ ROLE_MATCHERS = {
 FIELD_ALIASES = {
     'color_name': 'color',
     'size_name': 'size',
+    # Amazon words some booleans as a question in its own docs while the
+    # column drops the interrogative. An agent copying the label writes
+    # the question form, and the field then vanishes as "not in this
+    # template" -- observed live on a required field, which failed the
+    # whole feed.
+    'are_batteries_required': 'batteries_required',
+    'are_batteries_included': 'batteries_included',
+    'is_batteries_required': 'batteries_required',
+    'is_batteries_included': 'batteries_included',
 }
+
+
+def nearest_columns(name, cols, limit=3):
+    """Columns whose attribute plausibly means *name* -> suggestions.
+
+    A skipped field is a value the author believed they set, and
+    "not in this template" alone sends them reading the whole column
+    list. Containment either way catches the common misses (an
+    interrogative prefix, a decorated vs bare name, a singular/plural)
+    without ever binding the wrong column -- these are SUGGESTIONS, the
+    caller still has to choose.
+    """
+    want = base_attr(name)
+    if not want:
+        return []
+    hits = []
+    for col in cols:
+        got = base_attr(col)
+        if got == want or leaf(col) not in ('value', None, ''):
+            continue
+        if want in got or got in want:
+            hits.append(col)
+    return sorted(set(hits), key=lambda c: (len(c), c))[:limit]
 
 
 def base_attr(name):

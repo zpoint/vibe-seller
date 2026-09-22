@@ -1930,3 +1930,49 @@ def test_stray_row_key_is_named(template, tmp_path, capsys):
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
     err = capsys.readouterr().err
     assert 'colour_name' in err and 'ignored row key' in err
+
+
+def test_interrogative_battery_alias_resolves(template, tmp_path):
+    """`are_batteries_required` must reach `batteries_required`.
+
+    Amazon words the boolean as a question in its own docs while the
+    column drops the interrogative, so an agent copying the label wrote
+    the question form — and the field silently vanished as "not in this
+    template". It was a REQUIRED field, so the whole feed failed.
+    """
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'are_batteries_required': 'No'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['batteries_required'] == 'No'
+
+
+def test_skipped_field_suggests_the_nearest_column(template, tmp_path, capsys):
+    """ "Not in this template" alone sends the author reading every column."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'the_item_name': 'x'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    err = capsys.readouterr().err
+    assert 'the_item_name' in err and 'SKIPPED' in err
+    assert 'did you mean' in err and 'item_name' in err

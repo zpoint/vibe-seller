@@ -112,6 +112,7 @@ from listing_schema import (  # noqa: E402, F401
     is_sku_field as _is_sku_field,
     load_required_fields as _load_required_fields,
     load_valid_values as _load_valid_values,
+    nearest_columns as _nearest_columns,
     our_price_col as _our_price_col,
     resolve_operation as _resolve_operation,
     route_offer_price as _route_offer_price,
@@ -459,10 +460,12 @@ def cmd_fill(args):
 
     for w in warnings:
         print(f'warning: {w}', file=sys.stderr)
-    if unknown_fields:
+    for miss in sorted(unknown_fields):
+        near = _nearest_columns(miss, cols)
+        hint = f' -- did you mean {near}?' if near else ''
         print(
-            f'warning: fields not in this template (skipped): '
-            f'{sorted(unknown_fields)}',
+            f'warning: {miss!r} is not a column in this template, so it '
+            f'was SKIPPED (its value never reaches Amazon){hint}',
             file=sys.stderr,
         )
     # The browser (Ziniao/macOS) can't read /tmp, so uploading a /tmp file
