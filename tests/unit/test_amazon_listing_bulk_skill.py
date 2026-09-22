@@ -1856,3 +1856,77 @@ def test_blanket_mint_still_fine_when_nothing_is_pinned(template, tmp_path):
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
     assert len(_read_rows(out)) == 2
+
+
+def test_row_level_product_type_is_written(template, tmp_path):
+    """A spec that puts product_type on the ROW must reach the column.
+
+    It used to be read from the top level only, so the obvious per-row
+    shape was silently dropped, the column went out blank, and Amazon
+    rejected the whole feed with 90041 an hour later.
+    """
+    spec = {
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'product_type': 'socks',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'item_name': 'x'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['feed_product_type'] == 'socks'
+
+
+def test_row_product_type_overrides_the_top_level(template, tmp_path):
+    spec = {
+        'product_type': 'shirts',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'product_type': 'socks',
+                'asin': 'B0EXAMPLE1',
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['feed_product_type'] == 'socks'
+
+
+def test_missing_product_type_is_fatal_not_a_warning(template, tmp_path):
+    """Amazon rejects the ENTIRE feed on a blank product_type."""
+    spec = {
+        'brand': 'acme',
+        'rows': [{'sku': 'K-WHT', 'operation': 'create', 'asin': 'B0EXAMPLE1'}],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert '90041' in str(exc.value)
+
+
+def test_stray_row_key_is_named(template, tmp_path, capsys):
+    """A key fill ignores is a value the agent thinks it set."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'asin': 'B0EXAMPLE1',
+                'colour_name': 'white',
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    err = capsys.readouterr().err
+    assert 'colour_name' in err and 'ignored row key' in err

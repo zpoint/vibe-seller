@@ -116,6 +116,7 @@ from listing_schema import (  # noqa: E402, F401
     resolve_operation as _resolve_operation,
     route_offer_price as _route_offer_price,
     row_fields as _row_fields,
+    stray_row_keys as _stray_row_keys,
     valid_value_case as _valid_value_case,
 )
 from marketplace_ids import (  # noqa: E402,F401
@@ -378,6 +379,35 @@ def cmd_fill(args):
                     f'row {i} sku={sku}: {fname}={fval!r} not in template '
                     f'valid values {sorted(allowed)}'
                 )
+
+        # A key `fill` does not consume is a value the agent believes it
+        # set. Naming it here is the difference between a local warning
+        # and an hour of Amazon feed latency followed by a 0/N reject.
+        strays = _stray_row_keys(spec_row)
+        if strays:
+            warnings.append(
+                f'row {i} sku={sku}: ignored row key(s) {strays} -- fill '
+                'does not read these at row level; move them into '
+                '"fields" (or use the documented friendly key)'
+            )
+
+        # product_type is the one column Amazon calls "always required":
+        # without it the WHOLE feed is rejected 90041 before any row is
+        # evaluated. A warning is not enough for a guaranteed reject.
+        pt_field = schema.field('product_type')
+        if (
+            op_key != 'delete'
+            and pt_field
+            and pt_field in cols
+            and not str(fields.get(pt_field) or '').strip()
+        ):
+            raise SystemExit(
+                f'error: row {i} sku={sku} has no {pt_field}. Amazon '
+                'rejects the ENTIRE feed with 90041 '
+                '("product_type#1.value is always required") when this '
+                'column is blank, so the upload cannot succeed. Set '
+                '"product_type" on the row or at the top of the spec.'
+            )
 
         # Required-field guard applies to Create rows only. Update/
         # partialupdate touch a subset; delete needs just sku+operation.

@@ -37,6 +37,8 @@ import time
 HOST = os.environ['SC_HOST']
 BATCH = os.environ['BATCH_ID']
 DL = os.path.expanduser(os.environ['DOWNLOADS_DIR'])
+# Page settle after the hard reload; bump on a slow account.
+_LOAD_WAIT = int(os.environ.get('REPORT_LOAD_WAIT', '15'))
 out = {
     'ok': False,
     'batch_id': BATCH,
@@ -55,8 +57,20 @@ def _newest_xlsm(after_ts):
     return max(cands, key=os.path.getmtime) if cands else None
 
 
-new_tab(f'https://{HOST}/listing/status')
-time.sleep(15)
+# Cache-bust AND hard-reload. The status page is an SPA: navigating to
+# the same URL can restore the view it already had, and a batch row then
+# keeps whatever it said when the tab was first opened. Observed live —
+# a batch that had FAILED (0/4, "action required", report ready) kept
+# reading back as N/A / in-progress on every poll for two hours, because
+# the DOM was never re-fetched. Same URL from a fresh tab showed the
+# real row immediately.
+new_tab(f'https://{HOST}/listing/status?_={int(time.time())}')
+time.sleep(6)
+try:
+    cdp('Page.reload', ignoreCache=True)
+except Exception:  # noqa: BLE001 — older harnesses may not expose it
+    pass
+time.sleep(_LOAD_WAIT)
 out['marketplace'] = js(
     "return (typeof ue_mid!=='undefined' && ue_mid) ? String(ue_mid) : null"
 )
@@ -148,7 +162,13 @@ else:
         print('RESULT ' + json.dumps(out))
     else:
         out['reason'] = (
-            'no Download Processing Summary button for this batch yet '
-            '(still processing?) — row: ' + str(row)
+            "no download control in this batch's row. The row reads: "
+            + str(row)
+            + " — read the row's OWN status cell rather than assuming "
+            'the feed is still queued. If the row is byte-identical to '
+            'your previous poll, you are looking at a stale render, not '
+            'at progress: a finished batch (including a FAILED one, '
+            'which shows 0/N) always offers the report. Re-run this '
+            'helper (it hard-reloads) before waiting any longer.'
         )
         print('RESULT ' + json.dumps(out))

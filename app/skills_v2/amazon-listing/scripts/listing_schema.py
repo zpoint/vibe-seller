@@ -468,14 +468,48 @@ def resolve_operation(op, dialect):
     return tokens[key], key
 
 
+# Every key `row_fields` (and the callers around it) actually consumes
+# on a spec ROW. Anything else is a key that will be silently ignored —
+# which is how a row-level `product_type` went out as an empty column
+# and cost a whole upload cycle — so `fill` names the strays instead.
+KNOWN_ROW_KEYS = frozenset({
+    'fields',
+    'sku',
+    'operation',
+    'asin',
+    'parent_sku',
+    'parentage',
+    'variation_theme',
+    'product_type',
+    'brand',
+    'quantity',
+    'fulfillment_channel_code',
+    'mint_new_asin',
+    *OFFER_PRICE_SHORTHANDS,
+})
+
+
+def stray_row_keys(spec_row):
+    """Row keys `fill` will ignore — they belong inside `fields`."""
+    return sorted(k for k in spec_row if k not in KNOWN_ROW_KEYS)
+
+
 def row_fields(spec_row, top, schema):
     """Flatten one spec row into {field_api_name: value}.
 
     Friendly per-row keys (sku, asin, parent_sku, parentage,
-    variation_theme) fold into their flat-file field names -- resolved
-    through `schema` so the SAME spec drives either dialect; `fields`
-    carries everything else verbatim by API name. Top-level `product_type`
-    and `brand` supply defaults when a row omits them.
+    variation_theme, product_type, brand) fold into their flat-file field
+    names -- resolved through `schema` so the SAME spec drives either
+    dialect; `fields` carries everything else verbatim by API name.
+    Top-level `product_type` / `brand` are the default when a row omits
+    them, and a ROW may override.
+
+    `product_type` used to be read from the top level ONLY, so a spec
+    that put it on each row -- the obvious shape, and what an agent
+    wrote live -- had it silently dropped: the column went out empty and
+    Amazon rejected the whole feed with 90041 "product_type#1.value is
+    always required". An hour of feed latency to learn that a value the
+    spec plainly carried was never written.
     """
     out = dict(spec_row.get('fields') or {})
 
@@ -485,8 +519,12 @@ def row_fields(spec_row, top, schema):
             if overwrite or name not in out:
                 out[name] = value
 
-    put('product_type', top.get('product_type'), overwrite=False)
-    put('brand', top.get('brand'), overwrite=False)
+    put(
+        'product_type',
+        spec_row.get('product_type') or top.get('product_type'),
+        overwrite=False,
+    )
+    put('brand', spec_row.get('brand') or top.get('brand'), overwrite=False)
     put('sku', spec_row.get('sku'))
     put('parent_sku', spec_row.get('parent_sku'))
     put('parentage', spec_row.get('parentage'))
