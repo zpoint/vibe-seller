@@ -18,10 +18,12 @@ really on, which is what the status page lists batches for. The
 subdomain does not decide it, so a batch "not found" on a `.ae` URL is
 usually an SA session, not a missing batch.
 
-The download button's label is LOCALISED (a ZH session renders
-下载处理一览, not "Download Processing Summary"), so it is matched by a
-multilingual pattern scoped to the batch's own row — never by the
-English text alone.
+The download control is found by STRUCTURE, scoped to the batch's own
+row: a real anchor's href first, then an icon/type attribute (Amazon's
+own API tokens, identical in every language). Seller Central renders in
+whatever language the session is set to, so the visible label is the
+last resort, not the first — and when it is used it carries the
+non-Latin variants.
 
 Then run ``listing_bulk.py parse-feedback <report> --batch-id <id>`` —
 that writes the verdict the completion gate checks.
@@ -96,23 +98,43 @@ else:
         'if(/ROW|TR/.test(tg))break;'
         'row=row.parentElement||(row.getRootNode&&row.getRootNode().host);}'
         'const scope=row||document;'
+        # Structure first, wording last. Seller Central renders in
+        # whatever language the SESSION is set to, so the visible label
+        # ("Download Processing Summary" / 下载处理一览 / تنزيل…) is the
+        # least reliable handle there is. Within this batch's own row,
+        # prefer signals that are the same in every language: a real
+        # anchor (its href IS the report), then an icon/type attribute —
+        # those values are Amazon's own API tokens, not user-facing copy.
+        # The wording match stays only as the last net, with the
+        # non-Latin variants, so a layout without either signal still
+        # works instead of silently reporting "no button".
+        'let fallback=null;'
         'for(const b of w(scope)){'
-        'const bt=(b.innerText||(b.getAttribute&&b.getAttribute("label"))'
-        '||"").trim();'
-        # The label is localised: EN "Download Processing Summary",
-        # ZH 下载处理一览, AR تنزيل. Scoped to this batch's own row, a
-        # bare download verb is unambiguous — the row's only other
-        # button is "fix products" / 修复商品.
-        'if(/download|下载|تنزيل/i.test(bt)){'
+        'const tag=(b.tagName||"");'
+        'const href=(b.getAttribute&&b.getAttribute("href"))||"";'
+        'if(tag==="A" && href) return JSON.stringify({href:href});'
+        'const apiToken=((b.getAttribute&&('
+        'b.getAttribute("icon")||b.getAttribute("data-icon")||'
+        'b.getAttribute("download")))||"")+"";'
         'const r=b.getBoundingClientRect();'
-        'if(r.width) return JSON.stringify('
-        '{x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)});}}'
+        'if(!r.width) continue;'
+        'const box={x:Math.round(r.x+r.width/2),'
+        'y:Math.round(r.y+r.height/2)};'
+        'if(/download/i.test(apiToken)) return JSON.stringify(box);'
+        'const bt=(b.innerText||(b.getAttribute&&'
+        'b.getAttribute("label"))||"").trim();'
+        'if(!fallback && /download|下载|تنزيل/i.test(bt)) fallback=box;}'
+        'if(fallback) return JSON.stringify(fallback);'
         'return "no dl button";'
     )
     if clicked and clicked.startswith('{'):
-        # Trusted click — the kat-button ignores untrusted JS .click().
         b = json.loads(clicked)
-        click_at_xy(b['x'], b['y'])
+        if b.get('href'):
+            # A real anchor: the href IS the report, no clicking needed.
+            new_tab(b['href'])
+        else:
+            # Trusted click — a kat-button ignores untrusted JS .click().
+            click_at_xy(b['x'], b['y'])
         report = None
         for _ in range(20):
             time.sleep(1)

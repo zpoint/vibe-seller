@@ -28,6 +28,7 @@ def mint_guard(rows, spec, schema):
     ``mint_new_asin`` declaration (row-level, else spec-level).
     """
     id_field = schema.field('product_id')
+    type_field = schema.field('product_id_type')
     undeclared = []
     for i, spec_row in enumerate(rows):
         _, op_key = resolve_operation(spec_row.get('operation'), schema.dialect)
@@ -39,6 +40,13 @@ def mint_guard(rows, spec, schema):
         fields = row_fields(spec_row, spec, schema)
         fields = {schema.resolve_field(k): v for k, v in fields.items()}
         pinned = str(fields.get(id_field) or '').strip() if id_field else ''
+        # Only an ASIN *matches* an existing catalog record. A UPC / EAN /
+        # GTIN in the same column is an identifier for a product Amazon may
+        # never have seen, so the row still mints -- and "GTIN Exempt" says
+        # only that there is no barcode. Treat every non-ASIN id as unpinned.
+        kind = str(fields.get(type_field) or '').strip().lower()
+        if pinned and kind != 'asin':
+            pinned = ''
         if not pinned:
             undeclared.append(str(spec_row.get('sku') or f'row {i}'))
     if not undeclared:
@@ -56,6 +64,8 @@ def mint_guard(rows, spec, schema):
         '(or external_product_id + external_product_id_type: asin).\n'
         '  * GENUINELY NEW to this account (no ASIN anywhere) -> declare '
         'it: "{key}": true on the spec (covers every row) or on the row.\n'
-        'product_id_type "GTIN Exempt" is NOT a declaration -- it says '
-        'the product has no barcode, not that it has no ASIN.'
+        'Only external_product_id_type=asin counts as a pin. A UPC / '
+        'EAN / GTIN identifies the product, not an existing listing, so '
+        'it still mints; and "GTIN Exempt" says only that there is no '
+        'barcode, not that there is no ASIN.'
     ).format(n=len(undeclared), skus=', '.join(undeclared), key=MINT_KEY)

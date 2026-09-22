@@ -444,17 +444,22 @@ throw the helper away and hand-drive the whole flow:
   and `UPLOAD_INTROSPECT_WAIT` (default 12s, type-detection) — bump both
   on a slow/heavy account before concluding the upload "won't work".
 
-> **The console language follows the SESSION, not the subdomain.** A ZH
-> session renders 提交商品 / （自动检测）/ 下载处理一览 where the docs
-> say "Submit products" / "(automatically detected)" / "Download
-> Processing Summary". The helpers therefore key off structure — the
-> Submit button flipping `disabled` → enabled, the download button
-> scoped to its own batch row — and carry EN + ZH + AR label variants
-> where a label is still needed. If you hand-drive a step, match the
-> same way: never gate a decision on an English string, and never read
-> "the page says X in English is missing" as "the page is broken". A
-> `ok=false` from a helper names its reason; a red banner left over from
-> an earlier page is not that reason.
+> **Seller Central renders in whatever language the SESSION is set to** —
+> one account shows English, Chinese or Arabic on the same URL, and the
+> subdomain has nothing to do with it. So **never gate a decision on the
+> wording of a control.** The helpers don't: readiness is the Submit
+> button flipping `disabled` → enabled, and the report download is found
+> by a real anchor's href or an `icon`-style attribute (Amazon's own API
+> tokens, identical in every language) before any wording is considered.
+> Hand-drive the same way — prefer a state change, an attribute, or an
+> href over a label; if you must read a label, use it as an identity to
+> compare against itself, not as a word to match. And never read "the
+> page doesn't say the English thing" as "the page is broken": a helper's
+> `ok=false` names its own reason, and a banner left over from an earlier
+> page is not that reason. This cost a full run once — the upload helper
+> matched English on a Chinese console, reported "not detected" on a page
+> a human submits in one click, and the agent hand-drove onto the wrong
+> page and uploaded to the wrong marketplace.
 
 Fall back to exploring by hand when a helper reports ok=false for a
 STRUCTURAL reason it names (widget genuinely absent, region-stamp
@@ -573,8 +578,10 @@ operation is a common cause of a child failing to join its family.
 > * **Genuinely new** to this account → `"mint_new_asin": true`, on the
 >   spec (covers every row) or per row.
 >
-> `product_id_type: GTIN Exempt` is **not** a declaration — it says the
-> product has no barcode, not that it has no ASIN.
+> Only `external_product_id_type: asin` counts as a pin. A UPC / EAN /
+> GTIN identifies the *product*, not an existing listing, so Amazon can
+> still mint; and `GTIN Exempt` says only that there is no barcode, not
+> that there is no ASIN. Neither is a declaration.
 
 ## End-to-end flow (product link → live listing)
 

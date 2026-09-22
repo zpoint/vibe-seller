@@ -37,8 +37,18 @@ pytestmark = pytest.mark.unit
 _SCRIPTS = Path(__file__).resolve().parents[2] / 'app' / 'skills_v2'
 _HELPERS = sorted(_SCRIPTS.glob('*/scripts/bh_*.py'))
 
-# A JS regex literal used as `/…/i.test(…)` inside an embedded snippet.
-_JS_TEST = re.compile(r'/(?P<pat>(?:\\.|[^/\\\n])+)/i?\.test\(')
+# A JS regex literal used as `/…/i.test(<expr>)` inside an embedded
+# snippet, with the tested expression captured — what a pattern is
+# matched AGAINST decides whether it is UI copy at all.
+_JS_TEST = re.compile(
+    r'/(?P<pat>(?:\\.|[^/\\\n])+)/i?\.test\((?P<expr>[A-Za-z_$][\w$]*)'
+)
+# Expressions that hold an Amazon API TOKEN, not user-facing copy: an
+# `icon="download"` attribute reads the same in every console language,
+# so matching English there is correct. The name is the contract — a
+# helper that wants this exemption must read into one of these, which
+# makes the claim visible in review instead of implied by a regex.
+_API_TOKEN_EXPRS = {'apiToken'}
 # A `_click_text('…')` pattern argument (the download helper's clicker).
 _CLICK_TEXT = re.compile(r"_click_text\(\s*'([^']+)'")
 
@@ -68,6 +78,8 @@ _SEAM = re.compile(r'[\'"]\s*\n\s*[fr]?[\'"]')
 def _ui_text_patterns(src):
     """Yield every pattern the source matches page text against."""
     for m in _JS_TEST.finditer(_SEAM.sub('', src)):
+        if m.group('expr') in _API_TOKEN_EXPRS:
+            continue
         yield m.group('pat')
     for m in _CLICK_TEXT.finditer(src):
         yield m.group(1)
@@ -122,6 +134,15 @@ def test_upload_helper_compares_marketplace_ids():
     guard = src.index('MARKETPLACE MISMATCH')
     stage = src.index('DOM.setFileInputFiles')
     assert guard < stage, 'marketplace check runs after staging'
+    # ...and it must fail CLOSED. If either id is unreadable the helper
+    # cannot prove where the feed lands, and "probably the right one" is
+    # precisely what put a file in the wrong marketplace's history.
+    for missing in (
+        "if not out['file_marketplace']:",
+        "if not out['marketplace']:",
+    ):
+        assert missing in src, f'no refusal branch for {missing}'
+        assert src.index(missing) < stage, 'proof check runs after staging'
 
 
 def test_upload_helper_reads_submit_state_structurally():

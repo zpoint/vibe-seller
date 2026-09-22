@@ -10,7 +10,8 @@ STORE WRAPPER with env parameters, from the task workspace:
   MARKER_DIR="$PWD" browser-use < .claude/skills/amazon-listing/scripts/bh_upload_flatfile.py
 
 Prints exactly one ``RESULT {json}`` line:
-  ok / staged / detected / region_error / batch_id / marketplace / reason
+  ok / staged / detected / region_error / batch_id / marketplace /
+  submit_label / reason
 
 Two things it refuses to do, because both fail SILENTLY by hand:
 
@@ -20,12 +21,15 @@ Two things it refuses to do, because both fail SILENTLY by hand:
   AE-stamped file then lands in SA's upload history and the agent
   verifies "AE" off a page that was never AE. Both sides are
   machine-readable ids, so the mismatch is a hard stop before staging.
-* **Guess at page text.** The seller-central UI language follows the
-  SESSION, not the subdomain: a ZH session says 提交商品 / 自动检测,
-  so matching English words reports "not detected" on a page that is
-  perfectly fine. Readiness is read STRUCTURALLY instead — the Submit
-  button flips disabled -> enabled once Amazon has introspected the
-  file, in every language.
+* **Guess at page text.** Seller Central runs in whatever language the
+  SESSION is set to — one account can render English, Chinese or Arabic
+  on the same URL — so matching any fixed wording reports "not detected"
+  on a page that is perfectly fine, and the agent then abandons this
+  helper and hand-drives. Nothing here reads a word: readiness IS the
+  Submit button flipping disabled -> enabled (Amazon keeps it disabled
+  until introspect-feed accepts the file), and the button is identified
+  by a key compared only against itself between two snapshots. The
+  rendered label is reported, never matched.
 
 On success it writes ``UPLOAD_BATCH_<id>.json`` into MARKER_DIR (pass
 your task workspace) — the completion gate then requires a parse-feedback
@@ -49,6 +53,7 @@ out = {
     'batch_id': None,
     'marketplace': None,
     'file_marketplace': None,
+    'submit_label': None,
     'host': HOST,
     'file': F,
 }
@@ -76,19 +81,33 @@ try:
 except OSError as exc:
     _finish(f'cannot read UPLOAD_FILE: {exc}')
 
-# Every kat-button in one shot: label + disabled + centre coords. The
-# label attribute is what a kat-button renders, and is localised — we
-# use it only to PREFER a match, never to require one.
+# Every button-ish control, with a stable identity that carries NO
+# language. `key` is only ever compared against ITSELF across the two
+# snapshots — never against a word — so this works on a console in any
+# language. The rendered label is carried for the RESULT line only.
 _BUTTONS_JS = (
+    'function key(e){'
+    "var l=(e.getAttribute&&e.getAttribute('label'))||'';"
+    'if(l.trim()) return "L:"+l.trim();'
+    'var p=[],n=e;'
+    'while(n&&n.nodeType===1&&p.length<8){'
+    'var par=n.parentNode;'
+    'p.unshift(n.tagName+":"+(par?[].indexOf.call(par.children,n):0));'
+    'n=par||(n.getRootNode&&n.getRootNode().host);}'
+    'return "P:"+p.join("/");}'
     'var out=[];'
-    "document.querySelectorAll('kat-button').forEach(function(b,i){"
+    "var sel='kat-button,button,[role=\\'button\\'],input[type=\\'submit\\']';"
+    'document.querySelectorAll(sel).forEach(function(b){'
     'var r=b.getBoundingClientRect();'
-    "out.push({i:i,label:(b.getAttribute('label')||'').trim(),"
-    "disabled:b.hasAttribute('disabled'),w:Math.round(r.width),"
+    "var d=b.hasAttribute('disabled')||b.disabled===true"
+    "||b.getAttribute('aria-disabled')==='true';"
+    'out.push({key:key(b),'
+    "label:(((b.getAttribute&&b.getAttribute('label'))||b.innerText||'')"
+    ').trim().slice(0,40),'
+    'disabled:!!d,w:Math.round(r.width),h:Math.round(r.height),'
     'x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});});'
     'return JSON.stringify(out);'
 )
-_SUBMIT_LABEL_RE = re.compile(r'submit products|提交商品|提交產品|إرسال', re.I)
 
 
 def _buttons():
@@ -99,17 +118,18 @@ def _buttons():
 
 
 def _pick_submit(before, after):
-    """The Submit button: label match first, else disabled -> enabled."""
-    named = [
-        b for b in after if b['w'] and _SUBMIT_LABEL_RE.search(b['label'] or '')
-    ]
-    if named:
-        return named[-1]
-    was = {b['i'] for b in before if b['disabled']}
+    """The control Amazon enabled once it accepted the file.
+
+    Purely structural: the upload page keeps Submit disabled until the
+    introspect-feed succeeds, so the button that flips disabled -> enabled
+    IS the submit. No text is matched, in any language. When several flip,
+    the lowest one on the page wins -- Submit sits under the widget.
+    """
+    was = {b['key'] for b in before if b['disabled']}
     flipped = [
-        b for b in after if b['w'] and b['i'] in was and not b['disabled']
+        b for b in after if b['w'] and b['key'] in was and not b['disabled']
     ]
-    return flipped[-1] if flipped else None
+    return max(flipped, key=lambda b: b['y']) if flipped else None
 
 
 new_tab(f'https://{HOST}/product-search/bulk')
@@ -121,21 +141,37 @@ time.sleep(_LOAD_WAIT)
 out['marketplace'] = js(
     "return (typeof ue_mid!=='undefined' && ue_mid) ? String(ue_mid) : null"
 )
-if out['marketplace'] and out['file_marketplace']:
-    if out['marketplace'] != out['file_marketplace']:
-        out['region_error'] = True
-        capture_screenshot()
-        _finish(
-            'MARKETPLACE MISMATCH — this file is stamped for '
-            f'{out["file_marketplace"]} but the live session is on '
-            f'{out["marketplace"]} (URL host {HOST} does NOT decide this). '
-            'Uploading here would list on the wrong storefront. Either '
-            "switch the session's marketplace in the account switcher and "
-            're-run, or regenerate the template with the intended store '
-            'ticked (bh_download_template) and fill that one.'
-        )
-elif not out['marketplace']:
-    out['reason_note'] = 'ue_mid not exposed on this page; check skipped'
+# Fail CLOSED: without BOTH ids the helper cannot prove where the feed
+# lands, and "probably the right marketplace" is what put an AE file in
+# SA's upload history. No proof, no upload.
+if not out['file_marketplace']:
+    capture_screenshot()
+    _finish(
+        'cannot read primaryMarketplaceId from the upload file, so the '
+        'marketplace it targets is unknown. Fill the upload file with '
+        'listing_bulk.py from a freshly downloaded template (the stamp '
+        'lives in its settings blob) instead of hand-rolling it.'
+    )
+if not out['marketplace']:
+    capture_screenshot()
+    _finish(
+        'cannot read ue_mid from this page, so the marketplace this '
+        'session is really on is unknown (the URL host does NOT decide '
+        'it). Confirm the page is a logged-in seller-central page and '
+        're-run; do not upload blind.'
+    )
+if out['marketplace'] != out['file_marketplace']:
+    out['region_error'] = True
+    capture_screenshot()
+    _finish(
+        'MARKETPLACE MISMATCH — this file is stamped for '
+        f'{out["file_marketplace"]} but the live session is on '
+        f'{out["marketplace"]} (URL host {HOST} does NOT decide this). '
+        'Uploading here would list on the wrong storefront. Either '
+        "switch the session's marketplace in the account switcher and "
+        're-run, or regenerate the template with the intended store '
+        'ticked (bh_download_template) and fill that one.'
+    )
 
 # A short viewport leaves the file button AND the Submit button below
 # the fold, so coordinate clicks land on empty space (observed live —
@@ -200,6 +236,10 @@ while time.time() < deadline:
     submit = None
 out['staged'] = True
 out['detected'] = bool(submit)
+if submit:
+    # Reported so a human can see WHICH control was clicked,
+    # in whatever language the console renders. Never matched.
+    out['submit_label'] = submit.get('label') or submit.get('key')
 
 if not submit:
     # Surface Amazon's OWN message (any language) instead of a bare

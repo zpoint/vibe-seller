@@ -1683,3 +1683,37 @@ def test_mint_guard_names_every_undeclared_row(template, tmp_path):
     msg = str(exc.value)
     assert 'P-1' in msg and 'C-2' in msg
     assert 'C-1' not in msg  # pinned rows are fine
+
+
+def test_non_asin_product_id_does_not_count_as_a_pin(template, tmp_path):
+    """A UPC/EAN in the product-id column is not a pin.
+
+    Only an ASIN matches an EXISTING catalog record; a barcode
+    identifies the product, so Amazon can still mint a fresh ASIN and
+    re-point the SKU. Accepting it would leave the exact hole the pin
+    guard exists to close.
+    """
+    spec = _mint_spec(
+        fields={
+            'item_name': 'x',
+            'external_product_id': '0123456789012',
+            'external_product_id_type': 'UPC',
+        }
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert 'K-WHT' in str(exc.value)
+
+
+def test_explicit_asin_type_counts_as_a_pin(template, tmp_path):
+    spec = _mint_spec(
+        fields={
+            'item_name': 'x',
+            'external_product_id': 'B0EXAMPLE1',
+            'external_product_id_type': 'asin',
+        }
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['external_product_id'] == 'B0EXAMPLE1'
