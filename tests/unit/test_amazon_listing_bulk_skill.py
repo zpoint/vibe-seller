@@ -1976,3 +1976,47 @@ def test_skipped_field_suggests_the_nearest_column(template, tmp_path, capsys):
     err = capsys.readouterr().err
     assert 'the_item_name' in err and 'SKIPPED' in err
     assert 'did you mean' in err and 'item_name' in err
+
+
+def test_decorated_key_never_crosses_marketplaces(
+    unified_template, tmp_path, capsys
+):
+    """A key naming marketplace X may not land in marketplace Y's column.
+
+    A dual-stamped template carries some attributes for the PRIMARY
+    marketplace only. `resolve_field` used to strip the decoration and
+    take the first column with the same base attribute, so a key
+    explicitly scoped to the OTHER marketplace wrote into the primary's
+    cell — one storefront's value in another's column, silently.
+    Observed live: an AE-scoped price currency landed in the SA column.
+    """
+    ae_name = _UNI_NAME.replace(_SA, _AE)
+    assert ae_name != _UNI_NAME and ae_name not in _UNI_FIELDS
+    spec = {
+        'marketplace': 'SA',
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'fields': {ae_name: 'AE ONLY TITLE'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsm')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    row = _read_unified_rows(out)[0]
+    assert row[_UNI_NAME] != 'AE ONLY TITLE', (
+        'an AE-scoped key leaked into the SA column'
+    )
+    err = capsys.readouterr().err
+    assert 'SKIPPED' in err and 'marketplace_id' in err

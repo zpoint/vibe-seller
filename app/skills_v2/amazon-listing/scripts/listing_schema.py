@@ -120,6 +120,15 @@ def nearest_columns(name, cols, limit=3):
     return sorted(set(hits), key=lambda c: (len(c), c))[:limit]
 
 
+_MKT_IN_FIELD_RE = re.compile(r'marketplace_id=(A[0-9A-Z]{8,})')
+
+
+def marketplace_of(name):
+    """The marketplace a decorated field name is scoped to, or None."""
+    m = _MKT_IN_FIELD_RE.search(name or '')
+    return m.group(1) if m else None
+
+
 def base_attr(name):
     """The bare attribute token of a flat-file field API name.
 
@@ -207,10 +216,22 @@ class Schema:
             return name
         base = base_attr(name)
         alias = FIELD_ALIASES.get(base)
+        # A key that NAMES a marketplace may only reach that
+        # marketplace's columns. Without this, a spec key decorated for
+        # a marketplace the template does not carry fell back to the
+        # first column with the same base attribute -- another
+        # storefront's -- and wrote one marketplace's value into the
+        # other's cell. Observed live: an AE-decorated `list_price`
+        # currency landed 'AED' in the SA currency column. Better to
+        # report the key as skipped (the caller warns and suggests)
+        # than to silently write it somewhere else.
+        want_mkt = marketplace_of(name)
         for target in (base, alias):
             if not target:
                 continue
             cands = [c for c in self.cols if base_attr(c) == target]
+            if want_mkt:
+                cands = [c for c in cands if marketplace_of(c) == want_mkt]
             if cands:
                 val = [c for c in cands if leaf(c) == 'value']
                 return (val or cands)[0]
