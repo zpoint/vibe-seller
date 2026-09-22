@@ -179,6 +179,20 @@ a family that the parent shows **"Variations (N)"**.
 > Inventory** (search your SKU prefix) to verify the family is live —
 > that is the source of truth, not the feed status. Only re-upload if the
 > **downloaded processing report** names a real per-SKU error to fix.
+>
+> **A slow queue says NOTHING about your file, so do not "test" theories
+> against it.** Latency is not evidence: Amazon accepted the file the
+> moment it gave you a reference_id, and a CREATE feed submitted right
+> after a DELETE on the same SKUs is the slowest case there is — 30+
+> minutes at N/A is ordinary. While a batch is pending the only legal
+> moves are **wait** and **check Manage Inventory**. Do not rewrite the
+> spec, and above all **do not remove an ASIN pin to see whether the pin
+> was the problem** — an unpinned create mints a new ASIN, so that
+> "test" destroys the very thing you were waiting to restore, and the
+> stall told you nothing about the pin either way. Observed live: an
+> agent 35 minutes into a pinned rebuild started proposing exactly that.
+> If you genuinely need to know why, wait for the processing report and
+> read what Amazon says; `fill` will refuse to drop the pin for you.
 
 ### Priors that recur across categories
 
