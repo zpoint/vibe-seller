@@ -29,13 +29,10 @@ def mint_guard(rows, spec, schema):
     """
     id_field = schema.field('product_id')
     type_field = schema.field('product_id_type')
-    undeclared = []
+    creates, undeclared, any_pinned = [], [], False
     for i, spec_row in enumerate(rows):
         _, op_key = resolve_operation(spec_row.get('operation'), schema.dialect)
         if op_key != 'create':
-            continue
-        declared = spec_row.get(MINT_KEY, spec.get(MINT_KEY))
-        if declared:
             continue
         fields = row_fields(spec_row, spec, schema)
         fields = {schema.resolve_field(k): v for k, v in fields.items()}
@@ -47,8 +44,43 @@ def mint_guard(rows, spec, schema):
         kind = str(fields.get(type_field) or '').strip().lower()
         if pinned and kind != 'asin':
             pinned = ''
-        if not pinned:
-            undeclared.append(str(spec_row.get('sku') or f'row {i}'))
+        any_pinned = any_pinned or bool(pinned)
+        creates.append((
+            str(spec_row.get('sku') or f'row {i}'),
+            pinned,
+            spec_row.get(MINT_KEY),
+        ))
+    # A spec-level declaration blankets EVERY row, so in a spec that also
+    # carries pinned relists it is the cheapest way to wave a dropped pin
+    # through -- the exact move this guard exists to catch. Where the two
+    # kinds are mixed, each mint has to be owned on its own row. A spec
+    # with no pins at all is an unambiguous new family; blanket is fine.
+    blanket = spec.get(MINT_KEY)
+    if blanket and any_pinned:
+        mixed = [
+            sku
+            for sku, pinned, row_dec in creates
+            if not pinned and not row_dec
+        ]
+        if mixed:
+            return (
+                'error: this spec declares "{key}": true at the TOP LEVEL '
+                'while {n} other create row(s) pin an ASIN. A top-level '
+                'declaration covers every row, so it would also wave '
+                'through a pin you meant to set and lost -- which is the '
+                'mistake this guard exists to catch. Put "{key}": true on '
+                'the row(s) that really mint ({skus}) and remove it from '
+                'the top level.'
+            ).format(
+                key=MINT_KEY,
+                n=sum(1 for _, pinned, _ in creates if pinned),
+                skus=', '.join(mixed),
+            )
+        blanket = None
+    for sku, pinned, row_dec in creates:
+        if pinned or row_dec or blanket:
+            continue
+        undeclared.append(sku)
     if not undeclared:
         return None
     return (

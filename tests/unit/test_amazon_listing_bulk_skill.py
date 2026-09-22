@@ -1793,3 +1793,66 @@ def test_overflowing_repeated_list_warns(unified_template, tmp_path, capsys):
     ])
     err = capsys.readouterr().err
     assert 'bullet_point' in err and 'dropped 2' in err
+
+
+def test_blanket_mint_declaration_refused_when_spec_also_pins(
+    template, tmp_path
+):
+    """The shape watched live: a rebuild that pins its children and
+    blanket-declares at the top level for the parent.
+
+    A top-level declaration covers EVERY row, so in a spec that mixes
+    pinned relists with real mints it is the cheapest way to wave a
+    dropped pin through — exactly what this guard exists to catch. Each
+    mint has to be owned on its own row.
+    """
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {'sku': 'P-1', 'operation': 'create', 'parentage': 'parent'},
+            {'sku': 'C-1', 'operation': 'create', 'asin': 'B0EXAMPLE1'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    msg = str(exc.value)
+    assert 'TOP LEVEL' in msg and 'P-1' in msg
+
+
+def test_row_level_mint_alongside_pins_is_accepted(template, tmp_path):
+    """The same spec, with the mint owned on the row that mints."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'P-1',
+                'operation': 'create',
+                'parentage': 'parent',
+                'mint_new_asin': True,
+            },
+            {'sku': 'C-1', 'operation': 'create', 'asin': 'B0EXAMPLE1'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert {r['item_sku'] for r in _read_rows(out)} == {'P-1', 'C-1'}
+
+
+def test_blanket_mint_still_fine_when_nothing_is_pinned(template, tmp_path):
+    """A brand-new family has nothing to lose — blanket stays ergonomic."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {'sku': 'P-1', 'operation': 'create', 'parentage': 'parent'},
+            {'sku': 'C-1', 'operation': 'create', 'parentage': 'child'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert len(_read_rows(out)) == 2

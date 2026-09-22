@@ -576,7 +576,12 @@ operation is a common cause of a child failing to join its family.
 > * **Relisting** an existing product (another marketplace, same SKU) →
 >   pin its current ASIN: `"asin": "B0EXAMPLE1"` on the row.
 > * **Genuinely new** to this account → `"mint_new_asin": true`, on the
->   spec (covers every row) or per row.
+>   spec (covers every row) or per row. **In a spec that also pins an
+>   ASIN somewhere, the top-level form is refused** — a blanket
+>   declaration would wave through a pin you meant to set and lost,
+>   which is the mistake this guard exists to catch, so each real mint
+>   is owned on its own row. A rebuild that pins its children and mints
+>   a fresh parent puts the key on the parent row only.
 >
 > Only `external_product_id_type: asin` counts as a pin. A UPC / EAN /
 > GTIN identifies the *product*, not an existing listing, so Amazon can
