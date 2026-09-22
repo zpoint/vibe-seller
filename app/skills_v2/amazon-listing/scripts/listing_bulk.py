@@ -373,9 +373,8 @@ def cmd_fill(args):
         # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).
         _drop_unusable_item_highlight(fields, i, sku, warnings)
 
-        # Enum validation: a value outside a NON-EMPTY valid set cannot
-        # land (Amazon answers 90244), so it stops the fill. See
-        # listing_schema.enum_violation for why this is not a warning.
+        # A value outside a NON-EMPTY valid set cannot land (Amazon
+        # answers 90244) -- see listing_schema.enum_violation.
         bad = _enum_violation(fields, valid)
         if bad:
             fname, fval, allowed = bad
@@ -388,9 +387,8 @@ def cmd_fill(args):
             else:
                 raise SystemExit('error: ' + msg + _ENUM_HINT.format(f=fname))
 
-        # A key `fill` does not consume is a value the agent believes it
-        # set. Naming it here is the difference between a local warning
-        # and an hour of Amazon feed latency followed by a 0/N reject.
+        # A key `fill` does not consume is a value the agent believes
+        # it set -- naming it beats an hour of latency and a 0/N reject.
         strays = _stray_row_keys(spec_row)
         if strays:
             warnings.append(
@@ -399,9 +397,8 @@ def cmd_fill(args):
                 '"fields" (or use the documented friendly key)'
             )
 
-        # product_type is the one column Amazon calls "always required":
-        # without it the WHOLE feed is rejected 90041 before any row is
-        # evaluated. A warning is not enough for a guaranteed reject.
+        # product_type is "always required": without it the WHOLE feed
+        # is rejected 90041 before any row is evaluated.
         pt_field = schema.field('product_type')
         if (
             op_key != 'delete'
