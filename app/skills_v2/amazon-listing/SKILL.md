@@ -558,7 +558,14 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
   - `fill TEMPLATE.xlsm --spec SPEC.json --out OUT.xlsm` — write
     parent/child rows, set the operation column per row, validate enums
     and required fields against the template's own metadata sheets, and
-    preserve the workbook (macros, signature row) verbatim.
+    preserve the workbook (macros, signature row) verbatim. **A value
+    outside a field's valid set is FATAL**, because Amazon answers 90244
+    and the row cannot land; valid sets are per template *and* per
+    marketplace, so read the TARGET template's own
+    (`inspect --field NAME`) rather than reusing the other
+    marketplace's. `--allow-unlisted-enum` writes it anyway, for the
+    genuinely stale sheet — state that judgement, don't imply it by
+    ignoring stderr.
   - `parse-feedback REPORT` — extract Amazon's verdict: the summary
     tables **and the per-cell comments (批注) on the report's `Template`
     tab**, emitted as `sku=… field=… : MESSAGE`. The 批注 are the

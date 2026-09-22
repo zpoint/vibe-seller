@@ -370,15 +370,38 @@ def cmd_fill(args):
         # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).
         _drop_unusable_item_highlight(fields, i, sku, warnings)
 
-        # Enum validation: reject an invalid operation-family token hard;
-        # warn (never fail) on other enums so an unseen-but-valid token
-        # from a new category still uploads.
+        # Enum validation. A value outside a NON-EMPTY valid set is a
+        # guaranteed per-row rejection (Amazon answers 90244, "select an
+        # approved value from the list"), so it stops the fill rather
+        # than joining a pile of warnings. This used to warn, on the
+        # theory that a new category might carry a token the sheet has
+        # not caught up with; what actually happened is that an agent
+        # read the warning, judged the sheet wrong, uploaded anyway, and
+        # spent another forty-minute feed cycle being told the same
+        # thing by Amazon — twice in one run. `--allow-unlisted-enum`
+        # is there for the genuine stale-sheet case, and makes that
+        # judgement explicit instead of implied by ignoring stderr.
         for fname, fval in fields.items():
             allowed = valid.get(fname)
-            if allowed and str(fval).strip().lower() not in allowed:
-                warnings.append(
-                    f'row {i} sku={sku}: {fname}={fval!r} not in template '
-                    f'valid values {sorted(allowed)}'
+            if not allowed or str(fval).strip().lower() in allowed:
+                continue
+            msg = (
+                f'row {i} sku={sku}: {fname}={fval!r} is not one of this '
+                f"template's valid values {sorted(allowed)}"
+            )
+            if getattr(args, 'allow_unlisted_enum', False):
+                warnings.append(msg + ' (allowed by --allow-unlisted-enum)')
+            else:
+                raise SystemExit(
+                    'error: '
+                    + msg
+                    + '. Amazon rejects the row with 90244 ("select an '
+                    'approved value from the list for your product '
+                    'category"), so this cannot succeed as written. '
+                    'Valid values are per template AND per marketplace — '
+                    "read the TARGET template's own set (inspect --field "
+                    f'{fname}). Pass --allow-unlisted-enum only if you '
+                    "have checked the template's sheet is stale."
                 )
 
         # A key `fill` does not consume is a value the agent believes it
@@ -768,6 +791,13 @@ def main():
         help='country code (SA/AE/AU/…) or raw marketplace id you are '
         'listing on; routes the offer price to the right block. Overrides '
         'the spec\'s top-level "marketplace".',
+    )
+    p.add_argument(
+        '--allow-unlisted-enum',
+        action='store_true',
+        help="write a value the template's valid-value sheet does not "
+        'list (normally fatal: Amazon answers 90244). Use only when you '
+        'have checked the sheet is stale for this field.',
     )
     p.set_defaults(func=cmd_fill)
 

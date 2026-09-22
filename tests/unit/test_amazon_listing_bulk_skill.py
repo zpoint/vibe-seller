@@ -396,9 +396,15 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
     assert 'battery_type' not in err
 
 
-def test_out_of_enum_and_missing_required_warn_not_fail(
-    template, tmp_path, capsys
-):
+def test_out_of_enum_is_fatal(template, tmp_path):
+    """A value outside a non-empty valid set cannot succeed.
+
+    Amazon answers 90244 ("select an approved value from the list"), so
+    this used to be a warning the author was expected to read — and
+    twice in one live run an agent read it, judged the sheet wrong,
+    uploaded anyway, and spent another feed cycle being told the same
+    thing by Amazon.
+    """
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
@@ -408,19 +414,61 @@ def test_out_of_enum_and_missing_required_warn_not_fail(
                 'sku': 'W-1',
                 'operation': 'create',
                 'variation_theme': 'PurpleHaze',  # not in enum
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert 'PurpleHaze' in str(exc.value) and '90244' in str(exc.value)
+
+
+def test_out_of_enum_can_be_overridden_explicitly(template, tmp_path, capsys):
+    """The stale-sheet case stays reachable — but has to be stated."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
+                'variation_theme': 'PurpleHaze',
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+        '--allow-unlisted-enum',
+    ])
+    assert _read_rows(out)[0]['variation_theme'] == 'PurpleHaze'
+    assert 'allow-unlisted-enum' in capsys.readouterr().err
+
+
+def test_missing_required_field_still_only_warns(template, tmp_path, capsys):
+    """Amazon's Required flag is noisy, so this one stays a warning."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
                 'fields': {'relationship_type': 'Variation'},
             },  # missing lots
         ],
     }
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
-    err = capsys.readouterr().err
-    assert 'PurpleHaze' in err  # enum warning
-    assert 'not in template valid values' in err
-    assert 'missing required field' in err  # required warning
-    # File still written despite warnings.
+    assert 'missing required field' in capsys.readouterr().err
     assert Path(out).exists()
-    assert _read_rows(out)[0]['variation_theme'] == 'PurpleHaze'
 
 
 def test_asin_folds_into_product_id(template, tmp_path):
