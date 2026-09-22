@@ -211,6 +211,7 @@ def test_fill_operation_column(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -253,6 +254,7 @@ def test_fill_drops_item_highlight_when_title_too_long(
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-LONG',
@@ -278,6 +280,7 @@ def test_fill_keeps_item_highlight_when_title_fits(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-SHORT',
@@ -299,6 +302,7 @@ def test_parent_child_structure(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'P-1',
@@ -363,6 +367,7 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'P-1',
@@ -397,6 +402,7 @@ def test_out_of_enum_and_missing_required_warn_not_fail(
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -421,6 +427,7 @@ def test_asin_folds_into_product_id(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -449,6 +456,7 @@ def test_fill_clears_preexisting_data_rows(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-NEW',
@@ -488,6 +496,7 @@ def test_fill_emits_tsv_upload_file(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -522,6 +531,7 @@ def test_enum_value_canonicalised_to_template_case(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -641,6 +651,7 @@ def test_fill_routes_bare_our_price_to_target_marketplace(
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -673,6 +684,7 @@ def test_fill_routes_row_level_our_price_and_quantity(mkt_template, tmp_path):
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -707,6 +719,7 @@ def test_fill_warns_when_target_marketplace_has_no_offer(
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -735,6 +748,7 @@ def test_fill_errors_when_price_set_without_marketplace(mkt_template, tmp_path):
         tmp_path,
         {
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -761,6 +775,7 @@ def test_fill_auto_derives_relationship_type_for_variation(
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-P',
@@ -1093,6 +1108,7 @@ def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'WIDGET-006',
@@ -1152,6 +1168,7 @@ def test_fill_unified_operation_tokens(unified_template, tmp_path):
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {'sku': 'W-1', 'operation': 'create', 'fields': {'item_name': 'x'}},
             {'sku': 'W-2', 'operation': 'update', 'fields': {'item_name': 'x'}},
@@ -1186,6 +1203,7 @@ def test_fill_unified_asin_folds_into_volt_product_id(
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -1219,6 +1237,7 @@ def test_fill_unified_tsv_keeps_settings_header(unified_template, tmp_path):
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {'sku': 'W-1', 'operation': 'create', 'fields': {'item_name': 'x'}}
         ],
@@ -1251,6 +1270,7 @@ def test_fill_unified_writes_data_at_datarow(unified_template, tmp_path):
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'P',
@@ -1373,6 +1393,7 @@ def test_fill_hard_fails_on_wrong_region_template(mkt_template, tmp_path):
         {
             'marketplace': 'EG',  # not stamped in this SA+AE template
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1419,6 +1440,7 @@ def test_fill_blocks_browse_nodes_across_marketplaces(mkt_template, tmp_path):
         {
             'marketplace': 'SA',  # stamped, but not primary
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1447,6 +1469,7 @@ def test_fill_allows_browse_nodes_on_primary(mkt_template, tmp_path):
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1473,6 +1496,7 @@ def test_fill_without_browse_nodes_ignores_primary(mkt_template, tmp_path):
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1494,6 +1518,7 @@ def test_fill_cli_marketplace_flag_also_guarded(mkt_template, tmp_path):
         tmp_path,
         {
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1529,6 +1554,7 @@ def test_fill_auto_adopt_single_stamp_warns_loudly(template, tmp_path, capsys):
         {
             'product_type': 'socks',
             'brand': 'acme',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1551,3 +1577,109 @@ def test_inspect_prints_region_stamp(mkt_template, capsys):
     out = capsys.readouterr().out
     assert 'marketplaces:' in out
     assert 'A17E79C6D8DWNP (SA)' in out and 'A2VIGQ35RCS4UG (AE)' in out
+
+
+# --- Undeclared new-ASIN mint -------------------------------------------
+#
+# A seller SKU is ACCOUNT-scoped. A `create` row with no ASIN makes
+# Amazon mint one, and on a unified pan-regional account that RE-POINTS
+# the SKU at the new ASIN account-wide and orphans the old one — the
+# reviews/ratings/rank go with it and Amazon never re-issues a retired
+# ASIN. The feed report calls it a clean create, so nothing downstream
+# catches it. Observed live: a relist on a second marketplace submitted
+# plain `create` rows for SKUs already live on the first, and every
+# child on the first marketplace silently changed ASIN.
+#
+# `fill` therefore refuses to WRITE the row until the intent is
+# declared: pin the existing ASIN, or say `mint_new_asin`.
+
+
+def _mint_spec(**row):
+    base = {'sku': 'K-WHT', 'operation': 'create', 'fields': {'item_name': 'x'}}
+    base.update(row)
+    return {'product_type': 'socks', 'brand': 'acme', 'rows': [base]}
+
+
+def test_fill_refuses_undeclared_new_asin_mint(template, tmp_path):
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            template,
+            '--spec',
+            _spec(tmp_path, _mint_spec()),
+            '--out',
+            out,
+        ])
+    msg = str(exc.value)
+    assert 'MINT' in msg and 'K-WHT' in msg
+    # The message must offer BOTH exits, or the agent picks the wrong one.
+    assert 'mint_new_asin' in msg and 'asin' in msg
+
+
+def test_gtin_exempt_is_not_a_mint_declaration(template, tmp_path):
+    """The exact shape that destroyed three live ASINs.
+
+    The spec said `product_id_type: GTIN Exempt` with no id value —
+    which reads like "no external id needed" but declares nothing about
+    whether the SKU already has an ASIN. It must still be refused.
+    """
+    spec = _mint_spec(
+        fields={'item_name': 'x', 'external_product_id_type': 'GTIN Exempt'}
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert 'GTIN Exempt' in str(exc.value)
+
+
+def test_pinned_asin_needs_no_mint_declaration(template, tmp_path):
+    """The relist path: the ASIN is pinned, so nothing is minted."""
+    spec = _mint_spec(asin='B0EXAMPLE1')
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = _read_rows(out)[0]
+    assert row['external_product_id'] == 'B0EXAMPLE1'
+    assert row['external_product_id_type'] == 'asin'
+
+
+def test_row_level_mint_declaration_accepted(template, tmp_path):
+    spec = _mint_spec(mint_new_asin=True)
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['item_sku'] == 'K-WHT'
+
+
+def test_non_create_operations_need_no_mint_declaration(template, tmp_path):
+    """update / partialupdate / delete cannot mint, so they are exempt."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {'sku': 'K-1', 'operation': 'update', 'fields': {'item_name': 'a'}},
+            {'sku': 'K-2', 'operation': 'partialupdate'},
+            {'sku': 'K-3', 'operation': 'delete'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert {r['item_sku'] for r in _read_rows(out)} == {'K-1', 'K-2', 'K-3'}
+
+
+def test_mint_guard_names_every_undeclared_row(template, tmp_path):
+    """All offenders in one message — not one failure per re-run."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {'sku': 'P-1', 'operation': 'create', 'parentage': 'parent'},
+            {'sku': 'C-1', 'operation': 'create', 'asin': 'B0EXAMPLE1'},
+            {'sku': 'C-2', 'operation': 'create'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    msg = str(exc.value)
+    assert 'P-1' in msg and 'C-2' in msg
+    assert 'C-1' not in msg  # pinned rows are fine

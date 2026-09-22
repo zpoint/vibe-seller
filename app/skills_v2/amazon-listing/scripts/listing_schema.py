@@ -456,3 +456,61 @@ def route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                     f'"fulfillment_channel_code" (the merchant/default code '
                     f'for THIS marketplace) to the row.'
                 )
+
+
+def resolve_operation(op, dialect):
+    tokens = OP_TOKENS[dialect]
+    key = (op or 'create').strip().lower()
+    if key not in tokens:
+        raise SystemExit(
+            f"error: operation '{op}' is not one of {', '.join(tokens)}"
+        )
+    return tokens[key], key
+
+
+def row_fields(spec_row, top, schema):
+    """Flatten one spec row into {field_api_name: value}.
+
+    Friendly per-row keys (sku, asin, parent_sku, parentage,
+    variation_theme) fold into their flat-file field names -- resolved
+    through `schema` so the SAME spec drives either dialect; `fields`
+    carries everything else verbatim by API name. Top-level `product_type`
+    and `brand` supply defaults when a row omits them.
+    """
+    out = dict(spec_row.get('fields') or {})
+
+    def put(role, value, overwrite=True):
+        name = schema.field(role)
+        if name and value not in (None, ''):
+            if overwrite or name not in out:
+                out[name] = value
+
+    put('product_type', top.get('product_type'), overwrite=False)
+    put('brand', top.get('brand'), overwrite=False)
+    put('sku', spec_row.get('sku'))
+    put('parent_sku', spec_row.get('parent_sku'))
+    put('parentage', spec_row.get('parentage'))
+    put('variation_theme', spec_row.get('variation_theme'))
+    # A legacy variation row MUST carry relationship_type or a child errors
+    # "relationship_type = null" and never creates (explicit wins). The
+    # unified template has no such column -- the parent link is carried by
+    # parentage_level + child_parent_sku_relationship -- so only add it when
+    # the template actually has a `relationship_type` column.
+    if (spec_row.get('parentage') or spec_row.get('variation_theme')) and (
+        'relationship_type' in schema.cols
+    ):
+        out.setdefault('relationship_type', 'Variation')
+    if spec_row.get('asin'):
+        put('product_id', spec_row['asin'])
+        put('product_id_type', 'asin', overwrite=False)
+    # Offer shorthands (`our_price`/`price`/`quantity`) belong in `fields`,
+    # but the skill tells the agent to put "a bare our_price/quantity on
+    # each child" -- naturally read as a ROW-LEVEL key. Fold those from the
+    # row into fields (a value already in `fields` wins) so the price/stock
+    # routes to the target marketplace either way, instead of being
+    # silently dropped -> an empty offer column the agent then hand-picks.
+    for k in (*OFFER_PRICE_SHORTHANDS, 'quantity', 'fulfillment_channel_code'):
+        if spec_row.get(k) not in (None, '') and k not in out:
+            out[k] = spec_row[k]
+    # Drop keys with no value so we never blank an intended default.
+    return {k: v for k, v in out.items() if v not in (None, '')}

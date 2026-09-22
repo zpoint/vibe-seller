@@ -95,6 +95,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Template structure + metadata parsing live in a sibling module so this
 # file stays within the line cap. Public names there; alias to the
 # `_`-prefixed internal names used here (and re-exported for tests).
+from listing_identity import mint_guard as _mint_guard  # noqa: E402
 from listing_schema import (  # noqa: E402, F401
     DEFN_SHEET,
     DROPDOWN_SHEET,
@@ -111,7 +112,9 @@ from listing_schema import (  # noqa: E402, F401
     load_required_fields as _load_required_fields,
     load_valid_values as _load_valid_values,
     our_price_col as _our_price_col,
+    resolve_operation as _resolve_operation,
     route_offer_price as _route_offer_price,
+    row_fields as _row_fields,
     valid_value_case as _valid_value_case,
 )
 from marketplace_ids import (  # noqa: E402,F401
@@ -257,64 +260,6 @@ def cmd_inspect(args):
         print(f'  {f:30} values={dig(f)}')
 
 
-def _resolve_operation(op, dialect):
-    tokens = _OP_TOKENS[dialect]
-    key = (op or 'create').strip().lower()
-    if key not in tokens:
-        raise SystemExit(
-            f"error: operation '{op}' is not one of {', '.join(tokens)}"
-        )
-    return tokens[key], key
-
-
-def _row_fields(spec_row, top, schema):
-    """Flatten one spec row into {field_api_name: value}.
-
-    Friendly per-row keys (sku, asin, parent_sku, parentage,
-    variation_theme) fold into their flat-file field names -- resolved
-    through `schema` so the SAME spec drives either dialect; `fields`
-    carries everything else verbatim by API name. Top-level `product_type`
-    and `brand` supply defaults when a row omits them.
-    """
-    out = dict(spec_row.get('fields') or {})
-
-    def put(role, value, overwrite=True):
-        name = schema.field(role)
-        if name and value not in (None, ''):
-            if overwrite or name not in out:
-                out[name] = value
-
-    put('product_type', top.get('product_type'), overwrite=False)
-    put('brand', top.get('brand'), overwrite=False)
-    put('sku', spec_row.get('sku'))
-    put('parent_sku', spec_row.get('parent_sku'))
-    put('parentage', spec_row.get('parentage'))
-    put('variation_theme', spec_row.get('variation_theme'))
-    # A legacy variation row MUST carry relationship_type or a child errors
-    # "relationship_type = null" and never creates (explicit wins). The
-    # unified template has no such column -- the parent link is carried by
-    # parentage_level + child_parent_sku_relationship -- so only add it when
-    # the template actually has a `relationship_type` column.
-    if (spec_row.get('parentage') or spec_row.get('variation_theme')) and (
-        'relationship_type' in schema.cols
-    ):
-        out.setdefault('relationship_type', 'Variation')
-    if spec_row.get('asin'):
-        put('product_id', spec_row['asin'])
-        put('product_id_type', 'asin', overwrite=False)
-    # Offer shorthands (`our_price`/`price`/`quantity`) belong in `fields`,
-    # but the skill tells the agent to put "a bare our_price/quantity on
-    # each child" -- naturally read as a ROW-LEVEL key. Fold those from the
-    # row into fields (a value already in `fields` wins) so the price/stock
-    # routes to the target marketplace either way, instead of being
-    # silently dropped -> an empty offer column the agent then hand-picks.
-    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity', 'fulfillment_channel_code'):
-        if spec_row.get(k) not in (None, '') and k not in out:
-            out[k] = spec_row[k]
-    # Drop keys with no value so we never blank an intended default.
-    return {k: v for k, v in out.items() if v not in (None, '')}
-
-
 def _drop_unusable_item_highlight(fields, i, sku, warnings):
     """Drop an optional Item Highlight when the Item Name is too long.
 
@@ -373,6 +318,9 @@ def cmd_fill(args):
     # cross-marketplace fill (nodes are the template PRIMARY's only).
     fatal, warn = _stamp_guard(requested, mkt_id, template_ids)
     fatal = fatal or _browse_node_guard(rows, spec, mkt_id, ws, header_row)
+    # Undeclared new-ASIN mint: destructive on a unified account, and
+    # invisible in the feed report (Amazon reports it as a clean create).
+    fatal = fatal or _mint_guard(rows, spec, schema)
     if fatal:
         raise SystemExit(fatal)
     if warn:

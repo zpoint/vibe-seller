@@ -130,6 +130,20 @@ replaces reading the actual report.
 
 ### Verification: trust inventory, not the feed count
 
+> **First, prove WHICH marketplace you are looking at — every other
+> reading is worthless without it.** A seller-central page renders the
+> marketplace the SESSION is on, whatever the URL subdomain says, so
+> "the `.ae` inventory page shows the family" is not evidence that AE
+> has it. Read the id, not a label: `js("return ue_mid")` returns the
+> live marketplace id (`A17E79C6D8DWNP` = SA, `A2VIGQ35RCS4UG` = AE …,
+> the full table is `marketplace_ids.py`), identical in every console
+> language. Do this on EVERY verification read, and quote the id in the
+> result — a family reported live on the wrong storefront is worse than
+> an unverified one, because it closes the loop on a lie. Observed
+> live: an AE-stamped upload landed in SA's upload history, and both
+> marketplaces were then "verified" off pages that were never the
+> marketplace claimed.
+
 The report's "records processed / 0 errors" means the **feed was
 accepted**, not that a live listing exists. A record *with* errors can
 still create an incomplete stub; a clean feed can leave a suppressed
@@ -311,8 +325,13 @@ for an `8560` to fix reactively:
    `.ae` inventory URL happily renders SA's inventory when the switcher
    is on SA — verifying "AE has it" off such a page is how a listing
    ends up confirmed on the wrong marketplace). Read the switcher label
-   back; never infer the marketplace from the URL. If the subdomain
-   instead lands on an
+   back; never infer the marketplace from the URL. The machine-readable
+   form of that check is the page's own `ue_mid` global (the live
+   marketplace id, identical in every console language) — which is what
+   `bh_upload_flatfile` compares against the file's
+   `primaryMarketplaceId` stamp, refusing to submit on a mismatch.
+   Verify your reads the same way: `js("return ue_mid")` beats squinting
+   at a localised label. If the subdomain instead lands on an
    account-picker ("Select an account"), switch there first — fast path
    (current layout): click the target account's `<button>` (not the inert
    label), then **Select account**, and if a click no-ops or the layout
@@ -353,6 +372,19 @@ for an `8560` to fix reactively:
    set it via the top-level `"marketplace": "<CC>"` + bare `our_price` +
    `quantity` + `fulfillment_channel_code` (offer prior), not by
    re-describing the product.
+   - **Dropping the pin is DESTRUCTIVE, never a debugging simplification.**
+     A seller SKU is account-scoped: an unpinned `create` for a SKU that
+     already sells on the source marketplace makes Amazon mint a fresh
+     ASIN and **re-point the SKU to it account-wide**, orphaning the
+     original — its reviews, ratings and rank go with it, and Amazon
+     never re-issues a retired ASIN. The FNSKU follows the SKU, so FBA
+     stock looks untouched while the ASIN silently changed underneath
+     it, and the feed report calls the whole thing a clean create.
+     Observed live: an AE relist submitted plain `create` rows for the
+     SKUs already live on SA, and all three SA children changed ASIN.
+     If a pinned upload fails, fix what the report names — never
+     "simplify" by removing the pin. `fill` now hard-fails an
+     undeclared mint (see § Operation rules).
    - **Operation depends on whether the ASIN exists in the TARGET
      catalog — check that FIRST** (open `amazon.<tld>/dp/<ASIN>`, or read
      the first upload's report):
@@ -411,6 +443,18 @@ throw the helper away and hand-drive the whole flow:
 - `bh_upload_flatfile.py`: `UPLOAD_LOAD_WAIT` (default 15s, page settle)
   and `UPLOAD_INTROSPECT_WAIT` (default 12s, type-detection) — bump both
   on a slow/heavy account before concluding the upload "won't work".
+
+> **The console language follows the SESSION, not the subdomain.** A ZH
+> session renders 提交商品 / （自动检测）/ 下载处理一览 where the docs
+> say "Submit products" / "(automatically detected)" / "Download
+> Processing Summary". The helpers therefore key off structure — the
+> Submit button flipping `disabled` → enabled, the download button
+> scoped to its own batch row — and carry EN + ZH + AR label variants
+> where a label is still needed. If you hand-drive a step, match the
+> same way: never gate a decision on an English string, and never read
+> "the page says X in English is missing" as "the page is broken". A
+> `ok=false` from a helper names its reason; a red banner left over from
+> an earlier page is not that reason.
 
 Fall back to exploring by hand when a helper reports ok=false for a
 STRUCTURAL reason it names (widget genuinely absent, region-stamp
@@ -504,7 +548,7 @@ The operation is **chosen per row in the sheet**, not inferred:
 
 | `operation` in spec | `update_delete` cell | Use when |
 |---|---|---|
-| `create` (default) | *blank* | new SKU. **No ASIN** → this is the default. |
+| `create` (default) | *blank* | new SKU. Needs either a pinned `asin` **or** an explicit `"mint_new_asin": true` — see below. |
 | `update` | `Update` | full re-submit of an existing SKU's attributes. |
 | `partialupdate` | `partialupdate` | change only the fields present; leave others as-is. |
 | `delete` | `delete` | remove the SKU. Needs only `sku` + `operation`. |
@@ -514,6 +558,23 @@ and match it** (put the ASIN in `external_product_id` with
 `external_product_id_type: asin`). The operation column is authoritative,
 so set it **explicitly on every row, children included** — a blank child
 operation is a common cause of a child failing to join its family.
+
+> **A `create` with no ASIN MINTS one, and `fill` will not do that
+> undeclared.** A seller SKU is **account-scoped**, so on a unified
+> pan-regional account (MENA: SA / AE / EG) minting for a SKU that
+> already sells anywhere **re-points that SKU to the new ASIN
+> account-wide and orphans the old one** — reviews, ratings and rank go
+> with it, and Amazon never re-issues a retired ASIN. Nothing in the
+> feed report shows this: Amazon reports it as a clean create.
+> So `fill` refuses the row until you say which case it is:
+>
+> * **Relisting** an existing product (another marketplace, same SKU) →
+>   pin its current ASIN: `"asin": "B0EXAMPLE1"` on the row.
+> * **Genuinely new** to this account → `"mint_new_asin": true`, on the
+>   spec (covers every row) or per row.
+>
+> `product_id_type: GTIN Exempt` is **not** a declaration — it says the
+> product has no barcode, not that it has no ASIN.
 
 ## End-to-end flow (product link → live listing)
 

@@ -1,16 +1,31 @@
 # ruff: noqa: F821 — browser-harness globals (new_tab, js, cdp, ...)
 """Stage + submit a listing flat-file on ONE marketplace's upload page.
 
-Deterministic fast path for the whole upload dance (the file-chooser
-intercept, the introspect wait, the Submit click, the batch id) so the
-agent never re-derives it. Run through the STORE WRAPPER with env
-parameters, from the task workspace:
+Deterministic fast path for the whole upload dance (the marketplace
+check, the file-chooser intercept, the introspect wait, the Submit
+click, the batch id) so the agent never re-derives it. Run through the
+STORE WRAPPER with env parameters, from the task workspace:
 
   UPLOAD_FILE=/abs/path/file.txt SC_HOST=sellercentral.amazon.ae \
   MARKER_DIR="$PWD" browser-use < .claude/skills/amazon-listing/scripts/bh_upload_flatfile.py
 
 Prints exactly one ``RESULT {json}`` line:
-  ok / staged / detected / region_error / batch_id / reason
+  ok / staged / detected / region_error / batch_id / marketplace / reason
+
+Two things it refuses to do, because both fail SILENTLY by hand:
+
+* **Upload onto the wrong marketplace.** The file's own ``settings=``
+  blob carries ``primaryMarketplaceId``; the live page carries
+  ``ue_mid``. A ``.ae`` URL happily renders under an SA session — an
+  AE-stamped file then lands in SA's upload history and the agent
+  verifies "AE" off a page that was never AE. Both sides are
+  machine-readable ids, so the mismatch is a hard stop before staging.
+* **Guess at page text.** The seller-central UI language follows the
+  SESSION, not the subdomain: a ZH session says 提交商品 / 自动检测,
+  so matching English words reports "not detected" on a page that is
+  perfectly fine. Readiness is read STRUCTURALLY instead — the Submit
+  button flips disabled -> enabled once Amazon has introspected the
+  file, in every language.
 
 On success it writes ``UPLOAD_BATCH_<id>.json`` into MARKER_DIR (pass
 your task workspace) — the completion gate then requires a parse-feedback
@@ -20,6 +35,7 @@ screenshot and reports the reason; explore from there, don't blind-retry.
 
 import json
 import os
+import re
 import time
 
 F = os.environ['UPLOAD_FILE']
@@ -31,6 +47,8 @@ out = {
     'detected': False,
     'region_error': False,
     'batch_id': None,
+    'marketplace': None,
+    'file_marketplace': None,
     'host': HOST,
     'file': F,
 }
@@ -40,6 +58,7 @@ def _finish(reason=None):
     if reason:
         out['reason'] = reason
     print('RESULT ' + json.dumps(out))
+    raise SystemExit(0)
 
 
 # Waits are env-tunable — a heavy account / slow session needs longer
@@ -48,8 +67,76 @@ def _finish(reason=None):
 _LOAD_WAIT = int(os.environ.get('UPLOAD_LOAD_WAIT', '15'))
 _INTROSPECT_WAIT = int(os.environ.get('UPLOAD_INTROSPECT_WAIT', '12'))
 
+# The upload file's marketplace stamp, straight out of its settings blob.
+_STAMP_RE = re.compile(r'primaryMarketplaceId=amzn1\.mp\.o\.(A[0-9A-Z]{8,})')
+try:
+    with open(F, encoding='utf-8', errors='replace') as fh:
+        m = _STAMP_RE.search(fh.readline())
+    out['file_marketplace'] = m.group(1) if m else None
+except OSError as exc:
+    _finish(f'cannot read UPLOAD_FILE: {exc}')
+
+# Every kat-button in one shot: label + disabled + centre coords. The
+# label attribute is what a kat-button renders, and is localised — we
+# use it only to PREFER a match, never to require one.
+_BUTTONS_JS = (
+    'var out=[];'
+    "document.querySelectorAll('kat-button').forEach(function(b,i){"
+    'var r=b.getBoundingClientRect();'
+    "out.push({i:i,label:(b.getAttribute('label')||'').trim(),"
+    "disabled:b.hasAttribute('disabled'),w:Math.round(r.width),"
+    'x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});});'
+    'return JSON.stringify(out);'
+)
+_SUBMIT_LABEL_RE = re.compile(r'submit products|提交商品|提交產品|إرسال', re.I)
+
+
+def _buttons():
+    try:
+        return json.loads(js(_BUTTONS_JS) or '[]')
+    except (TypeError, ValueError):
+        return []
+
+
+def _pick_submit(before, after):
+    """The Submit button: label match first, else disabled -> enabled."""
+    named = [
+        b for b in after if b['w'] and _SUBMIT_LABEL_RE.search(b['label'] or '')
+    ]
+    if named:
+        return named[-1]
+    was = {b['i'] for b in before if b['disabled']}
+    flipped = [
+        b for b in after if b['w'] and b['i'] in was and not b['disabled']
+    ]
+    return flipped[-1] if flipped else None
+
+
 new_tab(f'https://{HOST}/product-search/bulk')
 time.sleep(_LOAD_WAIT)
+
+# Marketplace check BEFORE anything is staged: ue_mid is the marketplace
+# the SESSION is really on, in every language, and is what decides where
+# the feed lands — not the subdomain in the URL.
+out['marketplace'] = js(
+    "return (typeof ue_mid!=='undefined' && ue_mid) ? String(ue_mid) : null"
+)
+if out['marketplace'] and out['file_marketplace']:
+    if out['marketplace'] != out['file_marketplace']:
+        out['region_error'] = True
+        capture_screenshot()
+        _finish(
+            'MARKETPLACE MISMATCH — this file is stamped for '
+            f'{out["file_marketplace"]} but the live session is on '
+            f'{out["marketplace"]} (URL host {HOST} does NOT decide this). '
+            'Uploading here would list on the wrong storefront. Either '
+            "switch the session's marketplace in the account switcher and "
+            're-run, or regenerate the template with the intended store '
+            'ticked (bh_download_template) and fill that one.'
+        )
+elif not out['marketplace']:
+    out['reason_note'] = 'ue_mid not exposed on this page; check skipped'
+
 # A short viewport leaves the file button AND the Submit button below
 # the fold, so coordinate clicks land on empty space (observed live —
 # the upload "succeeded" per setFileInputFiles yet nothing attached, and
@@ -66,6 +153,7 @@ time.sleep(1)
 cdp('Page.enable')
 cdp('Page.setInterceptFileChooserDialog', enabled=True)
 drain_events()
+before = _buttons()
 box = js(
     "var u=document.querySelector('kat-file-upload');"
     'if(!u) return null;'
@@ -79,77 +167,84 @@ if not box:
     cdp('Page.setInterceptFileChooserDialog', enabled=False)
     capture_screenshot()
     _finish('upload widget (kat-file-upload) not found on the page')
-else:
-    # Trusted click opens the (suppressed) chooser; Chrome hands us the
-    # REAL input's backendNodeId. Setting the visible input is a no-op
-    # (it is a decoy) — this is the only reliable staging path.
-    click_at_xy(box['x'], box['y'])
-    bnid = None
-    for _ in range(12):
-        time.sleep(0.5)
-        for e in drain_events():
-            if 'fileChooserOpened' in str(e.get('method', '')):
-                bnid = e['params']['backendNodeId']
-        if bnid:
-            break
-    if not bnid:
-        cdp('Page.setInterceptFileChooserDialog', enabled=False)
-        capture_screenshot()
-        _finish('file chooser never opened (trusted click missed?)')
-    else:
-        cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
-        cdp('Page.setInterceptFileChooserDialog', enabled=False)
-        time.sleep(_INTROSPECT_WAIT)  # introspect-feed runs
-        state = js(
-            'var t=document.body.innerText;'
-            'return {detected:/automatically detected/i.test(t),'
-            'region:/different region|MARKETPLACES_DIFFERENT/i.test(t),'
-            'notup:/file not uploaded/i.test(t)};'
+
+# Trusted click opens the (suppressed) chooser; Chrome hands us the
+# REAL input's backendNodeId. Setting the visible input is a no-op
+# (it is a decoy) — this is the only reliable staging path.
+click_at_xy(box['x'], box['y'])
+bnid = None
+for _ in range(12):
+    time.sleep(0.5)
+    for e in drain_events():
+        if 'fileChooserOpened' in str(e.get('method', '')):
+            bnid = e['params']['backendNodeId']
+    if bnid:
+        break
+if not bnid:
+    cdp('Page.setInterceptFileChooserDialog', enabled=False)
+    capture_screenshot()
+    _finish('file chooser never opened (trusted click missed?)')
+
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
+cdp('Page.setInterceptFileChooserDialog', enabled=False)
+
+# Readiness is STRUCTURAL: Amazon's introspect-feed enables Submit when
+# it has accepted the file. Poll instead of sleeping a fixed span.
+submit = None
+deadline = time.time() + max(_INTROSPECT_WAIT, 4)
+while time.time() < deadline:
+    time.sleep(2)
+    submit = _pick_submit(before, _buttons())
+    if submit and not submit['disabled']:
+        break
+    submit = None
+out['staged'] = True
+out['detected'] = bool(submit)
+
+if not submit:
+    # Surface Amazon's OWN message (any language) instead of a bare
+    # "not detected" — the alert names the real problem.
+    alerts = js(
+        'var out=[];'
+        "document.querySelectorAll('kat-alert').forEach(function(a){"
+        "out.push(((a.getAttribute('header')||'')+' '+"
+        "(a.innerText||'')).trim().slice(0,200));});"
+        'return JSON.stringify(out);'
+    )
+    try:
+        out['alerts'] = json.loads(alerts or '[]')
+    except (TypeError, ValueError):
+        out['alerts'] = []
+    capture_screenshot()
+    _finish(
+        'file staged but Submit never enabled within '
+        f'{_INTROSPECT_WAIT}s — read out["alerts"] and the screenshot '
+        "for Amazon's own message, and bump UPLOAD_INTROSPECT_WAIT "
+        'before concluding the file is bad'
+    )
+
+ref = None
+for _ in range(2):  # some flows need a second Submit click
+    click_at_xy(submit['x'], submit['y'])
+    time.sleep(8)
+    ref = js('return (location.href.match(/reference_id=(\\d+)/)||[])[1]||null')
+    if ref:
+        break
+    submit = _pick_submit(before, _buttons()) or submit
+out['batch_id'] = ref
+out['ok'] = bool(ref)
+if ref:
+    marker = os.path.join(MARKER_DIR, f'UPLOAD_BATCH_{ref}.json')
+    with open(marker, 'w') as fh:
+        json.dump(
+            {
+                'batch_id': ref,
+                'host': HOST,
+                'file': F,
+                'marketplace': out['marketplace'],
+            },
+            fh,
         )
-        out['staged'] = not state['notup']
-        out['detected'] = bool(state['detected'])
-        out['region_error'] = bool(state['region'])
-        if state['region']:
-            _finish(
-                'template region-stamp mismatch: regenerate the template '
-                'with THIS marketplace ticked (bh_download_template)'
-            )
-        elif not state['detected']:
-            capture_screenshot()
-            _finish(
-                'file staged but type not detected — read the screenshot '
-                'for the widget error before retrying'
-            )
-        else:
-            ref = None
-            for _ in range(2):  # some flows need a second Submit click
-                sb = js(
-                    'var els=[...document.querySelectorAll('
-                    "'kat-button,button')];"
-                    'var b=els.find(function(e){return /submit products/i'
-                    ".test(e.innerText||e.getAttribute('label')||'');});"
-                    'if(!b) return null;'
-                    'b.scrollIntoView({block:"center"});'
-                    'var r=b.getBoundingClientRect();'
-                    'return {x:Math.round(r.x+r.width/2),'
-                    'y:Math.round(r.y+r.height/2)};'
-                )
-                if sb:
-                    click_at_xy(sb['x'], sb['y'])
-                    time.sleep(8)
-                ref = js(
-                    'return (location.href.match(/reference_id=(\\d+)/)'
-                    '||[])[1]||null'
-                )
-                if ref:
-                    break
-            out['batch_id'] = ref
-            out['ok'] = bool(ref)
-            if ref:
-                marker = os.path.join(MARKER_DIR, f'UPLOAD_BATCH_{ref}.json')
-                with open(marker, 'w') as fh:
-                    json.dump({'batch_id': ref, 'host': HOST, 'file': F}, fh)
-                _finish()
-            else:
-                capture_screenshot()
-                _finish('submit clicked but no reference_id in the URL')
+    _finish()
+capture_screenshot()
+_finish('submit clicked but no reference_id in the URL')
