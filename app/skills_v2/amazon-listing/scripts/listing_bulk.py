@@ -100,7 +100,6 @@ from listing_library import after_fill, report_saved  # noqa: E402
 from listing_schema import (  # noqa: E402, F401
     DEFN_SHEET,
     DROPDOWN_SHEET,
-    ENUM_HINT as _ENUM_HINT,
     OFFER_PRICE_SHORTHANDS as _OFFER_PRICE_SHORTHANDS,
     OP_TOKENS as _OP_TOKENS,
     ROLE_MATCHERS as _ROLE_MATCHERS,
@@ -109,7 +108,7 @@ from listing_schema import (  # noqa: E402, F401
     apply_shortfall as _apply_shortfall,
     base_attr as _base_attr,
     data_start_row as _data_start_row,
-    enum_violation as _enum_violation,
+    enum_gate as _enum_gate,
     expand_repeats as _expand_repeats,
     field_columns as _field_columns,
     find_header_row as _find_header_row,
@@ -376,18 +375,12 @@ def cmd_fill(args):
         _drop_unusable_item_highlight(fields, i, sku, warnings)
 
         # A value outside a NON-EMPTY valid set cannot land (Amazon
-        # answers 90244) -- see listing_schema.enum_violation.
-        bad = _enum_violation(fields, valid)
-        if bad:
-            fname, fval, allowed = bad
-            msg = (
-                f'row {i} sku={sku}: {fname}={fval!r} is not one of this '
-                f"template's valid values {sorted(allowed)}"
-            )
-            if getattr(args, 'allow_unlisted_enum', False):
-                warnings.append(msg + ' (allowed by --allow-unlisted-enum)')
-            else:
-                raise SystemExit('error: ' + msg + _ENUM_HINT.format(f=fname))
+        # answers 90244) -- see listing_schema.enum_gate.
+        allow = getattr(args, 'allow_unlisted_enum', None)
+        warn, fatal = _enum_gate(fields, valid, allow, i, sku)
+        warnings.extend(warn)
+        if fatal:
+            raise SystemExit(fatal)
 
         # A key `fill` does not consume is a value the agent believes
         # it set -- naming it beats an hour of latency and a 0/N reject.
@@ -777,10 +770,11 @@ def main():
     )
     p.add_argument(
         '--allow-unlisted-enum',
-        action='store_true',
-        help="write a value the template's valid-value sheet does not "
-        'list (normally fatal: Amazon answers 90244). Use only when you '
-        'have checked the sheet is stale for this field.',
+        action='append',
+        metavar='FIELD',
+        help="write FIELD's value although the valid-value sheet does not "
+        'list it (normally fatal: Amazon answers 90244). Names ONE field; '
+        'repeat it per field. Use only when that field is stale.',
     )
     p.set_defaults(func=cmd_fill)
 

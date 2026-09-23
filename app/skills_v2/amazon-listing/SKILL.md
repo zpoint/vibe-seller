@@ -585,9 +585,11 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
     and the row cannot land; valid sets are per template *and* per
     marketplace, so read the TARGET template's own
     (`inspect --field NAME`) rather than reusing the other
-    marketplace's. `--allow-unlisted-enum` writes it anyway, for the
-    genuinely stale sheet — state that judgement, don't imply it by
-    ignoring stderr.
+    marketplace's. `--allow-unlisted-enum FIELD` writes that one field's value anyway,
+    for a genuinely stale sheet; repeat it per field. It vouches for the
+    FIELD you name, never the whole spec — a bare switch once let an
+    invalid `style` ride through behind a legitimate browse-node
+    override. `fill` reports every violation, not just the first.
   - `parse-feedback REPORT` — extract Amazon's verdict: the summary
     tables **and the per-cell comments (批注) on the report's `Template`
     tab**, emitted as `sku=… field=… : MESSAGE`. The 批注 are the

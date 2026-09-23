@@ -446,6 +446,7 @@ def test_out_of_enum_can_be_overridden_explicitly(template, tmp_path, capsys):
         '--out',
         out,
         '--allow-unlisted-enum',
+        'variation_theme',
     ])
     assert _read_rows(out)[0]['variation_theme'] == 'PurpleHaze'
     assert 'allow-unlisted-enum' in capsys.readouterr().err
@@ -2236,3 +2237,62 @@ def test_failed_batch_files_nothing(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         _run(['parse-feedback', report, '--batch-id', '100000000005'])
     assert not lib.exists() or not list(lib.iterdir())
+
+
+def test_override_vouches_for_one_field_not_the_spec(template, tmp_path):
+    """The shape that shipped an invalid value behind a legitimate override.
+
+    The override used to be a bare switch, and only the FIRST violation
+    was ever examined — so vouching for a stale browse-node sheet waved
+    through an invalid `style` that nothing then reported. Allowing one
+    field must leave every other violation fatal, and all of them named.
+    """
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
+                'variation_theme': 'PurpleHaze',  # vouched for below
+                'fields': {'relationship_type': 'NotARelation'},  # NOT
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            template,
+            '--spec',
+            _spec(tmp_path, spec),
+            '--out',
+            out,
+            '--allow-unlisted-enum',
+            'variation_theme',
+        ])
+    msg = str(exc.value)
+    assert 'NotARelation' in msg  # still fatal
+    assert 'PurpleHaze' not in msg  # this one was vouched for
+
+
+def test_every_enum_violation_is_named_not_just_the_first(template, tmp_path):
+    spec = {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
+                'variation_theme': 'PurpleHaze',
+                'fields': {'relationship_type': 'NotARelation'},
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert 'PurpleHaze' in str(exc.value)
+    assert 'NotARelation' in str(exc.value)

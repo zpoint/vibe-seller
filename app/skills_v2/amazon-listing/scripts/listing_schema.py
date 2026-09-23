@@ -686,8 +686,51 @@ ENUM_HINT = (
     'from the list for your product category"), so this cannot succeed '
     'as written. Valid sets are per template AND per marketplace — read '
     "the TARGET template's own (inspect --field {f}). Pass "
-    '--allow-unlisted-enum only if you have checked that sheet is stale.'
+    '--allow-unlisted-enum {f} only if you have checked that field is '
+    'stale in the sheet — it vouches for THAT field, not the spec.'
 )
+
+
+def enum_violations(fields, valid):
+    """EVERY (field, value, allowed) outside a non-empty valid set.
+
+    All of them, not the first: returning one let an override on the
+    first field hide the rest entirely. Observed live -- a browse-node
+    override meant an invalid `style` was never reported and shipped.
+    """
+    out, rest = [], dict(fields)
+    while True:
+        hit = enum_violation(rest, valid)
+        if not hit:
+            return out
+        out.append(hit)
+        rest.pop(hit[0])
+
+
+def enum_gate(fields, valid, allow, i, sku):
+    """-> (warnings, fatal|None). `allow` names fields, never 'all'.
+
+    `--allow-unlisted-enum` used to be a bare switch, so vouching for one
+    stale sheet disabled the check for every field in the spec -- which
+    is how an invalid `style` rode through behind a legitimate
+    browse-node override. The override now names the field it vouches
+    for, and every other violation stays fatal.
+    """
+    allowed_attrs = {base_attr(a) for a in (allow or [])}
+    warns, fatal = [], []
+    for fname, fval, allowed in enum_violations(fields, valid):
+        msg = (
+            f'row {i} sku={sku}: {fname}={fval!r} is not one of this '
+            f"template's valid values {sorted(allowed)}"
+        )
+        if base_attr(fname) in allowed_attrs:
+            warns.append(msg + ' (allowed by --allow-unlisted-enum)')
+        else:
+            fatal.append((fname, msg))
+    if not fatal:
+        return warns, None
+    body = '\n  '.join(m for _, m in fatal)
+    return warns, 'error: ' + body + ENUM_HINT.format(f=base_attr(fatal[0][0]))
 
 
 def enum_violation(fields, valid):
