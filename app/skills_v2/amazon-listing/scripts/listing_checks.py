@@ -148,24 +148,81 @@ def summary_counts(rows):
     return out
 
 
-def apply_shortfall(rows, n_err):
-    """Raise the error count when fewer SKUs landed than were sent.
+def unlanded_skus(comment_errs):
+    """SKUs whose own `::submission_status` says they were NOT applied.
 
-    Amazon calls a SKU "successful with other errors" (WARNING severity)
-    while the status page counts it as NOT successful, so an
-    all-WARNING report can still mean half the batch never landed --
-    observed live on a 2/4 that was signed off as clean because no line
-    said ERROR. Arithmetic beats severity labels.
+    Amazon writes one status per SKU: "applied without any errors",
+    "applied, but contain other error(s)", or not applied. Only the last
+    means the row did not land.
     """
+    status = {}
+    for sku, field, _sev, msg in comment_errs or []:
+        if not str(field).endswith('submission_status'):
+            continue
+        m = str(msg).lower()
+        applied = 'applied' in m and 'not applied' not in m
+        status[sku] = status.get(sku, False) or applied
+    return sorted(s for s, ok in status.items() if not ok)
+
+
+def apply_shortfall(rows, n_err, comment_errs=None):
+    """Count rows that did not land -- from each SKU's own status.
+
+    First version of this compared the summary's "SKUs successful" with
+    "SKUs processed" and called the difference "did not land". That was
+    wrong: "successful" counts only CLEAN rows, and a row that was
+    "applied, but contain other error(s)" -- a missing main image, a
+    warning -- is live. Watched it print "3 did NOT land ... not done" on
+    an AE batch whose three children were all applied and resolvable on
+    the storefront, and send a reviewer chasing a failure that was not
+    there. The per-SKU `::submission_status` is the authoritative line;
+    the count is only advisory when no status is present.
+    """
+    gone = unlanded_skus(comment_errs)
+    if gone:
+        print(
+            f'\nNOT APPLIED: {gone} -- Amazon did not apply these rows. '
+            'Read their comments above, fix, and re-upload; this batch is '
+            'not done.'
+        )
+        return max(n_err, len(gone))
     counts = summary_counts(rows)
     done, total = counts.get('successful'), counts.get('processed')
-    if done is None or not total or done >= total:
-        return n_err
-    short = total - done
-    print(
-        f'\nSHORTFALL: {done}/{total} SKUs successful -- {short} did NOT '
-        'land, whatever the severity labels say. Read the per-SKU '
-        'comments above for those rows, fix, and re-upload; this batch '
-        'is not done.'
-    )
-    return max(n_err, short)
+    if done is not None and total and done < total and not comment_errs:
+        print(
+            f'\nnote: {done}/{total} SKUs counted "successful". Amazon '
+            'counts only clean rows here -- a row applied with a warning or '
+            'a missing image is live but not "successful". Confirm per SKU '
+            'on Manage Inventory before re-uploading anything.'
+        )
+    return n_err
+
+
+def report_outcome(comment_errs, n_err):
+    """Print the verdict in words; True when the caller must exit non-zero.
+
+    A report whose only error is the missing main image is DONE -- that
+    is the one accepted deferral. It used to print "NOT DONE. Fix ALL
+    errors and re-upload" for it anyway, which is an instruction to
+    upload a batch that cannot change anything.
+    """
+    blocking = [
+        m
+        for _s, _f, sev, m in comment_errs
+        if sev == 'error' and '18320' not in m and 'main image' not in m.lower()
+    ] + unlanded_skus(comment_errs)  # a row not applied is never 'done'
+    if n_err and not blocking:
+        print(
+            'DONE: the only error is the missing main image -- the accepted '
+            'deferral. Do not re-upload for it.'
+        )
+        return False
+    if n_err:
+        print(
+            'NOT DONE. Fix ALL errors (parent first) and re-upload. A SKU with '
+            'any error is not created, or created but flagged "Action '
+            'required" -- in inventory, yet UNRESOLVED. Only 18320 (missing '
+            'main image) is a legit deferral.'
+        )
+        return True
+    return False

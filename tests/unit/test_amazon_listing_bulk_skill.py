@@ -2015,31 +2015,6 @@ def test_decorated_key_never_crosses_marketplaces(
     assert 'SKIPPED' in err and 'marketplace_id' in err
 
 
-def test_parse_feedback_flags_a_shortfall_with_no_error_lines(tmp_path, capsys):
-    """2 of 4 landing is not "clean" just because nothing said ERROR.
-
-    Amazon labels a SKU "successful with other errors" at WARNING
-    severity while the status page counts it as NOT successful, so a
-    report full of warnings can still mean half the batch never landed.
-    Observed live: a 2/4 batch was signed off as complete on exactly
-    this reading.
-    """
-    report = tmp_path / 'report.txt'
-    report.write_text(
-        'Number of SKUs processed\t\t4\n'
-        'Number of SKUs successful\t\t2\n'
-        'Number of SKUs unsuccessful due to errors\t\t0\n'
-        'SKU\tError Type\tError Code\tError Message\n'
-        'K-1\tWARNING\t18448\tmissing few key attributes\n',
-        encoding='utf-8',
-    )
-    with pytest.raises(SystemExit) as exc:
-        _run(['parse-feedback', str(report), '--batch-id', '100000000001'])
-    assert exc.value.code == 1
-    out = capsys.readouterr().out
-    assert 'SHORTFALL' in out and '2/4' in out
-
-
 def test_parse_feedback_is_quiet_when_every_sku_landed(tmp_path, capsys):
     report = tmp_path / 'report.txt'
     report.write_text(
@@ -2093,26 +2068,6 @@ def _real_report(path, processed, successful, comment):
     ws.cell(row=4, column=2).comment = Comment(comment, 'Amazon')
     wb.save(str(path))
     return str(path)
-
-
-def test_shortfall_is_caught_on_the_real_report_path(tmp_path, capsys):
-    """The path a real report takes — cell comments — must check it too.
-
-    That path returned early, before the successful-vs-processed check
-    ran, so a 2/4 whose failures Amazon labels WARNING still verdicted
-    clean. The earlier test used a text report and never reached it.
-    """
-    report = _real_report(
-        tmp_path / 'r.xlsx', 4, 2, 'WARNING : missing few key attributes'
-    )
-    with pytest.raises(SystemExit) as exc:
-        _run(['parse-feedback', report, '--batch-id', '100000000003'])
-    assert exc.value.code == 1
-    assert 'SHORTFALL' in capsys.readouterr().out
-    verdict = json.loads(
-        Path('BATCH_100000000003_VERDICT.json').read_text(encoding='utf-8')
-    )
-    assert verdict['non_image_errors'] >= 2
 
 
 def test_clean_batch_files_its_spec_and_the_next_fill_is_told(
@@ -2266,3 +2221,118 @@ def test_row_level_external_product_id_counts_as_a_pin(template, tmp_path):
     row = _read_rows(out)[0]
     assert row['external_product_id'] == 'B0EXAMPLE1'
     assert row['external_product_id_type'] == 'asin'
+
+
+def _status_report(path, statuses, processed, successful):
+    """A report shaped like Amazon's, with a per-SKU submission status."""
+    wb = openpyxl.Workbook()
+    summary = wb.active
+    summary.title = 'Feed Processing Summary'
+    summary.append(['Number of SKUs processed', '', processed])
+    summary.append(['Number of SKUs successful', '', successful])
+    ws = wb.create_sheet(listing_bulk.TEMPLATE_SHEET)
+    ws.append(['signature'])
+    ws.append(['Seller SKU', 'Status'])
+    ws.append(['item_sku', '::submission_status'])
+    for i, (sku, status) in enumerate(statuses.items(), start=4):
+        ws.append([sku, ''])
+        ws.cell(row=i, column=2).comment = Comment(status, 'Amazon')
+    wb.save(str(path))
+    return str(path)
+
+
+def test_applied_with_other_errors_is_not_a_failure(
+    tmp_path, monkeypatch, capsys
+):
+    """The case seen live: 1/4 "successful", yet every row is live.
+
+    Amazon counts only CLEAN rows as "successful". A row "applied, but
+    contain other error(s)" is live. An earlier version of this check
+    read 1/4 as "3 did NOT land ... not done" and sent a reviewer after
+    a failure that was not there.
+    """
+    monkeypatch.chdir(tmp_path)
+    applied = 'Your changes were applied, but contain other error(s)'
+    report = _status_report(
+        tmp_path / 'r.xlsx',
+        {
+            'P-1': 'Your changes were applied without any errors',
+            'C-1': applied,
+            'C-2': applied,
+            'C-3': applied,
+        },
+        processed=4,
+        successful=1,
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000006'])
+    out = capsys.readouterr().out
+    assert 'NOT APPLIED' not in out and 'SHORTFALL' not in out
+    verdict = json.loads(
+        Path('BATCH_100000000006_VERDICT.json').read_text(encoding='utf-8')
+    )
+    assert verdict['non_image_errors'] == 0
+
+
+def test_a_row_amazon_did_not_apply_is_flagged(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'r.xlsx',
+        {
+            'P-1': 'Your changes were applied without any errors',
+            'C-1': 'Your changes were not applied',
+            'C-2': 'Your changes were not applied',
+        },
+        processed=3,
+        successful=1,
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000007'])
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert 'NOT APPLIED' in out and 'C-1' in out and 'C-2' in out
+    verdict = json.loads(
+        Path('BATCH_100000000007_VERDICT.json').read_text(encoding='utf-8')
+    )
+    assert verdict['non_image_errors'] >= 2
+
+
+def test_summary_count_alone_is_advisory(tmp_path, monkeypatch, capsys):
+    """No per-SKU status to go on: say so, but do not fail the batch."""
+    monkeypatch.chdir(tmp_path)
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'Number of SKUs processed\t\t4\n'
+        'Number of SKUs successful\t\t2\n'
+        'SKU\tError Type\tError Code\tError Message\n'
+        'K-1\tWARNING\t18448\tmissing few key attributes\n',
+        encoding='utf-8',
+    )
+    _run(['parse-feedback', str(report), '--batch-id', '100000000001'])
+    out = capsys.readouterr().out
+    assert '2/4' in out and 'Manage Inventory' in out
+    assert 'NOT APPLIED' not in out
+
+
+def test_image_only_error_says_done_and_exits_clean(
+    tmp_path, monkeypatch, capsys
+):
+    """The accepted deferral must not read as an order to re-upload."""
+    monkeypatch.chdir(tmp_path)
+    wb = openpyxl.Workbook()
+    wb.active.title = 'Feed Processing Summary'
+    ws = wb.create_sheet(listing_bulk.TEMPLATE_SHEET)
+    ws.append(['signature'])
+    ws.append(['Seller SKU', 'Status', 'Image'])
+    ws.append(['item_sku', '::submission_status', 'main_image_url'])
+    ws.append(['C-1', '', ''])
+    ws.cell(row=4, column=2).comment = Comment(
+        'Your changes were applied, but contain other error(s)', 'Amazon'
+    )
+    ws.cell(row=4, column=3).comment = Comment(
+        'ERROR : The main image is missing or incorrect.', 'Amazon'
+    )
+    report = tmp_path / 'r.xlsx'
+    wb.save(str(report))
+    _run(['parse-feedback', str(report), '--batch-id', '100000000008'])
+    out = capsys.readouterr().out
+    assert 'DONE' in out and 'NOT DONE' not in out

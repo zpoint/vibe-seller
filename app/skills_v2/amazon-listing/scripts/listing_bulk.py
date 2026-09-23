@@ -98,6 +98,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from listing_checks import (  # noqa: E402
     apply_shortfall as _apply_shortfall,
     enum_gate as _enum_gate,
+    report_outcome as _report_outcome,
     wire_value as _wire_value,
 )
 from listing_identity import mint_guard as _mint_guard  # noqa: E402
@@ -645,7 +646,7 @@ def cmd_parse_feedback(args):
             f'{len({s for s, *_ in comment_errs})} SKU(s).'
         )
         # REAL reports take this path (cell comments): check + save here.
-        n_err = _apply_shortfall(rows, n_err)
+        n_err = _apply_shortfall(rows, n_err, comment_errs)
         _write_verdict(
             getattr(args, 'batch_id', None),
             n_err,
@@ -653,13 +654,7 @@ def cmd_parse_feedback(args):
             [m for _s, _f, sev, m in comment_errs if sev == 'error'],
         )
         report_saved(getattr(args, 'batch_id', None))
-        if n_err:
-            print(
-                'NOT DONE. Fix ALL errors (parent first) and re-upload. A SKU '
-                'with any error is not created, or created but flagged '
-                '"Action required" -- in inventory, yet UNRESOLVED. Only '
-                '18320 (missing main image) is a legit deferral.'
-            )
+        if _report_outcome(comment_errs, n_err):
             sys.exit(1)  # non-zero, like the table-scan path below
         return
 

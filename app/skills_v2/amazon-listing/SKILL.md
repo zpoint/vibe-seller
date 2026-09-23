@@ -594,13 +594,16 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
     tables **and the per-cell comments (批注) on the report's `Template`
     tab**, emitted as `sku=… field=… : MESSAGE`. The 批注 are the
     precise, field-level fixes — the engine of the self-correct loop.
-    It also compares **SKUs successful against SKUs processed** and
-    fails on a shortfall: Amazon labels a SKU "successful with other
-    errors" at WARNING severity while the status page counts it as NOT
-    successful, so a report with no ERROR line can still mean half the
-    batch never landed. `N/M` on the status page is the arithmetic that
-    settles it — a 2/4 was once signed off as complete because nothing
-    said ERROR.
+    Whether a row LANDED is read from its own `::submission_status`:
+    "applied without any errors" and "applied, but contain other
+    error(s)" are both live; only "not applied" is a failure, and
+    `parse-feedback` flags those by SKU. Do **not** read the summary's
+    "SKUs successful" (or the status page's `N/M`) as "the rest failed" —
+    Amazon counts only clean rows there, so a batch whose children were
+    all applied with a warning or a missing image shows 1/4. An earlier
+    version of this check made exactly that mistake and sent a reviewer
+    after a failure that did not exist. A report whose only error is the
+    missing main image prints DONE — do not re-upload for it.
 - **`ocr_1688.py`** — local, GPU-free OCR (rapidocr-onnxruntime) of the
   supplier's detail images, where the spec table / size chart live.
 
