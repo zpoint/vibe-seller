@@ -1,16 +1,44 @@
 # ruff: noqa: F821 — browser-harness globals (new_tab, js, cdp, ...)
 """Stage + submit a listing flat-file on ONE marketplace's upload page.
 
-Deterministic fast path for the whole upload dance (the file-chooser
-intercept, the introspect wait, the Submit click, the batch id) so the
-agent never re-derives it. Run through the STORE WRAPPER with env
-parameters, from the task workspace:
+Deterministic fast path for the whole upload dance (the marketplace
+check, the file-chooser intercept, the introspect wait, the Submit
+click, the batch id) so the agent never re-derives it. Run through the
+STORE WRAPPER with env parameters, from the task workspace:
 
   UPLOAD_FILE=/abs/path/file.txt SC_HOST=sellercentral.amazon.ae \
   MARKER_DIR="$PWD" browser-use < .claude/skills/amazon-listing/scripts/bh_upload_flatfile.py
 
 Prints exactly one ``RESULT {json}`` line:
-  ok / staged / detected / region_error / batch_id / reason
+  ok / staged / detected / region_error / batch_id / marketplace /
+  intended_marketplace / file_marketplace / submit_label / reason
+
+Two things it refuses to do, because both fail SILENTLY by hand:
+
+* **Upload onto the wrong marketplace.** THREE things must name the
+  same marketplace, because any two of them agreeing is not enough:
+
+  1. the one you MEANT — read off ``SC_HOST``'s domain (that is what
+     you were saying when you typed ``…amazon.ae``), or stated outright
+     with ``SC_MARKETPLACE=<id|CC>``;
+  2. the file's own ``settings=`` stamp (``primaryMarketplaceId``);
+  3. the live page's ``ue_mid`` — where the feed will actually land.
+
+  A ``.ae`` URL renders happily under an SA session, so the host alone
+  proves nothing. Checking only (2) against (3) is not enough either:
+  an SA-stamped file uploaded on an SA session, by an agent that
+  believed it was doing AE, passes that check and still lists on the
+  wrong storefront — observed live, twice. Any disagreement is a hard
+  stop before staging.
+* **Guess at page text.** Seller Central runs in whatever language the
+  SESSION is set to — one account can render English, Chinese or Arabic
+  on the same URL — so matching any fixed wording reports "not detected"
+  on a page that is perfectly fine, and the agent then abandons this
+  helper and hand-drives. Nothing here reads a word: readiness IS the
+  Submit button flipping disabled -> enabled (Amazon keeps it disabled
+  until introspect-feed accepts the file), and the button is identified
+  by a key compared only against itself between two snapshots. The
+  rendered label is reported, never matched.
 
 On success it writes ``UPLOAD_BATCH_<id>.json`` into MARKER_DIR (pass
 your task workspace) — the completion gate then requires a parse-feedback
@@ -20,17 +48,49 @@ screenshot and reports the reason; explore from there, don't blind-retry.
 
 import json
 import os
+import re
 import time
 
 F = os.environ['UPLOAD_FILE']
 HOST = os.environ['SC_HOST']
 MARKER_DIR = os.environ.get('MARKER_DIR', '.')
+
+
+def _marker_dirs():
+    """Where gate markers go: the TASK WORKSPACE, always, plus MARKER_DIR.
+
+    The completion gate and the accepted-spec library read markers from
+    the task workspace only. MARKER_DIR is caller-supplied, and a caller
+    once pointed it at a scratch dir: every marker of a seven-batch run
+    landed in /tmp, the gate's "every uploaded batch is verdicted" check
+    saw none of them, and no accepted spec was ever filed. The workspace
+    is derived the way the app derives it (VIBE_HOME, else ~/.vibe-seller,
+    then tasks/<VIBE_TASK_ID>), so a wrong MARKER_DIR cannot blind it.
+    """
+    dirs = []
+    tid = os.environ.get('VIBE_TASK_ID')
+    if tid:
+        root = os.environ.get('VIBE_HOME') or os.path.join(
+            os.path.expanduser('~'), '.vibe-seller'
+        )
+        ws = os.path.join(root, 'tasks', tid)
+        if os.path.isdir(ws):
+            dirs.append(ws)
+    if os.path.realpath(MARKER_DIR) not in {os.path.realpath(d) for d in dirs}:
+        dirs.append(MARKER_DIR)
+    return dirs
+
+
 out = {
     'ok': False,
     'staged': False,
     'detected': False,
     'region_error': False,
     'batch_id': None,
+    'marketplace': None,
+    'file_marketplace': None,
+    'submit_label': None,
+    'intended_marketplace': None,
     'host': HOST,
     'file': F,
 }
@@ -40,6 +100,7 @@ def _finish(reason=None):
     if reason:
         out['reason'] = reason
     print('RESULT ' + json.dumps(out))
+    raise SystemExit(0)
 
 
 # Waits are env-tunable — a heavy account / slow session needs longer
@@ -48,8 +109,186 @@ def _finish(reason=None):
 _LOAD_WAIT = int(os.environ.get('UPLOAD_LOAD_WAIT', '15'))
 _INTROSPECT_WAIT = int(os.environ.get('UPLOAD_INTROSPECT_WAIT', '12'))
 
+# Domain -> marketplace id. Public platform constants (identical for
+# every seller), inline because this script is fed to browser-use on
+# stdin and cannot import its siblings. The HOST is how the caller says
+# which marketplace they mean, so it is the declaration of intent.
+_HOST_MARKETPLACES = {
+    'com': 'ATVPDKIKX0DER',
+    'ca': 'A2EUQ1WTGCTBG2',
+    'com.mx': 'A1AM78C64UM0Y8',
+    'com.br': 'A2Q3Y263D00KWC',
+    'co.uk': 'A1F83G8C2ARO7P',
+    'de': 'A1PA6795UKMFR9',
+    'fr': 'A13V1IB3VIYZZH',
+    'it': 'APJ6JRA9NG5V4',
+    'es': 'A1RKKUPIHCS9HS',
+    'nl': 'A1805IZSGTT6HS',
+    'se': 'A2NODRKZP88ZB9',
+    'pl': 'A1C3SOZRARQ6R3',
+    'com.be': 'AMEN7PMS3EDWL',
+    'com.tr': 'A33AVAJ2PDY3EV',
+    'ie': 'A28R8C7NBKEWEA',
+    'ae': 'A2VIGQ35RCS4UG',
+    'sa': 'A17E79C6D8DWNP',
+    'eg': 'ARBP9OOSHTCHU',
+    'in': 'A21TJRUUN4KGV',
+    'co.jp': 'A1VC38T7YXB528',
+    'com.au': 'A39IBJ37TRP1C6',
+    'sg': 'A19VAU5U5O7RUS',
+}
+_COUNTRY_HOSTS = {
+    'US': 'com',
+    'CA': 'ca',
+    'MX': 'com.mx',
+    'BR': 'com.br',
+    'UK': 'co.uk',
+    'GB': 'co.uk',
+    'DE': 'de',
+    'FR': 'fr',
+    'IT': 'it',
+    'ES': 'es',
+    'NL': 'nl',
+    'SE': 'se',
+    'PL': 'pl',
+    'BE': 'com.be',
+    'TR': 'com.tr',
+    'IE': 'ie',
+    'AE': 'ae',
+    'SA': 'sa',
+    'EG': 'eg',
+    'IN': 'in',
+    'JP': 'co.jp',
+    'AU': 'com.au',
+    'SG': 'sg',
+}
+
+
+def _intended_marketplace():
+    """The marketplace the CALLER meant: SC_MARKETPLACE, else SC_HOST."""
+    want = (os.environ.get('SC_MARKETPLACE') or '').strip()
+    if want:
+        tld = _COUNTRY_HOSTS.get(want.upper())
+        if tld:
+            return _HOST_MARKETPLACES[tld]
+        return want.upper()
+    tail = HOST.split('amazon.', 1)[-1] if 'amazon.' in HOST else ''
+    return _HOST_MARKETPLACES.get(tail.strip('/').lower())
+
+
+# The upload file's marketplace stamp, straight out of its settings blob.
+_STAMP_RE = re.compile(r'primaryMarketplaceId=amzn1\.mp\.o\.(A[0-9A-Z]{8,})')
+try:
+    with open(F, encoding='utf-8', errors='replace') as fh:
+        m = _STAMP_RE.search(fh.readline())
+    out['file_marketplace'] = m.group(1) if m else None
+except OSError as exc:
+    _finish(f'cannot read UPLOAD_FILE: {exc}')
+
+# Every button-ish control, with a stable identity that carries NO
+# language. `key` is only ever compared against ITSELF across the two
+# snapshots — never against a word — so this works on a console in any
+# language. The rendered label is carried for the RESULT line only.
+_BUTTONS_JS = (
+    'function key(e){'
+    "var l=(e.getAttribute&&e.getAttribute('label'))||'';"
+    'if(l.trim()) return "L:"+l.trim();'
+    'var p=[],n=e;'
+    'while(n&&n.nodeType===1&&p.length<8){'
+    'var par=n.parentNode;'
+    'p.unshift(n.tagName+":"+(par?[].indexOf.call(par.children,n):0));'
+    'n=par||(n.getRootNode&&n.getRootNode().host);}'
+    'return "P:"+p.join("/");}'
+    'var out=[];'
+    "var sel='kat-button,button,[role=\\'button\\'],input[type=\\'submit\\']';"
+    'document.querySelectorAll(sel).forEach(function(b){'
+    'var r=b.getBoundingClientRect();'
+    "var d=b.hasAttribute('disabled')||b.disabled===true"
+    "||b.getAttribute('aria-disabled')==='true';"
+    'out.push({key:key(b),'
+    "label:(((b.getAttribute&&b.getAttribute('label'))||b.innerText||'')"
+    ').trim().slice(0,40),'
+    'disabled:!!d,w:Math.round(r.width),h:Math.round(r.height),'
+    'x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)});});'
+    'return JSON.stringify(out);'
+)
+
+
+def _buttons():
+    try:
+        return json.loads(js(_BUTTONS_JS) or '[]')
+    except (TypeError, ValueError):
+        return []
+
+
+def _pick_submit(before, after):
+    """The control Amazon enabled once it accepted the file.
+
+    Purely structural: the upload page keeps Submit disabled until the
+    introspect-feed succeeds, so the button that flips disabled -> enabled
+    IS the submit. No text is matched, in any language. When several flip,
+    the lowest one on the page wins -- Submit sits under the widget.
+    """
+    was = {b['key'] for b in before if b['disabled']}
+    flipped = [
+        b for b in after if b['w'] and b['key'] in was and not b['disabled']
+    ]
+    return max(flipped, key=lambda b: b['y']) if flipped else None
+
+
 new_tab(f'https://{HOST}/product-search/bulk')
 time.sleep(_LOAD_WAIT)
+
+# Marketplace check BEFORE anything is staged: ue_mid is the marketplace
+# the SESSION is really on, in every language, and is what decides where
+# the feed lands — not the subdomain in the URL.
+out['marketplace'] = js(
+    "return (typeof ue_mid!=='undefined' && ue_mid) ? String(ue_mid) : null"
+)
+# Fail CLOSED: without BOTH ids the helper cannot prove where the feed
+# lands, and "probably the right marketplace" is what put an AE file in
+# SA's upload history. No proof, no upload.
+if not out['file_marketplace']:
+    capture_screenshot()
+    _finish(
+        'cannot read primaryMarketplaceId from the upload file, so the '
+        'marketplace it targets is unknown. Fill the upload file with '
+        'listing_bulk.py from a freshly downloaded template (the stamp '
+        'lives in its settings blob) instead of hand-rolling it.'
+    )
+if not out['marketplace']:
+    capture_screenshot()
+    _finish(
+        'cannot read ue_mid from this page, so the marketplace this '
+        'session is really on is unknown (the URL host does NOT decide '
+        'it). Confirm the page is a logged-in seller-central page and '
+        're-run; do not upload blind.'
+    )
+out['intended_marketplace'] = _intended_marketplace()
+_want = out['intended_marketplace']
+_seen = {
+    'you asked for (SC_HOST/SC_MARKETPLACE)': _want,
+    'the file is stamped for': out['file_marketplace'],
+    'this session is on': out['marketplace'],
+}
+if len({v for v in _seen.values() if v}) > 1:
+    out['region_error'] = True
+    capture_screenshot()
+    _finish(
+        'MARKETPLACE MISMATCH — '
+        + '; '.join(f'{k} {v}' for k, v in _seen.items() if v)
+        + '. All three must name the SAME marketplace, and the URL host '
+        'does NOT decide where a feed lands. Switch the account switcher '
+        'to the marketplace you want (then re-read ue_mid), and '
+        'regenerate the template with that store ticked '
+        '(bh_download_template) so its stamp matches too.'
+    )
+if not _want:
+    out['reason_note'] = (
+        f'could not tell which marketplace {HOST} means; pass '
+        'SC_MARKETPLACE=<id|CC> to state it'
+    )
+
 # A short viewport leaves the file button AND the Submit button below
 # the fold, so coordinate clicks land on empty space (observed live —
 # the upload "succeeded" per setFileInputFiles yet nothing attached, and
@@ -66,6 +305,7 @@ time.sleep(1)
 cdp('Page.enable')
 cdp('Page.setInterceptFileChooserDialog', enabled=True)
 drain_events()
+before = _buttons()
 box = js(
     "var u=document.querySelector('kat-file-upload');"
     'if(!u) return null;'
@@ -79,77 +319,90 @@ if not box:
     cdp('Page.setInterceptFileChooserDialog', enabled=False)
     capture_screenshot()
     _finish('upload widget (kat-file-upload) not found on the page')
-else:
-    # Trusted click opens the (suppressed) chooser; Chrome hands us the
-    # REAL input's backendNodeId. Setting the visible input is a no-op
-    # (it is a decoy) — this is the only reliable staging path.
-    click_at_xy(box['x'], box['y'])
-    bnid = None
-    for _ in range(12):
-        time.sleep(0.5)
-        for e in drain_events():
-            if 'fileChooserOpened' in str(e.get('method', '')):
-                bnid = e['params']['backendNodeId']
-        if bnid:
-            break
-    if not bnid:
-        cdp('Page.setInterceptFileChooserDialog', enabled=False)
-        capture_screenshot()
-        _finish('file chooser never opened (trusted click missed?)')
-    else:
-        cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
-        cdp('Page.setInterceptFileChooserDialog', enabled=False)
-        time.sleep(_INTROSPECT_WAIT)  # introspect-feed runs
-        state = js(
-            'var t=document.body.innerText;'
-            'return {detected:/automatically detected/i.test(t),'
-            'region:/different region|MARKETPLACES_DIFFERENT/i.test(t),'
-            'notup:/file not uploaded/i.test(t)};'
-        )
-        out['staged'] = not state['notup']
-        out['detected'] = bool(state['detected'])
-        out['region_error'] = bool(state['region'])
-        if state['region']:
-            _finish(
-                'template region-stamp mismatch: regenerate the template '
-                'with THIS marketplace ticked (bh_download_template)'
+
+# Trusted click opens the (suppressed) chooser; Chrome hands us the
+# REAL input's backendNodeId. Setting the visible input is a no-op
+# (it is a decoy) — this is the only reliable staging path.
+click_at_xy(box['x'], box['y'])
+bnid = None
+for _ in range(12):
+    time.sleep(0.5)
+    for e in drain_events():
+        if 'fileChooserOpened' in str(e.get('method', '')):
+            bnid = e['params']['backendNodeId']
+    if bnid:
+        break
+if not bnid:
+    cdp('Page.setInterceptFileChooserDialog', enabled=False)
+    capture_screenshot()
+    _finish('file chooser never opened (trusted click missed?)')
+
+cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
+cdp('Page.setInterceptFileChooserDialog', enabled=False)
+
+# Readiness is STRUCTURAL: Amazon's introspect-feed enables Submit when
+# it has accepted the file. Poll instead of sleeping a fixed span.
+submit = None
+deadline = time.time() + max(_INTROSPECT_WAIT, 4)
+while time.time() < deadline:
+    time.sleep(2)
+    submit = _pick_submit(before, _buttons())
+    if submit and not submit['disabled']:
+        break
+    submit = None
+out['staged'] = True
+out['detected'] = bool(submit)
+if submit:
+    # Reported so a human can see WHICH control was clicked,
+    # in whatever language the console renders. Never matched.
+    out['submit_label'] = submit.get('label') or submit.get('key')
+
+if not submit:
+    # Surface Amazon's OWN message (any language) instead of a bare
+    # "not detected" — the alert names the real problem.
+    alerts = js(
+        'var out=[];'
+        "document.querySelectorAll('kat-alert').forEach(function(a){"
+        "out.push(((a.getAttribute('header')||'')+' '+"
+        "(a.innerText||'')).trim().slice(0,200));});"
+        'return JSON.stringify(out);'
+    )
+    try:
+        out['alerts'] = json.loads(alerts or '[]')
+    except (TypeError, ValueError):
+        out['alerts'] = []
+    capture_screenshot()
+    _finish(
+        'file staged but Submit never enabled within '
+        f'{_INTROSPECT_WAIT}s — read out["alerts"] and the screenshot '
+        "for Amazon's own message, and bump UPLOAD_INTROSPECT_WAIT "
+        'before concluding the file is bad'
+    )
+
+ref = None
+for _ in range(2):  # some flows need a second Submit click
+    click_at_xy(submit['x'], submit['y'])
+    time.sleep(8)
+    ref = js('return (location.href.match(/reference_id=(\\d+)/)||[])[1]||null')
+    if ref:
+        break
+    submit = _pick_submit(before, _buttons()) or submit
+out['batch_id'] = ref
+out['ok'] = bool(ref)
+if ref:
+    out['marker_dirs'] = _marker_dirs()
+    for d in out['marker_dirs']:
+        with open(os.path.join(d, f'UPLOAD_BATCH_{ref}.json'), 'w') as fh:
+            json.dump(
+                {
+                    'batch_id': ref,
+                    'host': HOST,
+                    'file': F,
+                    'marketplace': out['marketplace'],
+                    'uploaded_at': time.time(),
+                },
+                fh,
             )
-        elif not state['detected']:
-            capture_screenshot()
-            _finish(
-                'file staged but type not detected — read the screenshot '
-                'for the widget error before retrying'
-            )
-        else:
-            ref = None
-            for _ in range(2):  # some flows need a second Submit click
-                sb = js(
-                    'var els=[...document.querySelectorAll('
-                    "'kat-button,button')];"
-                    'var b=els.find(function(e){return /submit products/i'
-                    ".test(e.innerText||e.getAttribute('label')||'');});"
-                    'if(!b) return null;'
-                    'b.scrollIntoView({block:"center"});'
-                    'var r=b.getBoundingClientRect();'
-                    'return {x:Math.round(r.x+r.width/2),'
-                    'y:Math.round(r.y+r.height/2)};'
-                )
-                if sb:
-                    click_at_xy(sb['x'], sb['y'])
-                    time.sleep(8)
-                ref = js(
-                    'return (location.href.match(/reference_id=(\\d+)/)'
-                    '||[])[1]||null'
-                )
-                if ref:
-                    break
-            out['batch_id'] = ref
-            out['ok'] = bool(ref)
-            if ref:
-                marker = os.path.join(MARKER_DIR, f'UPLOAD_BATCH_{ref}.json')
-                with open(marker, 'w') as fh:
-                    json.dump({'batch_id': ref, 'host': HOST, 'file': F}, fh)
-                _finish()
-            else:
-                capture_screenshot()
-                _finish('submit clicked but no reference_id in the URL')
+    _finish()
+capture_screenshot()
+_finish('submit clicked but no reference_id in the URL')

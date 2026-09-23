@@ -510,6 +510,29 @@ PROVIDER_MODELS = {
 }
 
 
+def model_sees_images(model_id: str | None) -> bool | None:
+    """Whether ``model_id`` can take an image input, per PROVIDER_MODELS.
+
+    ``False`` only for a model the catalog labels text-only, ``None``
+    when it is unknown (not listed, or listed without a ``vision``
+    label) -- a caller restricts nothing it cannot justify. A ``[1m]``
+    style suffix does not change what the model can see, so it is
+    ignored on both sides.
+    """
+
+    def base(mid: str) -> str:
+        return mid.split('[', 1)[0].strip().lower()
+
+    if not model_id or not base(model_id):
+        return None
+    want = base(model_id)
+    for models in PROVIDER_MODELS.values():
+        for m in models:
+            if base(m.get('id', '')) == want and 'vision' in m:
+                return bool(m['vision'])
+    return None
+
+
 class ProfileManager:
     """Manage AI agent profiles stored in profiles.json."""
 

@@ -188,15 +188,22 @@ local pixel editing, no matter how the request is phrased ("just remove
 the background", "only crop it", "make it pure white" are all
 generation jobs).
 
-Two PreToolUse guards in `app/ai/image_guards.py` hold the invariant:
+Two PreToolUse guards in `app/ai/image_guards.py` hold the invariant
+(a third, below the table, is about reading):
 
 | Guard | Denies |
 |---|---|
 | `check_local_image_edit` (Bash, registered in the `first_bash_deny` chain) | `rembg`/`backgroundremover`/`carvekit` in any form (including `pip install`); an inline snippet that both uses an imaging library and calls a produce/mutate function (`.save(`, `imwrite(`, `Image.new(`, `.paste(`, …); ImageMagick/ffmpeg against an image file; any write landing in `generated_images/` (redirect, `cp`/`mv`/`rm`/`tee`, inline save) |
 | `check_generated_image_write` (Write/Edit/MultiEdit/NotebookEdit tool args) | the file-tool hop around the above — any `generated_images/**` target |
 
-**Reading an image is never blocked** (`file`, `stat`, `Image.open` +
-numpy): only *producing* one is. Guards inspect the inline command text
+**Reading an image is not blocked** (`file`, `stat`, `Image.open` +
+numpy): only *producing* one is. The one exception is the built-in
+`Read` tool on a model the catalog labels text-only
+(`profiles.model_sees_images` is `False`, e.g. MiniMax M2.x):
+`check_image_read_without_vision` refuses it and points the agent at
+the page's DOM text. That model's image block is dropped silently, so
+whatever it "saw" is invented — in CI one reported campaigns that were
+not on the page. Unknown models are left alone. Guards inspect the inline command text
 only, so skill scripts that legitimately touch images
 (`amazon-listing/scripts/ocr_1688.py` reads them for OCR) are
 unaffected. The deny message routes the agent to the correct fix —

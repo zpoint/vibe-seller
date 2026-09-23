@@ -24,6 +24,9 @@ amazon-listing/references/1688-sourcing.md
 amazon-listing/scripts/listing_bulk.py
 amazon-listing/scripts/marketplace_ids.py
 amazon-listing/scripts/listing_schema.py
+amazon-listing/scripts/listing_identity.py
+amazon-listing/scripts/listing_library.py
+amazon-listing/scripts/listing_checks.py
 amazon-listing/scripts/ocr_1688.py
 amazon-listing/scripts/bh_upload_flatfile.py
 amazon-listing/scripts/bh_fetch_report.py

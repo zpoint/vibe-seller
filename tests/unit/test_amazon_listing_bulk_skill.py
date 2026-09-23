@@ -48,6 +48,21 @@ sys.modules['listing_bulk'] = listing_bulk
 _spec.loader.exec_module(listing_bulk)
 
 
+@pytest.fixture(autouse=True)
+def _gate_artifacts_stay_in_tmp(tmp_path, monkeypatch):
+    """No test may write a gate artifact outside its own tmp dir.
+
+    `parse-feedback` writes its verdict to the task workspace AND the
+    cwd, and `fill` can file into `store-data/` under the cwd. A test
+    that forgot to chdir left verdict files in the repo root -- and run
+    from inside a vibe-seller task (VIBE_TASK_ID set) it would write into
+    that real task's workspace, where the completion gate reads them.
+    """
+    for var in ('VIBE_TASK_ID', 'VIBE_HOME', 'LISTING_SPEC_LIBRARY'):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+
 # Field API names in column order. Localised labels sit one row above
 # them (Chinese here) — the tool must ignore the labels entirely.
 FIELDS = [
@@ -211,6 +226,7 @@ def test_fill_operation_column(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -253,6 +269,7 @@ def test_fill_drops_item_highlight_when_title_too_long(
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-LONG',
@@ -278,6 +295,7 @@ def test_fill_keeps_item_highlight_when_title_fits(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-SHORT',
@@ -299,6 +317,7 @@ def test_parent_child_structure(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'P-1',
@@ -363,6 +382,7 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'P-1',
@@ -391,36 +411,31 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
     assert 'battery_type' not in err
 
 
-def test_out_of_enum_and_missing_required_warn_not_fail(
-    template, tmp_path, capsys
-):
+def test_missing_required_field_still_only_warns(template, tmp_path, capsys):
+    """Amazon's Required flag is noisy, so this one stays a warning."""
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
                 'operation': 'create',
-                'variation_theme': 'PurpleHaze',  # not in enum
                 'fields': {'relationship_type': 'Variation'},
             },  # missing lots
         ],
     }
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
-    err = capsys.readouterr().err
-    assert 'PurpleHaze' in err  # enum warning
-    assert 'not in template valid values' in err
-    assert 'missing required field' in err  # required warning
-    # File still written despite warnings.
+    assert 'missing required field' in capsys.readouterr().err
     assert Path(out).exists()
-    assert _read_rows(out)[0]['variation_theme'] == 'PurpleHaze'
 
 
 def test_asin_folds_into_product_id(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -449,6 +464,7 @@ def test_fill_clears_preexisting_data_rows(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-NEW',
@@ -488,6 +504,7 @@ def test_fill_emits_tsv_upload_file(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -522,6 +539,7 @@ def test_enum_value_canonicalised_to_template_case(template, tmp_path):
     spec = {
         'product_type': 'socks',
         'brand': 'ACME',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -641,6 +659,7 @@ def test_fill_routes_bare_our_price_to_target_marketplace(
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -673,6 +692,7 @@ def test_fill_routes_row_level_our_price_and_quantity(mkt_template, tmp_path):
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -707,6 +727,7 @@ def test_fill_warns_when_target_marketplace_has_no_offer(
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -735,6 +756,7 @@ def test_fill_errors_when_price_set_without_marketplace(mkt_template, tmp_path):
         tmp_path,
         {
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -761,6 +783,7 @@ def test_fill_auto_derives_relationship_type_for_variation(
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-P',
@@ -930,6 +953,15 @@ _UNI_BRAND = f'brand[marketplace_id={_SA}][language_tag=en_AE]#1.value'
 _UNI_ID_TYPE = 'amzn1.volt.ca.product_id_type'
 _UNI_ID_VALUE = 'amzn1.volt.ca.product_id_value'
 _UNI_COLOR = f'color[marketplace_id={_SA}][language_tag=en_AE]#1.value'
+# A repeated field: three SA slots plus ONE on the other marketplace,
+# so a spread list is proved not to spill across storefronts.
+_UNI_BULLETS = [
+    f'bullet_point[marketplace_id={_SA}][language_tag=en_AE]#{n}.value'
+    for n in (1, 2, 3)
+]
+_UNI_BULLET_AE = (
+    f'bullet_point[marketplace_id={_AE}][language_tag=en_AE]#1.value'
+)
 _UNI_QTY = 'fulfillment_availability#1.quantity'
 # The offer column carries the `[audience=ALL]` insert a fixed template
 # string can't match -- the routing must find it structurally.
@@ -953,6 +985,8 @@ _UNI_FIELDS = [
     _UNI_COLOR,
     _UNI_QTY,
     _UNI_PRICE,
+    *_UNI_BULLETS,
+    _UNI_BULLET_AE,
 ]
 _UNI_REQUIRED = {
     _UNI_SKU,
@@ -1093,6 +1127,7 @@ def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'WIDGET-006',
@@ -1152,6 +1187,7 @@ def test_fill_unified_operation_tokens(unified_template, tmp_path):
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {'sku': 'W-1', 'operation': 'create', 'fields': {'item_name': 'x'}},
             {'sku': 'W-2', 'operation': 'update', 'fields': {'item_name': 'x'}},
@@ -1186,6 +1222,7 @@ def test_fill_unified_asin_folds_into_volt_product_id(
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
@@ -1219,6 +1256,7 @@ def test_fill_unified_tsv_keeps_settings_header(unified_template, tmp_path):
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {'sku': 'W-1', 'operation': 'create', 'fields': {'item_name': 'x'}}
         ],
@@ -1251,6 +1289,7 @@ def test_fill_unified_writes_data_at_datarow(unified_template, tmp_path):
         'product_type': 'socks',
         'brand': 'ACME',
         'marketplace': 'SA',
+        'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'P',
@@ -1373,6 +1412,7 @@ def test_fill_hard_fails_on_wrong_region_template(mkt_template, tmp_path):
         {
             'marketplace': 'EG',  # not stamped in this SA+AE template
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1419,6 +1459,7 @@ def test_fill_blocks_browse_nodes_across_marketplaces(mkt_template, tmp_path):
         {
             'marketplace': 'SA',  # stamped, but not primary
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1447,6 +1488,7 @@ def test_fill_allows_browse_nodes_on_primary(mkt_template, tmp_path):
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1473,6 +1515,7 @@ def test_fill_without_browse_nodes_ignores_primary(mkt_template, tmp_path):
         {
             'marketplace': 'SA',
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1494,6 +1537,7 @@ def test_fill_cli_marketplace_flag_also_guarded(mkt_template, tmp_path):
         tmp_path,
         {
             'product_type': 'socks',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1529,6 +1573,7 @@ def test_fill_auto_adopt_single_stamp_warns_loudly(template, tmp_path, capsys):
         {
             'product_type': 'socks',
             'brand': 'acme',
+            'mint_new_asin': True,
             'rows': [
                 {
                     'sku': 'K-WHT',
@@ -1551,3 +1596,920 @@ def test_inspect_prints_region_stamp(mkt_template, capsys):
     out = capsys.readouterr().out
     assert 'marketplaces:' in out
     assert 'A17E79C6D8DWNP (SA)' in out and 'A2VIGQ35RCS4UG (AE)' in out
+
+
+# --- Undeclared new-ASIN mint -------------------------------------------
+#
+# A seller SKU is ACCOUNT-scoped. A `create` row with no ASIN makes
+# Amazon mint one, and on a unified pan-regional account that RE-POINTS
+# the SKU at the new ASIN account-wide and orphans the old one — the
+# reviews/ratings/rank go with it and Amazon never re-issues a retired
+# ASIN. The feed report calls it a clean create, so nothing downstream
+# catches it. Observed live: a relist on a second marketplace submitted
+# plain `create` rows for SKUs already live on the first, and every
+# child on the first marketplace silently changed ASIN.
+#
+# `fill` therefore refuses to WRITE the row until the intent is
+# declared: pin the existing ASIN, or say `mint_new_asin`.
+
+
+def _mint_spec(**row):
+    base = {'sku': 'K-WHT', 'operation': 'create', 'fields': {'item_name': 'x'}}
+    base.update(row)
+    return {'product_type': 'socks', 'brand': 'acme', 'rows': [base]}
+
+
+def test_fill_refuses_undeclared_new_asin_mint(template, tmp_path):
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            template,
+            '--spec',
+            _spec(tmp_path, _mint_spec()),
+            '--out',
+            out,
+        ])
+    msg = str(exc.value)
+    assert 'MINT' in msg and 'K-WHT' in msg
+    # The message must offer BOTH exits, or the agent picks the wrong one.
+    assert 'mint_new_asin' in msg and 'asin' in msg
+
+
+def test_gtin_exempt_is_not_a_mint_declaration(template, tmp_path):
+    """The exact shape that destroyed three live ASINs.
+
+    The spec said `product_id_type: GTIN Exempt` with no id value —
+    which reads like "no external id needed" but declares nothing about
+    whether the SKU already has an ASIN. It must still be refused.
+    """
+    spec = _mint_spec(
+        fields={'item_name': 'x', 'external_product_id_type': 'GTIN Exempt'}
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert 'GTIN Exempt' in str(exc.value)
+
+
+def test_pinned_asin_needs_no_mint_declaration(template, tmp_path):
+    """The relist path: the ASIN is pinned, so nothing is minted."""
+    spec = _mint_spec(asin='B0EXAMPLE1')
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = _read_rows(out)[0]
+    assert row['external_product_id'] == 'B0EXAMPLE1'
+    assert row['external_product_id_type'] == 'asin'
+
+
+def test_row_level_mint_declaration_accepted(template, tmp_path):
+    spec = _mint_spec(mint_new_asin=True)
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['item_sku'] == 'K-WHT'
+
+
+def test_non_create_operations_need_no_mint_declaration(template, tmp_path):
+    """update / partialupdate / delete cannot mint, so they are exempt."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {'sku': 'K-1', 'operation': 'update', 'fields': {'item_name': 'a'}},
+            {'sku': 'K-2', 'operation': 'partialupdate'},
+            {'sku': 'K-3', 'operation': 'delete'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert {r['item_sku'] for r in _read_rows(out)} == {'K-1', 'K-2', 'K-3'}
+
+
+def test_mint_guard_names_every_undeclared_row(template, tmp_path):
+    """All offenders in one message — not one failure per re-run."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {'sku': 'P-1', 'operation': 'create', 'parentage': 'parent'},
+            {'sku': 'C-1', 'operation': 'create', 'asin': 'B0EXAMPLE1'},
+            {'sku': 'C-2', 'operation': 'create'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    msg = str(exc.value)
+    assert 'P-1' in msg and 'C-2' in msg
+    assert 'C-1' not in msg  # pinned rows are fine
+
+
+def test_non_asin_product_id_does_not_count_as_a_pin(template, tmp_path):
+    """A UPC/EAN in the product-id column is not a pin.
+
+    Only an ASIN matches an EXISTING catalog record; a barcode
+    identifies the product, so Amazon can still mint a fresh ASIN and
+    re-point the SKU. Accepting it would leave the exact hole the pin
+    guard exists to close.
+    """
+    spec = _mint_spec(
+        fields={
+            'item_name': 'x',
+            'external_product_id': '0123456789012',
+            'external_product_id_type': 'UPC',
+        }
+    )
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert 'K-WHT' in str(exc.value)
+
+
+def test_explicit_asin_type_counts_as_a_pin(template, tmp_path):
+    spec = _mint_spec(
+        fields={
+            'item_name': 'x',
+            'external_product_id': 'B0EXAMPLE1',
+            'external_product_id_type': 'asin',
+        }
+    )
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['external_product_id'] == 'B0EXAMPLE1'
+
+
+def test_list_value_spreads_across_repeated_columns(unified_template, tmp_path):
+    """Three bullets belong in three columns, not all in #1.
+
+    `resolve_field` answers with ONE column, so a list used to collapse
+    onto `#1.value` and the rest vanished — and joining them with
+    newlines was worse: the TSV export broke the cell into extra rows
+    that upload as garbage SKUs. Cost a live run eight steps. The spread
+    must also stay inside the target marketplace's own block.
+    """
+    spec = {
+        'marketplace': 'SA',
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'fields': {'bullet_point': ['one', 'two', 'three']},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsm')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    row = _read_unified_rows(out)[0]
+    assert [row[c] for c in _UNI_BULLETS] == ['one', 'two', 'three']
+    # The other marketplace's slot must stay untouched.
+    assert not row[_UNI_BULLET_AE]
+
+
+def test_overflowing_repeated_list_warns(unified_template, tmp_path, capsys):
+    """More values than slots is dropped data — say so, don't be silent."""
+    spec = {
+        'marketplace': 'SA',
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'fields': {'bullet_point': ['a', 'b', 'c', 'd', 'e']},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsm')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    err = capsys.readouterr().err
+    assert 'bullet_point' in err and 'dropped 2' in err
+
+
+def test_blanket_mint_declaration_refused_when_spec_also_pins(
+    template, tmp_path
+):
+    """The shape watched live: a rebuild that pins its children and
+    blanket-declares at the top level for the parent.
+
+    A top-level declaration covers EVERY row, so in a spec that mixes
+    pinned relists with real mints it is the cheapest way to wave a
+    dropped pin through — exactly what this guard exists to catch. Each
+    mint has to be owned on its own row.
+    """
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {'sku': 'P-1', 'operation': 'create', 'parentage': 'parent'},
+            {'sku': 'C-1', 'operation': 'create', 'asin': 'B0EXAMPLE1'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    msg = str(exc.value)
+    assert 'TOP LEVEL' in msg and 'P-1' in msg
+
+
+def test_row_level_mint_alongside_pins_is_accepted(template, tmp_path):
+    """The same spec, with the mint owned on the row that mints."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'P-1',
+                'operation': 'create',
+                'parentage': 'parent',
+                'mint_new_asin': True,
+            },
+            {'sku': 'C-1', 'operation': 'create', 'asin': 'B0EXAMPLE1'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert {r['item_sku'] for r in _read_rows(out)} == {'P-1', 'C-1'}
+
+
+def test_blanket_mint_still_fine_when_nothing_is_pinned(template, tmp_path):
+    """A brand-new family has nothing to lose — blanket stays ergonomic."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {'sku': 'P-1', 'operation': 'create', 'parentage': 'parent'},
+            {'sku': 'C-1', 'operation': 'create', 'parentage': 'child'},
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert len(_read_rows(out)) == 2
+
+
+def test_row_level_product_type_is_written(template, tmp_path):
+    """A spec that puts product_type on the ROW must reach the column.
+
+    It used to be read from the top level only, so the obvious per-row
+    shape was silently dropped, the column went out blank, and Amazon
+    rejected the whole feed with 90041 an hour later.
+    """
+    spec = {
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'product_type': 'socks',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'item_name': 'x'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['feed_product_type'] == 'socks'
+
+
+def test_row_product_type_overrides_the_top_level(template, tmp_path):
+    spec = {
+        'product_type': 'shirts',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'product_type': 'socks',
+                'asin': 'B0EXAMPLE1',
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['feed_product_type'] == 'socks'
+
+
+def test_missing_product_type_is_fatal_not_a_warning(template, tmp_path):
+    """Amazon rejects the ENTIRE feed on a blank product_type."""
+    spec = {
+        'brand': 'acme',
+        'rows': [{'sku': 'K-WHT', 'operation': 'create', 'asin': 'B0EXAMPLE1'}],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as exc:
+        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert '90041' in str(exc.value)
+
+
+def test_stray_row_key_is_named(template, tmp_path, capsys):
+    """A key fill ignores is a value the agent thinks it set."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'asin': 'B0EXAMPLE1',
+                'colour_name': 'white',
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    err = capsys.readouterr().err
+    assert 'colour_name' in err and 'ignored row key' in err
+
+
+def test_interrogative_battery_alias_resolves(template, tmp_path):
+    """`are_batteries_required` must reach `batteries_required`.
+
+    Amazon words the boolean as a question in its own docs while the
+    column drops the interrogative, so an agent copying the label wrote
+    the question form — and the field silently vanished as "not in this
+    template". It was a REQUIRED field, so the whole feed failed.
+    """
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'are_batteries_required': 'No'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    assert _read_rows(out)[0]['batteries_required'] == 'No'
+
+
+def test_skipped_field_suggests_the_nearest_column(template, tmp_path, capsys):
+    """ "Not in this template" alone sends the author reading every column."""
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'the_item_name': 'x'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    err = capsys.readouterr().err
+    assert 'the_item_name' in err and 'SKIPPED' in err
+    assert 'did you mean' in err and 'item_name' in err
+
+
+def test_decorated_key_never_crosses_marketplaces(
+    unified_template, tmp_path, capsys
+):
+    """A key naming marketplace X may not land in marketplace Y's column.
+
+    A dual-stamped template carries some attributes for the PRIMARY
+    marketplace only. `resolve_field` used to strip the decoration and
+    take the first column with the same base attribute, so a key
+    explicitly scoped to the OTHER marketplace wrote into the primary's
+    cell — one storefront's value in another's column, silently.
+    Observed live: an AE-scoped price currency landed in the SA column.
+    """
+    ae_name = _UNI_NAME.replace(_SA, _AE)
+    assert ae_name != _UNI_NAME and ae_name not in _UNI_FIELDS
+    spec = {
+        'marketplace': 'SA',
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-WHT',
+                'operation': 'create',
+                'fields': {ae_name: 'AE ONLY TITLE'},
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsm')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+    ])
+    row = _read_unified_rows(out)[0]
+    assert row[_UNI_NAME] != 'AE ONLY TITLE', (
+        'an AE-scoped key leaked into the SA column'
+    )
+    err = capsys.readouterr().err
+    assert 'SKIPPED' in err and 'marketplace_id' in err
+
+
+def test_parse_feedback_is_quiet_when_every_sku_landed(tmp_path, capsys):
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'Number of SKUs processed\t\t4\n'
+        'Number of SKUs successful\t\t4\n'
+        'SKU\tError Type\tError Code\tError Message\n'
+        'K-1\tWARNING\t18448\tmissing few key attributes\n',
+        encoding='utf-8',
+    )
+    _run(['parse-feedback', str(report), '--batch-id', '100000000002'])
+    assert 'SHORTFALL' not in capsys.readouterr().out
+
+
+def test_label_id_valid_values_accept_and_write_the_bare_id():
+    """Some valid-value sheets list `label (id)`; the feed wants the id.
+
+    `recommended_browse_nodes` reads `>  >  >  >  >  (16667806031)` in the
+    sheet, and Amazon rejects that form (`\\A[0-9]*\\z`). Observed live:
+    the label failed a whole feed, and the fatal enum check then refused
+    the correct bare id. Both must resolve to the id.
+    """
+    schema_mod = sys.modules['listing_checks']
+    label = '>  >  >  >  >  (100000000001)'
+    valid = {'recommended_browse_nodes': {label.lower()}}
+    assert (
+        schema_mod.enum_violation(
+            {'recommended_browse_nodes': '100000000001'}, valid
+        )
+        is None
+    )
+    assert (
+        schema_mod.wire_value(label, {label.lower(): label}) == '100000000001'
+    )
+    assert schema_mod.wire_value('100000000001', {}) == '100000000001'
+    # A value that genuinely is not in the set is still refused.
+    assert schema_mod.enum_violation({'recommended_browse_nodes': '999'}, valid)
+
+
+def _real_report(path, processed, successful, comment):
+    """A report shaped like Amazon's: a summary tab + commented Template."""
+    wb = openpyxl.Workbook()
+    summary = wb.active
+    summary.title = 'Feed Processing Summary'
+    summary.append(['Number of SKUs processed', '', processed])
+    summary.append(['Number of SKUs successful', '', successful])
+    ws = wb.create_sheet(listing_bulk.TEMPLATE_SHEET)
+    ws.append(['signature'])
+    ws.append(['Seller SKU', 'Material'])
+    ws.append(['item_sku', 'material_type'])
+    ws.append(['W-1', 'nylon'])
+    ws.cell(row=4, column=2).comment = Comment(comment, 'Amazon')
+    wb.save(str(path))
+    return str(path)
+
+
+def test_clean_batch_files_its_spec_and_the_next_fill_is_told(
+    template, tmp_path, monkeypatch, capsys
+):
+    """The lesson is kept at the moment it is proven, and used next time.
+
+    Every first create of a known product failed on fields an earlier
+    run had already worked out, because the spec that passed died with
+    its task. A clean verdict now files that spec; a later fill of the
+    same category is told which of its fields it has dropped.
+    """
+    monkeypatch.chdir(tmp_path)
+    lib = tmp_path / 'lib'
+    monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
+    good = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-1',
+                'operation': 'create',
+                'fields': {'item_name': 'x', 'material_type': 'nylon'},
+            }
+        ],
+    }
+    out = tmp_path / 'good.xlsx'
+    _run(['fill', template, '--spec', _spec(tmp_path, good), '--out', str(out)])
+    # The upload helper's marker points at the .txt fill wrote.
+    Path('UPLOAD_BATCH_100000000004.json').write_text(
+        json.dumps({'file': str(out.with_suffix('.txt'))}), encoding='utf-8'
+    )
+    report = _real_report(tmp_path / 'r.xlsx', 1, 1, 'WARNING : info only')
+    _run(['parse-feedback', report, '--batch-id', '100000000004'])
+    saved = list(lib.glob('socks__*.json'))
+    assert saved, 'clean verdict did not file the accepted spec'
+    capsys.readouterr()
+
+    # Next listing of the same category forgets material_type.
+    later = dict(good, rows=[dict(good['rows'][0], fields={'item_name': 'y'})])
+    later_spec = tmp_path / 'later.json'
+    later_spec.write_text(json.dumps(later), encoding='utf-8')
+    _run([
+        'fill',
+        template,
+        '--spec',
+        str(later_spec),
+        '--out',
+        str(tmp_path / 'later.xlsx'),
+    ])
+    err = capsys.readouterr().err
+    assert 'ACCEPTED' in err and 'material_type' in err
+
+
+def test_failed_batch_files_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    lib = tmp_path / 'lib'
+    monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
+    Path('UPLOAD_BATCH_100000000005.json').write_text(
+        json.dumps({'file': str(tmp_path / 'x.txt')}), encoding='utf-8'
+    )
+    report = _real_report(
+        tmp_path / 'r.xlsx', 4, 0, 'ERROR : Style is required but missing'
+    )
+    with pytest.raises(SystemExit):
+        _run(['parse-feedback', report, '--batch-id', '100000000005'])
+    assert not lib.exists() or not list(lib.iterdir())
+
+
+def _enum_spec(**fields):
+    return {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
+                'variation_theme': 'PurpleHaze',  # off the valid list
+                'fields': {'relationship_type': 'NotARelation', **fields},
+            },
+        ],
+    }
+
+
+def test_off_list_value_warns_and_still_writes(template, tmp_path, capsys):
+    """An off-list value is a WARNING, never a stop.
+
+    The valid-value list is not what Amazon enforces. Observed live: an
+    off-list `style` and `special_size_type` went through 4/4, "applied
+    without any errors", no warning at all — while a briefly-fatal gate
+    had already forced an extra upload to "fix" them. Amazon does reject
+    some off-list values; its report names those, and the accepted-spec
+    library is the reliable prior.
+    """
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        template,
+        '--spec',
+        _spec(tmp_path, _enum_spec()),
+        '--out',
+        out,
+    ])
+    assert _read_rows(out)[0]['variation_theme'] == 'PurpleHaze'
+    err = capsys.readouterr().err
+    # Every off-list value is named -- not just the first.
+    assert 'PurpleHaze' in err and 'NotARelation' in err
+
+
+def test_override_silences_only_the_named_field(template, tmp_path, capsys):
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        template,
+        '--spec',
+        _spec(tmp_path, _enum_spec()),
+        '--out',
+        out,
+        '--allow-unlisted-enum',
+        'variation_theme',
+    ])
+    err = capsys.readouterr().err
+    assert 'PurpleHaze' not in err  # vouched for
+    assert 'NotARelation' in err  # still reported
+
+
+def test_row_level_external_product_id_counts_as_a_pin(template, tmp_path):
+    """The spelling the mint guard's own error suggested must work.
+
+    `external_product_id` + `external_product_id_type` at ROW level were
+    silently ignored (only accepted inside `fields`), so an agent that
+    followed the error message was told again that it had not pinned —
+    six steps to discover the friendly `asin` key instead.
+    """
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-1',
+                'operation': 'create',
+                'external_product_id': 'B0EXAMPLE1',
+                'external_product_id_type': 'asin',
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = _read_rows(out)[0]
+    assert row['external_product_id'] == 'B0EXAMPLE1'
+    assert row['external_product_id_type'] == 'asin'
+
+
+def _status_report(path, statuses, processed, successful):
+    """A report shaped like Amazon's, with a per-SKU submission status."""
+    wb = openpyxl.Workbook()
+    summary = wb.active
+    summary.title = 'Feed Processing Summary'
+    summary.append(['Number of SKUs processed', '', processed])
+    summary.append(['Number of SKUs successful', '', successful])
+    ws = wb.create_sheet(listing_bulk.TEMPLATE_SHEET)
+    ws.append(['signature'])
+    ws.append(['Seller SKU', 'Status'])
+    ws.append(['item_sku', '::submission_status'])
+    for i, (sku, status) in enumerate(statuses.items(), start=4):
+        ws.append([sku, ''])
+        ws.cell(row=i, column=2).comment = Comment(status, 'Amazon')
+    wb.save(str(path))
+    return str(path)
+
+
+def test_applied_with_other_errors_is_not_a_failure(
+    tmp_path, monkeypatch, capsys
+):
+    """The case seen live: 1/4 "successful", yet every row is live.
+
+    Amazon counts only CLEAN rows as "successful". A row "applied, but
+    contain other error(s)" is live. An earlier version of this check
+    read 1/4 as "3 did NOT land ... not done" and sent a reviewer after
+    a failure that was not there.
+    """
+    monkeypatch.chdir(tmp_path)
+    applied = 'Your changes were applied, but contain other error(s)'
+    report = _status_report(
+        tmp_path / 'r.xlsx',
+        {
+            'P-1': 'Your changes were applied without any errors',
+            'C-1': applied,
+            'C-2': applied,
+            'C-3': applied,
+        },
+        processed=4,
+        successful=1,
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000006'])
+    out = capsys.readouterr().out
+    assert 'NOT APPLIED' not in out and 'SHORTFALL' not in out
+    verdict = json.loads(
+        Path('BATCH_100000000006_VERDICT.json').read_text(encoding='utf-8')
+    )
+    assert verdict['non_image_errors'] == 0
+
+
+def test_a_row_amazon_did_not_apply_is_flagged(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'r.xlsx',
+        {
+            'P-1': 'Your changes were applied without any errors',
+            'C-1': 'Your changes were not applied',
+            'C-2': 'Your changes were not applied',
+        },
+        processed=3,
+        successful=1,
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000007'])
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert 'NOT APPLIED' in out and 'C-1' in out and 'C-2' in out
+    verdict = json.loads(
+        Path('BATCH_100000000007_VERDICT.json').read_text(encoding='utf-8')
+    )
+    assert verdict['non_image_errors'] >= 2
+
+
+def test_summary_count_alone_is_advisory(tmp_path, monkeypatch, capsys):
+    """No per-SKU status to go on: say so, but do not fail the batch."""
+    monkeypatch.chdir(tmp_path)
+    report = tmp_path / 'report.txt'
+    report.write_text(
+        'Number of SKUs processed\t\t4\n'
+        'Number of SKUs successful\t\t2\n'
+        'SKU\tError Type\tError Code\tError Message\n'
+        'K-1\tWARNING\t18448\tmissing few key attributes\n',
+        encoding='utf-8',
+    )
+    _run(['parse-feedback', str(report), '--batch-id', '100000000001'])
+    out = capsys.readouterr().out
+    assert '2/4' in out and 'Manage Inventory' in out
+    assert 'NOT APPLIED' not in out
+
+
+def test_image_only_error_says_done_and_exits_clean(
+    tmp_path, monkeypatch, capsys
+):
+    """The accepted deferral must not read as an order to re-upload."""
+    monkeypatch.chdir(tmp_path)
+    wb = openpyxl.Workbook()
+    wb.active.title = 'Feed Processing Summary'
+    ws = wb.create_sheet(listing_bulk.TEMPLATE_SHEET)
+    ws.append(['signature'])
+    ws.append(['Seller SKU', 'Status', 'Image'])
+    ws.append(['item_sku', '::submission_status', 'main_image_url'])
+    ws.append(['C-1', '', ''])
+    ws.cell(row=4, column=2).comment = Comment(
+        'Your changes were applied, but contain other error(s)', 'Amazon'
+    )
+    ws.cell(row=4, column=3).comment = Comment(
+        'ERROR : The main image is missing or incorrect.', 'Amazon'
+    )
+    report = tmp_path / 'r.xlsx'
+    wb.save(str(report))
+    _run(['parse-feedback', str(report), '--batch-id', '100000000008'])
+    out = capsys.readouterr().out
+    assert 'DONE' in out and 'NOT DONE' not in out
+
+
+def test_report_tagged_for_another_batch_is_refused(tmp_path, monkeypatch):
+    """A report provably belonging to batch M cannot verdict batch N.
+
+    Reports carry no batch id and are named after the upload file, so
+    each batch of `create-sa.txt` overwrote the last one's report —
+    and parsing that file "for batch N" once recorded six errors
+    against a batch that had gone through 4/4 clean.
+    """
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary__batch100000000011.xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000012'])
+    assert '100000000011' in str(exc.value)
+    assert not Path('BATCH_100000000012_VERDICT.json').exists()
+
+
+def test_report_downloaded_before_the_upload_is_refused(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary.xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    old = Path(report).stat().st_mtime - 600  # fetched 10 min earlier ...
+    import os as _os  # noqa: PLC0415 - local to this timing test
+
+    _os.utime(report, (old, old))
+    Path('UPLOAD_BATCH_100000000013.json').write_text(
+        json.dumps({'file': 'create-sa.txt', 'uploaded_at': old + 300}),
+        encoding='utf-8',  # ...than the batch it claims to describe was
+    )  # uploaded
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000013'])
+    assert 'before batch 100000000013 was' in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    'report_name',
+    [
+        'widget-006-sa-v4-processing-summary.xlsx',
+        'widget-006-sa-v4-processing-summary (1).xlsx',
+        'widget-006-sa-v4-processing-summary__batch100000000015.xlsx',
+    ],
+)
+def test_report_of_another_upload_file_is_refused(
+    tmp_path, monkeypatch, report_name
+):
+    """The marker names the upload file; the report is named after it.
+
+    Observed live: a batch that uploaded `create-sa.txt` was verdicted
+    from `<earlier-file>-v4-processing-summary` -- the previous night's
+    report, listing SKUs deleted since. It carried no batch tag and the
+    marker no upload time, so neither check could fire, yet the NAME
+    proved it belonged to another upload the whole time.
+    """
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / report_name,
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    Path('UPLOAD_BATCH_100000000015.json').write_text(
+        json.dumps({'file': '/dl/acme/create-sa.txt'}), encoding='utf-8'
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000015'])
+    assert 'ANOTHER upload' in str(exc.value)
+    assert not Path('BATCH_100000000015_VERDICT.json').exists()
+
+
+@pytest.mark.parametrize(
+    'uploaded',
+    ['/dl/acme/create-sa.txt', r'C:\Users\x\downloads\acme\create-sa.txt'],
+)
+def test_report_of_the_same_upload_file_passes_the_name_check(
+    tmp_path, monkeypatch, capsys, uploaded
+):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary (2).xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    Path('UPLOAD_BATCH_100000000016.json').write_text(
+        json.dumps({'file': uploaded}), encoding='utf-8'
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000016'])
+    assert 'ANOTHER upload' not in capsys.readouterr().err
+    assert Path('BATCH_100000000016_VERDICT.json').exists()
+
+
+def test_untagged_report_only_warns(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary.xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000014'])
+    assert 'cannot confirm' in capsys.readouterr().err
+    assert Path('BATCH_100000000014_VERDICT.json').exists()
+
+
+def test_agent_working_from_a_scratch_dir_still_feeds_the_gate(
+    template, tmp_path, monkeypatch
+):
+    """The whole chain, run from a scratch dir — as a real agent did.
+
+    An agent `cd`'d into /tmp and worked from there. Everything resolved
+    against $PWD — upload markers, the review, and (had parse-feedback
+    run there) the verdict — landed where no gate looks, and the
+    accepted-spec library filed nothing. Gate artifacts must reach the
+    TASK WORKSPACE whatever the caller's current directory is.
+    """
+    home = tmp_path / 'home'
+    ws = home / 'tasks' / 'abc12345-0000-0000-0000-000000000000'
+    ws.mkdir(parents=True)
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    lib = tmp_path / 'lib'
+    monkeypatch.setenv('VIBE_HOME', str(home))
+    monkeypatch.setenv('VIBE_TASK_ID', ws.name)
+    monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
+    monkeypatch.chdir(scratch)  # <- the agent's current directory
+
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [{'sku': 'K-1', 'operation': 'create', 'fields': {'x': 1}}],
+    }
+    out = scratch / 'good.xlsx'
+    _run(['fill', template, '--spec', _spec(scratch, spec), '--out', str(out)])
+    # The upload helper now writes its marker into the workspace.
+    (ws / 'UPLOAD_BATCH_100000000021.json').write_text(
+        json.dumps({'file': str(out.with_suffix('.txt'))}), encoding='utf-8'
+    )
+    report = _status_report(
+        scratch / 'good-processing-summary__batch100000000021.xlsx',
+        {'K-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000021'])
+
+    assert (ws / 'BATCH_100000000021_VERDICT.json').is_file(), (
+        'the verdict did not reach the workspace the gate reads'
+    )
+    assert list(lib.glob('socks__*.json')), (
+        'the accepted spec was not filed from a scratch-dir run'
+    )

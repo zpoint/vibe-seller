@@ -85,7 +85,48 @@ ROLE_MATCHERS = {
 FIELD_ALIASES = {
     'color_name': 'color',
     'size_name': 'size',
+    # Amazon words some booleans as a question in its own docs while the
+    # column drops the interrogative. An agent copying the label writes
+    # the question form, and the field then vanishes as "not in this
+    # template" -- observed live on a required field, which failed the
+    # whole feed.
+    'are_batteries_required': 'batteries_required',
+    'are_batteries_included': 'batteries_included',
+    'is_batteries_required': 'batteries_required',
+    'is_batteries_included': 'batteries_included',
 }
+
+
+def nearest_columns(name, cols, limit=3):
+    """Columns whose attribute plausibly means *name* -> suggestions.
+
+    A skipped field is a value the author believed they set, and
+    "not in this template" alone sends them reading the whole column
+    list. Containment either way catches the common misses (an
+    interrogative prefix, a decorated vs bare name, a singular/plural)
+    without ever binding the wrong column -- these are SUGGESTIONS, the
+    caller still has to choose.
+    """
+    want = base_attr(name)
+    if not want:
+        return []
+    hits = []
+    for col in cols:
+        got = base_attr(col)
+        if got == want or leaf(col) not in ('value', None, ''):
+            continue
+        if want in got or got in want:
+            hits.append(col)
+    return sorted(set(hits), key=lambda c: (len(c), c))[:limit]
+
+
+_MKT_IN_FIELD_RE = re.compile(r'marketplace_id=(A[0-9A-Z]{8,})')
+
+
+def marketplace_of(name):
+    """The marketplace a decorated field name is scoped to, or None."""
+    m = _MKT_IN_FIELD_RE.search(name or '')
+    return m.group(1) if m else None
 
 
 def base_attr(name):
@@ -175,10 +216,22 @@ class Schema:
             return name
         base = base_attr(name)
         alias = FIELD_ALIASES.get(base)
+        # A key that NAMES a marketplace may only reach that
+        # marketplace's columns. Without this, a spec key decorated for
+        # a marketplace the template does not carry fell back to the
+        # first column with the same base attribute -- another
+        # storefront's -- and wrote one marketplace's value into the
+        # other's cell. Observed live: an AE-decorated `list_price`
+        # currency landed 'AED' in the SA currency column. Better to
+        # report the key as skipped (the caller warns and suggests)
+        # than to silently write it somewhere else.
+        want_mkt = marketplace_of(name)
         for target in (base, alias):
             if not target:
                 continue
             cands = [c for c in self.cols if base_attr(c) == target]
+            if want_mkt:
+                cands = [c for c in cands if marketplace_of(c) == want_mkt]
             if cands:
                 val = [c for c in cands if leaf(c) == 'value']
                 return (val or cands)[0]
@@ -456,3 +509,184 @@ def route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                     f'"fulfillment_channel_code" (the merchant/default code '
                     f'for THIS marketplace) to the row.'
                 )
+
+
+def resolve_operation(op, dialect):
+    tokens = OP_TOKENS[dialect]
+    key = (op or 'create').strip().lower()
+    if key not in tokens:
+        raise SystemExit(
+            f"error: operation '{op}' is not one of {', '.join(tokens)}"
+        )
+    return tokens[key], key
+
+
+# Every key `row_fields` (and the callers around it) actually consumes
+# on a spec ROW. Anything else is a key that will be silently ignored —
+# which is how a row-level `product_type` went out as an empty column
+# and cost a whole upload cycle — so `fill` names the strays instead.
+KNOWN_ROW_KEYS = frozenset({
+    'fields',
+    'sku',
+    'operation',
+    'asin',
+    'external_product_id',
+    'external_product_id_type',
+    'parent_sku',
+    'parentage',
+    'variation_theme',
+    'product_type',
+    'brand',
+    'quantity',
+    'fulfillment_channel_code',
+    'mint_new_asin',
+    *OFFER_PRICE_SHORTHANDS,
+})
+
+
+def stray_row_keys(spec_row):
+    """Row keys `fill` will ignore — they belong inside `fields`."""
+    return sorted(k for k in spec_row if k not in KNOWN_ROW_KEYS)
+
+
+def row_fields(spec_row, top, schema):
+    """Flatten one spec row into {field_api_name: value}.
+
+    Friendly per-row keys (sku, asin, parent_sku, parentage,
+    variation_theme, product_type, brand) fold into their flat-file field
+    names -- resolved through `schema` so the SAME spec drives either
+    dialect; `fields` carries everything else verbatim by API name.
+    Top-level `product_type` / `brand` are the default when a row omits
+    them, and a ROW may override.
+
+    `product_type` used to be read from the top level ONLY, so a spec
+    that put it on each row -- the obvious shape, and what an agent
+    wrote live -- had it silently dropped: the column went out empty and
+    Amazon rejected the whole feed with 90041 "product_type#1.value is
+    always required". An hour of feed latency to learn that a value the
+    spec plainly carried was never written.
+    """
+    out = dict(spec_row.get('fields') or {})
+
+    def put(role, value, overwrite=True):
+        name = schema.field(role)
+        if name and value not in (None, ''):
+            if overwrite or name not in out:
+                out[name] = value
+
+    put(
+        'product_type',
+        spec_row.get('product_type') or top.get('product_type'),
+        overwrite=False,
+    )
+    put('brand', spec_row.get('brand') or top.get('brand'), overwrite=False)
+    put('sku', spec_row.get('sku'))
+    put('parent_sku', spec_row.get('parent_sku'))
+    put('parentage', spec_row.get('parentage'))
+    put('variation_theme', spec_row.get('variation_theme'))
+    # A legacy variation row MUST carry relationship_type or a child errors
+    # "relationship_type = null" and never creates (explicit wins). The
+    # unified template has no such column -- the parent link is carried by
+    # parentage_level + child_parent_sku_relationship -- so only add it when
+    # the template actually has a `relationship_type` column.
+    if (spec_row.get('parentage') or spec_row.get('variation_theme')) and (
+        'relationship_type' in schema.cols
+    ):
+        out.setdefault('relationship_type', 'Variation')
+    if spec_row.get('asin'):
+        put('product_id', spec_row['asin'])
+        put('product_id_type', 'asin', overwrite=False)
+    # The flat-file's own names work at row level too. The mint guard's
+    # error suggested exactly this spelling, and it was silently ignored
+    # unless nested under `fields` -- an agent spent six steps finding out.
+    put('product_id', spec_row.get('external_product_id'), overwrite=False)
+    put(
+        'product_id_type',
+        spec_row.get('external_product_id_type'),
+        overwrite=False,
+    )
+    # Offer shorthands (`our_price`/`price`/`quantity`) belong in `fields`,
+    # but the skill tells the agent to put "a bare our_price/quantity on
+    # each child" -- naturally read as a ROW-LEVEL key. Fold those from the
+    # row into fields (a value already in `fields` wins) so the price/stock
+    # routes to the target marketplace either way, instead of being
+    # silently dropped -> an empty offer column the agent then hand-picks.
+    for k in (*OFFER_PRICE_SHORTHANDS, 'quantity', 'fulfillment_channel_code'):
+        if spec_row.get(k) not in (None, '') and k not in out:
+            out[k] = spec_row[k]
+    # Drop keys with no value so we never blank an intended default.
+    return {k: v for k, v in out.items() if v not in (None, '')}
+
+
+_SLOT_RE = re.compile(r'#(\d+)\.')
+
+
+def slot_index(name):
+    """The `#N` ordinal of a repeated column (`…#3.value` -> 3)."""
+    m = _SLOT_RE.search(name)
+    return int(m.group(1)) if m else 1
+
+
+def repeat_slots(schema, name, mkt_id=None):
+    """Ordered `.value` columns for a repeated field, `#1` first.
+
+    Scoped to ONE marketplace when the columns are marketplace-decorated,
+    so spreading a list can never spill into another storefront's block.
+    """
+    base = base_attr(name)
+    alias = FIELD_ALIASES.get(base)
+    for target in (base, alias):
+        if not target:
+            continue
+        cands = [
+            c
+            for c in schema.cols
+            if base_attr(c) == target and leaf(c) == 'value'
+        ]
+        if mkt_id:
+            scoped = [c for c in cands if f'marketplace_id={mkt_id}' in c]
+            bare = [c for c in cands if 'marketplace_id=' not in c]
+            cands = scoped or bare or cands
+        if cands:
+            return sorted(cands, key=slot_index)
+    return []
+
+
+def expand_repeats(fields, schema, mkt_id):
+    """Spread a LIST value across a repeated field's #1..#N columns.
+
+    `bullet_point` is five separate columns (`…#1.value` … `…#5.value`),
+    but `resolve_field` answers with one, so a spec that naturally says
+    ``"bullet_point": ["a", "b", ...]`` used to land entirely in #1 —
+    and a newline-joined string landed there too, which the TSV export
+    then broke into extra rows that upload as garbage SKUs. Observed
+    live: an agent lost eight steps unpicking that before hand-writing
+    the five decorated column names itself.
+
+    Returns ``(fields, warnings)``; a non-list value is untouched.
+    """
+    out, warns = {}, []
+    for name, value in fields.items():
+        if not isinstance(value, list | tuple):
+            out[name] = value
+            continue
+        slots = repeat_slots(schema, name, mkt_id)
+        if len(slots) < 2:
+            # Not a repeated field in THIS template — keep the first
+            # value rather than writing a Python list into a cell.
+            out[schema.resolve_field(name)] = value[0] if value else ''
+            if len(value) > 1:
+                warns.append(
+                    f'{name} got {len(value)} values but this template '
+                    f'has {len(slots) or 1} column for it -- kept the '
+                    'first, dropped the rest'
+                )
+            continue
+        for col, val in zip(slots, value, strict=False):
+            out[col] = val
+        if len(value) > len(slots):
+            warns.append(
+                f'{name} got {len(value)} values but the template has '
+                f'{len(slots)} slots -- dropped {len(value) - len(slots)}'
+            )
+    return out, warns

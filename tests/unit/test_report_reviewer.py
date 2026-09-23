@@ -371,3 +371,18 @@ class TestSkillDodAddendum:
             )
             is None
         )
+
+
+def test_gate_names_the_verdict_file_by_absolute_path(tmp_path):
+    """ "in this workspace" is not a location an agent can act on.
+
+    Observed live: the agent was working from a scratch dir, the reviewer
+    wrote its verdict there, and this gate — which reads the task dir
+    only — kept saying "Reviewer never ran", sending the agent to spawn
+    reviewer after reviewer for a review that already existed. The
+    instruction must carry the path the gate will actually read.
+    """
+    (tmp_path / 'report.md').write_text('# audit\n', encoding='utf-8')
+    deny = rr.reviewer_verdict(tmp_path)
+    assert deny is not None
+    assert str(tmp_path.resolve()) + '/REVIEW_' in deny

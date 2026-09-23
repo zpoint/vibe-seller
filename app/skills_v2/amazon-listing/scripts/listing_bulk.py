@@ -95,6 +95,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Template structure + metadata parsing live in a sibling module so this
 # file stays within the line cap. Public names there; alias to the
 # `_`-prefixed internal names used here (and re-exported for tests).
+from listing_checks import (  # noqa: E402
+    apply_shortfall as _apply_shortfall,
+    enum_gate as _enum_gate,
+    report_batch_problem as _report_batch_problem,
+    report_outcome as _report_outcome,
+    wire_value as _wire_value,
+)
+from listing_identity import mint_guard as _mint_guard  # noqa: E402
+from listing_library import (  # noqa: E402
+    after_fill,
+    gate_dirs,
+    report_saved,
+    write_verdict as _write_verdict,
+)
 from listing_schema import (  # noqa: E402, F401
     DEFN_SHEET,
     DROPDOWN_SHEET,
@@ -105,13 +119,18 @@ from listing_schema import (  # noqa: E402, F401
     Schema as _Schema,
     base_attr as _base_attr,
     data_start_row as _data_start_row,
+    expand_repeats as _expand_repeats,
     field_columns as _field_columns,
     find_header_row as _find_header_row,
     is_sku_field as _is_sku_field,
     load_required_fields as _load_required_fields,
     load_valid_values as _load_valid_values,
+    nearest_columns as _nearest_columns,
     our_price_col as _our_price_col,
+    resolve_operation as _resolve_operation,
     route_offer_price as _route_offer_price,
+    row_fields as _row_fields,
+    stray_row_keys as _stray_row_keys,
     valid_value_case as _valid_value_case,
 )
 from marketplace_ids import (  # noqa: E402,F401
@@ -257,64 +276,6 @@ def cmd_inspect(args):
         print(f'  {f:30} values={dig(f)}')
 
 
-def _resolve_operation(op, dialect):
-    tokens = _OP_TOKENS[dialect]
-    key = (op or 'create').strip().lower()
-    if key not in tokens:
-        raise SystemExit(
-            f"error: operation '{op}' is not one of {', '.join(tokens)}"
-        )
-    return tokens[key], key
-
-
-def _row_fields(spec_row, top, schema):
-    """Flatten one spec row into {field_api_name: value}.
-
-    Friendly per-row keys (sku, asin, parent_sku, parentage,
-    variation_theme) fold into their flat-file field names -- resolved
-    through `schema` so the SAME spec drives either dialect; `fields`
-    carries everything else verbatim by API name. Top-level `product_type`
-    and `brand` supply defaults when a row omits them.
-    """
-    out = dict(spec_row.get('fields') or {})
-
-    def put(role, value, overwrite=True):
-        name = schema.field(role)
-        if name and value not in (None, ''):
-            if overwrite or name not in out:
-                out[name] = value
-
-    put('product_type', top.get('product_type'), overwrite=False)
-    put('brand', top.get('brand'), overwrite=False)
-    put('sku', spec_row.get('sku'))
-    put('parent_sku', spec_row.get('parent_sku'))
-    put('parentage', spec_row.get('parentage'))
-    put('variation_theme', spec_row.get('variation_theme'))
-    # A legacy variation row MUST carry relationship_type or a child errors
-    # "relationship_type = null" and never creates (explicit wins). The
-    # unified template has no such column -- the parent link is carried by
-    # parentage_level + child_parent_sku_relationship -- so only add it when
-    # the template actually has a `relationship_type` column.
-    if (spec_row.get('parentage') or spec_row.get('variation_theme')) and (
-        'relationship_type' in schema.cols
-    ):
-        out.setdefault('relationship_type', 'Variation')
-    if spec_row.get('asin'):
-        put('product_id', spec_row['asin'])
-        put('product_id_type', 'asin', overwrite=False)
-    # Offer shorthands (`our_price`/`price`/`quantity`) belong in `fields`,
-    # but the skill tells the agent to put "a bare our_price/quantity on
-    # each child" -- naturally read as a ROW-LEVEL key. Fold those from the
-    # row into fields (a value already in `fields` wins) so the price/stock
-    # routes to the target marketplace either way, instead of being
-    # silently dropped -> an empty offer column the agent then hand-picks.
-    for k in (*_OFFER_PRICE_SHORTHANDS, 'quantity', 'fulfillment_channel_code'):
-        if spec_row.get(k) not in (None, '') and k not in out:
-            out[k] = spec_row[k]
-    # Drop keys with no value so we never blank an intended default.
-    return {k: v for k, v in out.items() if v not in (None, '')}
-
-
 def _drop_unusable_item_highlight(fields, i, sku, warnings):
     """Drop an optional Item Highlight when the Item Name is too long.
 
@@ -373,6 +334,9 @@ def cmd_fill(args):
     # cross-marketplace fill (nodes are the template PRIMARY's only).
     fatal, warn = _stamp_guard(requested, mkt_id, template_ids)
     fatal = fatal or _browse_node_guard(rows, spec, mkt_id, ws, header_row)
+    # Undeclared new-ASIN mint: destructive on a unified account, and
+    # invisible in the feed report (Amazon reports it as a clean create).
+    fatal = fatal or _mint_guard(rows, spec, schema)
     if fatal:
         raise SystemExit(fatal)
     if warn:
@@ -396,6 +360,11 @@ def cmd_fill(args):
             spec_row.get('operation'), schema.dialect
         )
         fields = _row_fields(spec_row, spec, schema)
+        # A list value means a REPEATED field (5 bullet points, several
+        # materials): spread it across #1..#N of the target marketplace
+        # instead of collapsing it onto #1 and losing the rest.
+        fields, rep_warn = _expand_repeats(fields, schema, mkt_id)
+        warnings.extend(f'row {i}: {w}' for w in rep_warn)
         # Map any bare/undecorated content field name to this template's
         # actual column (unified decorates them), so the SAME spec fills
         # either dialect. Offer shorthands (our_price/quantity) have no
@@ -414,16 +383,40 @@ def cmd_fill(args):
         # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).
         _drop_unusable_item_highlight(fields, i, sku, warnings)
 
-        # Enum validation: reject an invalid operation-family token hard;
-        # warn (never fail) on other enums so an unseen-but-valid token
-        # from a new category still uploads.
-        for fname, fval in fields.items():
-            allowed = valid.get(fname)
-            if allowed and str(fval).strip().lower() not in allowed:
-                warnings.append(
-                    f'row {i} sku={sku}: {fname}={fval!r} not in template '
-                    f'valid values {sorted(allowed)}'
-                )
+        # A value outside a NON-EMPTY valid set cannot land (Amazon
+        # answers 90244) -- see listing_schema.enum_gate.
+        allow = getattr(args, 'allow_unlisted_enum', None)
+        warn, fatal = _enum_gate(fields, valid, allow, i, sku)
+        warnings.extend(warn)
+        if fatal:
+            raise SystemExit(fatal)
+
+        # A key `fill` does not consume is a value the agent believes
+        # it set -- naming it beats an hour of latency and a 0/N reject.
+        strays = _stray_row_keys(spec_row)
+        if strays:
+            warnings.append(
+                f'row {i} sku={sku}: ignored row key(s) {strays} -- fill '
+                'does not read these at row level; move them into '
+                '"fields" (or use the documented friendly key)'
+            )
+
+        # product_type is "always required": without it the WHOLE feed
+        # is rejected 90041 before any row is evaluated.
+        pt_field = schema.field('product_type')
+        if (
+            op_key != 'delete'
+            and pt_field
+            and pt_field in cols
+            and not str(fields.get(pt_field) or '').strip()
+        ):
+            raise SystemExit(
+                f'error: row {i} sku={sku} has no {pt_field}. Amazon '
+                'rejects the ENTIRE feed with 90041 '
+                '("product_type#1.value is always required") when this '
+                'column is blank, so the upload cannot succeed. Set '
+                '"product_type" on the row or at the top of the spec.'
+            )
 
         # Required-field guard applies to Create rows only. Update/
         # partialupdate touch a subset; delete needs just sku+operation.
@@ -456,15 +449,13 @@ def cmd_fill(args):
             if fname not in cols:
                 unknown_fields.add(fname)
                 continue
-            # Canonicalise to the template's exact-case enum token
-            # (some fields are case-strict on Amazon's side).
-            fcase = case.get(fname, {})
-            key = str(fval).strip().lower()
-            canon = fcase.get(key)
-            if not canon and 'country' in fname and key in _COUNTRY_ALIASES:
-                # ISO-2 / common alias -> the field's valid full name.
-                canon = fcase.get(_COUNTRY_ALIASES[key])
-            target[cols[fname][0] - 1].value = canon if canon else fval
+            # Exact-case enum token (some fields are case-strict); a
+            # `label (id)` token is written as its bare id.
+            target[cols[fname][0] - 1].value = _wire_value(
+                fval,
+                case.get(fname, {}),
+                _COUNTRY_ALIASES if 'country' in fname else None,
+            )
 
     wb.save(args.out)
     # The upload artefact is a tab-delimited .txt, NOT this .xlsm (an
@@ -472,13 +463,16 @@ def cmd_fill(args):
     # to the .xlsm so the caller uploads the .txt.
     txt_path = args.out.rsplit('.', 1)[0] + '.txt'
     _export_tsv(ws, txt_path)
+    after_fill(args.out, spec, mkt_id)
 
     for w in warnings:
         print(f'warning: {w}', file=sys.stderr)
-    if unknown_fields:
+    for miss in sorted(unknown_fields):
+        near = _nearest_columns(miss, cols)
+        hint = f' -- did you mean {near}?' if near else ''
         print(
-            f'warning: fields not in this template (skipped): '
-            f'{sorted(unknown_fields)}',
+            f'warning: {miss!r} is not a column in this template, so it '
+            f'was SKIPPED (its value never reaches Amazon){hint}',
             file=sys.stderr,
         )
     # The browser (Ziniao/macOS) can't read /tmp, so uploading a /tmp file
@@ -610,35 +604,6 @@ def _report_comment_errors(path):
     return out
 
 
-def _write_verdict(batch_id, n_err, n_warn, error_msgs):
-    """Write ``BATCH_<id>_VERDICT.json`` to CWD (the task workspace).
-
-    The machine-checkable verdict the completion gate matches against the
-    ``UPLOAD_BATCH_<id>.json`` marker bh_upload_flatfile wrote: the task
-    cannot finish while a batch has non-image errors. When the caller
-    could not extract per-error text, every error counts as non-image
-    (conservative -- never lets an unknown error pass as deferrable).
-    """
-    if not batch_id:
-        return
-    non_image = [
-        m
-        for m in error_msgs
-        if '18320' not in m and 'main image' not in m.lower()
-    ]
-    strict = error_msgs or n_err == 0
-    with open(f'BATCH_{batch_id}_VERDICT.json', 'w', encoding='utf-8') as fh:
-        json.dump(
-            {
-                'batch_id': batch_id,
-                'errors': n_err,
-                'warnings': n_warn,
-                'non_image_errors': len(non_image) if strict else n_err,
-            },
-            fh,
-        )
-
-
 def cmd_parse_feedback(args):
     """Summarise Amazon's processing report: per-SKU errors/warnings.
 
@@ -646,7 +611,15 @@ def cmd_parse_feedback(args):
     error source); fall back to a table scan for report layouts that use
     one. A parent SKU's errors block its children -- fix the parent first.
     """
+    problem = _report_batch_problem(
+        args.file, getattr(args, 'batch_id', None), gate_dirs()
+    )
+    if problem and problem.startswith('error:'):
+        raise SystemExit(problem)
+    if problem:
+        print(problem, file=sys.stderr)
     comment_errs = _report_comment_errors(args.file)
+    rows = list(_iter_report_rows(args.file))
     if comment_errs:
         n_err = sum(1 for _s in comment_errs if _s[2] == 'error')
         n_warn = sum(1 for _s in comment_errs if _s[2] == 'warning')
@@ -656,28 +629,19 @@ def cmd_parse_feedback(args):
             f'\n{n_err} error(s), {n_warn} warning(s) across '
             f'{len({s for s, *_ in comment_errs})} SKU(s).'
         )
+        # REAL reports take this path (cell comments): check + save here.
+        n_err = _apply_shortfall(rows, n_err, comment_errs)
         _write_verdict(
             getattr(args, 'batch_id', None),
             n_err,
             n_warn,
             [m for _s, _f, sev, m in comment_errs if sev == 'error'],
         )
-        if n_err:
-            print(
-                'NOT DONE. Fix ALL errors (parent first) and re-upload. A '
-                'SKU with any error is either not created OR created but '
-                'flagged "Action required" (SUCCESS OTHER) -- it shows up in '
-                'inventory yet the error is UNRESOLVED. Inventory presence '
-                'is NOT "done"; only 18320 (missing main image) is a legit '
-                'deferral. Re-run parse-feedback on the new report until the '
-                'sole remaining error is 18320.'
-            )
-            # Non-zero exit so a caller/CI sees the feed had blocking
-            # errors -- matches the table-scan path below.
-            sys.exit(1)
+        report_saved(getattr(args, 'batch_id', None))
+        if _report_outcome(comment_errs, n_err):
+            sys.exit(1)  # non-zero, like the table-scan path below
         return
 
-    rows = list(_iter_report_rows(args.file))
     if not rows:
         raise SystemExit('error: empty report')
 
@@ -752,6 +716,8 @@ def cmd_parse_feedback(args):
         if c_err or c_warn:
             n_err, n_warn = c_err, c_warn
 
+    n_err = _apply_shortfall(rows, n_err)
+
     print(f'\nsummary: {n_err} error(s), {n_warn} warning(s)')
     _write_verdict(
         getattr(args, 'batch_id', None),
@@ -759,6 +725,7 @@ def cmd_parse_feedback(args):
         n_warn,
         [m for _s, _f, m in cell_errs] if cell_errs else [],
     )
+    report_saved(getattr(args, 'batch_id', None))
     if n_err:
         sys.exit(1)
 
@@ -781,6 +748,14 @@ def main():
         help='country code (SA/AE/AU/…) or raw marketplace id you are '
         'listing on; routes the offer price to the right block. Overrides '
         'the spec\'s top-level "marketplace".',
+    )
+    p.add_argument(
+        '--allow-unlisted-enum',
+        action='append',
+        metavar='FIELD',
+        help="write FIELD's value although the valid-value sheet does not "
+        'list it (normally fatal: Amazon answers 90244). Names ONE field; '
+        'repeat it per field. Use only when that field is stale.',
     )
     p.set_defaults(func=cmd_fill)
 

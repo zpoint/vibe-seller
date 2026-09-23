@@ -259,6 +259,12 @@ def _verdict_reason(
     """
     if task_dir is None:
         return None
+    # Every instruction names the verdict file by ABSOLUTE path. "in this
+    # workspace" meant nothing to an agent working from a scratch dir: the
+    # reviewer wrote its verdict to /tmp, this gate (which reads task_dir
+    # only) kept answering "Reviewer never ran", and the agent was sent to
+    # spawn reviewer after reviewer for a review that already existed.
+    ws = str(Path(task_dir).resolve())
 
     # Accept any ``.md`` whose name carries ``review`` as a token
     # (case-insensitive) except an EXEC_ (phase-4) one — a weak model
@@ -288,8 +294,9 @@ def _verdict_reason(
             "'s DoD review loop (its ``references/dod-review-loop.md``, "
             'or ``amazon-ads/references/reviewer-loop.md`` for ads). If '
             'there was nothing substantive to review, it signs off fast. '
-            'Write its result to ``REVIEW_<YYYY-MM-DD>_iter1.md`` in this '
-            'workspace; re-run until Status: ok or iter '
+            f'Write its result to ``{ws}/REVIEW_<YYYY-MM-DD>_iter1.md`` '
+            '(that absolute path -- not your current directory); re-run '
+            'until Status: ok or iter '
             f'{REVIEW_MAX_ITERS} with Status: incomplete.'
         )
 
@@ -356,7 +363,7 @@ def _verdict_reason(
                 'verdict file with ITS OWN Write tool. If your reviewer '
                 'is still running, WAIT for its completion notification '
                 'and make sure it writes '
-                f'REVIEW_<date>_iter{iter_num + 1}.md itself; if it '
+                f'{ws}/REVIEW_<date>_iter{iter_num + 1}.md itself; if it '
                 'already finished without writing one, spawn it again '
                 '(Agent tool, subagent_type="general-purpose") and '
                 'instruct it to open the live sources and write the '
@@ -376,7 +383,7 @@ def _verdict_reason(
             'subagent_type="general-purpose") so it OPENS the live sources '
             "(the processing report AND the TARGET marketplace's Manage "
             'Inventory, over the same store browser) and writes the '
-            f'verdict to REVIEW_<date>_iter{iter_num + 1}.md.'
+            f'verdict to {ws}/REVIEW_<date>_iter{iter_num + 1}.md.'
         )
     if status == 'ok':
         return None
@@ -388,7 +395,7 @@ def _verdict_reason(
             f'Read {latest.name} for the list, fix the audit in '
             f'place (Edit tool, not re-drill), then spawn the '
             'reviewer again to write '
-            f'``REVIEW_*_iter{iter_num + 1}.md``. Repeat until '
+            f'``{ws}/REVIEW_*_iter{iter_num + 1}.md``. Repeat until '
             f'Status: ok or iter {REVIEW_MAX_ITERS} with '
             f'Status: incomplete.{conflict_note}'
         )
