@@ -2117,7 +2117,7 @@ def test_label_id_valid_values_accept_and_write_the_bare_id():
     the label failed a whole feed, and the fatal enum check then refused
     the correct bare id. Both must resolve to the id.
     """
-    schema_mod = sys.modules['listing_schema']
+    schema_mod = sys.modules['listing_checks']
     label = '>  >  >  >  >  (100000000001)'
     valid = {'recommended_browse_nodes': {label.lower()}}
     assert (

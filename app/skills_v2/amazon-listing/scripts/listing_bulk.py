@@ -95,6 +95,11 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # Template structure + metadata parsing live in a sibling module so this
 # file stays within the line cap. Public names there; alias to the
 # `_`-prefixed internal names used here (and re-exported for tests).
+from listing_checks import (  # noqa: E402
+    apply_shortfall as _apply_shortfall,
+    enum_gate as _enum_gate,
+    wire_value as _wire_value,
+)
 from listing_identity import mint_guard as _mint_guard  # noqa: E402
 from listing_library import after_fill, report_saved  # noqa: E402
 from listing_schema import (  # noqa: E402, F401
@@ -105,10 +110,8 @@ from listing_schema import (  # noqa: E402, F401
     ROLE_MATCHERS as _ROLE_MATCHERS,
     TEMPLATE_SHEET,
     Schema as _Schema,
-    apply_shortfall as _apply_shortfall,
     base_attr as _base_attr,
     data_start_row as _data_start_row,
-    enum_gate as _enum_gate,
     expand_repeats as _expand_repeats,
     field_columns as _field_columns,
     find_header_row as _find_header_row,
@@ -122,7 +125,6 @@ from listing_schema import (  # noqa: E402, F401
     row_fields as _row_fields,
     stray_row_keys as _stray_row_keys,
     valid_value_case as _valid_value_case,
-    wire_value as _wire_value,
 )
 from marketplace_ids import (  # noqa: E402,F401
     COUNTRY_ALIASES as _COUNTRY_ALIASES,
