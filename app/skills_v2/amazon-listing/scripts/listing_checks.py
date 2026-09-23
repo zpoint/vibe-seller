@@ -233,7 +233,7 @@ def report_outcome(comment_errs, n_err):
 _BATCH_TAG_RE = re.compile(r'__batch(\d+)(?=\.[A-Za-z]+$)')
 
 
-def report_batch_problem(report_path, batch_id, marker_dir='.'):
+def report_batch_problem(report_path, batch_id, marker_dirs=('.',)):
     """Why `report_path` cannot be batch `batch_id`'s report, else None.
 
     A processing report names no batch, so nothing inside it can be
@@ -255,7 +255,14 @@ def report_batch_problem(report_path, batch_id, marker_dir='.'):
             f"{batch_id}'s. Fetch batch {batch_id}'s own report "
             f'(bh_fetch_report BATCH_ID={batch_id}) and parse that.'
         )
-    marker = os.path.join(marker_dir, f'UPLOAD_BATCH_{batch_id}.json')
+    marker = next(
+        (
+            os.path.join(d, f'UPLOAD_BATCH_{batch_id}.json')
+            for d in marker_dirs
+            if os.path.isfile(os.path.join(d, f'UPLOAD_BATCH_{batch_id}.json'))
+        ),
+        '',
+    )
     try:
         with open(marker, encoding='utf-8') as fh:
             uploaded = float(json.load(fh).get('uploaded_at') or 0)

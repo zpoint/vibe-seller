@@ -2391,3 +2391,53 @@ def test_untagged_report_only_warns(tmp_path, monkeypatch, capsys):
     _run(['parse-feedback', report, '--batch-id', '100000000014'])
     assert 'cannot confirm' in capsys.readouterr().err
     assert Path('BATCH_100000000014_VERDICT.json').exists()
+
+
+def test_agent_working_from_a_scratch_dir_still_feeds_the_gate(
+    template, tmp_path, monkeypatch
+):
+    """The whole chain, run from a scratch dir — as a real agent did.
+
+    An agent `cd`'d into /tmp and worked from there. Everything resolved
+    against $PWD — upload markers, the review, and (had parse-feedback
+    run there) the verdict — landed where no gate looks, and the
+    accepted-spec library filed nothing. Gate artifacts must reach the
+    TASK WORKSPACE whatever the caller's current directory is.
+    """
+    home = tmp_path / 'home'
+    ws = home / 'tasks' / 'abc12345-0000-0000-0000-000000000000'
+    ws.mkdir(parents=True)
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    lib = tmp_path / 'lib'
+    monkeypatch.setenv('VIBE_HOME', str(home))
+    monkeypatch.setenv('VIBE_TASK_ID', ws.name)
+    monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
+    monkeypatch.chdir(scratch)  # <- the agent's current directory
+
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [{'sku': 'K-1', 'operation': 'create', 'fields': {'x': 1}}],
+    }
+    out = scratch / 'good.xlsx'
+    _run(['fill', template, '--spec', _spec(scratch, spec), '--out', str(out)])
+    # The upload helper now writes its marker into the workspace.
+    (ws / 'UPLOAD_BATCH_100000000021.json').write_text(
+        json.dumps({'file': str(out.with_suffix('.txt'))}), encoding='utf-8'
+    )
+    report = _status_report(
+        scratch / 'r__batch100000000021.xlsx',
+        {'K-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000021'])
+
+    assert (ws / 'BATCH_100000000021_VERDICT.json').is_file(), (
+        'the verdict did not reach the workspace the gate reads'
+    )
+    assert list(lib.glob('socks__*.json')), (
+        'the accepted spec was not filed from a scratch-dir run'
+    )

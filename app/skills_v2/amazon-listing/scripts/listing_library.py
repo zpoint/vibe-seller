@@ -36,6 +36,41 @@ _ID_ATTRS = {
 }
 
 
+def task_workspace():
+    """The task workspace, derived exactly as the app derives it.
+
+    VIBE_HOME (else ~/.vibe-seller) / tasks / VIBE_TASK_ID. None outside a
+    task. Gate artifacts are resolved against THIS, never against the
+    caller's $PWD: an agent that worked from a scratch dir once scattered
+    a whole run's markers and review into /tmp, where no gate looks.
+    """
+    tid = os.environ.get('VIBE_TASK_ID')
+    if not tid:
+        return None
+    root = os.environ.get('VIBE_HOME') or os.path.join(
+        os.path.expanduser('~'), '.vibe-seller'
+    )
+    ws = Path(root) / 'tasks' / tid
+    return ws if ws.is_dir() else None
+
+
+def gate_dirs():
+    """Where gate artifacts are written and read: workspace first, then cwd."""
+    dirs = [d for d in (task_workspace(),) if d]
+    cwd = Path.cwd()
+    if not any(cwd.resolve() == d.resolve() for d in dirs):
+        dirs.append(cwd)
+    return dirs
+
+
+def find_gate_file(name):
+    """First existing `name` across gate_dirs(), else None."""
+    for d in gate_dirs():
+        if (d / name).is_file():
+            return d / name
+    return None
+
+
 def sidecar_path(out_path):
     """`…/create-sa.xlsm` -> `…/create-sa.spec.json` (next to the .txt)."""
     p = Path(out_path)
@@ -97,16 +132,16 @@ def save_on_clean(batch_id):
         return None
     try:
         verdict = json.loads(
-            Path(f'BATCH_{batch_id}_VERDICT.json').read_text('utf-8')
+            find_gate_file(f'BATCH_{batch_id}_VERDICT.json').read_text('utf-8')
         )
         if int(verdict.get('non_image_errors', 1)):
             return None
         marker = json.loads(
-            Path(f'UPLOAD_BATCH_{batch_id}.json').read_text('utf-8')
+            find_gate_file(f'UPLOAD_BATCH_{batch_id}.json').read_text('utf-8')
         )
         upload = marker['file']
         side = json.loads(sidecar_path(upload).read_text('utf-8'))
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
     lib = library_dir(upload)
     if lib is None:
@@ -212,3 +247,35 @@ def report_saved(batch_id):
             f'accepted spec saved -> {dest} (start the next listing of this '
             'category from it)'
         )
+
+
+def write_verdict(batch_id, n_err, n_warn, error_msgs):
+    """Write ``BATCH_<id>_VERDICT.json`` to the task workspace (and CWD).
+
+    The machine-checkable verdict the completion gate matches against the
+    ``UPLOAD_BATCH_<id>.json`` marker bh_upload_flatfile wrote: the task
+    cannot finish while a batch has non-image errors. When the caller
+    could not extract per-error text, every error counts as non-image
+    (conservative -- never lets an unknown error pass as deferrable).
+    """
+    if not batch_id:
+        return
+    non_image = [
+        m
+        for m in error_msgs
+        if '18320' not in m and 'main image' not in m.lower()
+    ]
+    strict = error_msgs or n_err == 0
+    for d in gate_dirs():  # the workspace the gate reads, then cwd
+        with open(
+            d / f'BATCH_{batch_id}_VERDICT.json', 'w', encoding='utf-8'
+        ) as fh:
+            json.dump(
+                {
+                    'batch_id': batch_id,
+                    'errors': n_err,
+                    'warnings': n_warn,
+                    'non_image_errors': len(non_image) if strict else n_err,
+                },
+                fh,
+            )

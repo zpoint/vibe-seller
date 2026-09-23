@@ -68,7 +68,12 @@ review:
 > login challenge-loop (password / OTP / hosted-passkey), marketplace
 > TLDs, version-aware navigation (New Seller Central vs classic;
 > navigate by direct URL), and the capture rule (live data →
-> `/tmp/<task>/`, never `knowledge/`).
+> `/tmp/<task>/`, never `knowledge/`). That rule is for CAPTURES only —
+> do not make `/tmp` your working directory. The upload gate, the
+> reviewer gate and the accepted-spec library all read the TASK
+> WORKSPACE; the helpers and `parse-feedback` now write there whatever
+> your `$PWD` or `MARKER_DIR` is, but a review file you write yourself
+> still has to go where the gate names it (an absolute path).
 
 Amazon's **Add Products via Upload** takes a category **flat-file
 template** — a macro-enabled `.xlsm` whose `Template` sheet is a wide
