@@ -353,6 +353,20 @@ wanted. Only create a new ASIN when the user explicitly asks for a
 separate listing, or when the account's marketplaces are on genuinely
 separate catalogs (see below).
 
+**New ASINs AND the same children on both marketplaces is not a
+contradiction — it is a sequence.** When the user wants Amazon to mint
+fresh ASINs for a family that must match across two marketplaces,
+create on ONE marketplace first with `mint_new_asin`, wait for its
+report, read the ASINs it minted with `bh_listing_status.py`, and only
+then create on the second marketplace pinned to exactly those. Never
+mint on both (two different ASINs), and never upload the second before
+the first's new ASINs are read: on a unified account a second mint for
+the same SKU re-points it account-wide. Re-pinning to the family's
+OLD ASINs is a different answer to a different request -- one run did
+that when told "let Amazon mint new ones", because it saw the two asks
+as incompatible. If the request is ambiguous about new-vs-existing
+ASINs, ask.
+
 Make the match **proactively** — don't submit a blind create and wait
 for an `8560` to fix reactively:
 

@@ -357,3 +357,16 @@ def test_verify_by_names_a_path_that_exists_in_a_task_workspace():
     rel = '.claude/skills/amazon-listing/scripts/bh_listing_status.py'
     assert rel in verify
     assert (_SCRIPTS / rel.split('.claude/skills/', 1)[1]).is_file()
+
+
+def test_skill_sequences_a_fresh_mint_across_two_marketplaces():
+    """'New ASINs' + 'same children on both sites' read as a conflict to
+    one agent, which re-pinned the family's OLD ASINs. The skill must
+    spell the sequence: mint on one, read what it minted, pin the other."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    sec = skill[skill.index('is not a\ncontradiction') :]
+    sec = sec[: sec.index('Make the match **proactively**')]
+    for needle in ('mint_new_asin', 'bh_listing_status.py', 'Never\nmint'):
+        assert needle in sec, needle
