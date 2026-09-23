@@ -942,5 +942,23 @@
     "campaignCount_other": "{{count}} live campaigns",
     "outOfScopeHidden_one": "plus {{count}} campaign outside this task’s scope, hidden",
     "outOfScopeHidden_other": "plus {{count}} campaigns outside this task’s scope, hidden"
+  },
+  "ads": {
+    "title": "Vibe Seller Ads API",
+    "blurb": "Connect the Vibe Seller Ads API service so agents drive advertising straight through the API instead of clicking a browser — far steadier for tuning and bulk operations. Each store must be authorized before it can use it.",
+    "host": "Service host",
+    "apiKey": "API key",
+    "keySet": "A key is set — leave blank to keep it",
+    "save": "Save",
+    "saved": "Saved.",
+    "stores": "Stores",
+    "notAuthorized": "Not authorized",
+    "authorize": "Authorize",
+    "reauthorize": "Re-authorize",
+    "authorizeStore": "Authorize {{store}}",
+    "openInZiniao": "Copy this link and open it INSIDE the anti-detect browser, in this store’s window. That is where the seller’s Amazon session lives — opening it elsewhere authorizes whichever account you happen to be signed into.",
+    "openHere": "Open this link and sign in as the seller.",
+    "linkExpires": "The link expires in about {{minutes}} minutes.",
+    "recheck": "I finished — check again"
   }
 }

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { WeComBotSection } from '../WeComBotSection'
 import { Dida365Panel } from './Dida365Panel'
+import { AmazonAdsPanel } from './AmazonAdsPanel'
 
 interface GwsStatusDetail {
   auth_method?: string
@@ -182,6 +183,7 @@ export function IntegrationsPanel() {
       </div>
       <WeComBotSection />
       <Dida365Panel />
+      <AmazonAdsPanel />
     </div>
   )
 }

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import telemetry
+from app import ads_client, ads_skill, telemetry
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_gate_loader import preload_skill_gates
 from app.browser.daemon_reaper import start_reaper_loop
@@ -36,6 +36,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.plugins import get_extension_context
+from app.routers.ads import router as ads_router
 from app.routers.app_settings import router as app_settings_router
 from app.routers.attachments import router as attachments_router
 from app.routers.auth import router as auth_router
@@ -220,6 +221,12 @@ async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(sync_all_email_accounts())
     # Start periodic daemon reaper (kills orphaned browser-use)
     reaper_task = asyncio.create_task(start_reaper_loop())
+    # Refresh the ads skill bundle if a service is bound. In the
+    # background and never awaited: the bundle the agent loads is
+    # already on disk, so a service that is briefly down must not slow
+    # boot or leave the deployment on an older bundle for ever waiting
+    # for somebody to press something.
+    ads_skill_task = asyncio.create_task(_refresh_ads_skill())
     # Start any plugin-registered background services (e.g. a customer
     # alerting/monitoring service). Core ships none, so this is a no-op
     # in an OSS-only install. A done-callback surfaces a crashing service
@@ -244,7 +251,13 @@ async def lifespan(app: FastAPI):
         service_tasks.append(svc_task)
     yield
     # Cancel background tasks
-    for t in [sync_task, reaper_task, venv_task, *service_tasks]:
+    for t in [
+        sync_task,
+        reaper_task,
+        venv_task,
+        ads_skill_task,
+        *service_tasks,
+    ]:
         if not t.done():
             t.cancel()
             try:
@@ -263,6 +276,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning('stop_all during shutdown failed: %s', e)
     telemetry.shutdown()
+
+
+async def _refresh_ads_skill() -> None:
+    """Pull the current ads skill bundle, if a service is bound."""
+    try:
+        async with async_session() as db:
+            config = await ads_client.get_config(db)
+            if not config.get('configured'):
+                return
+            result = await ads_skill.refresh(db)
+        if result.get('updated'):
+            logger.info('ads skill bundle updated to %s', result.get('version'))
+    except Exception:
+        logger.exception('ads skill refresh failed at boot')
 
 
 app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
@@ -289,6 +316,7 @@ app.add_middleware(
 
 # Routers
 app.include_router(auth_router)
+app.include_router(ads_router)
 app.include_router(app_settings_router)
 app.include_router(users_router)
 app.include_router(stores_router)

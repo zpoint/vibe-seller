@@ -69,6 +69,9 @@ def _ensure_added_columns(conn) -> None:
         # What a store can actually produce (FBA / ads / FBN), as opposed
         # to where it sells. See app/deliverables/manifest.py.
         ('stores', 'capabilities', "TEXT NOT NULL DEFAULT '{}'"),
+        # Binding to an external Amazon Ads service. See app/ads_client.py.
+        ('stores', 'ads_store_keys', "TEXT NOT NULL DEFAULT '{}'"),
+        ('stores', 'ads_authorized', 'BOOLEAN NOT NULL DEFAULT 0'),
     ]
     for table, column, sqltype in added:
         cols = {
