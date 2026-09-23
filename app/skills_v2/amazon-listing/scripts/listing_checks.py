@@ -7,6 +7,8 @@ before writing, the id-tail rule for `label (id)` valid values, and the
 successful-vs-processed check `parse-feedback` runs on a report.
 """
 
+import json
+import os
 import re
 
 from listing_schema import base_attr
@@ -226,3 +228,52 @@ def report_outcome(comment_errs, n_err):
         )
         return True
     return False
+
+
+_BATCH_TAG_RE = re.compile(r'__batch(\d+)(?=\.[A-Za-z]+$)')
+
+
+def report_batch_problem(report_path, batch_id, marker_dir='.'):
+    """Why `report_path` cannot be batch `batch_id`'s report, else None.
+
+    A processing report names no batch, so nothing inside it can be
+    checked. What can be checked: the batch tag `bh_fetch_report` puts in
+    the filename, and the time -- a report downloaded BEFORE the batch
+    was uploaded is some earlier batch's. Either one is proof, and a
+    verdict written from the wrong report is worse than none: it once
+    recorded six errors against a batch that went through 4/4 clean.
+    Returns a warning string (prefixed `warning:`) when it merely cannot
+    confirm, and an `error:` string when it can prove the mismatch.
+    """
+    if not batch_id:
+        return None
+    name = os.path.basename(str(report_path))
+    tag = _BATCH_TAG_RE.search(name)
+    if tag and tag.group(1) != str(batch_id):
+        return (
+            f"error: {name} is tagged as batch {tag.group(1)}'s report, not "
+            f"{batch_id}'s. Fetch batch {batch_id}'s own report "
+            f'(bh_fetch_report BATCH_ID={batch_id}) and parse that.'
+        )
+    marker = os.path.join(marker_dir, f'UPLOAD_BATCH_{batch_id}.json')
+    try:
+        with open(marker, encoding='utf-8') as fh:
+            uploaded = float(json.load(fh).get('uploaded_at') or 0)
+        fetched = os.path.getmtime(report_path)
+    except (OSError, ValueError, TypeError):
+        uploaded = fetched = 0
+    if uploaded and fetched and fetched < uploaded:
+        return (
+            f'error: {name} was downloaded before batch {batch_id} was '
+            "uploaded, so it is an EARLIER batch's report. Amazon names "
+            'reports after the upload file, and each download overwrites the '
+            f"last. Fetch batch {batch_id}'s own report and parse that."
+        )
+    if not tag:
+        return (
+            f"warning: cannot confirm {name} is batch {batch_id}'s report "
+            '(reports carry no batch id, and same-named reports overwrite '
+            'each other). bh_fetch_report saves a `__batch<id>` copy -- '
+            'parse that one.'
+        )
+    return None

@@ -98,6 +98,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from listing_checks import (  # noqa: E402
     apply_shortfall as _apply_shortfall,
     enum_gate as _enum_gate,
+    report_batch_problem as _report_batch_problem,
     report_outcome as _report_outcome,
     wire_value as _wire_value,
 )
@@ -634,6 +635,11 @@ def cmd_parse_feedback(args):
     error source); fall back to a table scan for report layouts that use
     one. A parent SKU's errors block its children -- fix the parent first.
     """
+    problem = _report_batch_problem(args.file, getattr(args, 'batch_id', None))
+    if problem and problem.startswith('error:'):
+        raise SystemExit(problem)
+    if problem:
+        print(problem, file=sys.stderr)
     comment_errs = _report_comment_errors(args.file)
     rows = list(_iter_report_rows(args.file))
     if comment_errs:

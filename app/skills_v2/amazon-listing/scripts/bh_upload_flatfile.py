@@ -399,6 +399,7 @@ if ref:
                     'host': HOST,
                     'file': F,
                     'marketplace': out['marketplace'],
+                    'uploaded_at': time.time(),
                 },
                 fh,
             )

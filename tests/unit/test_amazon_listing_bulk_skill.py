@@ -2336,3 +2336,58 @@ def test_image_only_error_says_done_and_exits_clean(
     _run(['parse-feedback', str(report), '--batch-id', '100000000008'])
     out = capsys.readouterr().out
     assert 'DONE' in out and 'NOT DONE' not in out
+
+
+def test_report_tagged_for_another_batch_is_refused(tmp_path, monkeypatch):
+    """A report provably belonging to batch M cannot verdict batch N.
+
+    Reports carry no batch id and are named after the upload file, so
+    each batch of `create-sa.txt` overwrote the last one's report —
+    and parsing that file "for batch N" once recorded six errors
+    against a batch that had gone through 4/4 clean.
+    """
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary__batch100000000011.xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000012'])
+    assert '100000000011' in str(exc.value)
+    assert not Path('BATCH_100000000012_VERDICT.json').exists()
+
+
+def test_report_downloaded_before_the_upload_is_refused(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary.xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    old = Path(report).stat().st_mtime - 600  # fetched 10 min earlier ...
+    import os as _os  # noqa: PLC0415 - local to this timing test
+
+    _os.utime(report, (old, old))
+    Path('UPLOAD_BATCH_100000000013.json').write_text(
+        json.dumps({'file': 'x.txt', 'uploaded_at': old + 300}),  # ...than
+        encoding='utf-8',  # the batch it claims to describe was uploaded
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000013'])
+    assert 'before batch 100000000013 was' in str(exc.value)
+
+
+def test_untagged_report_only_warns(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary.xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000014'])
+    assert 'cannot confirm' in capsys.readouterr().err
+    assert Path('BATCH_100000000014_VERDICT.json').exists()

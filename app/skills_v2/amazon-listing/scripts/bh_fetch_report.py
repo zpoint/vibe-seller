@@ -32,6 +32,7 @@ that writes the verdict the completion gate checks.
 import glob
 import json
 import os
+import shutil
 import time
 
 HOST = os.environ['SC_HOST']
@@ -155,6 +156,17 @@ else:
             report = _newest_xlsm(t0)
             if report:
                 break
+        if report:
+            # The report carries NO batch id, and Amazon names it after the
+            # UPLOAD file -- so every batch of `create-sa.txt` downloads as
+            # the same `create-sa-processing-summary.xlsm`, overwriting the
+            # last. Parsing that file "for batch N" once wrote a verdict of
+            # six errors onto a batch that had gone through 4/4 clean. The
+            # one moment the report is provably batch N's is right here.
+            stem, ext = os.path.splitext(report)
+            tagged = f'{stem}__batch{BATCH}{ext}'
+            shutil.copy2(report, tagged)
+            report = tagged
         out['report'] = report
         out['ok'] = bool(report)
         if not report:

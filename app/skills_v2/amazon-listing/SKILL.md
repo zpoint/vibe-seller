@@ -538,7 +538,11 @@ browser-use < $S/bh_download_template.py
 UPLOAD_FILE=$DL/out.txt SC_HOST=sellercentral.amazon.<tld> \
 MARKER_DIR="$PWD" browser-use < $S/bh_upload_flatfile.py
 
-# 3. Fetch THAT batch's processing report, then verdict it:
+# 3. Fetch THAT batch's processing report, then verdict it. Parse the
+#    `…__batch<id>` copy bh_fetch_report hands back: a report names no
+#    batch and same-named reports overwrite each other, so parse-feedback
+#    refuses one tagged for another batch or downloaded before the batch
+#    was uploaded -- a wrong verdict once put six errors on a clean batch:
 SC_HOST=sellercentral.amazon.<tld> BATCH_ID=<id> DOWNLOADS_DIR=$DL \
 browser-use < $S/bh_fetch_report.py
 python3 $S/listing_bulk.py parse-feedback <report> --batch-id <id>

@@ -232,3 +232,16 @@ def test_marker_dirs_does_not_duplicate_the_workspace(tmp_path, monkeypatch):
     monkeypatch.setenv('VIBE_TASK_ID', ws.name)
     path = _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
     assert _marker_dirs_fn(path, str(ws))() == [str(ws)]
+
+
+def test_fetched_report_is_tagged_with_its_batch():
+    """The one moment a report is provably batch N's is when it downloads."""
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_fetch_report.py'
+    ).read_text(encoding='utf-8')
+    assert '__batch{BATCH}' in src, 'report is not tagged with its batch'
+    assert 'shutil.copy2(report, tagged)' in src
+    up = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    assert "'uploaded_at': time.time()" in up, 'marker has no upload time'
