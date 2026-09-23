@@ -580,16 +580,16 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
   - `fill TEMPLATE.xlsm --spec SPEC.json --out OUT.xlsm` — write
     parent/child rows, set the operation column per row, validate enums
     and required fields against the template's own metadata sheets, and
-    preserve the workbook (macros, signature row) verbatim. **A value
-    outside a field's valid set is FATAL**, because Amazon answers 90244
-    and the row cannot land; valid sets are per template *and* per
-    marketplace, so read the TARGET template's own
-    (`inspect --field NAME`) rather than reusing the other
-    marketplace's. `--allow-unlisted-enum FIELD` writes that one field's value anyway,
-    for a genuinely stale sheet; repeat it per field. It vouches for the
-    FIELD you name, never the whole spec — a bare switch once let an
-    invalid `style` ride through behind a legitimate browse-node
-    override. `fill` reports every violation, not just the first.
+    preserve the workbook (macros, signature row) verbatim. A value
+    outside a field's valid-value list is a **warning**, and every such
+    value is named at once. The list is not what Amazon enforces: it
+    rejected an off-list fulfilment code and a boolean written `False`
+    (90244), yet accepted an off-list `style` and `special_size_type`
+    without even a warning. A gate that made the list fatal once forced
+    an extra upload to "fix" values Amazon had just accepted — so read
+    the TARGET template's list (`inspect --field NAME`) as advice, and
+    the accepted-spec library as the rule. `--allow-unlisted-enum FIELD`
+    silences one field you have checked.
   - `parse-feedback REPORT` — extract Amazon's verdict: the summary
     tables **and the per-cell comments (批注) on the report's `Template`
     tab**, emitted as `sku=… field=… : MESSAGE`. The 批注 are the

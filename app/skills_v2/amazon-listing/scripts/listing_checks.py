@@ -12,12 +12,12 @@ import re
 from listing_schema import base_attr
 
 ENUM_HINT = (
-    '. Amazon rejects the row with 90244 ("select an approved value '
-    'from the list for your product category"), so this cannot succeed '
-    'as written. Valid sets are per template AND per marketplace — read '
-    "the TARGET template's own (inspect --field {f}). Pass "
-    '--allow-unlisted-enum {f} only if you have checked that field is '
-    'stale in the sheet — it vouches for THAT field, not the spec.'
+    " -- not in the template's valid-value list. That list is NOT a "
+    'reliable picture of what Amazon enforces: it rejected an off-list '
+    'fulfilment code and a boolean written `False` (90244), and accepted '
+    'an off-list `style` and `special_size_type` with no warning at all. '
+    'Check the accepted spec for this category first; if Amazon then '
+    'rejects the value, the report names the fix.'
 )
 
 
@@ -25,8 +25,8 @@ def enum_violations(fields, valid):
     """EVERY (field, value, allowed) outside a non-empty valid set.
 
     All of them, not the first: returning one let an override on the
-    first field hide the rest entirely. Observed live -- a browse-node
-    override meant an invalid `style` was never reported and shipped.
+    first field hide the rest entirely -- an off-list `style` was never
+    even reported behind a browse-node override.
     """
     out, rest = [], dict(fields)
     while True:
@@ -38,29 +38,28 @@ def enum_violations(fields, valid):
 
 
 def enum_gate(fields, valid, allow, i, sku):
-    """-> (warnings, fatal|None). `allow` names fields, never 'all'.
+    """-> (warnings, None). Every off-list value, as a warning.
 
-    `--allow-unlisted-enum` used to be a bare switch, so vouching for one
-    stale sheet disabled the check for every field in the spec -- which
-    is how an invalid `style` rode through behind a legitimate
-    browse-node override. The override now names the field it vouches
-    for, and every other violation stays fatal.
+    This was briefly FATAL, on the evidence of two rejected values. It
+    blocked a spec Amazon then accepted cleanly: an off-list `style` and
+    `special_size_type` went through 4/4 with "applied without any
+    errors", and the gate had already forced an extra upload to "fix"
+    them. The valid-value list is advice, not the rule set; what Amazon
+    actually accepted for this category lives in the spec library
+    (listing_library), and `fill` checks against that. So this names
+    every off-list value, and never stops the fill. `allow` (from
+    `--allow-unlisted-enum FIELD`) silences a field you have checked.
     """
     allowed_attrs = {base_attr(a) for a in (allow or [])}
-    warns, fatal = [], []
+    warns = []
     for fname, fval, allowed in enum_violations(fields, valid):
-        msg = (
-            f'row {i} sku={sku}: {fname}={fval!r} is not one of this '
-            f"template's valid values {sorted(allowed)}"
-        )
         if base_attr(fname) in allowed_attrs:
-            warns.append(msg + ' (allowed by --allow-unlisted-enum)')
-        else:
-            fatal.append((fname, msg))
-    if not fatal:
-        return warns, None
-    body = '\n  '.join(m for _, m in fatal)
-    return warns, 'error: ' + body + ENUM_HINT.format(f=base_attr(fatal[0][0]))
+            continue
+        warns.append(
+            f'row {i} sku={sku}: {fname}={fval!r} is not one of '
+            f'{sorted(allowed)}{ENUM_HINT}'
+        )
+    return warns, None
 
 
 def enum_violation(fields, valid):

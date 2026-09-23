@@ -396,62 +396,6 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
     assert 'battery_type' not in err
 
 
-def test_out_of_enum_is_fatal(template, tmp_path):
-    """A value outside a non-empty valid set cannot succeed.
-
-    Amazon answers 90244 ("select an approved value from the list"), so
-    this used to be a warning the author was expected to read — and
-    twice in one live run an agent read it, judged the sheet wrong,
-    uploaded anyway, and spent another feed cycle being told the same
-    thing by Amazon.
-    """
-    spec = {
-        'product_type': 'socks',
-        'brand': 'ACME',
-        'mint_new_asin': True,
-        'rows': [
-            {
-                'sku': 'W-1',
-                'operation': 'create',
-                'variation_theme': 'PurpleHaze',  # not in enum
-            },
-        ],
-    }
-    out = str(tmp_path / 'out.xlsx')
-    with pytest.raises(SystemExit) as exc:
-        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
-    assert 'PurpleHaze' in str(exc.value) and '90244' in str(exc.value)
-
-
-def test_out_of_enum_can_be_overridden_explicitly(template, tmp_path, capsys):
-    """The stale-sheet case stays reachable — but has to be stated."""
-    spec = {
-        'product_type': 'socks',
-        'brand': 'ACME',
-        'mint_new_asin': True,
-        'rows': [
-            {
-                'sku': 'W-1',
-                'operation': 'create',
-                'variation_theme': 'PurpleHaze',
-            },
-        ],
-    }
-    out = str(tmp_path / 'out.xlsx')
-    _run([
-        'fill',
-        template,
-        '--spec',
-        _spec(tmp_path, spec),
-        '--out',
-        out,
-        '--allow-unlisted-enum',
-        'variation_theme',
-    ])
-    assert _read_rows(out)[0]['variation_theme'] == 'PurpleHaze'
-    assert 'allow-unlisted-enum' in capsys.readouterr().err
-
-
 def test_missing_required_field_still_only_warns(template, tmp_path, capsys):
     """Amazon's Required flag is noisy, so this one stays a warning."""
     spec = {
@@ -2239,60 +2183,59 @@ def test_failed_batch_files_nothing(tmp_path, monkeypatch):
     assert not lib.exists() or not list(lib.iterdir())
 
 
-def test_override_vouches_for_one_field_not_the_spec(template, tmp_path):
-    """The shape that shipped an invalid value behind a legitimate override.
+def _enum_spec(**fields):
+    return {
+        'product_type': 'socks',
+        'brand': 'ACME',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'W-1',
+                'operation': 'create',
+                'variation_theme': 'PurpleHaze',  # off the valid list
+                'fields': {'relationship_type': 'NotARelation', **fields},
+            },
+        ],
+    }
 
-    The override used to be a bare switch, and only the FIRST violation
-    was ever examined — so vouching for a stale browse-node sheet waved
-    through an invalid `style` that nothing then reported. Allowing one
-    field must leave every other violation fatal, and all of them named.
+
+def test_off_list_value_warns_and_still_writes(template, tmp_path, capsys):
+    """An off-list value is a WARNING, never a stop.
+
+    The valid-value list is not what Amazon enforces. Observed live: an
+    off-list `style` and `special_size_type` went through 4/4, "applied
+    without any errors", no warning at all — while a briefly-fatal gate
+    had already forced an extra upload to "fix" them. Amazon does reject
+    some off-list values; its report names those, and the accepted-spec
+    library is the reliable prior.
     """
-    spec = {
-        'product_type': 'socks',
-        'brand': 'ACME',
-        'mint_new_asin': True,
-        'rows': [
-            {
-                'sku': 'W-1',
-                'operation': 'create',
-                'variation_theme': 'PurpleHaze',  # vouched for below
-                'fields': {'relationship_type': 'NotARelation'},  # NOT
-            },
-        ],
-    }
     out = str(tmp_path / 'out.xlsx')
-    with pytest.raises(SystemExit) as exc:
-        _run([
-            'fill',
-            template,
-            '--spec',
-            _spec(tmp_path, spec),
-            '--out',
-            out,
-            '--allow-unlisted-enum',
-            'variation_theme',
-        ])
-    msg = str(exc.value)
-    assert 'NotARelation' in msg  # still fatal
-    assert 'PurpleHaze' not in msg  # this one was vouched for
+    _run([
+        'fill',
+        template,
+        '--spec',
+        _spec(tmp_path, _enum_spec()),
+        '--out',
+        out,
+    ])
+    assert _read_rows(out)[0]['variation_theme'] == 'PurpleHaze'
+    err = capsys.readouterr().err
+    # Every off-list value is named -- not just the first.
+    assert 'PurpleHaze' in err and 'NotARelation' in err
 
 
-def test_every_enum_violation_is_named_not_just_the_first(template, tmp_path):
-    spec = {
-        'product_type': 'socks',
-        'brand': 'ACME',
-        'mint_new_asin': True,
-        'rows': [
-            {
-                'sku': 'W-1',
-                'operation': 'create',
-                'variation_theme': 'PurpleHaze',
-                'fields': {'relationship_type': 'NotARelation'},
-            },
-        ],
-    }
+def test_override_silences_only_the_named_field(template, tmp_path, capsys):
     out = str(tmp_path / 'out.xlsx')
-    with pytest.raises(SystemExit) as exc:
-        _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
-    assert 'PurpleHaze' in str(exc.value)
-    assert 'NotARelation' in str(exc.value)
+    _run([
+        'fill',
+        template,
+        '--spec',
+        _spec(tmp_path, _enum_spec()),
+        '--out',
+        out,
+        '--allow-unlisted-enum',
+        'variation_theme',
+    ])
+    err = capsys.readouterr().err
+    assert 'PurpleHaze' not in err  # vouched for
+    assert 'NotARelation' in err  # still reported
