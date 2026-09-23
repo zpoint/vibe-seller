@@ -290,3 +290,16 @@ def test_listing_skill_verifies_through_the_helper():
     assert 'Open Manage Inventory ON THE TARGET MARKETPLACE' not in verify
     manifest = (_SCRIPTS / 'MANIFEST.txt').read_text(encoding='utf-8')
     assert 'amazon-listing/scripts/bh_listing_status.py' in manifest
+
+
+def test_relist_reads_current_asins_through_the_helper():
+    """Discovery, not just verification: a relist agent that had to learn
+    a family's SKU -> ASIN by hand thrashed on the collapsed parent row
+    and then used ASINs remembered from an earlier task."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    step = skill[skill.index('1. **Get the source ASINs') :]
+    step = step[: step.index('\n2. ')]
+    assert 'bh_listing_status.py' in step
+    assert 'TARGET' in step, 'the target side must be read before planning'

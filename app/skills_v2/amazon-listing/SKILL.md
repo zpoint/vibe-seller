@@ -355,11 +355,19 @@ separate catalogs (see below).
 Make the match **proactively** — don't submit a blind create and wait
 for an `8560` to fix reactively:
 
-1. **Get the source ASINs.** Map every SKU (parent + each child) to the
-   ASIN it already has on the source marketplace — the All-Listings
-   report is account-level (byte-identical across a unified account's
-   marketplace subdomains), or read them off Manage Inventory. Reuse the
-   **same SKUs** on the target marketplace; same SKU keeps it idempotent.
+1. **Get the source ASINs — one helper call per marketplace.** Map every
+   SKU (parent + each child) to the ASIN it has on the SOURCE
+   marketplace, and see what the TARGET already holds, before you plan a
+   create or a delete:
+   `SKUS=<parent>,<child-1>,... SC_HOST=sellercentral.amazon.<tld>
+   browser-use < $S/bh_listing_status.py` (run it once with the source
+   tld, once with the target's). Manage Inventory's search view collapses
+   a family to its parent row, and probing it by hand — clicks, internal
+   endpoints, public product pages — cost one run ten minutes before it
+   fell back on ASINs remembered from an earlier task. A public product
+   page proves an ASIN exists, never which SKU is on it. Reuse the
+   **same SKUs** on the target marketplace; same SKU keeps it
+   idempotent.
 2. **Do the WHOLE target flow on the target marketplace's own subdomain —
    the upload is marketplace-scoped.** A flat-file upload applies to the
    marketplace of the `sellercentral.amazon.<tld>` you're on, regardless
