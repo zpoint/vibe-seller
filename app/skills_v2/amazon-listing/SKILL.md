@@ -369,7 +369,14 @@ for an `8560` to fix reactively:
    **same SKUs** on the target marketplace; same SKU keeps it
    idempotent.
 2. **Do the WHOLE target flow on the target marketplace's own subdomain —
-   the upload is marketplace-scoped.** A flat-file upload applies to the
+   a create/update is marketplace-scoped. A DELETE IS NOT:** on a unified
+   account it removes the SKU from every marketplace it sells on (an
+   AE-only delete took the same three SKUs off SA too, while the AE
+   rebuild that followed restored only AE). `fill` refuses a delete on a
+   multi-marketplace template unless the spec says `"delete_everywhere":
+   true` -- say it only when the user wants the SKU gone everywhere. To
+   change ONE storefront's ASIN for a SKU, there is no delete-and-recreate
+   route that leaves the other storefront alone: stop and ask the user. A flat-file upload applies to the
    marketplace of the `sellercentral.amazon.<tld>` you're on, regardless
    of the offer columns in the file; a `.sa` upload lands on SA even when
    the account context shows the target. So for AE, run template download +

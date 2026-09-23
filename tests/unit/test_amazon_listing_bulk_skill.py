@@ -651,6 +651,55 @@ def mkt_template(tmp_path):
     return str(p)
 
 
+def test_delete_on_a_two_marketplace_template_must_say_everywhere(
+    mkt_template, tmp_path
+):
+    """On a unified account a Delete is ACCOUNT-wide.
+
+    Observed live: an AE-only delete of three children, uploaded on the
+    AE host with an AE-stamped template, also deleted the same SKUs on
+    SA -- which the user had said must not be touched. The template
+    carrying both marketplaces is the signal; the intent is declared.
+    """
+    spec = {
+        'marketplace': 'AE',
+        'rows': [{'sku': 'WIDGET-006-M', 'operation': 'delete'}],
+    }
+    out = tmp_path / 'out.xlsx'
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            mkt_template,
+            '--spec',
+            _spec(tmp_path, spec),
+            '--out',
+            str(out),
+        ])
+    assert 'EVERY one of those' in str(exc.value)
+    assert 'WIDGET-006-M' in str(exc.value)
+    assert not out.exists(), 'a refused fill left a file that looks done'
+
+    spec['delete_everywhere'] = True  # the user did mean everywhere
+    _run([
+        'fill',
+        mkt_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        str(out),
+    ])
+    assert out.exists()
+
+
+def test_delete_on_a_one_marketplace_template_needs_no_declaration(
+    template, tmp_path
+):
+    spec = {'rows': [{'sku': 'WIDGET-006-M', 'operation': 'delete'}]}
+    out = tmp_path / 'out.xlsx'
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', str(out)])
+    assert out.exists()
+
+
 def test_fill_routes_bare_our_price_to_target_marketplace(
     mkt_template, tmp_path
 ):
