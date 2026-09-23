@@ -40,7 +40,8 @@ review:
     Read Manage Inventory ON THE TARGET MARKETPLACE with
     `SKUS=<every attempted SKU, comma-separated>
     SC_HOST=sellercentral.amazon.<target-tld> browser-use <
-    scripts/bh_listing_status.py` and confirm each SKU is in `rows` with
+    .claude/skills/amazon-listing/scripts/bh_listing_status.py` (run from
+    the task workspace) and confirm each SKU is in `rows` with
     a real ASIN (the one intended, for a pinned row) and nothing
     attempted is in `missing`; it refuses unless the page's `ue_mid` is
     that marketplace. Do NOT verify on `skucentral?mSku=` -- it renders

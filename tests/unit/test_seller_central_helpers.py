@@ -303,3 +303,57 @@ def test_relist_reads_current_asins_through_the_helper():
     step = step[: step.index('\n2. ')]
     assert 'bh_listing_status.py' in step
     assert 'TARGET' in step, 'the target side must be read before planning'
+
+
+def _inline_dict(path, name):
+    """A module-level dict literal out of a stdin-fed helper's source."""
+    import ast  # noqa: PLC0415 - only this check parses sources
+
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            getattr(t, 'id', None) == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f'{path.name} has no {name} table')
+
+
+@pytest.mark.parametrize(
+    'name', ['bh_upload_flatfile.py', 'bh_listing_status.py']
+)
+def test_helper_marketplace_tables_match_the_canonical_map(name):
+    """The helpers cannot import marketplace_ids, so each carries a copy.
+
+    A shorter copy in the status helper refused every marketplace it left
+    out (.com.br, .nl, .se, .pl, .com.be, .com.tr, .ie) before reading a
+    single row. Every country the canonical map knows must resolve, via
+    the helper's own two tables, to the canonical id.
+    """
+    import importlib.util  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        'marketplace_ids',
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'marketplace_ids.py',
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    path = _SCRIPTS / 'amazon-listing' / 'scripts' / name
+    hosts = _inline_dict(path, '_HOST_MARKETPLACES')
+    countries = _inline_dict(path, '_COUNTRY_HOSTS')
+    for cc, mkt in mod.MARKETPLACE_IDS.items():
+        assert cc in countries, f'{name}: no host for {cc}'
+        assert hosts[countries[cc]] == mkt, f'{name}: {cc} resolves wrong'
+    assert set(hosts.values()) == set(mod.MARKETPLACE_IDS.values())
+
+
+def test_verify_by_names_a_path_that_exists_in_a_task_workspace():
+    """verify_by is followed from the task workspace, where the skill is
+    under .claude/skills/ -- a bare `scripts/…` path fails before the
+    helper runs."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    verify = skill[skill.index('verify_by:') : skill.index('\n---', 1)]
+    rel = '.claude/skills/amazon-listing/scripts/bh_listing_status.py'
+    assert rel in verify
+    assert (_SCRIPTS / rel.split('.claude/skills/', 1)[1]).is_file()

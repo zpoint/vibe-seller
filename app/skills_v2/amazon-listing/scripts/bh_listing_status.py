@@ -46,16 +46,25 @@ _WAIT = int(os.environ.get('INV_WAIT', '20'))
 
 # Domain / country -> marketplace id. Public platform constants, inline
 # because this script is fed to browser-use on stdin and cannot import
-# its siblings (same table as bh_upload_flatfile).
-_MARKETPLACES = {
+# its siblings. It MUST match scripts/marketplace_ids.py (and the same
+# tables in bh_upload_flatfile) -- a test holds all three together, since
+# a shorter copy here once refused every marketplace it left out.
+_HOST_MARKETPLACES = {
     'com': 'ATVPDKIKX0DER',
     'ca': 'A2EUQ1WTGCTBG2',
     'com.mx': 'A1AM78C64UM0Y8',
+    'com.br': 'A2Q3Y263D00KWC',
     'co.uk': 'A1F83G8C2ARO7P',
     'de': 'A1PA6795UKMFR9',
     'fr': 'A13V1IB3VIYZZH',
     'it': 'APJ6JRA9NG5V4',
     'es': 'A1RKKUPIHCS9HS',
+    'nl': 'A1805IZSGTT6HS',
+    'se': 'A2NODRKZP88ZB9',
+    'pl': 'A1C3SOZRARQ6R3',
+    'com.be': 'AMEN7PMS3EDWL',
+    'com.tr': 'A33AVAJ2PDY3EV',
+    'ie': 'A28R8C7NBKEWEA',
     'ae': 'A2VIGQ35RCS4UG',
     'sa': 'A17E79C6D8DWNP',
     'eg': 'ARBP9OOSHTCHU',
@@ -64,16 +73,23 @@ _MARKETPLACES = {
     'com.au': 'A39IBJ37TRP1C6',
     'sg': 'A19VAU5U5O7RUS',
 }
-_COUNTRY_TLD = {
+_COUNTRY_HOSTS = {
     'US': 'com',
     'CA': 'ca',
     'MX': 'com.mx',
+    'BR': 'com.br',
     'UK': 'co.uk',
     'GB': 'co.uk',
     'DE': 'de',
     'FR': 'fr',
     'IT': 'it',
     'ES': 'es',
+    'NL': 'nl',
+    'SE': 'se',
+    'PL': 'pl',
+    'BE': 'com.be',
+    'TR': 'com.tr',
+    'IE': 'ie',
     'AE': 'ae',
     'SA': 'sa',
     'EG': 'eg',
@@ -96,10 +112,10 @@ def _finish(reason=None):
 def _intended():
     want = (os.environ.get('SC_MARKETPLACE') or '').strip()
     if want:
-        tld = _COUNTRY_TLD.get(want.upper())
-        return _MARKETPLACES[tld] if tld else want.upper()
+        tld = _COUNTRY_HOSTS.get(want.upper())
+        return _HOST_MARKETPLACES[tld] if tld else want.upper()
     tail = HOST.split('amazon.', 1)[-1] if 'amazon.' in HOST else ''
-    return _MARKETPLACES.get(tail.lower())
+    return _HOST_MARKETPLACES.get(tail.lower())
 
 
 # Every [data-sku] row on the page: exact SKU, the ASIN-shaped texts in
