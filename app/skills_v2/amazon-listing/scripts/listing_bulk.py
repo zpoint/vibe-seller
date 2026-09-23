@@ -122,6 +122,7 @@ from listing_schema import (  # noqa: E402, F401
     row_fields as _row_fields,
     stray_row_keys as _stray_row_keys,
     valid_value_case as _valid_value_case,
+    wire_value as _wire_value,
 )
 from marketplace_ids import (  # noqa: E402,F401
     COUNTRY_ALIASES as _COUNTRY_ALIASES,
@@ -445,15 +446,13 @@ def cmd_fill(args):
             if fname not in cols:
                 unknown_fields.add(fname)
                 continue
-            # Canonicalise to the template's exact-case enum token
-            # (some fields are case-strict on Amazon's side).
-            fcase = case.get(fname, {})
-            key = str(fval).strip().lower()
-            canon = fcase.get(key)
-            if not canon and 'country' in fname and key in _COUNTRY_ALIASES:
-                # ISO-2 / common alias -> the field's valid full name.
-                canon = fcase.get(_COUNTRY_ALIASES[key])
-            target[cols[fname][0] - 1].value = canon if canon else fval
+            # Exact-case enum token (some fields are case-strict); a
+            # `label (id)` token is written as its bare id.
+            target[cols[fname][0] - 1].value = _wire_value(
+                fval,
+                case.get(fname, {}),
+                _COUNTRY_ALIASES if 'country' in fname else None,
+            )
 
     wb.save(args.out)
     # The upload artefact is a tab-delimited .txt, NOT this .xlsm (an

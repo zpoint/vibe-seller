@@ -702,9 +702,44 @@ def enum_violation(fields, valid):
     """
     for fname, fval in fields.items():
         allowed = valid.get(fname)
-        if allowed and str(fval).strip().lower() not in allowed:
-            return fname, fval, allowed
+        low = str(fval).strip().lower()
+        if not allowed or low in allowed:
+            continue
+        # A bare id is the WIRE form of a `label (id)` entry — valid.
+        if low.isdigit() and any(id_tail(a) == low for a in allowed):
+            continue
+        return fname, fval, allowed
     return None
+
+
+# Some valid-value sheets list a DISPLAY label with the id in brackets —
+# `recommended_browse_nodes` reads `>  >  >  >  >  (16667806031)` — while
+# the feed wants the bare id and rejects the label (`\A[0-9]*\z`, max 15
+# chars). Observed live: the label form failed a whole feed, and the
+# fatal enum check then rejected the correct bare id. Both directions are
+# settled here: the bare id validates, and the label is written as the id.
+_ID_TAIL_RE = re.compile(r'\((\d{4,})\)\s*$')
+
+
+def id_tail(value):
+    """`label (123456)` -> '123456'; None when there is no such tail."""
+    m = _ID_TAIL_RE.search(str(value or ''))
+    return m.group(1) if m else None
+
+
+def wire_value(fval, fcase, aliases=None):
+    """The value to WRITE: the template's exact-case token, else the input.
+
+    A `label (id)` token collapses to the bare id, because that is what
+    the feed accepts. `aliases` maps a common input (an ISO country code)
+    to the token the valid set actually holds.
+    """
+    key = str(fval).strip().lower()
+    canon = fcase.get(key)
+    if not canon and aliases and key in aliases:
+        canon = fcase.get(aliases[key])
+    out = canon if canon else fval
+    return id_tail(out) or out
 
 
 _COUNT_LABELS = (

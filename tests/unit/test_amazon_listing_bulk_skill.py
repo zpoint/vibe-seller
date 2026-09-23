@@ -2106,3 +2106,28 @@ def test_parse_feedback_is_quiet_when_every_sku_landed(tmp_path, capsys):
     )
     _run(['parse-feedback', str(report), '--batch-id', '100000000002'])
     assert 'SHORTFALL' not in capsys.readouterr().out
+
+
+def test_label_id_valid_values_accept_and_write_the_bare_id():
+    """Some valid-value sheets list `label (id)`; the feed wants the id.
+
+    `recommended_browse_nodes` reads `>  >  >  >  >  (16667806031)` in the
+    sheet, and Amazon rejects that form (`\\A[0-9]*\\z`). Observed live:
+    the label failed a whole feed, and the fatal enum check then refused
+    the correct bare id. Both must resolve to the id.
+    """
+    schema_mod = sys.modules['listing_schema']
+    label = '>  >  >  >  >  (100000000001)'
+    valid = {'recommended_browse_nodes': {label.lower()}}
+    assert (
+        schema_mod.enum_violation(
+            {'recommended_browse_nodes': '100000000001'}, valid
+        )
+        is None
+    )
+    assert (
+        schema_mod.wire_value(label, {label.lower(): label}) == '100000000001'
+    )
+    assert schema_mod.wire_value('100000000001', {}) == '100000000001'
+    # A value that genuinely is not in the set is still refused.
+    assert schema_mod.enum_violation({'recommended_browse_nodes': '999'}, valid)
