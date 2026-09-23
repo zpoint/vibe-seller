@@ -530,6 +530,8 @@ KNOWN_ROW_KEYS = frozenset({
     'sku',
     'operation',
     'asin',
+    'external_product_id',
+    'external_product_id_type',
     'parent_sku',
     'parentage',
     'variation_theme',
@@ -594,6 +596,15 @@ def row_fields(spec_row, top, schema):
     if spec_row.get('asin'):
         put('product_id', spec_row['asin'])
         put('product_id_type', 'asin', overwrite=False)
+    # The flat-file's own names work at row level too. The mint guard's
+    # error suggested exactly this spelling, and it was silently ignored
+    # unless nested under `fields` -- an agent spent six steps finding out.
+    put('product_id', spec_row.get('external_product_id'), overwrite=False)
+    put(
+        'product_id_type',
+        spec_row.get('external_product_id_type'),
+        overwrite=False,
+    )
     # Offer shorthands (`our_price`/`price`/`quantity`) belong in `fields`,
     # but the skill tells the agent to put "a bare our_price/quantity on
     # each child" -- naturally read as a ROW-LEVEL key. Fold those from the

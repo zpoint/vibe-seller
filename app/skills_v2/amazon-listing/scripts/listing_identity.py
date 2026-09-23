@@ -93,7 +93,8 @@ def mint_guard(rows, spec, schema):
         '  * RELISTING an existing product (other marketplace, same SKU) '
         "-> read each SKU's current ASIN off Manage Inventory or the "
         'All-Listings report and pin it on the row: "asin": "B0EXAMPLE1" '
-        '(or external_product_id + external_product_id_type: asin).\n'
+        '(or row-level external_product_id + external_product_id_type: '
+        'asin).\n'
         '  * GENUINELY NEW to this account (no ASIN anywhere) -> declare '
         'it: "{key}": true on the spec (covers every row) or on the row.\n'
         'Only external_product_id_type=asin counts as a pin. A UPC / '

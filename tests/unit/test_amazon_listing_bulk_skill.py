@@ -2239,3 +2239,30 @@ def test_override_silences_only_the_named_field(template, tmp_path, capsys):
     err = capsys.readouterr().err
     assert 'PurpleHaze' not in err  # vouched for
     assert 'NotARelation' in err  # still reported
+
+
+def test_row_level_external_product_id_counts_as_a_pin(template, tmp_path):
+    """The spelling the mint guard's own error suggested must work.
+
+    `external_product_id` + `external_product_id_type` at ROW level were
+    silently ignored (only accepted inside `fields`), so an agent that
+    followed the error message was told again that it had not pinned —
+    six steps to discover the friendly `asin` key instead.
+    """
+    spec = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'K-1',
+                'operation': 'create',
+                'external_product_id': 'B0EXAMPLE1',
+                'external_product_id_type': 'asin',
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = _read_rows(out)[0]
+    assert row['external_product_id'] == 'B0EXAMPLE1'
+    assert row['external_product_id_type'] == 'asin'
