@@ -48,6 +48,21 @@ sys.modules['listing_bulk'] = listing_bulk
 _spec.loader.exec_module(listing_bulk)
 
 
+@pytest.fixture(autouse=True)
+def _gate_artifacts_stay_in_tmp(tmp_path, monkeypatch):
+    """No test may write a gate artifact outside its own tmp dir.
+
+    `parse-feedback` writes its verdict to the task workspace AND the
+    cwd, and `fill` can file into `store-data/` under the cwd. A test
+    that forgot to chdir left verdict files in the repo root -- and run
+    from inside a vibe-seller task (VIBE_TASK_ID set) it would write into
+    that real task's workspace, where the completion gate reads them.
+    """
+    for var in ('VIBE_TASK_ID', 'VIBE_HOME', 'LISTING_SPEC_LIBRARY'):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+
 # Field API names in column order. Localised labels sit one row above
 # them (Chinese here) — the tool must ignore the labels entirely.
 FIELDS = [
