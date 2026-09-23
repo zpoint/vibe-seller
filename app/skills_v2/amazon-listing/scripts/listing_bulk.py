@@ -96,6 +96,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # file stays within the line cap. Public names there; alias to the
 # `_`-prefixed internal names used here (and re-exported for tests).
 from listing_identity import mint_guard as _mint_guard  # noqa: E402
+from listing_library import after_fill, report_saved  # noqa: E402
 from listing_schema import (  # noqa: E402, F401
     DEFN_SHEET,
     DROPDOWN_SHEET,
@@ -460,6 +461,7 @@ def cmd_fill(args):
     # to the .xlsm so the caller uploads the .txt.
     txt_path = args.out.rsplit('.', 1)[0] + '.txt'
     _export_tsv(ws, txt_path)
+    after_fill(args.out, spec, mkt_id)
 
     for w in warnings:
         print(f'warning: {w}', file=sys.stderr)
@@ -637,6 +639,7 @@ def cmd_parse_feedback(args):
     one. A parent SKU's errors block its children -- fix the parent first.
     """
     comment_errs = _report_comment_errors(args.file)
+    rows = list(_iter_report_rows(args.file))
     if comment_errs:
         n_err = sum(1 for _s in comment_errs if _s[2] == 'error')
         n_warn = sum(1 for _s in comment_errs if _s[2] == 'warning')
@@ -646,28 +649,25 @@ def cmd_parse_feedback(args):
             f'\n{n_err} error(s), {n_warn} warning(s) across '
             f'{len({s for s, *_ in comment_errs})} SKU(s).'
         )
+        # REAL reports take this path (cell comments): check + save here.
+        n_err = _apply_shortfall(rows, n_err)
         _write_verdict(
             getattr(args, 'batch_id', None),
             n_err,
             n_warn,
             [m for _s, _f, sev, m in comment_errs if sev == 'error'],
         )
+        report_saved(getattr(args, 'batch_id', None))
         if n_err:
             print(
-                'NOT DONE. Fix ALL errors (parent first) and re-upload. A '
-                'SKU with any error is either not created OR created but '
-                'flagged "Action required" (SUCCESS OTHER) -- it shows up in '
-                'inventory yet the error is UNRESOLVED. Inventory presence '
-                'is NOT "done"; only 18320 (missing main image) is a legit '
-                'deferral. Re-run parse-feedback on the new report until the '
-                'sole remaining error is 18320.'
+                'NOT DONE. Fix ALL errors (parent first) and re-upload. A SKU '
+                'with any error is not created, or created but flagged '
+                '"Action required" -- in inventory, yet UNRESOLVED. Only '
+                '18320 (missing main image) is a legit deferral.'
             )
-            # Non-zero exit so a caller/CI sees the feed had blocking
-            # errors -- matches the table-scan path below.
-            sys.exit(1)
+            sys.exit(1)  # non-zero, like the table-scan path below
         return
 
-    rows = list(_iter_report_rows(args.file))
     if not rows:
         raise SystemExit('error: empty report')
 
@@ -751,6 +751,7 @@ def cmd_parse_feedback(args):
         n_warn,
         [m for _s, _f, m in cell_errs] if cell_errs else [],
     )
+    report_saved(getattr(args, 'batch_id', None))
     if n_err:
         sys.exit(1)
 

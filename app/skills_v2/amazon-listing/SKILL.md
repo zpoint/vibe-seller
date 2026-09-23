@@ -96,6 +96,28 @@ Two references, load what the task needs:
 > `review.criteria` / `review.verify_by` and converge to `Status: ok`
 > before `set_task_result`.
 
+## Start from the last spec Amazon ACCEPTED — never from scratch
+
+Before writing a spec, look in `store-data/<slug>/listing-specs/` for
+`<product_type>__<CC>.json`. It is the spec behind the last batch of this
+category that **Amazon accepted** on that marketplace — saved
+automatically by `parse-feedback --batch-id` at the moment the verdict
+came back clean. Copy its `spec`, change only what this listing changes
+(SKUs, ASIN pins, copy, price), and keep every other field as it is.
+
+This is not a nicety. The fields Amazon enforces on a create are flagged
+**"Conditionally Required"** in the template (53 in one apparel
+template), so nothing warns about them locally — Amazon rejects them one
+feed at a time, 30–60 minutes per round. Two days running, the first
+create of a known product failed on exactly the fields the previous
+run's accepted spec already carried (style, special size, outer
+material, list price, package-dimension units), because that spec had
+died with its task. `fill` now names every field the accepted spec set
+that yours leaves empty; treat that warning as the rejection you have
+not waited for yet. No entry for your marketplace? Another
+marketplace's entry for the same product type is the next-best
+reference — the attribute set is the category's, not the storefront's.
+
 ## Work it like a human: upload → read the report → fix → repeat
 
 The template, its required fields, valid values, and even the upload

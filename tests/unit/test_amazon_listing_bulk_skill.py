@@ -2131,3 +2131,108 @@ def test_label_id_valid_values_accept_and_write_the_bare_id():
     assert schema_mod.wire_value('100000000001', {}) == '100000000001'
     # A value that genuinely is not in the set is still refused.
     assert schema_mod.enum_violation({'recommended_browse_nodes': '999'}, valid)
+
+
+def _real_report(path, processed, successful, comment):
+    """A report shaped like Amazon's: a summary tab + commented Template."""
+    wb = openpyxl.Workbook()
+    summary = wb.active
+    summary.title = 'Feed Processing Summary'
+    summary.append(['Number of SKUs processed', '', processed])
+    summary.append(['Number of SKUs successful', '', successful])
+    ws = wb.create_sheet(listing_bulk.TEMPLATE_SHEET)
+    ws.append(['signature'])
+    ws.append(['Seller SKU', 'Material'])
+    ws.append(['item_sku', 'material_type'])
+    ws.append(['W-1', 'nylon'])
+    ws.cell(row=4, column=2).comment = Comment(comment, 'Amazon')
+    wb.save(str(path))
+    return str(path)
+
+
+def test_shortfall_is_caught_on_the_real_report_path(tmp_path, capsys):
+    """The path a real report takes — cell comments — must check it too.
+
+    That path returned early, before the successful-vs-processed check
+    ran, so a 2/4 whose failures Amazon labels WARNING still verdicted
+    clean. The earlier test used a text report and never reached it.
+    """
+    report = _real_report(
+        tmp_path / 'r.xlsx', 4, 2, 'WARNING : missing few key attributes'
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000003'])
+    assert exc.value.code == 1
+    assert 'SHORTFALL' in capsys.readouterr().out
+    verdict = json.loads(
+        Path('BATCH_100000000003_VERDICT.json').read_text(encoding='utf-8')
+    )
+    assert verdict['non_image_errors'] >= 2
+
+
+def test_clean_batch_files_its_spec_and_the_next_fill_is_told(
+    template, tmp_path, monkeypatch, capsys
+):
+    """The lesson is kept at the moment it is proven, and used next time.
+
+    Every first create of a known product failed on fields an earlier
+    run had already worked out, because the spec that passed died with
+    its task. A clean verdict now files that spec; a later fill of the
+    same category is told which of its fields it has dropped.
+    """
+    monkeypatch.chdir(tmp_path)
+    lib = tmp_path / 'lib'
+    monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
+    good = {
+        'product_type': 'socks',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'K-1',
+                'operation': 'create',
+                'fields': {'item_name': 'x', 'material_type': 'nylon'},
+            }
+        ],
+    }
+    out = tmp_path / 'good.xlsx'
+    _run(['fill', template, '--spec', _spec(tmp_path, good), '--out', str(out)])
+    # The upload helper's marker points at the .txt fill wrote.
+    Path('UPLOAD_BATCH_100000000004.json').write_text(
+        json.dumps({'file': str(out.with_suffix('.txt'))}), encoding='utf-8'
+    )
+    report = _real_report(tmp_path / 'r.xlsx', 1, 1, 'WARNING : info only')
+    _run(['parse-feedback', report, '--batch-id', '100000000004'])
+    saved = list(lib.glob('socks__*.json'))
+    assert saved, 'clean verdict did not file the accepted spec'
+    capsys.readouterr()
+
+    # Next listing of the same category forgets material_type.
+    later = dict(good, rows=[dict(good['rows'][0], fields={'item_name': 'y'})])
+    later_spec = tmp_path / 'later.json'
+    later_spec.write_text(json.dumps(later), encoding='utf-8')
+    _run([
+        'fill',
+        template,
+        '--spec',
+        str(later_spec),
+        '--out',
+        str(tmp_path / 'later.xlsx'),
+    ])
+    err = capsys.readouterr().err
+    assert 'ACCEPTED' in err and 'material_type' in err
+
+
+def test_failed_batch_files_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    lib = tmp_path / 'lib'
+    monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
+    Path('UPLOAD_BATCH_100000000005.json').write_text(
+        json.dumps({'file': str(tmp_path / 'x.txt')}), encoding='utf-8'
+    )
+    report = _real_report(
+        tmp_path / 'r.xlsx', 4, 0, 'ERROR : Style is required but missing'
+    )
+    with pytest.raises(SystemExit):
+        _run(['parse-feedback', report, '--batch-id', '100000000005'])
+    assert not lib.exists() or not list(lib.iterdir())
