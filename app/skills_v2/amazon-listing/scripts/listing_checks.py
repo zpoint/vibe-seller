@@ -231,6 +231,11 @@ def report_outcome(comment_errs, n_err):
 
 
 _BATCH_TAG_RE = re.compile(r'__batch(\d+)(?=\.[A-Za-z]+$)')
+# Amazon's own report name: `<upload stem>-processing-summary.<ext>`,
+# with Chrome's ` (1)` on a repeat download and our `__batch<id>` tag.
+_REPORT_NAME_RE = re.compile(
+    r'^(?P<stem>.+?)-processing-summary(?: \(\d+\))?(?:__batch\d+)?$'
+)
 
 
 def report_batch_problem(report_path, batch_id, marker_dirs=('.',)):
@@ -238,10 +243,13 @@ def report_batch_problem(report_path, batch_id, marker_dirs=('.',)):
 
     A processing report names no batch, so nothing inside it can be
     checked. What can be checked: the batch tag `bh_fetch_report` puts in
-    the filename, and the time -- a report downloaded BEFORE the batch
-    was uploaded is some earlier batch's. Either one is proof, and a
-    verdict written from the wrong report is worse than none: it once
-    recorded six errors against a batch that went through 4/4 clean.
+    the filename; the NAME -- Amazon names a report after its upload
+    file, and the batch's marker records that file; and the time -- a
+    report downloaded BEFORE the batch was uploaded is some earlier
+    batch's. Each one is proof, and a verdict written from the wrong
+    report is worse than none: it once recorded six errors against a
+    batch that went through 4/4 clean, and once verdicted a batch from a
+    report of the previous night's upload, naming SKUs since deleted.
     Returns a warning string (prefixed `warning:`) when it merely cannot
     confirm, and an `error:` string when it can prove the mismatch.
     """
@@ -265,9 +273,27 @@ def report_batch_problem(report_path, batch_id, marker_dirs=('.',)):
     )
     try:
         with open(marker, encoding='utf-8') as fh:
-            uploaded = float(json.load(fh).get('uploaded_at') or 0)
+            meta = json.load(fh)
+    except (OSError, ValueError):
+        meta = {}
+    named = _REPORT_NAME_RE.match(os.path.splitext(name)[0])
+    uploaded_file = meta.get('file') if isinstance(meta, dict) else None
+    if named and uploaded_file:
+        # POSIX or Windows form (a winchrome marker records `C:\…`).
+        fname = re.split(r'[\\/]', str(uploaded_file))[-1]
+        if named.group('stem') != os.path.splitext(fname)[0]:
+            return (
+                f'error: {name} is the report for an upload named '
+                f'`{named.group("stem")}`, but batch {batch_id} uploaded '
+                f'`{fname}` -- Amazon names each report '
+                "after its upload file, so this is ANOTHER upload's report. "
+                f"Fetch batch {batch_id}'s own report (bh_fetch_report "
+                f'BATCH_ID={batch_id}) and parse that.'
+            )
+    try:
+        uploaded = float(meta.get('uploaded_at') or 0)
         fetched = os.path.getmtime(report_path)
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, AttributeError):
         uploaded = fetched = 0
     if uploaded and fetched and fetched < uploaded:
         return (

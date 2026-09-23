@@ -2372,12 +2372,69 @@ def test_report_downloaded_before_the_upload_is_refused(tmp_path, monkeypatch):
 
     _os.utime(report, (old, old))
     Path('UPLOAD_BATCH_100000000013.json').write_text(
-        json.dumps({'file': 'x.txt', 'uploaded_at': old + 300}),  # ...than
-        encoding='utf-8',  # the batch it claims to describe was uploaded
-    )
+        json.dumps({'file': 'create-sa.txt', 'uploaded_at': old + 300}),
+        encoding='utf-8',  # ...than the batch it claims to describe was
+    )  # uploaded
     with pytest.raises(SystemExit) as exc:
         _run(['parse-feedback', report, '--batch-id', '100000000013'])
     assert 'before batch 100000000013 was' in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    'report_name',
+    [
+        'widget-006-sa-v4-processing-summary.xlsx',
+        'widget-006-sa-v4-processing-summary (1).xlsx',
+        'widget-006-sa-v4-processing-summary__batch100000000015.xlsx',
+    ],
+)
+def test_report_of_another_upload_file_is_refused(
+    tmp_path, monkeypatch, report_name
+):
+    """The marker names the upload file; the report is named after it.
+
+    Observed live: a batch that uploaded `create-sa.txt` was verdicted
+    from `<earlier-file>-v4-processing-summary` -- the previous night's
+    report, listing SKUs deleted since. It carried no batch tag and the
+    marker no upload time, so neither check could fire, yet the NAME
+    proved it belonged to another upload the whole time.
+    """
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / report_name,
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    Path('UPLOAD_BATCH_100000000015.json').write_text(
+        json.dumps({'file': '/dl/acme/create-sa.txt'}), encoding='utf-8'
+    )
+    with pytest.raises(SystemExit) as exc:
+        _run(['parse-feedback', report, '--batch-id', '100000000015'])
+    assert 'ANOTHER upload' in str(exc.value)
+    assert not Path('BATCH_100000000015_VERDICT.json').exists()
+
+
+@pytest.mark.parametrize(
+    'uploaded',
+    ['/dl/acme/create-sa.txt', r'C:\Users\x\downloads\acme\create-sa.txt'],
+)
+def test_report_of_the_same_upload_file_passes_the_name_check(
+    tmp_path, monkeypatch, capsys, uploaded
+):
+    monkeypatch.chdir(tmp_path)
+    report = _status_report(
+        tmp_path / 'create-sa-processing-summary (2).xlsx',
+        {'C-1': 'Your changes were applied without any errors'},
+        processed=1,
+        successful=1,
+    )
+    Path('UPLOAD_BATCH_100000000016.json').write_text(
+        json.dumps({'file': uploaded}), encoding='utf-8'
+    )
+    _run(['parse-feedback', report, '--batch-id', '100000000016'])
+    assert 'ANOTHER upload' not in capsys.readouterr().err
+    assert Path('BATCH_100000000016_VERDICT.json').exists()
 
 
 def test_untagged_report_only_warns(tmp_path, monkeypatch, capsys):
@@ -2428,7 +2485,7 @@ def test_agent_working_from_a_scratch_dir_still_feeds_the_gate(
         json.dumps({'file': str(out.with_suffix('.txt'))}), encoding='utf-8'
     )
     report = _status_report(
-        scratch / 'r__batch100000000021.xlsx',
+        scratch / 'good-processing-summary__batch100000000021.xlsx',
         {'K-1': 'Your changes were applied without any errors'},
         processed=1,
         successful=1,
