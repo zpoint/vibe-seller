@@ -37,11 +37,15 @@ review:
     - "*.xlsm"
     - "LISTING_*.md"
   verify_by: |
-    Open Manage Inventory ON THE TARGET MARKETPLACE
-    (`sellercentral.amazon.<target-tld>/skucentral?mSku=<sku>`, no
-    &condition=New) for each attempted SKU and confirm it exists LIVE on
-    that marketplace with the intended content and a real ASIN, and that
-    its offer/price/stock show on that marketplace's Pricing view.
+    Read Manage Inventory ON THE TARGET MARKETPLACE with
+    `SKUS=<every attempted SKU, comma-separated>
+    SC_HOST=sellercentral.amazon.<target-tld> browser-use <
+    scripts/bh_listing_status.py` and confirm each SKU is in `rows` with
+    a real ASIN (the one intended, for a pinned row) and nothing
+    attempted is in `missing`; it refuses unless the page's `ue_mid` is
+    that marketplace. Do NOT verify on `skucentral?mSku=` -- it renders
+    an empty body in this console (one run spent 19 calls on it). Then
+    confirm the offer/price/stock on that marketplace's Pricing view.
     FIRST, on every page you verify from, read WHICH marketplace the
     page is actually displaying: the header account/marketplace
     switcher label (store name + country/flag next to Settings) is the
@@ -174,10 +178,14 @@ replaces reading the actual report.
 The report's "records processed / 0 errors" means the **feed was
 accepted**, not that a live listing exists. A record *with* errors can
 still create an incomplete stub; a clean feed can leave a suppressed
-listing. **Always confirm on Manage Inventory** (or
-`skucentral?mSku=<sku>` **without** `&condition=New` — that param
-false-negates incomplete listings). Confirm the SKU has an ASIN, and for
-a family that the parent shows **"Variations (N)"**.
+listing. **Always confirm on Manage Inventory, with
+`bh_listing_status.py`** (step 4 of the helper block below): it returns
+each SKU's ASIN off the page's own `div[data-sku]` rows, proves the
+marketplace by `ue_mid`, and names the SKUs that are not there. Confirm
+every SKU has the ASIN you meant, and for a family that the parent row
+(the one with `offer_cell: false`) carries the family's parent ASIN.
+`skucentral?mSku=` is not a verification surface: it renders empty in
+this console.
 
 > **"Missing Information / ASIN -" is usually NOT a failure — don't
 > thrash.** Two benign causes, and re-uploading fixes neither:
@@ -553,6 +561,13 @@ browser-use < $S/bh_fetch_report.py
 python3 $S/listing_bulk.py parse-feedback <report> --batch-id <id>
 # ^ run FROM the task workspace root: the verdict JSON is written to
 #   the current directory, which is where the completion gate reads it.
+
+# 4. Verify what Manage Inventory now says each SKU IS, on THAT
+#    marketplace: exact SKU -> ASIN (+ which SKUs are missing), read from
+#    the page's own rows, refused unless ue_mid is the one you meant.
+#    One call for the whole family; don't hand-scrape inventory pages:
+SKUS=<parent>,<child-1>,<child-2> SC_HOST=sellercentral.amazon.<tld> \
+browser-use < $S/bh_listing_status.py
 ```
 
 The helpers encode the mechanics (decoy input, region stamp, two-click

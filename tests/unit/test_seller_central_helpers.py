@@ -245,3 +245,48 @@ def test_fetched_report_is_tagged_with_its_batch():
         _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
     ).read_text(encoding='utf-8')
     assert "'uploaded_at': time.time()" in up, 'marker has no upload time'
+
+
+def _listing_status_src():
+    return (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_listing_status.py'
+    ).read_text(encoding='utf-8')
+
+
+def test_listing_status_proves_the_marketplace_before_reporting_rows():
+    """A `.ae` URL renders SA's inventory under an SA session.
+
+    So no row may be reported until the page's `ue_mid` equals the
+    marketplace the caller meant -- and an unreadable `ue_mid` refuses
+    too, exactly like the upload helper.
+    """
+    src = _listing_status_src()
+    assert 'window.ue_mid' in src
+    assert 'MARKETPLACE MISMATCH' in src
+    assert 'if not live:' in src, 'no refusal when ue_mid is unreadable'
+    report = src.index("out['rows'] = ")
+    assert src.index('MARKETPLACE MISMATCH') < report
+    assert src.index('if not live:') < report
+
+
+def test_listing_status_reads_the_page_by_structure():
+    """Rows are the page's own `data-sku` containers, never page text."""
+    src = _listing_status_src()
+    assert "querySelectorAll('[data-sku]')" in src
+    # The dead surface is named only to say why it is not used.
+    navigations = re.findall(r'new_tab\(\s*f?[\'"]([^\'"]*)', src)
+    assert navigations and not any('skucentral' in n for n in navigations)
+
+
+def test_listing_skill_verifies_through_the_helper():
+    """The DoD's verify_by is what the reviewer follows -- it must name
+    the helper, not the skucentral page that renders empty (19 calls in
+    one live run went to it)."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    verify = skill[skill.index('verify_by:') : skill.index('\n---', 1)]
+    assert 'bh_listing_status.py' in verify
+    assert 'Open Manage Inventory ON THE TARGET MARKETPLACE' not in verify
+    manifest = (_SCRIPTS / 'MANIFEST.txt').read_text(encoding='utf-8')
+    assert 'amazon-listing/scripts/bh_listing_status.py' in manifest
