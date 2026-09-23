@@ -245,3 +245,128 @@ def test_fetched_report_is_tagged_with_its_batch():
         _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
     ).read_text(encoding='utf-8')
     assert "'uploaded_at': time.time()" in up, 'marker has no upload time'
+
+
+def _listing_status_src():
+    return (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_listing_status.py'
+    ).read_text(encoding='utf-8')
+
+
+def test_listing_status_proves_the_marketplace_before_reporting_rows():
+    """A `.ae` URL renders SA's inventory under an SA session.
+
+    So no row may be reported until the page's `ue_mid` equals the
+    marketplace the caller meant -- and an unreadable `ue_mid` refuses
+    too, exactly like the upload helper.
+    """
+    src = _listing_status_src()
+    assert 'window.ue_mid' in src
+    assert 'MARKETPLACE MISMATCH' in src
+    assert 'if not live:' in src, 'no refusal when ue_mid is unreadable'
+    report = src.index("out['rows'] = ")
+    assert src.index('MARKETPLACE MISMATCH') < report
+    assert src.index('if not live:') < report
+
+
+def test_listing_status_reads_the_page_by_structure():
+    """Rows are the page's own `data-sku` containers, never page text."""
+    src = _listing_status_src()
+    assert "querySelectorAll('[data-sku]')" in src
+    # The dead surface is named only to say why it is not used.
+    navigations = re.findall(r'new_tab\(\s*f?[\'"]([^\'"]*)', src)
+    assert navigations and not any('skucentral' in n for n in navigations)
+
+
+def test_listing_skill_verifies_through_the_helper():
+    """The DoD's verify_by is what the reviewer follows -- it must name
+    the helper, not the skucentral page that renders empty (19 calls in
+    one live run went to it)."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    verify = skill[skill.index('verify_by:') : skill.index('\n---', 1)]
+    assert 'bh_listing_status.py' in verify
+    assert 'Open Manage Inventory ON THE TARGET MARKETPLACE' not in verify
+    manifest = (_SCRIPTS / 'MANIFEST.txt').read_text(encoding='utf-8')
+    assert 'amazon-listing/scripts/bh_listing_status.py' in manifest
+
+
+def test_relist_reads_current_asins_through_the_helper():
+    """Discovery, not just verification: a relist agent that had to learn
+    a family's SKU -> ASIN by hand thrashed on the collapsed parent row
+    and then used ASINs remembered from an earlier task."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    step = skill[skill.index('1. **Get the source ASINs') :]
+    step = step[: step.index('\n2. ')]
+    assert 'bh_listing_status.py' in step
+    assert 'TARGET' in step, 'the target side must be read before planning'
+
+
+def _inline_dict(path, name):
+    """A module-level dict literal out of a stdin-fed helper's source."""
+    import ast  # noqa: PLC0415 - only this check parses sources
+
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            getattr(t, 'id', None) == name for t in node.targets
+        ):
+            return ast.literal_eval(node.value)
+    raise AssertionError(f'{path.name} has no {name} table')
+
+
+@pytest.mark.parametrize(
+    'name', ['bh_upload_flatfile.py', 'bh_listing_status.py']
+)
+def test_helper_marketplace_tables_match_the_canonical_map(name):
+    """The helpers cannot import marketplace_ids, so each carries a copy.
+
+    A shorter copy in the status helper refused every marketplace it left
+    out (.com.br, .nl, .se, .pl, .com.be, .com.tr, .ie) before reading a
+    single row. Every country the canonical map knows must resolve, via
+    the helper's own two tables, to the canonical id.
+    """
+    import importlib.util  # noqa: PLC0415
+
+    spec = importlib.util.spec_from_file_location(
+        'marketplace_ids',
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'marketplace_ids.py',
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    path = _SCRIPTS / 'amazon-listing' / 'scripts' / name
+    hosts = _inline_dict(path, '_HOST_MARKETPLACES')
+    countries = _inline_dict(path, '_COUNTRY_HOSTS')
+    for cc, mkt in mod.MARKETPLACE_IDS.items():
+        assert cc in countries, f'{name}: no host for {cc}'
+        assert hosts[countries[cc]] == mkt, f'{name}: {cc} resolves wrong'
+    assert set(hosts.values()) == set(mod.MARKETPLACE_IDS.values())
+
+
+def test_verify_by_names_a_path_that_exists_in_a_task_workspace():
+    """verify_by is followed from the task workspace, where the skill is
+    under .claude/skills/ -- a bare `scripts/…` path fails before the
+    helper runs."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    verify = skill[skill.index('verify_by:') : skill.index('\n---', 1)]
+    rel = '.claude/skills/amazon-listing/scripts/bh_listing_status.py'
+    assert rel in verify
+    assert (_SCRIPTS / rel.split('.claude/skills/', 1)[1]).is_file()
+
+
+def test_skill_sequences_a_fresh_mint_across_two_marketplaces():
+    """'New ASINs' + 'same children on both sites' read as a conflict to
+    one agent, which re-pinned the family's OLD ASINs. The skill must
+    spell the sequence: mint on one, read what it minted, pin the other."""
+    skill = (_SCRIPTS / 'amazon-listing' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    sec = skill[skill.index('is not a\ncontradiction') :]
+    sec = sec[: sec.index('Make the match **proactively**')]
+    for needle in ('mint_new_asin', 'bh_listing_status.py', 'Never\nmint'):
+        assert needle in sec, needle

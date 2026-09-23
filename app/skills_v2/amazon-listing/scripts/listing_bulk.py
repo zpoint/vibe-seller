@@ -102,7 +102,10 @@ from listing_checks import (  # noqa: E402
     report_outcome as _report_outcome,
     wire_value as _wire_value,
 )
-from listing_identity import mint_guard as _mint_guard  # noqa: E402
+from listing_identity import (  # noqa: E402
+    delete_scope_guard as _delete_scope_guard,
+    mint_guard as _mint_guard,
+)
 from listing_library import (  # noqa: E402
     after_fill,
     gate_dirs,
@@ -337,7 +340,9 @@ def cmd_fill(args):
     # Undeclared new-ASIN mint: destructive on a unified account, and
     # invisible in the feed report (Amazon reports it as a clean create).
     fatal = fatal or _mint_guard(rows, spec, schema)
-    if fatal:
+    fatal = fatal or _delete_scope_guard(rows, spec, schema, template_ids)
+    if fatal:  # a refused fill leaves no file that looks like output
+        os.remove(args.out)
         raise SystemExit(fatal)
     if warn:
         print(warn, file=sys.stderr)

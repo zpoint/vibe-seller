@@ -30,6 +30,7 @@ amazon-listing/scripts/listing_checks.py
 amazon-listing/scripts/ocr_1688.py
 amazon-listing/scripts/bh_upload_flatfile.py
 amazon-listing/scripts/bh_fetch_report.py
+amazon-listing/scripts/bh_listing_status.py
 amazon-listing/scripts/bh_download_template.py
 amazon-listing/requirements.txt
 amazon-image-studio/SKILL.md

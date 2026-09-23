@@ -37,11 +37,16 @@ review:
     - "*.xlsm"
     - "LISTING_*.md"
   verify_by: |
-    Open Manage Inventory ON THE TARGET MARKETPLACE
-    (`sellercentral.amazon.<target-tld>/skucentral?mSku=<sku>`, no
-    &condition=New) for each attempted SKU and confirm it exists LIVE on
-    that marketplace with the intended content and a real ASIN, and that
-    its offer/price/stock show on that marketplace's Pricing view.
+    Read Manage Inventory ON THE TARGET MARKETPLACE with
+    `SKUS=<every attempted SKU, comma-separated>
+    SC_HOST=sellercentral.amazon.<target-tld> browser-use <
+    .claude/skills/amazon-listing/scripts/bh_listing_status.py` (run from
+    the task workspace) and confirm each SKU is in `rows` with
+    a real ASIN (the one intended, for a pinned row) and nothing
+    attempted is in `missing`; it refuses unless the page's `ue_mid` is
+    that marketplace. Do NOT verify on `skucentral?mSku=` -- it renders
+    an empty body in this console (one run spent 19 calls on it). Then
+    confirm the offer/price/stock on that marketplace's Pricing view.
     FIRST, on every page you verify from, read WHICH marketplace the
     page is actually displaying: the header account/marketplace
     switcher label (store name + country/flag next to Settings) is the
@@ -174,10 +179,14 @@ replaces reading the actual report.
 The report's "records processed / 0 errors" means the **feed was
 accepted**, not that a live listing exists. A record *with* errors can
 still create an incomplete stub; a clean feed can leave a suppressed
-listing. **Always confirm on Manage Inventory** (or
-`skucentral?mSku=<sku>` **without** `&condition=New` — that param
-false-negates incomplete listings). Confirm the SKU has an ASIN, and for
-a family that the parent shows **"Variations (N)"**.
+listing. **Always confirm on Manage Inventory, with
+`bh_listing_status.py`** (step 4 of the helper block below): it returns
+each SKU's ASIN off the page's own `div[data-sku]` rows, proves the
+marketplace by `ue_mid`, and names the SKUs that are not there. Confirm
+every SKU has the ASIN you meant, and for a family that the parent row
+(the one with `offer_cell: false`) carries the family's parent ASIN.
+`skucentral?mSku=` is not a verification surface: it renders empty in
+this console.
 
 > **"Missing Information / ASIN -" is usually NOT a failure — don't
 > thrash.** Two benign causes, and re-uploading fixes neither:
@@ -344,16 +353,45 @@ wanted. Only create a new ASIN when the user explicitly asks for a
 separate listing, or when the account's marketplaces are on genuinely
 separate catalogs (see below).
 
+**New ASINs AND the same children on both marketplaces is not a
+contradiction — it is a sequence.** When the user wants Amazon to mint
+fresh ASINs for a family that must match across two marketplaces,
+create on ONE marketplace first with `mint_new_asin`, wait for its
+report, read the ASINs it minted with `bh_listing_status.py`, and only
+then create on the second marketplace pinned to exactly those. Never
+mint on both (two different ASINs), and never upload the second before
+the first's new ASINs are read: on a unified account a second mint for
+the same SKU re-points it account-wide. Re-pinning to the family's
+OLD ASINs is a different answer to a different request -- one run did
+that when told "let Amazon mint new ones", because it saw the two asks
+as incompatible. If the request is ambiguous about new-vs-existing
+ASINs, ask.
+
 Make the match **proactively** — don't submit a blind create and wait
 for an `8560` to fix reactively:
 
-1. **Get the source ASINs.** Map every SKU (parent + each child) to the
-   ASIN it already has on the source marketplace — the All-Listings
-   report is account-level (byte-identical across a unified account's
-   marketplace subdomains), or read them off Manage Inventory. Reuse the
-   **same SKUs** on the target marketplace; same SKU keeps it idempotent.
+1. **Get the source ASINs — one helper call per marketplace.** Map every
+   SKU (parent + each child) to the ASIN it has on the SOURCE
+   marketplace, and see what the TARGET already holds, before you plan a
+   create or a delete:
+   `SKUS=<parent>,<child-1>,... SC_HOST=sellercentral.amazon.<tld>
+   browser-use < $S/bh_listing_status.py` (run it once with the source
+   tld, once with the target's). Manage Inventory's search view collapses
+   a family to its parent row, and probing it by hand — clicks, internal
+   endpoints, public product pages — cost one run ten minutes before it
+   fell back on ASINs remembered from an earlier task. A public product
+   page proves an ASIN exists, never which SKU is on it. Reuse the
+   **same SKUs** on the target marketplace; same SKU keeps it
+   idempotent.
 2. **Do the WHOLE target flow on the target marketplace's own subdomain —
-   the upload is marketplace-scoped.** A flat-file upload applies to the
+   a create/update is marketplace-scoped. A DELETE IS NOT:** on a unified
+   account it removes the SKU from every marketplace it sells on (an
+   AE-only delete took the same three SKUs off SA too, while the AE
+   rebuild that followed restored only AE). `fill` refuses a delete on a
+   multi-marketplace template unless the spec says `"delete_everywhere":
+   true` -- say it only when the user wants the SKU gone everywhere. To
+   change ONE storefront's ASIN for a SKU, there is no delete-and-recreate
+   route that leaves the other storefront alone: stop and ask the user. A flat-file upload applies to the
    marketplace of the `sellercentral.amazon.<tld>` you're on, regardless
    of the offer columns in the file; a `.sa` upload lands on SA even when
    the account context shows the target. So for AE, run template download +
@@ -553,6 +591,13 @@ browser-use < $S/bh_fetch_report.py
 python3 $S/listing_bulk.py parse-feedback <report> --batch-id <id>
 # ^ run FROM the task workspace root: the verdict JSON is written to
 #   the current directory, which is where the completion gate reads it.
+
+# 4. Verify what Manage Inventory now says each SKU IS, on THAT
+#    marketplace: exact SKU -> ASIN (+ which SKUs are missing), read from
+#    the page's own rows, refused unless ue_mid is the one you meant.
+#    One call for the whole family; don't hand-scrape inventory pages:
+SKUS=<parent>,<child-1>,<child-2> SC_HOST=sellercentral.amazon.<tld> \
+browser-use < $S/bh_listing_status.py
 ```
 
 The helpers encode the mechanics (decoy input, region stamp, two-click
