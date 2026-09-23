@@ -26,7 +26,11 @@ from app.ai.claude_backend_utils import (
     check_tool_loop,
     validate_fanout_plan_text,
 )
-from app.ai.image_guards import check_generated_image_write
+from app.ai.image_guards import (
+    check_generated_image_write,
+    check_image_read_without_vision,
+)
+from app.ai.profiles import ProfileManager, model_sees_images
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
 from app.database import async_session
@@ -247,6 +251,15 @@ class _HookMixin:
                 )
                 await self._deny_pre_tool_use(request_id, deny_reason)
                 return
+            # Blind-read guard: a text-only model's Read of an image is
+            # silently dropped, and the model then invents what it saw.
+            deny_reason = check_image_read_without_vision(
+                inner_name, inner_input, *self._model_capabilities()
+            )
+            if deny_reason:
+                logger.warning('Blind image read denied: %s', self.task_id[:8])
+                await self._deny_pre_tool_use(request_id, deny_reason)
+                return
             if should_mark_catalog_read(inner_name, inner_input):
                 self._catalog_read = True
             # Skill-load tracking for skill-declared exit gates: a
@@ -418,6 +431,20 @@ class _HookMixin:
                     },
                 },
             )
+
+    # (model id, can it see an image?) for this run -- resolved once from
+    # the same profile env the agent is spawned with; None = unknown.
+    _model_caps: tuple[str | None, bool | None] | None = None
+
+    def _model_capabilities(self) -> tuple[str | None, bool | None]:
+        if self._model_caps is None:
+            try:
+                env = ProfileManager.get_env_for_profile(self.profile_id)
+            except (OSError, ValueError):
+                env = {}
+            model = env.get('ANTHROPIC_MODEL')
+            self._model_caps = (model, model_sees_images(model))
+        return self._model_caps
 
     def _check_skill_prereqs(self, skill_name: str) -> str | None:
         """Adapter that forwards to :func:`check_skill_prereqs` with
