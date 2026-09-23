@@ -54,6 +54,33 @@ import time
 F = os.environ['UPLOAD_FILE']
 HOST = os.environ['SC_HOST']
 MARKER_DIR = os.environ.get('MARKER_DIR', '.')
+
+
+def _marker_dirs():
+    """Where gate markers go: the TASK WORKSPACE, always, plus MARKER_DIR.
+
+    The completion gate and the accepted-spec library read markers from
+    the task workspace only. MARKER_DIR is caller-supplied, and a caller
+    once pointed it at a scratch dir: every marker of a seven-batch run
+    landed in /tmp, the gate's "every uploaded batch is verdicted" check
+    saw none of them, and no accepted spec was ever filed. The workspace
+    is derived the way the app derives it (VIBE_HOME, else ~/.vibe-seller,
+    then tasks/<VIBE_TASK_ID>), so a wrong MARKER_DIR cannot blind it.
+    """
+    dirs = []
+    tid = os.environ.get('VIBE_TASK_ID')
+    if tid:
+        root = os.environ.get('VIBE_HOME') or os.path.join(
+            os.path.expanduser('~'), '.vibe-seller'
+        )
+        ws = os.path.join(root, 'tasks', tid)
+        if os.path.isdir(ws):
+            dirs.append(ws)
+    if os.path.realpath(MARKER_DIR) not in {os.path.realpath(d) for d in dirs}:
+        dirs.append(MARKER_DIR)
+    return dirs
+
+
 out = {
     'ok': False,
     'staged': False,
@@ -363,17 +390,18 @@ for _ in range(2):  # some flows need a second Submit click
 out['batch_id'] = ref
 out['ok'] = bool(ref)
 if ref:
-    marker = os.path.join(MARKER_DIR, f'UPLOAD_BATCH_{ref}.json')
-    with open(marker, 'w') as fh:
-        json.dump(
-            {
-                'batch_id': ref,
-                'host': HOST,
-                'file': F,
-                'marketplace': out['marketplace'],
-            },
-            fh,
-        )
+    out['marker_dirs'] = _marker_dirs()
+    for d in out['marker_dirs']:
+        with open(os.path.join(d, f'UPLOAD_BATCH_{ref}.json'), 'w') as fh:
+            json.dump(
+                {
+                    'batch_id': ref,
+                    'host': HOST,
+                    'file': F,
+                    'marketplace': out['marketplace'],
+                },
+                fh,
+            )
     _finish()
 capture_screenshot()
 _finish('submit clicked but no reference_id in the URL')

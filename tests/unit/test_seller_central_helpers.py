@@ -27,6 +27,7 @@ The scan is deliberately source-level: these scripts are fed to
 cannot be imported in a unit test.
 """
 
+import os
 from pathlib import Path
 import re
 
@@ -179,3 +180,55 @@ def test_upload_helper_reads_submit_state_structurally():
         'readiness is back on an English-only page string'
     )
     assert "hasAttribute('disabled')" in src
+
+
+def _marker_dirs_fn(path, marker_dir):
+    """Exec just `_marker_dirs` out of a helper's source."""
+    src = path.read_text(encoding='utf-8')
+    start = src.index('def _marker_dirs():')
+    end = src.index('\n\n\n', start)
+    ns = {'os': os, 'MARKER_DIR': marker_dir}
+    exec(src[start:end], ns)  # noqa: S102 - our own source, under test
+    return ns['_marker_dirs']
+
+
+@pytest.mark.parametrize(
+    'name', ['bh_upload_flatfile.py', 'bh_download_template.py']
+)
+def test_gate_markers_always_reach_the_task_workspace(
+    name, tmp_path, monkeypatch
+):
+    """A caller-supplied MARKER_DIR must not be able to blind the gate.
+
+    Observed live: an agent passed its scratch dir as MARKER_DIR, all
+    seven upload markers of a run landed in /tmp, the completion gate's
+    "every uploaded batch is verdicted" check saw none of them, and the
+    accepted-spec library never filed a spec. The workspace is derived
+    the way the app derives it, and always written.
+    """
+    home = tmp_path / 'home'
+    ws = home / 'tasks' / 'abc12345-0000-0000-0000-000000000000'
+    ws.mkdir(parents=True)
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    monkeypatch.setenv('VIBE_HOME', str(home))
+    monkeypatch.setenv('VIBE_TASK_ID', ws.name)
+    path = _SCRIPTS / 'amazon-listing' / 'scripts' / name
+    dirs = _marker_dirs_fn(path, str(scratch))()
+    assert dirs[0] == str(ws), 'task workspace is not written first'
+    assert str(scratch) in dirs  # MARKER_DIR is still honoured
+    # And the write sites actually use it, not MARKER_DIR directly.
+    src = path.read_text(encoding='utf-8')
+    assert 'for d in' in src and '_marker_dirs()' in src
+    assert "os.path.join(MARKER_DIR, 'UPLOAD" not in src
+    assert "os.path.join(MARKER_DIR, f'UPLOAD" not in src
+
+
+def test_marker_dirs_does_not_duplicate_the_workspace(tmp_path, monkeypatch):
+    home = tmp_path / 'home'
+    ws = home / 'tasks' / 'abc12345-0000-0000-0000-000000000000'
+    ws.mkdir(parents=True)
+    monkeypatch.setenv('VIBE_HOME', str(home))
+    monkeypatch.setenv('VIBE_TASK_ID', ws.name)
+    path = _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    assert _marker_dirs_fn(path, str(ws))() == [str(ws)]
