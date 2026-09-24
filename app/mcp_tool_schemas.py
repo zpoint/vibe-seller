@@ -31,6 +31,59 @@ _IMAGE_MODEL_GUIDE = (
 TOOLS = [
     *AD_TOOLS,
     {
+        'name': 'vibe_seller_ads_call',
+        'description': (
+            'Call the bound Amazon Ads service. Use this for every '
+            'advertising read or write on an API-authorized store: '
+            'performance roll-ups, drill-downs, historical bids and '
+            'states, negatives, suggestions, the category pool, and '
+            'applying approved changes. The loaded amazon-ads-api skill '
+            'documents the available paths and parameters. Name the '
+            'store the way a person would; never pass an API key or a '
+            'store_key — both are supplied server-side.'
+        ),
+        'inputSchema': {
+            'type': 'object',
+            'properties': {
+                'path': {
+                    'type': 'string',
+                    'description': (
+                        'Service path, e.g. /facts/rollup or /suggestions'
+                    ),
+                },
+                'method': {
+                    'type': 'string',
+                    'description': 'GET (default) or POST',
+                },
+                'params': {
+                    'type': 'object',
+                    'description': 'Query parameters',
+                },
+                'body': {
+                    'type': 'object',
+                    'description': 'JSON body, for POST',
+                },
+                'store': {
+                    'type': 'string',
+                    'description': (
+                        'Store name or id. Resolved to the service key '
+                        'server-side.'
+                    ),
+                },
+                'marketplace': {
+                    'type': 'string',
+                    'description': (
+                        'Marketplace code (SA, AE, US…). Required when '
+                        'the store is authorized on more than one — '
+                        'guessing is how one market is reported as '
+                        'another.'
+                    ),
+                },
+            },
+            'required': ['path'],
+        },
+    },
+    {
         'name': 'vibe_seller_list_stores',
         'description': 'List all stores in Vibe Seller',
         'inputSchema': {'type': 'object', 'properties': {}, 'required': []},
