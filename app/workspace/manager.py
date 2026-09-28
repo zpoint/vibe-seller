@@ -6,6 +6,7 @@ Git-managed, contains ``.claude/skills/`` (auto-discovered via
 """
 
 import asyncio
+from collections.abc import Collection
 import logging
 import os
 from pathlib import Path
@@ -562,6 +563,7 @@ browser: {backend}
         task_id: str,
         *,
         clean: bool = False,
+        exclude_skills: Collection[str] = (),
     ) -> Path:
         """Create a per-task working directory linked to shared dirs.
 
@@ -576,6 +578,12 @@ browser: {backend}
         no-store (orchestrator) tasks — they now have the store-less
         ``web`` browser for neutral public web work, so they need the
         skill's CLI reference too.
+
+        ``exclude_skills`` names skill directories to leave out of this
+        task's copy. It is how a store bound to an ads service gets the
+        API skill while an unbound one keeps the browser skill: shipping
+        both would leave the choice to the agent. See
+        ``app.ads_routing``.
 
         ``clean=True`` (retry) wipes the run's residue but KEEPS
         ``PRESERVED_ON_CLEAN`` — see the constant.
@@ -604,10 +612,16 @@ browser: {backend}
         # Glob doesn't follow symlinks when traversing ** patterns.
         # Exclude __pycache__ and stale .venv dirs (skills use the
         # shared workspace venv at ~/.vibe-seller/.venv/ instead).
+        skills_root = str(self.root / '.claude' / 'skills')
+        omit = set(exclude_skills)
+
         def _ignore(directory: str, contents: list[str]) -> set[str]:
-            return {
+            drop = {
                 name for name in contents if name in ('__pycache__', '.venv')
             }
+            if omit and directory == skills_root:
+                drop |= {name for name in contents if name in omit}
+            return drop
 
         claude_src = self.root / '.claude'
         claude_dst = task_dir / '.claude'

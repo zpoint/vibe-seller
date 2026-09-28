@@ -113,6 +113,19 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
     try:
         if name == 'vibe_seller_list_stores':
             result = await call_api('GET', '/api/stores')
+        elif name == 'vibe_seller_ads_call':
+            result = await call_api(
+                'POST',
+                '/api/ads/call',
+                {
+                    'path': arguments['path'],
+                    'method': arguments.get('method', 'GET'),
+                    'params': arguments.get('params'),
+                    'body': arguments.get('body'),
+                    'store': arguments.get('store'),
+                    'marketplace': arguments.get('marketplace'),
+                },
+            )
         elif name == 'vibe_seller_list_tasks':
             params = []
             if arguments.get('store_id'):

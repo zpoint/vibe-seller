@@ -941,5 +941,31 @@
     "marketCount_other": "{{count}} 个国家",
     "campaignCount_other": "{{count}} 个在投活动",
     "outOfScopeHidden_other": "另有 {{count}} 个活动不在本次范围内，已隐藏"
+  },
+  "ads": {
+    "title": "Vibe Seller 广告 API 服务",
+    "blurb": "集成 Vibe Seller ads api 服务，让 agent 的广告操作直连 API，不再需要操作浏览器，大幅提升广告优化、批量操作等场景的稳定性。需要店铺授权后才可使用。",
+    "host": "服务地址",
+    "apiKey": "API key",
+    "keySet": "已设置 — 留空则保持不变",
+    "save": "保存",
+    "saved": "已保存。",
+    "stores": "店铺",
+    "notAuthorized": "未授权",
+    "authorize": "授权",
+    "reauthorize": "重新授权",
+    "authorizeStore": "授权 {{store}}",
+    "openInZiniao": "复制这个链接，在紫鸟浏览器该店铺的窗口里打开，卖家的 Amazon 登录态在那里。",
+    "openHere": "打开这个链接，用该店铺的卖家账号登录并同意。",
+    "linkExpires": "链接约 {{minutes}} 分钟后过期。",
+    "recheck": "我授权完了",
+    "copy": "复制",
+    "copied": "已复制",
+    "copiedNote": "链接已复制到剪贴板，去紫鸟该店铺的窗口里粘贴打开即可。",
+    "wrongAccountZiniao": "⚠ 不要在别处打开：那样会授权成你当前登录的那个账号，把别的账号绑到这个店铺上。",
+    "wrongAccountHere": "⚠ 请确认登录的是这个店铺的卖家账号，不要授权错账号。",
+    "checking": "检查中…",
+    "authorizedDone": "✓ {{store}} 已授权：{{markets}}",
+    "notYetAuthorized": "还没有看到这个店铺的授权。请确认已在紫鸟该店铺窗口里完成 Amazon 授权，并看到「授权成功」页面后再点。"
   }
 }
