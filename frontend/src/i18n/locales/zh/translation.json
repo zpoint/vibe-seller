@@ -955,9 +955,14 @@
     "authorize": "授权",
     "reauthorize": "重新授权",
     "authorizeStore": "授权 {{store}}",
-    "openInZiniao": "复制这个链接，在**紫鸟浏览器该店铺的窗口里**打开。卖家的 Amazon 登录态在那里 —— 在别处打开会授权成你当前登录的那个账号。",
-    "openHere": "打开这个链接，用卖家账号登录并同意。",
+    "openInZiniao": "复制这个链接，在紫鸟浏览器该店铺的窗口里打开，卖家的 Amazon 登录态在那里。",
+    "openHere": "打开这个链接，用该店铺的卖家账号登录并同意。",
     "linkExpires": "链接约 {{minutes}} 分钟后过期。",
-    "recheck": "我弄完了 — 再检查一次"
+    "recheck": "我弄完了 — 再检查一次",
+    "copy": "复制",
+    "copied": "已复制",
+    "copiedNote": "链接已复制到剪贴板，去紫鸟该店铺的窗口里粘贴打开即可。",
+    "wrongAccountZiniao": "⚠ 不要在别处打开：那样会授权成你当前登录的那个账号，把别的账号绑到这个店铺上。",
+    "wrongAccountHere": "⚠ 请确认登录的是这个店铺的卖家账号，不要授权错账号。"
   }
 }

@@ -35,6 +35,23 @@ export function AmazonAdsPanel() {
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [link, setLink] = useState<(AuthUrlResponse & { store: string }) | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  /** Copy to the clipboard, falling back to a selected-text copy when the
+   *  async Clipboard API is refused (some embedded browsers do). Returns
+   *  whether it worked so the UI never claims a copy that did not happen. */
+  const copyText = async (text: string): Promise<boolean> => {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      const el = document.querySelector<HTMLInputElement>('[data-testid="ads-auth-url"]')
+      if (!el) return false
+      el.focus()
+      el.select()
+      try { return document.execCommand('copy') } catch { return false }
+    }
+  }
 
   const refresh = async () => {
     setError(null)
@@ -70,12 +87,18 @@ export function AmazonAdsPanel() {
   }
 
   const authorize = async (storeId: string, storeName: string) => {
-    setBusy(true); setError(null); setLink(null)
+    setBusy(true); setError(null); setLink(null); setCopied(false)
     try {
       const body = (await api.get(
         `/api/ads/stores/${storeId}/auth-url`
       )) as AuthUrlResponse
       setLink({ ...body, store: storeName })
+      // The next thing anyone does with this link is paste it into the
+      // store's browser window, so copy it now rather than make them
+      // select a 300-character URL by hand. Deferred one frame so the
+      // fallback path can find the input it selects from.
+      await new Promise(r => requestAnimationFrame(() => r(null)))
+      setCopied(await copyText(body.url))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -119,7 +142,7 @@ export function AmazonAdsPanel() {
               data-testid="ads-save"
               disabled={busy}
               onClick={save}
-              className="rounded bg-primary px-3 py-1 text-sm text-primary-foreground disabled:opacity-50"
+              className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
             >
               {t('ads.save')}
             </button>
@@ -173,13 +196,35 @@ export function AmazonAdsPanel() {
               ? t('ads.openInZiniao')
               : t('ads.openHere')}
           </p>
-          <input
-            data-testid="ads-auth-url"
-            readOnly
-            className="w-full rounded border px-2 py-1 font-mono text-xs"
-            value={link.url}
-            onFocus={e => e.currentTarget.select()}
-          />
+          {/* Its own line, in red: a wrong-account authorization looks like
+              a success and files another seller's spend under this store,
+              so it must not read as a footnote. */}
+          <p data-testid="ads-wrong-account" className="text-xs font-medium text-red-600">
+            {link.open_in === 'ziniao'
+              ? t('ads.wrongAccountZiniao')
+              : t('ads.wrongAccountHere')}
+          </p>
+          <div className="flex gap-2">
+            <input
+              data-testid="ads-auth-url"
+              readOnly
+              className="min-w-0 flex-1 rounded border px-2 py-1 font-mono text-xs"
+              value={link.url}
+              onFocus={e => e.currentTarget.select()}
+            />
+            <button
+              data-testid="ads-copy-url"
+              onClick={async () => setCopied(await copyText(link.url))}
+              className="shrink-0 rounded bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700"
+            >
+              {copied ? t('ads.copied') : t('ads.copy')}
+            </button>
+          </div>
+          {copied && (
+            <p data-testid="ads-copied-note" className="text-xs text-green-700">
+              {t('ads.copiedNote')}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             {t('ads.linkExpires', { minutes: Math.round(link.expires_in / 60) })}
           </p>
