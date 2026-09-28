@@ -959,11 +959,14 @@
     "openInZiniao": "Copy this link and open it in the anti-detect browser, in this store’s window. That is where the seller’s Amazon session lives.",
     "openHere": "Open this link and sign in as this store’s seller.",
     "linkExpires": "The link expires in about {{minutes}} minutes.",
-    "recheck": "I finished — check again",
+    "recheck": "I've authorized it",
     "copy": "Copy",
     "copied": "Copied",
     "copiedNote": "Link copied to the clipboard — paste it into the store’s browser window.",
     "wrongAccountZiniao": "⚠ Do not open it anywhere else: that authorizes whichever account you are signed into and binds it to this store.",
-    "wrongAccountHere": "⚠ Make sure you are signed in as this store’s seller — do not authorize the wrong account."
+    "wrongAccountHere": "⚠ Make sure you are signed in as this store’s seller — do not authorize the wrong account.",
+    "checking": "Checking…",
+    "authorizedDone": "✓ {{store}} authorized: {{markets}}",
+    "notYetAuthorized": "No authorization for this store yet. Finish the Amazon consent in the store's window and wait for the success page, then click again."
   }
 }

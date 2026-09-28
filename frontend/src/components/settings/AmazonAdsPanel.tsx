@@ -34,7 +34,7 @@ export function AmazonAdsPanel() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
-  const [link, setLink] = useState<(AuthUrlResponse & { store: string }) | null>(null)
+  const [link, setLink] = useState<(AuthUrlResponse & { store: string; storeId: string }) | null>(null)
   const [copied, setCopied] = useState(false)
 
   /** Copy to the clipboard, falling back to a selected-text copy when the
@@ -53,7 +53,7 @@ export function AmazonAdsPanel() {
     }
   }
 
-  const refresh = async () => {
+  const refresh = async (): Promise<AdsStoreRow[]> => {
     setError(null)
     try {
       const c = (await api.get('/api/ads/config')) as AdsConfig
@@ -61,12 +61,40 @@ export function AmazonAdsPanel() {
       setHost(c.host)
       if (c.configured) {
         const body = (await api.post('/api/ads/stores/sync', {})) as { stores: AdsStoreRow[] }
-        setStores(body.stores ?? [])
-      } else {
-        setStores([])
+        const rows = body.stores ?? []
+        setStores(rows)
+        return rows
       }
+      setStores([])
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    }
+    return []
+  }
+
+  /** "I've authorized it": look now, and say what we found. The consent
+   *  finishes on the service's own domain and nothing calls back here, so
+   *  this click is the only moment the page can learn the outcome — it
+   *  must report it, not silently redraw a list. */
+  const [checkNote, setCheckNote] = useState<string | null>(null)
+  const confirmAuthorized = async () => {
+    if (!link) return
+    setBusy(true); setCheckNote(null)
+    try {
+      const rows = await refresh()
+      const markets = rows
+        .filter(r => r.local_id === link.storeId && r.authorized)
+        .map(r => r.marketplace)
+        .filter(Boolean)
+        .sort()
+      if (markets.length) {
+        setLink(null)
+        setMessage(t('ads.authorizedDone', { store: link.store, markets: markets.join(' · ') }))
+      } else {
+        setCheckNote(t('ads.notYetAuthorized'))
+      }
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -87,12 +115,12 @@ export function AmazonAdsPanel() {
   }
 
   const authorize = async (storeId: string, storeName: string) => {
-    setBusy(true); setError(null); setLink(null); setCopied(false)
+    setBusy(true); setError(null); setLink(null); setCopied(false); setCheckNote(null); setMessage(null)
     try {
       const body = (await api.get(
         `/api/ads/stores/${storeId}/auth-url`
       )) as AuthUrlResponse
-      setLink({ ...body, store: storeName })
+      setLink({ ...body, store: storeName, storeId })
       // The next thing anyone does with this link is paste it into the
       // store's browser window, so copy it now rather than make them
       // select a 300-character URL by hand. Deferred one frame so the
@@ -231,16 +259,21 @@ export function AmazonAdsPanel() {
           <button
             data-testid="ads-recheck"
             disabled={busy}
-            onClick={refresh}
-            className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+            onClick={confirmAuthorized}
+            className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {t('ads.recheck')}
+            {busy ? t('ads.checking') : t('ads.recheck')}
           </button>
+          {checkNote && (
+            <p data-testid="ads-check-note" className="text-xs font-medium text-amber-700">
+              {checkNote}
+            </p>
+          )}
         </section>
       )}
 
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {message && <p className="text-xs text-muted-foreground">{message}</p>}
+      {message && <p data-testid="ads-message" className="text-xs font-medium text-green-700">{message}</p>}
     </div>
   )
 }
