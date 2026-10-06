@@ -662,21 +662,40 @@ Last 7 / 30 / 90 days / Year to Date / All time / Custom range).
 > exported the whole month with the steps below. The Export button
 > behaves the same way: only a JS click triggers it.
 
+Set the target month once, at the top. Every step below reads it, and
+every step stops on `nf` instead of clicking on: a missed click
+followed by **Apply** keeps a stale or half-set range, and the export
+then looks fine while covering the wrong days.
+
 ```bash
 browser-use <<'PY'
-import time
-def jsclick(expr):
-    return js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
+import calendar, time
+YEAR, MONTH = 2026, 9                  # the service month to export
+LAST = calendar.monthrange(YEAR, MONTH)[1]   # 28 / 29 / 30 / 31
+TARGET = f'{calendar.month_name[MONTH]} {YEAR}'   # the calendar caption, e.g. "September 2026"
 
-# 1. open the range menu, 2. Custom range
-print(jsclick("Array.from(document.querySelectorAll('button')).find(b=>/Last \\d+ days|Custom|20\\d\\d/i.test(b.textContent||''))"))
-time.sleep(2)
-print(jsclick("Array.from(document.querySelectorAll('.ant-popover-content *')).find(e=>e.children.length===0&&(e.textContent||'').trim()==='Custom range')"))
-time.sleep(2)
-# 3. page back to the target month; read the caption after each click
-print(jsclick("document.querySelector('[class*=rdp] button[aria-label=\"Previous month\"]')"))
-time.sleep(1)
-print(js("(document.querySelector('[class*=rdp-caption]')||{}).textContent"))
+def jsclick(expr):
+    r = js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
+    if r != 'ok':
+        raise SystemExit(f'not found: {expr[:80]} -- stop, do not Apply')
+    time.sleep(1)
+
+def caption():
+    return (js("(document.querySelector('[class*=rdp-caption]')||{}).textContent") or '').strip()
+
+# 1. open the range menu. Find it by its component class, not its label:
+#    the label is whatever is selected now (Today, All time, a past range ...).
+jsclick("document.querySelector('[class*=DateRangeFilter_trigger]')")
+# 2. Custom range
+jsclick("Array.from(document.querySelectorAll('.ant-popover-content *')).find(e=>e.children.length===0&&(e.textContent||'').trim()==='Custom range')")
+# 3. page back until the caption shows the target month (the picker opens on the current month)
+for _ in range(24):
+    if TARGET in caption():
+        break
+    jsclick("document.querySelector('[class*=rdp] button[aria-label=\"Previous month\"]')")
+else:
+    raise SystemExit(f'calendar never reached {TARGET}; caption reads {caption()!r}')
+print('caption:', caption())
 PY
 ```
 
@@ -687,20 +706,28 @@ month before turns the range into `30 Aug – 30 Sep`.
 
 ```bash
 browser-use <<'PY'
-import time
+import calendar, time
+YEAR, MONTH = 2026, 9                  # same month as above
+LAST = calendar.monthrange(YEAR, MONTH)[1]
+
+def jsclick(expr):
+    r = js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
+    if r != 'ok':
+        raise SystemExit(f'not found: {expr[:80]} -- stop, do not Apply')
+    time.sleep(1)
 def day(n):
     return ("Array.from(document.querySelectorAll('[class*=rdp] button[name=day]'))"
             ".find(b=>b.textContent.trim()==='%s'&&!/outside/i.test(b.className))" % n)
 def label(t):
     return ("Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] span'))"
             ".find(s=>s.textContent.trim()==='%s')" % t)
-for expr in (label('Start date'), day(1), label('End date'), day(30)):   # 31 for a 31-day month
-    print(js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr))
-    time.sleep(1)
-print(js("(function(){var b=Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] button')).find(b=>b.textContent.trim()==='Apply'); if(!b) return 'nf'; b.click(); return 'ok';})()"))
-time.sleep(3)
-# the range button must now read the whole month, e.g. "01 Sep 2026 - 30 Sep 2026"
-print(js("(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>x.getBoundingClientRect().y<260&&/20\\d\\d|Last|Custom/i.test(x.textContent||'')); return b?b.textContent.trim():'?'})()"))
+
+for expr in (label('Start date'), day(1), label('End date'), day(LAST)):
+    jsclick(expr)
+jsclick("Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] button')).find(b=>b.textContent.trim()==='Apply')")
+time.sleep(2)
+# the trigger must now read the whole month, e.g. "01 Sep 2026 - 30 Sep 2026"
+print(js("(document.querySelector('[class*=DateRangeFilter_trigger]')||{}).textContent"))
 PY
 ```
 
