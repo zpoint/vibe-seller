@@ -608,13 +608,13 @@ low-performing queries (add as negatives).
 
 ## 7. Export Data
 
-**Two distinct exports — opposite reliability. Do not conflate them.**
+**Three exports, three behaviours. Do not conflate them.**
 
-| | `Export campaigns` (list level) | `Export Data` (per tab) |
-|---|---|---|
-| Where | Campaigns tab, top-right of the list (§ 2) | Products / Targets / Customer Queries tabs |
-| Reliability | **Works** — but ASYNC, takes ~1–5 min | **Unreliable here** — often a silent no-op |
-| On no file | keep waiting (§ 7.1) | give up immediately, use DOM eval |
+| | `Export campaigns` (list level) | `Export` on **Customer Queries** | `Export Data` on Products / Targets |
+|---|---|---|---|
+| Where | Campaigns tab, top-right of the list (§ 2) | campaign detail → Customer Queries tab (§ 4) | campaign detail → those tabs |
+| Reliability | **Works** — ASYNC, ~1–5 min | **Works** — verified, ~15–25 s; **required** (the tab shows only the top 15) | **Unreliable here** — often a silent no-op |
+| On no file | keep waiting (§ 7.1) | wait ~60 s, then re-check you clicked `Export` on that tab | give up immediately, use DOM eval (§ 4 / § 5) |
 
 ### 7.1 `Export campaigns` — the per-SKU ad-spend source
 
@@ -769,12 +769,16 @@ amount actually invoiced.
 
 ### 7.4 Per-tab `Export Data`
 
-Exports the current filtered view on Products / Targets / Customer
-Queries. **Unreliable in this environment** — see § 4 caveat. Prefer DOM
-eval extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT
-re-click or retry** — a no-op export button is an environment quirk, not
-a transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
-retrying just burns steps.
+Exports the current filtered view on the **Products** and **Targets**
+tabs. **Unreliable in this environment** — prefer DOM eval extraction.
+⚠️ **If the file doesn't land within ~10 s, do NOT re-click or retry** —
+a no-op export button is an environment quirk, not a transient miss.
+Switch to DOM eval extraction (§ 4 / § 5) immediately; retrying just
+burns steps.
+
+**Customer Queries is the exception and is not covered by this rule:**
+its `Export` works (~15–25 s), is the only complete source of the query
+set, and is required — follow § 4, not the 10-second cutoff above.
 
 ```bash
 browser-use <<'PY'
