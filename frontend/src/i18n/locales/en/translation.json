@@ -753,6 +753,8 @@
     "fanoutModeDescription": "Create one task per active store on each tick — good for per-store work.",
     "singleMode": "Single (one task)",
     "singleModeDescription": "Create exactly one task (no store binding) on each tick — good for shared work like IMAP sweeps.",
+    "fanoutSerial": "Run stores one at a time",
+    "fanoutSerialDescription": "Start each store only after the one before it has finished, so stores never share the browser at the same moment. Use it for work that drives the same marketplace portal in every store.",
     "modeLocked": "Mode and store are fixed at creation.",
     "defaultMode": "Default Mode",
     "defaultModeHelp": "Default mode pre-selected when creating a new 'All Stores' schedule."

@@ -4,6 +4,7 @@ import { api } from '../api'
 import { sendEvent } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Schedule, SchedulePhaseMode } from '../types'
+import { FanoutSerialToggle } from './FanoutSerialToggle'
 import {
   ScheduleForm,
   type ScheduleFormState,
@@ -46,6 +47,7 @@ export function CreateScheduleModal({
   const [phaseMode, setPhaseMode] = useState<SchedulePhaseMode>(
     storeId ? 'single' : 'fanout',
   )
+  const [fanoutSerial, setFanoutSerial] = useState(false)
   const [creating, setCreating] = useState(false)
 
   const showModeSelector = storeId === null
@@ -94,6 +96,9 @@ export function CreateScheduleModal({
         timezone: form.timezone,
       }
       if (showModeSelector) body.phase_mode = phaseMode
+      if (showModeSelector && phaseMode === 'fanout') {
+        body.fanout_serial = fanoutSerial
+      }
       const schedule = await api.post('/api/schedules', body)
       sendEvent(FrontendEvent.SCHEDULE_CREATED, {
         schedule_type: form.scheduleType,
@@ -170,6 +175,9 @@ export function CreateScheduleModal({
               </div>
             </label>
           </fieldset>
+        )}
+        {showModeSelector && phaseMode === 'fanout' && (
+          <FanoutSerialToggle checked={fanoutSerial} onChange={setFanoutSerial} />
         )}
         <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
           <button

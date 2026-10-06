@@ -755,6 +755,8 @@
     "fanoutModeDescription": "每次触发为每个活跃店铺创建一个任务，适合按店铺处理的工作。",
     "singleMode": "单任务",
     "singleModeDescription": "每次触发只创建一个任务（不绑定店铺），适合共享型工作，例如统一邮箱收信。",
+    "fanoutSerial": "店铺逐个运行",
+    "fanoutSerialDescription": "前一个店铺跑完才开始下一个，各店铺不会同时占用浏览器。适合每个店铺都要登录同一个平台后台的任务。",
     "modeLocked": "模式与店铺绑定在创建时固定，无法修改。",
     "defaultMode": "默认模式",
     "defaultModeHelp": "新建「全部店铺」类定时任务时默认选中的模式。"
