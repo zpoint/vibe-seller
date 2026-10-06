@@ -34,6 +34,7 @@ from app.routers.schedule_planning import (
     normalize_prompt,
     schedule_needs_plan,
     spawn_planning_task,
+    validate_fanout_serial,
     validate_finalize_description,
 )
 from app.scheduler.cron import (
@@ -248,6 +249,7 @@ async def create_schedule(
     validate_finalize_description(
         data.finalize_description, data.store_id, phase_mode
     )
+    validate_fanout_serial(data.fanout_serial, data.store_id, phase_mode)
 
     # Force plan_mode=True for all user-created schedules — the
     # plan-at-creation lifecycle is the only UX (system seeds stay
@@ -267,6 +269,7 @@ async def create_schedule(
         timezone=data.timezone,
         phase_mode=phase_mode,
         finalize_description=data.finalize_description,
+        fanout_serial=data.fanout_serial,
         finalize_enabled_at=(
             datetime.now(UTC).isoformat()
             if (data.finalize_description or '').strip()
@@ -400,6 +403,15 @@ async def update_schedule(
         schedule.store_id,
         schedule.phase_mode,
     )
+    validate_fanout_serial(
+        update_data.get('fanout_serial'),
+        schedule.store_id,
+        schedule.phase_mode,
+    )
+    if update_data.get('fanout_serial', False) is None:
+        # Nullable only so a PUT can leave it out; NULL is not a value
+        # the NOT NULL column can hold.
+        update_data.pop('fanout_serial')
 
     # Detect prompt change BEFORE applying (normalized compare so
     # whitespace-only edits don't spuriously invalidate).

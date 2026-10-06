@@ -713,6 +713,7 @@
         "failed": "The planner failed. Re-plan to try again.",
         "none": "No plan has been authored yet. Start planning to create one."
       },
+      "fanoutSerial": "Stores run one at a time, in order, so they never share the browser at the same moment.",
       "finalize": {
         "heading": "Finalize step (registered by the agent)",
         "explainer": "After all stores finish, one extra step runs to combine their results. No action needed."
