@@ -78,8 +78,8 @@ async def _batch(maker, *, serial, statuses):
         await db.commit()
 
 
-async def _decide(maker, i):
-    sched = TaskQueueScheduler()
+async def _decide(maker, i, sched=None):
+    sched = sched or TaskQueueScheduler()
     with patch('app.scheduler.task_queue.async_session', maker):
         return await sched.can_schedule(f'task-{i}', f'store-{i}')
 
@@ -126,6 +126,37 @@ class TestSerialBatch:
             maker, serial=True, statuses=[TaskStatus.WAITING, TaskStatus.QUEUED]
         )
         assert await _decide(maker, 1) == ScheduleDecision.RUN
+
+    @pytest.mark.parametrize(
+        'how_it_came_back', [TaskStatus.QUEUED, TaskStatus.PLANNED]
+    )
+    async def test_an_earlier_store_coming_back_waits_for_the_one_running(
+        self, maker, how_it_came_back
+    ):
+        # Store 0 failed (or asked a question), which released store 1;
+        # then it was retried (or woken) while store 1 was still running.
+        # Having nobody *ahead* of it is not a turn: store 1 holds it.
+        await _batch(
+            maker,
+            serial=True,
+            statuses=[how_it_came_back, TaskStatus.RUNNING, TaskStatus.QUEUED],
+        )
+        assert await _decide(maker, 0) == ScheduleDecision.QUEUE
+        assert await _decide(maker, 2) == ScheduleDecision.QUEUE
+
+    async def test_a_sibling_dispatched_but_not_yet_running_holds_the_turn(
+        self, maker
+    ):
+        # The queue marks a child dispatched before its row reaches
+        # RUNNING; in that window the row still says QUEUED.
+        await _batch(
+            maker,
+            serial=True,
+            statuses=[TaskStatus.QUEUED, TaskStatus.QUEUED],
+        )
+        sched = TaskQueueScheduler()
+        sched._running_tasks['store-1'] = {'task-1'}
+        assert await _decide(maker, 0, sched) == ScheduleDecision.QUEUE
 
     async def test_default_fanout_still_runs_every_store_at_once(self, maker):
         await _batch(maker, serial=False, statuses=[TaskStatus.QUEUED] * 3)
