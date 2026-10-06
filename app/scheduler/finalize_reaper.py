@@ -122,6 +122,22 @@ def _child_record(task: Task, slug: str, task_dir: str) -> dict:
     }
 
 
+def _as_text(value) -> str:
+    """The column as ``str`` — SQLite hands a BLOB back as ``bytes``.
+
+    A ``String`` column is only a hint to SQLite: a value written outside
+    the ORM (``sqlite3`` with ``readfile()``, a Python ``bytes`` parameter)
+    is stored as a BLOB and read back as ``bytes``. ``bytes + str`` then
+    raised on every tick once that schedule's batch finished, so its
+    finalize task was never created.
+    """
+    if value is None:
+        return ''
+    if isinstance(value, bytes):
+        return value.decode('utf-8')
+    return value
+
+
 async def reap_finalized_batches() -> None:
     """Fire the finalize task for any batch whose children are all done.
 
@@ -193,7 +209,17 @@ async def reap_finalized_batches() -> None:
             continue
         if not _batch_is_within_finalize_era(children, sched):
             continue
-        await _fire_finalize(batch_id, sched)
+        # One batch per try: an exception here used to escape the whole
+        # tick, and the reaper re-ran into the same batch every minute, so
+        # one broken schedule kept every other batch from finalizing too.
+        try:
+            await _fire_finalize(batch_id, sched)
+        except Exception:
+            logger.exception(
+                'finalize reaper: could not fire batch %s (schedule %s)',
+                batch_id,
+                sched.id,
+            )
 
 
 async def _fire_finalize(batch_id: str, sched: Schedule) -> None:
@@ -279,7 +305,7 @@ async def _fire_finalize(batch_id: str, sched: Schedule) -> None:
             is_finalize=True,
             created_by=sched.created_by,
             title=f'{sched.title} — finalize',
-            description=(sched.finalize_description or '') + _RESULTS_POINTER,
+            description=_as_text(sched.finalize_description) + _RESULTS_POINTER,
             status=TaskStatus.PENDING,
             plan_mode=False,
             skip_reflection=True,

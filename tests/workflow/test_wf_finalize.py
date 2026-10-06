@@ -24,12 +24,13 @@ import uuid
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.browser.manager import store_slug
 from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
+from app.scheduler import finalize_reaper
 from app.scheduler.finalize_reaper import reap_finalized_batches
 from app.task_runner_auto import auto_run_task
 from app.task_states import TaskStatus
@@ -623,3 +624,96 @@ class TestTurningFinalizeOnDoesNotFinalizeThePast:
         assert r.status_code == 200, r.text
         second = await self._enabled_at(override_async_session, sched_id)
         assert second and second > first
+
+
+# ── A prompt stored as a BLOB, and one batch that cannot fire ──
+
+
+async def _terminal_batch(session_maker, schedule_id, store_id, user_id):
+    """One COMPLETED child in a fresh batch — all a batch needs to fire."""
+    batch_id = str(uuid.uuid4())
+    async with session_maker() as db:
+        db.add(
+            Task(
+                id=str(uuid.uuid4()),
+                store_id=store_id,
+                schedule_id=schedule_id,
+                created_by=user_id,
+                title='Collect everything',
+                description='collect',
+                status=TaskStatus.COMPLETED,
+                batch_id=batch_id,
+            )
+        )
+        await db.commit()
+    return batch_id
+
+
+class TestFinalizeSurvivesABadSchedule:
+    async def test_a_prompt_stored_as_a_blob_still_fires(
+        self,
+        override_async_session,
+        mock_workspace,
+        finalize_schedule,
+        four_stores,
+        admin_user,
+    ):
+        """A ``finalize_description`` written outside the ORM comes back as
+        ``bytes``. ``bytes + str`` raised on every tick, and the batch never
+        got its finalize task."""
+        async with override_async_session() as db:
+            await db.execute(
+                text(
+                    'UPDATE schedules SET finalize_description = :d '
+                    'WHERE id = :id'
+                ),
+                {'d': b'Publish one PR.', 'id': finalize_schedule.id},
+            )
+            await db.commit()
+        batch_id = await _terminal_batch(
+            override_async_session,
+            finalize_schedule.id,
+            four_stores[0]['id'],
+            admin_user.id,
+        )
+
+        await reap_finalized_batches()
+
+        finals = await _find_finalize(override_async_session, batch_id)
+        assert len(finals) == 1
+        assert finals[0].description.startswith('Publish one PR.')
+
+    async def test_one_batch_that_raises_does_not_block_the_others(
+        self,
+        override_async_session,
+        mock_workspace,
+        finalize_schedule,
+        four_stores,
+        admin_user,
+        monkeypatch,
+    ):
+        broken = await _terminal_batch(
+            override_async_session,
+            finalize_schedule.id,
+            four_stores[0]['id'],
+            admin_user.id,
+        )
+        healthy = await _terminal_batch(
+            override_async_session,
+            finalize_schedule.id,
+            four_stores[1]['id'],
+            admin_user.id,
+        )
+        real_fire = finalize_reaper._fire_finalize  # noqa: SLF001
+
+        async def _fire(batch_id, sched):
+            if batch_id == broken:
+                raise RuntimeError('simulated')
+            await real_fire(batch_id, sched)
+
+        monkeypatch.setattr(finalize_reaper, '_fire_finalize', _fire)
+
+        await reap_finalized_batches()
+
+        assert await _find_finalize(override_async_session, broken) == []
+        assert len(await _find_finalize(override_async_session, healthy)) == 1
