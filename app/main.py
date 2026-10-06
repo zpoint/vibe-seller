@@ -187,6 +187,15 @@ async def lifespan(app: FastAPI):
     preload_skill_gates()
     # Build the shared agent venv in the background (see above).
     venv_task = asyncio.create_task(workspace_manager.ensure_shared_venv())
+    # One-shot: drop ignored runtime paths (the app DB above all) from the
+    # workspace history. Can take minutes on a large history, so never
+    # awaited here; a marker in .git makes every later boot a no-op. Held
+    # on app.state (an unreferenced task can be collected mid-run) and not
+    # cancelled at shutdown: filter-branch moves refs only at its very
+    # end, so an interrupted rewrite simply runs again on the next boot.
+    app.state.history_purge_task = asyncio.create_task(
+        workspace_manager.purge_ignored_history()
+    )
     # Enrich app_started with rough install scale.
     try:
         async with async_session() as db_counts:
