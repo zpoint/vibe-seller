@@ -222,6 +222,8 @@ export interface Schedule {
   // Parent finalize/reduce step registered by the plan agent for an
   // all-stores fanout schedule (null = none). See finalize_reaper.
   finalize_description: string | null
+  // Fanout children run one store at a time (Schedule.fanout_serial).
+  fanout_serial?: boolean
   ai_profile_id: string | null
   created_by: string
   created_at: string

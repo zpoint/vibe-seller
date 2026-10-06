@@ -190,6 +190,15 @@ export function SchedulePlanPanel({ schedule, onOpenTask, onReplan }: Props) {
         </div>
       )}
 
+      {schedule.fanout_serial && (
+        <div
+          className="border-t border-gray-100 px-4 py-3 text-xs text-gray-500"
+          data-testid="schedule-fanout-serial"
+        >
+          {t('schedules.plan.fanoutSerial')}
+        </div>
+      )}
+
       {/* Finalize step the plan agent registered — gives the user
       visibility that, after all per-store children finish, one extra
       combine/reduce step runs (e.g. a single PR). No action needed. */}

@@ -43,6 +43,7 @@ export function makeSchedule(overrides: Partial<Schedule> = {}): Schedule {
     phase_mode: 'single',
     plan_mode: false,
     finalize_description: null,
+    fanout_serial: false,
     ai_profile_id: null,
     created_by: 'user1',
     created_at: new Date().toISOString(),

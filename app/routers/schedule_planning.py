@@ -62,6 +62,30 @@ def validate_finalize_description(
         )
 
 
+def validate_fanout_serial(
+    fanout_serial: bool | None,
+    store_id: str | None,
+    phase_mode: str,
+) -> None:
+    """Reject fanout_serial on a schedule that does not fan out.
+
+    A store-bound or single-phase schedule fires one task, so there are
+    no siblings to run one at a time and the flag would silently do
+    nothing. Same reasoning, same rule as
+    :func:`validate_finalize_description`.
+    """
+    if fanout_serial and (
+        store_id is not None or phase_mode != PhaseMode.FANOUT
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'fanout_serial is only valid for all-stores fanout '
+                'schedules (store_id null + phase_mode=fanout).'
+            ),
+        )
+
+
 def normalize_prompt(text: str | None) -> str:
     """Normalize a prompt for change-detection.
 

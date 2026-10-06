@@ -48,6 +48,7 @@ def _ensure_added_columns(conn) -> None:
         # Backfilled below — see _backfill_finalize_enabled_at.
         ('schedules', 'finalize_enabled_at', 'TEXT'),
         ('tasks', 'is_finalize', 'BOOLEAN NOT NULL DEFAULT 0'),
+        ('schedules', 'fanout_serial', 'BOOLEAN NOT NULL DEFAULT 0'),
         # Backfill: these four shipped on the model but were never
         # added here, so any DB created before each one landed is
         # still missing the column. Harmless to re-run; the PRAGMA
