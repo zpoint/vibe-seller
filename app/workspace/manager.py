@@ -88,11 +88,18 @@ class WorkspaceManager(SkillsMixin):
         content = gitignore.read_text()
         # Whole lines, not substrings: 'r/' is inside '.cursor/'.
         present = {line.strip() for line in content.splitlines()}
+        # Anchored ('/bin/'), because an unanchored 'bin/' also ignores a
+        # bin/ folder inside knowledge/, a store or a skill. A legacy
+        # unanchored line counts as present and is left as it is: anchoring
+        # it now would start committing nested folders it has always kept
+        # out.
         additions = [
-            entry
-            for entry in (*(f'{d}/' for d in RUNTIME_DIRS), '*.db-journal')
-            if entry not in present
+            f'/{d}/'
+            for d in RUNTIME_DIRS
+            if f'{d}/' not in present and f'/{d}/' not in present
         ]
+        if '*.db-journal' not in present:
+            additions.append('*.db-journal')
         if additions:
             gitignore.write_text(
                 content.rstrip() + '\n' + '\n'.join(additions) + '\n'
