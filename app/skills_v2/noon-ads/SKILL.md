@@ -146,8 +146,9 @@ the list:
 - **Status count control** (segmented): `Live N` · `Paused N` · `All N`
   + a `More status filter` dropdown. The counts are the **true totals**
   for the current filter — read them directly; there is no page math.
-- **Export all campaigns** (top-right of the list) — a list-level bulk
-  export (distinct from the per-tab Export Data in § 7).
+- **Export campaigns** (top-right of the list; labelled *Export all
+  campaigns* before 2026-10-06) — a list-level bulk export (distinct
+  from the per-tab Export Data in § 7).
 
 Columns (horizontally scrollable): Campaign, Status, Budget, Revenue,
 ROAS, Ad Spend, eCPC, Orders, Views, Clicks, ATC, … Actions.
@@ -165,7 +166,7 @@ gate.
 
 > ⚠️ **Enumerate LIVE from the scrolled list — never from a pre-existing
 > or downloaded export file.** A leftover `Campaign_*.csv` /
-> `Export all campaigns` file in `~/.vibe-seller/downloads/` (from a
+> `Export campaigns` file in `~/.vibe-seller/downloads/` (from a
 > prior run, or a first-paint export before you scrolled) captures only
 > the rows that were loaded when it was written — typically the first
 > ~20. Drilling that file makes the audit look done at `20/20` while the
@@ -173,7 +174,7 @@ gate.
 > reused a 20-row export and reported noon SA `20/20` when the `Live`
 > chip showed **45**.) **Any campaign set whose count is below the
 > `Live N` chip is stale — re-enumerate by scrolling (below); and if you
-> do use `Export all campaigns`, first scroll the list fully, then verify
+> do use `Export campaigns`, first scroll the list fully, then verify
 > the file's row count equals the chip before trusting it.**
 
 **What you owe is what you DECLARED.** `./AUDIT_TARGETS.json` lists every
@@ -607,35 +608,47 @@ low-performing queries (add as negatives).
 
 ## 7. Export Data
 
-**Two distinct exports — opposite reliability. Do not conflate them.**
+**Three exports, three behaviours. Do not conflate them.**
 
-| | `Export all campaigns` (list level) | `Export Data` (per tab) |
-|---|---|---|
-| Where | Campaigns tab, top-right of the list (§ 2) | Products / Targets / Customer Queries tabs |
-| Reliability | **Works** — but ASYNC, takes ~1–5 min | **Unreliable here** — often a silent no-op |
-| On no file | keep waiting (§ 7.1) | give up immediately, use DOM eval |
+| | `Export campaigns` (list level) | `Export` on **Customer Queries** | `Export Data` on Products / Targets |
+|---|---|---|---|
+| Where | Campaigns tab, top-right of the list (§ 2) | campaign detail → Customer Queries tab (§ 4) | campaign detail → those tabs |
+| Reliability | **Works** — ASYNC, ~1–5 min | **Works** — verified, ~15–25 s; **required** (the tab shows only the top 15) | **Unreliable here** — often a silent no-op |
+| On no file | keep waiting (§ 7.1) | wait ~60 s, then re-check you clicked `Export` on that tab | give up immediately, use DOM eval (§ 4 / § 5) |
 
-### 7.1 `Export all campaigns` — the per-SKU ad-spend source
+### 7.1 `Export campaigns` — the per-SKU ad-spend source
 
 This is the only practical way to get **ad spend per SKU**. It honours
 the list's **date-range filter**, so set the range first.
+
+> ⛔ **Never fetch this file from an internal endpoint**
+> (`/_svc/productads/v2/noon/reports` or similar). It answers with a
+> workbook holding one empty `Report` sheet (~5 KB) — a file that looks
+> downloaded and holds nothing. A downstream profit calc that reads it
+> sees "no SKU spent anything". Click the page's button; if the
+> calendar is hard to drive, keep driving it (below) rather than
+> switching to an endpoint.
 
 **Async, and the button is your progress indicator:**
 
 1. Click it once. It flips to **`disabled`** while noon builds the file.
 2. The file lands in `~/.vibe-seller/downloads/<slug>/` as
-   **`_OVERVIEW_ALL_Report_{from}_{to}.xlsx`** (e.g.
-   `_OVERVIEW_ALL_Report_2026-06-01_2026-06-30.xlsx`), typically after
-   1–5 min for a few dozen campaigns.
+   **`campaigns-export-*.xlsx`** (before 2026-10-06 it was
+   `_OVERVIEW_ALL_Report_{from}_{to}.xlsx`), typically after 1–5 min
+   for a few dozen campaigns.
 3. **`disabled: true` means "generating", not "broken".** Poll the
    download dir; do NOT re-click — and do NOT apply § 4's
    "don't retry the export" rule here, that one is about the *per-tab*
    button.
+4. **Check the file says what you asked for** before trusting it: its
+   `Read me` sheet states the range on its second row —
+   `Performance data is for 01 Sep 2026 to 30 Sep 2026`. A workbook
+   without that sheet, or a few-KB file, is a failed export — never a
+   quiet month.
 
-> ⚠️ **The filename carries the date range but NOT the country.** An SA
-> and an AE export for the same range produce the **same filename**.
-> Rename on arrival (`ads_overview_{CC}_{YYYY-MM}.xlsx`) before starting
-> the other country's export.
+> ⚠️ **The file carries the date range but NOT the country.** Rename on
+> arrival (`ads_overview_{CC}_{YYYY-MM}.xlsx`) before starting the other
+> country's export, or the second download overwrites the first.
 
 Country comes from the `en-{cc}` URL segment, same as everywhere else.
 
@@ -700,41 +713,43 @@ PY
 
 ### 7.2 What's inside the workbook
 
-Ten sheets — `(Product)` and `(Brand)` families:
+The file is laid out for editing and re-upload ("Noon Ads Bulk
+Update"): **one sheet per kind, all ad products mixed**.
 
-| Sheet | Grain | Columns |
+| Sheet | Grain | Key columns |
 |---|---|---|
-| `(Product|Brand) Campaign` | campaign | Campaign Name, Views, Clicks, Orders, ATC, Spends, Revenue, CTR, ROAS, CPC, CPS, CVR |
-| **`(Product|Brand) Sku`** | **campaign x SKU** | as above **+ `Sku`** |
-| `(Product|Brand) Target` | keyword / target | + Target Value, Targeting Type, Bid, Strategy |
-| `(Product|Brand) Placement` | placement | + Placement Type |
-| `(Product|Brand) Queries` | search term | + Sku, Query |
+| `Read me` | — | row 2: the performance date range |
+| `Campaigns` | campaign | Campaign ID, **Ad Type** (product / brand / display), Campaign Name, budget, … Views, Clicks, Orders, ATC, Spends, Revenue |
+| **`SKUs`** | **campaign × offer** | Campaign ID, **SKU**, PSKU, Offer Code, … Spends, Orders |
+| `Targets` | keyword / target | Campaign ID, Ad Group ID, Target ID, Target Value, Target Type, Bid, … |
+| `Negative Keywords` | negative | Campaign ID, Keyword Text, Match Type, Status |
+| `Placement` | placement | Campaign ID, Placement Type, metrics |
+| `Queries` | search term | Campaign ID, SKU, Query, metrics |
 
-**Per-SKU ad spend** = `Spends` from `(Product) Sku` **+** `(Brand) Sku`,
-grouped by `Sku`. Verified live: the SKU sheets sum **exactly** to the
-Campaign sheets, so this is a complete decomposition — no residual.
+**Row 1 of every data sheet is a colour-group banner** (`OPERATION`,
+`KEYS · do not change`, `PERFORMANCE · read-only` …); **row 2 is the
+header**. Only `Campaigns` carries `Ad Type`; join the others through
+`Campaign ID`.
+
+**Per-SKU ad spend** = `Spends` from `SKUs`, grouped by `SKU`:
 
 ```python
-frames = [xl.parse(s)[['Sku','Spends','Orders','Clicks','Views','Revenue']]
-          for s in ['(Product) Sku', '(Brand) Sku']]
-per_sku = pd.concat(frames).groupby('Sku', as_index=False).sum()
+skus = pd.read_excel(path, 'SKUs', header=1, dtype={'Campaign ID': str})
+per_sku = skus.groupby('SKU', as_index=False)[['Spends', 'Orders']].sum()
 ```
 
-Three things to handle:
+Product campaigns decompose **exactly** into their SKU rows. A brand
+ad's banner (and any display campaign) spends money no SKU row claims:
+`Campaigns.Spends − Σ SKUs.Spends` per campaign is real spend
+attributable to no SKU — keep it as an explicit "unattributed" bucket;
+don't drop it or charge it to a SKU.
 
-- **`header` is not a SKU.** Brand-ad banner spend is booked against a
-  literal `Sku` value of `header` (a few % of spend). It is real spend
-  attributable to no SKU — keep it as an explicit "unattributed"
-  bucket; don't silently drop it or let it pollute a SKU.
-- **Parent vs variant SKUs.** `(Product) Sku` mixes noon-internal
-  variant (`Z…Z-<n>`) and parent (`Z…Z`) forms; `(Brand) Sku` is
-  mostly variant. These are noon-internal keys, **not** the seller
-  codes in the Transaction View's `Partner SKUs` — bridge via that
-  export's `SKUs` column (see
-  `noon-fbn/references/fee-reports.md` § 5).
-- **`Queries` sheets are capped at 30,000 rows.** Exactly 30000 means
-  truncated, not complete. Narrow the range if you need full
-  search-term coverage.
+- **Parent vs variant SKUs.** `SKU` is a noon-internal variant
+  (`Z…Z-<n>`) and `PSKU` its parent (`Z…Z`). These are **not** the
+  seller codes in the Transaction View's `Partner SKUs` — bridge via that
+  export's `SKUs` column (see `noon-fbn/references/fee-reports.md` § 5).
+- **`Queries` may be capped.** A round row count means truncated, not
+  complete; narrow the range if you need full search-term coverage.
 
 ### 7.3 Reconciling ad spend against the statement
 
@@ -754,12 +769,16 @@ amount actually invoiced.
 
 ### 7.4 Per-tab `Export Data`
 
-Exports the current filtered view on Products / Targets / Customer
-Queries. **Unreliable in this environment** — see § 4 caveat. Prefer DOM
-eval extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT
-re-click or retry** — a no-op export button is an environment quirk, not
-a transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
-retrying just burns steps.
+Exports the current filtered view on the **Products** and **Targets**
+tabs. **Unreliable in this environment** — prefer DOM eval extraction.
+⚠️ **If the file doesn't land within ~10 s, do NOT re-click or retry** —
+a no-op export button is an environment quirk, not a transient miss.
+Switch to DOM eval extraction (§ 4 / § 5) immediately; retrying just
+burns steps.
+
+**Customer Queries is the exception and is not covered by this rule:**
+its `Export` works (~15–25 s), is the only complete source of the query
+set, and is required — follow § 4, not the 10-second cutoff above.
 
 ```bash
 browser-use <<'PY'
