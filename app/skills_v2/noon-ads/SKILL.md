@@ -652,62 +652,70 @@ the list's **date-range filter**, so set the range first.
 
 Country comes from the `en-{cc}` URL segment, same as everywhere else.
 
-**Setting a custom month range** (the presets are Last 30 days / Last 7
-days / Yesterday / Today):
+**Setting a custom month range** (the presets are Today / Yesterday /
+Last 7 / 30 / 90 days / Year to Date / All time / Custom range).
+
+> ⚠️ **Drive this calendar with JS `element.click()`, never `click_at_xy`.**
+> It is a React date picker, and coordinate clicks open it but do not
+> select a day. That is what made one run report the calendar as
+> unusable, while another run on the same page and the same profile
+> exported the whole month with the steps below. The Export button
+> behaves the same way: only a JS click triggers it.
 
 ```bash
 browser-use <<'PY'
-import time, json
-def rect(expr):
-    r = js("(function(){%s})()" % expr)
-    return json.loads(r) if r and r.startswith('{') else None
-def click_text(t, lo=0, hi=99999):
-    r = rect("""
-      var want=%s, lo=%d, hi=%d;
-      var el=Array.from(document.querySelectorAll('div,li,span,button,a,p')).filter(e=>
-        e.children.length===0 && (e.textContent||'').trim()===want
-        && e.getBoundingClientRect().height>4
-        && e.getBoundingClientRect().y>lo && e.getBoundingClientRect().y<hi);
-      if(!el.length) return 'nf';
-      var b=el[0].getBoundingClientRect();
-      return JSON.stringify({x:Math.round(b.x+b.width/2), y:Math.round(b.y+b.height/2)});
-    """ % (json.dumps(t), lo, hi))
-    if not r: return False
-    click_at_xy(r['x'], r['y']); time.sleep(2); return True
+import time
+def jsclick(expr):
+    return js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
 
-# 1. open the range dropdown (the button showing the current preset), 2. Custom range
-r = rect("""var b=Array.from(document.querySelectorAll('button')).find(x=>
-             /Last 30 days|Last 7 days|Custom|20\\d\\d/i.test(x.textContent||'')
-             && x.getBoundingClientRect().y<260);
-           if(!b) return 'nf'; var q=b.getBoundingClientRect();
-           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""")
-click_at_xy(r['x'], r['y']); time.sleep(2)
-click_text("Custom range")
-
-# 3. page the calendar back with the  <  arrow (y 350-395, x 580-620) until the
-#    header reads the month you want, then click the first day then the last day,
-#    then Apply. Verify the range button text before exporting.
-click_text("Apply")
-print(js("""(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>
-  x.getBoundingClientRect().y<260 && /20\\d\\d|Last|Custom/i.test(x.textContent||''));
-  return b?b.textContent.trim():'?'})()"""))
+# 1. open the range menu, 2. Custom range
+print(jsclick("Array.from(document.querySelectorAll('button')).find(b=>/Last \\d+ days|Custom|20\\d\\d/i.test(b.textContent||''))"))
+time.sleep(2)
+print(jsclick("Array.from(document.querySelectorAll('.ant-popover-content *')).find(e=>e.children.length===0&&(e.textContent||'').trim()==='Custom range')"))
+time.sleep(2)
+# 3. page back to the target month; read the caption after each click
+print(jsclick("document.querySelector('[class*=rdp] button[aria-label=\"Previous month\"]')"))
+time.sleep(1)
+print(js("(document.querySelector('[class*=rdp-caption]')||{}).textContent"))
 PY
 ```
 
-Then click the export (the handler is on the **`<button>`**, not the
-label `<span>` inside it — clicking the span does nothing):
+Then pick the two days. Click the **Start date** / **End date** label
+before each one. Skip any day button whose class contains `outside`:
+the grid also draws the neighbouring months' days, and a "30" from the
+month before turns the range into `30 Aug – 30 Sep`.
 
 ```bash
 browser-use <<'PY'
-import time, json
-r = js("""(function(){
+import time
+def day(n):
+    return ("Array.from(document.querySelectorAll('[class*=rdp] button[name=day]'))"
+            ".find(b=>b.textContent.trim()==='%s'&&!/outside/i.test(b.className))" % n)
+def label(t):
+    return ("Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] span'))"
+            ".find(s=>s.textContent.trim()==='%s')" % t)
+for expr in (label('Start date'), day(1), label('End date'), day(30)):   # 31 for a 31-day month
+    print(js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr))
+    time.sleep(1)
+print(js("(function(){var b=Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] button')).find(b=>b.textContent.trim()==='Apply'); if(!b) return 'nf'; b.click(); return 'ok';})()"))
+time.sleep(3)
+# the range button must now read the whole month, e.g. "01 Sep 2026 - 30 Sep 2026"
+print(js("(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>x.getBoundingClientRect().y<260&&/20\\d\\d|Last|Custom/i.test(x.textContent||'')); return b?b.textContent.trim():'?'})()"))
+PY
+```
+
+Then click the export with a JS `.click()` on the **`<button>`** (not
+the label `<span>` inside it):
+
+```bash
+browser-use <<'PY'
+print(js("""(function(){
   var d=document.querySelector('[class*=CampaignStatusTabs_headerExportAction]');
-  if(!d) return 'nf';
-  var b=d.querySelector('button')||d, q=b.getBoundingClientRect();
-  return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2), dis:String(b.disabled)});
-})()""")
-c=json.loads(r); print("export btn:", c)
-click_at_xy(c['x'], c['y'])          # ONCE. then poll the download dir.
+  var b=d&&(d.querySelector('button')||d);
+  if(!b) return 'nf';
+  b.click();                 // ONCE. then poll the download dir.
+  return 'clicked, disabled=' + String(b.disabled);
+})()"""))
 PY
 ```
 
