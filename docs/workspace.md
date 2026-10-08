@@ -152,6 +152,16 @@ by the PreToolUse hook (`app/ads_routing.py`). When the store cannot be
 read, routing falls back to the browser skill — the one every store can
 use.
 
+Routing decides what a task *can* load; the prompt says which path it is
+*on*. Once any store is authorized, a store task is told its own path
+(API, or seller console) and to keep to it even where its task or plan
+names the other, and a no-store task — a schedule's planner, an
+all-stores orchestrator — sees each store labelled `ads: API` or
+`ads: seller console`. This matters for a fanout: its plan is written
+once and handed verbatim to every store. Until a store is authorized
+none of this is said. `tests/e2e/test_ads_mixed_fanout.py` runs one
+schedule over an API store and a console store against a fake service.
+
 ## Run Data (`store-data/`)
 
 Per-store **run artifacts** (reports, captures, exports) live outside the

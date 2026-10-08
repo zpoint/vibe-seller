@@ -30,16 +30,14 @@ from app.prompts import (
 )
 from app.question_answers import expand_free_text_answers
 from app.task_runner_context import (
+    ads_store_note,
     build_all_stores_context,
     build_store_context,
     build_system_context,
     detect_language_hint,
     ticktick_context,
 )
-from app.task_states import (
-    TaskStatus,
-    assert_transition,
-)
+from app.task_states import TaskStatus, assert_transition
 from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
@@ -181,6 +179,7 @@ async def build_system_extra(
                 task_platform=task.platform,
                 task_country=task.country,
             )
+            + await ads_store_note(store)
         )
     else:
         async with async_session() as db:

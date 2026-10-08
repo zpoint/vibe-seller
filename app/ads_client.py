@@ -27,6 +27,7 @@ import asyncio
 from dataclasses import dataclass
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -43,8 +44,11 @@ logger = logging.getLogger(__name__)
 #: The ads service every deployment binds to. A constant, not a setting:
 #: there is one service, and a host field is one more thing a person can
 #: type wrong into a form whose only effect is to send their store list
-#: somewhere else.
-SERVICE_URL = 'https://listwizard.cloud/ads-api'
+#: somewhere else. The environment can point it at a stand-in, which is
+#: how the end-to-end tests run a real agent against a fake service.
+SERVICE_URL = (
+    os.environ.get('VIBE_ADS_SERVICE_URL') or 'https://listwizard.cloud/ads-api'
+)
 
 KEY_KEY = 'ads_service_api_key_enc'
 

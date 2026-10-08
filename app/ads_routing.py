@@ -102,3 +102,50 @@ def skills_to_exclude(authorized_flags: Iterable[bool]) -> set[str]:
     # Mixed. Both are needed and neither can be dropped without leaving
     # some store in the task unable to work.
     return set()
+
+
+# ── What a task is told ─────────────────────────────────────────────
+#
+# Routing the skills decides which instructions a store task CAN load;
+# these say which path it is ON. Without them the agents that write the
+# instructions — a schedule's planner, an all-stores orchestrator — do
+# not know which stores are bound, and write one path for all: a plan
+# that says "open the ad console" is handed verbatim to every store of a
+# fanout, the API ones included, and "try the API first" costs every
+# console store a refused call.
+
+
+def label(authorized: bool) -> str:
+    """How a store's ads path reads in the all-stores list."""
+    return 'ads: API' if authorized else 'ads: seller console'
+
+
+#: For a task with no store: a planner or an orchestrator.
+ORCHESTRATOR_NOTE = (
+    'Amazon advertising: stores marked `ads: API` are authorized with the '
+    'ads service — their ad data and changes go through the '
+    f'`vibe_seller_ads_call` tool (the `{API_SKILL}` skill), never the '
+    'seller console. Stores marked `ads: seller console` work advertising '
+    f'in the browser (the `{BROWSER_SKILL}` skill); the API refuses them. '
+    "Each store's own task is told its path, so a plan or sub-task for ad "
+    'work says WHAT to get (e.g. spend and ad sales for the last 30 days) '
+    'and leaves HOW to the store — never tell an API store to open the '
+    'console, or a console store to call the API.'
+)
+
+
+def store_note(authorized: bool) -> str:
+    """The one line a store task gets about its own ads path."""
+    if authorized:
+        return (
+            'Amazon advertising: this store is authorized with the ads '
+            f'service. Do ad work through the `{API_SKILL}` skill and the '
+            '`vibe_seller_ads_call` tool, not the seller console — even '
+            'where the task or its plan mentions the console.'
+        )
+    return (
+        'Amazon advertising: this store is NOT authorized with the ads '
+        'service, and `vibe_seller_ads_call` refuses it. Do ad work in the '
+        f'seller console with the `{BROWSER_SKILL}` skill — even where the '
+        'task or its plan mentions the API.'
+    )
