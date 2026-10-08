@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import String, Text
+from sqlalchemy import Boolean, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -43,6 +43,21 @@ class Store(Base):
         Text, nullable=False, default='{}'
     )
     config: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Binding to an external Amazon Ads service, as ``{marketplace:
+    # store_key}``. One store commonly carries several: an Ads profile is
+    # per (advertiser, marketplace), so a store advertising on two
+    # marketplaces has two keys and a report has to name which one.
+    #
+    # The keys are the service's identifiers and are written only by
+    # ``ads_client.sync_stores``; nothing here derives them from
+    # ``countries`` or ``platform_countries``, which record where a store
+    # SELLS rather than where it advertises.
+    ads_store_keys: Mapped[str] = mapped_column(
+        Text, nullable=False, default='{}'
+    )
+    ads_authorized: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     created_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
     )

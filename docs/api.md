@@ -312,6 +312,30 @@ message (`frontend/src/uploadLimits.ts`).
 | GET | `/api/ziniao-accounts/{id}/browsers` | List browser profiles (returns structured status JSON on error) |
 | POST | `/api/ziniao-accounts/{id}/restart` | Kill + relaunch Ziniao in WebDriver mode (Mac only, requires `running_normal` state) |
 
+## `ads.py` — Amazon Ads API service
+
+A store can be bound to the hosted ads service; vibe-seller holds no Amazon
+credential. The service address is a constant in `app/ads_client.py`; only
+an API key is configured, stored encrypted and never returned.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/ads/config` | Whether a service is bound (`configured`); never the key |
+| PUT | `/api/ads/config` | Set the API key (admin only). Verified on save, then the skill bundle is pulled; an empty key unbinds and removes the skill |
+| POST | `/api/ads/stores/sync` | Upload the stores and record which are authorized. Also how a deployment learns a consent finished |
+| GET | `/api/ads/stores/{id}/auth-url` | A consent link for the store (admin only) |
+| POST | `/api/ads/call` | The agent's one door (MCP tool `vibe_seller_ads_call`); the key is added here, never seen by the agent |
+
+`/api/ads/call`:
+
+- **Task scoping.** `task_id` is required. A task bound to a store reaches
+  that store only; only a store-less task may name any authorized store.
+- **Reserved paths.** `/me`, `/auth-url`, `/assignments`, `/ads-binding`
+  belong to a person, not an agent, and are refused.
+- **File answers.** A list the service answers as CSV is saved to
+  `tasks/<id>/ads-data/`; the agent gets the path, the row count and the
+  metadata from the `X-Meta` header.
+
 ## `vision.py` — Vision (AI image generation)
 
 | Method | Endpoint | Description |

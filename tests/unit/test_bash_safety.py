@@ -6,6 +6,8 @@ fanout sub-task killed bash subprocesses in two sibling tasks (a real
 incident).
 """
 
+from pathlib import Path
+
 import pytest
 
 from app.ai.bash_safety import (
@@ -350,6 +352,36 @@ class TestReportScriptGuard:
             "text = open('AD_AUDIT_2026-06-10.md').read()\nprint(len(text))\n"
         )
         assert check_report_script_write('python3 analyze.py', tmp_path) is None
+
+    def test_the_skills_own_pdf_renderer_runs(self, tmp_path):
+        # Observed in CI: the skill says to render the PDF with its own
+        # script, which names the report and writes a file — refused,
+        # the agent spent two turns probing the guard.
+        self._install_renderer(tmp_path)
+        cmd = (
+            'python3 .claude/skills/amazon-ads/scripts/md_to_pdf.py '
+            './AD_AUDIT_2026-10-08.md'
+        )
+        assert check_report_script_write(cmd, tmp_path) is None
+
+    def test_an_edited_copy_of_a_skill_script_is_judged(self, tmp_path):
+        script = self._install_renderer(tmp_path)
+        script.write_text(
+            script.read_text() + "\nopen('AD_AUDIT_x.md', 'w').write('')\n"
+        )
+        cmd = 'python3 .claude/skills/amazon-ads/scripts/md_to_pdf.py x'
+        assert check_report_script_write(cmd, tmp_path) is not None
+
+    @staticmethod
+    def _install_renderer(task_dir):
+        shipped = (
+            Path(__file__).parents[2]
+            / 'app/skills_v2/amazon-ads/scripts/md_to_pdf.py'
+        )
+        script = task_dir / '.claude/skills/amazon-ads/scripts/md_to_pdf.py'
+        script.parent.mkdir(parents=True)
+        script.write_bytes(shipped.read_bytes())
+        return script
 
     def test_inline_python_write_blocked(self):
         cmd = "python3 -c \"open('AD_AUDIT_2026-06-10.md', 'w').write(x)\""

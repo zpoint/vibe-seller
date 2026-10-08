@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 
+from app import ads_routing
 from app.ai.base import AIAgentBackend
 from app.ai.claude_backend import AgentSession
 from app.ai.profiles import DEFAULT_PROFILE_ID
@@ -85,11 +86,20 @@ class ClaudeCodeBackend(AIAgentBackend):
             # task launches do).
             await skills_sync.wait_deps_ready()
 
-            # Prepare isolated per-task workspace. All skills (including
-            # browser-use) are copied regardless of store — no-store
-            # tasks now have the store-less web browser.
+            # Which ads skill this task gets is decided from the store's
+            # binding, not left to the agent: a store bound to an ads
+            # service works over an API and an unbound one drives the
+            # console in a browser, and the two need different
+            # instructions. See app/ads_routing.py.
+            ads_exclusions = await _ads_skill_exclusions(task_id, no_store)
+            ads_routing.remember(task_id, ads_exclusions)
+
+            # Prepare isolated per-task workspace. All other skills
+            # (including browser-use) are copied regardless of store —
+            # no-store tasks now have the store-less web browser.
             task_dir = await workspace_manager.prepare_task_workspace(
                 task_id,
+                exclude_skills=ads_exclusions,
             )
 
             # Declare the store's marketplaces into the workspace before
@@ -448,3 +458,26 @@ agent_backend = ClaudeCodeBackend()
 
 # Backward-compatible alias
 agent_manager = agent_backend
+
+
+async def _ads_skill_exclusions(task_id: str, no_store: bool) -> set[str]:
+    """Skill dirs to leave out of *task_id*'s workspace.
+
+    When the store's binding cannot be read, the task gets the browser
+    skill only — the path every store had before an ads service existed.
+    Handing it both would leave the choice of path to the agent.
+    """
+    if no_store:
+        return ads_routing.skills_to_exclude([])
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+            if task is None or not task.store_id:
+                return ads_routing.skills_to_exclude([])
+            store = await db.get(Store, task.store_id)
+            if store is None:
+                return ads_routing.skills_to_exclude([False])
+            return ads_routing.skills_to_exclude([bool(store.ads_authorized)])
+    except Exception:
+        logger.exception('ads skill routing failed for task %s', task_id)
+        return ads_routing.skills_to_exclude([False])

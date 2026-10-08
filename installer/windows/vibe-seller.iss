@@ -55,8 +55,10 @@ Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 
 [CustomMessages]
 english.OpenNow=Open Vibe Seller now
+english.WindowsTooOld=Vibe Seller needs Windows 10 version 1809 / Windows Server 2019 (build 17763) or later. This computer is build %1.%n%nThe AI agent it bundles (Claude Code) uses Windows APIs that older versions do not have, so every task would fail to start. Please upgrade Windows, then run this installer again.
 #if FileExists(AddBackslash(SourcePath) + "ChineseSimplified.isl")
 chinesesimp.OpenNow=现在打开 Vibe Seller
+chinesesimp.WindowsTooOld=Vibe Seller 需要 Windows 10 1809 / Windows Server 2019（内部版本 17763）或更高版本，本机为 %1。%n%n内置的 AI 智能体（Claude Code）依赖旧版 Windows 没有的系统接口，装上后所有任务都无法启动。请先升级 Windows，再运行本安装程序。
 #endif
 
 [Tasks]
@@ -145,6 +147,29 @@ Filename: "{app}\.venv\Scripts\vibe-seller.exe"; Parameters: "stop"; \
 Type: filesandordirs; Name: "{app}\.venv"
 
 [Code]
+// Claude Code's native claude.exe statically imports the ConPTY API
+// (CreatePseudoConsole / ClosePseudoConsole) from KERNEL32, which first
+// shipped in build 17763 (Windows 10 1809 / Server 2019). On anything
+// older the loader refuses to start it — "无法定位程序输入点
+// ClosePseudoConsole" — so the server and web UI come up but every task
+// dies at spawn (issue #149). Refuse here, where the reason can be
+// stated, instead. A custom check rather than [Setup] MinVersion so the
+// message says WHY; SuppressibleMsgBox so a /SILENT upgrade still aborts.
+const
+  MinWindowsBuild = 17763;
+
+function InitializeSetup: Boolean;
+var
+  Ver: TWindowsVersion;
+begin
+  GetWindowsVersionEx(Ver);
+  Result := Ver.Build >= MinWindowsBuild;
+  if not Result then
+    SuppressibleMsgBox(
+      FmtMessage(CustomMessage('WindowsTooOld'), [IntToStr(Ver.Build)]),
+      mbCriticalError, MB_OK, IDOK);
+end;
+
 // Kill processes whose executable lives under the ACTUAL install dir
 // ({app}). The dir-selection page is enabled, so a user can install
 // somewhere other than ...\VibeSeller — matching a hard-coded

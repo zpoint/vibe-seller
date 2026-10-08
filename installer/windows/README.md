@@ -5,6 +5,16 @@ Windows — **no WSL, no manual Ziniao/networking setup**. Modelled on
 Ollama: a per-user install plus a system-tray launcher that starts the
 server on login.
 
+## Requirements
+
+**Windows 10 version 1809 / Windows Server 2019 (build 17763) or
+later, x64.** That is Claude Code's floor: the bundled `claude.exe`
+imports the ConPTY API (`CreatePseudoConsole` / `ClosePseudoConsole`)
+from `KERNEL32`, which older builds lack, so on e.g. Server 2016 (build
+14393) it cannot even load and every task fails at spawn (#149). The
+installer checks the build in `InitializeSetup` and refuses with that
+reason; there is no supported way to run it on older Windows.
+
 ## What it bundles
 
 | Component | Source | Why |

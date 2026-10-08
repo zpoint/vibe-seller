@@ -179,3 +179,52 @@ def test_another_tasks_completion_does_not_clear_this_one():
         _tool_result(_TASK_OUTPUT.format(tid='agt-other', status='completed'))
     )
     assert s._async_agents.get('spawn-1') == 'agt-9'
+
+
+def _system_notification(status: str, **ids) -> dict:
+    """The stream's structured completion event (no user message)."""
+    return {
+        'type': 'system',
+        'subtype': 'task_notification',
+        'status': status,
+        **ids,
+    }
+
+
+def test_the_streams_system_notification_does_not_release_the_turn():
+    """The CLI still delivers the user-message notification after the
+    system event; a turn that ended first answers it as a stray result
+    that the next follow-up then reads as its own (observed in CI)."""
+    s = _session()
+    _spawned_reviewer(s)
+    s._track_async_agents(
+        _system_notification(
+            'completed', task_id='agt-9', tool_use_id='spawn-1'
+        )
+    )
+    assert s._async_agents.get('spawn-1') == 'agt-9'
+
+
+def test_finished_work_is_told_to_end_the_turn_not_resubmit():
+    """Observed in CI: reviewers done, Stop denied with "still running",
+    the agent resubmitted its result until the loop breaker fired."""
+    s = _session()
+    _spawned_reviewer(s)
+    assert 'still running' in s._async_agents_pending_reason()
+    s._track_async_agents(
+        _system_notification(
+            'completed', task_id='agt-9', tool_use_id='spawn-1'
+        )
+    )
+    reason = s._async_agents_pending_reason()
+    assert 'have finished' in reason and 'end your turn now' in reason
+
+
+def test_partly_finished_work_still_says_wait():
+    s = _session()
+    _spawned_reviewer(s)
+    s._track_async_agents(_tool_result('running in background with ID: bg-1'))
+    s._track_async_agents(
+        _system_notification('completed', task_id='agt-9', tool_use_id='x')
+    )
+    assert 'still running' in s._async_agents_pending_reason()

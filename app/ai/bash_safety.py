@@ -23,14 +23,17 @@ would be bad.
 from pathlib import Path
 import re
 
+from app.ai.shipped_scripts import source_unless_shipped
 from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
+    AD_REVIEW_ROUNDS,
     ad_completeness_review,
     ad_scope,
     listing_upload_gate,
     recorded_skills,
     report_reviewer,
 )
+from app.ai.stop_gates.ad_floor import drill_floor
 from app.plugins import (
     registered_pretool_gates,
     registered_review_markers,
@@ -263,8 +266,8 @@ def check_catalog_first_tool_args(
 # pressure, so the contract lives here: any Bash command that would
 # have a script (or shell redirection) WRITE an AD_AUDIT file is
 # denied. Scripts remain free to READ the report or TSVs and print
-# analysis to stdout; ``sed -i`` style targeted in-place fixes are
-# deliberately not matched (tolerated for batch cleanup).
+# analysis to stdout; ``sed -i`` fixes and a skill's own unedited
+# scripts (the PDF renderer) are not matched.
 
 _REPORT_TOKEN = 'AD_AUDIT'
 # Shell redirection or tee whose TARGET is an AD_AUDIT file.
@@ -324,12 +327,11 @@ def check_report_script_write(command: str, task_dir=None) -> str | None:
     # Script file on disk: read it and look for report writes.
     for m in _SCRIPT_FILE_RE.finditer(command):
         script = Path(m.group(1))
-        if not script.is_absolute():
-            if task_dir is None:
-                continue
-            script = Path(task_dir) / script
+        if task_dir is None and not script.is_absolute():
+            continue
+        script = Path(task_dir or '/') / script  # absolute stays as is
         try:
-            src = script.read_text(encoding='utf-8', errors='ignore')
+            src = source_unless_shipped(script)
         except OSError:
             continue
         if _REPORT_TOKEN in src and _WRITE_HINT_RE.search(src):
@@ -539,9 +541,7 @@ def check_review_status(
         # (AUDIT_SCOPE combo + active-id coverage + monotonic drills —
         # ground truth an LLM can't fake) AND the active ads-report-review
         # verification (opens the live console + cross-checks).
-        floor = ad_completeness_review.drill_incomplete_reason(
-            audit_text, task_dir.name
-        )
+        floor = drill_floor(audit_text, task_dir.name)
         if floor is not None:
             return floor
         # Floor passed → fall through to the REVIEW_*.md reviewer check.
@@ -572,12 +572,12 @@ def check_review_status(
 
 _EXEC_LOG_NAME = 'EXECUTION_LOG.md'
 _EXEC_REVIEW_FILE_GLOB = 'EXEC_REVIEW_*_iter*.md'
-_EXEC_REVIEW_MAX_ITERS = 5
+_EXEC_REVIEW_MAX_ITERS = AD_REVIEW_ROUNDS
 
 
 def check_exec_review_status(task_dir, review_writers=None) -> str | None:
     """Return a deny reason if the ads-execution reviewer hasn't
-    returned ``ok`` (or ``incomplete`` at iter ≥ 5); otherwise None.
+    returned ``ok``, or its last pass (``AD_REVIEW_ROUNDS``) is done.
 
     Quiet no-op when ``EXECUTION_LOG.md`` is absent — the task is
     not in execution mode. ``review_writers`` — per-file authorship
@@ -669,7 +669,7 @@ def check_exec_review_status(task_dir, review_writers=None) -> str | None:
         return deny
     if status == 'ok':
         return None
-    if status == 'incomplete' and iter_num >= _EXEC_REVIEW_MAX_ITERS:
+    if status in ('incomplete', 'gaps') and iter_num >= _EXEC_REVIEW_MAX_ITERS:
         return None
     if status == 'gaps':
         return (

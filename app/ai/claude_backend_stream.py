@@ -246,7 +246,7 @@ class _StreamMixin:
                 json.dumps(event, ensure_ascii=False)[:2000],
             )
 
-        if etype == 'user':
+        if etype in ('user', 'system'):
             self._track_async_agents(event)
 
         if etype == 'assistant':

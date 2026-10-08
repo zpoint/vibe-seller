@@ -3,7 +3,8 @@
 Generic, skill-agnostic. Any skill whose SKILL.md declares a `review:`
 block MUST run this loop before `set_task_result` / ending the turn. The
 server refuses to let the task complete until a `REVIEW_<date>_iter<N>.md`
-with `Status: ok` exists (or `incomplete` at iter 5). This is the same
+exists. **One review round**: the first verdict the reviewer writes is
+final, whatever it says. This is the same
 gate the ads audit uses — here it is parameterized by *your* skill's
 `review:` block.
 
@@ -32,11 +33,10 @@ you always begin at `iter1` on a clean slate.
    does not share your PATH or context.
 3. Read the `Status:` line it writes:
    - `ok` → you're done.
-   - `gaps` → read the gap list, FIX the deliverable in place, spawn the
-     reviewer again as `REVIEW_<date>_iter<N+1>.md`. Repeat.
-   - `incomplete` (only valid at iter 5) → accept with the caveats on
-     disk.
-4. Converge to `ok` (or iter-5 `incomplete`). Then finish.
+   - `gaps` → read the gap list and FIX the deliverable in place, then
+     finish. There is no second review round.
+   - `incomplete` → finish; the caveats stay on disk.
+4. One round: act on the first verdict, then finish.
 
 ## REVIEWER_PROMPT (fill the braces, then spawn)
 
@@ -115,8 +115,8 @@ WHAT DID NOT MATCH), then optional `## Notes`.
 | Status | When | Gate |
 |--------|------|------|
 | `ok` | Criteria met, verified against live data | Allows finish |
-| `gaps` | ≥1 criterion unverified/violated (bullets listed) | **Denies**; fix + re-review |
-| `incomplete` | Only at iter 5; remaining gaps documented | Allows finish with caveat trail |
+| `gaps` | ≥1 criterion unverified/violated (bullets listed) | Allows finish; fix the listed gaps first |
+| `incomplete` | Remaining gaps documented | Allows finish with caveat trail |
 
 The reviewer file name must contain `review` (any case) and must NOT
 start with `EXEC_` (that prefix is the ad-execution reviewer).

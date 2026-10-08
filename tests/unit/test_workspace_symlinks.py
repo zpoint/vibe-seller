@@ -268,3 +268,32 @@ def test_preserve_clears_a_junction_child(tmp_path, monkeypatch):
     assert (task_dir / 'uploads' / 'ref.png').read_bytes() == b'\x89PNG', (
         'preserved uploads must survive'
     )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_a_task_folder_is_its_own_skill_root(ws):
+    """Skill discovery stops at the git root; the task folder must be one.
+
+    Otherwise an agent also finds the shared copy of every skill in the
+    workspace above it — including the ads skill its store was routed away
+    from, which is how an unbound store's task loaded the API skill.
+    """
+    await ws.ensure_init()
+    shared = ws.root / '.claude' / 'skills'
+    for name in ('amazon-ads', 'amazon-ads-api'):
+        (shared / name).mkdir(parents=True, exist_ok=True)
+        (shared / name / 'SKILL.md').write_text(f'---\nname: {name}\n---\n')
+
+    task_dir = await ws.prepare_task_workspace(
+        'tid-root', exclude_skills={'amazon-ads-api'}
+    )
+
+    assert (task_dir / '.git').is_dir()
+    copied = {p.name for p in (task_dir / '.claude' / 'skills').iterdir()}
+    assert 'amazon-ads' in copied and 'amazon-ads-api' not in copied
+    # Preparing again (a retry) keeps working and keeps the boundary.
+    again = await ws.prepare_task_workspace(
+        'tid-root', exclude_skills={'amazon-ads-api'}
+    )
+    assert (again / '.git').is_dir()

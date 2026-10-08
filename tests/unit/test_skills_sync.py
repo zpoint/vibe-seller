@@ -15,6 +15,16 @@ from app.workspace import skills_sync as ss
 from app.workspace.skills_sync import SkillsSyncManager
 
 
+@pytest.fixture(autouse=True)
+def no_ads_service():
+    """The remote check also asks the ads service; never from a test."""
+    with patch(
+        'app.ads_skill.refresh_if_bound', new_callable=AsyncMock
+    ) as refresh:
+        refresh.return_value = None
+        yield refresh
+
+
 @pytest.fixture
 def sync_mgr(tmp_path):
     """Create a SkillsSyncManager with a temp dest dir.

@@ -131,6 +131,27 @@ Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `
 - **API**: `POST /api/workspace/skills/sync`, `GET /api/workspace/skills/sync-meta`, `POST /api/workspace/skill`
 - **Frontend**: skills panel in Workspace sidebar with sync button, builtin badges, and skill creation form
 
+### Ads skill routing
+
+The `amazon-ads-api` skill is not in this repo: it ships from the bound
+ads service, which versions it (a content hash). It is pulled on bind, at
+boot, and by the same pre-task skills sync as the GitHub skills (24h
+cooldown, `skills_auto_sync_enabled`) and the Sync button; the bundle is
+downloaded only when the service's version differs. A pulled bundle is
+data: anything but documentation is dropped (`app/ads_skill.py`) — no
+`gates/*.py` or scripts from a remote source ever run here. Unbinding
+(an empty key) removes the skill.
+
+Each task sees one ads skill: `amazon-ads-api` for a store authorized on
+the service, `amazon-ads` (browser) for any other store or no store, both
+for a task spanning both. Claude Code discovers skills up to the git
+root, so each task folder is made its own git repo
+(`_make_skill_root`) and gets only its routed skills; `CLAUDE.md` is
+still read from parents. A routed-away skill is also refused at load time
+by the PreToolUse hook (`app/ads_routing.py`). When the store cannot be
+read, routing falls back to the browser skill — the one every store can
+use.
+
 ## Run Data (`store-data/`)
 
 Per-store **run artifacts** (reports, captures, exports) live outside the
