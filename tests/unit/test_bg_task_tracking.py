@@ -179,3 +179,48 @@ def test_another_tasks_completion_does_not_clear_this_one():
         _tool_result(_TASK_OUTPUT.format(tid='agt-other', status='completed'))
     )
     assert s._async_agents.get('spawn-1') == 'agt-9'
+
+
+def _system_notification(status: str, **ids) -> dict:
+    """The stream's structured completion event (no user message)."""
+    return {
+        'type': 'system',
+        'subtype': 'task_notification',
+        'status': status,
+        **ids,
+    }
+
+
+def test_a_subagent_clears_on_the_streams_system_notification():
+    """Observed in CI: both reviewers finished, only the system event
+    arrived, and Stop stayed denied until the loop breaker killed the
+    task."""
+    s = _session()
+    _spawned_reviewer(s)
+    s._track_async_agents(
+        _system_notification(
+            'completed', task_id='agt-9', tool_use_id='spawn-1'
+        )
+    )
+    assert not s._async_agents
+
+
+def test_a_background_shell_clears_on_its_system_notification():
+    s = _session()
+    s._track_async_agents(_tool_result('running in background with ID: bg-1'))
+    s._track_async_agents(
+        _system_notification('failed', task_id='bg-1', tool_use_id='call_x')
+    )
+    assert not s._async_agents
+
+
+def test_a_running_or_unknown_system_notification_clears_nothing():
+    s = _session()
+    _spawned_reviewer(s)
+    s._track_async_agents(
+        _system_notification('running', task_id='agt-9', tool_use_id='x')
+    )
+    s._track_async_agents(
+        _system_notification('completed', task_id='other', tool_use_id='y')
+    )
+    assert s._async_agents.get('spawn-1') == 'agt-9'

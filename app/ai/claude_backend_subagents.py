@@ -131,6 +131,23 @@ class _SubagentMixin:
           if the notification carries none we can match, clear the whole
           set (fail open — never wedge a turn on a format change).
         """
+        if event.get('type') == 'system':
+            # The stream's own completion record: a ``task_notification``
+            # system event naming the task and its spawning tool call. A
+            # busy turn may never see the user-message form before it
+            # tries to stop — observed: both reviewers done, Stop still
+            # denied, the agent resubmitted until the loop breaker fired.
+            if event.get('subtype') == 'task_notification' and (
+                event.get('status') != 'running'
+            ):
+                ids = {event.get('task_id'), event.get('tool_use_id')}
+                for k in [
+                    k
+                    for k, v in self._async_agents.items()
+                    if k in ids or (v and v in ids)
+                ]:
+                    del self._async_agents[k]
+            return
         blocks = event.get('message', {}).get('content', [])
         if isinstance(blocks, str):
             blocks = [{'type': 'text', 'text': blocks}]
