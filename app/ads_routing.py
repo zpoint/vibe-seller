@@ -17,11 +17,41 @@ read a page it never opened.
 from __future__ import annotations
 
 from collections.abc import Iterable
+import re
 
 #: The browser skill, for stores with no ads service binding.
 BROWSER_SKILL = 'amazon-ads'
 #: The API skill, pulled from the bound service.
 API_SKILL = 'amazon-ads-api'
+
+
+#: task id -> skills routed away from it, recorded as its workspace is
+#: prepared. Keyed by task so a retried session keeps the routing.
+_excluded: dict[str, frozenset[str]] = {}
+
+
+def remember(task_id: str, skills: Iterable[str]) -> None:
+    _excluded[task_id] = frozenset(skills)
+
+
+def refusal_for(task_id: str, tool: str, tool_input: dict) -> str | None:
+    """Why this tool call may not load a skill routed away from the task.
+
+    Reached by name through the Skill tool, or by reading any file in the
+    skill's folder. None when the call is not such a load.
+    """
+    barred = _excluded.get(task_id, frozenset())
+    if tool == 'Skill':
+        name = tool_input.get('skill', '')
+    elif tool == 'Read':
+        m = _SKILL_DIR.search(str(tool_input.get('file_path', '')))
+        name = m.group(1) if m else ''
+    else:
+        return None
+    return refusal(name) if name in barred else None
+
+
+_SKILL_DIR = re.compile(r'(?:^|/)skills/([^/]+)/')
 
 
 def refusal(skill: str) -> str:

@@ -87,7 +87,6 @@ class _FakeSession:
         self.auto_approve_plan = kwargs.get('auto_approve_plan', False)
         self.task_dir = kwargs.get('task_dir')
         self.skip_reflection = kwargs.get('skip_reflection', False)
-        self.excluded_skills = frozenset(kwargs.get('excluded_skills', ()))
         self.resume_session_id: str | None = None
         self.session_id: str | None = None
         self._task: asyncio.Task | None = None
@@ -219,9 +218,6 @@ class TestRetryWithoutResume:
         assert retry.system_prompt_extra == prior.system_prompt_extra
         assert retry.auto_approve_plan == prior.auto_approve_plan is True
         assert retry.skip_reflection == prior.skip_reflection is True
-        # A retry must keep the task's skill routing, or the restarted
-        # session could load the skill its store was routed away from.
-        assert retry.excluded_skills == prior.excluded_skills
         assert retry.task_dir == prior.task_dir
         # Registry now holds the retry, not the prior.
         assert backend.get_session('task-retry') is retry

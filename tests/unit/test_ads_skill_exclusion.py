@@ -23,12 +23,8 @@ SHARED = '/home/u/.vibe-seller/.claude/skills'
 
 
 def _decision(excluded, tool, tool_input) -> dict:
-    s = AgentSession(
-        task_id='test-task',
-        prompt='test',
-        mode='auto',
-        excluded_skills=excluded,
-    )
+    ads_routing.remember('test-task', excluded)
+    s = AgentSession(task_id='test-task', prompt='test', mode='auto')
     sent = []
     s._send_hook_response = AsyncMock(
         side_effect=lambda rid, out: sent.append(out)
@@ -104,3 +100,15 @@ def test_nothing_is_refused_when_nothing_is_excluded():
             set(), 'Read', {'file_path': f'{SHARED}/{skill}/SKILL.md'}
         )
         assert out['permissionDecision'] == 'allow'
+
+
+def test_the_routing_is_kept_for_the_task_not_the_session():
+    """A retry starts a new session; the task's routing must survive it."""
+    ads_routing.remember('retried-task', {'amazon-ads'})
+    assert ads_routing.refusal_for(
+        'retried-task', 'Skill', {'skill': 'amazon-ads'}
+    )
+    assert (
+        ads_routing.refusal_for('other-task', 'Skill', {'skill': 'amazon-ads'})
+        is None
+    )

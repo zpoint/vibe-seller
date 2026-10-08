@@ -32,11 +32,7 @@ from app.ai.image_guards import (
     check_image_read_without_vision,
 )
 from app.ai.profiles import ProfileManager, model_sees_images
-from app.ai.skill_gate_utils import (
-    find_skill_md,
-    skill_name_from_read,
-    skill_of_read,
-)
+from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
 from app.database import async_session
 from app.events.bus import event_bus
@@ -271,23 +267,11 @@ class _HookMixin:
             # Read of skills/<name>/SKILL.md loads that skill (the
             # Skill-tool path is tracked by the prereq hook below);
             # record_skill_load makes the binding durable per task.
-            # A skill routed away from this task (app.ads_routing) is
-            # refused however it is reached — by name through the Skill
-            # tool, or by reading any file in its folder.
-            barred = (
-                inner_input.get('skill', '')
-                if inner_name == 'Skill'
-                else skill_of_read(inner_name, inner_input)
+            barred = ads_routing.refusal_for(
+                self.task_id, inner_name, inner_input
             )
-            if barred and barred in self.excluded_skills:
-                logger.info(
-                    'Excluded skill %r refused for task %s',
-                    barred,
-                    self.task_id[:8],
-                )
-                await self._deny_pre_tool_use(
-                    request_id, ads_routing.refusal(barred)
-                )
+            if barred:  # routed away from this task: see app.ads_routing
+                await self._deny_pre_tool_use(request_id, barred)
                 return
             read_skill = skill_name_from_read(inner_name, inner_input)
             if read_skill:

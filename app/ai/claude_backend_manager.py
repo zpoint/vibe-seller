@@ -92,6 +92,7 @@ class ClaudeCodeBackend(AIAgentBackend):
             # console in a browser, and the two need different
             # instructions. See app/ads_routing.py.
             ads_exclusions = await _ads_skill_exclusions(task_id, no_store)
+            ads_routing.remember(task_id, ads_exclusions)
 
             # Prepare isolated per-task workspace. All other skills
             # (including browser-use) are copied regardless of store —
@@ -138,7 +139,6 @@ class ClaudeCodeBackend(AIAgentBackend):
                 message_history=message_history or [],
                 no_store=no_store,
                 auto_approve_plan=auto_approve_plan,
-                excluded_skills=ads_exclusions,
                 task_dir=task_dir,
                 skip_reflection=skip_reflection,
                 persist_prompt=persist_prompt,
@@ -242,7 +242,6 @@ class ClaudeCodeBackend(AIAgentBackend):
                 auto_approve_plan=prior.auto_approve_plan,
                 task_dir=prior.task_dir,
                 skip_reflection=prior.skip_reflection,
-                excluded_skills=prior.excluded_skills,
                 # The first attempt already persisted the prompt (or
                 # the router did, for follow-ups) — a retry must never
                 # write the same user message a second time.
