@@ -149,6 +149,14 @@ export function AmazonAdsPanel() {
       <section className="space-y-3">
         <h3 className="text-sm font-semibold">{t('ads.title')}</h3>
         <p className="text-xs text-muted-foreground">{t('ads.blurb')}</p>
+        <ol
+          data-testid="ads-steps"
+          className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground"
+        >
+          <li>{t('ads.step1')}</li>
+          <li>{t('ads.step2')}</li>
+          <li>{t('ads.step3')}</li>
+        </ol>
 
       </section>
 

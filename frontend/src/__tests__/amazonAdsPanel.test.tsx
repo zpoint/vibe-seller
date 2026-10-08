@@ -71,6 +71,17 @@ describe('AmazonAdsPanel', () => {
     expect(screen.getByText(/Amazon stores only/)).toBeTruthy()
   })
 
+  it('walks through authorizing in three steps, ending on the button it names', async () => {
+    renderPanel()
+    await screen.findByTestId('ads-stores')
+    const steps = screen.getByTestId('ads-steps').querySelectorAll('li')
+    expect(steps).toHaveLength(3)
+    expect(steps[0].textContent).toMatch(/Authorize/)
+    expect(steps[1].textContent).toMatch(/Ziniao/)
+    expect(steps[2].textContent).toContain(enTranslation.ads.recheck)
+    expect(screen.queryByText(/no key to enter/)).toBeNull()
+  })
+
   it('offers revoke only on an authorized store', async () => {
     renderPanel()
     await screen.findByTestId('ads-stores')
