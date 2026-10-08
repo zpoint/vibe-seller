@@ -12,10 +12,6 @@ import { ThinkingBlock, WorkingIndicator } from './ThinkingBlock'
 import { QuestionBanner } from '../QuestionBanner'
 import { ImageRequestCard } from './ImageRequestCard'
 import { GeneratedImageCard } from './GeneratedImageCard'
-import { AuditResultCard } from '../adAudit/AuditResultCard'
-import type { AdDeclaration } from '../../lib/adAudit/declaration'
-import { declarationFor, opensConsole } from '../../lib/adAudit/declaration'
-import type { DecisionSubmission } from '../../lib/adAudit/types'
 import { StepIcon } from '../ui'
 import type { ConversationItem, TodoItem, TaskStep, Task } from '../../types'
 
@@ -272,23 +268,6 @@ interface ConversationStreamProps {
   isActive: boolean
   userNearBottom?: React.RefObject<boolean>
   onOpenVisionSetup?: () => void
-  /**
-   * Called when a reviewer commits the audit decision set. Left undefined
-   * until the execution side lands — the console then renders read-only
-   * rather than offering a button that goes nowhere.
-   */
-  onSubmitAuditDecisions?: (submission: DecisionSubmission) => void
-  auditSubmitting?: boolean
-  /**
-   * What each phase of this task declared it was for. Decides which
-   * result gets a console and how much of it is actionable — replacing a
-   * regex over the agent's own prose.
-   */
-  adDeclarations?: AdDeclaration[]
-  /** Audit console open state, owned by the URL (see lib/route.ts). */
-  auditOpen?: boolean
-  onOpenAudit?: () => void
-  onCloseAudit?: () => void
 }
 
 export function ConversationStream({
@@ -312,12 +291,6 @@ export function ConversationStream({
   isActive,
   userNearBottom,
   onOpenVisionSetup,
-  onSubmitAuditDecisions,
-  auditSubmitting,
-  adDeclarations,
-  auditOpen,
-  onOpenAudit,
-  onCloseAudit,
 }: ConversationStreamProps) {
   const { t } = useTranslation()
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -402,37 +375,7 @@ export function ConversationStream({
                 isStreaming={item.thinking!.isStreaming}
               />
             )
-          case 'result':
-            // A 190 KB audit rendered as markdown is a thousand rows of
-            // tables with no way to act on any of them. Detected by
-            // STRUCTURE, not a filename — the server hands us resolved
-            // content and the deliverable has been renamed more than once.
-            {
-            // Which phase produced this result, and did that phase say
-            // it was an audit? The old test — a combo heading plus a
-            // `drilled N/N` line — was satisfied by prose the agent
-            // chose to write, so a create task got a 51-campaign
-            // console. See lib/adAudit/declaration.ts.
-            const decl = declarationFor(adDeclarations, item.timestamp)
-            if (opensConsole(decl)) {
-              return (
-                <div key={item.id}>
-                  <AuditResultCard
-                    report={item.result || ''}
-                    declaration={decl}
-                    open={!!auditOpen}
-                    onOpen={() => onOpenAudit?.()}
-                    onClose={() => onCloseAudit?.()}
-                    onSubmit={
-                      onSubmitAuditDecisions
-                        ? (d) => onSubmitAuditDecisions(d)
-                        : undefined
-                    }
-                    submitting={auditSubmitting}
-                  />
-                </div>
-              )
-            }
+          case 'result': {
             return (
               <div key={item.id}>
                 <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 sm:p-6">
