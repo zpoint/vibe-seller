@@ -25,6 +25,8 @@ class ScheduleCreate(BaseModel):
     # fanout batch is terminal, ONE no-store task runs this prompt,
     # handed the children's results. See app/scheduler/finalize_reaper.
     finalize_description: str | None = None
+    # Run the fanout's stores one at a time (see Schedule.fanout_serial).
+    fanout_serial: bool = False
 
 
 class ScheduleUpdate(BaseModel):
@@ -46,6 +48,7 @@ class ScheduleUpdate(BaseModel):
     plan_mode: bool | None = None
     ai_profile_id: str | None = None
     finalize_description: str | None = None
+    fanout_serial: bool | None = None
     # Optimistic lock: clients pass the plan_version they last saw.
     # Router returns 412 if the server's version is higher.
     plan_version: int | None = None
@@ -72,6 +75,7 @@ class ScheduleResponse(BaseModel):
     staleness_check: str | None = None
     skip_reflection: bool = False
     finalize_description: str | None = None
+    fanout_serial: bool = False
     plan_mode: bool
     ai_profile_id: str | None
     created_by: str

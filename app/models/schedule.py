@@ -66,6 +66,18 @@ class Schedule(Base):
     skip_reflection: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # Run a fanout batch's per-store children ONE AT A TIME, in store
+    # order, instead of all at once. Every store on the machine shares
+    # one anti-detect client, and two stores driving the same portal at
+    # the same moment starve each other (a 60 s launch lock, then two
+    # half-logged-in sessions). A cron time cannot stagger a fanout —
+    # it fires every store in the same instant — so the stagger lives
+    # here and is enforced by the task queue
+    # (``TaskQueueScheduler._serial_sibling_ahead``), which derives it
+    # from the batch's own rows: nothing to recover after a restart.
+    fanout_serial: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     # Optional parent "reduce" step for a fanout schedule. When set,
     # after EVERY per-store child of a fired batch reaches a terminal
     # status, finalize_reaper creates ONE no-store task whose

@@ -49,6 +49,24 @@ _BG_LAUNCH_RE = re.compile(
     r'(?:moved to the background|backgrounded by user|running in '
     r'background) with ID:\s*([A-Za-z0-9_-]+)'
 )
+# The CLI's OWN answer that a task has finished, from TaskOutput
+# (``<task_id>X</task_id> … <status>completed</status>``) or TaskStop
+# ("Task X is not running (status: completed)"). Either is as final as a
+# <task-notification>, and sometimes it is the only completion there is:
+# an agent that polls its reviewer with TaskOutput consumes the result,
+# and no notification reached the stream for it.
+_DONE_STATES = r'(?:completed|failed|killed|cancelled|canceled|stopped|error)'
+_TASK_OUTPUT_DONE_RE = re.compile(
+    r'<task_id>\s*([A-Za-z0-9_-]+)\s*</task_id>.*?<status>\s*'
+    + _DONE_STATES
+    + r'\s*</status>',
+    re.S,
+)
+_TASK_NOT_RUNNING_RE = re.compile(
+    r'Task\s+([A-Za-z0-9_-]+)\s+is not running \(status:\s*'
+    + _DONE_STATES
+    + r'\)'
+)
 
 
 class _SubagentMixin:
@@ -102,7 +120,13 @@ class _SubagentMixin:
           "…background… with ID: <id>" line (Bash/PowerShell auto-
           background or run_in_background). Keyed by that id.
         - completion: the CLI injects a ``<task-notification …>`` user
-          message when either finishes. Match its task-id/tool-use-id/
+          message when either finishes -- OR the CLI's own TaskOutput /
+          TaskStop tool_result reports the task in a terminal state. That
+          second form is not optional: an agent that polled its reviewer
+          with TaskOutput got ``<status>completed</status>``, no
+          notification ever reached the stream, and the gate re-drove the
+          turn five times over a reviewer that had already written
+          ``Status: ok`` -- then shipped the result as UNVERIFIED. Match its task-id/tool-use-id/
           agent-id (attribute OR element form) against what we tracked;
           if the notification carries none we can match, clear the whole
           set (fail open — never wedge a turn on a format change).
@@ -128,6 +152,17 @@ class _SubagentMixin:
                 # just Agent/Task spawns), so this is OUTSIDE the
                 # _agent_spawn_ids gate. Keyed by its backgroundTaskId
                 # (== the id in its later <task-notification>).
+                done = {
+                    m.group(1)
+                    for rx in (_TASK_OUTPUT_DONE_RE, _TASK_NOT_RUNNING_RE)
+                    for m in rx.finditer(text)
+                }
+                for k in [
+                    k
+                    for k, v in self._async_agents.items()
+                    if k in done or (v and v in done)
+                ]:
+                    del self._async_agents[k]
                 bg = _BG_LAUNCH_RE.search(text)
                 if bg:
                     self._async_agents[bg.group(1)] = f'shell {bg.group(1)}'

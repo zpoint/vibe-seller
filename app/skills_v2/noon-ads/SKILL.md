@@ -146,8 +146,9 @@ the list:
 - **Status count control** (segmented): `Live N` · `Paused N` · `All N`
   + a `More status filter` dropdown. The counts are the **true totals**
   for the current filter — read them directly; there is no page math.
-- **Export all campaigns** (top-right of the list) — a list-level bulk
-  export (distinct from the per-tab Export Data in § 7).
+- **Export campaigns** (top-right of the list; labelled *Export all
+  campaigns* before 2026-10-06) — a list-level bulk export (distinct
+  from the per-tab Export Data in § 7).
 
 Columns (horizontally scrollable): Campaign, Status, Budget, Revenue,
 ROAS, Ad Spend, eCPC, Orders, Views, Clicks, ATC, … Actions.
@@ -165,7 +166,7 @@ gate.
 
 > ⚠️ **Enumerate LIVE from the scrolled list — never from a pre-existing
 > or downloaded export file.** A leftover `Campaign_*.csv` /
-> `Export all campaigns` file in `~/.vibe-seller/downloads/` (from a
+> `Export campaigns` file in `~/.vibe-seller/downloads/` (from a
 > prior run, or a first-paint export before you scrolled) captures only
 > the rows that were loaded when it was written — typically the first
 > ~20. Drilling that file makes the audit look done at `20/20` while the
@@ -173,7 +174,7 @@ gate.
 > reused a 20-row export and reported noon SA `20/20` when the `Live`
 > chip showed **45**.) **Any campaign set whose count is below the
 > `Live N` chip is stale — re-enumerate by scrolling (below); and if you
-> do use `Export all campaigns`, first scroll the list fully, then verify
+> do use `Export campaigns`, first scroll the list fully, then verify
 > the file's row count equals the chip before trusting it.**
 
 **What you owe is what you DECLARED.** `./AUDIT_TARGETS.json` lists every
@@ -607,134 +608,183 @@ low-performing queries (add as negatives).
 
 ## 7. Export Data
 
-**Two distinct exports — opposite reliability. Do not conflate them.**
+**Three exports, three behaviours. Do not conflate them.**
 
-| | `Export all campaigns` (list level) | `Export Data` (per tab) |
-|---|---|---|
-| Where | Campaigns tab, top-right of the list (§ 2) | Products / Targets / Customer Queries tabs |
-| Reliability | **Works** — but ASYNC, takes ~1–5 min | **Unreliable here** — often a silent no-op |
-| On no file | keep waiting (§ 7.1) | give up immediately, use DOM eval |
+| | `Export campaigns` (list level) | `Export` on **Customer Queries** | `Export Data` on Products / Targets |
+|---|---|---|---|
+| Where | Campaigns tab, top-right of the list (§ 2) | campaign detail → Customer Queries tab (§ 4) | campaign detail → those tabs |
+| Reliability | **Works** — ASYNC, ~1–5 min | **Works** — verified, ~15–25 s; **required** (the tab shows only the top 15) | **Unreliable here** — often a silent no-op |
+| On no file | keep waiting (§ 7.1) | wait ~60 s, then re-check you clicked `Export` on that tab | give up immediately, use DOM eval (§ 4 / § 5) |
 
-### 7.1 `Export all campaigns` — the per-SKU ad-spend source
+### 7.1 `Export campaigns` — the per-SKU ad-spend source
 
 This is the only practical way to get **ad spend per SKU**. It honours
 the list's **date-range filter**, so set the range first.
+
+> ⛔ **Never fetch this file from an internal endpoint**
+> (`/_svc/productads/v2/noon/reports` or similar). It answers with a
+> workbook holding one empty `Report` sheet (~5 KB) — a file that looks
+> downloaded and holds nothing. A downstream profit calc that reads it
+> sees "no SKU spent anything". Click the page's button; if the
+> calendar is hard to drive, keep driving it (below) rather than
+> switching to an endpoint.
 
 **Async, and the button is your progress indicator:**
 
 1. Click it once. It flips to **`disabled`** while noon builds the file.
 2. The file lands in `~/.vibe-seller/downloads/<slug>/` as
-   **`_OVERVIEW_ALL_Report_{from}_{to}.xlsx`** (e.g.
-   `_OVERVIEW_ALL_Report_2026-06-01_2026-06-30.xlsx`), typically after
-   1–5 min for a few dozen campaigns.
+   **`campaigns-export-*.xlsx`** (before 2026-10-06 it was
+   `_OVERVIEW_ALL_Report_{from}_{to}.xlsx`), typically after 1–5 min
+   for a few dozen campaigns.
 3. **`disabled: true` means "generating", not "broken".** Poll the
    download dir; do NOT re-click — and do NOT apply § 4's
    "don't retry the export" rule here, that one is about the *per-tab*
    button.
+4. **Check the file says what you asked for** before trusting it: its
+   `Read me` sheet states the range on its second row —
+   `Performance data is for 01 Sep 2026 to 30 Sep 2026`. A workbook
+   without that sheet, or a few-KB file, is a failed export — never a
+   quiet month.
 
-> ⚠️ **The filename carries the date range but NOT the country.** An SA
-> and an AE export for the same range produce the **same filename**.
-> Rename on arrival (`ads_overview_{CC}_{YYYY-MM}.xlsx`) before starting
-> the other country's export.
+> ⚠️ **The file carries the date range but NOT the country.** Rename on
+> arrival (`ads_overview_{CC}_{YYYY-MM}.xlsx`) before starting the other
+> country's export, or the second download overwrites the first.
 
 Country comes from the `en-{cc}` URL segment, same as everywhere else.
 
-**Setting a custom month range** (the presets are Last 30 days / Last 7
-days / Yesterday / Today):
+**Setting a custom month range** (the presets are Today / Yesterday /
+Last 7 / 30 / 90 days / Year to Date / All time / Custom range).
+
+> ⚠️ **Drive this calendar with JS `element.click()`, never `click_at_xy`.**
+> It is a React date picker, and coordinate clicks open it but do not
+> select a day. That is what made one run report the calendar as
+> unusable, while another run on the same page and the same profile
+> exported the whole month with the steps below. The Export button
+> behaves the same way: only a JS click triggers it.
+
+Set the target month once, at the top. Every step below reads it, and
+every step stops on `nf` instead of clicking on: a missed click
+followed by **Apply** keeps a stale or half-set range, and the export
+then looks fine while covering the wrong days.
 
 ```bash
 browser-use <<'PY'
-import time, json
-def rect(expr):
-    r = js("(function(){%s})()" % expr)
-    return json.loads(r) if r and r.startswith('{') else None
-def click_text(t, lo=0, hi=99999):
-    r = rect("""
-      var want=%s, lo=%d, hi=%d;
-      var el=Array.from(document.querySelectorAll('div,li,span,button,a,p')).filter(e=>
-        e.children.length===0 && (e.textContent||'').trim()===want
-        && e.getBoundingClientRect().height>4
-        && e.getBoundingClientRect().y>lo && e.getBoundingClientRect().y<hi);
-      if(!el.length) return 'nf';
-      var b=el[0].getBoundingClientRect();
-      return JSON.stringify({x:Math.round(b.x+b.width/2), y:Math.round(b.y+b.height/2)});
-    """ % (json.dumps(t), lo, hi))
-    if not r: return False
-    click_at_xy(r['x'], r['y']); time.sleep(2); return True
+import calendar, time
+YEAR, MONTH = 2026, 9                  # the service month to export
+LAST = calendar.monthrange(YEAR, MONTH)[1]   # 28 / 29 / 30 / 31
+TARGET = f'{calendar.month_name[MONTH]} {YEAR}'   # the calendar caption, e.g. "September 2026"
 
-# 1. open the range dropdown (the button showing the current preset), 2. Custom range
-r = rect("""var b=Array.from(document.querySelectorAll('button')).find(x=>
-             /Last 30 days|Last 7 days|Custom|20\\d\\d/i.test(x.textContent||'')
-             && x.getBoundingClientRect().y<260);
-           if(!b) return 'nf'; var q=b.getBoundingClientRect();
-           return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2)});""")
-click_at_xy(r['x'], r['y']); time.sleep(2)
-click_text("Custom range")
+def jsclick(expr):
+    r = js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
+    if r != 'ok':
+        raise SystemExit(f'not found: {expr[:80]} -- stop, do not Apply')
+    time.sleep(1)
 
-# 3. page the calendar back with the  <  arrow (y 350-395, x 580-620) until the
-#    header reads the month you want, then click the first day then the last day,
-#    then Apply. Verify the range button text before exporting.
-click_text("Apply")
-print(js("""(function(){var b=Array.from(document.querySelectorAll('button')).find(x=>
-  x.getBoundingClientRect().y<260 && /20\\d\\d|Last|Custom/i.test(x.textContent||''));
-  return b?b.textContent.trim():'?'})()"""))
+def caption():
+    return (js("(document.querySelector('[class*=rdp-caption]')||{}).textContent") or '').strip()
+
+# 1. open the range menu. Find it by its component class, not its label:
+#    the label is whatever is selected now (Today, All time, a past range ...).
+jsclick("document.querySelector('[class*=DateRangeFilter_trigger]')")
+# 2. Custom range
+jsclick("Array.from(document.querySelectorAll('.ant-popover-content *')).find(e=>e.children.length===0&&(e.textContent||'').trim()==='Custom range')")
+# 3. page back until the caption shows the target month (the picker opens on the current month)
+for _ in range(24):
+    if TARGET in caption():
+        break
+    jsclick("document.querySelector('[class*=rdp] button[aria-label=\"Previous month\"]')")
+else:
+    raise SystemExit(f'calendar never reached {TARGET}; caption reads {caption()!r}')
+print('caption:', caption())
 PY
 ```
 
-Then click the export (the handler is on the **`<button>`**, not the
-label `<span>` inside it — clicking the span does nothing):
+Then pick the two days. Click the **Start date** / **End date** label
+before each one. Skip any day button whose class contains `outside`:
+the grid also draws the neighbouring months' days, and a "30" from the
+month before turns the range into `30 Aug – 30 Sep`.
 
 ```bash
 browser-use <<'PY'
-import time, json
-r = js("""(function(){
+import calendar, time
+YEAR, MONTH = 2026, 9                  # same month as above
+LAST = calendar.monthrange(YEAR, MONTH)[1]
+
+def jsclick(expr):
+    r = js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
+    if r != 'ok':
+        raise SystemExit(f'not found: {expr[:80]} -- stop, do not Apply')
+    time.sleep(1)
+def day(n):
+    return ("Array.from(document.querySelectorAll('[class*=rdp] button[name=day]'))"
+            ".find(b=>b.textContent.trim()==='%s'&&!/outside/i.test(b.className))" % n)
+def label(t):
+    return ("Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] span'))"
+            ".find(s=>s.textContent.trim()==='%s')" % t)
+
+for expr in (label('Start date'), day(1), label('End date'), day(LAST)):
+    jsclick(expr)
+jsclick("Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] button')).find(b=>b.textContent.trim()==='Apply')")
+time.sleep(2)
+# the trigger must now read the whole month, e.g. "01 Sep 2026 - 30 Sep 2026"
+print(js("(document.querySelector('[class*=DateRangeFilter_trigger]')||{}).textContent"))
+PY
+```
+
+Then click the export with a JS `.click()` on the **`<button>`** (not
+the label `<span>` inside it):
+
+```bash
+browser-use <<'PY'
+print(js("""(function(){
   var d=document.querySelector('[class*=CampaignStatusTabs_headerExportAction]');
-  if(!d) return 'nf';
-  var b=d.querySelector('button')||d, q=b.getBoundingClientRect();
-  return JSON.stringify({x:Math.round(q.x+q.width/2), y:Math.round(q.y+q.height/2), dis:String(b.disabled)});
-})()""")
-c=json.loads(r); print("export btn:", c)
-click_at_xy(c['x'], c['y'])          # ONCE. then poll the download dir.
+  var b=d&&(d.querySelector('button')||d);
+  if(!b) return 'nf';
+  b.click();                 // ONCE. then poll the download dir.
+  return 'clicked, disabled=' + String(b.disabled);
+})()"""))
 PY
 ```
 
 ### 7.2 What's inside the workbook
 
-Ten sheets — `(Product)` and `(Brand)` families:
+The file is laid out for editing and re-upload ("Noon Ads Bulk
+Update"): **one sheet per kind, all ad products mixed**.
 
-| Sheet | Grain | Columns |
+| Sheet | Grain | Key columns |
 |---|---|---|
-| `(Product|Brand) Campaign` | campaign | Campaign Name, Views, Clicks, Orders, ATC, Spends, Revenue, CTR, ROAS, CPC, CPS, CVR |
-| **`(Product|Brand) Sku`** | **campaign x SKU** | as above **+ `Sku`** |
-| `(Product|Brand) Target` | keyword / target | + Target Value, Targeting Type, Bid, Strategy |
-| `(Product|Brand) Placement` | placement | + Placement Type |
-| `(Product|Brand) Queries` | search term | + Sku, Query |
+| `Read me` | — | row 2: the performance date range |
+| `Campaigns` | campaign | Campaign ID, **Ad Type** (product / brand / display), Campaign Name, budget, … Views, Clicks, Orders, ATC, Spends, Revenue |
+| **`SKUs`** | **campaign × offer** | Campaign ID, **SKU**, PSKU, Offer Code, … Spends, Orders |
+| `Targets` | keyword / target | Campaign ID, Ad Group ID, Target ID, Target Value, Target Type, Bid, … |
+| `Negative Keywords` | negative | Campaign ID, Keyword Text, Match Type, Status |
+| `Placement` | placement | Campaign ID, Placement Type, metrics |
+| `Queries` | search term | Campaign ID, SKU, Query, metrics |
 
-**Per-SKU ad spend** = `Spends` from `(Product) Sku` **+** `(Brand) Sku`,
-grouped by `Sku`. Verified live: the SKU sheets sum **exactly** to the
-Campaign sheets, so this is a complete decomposition — no residual.
+**Row 1 of every data sheet is a colour-group banner** (`OPERATION`,
+`KEYS · do not change`, `PERFORMANCE · read-only` …); **row 2 is the
+header**. Only `Campaigns` carries `Ad Type`; join the others through
+`Campaign ID`.
+
+**Per-SKU ad spend** = `Spends` from `SKUs`, grouped by `SKU`:
 
 ```python
-frames = [xl.parse(s)[['Sku','Spends','Orders','Clicks','Views','Revenue']]
-          for s in ['(Product) Sku', '(Brand) Sku']]
-per_sku = pd.concat(frames).groupby('Sku', as_index=False).sum()
+skus = pd.read_excel(path, 'SKUs', header=1, dtype={'Campaign ID': str})
+per_sku = skus.groupby('SKU', as_index=False)[['Spends', 'Orders']].sum()
 ```
 
-Three things to handle:
+Product campaigns decompose **exactly** into their SKU rows. A brand
+ad's banner (and any display campaign) spends money no SKU row claims:
+`Campaigns.Spends − Σ SKUs.Spends` per campaign is real spend
+attributable to no SKU — keep it as an explicit "unattributed" bucket;
+don't drop it or charge it to a SKU.
 
-- **`header` is not a SKU.** Brand-ad banner spend is booked against a
-  literal `Sku` value of `header` (a few % of spend). It is real spend
-  attributable to no SKU — keep it as an explicit "unattributed"
-  bucket; don't silently drop it or let it pollute a SKU.
-- **Parent vs variant SKUs.** `(Product) Sku` mixes noon-internal
-  variant (`Z…Z-<n>`) and parent (`Z…Z`) forms; `(Brand) Sku` is
-  mostly variant. These are noon-internal keys, **not** the seller
-  codes in the Transaction View's `Partner SKUs` — bridge via that
-  export's `SKUs` column (see
-  `noon-fbn/references/fee-reports.md` § 5).
-- **`Queries` sheets are capped at 30,000 rows.** Exactly 30000 means
-  truncated, not complete. Narrow the range if you need full
-  search-term coverage.
+- **Parent vs variant SKUs.** `SKU` is a noon-internal variant
+  (`Z…Z-<n>`) and `PSKU` its parent (`Z…Z`). These are **not** the
+  seller codes in the Transaction View's `Partner SKUs` — bridge via that
+  export's `SKUs` column (see `noon-fbn/references/fee-reports.md` § 5).
+- **`Queries` may be capped.** A round row count means truncated, not
+  complete; narrow the range if you need full search-term coverage.
 
 ### 7.3 Reconciling ad spend against the statement
 
@@ -754,12 +804,16 @@ amount actually invoiced.
 
 ### 7.4 Per-tab `Export Data`
 
-Exports the current filtered view on Products / Targets / Customer
-Queries. **Unreliable in this environment** — see § 4 caveat. Prefer DOM
-eval extraction. ⚠️ **If the file doesn't land within ~10 s, do NOT
-re-click or retry** — a no-op export button is an environment quirk, not
-a transient miss. Switch to DOM eval extraction (§ 4 / § 5) immediately;
-retrying just burns steps.
+Exports the current filtered view on the **Products** and **Targets**
+tabs. **Unreliable in this environment** — prefer DOM eval extraction.
+⚠️ **If the file doesn't land within ~10 s, do NOT re-click or retry** —
+a no-op export button is an environment quirk, not a transient miss.
+Switch to DOM eval extraction (§ 4 / § 5) immediately; retrying just
+burns steps.
+
+**Customer Queries is the exception and is not covered by this rule:**
+its `Export` works (~15–25 s), is the only complete source of the query
+set, and is required — follow § 4, not the 10-second cutoff above.
 
 ```bash
 browser-use <<'PY'

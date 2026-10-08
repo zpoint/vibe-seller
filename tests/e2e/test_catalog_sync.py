@@ -21,6 +21,7 @@ import pytest
 
 from app.browser.manager import store_slug as _store_slug
 from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
+from tests.e2e import e2e_helpers
 from tests.e2e.e2e_helpers import (
     BASE_URL,
     PIPELINE_TIMEOUT,
@@ -180,11 +181,22 @@ def _trigger_catalog_sync(
     resp.raise_for_status()
     seen_batches = {t['batch_id'] for t in resp.json() if t.get('batch_id')}
 
-    # AI-profile routing for system schedules is configured centrally in
-    # conftest's _setup_worker_profile (which pins the worker's provider
-    # onto every schedule that would otherwise resolve to the
-    # credential-less 'default'). This helper just fires — no per-test
-    # profile setup.
+    # Pin the shared system schedule to THIS worker's provider before
+    # firing. conftest's _setup_worker_profile pins every 'default'
+    # schedule at session start so nothing falls through to Claude —
+    # but `_catalog_sync` is one row on one server, and each xdist worker
+    # runs that setup. Observed live: two workers both saw 'default' and
+    # both wrote, so the last writer's provider won, and this test ran
+    # its catalog tasks on a provider its worker was never assigned (one
+    # that had run out of quota), failing a GLM-mapped worker on MiniMax.
+    # The worker that triggers the sync owns its provider for the run.
+    profile_id = e2e_helpers.DEFAULT_PROFILE_ID
+    if profile_id:
+        pinned = client.put(base, json={'ai_profile_id': profile_id})
+        pinned.raise_for_status()
+        assert pinned.json().get('ai_profile_id') == profile_id, (
+            f'catalog sync not pinned to {profile_id}: {pinned.text}'
+        )
     resp = client.post(f'{base}/trigger')
     resp.raise_for_status()
 

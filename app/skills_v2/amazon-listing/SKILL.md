@@ -37,11 +37,16 @@ review:
     - "*.xlsm"
     - "LISTING_*.md"
   verify_by: |
-    Open Manage Inventory ON THE TARGET MARKETPLACE
-    (`sellercentral.amazon.<target-tld>/skucentral?mSku=<sku>`, no
-    &condition=New) for each attempted SKU and confirm it exists LIVE on
-    that marketplace with the intended content and a real ASIN, and that
-    its offer/price/stock show on that marketplace's Pricing view.
+    Read Manage Inventory ON THE TARGET MARKETPLACE with
+    `SKUS=<every attempted SKU, comma-separated>
+    SC_HOST=sellercentral.amazon.<target-tld> browser-use <
+    .claude/skills/amazon-listing/scripts/bh_listing_status.py` (run from
+    the task workspace) and confirm each SKU is in `rows` with
+    a real ASIN (the one intended, for a pinned row) and nothing
+    attempted is in `missing`; it refuses unless the page's `ue_mid` is
+    that marketplace. Do NOT verify on `skucentral?mSku=` -- it renders
+    an empty body in this console (one run spent 19 calls on it). Then
+    confirm the offer/price/stock on that marketplace's Pricing view.
     FIRST, on every page you verify from, read WHICH marketplace the
     page is actually displaying: the header account/marketplace
     switcher label (store name + country/flag next to Settings) is the
@@ -68,7 +73,12 @@ review:
 > login challenge-loop (password / OTP / hosted-passkey), marketplace
 > TLDs, version-aware navigation (New Seller Central vs classic;
 > navigate by direct URL), and the capture rule (live data →
-> `/tmp/<task>/`, never `knowledge/`).
+> `/tmp/<task>/`, never `knowledge/`). That rule is for CAPTURES only —
+> do not make `/tmp` your working directory. The upload gate, the
+> reviewer gate and the accepted-spec library all read the TASK
+> WORKSPACE; the helpers and `parse-feedback` now write there whatever
+> your `$PWD` or `MARKER_DIR` is, but a review file you write yourself
+> still has to go where the gate names it (an absolute path).
 
 Amazon's **Add Products via Upload** takes a category **flat-file
 template** — a macro-enabled `.xlsm` whose `Template` sheet is a wide
@@ -95,6 +105,28 @@ Two references, load what the task needs:
 > (`../amazon-shared/references/dod-review-loop.md`) with this skill's
 > `review.criteria` / `review.verify_by` and converge to `Status: ok`
 > before `set_task_result`.
+
+## Start from the last spec Amazon ACCEPTED — never from scratch
+
+Before writing a spec, look in `store-data/<slug>/listing-specs/` for
+`<product_type>__<CC>.json`. It is the spec behind the last batch of this
+category that **Amazon accepted** on that marketplace — saved
+automatically by `parse-feedback --batch-id` at the moment the verdict
+came back clean. Copy its `spec`, change only what this listing changes
+(SKUs, ASIN pins, copy, price), and keep every other field as it is.
+
+This is not a nicety. The fields Amazon enforces on a create are flagged
+**"Conditionally Required"** in the template (53 in one apparel
+template), so nothing warns about them locally — Amazon rejects them one
+feed at a time, 30–60 minutes per round. Two days running, the first
+create of a known product failed on exactly the fields the previous
+run's accepted spec already carried (style, special size, outer
+material, list price, package-dimension units), because that spec had
+died with its task. `fill` now names every field the accepted spec set
+that yours leaves empty; treat that warning as the rejection you have
+not waited for yet. No entry for your marketplace? Another
+marketplace's entry for the same product type is the next-best
+reference — the attribute set is the category's, not the storefront's.
 
 ## Work it like a human: upload → read the report → fix → repeat
 
@@ -130,13 +162,31 @@ replaces reading the actual report.
 
 ### Verification: trust inventory, not the feed count
 
+> **First, prove WHICH marketplace you are looking at — every other
+> reading is worthless without it.** A seller-central page renders the
+> marketplace the SESSION is on, whatever the URL subdomain says, so
+> "the `.ae` inventory page shows the family" is not evidence that AE
+> has it. Read the id, not a label: `js("return ue_mid")` returns the
+> live marketplace id (`A17E79C6D8DWNP` = SA, `A2VIGQ35RCS4UG` = AE …,
+> the full table is `marketplace_ids.py`), identical in every console
+> language. Do this on EVERY verification read, and quote the id in the
+> result — a family reported live on the wrong storefront is worse than
+> an unverified one, because it closes the loop on a lie. Observed
+> live: an AE-stamped upload landed in SA's upload history, and both
+> marketplaces were then "verified" off pages that were never the
+> marketplace claimed.
+
 The report's "records processed / 0 errors" means the **feed was
 accepted**, not that a live listing exists. A record *with* errors can
 still create an incomplete stub; a clean feed can leave a suppressed
-listing. **Always confirm on Manage Inventory** (or
-`skucentral?mSku=<sku>` **without** `&condition=New` — that param
-false-negates incomplete listings). Confirm the SKU has an ASIN, and for
-a family that the parent shows **"Variations (N)"**.
+listing. **Always confirm on Manage Inventory, with
+`bh_listing_status.py`** (step 4 of the helper block below): it returns
+each SKU's ASIN off the page's own `div[data-sku]` rows, proves the
+marketplace by `ue_mid`, and names the SKUs that are not there. Confirm
+every SKU has the ASIN you meant, and for a family that the parent row
+(the one with `offer_cell: false`) carries the family's parent ASIN.
+`skucentral?mSku=` is not a verification surface: it renders empty in
+this console.
 
 > **"Missing Information / ASIN -" is usually NOT a failure — don't
 > thrash.** Two benign causes, and re-uploading fixes neither:
@@ -165,6 +215,20 @@ a family that the parent shows **"Variations (N)"**.
 > Inventory** (search your SKU prefix) to verify the family is live —
 > that is the source of truth, not the feed status. Only re-upload if the
 > **downloaded processing report** names a real per-SKU error to fix.
+>
+> **A slow queue says NOTHING about your file, so do not "test" theories
+> against it.** Latency is not evidence: Amazon accepted the file the
+> moment it gave you a reference_id, and a CREATE feed submitted right
+> after a DELETE on the same SKUs is the slowest case there is — 30+
+> minutes at N/A is ordinary. While a batch is pending the only legal
+> moves are **wait** and **check Manage Inventory**. Do not rewrite the
+> spec, and above all **do not remove an ASIN pin to see whether the pin
+> was the problem** — an unpinned create mints a new ASIN, so that
+> "test" destroys the very thing you were waiting to restore, and the
+> stall told you nothing about the pin either way. Observed live: an
+> agent 35 minutes into a pinned rebuild started proposing exactly that.
+> If you genuinely need to know why, wait for the processing report and
+> read what Amazon says; `fill` will refuse to drop the pin for you.
 
 ### Priors that recur across categories
 
@@ -289,16 +353,45 @@ wanted. Only create a new ASIN when the user explicitly asks for a
 separate listing, or when the account's marketplaces are on genuinely
 separate catalogs (see below).
 
+**New ASINs AND the same children on both marketplaces is not a
+contradiction — it is a sequence.** When the user wants Amazon to mint
+fresh ASINs for a family that must match across two marketplaces,
+create on ONE marketplace first with `mint_new_asin`, wait for its
+report, read the ASINs it minted with `bh_listing_status.py`, and only
+then create on the second marketplace pinned to exactly those. Never
+mint on both (two different ASINs), and never upload the second before
+the first's new ASINs are read: on a unified account a second mint for
+the same SKU re-points it account-wide. Re-pinning to the family's
+OLD ASINs is a different answer to a different request -- one run did
+that when told "let Amazon mint new ones", because it saw the two asks
+as incompatible. If the request is ambiguous about new-vs-existing
+ASINs, ask.
+
 Make the match **proactively** — don't submit a blind create and wait
 for an `8560` to fix reactively:
 
-1. **Get the source ASINs.** Map every SKU (parent + each child) to the
-   ASIN it already has on the source marketplace — the All-Listings
-   report is account-level (byte-identical across a unified account's
-   marketplace subdomains), or read them off Manage Inventory. Reuse the
-   **same SKUs** on the target marketplace; same SKU keeps it idempotent.
+1. **Get the source ASINs — one helper call per marketplace.** Map every
+   SKU (parent + each child) to the ASIN it has on the SOURCE
+   marketplace, and see what the TARGET already holds, before you plan a
+   create or a delete:
+   `SKUS=<parent>,<child-1>,... SC_HOST=sellercentral.amazon.<tld>
+   browser-use < $S/bh_listing_status.py` (run it once with the source
+   tld, once with the target's). Manage Inventory's search view collapses
+   a family to its parent row, and probing it by hand — clicks, internal
+   endpoints, public product pages — cost one run ten minutes before it
+   fell back on ASINs remembered from an earlier task. A public product
+   page proves an ASIN exists, never which SKU is on it. Reuse the
+   **same SKUs** on the target marketplace; same SKU keeps it
+   idempotent.
 2. **Do the WHOLE target flow on the target marketplace's own subdomain —
-   the upload is marketplace-scoped.** A flat-file upload applies to the
+   a create/update is marketplace-scoped. A DELETE IS NOT:** on a unified
+   account it removes the SKU from every marketplace it sells on (an
+   AE-only delete took the same three SKUs off SA too, while the AE
+   rebuild that followed restored only AE). `fill` refuses a delete on a
+   multi-marketplace template unless the spec says `"delete_everywhere":
+   true` -- say it only when the user wants the SKU gone everywhere. To
+   change ONE storefront's ASIN for a SKU, there is no delete-and-recreate
+   route that leaves the other storefront alone: stop and ask the user. A flat-file upload applies to the
    marketplace of the `sellercentral.amazon.<tld>` you're on, regardless
    of the offer columns in the file; a `.sa` upload lands on SA even when
    the account context shows the target. So for AE, run template download +
@@ -311,8 +404,18 @@ for an `8560` to fix reactively:
    `.ae` inventory URL happily renders SA's inventory when the switcher
    is on SA — verifying "AE has it" off such a page is how a listing
    ends up confirmed on the wrong marketplace). Read the switcher label
-   back; never infer the marketplace from the URL. If the subdomain
-   instead lands on an
+   back; never infer the marketplace from the URL. The machine-readable
+   form of that check is the page's own `ue_mid` global (the live
+   marketplace id, identical in every console language).
+   `bh_upload_flatfile` refuses to submit unless **three** things name
+   the same marketplace: the one you meant (from `SC_HOST`'s domain, or
+   `SC_MARKETPLACE=<id|CC>`), the file's `primaryMarketplaceId` stamp,
+   and the live `ue_mid`. **Two of them agreeing is not enough** — an
+   SA-stamped file uploaded on an SA session by an agent that believed
+   it was doing AE satisfies a file-vs-session check and still lists on
+   the wrong storefront (observed live, twice).
+   Verify your reads the same way: `js("return ue_mid")` beats squinting
+   at a localised label. If the subdomain instead lands on an
    account-picker ("Select an account"), switch there first — fast path
    (current layout): click the target account's `<button>` (not the inert
    label), then **Select account**, and if a click no-ops or the layout
@@ -353,6 +456,19 @@ for an `8560` to fix reactively:
    set it via the top-level `"marketplace": "<CC>"` + bare `our_price` +
    `quantity` + `fulfillment_channel_code` (offer prior), not by
    re-describing the product.
+   - **Dropping the pin is DESTRUCTIVE, never a debugging simplification.**
+     A seller SKU is account-scoped: an unpinned `create` for a SKU that
+     already sells on the source marketplace makes Amazon mint a fresh
+     ASIN and **re-point the SKU to it account-wide**, orphaning the
+     original — its reviews, ratings and rank go with it, and Amazon
+     never re-issues a retired ASIN. The FNSKU follows the SKU, so FBA
+     stock looks untouched while the ASIN silently changed underneath
+     it, and the feed report calls the whole thing a clean create.
+     Observed live: an AE relist submitted plain `create` rows for the
+     SKUs already live on SA, and all three SA children changed ASIN.
+     If a pinned upload fails, fix what the report names — never
+     "simplify" by removing the pin. `fill` now hard-fails an
+     undeclared mint (see § Operation rules).
    - **Operation depends on whether the ASIN exists in the TARGET
      catalog — check that FIRST** (open `amazon.<tld>/dp/<ASIN>`, or read
      the first upload's report):
@@ -412,6 +528,23 @@ throw the helper away and hand-drive the whole flow:
   and `UPLOAD_INTROSPECT_WAIT` (default 12s, type-detection) — bump both
   on a slow/heavy account before concluding the upload "won't work".
 
+> **Seller Central renders in whatever language the SESSION is set to** —
+> one account shows English, Chinese or Arabic on the same URL, and the
+> subdomain has nothing to do with it. So **never gate a decision on the
+> wording of a control.** The helpers don't: readiness is the Submit
+> button flipping `disabled` → enabled, and the report download is found
+> by a real anchor's href or an `icon`-style attribute (Amazon's own API
+> tokens, identical in every language) before any wording is considered.
+> Hand-drive the same way — prefer a state change, an attribute, or an
+> href over a label; if you must read a label, use it as an identity to
+> compare against itself, not as a word to match. And never read "the
+> page doesn't say the English thing" as "the page is broken": a helper's
+> `ok=false` names its own reason, and a banner left over from an earlier
+> page is not that reason. This cost a full run once — the upload helper
+> matched English on a Chinese console, reported "not detected" on a page
+> a human submits in one click, and the agent hand-drove onto the wrong
+> page and uploaded to the wrong marketplace.
+
 Fall back to exploring by hand when a helper reports ok=false for a
 STRUCTURAL reason it names (widget genuinely absent, region-stamp
 mismatch); prefer fixing the input (regenerate the template, fix the
@@ -448,12 +581,23 @@ browser-use < $S/bh_download_template.py
 UPLOAD_FILE=$DL/out.txt SC_HOST=sellercentral.amazon.<tld> \
 MARKER_DIR="$PWD" browser-use < $S/bh_upload_flatfile.py
 
-# 3. Fetch THAT batch's processing report, then verdict it:
+# 3. Fetch THAT batch's processing report, then verdict it. Parse the
+#    `…__batch<id>` copy bh_fetch_report hands back: a report names no
+#    batch and same-named reports overwrite each other, so parse-feedback
+#    refuses one tagged for another batch or downloaded before the batch
+#    was uploaded -- a wrong verdict once put six errors on a clean batch:
 SC_HOST=sellercentral.amazon.<tld> BATCH_ID=<id> DOWNLOADS_DIR=$DL \
 browser-use < $S/bh_fetch_report.py
 python3 $S/listing_bulk.py parse-feedback <report> --batch-id <id>
 # ^ run FROM the task workspace root: the verdict JSON is written to
 #   the current directory, which is where the completion gate reads it.
+
+# 4. Verify what Manage Inventory now says each SKU IS, on THAT
+#    marketplace: exact SKU -> ASIN (+ which SKUs are missing), read from
+#    the page's own rows, refused unless ue_mid is the one you meant.
+#    One call for the whole family; don't hand-scrape inventory pages:
+SKUS=<parent>,<child-1>,<child-2> SC_HOST=sellercentral.amazon.<tld> \
+browser-use < $S/bh_listing_status.py
 ```
 
 The helpers encode the mechanics (decoy input, region stamp, two-click
@@ -490,11 +634,30 @@ PY=<project-venv>/bin/python3     # needs openpyxl + rapidocr-onnxruntime
   - `fill TEMPLATE.xlsm --spec SPEC.json --out OUT.xlsm` — write
     parent/child rows, set the operation column per row, validate enums
     and required fields against the template's own metadata sheets, and
-    preserve the workbook (macros, signature row) verbatim.
+    preserve the workbook (macros, signature row) verbatim. A value
+    outside a field's valid-value list is a **warning**, and every such
+    value is named at once. The list is not what Amazon enforces: it
+    rejected an off-list fulfilment code and a boolean written `False`
+    (90244), yet accepted an off-list `style` and `special_size_type`
+    without even a warning. A gate that made the list fatal once forced
+    an extra upload to "fix" values Amazon had just accepted — so read
+    the TARGET template's list (`inspect --field NAME`) as advice, and
+    the accepted-spec library as the rule. `--allow-unlisted-enum FIELD`
+    silences one field you have checked.
   - `parse-feedback REPORT` — extract Amazon's verdict: the summary
     tables **and the per-cell comments (批注) on the report's `Template`
     tab**, emitted as `sku=… field=… : MESSAGE`. The 批注 are the
     precise, field-level fixes — the engine of the self-correct loop.
+    Whether a row LANDED is read from its own `::submission_status`:
+    "applied without any errors" and "applied, but contain other
+    error(s)" are both live; only "not applied" is a failure, and
+    `parse-feedback` flags those by SKU. Do **not** read the summary's
+    "SKUs successful" (or the status page's `N/M`) as "the rest failed" —
+    Amazon counts only clean rows there, so a batch whose children were
+    all applied with a warning or a missing image shows 1/4. An earlier
+    version of this check made exactly that mistake and sent a reviewer
+    after a failure that did not exist. A report whose only error is the
+    missing main image prints DONE — do not re-upload for it.
 - **`ocr_1688.py`** — local, GPU-free OCR (rapidocr-onnxruntime) of the
   supplier's detail images, where the spec table / size chart live.
 
@@ -504,7 +667,7 @@ The operation is **chosen per row in the sheet**, not inferred:
 
 | `operation` in spec | `update_delete` cell | Use when |
 |---|---|---|
-| `create` (default) | *blank* | new SKU. **No ASIN** → this is the default. |
+| `create` (default) | *blank* | new SKU. Needs either a pinned `asin` **or** an explicit `"mint_new_asin": true` — see below. |
 | `update` | `Update` | full re-submit of an existing SKU's attributes. |
 | `partialupdate` | `partialupdate` | change only the fields present; leave others as-is. |
 | `delete` | `delete` | remove the SKU. Needs only `sku` + `operation`. |
@@ -514,6 +677,30 @@ and match it** (put the ASIN in `external_product_id` with
 `external_product_id_type: asin`). The operation column is authoritative,
 so set it **explicitly on every row, children included** — a blank child
 operation is a common cause of a child failing to join its family.
+
+> **A `create` with no ASIN MINTS one, and `fill` will not do that
+> undeclared.** A seller SKU is **account-scoped**, so on a unified
+> pan-regional account (MENA: SA / AE / EG) minting for a SKU that
+> already sells anywhere **re-points that SKU to the new ASIN
+> account-wide and orphans the old one** — reviews, ratings and rank go
+> with it, and Amazon never re-issues a retired ASIN. Nothing in the
+> feed report shows this: Amazon reports it as a clean create.
+> So `fill` refuses the row until you say which case it is:
+>
+> * **Relisting** an existing product (another marketplace, same SKU) →
+>   pin its current ASIN: `"asin": "B0EXAMPLE1"` on the row.
+> * **Genuinely new** to this account → `"mint_new_asin": true`, on the
+>   spec (covers every row) or per row. **In a spec that also pins an
+>   ASIN somewhere, the top-level form is refused** — a blanket
+>   declaration would wave through a pin you meant to set and lost,
+>   which is the mistake this guard exists to catch, so each real mint
+>   is owned on its own row. A rebuild that pins its children and mints
+>   a fresh parent puts the key on the parent row only.
+>
+> Only `external_product_id_type: asin` counts as a pin. A UPC / EAN /
+> GTIN identifies the *product*, not an existing listing, so Amazon can
+> still mint; and `GTIN Exempt` says only that there is no barcode, not
+> that there is no ASIN. Neither is a declaration.
 
 ## End-to-end flow (product link → live listing)
 

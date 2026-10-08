@@ -341,6 +341,12 @@ def _setup_worker_profile():
     #       Pin the provider directly onto every schedule still resolving
     #       to 'default' (a pin has top precedence in resolution).
     #
+    # Both are SERVER-global and every worker runs this, so the winner is
+    # whichever worker wrote last. That is fine as a no-Claude fallback,
+    # but it does not make a shared resource follow the calling worker: a
+    # test that fires a system schedule pins it to its own profile at
+    # trigger time (see test_catalog_sync._trigger_catalog_sync).
+    #
     # FAIL LOUD on any error — a swallowed failure here is exactly what
     # let catalog sync silently fall back to Claude.
     client2 = httpx.Client(timeout=30)

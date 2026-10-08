@@ -292,9 +292,9 @@ new `parent_sku` / `variation_theme` (or clear `parent_sku` and set
 > collect all its SKUs, then delete: a spec with `operation: delete` for
 > **each CHILD first, then the parent** (a parent can't delete while it
 > still has live children). Upload the `.txt`, then verify each SKU is
-> gone (its `skucentral?mSku=<sku>` **redirects** to /myinventory instead
-> of staying). Never rely on a local spec/file from the create step — a
-> delete task is independent and must discover SKUs from the account.
+> gone: `bh_listing_status.py` lists it under `missing`. Never rely on a
+> local spec/file from the create step — a delete task is independent and
+> must discover SKUs from the account.
 
 ```bash
 # Write under the store DOWNLOADS dir, NOT /tmp — the browser must read
@@ -360,8 +360,8 @@ $PY $S/listing_bulk.py parse-feedback ~/.vibe-seller/downloads/<slug>/REPORT.xls
 > report (confirm the report's `timestamp=` in row 1 is recent).
 
 **Done = the family is in inventory, not "0 errors".** Verify on Manage
-Inventory (or `skucentral?mSku=<sku>` **without** `&condition=New`):
-each SKU has an ASIN and the parent shows **"Variations (N)"**. The feed
+Inventory with `bh_listing_status.py` (SKILL.md, helper step 4): each
+SKU has an ASIN and the parent row carries the family's parent ASIN. The feed
 count under-reports — records with errors still create stubs, and later
 re-uploads can complete them.
 

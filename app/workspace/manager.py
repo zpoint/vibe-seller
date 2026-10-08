@@ -20,6 +20,12 @@ from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
 from app.text_utils import sanitize_text
 from app.workspace import task_links, venv_bootstrap
+from app.workspace.ignored_paths import (
+    RUNTIME_DIRS,
+    git_env as ignored_git_env,
+    purge_ignored_history,
+    untrack_ignored,
+)
 from app.workspace.skills_manager import SkillsMixin
 from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_seed import write_catalog_stub
@@ -71,42 +77,59 @@ class WorkspaceManager(SkillsMixin):
         if not claude_md.exists():
             claude_md.write_text(WORKSPACE_CLAUDE_MD)
 
+        # .gitignore is complete BEFORE the first commit: committing first
+        # is how a pre-existing .gitignore without data/ put the app
+        # database into the initial commit and then every task's commit.
+        gitignore = self.root / '.gitignore'
+        if not gitignore.exists():
+            gitignore.write_text(
+                '*.pyc\n__pycache__/\n.DS_Store\n.venv/\nconfig/\n'
+                '*.db-wal\n*.db-shm\n'
+            )
+        content = gitignore.read_text()
+        # Whole lines, not substrings: 'r/' is inside '.cursor/'.
+        present = {line.strip() for line in content.splitlines()}
+        # Anchored ('/bin/'), because an unanchored 'bin/' also ignores a
+        # bin/ folder inside knowledge/, a store or a skill. A legacy
+        # unanchored line counts as present and is left as it is: anchoring
+        # it now would start committing nested folders it has always kept
+        # out.
+        additions = [
+            f'/{d}/'
+            for d in RUNTIME_DIRS
+            if f'{d}/' not in present and f'/{d}/' not in present
+        ]
+        if '*.db-journal' not in present:
+            additions.append('*.db-journal')
+        if additions:
+            gitignore.write_text(
+                content.rstrip() + '\n' + '\n'.join(additions) + '\n'
+            )
+
         git_dir = self.root / '.git'
         if not git_dir.exists():
             await self._run_git('init')
-            gitignore = self.root / '.gitignore'
-            if not gitignore.exists():
-                gitignore.write_text(
-                    '*.pyc\n__pycache__/\n.DS_Store\n'
-                    '.venv/\nnode_modules/\nconfig/\ntask_history/\n'
-                    'data/\n*.db-journal\n*.db-wal\n*.db-shm\n'
-                )
             await self._run_git('add', '-A')
             await self._run_git('commit', '-m', 'Initial workspace setup')
 
-        # Ensure transient/generated paths are in .gitignore
-        gitignore = self.root / '.gitignore'
-        if gitignore.exists():
-            content = gitignore.read_text()
-            additions = []
-            for entry in (
-                'task_history/',
-                'data/',
-                '*.db-journal',
-                'tasks/',
-                'node_modules/',
-            ):
-                if entry not in content:
-                    additions.append(entry)
-            if additions:
-                gitignore.write_text(
-                    content.rstrip() + '\n' + '\n'.join(additions) + '\n'
-                )
+        # Ignoring a path does not untrack it: a workspace whose
+        # .gitignore gained data/ after its first commit went on committing
+        # the app database after every task (see ignored_paths).
+        await untrack_ignored(self.root, self._git_lock)
 
         # Ensure shared agent venv exists (slow on a cold first boot —
         # skipped at server startup, built in the background instead).
         if create_venv:
             await self._ensure_venv()
+
+    async def purge_ignored_history(self) -> bool:
+        """One-shot, at boot, in the background: drop ignored runtime
+        paths from the workspace history (see ignored_paths)."""
+        try:
+            return await purge_ignored_history(self.root, self._git_lock)
+        except Exception:
+            logger.exception('purge_ignored_history failed')
+            return False
 
     async def ensure_shared_venv(self):
         """Build the shared agent venv (run as a boot background task so a
@@ -538,11 +561,7 @@ browser: {backend}
         # GIT_*_NAME/EMAIL via env (setdefault; a real identity wins)
         # keeps initial-commit working on hosts with no global
         # `git config user.email/name` (#181), without touching .git/config.
-        git_env = dict(os.environ)
-        git_env.setdefault('GIT_AUTHOR_NAME', 'Vibe Seller')
-        git_env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
-        git_env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller')
-        git_env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
+        git_env = ignored_git_env()
         async with self._git_lock:
             proc = await asyncio.create_subprocess_exec(
                 'git',

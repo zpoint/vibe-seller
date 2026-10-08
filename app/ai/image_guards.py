@@ -168,3 +168,42 @@ def check_generated_image_write(tool_name: str, tool_input: dict) -> str | None:
     if not isinstance(path, str) or not _GEN_IMAGES_PATH_RE.search(path):
         return None
     return _IMAGE_DENY.format(label=f'{tool_name} into generated_images/')
+
+
+def check_image_read_without_vision(
+    tool_name: str,
+    tool_input: dict,
+    model_id: str | None,
+    model_vision: bool | None,
+) -> str | None:
+    """Deny a Read of an image file when the task's model cannot see one.
+
+    A text-only model's Read of a PNG comes back as an image block the
+    model drops, and nothing says so -- so it describes a picture it
+    never saw. Observed in CI: an agent screenshotted an ad console's
+    dashboard (four summary numbers and a "Campaigns" link), "read" it,
+    reported two campaigns with ids that appear nowhere on the page,
+    decided the user's own campaign id was wrong, and ended the turn
+    asking the user to pick -- never opening the campaign list at all.
+    The incident in this module's docstring is the same blindness.
+
+    Only a model the catalog labels text-only is refused
+    (:func:`app.ai.profiles.model_sees_images` is ``False``); an unknown
+    model is left alone.
+    """
+    if tool_name != 'Read' or model_vision is not False:
+        return None
+    path = (tool_input or {}).get('file_path') or ''
+    if not isinstance(path, str) or not _IMAGE_EXT_RE.search(path):
+        return None
+    return (
+        f'Not read: {path} is an image, and this task runs on '
+        f'{model_id or "a text-only model"}, which cannot see images -- '
+        'the picture would be dropped before you see it, and anything you '
+        'then describe from it would be invented. Read the page as TEXT '
+        "instead: js('document.body.innerText') for what it says, and "
+        "js(\"[...document.querySelectorAll('a')].map(a => "
+        "a.textContent.trim() + ' -> ' + a.href)\") for where it links. "
+        'If a person needs to look at the image, say so in your answer '
+        'rather than describing it yourself.'
+    )

@@ -44,6 +44,33 @@ PTYPE = os.environ['PRODUCT_TYPE']
 STORE = os.environ['STORE_LABEL']
 DL = os.path.expanduser(os.environ['DOWNLOADS_DIR'])
 MARKER_DIR = os.environ.get('MARKER_DIR', '.')
+
+
+def _marker_dirs():
+    """Where gate markers go: the TASK WORKSPACE, always, plus MARKER_DIR.
+
+    The completion gate and the accepted-spec library read markers from
+    the task workspace only. MARKER_DIR is caller-supplied, and a caller
+    once pointed it at a scratch dir: every marker of a seven-batch run
+    landed in /tmp, the gate's "every uploaded batch is verdicted" check
+    saw none of them, and no accepted spec was ever filed. The workspace
+    is derived the way the app derives it (VIBE_HOME, else ~/.vibe-seller,
+    then tasks/<VIBE_TASK_ID>), so a wrong MARKER_DIR cannot blind it.
+    """
+    dirs = []
+    tid = os.environ.get('VIBE_TASK_ID')
+    if tid:
+        root = os.environ.get('VIBE_HOME') or os.path.join(
+            os.path.expanduser('~'), '.vibe-seller'
+        )
+        ws = os.path.join(root, 'tasks', tid)
+        if os.path.isdir(ws):
+            dirs.append(ws)
+    if os.path.realpath(MARKER_DIR) not in {os.path.realpath(d) for d in dirs}:
+        dirs.append(MARKER_DIR)
+    return dirs
+
+
 out = {'ok': False, 'template': None, 'picked': None, 'stores': None}
 
 _WALK = (
@@ -275,14 +302,16 @@ else:
                     # until the uploaded batch has a verdict (or the
                     # agent removes this marker because no upload
                     # happened). See stop_gates/listing_upload_gate.
-                    marker = os.path.join(MARKER_DIR, 'UPLOAD_PENDING.json')
-                    with open(marker, 'w') as fh:
-                        json.dump(
-                            {
-                                'template': template,
-                                'store': STORE,
-                                'host': HOST,
-                            },
-                            fh,
-                        )
+                    for d in _marker_dirs():
+                        with open(
+                            os.path.join(d, 'UPLOAD_PENDING.json'), 'w'
+                        ) as fh:
+                            json.dump(
+                                {
+                                    'template': template,
+                                    'store': STORE,
+                                    'host': HOST,
+                                },
+                                fh,
+                            )
                 print('RESULT ' + json.dumps(out))

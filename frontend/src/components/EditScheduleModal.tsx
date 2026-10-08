@@ -4,6 +4,7 @@ import { api } from '../api'
 import { sendEvent } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Schedule } from '../types'
+import { FanoutSerialToggle } from './FanoutSerialToggle'
 import {
   ScheduleForm,
   type ScheduleFormState,
@@ -44,6 +45,10 @@ export function EditScheduleModal({
   const { t } = useTranslation()
   const [form, setForm] = useState<ScheduleFormState>(fromSchedule(schedule))
   const [saving, setSaving] = useState(false)
+  // Only a fanout schedule has siblings to run one at a time; the server
+  // refuses the flag on store-bound and single-phase schedules.
+  const fansOut = !schedule.store_id && schedule.phase_mode === 'fanout'
+  const [fanoutSerial, setFanoutSerial] = useState(!!schedule.fanout_serial)
 
   const handleSubmit = async () => {
     if (!form.title.trim() || saving) return
@@ -63,6 +68,7 @@ export function EditScheduleModal({
               : null,
         timezone: form.timezone,
       }
+      if (fansOut) body.fanout_serial = fanoutSerial
       const updated = await api.put(
         `/api/schedules/${schedule.id}`,
         body,
@@ -96,6 +102,9 @@ export function EditScheduleModal({
           </h3>
         </div>
         <ScheduleForm value={form} onChange={setForm} />
+        {fansOut && (
+          <FanoutSerialToggle checked={fanoutSerial} onChange={setFanoutSerial} />
+        )}
         <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
           <button
             onClick={onClose}

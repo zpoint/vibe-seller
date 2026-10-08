@@ -299,6 +299,33 @@ describe('SchedulePlanPanel', () => {
     })
   })
 
+  describe('fanout serial', () => {
+    const ready = {
+      plan_status: 'ready',
+      plan_version: 1,
+      plan_text: '## plan',
+      plan_error: null,
+      current_planning_task_id: null,
+      planning_task_history: [],
+      finalize_description: null,
+    }
+
+    it('says so when the schedule runs its stores one at a time', async () => {
+      mockGet.mockResolvedValue(ready)
+      renderPanel(sched({ plan_status: 'ready', fanout_serial: true }))
+      expect(
+        (await screen.findByTestId('schedule-fanout-serial')).textContent,
+      ).toContain('one at a time')
+    })
+
+    it('stays silent for an ordinary fanout', async () => {
+      mockGet.mockResolvedValue(ready)
+      renderPanel(sched({ plan_status: 'ready', fanout_serial: false }))
+      await screen.findByTestId('plan-history-toggle')
+      expect(screen.queryByTestId('schedule-fanout-serial')).toBeNull()
+    })
+  })
+
   describe('finalize step', () => {
     it('renders the finalize card when the agent registered one', async () => {
       mockGet.mockResolvedValue({

@@ -10,6 +10,8 @@ Scheduling rules:
 - Same platform, different country → QUEUE (Ziniao needs to switch country)
 - Once a task is blocked by a country conflict, subsequent same-platform tasks
   for that store also wait until the conflict resolves.
+- A child of a ``fanout_serial`` batch waits until every sibling created before
+  it is done or paused (WAITING) — the batch's stores run one at a time.
 """
 
 import asyncio
@@ -24,6 +26,7 @@ from app.browser.manager import browser_manager
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.browser_session import BrowserSession
+from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
 from app.task_runner_auto import auto_run_task
@@ -31,6 +34,18 @@ from app.task_runner_exec import execute_planned_task, execute_woken_task
 from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
+
+
+# In a serial batch, a sibling in one of these states is using the turn
+# right now, whichever side of this task it sits on.
+_HOLDS_SERIAL_TURN = (TaskStatus.DESIGNING, TaskStatus.RUNNING)
+# An EARLIER sibling in one of these states is still waiting for its turn,
+# and it gets it before this task does.
+_AHEAD_IN_SERIAL_LINE = (
+    TaskStatus.PENDING,
+    TaskStatus.QUEUED,
+    TaskStatus.PLANNED,
+)
 
 
 class ScheduleDecision(enum.Enum):
@@ -157,6 +172,9 @@ class TaskQueueScheduler:
         if not store_id:
             return ScheduleDecision.RUN
 
+        if await self._serial_sibling_ahead(task_id):
+            return ScheduleDecision.QUEUE
+
         running = self._running_tasks.get(store_id, set())
         if not running:
             return ScheduleDecision.RUN
@@ -204,6 +222,67 @@ class TaskQueueScheduler:
             # (Ziniao needs to switch country within the
             # platform profile)
             return ScheduleDecision.QUEUE
+
+    async def _serial_sibling_ahead(self, task_id: str) -> bool:
+        """True while this task must wait its turn in a serial batch.
+
+        Two ways to have to wait:
+
+        - **Any** sibling is running — earlier or later. An earlier child
+          can come back after a later one started: WAITING and FAILED both
+          release the line, and both return to the queue (a wake, an
+          answered question, a retry). Checking only predecessors let that
+          child run beside the later one.
+        - An **earlier** sibling has not had its turn yet, so creation
+          order is the order stores run in.
+
+        Derived from the batch's rows on every tick, plus the dispatches
+        this process has made but not yet seen reach RUNNING. So a
+        restart needs no recovery: the RUNNING child is marked failed by
+        ``_recover_from_db`` and the next one is free.
+
+        WAITING does not hold the line. A child asking the user a
+        question can sit there until the next fire cancels it — a month,
+        for a monthly schedule — and it holds no agent while it waits.
+        """
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+            if not task or not task.batch_id or not task.schedule_id:
+                return False
+            sched = await db.get(Schedule, task.schedule_id)
+            if not sched or not sched.fanout_serial:
+                return False
+            earlier = (Task.created_at < task.created_at) | (
+                (Task.created_at == task.created_at) & (Task.id < task.id)
+            )
+            siblings = (
+                await db.execute(
+                    select(Task.id).where(
+                        Task.batch_id == task.batch_id,
+                        Task.store_id.is_not(None),
+                        Task.id != task.id,
+                        Task.status.in_(_HOLDS_SERIAL_TURN)
+                        | (earlier & Task.status.in_(_AHEAD_IN_SERIAL_LINE)),
+                    )
+                )
+            ).all()
+            if siblings:
+                return True
+            batch_ids = {
+                tid
+                for (tid,) in (
+                    await db.execute(
+                        select(Task.id).where(
+                            Task.batch_id == task.batch_id,
+                            Task.store_id.is_not(None),
+                            Task.id != task.id,
+                        )
+                    )
+                ).all()
+            }
+        async with self._lock:
+            dispatched = set().union(*self._running_tasks.values())
+        return bool(batch_ids & dispatched)
 
     async def _tick(self):
         """Process all store queues, dispatching tasks that can run."""
