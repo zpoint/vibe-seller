@@ -87,8 +87,6 @@ class _SubagentMixin:
         self._review_file_writers: dict[str, str] = {}
         self._agent_spawn_ids: set[str] = set()
         self._async_agents: dict[str, str] = {}
-        #: Ids the stream reported finished; see ``_track_async_agents``.
-        self._async_finished: set[str] = set()
 
     def _async_agents_pending_reason(self) -> str | None:
         """Deny reason while async work launched this turn is still
@@ -98,15 +96,6 @@ class _SubagentMixin:
         if not pending:
             return None
         ids = ', '.join(v or k for k, v in pending.items())
-        finished = getattr(self, '_async_finished', set())
-        if all(k in finished or v in finished for k, v in pending.items()):
-            return (
-                f'The background task(s) you launched ({ids}) have '
-                'finished; their completion notices are delivered when '
-                'your turn ends. Do not call vibe_seller_set_task_result '
-                'again and start nothing new: end your turn now with a '
-                'one-line reply.'
-            )
         return (
             f'{len(pending)} background task(s) you launched this turn '
             f'are still running ({ids}) — async subagents and/or '
@@ -122,7 +111,7 @@ class _SubagentMixin:
 
     def _track_async_agents(self, event: dict):
         """Maintain the set of still-running ASYNC work (subagents +
-        background shell commands), all on ``user`` events:
+        background shell commands):
 
         - subagent launch ack: the tool_result for an Agent/Task spawn
           whose text starts "Async agent launched successfully" (sync
@@ -130,34 +119,37 @@ class _SubagentMixin:
         - background-shell launch ack: any tool_result carrying a
           "…background… with ID: <id>" line (Bash/PowerShell auto-
           background or run_in_background). Keyed by that id.
-        - completion: the CLI injects a ``<task-notification …>`` user
-          message when either finishes -- OR the CLI's own TaskOutput /
-          TaskStop tool_result reports the task in a terminal state. That
-          second form is not optional: an agent that polled its reviewer
-          with TaskOutput got ``<status>completed</status>``, no
-          notification ever reached the stream, and the gate re-drove the
-          turn five times over a reviewer that had already written
-          ``Status: ok`` -- then shipped the result as UNVERIFIED. Match its task-id/tool-use-id/
-          agent-id (attribute OR element form) against what we tracked;
-          if the notification carries none we can match, clear the whole
-          set (fail open — never wedge a turn on a format change).
+        - completion, any of three records naming the task in a
+          terminal state: the stream's ``system``/``task_notification``
+          event (the one current CLIs actually emit); a
+          ``<task-notification …>`` user message (older CLIs echoed it;
+          attribute OR element id form); or the CLI's own TaskOutput /
+          TaskStop tool_result. The last is not optional: an agent that
+          polled its reviewer with TaskOutput got
+          ``<status>completed</status>`` and nothing else reached the
+          stream. A user-message notification carrying no id we can match
+          clears the whole set (fail open — never wedge a turn on a format
+          change).
         """
         if event.get('type') == 'system':
-            # The stream's structured completion record. It does NOT
-            # release the turn: the CLI still delivers the
-            # ``<task-notification>`` user message after it, and a turn
-            # that ended first answers that message as a stray extra
-            # result — which a follow-up then reads as its own answer.
-            # It only lets the Stop denial say "done; end your turn",
-            # where a weak model otherwise resubmitted its result in a
-            # loop until the loop breaker failed the task.
+            # The CLI's structured completion record, and on current
+            # CLIs the ONLY one: stream-json never echoes the
+            # ``<task-notification>`` message it feeds the model (zero of
+            # them across whole CI runs), so an entry held until that
+            # message arrives is held forever. Every turn that launched a
+            # reviewer then read as "still running" at its result, burnt
+            # all five gate re-drives, and shipped UNVERIFIED with the
+            # last re-drive's one-liner ("Done.") as its card. A finished
+            # task is not running: release it here. If the CLI still runs
+            # a turn to deliver the notice, that turn's result is just a
+            # later card (last-wins, see claude_backend_turns).
             if event.get('subtype') == 'task_notification' and (
                 event.get('status') != 'running'
             ):
-                self._async_finished |= {
-                    event.get('task_id'),
-                    event.get('tool_use_id'),
-                } - {None, ''}
+                self._release_async(
+                    {event.get('task_id'), event.get('tool_use_id')}
+                    - {None, ''}
+                )
             return
         blocks = event.get('message', {}).get('content', [])
         if isinstance(blocks, str):
@@ -185,12 +177,7 @@ class _SubagentMixin:
                     for rx in (_TASK_OUTPUT_DONE_RE, _TASK_NOT_RUNNING_RE)
                     for m in rx.finditer(text)
                 }
-                for k in [
-                    k
-                    for k, v in self._async_agents.items()
-                    if k in done or (v and v in done)
-                ]:
-                    del self._async_agents[k]
+                self._release_async(done)
                 bg = _BG_LAUNCH_RE.search(text)
                 if bg:
                     self._async_agents[bg.group(1)] = f'shell {bg.group(1)}'
@@ -228,17 +215,22 @@ class _SubagentMixin:
                         text,
                     )
                 )
-                matched = [
-                    k
-                    for k, v in self._async_agents.items()
-                    if k in ids or (v and v in ids)
-                ]
-                for k in matched:
-                    del self._async_agents[k]
-                if not matched:
+                if not self._release_async(ids):
                     # Unattributable notification — assume it was ours
                     # rather than block the turn forever.
                     self._async_agents.clear()
+
+    def _release_async(self, ids: set[str]) -> bool:
+        """Drop tracked async work named by any of ``ids`` (its
+        tool_use id or its agent/task id); True if any matched."""
+        matched = [
+            k
+            for k, v in self._async_agents.items()
+            if k in ids or (v and v in ids)
+        ]
+        for k in matched:
+            del self._async_agents[k]
+        return bool(matched)
 
     # ── Stop-hook deny chain ────────────────────────────────────────
     # Called in order by the STOP_REFLECTION_CALLBACK handler in
