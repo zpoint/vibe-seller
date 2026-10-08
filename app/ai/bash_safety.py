@@ -23,6 +23,7 @@ would be bad.
 from pathlib import Path
 import re
 
+from app.ai.shipped_scripts import source_unless_shipped
 from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
     AD_REVIEW_ROUNDS,
@@ -265,8 +266,8 @@ def check_catalog_first_tool_args(
 # pressure, so the contract lives here: any Bash command that would
 # have a script (or shell redirection) WRITE an AD_AUDIT file is
 # denied. Scripts remain free to READ the report or TSVs and print
-# analysis to stdout; ``sed -i`` style targeted in-place fixes are
-# deliberately not matched (tolerated for batch cleanup).
+# analysis to stdout; ``sed -i`` fixes and a skill's own unedited
+# scripts (the PDF renderer) are not matched.
 
 _REPORT_TOKEN = 'AD_AUDIT'
 # Shell redirection or tee whose TARGET is an AD_AUDIT file.
@@ -326,12 +327,11 @@ def check_report_script_write(command: str, task_dir=None) -> str | None:
     # Script file on disk: read it and look for report writes.
     for m in _SCRIPT_FILE_RE.finditer(command):
         script = Path(m.group(1))
-        if not script.is_absolute():
-            if task_dir is None:
-                continue
-            script = Path(task_dir) / script
+        if task_dir is None and not script.is_absolute():
+            continue
+        script = Path(task_dir or '/') / script  # absolute stays as is
         try:
-            src = script.read_text(encoding='utf-8', errors='ignore')
+            src = source_unless_shipped(script)
         except OSError:
             continue
         if _REPORT_TOKEN in src and _WRITE_HINT_RE.search(src):
