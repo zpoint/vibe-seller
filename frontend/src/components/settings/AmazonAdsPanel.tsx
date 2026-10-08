@@ -181,7 +181,7 @@ export function AmazonAdsPanel() {
                           data-testid={`ads-unbind-${localId}`}
                           disabled={busy}
                           onClick={() => setUnbinding({ id: localId, name: rows[0].name, purge: false })}
-                          className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 disabled:opacity-50"
+                          className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:border-red-500 hover:bg-red-50 hover:text-red-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {t('ads.unbind')}
                         </button>
@@ -190,7 +190,7 @@ export function AmazonAdsPanel() {
                         data-testid={`ads-authorize-${localId}`}
                         disabled={busy}
                         onClick={() => authorize(localId, rows[0].name)}
-                        className="rounded border px-2 py-1 text-xs disabled:opacity-50"
+                        className="rounded border px-2 py-1 text-xs hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {authorized.length ? t('ads.reauthorize') : t('ads.authorize')}
                       </button>
@@ -221,7 +221,7 @@ export function AmazonAdsPanel() {
               data-testid="ads-unbind-confirm-button"
               disabled={busy}
               onClick={unbind}
-              className="rounded bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+              className="rounded bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t('ads.unbindConfirm')}
             </button>
@@ -229,7 +229,7 @@ export function AmazonAdsPanel() {
               data-testid="ads-unbind-cancel"
               disabled={busy}
               onClick={() => setUnbinding(null)}
-              className="rounded border px-3 py-1.5 text-xs disabled:opacity-50"
+              className="rounded border px-3 py-1.5 text-xs hover:bg-gray-100 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t('ads.cancel')}
             </button>
@@ -269,7 +269,7 @@ export function AmazonAdsPanel() {
             <button
               data-testid="ads-copy-url"
               onClick={async () => setCopied(await copyText(link.url))}
-              className="shrink-0 rounded bg-indigo-600 px-3 py-1 text-xs text-white hover:bg-indigo-700"
+              className="shrink-0 cursor-pointer rounded bg-indigo-600 px-3 py-1 text-xs text-white transition-colors hover:bg-indigo-700"
             >
               {copied ? t('ads.copied') : t('ads.copy')}
             </button>
@@ -286,7 +286,7 @@ export function AmazonAdsPanel() {
             data-testid="ads-recheck"
             disabled={busy}
             onClick={confirmAuthorized}
-            className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="rounded bg-indigo-600 px-3 py-1.5 text-xs text-white hover:bg-indigo-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             {busy ? t('ads.checking') : t('ads.recheck')}
           </button>
