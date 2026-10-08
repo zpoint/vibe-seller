@@ -124,6 +124,7 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                     'body': arguments.get('body'),
                     'store': arguments.get('store'),
                     'marketplace': arguments.get('marketplace'),
+                    'task_id': _config['task_id'],
                 },
             )
         elif name == 'vibe_seller_list_tasks':

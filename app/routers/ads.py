@@ -14,7 +14,10 @@ for anyone to point somewhere else.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import logging
+from pathlib import Path
+import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -22,6 +25,7 @@ from sqlalchemy import select
 
 from app import ads_client, ads_skill
 from app.auth import get_current_user
+from app.config import VIBE_SELLER_DIR
 from app.database import get_db
 from app.models.store import Store
 from app.models.user import User
@@ -138,6 +142,9 @@ class CallIn(BaseModel):
     #: never enters its context.
     store: str | None = None
     marketplace: str | None = None
+    #: The calling task. A large answer arrives as a file, saved into this
+    #: task's folder so the agent can open it.
+    task_id: str | None = None
 
 
 @router.post('/call')
@@ -184,7 +191,47 @@ async def agent_call(
         )
     except ads_client.AdsServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    if isinstance(result, ads_client.AdsFile):
+        return {'result': _save_file(result, payload.task_id)}
     return {'result': result}
+
+
+#: A task id as the scheduler mints it. Anything else is refused before it
+#: becomes part of a path.
+_TASK_ID = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
+
+
+def _save_file(answer: ads_client.AdsFile, task_id: str | None) -> dict:
+    """Write a file answer into the task's folder; return where it is.
+
+    The rows go to disk, not into the reply: a reply this large is exactly
+    what the service declined to put in the agent's context.
+    """
+    if not task_id or not _TASK_ID.match(task_id):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This answer is a file, and a file is saved into a task's "
+                'folder: call it from a task.'
+            ),
+        )
+    folder = VIBE_SELLER_DIR / 'tasks' / task_id / 'ads-data'
+    folder.mkdir(parents=True, exist_ok=True)
+    stem = Path(Path(answer.filename).name).stem or 'ads-data'
+    stamp = datetime.now(UTC).strftime('%Y%m%dT%H%M%S')
+    path = folder / f'{stem}-{stamp}.csv'
+    path.write_bytes(answer.content)
+    return {
+        **answer.meta,
+        'file': str(path),
+        'bytes': len(answer.content),
+        'note': (
+            'Too large for a reply, so saved as a CSV file. Open and filter '
+            'it there; do not ask for the same data again.'
+        ),
+    }
 
 
 async def _find_store(db, needle: str) -> Store:

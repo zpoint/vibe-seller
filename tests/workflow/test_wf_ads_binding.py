@@ -16,6 +16,7 @@ from sqlalchemy import select
 
 from app import ads_client, ads_skill
 from app.models.store import Store
+from app.routers import ads as ads_router
 
 pytestmark = pytest.mark.workflow
 
@@ -153,6 +154,7 @@ class TestTheServiceIsNotConfigurable:
         class Response:
             status_code = 200
             content = b'{}'
+            headers: dict = {}
 
             @staticmethod
             def json():
@@ -336,3 +338,48 @@ class TestAgentCall:
         assert response.status_code == 400
         detail = response.json()['detail']
         assert 'SA' in detail and 'AE' in detail
+
+
+class TestFileAnswers:
+    """A list too large for a reply arrives as a file, saved for the task."""
+
+    TASK = '0b6e1c2a-1111-4222-8333-944455556666'
+
+    @pytest.fixture
+    def file_answer(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ads_router, 'VIBE_SELLER_DIR', tmp_path)
+
+        async def fake_call(_session, path, **kw):
+            return ads_client.AdsFile(
+                filename='search-terms.csv',
+                content=b'search_term,cost\nwidget,1.5\n',
+                meta={'as_of': '2026-10-07T19:07:00', 'rows': 1},
+            )
+
+        monkeypatch.setattr(ads_client, 'call', fake_call)
+        return tmp_path
+
+    async def test_saved_into_the_tasks_folder_not_the_reply(
+        self, authenticated_client, file_answer
+    ):
+        response = await authenticated_client.post(
+            '/api/ads/call',
+            json={'path': '/facts/search-terms', 'task_id': self.TASK},
+        )
+        result = response.json()['result']
+        assert result['rows'] == 1 and result['as_of']
+        saved = file_answer / 'tasks' / self.TASK / 'ads-data'
+        [path] = list(saved.iterdir())
+        assert result['file'] == str(path)
+        assert path.read_bytes() == b'search_term,cost\nwidget,1.5\n'
+        assert 'widget' not in response.text
+
+    async def test_a_task_id_that_is_not_one_is_refused(
+        self, authenticated_client, file_answer
+    ):
+        response = await authenticated_client.post(
+            '/api/ads/call',
+            json={'path': '/facts/search-terms', 'task_id': '../../etc'},
+        )
+        assert response.status_code == 400
+        assert not (file_answer / 'etc').exists()

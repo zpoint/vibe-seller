@@ -22,8 +22,10 @@ thin, stable integration rather than a second implementation:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import logging
+import re
 from typing import Any
 
 import httpx
@@ -49,6 +51,20 @@ DEFAULT_TIMEOUT = 60.0
 #: binding is a person's decision made in the UI, not something an agent
 #: talks itself into.
 RESERVED_PREFIXES = ('/me', '/auth-url', '/assignments', '/ads-binding')
+
+
+@dataclass(frozen=True)
+class AdsFile:
+    """An answer the service sent as a file because it was too large.
+
+    The service answers a list whole and switches to a file above a size
+    an agent can read in its context. ``meta`` is the framing the JSON
+    would have carried — ``as_of``, ``window``, the row count.
+    """
+
+    filename: str
+    content: bytes
+    meta: dict
 
 
 class AdsServiceError(RuntimeError):
@@ -125,6 +141,18 @@ async def call(
         )
     if not response.content:
         return None
+    disposition = response.headers.get('content-disposition', '')
+    if 'attachment' in disposition:
+        match = re.search(r'filename="?([^";]+)"?', disposition)
+        try:
+            meta = json.loads(response.headers.get('x-meta') or '{}')
+        except ValueError:
+            meta = {}
+        return AdsFile(
+            filename=(match.group(1) if match else 'ads-data.csv'),
+            content=response.content,
+            meta=meta,
+        )
     try:
         return response.json()
     except ValueError:
