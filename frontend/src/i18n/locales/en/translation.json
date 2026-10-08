@@ -865,5 +865,10 @@
     "cancel": "Cancel",
     "unbound": "{{store}} is no longer authorized.",
     "unboundKeptShared": "{{store}} is no longer authorized. Another machine still uses the same ads account, so its history was kept for it."
+  },
+  "sidebar": {
+    "installId": "Install ID",
+    "installIdCopy": "click to copy and quote it to support",
+    "installIdCopied": "Copied"
   }
 }

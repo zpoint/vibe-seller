@@ -33,6 +33,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 
+from app import telemetry
 from app.models.app_settings import AppSettings
 from app.models.store import Store
 from app.utils.crypto import decrypt_password, encrypt_password
@@ -118,7 +119,12 @@ async def _register(session) -> str:
             return decrypt_password(key.value)
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             try:
-                response = await client.post(f'{SERVICE_URL}/installations')
+                response = await client.post(
+                    f'{SERVICE_URL}/installations',
+                    # The id shown under the version: what a person quotes
+                    # to support, and what the service files us under.
+                    json={'installation_id': telemetry.stable_install_id()},
+                )
             except httpx.RequestError as exc:
                 raise AdsServiceError(
                     f'Could not reach the ads service at {SERVICE_URL}: {exc}'

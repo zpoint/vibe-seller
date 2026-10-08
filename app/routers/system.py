@@ -11,6 +11,7 @@ import time
 from fastapi import APIRouter
 import httpx
 
+from app import telemetry
 from app.browser.ziniao_utils import get_platform
 from app.config import BASE_DIR
 from app.telemetry import APP_VERSION
@@ -81,11 +82,15 @@ async def system_info() -> dict:
         checkout, else None. Useful when ``version`` is the
         ``fallback_version`` ('0.0.0+dev') because setuptools_scm
         couldn't read git history (shallow clone, etc.).
+      - ``install_id``: this installation's id, stable across upgrades.
+        Shown under the version so a person can quote it to support;
+        the ads service files the installation under the same id.
     """
     return {
         'platform': get_platform(),
         'version': APP_VERSION,
         'commit': _GIT_COMMIT_SHORT,
+        'install_id': telemetry.stable_install_id(),
     }
 
 

@@ -42,6 +42,7 @@ class FakeService:
     def __init__(self, register_status=200):
         self.register_status = register_status
         self.registrations = 0
+        self.registered_as: list[dict | None] = []
         self.requests: list[tuple[str, str, dict]] = []
 
     def client(self, *a, **kw):
@@ -69,6 +70,7 @@ class FakeService:
                 assert url == f'{ads_client.SERVICE_URL}/installations'
                 assert 'headers' not in kw, 'registration carries no key'
                 service.registrations += 1
+                service.registered_as.append(kw.get('json'))
                 await asyncio.sleep(0)
                 return Response(
                     service.register_status,
@@ -174,6 +176,35 @@ class TestRegistration:
 
         assert response.status_code == 400
         assert 'Registering' in response.json()['detail']
+        assert not await _stored_key(async_db_session)
+
+    async def test_it_registers_under_the_id_shown_under_the_version(
+        self, authenticated_client, service
+    ):
+        info = (await authenticated_client.get('/api/system/info')).json()
+        await authenticated_client.post('/api/ads/stores/sync')
+
+        assert info['install_id']
+        assert service.registered_as == [
+            {'installation_id': info['install_id']}
+        ]
+
+    async def test_the_install_id_is_stable(self, authenticated_client):
+        first = (await authenticated_client.get('/api/system/info')).json()
+        second = (await authenticated_client.get('/api/system/info')).json()
+        assert first['install_id'] == second['install_id']
+
+    async def test_a_member_cannot_register_or_upload_the_stores(
+        self, authenticated_client, async_db_session, admin, service
+    ):
+        admin.role = 'user'
+        await async_db_session.commit()
+
+        response = await authenticated_client.post('/api/ads/stores/sync')
+
+        assert response.status_code == 403
+        assert service.registrations == 0
+        assert service.requests == []
         assert not await _stored_key(async_db_session)
 
     async def test_there_is_no_key_to_set(self, authenticated_client):
@@ -291,6 +322,16 @@ class TestUnbind:
 
         after = await _reload(async_db_session, authorized.id)
         assert (after.platforms, after.countries) == (platforms, countries)
+
+    async def test_no_store_left_authorized_keeps_the_skill_away(
+        self, authenticated_client, async_db_session, authorized
+    ):
+        """What boot and the skills sync check before reinstalling it."""
+        assert await ads_skill._any_store_authorized(async_db_session)
+        await authenticated_client.post(
+            f'/api/ads/stores/{authorized.id}/unbind', json={}
+        )
+        assert not await ads_skill._any_store_authorized(async_db_session)
 
     async def test_the_skill_goes_with_the_last_authorized_store(
         self, authenticated_client, authorized, skill_home

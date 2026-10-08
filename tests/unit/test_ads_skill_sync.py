@@ -42,7 +42,12 @@ def service(tmp_path, monkeypatch):
     """A bound service at version ``v2``, every call recorded."""
     root = tmp_path / 'skills' / ads_skill.SKILL_NAME
     monkeypatch.setattr(ads_skill, 'skill_dir', lambda: root)
-    state = {'session': FakeSession(), 'calls': [], 'bound': True}
+    state = {
+        'session': FakeSession(),
+        'calls': [],
+        'bound': True,
+        'authorized': True,
+    }
 
     @asynccontextmanager
     async def fake_async_session():
@@ -59,6 +64,11 @@ def service(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ads_skill, 'async_session', fake_async_session)
     monkeypatch.setattr(ads_client, 'get_config', fake_config)
+
+    async def fake_any_authorized(_db):
+        return state['authorized']
+
+    monkeypatch.setattr(ads_skill, '_any_store_authorized', fake_any_authorized)
     monkeypatch.setattr(ads_client, 'call', fake_call)
     state['root'] = root
     return state
@@ -91,6 +101,15 @@ class TestRefreshIfBound:
 
         assert await ads_skill.refresh_if_bound() is None
         assert service['calls'] == []
+
+    async def test_no_authorized_store_asks_nothing(self, service):
+        """Registered, but no store authorized — or the last one revoked:
+        the skill must not come back at the next boot or skills sync."""
+        service['authorized'] = False
+
+        assert await ads_skill.refresh_if_bound() is None
+        assert service['calls'] == []
+        assert not (service['root'] / 'SKILL.md').exists()
 
     async def test_an_unreachable_service_is_reported_not_raised(
         self, service, monkeypatch

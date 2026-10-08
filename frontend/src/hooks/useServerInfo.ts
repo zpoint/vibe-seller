@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import type { ServerPlatform } from '../types'
 
-// /api/system/info on mount: platform + version (top-left).
+// /api/system/info on mount: platform + version + install id (top-left).
 export function useServerInfo() {
   const [serverPlatform, setServerPlatform] = useState<ServerPlatform | null>(null)
   const [serverVersion, setServerVersion] = useState<string>('')
+  const [installId, setInstallId] = useState<string>('')
   useEffect(() => {
     fetch('/api/system/info', { credentials: 'include' })
       .then(r => r.ok ? r.json() : null)
@@ -13,8 +14,9 @@ export function useServerInfo() {
         const v = String(info?.version || ''), c = String(info?.commit || '')
         const pick = v && !v.includes('+') && !v.includes('dev') ? v : (c || v)
         if (pick) setServerVersion(pick)
+        if (info?.install_id) setInstallId(String(info.install_id))
       })
       .catch(() => {})
   }, [])
-  return { serverPlatform, serverVersion }
+  return { serverPlatform, serverVersion, installId }
 }

@@ -867,5 +867,10 @@
     "cancel": "取消",
     "unbound": "已取消 {{store}} 的授权。",
     "unboundKeptShared": "已取消 {{store}} 的授权。其他电脑仍在使用同一个广告账户，历史数据已为它们保留。"
+  },
+  "sidebar": {
+    "installId": "安装 ID",
+    "installIdCopy": "点击复制，联系支持时提供",
+    "installIdCopied": "已复制"
   }
 }

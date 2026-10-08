@@ -48,9 +48,13 @@ async def read_config(
 
 @router.post('/stores/sync')
 async def sync_stores(
-    db=Depends(get_db), _user: User = Depends(get_current_user)
+    db=Depends(get_db), _user: User = Depends(require_admin)
 ) -> dict:
-    """Upload our stores, record which are authorized.
+    """Upload our stores, record which are authorized. Admin only.
+
+    The first sync registers this installation with the service and sends
+    it every store's id and name — a deployment-wide decision, like every
+    other integration setting, so not one any member can make.
 
     Also the polling endpoint: the consent finishes on the service's
     domain and nothing calls back here, so this is how a deployment finds

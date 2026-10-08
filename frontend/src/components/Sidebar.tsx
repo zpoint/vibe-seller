@@ -7,6 +7,7 @@ import { api } from '../api'
 import { sendEvent } from '../lib/telemetry'
 import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Store, AuthUser, AppView, ServerPlatform, WsStructured, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
+import { InstallIdBadge } from './InstallIdBadge'
 
 interface SidebarProps {
   // Mobile drawer control (desktop leaves these at defaults)
@@ -51,7 +52,7 @@ interface SidebarProps {
   fetchBrowserProfiles: (accountId: string) => void
   restartZiniao: (accountId: string) => void
   ziniaoRetried: boolean
-  serverPlatform: ServerPlatform | null; serverVersion: string
+  serverPlatform: ServerPlatform | null; serverVersion: string; installId: string
   showAddAccount: boolean
   setShowAddAccount: (v: boolean) => void
   showAccountPassword: boolean
@@ -99,7 +100,7 @@ export function Sidebar(props: SidebarProps) {
     ziniaoBrowsers, selectedBrowserOauth, setSelectedBrowserOauth,
     fetchingBrowsers, browserFetchError, setBrowserFetchError,
     fetchBrowserProfiles, restartZiniao, ziniaoRetried,
-    serverPlatform, serverVersion,
+    serverPlatform, serverVersion, installId,
     showAddAccount, setShowAddAccount, showAccountPassword, setShowAccountPassword,
     editingAccountId, setEditingAccountId, newAccount, setNewAccount,
     createZiniaoAccount, updateZiniaoAccount, deleteZiniaoAccount,
@@ -173,6 +174,7 @@ export function Sidebar(props: SidebarProps) {
             )}
           </div>
         </div>
+        <InstallIdBadge installId={installId} />
         <div className="text-xs text-gray-500 mb-2 truncate">{currentUser.username} <span className="text-gray-400">({currentUser.role})</span></div>
         <div className="flex bg-gray-100 rounded-lg p-0.5">
           {(['tasks', 'workspace'] as const).map(v => (
