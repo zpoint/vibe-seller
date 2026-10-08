@@ -107,6 +107,8 @@ scratch.
 
 No WSL, no Python setup. Download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
 
+> Requires **Windows 10 version 1809 / Windows Server 2019 or later** (64-bit). The bundled Claude Code cannot start on older systems (e.g. Server 2016), so the installer refuses to install there.
+
 Or, in **PowerShell**:
 
 ```powershell

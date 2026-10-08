@@ -76,6 +76,8 @@ flowchart LR
 
 无需 WSL，无需配置 Python。从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
+> 需要 **Windows 10 1809 / Windows Server 2019 或更高版本**（64 位）。内置的 Claude Code 在更旧的系统（如 Server 2016）上无法启动，安装程序会直接拒绝安装。
+
 或在 **PowerShell** 里：
 
 ```powershell
