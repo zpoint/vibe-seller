@@ -101,92 +101,53 @@ def resolve_claude_binary() -> str:
     return 'claude'
 
 
-# Windows CreateProcess accepts at most 32767 chars for the WHOLE
-# command line (POSIX allows 128KB per argv entry, so it is not a
-# concern there). The assembled system prompt is the only large
-# argument — the task prompt and every later message go over stdin as
-# stream-json — and it runs 10-20KB with store context, so only a very
-# long conversation history can approach the cap. Warn instead of
-# truncating: silently dropping instructions is worse than a spawn
-# failure a log line can explain. Keeping the prompt on the command
-# line requires spawning the native ``claude.exe`` rather than npm's
-# ``claude.cmd`` shim, whose ``cmd.exe`` hop caps it at 8191 — see
-# ``_claude_candidates`` in claude_backend_utils.
-WINDOWS_CMDLINE_LIMIT = 32767
+SYSTEM_PROMPT_FILENAME = '.system-prompt.md'
 
 
-# Spawning one of these routes through ``cmd.exe`` (CreateProcess runs
-# ``%COMSPEC% /c`` for a batch file), which is where the 8191-char cap
-# comes from. ``_claude_candidates`` prefers the native ``.exe`` exactly
-# to avoid them, but a global ``npm i -g`` install has no ``.exe`` on
-# PATH — only ``claude.cmd`` — so the fallback is reachable and needs a
-# prompt delivery that does not ride the command line.
-_BATCH_SHIM_SUFFIXES = ('.cmd', '.bat')
+def system_prompt_file(task_id: str, task_dir: Path | None) -> Path:
+    """Where a session's system prompt is written for claude to read.
 
-
-def _is_batch_shim(binary: str) -> bool:
-    return IS_WINDOWS and binary.lower().endswith(_BATCH_SHIM_SUFFIXES)
+    A task's own dir when it has one. A session without one (the
+    workspace assistant) would otherwise land in the git-tracked
+    workspace root, so it goes under ``data/`` — a runtime dir the
+    workspace ``.gitignore`` already excludes.
+    """
+    if task_dir is not None:
+        return task_dir / SYSTEM_PROMPT_FILENAME
+    return VIBE_SELLER_DIR / 'data' / 'system-prompts' / f'{task_id}.md'
 
 
 def append_system_prompt(
     cmd: list[str],
     system_prompt: str,
     task_id: str,
-    task_dir: Path | None = None,
+    task_dir: Path | None,
 ) -> None:
-    """Put the assembled system prompt where claude will read it.
+    """Hand the assembled system prompt to claude by file, never inline.
 
-    Inline on the command line — the simple path, and the only one on
-    POSIX or against a native ``claude.exe``. When the resolved binary
-    is a Windows batch shim, the whole command line has to fit in 8191
-    chars, which a 10-20KB store-context prompt does not: that case
-    writes the prompt into the task dir and passes
-    ``--append-system-prompt-file`` instead. The task dir is per-task,
-    gitignored, and wiped on retry, so nothing lands in a shared
-    world-readable temp dir.
+    The command line has a hard cap on Windows — 32767 chars for the
+    whole of it through ``CreateProcess``, 8191 through a ``cmd.exe``
+    batch shim — and the system prompt is the one argument whose size we
+    do not control: base prompt, store context and, for a planned run,
+    the whole plan. Inline, a schedule whose plan grew past ~7K chars
+    stopped spawning at all (``[WinError 206] The filename or extension
+    is too long``, zero messages) while the same schedule ran fine on
+    macOS. ``--append-system-prompt-file`` keeps the command line the
+    same size whatever the prompt holds, so there is no length that
+    works on one OS and not the other.
 
-    Also logs when the command line comes close to the Windows cap:
-    over it, CreateProcess fails with an error that names no argument,
-    so the size is worth recording while we still know it.
+    The file goes where ``system_prompt_file`` says — a task's own
+    (gitignored, per-task, wiped-on-retry) dir, never a predictable name
+    in a shared temp dir. A write failure propagates: falling back to
+    the inline form would bring back the cap this exists to remove.
+    An empty prompt adds nothing.
     """
-    if cmd and _is_batch_shim(cmd[0]) and task_dir is not None:
-        sp_file = task_dir / '.system-prompt.md'
-        try:
-            sp_file.write_text(system_prompt, encoding='utf-8')
-        except OSError as e:
-            logger.error(
-                '[%s] could not write %s (%s) — falling back to an inline '
-                'prompt, which a cmd.exe shim caps at 8191 chars',
-                task_id[:8],
-                sp_file,
-                e,
-            )
-        else:
-            logger.info(
-                '[%s] claude resolved to a batch shim (%s); passing the '
-                '%d-char system prompt by file to stay under the '
-                'cmd.exe command-line cap',
-                task_id[:8],
-                cmd[0],
-                len(system_prompt),
-            )
-            cmd.extend(['--append-system-prompt-file', str(sp_file)])
-            return
-    cmd.extend(['--append-system-prompt', system_prompt])
-    if not IS_WINDOWS:
+    if not system_prompt.strip():
         return
-    # +3 per argument: the separating space and the quotes subprocess
-    # adds when an argument contains whitespace.
-    total = sum(len(arg) + 3 for arg in cmd)
-    if total > WINDOWS_CMDLINE_LIMIT * 0.9:
-        logger.warning(
-            '[%s] command line is %d chars, near the Windows %d cap — '
-            'a spawn failure here is the system prompt being too long, '
-            'not a claude error',
-            task_id[:8],
-            total,
-            WINDOWS_CMDLINE_LIMIT,
-        )
+    prompt_file = system_prompt_file(task_id, task_dir)
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(system_prompt, encoding='utf-8')
+    cmd.extend(['--append-system-prompt-file', str(prompt_file)])
 
 
 # A `browser-use` that always ERRORS — sits on the agent PATH just below

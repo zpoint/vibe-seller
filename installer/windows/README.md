@@ -89,16 +89,16 @@ because this is the only native-Windows doc.
   8191 cap and the agent died instantly with `命令行太长`; spawning the
   `.exe` directly gives 4× the headroom and skips cmd's re-quoting of
   every argument (a `--add-dir` path containing `&` or `^` would
-  otherwise break). `append_system_prompt` logs a warning when a command
-  line gets within 10% of the cap.
-- **A batch shim is still reachable, so prompt delivery adapts.** A
-  global `npm i -g @anthropic-ai/claude-code` puts only `claude.cmd` on
-  `PATH` (no `.exe`), and that is a legitimate resolution. When the
-  resolved binary ends in `.cmd`/`.bat` the spawn is back inside
-  `cmd.exe`, so the system prompt goes via
-  `--append-system-prompt-file` written into the **task dir** —
-  per-task, gitignored, wiped on retry — instead of riding the command
-  line. The native-`.exe` path stays inline.
+  otherwise break).
+- **The system prompt never rides the command line.** Even 32767 is
+  not a bound we control: the prompt carries the store context and, for
+  a planned run, the whole plan, so a schedule whose plan passed ~7K
+  chars died at spawn with `[WinError 206] 文件名或扩展名太长` and zero
+  messages. `append_system_prompt` always writes it to
+  `.system-prompt.md` in the **task dir** — per-task, gitignored, wiped
+  on retry — and passes `--append-system-prompt-file`, on every OS and
+  whichever binary (`.exe` or a `npm i -g` `.cmd` shim) resolved, so
+  the command line stays the same size whatever the prompt holds.
 - **`browser-use` wrappers embed an absolute `REAL_BU`.** Windows
   installs the console script as `browser-use.exe` with no
   extensionless sibling, so the old bare-name fallback made the wrapper

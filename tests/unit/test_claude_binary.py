@@ -16,6 +16,7 @@ spawn, which is what caps a command line at 8191 chars.
 import pytest
 
 from app.ai import claude_backend_utils as cbu
+from app.workspace.ignored_paths import RUNTIME_DIRS
 
 pytestmark = pytest.mark.unit
 
@@ -101,58 +102,69 @@ class TestPosix:
 
 
 class TestSystemPromptDelivery:
-    """How the prompt reaches claude depends on what we are spawning.
+    """The system prompt never rides the command line.
 
-    Inline is right for a native binary (32767-char CreateProcess limit,
-    no shell). A batch shim routes through ``cmd.exe``, whose 8191-char
-    cap a 10-20KB store-context prompt blows straight past — that case
-    has to go by file or the agent dies before it starts.
+    It carries the store context and, for a planned run, the whole plan,
+    so its size is not ours to bound — and Windows caps the whole
+    command line (32767 via CreateProcess, 8191 via a cmd.exe shim).
+    Inline, a schedule whose plan grew past ~7K chars died at spawn with
+    ``WinError 206`` and zero messages. By file, the command line is the
+    same size whatever the prompt holds, on every OS and binary.
     """
 
-    PROMPT = 'store context ' * 1000  # ~14KB, a realistic size
+    # Past the 32767 CreateProcess cap on its own: inline, no binary
+    # could spawn with it.
+    PROMPT = 'Execute the following plan:\n\n' + 'step ' * 8000
 
-    def test_native_exe_keeps_the_prompt_inline(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
-        cmd = [r'C:\vibe\node_modules\@anthropic-ai\claude-code\claude.exe']
-        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
-        assert '--append-system-prompt' in cmd
-        assert '--append-system-prompt-file' not in cmd
-        assert self.PROMPT in cmd
-
-    def test_batch_shim_passes_the_prompt_by_file(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
-        cmd = [r'C:\Users\me\AppData\Roaming\npm\claude.cmd']
-        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
-        assert '--append-system-prompt-file' in cmd
-        assert self.PROMPT not in cmd
-        sp_file = tmp_path / '.system-prompt.md'
-        assert sp_file.read_text(encoding='utf-8') == self.PROMPT
-        # In the task dir, which is per-task and wiped on retry — never a
-        # predictable name in a shared, world-readable temp dir.
-        assert str(sp_file) in cmd
-
-    def test_bat_shim_too(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
-        cmd = [r'C:\tools\claude.BAT']
-        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
-        assert '--append-system-prompt-file' in cmd
-
-    def test_posix_is_never_routed_through_a_file(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(cbu, 'IS_WINDOWS', False)
-        # A POSIX path can legitimately end in .cmd; only Windows spawns
-        # batch files through a shell.
-        cmd = ['/usr/local/bin/claude.cmd']
-        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
-        assert '--append-system-prompt-file' not in cmd
-        assert self.PROMPT in cmd
-
-    def test_unwritable_task_dir_falls_back_to_inline(
-        self, monkeypatch, tmp_path
+    @pytest.mark.parametrize('is_windows', [True, False])
+    @pytest.mark.parametrize(
+        'binary',
+        [
+            r'C:\vibe\claude\claude.exe',
+            r'C:\Users\me\AppData\Roaming\npm\claude.cmd',
+            '/usr/local/bin/claude',
+        ],
+    )
+    def test_prompt_goes_by_file_whatever_the_binary(
+        self, monkeypatch, tmp_path, is_windows, binary
     ):
-        """Degraded, but loud — better than no prompt at all."""
-        monkeypatch.setattr(cbu, 'IS_WINDOWS', True)
-        cmd = [r'C:\npm\claude.cmd']
-        missing = tmp_path / 'no' / 'such' / 'dir'
-        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', missing)
-        assert '--append-system-prompt-file' not in cmd
-        assert self.PROMPT in cmd
+        monkeypatch.setattr(cbu, 'IS_WINDOWS', is_windows)
+        cmd = [binary, '-p']
+        cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', tmp_path)
+        sp_file = cbu.system_prompt_file('task1234', tmp_path)
+
+        assert '--append-system-prompt' not in cmd
+        assert cmd[-2:] == ['--append-system-prompt-file', str(sp_file)]
+        assert sp_file.read_text(encoding='utf-8') == self.PROMPT
+        # The invariant itself: command-line size does not depend on the
+        # prompt's.
+        assert sum(len(arg) + 3 for arg in cmd) < 1000
+
+    def test_empty_prompt_adds_no_flag(self, tmp_path):
+        cmd = ['claude']
+        cbu.append_system_prompt(cmd, '  \n', 'task1234', tmp_path)
+        assert cmd == ['claude']
+        assert not (tmp_path / '.system-prompt.md').exists()
+
+    def test_task_prompt_lives_in_the_task_dir(self, tmp_path):
+        # Per-task, gitignored, wiped on retry — never a predictable
+        # name in a shared, world-readable temp dir.
+        assert cbu.system_prompt_file('task1234', tmp_path) == (
+            tmp_path / '.system-prompt.md'
+        )
+
+    def test_dirless_session_stays_out_of_the_tracked_workspace(self):
+        """The workspace assistant has no task dir; its prompt must not
+        land in the git-tracked workspace root."""
+        path = cbu.system_prompt_file('user-1', None)
+        rel = path.relative_to(cbu.VIBE_SELLER_DIR)
+        assert rel.parts[0] in RUNTIME_DIRS
+
+    def test_unwritable_location_fails_loudly(self, tmp_path):
+        """No inline fallback — that is the unbounded path this removes."""
+        blocker = tmp_path / 'file'
+        blocker.write_text('')
+        cmd = ['claude']
+        with pytest.raises(OSError):
+            cbu.append_system_prompt(cmd, self.PROMPT, 'task1234', blocker)
+        assert self.PROMPT not in cmd
