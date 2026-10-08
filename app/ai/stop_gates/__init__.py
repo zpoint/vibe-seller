@@ -63,6 +63,36 @@ def record_attempt(task_id: str, gate: str) -> int:
     return _attempts[key]
 
 
+#: Review refusals spent per (task, check), across BOTH completion paths —
+#: set_task_result and the Stop hook. Not cleared when a result is
+#: accepted: the Stop hook runs after that, and re-refusing the same gaps
+#: there was a second round by another door.
+_review_rounds: dict[tuple[str, str], int] = {}
+
+
+def review_round_left(task_id: str, check: str) -> bool:
+    """Has *check* a refusal left on *task_id*? Looks, spends nothing.
+
+    For the Stop hook and the idle watchdog, which ask "may this turn
+    end?" over and over: asking must not use up the refusal that
+    ``set_task_result`` spends when it actually refuses.
+    """
+    return _review_rounds.get((task_id, check), 0) < AD_REVIEW_ROUNDS
+
+
+def take_review_round(task_id: str, check: str) -> bool:
+    """Spend one review refusal for *check* on *task_id*, if any is left.
+
+    True means refuse now (and it is recorded); False means this check has
+    had its ``AD_REVIEW_ROUNDS`` and must let the result through.
+    """
+    key = (task_id, check)
+    if _review_rounds.get(key, 0) >= AD_REVIEW_ROUNDS:
+        return False
+    _review_rounds[key] = _review_rounds.get(key, 0) + 1
+    return True
+
+
 def reset_attempts(task_id: str) -> None:
     """Drop all attempt counters for a task.
 

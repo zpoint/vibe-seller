@@ -31,6 +31,7 @@ from app.ai.stop_gates import (
     listing_upload_gate,
     recorded_skills,
     report_reviewer,
+    review_round_left,
 )
 from app.plugins import (
     registered_pretool_gates,
@@ -543,7 +544,12 @@ def check_review_status(
         floor = ad_completeness_review.drill_incomplete_reason(
             audit_text, task_dir.name
         )
-        if floor is not None:
+        # One review round per check, spent by set_task_result when it
+        # refuses: gaps this check already refused there are not refused
+        # again here. Only looked at — this path is also polled.
+        if floor is not None and review_round_left(
+            task_dir.name, 'ad_completeness_review'
+        ):
             return floor
         # Floor passed → fall through to the REVIEW_*.md reviewer check.
     elif _is_server_reviewed(audit_text):
