@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from app import ads_client, ads_skill
-from app.auth import get_current_user
+from app.auth import get_current_user, require_admin
 from app.config import VIBE_SELLER_DIR
 from app.database import get_db
 from app.models.store import Store
@@ -53,9 +53,10 @@ async def read_config(
 async def write_config(
     payload: ConfigIn,
     db=Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_admin),
 ) -> dict:
-    """Bind, rebind, or unbind. An empty key unbinds.
+    """Bind, rebind, or unbind. An empty key unbinds. Admin only, like
+    every deployment-wide setting.
 
     The key is verified immediately by asking the service who we are —
     a binding that only fails later, inside an agent's task, costs a
@@ -101,7 +102,7 @@ async def store_auth_url(
     store_id: str,
     region: str = 'EU',
     db=Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_admin),
 ) -> dict:
     """A consent link for one store, plus how to open it.
 

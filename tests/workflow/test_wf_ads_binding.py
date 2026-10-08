@@ -23,6 +23,14 @@ pytestmark = pytest.mark.workflow
 
 
 @pytest.fixture(autouse=True)
+async def admin(test_user, async_db_session):
+    """Binding is a deployment-wide setting, so these act as an admin."""
+    test_user.role = 'admin'
+    await async_db_session.commit()
+    return test_user
+
+
+@pytest.fixture(autouse=True)
 def skill_home(tmp_path, monkeypatch):
     """Point the installed skill at a temp dir, for every test here.
 
@@ -481,3 +489,29 @@ class TestATaskReachesOnlyItsOwnStore:
         )
         assert response.status_code == 400
         assert recorded == []
+
+
+class TestOnlyAnAdminBinds:
+    """Like every deployment-wide setting (app_settings is admin-only)."""
+
+    @pytest.fixture
+    async def member(self, admin, async_db_session):
+        admin.role = 'user'
+        await async_db_session.commit()
+
+    async def test_a_member_cannot_bind_or_rebind(
+        self, authenticated_client, member, bound
+    ):
+        response = await authenticated_client.put(
+            '/api/ads/config', json={'api_key': 'vas_other'}
+        )
+        assert response.status_code == 403
+        assert bound == [], 'nothing may reach the service'
+
+    async def test_a_member_cannot_mint_a_consent_link(
+        self, authenticated_client, member, test_store, bound
+    ):
+        response = await authenticated_client.get(
+            f'/api/ads/stores/{test_store.id}/auth-url'
+        )
+        assert response.status_code == 403

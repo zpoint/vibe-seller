@@ -463,9 +463,9 @@ agent_manager = agent_backend
 async def _ads_skill_exclusions(task_id: str, no_store: bool) -> set[str]:
     """Skill dirs to leave out of *task_id*'s workspace.
 
-    A lookup failure excludes nothing. Copying both ads skills is a
-    degraded but working task; copying neither is a task that cannot do
-    ads at all, so the failure direction is deliberate.
+    When the store's binding cannot be read, the task gets the browser
+    skill only — the path every store had before an ads service existed.
+    Handing it both would leave the choice of path to the agent.
     """
     if no_store:
         return ads_routing.skills_to_exclude([])
@@ -476,8 +476,8 @@ async def _ads_skill_exclusions(task_id: str, no_store: bool) -> set[str]:
                 return ads_routing.skills_to_exclude([])
             store = await db.get(Store, task.store_id)
             if store is None:
-                return set()
+                return ads_routing.skills_to_exclude([False])
             return ads_routing.skills_to_exclude([bool(store.ads_authorized)])
     except Exception:
         logger.exception('ads skill routing failed for task %s', task_id)
-        return set()
+        return ads_routing.skills_to_exclude([False])

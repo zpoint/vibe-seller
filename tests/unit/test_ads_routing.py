@@ -10,6 +10,7 @@ import pytest
 
 from app.ads_client import AdsServiceError, resolve_store_key, store_keys
 from app.ads_routing import API_SKILL, BROWSER_SKILL, skills_to_exclude
+from app.ai import claude_backend_manager as manager
 
 pytestmark = pytest.mark.unit
 
@@ -75,3 +76,17 @@ class TestStoreKeys:
         with pytest.raises(AdsServiceError) as exc:
             resolve_store_key(_Store('{}'), None)
         assert 'Settings' in str(exc.value)
+
+
+class TestRoutingWhenTheStoreCannotBeRead:
+    """Never both skills: that would leave the choice of path to the agent."""
+
+    async def test_a_lookup_failure_gives_the_browser_skill_only(
+        self, monkeypatch
+    ):
+        def broken_session():
+            raise RuntimeError('database is locked')
+
+        monkeypatch.setattr(manager, 'async_session', broken_session)
+        excluded = await manager._ads_skill_exclusions('t-1', no_store=False)
+        assert excluded == {API_SKILL}
