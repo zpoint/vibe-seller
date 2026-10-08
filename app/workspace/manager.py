@@ -652,7 +652,35 @@ browser: {backend}
                 ignore=_ignore,
             )
 
+        _make_skill_root(task_dir)
         return task_dir
+
+
+def _make_skill_root(task_dir: Path) -> None:
+    """Make the task folder the boundary of skill discovery.
+
+    Claude Code finds skills in every ``.claude/skills`` from the working
+    directory up to the git root — and a task folder sits inside the
+    workspace repo, so an agent also saw the shared copy of every skill,
+    including the ads skill its store was routed away from (an unbound
+    store's task loaded ``amazon-ads-api`` that way). A repo of its own
+    stops the search at the task folder, so the agent sees exactly the
+    skills copied in above. ``CLAUDE.md`` is unaffected: it is still read
+    from parent folders (and is linked into the task folder anyway).
+    ``tasks/`` is ignored by the workspace repo, so nothing is nested in
+    its history.
+    """
+    if (task_dir / '.git').exists():
+        return
+    try:
+        gitlib.Repo.init(str(task_dir))
+    except Exception:  # discovery then falls back to the load-time refusal
+        logger.warning(
+            'Could not make %s its own skill root; shared skills stay '
+            'visible to its agent (excluded ones are still refused)',
+            task_dir,
+            exc_info=True,
+        )
 
 
 # Singleton
