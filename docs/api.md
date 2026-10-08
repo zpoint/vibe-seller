@@ -315,14 +315,16 @@ message (`frontend/src/uploadLimits.ts`).
 ## `ads.py` — Amazon Ads API service
 
 A store can be bound to the hosted ads service; vibe-seller holds no Amazon
-credential. The service address is a constant in `app/ads_client.py`; only
-an API key is configured, stored encrypted and never returned.
+credential. Nothing is configured: the service address is a constant in
+`app/ads_client.py`, and the installation registers itself with the service
+(`POST /installations`) the first time the stores are synced. The key it
+gets is stored encrypted and never returned. Amazon stores only.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/ads/config` | Whether a service is bound (`configured`); never the key |
-| PUT | `/api/ads/config` | Set the API key (admin only). Verified on save, then the skill bundle is pulled; an empty key unbinds and removes the skill |
-| POST | `/api/ads/stores/sync` | Upload the stores and record which are authorized. Also how a deployment learns a consent finished |
+| GET | `/api/ads/config` | Whether this installation has registered (`configured`); never the key |
+| POST | `/api/ads/stores/sync` | Register if needed, upload the stores and record which are authorized; write an authorized store's marketplaces back onto its `platforms` / `countries` / `platform_countries` (add only). Also how a deployment learns a consent finished; pulls the skill once a store is authorized |
+| POST | `/api/ads/stores/{id}/unbind` | Revoke one store's authorization (admin only). Body `{"purge": bool}`: also delete its ad history, unless another installation still manages the same Amazon ads account (`kept_shared`). Removes the skill when no store is left authorized |
 | GET | `/api/ads/stores/{id}/auth-url` | A consent link for the store (admin only) |
 | POST | `/api/ads/call` | The agent's one door (MCP tool `vibe_seller_ads_call`); the key is added here, never seen by the agent |
 
@@ -330,8 +332,8 @@ an API key is configured, stored encrypted and never returned.
 
 - **Task scoping.** `task_id` is required. A task bound to a store reaches
   that store only; only a store-less task may name any authorized store.
-- **Reserved paths.** `/me`, `/auth-url`, `/assignments`, `/ads-binding`
-  belong to a person, not an agent, and are refused.
+- **Reserved paths.** `/me`, `/auth-url`, `/assignments`, `/ads-binding`,
+  `/installations` belong to a person, not an agent, and are refused.
 - **File answers.** A list the service answers as CSV is saved to
   `tasks/<id>/ads-data/`; the agent gets the path, the row count and the
   metadata from the `X-Meta` header.

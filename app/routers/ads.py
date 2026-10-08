@@ -1,8 +1,10 @@
-"""Binding this deployment to an external Amazon Ads service.
+"""Binding this deployment's stores to the Amazon Ads service.
 
-Four routes, all of them about the binding rather than about advertising:
-the advertising itself is the service's job and reaches the agent through
-one MCP tool.
+The routes here are about binding rather than advertising: the
+advertising itself is the service's job and reaches the agent through one
+MCP tool. There is nothing to configure — the installation registers
+itself with the service the first time the stores are synced, and what
+lets the service act on a store is that store owner's Amazon consent.
 
 The authorization hand-off is deliberately one-way. We mint nothing and
 receive nothing back: the client asks the service for a consent URL, shows
@@ -36,48 +38,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/ads', tags=['ads'])
 
 
-class ConfigIn(BaseModel):
-    #: Empty unbinds. The service itself is not configurable here.
-    api_key: str | None = None
-
-
 @router.get('/config')
 async def read_config(
     db=Depends(get_db), _user: User = Depends(get_current_user)
 ) -> dict:
-    """Is a service bound, and which one. The key is never returned."""
+    """Whether this installation has registered. The key is never returned."""
     return await ads_client.get_config(db)
-
-
-@router.put('/config')
-async def write_config(
-    payload: ConfigIn,
-    db=Depends(get_db),
-    _user: User = Depends(require_admin),
-) -> dict:
-    """Bind, rebind, or unbind. An empty key unbinds. Admin only, like
-    every deployment-wide setting.
-
-    The key is verified immediately by asking the service who we are —
-    a binding that only fails later, inside an agent's task, costs a
-    whole run to diagnose.
-    """
-    await ads_client.set_config(db, payload.api_key)
-    if not payload.api_key:
-        ads_skill.remove()
-        return {'configured': False}
-
-    try:
-        identity = await ads_client.call(db, '/me')
-    except ads_client.AdsServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-    # A verified binding pulls the skill immediately. There is nothing
-    # for a person to decide here: a bound deployment always wants the
-    # current bundle, and a button they have to find is a button they
-    # will forget, leaving agents on instructions older than the service.
-    skill = await ads_skill.refresh(db)
-    return {'configured': True, 'service': identity, 'skill': skill}
 
 
 @router.post('/stores/sync')
@@ -94,7 +60,49 @@ async def sync_stores(
         rows = await ads_client.sync_stores(db)
     except ads_client.AdsServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    if any(r.get('authorized') for r in rows):
+        # An authorized store wants the current skill now, not at the next
+        # boot: a button a person has to find is one they will forget.
+        await ads_skill.refresh(db)
     return {'stores': rows}
+
+
+class UnbindIn(BaseModel):
+    #: Also delete the store's ad history on the service. Kept by default,
+    #: so authorizing again carries on where it stopped.
+    purge: bool = False
+
+
+@router.post('/stores/{store_id}/unbind')
+async def unbind_store(
+    store_id: str,
+    payload: UnbindIn = UnbindIn(),
+    db=Depends(get_db),
+    _user: User = Depends(require_admin),
+) -> dict:
+    """Withdraw one store's Amazon authorization. Admin only.
+
+    After this the service will not act on the store for this
+    installation — whoever holds this installation's key — until its
+    owner consents again. The store's platforms and countries are left as
+    they are: an authorization ending says nothing about where it sells.
+    """
+    store = await db.get(Store, store_id)
+    if store is None:
+        raise HTTPException(status_code=404, detail='Store not found')
+    try:
+        body = await ads_client.unbind(db, store_id, purge=payload.purge)
+    except ads_client.AdsServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not any(s.ads_authorized for s in await _all_stores(db)):
+        # The skill is for authorized stores only; with none left it
+        # would only be routed away from every task.
+        ads_skill.remove()
+    return body
+
+
+async def _all_stores(db) -> list[Store]:
+    return (await db.execute(select(Store))).scalars().all()
 
 
 @router.get('/stores/{store_id}/auth-url')

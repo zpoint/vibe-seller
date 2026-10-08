@@ -839,11 +839,7 @@
   },
   "ads": {
     "title": "Vibe Seller Ads API",
-    "blurb": "Connect the Vibe Seller Ads API service so agents drive advertising straight through the API instead of clicking a browser — far steadier for tuning and bulk operations. Each store must be authorized before it can use it.",
-    "apiKey": "API key",
-    "keySet": "A key is set — leave blank to keep it",
-    "save": "Save",
-    "saved": "Saved.",
+    "blurb": "Connect the Vibe Seller Ads API service so agents drive advertising straight through the API instead of clicking a browser — far steadier for tuning and bulk operations. Amazon stores only for now: click Authorize on the stores you want; there is no key to enter.",
     "stores": "Stores",
     "notAuthorized": "Not authorized",
     "authorize": "Authorize",
@@ -860,6 +856,14 @@
     "wrongAccountHere": "⚠ Make sure you are signed in as this store’s seller — do not authorize the wrong account.",
     "checking": "Checking…",
     "authorizedDone": "✓ {{store}} authorized: {{markets}}",
-    "notYetAuthorized": "No authorization for this store yet. Finish the Amazon consent in the store's window and wait for the success page, then click again."
+    "notYetAuthorized": "No authorization for this store yet. Finish the Amazon consent in the store's window and wait for the success page, then click again.",
+    "unbind": "Revoke",
+    "unbindTitle": "Revoke authorization for {{store}}",
+    "unbindExplain": "The Ads API service will stop working on this store’s ads for this machine, and agents fall back to the browser. You can authorize it again at any time.",
+    "unbindPurge": "Also delete this store’s ad history (kept if another vibe-seller has authorized the same Amazon ads account)",
+    "unbindConfirm": "Revoke",
+    "cancel": "Cancel",
+    "unbound": "{{store}} is no longer authorized.",
+    "unboundKeptShared": "{{store}} is no longer authorized. Another machine still uses the same ads account, so its history was kept for it."
   }
 }

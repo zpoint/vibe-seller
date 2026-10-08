@@ -8,9 +8,10 @@ This module is the whole client side of that relationship.
 **Three things live here and nowhere else**, which is what keeps this a
 thin, stable integration rather than a second implementation:
 
-1. The api key, which is injected server-side and **never reaches the
-   agent's context.** A ``curl``-based design would put it in bash
-   commands, task logs and possibly a task result.
+1. The installation's key, which is minted by the service the first
+   time ads are used (nobody types one in), injected server-side, and
+   **never reaches the agent's context.** A ``curl``-based design would
+   put it in bash commands, task logs and possibly a task result.
 2. The translation from a local store id to the service's ``store_key``.
    The agent names a store the way a person would; it never learns the
    service's identifiers.
@@ -22,6 +23,7 @@ thin, stable integration rather than a second implementation:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import json
 import logging
@@ -50,7 +52,17 @@ DEFAULT_TIMEOUT = 60.0
 #: Paths the client itself owns. The agent's pass-through refuses them:
 #: binding is a person's decision made in the UI, not something an agent
 #: talks itself into.
-RESERVED_PREFIXES = ('/me', '/auth-url', '/assignments', '/ads-binding')
+RESERVED_PREFIXES = (
+    '/me',
+    '/auth-url',
+    '/assignments',
+    '/ads-binding',
+    '/installations',
+)
+
+#: Serialises the first registration, so two requests racing on a fresh
+#: install do not each mint a key and keep the second.
+_REGISTERING = asyncio.Lock()
 
 
 @dataclass(frozen=True)
@@ -71,21 +83,10 @@ class AdsServiceError(RuntimeError):
     """The ads service is unreachable, unconfigured, or said no."""
 
 
-class AdsNotConfigured(AdsServiceError):
-    """No ads service is bound. Always says how to fix it."""
-
-
 async def get_config(session) -> dict[str, Any]:
-    """Whether this deployment is bound. The key is never returned."""
+    """Whether this installation has registered. The key is never returned."""
     key = await session.get(AppSettings, KEY_KEY)
     return {'configured': bool(key and key.value)}
-
-
-async def set_config(session, api_key: str | None) -> None:
-    """Bind with *api_key*, or unbind when it is empty."""
-    value = encrypt_password(api_key.strip()) if api_key else ''
-    await _put(session, KEY_KEY, value)
-    await session.commit()
 
 
 async def _put(session, key: str, value: str) -> None:
@@ -98,12 +99,39 @@ async def _put(session, key: str, value: str) -> None:
 
 async def _credentials(session) -> tuple[str, str]:
     key = await session.get(AppSettings, KEY_KEY)
-    if not (key and key.value):
-        raise AdsNotConfigured(
-            'No ads service is bound. Enter the API key in '
-            'Settings → Integrations → Amazon Ads.'
-        )
-    return SERVICE_URL, decrypt_password(key.value)
+    if key and key.value:
+        return SERVICE_URL, decrypt_password(key.value)
+    return SERVICE_URL, await _register(session)
+
+
+async def _register(session) -> str:
+    """Mint this installation's key with the service, once, and keep it.
+
+    The key only says which installation is calling. What lets the
+    service act on a store is the store owner's Amazon consent, so there
+    is nothing for a person to hand out or type in — and nothing is sent
+    until somebody actually opens the ads settings.
+    """
+    async with _REGISTERING:
+        key = await session.get(AppSettings, KEY_KEY)
+        if key and key.value:
+            return decrypt_password(key.value)
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            try:
+                response = await client.post(f'{SERVICE_URL}/installations')
+            except httpx.RequestError as exc:
+                raise AdsServiceError(
+                    f'Could not reach the ads service at {SERVICE_URL}: {exc}'
+                )
+        if response.status_code >= 400:
+            raise AdsServiceError(
+                f'Registering with the ads service failed '
+                f'({response.status_code}): {response.text[:400]}'
+            )
+        api_key = response.json()['api_key']
+        await _put(session, KEY_KEY, encrypt_password(api_key))
+        await session.commit()
+        return api_key
 
 
 async def call(
@@ -171,7 +199,30 @@ async def sync_stores(session) -> list[dict]:
     payload = {'stores': [{'local_id': s.id, 'name': s.name} for s in stores]}
     body = await call(session, '/me/stores', method='POST', json_body=payload)
     rows = (body or {}).get('stores', [])
+    await _apply(session, stores, rows)
+    return rows
 
+
+async def unbind(session, store_id: str, *, purge: bool = False) -> dict:
+    """Drop one store's Amazon authorization with the service.
+
+    ``purge`` also deletes its history — unless another installation still
+    manages the same advertiser, whose history it also is; the service
+    keeps those and says so in ``kept_shared``.
+    """
+    body = await call(
+        session,
+        f'/me/stores/{store_id}/unbind',
+        method='POST',
+        json_body={'purge': purge},
+    )
+    stores = (await session.execute(select(Store))).scalars().all()
+    await _apply(session, stores, (body or {}).get('stores', []))
+    return body or {}
+
+
+async def _apply(session, stores, rows: list[dict]) -> None:
+    """Record the service's view of which stores are authorized where."""
     by_local: dict[str, dict[str, str]] = {}
     for row in rows:
         if row.get('authorized') and row.get('store_key'):
@@ -183,8 +234,56 @@ async def sync_stores(session) -> list[dict]:
         keys = by_local.get(store.id, {})
         store.ads_store_keys = json.dumps(keys, sort_keys=True)
         store.ads_authorized = bool(keys)
+        record_marketplaces(store, [m for m in keys if m])
     await session.commit()
-    return rows
+
+
+def record_marketplaces(store: Store, marketplaces: list[str]) -> bool:
+    """Add Amazon and the marketplaces the store advertises on to its
+    platform and country lists. Returns whether anything changed.
+
+    An authorized Ads profile is Amazon's own word that the store is on
+    Amazon in that marketplace — firmer than the lists, which a person or
+    an AI guessed. So they are added. Nothing is ever removed: advertising
+    nowhere is not the same as selling nowhere, and an unbound or expired
+    authorization says nothing about where the store sells.
+    """
+    if not marketplaces:
+        return False
+    platforms = _json_list(store.platforms)
+    countries = _json_list(store.countries)
+    try:
+        by_platform = json.loads(store.platform_countries or '{}')
+    except (ValueError, TypeError):
+        by_platform = {}
+    if not isinstance(by_platform, dict):
+        by_platform = {}
+    amazon = list(by_platform.get('amazon') or [])
+
+    before = (list(platforms), list(countries), list(amazon))
+    if 'amazon' not in platforms:
+        platforms.append('amazon')
+    for code in sorted({m.upper() for m in marketplaces}):
+        if code not in countries:
+            countries.append(code)
+        if code not in amazon:
+            amazon.append(code)
+    if (platforms, countries, amazon) == before:
+        return False
+
+    by_platform['amazon'] = amazon
+    store.platforms = json.dumps(platforms)
+    store.countries = json.dumps(countries)
+    store.platform_countries = json.dumps(by_platform)
+    return True
+
+
+def _json_list(raw: str | None) -> list[str]:
+    try:
+        value = json.loads(raw or '[]')
+    except (ValueError, TypeError):
+        return []
+    return [str(v) for v in value] if isinstance(value, list) else []
 
 
 async def auth_url(session, store_id: str, region: str = 'EU') -> dict:

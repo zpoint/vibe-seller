@@ -2,10 +2,6 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 
-interface AdsConfig {
-  configured: boolean
-}
-
 interface AdsStoreRow {
   local_id: string
   name: string
@@ -26,9 +22,12 @@ interface AuthUrlResponse {
 
 export function AmazonAdsPanel() {
   const { t } = useTranslation()
-  const [config, setConfig] = useState<AdsConfig | null>(null)
   const [stores, setStores] = useState<AdsStoreRow[]>([])
-  const [apiKey, setApiKey] = useState('')
+  const [loaded, setLoaded] = useState(false)
+  /** The store whose authorization is about to be withdrawn, and whether
+   *  its history goes too. Asked in place: withdrawing is a click away
+   *  from authorizing, and must not happen on a misclick. */
+  const [unbinding, setUnbinding] = useState<{ id: string; name: string; purge: boolean } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
@@ -54,17 +53,16 @@ export function AmazonAdsPanel() {
   const refresh = async (): Promise<AdsStoreRow[]> => {
     setError(null)
     try {
-      const c = (await api.get('/api/ads/config')) as AdsConfig
-      setConfig(c)
-      if (c.configured) {
-        const body = (await api.post('/api/ads/stores/sync', {})) as { stores: AdsStoreRow[] }
-        const rows = body.stores ?? []
-        setStores(rows)
-        return rows
-      }
-      setStores([])
+      // Nothing to configure: the first sync registers this installation
+      // with the service, and a store's owner authorizes it from its row.
+      const body = (await api.post('/api/ads/stores/sync', {})) as { stores: AdsStoreRow[] }
+      const rows = body.stores ?? []
+      setStores(rows)
+      return rows
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setLoaded(true)
     }
     return []
   }
@@ -97,13 +95,21 @@ export function AmazonAdsPanel() {
 
   useEffect(() => { refresh() }, [])
 
-  const save = async () => {
+  const unbind = async () => {
+    if (!unbinding) return
     setBusy(true); setError(null); setMessage(null)
     try {
-      await api.put('/api/ads/config', { api_key: apiKey || null })
-      setApiKey('')
-      setMessage(t('ads.saved'))
-      await refresh()
+      const body = (await api.post(
+        `/api/ads/stores/${unbinding.id}/unbind`,
+        { purge: unbinding.purge }
+      )) as { stores: AdsStoreRow[]; kept_shared?: string[] }
+      setStores(body.stores ?? [])
+      setMessage(
+        unbinding.purge && body.kept_shared?.length
+          ? t('ads.unboundKeptShared', { store: unbinding.name })
+          : t('ads.unbound', { store: unbinding.name })
+      )
+      setUnbinding(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -144,30 +150,9 @@ export function AmazonAdsPanel() {
         <h3 className="text-sm font-semibold">{t('ads.title')}</h3>
         <p className="text-xs text-muted-foreground">{t('ads.blurb')}</p>
 
-        <div className="space-y-2">
-          <label className="block text-xs font-medium">{t('ads.apiKey')}</label>
-          <input
-            data-testid="ads-api-key"
-            type="password"
-            className="w-full rounded border px-2 py-1 text-sm"
-            placeholder={config?.configured ? t('ads.keySet') : 'vas_…'}
-            value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
-          />
-          <div>
-            <button
-              data-testid="ads-save"
-              disabled={busy}
-              onClick={save}
-              className="rounded bg-indigo-600 px-3 py-1.5 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {t('ads.save')}
-            </button>
-          </div>
-        </div>
       </section>
 
-      {config?.configured && (
+      {loaded && (
         <section className="space-y-2">
           <h4 className="text-sm font-semibold">{t('ads.stores')}</h4>
           <table className="w-full text-sm" data-testid="ads-stores">
@@ -182,7 +167,17 @@ export function AmazonAdsPanel() {
                         ? authorized.map(r => r.marketplace).join(' · ')
                         : t('ads.notAuthorized')}
                     </td>
-                    <td className="py-2 text-right">
+                    <td className="space-x-2 whitespace-nowrap py-2 text-right">
+                      {authorized.length > 0 && (
+                        <button
+                          data-testid={`ads-unbind-${localId}`}
+                          disabled={busy}
+                          onClick={() => setUnbinding({ id: localId, name: rows[0].name, purge: false })}
+                          className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 disabled:opacity-50"
+                        >
+                          {t('ads.unbind')}
+                        </button>
+                      )}
                       <button
                         data-testid={`ads-authorize-${localId}`}
                         disabled={busy}
@@ -197,6 +192,40 @@ export function AmazonAdsPanel() {
               })}
             </tbody>
           </table>
+        </section>
+      )}
+
+      {unbinding && (
+        <section data-testid="ads-unbind-confirm" className="space-y-2 rounded border border-red-300 p-3">
+          <h4 className="text-sm font-semibold">{t('ads.unbindTitle', { store: unbinding.name })}</h4>
+          <p className="text-xs">{t('ads.unbindExplain')}</p>
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              data-testid="ads-unbind-purge"
+              type="checkbox"
+              checked={unbinding.purge}
+              onChange={e => setUnbinding({ ...unbinding, purge: e.target.checked })}
+            />
+            {t('ads.unbindPurge')}
+          </label>
+          <div className="space-x-2">
+            <button
+              data-testid="ads-unbind-confirm-button"
+              disabled={busy}
+              onClick={unbind}
+              className="rounded bg-red-600 px-3 py-1.5 text-xs text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {t('ads.unbindConfirm')}
+            </button>
+            <button
+              data-testid="ads-unbind-cancel"
+              disabled={busy}
+              onClick={() => setUnbinding(null)}
+              className="rounded border px-3 py-1.5 text-xs disabled:opacity-50"
+            >
+              {t('ads.cancel')}
+            </button>
+          </div>
         </section>
       )}
 

@@ -386,14 +386,27 @@ A store can do its advertising over a hosted ads service instead of the
 browser. vibe-seller holds no Amazon credential and speaks no Amazon API:
 the service holds the Amazon authorization and does the calls.
 
-- **Binding** (`app/ads_client.py`): the service address is the constant
-  `SERVICE_URL`; only an API key is configured (Settings → Integrations,
-  admin only). The key is stored encrypted in `AppSettings`, verified on
-  save and never returned by any route.
+- **Binding** (`app/ads_client.py`): nothing to configure. The service
+  address is the constant `SERVICE_URL`, and the installation registers
+  itself (`POST /installations`) the first time Settings → Integrations
+  syncs the stores — never at boot, so an installation that does not use
+  ads never contacts the service. The key is stored encrypted in
+  `AppSettings` and never returned by any route. The key alone reaches no
+  store: each store is reached only after its owner consents on Amazon,
+  and is revoked per store (`POST /api/ads/stores/{id}/unbind`, admin
+  only).
+- **One advertiser, several installations**: Amazon's profile id says two
+  stores are the same advertiser (names and local ids are each machine's
+  own). Each installation that the owner consented from reads the same
+  history; revoking on one leaves the others working.
+- **Write-back**: an authorized store's marketplaces are added to its
+  `platforms` / `countries` / `platform_countries` — Amazon's word beats a
+  guessed list. Nothing is removed, on sync or on revoke.
 - **Key secrecy**: the agent's one tool, `vibe_seller_ads_call`, goes
   through `POST /api/ads/call`, which adds the key server-side. The key
   never enters the agent's context, and paths that belong to a person
-  (`/me`, `/auth-url`, `/assignments`, `/ads-binding`) are refused.
+  (`/me`, `/auth-url`, `/assignments`, `/ads-binding`, `/installations`)
+  are refused.
 - **Authorization**: the OAuth round trip happens on the service's domain,
   so a deployment needs no public address. `POST /api/ads/stores/sync`
   records which stores are authorized: `Store.ads_store_keys`
