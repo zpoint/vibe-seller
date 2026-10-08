@@ -449,6 +449,37 @@ class TestInvestigateMayNotHandOutDecisions:
         gaps = _gaps(report, 't-inv-flat')
         assert any('investigate' in g and '可执行建议' in g for g in gaps), gaps
 
+    def test_an_english_report_is_read_as_well(self, monkeypatch, tmp_path):
+        """The report follows the user's language, so the check must too.
+
+        A request written in English is held to an English report by the
+        language gate; with the action words recognised only in Chinese,
+        "Lower bid to 0.60" counted as no decision at all and an
+        `investigate` phase could hand out a full set of bid changes.
+        """
+        _setup(monkeypatch, tmp_path, 't-inv-en', declare=('investigate', {}))
+        report = (
+            'Keyword bid review:\n\n'
+            '| Campaign | Keyword | Bid | Recommendation |\n|---|---|---|---|\n'
+            '| A1234567 | widget red | 1.00 | Lower bid to 0.60 (low ROAS) |\n'
+            '| A1234567 | widget blue | 0.80 | Pause |\n'
+        )
+        gaps = _gaps(report, 't-inv-en')
+        assert any('investigate' in g and '2 行' in g for g in gaps), gaps
+
+    def test_an_english_figures_only_report_passes(self, monkeypatch, tmp_path):
+        """A status column is not a decision: "Paused" describes, "Pause"
+        recommends."""
+        _setup(
+            monkeypatch, tmp_path, 't-inv-en-ok', declare=('investigate', {})
+        )
+        report = (
+            '| Campaign | Status | Spend | ROAS |\n|---|---|---|---|\n'
+            '| A1234567 | Live | 200.00 | 3.00 |\n'
+            '| A7654321 | Paused | 100.00 | 6.00 |\n'
+        )
+        assert not any('可执行建议' in g for g in _gaps(report, 't-inv-en-ok'))
+
     def test_the_gap_names_the_legal_correction(self, monkeypatch, tmp_path):
         # A refusal with no way through is a refusal that gets satisfied
         # by deleting the recommendations — which is the opposite of what
