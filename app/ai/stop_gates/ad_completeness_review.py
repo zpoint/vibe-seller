@@ -751,17 +751,18 @@ def check(
 
     # 1d) Summary section must exist and carry real content. The combo
     #     loop above only validates ``## <platform> <country>`` sections,
-    #     so a header-only 汇总建议 used to pass unnoticed.
+    #     so a header-only 汇总建议 used to pass unnoticed. English counts.
     if round_total > 0:
         m_sum = re.search(
-            r'(?m)^##\s*(汇总|总结)[^\n]*\n(.*?)(?=^##\s|\Z)',
+            r'(?m)^##\s*(汇总|总结|Summary|Overall)[^\n]*\n(.*?)(?=^##\s|\Z)',
             result_text,
             re.DOTALL,
         )
         body = ''
         if m_sum:
             body = re.sub(r'<!--.*?-->', '', m_sum.group(2), flags=re.DOTALL)
-        if len(re.findall(r'[一-鿿]', body)) < 50:
+        words = len(re.findall(r'[A-Za-z]{2,}', body))  # English report
+        if len(re.findall(r'[一-鿿]', body)) < 50 and words < 30:
             gaps.append(
                 '[汇总] 「汇总建议」缺失或为空。审计报告必须以跨平台汇总收尾：'
                 '各 combo 花费/销售/ROAS 总览、本次最重要的 5-10 条行动'

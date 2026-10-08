@@ -28,6 +28,7 @@ import tempfile
 
 import httpx
 
+from app import ads_skill
 from app.config import AI_BOT_USER_ID, SKILLS_REPO_URL, SKILLS_SUBDIR
 from app.database import async_session
 from app.models.app_settings import AppSettings
@@ -67,6 +68,11 @@ async def _auto_sync_enabled() -> bool:
             exc_info=True,
         )
         return True
+
+
+async def _refresh_ads_skill() -> dict | None:
+    """The ads service's skill, if one is bound and its version moved."""
+    return await ads_skill.refresh_if_bound()
 
 
 class SkillsSyncManager:
@@ -471,6 +477,10 @@ class SkillsSyncManager:
         if not await _auto_sync_enabled():
             return None
 
+        # The ads skill ships from the bound ads service, versioned there;
+        # it is checked on this same schedule, whatever GitHub answers.
+        await _refresh_ads_skill()
+
         # Check remote commit
         async with httpx.AsyncClient() as client:
             remote_commit = await self._fetch_remote_commit(client)
@@ -509,12 +519,15 @@ class SkillsSyncManager:
 
     async def fetch_remote(self) -> dict:
         """Force remote sync regardless of cooldown."""
+        ads_skill = await _refresh_ads_skill()
         meta = self._read_sync_meta()
         async with httpx.AsyncClient() as client:
             remote_commit = await self._fetch_remote_commit(client)
             result = await self._do_remote_sync(client)
             commit = remote_commit or meta.get('last_commit', '')
             result['commit'] = commit
+            if ads_skill is not None:
+                result['ads_skill'] = ads_skill
 
             now = datetime.now(UTC).isoformat()
             new_meta = {

@@ -63,6 +63,36 @@ def record_attempt(task_id: str, gate: str) -> int:
     return _attempts[key]
 
 
+#: Review refusals spent per (task, check), across BOTH completion paths —
+#: set_task_result and the Stop hook. Not cleared when a result is
+#: accepted: the Stop hook runs after that, and re-refusing the same gaps
+#: there was a second round by another door.
+_review_rounds: dict[tuple[str, str], int] = {}
+
+
+def review_round_left(task_id: str, check: str) -> bool:
+    """Has *check* a refusal left on *task_id*? Looks, spends nothing.
+
+    For the Stop hook and the idle watchdog, which ask "may this turn
+    end?" over and over: asking must not use up the refusal that
+    ``set_task_result`` spends when it actually refuses.
+    """
+    return _review_rounds.get((task_id, check), 0) < AD_REVIEW_ROUNDS
+
+
+def take_review_round(task_id: str, check: str) -> bool:
+    """Spend one review refusal for *check* on *task_id*, if any is left.
+
+    True means refuse now (and it is recorded); False means this check has
+    had its ``AD_REVIEW_ROUNDS`` and must let the result through.
+    """
+    key = (task_id, check)
+    if _review_rounds.get(key, 0) >= AD_REVIEW_ROUNDS:
+        return False
+    _review_rounds[key] = _review_rounds.get(key, 0) + 1
+    return True
+
+
 def reset_attempts(task_id: str) -> None:
     """Drop all attempt counters for a task.
 
@@ -84,13 +114,21 @@ def reset_attempts(task_id: str) -> None:
 # 1 is the smallest value that still gives the agent feedback.
 SOFT_GATE_MAX_DENIALS = 1
 
-# A contradiction gets a much longer leash than the stall cap. It is
-# always resolvable in one edit — fix the figures, or declare the campaign
-# untrustworthy — so refusing is not a trap, and the thing being refused
-# is a number that would otherwise ship into bid decisions. Past this cap
-# the result is accepted but banner-marked, so the failure mode is
-# "impossible to miss", never "impossible to pass".
-CONTRADICTION_MAX_DENIALS = 12
+# How many times an ads task's result is reviewed before it is accepted:
+# one refusal per skill-declared gate, one reviewer pass, one execution
+# review. The fix is asked for once and not demanded again — a review
+# that loops for 14 or 41 rounds costs more than the gaps it finds, and
+# whatever stays unmet ships as caveats on the result rather than
+# vanishing. Only the browser skill declares review; a store worked over
+# the ads API is reviewed zero times (its skill declares no gates).
+AD_REVIEW_ROUNDS = 1
+
+# A contradiction is refused as often as any other review finding, once.
+# It is always resolvable in one edit — fix the figures, or declare the
+# campaign untrustworthy. Past the cap the result is accepted but
+# banner-marked, so the failure mode is "impossible to miss", never
+# "impossible to pass".
+CONTRADICTION_MAX_DENIALS = AD_REVIEW_ROUNDS
 
 
 def contradiction_banner(contradictions) -> str:

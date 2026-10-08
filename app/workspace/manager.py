@@ -6,6 +6,7 @@ Git-managed, contains ``.claude/skills/`` (auto-discovered via
 """
 
 import asyncio
+from collections.abc import Collection
 import logging
 import os
 from pathlib import Path
@@ -581,6 +582,7 @@ browser: {backend}
         task_id: str,
         *,
         clean: bool = False,
+        exclude_skills: Collection[str] = (),
     ) -> Path:
         """Create a per-task working directory linked to shared dirs.
 
@@ -595,6 +597,12 @@ browser: {backend}
         no-store (orchestrator) tasks — they now have the store-less
         ``web`` browser for neutral public web work, so they need the
         skill's CLI reference too.
+
+        ``exclude_skills`` names skill directories to leave out of this
+        task's copy. It is how a store bound to an ads service gets the
+        API skill while an unbound one keeps the browser skill: shipping
+        both would leave the choice to the agent. See
+        ``app.ads_routing``.
 
         ``clean=True`` (retry) wipes the run's residue but KEEPS
         ``PRESERVED_ON_CLEAN`` — see the constant.
@@ -623,10 +631,16 @@ browser: {backend}
         # Glob doesn't follow symlinks when traversing ** patterns.
         # Exclude __pycache__ and stale .venv dirs (skills use the
         # shared workspace venv at ~/.vibe-seller/.venv/ instead).
+        skills_root = str(self.root / '.claude' / 'skills')
+        omit = set(exclude_skills)
+
         def _ignore(directory: str, contents: list[str]) -> set[str]:
-            return {
+            drop = {
                 name for name in contents if name in ('__pycache__', '.venv')
             }
+            if omit and directory == skills_root:
+                drop |= {name for name in contents if name in omit}
+            return drop
 
         claude_src = self.root / '.claude'
         claude_dst = task_dir / '.claude'
@@ -638,7 +652,35 @@ browser: {backend}
                 ignore=_ignore,
             )
 
+        _make_skill_root(task_dir)
         return task_dir
+
+
+def _make_skill_root(task_dir: Path) -> None:
+    """Make the task folder the boundary of skill discovery.
+
+    Claude Code finds skills in every ``.claude/skills`` from the working
+    directory up to the git root — and a task folder sits inside the
+    workspace repo, so an agent also saw the shared copy of every skill,
+    including the ads skill its store was routed away from (an unbound
+    store's task loaded ``amazon-ads-api`` that way). A repo of its own
+    stops the search at the task folder, so the agent sees exactly the
+    skills copied in above. ``CLAUDE.md`` is unaffected: it is still read
+    from parent folders (and is linked into the task folder anyway).
+    ``tasks/`` is ignored by the workspace repo, so nothing is nested in
+    its history.
+    """
+    if (task_dir / '.git').exists():
+        return
+    try:
+        gitlib.Repo.init(str(task_dir))
+    except Exception:  # discovery then falls back to the load-time refusal
+        logger.warning(
+            'Could not make %s its own skill root; shared skills stay '
+            'visible to its agent (excluded ones are still refused)',
+            task_dir,
+            exc_info=True,
+        )
 
 
 # Singleton

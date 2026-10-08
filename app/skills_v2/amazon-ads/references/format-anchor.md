@@ -446,11 +446,10 @@ exists in the manual campaign, not by adding a duplicate.
    log, every `applied` row has a TSV row matching the target
    value, every `failed` row has a retry or explicit note. It
    writes `EXEC_REVIEW_<date>_iter<N>.md` with `Status: ok | gaps |
-   incomplete`. The Stop-hook reads the latest iter; same loop
-   semantics as Phase 3 (max 5 iters; `incomplete` at iter 5 is
-   terminal).
+   incomplete`. The Stop-hook reads it; one review round, as in
+   Phase 3 — the first verdict is final.
 
-5. **Only after `EXEC_REVIEW_*_iter*.md Status: ok`** may the agent
+5. **Only after the `EXEC_REVIEW_*_iter*.md` verdict exists** may the agent
    call `vibe_seller_set_task_result`. The hook denies stop
    otherwise.
 

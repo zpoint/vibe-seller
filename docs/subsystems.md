@@ -380,6 +380,35 @@ one (`requires_early_init` bundles resolve before the app makes API
 calls). Ships inert in PR-1 (empty list in an OSS-only install); the
 React loader lands when the first plugin UI does.
 
+## Amazon Ads API service
+
+A store can do its advertising over a hosted ads service instead of the
+browser. vibe-seller holds no Amazon credential and speaks no Amazon API:
+the service holds the Amazon authorization and does the calls.
+
+- **Binding** (`app/ads_client.py`): the service address is the constant
+  `SERVICE_URL`; only an API key is configured (Settings → Integrations,
+  admin only). The key is stored encrypted in `AppSettings`, verified on
+  save and never returned by any route.
+- **Key secrecy**: the agent's one tool, `vibe_seller_ads_call`, goes
+  through `POST /api/ads/call`, which adds the key server-side. The key
+  never enters the agent's context, and paths that belong to a person
+  (`/me`, `/auth-url`, `/assignments`, `/ads-binding`) are refused.
+- **Authorization**: the OAuth round trip happens on the service's domain,
+  so a deployment needs no public address. `POST /api/ads/stores/sync`
+  records which stores are authorized: `Store.ads_store_keys`
+  (`{marketplace: store_key}`) and `Store.ads_authorized`.
+- **store_key resolution**: the agent never supplies a store key. The call
+  names a marketplace; `resolve_store_key()` maps it to the key, and
+  refuses rather than guesses when a store has several marketplaces and
+  none was named. A task bound to a store reaches only that store.
+- **File answers**: the service answers a large list as CSV; it is saved
+  to `tasks/<id>/ads-data/` and the agent gets the path and row count.
+- **Skill routing**: an authorized store's task sees `amazon-ads-api`
+  only, any other task the browser `amazon-ads`. See
+  [workspace.md § Ads skill routing](workspace.md#ads-skill-routing),
+  which also covers how the service-shipped skill is synced.
+
 ## Cross-platform support (native Windows)
 
 Vibe Seller runs on macOS, Linux, **and natively on Windows** (no WSL

@@ -24,7 +24,7 @@ AD_TOOLS = [
             'Advertising work only. BEFORE opening a browser or reading '
             'any ad data, declare what this phase of the task is for. '
             'The declaration decides how much the completeness gate asks '
-            'of you and whether the user gets a review console — so a '
+            'of you — so a '
             'narrow request stays narrow instead of being expanded into '
             'a whole-store audit. Declaring is required: an ad report '
             'with no declaration is refused.\n\n'

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 import json
 import logging
 
+from app import ads_routing
 from app.ai.bash_safety import (
     check_catalog_first_tool_args,
     check_report_overwrite,
@@ -266,6 +267,12 @@ class _HookMixin:
             # Read of skills/<name>/SKILL.md loads that skill (the
             # Skill-tool path is tracked by the prereq hook below);
             # record_skill_load makes the binding durable per task.
+            barred = ads_routing.refusal_for(
+                self.task_id, inner_name, inner_input
+            )
+            if barred:  # routed away from this task: see app.ads_routing
+                await self._deny_pre_tool_use(request_id, barred)
+                return
             read_skill = skill_name_from_read(inner_name, inner_input)
             if read_skill:
                 self._loaded_skills.add(read_skill)

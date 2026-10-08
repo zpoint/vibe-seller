@@ -78,16 +78,25 @@ def review_skill(api_client):
     api_client.delete(f'{BASE_URL}/api/workspace/skills/{_SKILL_SLUG}')
 
 
-def _wait_for_followup_result(client, task_id, known_count):
-    """Poll until a new 'result' turn appears (follow-ups keep the task
-    'completed', so status polling can't be used)."""
+def _wait_for_followup_result(client, task_id, known_count, marker):
+    """Poll until a 'result' turn carrying *marker* appears (follow-ups
+    keep the task 'completed', so status polling can't be used).
+
+    Not the first new result: a process hosts several turns, and a
+    late subagent notification gets its own result card (last-wins,
+    see app/ai/claude_backend_turns.py) — that card can land after the
+    follow-up is sent and is not this round's answer.
+    """
     deadline = time.time() + PIPELINE_TIMEOUT
     while time.time() < deadline:
         msgs = get_messages(client, task_id)
-        if any(m.get('role') == 'result' for m in msgs[known_count:]):
+        if any(
+            m.get('role') == 'result' and marker in (m.get('content') or '')
+            for m in msgs[known_count:]
+        ):
             return msgs
         time.sleep(POLL_INTERVAL)
-    raise TimeoutError(f'No follow-up result for {task_id[:8]}')
+    raise TimeoutError(f'No follow-up result with {marker} for {task_id[:8]}')
 
 
 def _recent_text(client, task_id, since):
@@ -107,7 +116,7 @@ def _followup(client, task_id, content, marker):
         json={'content': content},
     )
     r.raise_for_status()
-    _wait_for_followup_result(client, task_id, known)
+    _wait_for_followup_result(client, task_id, known, marker)
     text = _recent_text(client, task_id, known)
     assert marker in text, (
         f'follow-up result missing its own marker {marker!r}; got: {text[:400]}'

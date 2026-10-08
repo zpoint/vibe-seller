@@ -23,6 +23,7 @@ from app.ai.stop_gates import (
     record_attempt,
     reset_attempts,
     resolve_skill_gates,
+    take_review_round,
 )
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
@@ -620,8 +621,12 @@ async def set_task_result(
             continue
         # Fail open only on STALL when the gate tracks one (see
         # ad_completeness_review for the stall design).
+        # And at most AD_REVIEW_ROUNDS refusals per gate in any case: the
+        # fix is asked for once, then what is still unmet ships as caveats.
         is_stalled = getattr(gate, 'is_stalled', None)
-        if is_stalled is None or not is_stalled(task_id):
+        if (
+            is_stalled is None or not is_stalled(task_id)
+        ) and take_review_round(task_id, gate_name):
             await _refuse(db, task, deny.reason, declared + deny.gaps)
         # A CONTRADICTION is not the kind of gap the stall exists to
         # forgive. The fail-open is there so a weak model is never trapped

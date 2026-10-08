@@ -1525,6 +1525,31 @@ class TestScaffoldAndSummary:
         scope = _scope(('amazon', 'US', ['100000000000003']))
         assert completeness_gate.check(good + self.SUMMARY, scope=scope) is None
 
+    def test_an_english_summary_passes(self):
+        # A user writing in English gets an English report (the language
+        # gate insists), so its summary cannot be asked for in Chinese.
+        good = (
+            '## Amazon US\n\n**进度**: drilled 1/1 active (1 total)\n\n'
+            '### 100000000000003 | wireless mouse 006 | Manual\n\n'
+            '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
+            '| wireless mouse | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
+            '\n该活动类型无搜索词报告（SD）。\n'
+        )
+        summary = (
+            '## Summary of recommendations\n\n'
+            'Spend and sales per market are totalled in each section above. '
+            'Highest priority: raise bids on the converting core keywords to '
+            'take profitable traffic, cut long-running zero-order keywords '
+            'with high spend, and keep zero-impression terms under watch. '
+            'Shift budget toward the higher-return campaigns.\n'
+        )
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(good + summary, scope=scope) is None
+
+    def test_an_empty_english_summary_is_flagged(self):
+        deny = completeness_gate.check(self.GOOD + '## Summary\n\nTBD\n')
+        assert deny is not None and '[汇总]' in deny.reason
+
 
 @pytest.mark.unit
 class TestSearchTermDimension:
