@@ -138,7 +138,9 @@ ads service, which versions it (a content hash). It is pulled on bind, at
 boot, and by the same pre-task skills sync as the GitHub skills (24h
 cooldown, `skills_auto_sync_enabled`) and the Sync button; the bundle is
 downloaded only when the service's version differs. A pulled bundle is
-data: anything but documentation is dropped (`app/ads_skill.py`).
+data: anything but documentation is dropped (`app/ads_skill.py`) — no
+`gates/*.py` or scripts from a remote source ever run here. Unbinding
+(an empty key) removes the skill.
 
 Each task sees one ads skill: `amazon-ads-api` for a store authorized on
 the service, `amazon-ads` (browser) for any other store or no store, both
