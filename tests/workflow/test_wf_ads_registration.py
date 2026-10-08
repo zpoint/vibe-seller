@@ -421,3 +421,72 @@ class TestAuthorizationIsWrittenBack:
         store = await _reload(async_db_session, test_store.id)
         assert json.loads(store.countries) == ['US', 'SA']
         assert json.loads(store.platform_countries) == {'amazon': ['SA']}
+
+
+class TestOnlyStoresThatExistAreListed:
+    """The service never hears that a store was deleted, or that the
+    database it came from was replaced: its list keeps every id it was
+    ever sent. Observed live: 5 stores listed as 12 — each under an old
+    id and a new one, plus two deleted stores."""
+
+    def _stale_rows(self, store_id):
+        return _rows(store_id, 'SA') + [
+            # The same store under the id an earlier database gave it.
+            {
+                'local_id': 'old-id-of-the-same-store',
+                'name': 'shop',
+                'marketplace': None,
+                'store_key': None,
+                'authorized': False,
+            },
+            # A store deleted here long ago.
+            {
+                'local_id': 'deleted-store',
+                'name': 'gone',
+                'marketplace': None,
+                'store_key': None,
+                'authorized': False,
+            },
+        ]
+
+    async def test_the_sync_lists_local_stores_only(
+        self, authenticated_client, test_store, answers
+    ):
+        _, table = answers
+        table['/me/stores'] = {'stores': self._stale_rows(test_store.id)}
+
+        response = await authenticated_client.post('/api/ads/stores/sync')
+
+        assert response.status_code == 200
+        listed = response.json()['stores']
+        assert {r['local_id'] for r in listed} == {test_store.id}
+
+    async def test_a_row_carries_the_local_name(
+        self, authenticated_client, test_store, answers
+    ):
+        """The service holds the name it was last sent; a rename here is
+        the truth."""
+        _, table = answers
+        table['/me/stores'] = {'stores': self._stale_rows(test_store.id)}
+
+        listed = (
+            await authenticated_client.post('/api/ads/stores/sync')
+        ).json()['stores']
+
+        assert {r['name'] for r in listed} == {test_store.name}
+
+    async def test_revoking_lists_local_stores_only(
+        self, authenticated_client, test_store, answers
+    ):
+        _, table = answers
+        table['/me/stores/'] = {'stores': self._stale_rows(test_store.id)}
+        table['/me/stores'] = {'stores': _rows(test_store.id, 'SA')}
+        await authenticated_client.post('/api/ads/stores/sync')
+
+        response = await authenticated_client.post(
+            f'/api/ads/stores/{test_store.id}/unbind', json={'purge': False}
+        )
+
+        assert response.status_code == 200
+        listed = response.json()['stores']
+        assert {r['local_id'] for r in listed} == {test_store.id}
