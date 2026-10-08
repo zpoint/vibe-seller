@@ -72,7 +72,7 @@ class TestConfig:
     ):
         await authenticated_client.put(
             '/api/ads/config',
-            json={'host': 'https://ads.example', 'api_key': 'vas_secret'},
+            json={'api_key': 'vas_secret'},
         )
         response = await authenticated_client.get('/api/ads/config')
         body = response.json()
@@ -87,7 +87,7 @@ class TestConfig:
         """A binding that only fails inside a task costs a run to find."""
         response = await authenticated_client.put(
             '/api/ads/config',
-            json={'host': 'https://ads.example', 'api_key': 'vas_secret'},
+            json={'api_key': 'vas_secret'},
         )
         assert response.status_code == 200
         assert any(call['path'] == '/me' for call in bound)
@@ -103,7 +103,7 @@ class TestConfig:
         """
         await authenticated_client.put(
             '/api/ads/config',
-            json={'host': 'https://ads.example', 'api_key': 'vas_secret'},
+            json={'api_key': 'vas_secret'},
         )
         assert any(call['path'] == '/skill/version' for call in bound)
 
@@ -121,25 +121,73 @@ class TestConfig:
 
         response = await authenticated_client.put(
             '/api/ads/config',
-            json={'host': 'https://ads.example', 'api_key': 'vas_secret'},
+            json={'api_key': 'vas_secret'},
         )
         assert response.status_code == 200
         assert response.json()['configured'] is True
         assert response.json()['skill']['updated'] is False
 
-    async def test_an_empty_host_unbinds_without_calling_out(
+    async def test_an_empty_key_unbinds_without_calling_out(
         self, authenticated_client, bound, skill_home
     ):
         (skill_home / 'SKILL.md').parent.mkdir(parents=True)
         (skill_home / 'SKILL.md').write_text('# skill')
 
         response = await authenticated_client.put(
-            '/api/ads/config', json={'host': ''}
+            '/api/ads/config', json={'api_key': ''}
         )
         assert response.json() == {'configured': False}
         assert bound == []
         # Unbinding removes the skill — and only the one this test owns.
         assert not skill_home.exists()
+
+
+class TestTheServiceIsNotConfigurable:
+    async def test_a_host_in_the_request_is_ignored(
+        self, authenticated_client, monkeypatch
+    ):
+        """There is one service. A host field is a way to send the store
+        list somewhere else, and nothing more."""
+        seen: list[str] = []
+
+        class Response:
+            status_code = 200
+            content = b'{}'
+
+            @staticmethod
+            def json():
+                return {'tenant': 'acme', 'active': True}
+
+        class Client:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def request(self, method, url, **kw):
+                seen.append(url)
+                return Response()
+
+        monkeypatch.setattr(ads_client.httpx, 'AsyncClient', Client)
+        await authenticated_client.put(
+            '/api/ads/config',
+            json={'host': 'https://elsewhere.example', 'api_key': 'vas_x'},
+        )
+        assert seen
+        assert all(url.startswith(ads_client.SERVICE_URL) for url in seen)
+
+    async def test_config_says_only_whether_it_is_bound(
+        self, authenticated_client, bound
+    ):
+        await authenticated_client.put(
+            '/api/ads/config', json={'api_key': 'vas_secret'}
+        )
+        body = (await authenticated_client.get('/api/ads/config')).json()
+        assert body == {'configured': True}
 
 
 class TestAuthUrl:

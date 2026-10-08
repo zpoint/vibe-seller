@@ -949,7 +949,6 @@
   "ads": {
     "title": "Vibe Seller Ads API",
     "blurb": "Connect the Vibe Seller Ads API service so agents drive advertising straight through the API instead of clicking a browser — far steadier for tuning and bulk operations. Each store must be authorized before it can use it.",
-    "host": "Service host",
     "apiKey": "API key",
     "keySet": "A key is set — leave blank to keep it",
     "save": "Save",

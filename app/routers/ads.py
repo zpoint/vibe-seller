@@ -32,7 +32,7 @@ router = APIRouter(prefix='/api/ads', tags=['ads'])
 
 
 class ConfigIn(BaseModel):
-    host: str = ''
+    #: Empty unbinds. The service itself is not configurable here.
     api_key: str | None = None
 
 
@@ -50,14 +50,14 @@ async def write_config(
     db=Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
-    """Bind, rebind, or unbind. An empty host unbinds.
+    """Bind, rebind, or unbind. An empty key unbinds.
 
     The key is verified immediately by asking the service who we are —
     a binding that only fails later, inside an agent's task, costs a
     whole run to diagnose.
     """
-    await ads_client.set_config(db, payload.host, payload.api_key)
-    if not payload.host:
+    await ads_client.set_config(db, payload.api_key)
+    if not payload.api_key:
         ads_skill.remove()
         return {'configured': False}
 

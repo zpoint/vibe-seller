@@ -35,7 +35,12 @@ from app.utils.crypto import decrypt_password, encrypt_password
 
 logger = logging.getLogger(__name__)
 
-HOST_KEY = 'ads_service_host'
+#: The ads service every deployment binds to. A constant, not a setting:
+#: there is one service, and a host field is one more thing a person can
+#: type wrong into a form whose only effect is to send their store list
+#: somewhere else.
+SERVICE_URL = 'https://listwizard.cloud/ads-api'
+
 KEY_KEY = 'ads_service_api_key_enc'
 
 DEFAULT_TIMEOUT = 60.0
@@ -55,23 +60,15 @@ class AdsNotConfigured(AdsServiceError):
 
 
 async def get_config(session) -> dict[str, Any]:
-    """Current binding, with the key masked. Safe to return to a UI."""
-    host = await session.get(AppSettings, HOST_KEY)
+    """Whether this deployment is bound. The key is never returned."""
     key = await session.get(AppSettings, KEY_KEY)
-    return {
-        'host': host.value if host else '',
-        'configured': bool(host and host.value and key and key.value),
-    }
+    return {'configured': bool(key and key.value)}
 
 
-async def set_config(session, host: str, api_key: str | None) -> None:
-    """Bind (or rebind) the service. An empty host unbinds."""
-    host = (host or '').strip().rstrip('/')
-    await _put(session, HOST_KEY, host)
-    if api_key:
-        await _put(session, KEY_KEY, encrypt_password(api_key.strip()))
-    elif not host:
-        await _put(session, KEY_KEY, '')
+async def set_config(session, api_key: str | None) -> None:
+    """Bind with *api_key*, or unbind when it is empty."""
+    value = encrypt_password(api_key.strip()) if api_key else ''
+    await _put(session, KEY_KEY, value)
     await session.commit()
 
 
@@ -84,14 +81,13 @@ async def _put(session, key: str, value: str) -> None:
 
 
 async def _credentials(session) -> tuple[str, str]:
-    host = await session.get(AppSettings, HOST_KEY)
     key = await session.get(AppSettings, KEY_KEY)
-    if not (host and host.value and key and key.value):
+    if not (key and key.value):
         raise AdsNotConfigured(
-            'No ads service is bound. Set the host and API key in '
+            'No ads service is bound. Enter the API key in '
             'Settings → Integrations → Amazon Ads.'
         )
-    return host.value, decrypt_password(key.value)
+    return SERVICE_URL, decrypt_password(key.value)
 
 
 async def call(

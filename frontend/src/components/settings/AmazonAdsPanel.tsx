@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 
 interface AdsConfig {
-  host: string
   configured: boolean
 }
 
@@ -29,7 +28,6 @@ export function AmazonAdsPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<AdsConfig | null>(null)
   const [stores, setStores] = useState<AdsStoreRow[]>([])
-  const [host, setHost] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -58,7 +56,6 @@ export function AmazonAdsPanel() {
     try {
       const c = (await api.get('/api/ads/config')) as AdsConfig
       setConfig(c)
-      setHost(c.host)
       if (c.configured) {
         const body = (await api.post('/api/ads/stores/sync', {})) as { stores: AdsStoreRow[] }
         const rows = body.stores ?? []
@@ -103,7 +100,7 @@ export function AmazonAdsPanel() {
   const save = async () => {
     setBusy(true); setError(null); setMessage(null)
     try {
-      await api.put('/api/ads/config', { host, api_key: apiKey || null })
+      await api.put('/api/ads/config', { api_key: apiKey || null })
       setApiKey('')
       setMessage(t('ads.saved'))
       await refresh()
@@ -148,14 +145,6 @@ export function AmazonAdsPanel() {
         <p className="text-xs text-muted-foreground">{t('ads.blurb')}</p>
 
         <div className="space-y-2">
-          <label className="block text-xs font-medium">{t('ads.host')}</label>
-          <input
-            data-testid="ads-host"
-            className="w-full rounded border px-2 py-1 text-sm"
-            placeholder="https://ads.example.com"
-            value={host}
-            onChange={e => setHost(e.target.value)}
-          />
           <label className="block text-xs font-medium">{t('ads.apiKey')}</label>
           <input
             data-testid="ads-api-key"

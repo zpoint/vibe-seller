@@ -948,7 +948,6 @@
   "ads": {
     "title": "Vibe Seller 广告 API 服务",
     "blurb": "集成 Vibe Seller ads api 服务，让 agent 的广告操作直连 API，不再需要操作浏览器，大幅提升广告优化、批量操作等场景的稳定性。需要店铺授权后才可使用。",
-    "host": "服务地址",
     "apiKey": "API key",
     "keySet": "已设置 — 留空则保持不变",
     "save": "保存",
