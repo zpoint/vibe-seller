@@ -134,13 +134,13 @@ Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `
 ### Ads skill routing
 
 The `amazon-ads-api` skill is not in this repo: it ships from the bound
-ads service, which versions it (a content hash). It is pulled on bind, at
+ads service, which versions it (a content hash). It is pulled once a store is authorized, at
 boot, and by the same pre-task skills sync as the GitHub skills (24h
 cooldown, `skills_auto_sync_enabled`) and the Sync button; the bundle is
 downloaded only when the service's version differs. A pulled bundle is
 data: anything but documentation is dropped (`app/ads_skill.py`) — no
-`gates/*.py` or scripts from a remote source ever run here. Unbinding
-(an empty key) removes the skill.
+`gates/*.py` or scripts from a remote source ever run here. Revoking the
+last authorized store removes the skill.
 
 Each task sees one ads skill: `amazon-ads-api` for a store authorized on
 the service, `amazon-ads` (browser) for any other store or no store, both
@@ -151,6 +151,16 @@ still read from parents. A routed-away skill is also refused at load time
 by the PreToolUse hook (`app/ads_routing.py`). When the store cannot be
 read, routing falls back to the browser skill — the one every store can
 use.
+
+Routing decides what a task *can* load; the prompt says which path it is
+*on*. Once any store is authorized, a store task is told its own path
+(API, or seller console) and to keep to it even where its task or plan
+names the other, and a no-store task — a schedule's planner, an
+all-stores orchestrator — sees each store labelled `ads: API` or
+`ads: seller console`. This matters for a fanout: its plan is written
+once and handed verbatim to every store. Until a store is authorized
+none of this is said. `tests/e2e/test_ads_mixed_fanout.py` runs one
+schedule over an API store and a console store against a fake service.
 
 ## Run Data (`store-data/`)
 

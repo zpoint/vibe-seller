@@ -30,16 +30,14 @@ from app.prompts import (
 )
 from app.question_answers import expand_free_text_answers
 from app.task_runner_context import (
+    ads_store_note,
     build_all_stores_context,
     build_store_context,
     build_system_context,
     detect_language_hint,
     ticktick_context,
 )
-from app.task_states import (
-    TaskStatus,
-    assert_transition,
-)
+from app.task_states import TaskStatus, assert_transition
 from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
@@ -344,6 +342,9 @@ async def build_system_extra(
         parts.append(header_extra)
     if extra_context:
         parts.append(extra_context)
+    # After the plan, so it is the last word: a fanout plan is shared.
+    if store:
+        parts.append(await ads_store_note(store))
 
     # Plugin extension seam: fragments registered for the 'system_extra'
     # slot are appended to the end of the assembled system prompt.

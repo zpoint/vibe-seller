@@ -6,6 +6,7 @@ import re
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import ads_routing
 from app.browser.bookmarks import read_bookmarks, read_ziniao_bookmarks
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
@@ -610,6 +611,9 @@ async def build_all_stores_context(
         '',
         'Available stores:',
     ]
+    # Only once some store is bound: until then every store works ads in
+    # the console, and saying so in every prompt is noise.
+    ads = any(s.ads_authorized for s in stores)
     for s in stores:
         pc = json.loads(s.platform_countries) if s.platform_countries else {}
         if pc:
@@ -620,7 +624,10 @@ async def build_all_stores_context(
             f'- "{s.name}" (id: {s.id}) '
             f'— {pc_str} '
             f'— browser: {s.browser_backend}'
+            + (f' — {ads_routing.label(s.ads_authorized)}' if ads else '')
         )
+    if ads:
+        lines.extend(['', ads_routing.ORCHESTRATOR_NOTE])
 
     lines.extend([
         '',
@@ -668,6 +675,28 @@ async def build_all_stores_context(
         *_NO_STORE_WRITE_POLICY,
     ])
     return '\n'.join(lines)
+
+
+async def ads_store_note(store: Store) -> str:
+    """The store's ads path, once any store is bound; else nothing.
+
+    A fanout child runs its schedule's plan verbatim, and that plan was
+    written for every store at once — this line is what tells this one
+    which path is its own. It goes after the plan: placed earlier, a
+    weaker model followed the plan's "open the console" instead.
+    """
+    async with async_session() as db:
+        bound = await db.execute(
+            select(Store.id).where(Store.ads_authorized.is_(True)).limit(1)
+        )
+        if bound.first() is None:
+            return ''
+    logger.info(
+        'ads path for store %s: %s',
+        store.name,
+        ads_routing.label(bool(store.ads_authorized)),
+    )
+    return ads_routing.store_note(bool(store.ads_authorized))
 
 
 def uploaded_files_note(task: Task) -> str:

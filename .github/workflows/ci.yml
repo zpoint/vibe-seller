@@ -334,6 +334,9 @@ jobs:
           # generation. The vision test module skips itself unless the
           # server reports fake mode.
           VISION_FAKE: '1'
+          # The ads service is a stand-in the e2e serves itself
+          # (tests/e2e/fake_ads_service.py) — never the real one.
+          VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
         run: |
           source .venv/bin/activate
           echo "=== Starting server via vibe-seller CLI ==="
@@ -371,6 +374,7 @@ jobs:
           GLM_MODEL: ${{ secrets.GLM_MODEL }}
           E2E_WORKERS: 4
           E2E_PROVIDER_MAP: minimax,minimax,glm,glm
+          VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
         run: |
           E2E_N="${E2E_WORKERS:-0}"
           XDIST_ARGS=""

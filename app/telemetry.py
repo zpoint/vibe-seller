@@ -109,6 +109,25 @@ def install_id() -> str | None:
     return _install_id
 
 
+_stable_id: str | None = None
+
+
+def stable_install_id() -> str:
+    """This installation's id, whether or not telemetry is on.
+
+    The same file telemetry reads (``data/install_id``), so the id shown
+    under the version, the one the ads service files this installation
+    under, and the telemetry id are one id. It lives in the data
+    directory, so upgrades keep it; only a fresh data directory is a new
+    installation. Not a secret: it names an installation and opens
+    nothing.
+    """
+    global _stable_id
+    if _stable_id is None:
+        _stable_id = _install_id or _resolve_install_id()
+    return _stable_id
+
+
 def send(event: str, properties: dict | None = None) -> None:
     if not is_enabled() or _install_id is None or _client is None:
         return

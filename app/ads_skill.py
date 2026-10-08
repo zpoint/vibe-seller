@@ -25,9 +25,12 @@ from pathlib import Path
 import shutil
 import tempfile
 
+from sqlalchemy import select
+
 from app import ads_client
 from app.database import async_session
 from app.models.app_settings import AppSettings
+from app.models.store import Store
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -152,16 +155,22 @@ async def refresh(session) -> dict:
 
 
 async def refresh_if_bound() -> dict | None:
-    """Sync the bundle when a service is bound; ``None`` when none is.
+    """Sync the bundle while a store is authorized; ``None`` otherwise.
 
     The one entry point for every periodic check — boot, and the skills
     sync that runs before tasks — so the service's version is compared
     on the same schedule as every other skill.
+
+    A registered installation with no authorized store has no use for the
+    skill, and revoking the last store removes it: checking only for the
+    key would reinstall it at the next boot or skills sync.
     """
     try:
         async with async_session() as db:
             config = await ads_client.get_config(db)
             if not config.get('configured'):
+                return None
+            if not await _any_store_authorized(db):
                 return None
             result = await refresh(db)
     except Exception as exc:
@@ -170,6 +179,13 @@ async def refresh_if_bound() -> dict | None:
     if result.get('updated'):
         logger.info('ads skill bundle updated to %s', result.get('version'))
     return result
+
+
+async def _any_store_authorized(db) -> bool:
+    found = await db.execute(
+        select(Store.id).where(Store.ads_authorized.is_(True)).limit(1)
+    )
+    return found.first() is not None
 
 
 def remove() -> None:

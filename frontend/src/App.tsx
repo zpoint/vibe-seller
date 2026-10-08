@@ -43,7 +43,7 @@ export default function App() {
   // Auth state
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
-  const { serverPlatform, serverVersion } = useServerInfo()
+  const { serverPlatform, serverVersion, installId } = useServerInfo()
   const [loginIdentifier, setLoginIdentifier] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -614,7 +614,7 @@ export default function App() {
         ziniaoBrowsers={ziniaoBrowsers} selectedBrowserOauth={selectedBrowserOauth} setSelectedBrowserOauth={setSelectedBrowserOauth}
         fetchingBrowsers={fetchingBrowsers} browserFetchError={browserFetchError} setBrowserFetchError={setBrowserFetchError}
         fetchBrowserProfiles={fetchBrowserProfiles} restartZiniao={restartZiniao} ziniaoRetried={ziniaoRetried}
-        serverPlatform={serverPlatform} serverVersion={serverVersion}
+        serverPlatform={serverPlatform} serverVersion={serverVersion} installId={installId}
         showAddAccount={showAddAccount} setShowAddAccount={setShowAddAccount}
         showAccountPassword={showAccountPassword} setShowAccountPassword={setShowAccountPassword}
         editingAccountId={editingAccountId} setEditingAccountId={setEditingAccountId}
