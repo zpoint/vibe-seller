@@ -28,6 +28,7 @@ from app.auth import get_current_user
 from app.config import VIBE_SELLER_DIR
 from app.database import get_db
 from app.models.store import Store
+from app.models.task import Task
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -172,8 +173,8 @@ async def agent_call(
         )
 
     params = dict(payload.params or {})
-    if payload.store:
-        store = await _find_store(db, payload.store)
+    store = await _store_for_task(db, payload.task_id, payload.store)
+    if store is not None:
         try:
             params['store_key'] = ads_client.resolve_store_key(
                 store, payload.marketplace
@@ -232,6 +233,38 @@ def _save_file(answer: ads_client.AdsFile, task_id: str | None) -> dict:
             'it there; do not ask for the same data again.'
         ),
     }
+
+
+async def _store_for_task(db, task_id: str | None, needle: str | None):
+    """The store this call may reach, from the task that is making it.
+
+    A task belongs to one store, and its agent may reach that store's
+    advertising and no other: naming another store is refused, and naming
+    none means its own. Only a task with no store (an all-stores run) may
+    name any. A call with no task is refused — the agent's tool always
+    sends its task, and nothing else calls this route.
+    """
+    if not task_id or not _TASK_ID.match(task_id):
+        raise HTTPException(
+            status_code=400,
+            detail='Ads calls are made from a task; this one names none.',
+        )
+    task = await db.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail='Unknown task.')
+    if not task.store_id:
+        return await _find_store(db, needle) if needle else None
+    own = await db.get(Store, task.store_id)
+    if needle and needle not in (own.id, own.name):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f'This task works on store {own.name!r}; it may not reach '
+                f'{needle!r}. Run a task on that store, or a task with no '
+                f'store, to look at it.'
+            ),
+        )
+    return own
 
 
 async def _find_store(db, needle: str) -> Store:

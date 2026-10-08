@@ -10,6 +10,7 @@ person rather than an agent.
 from __future__ import annotations
 
 import json
+import uuid
 
 import pytest
 from sqlalchemy import select
@@ -281,16 +282,23 @@ class TestStoreSync:
 
 
 class TestAgentCall:
-    async def test_binding_paths_are_refused(self, authenticated_client, bound):
+    async def test_binding_paths_are_refused(
+        self, authenticated_client, bound, test_task
+    ):
         """Binding is a person's decision, not one an agent reaches."""
         for path in ('/me/stores', '/auth-url', '/assignments'):
             response = await authenticated_client.post(
-                '/api/ads/call', json={'path': path}
+                '/api/ads/call', json={'path': path, 'task_id': test_task.id}
             )
             assert response.status_code == 403, path
 
     async def test_the_store_key_is_injected_not_supplied(
-        self, authenticated_client, async_db_session, test_store, monkeypatch
+        self,
+        authenticated_client,
+        async_db_session,
+        test_store,
+        test_task,
+        monkeypatch,
     ):
         """The agent names a store; it never learns the service's ids."""
         test_store.ads_store_keys = json.dumps({'SA': 'sk_sa'})
@@ -309,23 +317,36 @@ class TestAgentCall:
 
         response = await authenticated_client.post(
             '/api/ads/call',
-            json={'path': '/facts/rollup', 'store': test_store.name},
+            json={
+                'path': '/facts/rollup',
+                'store': test_store.name,
+                'task_id': test_task.id,
+            },
         )
         assert response.status_code == 200
         assert seen['params']['store_key'] == 'sk_sa'
 
     async def test_an_unauthorized_store_says_where_to_fix_it(
-        self, authenticated_client, test_store, bound
+        self, authenticated_client, test_store, test_task, bound
     ):
         response = await authenticated_client.post(
             '/api/ads/call',
-            json={'path': '/facts/rollup', 'store': test_store.name},
+            json={
+                'path': '/facts/rollup',
+                'store': test_store.name,
+                'task_id': test_task.id,
+            },
         )
         assert response.status_code == 400
         assert 'Settings' in response.json()['detail']
 
     async def test_two_marketplaces_without_a_name_is_refused(
-        self, authenticated_client, async_db_session, test_store, bound
+        self,
+        authenticated_client,
+        async_db_session,
+        test_store,
+        test_task,
+        bound,
     ):
         test_store.ads_store_keys = json.dumps({'SA': 'sk_sa', 'AE': 'sk_ae'})
         test_store.ads_authorized = True
@@ -333,7 +354,11 @@ class TestAgentCall:
 
         response = await authenticated_client.post(
             '/api/ads/call',
-            json={'path': '/facts/rollup', 'store': test_store.name},
+            json={
+                'path': '/facts/rollup',
+                'store': test_store.name,
+                'task_id': test_task.id,
+            },
         )
         assert response.status_code == 400
         detail = response.json()['detail']
@@ -342,8 +367,6 @@ class TestAgentCall:
 
 class TestFileAnswers:
     """A list too large for a reply arrives as a file, saved for the task."""
-
-    TASK = '0b6e1c2a-1111-4222-8333-944455556666'
 
     @pytest.fixture
     def file_answer(self, monkeypatch, tmp_path):
@@ -360,15 +383,23 @@ class TestFileAnswers:
         return tmp_path
 
     async def test_saved_into_the_tasks_folder_not_the_reply(
-        self, authenticated_client, file_answer
+        self,
+        authenticated_client,
+        file_answer,
+        test_task,
+        test_store,
+        async_db_session,
     ):
+        test_store.ads_store_keys = json.dumps({'SA': 'sk_sa'})
+        test_store.ads_authorized = True
+        await async_db_session.commit()
         response = await authenticated_client.post(
             '/api/ads/call',
-            json={'path': '/facts/search-terms', 'task_id': self.TASK},
+            json={'path': '/facts/search-terms', 'task_id': test_task.id},
         )
         result = response.json()['result']
         assert result['rows'] == 1 and result['as_of']
-        saved = file_answer / 'tasks' / self.TASK / 'ads-data'
+        saved = file_answer / 'tasks' / test_task.id / 'ads-data'
         [path] = list(saved.iterdir())
         assert result['file'] == str(path)
         assert path.read_bytes() == b'search_term,cost\nwidget,1.5\n'
@@ -383,3 +414,70 @@ class TestFileAnswers:
         )
         assert response.status_code == 400
         assert not (file_answer / 'etc').exists()
+
+
+class TestATaskReachesOnlyItsOwnStore:
+    """Agent A, working on store A, must not read or change store B."""
+
+    @pytest.fixture
+    def recorded(self, monkeypatch):
+        seen: list[dict] = []
+
+        async def fake_call(_session, path, *, params=None, **kw):
+            seen.append(params or {})
+            return {'rows': []}
+
+        monkeypatch.setattr(ads_client, 'call', fake_call)
+        return seen
+
+    @pytest.fixture
+    async def two_stores(self, async_db_session, test_store, test_task):
+        test_store.ads_store_keys = json.dumps({'SA': 'sk_a'})
+        test_store.ads_authorized = True
+        other = Store(
+            id=str(uuid.uuid4()),
+            name='Other Store',
+            browser_backend='chrome',
+            ads_store_keys=json.dumps({'SA': 'sk_b'}),
+            ads_authorized=True,
+            created_at='2026-01-01T00:00:00',
+            updated_at='2026-01-01T00:00:00',
+        )
+        async_db_session.add(other)
+        await async_db_session.commit()
+        return test_task, other
+
+    async def test_naming_another_store_is_refused(
+        self, authenticated_client, two_stores, recorded
+    ):
+        task, other = two_stores
+        response = await authenticated_client.post(
+            '/api/ads/call',
+            json={
+                'path': '/facts/rollup',
+                'store': other.name,
+                'task_id': task.id,
+            },
+        )
+        assert response.status_code == 403
+        assert recorded == [], 'nothing may reach the service'
+
+    async def test_naming_no_store_means_its_own(
+        self, authenticated_client, two_stores, recorded
+    ):
+        task, _ = two_stores
+        response = await authenticated_client.post(
+            '/api/ads/call', json={'path': '/facts/rollup', 'task_id': task.id}
+        )
+        assert response.status_code == 200
+        assert recorded[0]['store_key'] == 'sk_a'
+
+    async def test_a_call_from_no_task_is_refused(
+        self, authenticated_client, two_stores, recorded
+    ):
+        response = await authenticated_client.post(
+            '/api/ads/call',
+            json={'path': '/facts/rollup', 'store': 'Test Store'},
+        )
+        assert response.status_code == 400
+        assert recorded == []
