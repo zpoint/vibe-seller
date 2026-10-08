@@ -19,6 +19,7 @@ Native plan mode flow:
 """
 
 import asyncio
+from collections.abc import Collection
 import json
 import logging
 import os
@@ -90,6 +91,7 @@ class AgentSession(
         task_dir: Path | None = None,
         skip_reflection: bool = False,
         persist_prompt: bool = True,
+        excluded_skills: Collection[str] = (),
     ):
         self.task_id = task_id
         self.prompt = prompt
@@ -101,6 +103,10 @@ class AgentSession(
         self.no_store = no_store
         self.auto_approve_plan = auto_approve_plan
         self.task_dir = task_dir
+        # Skills this task may not load (see app.ads_routing). Kept off the
+        # workspace AND refused at load time: the shared copy is still
+        # reachable by name.
+        self.excluded_skills = frozenset(excluded_skills)
         self.skip_reflection = skip_reflection
         # False for follow-up spawns/retries: the conversation router
         # already persisted the user's message, and persisting it again

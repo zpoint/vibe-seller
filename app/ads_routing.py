@@ -24,6 +24,27 @@ BROWSER_SKILL = 'amazon-ads'
 API_SKILL = 'amazon-ads-api'
 
 
+def refusal(skill: str) -> str:
+    """Why a task may not load *skill*, and what to load instead.
+
+    Leaving a skill out of the task's workspace is not enough on its own:
+    the agent can still find the shared copy by name. So a load of an
+    excluded skill is refused at the moment it is attempted, with the
+    store's actual path named.
+    """
+    if skill == API_SKILL:
+        return (
+            f'`{API_SKILL}` is for stores authorized with the ads service, '
+            f"and this task's store is not. Use the `{BROWSER_SKILL}` "
+            'skill: its advertising is worked in the seller console.'
+        )
+    return (
+        f'`{skill}` drives the seller console in a browser, and this '
+        f"task's store is authorized with the ads service. Use the "
+        f'`{API_SKILL}` skill and the `vibe_seller_ads_call` tool instead.'
+    )
+
+
 def skills_to_exclude(authorized_flags: Iterable[bool]) -> set[str]:
     """Skill directories to leave out of a task workspace.
 

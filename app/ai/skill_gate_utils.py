@@ -51,6 +51,20 @@ def parse_skill_gates(skill_md_path: Path) -> list[str]:
 _SKILL_MD_READ_RE = re.compile(r'(?:^|/)skills/([^/]+)/SKILL\.md$')
 
 
+_SKILL_FILE_RE = re.compile(r'(?:^|/)skills/([^/]+)/')
+
+
+def skill_of_read(tool_name: str, tool_input: dict) -> str | None:
+    """The skill whose folder a ``Read`` reaches into — any file in it."""
+    if tool_name != 'Read':
+        return None
+    path = tool_input.get('file_path', '')
+    if not isinstance(path, str) or not path:
+        return None
+    m = _SKILL_FILE_RE.search(path)
+    return m.group(1) if m else None
+
+
 def skill_name_from_read(tool_name: str, tool_input: dict) -> str | None:
     """Return the skill name if this tool call Reads a SKILL.md.
 
