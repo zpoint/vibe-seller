@@ -84,13 +84,21 @@ def reset_attempts(task_id: str) -> None:
 # 1 is the smallest value that still gives the agent feedback.
 SOFT_GATE_MAX_DENIALS = 1
 
-# A contradiction gets a much longer leash than the stall cap. It is
-# always resolvable in one edit — fix the figures, or declare the campaign
-# untrustworthy — so refusing is not a trap, and the thing being refused
-# is a number that would otherwise ship into bid decisions. Past this cap
-# the result is accepted but banner-marked, so the failure mode is
-# "impossible to miss", never "impossible to pass".
-CONTRADICTION_MAX_DENIALS = 12
+# How many times an ads task's result is reviewed before it is accepted:
+# one refusal per skill-declared gate, one reviewer pass, one execution
+# review. The fix is asked for once and not demanded again — a review
+# that loops for 14 or 41 rounds costs more than the gaps it finds, and
+# whatever stays unmet ships as caveats on the result rather than
+# vanishing. Only the browser skill declares review; a store worked over
+# the ads API is reviewed zero times (its skill declares no gates).
+AD_REVIEW_ROUNDS = 1
+
+# A contradiction is refused as often as any other review finding, once.
+# It is always resolvable in one edit — fix the figures, or declare the
+# campaign untrustworthy. Past the cap the result is accepted but
+# banner-marked, so the failure mode is "impossible to miss", never
+# "impossible to pass".
+CONTRADICTION_MAX_DENIALS = AD_REVIEW_ROUNDS
 
 
 def contradiction_banner(contradictions) -> str:

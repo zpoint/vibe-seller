@@ -25,6 +25,7 @@ import re
 
 from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
+    AD_REVIEW_ROUNDS,
     ad_completeness_review,
     ad_scope,
     listing_upload_gate,
@@ -572,12 +573,12 @@ def check_review_status(
 
 _EXEC_LOG_NAME = 'EXECUTION_LOG.md'
 _EXEC_REVIEW_FILE_GLOB = 'EXEC_REVIEW_*_iter*.md'
-_EXEC_REVIEW_MAX_ITERS = 5
+_EXEC_REVIEW_MAX_ITERS = AD_REVIEW_ROUNDS
 
 
 def check_exec_review_status(task_dir, review_writers=None) -> str | None:
     """Return a deny reason if the ads-execution reviewer hasn't
-    returned ``ok`` (or ``incomplete`` at iter ≥ 5); otherwise None.
+    returned ``ok``, or its last pass (``AD_REVIEW_ROUNDS``) is done.
 
     Quiet no-op when ``EXECUTION_LOG.md`` is absent — the task is
     not in execution mode. ``review_writers`` — per-file authorship
@@ -669,7 +670,7 @@ def check_exec_review_status(task_dir, review_writers=None) -> str | None:
         return deny
     if status == 'ok':
         return None
-    if status == 'incomplete' and iter_num >= _EXEC_REVIEW_MAX_ITERS:
+    if status in ('incomplete', 'gaps') and iter_num >= _EXEC_REVIEW_MAX_ITERS:
         return None
     if status == 'gaps':
         return (

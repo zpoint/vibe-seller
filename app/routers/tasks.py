@@ -17,6 +17,7 @@ from app.ai.profiles import (
 )
 from app.ai.review_redrive import reset_ledger
 from app.ai.stop_gates import (
+    AD_REVIEW_ROUNDS,
     CONTRADICTION_MAX_DENIALS,
     clear_skill_bindings,
     contradiction_banner,
@@ -620,8 +621,13 @@ async def set_task_result(
             continue
         # Fail open only on STALL when the gate tracks one (see
         # ad_completeness_review for the stall design).
+        # And at most AD_REVIEW_ROUNDS refusals per gate in any case: the
+        # fix is asked for once, then what is still unmet ships as caveats.
         is_stalled = getattr(gate, 'is_stalled', None)
-        if is_stalled is None or not is_stalled(task_id):
+        refusals = record_attempt(task_id, f'{gate_name}:review')
+        if refusals <= AD_REVIEW_ROUNDS and (
+            is_stalled is None or not is_stalled(task_id)
+        ):
             await _refuse(db, task, deny.reason, declared + deny.gaps)
         # A CONTRADICTION is not the kind of gap the stall exists to
         # forgive. The fail-open is there so a weak model is never trapped

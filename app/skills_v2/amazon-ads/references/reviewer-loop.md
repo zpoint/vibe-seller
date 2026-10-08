@@ -51,8 +51,8 @@ by drilling URLs or remembering 30 keyword bids.
 
 The reviewer's output is a file on disk; the Stop-hook reads that
 file to decide whether to allow stop. **The agent cannot exit
-without the reviewer having written `Status: ok` (or
-`incomplete` at iter 5).**
+before the reviewer has written a verdict.** There is one review
+round: that first verdict is final.
 
 ## How the loop works (concrete steps)
 
@@ -221,7 +221,7 @@ OPENED and the DISCREPANCY, e.g.:
   not drilled to word level>
 
 ## Notes
-<optional; e.g. "iter 5 — accepting incomplete per max-iters policy", or
+<optional; e.g. "accepting incomplete — single review round", or
 an explicit infra-block note if the console could not be opened>
 
 Set Status=ok ONLY if you independently verified, against live data /
@@ -235,8 +235,8 @@ message — the file is the source of truth, not chat.
 | Status | When the reviewer writes it | What the hook does |
 |---|---|---|
 | `ok` | All mandatory components present, no rule violated | Allows stop |
-| `gaps` | At least one rule violated; gap bullets listed | **Denies stop**; agent must fix and re-review |
-| `incomplete` | Only valid at iter 5; remaining gaps documented | Allows stop with caveat trail on disk |
+| `gaps` | At least one rule violated; gap bullets listed | Allows stop; fix the listed gaps in place first — no re-review |
+| `incomplete` | Remaining gaps documented | Allows stop with caveat trail on disk |
 
 ## What "fix the gaps" looks like for the main agent
 
@@ -290,7 +290,8 @@ and the user instructs the agent to **execute** the plan, the agent:
 5. Reads the resulting `EXEC_REVIEW_<date>_iter<N>.md`.
 6. Fixes gaps on the live console (NOT in the audit Markdown — the
    audit's recommendations are frozen at this point) and re-runs.
-7. Repeats until `Status: ok` or `iter 5 + Status: incomplete`.
+7. One execution review: act on its verdict, then finish. There is
+   no second round.
 
 The Stop-hook denies `vibe_seller_set_task_result` until the
 execution reviewer accepts. Same gate shape as Phase 3, different
@@ -470,8 +471,8 @@ opens with the gap code in brackets, then the identifier:
   EXECUTION_LOG rows for either query>
 
 ## Notes
-<optional reviewer commentary; e.g. "iter 5 — accepting incomplete
-per max-iters policy". Also log over-execution observations here
+<optional reviewer commentary; e.g. "accepting incomplete — single
+review round". Also log over-execution observations here
 (EXECUTION_LOG rows beyond the priority table) as informational —
 not gaps.>
 

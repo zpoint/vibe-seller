@@ -12,11 +12,56 @@ import os
 
 import pytest
 
-from app.ai.stop_gates import report_reviewer as rr
+from app.ai.stop_gates import AD_REVIEW_ROUNDS, report_reviewer as rr
 
 
 @pytest.mark.unit
+class TestOneRound:
+    """Ads review runs once: the first verdict is final, whatever it says."""
+
+    def _audit(self, tmp_path):
+        (tmp_path / 'AD_AUDIT_2026-07-09.md').write_text(
+            '# r\n\n## Amazon SA\n', encoding='utf-8'
+        )
+
+    def test_the_shipped_default_is_one_round(self):
+        assert AD_REVIEW_ROUNDS == 1
+        assert rr.REVIEW_MAX_ITERS == 1 and rr.REVIEWER_STALL_CAP == 1
+
+    @pytest.mark.parametrize('status', ['gaps', 'incomplete', 'ok'])
+    def test_the_first_verdict_is_accepted(self, tmp_path, status):
+        self._audit(tmp_path)
+        (tmp_path / 'REVIEW_2026-07-09_iter1.md').write_text(
+            f'# Review\nStatus: {status}\n', encoding='utf-8'
+        )
+        assert rr.reviewer_verdict(tmp_path) is None
+
+    def test_a_final_gaps_verdict_must_come_from_the_reviewer(self, tmp_path):
+        """Else the main agent writes ``Status: gaps`` and skips review."""
+        self._audit(tmp_path)
+        name = 'REVIEW_2026-07-09_iter1.md'
+        (tmp_path / name).write_text(
+            '# Review\nStatus: gaps\n', encoding='utf-8'
+        )
+        assert rr.reviewer_verdict(tmp_path, review_writers={name: 'main'})
+        assert (
+            rr.reviewer_verdict(tmp_path, review_writers={name: 'subagent'})
+            is None
+        )
+
+    def test_a_review_still_has_to_happen_once(self, tmp_path):
+        self._audit(tmp_path)
+        assert rr.reviewer_verdict(tmp_path) is not None
+
+
 class TestReviewerVerdict:
+    @pytest.fixture(autouse=True)
+    def _several_rounds(self, monkeypatch):
+        """These tests exercise the multi-pass mechanics, which still hold
+        when more than one round is configured. The shipped default is
+        one round — see ``TestOneRound``."""
+        monkeypatch.setattr(rr, 'REVIEW_MAX_ITERS', 5)
+
     def _audit(self, tmp_path):
         (tmp_path / 'AD_AUDIT_2026-07-09.md').write_text(
             '# r\n\n## Amazon SA\n', encoding='utf-8'
@@ -209,6 +254,13 @@ class TestPartialBanner:
 
 @pytest.mark.unit
 class TestTurnRollover:
+    @pytest.fixture(autouse=True)
+    def _several_rounds(self, monkeypatch):
+        """These tests exercise the multi-pass mechanics, which still hold
+        when more than one round is configured. The shipped default is
+        one round — see ``TestOneRound``."""
+        monkeypatch.setattr(rr, 'REVIEW_MAX_ITERS', 5)
+
     """At the start of a new turn the prior turn's review verdicts are
     moved aside so the follow-up is reviewed on a clean slate. Universal
     design (every review-bound task). Regression for the follow-up that
@@ -266,6 +318,13 @@ class TestTurnRollover:
 
 @pytest.mark.unit
 class TestSkillDodAddendum:
+    @pytest.fixture(autouse=True)
+    def _several_rounds(self, monkeypatch):
+        """These tests exercise the multi-pass mechanics, which still hold
+        when more than one round is configured. The shipped default is
+        one round — see ``TestOneRound``."""
+        monkeypatch.setattr(rr, 'REVIEW_MAX_ITERS', 5)
+
     """The skill's own ``review:`` contract must reach the reviewer.
 
     ``skill_review.parse_skill_review`` has always parsed ``criteria``

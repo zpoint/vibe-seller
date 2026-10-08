@@ -31,6 +31,8 @@ from __future__ import annotations
 from pathlib import Path
 import re
 
+from app.ai.stop_gates import AD_REVIEW_ROUNDS
+
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
 
@@ -57,6 +59,20 @@ _REVIEW_ITER_RE = re.compile(r'_iter(\d+)\.md$')
 _REVIEW_NAME_RE = re.compile(r'(?:^|[^a-z])review(?:[^a-z]|$)', re.IGNORECASE)
 
 
+def accepting(status: str, iter_num: int) -> bool:
+    """Would this verdict let the result through?
+
+    ``ok`` and ``incomplete`` always do; ``gaps`` does on the last round,
+    since the gaps a final pass finds are not reviewed again. Every
+    accepting verdict must come from a reviewer subagent — otherwise the
+    main agent could write ``Status: gaps`` itself on round one and skip
+    review altogether.
+    """
+    return status in ('ok', 'incomplete') or (
+        status == 'gaps' and iter_num >= REVIEW_MAX_ITERS
+    )
+
+
 def exec_authorship_deny(review_writers, name, status, iter_num):
     """Deny reason when an accepting EXEC_REVIEW verdict was not
     written by the reviewer subagent this turn; else ``None``.
@@ -66,7 +82,7 @@ def exec_authorship_deny(review_writers, name, status, iter_num):
     execution-review loop. ``None`` writers = signal unavailable →
     legacy behavior.
     """
-    if review_writers is None or status not in ('ok', 'incomplete'):
+    if review_writers is None or not accepting(status, iter_num):
         return None
     if review_writers.get(name) == 'subagent':
         return None
@@ -135,16 +151,17 @@ def rollover_reviews(task_dir) -> None:
         pass
 
 
-# Max iterations before ``incomplete`` is accepted as terminal (matches
-# the loop cap in ``amazon-ads/references/reviewer-loop.md``).
-REVIEW_MAX_ITERS = 5
+# Reviewer passes before a verdict is accepted as final, whatever it says
+# (matches ``amazon-ads/references/reviewer-loop.md``). One: the gaps the
+# pass finds are fixed in place, not reviewed again.
+REVIEW_MAX_ITERS = AD_REVIEW_ROUNDS
 
 # Fail-open cap on the set_task_result path: after this many reviewer
 # denials for one task, let the result through so a weak-but-stuck model
 # is not trapped — but the result is banner-marked UNVERIFIED, never
 # silently "done". Named to match the stall design in
 # ``ad_completeness_review``.
-REVIEWER_STALL_CAP = 5
+REVIEWER_STALL_CAP = AD_REVIEW_ROUNDS
 
 _PARTIAL_BANNER = (
     '> ⚠️ **Unverified result.** This deliverable completed WITHOUT a '
@@ -353,7 +370,7 @@ def _verdict_reason(
     # ``subagent_ran`` at spawn time, but the accepting verdict on disk
     # is still the main agent's own file until the reviewer WRITES its
     # verdict. Fail-closed (bounded by the caller's redrive budget).
-    if review_writers is not None and status in ('ok', 'incomplete'):
+    if review_writers is not None and accepting(status, iter_num):
         if review_writers.get(latest.name) != 'subagent':
             return (
                 f'{latest.name} says Status: {status}, but it was not '
@@ -375,7 +392,7 @@ def _verdict_reason(
     # self-certification bypass. Reject it. (``None`` = caller didn't
     # supply the signal → keep legacy behavior; the ad floor still
     # gates those.)
-    elif subagent_ran is False and status in ('ok', 'incomplete'):
+    elif subagent_ran is False and accepting(status, iter_num):
         return (
             f'{latest.name} says Status: {status}, but NO DoD reviewer '
             'subagent ran this turn — a verdict you write yourself does '
@@ -387,8 +404,8 @@ def _verdict_reason(
         )
     if status == 'ok':
         return None
-    if status == 'incomplete' and iter_num >= REVIEW_MAX_ITERS:
-        return None  # accept as terminal; gaps are on-disk for post-mortem
+    if status in ('incomplete', 'gaps') and iter_num >= REVIEW_MAX_ITERS:
+        return None  # the last pass; its findings are on disk, not re-reviewed
     if status == 'gaps':
         return (
             f'Reviewer iter {iter_num} found gaps in the audit. '
