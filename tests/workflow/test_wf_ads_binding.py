@@ -14,10 +14,23 @@ import json
 import pytest
 from sqlalchemy import select
 
-from app import ads_client
+from app import ads_client, ads_skill
 from app.models.store import Store
 
 pytestmark = pytest.mark.workflow
+
+
+@pytest.fixture(autouse=True)
+def skill_home(tmp_path, monkeypatch):
+    """Point the installed skill at a temp dir, for every test here.
+
+    Binding pulls the bundle into the deployment's skills directory and
+    unbinding deletes it. Without this, running the suite deleted the
+    developer's real ``~/.vibe-seller/.claude/skills/amazon-ads-api``.
+    """
+    root = tmp_path / 'skills' / ads_skill.SKILL_NAME
+    monkeypatch.setattr(ads_skill, 'skill_dir', lambda: root)
+    return root
 
 
 @pytest.fixture
@@ -115,13 +128,18 @@ class TestConfig:
         assert response.json()['skill']['updated'] is False
 
     async def test_an_empty_host_unbinds_without_calling_out(
-        self, authenticated_client, bound
+        self, authenticated_client, bound, skill_home
     ):
+        (skill_home / 'SKILL.md').parent.mkdir(parents=True)
+        (skill_home / 'SKILL.md').write_text('# skill')
+
         response = await authenticated_client.put(
             '/api/ads/config', json={'host': ''}
         )
         assert response.json() == {'configured': False}
         assert bound == []
+        # Unbinding removes the skill — and only the one this test owns.
+        assert not skill_home.exists()
 
 
 class TestAuthUrl:
