@@ -87,6 +87,8 @@ class _SubagentMixin:
         self._review_file_writers: dict[str, str] = {}
         self._agent_spawn_ids: set[str] = set()
         self._async_agents: dict[str, str] = {}
+        #: Ids the stream reported finished; see ``_track_async_agents``.
+        self._async_finished: set[str] = set()
 
     def _async_agents_pending_reason(self) -> str | None:
         """Deny reason while async work launched this turn is still
@@ -96,6 +98,15 @@ class _SubagentMixin:
         if not pending:
             return None
         ids = ', '.join(v or k for k, v in pending.items())
+        finished = getattr(self, '_async_finished', set())
+        if all(k in finished or v in finished for k, v in pending.items()):
+            return (
+                f'The background task(s) you launched ({ids}) have '
+                'finished; their completion notices are delivered when '
+                'your turn ends. Do not call vibe_seller_set_task_result '
+                'again and start nothing new: end your turn now with a '
+                'one-line reply.'
+            )
         return (
             f'{len(pending)} background task(s) you launched this turn '
             f'are still running ({ids}) — async subagents and/or '
@@ -132,21 +143,21 @@ class _SubagentMixin:
           set (fail open — never wedge a turn on a format change).
         """
         if event.get('type') == 'system':
-            # The stream's own completion record: a ``task_notification``
-            # system event naming the task and its spawning tool call. A
-            # busy turn may never see the user-message form before it
-            # tries to stop — observed: both reviewers done, Stop still
-            # denied, the agent resubmitted until the loop breaker fired.
+            # The stream's structured completion record. It does NOT
+            # release the turn: the CLI still delivers the
+            # ``<task-notification>`` user message after it, and a turn
+            # that ended first answers that message as a stray extra
+            # result — which a follow-up then reads as its own answer.
+            # It only lets the Stop denial say "done; end your turn",
+            # where a weak model otherwise resubmitted its result in a
+            # loop until the loop breaker failed the task.
             if event.get('subtype') == 'task_notification' and (
                 event.get('status') != 'running'
             ):
-                ids = {event.get('task_id'), event.get('tool_use_id')}
-                for k in [
-                    k
-                    for k, v in self._async_agents.items()
-                    if k in ids or (v and v in ids)
-                ]:
-                    del self._async_agents[k]
+                self._async_finished |= {
+                    event.get('task_id'),
+                    event.get('tool_use_id'),
+                } - {None, ''}
             return
         blocks = event.get('message', {}).get('content', [])
         if isinstance(blocks, str):
