@@ -208,7 +208,7 @@ async def sync_stores(session) -> list[dict]:
     stores = (await session.execute(select(Store))).scalars().all()
     payload = {'stores': [{'local_id': s.id, 'name': s.name} for s in stores]}
     body = await call(session, '/me/stores', method='POST', json_body=payload)
-    rows = (body or {}).get('stores', [])
+    rows = _ours(stores, (body or {}).get('stores', []))
     await _apply(session, stores, rows)
     return rows
 
@@ -227,8 +227,28 @@ async def unbind(session, store_id: str, *, purge: bool = False) -> dict:
         json_body={'purge': purge},
     )
     stores = (await session.execute(select(Store))).scalars().all()
-    await _apply(session, stores, (body or {}).get('stores', []))
-    return body or {}
+    body = dict(body or {})
+    body['stores'] = _ours(stores, body.get('stores', []))
+    await _apply(session, stores, body['stores'])
+    return body
+
+
+def _ours(stores, rows: list[dict]) -> list[dict]:
+    """The service's rows for stores this deployment still has, by their
+    local names.
+
+    The service keeps a row for every store id it was ever sent and never
+    learns that a store was deleted here, or that the database it came
+    from was replaced — so its list can name stores that no longer exist,
+    and the same store twice under an old id and a new one. Only the
+    local store list says what exists.
+    """
+    names = {s.id: s.name for s in stores}
+    return [
+        {**row, 'name': names[row['local_id']]}
+        for row in rows
+        if row.get('local_id') in names
+    ]
 
 
 async def _apply(session, stores, rows: list[dict]) -> None:
