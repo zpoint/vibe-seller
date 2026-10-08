@@ -682,7 +682,8 @@ async def ads_store_note(store: Store) -> str:
 
     A fanout child runs its schedule's plan verbatim, and that plan was
     written for every store at once — this line is what tells this one
-    which path is its own.
+    which path is its own. It goes after the plan: placed earlier, a
+    weaker model followed the plan's "open the console" instead.
     """
     async with async_session() as db:
         bound = await db.execute(
@@ -690,7 +691,12 @@ async def ads_store_note(store: Store) -> str:
         )
         if bound.first() is None:
             return ''
-    return '\n\n' + ads_routing.store_note(bool(store.ads_authorized))
+    logger.info(
+        'ads path for store %s: %s',
+        store.name,
+        ads_routing.label(bool(store.ads_authorized)),
+    )
+    return ads_routing.store_note(bool(store.ads_authorized))
 
 
 def uploaded_files_note(task: Task) -> str:

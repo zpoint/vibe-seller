@@ -158,8 +158,11 @@ class TestSomeBound:
         assert 'this store is authorized with the ads service' in body
         assert f'`{API_SKILL}`' in body
         assert 'even where the task or its plan mentions the console' in body
-        # The shared plan still reaches it; the note is what overrides it.
+        # The shared plan still reaches it; the note is what overrides it,
+        # so it comes after the plan — the last word. Placed before it,
+        # glm-4.7 followed the plan's console steps on an API store.
         assert 'is NOT authorized' not in body
+        assert body.rindex('Amazon advertising:') > body.index(CONSOLE_PLAN)
 
     @pytest.mark.asyncio
     async def test_a_console_store_is_told_the_api_refuses_it(

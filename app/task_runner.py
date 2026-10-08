@@ -179,7 +179,6 @@ async def build_system_extra(
                 task_platform=task.platform,
                 task_country=task.country,
             )
-            + await ads_store_note(store)
         )
     else:
         async with async_session() as db:
@@ -343,6 +342,9 @@ async def build_system_extra(
         parts.append(header_extra)
     if extra_context:
         parts.append(extra_context)
+    # After the plan, so it is the last word: a fanout plan is shared.
+    if store:
+        parts.append(await ads_store_note(store))
 
     # Plugin extension seam: fragments registered for the 'system_extra'
     # slot are appended to the end of the assembled system prompt.
