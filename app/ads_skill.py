@@ -26,6 +26,7 @@ import shutil
 import tempfile
 
 from app import ads_client
+from app.database import async_session
 from app.models.app_settings import AppSettings
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -148,6 +149,27 @@ async def refresh(session) -> dict:
     except Exception as exc:
         logger.warning('ads skill refresh failed: %s', exc)
         return {'updated': False, 'error': str(exc)}
+
+
+async def refresh_if_bound() -> dict | None:
+    """Sync the bundle when a service is bound; ``None`` when none is.
+
+    The one entry point for every periodic check — boot, and the skills
+    sync that runs before tasks — so the service's version is compared
+    on the same schedule as every other skill.
+    """
+    try:
+        async with async_session() as db:
+            config = await ads_client.get_config(db)
+            if not config.get('configured'):
+                return None
+            result = await refresh(db)
+    except Exception as exc:
+        logger.warning('ads skill refresh failed: %s', exc)
+        return {'updated': False, 'error': str(exc)}
+    if result.get('updated'):
+        logger.info('ads skill bundle updated to %s', result.get('version'))
+    return result
 
 
 def remove() -> None:

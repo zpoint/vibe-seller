@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import ads_client, ads_skill, telemetry
+from app import ads_skill, telemetry
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_gate_loader import preload_skill_gates
 from app.browser.daemon_reaper import start_reaper_loop
@@ -235,7 +235,7 @@ async def lifespan(app: FastAPI):
     # already on disk, so a service that is briefly down must not slow
     # boot or leave the deployment on an older bundle for ever waiting
     # for somebody to press something.
-    ads_skill_task = asyncio.create_task(_refresh_ads_skill())
+    ads_skill_task = asyncio.create_task(ads_skill.refresh_if_bound())
     # Start any plugin-registered background services (e.g. a customer
     # alerting/monitoring service). Core ships none, so this is a no-op
     # in an OSS-only install. A done-callback surfaces a crashing service
@@ -286,20 +286,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning('stop_all during shutdown failed: %s', e)
     telemetry.shutdown()
-
-
-async def _refresh_ads_skill() -> None:
-    """Pull the current ads skill bundle, if a service is bound."""
-    try:
-        async with async_session() as db:
-            config = await ads_client.get_config(db)
-            if not config.get('configured'):
-                return
-            result = await ads_skill.refresh(db)
-        if result.get('updated'):
-            logger.info('ads skill bundle updated to %s', result.get('version'))
-    except Exception:
-        logger.exception('ads skill refresh failed at boot')
 
 
 app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
