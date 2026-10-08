@@ -117,35 +117,43 @@ def skills_to_exclude(authorized_flags: Iterable[bool]) -> set[str]:
 
 def label(authorized: bool) -> str:
     """How a store's ads path reads in the all-stores list."""
-    return 'ads: API' if authorized else 'ads: seller console'
+    return 'ads: API' if authorized else 'ads: not authorized'
 
 
 #: For a task with no store: a planner or an orchestrator.
+#:
+#: Only the API side names a skill. A store that is not bound may sell on
+#: noon, or on nothing anyone has recorded: naming the Amazon browser skill
+#: for it told every such store "this is Amazon ad work", and an agent that
+#: loads that skill runs its full audit procedure on a request that never
+#: asked for one.
 ORCHESTRATOR_NOTE = (
-    'Amazon advertising: stores marked `ads: API` are authorized with the '
-    'ads service — their ad data and changes go through the '
-    f'`vibe_seller_ads_call` tool (the `{API_SKILL}` skill), never the '
-    'seller console. Stores marked `ads: seller console` work advertising '
-    f'in the browser (the `{BROWSER_SKILL}` skill); the API refuses them. '
-    "Each store's own task is told its path, so a plan or sub-task for ad "
-    'work says WHAT to get (e.g. spend and ad sales for the last 30 days) '
-    'and leaves HOW to the store — never tell an API store to open the '
-    'console, or a console store to call the API.'
+    'Ads API: stores marked `ads: API` are authorized with the ads service '
+    '— their ad data and changes go through the `vibe_seller_ads_call` tool '
+    f'(the `{API_SKILL}` skill), never a browser. The API refuses every '
+    'other store; those work advertising the way they always have. Each '
+    "store's own task is told whether it is authorized, so a plan or "
+    'sub-task for ad work says WHAT to get (e.g. spend and ad sales for the '
+    'last 30 days) and leaves HOW to the store.'
 )
 
 
 def store_note(authorized: bool) -> str:
-    """The one line a store task gets about its own ads path."""
+    """The one line a store task gets about the ads API.
+
+    An unbound store hears a fact, not a procedure: which skill fits its
+    advertising is its own task's call, as it was before any store was
+    bound.
+    """
     if authorized:
         return (
-            'Amazon advertising: this store is authorized with the ads '
-            f'service. Do ad work through the `{API_SKILL}` skill and the '
-            '`vibe_seller_ads_call` tool, not the seller console — even '
-            'where the task or its plan mentions the console.'
+            'Ads API: this store is authorized with the ads service. Do its '
+            f'Amazon ad work through the `{API_SKILL}` skill and the '
+            '`vibe_seller_ads_call` tool, not a browser — even where the '
+            'task or its plan mentions the ad console.'
         )
     return (
-        'Amazon advertising: this store is NOT authorized with the ads '
-        'service, and `vibe_seller_ads_call` refuses it. Do ad work in the '
-        f'seller console with the `{BROWSER_SKILL}` skill — even where the '
-        'task or its plan mentions the API.'
+        'Ads API: this store is not authorized with the ads service, so '
+        '`vibe_seller_ads_call` refuses it — do not call it for this store, '
+        'even where the task or its plan mentions the API.'
     )

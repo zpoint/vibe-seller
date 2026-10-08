@@ -123,7 +123,7 @@ class TestNothingBound:
     ):
         await _seed(db, console_store)
         body = await _prompt(_fanout_child(console_store), console_store)
-        assert 'Amazon advertising:' not in body
+        assert 'Ads API:' not in body
 
     @pytest.mark.asyncio
     async def test_the_planner_sees_no_ads_labels(self, db, console_store):
@@ -146,7 +146,7 @@ class TestSomeBound:
             ln for ln in body.splitlines() if '"shop-console"' in ln
         )
         assert api_line.endswith('— ads: API')
-        assert console_line.endswith('— ads: seller console')
+        assert console_line.endswith('— ads: not authorized')
         assert ORCHESTRATOR_NOTE in body
 
     @pytest.mark.asyncio
@@ -157,12 +157,12 @@ class TestSomeBound:
         body = await _prompt(_fanout_child(api_store), api_store)
         assert 'this store is authorized with the ads service' in body
         assert f'`{API_SKILL}`' in body
-        assert 'even where the task or its plan mentions the console' in body
+        assert 'even where the task or its plan mentions the ad console' in body
         # The shared plan still reaches it; the note is what overrides it,
         # so it comes after the plan — the last word. Placed before it,
         # glm-4.7 followed the plan's console steps on an API store.
-        assert 'is NOT authorized' not in body
-        assert body.rindex('Amazon advertising:') > body.index(CONSOLE_PLAN)
+        assert 'is not authorized' not in body
+        assert body.rindex('Ads API:') > body.index(CONSOLE_PLAN)
 
     @pytest.mark.asyncio
     async def test_a_console_store_is_told_the_api_refuses_it(
@@ -170,9 +170,26 @@ class TestSomeBound:
     ):
         await _seed(db, api_store, console_store)
         body = await _prompt(_fanout_child(console_store), console_store)
-        assert 'this store is NOT authorized with the ads service' in body
-        assert f'`{BROWSER_SKILL}`' in body
+        assert 'this store is not authorized with the ads service' in body
         assert 'this store is authorized with' not in body
+
+    @pytest.mark.asyncio
+    async def test_an_unbound_store_is_not_steered_to_amazon_ad_work(
+        self, db, api_store, console_store
+    ):
+        """Its line is a fact, not a procedure. Naming the Amazon browser
+        skill told every unbound store — noon ones, ones with no platform
+        recorded — "this is Amazon ad work"; in CI a console review then
+        loaded that skill and ran its full audit procedure, 20 minutes
+        against 8 for the same request without the line."""
+        await _seed(db, api_store, console_store)
+        for task, store in (
+            (_fanout_child(console_store), console_store),
+            (_planner(), None),
+        ):
+            body = await _prompt(task, store)
+            assert f'`{BROWSER_SKILL}`' not in body
+            assert 'Amazon advertising' not in body
 
     @pytest.mark.asyncio
     async def test_the_line_follows_the_store_not_the_installation(
@@ -185,4 +202,4 @@ class TestSomeBound:
             row.ads_authorized = False
             await session.commit()
         body = await _prompt(_fanout_child(console_store), console_store)
-        assert 'Amazon advertising:' not in body
+        assert 'Ads API:' not in body

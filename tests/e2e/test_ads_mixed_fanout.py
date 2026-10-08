@@ -10,8 +10,13 @@ Two things had to hold, and only a real agent shows both:
 
 - the planner, seeing which stores are bound, writes a plan that leaves
   the path to each store rather than picking one for all;
-- each store's task, told its own path, takes it even where the shared
-  plan names the other.
+- each store's task, told whether it is authorized, takes its own path
+  from one shared plan.
+
+The request says what to get, never how: a user's explicit "open the
+console" is an instruction an agent may rightly follow, so a test that
+demanded it be overridden measured a model's temperament, not a
+contract.
 
 **Ground truth, not prose.** The two paths serve different figures: the
 fake service's rollup says 123.45, the console says 300.00, and neither
@@ -174,13 +179,18 @@ class TestMixedFanout:
                 json={
                     'title': 'Ad spend, every store',
                     'description': (
-                        # Written the way a seller who only knows the
-                        # console would: it names the console for every
-                        # store. The bound store must still use the API.
-                        'Open our seller ad console at '
-                        f'{console.base}/ with the browser-use CLI, read '
-                        'the last 30 days of advertising spend and ad '
-                        'sales for this store, and report the two numbers.'
+                        # Says WHAT, never HOW. A description that says
+                        # "open the console" is the user's own instruction,
+                        # and an agent obeying it is right, not wrong: one
+                        # run asserting the opposite passed on one model
+                        # and failed on another. The console's address is
+                        # a fact for the stores that need it, which is all
+                        # a store's own notes would give it.
+                        'Report the last 30 days of advertising spend and '
+                        'ad sales for this store. For a store not '
+                        'authorized with the ads API, the ad console is at '
+                        f'{console.base}/ (open it with the browser-use '
+                        'CLI).'
                     ),
                     'schedule_type': 'days',
                     'schedule_time': '09:00',
