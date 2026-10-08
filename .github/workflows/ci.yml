@@ -10,7 +10,6 @@ concurrency:
 
 jobs:
   pre-commit:
-    if: false  # TEMP: e2e loop on one test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -32,7 +31,6 @@ jobs:
         uses: pre-commit/action@v3.0.1
 
   frontend-test:
-    if: false  # TEMP: e2e loop on one test
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,7 +61,6 @@ jobs:
         run: pnpm test
 
   backend-unit-test:
-    if: false  # TEMP: e2e loop on one test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -100,7 +97,6 @@ jobs:
           name: unit-tests
 
   workflow-test:
-    if: false  # TEMP: e2e loop on one test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -137,7 +133,6 @@ jobs:
           name: workflow-tests
 
   e2e-mock-cli:
-    if: false  # TEMP: e2e loop on one test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -251,7 +246,6 @@ jobs:
           retention-days: 14
 
   integration-test:
-    if: false  # TEMP: e2e loop on one test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -387,9 +381,7 @@ jobs:
             # it concurrently. Ungrouped tests still distribute by load.
             XDIST_ARGS="-n $E2E_N --dist loadgroup"
           fi
-          # TEMP: only the flaky follow-up test, single worker (minimax).
-          XDIST_ARGS=""
-          uv run pytest "tests/e2e/test_followup_review_scoping.py::TestFollowUpReviewScoping::test_multi_round_followups_each_reviewed_separately" --e2e -v --log-cli-level=INFO \
+          uv run pytest tests/e2e --e2e -v --log-cli-level=INFO \
             --reruns 1 \
             --only-rerun 'API Error: 529' \
             --only-rerun 'overloaded_error' \
