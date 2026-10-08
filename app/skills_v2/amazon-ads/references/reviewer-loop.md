@@ -252,10 +252,9 @@ patches only:
 | `[global] no priority table at end` | Append the 汇总建议 table |
 | `[global] used "机械状态" jargon` | Replace with plain status line per anchor |
 
-After fixes, spawn the reviewer again. The reviewer reads the
-*updated* audit and re-checks. Each iteration writes a new
-`REVIEW_<date>_iter<N>.md` (iter1, iter2, …) — disk shows the
-full review history; the hook reads the latest one.
+After fixes, finish. **Do not spawn the reviewer again**: there is one
+review pass, its `REVIEW_<date>_iter1.md` stays on disk as the record,
+and the gaps you fixed are not re-checked.
 
 ## What does NOT trigger a fix loop
 
@@ -289,7 +288,7 @@ and the user instructs the agent to **execute** the plan, the agent:
    prompt).
 5. Reads the resulting `EXEC_REVIEW_<date>_iter<N>.md`.
 6. Fixes gaps on the live console (NOT in the audit Markdown — the
-   audit's recommendations are frozen at this point) and re-runs.
+   audit's recommendations are frozen at this point).
 7. One execution review: act on its verdict, then finish. There is
    no second round.
 
