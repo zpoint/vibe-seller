@@ -38,7 +38,7 @@ from app.ai.stop_gates.ad_completeness_rules import _COMBO_HEADER_RE
 from app.models.ad_declaration import KIND_INVESTIGATE
 
 # A table row telling someone to MOVE money: the shape that becomes an
-# actionable decision row in the review console. Same vocabulary the
+# actionable decision row in the report. Same vocabulary the
 # cooldown gate grades on.
 _MOVE_RE = re.compile(
     r'提高至|下调至|降至|下调到|提高出价|降低出价|加投|减投|暂停|否定'
@@ -47,8 +47,8 @@ _MOVE_RE = re.compile(
 MISSING_DECLARATION_GAP = (
     '[基线] 这份广告报告没有声明任务范围。开工前必须先调用 '
     '`vibe_seller_declare_ad_task` 说明这次是 audit / create / execute / '
-    'investigate，以及涉及哪些市场和活动——声明决定了本次要覆盖多少、'
-    '以及用户会看到怎样的复核台。声明不能事后补写，所以现在请在结果里'
+    'investigate，以及涉及哪些市场和活动——声明决定了本次要覆盖多少。'
+    '声明不能事后补写，所以现在请在结果里'
     '说明这次实际做了什么，下一轮开工前先声明。'
 )
 
@@ -123,8 +123,8 @@ def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
             gaps.append(
                 f'[基线] 本次声明是 investigate（只读数据、不提改动），但报告里'
                 f'有 {n} 行给出了调价/暂停/否定这类可执行建议。二选一：把这些'
-                '建议去掉、只回答问题；或者承认这本来就是一次 audit——那样'
-                '用户才会拿到复核台去逐行确认。选后者就再调用一次 '
+                '建议去掉、只回答问题；或者承认这本来就是一次 audit。'
+                '选后者就再调用一次 '
                 '`vibe_seller_declare_ad_task`，kind 改成 "audit"，'
                 'scope 保持不变或更窄（市场只能不变或变少、活动只能不变或'
                 '变少）——这是本轮唯一允许的改 kind 动作，因为它只会让你'

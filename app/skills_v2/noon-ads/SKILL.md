@@ -16,10 +16,9 @@ gates: [ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
 a precondition, not a courtesy: a report with no declaration behind it is
 refused.
 
-Two things follow from the declaration and cannot be changed afterwards —
-how much the completeness gate asks of you, and whether the user gets a
-review console. Read them off what the person actually asked for, not off
-what you expect to find once you look.
+What follows from the declaration cannot be changed afterwards: how much
+the completeness gate asks of you. Read it off what the person actually
+asked for, not off what you expect to find once you look.
 
 | They asked for | `kind` | `scope` |
 |---|---|---|
@@ -35,13 +34,12 @@ what you expect to find once you look.
 person wants is a FIGURE — what did we spend, what is our ROAS, how did
 last month go — that is `investigate`, however many markets it spans:
 you are reading, not proposing. If they want to know what to CHANGE, or
-asked "is this right?", that is `audit`, and it opens a review console.
+asked "is this right?", that is `audit`.
 Observed live: a plain "how much did we spend on ads this month, and
 what came back?" was declared a whole-store `audit`, which put five
 marketplaces of drill work behind a question that wanted four numbers. And the other way round, observed in
 CI: "review the keyword bids on <campaign>" was declared `investigate`,
-so the bid recommendations it produced reached the user with no console
-to approve them on.
+so the bid recommendations it produced contradicted its own declaration.
 
 **If you got it wrong, correct it upward.** If you declared
 `investigate` and the work turned out to produce decisions — a table
@@ -49,7 +47,7 @@ telling someone to raise, cut, pause or negate — call
 `vibe_seller_declare_ad_task` again with `kind: "audit"` and the same
 scope, or a narrower one. That is the ONLY kind change allowed inside a
 turn, and it is allowed because it only ever makes you owe more: the
-coverage obligation appears and the user gets the console. Going the
+coverage obligation appears. Going the
 other way (`audit` → `investigate`), adding a marketplace, or widening
 the campaign list are all still refused, and still need a new message
 from the user. Do not instead delete your recommendations to fit the
@@ -89,9 +87,8 @@ declaration changes. Two cases you will hit often:
 - "现在把刚创建的广告复核一下" after a `create` phase → declare `audit`,
   and its scope may name the campaigns you created earlier in this same
   task.
-- The review console submits the user's decisions back as a follow-up
-  message → declare `execute`, scoped to the campaigns that submission
-  actually names.
+- The user replies with which of the suggested changes to make → declare
+  `execute`, scoped to the campaigns they named.
 
 ---
 
