@@ -7,7 +7,7 @@ Spawns `claude` as a subprocess with bidirectional stream-json protocol:
   --permission-mode plan|bypassPermissions (native plan mode or full access)
   --permission-prompt-tool stdio (control protocol for hooks)
   --add-dir ~/.vibe-seller     (workspace with skills + knowledge)
-  --append-system-prompt       (injects store context)
+  --append-system-prompt-file  (injects store context, by file)
 
 Native plan mode flow:
   1. Agent starts with --permission-mode plan (read-only tools)
@@ -311,7 +311,6 @@ class AgentSession(
 
             # Build system prompt (assembled by build_system_extra)
             system_prompt = self.system_prompt_extra or ''
-
             if AGENT_DEBUG:
                 logger.info(
                     'AGENT_DEBUG [%s] system_prompt (%d chars):\n%s',
@@ -325,8 +324,9 @@ class AgentSession(
                     self.prompt[:2000],
                 )
 
-            if system_prompt.strip():
-                append_system_prompt(cmd, system_prompt, self.task_id, ws_dir)
+            append_system_prompt(
+                cmd, system_prompt, self.task_id, self.task_dir
+            )
 
         # Prepare env
         env = ProfileManager.get_env_for_profile(self.profile_id)

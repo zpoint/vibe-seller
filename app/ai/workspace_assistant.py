@@ -11,6 +11,7 @@ import json
 import logging
 
 from app.ai.claude_backend import AgentSession
+from app.ai.claude_backend_utils import append_system_prompt
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.events.bus import event_bus
 from app.platform import prepend_to_path, venv_bin_dir
@@ -207,9 +208,11 @@ class WorkspaceAgentSession(AgentSession):
             'mcp__playwright__*,mcp__browser-use__*',
         ])
 
-        system_prompt = self.system_prompt_extra or ''
-        if system_prompt.strip():
-            cmd.extend(['--append-system-prompt', system_prompt])
+        # By file: the store list grows with the account, and the
+        # Windows command line is capped (see append_system_prompt).
+        append_system_prompt(
+            cmd, self.system_prompt_extra or '', self.task_id, None
+        )
 
         logger.info(
             'Starting workspace assistant %s (profile=%s)',
