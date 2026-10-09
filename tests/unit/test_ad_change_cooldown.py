@@ -167,6 +167,32 @@ class TestCooldownGate:
             is None
         )
 
+    def test_an_english_move_on_a_fresh_change_is_denied(self, tmp_path):
+        # The report follows the user's language; a cooldown that read
+        # only Chinese let "Lower bid to 1.80" through untouched.
+        rows = (
+            '| widget red | Exact | 2.10 | 40 | 80.00 | 4 | 5.00 | '
+            'Lower bid to 1.80 |\n'
+        )
+        deny = cooldown.check(
+            _report(rows), ads_root=self._root(tmp_path), today=TODAY
+        )
+        assert deny is not None
+        assert 'widget red' in deny.reason
+
+    def test_an_english_hold_that_names_the_change_passes(self, tmp_path):
+        rows = (
+            '| widget red | Exact | 2.10 | 40 | 80.00 | 4 | 5.00 | '
+            'Keep — raised 2 days ago, still in cooldown; lower to 1.80 '
+            'only if a full week of data agrees |\n'
+        )
+        assert (
+            cooldown.check(
+                _report(rows), ads_root=self._root(tmp_path), today=TODAY
+            )
+            is None
+        )
+
     def test_an_untouched_target_may_still_be_adjusted(self, tmp_path):
         rows = (
             '| widget blue | Exact | 1.00 | 9 | 9.00 | 0 | — | 下调至 0.80 |\n'

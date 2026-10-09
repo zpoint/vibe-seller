@@ -31,18 +31,14 @@ work started.
 
 from __future__ import annotations
 
-import re
-
 from app.ai import ad_declaration
 from app.ai.stop_gates.ad_completeness_rules import _COMBO_HEADER_RE
+from app.ai.stop_gates.ad_moves import MOVE_RE
 from app.models.ad_declaration import KIND_INVESTIGATE
 
 # A table row telling someone to MOVE money: the shape that becomes an
 # actionable decision row in the report. Same vocabulary the
 # cooldown gate grades on.
-_MOVE_RE = re.compile(
-    r'提高至|下调至|降至|下调到|提高出价|降低出价|加投|减投|暂停|否定'
-)
 
 MISSING_DECLARATION_GAP = (
     '[基线] 这份广告报告没有声明任务范围。开工前必须先调用 '
@@ -86,7 +82,7 @@ def actionable_rows(parts: list[str]) -> int:
     for part in parts:
         for line in part.splitlines():
             stripped = line.strip()
-            if stripped.startswith('|') and _MOVE_RE.search(stripped):
+            if stripped.startswith('|') and MOVE_RE.search(stripped):
                 n += 1
     return n
 

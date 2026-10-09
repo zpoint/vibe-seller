@@ -153,13 +153,18 @@ read, routing falls back to the browser skill — the one every store can
 use.
 
 Routing decides what a task *can* load; the prompt says which path it is
-*on*. Once any store is authorized, a store task is told its own path
-(API, or seller console) and to keep to it even where its task or plan
-names the other, and a no-store task — a schedule's planner, an
-all-stores orchestrator — sees each store labelled `ads: API` or
-`ads: seller console`. This matters for a fanout: its plan is written
-once and handed verbatim to every store. Until a store is authorized
-none of this is said. `tests/e2e/test_ads_mixed_fanout.py` runs one
+*on*. Once any store is authorized, an authorized store's task is told
+to work its Amazon ads over the API even where its task or plan names the
+console; any other store's task is told only that the API refuses it. A
+no-store task — a schedule's planner, an all-stores orchestrator — sees
+each store labelled `ads: API` or `ads: not authorized`. This matters for
+a fanout: its plan is written once and handed verbatim to every store.
+Until a store is authorized none of this is said.
+
+An unauthorized store hears a fact, never a skill name: it may sell on
+noon or on nothing recorded, and telling it to use the Amazon browser
+skill made it treat any ad request as Amazon ad work and run that skill's
+full audit procedure. `tests/e2e/test_ads_mixed_fanout.py` runs one
 schedule over an API store and a console store against a fake service.
 
 ## Run Data (`store-data/`)

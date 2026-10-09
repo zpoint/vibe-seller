@@ -54,6 +54,7 @@ import time
 
 import pytest
 
+from app.ai.stop_gates.ad_declaration_checks import actionable_rows
 from tests.e2e.conftest import BASE_URL
 from tests.e2e.e2e_helpers import (
     PIPELINE_TIMEOUT,
@@ -206,9 +207,21 @@ class TestScopeSurvivesAFollowUp:
 
         assert [d['seq'] for d in decls] == sorted(d['seq'] for d in decls)
         review = decls[-1]
-        assert review['kind'] == 'audit', (
-            f'a bid review is an audit — it is what opens the console: {review}'
-        )
+        # The kind is held to what the phase delivered — the one rule the
+        # server enforces about it (``declaration_gaps``). `audit` is the
+        # expected reading of "review the bids", but a review that only
+        # lays out the figures and recommends nothing is an honest
+        # `investigate`. Observed in CI on MiniMax: exactly that, and the
+        # test failed it for a choice the contract allows. What must not
+        # happen is `investigate` handing out decisions.
+        assert review['kind'] in ('audit', 'investigate'), review
+        if review['kind'] == 'investigate':
+            report = results[-1]['content'] or ''
+            moves = actionable_rows([report])
+            assert moves == 0, (
+                f'declared investigate yet recommended {moves} change(s); '
+                f'decisions are an audit: {review}\n{report}'
+            )
         assert review['user_turn'] >= 2, (
             f'the review declaration was made on the opening turn, so it '
             f'cannot be a response to the narrowing follow-up: {decls}'

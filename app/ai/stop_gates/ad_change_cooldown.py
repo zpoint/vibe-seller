@@ -33,18 +33,13 @@ from pathlib import Path
 import re
 
 from app.ai.stop_gates import GateDeny, ad_scope
+from app.ai.stop_gates.ad_moves import HOLD_RE, MOVE_RE
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
 from app.config import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
 
 GATE_NAME = 'ad_change_cooldown'
-
-# A recommendation that MOVES a bid or cuts a target. 维持 is absent by
-# design — holding is what the cooldown asks for.
-_MOVE_RE = re.compile(
-    r'提高至|下调至|降至|下调到|提高出价|降低出价|加投|减投|暂停|否定'
-)
 
 # A markdown table separator row, e.g. '|---|---|'. Marks the end of the
 # header, which is where the key column is resolved.
@@ -344,13 +339,13 @@ def check(
         if hit is None:
             continue
         rest = '|'.join(cells[key_col + 1 :])
-        if not _MOVE_RE.search(rest):
+        if not MOVE_RE.search(rest):
             continue
         action, ago = hit
         # A hold that NAMES the recent change is exactly what we want, so
         # a row mentioning the date/window is not a violation even if it
         # also contains a move verb in its explanation.
-        if re.search(r'冷却|观察期|刚(调|改|动)过|天前', rest):
+        if HOLD_RE.search(rest):
             continue
         where = f'{campaign} · ' if campaign else ''
         layer_cn = '搜索词层' if layer == LAYER_SEARCH_TERM else '定向层'
