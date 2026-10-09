@@ -215,9 +215,38 @@ begin
     and FileExists(ExpandConstant('{app}\.venv\pyvenv.cfg'));
 end;
 
+var
+  // Playwright version in the venv being replaced, captured in
+  // PrepareToInstall before [InstallDelete] removes .venv. Empty on a
+  // fresh install (or when the old venv was broken).
+  PrevPlaywrightVersion: String;
+
+function InstalledPlaywrightVersion: String;
+var
+  FindRec: TFindRec;
+  Name: String;
+begin
+  // The version lives in the dist-info dir name
+  // (playwright-1.63.0.dist-info); no Python needed to read it.
+  Result := '';
+  if FindFirst(ExpandConstant(
+      '{app}\.venv\Lib\site-packages\playwright-*.dist-info'),
+      FindRec) then begin
+    try
+      Name := FindRec.Name;
+      Delete(Name, 1, Length('playwright-'));
+      Result := Copy(Name, 1, Length(Name) - Length('.dist-info'));
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 procedure SetStatus(const Msg: String);
 begin
-  // Best-effort: no wizard UI in /VERYSILENT — status is cosmetic.
+  // Best-effort: no wizard UI in /VERYSILENT — status is cosmetic. Also
+  // logged so a /LOG= file shows which branch an install took.
+  Log('Status: ' + Msg);
   try
     WizardForm.StatusLabel.Caption := Msg;
   except
@@ -303,6 +332,7 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Rc: Integer;
+  NewVer: String;
 begin
   if CurStep = ssPostInstall then begin
     // Build the runtime venv HERE (not in [Run]) so a failure is verified
@@ -323,7 +353,22 @@ begin
     // is present (re-run the installer, or `playwright install chromium`
     // in the venv). A follow-up switches to the user's installed
     // Chrome/Edge, removing this step.
-    SetStatus('Downloading browser engine (first run only)...');
+    //
+    // This runs on EVERY install, by design: each build ships the
+    // latest Playwright, and a new Playwright needs its own Chromium
+    // revision. With an unchanged Playwright `playwright install` is a
+    // sub-second no-op; after a bump it downloads ~250 MB. Say which,
+    // so an upgrade's download isn't labelled "first run only".
+    NewVer := InstalledPlaywrightVersion;
+    if PrevPlaywrightVersion = '' then
+      SetStatus('Downloading browser engine (Playwright ' + NewVer +
+        ')...')
+    else if PrevPlaywrightVersion <> NewVer then
+      SetStatus('Upgrading browser engine: Playwright ' +
+        PrevPlaywrightVersion + ' -> ' + NewVer + '...')
+    else
+      SetStatus('Checking browser engine (Playwright ' + NewVer +
+        ')...');
     Exec(ExpandConstant('{app}\.venv\Scripts\playwright.exe'),
       'install chromium', '', SW_HIDE, ewWaitUntilTerminated, Rc);
   end;
@@ -339,6 +384,10 @@ begin
   // Python. Proactively stop the daemon and kill+WAIT for anything
   // launched from the install dir so the overwrite AND the venv rebuild
   // succeed. No-ops on a fresh install.
+  //
+  // Record the outgoing Playwright version first — [InstallDelete]
+  // wipes .venv right after this returns.
+  PrevPlaywrightVersion := InstalledPlaywrightVersion;
   Exec(ExpandConstant('{app}\.venv\Scripts\vibe-seller.exe'), 'stop',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   KillAppProcesses('');
