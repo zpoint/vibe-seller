@@ -31,6 +31,7 @@ CHECK_ONLY=false
 HELP=false
 PRINT_PATH=false
 TEST_PYPI=false
+NIGHTLY=false
 VERSION=""
 # `while + shift` so we can take an argument after --version. Other
 # flags stay positional-agnostic.
@@ -40,6 +41,7 @@ while [ $# -gt 0 ]; do
         --check-only)  CHECK_ONLY=true; DEV=true ;;  # check-only is dev-only
         --print-path)  PRINT_PATH=true ;;  # emit the tool PATH, for start.sh
         --test-pypi)   TEST_PYPI=true ;;
+        --nightly)     NIGHTLY=true ;;
         --version)     VERSION="${2:-}"; shift ;;
         --version=*)   VERSION="${1#*=}" ;;
         --help|-h)     HELP=true ;;
@@ -344,6 +346,10 @@ Other flags:
                     are still pulled from PyPI as a fallback index.
   --version <ver>   Pin to a specific version (e.g. `0.0.1` or `v0.0.1`).
                     Combine with --test-pypi to test a release candidate.
+  --nightly         Install the nightly channel: the newest nightly build
+                    (or stable, if a newer stable exists). `vibe-seller
+                    upgrade` then keeps it on nightly; `vibe-seller
+                    upgrade --stable` goes back.
   --check-only      Check dev-mode dependencies without installing.
                     Used by start.sh during local development.
   --print-path      Print the PATH (user-local tool dirs prepended)
@@ -753,6 +759,36 @@ _install_via_pip() {
     fi
 
     local spec="vibe-seller"
+    if [[ "$NIGHTLY" == true ]]; then
+        if [[ -n "$VERSION" ]]; then
+            _error "--nightly picks the version itself; drop --version"
+            exit 1
+        fi
+        # Pin the exact version rather than `--prerelease=allow`, which
+        # would also let alpha builds of dependencies in (see above).
+        # Same pick as `vibe-seller upgrade`: the highest stable or
+        # nightly (`X.Y.Z.dev<timestamp>`) release on PyPI.
+        VERSION=$(
+            curl -fsS https://pypi.org/pypi/vibe-seller/json | python3 -c '
+import json, re, sys
+rels = json.load(sys.stdin)["releases"]
+def key(v):
+    m = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)(?:\.dev(\d{8,}))?", v)
+    if not m:
+        return None
+    a, b, c, dev = m.groups()
+    return (int(a), int(b), int(c), 0 if dev else 1, int(dev or 0))
+live = [v for v, f in rels.items() if f and not all(x.get("yanked") for x in f)]
+ok = [v for v in live if key(v)]
+print(max(ok, key=key) if ok else "")
+'
+        ) || { _error "couldn't read vibe-seller releases from PyPI"; exit 1; }
+        if [[ -z "$VERSION" ]]; then
+            _error "no vibe-seller release found on PyPI"
+            exit 1
+        fi
+        _info "Channel: nightly"
+    fi
     if [[ -n "$VERSION" ]]; then
         spec="vibe-seller==$VERSION"
         _info "Version pin: $VERSION"

@@ -127,6 +127,8 @@ vibe-seller start
 
 Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade`. Uninstall: `uv tool uninstall vibe-seller`.
 
+<sub>Nightly builds (published only when `main` has new commits; may be unstable): `curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`. On Windows, set `$env:VIBE_SELLER_CHANNEL='nightly'` before the PowerShell one-liner, or download the installer from the [nightly release](https://github.com/zpoint/vibe-seller/releases/tag/nightly). A nightly install is offered newer nightlies or stable releases; a stable install is never offered a nightly. Back to stable: `vibe-seller upgrade --stable`.</sub>
+
 <sub>Prerequisites (auto-handled by <code>install.sh</code>): Python 3.11+ via <a href="https://docs.astral.sh/uv/"><code>uv</code></a>, Node.js 22+.</sub>
 
 </details>

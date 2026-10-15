@@ -1,0 +1,352 @@
+name: Nightly
+
+# Publishes a nightly build of `main` every day at 02:00 Beijing time
+# (18:00 UTC) — but only when `main` moved since the last nightly.
+#
+# A nightly never reaches a stable install:
+#   - Version `<next patch>.dev<UTC YYYYMMDDHHMM>` (e.g. after v0.2.0:
+#     `0.2.1.dev202610161800`). PEP 440 makes it a pre-release that sorts
+#     above the last stable and below the next one, so pip/uv never pick
+#     it without an explicit pin, and PyPI's `info.version` (what a stable
+#     install's update check reads) keeps naming the stable release.
+#   - The Windows installer goes on ONE rolling GitHub prerelease tagged
+#     `nightly`, marked prerelease and not-latest, replaced every night.
+#     `releases/latest` (stable installs, install.ps1) never returns it.
+#   - The `nightly` tag has no digit, so setuptools-scm (which only reads
+#     tags matching `*[0-9]*`) never derives a stable version from it.
+# A nightly install (see app/release_channel.py) is offered the highest
+# newer nightly or stable build.
+#
+# Stages, fail-fast:
+#   1. plan      Skip when `main` is the commit the `nightly` tag already
+#                points at (unless `force`); compute the version.
+#   2. test      The full PR CI suite (ci.yml) on this commit. Nothing is
+#                published if it fails.
+#   3. build     Wheel (version pinned via SETUPTOOLS_SCM_PRETEND_VERSION)
+#                and, in parallel, the Windows installer.
+#   4. publish   PyPI (scheduled runs, or dispatch target=pypi) or TestPyPI
+#                (dispatch target=testpypi — a dry run that touches neither
+#                PyPI nor the `nightly` release).
+#   5. verify    Fresh runner: install that exact version from the index,
+#                run tests/releases/verify_install.sh; on PyPI also assert
+#                `info.version` still names a stable release.
+#   6. release   PyPI runs only: move the `nightly` tag to this commit and
+#                replace the `nightly` prerelease (wheel + .exe).
+#
+# Prerequisites (one-time) — add a SECOND trusted publisher next to the
+# release.yml one, same project/owner/repo/environment:
+#
+#   PyPI (https://pypi.org/manage/project/vibe-seller/settings/publishing/)
+#     workflow: nightly.yml   environment: pypi
+#   TestPyPI (https://test.pypi.org/manage/project/vibe-seller/settings/publishing/)
+#     workflow: nightly.yml   environment: test-pypi
+
+on:
+  schedule:
+    - cron: '0 18 * * *'  # 02:00 Asia/Shanghai
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Publish to (testpypi = dry run, no GitHub release)'
+        type: choice
+        options: [pypi, testpypi]
+        default: pypi
+      force:
+        description: 'Publish even if main has not moved since the last nightly'
+        type: boolean
+        default: false
+
+# One nightly at a time; a second run waits instead of racing the tag.
+concurrency:
+  group: nightly-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Plan (skip if main is unchanged)
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.plan.outputs.should_run }}
+      version: ${{ steps.plan.outputs.version }}
+      sha: ${{ steps.plan.outputs.sha }}
+      last_sha: ${{ steps.plan.outputs.last_sha }}
+      target: ${{ steps.plan.outputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need every tag: last nightly + last v*
+
+      - name: Compare with the last nightly, compute the version
+        id: plan
+        env:
+          FORCE: ${{ inputs.force || false }}
+          TARGET: ${{ inputs.target || 'pypi' }}
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          LAST=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "last_sha=$LAST" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          if [ "$SHA" = "$LAST" ] && [ "$FORCE" != "true" ]; then
+            echo "main ($SHA) is already the last nightly — nothing to publish."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
+          BASE=${BASE#v}
+          if ! [[ "$BASE" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::last stable tag v$BASE is not X.Y.Z"; exit 1
+          fi
+          NEXT="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+          VERSION="${NEXT}.dev$(date -u +%Y%m%d%H%M)"
+          echo "last stable v$BASE -> nightly $VERSION ($SHA, previous nightly ${LAST:-none})"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test (full CI)
+    needs: plan
+    if: needs.plan.outputs.should_run == 'true'
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  build:
+    name: Build wheel
+    needs: [plan, test]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+          run_install: false
+
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Stage built frontend into the package
+        run: |
+          rm -rf app/static
+          mkdir -p app/static
+          cp -r frontend/dist/. app/static/
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build wheel (wheel only — no 10MB sdist every night)
+        run: |
+          python -m pip install --upgrade build
+          SETUPTOOLS_SCM_PRETEND_VERSION="$VERSION" \
+            python -m build --wheel --outdir dist
+
+      - name: Verify wheel version + bundled frontend
+        run: |
+          python - <<'PY'
+          import glob, os, zipfile
+          (wheel,) = glob.glob('dist/*.whl')
+          assert f"-{os.environ['VERSION']}-" in wheel, wheel
+          with zipfile.ZipFile(wheel) as z:
+              assert 'app/static/index.html' in z.namelist(), 'no web UI'
+          print('OK', wheel)
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-wheel
+          path: dist/
+
+  build-windows-installer:
+    name: Build Windows installer
+    needs: [plan, test]
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Build installer
+        shell: pwsh
+        run: .\installer\windows\build.ps1 -AppVersion '${{ needs.plan.outputs.version }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightly-installer
+          path: installer/windows/out/VibeSeller-Setup.exe
+          if-no-files-found: error
+
+  publish-testpypi:
+    name: Publish to TestPyPI (dry run)
+    needs: [plan, build, build-windows-installer]
+    if: needs.plan.outputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: test-pypi
+      url: https://test.pypi.org/p/vibe-seller
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-wheel
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [plan, build, build-windows-installer]
+    if: needs.plan.outputs.target == 'pypi'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/vibe-seller
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-wheel
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  verify:
+    name: Verify install from the index
+    needs: [plan, publish-testpypi, publish-pypi]
+    # Exactly one publish job ran; the other was skipped.
+    if: >-
+      always() && needs.plan.outputs.should_run == 'true' &&
+      (needs.publish-pypi.result == 'success' ||
+       needs.publish-testpypi.result == 'success')
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      TARGET: ${{ needs.plan.outputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - name: Wait for the simple index to list the version
+        run: |
+          if [ "$TARGET" = testpypi ]; then
+            INDEX=https://test.pypi.org/simple/vibe-seller/
+          else
+            INDEX=https://pypi.org/simple/vibe-seller/
+          fi
+          for i in $(seq 1 60); do
+            if curl -fsS "$INDEX" | grep -qF "$VERSION"; then
+              echo "visible after ${i} tries"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::$VERSION not on $INDEX after 120s"; exit 1
+
+      - name: Stable installs still see a stable release
+        if: needs.plan.outputs.target == 'pypi'
+        run: |
+          LATEST=$(curl -fsS https://pypi.org/pypi/vibe-seller/json | jq -r .info.version)
+          echo "PyPI info.version = $LATEST"
+          case "$LATEST" in
+            *dev*) echo "::error::PyPI now reports a nightly as latest"; exit 1 ;;
+          esac
+
+      - name: Install that exact version
+        run: |
+          if [ "$TARGET" = testpypi ]; then
+            ./install.sh --test-pypi --version "$VERSION"
+          else
+            ./install.sh --version "$VERSION"
+          fi
+
+      - name: Smoke-test (version + API round-trips)
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller start --port 7777
+          bash tests/releases/verify_install.sh "$VERSION"
+
+      - name: Stop server + dump logs
+        if: always()
+        run: |
+          export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+          vibe-seller stop --port 7777 || true
+          tail -30 ~/.vibe-seller/logs/backend_7777.log 2>/dev/null || true
+
+  github-release:
+    name: Replace the rolling `nightly` prerelease
+    needs: [plan, verify, build-windows-installer]
+    if: needs.plan.outputs.target == 'pypi'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.plan.outputs.version }}
+      SHA: ${{ needs.plan.outputs.sha }}
+      LAST: ${{ needs.plan.outputs.last_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-wheel
+          path: dist/
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: nightly-installer
+          path: dist-win/
+
+      - name: Move the tag, replace the release
+        # The release `name` is the exact version: the Windows tray reads
+        # it to compare (app/windows_update.py). Pushing `nightly` does
+        # not trigger release.yml, which only runs on `v*` tags.
+        run: |
+          set -euo pipefail
+          git tag -f nightly "$SHA"
+          git push -f origin refs/tags/nightly
+          gh release delete nightly --yes 2>/dev/null || true
+          {
+            echo "Nightly build of \`main\` at ${SHA:0:12}. Not a stable release."
+            echo
+            echo "- macOS / Linux: \`curl -sSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash -s -- --nightly\`"
+            echo "- Windows: download \`VibeSeller-Setup.exe\` below."
+            echo "- Back to stable: \`vibe-seller upgrade --stable\`, or install the latest release."
+            if [ -n "$LAST" ]; then
+              echo
+              echo "Changes since the previous nightly: https://github.com/${{ github.repository }}/compare/${LAST}...${SHA}"
+            fi
+          } > notes.md
+          gh release create nightly \
+            --prerelease \
+            --latest=false \
+            --verify-tag \
+            --title "$VERSION" \
+            --notes-file notes.md \
+            dist/*.whl dist-win/VibeSeller-Setup.exe

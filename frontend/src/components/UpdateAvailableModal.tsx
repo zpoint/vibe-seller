@@ -37,6 +37,11 @@ export function UpdateAvailableModal({ result, onClose }: Props) {
         <div className="p-6 pb-4 border-b border-gray-100">
           <h2 id="update-available-title" className="text-lg font-semibold text-gray-900">
             {t('updateCheck.title')}
+            {result.channel === 'nightly' && (
+              <span className="ml-2 align-middle rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                {t('updateCheck.nightlyBadge')}
+              </span>
+            )}
           </h2>
           <p className="mt-1 text-sm text-gray-600">
             {t('updateCheck.versionLine', {

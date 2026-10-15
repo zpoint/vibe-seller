@@ -14,6 +14,12 @@ the runtime venv from the new wheels. It is NOT a code-only patch — you
 get exactly what that release pinned. User data under
 ``%LOCALAPPDATA%\\vibe-seller`` (DB, stores, logs) is left untouched.
 
+Channels (``app/release_channel.py``): a stable install only reads
+``releases/latest``, which GitHub never points at a prerelease, so it
+can't be offered a nightly. A nightly install also reads the rolling
+``nightly`` prerelease (its ``name`` is the exact nightly version) and
+takes whichever of the two is newer.
+
 Returns plain dicts (never raises to the caller) so the tray can show a
 result and, on failure, a manual-download link.
 """
@@ -30,8 +36,12 @@ import threading
 import time
 import urllib.request
 
-from packaging.version import InvalidVersion, Version
-
+from app.release_channel import (
+    NIGHTLY_TAG,
+    best_upgrade,
+    channel_of,
+    is_newer as is_newer,
+)
 from app.version import get_version
 
 logger = logging.getLogger(__name__)
@@ -43,6 +53,10 @@ MANUAL_URL = f'https://github.com/{REPO}/releases/latest'
 # it cumulatively), shown in the tray's update dialog.
 RELEASES_PAGE = f'https://github.com/{REPO}/releases'
 _DEFAULT_API = f'https://api.github.com/repos/{REPO}/releases/latest'
+_NIGHTLY_API = (
+    f'https://api.github.com/repos/{REPO}/releases/tags/{NIGHTLY_TAG}'
+)
+NIGHTLY_PAGE = f'https://github.com/{REPO}/releases/tag/{NIGHTLY_TAG}'
 _RELEASES_LIST_API = f'https://api.github.com/repos/{REPO}/releases'
 
 # One upgrade at a time. The tray spawns a daemon thread per "Check for
@@ -57,46 +71,36 @@ def _releases_url() -> str:
     return os.environ.get('VIBE_SELLER_RELEASES_URL') or _DEFAULT_API
 
 
+def _nightly_url() -> str:
+    """Rolling nightly-release source. Overridable like the stable one."""
+    return os.environ.get('VIBE_SELLER_NIGHTLY_RELEASES_URL') or _NIGHTLY_API
+
+
 def _open(url: str, timeout: float):
     # GitHub's API rejects requests without a User-Agent; file:// ignores it.
     req = urllib.request.Request(url, headers={'User-Agent': 'vibe-seller'})
     return urllib.request.urlopen(req, timeout=timeout)  # noqa: S310
 
 
-def is_newer(latest: str, current: str) -> bool:
-    """True if *latest* is a strictly newer version than *current*.
-
-    PEP 440 aware (``packaging``), so a release (``0.1.0``) correctly
-    beats a dev build of the same line (``0.1.0.dev3+g<sha>``). On an
-    unparseable version, be conservative and report "not newer".
-    """
-    try:
-        return Version(latest) > Version(current)
-    except InvalidVersion:
-        return False
-
-
 def _is_url(s: str) -> bool:
     return s.startswith(('http://', 'https://', 'file://'))
 
 
-def _fetch_release() -> dict:
-    """Read the latest-release JSON from the configured source.
+def _fetch_release(src: str | None = None) -> dict:
+    """Read a release JSON from *src* (default: the latest-release source).
 
     Accepts an http(s)/file:// URL or a plain local filesystem path
     (the latter is what tests/CI use for a mock release — avoids
     fragile file:// URI construction across shells)."""
-    src = _releases_url()
+    src = src or _releases_url()
     if not _is_url(src):
         return json.loads(Path(src).read_text(encoding='utf-8'))
     with _open(src, timeout=15) as resp:
         return json.loads(resp.read().decode())
 
 
-def check_for_update() -> dict | None:
-    """Return ``{'version', 'url'}`` for a newer release, else ``None``."""
-    rel = _fetch_release()
-    tag = (rel.get('tag_name') or '').lstrip('v')
+def _installer_offer(rel: dict, version: str) -> dict | None:
+    """``{'version', 'url'}`` when *rel* carries the installer asset."""
     assets = rel.get('assets') or []
     if isinstance(assets, dict):  # PowerShell may unwrap a 1-item array
         assets = [assets]
@@ -108,11 +112,34 @@ def check_for_update() -> dict | None:
         ),
         None,
     )
-    if not tag or not asset or not asset.get('browser_download_url'):
+    if not version or not asset or not asset.get('browser_download_url'):
         return None
-    if not is_newer(tag, get_version()):
+    return {'version': version, 'url': asset['browser_download_url']}
+
+
+def check_for_update() -> dict | None:
+    """Return ``{'version', 'url'}`` for a newer release, else ``None``."""
+    current = get_version()
+    rel = _fetch_release()
+    stable = _installer_offer(rel, (rel.get('tag_name') or '').lstrip('v'))
+    if channel_of(current) != 'nightly':
+        # Unchanged pre-nightly rule (stable, and dev/PR builds that CI
+        # upgrades): take releases/latest when it is newer.
+        if stable and is_newer(stable['version'], current):
+            return stable
         return None
-    return {'version': tag, 'url': asset['browser_download_url']}
+    offers = [stable]
+    # Best effort: a missing/unreachable nightly still lets the stable
+    # release through.
+    try:
+        nightly = _fetch_release(_nightly_url())
+    except (OSError, ValueError):
+        nightly = {}
+    if nightly.get('prerelease'):
+        offers.append(_installer_offer(nightly, nightly.get('name') or ''))
+    by_version = {o['version']: o for o in offers if o}
+    best = best_upgrade(list(by_version), current)
+    return by_version[best] if best else None
 
 
 def fetch_release_notes(current: str, *, limit: int = 5) -> list[dict]:
@@ -231,6 +258,11 @@ def upgrade(*, silent: bool = False) -> dict:
         }
     except Exception as exc:  # noqa: BLE001 — surfaced to the user, not raised
         logger.exception('Windows update failed')
-        return {'status': 'error', 'error': str(exc), 'manual_url': MANUAL_URL}
+        manual = (
+            NIGHTLY_PAGE
+            if channel_of(get_version()) == 'nightly'
+            else MANUAL_URL
+        )
+        return {'status': 'error', 'error': str(exc), 'manual_url': manual}
     finally:
         _upgrade_lock.release()

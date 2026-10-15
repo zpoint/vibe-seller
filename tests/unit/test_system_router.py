@@ -52,6 +52,7 @@ class TestUpdateCheckRoute:
             'dev': False,
             'update_available': False,
             'current_version': '0.6.0',
+            'channel': 'stable',
         }
 
     async def test_pypi_unreachable_returns_not_available(self, monkeypatch):

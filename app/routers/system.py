@@ -14,12 +14,14 @@ import httpx
 from app import telemetry
 from app.browser.ziniao_utils import get_platform
 from app.config import BASE_DIR
+from app.release_channel import channel_of
 from app.telemetry import APP_VERSION
 from app.update_check import (
+    NIGHTLY_PAGE_URL,
     RELEASES_PAGE_URL,
     fetch_latest_pypi_version,
+    fetch_nightly_upgrade,
     fetch_release_notes,
-    is_dev_version,
     is_newer,
 )
 
@@ -96,16 +98,23 @@ async def system_info() -> dict:
 
 async def _compute_update_check() -> dict:
     current = APP_VERSION
-    if is_dev_version(current):
+    channel = channel_of(current)
+    if channel == 'dev':
         return {'dev': True}
 
     async with httpx.AsyncClient() as client:
-        latest = await fetch_latest_pypi_version(client)
+        # Stable keeps PyPI's info.version, which never names a
+        # pre-release — so a stable install can't be offered a nightly.
+        if channel == 'stable':
+            latest = await fetch_latest_pypi_version(client)
+        else:
+            latest = await fetch_nightly_upgrade(client, current)
         if not latest or not is_newer(latest, current):
             return {
                 'dev': False,
                 'update_available': False,
                 'current_version': current,
+                'channel': channel,
             }
         releases = await fetch_release_notes(client, current)
         # Reconcile the two sources: `latest` is PyPI (what `vibe-seller
@@ -118,15 +127,22 @@ async def _compute_update_check() -> dict:
 
     platform = get_platform()
     is_windows = platform == 'windows'
+    # A nightly lives on the rolling prerelease, not on releases/latest.
+    page = (
+        NIGHTLY_PAGE_URL
+        if channel_of(latest) == 'nightly'
+        else RELEASES_PAGE_URL
+    )
     return {
         'dev': False,
         'update_available': True,
         'current_version': current,
         'latest_version': latest,
+        'channel': channel,
         'platform': platform,
         'upgrade_command': None if is_windows else 'vibe-seller upgrade',
-        'download_url': RELEASES_PAGE_URL if is_windows else None,
-        'releases_page_url': RELEASES_PAGE_URL,
+        'download_url': page if is_windows else None,
+        'releases_page_url': page,
         'releases': releases,
     }
 

@@ -819,7 +819,8 @@
     "whatsNew": "What's new",
     "noReleaseNotes": "No release notes provided.",
     "viewFullChangelog": "View full changelog on GitHub",
-    "remindLater": "Remind me later"
+    "remindLater": "Remind me later",
+    "nightlyBadge": "Nightly"
   },
   "vision": {
     "confirmTitle": "Review image generation",
