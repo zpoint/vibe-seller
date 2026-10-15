@@ -20,9 +20,12 @@ overseas endpoint through a working proxy keep it. The browser path
 already strips proxies outright (``app/browser/proxy_env.py``); the
 agent cannot, because some providers are only reachable through one.
 
-Process-env proxies are dropped from the spawn env. A settings.json
-proxy cannot be outranked from the env, so it is blanked through a
-``--settings`` file, which Claude Code ranks above user settings.
+Process-env proxies are dropped from the spawn env. A settings-file
+proxy cannot be outranked from the env, so every proxy key is also
+blanked through a ``--settings`` file, which Claude Code ranks above
+its user, project and local settings. The user settings file is the
+one Claude Code reads: ``$CLAUDE_CONFIG_DIR/settings.json`` when the
+spawn env sets it, else ``~/.claude/settings.json``.
 Neither touches the user's own files or env.
 """
 
@@ -55,10 +58,29 @@ class AgentProxy:
     # 'environment', or the settings.json path that set it.
     source: str
 
+    def display(self) -> str:
+        """Scheme, host and port only: a proxy URL can carry a
+        ``user:password@`` and query tokens, and the notice is logged
+        and persisted to task history."""
+        return redact_proxy_url(self.url)
 
-def _settings_env() -> dict[str, str]:
+
+def redact_proxy_url(url: str) -> str:
+    parts = urlsplit(url if '://' in url else f'http://{url}')
+    host = parts.hostname or '?'
+    if ':' in host:
+        host = f'[{host}]'
     try:
-        data = json.loads(claude_settings_path().read_text(encoding='utf-8'))
+        port = parts.port
+    except ValueError:
+        port = None
+    return f'{parts.scheme}://{host}' + (f':{port}' if port else '')
+
+
+def _settings_env(env: dict[str, str]) -> dict[str, str]:
+    path = claude_settings_path(env)
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
     env = data.get('env') if isinstance(data, dict) else None
@@ -73,7 +95,7 @@ def _bypasses_all(no_proxy: str) -> bool:
 
 def resolve_agent_proxy(env: dict[str, str]) -> AgentProxy | None:
     """The proxy Claude Code will use when spawned with *env*, or None."""
-    settings_env = _settings_env()
+    settings_env = _settings_env(env)
     merged = {**env, **settings_env}
     no_proxy = merged.get('no_proxy') or merged.get('NO_PROXY') or ''
     if _bypasses_all(no_proxy):
@@ -82,7 +104,7 @@ def resolve_agent_proxy(env: dict[str, str]) -> AgentProxy | None:
         url = merged.get(key)
         if url:
             source = (
-                str(claude_settings_path())
+                str(claude_settings_path(env))
                 if settings_env.get(key)
                 else 'environment'
             )
@@ -118,7 +140,7 @@ async def proxy_refuses(url: str) -> bool:
 
 def dead_proxy_notice(proxy: AgentProxy) -> str:
     return (
-        f'Proxy {proxy.url} ({proxy.key}, from {proxy.source}) refuses '
+        f'Proxy {proxy.display()} ({proxy.key}, from {proxy.source}) refuses '
         'connections, so the agent connects directly instead. Start '
         'that proxy, or remove the setting if you no longer use it.'
     )
@@ -144,19 +166,19 @@ async def drop_dead_proxy(
     proxy = resolve_agent_proxy(env)
     if proxy is None or not await proxy_refuses(proxy.url):
         return None
-    # Go fully direct: drop every proxy key from both sources, so a
-    # lower-ranked key (say settings.json HTTP_PROXY under an env
-    # HTTPS_PROXY) cannot step in as the next dead proxy.
+    # Go fully direct: drop every proxy key from the env, and blank them
+    # in a --settings file that outranks every settings file claude
+    # loads (user, project, local) — so no lower-ranked key, from any
+    # file, can step in as the next dead proxy.
     for key in _PROXY_KEYS:
         env.pop(key, None)
-    if any(_settings_env().get(key) for key in _PROXY_KEYS):
-        path = override_file(task_id, task_dir)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({'env': dict.fromkeys(_PROXY_KEYS, '')}),
-            encoding='utf-8',
-        )
-        cmd.extend(['--settings', str(path)])
+    path = override_file(task_id, task_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({'env': dict.fromkeys(_PROXY_KEYS, '')}),
+        encoding='utf-8',
+    )
+    cmd.extend(['--settings', str(path)])
     notice = dead_proxy_notice(proxy)
     logger.warning('%s', notice)
     if notify is not None:

@@ -2,8 +2,10 @@
 
 The invariant: the agent is never spawned with a proxy whose port
 refuses connections (#168), from either source Claude Code reads — the
-spawn env or ``~/.claude/settings.json`` ``env``. A proxy that accepts,
-or that only times out, is left alone.
+spawn env or the ``env`` block of the user settings file it loads
+(``$CLAUDE_CONFIG_DIR/settings.json``, else ``~/.claude/settings.json``).
+A proxy that accepts, or that only times out, is left alone. The notice
+never carries proxy credentials.
 """
 
 import json
@@ -14,14 +16,18 @@ import pytest
 
 from app.ai import agent_proxy
 from app.ai.agent_proxy import drop_dead_proxy, resolve_agent_proxy
+from app.ai.external_config import claude_settings_path
 
 pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
 def settings(monkeypatch, tmp_path):
-    path = tmp_path / 'claude' / 'settings.json'
-    monkeypatch.setattr(agent_proxy, 'claude_settings_path', lambda: path)
+    """The default user settings file, under a tmp HOME."""
+    monkeypatch.setenv('HOME', str(tmp_path / 'home'))
+    monkeypatch.setenv('USERPROFILE', str(tmp_path / 'home'))
+    monkeypatch.delenv('CLAUDE_CONFIG_DIR', raising=False)
+    path = tmp_path / 'home' / '.claude' / 'settings.json'
 
     def write(env: dict) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,7 +73,7 @@ async def test_env_dead_proxy_is_dropped(settings, dead_url, tmp_path):
 
     assert proxy is not None and proxy.source == 'environment'
     assert env == {'PATH': 'x'}
-    assert cmd == ['claude']
+    assert cmd[1] == '--settings'
     assert notify.calls and notify.calls[0][0] == 'system'
     assert dead_url in notify.calls[0][1]
 
@@ -119,6 +125,53 @@ async def test_live_proxy_is_kept(settings, live_url, tmp_path):
 
     assert await drop_dead_proxy(cmd, env, 't1', tmp_path) is None
     assert env == {'HTTPS_PROXY': live_url} and cmd == ['claude']
+
+
+async def test_notice_never_carries_credentials(settings, dead_url, tmp_path):
+    secret = dead_url.replace('://', '://alice:s3cret@') + '/?token=abc#frag'
+    notify = Recorder()
+
+    await drop_dead_proxy(
+        ['claude'], {'HTTPS_PROXY': secret}, 't1', tmp_path, notify
+    )
+
+    text = notify.calls[0][1]
+    assert dead_url in text
+    for leaked in ('alice', 's3cret', 'token', 'abc', 'frag'):
+        assert leaked not in text
+
+
+async def test_profile_config_dir_is_the_settings_file_read(
+    settings, dead_url, tmp_path
+):
+    # The profile points claude at another config dir; the dead proxy
+    # lives there, and ~/.claude/settings.json has none.
+    settings({})
+    custom = tmp_path / 'profile-claude'
+    custom.mkdir()
+    (custom / 'settings.json').write_text(
+        json.dumps({'env': {'HTTPS_PROXY': dead_url}})
+    )
+    env = {'CLAUDE_CONFIG_DIR': str(custom)}
+    cmd = ['claude']
+
+    proxy = await drop_dead_proxy(cmd, env, 't1', tmp_path)
+
+    assert proxy is not None
+    assert proxy.source == str(custom / 'settings.json')
+    assert '--settings' in cmd
+
+
+def test_settings_path_follows_claude_config_dir(monkeypatch, tmp_path):
+    monkeypatch.setenv('CLAUDE_CONFIG_DIR', str(tmp_path / 'server'))
+    assert claude_settings_path() == tmp_path / 'server' / 'settings.json'
+    child = {'CLAUDE_CONFIG_DIR': str(tmp_path / 'child')}
+    assert claude_settings_path(child) == tmp_path / 'child' / 'settings.json'
+    monkeypatch.delenv('CLAUDE_CONFIG_DIR')
+    monkeypatch.setenv('HOME', str(tmp_path / 'h'))
+    assert (
+        claude_settings_path() == tmp_path / 'h' / '.claude' / 'settings.json'
+    )
 
 
 async def test_timeout_is_not_proof_of_death(monkeypatch, settings, tmp_path):

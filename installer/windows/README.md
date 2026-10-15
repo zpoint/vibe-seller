@@ -119,11 +119,13 @@ because this is the only native-Windows doc.
   `HTTPS_PROXY=http://127.0.0.1:<port>` whose Clash/v2rayN is no longer
   running failed every task with `API Error: Connection refused — a
   firewall or proxy may be blocking it (ECONNREFUSED)`.
-  `app/ai/agent_proxy.py` probes the proxy the agent would use; if its
-  port refuses, it is removed from the spawn env and, when it came from
-  settings.json, blanked through a `--settings` file next to the
-  system prompt. The task shows a system notice naming the proxy and
-  where it was set. A proxy that accepts or only times out is kept.
+  `app/ai/agent_proxy.py` probes the proxy the agent would use (the
+  settings file is `%CLAUDE_CONFIG_DIR%\settings.json` when the agent
+  env sets it); if its port refuses, every proxy key is removed from
+  the spawn env and blanked through a `--settings` file next to the
+  system prompt. The task shows a system notice naming the proxy
+  (scheme, host and port only — never credentials) and where it was
+  set. A proxy that accepts or only times out is kept.
 - **`browser-use` wrappers embed an absolute `REAL_BU`.** Windows
   installs the console script as `browser-use.exe` with no
   extensionless sibling, so the old bare-name fallback made the wrapper
