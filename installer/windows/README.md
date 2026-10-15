@@ -112,6 +112,20 @@ because this is the only native-Windows doc.
   workspace assistant has no task dir, so its prompt goes to
   `%USERPROFILE%\.vibe-seller\data\system-prompts\<session>.md`
   instead (a runtime dir, kept out of the workspace git history).
+- **A proxy that refuses connections is dropped before spawn (#168).**
+  Claude Code takes its proxy only from `HTTPS_PROXY`-style env vars
+  (ours, plus the `env` block of `%USERPROFILE%\.claude\settings.json`),
+  never from the Windows system proxy. A leftover
+  `HTTPS_PROXY=http://127.0.0.1:<port>` whose Clash/v2rayN is no longer
+  running failed every task with `API Error: Connection refused — a
+  firewall or proxy may be blocking it (ECONNREFUSED)`.
+  `app/ai/agent_proxy.py` probes the proxy the agent would use (the
+  settings file is `%CLAUDE_CONFIG_DIR%\settings.json` when the agent
+  env sets it); if its port refuses, every proxy key is removed from
+  the spawn env and blanked through a `--settings` file next to the
+  system prompt. The task shows a system notice naming the proxy
+  (scheme, host and port only — never credentials) and where it was
+  set. A proxy that accepts or only times out is kept.
 - **`browser-use` wrappers embed an absolute `REAL_BU`.** Windows
   installs the console script as `browser-use.exe` with no
   extensionless sibling, so the old bare-name fallback made the wrapper

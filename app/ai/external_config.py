@@ -31,8 +31,10 @@ provider routing, which is what the user is presumably trying to do
 by installing cc-switch in the first place.
 """
 
+from collections.abc import Mapping
 import json
 import logging
+import os
 from pathlib import Path
 
 from app.ai.profiles import DEFAULT_PROFILE_ID
@@ -50,12 +52,19 @@ logger = logging.getLogger(__name__)
 _OVERRIDE_PREFIX = 'ANTHROPIC_'
 
 
-def claude_settings_path() -> Path:
-    """Return the platform-standard Claude Code settings file path.
+def claude_settings_path(env: Mapping[str, str] | None = None) -> Path:
+    """Return the user settings file Claude Code reads.
 
-    Indirected through a helper so tests can override via monkeypatch.
+    ``$CLAUDE_CONFIG_DIR/settings.json`` when that is set, else
+    ``~/.claude/settings.json`` — Claude Code's own rule
+    (``getClaudeConfigHomeDir``). *env* is the env claude will be
+    spawned with (a profile can set ``CLAUDE_CONFIG_DIR``); defaults to
+    ours. Indirected through a helper so tests can override via
+    monkeypatch.
     """
-    return Path.home() / '.claude' / 'settings.json'
+    config_dir = (os.environ if env is None else env).get('CLAUDE_CONFIG_DIR')
+    base = Path(config_dir) if config_dir else Path.home() / '.claude'
+    return base / 'settings.json'
 
 
 def detect_claude_settings_overrides() -> list[str]:
