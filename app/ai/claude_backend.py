@@ -30,6 +30,7 @@ import uuid
 
 from sqlalchemy import select
 
+from app.ai.agent_proxy import drop_dead_proxy
 from app.ai.claude_backend_hooks import _HookMixin
 from app.ai.claude_backend_persist import _PersistMixin
 from app.ai.claude_backend_stream import _StreamMixin
@@ -328,8 +329,11 @@ class AgentSession(
                 cmd, system_prompt, self.task_id, self.task_dir
             )
 
-        # Prepare env
         env = ProfileManager.get_env_for_profile(self.profile_id)
+        # A proxy that refuses connections fails every model call (#168).
+        await drop_dead_proxy(
+            cmd, env, self.task_id, self.task_dir, self._emit_message
+        )
         logger.info(
             'Starting agent for task %s (mode=%s, profile=%s, '
             'base_url=%s, model=%s)',
@@ -348,17 +352,11 @@ class AgentSession(
         # completion gate reads from this exact path.
         env['CLAUDE_CODE_TASK_LIST_ID'] = f'vibe-{self.task_id[:8]}'
 
-        # Claude Code auto-commits the task workspace ("Initial
-        # workspace setup") right after `git init`. The workspace
-        # is a fresh repo at ~/.vibe-seller/tasks/<id>/, so no
-        # `git config --local` on the source checkout reaches it,
-        # and many fresh user machines (and CI runners scoped to
-        # repo-local identity per #181) have no `git config --global`
-        # either. `Author identity unknown` blows up the agent's
-        # first commit. Setting GIT_{AUTHOR,COMMITTER}_* via env
-        # makes the commit succeed without touching any git config
-        # file. setdefault keeps any real identity the user already
-        # exported via their shell.
+        # Claude Code auto-commits the fresh task repo right after
+        # `git init`; with no global git identity (fresh machines, CI
+        # runners per #181) that commit dies on `Author identity
+        # unknown`. An env identity fixes it without touching any git
+        # config; setdefault keeps one the user already exported.
         env.setdefault('GIT_AUTHOR_NAME', 'Vibe Seller Agent')
         env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
         env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller Agent')

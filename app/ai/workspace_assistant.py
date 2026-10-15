@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 
+from app.ai.agent_proxy import drop_dead_proxy
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import append_system_prompt
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
@@ -221,6 +222,8 @@ class WorkspaceAgentSession(AgentSession):
         )
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
+        # A proxy that refuses connections fails every model call (#168).
+        await drop_dead_proxy(cmd, env, self.task_id, None, self._emit_message)
         venv_bin = venv_bin_dir(VIBE_SELLER_DIR / '.venv')
         if venv_bin.is_dir():
             prepend_to_path(env, venv_bin)
