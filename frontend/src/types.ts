@@ -13,6 +13,7 @@ export interface UpdateCheckResult {
   update_available?: boolean
   current_version?: string
   latest_version?: string
+  channel?: 'stable' | 'nightly'
   platform?: ServerPlatform
   upgrade_command?: string | null
   download_url?: string | null

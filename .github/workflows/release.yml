@@ -473,6 +473,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the previous v* tag pins the changelog base
 
       - name: Download canonical wheel
         uses: actions/download-artifact@v4
@@ -489,8 +491,13 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
+        # Pin the changelog base to the previous `v*` tag. Left to
+        # itself, --generate-notes diffs against "the previous release",
+        # which could be the rolling `nightly` prerelease (nightly.yml).
         run: |
+          PREV=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${GITHUB_REF_NAME}^" 2>/dev/null || true)
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
+            ${PREV:+--notes-start-tag "$PREV"} \
             dist/* dist-win/VibeSeller-Setup.exe

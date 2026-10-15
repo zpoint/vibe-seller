@@ -5,22 +5,33 @@ in-place installer swap), this module only answers "is there a newer
 release, and what should the user run" — the frontend renders the
 popup and links out; nothing here downloads or executes anything.
 
-Dev/local checkouts (setuptools_scm ``.devN+g<sha>`` builds, the
-``+dev`` fallback version, or anything else carrying a local version
-segment) are never checked: there's no PyPI release that corresponds
-to an arbitrary in-between commit, so "latest" could easily be
-*behind* what's actually checked out.
+Which releases an install is offered depends on its channel (see
+``app/release_channel.py``): stable installs only ever see stable
+releases (PyPI's ``info.version``, unchanged since before nightlies
+existed); nightly installs see the highest newer nightly or stable
+version on PyPI. Dev/local checkouts (setuptools_scm ``.devN+g<sha>``
+builds, the ``+dev`` fallback version, or anything else carrying a
+local version segment) are never checked: there's no PyPI release that
+corresponds to an arbitrary in-between commit, so "latest" could easily
+be *behind* what's actually checked out.
 """
 
 from __future__ import annotations
 
 import httpx
-from packaging.version import InvalidVersion, Version
+
+from app.release_channel import (
+    NIGHTLY_TAG,
+    best_upgrade,
+    channel_of,
+    is_newer as is_newer,
+)
 
 REPO = 'zpoint/vibe-seller'
 PYPI_JSON_URL = 'https://pypi.org/pypi/vibe-seller/json'
 GITHUB_RELEASES_URL = f'https://api.github.com/repos/{REPO}/releases'
 RELEASES_PAGE_URL = f'https://github.com/{REPO}/releases/latest'
+NIGHTLY_PAGE_URL = f'https://github.com/{REPO}/releases/tag/{NIGHTLY_TAG}'
 
 # Cap on how many missed releases the "what's new" popup lists, so a
 # user many versions behind doesn't get a wall of changelog text.
@@ -41,25 +52,14 @@ _FETCH_TIMEOUT_SECONDS = 15
 def is_dev_version(v: str) -> bool:
     """True for dev builds / dirty or untagged checkouts.
 
-    Covers both the tagged-but-ahead shape (``0.1.0.dev3+g<sha>``,
-    ``is_devrelease``) and the no-git-metadata fallback
-    (``0.0.0+dev``, a local version segment). Unparseable strings are
-    treated as dev too — conservative, since we can't safely compare
-    them against a PyPI version either way.
+    Covers both the tagged-but-ahead shape (``0.1.0.dev3+g<sha>``) and
+    the no-git-metadata fallback (``0.0.0+dev``, a local version
+    segment). Unparseable strings are treated as dev too —
+    conservative, since we can't safely compare them against a PyPI
+    version either way. A nightly (``0.2.1.dev<timestamp>``) is not dev:
+    it is checked on its own channel.
     """
-    try:
-        parsed = Version(v)
-    except InvalidVersion:
-        return True
-    return parsed.is_devrelease or parsed.local is not None
-
-
-def is_newer(latest: str, current: str) -> bool:
-    """True if *latest* is a strictly newer version than *current*."""
-    try:
-        return Version(latest) > Version(current)
-    except InvalidVersion:
-        return False
+    return channel_of(v) == 'dev'
 
 
 async def fetch_latest_pypi_version(
@@ -72,6 +72,29 @@ async def fetch_latest_pypi_version(
         return resp.json()['info']['version']
     except (httpx.HTTPError, KeyError, TypeError, ValueError):
         return None
+
+
+async def fetch_nightly_upgrade(
+    client: httpx.AsyncClient, current: str
+) -> str | None:
+    """Best version for a nightly install to move to, or None.
+
+    Reads every release PyPI lists (``info.version`` skips pre-releases,
+    so it can never name a nightly), drops fully-yanked ones, and picks
+    the highest newer stable-or-nightly version. None on any failure.
+    """
+    try:
+        resp = await client.get(PYPI_JSON_URL, timeout=_FETCH_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        releases = resp.json()['releases']
+        versions = [
+            v
+            for v, files in releases.items()
+            if files and not all(f.get('yanked') for f in files)
+        ]
+    except (httpx.HTTPError, KeyError, TypeError, ValueError, AttributeError):
+        return None
+    return best_upgrade(versions, current)
 
 
 async def fetch_release_notes(

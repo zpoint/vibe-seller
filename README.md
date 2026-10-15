@@ -96,6 +96,8 @@ vibe-seller start
 
 打开 <http://localhost:7777>。升级：`vibe-seller upgrade`。卸载：`uv tool uninstall vibe-seller`。
 
+<sub>想抢先用每日构建（夜间版，`main` 有新提交才发，可能不稳定）：`curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`；Windows 用 `$env:VIBE_SELLER_CHANNEL='nightly'` 后再跑上面的 PowerShell 命令，或从 [nightly 发布](https://github.com/zpoint/vibe-seller/releases/tag/nightly) 下载安装包。夜间版只会收到更新的夜间版或正式版提示；正式版永远不会被提示升级到夜间版。回到正式版：`vibe-seller upgrade --stable`。</sub>
+
 <sub>环境要求（<code>install.sh</code> 自动处理）：Python 3.11+（经 <a href="https://docs.astral.sh/uv/"><code>uv</code></a>）、Node.js 22+。</sub>
 
 </details>

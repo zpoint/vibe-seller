@@ -821,7 +821,8 @@
     "whatsNew": "更新内容",
     "noReleaseNotes": "本次发布未提供说明。",
     "viewFullChangelog": "在 GitHub 查看完整更新日志",
-    "remindLater": "稍后提醒"
+    "remindLater": "稍后提醒",
+    "nightlyBadge": "夜间版"
   },
   "vision": {
     "confirmTitle": "确认图片生成",
