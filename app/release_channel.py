@@ -78,7 +78,22 @@ def offered_versions(versions: list[str], channel: Channel) -> list[str]:
     if channel == 'dev':
         return []
     allowed = {'stable'} if channel == 'stable' else {'stable', 'nightly'}
-    return [v for v in versions if channel_of(v) in allowed]
+    return [v for v in versions if channel_of(v) in allowed and _publishable(v)]
+
+
+def _publishable(version: str) -> bool:
+    """A final release or a timestamped nightly — never an rc/beta.
+
+    ``channel_of`` files an *installed* rc under stable (so it keeps
+    being checked), but as an upgrade *target* an rc is a pre-release
+    no channel asked for.
+    """
+    if channel_of(version) == 'nightly':
+        return True
+    try:
+        return not Version(version).is_prerelease
+    except InvalidVersion:
+        return False
 
 
 def best_upgrade(

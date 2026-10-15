@@ -27,6 +27,8 @@ import tempfile
 import time
 import urllib.request
 
+from packaging.version import Version
+
 from app.platform import (
     collect_agent_descendants,
     find_pid_listening_on_port,
@@ -34,7 +36,7 @@ from app.platform import (
     kill_process,
     reap_task_agents,
 )
-from app.release_channel import best_upgrade, channel_of
+from app.release_channel import best_upgrade, channel_of, offered_versions
 
 
 def _resolve_version() -> str:
@@ -381,46 +383,69 @@ def _pypi_versions() -> list[str]:
     ]
 
 
-def _install_cmd(spec: str, *, force: bool) -> list[str]:
-    """`uv tool install` (the install.sh path), else pip."""
-    if shutil.which('uv'):
-        return ['uv', 'tool', 'install', *(['--force'] if force else []), spec]
-    pip = [sys.executable, '-m', 'pip', 'install']
-    return [*pip, *(['--force-reinstall', '--no-deps'] if force else []), spec]
+def _uv_reinstall(spec: str) -> list[str]:
+    return ['uv', 'tool', 'install', '--force', spec]
+
+
+def _pip_install(spec: str) -> list[str]:
+    # No --no-deps: a target that adds or bumps a dependency must get it.
+    return [sys.executable, '-m', 'pip', 'install', spec]
 
 
 def _upgrade_cmd(
     *, current: str, nightly: bool, stable: bool, versions: list[str] | None
 ) -> list[str] | None:
-    """The installer command for ``vibe-seller upgrade``, or None when a
-    nightly install is already on the best version.
+    """The installer command for ``vibe-seller upgrade``, or None when
+    there is nothing newer to move to.
 
     Stable: unchanged — `uv tool upgrade vibe-seller` (install.sh uses
     `uv tool install`), else `pip install --upgrade`. Neither ever picks
     a pre-release, which is what keeps a stable install on stable.
 
-    Nightly (a nightly install, or ``--nightly``): pin the exact best
-    version — the same pick the update popup shows. A pin is the only
-    way to allow a pre-release for vibe-seller alone: `--prerelease
+    Nightly (a nightly install, or ``--nightly``): the same pick the
+    update popup shows. A nightly target is pinned — the only way to
+    allow a pre-release for vibe-seller alone, since `--prerelease
     allow` / `--pre` apply to every dependency too (they once dragged in
     an apscheduler 4.0 alpha; see install.sh).
 
-    ``--stable``: reinstall unpinned. The latest stable sorts *below* a
-    nightly of the next version, so a plain upgrade would never move
-    back down; an unpinned reinstall resolves stable-only again and
-    leaves no pin behind for later `uv tool upgrade`s.
+    A stable target — from a nightly that a stable release overtook, or
+    ``--stable`` — goes through uv *unpinned*: uv records the requirement
+    in the tool receipt, so a `==` pin there would freeze every later
+    `uv tool upgrade` at that version. Unpinned resolves stable-only, and
+    a forced reinstall can move below a nightly of the next version.
+    pip keeps no receipt, so pip pins either way.
     """
+    has_uv = bool(shutil.which('uv'))
+    if not nightly and not stable:
+        if has_uv:
+            return ['uv', 'tool', 'upgrade', 'vibe-seller']
+        return [
+            sys.executable,
+            '-m',
+            'pip',
+            'install',
+            '--upgrade',
+            'vibe-seller',
+        ]
     if stable:
-        return _install_cmd('vibe-seller', force=True)
-    if nightly:
+        target = max(
+            offered_versions(versions or [], 'stable'),
+            key=Version,
+            default=None,
+        )
+    else:
         # `--nightly` from a stable install: pick as if already nightly.
         target = best_upgrade(versions or [], current, channel='nightly')
-        if target is None:
-            return None
-        return _install_cmd(f'vibe-seller=={target}', force=True)
-    if shutil.which('uv'):
-        return ['uv', 'tool', 'upgrade', 'vibe-seller']
-    return [sys.executable, '-m', 'pip', 'install', '--upgrade', 'vibe-seller']
+    if target is None:
+        return None
+    if channel_of(target) == 'stable':
+        return (
+            _uv_reinstall('vibe-seller')
+            if has_uv
+            else _pip_install(f'vibe-seller=={target}')
+        )
+    spec = f'vibe-seller=={target}'
+    return _uv_reinstall(spec) if has_uv else _pip_install(spec)
 
 
 def _cmd_upgrade(args: argparse.Namespace) -> int:
@@ -433,7 +458,7 @@ def _cmd_upgrade(args: argparse.Namespace) -> int:
         or channel_of(current) == 'nightly'
     )
     versions = None
-    if nightly:
+    if nightly or stable:
         try:
             versions = _pypi_versions()
         except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -443,7 +468,7 @@ def _cmd_upgrade(args: argparse.Namespace) -> int:
         current=current, nightly=nightly, stable=stable, versions=versions
     )
     if cmd is None:
-        print(f'vibe-seller {current} is already the newest nightly.')
+        print(f'vibe-seller {current} is already up to date.')
         return 0
     print(f'==> {" ".join(cmd)}')
     return subprocess.run(cmd).returncode

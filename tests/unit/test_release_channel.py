@@ -67,6 +67,14 @@ class TestBestUpgrade:
     def test_dev_is_offered_nothing(self):
         assert best_upgrade(PYPI_VERSIONS, '0.2.1.dev3+gabc') is None
 
+    def test_rc_is_never_an_upgrade_target(self):
+        # An installed rc is still checked as stable, but no channel
+        # asked to be moved onto one.
+        assert best_upgrade([*PYPI_VERSIONS, '0.3.0rc1'], OLDER_NIGHTLY) == (
+            NIGHTLY
+        )
+        assert best_upgrade(['0.3.0rc1'], '0.2.0') is None
+
 
 def _pypi_client(versions, *, yanked=()):
     payload = {
@@ -209,11 +217,13 @@ class TestWindowsTray:
 
 
 class TestCliUpgrade:
-    def _run(self, argv, current, versions=PYPI_VERSIONS):
+    def _run(self, argv, current, versions=PYPI_VERSIONS, uv=True):
         with (
             patch.object(cli, '_resolve_version', return_value=current),
             patch.object(cli, '_pypi_versions', return_value=versions),
-            patch.object(cli.shutil, 'which', return_value='/usr/bin/uv'),
+            patch.object(
+                cli.shutil, 'which', return_value='/usr/bin/uv' if uv else None
+            ),
             patch.object(cli.subprocess, 'run') as run,
         ):
             run.return_value = MagicMock(returncode=0)
@@ -248,3 +258,19 @@ class TestCliUpgrade:
 
     def test_nightly_up_to_date_runs_nothing(self):
         assert self._run(['upgrade'], NIGHTLY) == (0, None)
+
+    def test_nightly_overtaken_by_stable_installs_it_unpinned(self):
+        # uv records `==0.2.1` in the tool receipt; every later
+        # `uv tool upgrade vibe-seller` would then stay on 0.2.1.
+        _, cmd = self._run(['upgrade'], NIGHTLY, [*PYPI_VERSIONS, '0.2.1'])
+        assert cmd == ['uv', 'tool', 'install', '--force', 'vibe-seller']
+
+    def test_pip_nightly_keeps_dependency_resolution(self):
+        _, cmd = self._run(['upgrade'], OLDER_NIGHTLY, uv=False)
+        assert cmd[-1] == f'vibe-seller=={NIGHTLY}'
+        assert '--no-deps' not in cmd
+
+    def test_pip_back_to_stable_pins_latest_stable(self):
+        _, cmd = self._run(['upgrade', '--stable'], NIGHTLY, uv=False)
+        assert cmd[-1] == 'vibe-seller==0.2.0'
+        assert '--no-deps' not in cmd

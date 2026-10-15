@@ -767,9 +767,12 @@ _install_via_pip() {
         # Pin the exact version rather than `--prerelease=allow`, which
         # would also let alpha builds of dependencies in (see above).
         # Same pick as `vibe-seller upgrade`: the highest stable or
-        # nightly (`X.Y.Z.dev<timestamp>`) release on PyPI.
+        # nightly (`X.Y.Z.dev<timestamp>`) release on PyPI. Run through
+        # uv's Python: a fresh machine may have no python3 on PATH, and
+        # the default install never needs one.
         VERSION=$(
-            curl -fsS https://pypi.org/pypi/vibe-seller/json | python3 -c '
+            curl -fsS https://pypi.org/pypi/vibe-seller/json \
+                | uv run --no-project --quiet python -c '
 import json, re, sys
 rels = json.load(sys.stdin)["releases"]
 def key(v):
@@ -787,7 +790,13 @@ print(max(ok, key=key) if ok else "")
             _error "no vibe-seller release found on PyPI"
             exit 1
         fi
-        _info "Channel: nightly"
+        _info "Channel: nightly (newest: $VERSION)"
+        # A stable release newer than every nightly installs unpinned:
+        # uv records the requirement, and a `==` pin would freeze every
+        # later `uv tool upgrade`. Nightlies must stay pinned.
+        if [[ "$VERSION" != *.dev* ]]; then
+            VERSION=""
+        fi
     fi
     if [[ -n "$VERSION" ]]; then
         spec="vibe-seller==$VERSION"

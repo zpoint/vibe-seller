@@ -19,7 +19,8 @@ name: Nightly
 #
 # Stages, fail-fast:
 #   1. plan      Skip when `main` is the commit the `nightly` tag already
-#                points at (unless `force`); compute the version.
+#                points at AND that release has both assets (unless
+#                `force`); compute the version. target=pypi is main-only.
 #   2. test      The full PR CI suite (ci.yml) on this commit. Nothing is
 #                published if it fails.
 #   3. build     Wheel (version pinned via SETUPTOOLS_SCM_PRETEND_VERSION)
@@ -84,17 +85,33 @@ jobs:
         env:
           FORCE: ${{ inputs.force || false }}
           TARGET: ${{ inputs.target || 'pypi' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # A dispatch runs on whatever ref was picked in the UI. Only
+          # main may become the public nightly; other refs can dry-run.
+          if [ "$TARGET" = pypi ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::target=pypi publishes the public nightly and is main-only (got $GITHUB_REF); use target=testpypi"
+            exit 1
+          fi
           SHA=$(git rev-parse HEAD)
           LAST=$(git rev-parse -q --verify 'refs/tags/nightly^{commit}' || true)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
           echo "last_sha=$LAST" >> "$GITHUB_OUTPUT"
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
           if [ "$SHA" = "$LAST" ] && [ "$FORCE" != "true" ]; then
-            echo "main ($SHA) is already the last nightly — nothing to publish."
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            # The tag moves before the release is rebuilt, so it alone
+            # doesn't prove last night finished: skip only when the
+            # nightly prerelease also carries both assets.
+            ASSETS=$(gh release view nightly --json isPrerelease,assets \
+              --jq 'select(.isPrerelease) | [.assets[].name] | join(" ")' \
+              2>/dev/null || true)
+            if [[ " $ASSETS " == *" VibeSeller-Setup.exe "* && "$ASSETS" == *.whl* ]]; then
+              echo "main ($SHA) is already the last nightly — nothing to publish."
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "nightly tag is at $SHA but its release is incomplete ($ASSETS) — republishing."
           fi
           BASE=$(git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD)
           BASE=${BASE#v}
@@ -191,7 +208,13 @@ jobs:
         run: choco install innosetup --no-progress -y
       - name: Build installer
         shell: pwsh
-        run: .\installer\windows\build.ps1 -AppVersion '${{ needs.plan.outputs.version }}'
+        # -AppVersion only stamps the installer; build.ps1 builds the
+        # bundled app wheel from git metadata, which this shallow
+        # checkout lacks. Pin it too, or the app inside reports a dev
+        # version and never sees nightly updates (as windows-installer.yml).
+        run: |
+          $env:SETUPTOOLS_SCM_PRETEND_VERSION = '${{ needs.plan.outputs.version }}'
+          .\installer\windows\build.ps1 -AppVersion '${{ needs.plan.outputs.version }}'
       - uses: actions/upload-artifact@v4
         with:
           name: nightly-installer
