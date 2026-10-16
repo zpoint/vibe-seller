@@ -198,6 +198,12 @@ fields.
 }
 ```
 
+> **`DEFAULT` + `quantity` above is a merchant-fulfilled (FBM) offer.**
+> That is right for a seller who ships it themselves. For an **FBA**
+> product it leaves a live FBM offer that buyers see as "International
+> shipping" whenever FBA stock is 0, and converting the SKU to FBA does
+> not remove it. See `fulfillment-channel.md`.
+
 > **Set the offer price with the bare `our_price` key + a top-level
 > `marketplace` (the country you are listing on, matching the
 > seller-central domain — `amazon.sa` → `"SA"`).** `fill` routes the

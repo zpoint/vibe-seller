@@ -87,7 +87,7 @@ table (one column per attribute). One upload creates or edits a whole
 This is the batch equivalent of the per-SKU web wizard, and the default
 for anything touching more than one variant.
 
-Two references, load what the task needs:
+Three references, load what the task needs:
 
 - **`references/template-round-trip.md`** — the download → inspect →
   fill → upload → read-feedback loop, the operation column
@@ -97,6 +97,11 @@ Two references, load what the task needs:
   filled template: page extraction, local no-GPU OCR of detail images,
   AI-generated copy, the **bilingual review** step, and image handling.
   Load when the task starts from a **product link**.
+- **`references/fulfillment-channel.md`** — FBM (`DEFAULT`) vs FBA
+  channel codes, why an FBA product shows "International shipping" once
+  FBA stock runs out, and how to zero the merchant quantity and verify it.
+  Load when setting `quantity` / `fulfillment_channel_code` for an **FBA**
+  seller, or when a listing ships as merchant-fulfilled unexpectedly.
 
 > **Before you finish — verify it's LIVE, not just uploaded.** A 0-error
 > processing report is necessary but NOT sufficient; the listing is only
@@ -502,6 +507,11 @@ for an `8560` to fix reactively:
      is rejected as "Invalid enumerated value … (<mkt>)". `fill` routes a
      bare `fulfillment_channel_code` to the target group and warns if a
      group has a quantity but no code.
+   - **`DEFAULT` + a quantity is an FBM offer.** For an FBA seller it goes
+     live, and ships internationally on the merchant template, whenever
+     FBA stock hits 0. Converting the SKU to FBA does not zero it. See
+     `references/fulfillment-channel.md` before typing a merchant quantity
+     for an FBA product, and zero it after conversion.
 4. **Verify** the target ASINs equal the source ones (same ASIN ⇒ shared
    reviews) and that the offer is live in the TARGET marketplace's
    Pricing view — the feed's "N/N successful" does not prove either.
