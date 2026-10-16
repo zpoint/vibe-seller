@@ -34,8 +34,10 @@ this), or the web wizard's "Quantity" field. Converting the SKU to FBA
 afterwards **adds** the `AMAZON_*` entry. It does not zero the `DEFAULT`
 quantity, so the listing becomes dual-channel without anyone noticing.
 
-So for an FBA seller: after a create, either never type a merchant
-quantity, or zero it once the SKU is converted (below), then verify.
+So for an FBA seller, create with `quantity: 0` on the merchant group.
+`fill` enforces this: a merchant quantity above 0 is refused unless the
+spec declares `"fulfillment": "FBM"`. For listings created before that
+guard existed, zero the quantity (below) and verify.
 
 ## Detect
 

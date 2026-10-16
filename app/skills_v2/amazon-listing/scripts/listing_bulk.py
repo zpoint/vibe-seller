@@ -98,6 +98,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from listing_checks import (  # noqa: E402
     apply_shortfall as _apply_shortfall,
     enum_gate as _enum_gate,
+    merchant_stock_guard as _merchant_stock_guard,
     report_batch_problem as _report_batch_problem,
     report_outcome as _report_outcome,
     wire_value as _wire_value,
@@ -383,6 +384,9 @@ def cmd_fill(args):
         # so it can't land in the wrong `purchasable_offer` block (which
         # creates an ASIN-only listing stuck in "Missing offer").
         _route_offer_price(fields, cols, mkt_id, i, sku, warnings)
+        fatal = _merchant_stock_guard(fields, spec, i, sku)
+        if fatal:  # an undeclared FBM offer goes live when FBA runs dry
+            raise SystemExit(fatal)
 
         # Drop an optional Item Highlight the title is too long for, so it
         # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).

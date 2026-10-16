@@ -509,9 +509,10 @@ for an `8560` to fix reactively:
      group has a quantity but no code.
    - **`DEFAULT` + a quantity is an FBM offer.** For an FBA seller it goes
      live, and ships internationally on the merchant template, whenever
-     FBA stock hits 0. Converting the SKU to FBA does not zero it. See
-     `references/fulfillment-channel.md` before typing a merchant quantity
-     for an FBA product, and zero it after conversion.
+     FBA stock hits 0. Converting the SKU to FBA does not zero it. So an
+     FBA product gets `quantity: 0`, and `fill` **refuses** a merchant
+     quantity above 0 unless the spec declares `"fulfillment": "FBM"`.
+     See `references/fulfillment-channel.md`.
 4. **Verify** the target ASINs equal the source ones (same ASIN ⇒ shared
    reviews) and that the offer is live in the TARGET marketplace's
    Pricing view — the feed's "N/N successful" does not prove either.
