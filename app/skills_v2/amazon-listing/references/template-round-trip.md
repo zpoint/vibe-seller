@@ -191,12 +191,21 @@ fields.
                   "item_name": "ACME ... (White)", "target_gender": "Male",
                   "age_range_description": "Adult",
                   "recommended_browse_nodes": "<from Browse data>",
-                  "fulfillment_availability#1.fulfillment_channel_code": "DEFAULT",
-                  "quantity": "100",
+                  "fulfillment_channel_code": "DEFAULT",
+                  "quantity": "0",
                   "our_price": "29.00" } }
   ]
 }
 ```
+
+> **`quantity` is the merchant (FBM) stock, so an FBA product takes `0`.**
+> It goes live from FBA stock once the SKU is converted and stock
+> arrives; until then it reads out of stock. A quantity above 0 on
+> `DEFAULT` is a live FBM offer: buyers see it as "International
+> shipping" whenever FBA stock is 0, and converting to FBA does not
+> remove it. `fill` refuses that unless the spec says
+> `"fulfillment": "FBM"` (a seller who really ships it themselves). See
+> `fulfillment-channel.md`.
 
 > **Set the offer price with the bare `our_price` key + a top-level
 > `marketplace` (the country you are listing on, matching the
