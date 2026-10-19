@@ -101,10 +101,64 @@ class TestValidateProductFile:
             TASK, 'amazon', 'us', 'B0AAA'
         )
 
-    def test_rating_zero_is_ok(self, reviews_root):
-        # A product with no rating yet uses 0, not null — that is valid.
-        _write(reviews_root, 'amazon', 'us', 'B0AAA', _product(rating=0))
+    def test_rating_zero_declared_is_ok(self, reviews_root):
+        # A product with no rating yet uses 0, not null, and says so.
+        doc = _product(rating=0)
+        doc.update(rating_count=0, no_ratings=True)
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
         assert rm.validate_product_file(TASK, 'amazon', 'us', 'B0AAA') is None
+
+    def test_rating_zero_undeclared_is_defect(self, reviews_root):
+        # A bare 0/0 is what a page that never rendered looks like too.
+        doc = _product(rating=0)
+        doc['rating_count'] = 0
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
+        assert 'no_ratings' in rm.validate_product_file(
+            TASK, 'amazon', 'us', 'B0AAA'
+        )
+
+    def test_star_without_ratings_is_defect(self, reviews_root):
+        # 5.0 with 0 ratings: a review row's star, not the product's rating.
+        doc = _product(rating=5.0)
+        doc['rating_count'] = 0
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
+        assert 'rating_count=0' in rm.validate_product_file(
+            TASK, 'amazon', 'us', 'B0AAA'
+        )
+
+    def test_no_ratings_with_a_rating_is_defect(self, reviews_root):
+        doc = _product(rating=4.0)
+        doc.update(rating_count=3, no_ratings=True)
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
+        assert 'no_ratings' in rm.validate_product_file(
+            TASK, 'amazon', 'us', 'B0AAA'
+        )
+
+    def test_histogram_well_formed(self, reviews_root):
+        doc = _product(rating=4.6)
+        doc.update(
+            rating_count=16,
+            rating_histogram={'5': 84, '4': 0, '3': 12, '2': 0, '1': 4},
+        )
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
+        assert rm.validate_product_file(TASK, 'amazon', 'us', 'B0AAA') is None
+
+    @pytest.mark.parametrize(
+        'histogram',
+        [
+            {'5': 84, '4': 0, '3': 12, '2': 0},  # a star missing
+            {'5': '84%', '4': 0, '3': 12, '2': 0, '1': 4},  # not a number
+            {'5': 184, '4': 0, '3': 12, '2': 0, '1': 4},  # not a percent
+            [84, 0, 12, 0, 4],  # not keyed by star
+        ],
+    )
+    def test_histogram_malformed(self, reviews_root, histogram):
+        doc = _product(rating=4.6)
+        doc.update(rating_count=16, rating_histogram=histogram)
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
+        assert 'rating_histogram' in rm.validate_product_file(
+            TASK, 'amazon', 'us', 'B0AAA'
+        )
 
     def test_reviews_not_a_list(self, reviews_root):
         doc = _product()

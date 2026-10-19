@@ -81,8 +81,20 @@ counted missing/malformed and named in the diff):
 
 1. `rating` — the product's current overall rating **read off the page
    this run**, a **non-null number** (e.g. `4.1`). A product page that
-   **loaded and showed no ratings** must still carry a number — use `0`
-   and set `rating_count: 0` (not `null`).
+   **loaded and showed no ratings** must still carry a number — use `0`,
+   set `rating_count: 0` (not `null`) **and `no_ratings: true`**. The
+   gate denies a `0` without `no_ratings: true`: it is your statement
+   that the page rendered (product title present) and the product's own
+   rating summary was absent, which nothing else in the file can say.
+
+   **`rating` and `rating_count` come from the product's own rating
+   summary and nowhere else** (selectors: `collect-quickref.md` §Step 2).
+   Never fall back to the first star icon on the page: a product with no
+   ratings still renders review rows (e.g. reviews from other
+   marketplaces) and a page-wide `.a-icon-star` lookup returns the first
+   of them — `5.0` with `rating_count: 0`. The gate denies `rating > 0`
+   with `rating_count: 0` for that reason: a rating nobody gave was read
+   off something else.
 
    **A page you could not read is not a `0`.** `SKILL.md` and
    `collect-quickref.md` §Step 2 already say what to do — *report that
@@ -125,6 +137,10 @@ gates key on the three above:
 - `rating` per review is the integer stars (1–5).
 - `verified`, `variant`: best-effort; omit a key you genuinely can't read
   rather than guessing.
+- `rating_histogram`: percent of ratings per star as the page shows
+  it, keys `"5"`…`"1"`, integers 0–100 (Amazon: `collect-quickref.md`
+  §Step 2). Omit it where the page has none (no ratings, or a platform
+  without a breakdown). The gate checks its shape when present.
 - `review_pages_fetched`: how many review pages you paged through —
   records where Amazon/noon caps history (accept the cap, record it).
 
