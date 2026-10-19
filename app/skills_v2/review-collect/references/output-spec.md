@@ -84,8 +84,9 @@ counted missing/malformed and named in the diff):
    **loaded and showed no ratings** must still carry a number — use `0`,
    set `rating_count: 0` (not `null`) **and `no_ratings: true`**. The
    gate denies a `0` without `no_ratings: true`: it is your statement
-   that the page rendered (product title present) and the product's own
-   rating summary was absent, which nothing else in the file can say.
+   that the product page rendered as the right product (Amazon:
+   `#productTitle` present and `input#ASIN` equal to the requested ASIN,
+   see `collect-quickref.md`) and its own rating summary was absent, which nothing else in the file can say.
 
    **`rating` and `rating_count` come from the product's own rating
    summary and nowhere else** (selectors: `collect-quickref.md` §Step 2).

@@ -103,12 +103,19 @@ add the id to that combo's `collected`.
    It is how a consumer learns that a review it stored earlier has since
    been removed (a 0% star on a small count has no rating left), so copy
    it exactly as the page shows it. **Rating, count and histogram all
-   absent** on a page that rendered (the reviews page stayed on its URL,
-   or the dp/ page has a `title`) is a product with no ratings: write
-   `rating: 0`, `rating_count: 0`, `no_ratings: true`. All absent on a
-   page that did **not** render (no title, block page, sign-in, timeout)
-   is a NAMED gap — write no file. A rating with no count, or a count
-   with no rating, means the read failed: re-open and retry.
+   absent is not yet a zero** — an empty or half-loaded reviews page keeps
+   its URL and reads exactly the same. Confirm on the product page before
+   declaring anything: open `https://www.amazon.<tld>/dp/<asin>`, and
+   require **both** `#productTitle` present **and**
+   `document.querySelector('input#ASIN').value` equal to the ASIN you
+   asked for (a dp/ link can land on a sibling variant). Then re-read the
+   three widgets above on that page. Only when that page passes both
+   checks and still has no rating, count or histogram is it a product
+   with no ratings: write `rating: 0`, `rating_count: 0`,
+   `no_ratings: true`. Anything else (no title, a different ASIN, block
+   page, sign-in, timeout) is a NAMED gap — write no file. A rating with
+   no count, or a count with no rating, means the read failed: re-open
+   and retry.
 2. Extract each review block via `js("return …")` returning JSON:
    stars, date, title, body, verified flag, variant, and the review id
    (`data-hook="review"` carries an `id`; fall back to a stable hash of

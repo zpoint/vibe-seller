@@ -134,6 +134,17 @@ class TestValidateProductFile:
             TASK, 'amazon', 'us', 'B0AAA'
         )
 
+    @pytest.mark.parametrize('count', ['missing', None, False, '0'])
+    def test_no_ratings_needs_an_explicit_zero_count(self, reviews_root, count):
+        doc = _product(rating=0)
+        doc['no_ratings'] = True
+        if count != 'missing':
+            doc['rating_count'] = count
+        _write(reviews_root, 'amazon', 'us', 'B0AAA', doc)
+        assert 'rating_count=0' in rm.validate_product_file(
+            TASK, 'amazon', 'us', 'B0AAA'
+        )
+
     def test_histogram_well_formed(self, reviews_root):
         doc = _product(rating=4.6)
         doc.update(

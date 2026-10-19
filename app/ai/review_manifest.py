@@ -176,8 +176,17 @@ def validate_product_file(
             'rating=0 但没有 no_ratings: true —— 页面没读到就别写文件 '
             '(a zero must be declared with no_ratings: true)'
         )
-    if data.get('no_ratings') is True and (rating != 0 or count):
-        return 'no_ratings: true 却带着评分 (no_ratings with a rating)'
+    if data.get('no_ratings') is True and (
+        rating != 0
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count != 0
+    ):
+        # An unknown count is not a confirmed absence of ratings.
+        return (
+            'no_ratings: true 必须配 rating=0 且 rating_count=0 '
+            '(no_ratings needs rating 0 and an explicit rating_count 0)'
+        )
     histogram = data.get('rating_histogram')
     if histogram is not None and not _valid_histogram(histogram):
         return (
