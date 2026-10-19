@@ -110,6 +110,18 @@ def reviews_dir(task_id: str) -> Path:
     return VIBE_SELLER_DIR / 'tasks' / task_id / 'reviews'
 
 
+def _valid_histogram(histogram) -> bool:
+    """``{"5": 84, …, "1": 4}`` — every star present, integer percents."""
+    if not isinstance(histogram, dict):
+        return False
+    if set(histogram) != {'1', '2', '3', '4', '5'}:
+        return False
+    return all(
+        isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 100
+        for v in histogram.values()
+    )
+
+
 def validate_product_file(
     task_id: str,
     platform: str,
@@ -146,6 +158,41 @@ def validate_product_file(
         return '缺 rating 或非数字 (rating missing/not a number)'
     if not isinstance(data.get('reviews'), list):
         return 'reviews 不是数组 (reviews not a list)'
+    count = data.get('rating_count')
+    # A star with nobody behind it is a star read off something else on
+    # the page: a product with no rating widget still renders review rows
+    # (e.g. reviews from other marketplaces), and a page-wide
+    # `.a-icon-star` lookup lands on the first of them — 5.0 with 0 ratings.
+    if rating > 0 and count == 0:
+        return (
+            'rating>0 但 rating_count=0 —— 星级不是从商品自己的评分控件读的 '
+            '(rating without any ratings: read off another element)'
+        )
+    # A zero is a claim that the page loaded and showed no rating at all;
+    # the collector has to make that claim explicitly, because a blank file
+    # is otherwise indistinguishable from a page that never rendered.
+    if rating == 0 and data.get('no_ratings') is not True:
+        return (
+            'rating=0 但没有 no_ratings: true —— 页面没读到就别写文件 '
+            '(a zero must be declared with no_ratings: true)'
+        )
+    if data.get('no_ratings') is True and (
+        rating != 0
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count != 0
+    ):
+        # An unknown count is not a confirmed absence of ratings.
+        return (
+            'no_ratings: true 必须配 rating=0 且 rating_count=0 '
+            '(no_ratings needs rating 0 and an explicit rating_count 0)'
+        )
+    histogram = data.get('rating_histogram')
+    if histogram is not None and not _valid_histogram(histogram):
+        return (
+            'rating_histogram 格式不对 —— 应为 {"5".."1": 0-100 的整数} '
+            '(rating_histogram must map "5".."1" to integer percents)'
+        )
     if not data.get('collected_at'):
         return '缺 collected_at'
     if (
