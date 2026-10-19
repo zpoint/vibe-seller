@@ -107,46 +107,20 @@ def mint_guard(rows, spec, schema):
     ).format(n=len(undeclared), skus=', '.join(undeclared), key=MINT_KEY)
 
 
-# A `delete` row removes the SKU, and on a unified account the SKU is
-# ACCOUNT-scoped: a Delete uploaded on ONE storefront took the SKU off every
-# marketplace it sold on. Observed live -- an AE-only delete of three
-# children, uploaded on the AE host with an AE-stamped template, also
-# deleted the same three SKUs on SA, which the user had said must not be
-# touched. The feed reported a clean delete; nothing downstream noticed.
-DELETE_EVERYWHERE_KEY = 'delete_everywhere'
+def ops_guard(rows, allowed):
+    """Refuse a disabled operation, or one outside ``--ops``.
 
-
-def delete_scope_guard(rows, spec, schema, template_ids):
-    """Refuse an undeclared delete on a multi-marketplace template.
-
-    -> fatal string or None. ``template_ids`` are the marketplaces the
-    template carries columns for; more than one means the account is
-    unified, so a delete cannot be scoped to one storefront.
+    ``allowed`` narrows the run to the operations the task asked for:
+    an "edit the copy" job passes ``--ops partialupdate`` so no row of
+    its spec can create a SKU or mint an ASIN by mistake.
     """
-    if len(set(template_ids or ())) < 2 or spec.get(DELETE_EVERYWHERE_KEY):
-        return None
-    skus = [
-        str(r.get('sku') or f'row {i}')
-        for i, r in enumerate(rows)
-        if resolve_operation(r.get('operation'), schema.dialect)[1] == 'delete'
-    ]
-    if not skus:
-        return None
-    return (
-        'error: {n} delete row(s) on a template that carries {mkts} '
-        'marketplaces: {skus}. On this unified account a SKU is '
-        'ACCOUNT-scoped, so a Delete removes it from EVERY one of those '
-        'marketplaces -- not just the storefront you upload on. Observed '
-        'live: an AE-only delete also deleted the same SKUs on SA.\n'
-        '  * The user wants these SKUs gone EVERYWHERE -> declare it: '
-        '"{key}": true on the spec.\n'
-        '  * The user wants them off ONE marketplace only (or means to '
-        'rebuild them on one side) -> do NOT delete. There is no '
-        'one-storefront delete here; stop and tell the user what a delete '
-        'would remove, and ask how to proceed.'
-    ).format(
-        n=len(skus),
-        mkts=len(set(template_ids)),
-        skus=', '.join(skus),
-        key=DELETE_EVERYWHERE_KEY,
-    )
+    allowed = {a.strip().lower() for a in allowed or ()}
+    for i, r in enumerate(rows):
+        _, key = resolve_operation(r.get('operation'), 'legacy')
+        if allowed and key not in allowed:
+            raise SystemExit(
+                f"error: row {i} sku={r.get('sku')} has operation '{key}', "
+                f'but this run allows only {sorted(allowed)} (--ops). Do '
+                'not widen --ops to get past this: the task said which '
+                'operations it may perform.'
+            )

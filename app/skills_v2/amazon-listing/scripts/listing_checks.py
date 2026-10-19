@@ -310,3 +310,31 @@ def report_batch_problem(report_path, batch_id, marker_dirs=('.',)):
             'parse that one.'
         )
     return None
+
+
+_TITLE_WORD = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
+
+
+def title_repeats(fields, i, sku):
+    """An error naming every word a title uses more than twice, or None.
+
+    Amazon refuses such a title ("You have used the following words more
+    than twice in Title: [charger]"), but says so only in the processing
+    report -- 30-60 minutes after upload. A live edit lost a whole round
+    trip to a title repeating its category noun three times. Counted
+    case-insensitively over whole words, as the rejection reads.
+    """
+    for name, value in fields.items():
+        if base_attr(name) != 'item_name' or not isinstance(value, str):
+            continue
+        counts = {}
+        for word in _TITLE_WORD.findall(value.lower()):
+            counts[word] = counts.get(word, 0) + 1
+        over = sorted(w for w, n in counts.items() if n > 2)
+        if over:
+            return (
+                f'error: row {i} sku={sku}: the title uses {over} more than '
+                'twice -- Amazon rejects that title. Reword it so no word '
+                'appears more than twice.'
+            )
+    return None

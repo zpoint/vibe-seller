@@ -224,7 +224,7 @@ def test_header_found_by_field_name_not_localised_label(template):
 
 def test_fill_operation_column(template, tmp_path):
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -234,16 +234,10 @@ def test_fill_operation_column(template, tmp_path):
                 'fields': {'item_name': 'ACME Thing'},
             },
             {
-                'sku': 'W-2',
-                'operation': 'update',
-                'fields': {'item_name': 'ACME Thing 2'},
-            },
-            {
                 'sku': 'W-3',
                 'operation': 'partialupdate',
                 'fields': {'item_name': 'ACME Thing 3'},
             },
-            {'sku': 'W-4', 'operation': 'delete'},
         ],
     }
     out = str(tmp_path / 'out.xlsx')
@@ -251,9 +245,7 @@ def test_fill_operation_column(template, tmp_path):
     rows = _read_rows(out)
     by_sku = {r['item_sku']: r for r in rows}
     assert by_sku['W-1']['update_delete'] in (None, '')  # create = blank
-    assert by_sku['W-2']['update_delete'] == 'Update'
     assert by_sku['W-3']['update_delete'] == 'partialupdate'
-    assert by_sku['W-4']['update_delete'] == 'delete'
     # brand default applied to every row.
     assert all(r['brand_name'] == 'ACME' for r in rows)
 
@@ -267,7 +259,7 @@ def test_fill_drops_item_highlight_when_title_too_long(
     # clean, and warns. Regression for the long-title over-claim.
     long_title = 'A' * 90
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -293,7 +285,7 @@ def test_fill_keeps_item_highlight_when_title_fits(template, tmp_path):
     # A short title is under the limit, so a genuine Item Highlight is
     # written unchanged -- the guard only strips the poison case.
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -301,7 +293,7 @@ def test_fill_keeps_item_highlight_when_title_fits(template, tmp_path):
                 'sku': 'W-SHORT',
                 'operation': 'create',
                 'fields': {
-                    'item_name': 'ACME Socks',
+                    'item_name': 'ACME Kettle',
                     'title_differentiation': 'Breathable',
                 },
             }
@@ -315,7 +307,7 @@ def test_fill_keeps_item_highlight_when_title_fits(template, tmp_path):
 
 def test_parent_child_structure(template, tmp_path):
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -326,7 +318,7 @@ def test_parent_child_structure(template, tmp_path):
                 'variation_theme': 'Color',
                 'fields': {
                     'relationship_type': 'Variation',
-                    'item_name': 'ACME Socks',
+                    'item_name': 'ACME Kettle',
                     'product_description': 'desc',
                     'recommended_browse_nodes': '111',
                     'batteries_required': 'No',
@@ -342,7 +334,7 @@ def test_parent_child_structure(template, tmp_path):
                 'fields': {
                     'relationship_type': 'Variation',
                     'color_name': 'White',
-                    'item_name': 'ACME Socks White',
+                    'item_name': 'ACME Kettle White',
                     'product_description': 'desc',
                     'recommended_browse_nodes': '111',
                     'external_product_id': '00012345678905',
@@ -380,7 +372,7 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
     """A Parent row omitting offer/price/image/product-id must NOT be
     flagged — those are child-level. A Child omitting them must be."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -391,7 +383,7 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
                 'variation_theme': 'Color',
                 'fields': {
                     'relationship_type': 'Variation',
-                    'item_name': 'ACME Socks',
+                    'item_name': 'ACME Kettle',
                     'product_description': 'desc',
                     'recommended_browse_nodes': '111',
                     'batteries_required': 'No',
@@ -414,7 +406,7 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
 def test_missing_required_field_still_only_warns(template, tmp_path, capsys):
     """Amazon's Required flag is noisy, so this one stays a warning."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -433,13 +425,13 @@ def test_missing_required_field_still_only_warns(template, tmp_path, capsys):
 
 def test_asin_folds_into_product_id(template, tmp_path):
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
-                'operation': 'update',
+                'operation': 'create',
                 'asin': 'B0ABCDE123',
                 'fields': {'item_name': 'x'},
             },
@@ -458,11 +450,11 @@ def test_fill_clears_preexisting_data_rows(template, tmp_path):
     wb = openpyxl.load_workbook(template)
     ws = wb[listing_bulk.TEMPLATE_SHEET]
     # Row 4 (first data row): a stale SKU from a prior run.
-    ws.append(['socks', 'STALE-SKU'] + [''] * (len(FIELDS) - 2))
+    ws.append(['kettle', 'STALE-SKU'] + [''] * (len(FIELDS) - 2))
     wb.save(template)
 
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -502,7 +494,7 @@ def test_fill_emits_tsv_upload_file(template, tmp_path):
     a uniform column count. Uploading the .xlsm triggers Amazon's 90502
     FATAL; the .txt is what reaches content validation."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -537,7 +529,7 @@ def test_enum_value_canonicalised_to_template_case(template, tmp_path):
     exact case. Amazon is case-strict on some fields (verified live:
     apparel_size_system accepts UAE/KSA but rejects uae/ksa)."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -651,53 +643,77 @@ def mkt_template(tmp_path):
     return str(p)
 
 
-def test_delete_on_a_two_marketplace_template_must_say_everywhere(
-    mkt_template, tmp_path
-):
-    """On a unified account a Delete is ACCOUNT-wide.
+@pytest.mark.parametrize('op', ['update', 'delete', 'Delete', 'UPDATE'])
+def test_full_update_and_delete_are_refused(template, tmp_path, op):
+    """Neither operation can be written, whatever the spec declares.
 
-    Observed live: an AE-only delete of three children, uploaded on the
-    AE host with an AE-stamped template, also deleted the same SKUs on
-    SA -- which the user had said must not be touched. The template
-    carrying both marketplaces is the signal; the intent is declared.
+    A delete on a unified account removed the SKU from every marketplace
+    (an AE-only delete also took the SKUs off SA), and a deleted SKU could
+    never be an FBA offer again, so the family was rebuilt under new SKUs.
+    A full update clears every attribute the row leaves blank.
     """
     spec = {
-        'marketplace': 'AE',
-        'rows': [{'sku': 'WIDGET-006-M', 'operation': 'delete'}],
+        'product_type': 'kettle',
+        'delete_everywhere': True,  # a declaration no longer unlocks it
+        'rows': [{'sku': 'WIDGET-006-M', 'operation': op}],
     }
     out = tmp_path / 'out.xlsx'
     with pytest.raises(SystemExit) as exc:
         _run([
             'fill',
-            mkt_template,
+            template,
             '--spec',
             _spec(tmp_path, spec),
             '--out',
             str(out),
         ])
-    assert 'EVERY one of those' in str(exc.value)
-    assert 'WIDGET-006-M' in str(exc.value)
+    assert 'is disabled' in str(exc.value)
     assert not out.exists(), 'a refused fill left a file that looks done'
 
-    spec['delete_everywhere'] = True  # the user did mean everywhere
-    _run([
+
+def test_ops_flag_refuses_a_create_in_an_edit_run(template, tmp_path):
+    """--ops partialupdate: an edit run cannot create a SKU by mistake."""
+    spec = {
+        'product_type': 'kettle',
+        'brand': 'ACME',
+        'mint_new_asin': True,
+        'rows': [
+            {
+                'sku': 'E-1',
+                'operation': 'partialupdate',
+                'fields': {'item_name': 'x'},
+            },
+            {'sku': 'E-2', 'operation': 'create', 'fields': {'item_name': 'y'}},
+        ],
+    }
+    out = tmp_path / 'out.xlsx'
+    args = [
         'fill',
-        mkt_template,
+        template,
         '--spec',
         _spec(tmp_path, spec),
         '--out',
         str(out),
+        '--ops',
+        'partialupdate',
+    ]
+    with pytest.raises(SystemExit) as exc:
+        _run(args)
+    assert 'E-2' in str(exc.value) and '--ops' in str(exc.value)
+    assert not out.exists()
+
+    spec['rows'] = spec['rows'][:1]
+    _run([
+        'fill',
+        template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        str(out),
+        '--ops',
+        'partialupdate',
     ])
-    assert out.exists()
-
-
-def test_delete_on_a_one_marketplace_template_needs_no_declaration(
-    template, tmp_path
-):
-    spec = {'rows': [{'sku': 'WIDGET-006-M', 'operation': 'delete'}]}
-    out = tmp_path / 'out.xlsx'
-    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', str(out)])
-    assert out.exists()
+    assert _read_rows(str(out))[0]['update_delete'] == 'partialupdate'
 
 
 def test_fill_routes_bare_our_price_to_target_marketplace(
@@ -707,7 +723,7 @@ def test_fill_routes_bare_our_price_to_target_marketplace(
         tmp_path,
         {
             'marketplace': 'SA',
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -717,7 +733,7 @@ def test_fill_routes_bare_our_price_to_target_marketplace(
                     'fields': {
                         'item_name': 'x',
                         'color_name': 'White',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                         'our_price': '19.99',
                     },
                 }
@@ -740,7 +756,7 @@ def test_fill_routes_row_level_our_price_and_quantity(mkt_template, tmp_path):
         tmp_path,
         {
             'marketplace': 'SA',
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -752,7 +768,7 @@ def test_fill_routes_row_level_our_price_and_quantity(mkt_template, tmp_path):
                     'fields': {
                         'item_name': 'x',
                         'color_name': 'White',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                     },
                 }
             ],
@@ -775,7 +791,7 @@ def test_fill_warns_when_target_marketplace_has_no_offer(
         tmp_path,
         {
             'marketplace': 'SA',
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -785,7 +801,7 @@ def test_fill_warns_when_target_marketplace_has_no_offer(
                     'fields': {
                         'item_name': 'x',
                         'color_name': 'White',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                         _AE_PRICE: '19.99',
                     },
                 }
@@ -804,7 +820,7 @@ def test_fill_errors_when_price_set_without_marketplace(mkt_template, tmp_path):
     spec = _spec(
         tmp_path,
         {
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -831,7 +847,7 @@ def test_fill_auto_derives_relationship_type_for_variation(
         tmp_path,
         {
             'marketplace': 'SA',
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -1173,7 +1189,7 @@ def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(
     drive unified -- clearing Amazon's prefilled Example/instruction rows
     (the "1/8" cause) and routing every field to its decorated column."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'marketplace': 'SA',
         'mint_new_asin': True,
@@ -1183,7 +1199,7 @@ def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(
                 'operation': 'create',
                 'parentage': 'Parent',
                 'variation_theme': 'COLOR',
-                'fields': {'item_name': 'ACME Socks'},
+                'fields': {'item_name': 'ACME Kettle'},
             },
             {
                 'sku': 'WIDGET-006-WHT',
@@ -1192,7 +1208,7 @@ def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(
                 'parent_sku': 'WIDGET-006',
                 'variation_theme': 'COLOR',
                 'fields': {
-                    'item_name': 'ACME Socks White',
+                    'item_name': 'ACME Kettle White',
                     'our_price': '42.99',
                     'quantity': '100',
                 },
@@ -1233,19 +1249,17 @@ def test_fill_unified_clears_prefilled_rows_and_maps_friendly_keys(
 
 def test_fill_unified_operation_tokens(unified_template, tmp_path):
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'marketplace': 'SA',
         'mint_new_asin': True,
         'rows': [
             {'sku': 'W-1', 'operation': 'create', 'fields': {'item_name': 'x'}},
-            {'sku': 'W-2', 'operation': 'update', 'fields': {'item_name': 'x'}},
             {
                 'sku': 'W-3',
                 'operation': 'partialupdate',
                 'fields': {'item_name': 'x'},
             },
-            {'sku': 'W-4', 'operation': 'delete'},
         ],
     }
     out = str(tmp_path / 'out.xlsx')
@@ -1259,23 +1273,21 @@ def test_fill_unified_operation_tokens(unified_template, tmp_path):
     ])
     by_sku = {r[_UNI_SKU]: r for r in _read_unified_rows(out)}
     assert by_sku['W-1'][_UNI_OP] in (None, '')  # create = blank
-    assert by_sku['W-2'][_UNI_OP] == 'Create or Replace (Full Update)'
     assert by_sku['W-3'][_UNI_OP] == 'Edit (Partial Update)'
-    assert by_sku['W-4'][_UNI_OP] == 'Delete'
 
 
 def test_fill_unified_asin_folds_into_volt_product_id(
     unified_template, tmp_path
 ):
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'marketplace': 'SA',
         'mint_new_asin': True,
         'rows': [
             {
                 'sku': 'W-1',
-                'operation': 'update',
+                'operation': 'create',
                 'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'x'},
             },
@@ -1302,7 +1314,7 @@ def test_fill_unified_tsv_keeps_settings_header(unified_template, tmp_path):
     Amazon's introspect-feed keys on it to detect the file type. A
     hand-rolled header-less TSV was rejected ("File upload unsuccessful")."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'marketplace': 'SA',
         'mint_new_asin': True,
@@ -1335,7 +1347,7 @@ def test_fill_unified_writes_data_at_datarow(unified_template, tmp_path):
     dataRow as an example region, so data written there is dropped
     (verified live: children written into rows 6-7 processed as 4/6)."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'marketplace': 'SA',
         'mint_new_asin': True,
@@ -1460,7 +1472,7 @@ def test_fill_hard_fails_on_wrong_region_template(mkt_template, tmp_path):
         tmp_path,
         {
             'marketplace': 'EG',  # not stamped in this SA+AE template
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -1468,7 +1480,7 @@ def test_fill_hard_fails_on_wrong_region_template(mkt_template, tmp_path):
                     'parentage': 'Child',
                     'fields': {
                         'item_name': 'x',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                     },
                 }
             ],
@@ -1507,7 +1519,7 @@ def test_fill_blocks_browse_nodes_across_marketplaces(mkt_template, tmp_path):
         tmp_path,
         {
             'marketplace': 'SA',  # stamped, but not primary
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -1515,7 +1527,7 @@ def test_fill_blocks_browse_nodes_across_marketplaces(mkt_template, tmp_path):
                     'parentage': 'Child',
                     'fields': {
                         'item_name': 'x',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                         'recommended_browse_nodes': '12067121031',
                     },
                 }
@@ -1536,7 +1548,7 @@ def test_fill_allows_browse_nodes_on_primary(mkt_template, tmp_path):
         tmp_path,
         {
             'marketplace': 'SA',
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -1544,7 +1556,7 @@ def test_fill_allows_browse_nodes_on_primary(mkt_template, tmp_path):
                     'parentage': 'Child',
                     'fields': {
                         'item_name': 'x',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                         'recommended_browse_nodes': '99999',
                     },
                 }
@@ -1563,7 +1575,7 @@ def test_fill_without_browse_nodes_ignores_primary(mkt_template, tmp_path):
         tmp_path,
         {
             'marketplace': 'SA',
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -1571,7 +1583,7 @@ def test_fill_without_browse_nodes_ignores_primary(mkt_template, tmp_path):
                     'parentage': 'Child',
                     'fields': {
                         'item_name': 'x',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                     },
                 }
             ],
@@ -1585,7 +1597,7 @@ def test_fill_cli_marketplace_flag_also_guarded(mkt_template, tmp_path):
     spec = _spec(
         tmp_path,
         {
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'mint_new_asin': True,
             'rows': [
                 {
@@ -1593,7 +1605,7 @@ def test_fill_cli_marketplace_flag_also_guarded(mkt_template, tmp_path):
                     'parentage': 'Child',
                     'fields': {
                         'item_name': 'x',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                     },
                 }
             ],
@@ -1620,7 +1632,7 @@ def test_fill_auto_adopt_single_stamp_warns_loudly(template, tmp_path, capsys):
     spec = _spec(
         tmp_path,
         {
-            'product_type': 'socks',
+            'product_type': 'kettle',
             'brand': 'acme',
             'mint_new_asin': True,
             'rows': [
@@ -1628,7 +1640,7 @@ def test_fill_auto_adopt_single_stamp_warns_loudly(template, tmp_path, capsys):
                     'sku': 'K-WHT',
                     'fields': {
                         'item_name': 'x',
-                        'feed_product_type': 'socks',
+                        'feed_product_type': 'kettle',
                     },
                 }
             ],
@@ -1665,7 +1677,7 @@ def test_inspect_prints_region_stamp(mkt_template, capsys):
 def _mint_spec(**row):
     base = {'sku': 'K-WHT', 'operation': 'create', 'fields': {'item_name': 'x'}}
     base.update(row)
-    return {'product_type': 'socks', 'brand': 'acme', 'rows': [base]}
+    return {'product_type': 'kettle', 'brand': 'acme', 'rows': [base]}
 
 
 def test_fill_refuses_undeclared_new_asin_mint(template, tmp_path):
@@ -1718,26 +1730,29 @@ def test_row_level_mint_declaration_accepted(template, tmp_path):
     assert _read_rows(out)[0]['item_sku'] == 'K-WHT'
 
 
-def test_non_create_operations_need_no_mint_declaration(template, tmp_path):
-    """update / partialupdate / delete cannot mint, so they are exempt."""
+def test_partialupdate_needs_no_mint_declaration(template, tmp_path):
+    """A partialupdate cannot mint, so it is exempt."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'rows': [
-            {'sku': 'K-1', 'operation': 'update', 'fields': {'item_name': 'a'}},
+            {
+                'sku': 'K-1',
+                'operation': 'partialupdate',
+                'fields': {'item_name': 'a'},
+            },
             {'sku': 'K-2', 'operation': 'partialupdate'},
-            {'sku': 'K-3', 'operation': 'delete'},
         ],
     }
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
-    assert {r['item_sku'] for r in _read_rows(out)} == {'K-1', 'K-2', 'K-3'}
+    assert {r['item_sku'] for r in _read_rows(out)} == {'K-1', 'K-2'}
 
 
 def test_mint_guard_names_every_undeclared_row(template, tmp_path):
     """All offenders in one message — not one failure per re-run."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'rows': [
             {'sku': 'P-1', 'operation': 'create', 'parentage': 'parent'},
@@ -1798,7 +1813,7 @@ def test_list_value_spreads_across_repeated_columns(unified_template, tmp_path):
     """
     spec = {
         'marketplace': 'SA',
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'mint_new_asin': True,
         'rows': [
@@ -1828,7 +1843,7 @@ def test_overflowing_repeated_list_warns(unified_template, tmp_path, capsys):
     """More values than slots is dropped data — say so, don't be silent."""
     spec = {
         'marketplace': 'SA',
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'mint_new_asin': True,
         'rows': [
@@ -1864,7 +1879,7 @@ def test_blanket_mint_declaration_refused_when_spec_also_pins(
     mint has to be owned on its own row.
     """
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'mint_new_asin': True,
         'rows': [
@@ -1882,7 +1897,7 @@ def test_blanket_mint_declaration_refused_when_spec_also_pins(
 def test_row_level_mint_alongside_pins_is_accepted(template, tmp_path):
     """The same spec, with the mint owned on the row that mints."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'rows': [
             {
@@ -1902,7 +1917,7 @@ def test_row_level_mint_alongside_pins_is_accepted(template, tmp_path):
 def test_blanket_mint_still_fine_when_nothing_is_pinned(template, tmp_path):
     """A brand-new family has nothing to lose — blanket stays ergonomic."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'mint_new_asin': True,
         'rows': [
@@ -1928,7 +1943,7 @@ def test_row_level_product_type_is_written(template, tmp_path):
             {
                 'sku': 'K-WHT',
                 'operation': 'create',
-                'product_type': 'socks',
+                'product_type': 'kettle',
                 'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'x'},
             }
@@ -1936,7 +1951,7 @@ def test_row_level_product_type_is_written(template, tmp_path):
     }
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
-    assert _read_rows(out)[0]['feed_product_type'] == 'socks'
+    assert _read_rows(out)[0]['feed_product_type'] == 'kettle'
 
 
 def test_row_product_type_overrides_the_top_level(template, tmp_path):
@@ -1947,14 +1962,14 @@ def test_row_product_type_overrides_the_top_level(template, tmp_path):
             {
                 'sku': 'K-WHT',
                 'operation': 'create',
-                'product_type': 'socks',
+                'product_type': 'kettle',
                 'asin': 'B0EXAMPLE1',
             }
         ],
     }
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
-    assert _read_rows(out)[0]['feed_product_type'] == 'socks'
+    assert _read_rows(out)[0]['feed_product_type'] == 'kettle'
 
 
 def test_missing_product_type_is_fatal_not_a_warning(template, tmp_path):
@@ -1972,7 +1987,7 @@ def test_missing_product_type_is_fatal_not_a_warning(template, tmp_path):
 def test_stray_row_key_is_named(template, tmp_path, capsys):
     """A key fill ignores is a value the agent thinks it set."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'rows': [
             {
@@ -1998,7 +2013,7 @@ def test_interrogative_battery_alias_resolves(template, tmp_path):
     template". It was a REQUIRED field, so the whole feed failed.
     """
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'rows': [
             {
@@ -2017,7 +2032,7 @@ def test_interrogative_battery_alias_resolves(template, tmp_path):
 def test_skipped_field_suggests_the_nearest_column(template, tmp_path, capsys):
     """ "Not in this template" alone sends the author reading every column."""
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'rows': [
             {
@@ -2051,7 +2066,7 @@ def test_decorated_key_never_crosses_marketplaces(
     assert ae_name != _UNI_NAME and ae_name not in _UNI_FIELDS
     spec = {
         'marketplace': 'SA',
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'mint_new_asin': True,
         'rows': [
@@ -2148,7 +2163,7 @@ def test_clean_batch_files_its_spec_and_the_next_fill_is_told(
     lib = tmp_path / 'lib'
     monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
     good = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'mint_new_asin': True,
         'rows': [
@@ -2167,7 +2182,7 @@ def test_clean_batch_files_its_spec_and_the_next_fill_is_told(
     )
     report = _real_report(tmp_path / 'r.xlsx', 1, 1, 'WARNING : info only')
     _run(['parse-feedback', report, '--batch-id', '100000000004'])
-    saved = list(lib.glob('socks__*.json'))
+    saved = list(lib.glob('kettle__*.json'))
     assert saved, 'clean verdict did not file the accepted spec'
     capsys.readouterr()
 
@@ -2204,7 +2219,7 @@ def test_failed_batch_files_nothing(tmp_path, monkeypatch):
 
 def _enum_spec(**fields):
     return {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'ACME',
         'mint_new_asin': True,
         'rows': [
@@ -2269,7 +2284,7 @@ def test_row_level_external_product_id_counts_as_a_pin(template, tmp_path):
     six steps to discover the friendly `asin` key instead.
     """
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'rows': [
             {
@@ -2537,7 +2552,7 @@ def test_agent_working_from_a_scratch_dir_still_feeds_the_gate(
     monkeypatch.chdir(scratch)  # <- the agent's current directory
 
     spec = {
-        'product_type': 'socks',
+        'product_type': 'kettle',
         'brand': 'acme',
         'mint_new_asin': True,
         'rows': [{'sku': 'K-1', 'operation': 'create', 'fields': {'x': 1}}],
@@ -2559,6 +2574,289 @@ def test_agent_working_from_a_scratch_dir_still_feeds_the_gate(
     assert (ws / 'BATCH_100000000021_VERDICT.json').is_file(), (
         'the verdict did not reach the workspace the gate reads'
     )
-    assert list(lib.glob('socks__*.json')), (
+    assert list(lib.glob('kettle__*.json')), (
         'the accepted spec was not filed from a scratch-dir run'
     )
+
+
+def test_inspect_field_finds_a_decorated_column_by_its_bare_name(
+    unified_template, capsys
+):
+    """`--field item_name` must answer on a unified template.
+
+    Observed live: every name there is decorated, an exact lookup of the
+    bare attribute printed `columns : None`, and the agent spent five
+    calls guessing spellings for the search-terms column.
+    """
+    _run(['inspect', unified_template, '--field', 'item_name'])
+    out = capsys.readouterr().out
+    assert f'field: {_UNI_NAME}' in out
+    assert 'columns : None' not in out
+    _run(['inspect', unified_template, '--field', 'no_such_attribute'])
+    assert 'no column matches' in capsys.readouterr().out
+
+
+def test_inspect_does_not_offer_disabled_operations(template, capsys):
+    _run(['inspect', template])
+    line = next(
+        ln
+        for ln in capsys.readouterr().out.splitlines()
+        if ln.startswith('operation column')
+    )
+    assert 'partialupdate' in line and 'disabled' in line
+    assert 'Update /' not in line and '/ delete' not in line
+
+
+def test_bare_scalar_field_goes_to_the_marketplace_being_filled():
+    """`item_name` on an AE fill must land in AE's column, not SA's.
+
+    A two-marketplace template carries a title column per storefront. A
+    bullet list was already scoped (repeat_slots); a bare scalar took the
+    FIRST matching column, so an AE edit of the title rewrote SA's.
+    """
+    sa = f'item_name[marketplace_id={_SA}][language_tag=en_AE]#1.value'
+    ae = f'item_name[marketplace_id={_AE}][language_tag=en_AE]#1.value'
+    schema = listing_bulk._Schema({_UNI_SKU: [1], sa: [2], ae: [3]})
+    assert schema.resolve_field('item_name', _AE) == ae
+    assert schema.resolve_field('item_name', _SA) == sa
+    assert schema.resolve_field('item_name') == sa  # no target: unchanged
+    # An explicitly decorated key still wins over the fill's marketplace.
+    assert schema.resolve_field(sa, _AE) == sa
+
+
+def test_skill_edit_example_fills_with_ops_partialupdate(
+    unified_template, tmp_path, capsys
+):
+    """The edit spec SKILL.md shows must fill as written, no ASIN needed."""
+    spec = {
+        'product_type': 'kettle',
+        'marketplace': 'SA',
+        'rows': [
+            {
+                'sku': 'E-1',
+                'operation': 'partialupdate',
+                'fields': {
+                    'item_name': 'new title',
+                    'bullet_point': ['b1', 'b2', 'b3'],
+                },
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+        '--ops',
+        'partialupdate',
+    ])
+    row = _read_unified_rows(out)[0]
+    assert row[_UNI_OP] == 'Edit (Partial Update)'
+    assert row[_UNI_NAME] == 'new title'
+    assert [row[c] for c in _UNI_BULLETS] == ['b1', 'b2', 'b3']
+    assert row[_UNI_BULLET_AE] in (None, '')
+    assert 'missing required' not in capsys.readouterr().err
+
+
+def test_inspect_field_scopes_to_a_marketplace(unified_template, capsys):
+    """`inspect --field bullet_point --marketplace AE` lists AE's slot only.
+
+    The flag is what `fill` takes; an agent passed it to `inspect` too and
+    lost two calls to a usage error.
+    """
+    _run([
+        'inspect',
+        unified_template,
+        '--field',
+        'bullet_point',
+        '--marketplace',
+        'AE',
+    ])
+    out = capsys.readouterr().out
+    assert f'field: {_UNI_BULLET_AE}' in out
+    assert not any(f'field: {c}' in out for c in _UNI_BULLETS)
+
+
+def test_fill_refuses_a_spec_it_would_overwrite(unified_template, tmp_path):
+    """`--spec x.spec.json --out x.xlsm` must not clobber the spec.
+
+    fill records the spec it used as `<out stem>.spec.json`; observed live,
+    that record replaced the agent's own spec of the same name.
+    """
+    spec = {
+        'product_type': 'kettle',
+        'marketplace': 'SA',
+        'rows': [{'sku': 'E-1', 'operation': 'partialupdate'}],
+    }
+    path = tmp_path / 'x.spec.json'
+    path.write_text(json.dumps(spec), encoding='utf-8')
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            unified_template,
+            '--spec',
+            str(path),
+            '--out',
+            str(tmp_path / 'x.xlsm'),
+        ])
+    assert 'overwrite your spec' in str(exc.value)
+    assert json.loads(path.read_text(encoding='utf-8')) == spec
+    assert not (tmp_path / 'x.xlsm').exists()
+
+
+def test_fill_refuses_a_txt_out_before_copying(unified_template, tmp_path):
+    """`--out x.txt` names the upload file, not the workbook fill writes."""
+    spec = {
+        'product_type': 'kettle',
+        'marketplace': 'SA',
+        'rows': [{'sku': 'E-1', 'operation': 'partialupdate'}],
+    }
+    out = tmp_path / 'x.txt'
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            unified_template,
+            '--spec',
+            _spec(tmp_path, spec),
+            '--out',
+            str(out),
+        ])
+    assert 'must be the workbook' in str(exc.value)
+    assert not out.exists()
+
+
+def test_fill_takes_the_library_record_it_is_told_to_start_from(
+    unified_template, tmp_path
+):
+    """The accepted-spec library's file is a record wrapping the spec.
+
+    parse-feedback tells the agent to start the next listing from it;
+    fill used to read the record as a spec with no rows.
+    """
+    inner = {
+        'product_type': 'kettle',
+        'marketplace': 'SA',
+        'rows': [
+            {
+                'sku': 'E-1',
+                'operation': 'partialupdate',
+                'fields': {'item_name': 'from the library'},
+            },
+        ],
+    }
+    record = {'accepted_batch_id': '1', 'marketplace_id': _SA, 'spec': inner}
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        unified_template,
+        '--spec',
+        _spec(tmp_path, record),
+        '--out',
+        out,
+        '--ops',
+        'partialupdate',
+    ])
+    assert _read_unified_rows(out)[0][_UNI_NAME] == 'from the library'
+
+
+def test_amazon_reclassification_is_filed_under_the_new_type(
+    template, tmp_path, monkeypatch, capsys
+):
+    """Amazon re-files a created SKU under its own product type and says so
+    only as a report WARNING. An edit task later built its partial update
+    from the create spec's stale type and had to be corrected by hand, so
+    the library files the spec -- and every SKU -- under the NEW type.
+    """
+    import listing_library as lib_mod  # noqa: PLC0415 -- on sys.path via listing_bulk
+
+    home = tmp_path / 'home'
+    ws = home / 'tasks' / 'abc12345-0000-0000-0000-000000000000'
+    ws.mkdir(parents=True)
+    lib = tmp_path / 'lib'
+    monkeypatch.setenv('VIBE_HOME', str(home))
+    monkeypatch.setenv('VIBE_TASK_ID', ws.name)
+    monkeypatch.setenv('LISTING_SPEC_LIBRARY', str(lib))
+    monkeypatch.chdir(tmp_path)
+
+    spec = {
+        'product_type': 'charging_adapter',
+        'brand': 'acme',
+        'mint_new_asin': True,
+        'rows': [
+            {'sku': 'K-P', 'operation': 'create', 'fields': {'x': 1}},
+            {'sku': 'K-M', 'operation': 'create', 'fields': {'x': 1}},
+        ],
+    }
+    out = tmp_path / 'good.xlsx'
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', str(out)])
+    (ws / 'UPLOAD_BATCH_100000000031.json').write_text(
+        json.dumps({'file': str(out.with_suffix('.txt'))}), encoding='utf-8'
+    )
+    (ws / 'BATCH_100000000031_VERDICT.json').write_text(
+        json.dumps({'non_image_errors': 0}), encoding='utf-8'
+    )
+    warning = (
+        'WARNING: ... Therefore, your product type has been updated from '
+        'CHARGING_ADAPTER to POWER_SUPPLY. If you believe ...'
+    )
+    assert lib_mod.reclassified_type(['other', warning]) == 'POWER_SUPPLY'
+    assert lib_mod.reclassified_type(['nothing to see']) is None
+
+    lib_mod.report_saved('100000000031', [warning])
+    assert 'must use the POWER_SUPPLY template' in capsys.readouterr().out
+    assert not list(lib.glob('charging_adapter__*.json'))
+    (filed,) = lib.glob('power_supply__*.json')
+    assert json.loads(filed.read_text('utf-8'))['spec']['product_type'] == (
+        'power_supply'
+    )
+    types = json.loads((lib / lib_mod.SKU_TYPES_NAME).read_text('utf-8'))
+    assert types == {'K-M': 'POWER_SUPPLY', 'K-P': 'POWER_SUPPLY'}
+
+
+def test_title_repeating_a_word_three_times_is_refused_before_upload():
+    """Amazon rejects a title that uses a word more than twice, but only
+    in the report an hour later. A title repeating its category noun
+    three times cost a live edit that round trip.
+    """
+    import listing_checks  # noqa: PLC0415 -- on sys.path via listing_bulk
+
+    bad = {
+        'item_name[marketplace_id=X][language_tag=en_AE]#1.value': (
+            'Wall Charger, Fast Charger for Phones, Travel CHARGER'
+        )
+    }
+    msg = listing_checks.title_repeats(bad, 3, 'K-1')
+    assert msg and "['charger']" in msg and 'sku=K-1' in msg
+    # Twice is allowed, case and punctuation aside; other fields ignored.
+    ok = {
+        'item_name': 'Electric Kettle 1.7L, Stainless Steel Kettle',
+        'bullet_point': 'kettle kettle kettle',
+    }
+    assert listing_checks.title_repeats(ok, 1, 'K-1') is None
+
+
+def test_fill_refuses_a_title_amazon_would_reject(unified_template, tmp_path):
+    spec = {
+        'product_type': 'kettle',
+        'rows': [
+            {
+                'sku': 'K-1',
+                'operation': 'partialupdate',
+                'fields': {'item_name': 'Cable one, Cable two, Cable three'},
+            }
+        ],
+    }
+    with pytest.raises(SystemExit, match='more than twice'):
+        _run([
+            'fill',
+            unified_template,
+            '--spec',
+            _spec(tmp_path, spec),
+            '--out',
+            str(tmp_path / 'o.xlsx'),
+            '--ops',
+            'partialupdate',
+        ])

@@ -6,7 +6,7 @@ workspaces are isolated, so the spec that finally passed died with its
 task, and the next task re-learned the category's required set one
 Amazon rejection at a time -- 30-60 minutes per round. The template
 could not warn about it either: the fields Amazon enforces are flagged
-"Conditionally Required" (53 of them in one apparel template), which
+"Conditionally Required" (53 of them in one template), which
 `fill` rightly does not treat as hard requirements.
 
 So the lesson is stored as an artifact, at the one moment it is proven:
@@ -20,12 +20,21 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 from listing_schema import base_attr
 from marketplace_ids import COUNTRY_BY_ID
 
 LIB_DIRNAME = 'listing-specs'
+# Every SKU's product type as Amazon holds it NOW, beside the specs.
+SKU_TYPES_NAME = 'sku-product-types.json'
+# Amazon's own words when it files a SKU under another product type than
+# the one submitted (a warning: the row is still applied).
+_RECLASSIFIED = re.compile(
+    r'product type has been updated from\s+([A-Z0-9_]+)\s+to\s+([A-Z0-9_]+)',
+    re.IGNORECASE,
+)
 _ID_ATTRS = {
     'contribution_sku',
     'item_sku',
@@ -77,6 +86,45 @@ def sidecar_path(out_path):
     return p.with_name(p.stem + '.spec.json')
 
 
+def load_spec(path):
+    """A spec, also when handed the library's or a sidecar's record of one.
+
+    `parse-feedback` files an accepted spec as `{accepted_batch_id, ...,
+    spec: {...}}` and says to start the next listing from it; fill read
+    that record as a spec with no rows. Observed live: an agent copied
+    the library file, got "spec has no rows", and unwrapped it by hand.
+    """
+    with open(path, encoding='utf-8') as fh:
+        spec = json.load(fh)
+    if 'rows' not in spec and isinstance(spec.get('spec'), dict):
+        spec = spec['spec']
+    return spec
+
+
+def spec_path_guard(spec_path, out_path):
+    """Refuse an --out that is not a workbook, or a --spec it would clobber.
+
+    Observed live: a spec saved as `x.spec.json` and filled to `--out
+    x.xlsm` was overwritten by its own `{marketplace_id, spec}` record,
+    so the next fill from it found no rows.
+    """
+    if not str(out_path).lower().endswith(('.xlsm', '.xlsx')):
+        # Observed live: `--out x.txt` copied the template there and then
+        # died in openpyxl with a raw traceback, leaving a junk file.
+        raise SystemExit(
+            f'error: --out {out_path} must be the workbook (.xlsm). fill '
+            'writes the tab-delimited upload file next to it as <name>.txt '
+            '-- that is the file you upload, not the one you name here.'
+        )
+    side = sidecar_path(out_path)
+    if Path(spec_path).resolve() == side.resolve():
+        raise SystemExit(
+            f'error: --spec {spec_path} is the record fill writes next to '
+            f'--out ({side.name}), so this fill would overwrite your spec. '
+            'Rename the spec (e.g. drop ".spec") or choose another --out.'
+        )
+
+
 def write_sidecar(out_path, spec, mkt_id):
     """Record the exact spec `fill` used, so a clean verdict can save it."""
     try:
@@ -121,12 +169,59 @@ def _entry(lib, spec, mkt_id):
     return lib / f'{_product_type(spec)}__{cc}.json'
 
 
-def save_on_clean(batch_id):
+def reclassified_type(messages):
+    """The product type Amazon moved a batch's SKUs to, or None.
+
+    Amazon may re-file a created SKU under a type of its own choosing and
+    says so only as a warning on the report. Every later partial update
+    of that SKU must name the NEW type -- the create spec's type is
+    stale -- and the only place that fact was ever written was a report
+    nobody reads again: an edit task built its file from the create spec
+    and had to be corrected by hand.
+    """
+    for msg in messages or ():
+        m = _RECLASSIFIED.search(msg or '')
+        if m:
+            return m.group(2).upper()
+    return None
+
+
+def _retyped(spec, new_type):
+    """`spec` with every product type replaced by `new_type`."""
+    spec = json.loads(json.dumps(spec))
+    spec['product_type'] = new_type.lower()
+    for row in spec.get('rows') or []:
+        if isinstance(row, dict) and row.get('product_type'):
+            row['product_type'] = new_type.lower()
+    return spec
+
+
+def _record_sku_types(lib, spec):
+    """Merge every SKU of `spec` into the store's SKU -> product type map."""
+    path = lib / SKU_TYPES_NAME
+    try:
+        known = json.loads(path.read_text('utf-8'))
+    except (OSError, ValueError):
+        known = {}
+    pt = _product_type(spec).upper()
+    for row in spec.get('rows') or []:
+        sku = isinstance(row, dict) and row.get('sku')
+        if sku:
+            known[sku] = str(row.get('product_type') or pt).upper()
+    path.write_text(
+        json.dumps(known, indent=1, sort_keys=True, ensure_ascii=False),
+        encoding='utf-8',
+    )
+
+
+def save_on_clean(batch_id, new_type=None):
     """After a CLEAN verdict, file the spec behind that batch. -> path|None.
 
     Clean means what the completion gate means: zero non-image errors.
     Reads the batch's upload marker (written by bh_upload_flatfile) for
-    the file, and that file's sidecar for the spec.
+    the file, and that file's sidecar for the spec. When Amazon re-filed
+    the SKUs under `new_type`, the spec is filed under that type, as the
+    type the listings now have.
     """
     if not batch_id:
         return None
@@ -146,9 +241,12 @@ def save_on_clean(batch_id):
     lib = library_dir(upload)
     if lib is None:
         return None
+    if new_type:
+        side['spec'] = _retyped(side['spec'], new_type)
     dest = _entry(lib, side['spec'], side.get('marketplace_id'))
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
+        _record_sku_types(dest.parent, side['spec'])
         dest.write_text(
             json.dumps(
                 {
@@ -239,9 +337,16 @@ def after_fill(out_path, spec, mkt_id):
             )
 
 
-def report_saved(batch_id):
+def report_saved(batch_id, messages=()):
     """`parse-feedback`'s hook: file the spec behind a clean batch."""
-    dest = save_on_clean(batch_id)
+    new_type = reclassified_type(messages)
+    if new_type:
+        print(
+            f'Amazon re-filed these SKUs as product type {new_type}: every '
+            f'later partial update of them must use the {new_type} template '
+            f'(recorded in listing-specs/{SKU_TYPES_NAME})'
+        )
+    dest = save_on_clean(batch_id, new_type)
     if dest:
         print(
             f'accepted spec saved -> {dest} (start the next listing of this '

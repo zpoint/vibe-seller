@@ -51,8 +51,30 @@ import os
 import re
 import time
 
-F = os.environ['UPLOAD_FILE']
-HOST = os.environ['SC_HOST']
+
+def _env(name):
+    """A required parameter, or one RESULT line saying how to pass it.
+
+    A plain `NAME=value` line before the command never reaches this
+    script; an agent did exactly that and got a bare KeyError traceback.
+    """
+    value = os.environ.get(name, '').strip()
+    if not value:
+        print(
+            'RESULT '
+            + json.dumps({
+                'ok': False,
+                'reason': f'{name} is not set -- put it on the same line '
+                'as browser-use (NAME=value browser-use < script) or '
+                'export it',
+            })
+        )
+        raise SystemExit(0)
+    return value
+
+
+F = _env('UPLOAD_FILE')
+HOST = _env('SC_HOST')
 MARKER_DIR = os.environ.get('MARKER_DIR', '.')
 
 
@@ -185,6 +207,58 @@ try:
 except OSError as exc:
     _finish(f'cannot read UPLOAD_FILE: {exc}')
 
+# Full-update and delete rows are refused here as well as in
+# listing_bulk.py (see DISABLED_OPS in listing_schema.py): an upload file
+# written or edited by hand never went through `fill`, and this is the last
+# point before the feed reaches Amazon. Lower-cased tokens of both dialects.
+_DISABLED_TOKENS = {'update', 'delete', 'create or replace (full update)'}
+
+
+def _disabled_rows(path):
+    """(sku, token) for every data row whose operation is disabled."""
+    with open(path, encoding='utf-8', errors='replace') as fh:
+        lines = [ln.rstrip('\r\n').split('\t') for ln in fh]
+    for h, head in enumerate(lines):
+        names = [c.strip() for c in head]
+        op = next(
+            (
+                j
+                for j, n in enumerate(names)
+                if n == 'update_delete' or n.endswith('record_action')
+            ),
+            None,
+        )
+        sku = next(
+            (
+                j
+                for j, n in enumerate(names)
+                if n == 'item_sku' or n.startswith('contribution_sku')
+            ),
+            None,
+        )
+        if op is None or sku is None:
+            continue
+        found = []
+        for row in lines[h + 1 :]:
+            tok = row[op].strip().lower() if op < len(row) else ''
+            if tok in _DISABLED_TOKENS:
+                found.append((row[sku] if sku < len(row) else '?', tok))
+        return found
+    return []
+
+
+_bad = _disabled_rows(F)
+if _bad:
+    _finish(
+        'REFUSED: the upload file carries full-update / delete rows ('
+        + ', '.join(f'{s}={t}' for s, t in _bad)
+        + '). Both are disabled: a full update clears every attribute the '
+        'row leaves blank, and a delete removes the SKU from every '
+        'marketplace of the account for good. Edit listings with '
+        "operation 'partialupdate' via listing_bulk.py fill; never "
+        'delete -- tell the user instead.'
+    )
+
 # Every button-ish control, with a stable identity that carries NO
 # language. `key` is only ever compared against ITSELF across the two
 # snapshots — never against a word — so this works on a console in any
@@ -245,6 +319,16 @@ time.sleep(_LOAD_WAIT)
 out['marketplace'] = js(
     "return (typeof ue_mid!=='undefined' && ue_mid) ? String(ue_mid) : null"
 )
+# The sign-in page sets ue_mid too, so check for it first: nothing can be
+# staged on it, and a lapsed session is the usual reason a page is wrong.
+_href = js('return location.href') or ''
+if '/ap/signin' in _href or '/ap/mfa' in _href:
+    out['signed_out'] = True
+    _finish(
+        f'signed out -- {HOST} redirected the upload page to sign-in. '
+        'Run amazon-shared/scripts/bh_signin.py, then re-run this '
+        'helper; nothing was staged.'
+    )
 # Fail CLOSED: without BOTH ids the helper cannot prove where the feed
 # lands, and "probably the right marketplace" is what put an AE file in
 # SA's upload history. No proof, no upload.
@@ -278,8 +362,8 @@ if len({v for v in _seen.values() if v}) > 1:
         'MARKETPLACE MISMATCH — '
         + '; '.join(f'{k} {v}' for k, v in _seen.items() if v)
         + '. All three must name the SAME marketplace, and the URL host '
-        'does NOT decide where a feed lands. Switch the account switcher '
-        'to the marketplace you want (then re-read ue_mid), and '
+        'does NOT decide where a feed lands. Switch the session with '
+        'amazon-shared/scripts/bh_switch_marketplace.py, and '
         'regenerate the template with that store ticked '
         '(bh_download_template) so its stamp matches too.'
     )
@@ -372,6 +456,18 @@ if not submit:
     except (TypeError, ValueError):
         out['alerts'] = []
     capture_screenshot()
+    # BAD_JSON_* is the code on Amazon's "technical difficulties" alert:
+    # the page's own calls failed, which a live run traced to the session
+    # lapsing mid-upload (the next load went to sign-in). Waiting longer
+    # cannot fix that, and reading it as a bad file sends the agent off
+    # editing a file that was fine.
+    if any('BAD_JSON' in a for a in out['alerts']):
+        _finish(
+            "Amazon's page failed its own request (BAD_JSON) -- usually "
+            'the session lapsing. Run amazon-shared/scripts/bh_signin.py '
+            'and re-run this helper unchanged; nothing was submitted and '
+            'the file is not at fault.'
+        )
     _finish(
         'file staged but Submit never enabled within '
         f'{_INTROSPECT_WAIT}s — read out["alerts"] and the screenshot '
