@@ -36,6 +36,10 @@ review:
 Covers SKU creation and the post-creation edit flow (price, stock,
 barcode, content, visibility status).
 
+> **Writing or rewriting content** (title, bullets, description, EN and
+> AR): follow `../amazon-listing/references/listing-copy.md` first — fact
+> sheet from every detail tile, real category, competitor check, review.
+
 > **Two create paths — PREFER file-based, FALL BACK to click.**
 > File-based (§1, NIS spreadsheet import) sets every hard field through a
 > spreadsheet, so it never touches the Ant-Design dropdowns (Warranty,
@@ -84,8 +88,7 @@ read it in-page before filling; do not assume.
 ### 1.2 The NIS template (Content → NIS Create/Update)
 
 - **Category**: "Download templates for" → **Specific category** →
-  drill the tree (e.g. **Apparel** → product-types incl. *Socks &
-  Tights*) and select it, **plus** the target store/marketplace, to
+  drill the tree (top category → its product types) and select it, **plus** the target store/marketplace, to
   enable the per-category **Download English** / **Download English +
   Arabic** buttons (AE stores need the +Arabic template for the local
   title). "All categories" downloads a generic shell without the
@@ -393,12 +396,11 @@ These are the exact methods that make the click path work — every one
 was a wall until pinned down. Follow them literally.
 
 - **Category tree is a scrollable drill, not a flat list.** Click the
-  top category (e.g. `Apparel`) → it shows product-types as a scrollable
+  top category → it shows product-types as a scrollable
   list → the leaf you want is usually below the fold. Do NOT click a raw
   coordinate; `scrollIntoView({block:'center'})` the leaf text, re-read
-  its live rect, then trusted `click_at_xy`. A product-type like
-  `Socks & Tights` expands to sub-types (`Socks`, `Stockings`, …) each
-  with a **`Select`** button — click that to enable `Next`.
+  its live rect, then trusted `click_at_xy`. A product-type
+  can expand to sub-types, each with a **`Select`** button — click that to enable `Next`.
 
 - **Ant-Design selects are VIRTUAL lists — the option you want often
   renders BELOW the clipped dropdown panel.** Opening the select and
@@ -722,28 +724,30 @@ a direct "Add Product Title" button that scrolls to the field.
 | What's In The Box | Optional | Optional |
 | Shipping Height/Length/Weight/Width/Depth | Optional | Optional |
 
-#### Filling content — always `fill_input`, never `nativeSetter`
+#### Filling content — clear the field, then `fill_input`
 
 Content fields are the same React-controlled inputs as the Offer tab, so
 fill each with **`fill_input`** (matches on placeholder / name). There
 are English + local-language variants per field — fill both:
 
+**`fill_input` APPENDS to a field that already holds text** (its
+select-all does not take on these inputs), so an edit of live copy reads
+`<old><new>`. Clear the field first, then `fill_input` it, and read the
+value back before saving:
+
 ```bash
 browser-use <<'PY'
-# Title has an English box and a local-language box (same placeholder,
-# two elements). fill_input targets one selector; use :nth-of-type or a
-# per-element loop with real key events — NOT nativeSetter (React ignores
-# a nativeSetter value, leaving the field blank on save/reload).
-fill_input("input[placeholder='Product Title *']", "Women's Cotton Crew Socks (6-Pack)")
-# for the second (local-language) box, click it then fill:
-js("document.querySelectorAll(\"input[placeholder='Product Title *']\")[1]?.focus()")
-type_text_note = "use fill_input on a unique selector; if two share a placeholder, focus the 2nd then fill_input its id/xpath"
+js("""var e=document.querySelectorAll("input[placeholder='Product Title *']")[0];
+Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'');
+e.dispatchEvent(new Event('input',{bubbles:true}));""")   # [1] = the Arabic box
+fill_input("input[placeholder='Product Title *']", "USB-C GaN Charger 65W, 3-Port")
 PY
 ```
 
-> A `nativeSetter` + `dispatchEvent('input')` sets the DOM value but does
-> NOT enter React state — the field looks filled yet saves blank and is
-> empty on reload. This was a real live failure. Use `fill_input`.
+> A `nativeSetter` used to SET the value (not clear it) once saved blank;
+> clear-then-`fill_input` is what saved in two live runs. **Leave `®` /
+> `™` out of every field**: noon drops the whole save without a word —
+> Submit closes, the reload shows the old copy (four rounds lost to it).
 
 Always click **Save Changes** after editing, then **reload and re-read**
 the field to confirm it persisted (the green toast alone is not proof).
