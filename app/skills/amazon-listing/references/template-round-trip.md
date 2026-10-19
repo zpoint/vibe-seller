@@ -32,8 +32,8 @@ The metadata sheets are the source of truth:
 Seller Central → **Catalogue → Add Products via Upload**
 (`sellercentral.amazon.<tld>/listing/upload` → `/product-search/bulk`).
 Open **Spreadsheet → Download Blank Template → Download Product
-Spreadsheet**, search the product type (e.g. "socks" → **Select**
-"Sock"), choose the language, then **select the store's own single
+Spreadsheet**, search the product type (e.g. "charger" → **Select**
+the matching type), choose the language, then **select the store's own single
 marketplace only** (uncheck the others — the picker defaults to several,
 and multi-marketplace disables Listing Preferences), then **Generate
 Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
@@ -75,7 +75,7 @@ fields.
 
 ```json
 {
-  "product_type": "socks",
+  "product_type": "charging_adapter",
   "brand": "ACME",
   "rows": [
     { "sku": "WIDGET-001", "operation": "create", "parentage": "Parent",
@@ -121,7 +121,7 @@ a Parent row, and suppresses battery/hazmat required-field warnings when
 the row declares no batteries.
 
 > **Children are NOT minimal — fill each child's full required set.**
-> On a real socks create, minimal children (only `parent_sku` + colour +
+> On a real create, minimal children (only `parent_sku` + colour +
 > offer) were rejected: Amazon required `item_name`, `target_gender`,
 > `age_range_description`, `apparel_size_system`, and the compound
 > `apparel_body_type` / `apparel_height_type` **on every child row**. So
@@ -186,7 +186,7 @@ each SKU has an ASIN and the parent shows **"Variations (N)"**. The feed
 count under-reports — records with errors still create stubs, and later
 re-uploads can complete them.
 
-### First-upload gotchas (verified on a socks template — priors, not a checklist)
+### First-upload gotchas (verified on a live template — priors, not a checklist)
 
 - **`recommended_browse_nodes`** is a **gated set** per category — a
   guessed id is rejected. Pick one from the template's `Browse data`

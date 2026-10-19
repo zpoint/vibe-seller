@@ -580,7 +580,7 @@ class TestAScopedAuditIsNotAShrinkingMarket:
     """
 
     _REPORT_ROWS = (
-        '### 600000000001 | acme socks manual | Manual\n\n'
+        '### 600000000001 | acme kettle manual | Manual\n\n'
         '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
         '| widget red | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
         '该活动类型无搜索词报告（SD）。\n'

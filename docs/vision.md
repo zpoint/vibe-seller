@@ -170,7 +170,7 @@ finished-task file explorer).
 
 The product's appearance comes **only from the reference images**, never
 from prompt words — so the same prompt skeleton works for any product
-(a ribbed sock, a smooth sock, a lantern). The prompt sets only layout,
+(a phone charger, a kettle, a lantern). The prompt sets only layout,
 background, on-image text (infographics, spelled exactly, in the user's
 language), and compliance. The one negative constraint is generic: "do
 not invent elements not in the references." The agent writes the prompt
