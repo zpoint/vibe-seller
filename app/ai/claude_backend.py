@@ -287,10 +287,12 @@ class AgentSession(
             if ws_dir.exists():
                 cmd.extend(['--add-dir', str(ws_dir)])
 
-            # Block global playwright MCP server
+            # Block global playwright MCP, and scheduling tools: a headless
+            # task agent exits, so a wakeup or cron it sets never fires.
             cmd.extend([
                 '--disallowedTools',
-                'mcp__playwright__*,mcp__browser-use__*',
+                'mcp__playwright__*,mcp__browser-use__*,'
+                'ScheduleWakeup,CronCreate,CronDelete,CronList',
             ])
 
             # Register vibe-seller MCP server (must run before the
