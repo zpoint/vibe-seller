@@ -96,6 +96,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # `_`-prefixed internal names used here (and re-exported for tests).
 from listing_checks import (  # noqa: E402
     apply_shortfall as _apply_shortfall,
+    battery_waived as _battery_waived,
     enum_gate as _enum_gate,
     report_batch_problem as _report_batch_problem,
     report_outcome as _report_outcome,
@@ -196,10 +197,6 @@ BATTERY_TOKENS = (
     'supplier_declared_dg',
     'number_of_lithium',
 )
-
-
-def _is_falsey(v):
-    return v is None or str(v).strip().lower() in ('', 'no', 'false', '0')
 
 
 def _keep_vba(path):
@@ -434,14 +431,12 @@ def cmd_fill(args):
                 '"product_type" on the row or at the top of the spec.'
             )
 
-        # Required-field guard applies to Create rows only. Update/
-        # partialupdate touch a subset; delete needs just sku+operation.
-        if op_key == 'create':
+        # Required-field guard: create and full update (which replaces the
+        # whole listing); a partialupdate touches only what it carries.
+        if op_key in ('create', 'update'):
             parentage = fields.get(schema.field('parentage'), '')
             is_parent = str(parentage).lower() == 'parent'
-            no_battery = _is_falsey(
-                fields.get('are_batteries_included')
-            ) and _is_falsey(fields.get('batteries_required'))
+            no_battery = _battery_waived(fields)
             missing = []
             for f in required:
                 if f not in cols or f in fields or f == op_field:

@@ -404,6 +404,47 @@ def test_parent_not_warned_for_child_level_required(template, tmp_path, capsys):
     assert 'battery_type' not in err
 
 
+@pytest.mark.parametrize('declared', [False, True])
+def test_full_update_names_a_missing_batteries_field(
+    template, tmp_path, capsys, declared
+):
+    """A full update replaces the listing, so required fields are checked.
+
+    Observed live: a full-update feed with no batteries_required at all
+    was refused by Amazon on every row; fill had read "absent" as "no"
+    and waived the very field that was missing.
+    """
+    fields = {'item_name': 'a'}
+    if declared:
+        fields['batteries_required'] = 'No'
+    spec = {
+        'product_type': 'kettle',
+        'brand': 'acme',
+        'rows': [
+            {
+                'sku': 'U-1',
+                'operation': 'update',
+                'asin': 'B0EXAMPLE1',
+                'fields': fields,
+            }
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run([
+        'fill',
+        template,
+        '--spec',
+        _spec(tmp_path, spec),
+        '--out',
+        out,
+        '--ops',
+        'update',
+    ])
+    err = capsys.readouterr().err
+    assert 'missing required field' in err
+    assert ("'batteries_required'" in err) is not declared
+
+
 def test_missing_required_field_still_only_warns(template, tmp_path, capsys):
     """Amazon's Required flag is noisy, so this one stays a warning."""
     spec = {
