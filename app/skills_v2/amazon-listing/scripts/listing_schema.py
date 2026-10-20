@@ -557,7 +557,9 @@ def route_offer_price(fields, cols, mkt_id, i, sku, warnings):
 #   `partialupdate` is for; it changes only the fields the row carries.
 #
 # Taking a listing down is a human decision made in Seller Central, not a
-# row an agent writes; re-enabling either needs a code change, on purpose.
+# row an agent writes. A full update is refused unless the run opts in
+# with `--ops update`, which a task passes only when the user asked for a
+# full update by name (e.g. to re-list SKUs they deleted by hand).
 DISABLED_OPS = {
     'update': (
         'a full update CLEARS every attribute the row leaves blank on the '
@@ -573,10 +575,20 @@ DISABLED_OPS = {
 }
 
 
-def resolve_operation(op, dialect):
+# The disabled operations a run may opt back into. Delete never.
+OPT_IN_OPS = frozenset({'update'})
+
+
+def resolve_operation(op, dialect, allowed=()):
+    """(token, key) for a spec operation; refuse a disabled one.
+
+    ``allowed`` is the run's ``--ops``: a disabled operation passes only
+    when it is opt-in-able and the run named it.
+    """
     tokens = OP_TOKENS[dialect]
     key = (op or 'create').strip().lower()
-    if key in DISABLED_OPS:
+    opted = {a.strip().lower() for a in allowed or ()} & OPT_IN_OPS
+    if key in DISABLED_OPS and key not in opted:
         raise SystemExit(
             f"error: operation '{op}' is disabled -- {DISABLED_OPS[key]}"
         )

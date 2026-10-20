@@ -338,3 +338,20 @@ def title_repeats(fields, i, sku):
                 'appears more than twice.'
             )
     return None
+
+
+def battery_waived(fields):
+    """True only when the row DECLARES no batteries.
+
+    An absent `batteries_required` is not a "no": it is a missing
+    required field, and Amazon refused a whole full-update feed for it.
+    """
+    bat = {
+        base_attr(k): str(v).strip().lower()
+        for k, v in fields.items()
+        if 'batteries' in k
+    }
+    falsey = ('', 'no', 'false', '0', 'none')
+    return 'batteries_required' in bat and all(
+        v in falsey for v in bat.values()
+    )

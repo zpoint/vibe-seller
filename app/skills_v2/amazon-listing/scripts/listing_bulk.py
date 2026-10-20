@@ -96,6 +96,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 # `_`-prefixed internal names used here (and re-exported for tests).
 from listing_checks import (  # noqa: E402
     apply_shortfall as _apply_shortfall,
+    battery_waived as _battery_waived,
     enum_gate as _enum_gate,
     report_batch_problem as _report_batch_problem,
     report_outcome as _report_outcome,
@@ -105,6 +106,7 @@ from listing_checks import (  # noqa: E402
 from listing_identity import (  # noqa: E402
     mint_guard as _mint_guard,
     ops_guard as _ops_guard,
+    row_guards as _row_guards,
 )
 from listing_library import (  # noqa: E402
     after_fill,
@@ -197,10 +199,6 @@ BATTERY_TOKENS = (
 )
 
 
-def _is_falsey(v):
-    return v is None or str(v).strip().lower() in ('', 'no', 'false', '0')
-
-
 def _keep_vba(path):
     """Real Amazon templates are macro-enabled .xlsm (keep the macros and
     the signature row); tolerate a plain .xlsx too (tests, blank forms)."""
@@ -271,7 +269,7 @@ def cmd_inspect(args):
     print(f'total fields: {len(cols)}   required fields: {len(required)}')
     print(
         '\noperation column ({}): create=blank / partialupdate={} '
-        '(update and delete are disabled)'.format(
+        '(update needs --ops update; delete is disabled)'.format(
             op_field, schema.op_tokens()['partialupdate']
         )
     )
@@ -293,9 +291,7 @@ def _drop_unusable_item_highlight(fields, i, sku, warnings):
     Amazon only accepts `title_differentiation` (Item Highlight) when the
     row's `item_name` is <= 75 chars; otherwise it returns error 100476 and
     parks the SKU in "Action required" (SUCCESS OTHER). The field is
-    OPTIONAL, so when the title exceeds the limit we drop the highlight and
-    warn rather than upload a value that guarantees a rejection. Mutates
-    ``fields``. No-op when no highlight is set or the title fits.
+    OPTIONAL, so a too-long title drops it with a warning. Mutates ``fields``.
     """
     hi = next(
         (k for k in fields if _base_attr(k) == _ITEM_HIGHLIGHT_ATTR), None
@@ -323,7 +319,8 @@ def cmd_fill(args):
         raise SystemExit('error: spec has no rows')
     # Every row's operation is checked before the template is copied, so a
     # refused spec leaves no output file behind that looks uploadable.
-    _ops_guard(rows, getattr(args, 'ops', None))
+    allowed = getattr(args, 'ops', None)
+    _ops_guard(rows, allowed)
     spec_path_guard(args.spec, args.out)
 
     shutil.copyfile(args.file, args.out)
@@ -348,9 +345,10 @@ def cmd_fill(args):
     # cross-marketplace fill (nodes are the template PRIMARY's only).
     fatal, warn = _stamp_guard(requested, mkt_id, template_ids)
     fatal = fatal or _browse_node_guard(rows, spec, mkt_id, ws, header_row)
-    # Undeclared new-ASIN mint: destructive on a unified account, and
-    # invisible in the feed report (Amazon reports it as a clean create).
+    # Identity: an undeclared mint, or an edit with no pinned ASIN, can
+    # move a SKU to another ASIN; row_guards also checks family shape.
     fatal = fatal or _mint_guard(rows, spec, schema)
+    fatal = fatal or _row_guards(rows, spec, schema)
     if fatal:  # a refused fill leaves no file that looks like output
         os.remove(args.out)
         raise SystemExit(fatal)
@@ -372,7 +370,7 @@ def cmd_fill(args):
         ws.delete_rows(header_row + 1, ws.max_row - header_row)
     for i, spec_row in enumerate(rows):
         op_token, op_key = _resolve_operation(
-            spec_row.get('operation'), schema.dialect
+            spec_row.get('operation'), schema.dialect, allowed
         )
         fields = _row_fields(spec_row, spec, schema)
         # A list value means a REPEATED field (5 bullet points, several
@@ -433,14 +431,12 @@ def cmd_fill(args):
                 '"product_type" on the row or at the top of the spec.'
             )
 
-        # Required-field guard applies to Create rows only. Update/
-        # partialupdate touch a subset; delete needs just sku+operation.
-        if op_key == 'create':
+        # Required-field guard: create and full update (which replaces the
+        # whole listing); a partialupdate touches only what it carries.
+        if op_key in ('create', 'update'):
             parentage = fields.get(schema.field('parentage'), '')
             is_parent = str(parentage).lower() == 'parent'
-            no_battery = _is_falsey(
-                fields.get('are_batteries_included')
-            ) and _is_falsey(fields.get('batteries_required'))
+            no_battery = _battery_waived(fields)
             missing = []
             for f in required:
                 if f not in cols or f in fields or f == op_field:
@@ -775,11 +771,11 @@ def main():
     p.add_argument(
         '--ops',
         action='append',
-        choices=('create', 'partialupdate'),
+        choices=('create', 'partialupdate', 'update'),
         metavar='OP',
-        help='allow only these operations (repeatable). An edit of existing '
-        'listings passes --ops partialupdate, so no row can create a SKU. '
-        'update and delete are disabled outright.',
+        help='allow only these operations (repeatable); an edit passes '
+        '--ops partialupdate. update only when the user asked for a full '
+        'update by name; delete is disabled. Edit rows must pin the ASIN.',
     )
     p.set_defaults(func=cmd_fill)
 

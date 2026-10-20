@@ -171,7 +171,7 @@ def _disabled_rows_fn():
     ).read_text(encoding='utf-8')
     start = src.index('_DISABLED_TOKENS = ')
     end = src.index('\n\n\n_bad = ', start)
-    ns = {}
+    ns = {'os': os}
     exec(src[start:end], ns)  # noqa: S102 - our own source, under test
     return ns['_disabled_rows'], src
 
@@ -209,6 +209,22 @@ def test_upload_refuses_full_update_and_delete_rows(tmp_path, head, rows, bad):
     assert src.index('REFUSED: the upload file') < src.index(
         'DOM.setFileInputFiles'
     )
+
+
+def test_upload_full_update_opt_in_never_covers_delete(tmp_path):
+    """ALLOW_FULL_UPDATE=1 lets a full update through; a delete never."""
+    fn, src = _disabled_rows_fn()
+    f = tmp_path / 'up.txt'
+    lines = [
+        ['settings=x'],
+        ['label'],
+        ['contribution_sku#1.value', '::record_action'],
+        ['B-1', 'Create or Replace (Full Update)'],
+        ['B-2', 'Delete'],
+    ]
+    f.write_text('\n'.join('\t'.join(r) for r in lines), encoding='utf-8')
+    assert fn(str(f), allow_full=True) == [('B-2', 'delete')]
+    assert "os.environ.get('ALLOW_FULL_UPDATE'" in src
 
 
 def test_upload_helper_checks_the_INTENDED_marketplace_too():

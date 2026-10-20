@@ -211,10 +211,15 @@ except OSError as exc:
 # listing_bulk.py (see DISABLED_OPS in listing_schema.py): an upload file
 # written or edited by hand never went through `fill`, and this is the last
 # point before the feed reaches Amazon. Lower-cased tokens of both dialects.
+# A full update passes only with ALLOW_FULL_UPDATE=1, the twin of `fill
+# --ops update` -- set it only when the user asked for a full update by
+# name. Delete has no opt-in.
 _DISABLED_TOKENS = {'update', 'delete', 'create or replace (full update)'}
+_FULL_UPDATE_TOKENS = {'update', 'create or replace (full update)'}
+_ALLOW_FULL = os.environ.get('ALLOW_FULL_UPDATE', '').strip() == '1'
 
 
-def _disabled_rows(path):
+def _disabled_rows(path, allow_full=False):
     """(sku, token) for every data row whose operation is disabled."""
     with open(path, encoding='utf-8', errors='replace') as fh:
         lines = [ln.rstrip('\r\n').split('\t') for ln in fh]
@@ -241,22 +246,25 @@ def _disabled_rows(path):
         found = []
         for row in lines[h + 1 :]:
             tok = row[op].strip().lower() if op < len(row) else ''
-            if tok in _DISABLED_TOKENS:
+            if tok in _DISABLED_TOKENS and not (
+                allow_full and tok in _FULL_UPDATE_TOKENS
+            ):
                 found.append((row[sku] if sku < len(row) else '?', tok))
         return found
     return []
 
 
-_bad = _disabled_rows(F)
+_bad = _disabled_rows(F, _ALLOW_FULL)
 if _bad:
     _finish(
         'REFUSED: the upload file carries full-update / delete rows ('
         + ', '.join(f'{s}={t}' for s, t in _bad)
-        + '). Both are disabled: a full update clears every attribute the '
-        'row leaves blank, and a delete removes the SKU from every '
-        'marketplace of the account for good. Edit listings with '
-        "operation 'partialupdate' via listing_bulk.py fill; never "
-        'delete -- tell the user instead.'
+        + '). A full update clears every attribute the row leaves blank '
+        'and needs ALLOW_FULL_UPDATE=1, set only when the user asked for '
+        'a full update by name; a delete removes the SKU from every '
+        'marketplace of the account for good and is never uploaded -- '
+        'tell the user instead. Edit listings with operation '
+        "'partialupdate' via listing_bulk.py fill."
     )
 
 # Every button-ish control, with a stable identity that carries NO
