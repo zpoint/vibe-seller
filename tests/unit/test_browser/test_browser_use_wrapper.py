@@ -541,3 +541,31 @@ class TestWebWrapper:
         result = _run_wrapper(wrapper, env=env)
         assert result.returncode == 1
         assert 'managed by the wrapper' in result.stderr
+
+
+@pytest.mark.unit
+class TestWrapperTmpDirPerSession:
+    """capture_screenshot() writes a fixed shot.png into BH_TMP_DIR; a dir
+    shared by every session handed one task another store's picture."""
+
+    def test_tmp_dir_carries_the_task_session(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        env = {
+            **os.environ,
+            'VIBE_TASK_ID': 'a1b2c3d4-0000-0000-0000-000000000000',
+        }
+        result = _run_wrapper(wrapper, env=env)
+        assert result.returncode == 0, result.stderr
+        assert re.search(
+            r'^BH_TMP_DIR=.*/test-store-a1b2c3d4$', result.stdout, re.M
+        ), result.stdout
+
+    def test_aux_session_gets_its_own_tmp_dir(self, tmp_path: Path):
+        wrapper = _generate_wrapper(tmp_path, store_name='test-store')
+        result = _run_wrapper(
+            wrapper, '--session', 'test-store-aux', env=_env_without_task()
+        )
+        assert result.returncode == 0, result.stderr
+        assert re.search(
+            r'^BH_TMP_DIR=.*/test-store-aux$', result.stdout, re.M
+        ), result.stdout

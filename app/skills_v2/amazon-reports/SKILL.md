@@ -863,10 +863,9 @@ using for a monthly report:
 | `Custom Date Range` (default) | From/To pickers, calendar three shadow roots down | No — for a whole month it is all risk and no benefit |
 | **`Month`** | two plain `kat-dropdown`s: month + year | **Yes** |
 
-Switching to `Month` replaces the pickers with dropdowns whose options
-are ordinary DOM, so the whole shadow-DOM calendar walk disappears. It
-also removes the class of bug where a missed click silently leaves a
-one-day range.
+Switching to `Month` replaces the pickers with two dropdowns, so the
+three-level calendar walk disappears. It also removes the class of bug
+where a missed click silently leaves a one-day range.
 
 **The radio needs a coordinate click on the circle, not the label.**
 Clicking the word "Month" does nothing — measured live, a click ~65px to
@@ -907,6 +906,34 @@ PY
 conveniently defaults to last month, which is usually what a monthly run
 wants. Confirm against the visible label rather than trusting the number,
 then submit with `Request Report`.
+
+**Picking another month: the options live inside the dropdown's own
+`shadowRoot`.** `document.querySelectorAll('kat-option')` returns `[]`
+whether the list is open or not, and `selectOption('6')` leaves the
+value where it was (observed live on `.sa`: value stayed `8`). Click the
+dropdown open, read the option boxes out of its shadow root, and
+`click_at_xy` the one you want:
+
+```bash
+browser-use <<'PY'
+import time
+dd = "document.querySelectorAll('kat-dropdown')[2]"   # 3rd = month (value readback above)
+b = js(f"var b={dd}.getBoundingClientRect(); return {{x:Math.round(b.x+b.width/2), y:Math.round(b.y+b.height/2)}}")
+click_at_xy(b["x"], b["y"]); time.sleep(1.5)
+opts = js(f"""return [].map.call({dd}.shadowRoot.querySelectorAll('kat-option'), o => {{
+  var r = o.getBoundingClientRect();
+  return {{v: o.getAttribute('value'), x: Math.round(r.x+r.width/2), y: Math.round(r.y+r.height/2)}};
+}})""")
+o = next(o for o in opts if o["v"] == "6")            # July
+click_at_xy(o["x"], o["y"]); time.sleep(1.5)
+print(js(f"return {dd}.shadowRoot.querySelector('.selection-text').innerText.trim()"))  # → July
+PY
+```
+
+**Any reload puts the form back in `Custom Date Range`.** After a
+re-login or `new_tab()` on this URL the month/year dropdowns are gone
+(only the two report dropdowns remain) — re-click the `Month` radio and
+re-read `dd` before the next `Request Report`.
 
 If `dd` still shows `kat-date-picker`s instead of two dropdowns, the radio
 did not take: re-read the coordinates and click again. Do not proceed —
