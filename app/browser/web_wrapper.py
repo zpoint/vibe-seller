@@ -185,6 +185,10 @@ def write_web_browser_use_wrapper(
             exit 1
         fi
 
+        # capture_screenshot() writes a fixed shot.png into BH_TMP_DIR, so
+        # one dir for every session handed a task another store's picture.
+        export BH_TMP_DIR="{BH_TMP_DIR}/$SESSION"
+
         # Auto-start: ensure the web CDP proxy is responding.
         if ! curl -sf -o /dev/null \\
              --max-time 2 "{cdp_http_url}/json/version" 2>/dev/null; then
