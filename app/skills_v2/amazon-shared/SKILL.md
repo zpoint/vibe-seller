@@ -73,6 +73,24 @@ flow is multi-step: **email → Continue → password → (optional 2FA)**.
 Ziniao pre-fills the email and password; the agent advances each step
 and lets the redirect settle.
 
+**Run the helper first — one call walks the DOM part of the loop below:**
+
+```bash
+SC_HOST=sellercentral.amazon.<tld> browser-use < .claude/skills/amazon-shared/scripts/bh_signin.py
+```
+
+It presses Continue, submits the password Ziniao filled, waits for
+Ziniao's OTP on `/ap/mfa` and submits it, and stops with `ok: true` once
+the page leaves `/ap/`. It never types a credential. When it returns
+`needs`, continue by hand from the matching section: `passkey` → §2c,
+`broken_env` → stop (see below), `stuck` / `human` → read its screenshot
+and resolve the challenge shown. Bulk pages (upload, upload status)
+demand a sign-in within the last few minutes, so a session lapses during
+any wait for a batch: when a listing helper reports `signed_out`, run
+this and then re-run that helper.
+
+The manual steps, for reference and for what the helper hands back:
+
 ```bash
 browser-use <<'PY'
 new_tab("https://sellercentral.amazon.<tld>/home")
@@ -137,8 +155,9 @@ they render inside the browser viewport.
 
 If the flow lands on `/ap/mfa` (Two-Step Verification), Ziniao fetches
 the code and fills the OTP field (its `紫鸟验证码服务` panel shows
-`验证码获取成功`). Submit (`#signInSubmit` is usually in the page DOM
-here; coordinate-click the "Sign in" button if not). This path is the
+`验证码获取成功`). Submit: on this page the button is `#auth-signin-button`
+(not the password page's `#signInSubmit`); coordinate-click it if a JS
+click does not move the page. This path is the
 long-standing default and needs no special handling beyond the submit.
 
 ### 2c. Passkey (accounts Amazon has moved to passkey login)
@@ -220,8 +239,23 @@ the store display name can DIFFER per marketplace on one account
 (brand/storefront names vary) — reconcile by catalog contents, not by
 name alone.
 
-When the label shows the wrong marketplace and you need to switch,
-use the account-switcher PAGE — it is directly addressable (verified
+When the label shows the wrong marketplace and you need to switch, run
+the helper first -- one call does all of the steps below and reads the
+marketplace back:
+
+```bash
+SC_MARKETPLACE=<CC> SC_HOST=sellercentral.amazon.<tld> browser-use < .claude/skills/amazon-shared/scripts/bh_switch_marketplace.py
+```
+
+It finds the target row by the country's name in the session's own
+language (`Intl.DisplayNames`), selects it, presses the
+`kat-button[data-test=confirm-selection]` (a custom element -- a search
+over `button` / `a` never finds it, which cost one run ~45 calls), and
+returns `ok: true` only once `ue_mid` is the target. It refuses a
+pending / not-registered row by name. The manual steps, for when it
+reports a failure:
+
+Use the account-switcher PAGE — it is directly addressable (verified
 live; do NOT fight the header dropdown, whose kat/Vue rows ignore JS
 clicks and render off-viewport):
 
@@ -247,8 +281,9 @@ for, its `sellercentral.amazon.<tld>`, its marketplace id), and click:
    skip rows flagged as pending/not-registered. Don't assume a fixed
    string.
 4. Click the confirm/select-account button (always present on this
-   page — do not conclude it is missing; it's the primary button in
-   the session's language). Wait for the redirect (lands on a home /
+   page — do not conclude it is missing; it is
+   `kat-button[data-test=confirm-selection]`, a custom element, not a
+   `button`, and a JS click on the row only ticks it). Wait for the redirect (lands on a home /
    business dashboard, often with a `mons_sel_dir_mcid=` param), then
    RE-READ the switcher label and confirm it now names the target
    country before trusting anything on subsequent pages.

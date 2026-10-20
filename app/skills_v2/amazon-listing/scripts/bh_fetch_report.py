@@ -32,12 +32,35 @@ that writes the verdict the completion gate checks.
 import glob
 import json
 import os
+import re
 import shutil
 import time
 
-HOST = os.environ['SC_HOST']
-BATCH = os.environ['BATCH_ID']
-DL = os.path.expanduser(os.environ['DOWNLOADS_DIR'])
+
+def _env(name):
+    """A required parameter, or one RESULT line saying how to pass it.
+
+    A plain `NAME=value` line before the command never reaches this
+    script; an agent did exactly that and got a bare KeyError traceback.
+    """
+    value = os.environ.get(name, '').strip()
+    if not value:
+        print(
+            'RESULT '
+            + json.dumps({
+                'ok': False,
+                'reason': f'{name} is not set -- put it on the same line '
+                'as browser-use (NAME=value browser-use < script) or '
+                'export it',
+            })
+        )
+        raise SystemExit(0)
+    return value
+
+
+HOST = _env('SC_HOST')
+BATCH = _env('BATCH_ID')
+DL = os.path.expanduser(_env('DOWNLOADS_DIR'))
 # Page settle after the hard reload; bump on a slow account.
 _LOAD_WAIT = int(os.environ.get('REPORT_LOAD_WAIT', '15'))
 out = {
@@ -75,9 +98,48 @@ time.sleep(_LOAD_WAIT)
 out['marketplace'] = js(
     "return (typeof ue_mid!=='undefined' && ue_mid) ? String(ue_mid) : null"
 )
+# The sign-in page sets ue_mid too, so a lapsed session read as "batch id
+# not found -- switch marketplace": the right marketplace, the wrong
+# advice, and an agent hand-driving the status page. Bulk pages demand a
+# sign-in within the last few minutes, so this lapses during any wait.
+_href = js('return location.href') or ''
+if '/ap/signin' in _href or '/ap/mfa' in _href:
+    print(
+        'RESULT '
+        + json.dumps({
+            **out,
+            'signed_out': True,
+            'reason': (
+                f'signed out -- {HOST} redirected the upload-status page to '
+                'sign-in. Run amazon-shared/scripts/bh_signin.py, then '
+                're-run this helper; the batch was not looked at.'
+            ),
+        })
+    )
+    raise SystemExit(0)
+# The batch's OWN row: the cells of the table row holding the batch id.
+# A fixed window of leaf texts around the id spilled into the neighbouring
+# row -- an agent read a September batch's filename as part of its own
+# upload and stopped to question which file it had sent. The window is
+# kept only as the fallback for a layout with no row element. Control
+# labels are left out: a queued row carries Cancel buttons, and their
+# label read back as the batch's status -- "queued | cancel | cancel".
 row = js(
     'function* w(r){for(const e of r.querySelectorAll("*")){yield e;'
     'if(e.shadowRoot) yield* w(e.shadowRoot);}}'
+    'function ctl(c,r){for(let n=c;n&&n!==r;'
+    'n=n.parentElement||(n.getRootNode&&n.getRootNode().host)){'
+    'if(["BUTTON","KAT-BUTTON","A","KAT-LINK"].includes(n.tagName)||'
+    '(n.getAttribute&&n.getAttribute("role")==="button"))return true;}'
+    'return false;}'
+    'for(const e of w(document)){'
+    f'if(e.children.length===0&&(e.textContent||"").trim()==="{BATCH}"){{'
+    'let r=e;for(let i=0;i<14&&r;i++){if(/ROW|TR/.test(r.tagName||""))'
+    'break;r=r.parentElement||(r.getRootNode&&r.getRootNode().host);}'
+    'if(r&&/ROW|TR/.test(r.tagName||"")){let cells=[];'
+    'for(const c of w(r)){if(c.children.length===0&&!ctl(c,r)){'
+    'const t=(c.textContent||"").trim();if(t)cells.push(t);}}'
+    'return cells.join(" | ");}break;}}'
     'let seq=[];'
     'for(const e of w(document)){if(e.children.length===0){'
     'const t=(e.textContent||"").trim(); if(t) seq.push(t);}}'
@@ -94,8 +156,8 @@ if not row:
             'reason': (
                 'batch id not found on this page — this session is on '
                 f'marketplace {out["marketplace"]}; the batch belongs '
-                'to the marketplace it was UPLOADED to. Switch the '
-                'account switcher to that marketplace and re-run.'
+                'to the marketplace it was UPLOADED to. Switch with '
+                'amazon-shared/scripts/bh_switch_marketplace.py and re-run.'
             ),
         })
     )
@@ -173,14 +235,31 @@ else:
             out['reason'] = 'download clicked but no new .xlsm appeared'
         print('RESULT ' + json.dumps(out))
     else:
-        out['reason'] = (
-            "no download control in this batch's row. The row reads: "
-            + str(row)
-            + " — read the row's OWN status cell rather than assuming "
-            'the feed is still queued. If the row is byte-identical to '
-            'your previous poll, you are looking at a stale render, not '
-            'at progress: a finished batch (including a FAILED one, '
-            'which shows 0/N) always offers the report. Re-run this '
-            'helper (it hard-reloads) before waiting any longer.'
+        # A finished batch -- a FAILED one included (0/N) -- shows its
+        # processed count as x/y; a pending one shows N/A there. Read by
+        # structure, so the answer is the same in every console language.
+        # Without it, every honest "still queued" told the agent the row
+        # might be stale, and it went to inspect the status page by hand.
+        out['pending'] = not any(
+            re.fullmatch(r'\d+\s*/\s*\d+', c.strip())
+            for c in str(row).split('|')
         )
+        if out['pending']:
+            out['reason'] = (
+                'the batch is still pending (no processed count yet). This '
+                'is normal: Amazon can take 30+ minutes, longer when other '
+                'batches for the same SKUs are ahead of it. Wait 5 minutes '
+                'and re-run this helper; there is nothing to inspect by '
+                'hand. A wait that long usually signs the session out -- '
+                'if this helper then reports signed_out, run '
+                'amazon-shared/scripts/bh_signin.py first.'
+            )
+        else:
+            out['reason'] = (
+                'the batch finished but its row has no download control. '
+                'The row reads: '
+                + str(row)
+                + ' -- re-run this helper once (it hard-reloads); if the '
+                'control is still missing, take a screenshot of the row.'
+            )
         print('RESULT ' + json.dumps(out))

@@ -78,7 +78,6 @@ Requires: openpyxl.
 
 import argparse
 import csv
-import json
 import os
 import shutil
 import sys
@@ -100,16 +99,19 @@ from listing_checks import (  # noqa: E402
     enum_gate as _enum_gate,
     report_batch_problem as _report_batch_problem,
     report_outcome as _report_outcome,
+    title_repeats as _title_repeats,
     wire_value as _wire_value,
 )
 from listing_identity import (  # noqa: E402
-    delete_scope_guard as _delete_scope_guard,
     mint_guard as _mint_guard,
+    ops_guard as _ops_guard,
 )
 from listing_library import (  # noqa: E402
     after_fill,
     gate_dirs,
+    load_spec,
     report_saved,
+    spec_path_guard,
     write_verdict as _write_verdict,
 )
 from listing_schema import (  # noqa: E402, F401
@@ -128,6 +130,7 @@ from listing_schema import (  # noqa: E402, F401
     is_sku_field as _is_sku_field,
     load_required_fields as _load_required_fields,
     load_valid_values as _load_valid_values,
+    match_fields as _match_fields,
     nearest_columns as _nearest_columns,
     our_price_col as _our_price_col,
     resolve_operation as _resolve_operation,
@@ -241,11 +244,16 @@ def cmd_inspect(args):
         return sorted(v) if v else None
 
     if args.field:
-        name = args.field
-        print(f'field: {name}')
-        print(f'  columns : {cols.get(name)}')
-        print(f'  required: {name in required}')
-        print(f'  values  : {dig(name)}')
+        term = args.field
+        names = _match_fields(term, cols, getattr(args, 'marketplace', None))
+        if not names:
+            print(f'field: {term} -- no column matches')
+            return
+        for name in names:
+            print(f'field: {name}')
+            print(f'  columns : {cols.get(name)}')
+            print(f'  required: {name in required}')
+            print(f'  values  : {dig(name)}')
         return
 
     tt = str(ws.cell(row=1, column=1).value or '')
@@ -262,9 +270,9 @@ def cmd_inspect(args):
     print(f'header at Excel row {header_row}; data starts row {data_row}')
     print(f'total fields: {len(cols)}   required fields: {len(required)}')
     print(
-        '\noperation column ({}): create=blank / {}'.format(
-            op_field,
-            ' / '.join(t for t in schema.op_tokens().values() if t),
+        '\noperation column ({}): create=blank / partialupdate={} '
+        '(update and delete are disabled)'.format(
+            op_field, schema.op_tokens()['partialupdate']
         )
     )
     # The resolved logical roles: the actual columns a spec's friendly keys
@@ -309,11 +317,14 @@ def _drop_unusable_item_highlight(fields, i, sku, warnings):
 
 
 def cmd_fill(args):
-    with open(args.spec, encoding='utf-8') as fh:
-        spec = json.load(fh)
+    spec = load_spec(args.spec)
     rows = spec.get('rows') or []
     if not rows:
         raise SystemExit('error: spec has no rows')
+    # Every row's operation is checked before the template is copied, so a
+    # refused spec leaves no output file behind that looks uploadable.
+    _ops_guard(rows, getattr(args, 'ops', None))
+    spec_path_guard(args.spec, args.out)
 
     shutil.copyfile(args.file, args.out)
     wb = openpyxl.load_workbook(
@@ -340,7 +351,6 @@ def cmd_fill(args):
     # Undeclared new-ASIN mint: destructive on a unified account, and
     # invisible in the feed report (Amazon reports it as a clean create).
     fatal = fatal or _mint_guard(rows, spec, schema)
-    fatal = fatal or _delete_scope_guard(rows, spec, schema, template_ids)
     if fatal:  # a refused fill leaves no file that looks like output
         os.remove(args.out)
         raise SystemExit(fatal)
@@ -374,25 +384,25 @@ def cmd_fill(args):
         # actual column (unified decorates them), so the SAME spec fills
         # either dialect. Offer shorthands (our_price/quantity) have no
         # column of their own and pass through to _route_offer_price.
-        fields = {schema.resolve_field(k): v for k, v in fields.items()}
+        fields = {schema.resolve_field(k, mkt_id): v for k, v in fields.items()}
         sku = fields.get(schema.field('sku'))
         if not sku:
             raise SystemExit(f'error: row {i} has no sku')
 
-        # Route the child offer price into the marketplace being listed on,
-        # so it can't land in the wrong `purchasable_offer` block (which
-        # creates an ASIN-only listing stuck in "Missing offer").
+        # Route the child offer price into the marketplace being listed on
+        # (a wrong `purchasable_offer` block leaves "Missing offer").
         _route_offer_price(fields, cols, mkt_id, i, sku, warnings)
 
         # Drop an optional Item Highlight the title is too long for, so it
         # can't poison the SKU with a 100476 rejection (SUCCESS OTHER).
         _drop_unusable_item_highlight(fields, i, sku, warnings)
 
-        # A value outside a NON-EMPTY valid set cannot land (Amazon
-        # answers 90244) -- see listing_schema.enum_gate.
+        # An off-list value is a warning (see listing_checks.enum_gate); a
+        # title repeating a word 3+ times is a refusal Amazon would send.
         allow = getattr(args, 'allow_unlisted_enum', None)
         warn, fatal = _enum_gate(fields, valid, allow, i, sku)
         warnings.extend(warn)
+        fatal = fatal or _title_repeats(fields, i, sku)
         if fatal:
             raise SystemExit(fatal)
 
@@ -642,7 +652,9 @@ def cmd_parse_feedback(args):
             n_warn,
             [m for _s, _f, sev, m in comment_errs if sev == 'error'],
         )
-        report_saved(getattr(args, 'batch_id', None))
+        report_saved(
+            getattr(args, 'batch_id', None), [m for *_x, m in comment_errs]
+        )
         if _report_outcome(comment_errs, n_err):
             sys.exit(1)  # non-zero, like the table-scan path below
         return
@@ -698,11 +710,8 @@ def cmd_parse_feedback(args):
                 print('  ' + ' | '.join(row))
                 n_err += 1
 
-    # The precise, field-level fixes live in the Template-tab cell
-    # comments (批注). Print them as (sku, field, message) -- for each,
-    # set that field to a valid value (see `inspect`) and re-upload. The
-    # error set is category-specific and unbounded, so extract it from
-    # the report rather than hardcode fixes.
+    # Field-level fixes live in the Template-tab cell comments (批注):
+    # category-specific and unbounded, so read from the report, not coded.
     cell_errs = list(_template_cell_errors(args.file))
     if cell_errs:
         print(
@@ -730,7 +739,7 @@ def cmd_parse_feedback(args):
         n_warn,
         [m for _s, _f, m in cell_errs] if cell_errs else [],
     )
-    report_saved(getattr(args, 'batch_id', None))
+    report_saved(getattr(args, 'batch_id', None), [m for *_x, m in cell_errs])
     if n_err:
         sys.exit(1)
 
@@ -742,6 +751,7 @@ def main():
     p = sub.add_parser('inspect', help='dump fields / required / enums')
     p.add_argument('file')
     p.add_argument('--field', help='detail for one field API name')
+    p.add_argument('--marketplace', help='with --field: one marketplace only')
     p.set_defaults(func=cmd_inspect)
 
     p = sub.add_parser('fill', help='write parent/child rows from a spec')
@@ -761,6 +771,15 @@ def main():
         help="write FIELD's value although the valid-value sheet does not "
         'list it (normally fatal: Amazon answers 90244). Names ONE field; '
         'repeat it per field. Use only when that field is stale.',
+    )
+    p.add_argument(
+        '--ops',
+        action='append',
+        choices=('create', 'partialupdate'),
+        metavar='OP',
+        help='allow only these operations (repeatable). An edit of existing '
+        'listings passes --ops partialupdate, so no row can create a SKU. '
+        'update and delete are disabled outright.',
     )
     p.set_defaults(func=cmd_fill)
 

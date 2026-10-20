@@ -17,6 +17,13 @@ Noon uses **email OTP only** (no password). Before doing ANYTHING,
 decide how the OTP will be retrieved — do NOT bother the user if an
 email MCP integration can do it for you.
 
+> **Run `scripts/bh_noon_signin.py` instead of driving the page.** Call
+> it once without `OTP` (it clicks "Continue with this user" and returns
+> `sent_at`), read the newest code received after `sent_at` (Case A
+> below), then call it again with `OTP=<code>` -- no "Try again" in
+> between. Hand-driven, this login cost 20-25 calls per run. The steps
+> below are what it does, and the fallback when it reports a problem.
+
 ### Decision flow (follow in order, do NOT skip steps)
 
 1. Open the login page and look at the email it's about to send OTP to:
@@ -236,6 +243,12 @@ most pages; sidebar only for Support/Help.
 | Vantage | `vantage.noon.partners/en/` |
 
 ## 3. My Catalog (read access)
+
+> **Find SKUs with `scripts/bh_noon_catalog.py`**: `NOON_PROJECT=PRJ…
+> NOON_COUNTRY=SA QUERY=<sku-prefix>` switches the sidebar store by its
+> flag, proves it, walks the catalogue pages and returns each matching
+> row's `psku` / `noon_sku` / `code` / detail `url`. The search box did
+> not filter at all in live runs, so the helper never uses it.
 
 **URL**: `https://noon-catalog.noon.partners/en/catalog?project=PRJ{project_id}`
 

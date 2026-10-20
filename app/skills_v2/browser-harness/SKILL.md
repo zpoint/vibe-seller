@@ -243,7 +243,7 @@ it. A plain JS `.click()` still no-ops on `kat-*` — you need the trusted
 
 For an element inside an **open shadow root** (Amazon `kat-*`), pierce it
 in the selector: `document.querySelector('kat-file-upload').shadowRoot.querySelector('input')`.
-Set an input's value with `js("document.querySelector('#q').value='socks'")`
+Set an input's value with `js("document.querySelector('#q').value='kettle'")`
 (then click its search icon — some inputs need the click to fire events).
 
 Only the helpers above (plus Python builtins) are in scope — the heredoc

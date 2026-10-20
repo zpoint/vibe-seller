@@ -1,6 +1,7 @@
 import functools
 import json
 import logging
+from pathlib import Path
 import re
 
 from sqlalchemy import select
@@ -21,6 +22,7 @@ from app.prompts import (
 )
 from app.task_states import TaskStatus
 from app.workspace.manager import VIBE_SELLER_DIR
+from app.workspace.upload_tiles import tiles_for
 
 logger = logging.getLogger(__name__)
 
@@ -716,9 +718,21 @@ def uploaded_files_note(task: Task) -> str:
         return ''
     if not files:
         return ''
-    listing = '\n'.join(f'- {p}' for p in files)
+    lines = []
+    for p in files:
+        lines.append(f'- {p}')
+        tiles = tiles_for(Path(p))
+        if tiles:
+            lines.append(
+                f'  This image is a tall detail page: read whole it shrinks '
+                f'until no text is legible. Read ALL {len(tiles)} tiles '
+                f'below, in order, instead of the original (spec table, '
+                f'specs, materials, dimensions and feature callouts are in '
+                f'them):'
+            )
+            lines.extend(f'    - {t}' for t in tiles)
     return (
         'The user attached the following file(s) to this task. Read them '
         'directly (images are visual references / product photos — do NOT '
-        'ask the user to provide them again):\n' + listing
+        'ask the user to provide them again):\n' + '\n'.join(lines)
     )

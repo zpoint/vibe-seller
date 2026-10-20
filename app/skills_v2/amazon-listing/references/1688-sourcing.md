@@ -64,12 +64,16 @@ product-info blob you pass to the copy-generation step.
 
 ## 4. Generate the Amazon copy
 
+> Follow `listing-copy.md` for this step and the review: fact sheet
+> from every image, the real category, a competitor check on the
+> storefront, then the copy. The list below is the short form.
+
 From the extracted page data + OCR text, generate:
 
-- **Title** — lead with the registered brand (from the template's
-  `brand_name` valid values), then the key nouns/specs a buyer searches;
-  respect the category's title length. Do not copy the supplier's
-  keyword-stuffed title verbatim.
+- **Title** — the key nouns/specs a buyer searches, with no brand word
+  (the `brand_name` field carries the brand; add it to the title only
+  when the user asks); respect the category's title length. Do not copy
+  the supplier's keyword-stuffed title verbatim.
 - **5 bullet points** — one benefit each, specification + why it matters.
 - **A long product description** — cover materials, use, care, sizing.
 - **Search terms** (`generic_keywords`) — short 1–2 word phrases, the

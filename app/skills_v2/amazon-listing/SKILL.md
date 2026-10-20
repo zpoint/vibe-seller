@@ -1,6 +1,6 @@
 ---
 name: amazon-listing
-description: "Amazon listing CRUD via the category flat-file (Add Products via Upload). Create a variation family (parent + colour/size children), update attributes, change parent-child relationships, and delete SKUs — all in one template round trip. Also covers the end-to-end sourcing flow: a supplier link (e.g. 1688) → extract product data → local GPU-free OCR of detail images → generate title / bullet points / description → bilingual review with the user → propose the parent-child structure → fill the template → upload → read the processing report. Load this BEFORE any browser-use action on sellercentral.amazon.<tld>/listing/upload or when the task is to create / edit / delete a listing from a product link."
+description: "Amazon listing CRUD via the category flat-file (Add Products via Upload). Create a variation family (parent + colour/size children) and edit existing listings with partial updates — all in one template round trip. Full update and delete are DISABLED (refused by the scripts). Also covers the end-to-end sourcing flow: a supplier link (e.g. 1688) or uploaded detail images → read every detail tile into a fact sheet → name the true category → check competitors on the storefront → generate title / bullet points / description → review with the user → propose the parent-child structure → fill the template → upload → read the processing report. Load this BEFORE any browser-use action on sellercentral.amazon.<tld>/listing/upload or when the task is to create or edit a listing."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
 review:
@@ -30,8 +30,17 @@ review:
       Action required" errors (e.g. 100476 Item Highlight): the SKU is in
       inventory yet the error is unresolved -- that is NOT done. Presence
       in inventory alone never satisfies this.
-    - For a delete, the SKU no longer appears in Manage Inventory.
     - No partial family (parent live but a child missing) is called done.
+    - A partialupdate of copy (title / bullets / description / keywords)
+      is proved by two things together: the batch's processing report
+      reads "Your changes were applied without any errors" for every SKU
+      (`parse-feedback`, 0 errors), and Manage Inventory
+      (`bh_listing_status.py`) shows the NEW title on every SKU. Bullets,
+      description and keywords have no reader here -- Manage Inventory
+      shows titles only, and the per-SKU edit page is opened from a menu
+      with no stable URL (`/listing/edit?asin=` is "page not found") -- so
+      do not go hunting for them; the report's per-SKU "applied" line is
+      the evidence for those fields.
   evidence:
     - "*REPORT*.xlsm"
     - "*.xlsm"
@@ -63,8 +72,7 @@ review:
     marketplace: that is a GAP. Download the LATEST processing report for
     EVERY batch you uploaded and `parse-feedback` it -- confirm zero
     errors except 18320. Do NOT accept a batch shown "Action required /
-    SUCCESS (OTHER)" (e.g. 100476) as done. For a delete, confirm the SKU
-    is gone.
+    SUCCESS (OTHER)" (e.g. 100476) as done.
 ---
 
 # Amazon — Listing CRUD (flat-file upload)
@@ -87,7 +95,14 @@ table (one column per attribute). One upload creates or edits a whole
 This is the batch equivalent of the per-SKU web wizard, and the default
 for anything touching more than one variant.
 
-Two references, load what the task needs:
+Three references, load what the task needs:
+
+- **`references/listing-copy.md`** — how to write or rewrite title /
+  bullets / description / search terms: read every detail-image tile
+  into a fact sheet, name the real category, check the competitors on
+  the storefront, write only what the facts back, review before upload.
+  Load **before writing any copy** (new listing, relist, or refresh),
+  unless the task hands you confirmed final copy.
 
 - **`references/template-round-trip.md`** — the download → inspect →
   fill → upload → read-feedback loop, the operation column
@@ -116,7 +131,7 @@ came back clean. Copy its `spec`, change only what this listing changes
 (SKUs, ASIN pins, copy, price), and keep every other field as it is.
 
 This is not a nicety. The fields Amazon enforces on a create are flagged
-**"Conditionally Required"** in the template (53 in one apparel
+**"Conditionally Required"** in the template (53 in one
 template), so nothing warns about them locally — Amazon rejects them one
 feed at a time, 30–60 minutes per round. Two days running, the first
 create of a known product failed on exactly the fields the previous
@@ -305,8 +320,8 @@ this console.
   it. Two cases, decided by whether that child's ASIN already exists:
   - **ASIN already exists** (you're re-submitting, or a prior create left
     a catalog ASIN — note a `delete` removes your SKU/offer but **not**
-    the catalog ASIN): don't try to create — **match** it. Set
-    `operation: update`, `external_product_id` = the existing ASIN,
+    the catalog ASIN): don't try to mint — **match** it. Keep
+    `operation: create` with `external_product_id` = the existing ASIN,
     `external_product_id_type: asin`. This is the reliable fix and what
     resolves a variation child that won't join its family.
   - **Genuinely new ASIN, GTIN-exempt brand** (leave `external_product_id`
@@ -373,7 +388,7 @@ for an `8560` to fix reactively:
 1. **Get the source ASINs — one helper call per marketplace.** Map every
    SKU (parent + each child) to the ASIN it has on the SOURCE
    marketplace, and see what the TARGET already holds, before you plan a
-   create or a delete:
+   create:
    `SKUS=<parent>,<child-1>,... SC_HOST=sellercentral.amazon.<tld>
    browser-use < $S/bh_listing_status.py` (run it once with the source
    tld, once with the target's). Manage Inventory's search view collapses
@@ -384,14 +399,9 @@ for an `8560` to fix reactively:
    **same SKUs** on the target marketplace; same SKU keeps it
    idempotent.
 2. **Do the WHOLE target flow on the target marketplace's own subdomain —
-   a create/update is marketplace-scoped. A DELETE IS NOT:** on a unified
-   account it removes the SKU from every marketplace it sells on (an
-   AE-only delete took the same three SKUs off SA too, while the AE
-   rebuild that followed restored only AE). `fill` refuses a delete on a
-   multi-marketplace template unless the spec says `"delete_everywhere":
-   true` -- say it only when the user wants the SKU gone everywhere. To
-   change ONE storefront's ASIN for a SKU, there is no delete-and-recreate
-   route that leaves the other storefront alone: stop and ask the user. A flat-file upload applies to the
+   a create/partialupdate is marketplace-scoped.** Deleting is not
+   available at all (see Operation rules): to change ONE storefront's ASIN
+   for a SKU there is no route here — stop and ask the user. A flat-file upload applies to the
    marketplace of the `sellercentral.amazon.<tld>` you're on, regardless
    of the offer columns in the file; a `.sa` upload lands on SA even when
    the account context shows the target. So for AE, run template download +
@@ -668,13 +678,63 @@ The operation is **chosen per row in the sheet**, not inferred:
 | `operation` in spec | `update_delete` cell | Use when |
 |---|---|---|
 | `create` (default) | *blank* | new SKU. Needs either a pinned `asin` **or** an explicit `"mint_new_asin": true` — see below. |
-| `update` | `Update` | full re-submit of an existing SKU's attributes. |
-| `partialupdate` | `partialupdate` | change only the fields present; leave others as-is. |
-| `delete` | `delete` | remove the SKU. Needs only `sku` + `operation`. |
+| `partialupdate` | `partialupdate` | edit an EXISTING SKU: change only the fields present; leave others as-is. |
+| `update` | — | **DISABLED.** A full update clears every attribute the row leaves blank. |
+| `delete` | — | **DISABLED.** See below. |
 
-Rule of thumb: **no ASIN yet → create; the ASIN already exists → update
-and match it** (put the ASIN in `external_product_id` with
-`external_product_id_type: asin`). The operation column is authoritative,
+**`update` and `delete` are refused** by `fill` and again by
+`bh_upload_flatfile.py` (which reads the upload file's operation column,
+so a hand-written file cannot get past it either). A delete on a unified
+account removed the SKU from every marketplace (an AE-only delete of
+a family's children took them off SA too), and a deleted SKU can never be
+an FBA offer again — the family had to be rebuilt under new SKUs. If a
+task seems to need either, stop and tell the user; do not work around it.
+
+**Editing existing listings (title / bullets / description / attributes):**
+`operation: partialupdate` on the SKUs that already exist, carrying only
+the fields being changed, and run `fill ... --ops partialupdate` so no row
+of the spec can create a SKU or mint an ASIN. Never use a create row to
+"refresh" copy on a live SKU. A complete edit spec — bare attribute names
+are enough; `fill` resolves each to THIS marketplace's column (pass
+`--marketplace`), and a list spreads over the field's `#1..#N` slots:
+
+```json
+{
+  "product_type": "<the product type the listing has NOW>",
+  "marketplace": "SA",
+  "rows": [
+    {
+      "sku": "<existing SKU>",
+      "operation": "partialupdate",
+      "fields": {
+        "item_name": "<new title>",
+        "bullet_point": ["<b1>", "<b2>", "<b3>", "<b4>", "<b5>"],
+        "product_description": "<new description>",
+        "generic_keyword": "<search terms>"
+      }
+    }
+  ]
+}
+```
+
+**`product_type` is the type each SKU has NOW**: read it from
+`store-data/<slug>/listing-specs/sku-product-types.json` — Amazon may
+have re-filed it after the create (a report warning `product type has
+been updated from X to Y`), and the create spec's type is then stale.
+
+No ASIN, parentage or variation theme is needed — a partialupdate leaves
+every attribute the row does not carry exactly as it is. It is also
+idempotent: when the listing already shows some of the new copy (an
+earlier run got part of the way), submit the whole edit again rather than
+inspecting the live listing to decide which fields to skip — there is no
+page here that reads bullets or the product type back, and hunting for
+one costs more calls than re-sending fields that already match. Run one fill +
+upload per marketplace (`--marketplace SA`, then `--marketplace AE` on
+the `.ae` host), each from a template downloaded on that marketplace.
+`inspect TEMPLATE --field <attribute>` lists the real columns.
+
+Rule of thumb: **no SKU yet → create (pin the ASIN if one exists, see
+below); the SKU exists → partialupdate.** The operation column is authoritative,
 so set it **explicitly on every row, children included** — a blank child
 operation is a common cause of a child failing to join its family.
 
@@ -705,9 +765,11 @@ operation is a common cause of a child failing to join its family.
 ## End-to-end flow (product link → live listing)
 
 1. **Extract** the product from the supplier link (see
-   `1688-sourcing.md`): page data + OCR of detail images.
+   `1688-sourcing.md`) or the uploaded detail images: every tile, into a
+   fact sheet.
 2. **Generate** an Amazon title, 5 bullet points, and a long
-   description from the extracted data.
+   description from the fact sheet — category, competitor check and
+   writing rules in `references/listing-copy.md`.
 3. **Bilingual review** — present the generated copy to the user in
    **both the user's language and the target marketplace language**,
    plus the **proposed parent-child structure** (which variation theme,
