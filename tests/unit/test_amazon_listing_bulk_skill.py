@@ -236,6 +236,7 @@ def test_fill_operation_column(template, tmp_path):
             {
                 'sku': 'W-3',
                 'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'ACME Thing 3'},
             },
         ],
@@ -681,6 +682,7 @@ def test_ops_flag_refuses_a_create_in_an_edit_run(template, tmp_path):
             {
                 'sku': 'E-1',
                 'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'x'},
             },
             {'sku': 'E-2', 'operation': 'create', 'fields': {'item_name': 'y'}},
@@ -1258,6 +1260,7 @@ def test_fill_unified_operation_tokens(unified_template, tmp_path):
             {
                 'sku': 'W-3',
                 'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'x'},
             },
         ],
@@ -1739,14 +1742,179 @@ def test_partialupdate_needs_no_mint_declaration(template, tmp_path):
             {
                 'sku': 'K-1',
                 'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'a'},
             },
-            {'sku': 'K-2', 'operation': 'partialupdate'},
+            {'sku': 'K-2', 'operation': 'partialupdate', 'asin': 'B0EXAMPLE2'},
         ],
     }
     out = str(tmp_path / 'out.xlsx')
     _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
     assert {r['item_sku'] for r in _read_rows(out)} == {'K-1', 'K-2'}
+
+
+def test_edit_row_without_asin_is_refused(template, tmp_path):
+    """A partial update that does not pin its ASIN can be re-matched.
+
+    Observed live: a copy-only edit with no product id came back clean
+    and the family's variant SKUs moved to new ASINs on one marketplace.
+    Every offender is named, and no output file is left behind.
+    """
+    spec = {
+        'product_type': 'kettle',
+        'rows': [
+            {'sku': 'K-1', 'operation': 'partialupdate', 'asin': 'B0EXAMPLE1'},
+            {'sku': 'K-2', 'operation': 'partialupdate'},
+            {'sku': 'K-3', 'operation': 'partialupdate'},
+        ],
+    }
+    out = tmp_path / 'out.xlsx'
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            template,
+            '--spec',
+            _spec(tmp_path, spec),
+            '--out',
+            str(out),
+        ])
+    msg = str(exc.value)
+    assert 'K-2, K-3' in msg and 'K-1' not in msg.split('ASIN:')[1]
+    assert not out.exists()
+
+
+def test_edit_row_writes_the_pinned_asin(template, tmp_path):
+    spec = {
+        'product_type': 'kettle',
+        'rows': [
+            {
+                'sku': 'K-1',
+                'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'item_name': 'a'},
+            },
+        ],
+    }
+    out = str(tmp_path / 'out.xlsx')
+    _run(['fill', template, '--spec', _spec(tmp_path, spec), '--out', out])
+    row = _read_rows(out)[0]
+    assert row['external_product_id'] == 'B0EXAMPLE1'
+    assert row['external_product_id_type'] == 'asin'
+
+
+def _full_update_spec(asin='B0EXAMPLE1'):
+    row = {'sku': 'U-1', 'operation': 'update', 'fields': {'item_name': 'a'}}
+    if asin:
+        row['asin'] = asin
+    return {'product_type': 'kettle', 'brand': 'acme', 'rows': [row]}
+
+
+def test_full_update_needs_ops_update(template, tmp_path):
+    """A full update runs only when the run names it in --ops."""
+    out = tmp_path / 'out.xlsx'
+    base = ['fill', template, '--spec', _spec(tmp_path, _full_update_spec())]
+    with pytest.raises(SystemExit) as exc:
+        _run(base + ['--out', str(out), '--ops', 'partialupdate'])
+    assert 'is disabled' in str(exc.value)
+    assert not out.exists()
+
+    _run(base + ['--out', str(out), '--ops', 'update'])
+    row = _read_rows(str(out))[0]
+    assert row['update_delete'] == 'Update'
+    assert row['external_product_id'] == 'B0EXAMPLE1'
+
+
+def test_full_update_must_pin_its_asin(template, tmp_path):
+    out = tmp_path / 'out.xlsx'
+    spec = _spec(tmp_path, _full_update_spec(asin=None))
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            template,
+            '--spec',
+            spec,
+            '--out',
+            str(out),
+            '--ops',
+            'update',
+        ])
+    assert 'U-1' in str(exc.value) and 'ASIN' in str(exc.value)
+    assert not out.exists()
+
+
+def test_delete_has_no_opt_in():
+    with pytest.raises(SystemExit, match='is disabled'):
+        listing_bulk._resolve_operation(
+            'delete', 'unified', ['delete', 'update']
+        )
+    assert listing_bulk._resolve_operation('update', 'unified', ['update']) == (
+        'Create or Replace (Full Update)',
+        'update',
+    )
+
+
+@pytest.mark.parametrize(
+    'parent_cell, child_cell, needle',
+    [
+        ('variation', 'P-1', 'P-1 is a parent'),
+        (None, 'variation', "C-1 names parent SKU 'variation'"),
+        (None, 'P-9', "C-1 names parent SKU 'P-9'"),
+    ],
+)
+def test_family_guard_refuses_a_wrong_parent_sku(
+    template, tmp_path, parent_cell, child_cell, needle
+):
+    """Observed live: a spec copied from an API dump put the relationship
+    type `variation` into every child's parent-SKU cell."""
+    parent = {'sku': 'P-1', 'parentage': 'parent', 'asin': 'B0EXAMPLE1'}
+    if parent_cell:
+        parent['parent_sku'] = parent_cell
+    child = {
+        'sku': 'C-1',
+        'parentage': 'child',
+        'parent_sku': child_cell,
+        'asin': 'B0EXAMPLE2',
+    }
+    spec = {'product_type': 'kettle', 'brand': 'acme', 'rows': [parent, child]}
+    out = tmp_path / 'out.xlsx'
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            template,
+            '--spec',
+            _spec(tmp_path, spec),
+            '--out',
+            str(out),
+        ])
+    assert needle in str(exc.value)
+    assert not out.exists()
+
+
+def test_nested_field_value_is_refused_by_name(template, tmp_path):
+    """An object value crashed openpyxl with a bare traceback."""
+    spec = {
+        'product_type': 'kettle',
+        'rows': [
+            {
+                'sku': 'K-1',
+                'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
+                'fields': {'item_package_dimensions': {'length': 25}},
+            }
+        ],
+    }
+    out = tmp_path / 'out.xlsx'
+    with pytest.raises(SystemExit) as exc:
+        _run([
+            'fill',
+            template,
+            '--spec',
+            _spec(tmp_path, spec),
+            '--out',
+            str(out),
+        ])
+    assert 'K-1: item_package_dimensions' in str(exc.value)
+    assert not out.exists()
 
 
 def test_mint_guard_names_every_undeclared_row(template, tmp_path):
@@ -2635,6 +2803,7 @@ def test_skill_edit_example_fills_with_ops_partialupdate(
             {
                 'sku': 'E-1',
                 'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
                 'fields': {
                     'item_name': 'new title',
                     'bullet_point': ['b1', 'b2', 'b3'],
@@ -2689,7 +2858,9 @@ def test_fill_refuses_a_spec_it_would_overwrite(unified_template, tmp_path):
     spec = {
         'product_type': 'kettle',
         'marketplace': 'SA',
-        'rows': [{'sku': 'E-1', 'operation': 'partialupdate'}],
+        'rows': [
+            {'sku': 'E-1', 'operation': 'partialupdate', 'asin': 'B0EXAMPLE1'}
+        ],
     }
     path = tmp_path / 'x.spec.json'
     path.write_text(json.dumps(spec), encoding='utf-8')
@@ -2712,7 +2883,9 @@ def test_fill_refuses_a_txt_out_before_copying(unified_template, tmp_path):
     spec = {
         'product_type': 'kettle',
         'marketplace': 'SA',
-        'rows': [{'sku': 'E-1', 'operation': 'partialupdate'}],
+        'rows': [
+            {'sku': 'E-1', 'operation': 'partialupdate', 'asin': 'B0EXAMPLE1'}
+        ],
     }
     out = tmp_path / 'x.txt'
     with pytest.raises(SystemExit) as exc:
@@ -2743,6 +2916,7 @@ def test_fill_takes_the_library_record_it_is_told_to_start_from(
             {
                 'sku': 'E-1',
                 'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'from the library'},
             },
         ],
@@ -2845,6 +3019,7 @@ def test_fill_refuses_a_title_amazon_would_reject(unified_template, tmp_path):
             {
                 'sku': 'K-1',
                 'operation': 'partialupdate',
+                'asin': 'B0EXAMPLE1',
                 'fields': {'item_name': 'Cable one, Cable two, Cable three'},
             }
         ],

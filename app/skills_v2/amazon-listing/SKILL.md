@@ -1,6 +1,6 @@
 ---
 name: amazon-listing
-description: "Amazon listing CRUD via the category flat-file (Add Products via Upload). Create a variation family (parent + colour/size children) and edit existing listings with partial updates — all in one template round trip. Full update and delete are DISABLED (refused by the scripts). Also covers the end-to-end sourcing flow: a supplier link (e.g. 1688) or uploaded detail images → read every detail tile into a fact sheet → name the true category → check competitors on the storefront → generate title / bullet points / description → review with the user → propose the parent-child structure → fill the template → upload → read the processing report. Load this BEFORE any browser-use action on sellercentral.amazon.<tld>/listing/upload or when the task is to create or edit a listing."
+description: "Amazon listing CRUD via the category flat-file (Add Products via Upload). Create a variation family (parent + colour/size children) and edit existing listings with partial updates (each row pins its ASIN) — all in one template round trip. Full update runs only when the user asked for one by name (`--ops update`); delete is DISABLED (refused by the scripts). Also covers the end-to-end sourcing flow: a supplier link (e.g. 1688) or uploaded detail images → read every detail tile into a fact sheet → name the true category → check competitors on the storefront → generate title / bullet points / description → review with the user → propose the parent-child structure → fill the template → upload → read the processing report. Load this BEFORE any browser-use action on sellercentral.amazon.<tld>/listing/upload or when the task is to create or edit a listing."
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
 review:
@@ -678,17 +678,37 @@ The operation is **chosen per row in the sheet**, not inferred:
 | `operation` in spec | `update_delete` cell | Use when |
 |---|---|---|
 | `create` (default) | *blank* | new SKU. Needs either a pinned `asin` **or** an explicit `"mint_new_asin": true` — see below. |
-| `partialupdate` | `partialupdate` | edit an EXISTING SKU: change only the fields present; leave others as-is. |
-| `update` | — | **DISABLED.** A full update clears every attribute the row leaves blank. |
+| `partialupdate` | `partialupdate` | edit an EXISTING SKU: change only the fields present; leave others as-is. **Must pin `asin`.** |
+| `update` | `Update` / `Create or Replace (Full Update)` | **Opt-in only**: the user asked for a full update by name. Clears every attribute the row leaves blank. **Must pin `asin`.** |
 | `delete` | — | **DISABLED.** See below. |
 
-**`update` and `delete` are refused** by `fill` and again by
-`bh_upload_flatfile.py` (which reads the upload file's operation column,
-so a hand-written file cannot get past it either). A delete on a unified
+**`update` is refused** by `fill` unless the run passes `--ops update`,
+and by `bh_upload_flatfile.py` unless `ALLOW_FULL_UPDATE=1` (it reads the
+upload file's operation column, so a hand-written file cannot get past
+it either). Pass them **only when the user's request says "update" /
+"full update" in so many words** — e.g. re-listing SKUs the user deleted
+by hand in Seller Central, under their old SKU and old ASIN. Never choose
+it yourself to "refresh" copy: a full update row must then carry the
+whole listing (product type, brand, title, bullets, description, item
+type, parentage, variation theme, size / colour, offer fields), because
+whatever it leaves blank is cleared.
+
+**`delete` is refused** by both, with no opt-in. A delete on a unified
 account removed the SKU from every marketplace (an AE-only delete of
 a family's children took them off SA too), and a deleted SKU can never be
 an FBA offer again — the family had to be rebuilt under new SKUs. If a
-task seems to need either, stop and tell the user; do not work around it.
+task seems to need one, stop and tell the user; do not work around it.
+
+**Every `partialupdate` / `update` row pins the ASIN it edits** (`"asin":
+"B0..."` on the row; a parent row pins the parent ASIN) — `fill` refuses
+one that does not. A copy-only partial update that carried no product id
+came back clean, and within the hour Amazon had moved every variant SKU
+of that family to NEW ASINs on one marketplace (same SKU, same FNSKU, old
+ASINs gone from the storefront); the sibling marketplace kept its ASINs.
+With no product id Amazon re-runs catalog matching on the new attributes.
+Read each SKU's ASIN on THAT marketplace (Listings API, Manage Inventory or
+the All-Listings report) before writing the spec — the two marketplaces of
+a unified account can differ, parents especially.
 
 **Editing existing listings (title / bullets / description / attributes):**
 `operation: partialupdate` on the SKUs that already exist, carrying only
@@ -706,6 +726,7 @@ are enough; `fill` resolves each to THIS marketplace's column (pass
     {
       "sku": "<existing SKU>",
       "operation": "partialupdate",
+      "asin": "<that SKU's ASIN on THIS marketplace>",
       "fields": {
         "item_name": "<new title>",
         "bullet_point": ["<b1>", "<b2>", "<b3>", "<b4>", "<b5>"],
@@ -722,7 +743,7 @@ are enough; `fill` resolves each to THIS marketplace's column (pass
 have re-filed it after the create (a report warning `product type has
 been updated from X to Y`), and the create spec's type is then stale.
 
-No ASIN, parentage or variation theme is needed — a partialupdate leaves
+No parentage or variation theme is needed (the ASIN is) — a partialupdate leaves
 every attribute the row does not carry exactly as it is. It is also
 idempotent: when the listing already shows some of the new copy (an
 earlier run got part of the way), submit the whole edit again rather than

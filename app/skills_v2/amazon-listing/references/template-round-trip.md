@@ -272,9 +272,11 @@ the row declares no batteries.
 ### The operation column
 
 `operation` maps to the `update_delete` cell: `create`→blank,
-`partialupdate`→`partialupdate`. **`update` (full replace) and `delete`
-are disabled** — `fill` and `bh_upload_flatfile.py` both refuse them (see
-SKILL.md, Operation rules). **Changing a parent-child relationship** is a
+`partialupdate`→`partialupdate`. **`delete` is disabled** and **`update`
+(full replace) is opt-in** — `fill` needs `--ops update` and
+`bh_upload_flatfile.py` needs `ALLOW_FULL_UPDATE=1`, both only when the
+user asked for a full update by name. Every `partialupdate` / `update`
+row must pin its `asin` (see SKILL.md, Operation rules). **Changing a parent-child relationship** is a
 partialupdate: re-submit the child with the new `parent_sku` /
 `variation_theme`.
 
