@@ -17,11 +17,13 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+from app.ai.stop_gates import report_reviewer
 import app.database as _db
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.models.user import User
+import app.routers.tasks_conversation as conv_router
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
@@ -399,3 +401,78 @@ class TestFollowUpKwargs:
         assert (
             run_calls[-1].message_history is None
         )  # resume uses session_id, not history
+
+
+class TestFollowupOnCompletedSkipsReview:
+    """A message on a COMPLETED task marks it a follow-up: the DoD
+    reviewer stands down for it, and the agent is told so (a resumed
+    session still holds the skill's review loop and would run it)."""
+
+    async def _send(self, admin_client, monkeypatch, tmp_path, **seed):
+        monkeypatch.setattr(conv_router, 'VIBE_SELLER_DIR', tmp_path)
+        task_id = await _seed_task(**seed)
+        # Any task that ran has a workspace; the marker lives in it.
+        (tmp_path / 'tasks' / task_id).mkdir(parents=True)
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'list the files in the task directory'},
+        )
+        assert r.status_code == 200
+        return task_id, tmp_path / 'tasks' / task_id
+
+    async def test_completed_task_becomes_a_followup(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        task_id, task_dir = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            status='completed',
+            plan_mode=False,
+            started_at='2026-07-16T00:00:00+00:00',
+        )
+        assert report_reviewer.is_followup(task_dir)
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls, 'FakeAgent.run was not invoked'
+        assert report_reviewer.FOLLOWUP_NOTE in run_calls[-1].prompt
+        # The stored transcript keeps the user's own words only.
+        async with _db.async_session() as db:
+            msg = (
+                await db.execute(
+                    select(TaskMessage).where(
+                        TaskMessage.task_id == task_id,
+                        TaskMessage.role == 'user',
+                    )
+                )
+            ).scalar_one()
+        assert msg.content == 'list the files in the task directory'
+
+    async def test_failed_task_continued_is_still_reviewed(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        task_id, task_dir = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            status='failed',
+            plan_mode=False,
+            started_at='2026-07-16T00:00:00+00:00',
+        )
+        assert not report_reviewer.is_followup(task_dir)
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls
+        assert report_reviewer.FOLLOWUP_NOTE not in run_calls[-1].prompt
+
+    async def test_plan_only_task_is_not_a_followup(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        install_fake_agent.default_scenario = FakeAgentScenario(plan='## p')
+        _task_id, task_dir = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            status='completed',
+            plan_mode=True,
+            is_plan_only=True,
+        )
+        assert not report_reviewer.is_followup(task_dir)

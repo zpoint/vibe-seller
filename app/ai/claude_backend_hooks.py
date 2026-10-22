@@ -11,6 +11,7 @@ import json
 import logging
 
 from app import ads_routing
+from app.ai.background_wait import long_sleep_deny
 from app.ai.bash_safety import (
     check_catalog_first_tool_args,
     check_report_overwrite,
@@ -184,9 +185,9 @@ class _HookMixin:
             inner_input = tool_input.get('tool_input', {})
             if inner_name == 'Bash':
                 cmd = inner_input.get('command', '')
-                # Ordered Bash guards (first deny wins) live in
-                # bash_safety.first_bash_deny — see it for the chain.
+                # Ordered guards: bash_safety.first_bash_deny, then sleep.
                 deny = first_bash_deny(cmd, self.task_dir, self._catalog_read)
+                deny = deny or long_sleep_deny(inner_input, self._async_agents)
                 if deny:
                     label, deny_reason = deny
                     logger.warning(

@@ -33,6 +33,15 @@ doesn't match, it returns gaps, the agent fixes, and it re-verifies. The
 loop terminates when the reviewer returns `Status: ok` or after 5
 iterations with `Status: incomplete`.
 
+Three rules of conduct, the same for every DoD reviewer:
+
+- **Follow-ups are not reviewed.** A new user message on a task that
+  already completed does not run this Phase 3 loop — don't spawn the
+  reviewer for it. (Executing the plan still runs Phase 4 below.)
+- **`ok` ends it.** Don't edit the deliverable for notes the reviewer
+  marked non-blocking; list them in your final reply for the user.
+- **Wait with `TaskOutput` (`block: true`), never a fixed `sleep N`.**
+
 ## Why a separate reviewer
 
 A reviewer in a separate LLM context catches things the writing

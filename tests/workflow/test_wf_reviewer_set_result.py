@@ -297,3 +297,31 @@ async def test_set_result_and_delete_drop_the_redrive_ledger(
     assert task_id not in _ledgers, (
         'deleting a task must drop its re-drive ledger'
     )
+
+
+class TestFollowupSkipsReviewer:
+    """A follow-up on a COMPLETED task is not re-reviewed at
+    ``set_task_result`` either — the same verdict the Stop hook reads
+    stands down on the follow-up marker."""
+
+    async def test_followup_result_passes_without_reviewer(
+        self, admin_client, override_async_session, monkeypatch, tmp_path
+    ):
+        task_id = await _seed_running_task(override_async_session)
+        task_dir = _wire(monkeypatch, tmp_path, task_id)
+        (task_dir / 'AD_AUDIT_2026-07-09.md').write_text(
+            '# 广告优化建议\n\n## Amazon SA\n报告内容\n', encoding='utf-8'
+        )
+        report_reviewer.mark_followup(task_dir)
+        reset_attempts(task_id)
+
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/result',
+            json={'result': 'Copied the folder into the task directory.'},
+        )
+        assert r.status_code == 200
+        async with override_async_session() as db:
+            task = (
+                await db.execute(select(Task).where(Task.id == task_id))
+            ).scalar_one()
+        assert 'UNVERIFIED' not in task.result

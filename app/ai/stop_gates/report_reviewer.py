@@ -97,6 +97,88 @@ def exec_authorship_deny(review_writers, name, status, iter_num):
     )
 
 
+# Marker dropped in the task dir when a user message arrives on a task
+# that already COMPLETED (see ``mark_followup``).
+FOLLOWUP_MARKER = '.followup'
+
+# Appended to the message the AGENT receives on such a follow-up (not to
+# the stored transcript). The gate standing down is not enough on its
+# own: a resumed session still has the skill's review loop in context
+# and will run it unprompted unless told this turn is exempt.
+FOLLOWUP_NOTE = (
+    '\n\n[Follow-up on a task that already completed. The Definition-'
+    'of-Done reviewer does not run on follow-ups: do NOT spawn a reviewer '
+    "subagent or write REVIEW_* files this turn, even if a skill's "
+    'review loop says to. Do what this message asks and finish. Gates on '
+    'live writes (ad execution review, listing upload verdicts) still '
+    'apply.]'
+)
+
+
+def mark_followup(task_dir) -> None:
+    """Record that this task finished once and is now taking follow-ups.
+
+    The DoD reviewer verifies a task's deliverable; once the task has
+    COMPLETED, that deliverable was reviewed (or failed open, visibly).
+    A follow-up message ("copy the folder into the task dir", "list the
+    files") is a small change on top of finished work. Re-running the
+    full review for it is what made a tax-filing follow-up that only
+    copied files spend four review rounds re-verifying the whole filing.
+
+    Written at most once and never removed: a later turn on the same
+    task is still a follow-up. A retry wipes the workspace (see
+    ``workspace.manager.PRESERVED_ON_CLEAN``), and the marker with it,
+    so a retried task is reviewed afresh. Never creates the workspace: a
+    task that completed has one, and one without has nothing to review.
+    Best-effort.
+    """
+    if task_dir is None:
+        return
+    try:
+        marker = Path(task_dir) / FOLLOWUP_MARKER
+        if marker.parent.is_dir() and not marker.exists():
+            marker.write_text('', encoding='utf-8')
+    except OSError:  # pragma: no cover — best-effort
+        pass
+
+
+def is_followup(task_dir) -> bool:
+    """True when the task completed once and this turn is a follow-up."""
+    if task_dir is None:
+        return False
+    try:
+        return (Path(task_dir) / FOLLOWUP_MARKER).exists()
+    except OSError:  # pragma: no cover
+        return False
+
+
+# How to wait for a subagent or background shell. A foreground ``sleep
+# 200`` cannot be interrupted by the completion notice — it is delivered
+# only after the Bash call returns — so a reviewer that finished in 60s
+# still cost 200s. ``TaskOutput`` with ``block`` returns the moment the
+# task ends. Shared by the review-loop conduct below, the Stop hook's
+# pending-subagent deny and the long-sleep guard (``background_wait``).
+WAIT_FOR_BACKGROUND = (
+    'To wait for a subagent or background command, call TaskOutput with '
+    'its task id and block=true (timeout up to 120000 ms; call again if '
+    'it is still running) — it returns the moment the task finishes. '
+    'Never wait with a fixed `sleep N`: the completion notice cannot '
+    'reach you while a foreground command is blocking.'
+)
+
+# The review-loop contract every reviewer deny carries (appended by
+# ``reviewer_verdict``), so it reaches the agent whichever skill's loop
+# doc it follows — including skills that live outside this repo.
+REVIEW_LOOP_CONDUCT = (
+    '\n\nRunning the review loop: ' + WAIT_FOR_BACKGROUND + ' Once a '
+    'verdict says `Status: ok` you are done — do not edit the '
+    'deliverable for notes the reviewer marked non-blocking (cosmetic, '
+    'optional, suggestions): an edit after `ok` invalidates the review '
+    'and forces another round. List those notes in your final reply for '
+    'the user to decide.'
+)
+
+
 def is_review_file_name(name: str) -> bool:
     """True when *name* looks like a review-verdict artifact.
 
@@ -124,6 +206,11 @@ def rollover_reviews(task_dir) -> None:
     can satisfy or misdirect this turn's gate. Files are preserved (moved,
     not deleted) under ``.prev_turns/`` for post-mortem. Best-effort;
     called once per turn at the ``system/init`` event.
+
+    A follow-up on a task that already COMPLETED is not reviewed at all
+    (``mark_followup``); the clean slate matters for a turn that IS
+    reviewed after an earlier one — a failed or stopped run the user
+    continues — and for the upload/exec gates, which still run.
     """
     if task_dir is None:
         return
@@ -433,15 +520,25 @@ def reviewer_verdict(
 ) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
-    Thin wrapper over ``_verdict_reason`` whose only job is to append the
-    bound skills' Definition of Done to EVERY deny. Doing it here rather
-    than at each ``return`` is deliberate: the contract matters most on a
+    Thin wrapper over ``_verdict_reason`` that stands down on a
+    follow-up and appends the bound skills' Definition of Done (and the
+    loop conduct) to EVERY deny. Doing it here rather than at each
+    ``return`` is deliberate: the contract matters most on a
     RETRY (``Status: gaps`` / ``incomplete`` / an untrusted verdict),
     because that is exactly when the agent re-launches the reviewer and
     could hand it a narrower checklist again. Appending per-branch left
     those paths bare and would leave any future branch bare too.
     """
+    # A follow-up on a COMPLETED task is not reviewed (see
+    # ``mark_followup``). Checked here, the one verdict both completion
+    # paths share — the Stop hook / ending-turn re-drive
+    # (``bash_safety.check_review_status``) and ``set_task_result``
+    # (``apply_report_reviewer_gate``) — so they cannot disagree. The
+    # upload-verdict and ad execution-review gates are separate checks
+    # and still gate a follow-up's live writes.
+    if is_followup(task_dir):
+        return None
     deny = _verdict_reason(task_dir, subagent_ran, review_writers)
     if deny is None:
         return None
-    return deny + skill_dod_addendum(skill_reviews)
+    return deny + skill_dod_addendum(skill_reviews) + REVIEW_LOOP_CONDUCT
