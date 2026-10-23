@@ -140,7 +140,13 @@ class TestLoopConduct:
     def test_conduct_says_ok_ends_it_and_how_to_wait(self):
         text = rr.REVIEW_LOOP_CONDUCT
         assert 'non-blocking' in text and 'final reply' in text
-        assert 'TaskOutput' in text and 'sleep' in text
+        assert rr.WAIT_FOR_BACKGROUND in text
+
+    def test_wait_rule_does_not_depend_on_an_optional_tool(self):
+        """A CI run's CLI had no TaskOutput; the rule must still say what
+        to do — short waits under the guard's threshold."""
+        text = rr.WAIT_FOR_BACKGROUND
+        assert 'under 30s' in text and 'if your tools include it' in text
 
     def test_followup_note_tells_the_agent_not_to_review(self):
         assert 'Do not spawn a reviewer' in rr.FOLLOWUP_NOTE
@@ -168,7 +174,7 @@ class TestBlockingSleep:
     def test_long_sleep_denied_while_work_pending(self, cmd):
         deny = check_blocking_sleep(cmd, self.PENDING)
         assert deny is not None
-        assert 'TaskOutput' in deny and self.PENDING in deny
+        assert rr.WAIT_FOR_BACKGROUND in deny and self.PENDING in deny
 
     @pytest.mark.parametrize(
         'cmd',
@@ -211,7 +217,7 @@ class TestSleepGuardWiring:
     def test_foreground_sleep_denied_while_reviewer_runs(self):
         out = _bash_hook('sleep 200; ls REVIEW_*.md', {'tu1': 'agent-a'})
         assert out.get('permissionDecision') == 'deny'
-        assert 'TaskOutput' in out['permissionDecisionReason']
+        assert rr.WAIT_FOR_BACKGROUND in out['permissionDecisionReason']
 
     def test_backgrounded_sleep_is_not_blocking(self):
         out = _bash_hook('sleep 200', {'tu1': 'agent-a'}, background=True)

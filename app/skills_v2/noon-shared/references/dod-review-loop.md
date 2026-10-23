@@ -28,9 +28,10 @@ continued is not a follow-up; it is reviewed as usual, starting at
 2. Spawn the reviewer as a subagent (`subagent_type="general-purpose"`)
    with the prompt below. **Fill every `{...}` yourself** — the subagent
    does not share your PATH or context.
-   To wait for it, call `TaskOutput` with its task id and `block: true`
-   — it returns the moment the reviewer finishes. Never wait with a
-   fixed `sleep N`: the completion notice cannot reach you while a
+   Its completion notice arrives between your tool calls: keep working
+   meanwhile, or wait in short steps (a `sleep` under 30s, then check
+   again; `TaskOutput` with `block: true` if your tools include it).
+   Never one long `sleep N` — the notice cannot reach you while a
    foreground command blocks, and the server denies a long `sleep`
    while a subagent is running.
 3. Read the `Status:` line it writes:

@@ -24,7 +24,6 @@ from app.models.schedule import Schedule
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.models.user import User
-import app.routers.tasks_conversation as conv_router
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
@@ -406,14 +405,13 @@ class TestFollowUpKwargs:
 
 class TestFollowupOnCompletedSkipsReview:
     """A message on a COMPLETED task marks it a follow-up: the DoD
-    reviewer stands down for it. A task that bound a DoD review is also
-    told so (a resumed session still holds the skill's review loop and
-    would run it); a task that never had a reviewer is told nothing."""
+    reviewer stands down for it, and the agent is told so — a skill's
+    review loop, already in context or loaded later this turn, would
+    otherwise have it review anyway."""
 
     async def _send(
         self, admin_client, monkeypatch, tmp_path, *, bind=None, **seed
     ):
-        monkeypatch.setattr(conv_router, 'VIBE_SELLER_DIR', tmp_path)
         monkeypatch.setattr(sg, 'GATE_BINDINGS_DIR', tmp_path / 'bindings')
         task_id = await _seed_task(**seed)
         if bind:
@@ -460,11 +458,13 @@ class TestFollowupOnCompletedSkipsReview:
             ).scalar_one()
         assert msg.content == 'list the files in the task directory'
 
-    async def test_task_without_a_reviewer_gets_no_note(
+    async def test_note_does_not_wait_for_a_bound_skill(
         self, admin_client, install_fake_agent, monkeypatch, tmp_path
     ):
-        """Nothing to skip, nothing to say: the note on a task that never
-        had a reviewer only steers the agent toward skills."""
+        """The first turn bound no review skill, yet the follow-up turn
+        is told: the agent can load a skill with a review loop mid-turn
+        (observed in CI — it then spawned a reviewer the server no longer
+        required)."""
         task_id = await self._send(
             admin_client,
             monkeypatch,
@@ -473,9 +473,8 @@ class TestFollowupOnCompletedSkipsReview:
             plan_mode=False,
             started_at='2026-07-16T00:00:00+00:00',
         )
-        assert report_reviewer.is_followup(task_id)
-        assert self._delivered(install_fake_agent, task_id) == (
-            'list the files in the task directory'
+        assert report_reviewer.FOLLOWUP_NOTE in self._delivered(
+            install_fake_agent, task_id
         )
 
     async def test_failed_task_continued_is_still_reviewed(

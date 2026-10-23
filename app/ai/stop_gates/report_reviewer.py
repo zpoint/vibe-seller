@@ -106,18 +106,20 @@ def exec_authorship_deny(review_writers, name, status, iter_num):
 FOLLOWUP_DIR = DATA_DIR / 'followups'
 _SAFE_ID_RE = re.compile(r'[^A-Za-z0-9_-]')  # a task id names a file here
 
-# Appended to the message the agent receives on a follow-up turn, only
-# when the task bound a DoD review (``tasks_files.binds_dod_review``),
+# Appended to the message the agent receives on EVERY follow-up turn,
 # never to the stored transcript. The gate standing down is not enough on
-# its own: a resumed session still has the skill's review loop in context
-# and would run it unprompted. Worded about the review only — an earlier
-# text that opened with "Follow-up on a task…" sent an agent to load an
-# unrelated skill whose name contained "followup".
+# its own: a skill's review loop tells the agent to spawn the reviewer,
+# and the agent can load that skill at any point in the turn — sending
+# the note only to tasks that had bound a review skill when the message
+# arrived missed an agent that loaded one mid-turn and reviewed anyway
+# (observed in CI). Worded about the review only — an earlier text that
+# opened with "Follow-up on a task…" sent an agent to load an unrelated
+# skill whose name contained "followup".
 FOLLOWUP_NOTE = (
     "\n\n[System: no Definition-of-Done review this turn. This task's "
     'deliverable was reviewed when it completed. Do not spawn a reviewer '
-    'subagent or write REVIEW_* files for this message, even if a '
-    "skill's review loop says to.]"
+    'subagent or write REVIEW_* files for this message, even if a skill '
+    'you load says to run its review loop.]'
 )
 
 
@@ -168,17 +170,21 @@ def is_followup(task_id: str) -> bool:
 
 
 # How to wait for a subagent or background shell. A foreground ``sleep
-# 200`` cannot be interrupted by the completion notice — it is delivered
-# only after the Bash call returns — so a reviewer that finished in 60s
-# still cost 200s. ``TaskOutput`` with ``block`` returns the moment the
-# task ends. Shared by the review-loop conduct below, the Stop hook's
-# pending-subagent deny and the long-sleep guard (``background_wait``).
+# 200`` cannot be interrupted by the completion notice — the CLI delivers
+# it between tool calls, so it lands only after the Bash call returns,
+# and a reviewer that finished in 60s still cost 200s. ``TaskOutput`` is
+# not offered by every CLI version (a CI run asked ToolSearch for it and
+# got nothing), so the rule names it as optional and rests on what always
+# holds: short calls let the notice in. Shared by the review-loop conduct
+# below, the Stop hook's pending-subagent deny and the long-sleep guard
+# (``background_wait``, whose threshold the "under 30s" matches).
 WAIT_FOR_BACKGROUND = (
-    'To wait for a subagent or background command, call TaskOutput with '
-    'its task id and block=true (timeout up to 120000 ms; call again if '
-    'it is still running) — it returns the moment the task finishes. '
-    'Never wait with a fixed `sleep N`: the completion notice cannot '
-    'reach you while a foreground command is blocking.'
+    'A subagent or background command reports back on its own: its '
+    'completion notice arrives between your tool calls. So keep working on '
+    'anything else left to do; if nothing is left, wait in short steps '
+    '(a `sleep` under 30s, then check again), or block on TaskOutput with '
+    'its task id if your tools include it. Never one long `sleep N` — the '
+    'notice cannot reach you while a foreground command is blocking.'
 )
 
 # The review-loop contract every reviewer deny carries (appended by

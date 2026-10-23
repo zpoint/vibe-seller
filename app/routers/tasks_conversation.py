@@ -28,10 +28,7 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.plan_states import PlanStatus
 from app.routers.dida365_oauth import refresh_token_if_needed
-from app.routers.tasks_files import (
-    binds_dod_review,
-    promote_staged_attachments,
-)
+from app.routers.tasks_files import promote_staged_attachments
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_chat_context import build_chat_context
 from app.task_launch import schedule_or_run
@@ -55,7 +52,6 @@ from app.task_states import (
 )
 from app.text_utils import sanitize_json
 from app.workspace.manager import (
-    VIBE_SELLER_DIR,
     reset_task_runtime_state,
     session_has_orphaned_bg_task,
     workspace_manager,
@@ -200,11 +196,9 @@ async def send_task_message(
     # content so promoted attachments reach it (send_message stdin, wake
     # trigger_data, resume/fresh-session prompt all read ``content``).
     content = agent_content
-    # Tell the agent too, when it has a review loop to skip: a resumed
-    # session still holds the skill's loop and would run it unprompted.
-    if report_reviewer.is_followup(task_id) and binds_dod_review(
-        task_id, VIBE_SELLER_DIR / 'tasks' / task_id
-    ):
+    # Tell the agent too: a skill's review loop — already in a resumed
+    # session, or loaded later this turn — would have it review anyway.
+    if report_reviewer.is_followup(task_id):
         content += report_reviewer.FOLLOWUP_NOTE
 
     # Canonical "message accepted" fields every return path echoes, so the

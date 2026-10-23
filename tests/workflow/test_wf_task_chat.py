@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from app.ai.stop_gates.report_reviewer import FOLLOWUP_NOTE
 from app.database import get_db
 from app.main import app as _app
 from app.models.task import Task
@@ -58,7 +59,9 @@ class TestTaskMessages:
             task_id=task_id, action='send_message'
         )
         assert len(msgs) == 1
-        assert msgs[0].message == 'hello agent'
+        # The task had completed, so this turn is a follow-up: the agent
+        # also gets the no-review note (report_reviewer.FOLLOWUP_NOTE).
+        assert msgs[0].message == 'hello agent' + FOLLOWUP_NOTE
 
         # Clean up
         install_fake_agent._running[task_id] = False
@@ -257,7 +260,9 @@ class TestFollowUpMessages:
         all_runs = install_fake_agent.get_calls(task_id=task_id, action='run')
         followup_run = all_runs[runs_before]
         assert followup_run.mode == 'auto'
-        assert followup_run.prompt == ('keep going, get all 807 pages')
+        assert followup_run.prompt == (
+            'keep going, get all 807 pages' + FOLLOWUP_NOTE
+        )
 
         # Verify user message persisted
         r = await admin_client.get(f'/api/tasks/{task_id}/messages')

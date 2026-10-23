@@ -65,9 +65,10 @@ filename or a result-shape regex (both proven leaky — a report named
   `data/followups/`, server-owned like the bindings — never in the task
   dir, where the agent would find and puzzle over it). `reviewer_verdict`
   — the verdict the Stop hook, the ending-turn re-drive and
-  `set_task_result` share — stands down for every later turn. A task
-  that bound a DoD review is also told so in the delivered message; one
-  that never had a reviewer is told nothing. A failed/stopped run that
+  `set_task_result` share — stands down for every later turn. The
+  delivered message tells the agent so on every follow-up — a skill it
+  loads mid-turn would otherwise have it run the loop anyway. A
+  failed/stopped run that
   is continued is still reviewed; a retry and task deletion clear the
   mark. Gates on live writes — the listing upload verdicts and the ads
   execution review — are separate checks and still apply.
@@ -146,10 +147,11 @@ answered by **going and looking**, not by reading the writer's prose.
   and the result path re-drive the agent while any launched subagent is
   still running — bounded by the same redrive budget, failing open with
   the UNVERIFIED banner so a lost notification can't wedge the turn.
-  The agent waits with `TaskOutput` (`block: true`), which returns the
-  moment the subagent ends; a long foreground `sleep` while one is
-  pending is denied (`app/ai/background_wait.py`), because the
-  completion notice cannot arrive while it blocks.
+  The completion notice arrives between tool calls, so the agent keeps
+  working or waits in short steps (`TaskOutput` only where the CLI
+  offers it — not every version does); a foreground `sleep` of 30s or
+  more while one is pending is denied (`app/ai/background_wait.py`),
+  because the notice cannot arrive while it blocks.
 - **`ok` ends the loop.** Every reviewer deny carries the loop conduct
   (`REVIEW_LOOP_CONDUCT`): after `Status: ok` the agent does not edit the
   deliverable for non-blocking notes — it lists them for the user.

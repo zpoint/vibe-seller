@@ -40,7 +40,9 @@ Three rules of conduct, the same for every DoD reviewer:
   reviewer for it. (Executing the plan still runs Phase 4 below.)
 - **`ok` ends it.** Don't edit the deliverable for notes the reviewer
   marked non-blocking; list them in your final reply for the user.
-- **Wait with `TaskOutput` (`block: true`), never a fixed `sleep N`.**
+- **Never one long `sleep N` while the reviewer runs.** Its notice
+  arrives between tool calls: keep working, or wait in steps under 30s
+  (`TaskOutput` with `block: true` if your tools include it).
 
 ## Why a separate reviewer
 

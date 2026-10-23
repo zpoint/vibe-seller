@@ -47,22 +47,6 @@ logger = logging.getLogger(__name__)
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
 
 
-def _owes_dod_review(skills, skill_reviews) -> bool:
-    return bool(skills & report_reviewer.AD_SKILLS) or bool(skill_reviews)
-
-
-def binds_dod_review(task_id: str, task_root: Path) -> bool:
-    """Has this task bound a skill whose deliverable the DoD reviewer
-    verifies — an ads skill, or any skill declaring a ``review:`` block?
-
-    Same test ``apply_report_reviewer_gate`` applies; the follow-up note
-    (``report_reviewer.FOLLOWUP_NOTE``) is sent only to such tasks, so a
-    task that never had a reviewer is not told about one.
-    """
-    skills = recorded_skills(task_id)
-    return _owes_dod_review(skills, skills_requiring_review(skills, task_root))
-
-
 def apply_report_reviewer_gate(task_id, task_root, final_result):
     """Reviewer sign-off for review-declaring skills at ``set_task_result``.
 
@@ -86,7 +70,10 @@ def apply_report_reviewer_gate(task_id, task_root, final_result):
     """
     skills = recorded_skills(task_id)
     skill_reviews = skills_requiring_review(skills, task_root)
-    if not _owes_dod_review(skills, skill_reviews):
+    needs_review = bool(skills & report_reviewer.AD_SKILLS) or bool(
+        skill_reviews
+    )
+    if not needs_review:
         return None, final_result
     session = agent_manager.get_session(task_id)
     deny = report_reviewer.reviewer_verdict(
