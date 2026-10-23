@@ -200,6 +200,40 @@ REVIEW_LOOP_CONDUCT = (
 )
 
 
+# A shell redirection that WRITES a file: ``>``/``>>`` (not ``2>``-style
+# fd redirects to /dev/null — any target is checked by name anyway) or
+# ``tee [-a]``. The target is the next shell word, quoted or not.
+_REDIRECT_TARGET_RE = re.compile(
+    r"""(?:>>?|\btee(?:\s+-a)?)\s*["']?([^\s"'<>|;&]+)"""
+)
+
+
+def review_files_written(tool_name: str, tool_input) -> list[str]:
+    """Basenames of review-verdict files this tool call writes.
+
+    The review gates trust a verdict only when the reviewer subagent
+    wrote it, and the stream learns who wrote what from tool calls. It
+    used to look at ``Write``/``Edit``/``MultiEdit`` only, so a reviewer
+    that wrote its verdict with a shell heredoc (``cat > REVIEW_….md
+    <<'EOF'``) — observed in CI — was never credited: the gate refused a
+    genuine verdict, the result failed open as UNVERIFIED, and the agent
+    spawned reviewer after reviewer. A Bash command counts for each file
+    it redirects INTO; one that only reads a verdict (``cat REVIEW_….md``)
+    writes nothing, so a subagent reading a main-written verdict cannot
+    launder it.
+    """
+    if not isinstance(tool_input, dict):
+        return []
+    if tool_name in ('Write', 'Edit', 'MultiEdit'):
+        paths = [str(tool_input.get('file_path', ''))]
+    elif tool_name == 'Bash':
+        paths = _REDIRECT_TARGET_RE.findall(str(tool_input.get('command', '')))
+    else:
+        return []
+    names = (p.rsplit('/', 1)[-1] for p in paths)
+    return [n for n in dict.fromkeys(names) if is_review_file_name(n)]
+
+
 def is_review_file_name(name: str) -> bool:
     """True when *name* looks like a review-verdict artifact.
 

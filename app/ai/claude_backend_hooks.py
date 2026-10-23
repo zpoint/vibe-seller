@@ -32,6 +32,7 @@ from app.ai.image_guards import (
     check_generated_image_write,
     check_image_read_without_vision,
 )
+from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.profiles import ProfileManager, model_sees_images
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
@@ -185,7 +186,6 @@ class _HookMixin:
             inner_input = tool_input.get('tool_input', {})
             if inner_name == 'Bash':
                 cmd = inner_input.get('command', '')
-                # Ordered guards: bash_safety.first_bash_deny, then sleep.
                 deny = first_bash_deny(cmd, self.task_dir, self._catalog_read)
                 deny = deny or long_sleep_deny(inner_input, self._async_agents)
                 if deny:
@@ -270,8 +270,8 @@ class _HookMixin:
             # record_skill_load makes the binding durable per task.
             barred = ads_routing.refusal_for(
                 self.task_id, inner_name, inner_input
-            )
-            if barred:  # routed away from this task: see app.ads_routing
+            ) or missing_args_deny(inner_name, inner_input)
+            if barred:  # routed away (app.ads_routing) or malformed args
                 await self._deny_pre_tool_use(request_id, barred)
                 return
             read_skill = skill_name_from_read(inner_name, inner_input)

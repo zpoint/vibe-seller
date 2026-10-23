@@ -981,3 +981,54 @@ class TestReviewFileAuthorshipTracking:
         assert session._review_file_writers == {
             'EXEC_REVIEW_2026-07-20_iter1.md': 'main'
         }
+
+    def _bash_event(self, parent, command):
+        return {
+            'type': 'assistant',
+            'parent_tool_use_id': parent,
+            'message': {
+                'content': [
+                    {
+                        'type': 'tool_use',
+                        'id': 'toolu_b1',
+                        'name': 'Bash',
+                        'input': {'command': command},
+                    }
+                ]
+            },
+        }
+
+    async def test_subagent_heredoc_write_recorded_as_subagent(self):
+        """Observed in CI: the reviewer wrote its verdict with
+        ``cat > REVIEW_….md <<'EOF'``. Not crediting it made the gate
+        refuse a genuine verdict and the agent re-spawn reviewers."""
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        cmd = "cat > /ws/REVIEW_2026-07-20_iter1.md <<'EOF'\nStatus: ok\nEOF"
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(self._bash_event('toolu_p9', cmd))
+        assert session._review_file_writers == {
+            'REVIEW_2026-07-20_iter1.md': 'subagent'
+        }
+
+    async def test_reading_a_verdict_does_not_credit_the_reader(self):
+        """A subagent that only READS a main-written verdict must not
+        launder it into a reviewer-written one."""
+        session = _make_session('auto')
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(self._write_event(None))
+            await session._handle_event(
+                self._bash_event(
+                    'toolu_p9', 'cat /ws/REVIEW_2026-07-20_iter1.md | head'
+                )
+            )
+        assert session._review_file_writers == {
+            'REVIEW_2026-07-20_iter1.md': 'main'
+        }

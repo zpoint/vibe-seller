@@ -17,8 +17,8 @@ from app.ai.claude_backend_utils import (
     get_next_seq,
 )
 from app.ai.stop_gates.report_reviewer import (
-    is_review_file_name,
     partial_banner,
+    review_files_written,
     rollover_reviews,
 )
 from app.ai.task_status_reconcile import reconcile_streaming_run_status
@@ -312,16 +312,14 @@ class _StreamMixin:
                         ):
                             self._review_subagent_ran = True
                     # Review-verdict authorship: record WHO wrote each
-                    # review-named .md this turn. A file last written by
-                    # the main agent can never satisfy the review gates
-                    # (see report_reviewer.reviewer_verdict).
-                    if tool_name in ('Write', 'Edit', 'MultiEdit'):
-                        _fp = str(tool_input.get('file_path', ''))
-                        _base = _fp.rsplit('/', 1)[-1]
-                        if is_review_file_name(_base):
-                            self._review_file_writers[_base] = (
-                                'subagent' if parent_id else 'main'
-                            )
+                    # review-named .md this turn — by Write/Edit or a
+                    # shell redirect. A file last written by the main
+                    # agent can never satisfy the review gates (see
+                    # report_reviewer.reviewer_verdict).
+                    for _base in review_files_written(tool_name, tool_input):
+                        self._review_file_writers[_base] = (
+                            'subagent' if parent_id else 'main'
+                        )
                     if tool_name == 'TodoWrite':
                         todos = tool_input.get('todos', [])
                         await event_bus.emit(
