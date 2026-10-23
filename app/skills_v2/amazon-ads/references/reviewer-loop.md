@@ -237,8 +237,9 @@ an explicit infra-block note if the console could not be opened>
 
 Set Status=ok ONLY if you independently verified, against live data /
 exports, that the CRITERIA are met. Otherwise Status=gaps with the
-bullets. After writing, return the path {review_out} as your final
-message — the file is the source of truth, not chat.
+bullets. Writing the file is your LAST action: return the path
+{review_out} right after it — the file is the source of truth, not chat,
+and the task cannot finish while you are still running.
 ```
 
 ## Status semantics

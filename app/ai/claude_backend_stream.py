@@ -316,10 +316,17 @@ class _StreamMixin:
                     # shell redirect. A file last written by the main
                     # agent can never satisfy the review gates (see
                     # report_reviewer.reviewer_verdict).
-                    for _base in review_files_written(tool_name, tool_input):
+                    written = review_files_written(tool_name, tool_input)
+                    for _base in written:
                         self._review_file_writers[_base] = (
                             'subagent' if parent_id else 'main'
                         )
+                    # A reviewer's verdict IS its deliverable: once it
+                    # writes one, it no longer holds the turn open. In CI
+                    # a reviewer wrote `Status: ok`, then browsed on for
+                    # 12 minutes while the accepted task could not end.
+                    if written and parent_id:
+                        self._release_async({parent_id})
                     if tool_name == 'TodoWrite':
                         todos = tool_input.get('todos', [])
                         await event_bus.emit(

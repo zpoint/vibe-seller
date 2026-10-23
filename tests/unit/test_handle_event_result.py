@@ -1032,3 +1032,31 @@ class TestReviewFileAuthorshipTracking:
         assert session._review_file_writers == {
             'REVIEW_2026-07-20_iter1.md': 'main'
         }
+
+    async def test_reviewer_verdict_releases_its_hold_on_the_turn(self):
+        """A reviewer that has written its verdict no longer holds the
+        turn open. Observed in CI: a reviewer wrote `Status: ok`, then
+        browsed on for 12 minutes while an accepted task could not end."""
+        session = _make_session('auto')
+        session._async_agents = {'toolu_spawn1': 'agent-r', 'toolu_other': ''}
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(self._write_event('toolu_spawn1'))
+        assert session._async_agents == {'toolu_other': ''}
+
+    async def test_non_verdict_write_keeps_the_hold(self):
+        session = _make_session('auto')
+        session._async_agents = {'toolu_spawn1': 'agent-r'}
+
+        async def _noop(*a, **k):
+            pass
+
+        with patch.object(session, '_emit_message', _noop):
+            await session._handle_event(
+                self._write_event('toolu_spawn1', path='notes.md')
+            )
+            await session._handle_event(self._write_event(None))  # main
+        assert session._async_agents == {'toolu_spawn1': 'agent-r'}

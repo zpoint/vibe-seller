@@ -114,6 +114,8 @@ Write your verdict to `REVIEW_<YYYY-MM-DD>_iter<N>.md` starting with
 exactly one line `Status: ok | gaps | incomplete`, then a `## Gaps`
 section (empty if ok; else one bullet per gap citing WHAT YOU OPENED and
 WHAT DID NOT MATCH), then optional `## Notes`.
+Writing that file is your LAST action: return right after it. The task
+cannot finish while you are still running.
 ```
 
 ## Status semantics (what the server enforces)
