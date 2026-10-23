@@ -11,9 +11,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.ai import tool_call_guards
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import AUTO_APPROVE_CALLBACK
-from app.ai.tool_call_guards import planning_deny
+from app.ai.tool_call_guards import ads_service_deny, planning_deny
 
 pytestmark = pytest.mark.unit
 
@@ -64,3 +65,26 @@ def test_the_hook_refuses_it():
     out = sent[0]['hookSpecificOutput']
     assert out['permissionDecision'] == 'deny'
     assert 'planning' in out['permissionDecisionReason']
+
+
+class TestAdsServiceBypass:
+    """The ads service is reached only through vibe_seller_ads_call.
+
+    Observed in CI: a planner refused the tool (planning) and the API
+    skill (no store) found the service's port and `curl`-ed it directly.
+    """
+
+    def _host(self):
+        return tool_call_guards._SERVICE_HOSTS[0]
+
+    def test_curl_to_the_service_is_refused(self):
+        cmd = f'curl -s "http://{self._host()}/facts/rollup?store_key=x"'
+        deny = ads_service_deny('Bash', {'command': cmd})
+        assert deny and 'vibe_seller_ads_call' in deny
+
+    def test_other_commands_pass(self):
+        assert (
+            ads_service_deny('Bash', {'command': 'curl -s http://127.0.0.1:9/'})
+            is None
+        )
+        assert ads_service_deny('Read', {'file_path': self._host()}) is None

@@ -51,7 +51,16 @@ def parse_skill_gates(skill_md_path: Path) -> list[str]:
 _SKILL_MD_READ_RE = re.compile(r'(?:^|/)skills/([^/]+)/SKILL\.md$')
 # A concrete SKILL.md named anywhere in a shell command (`cat`, `sed -n`,
 # `head` …). A glob (`skills/*/SKILL.md`) names no skill and binds none.
+#
+# Only a READER in command position counts -- the agent printing the
+# skill to follow it. A search that merely names the file is not a load:
+# in CI a reflection step ran `grep -rn "ad console" …/amazon-ads/SKILL.md
+# …/amazon-reports/SKILL.md`, the first cut of this rule bound both
+# skills, and the ad review gate then turned a four-number lookup into a
+# full audit.
 _SKILL_MD_IN_CMD_RE = re.compile(
+    r'(?:^|[;&|\n(`]\s*)(?:(?:sudo|time)\s+)*'
+    r'(?:cat|less|more|head|tail|sed|bat|nl)\b[^;&|\n]*?'
     r"""(?:^|[/\s'"=])skills/([A-Za-z0-9_.-]+)/SKILL\.md\b"""
 )
 
