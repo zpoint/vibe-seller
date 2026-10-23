@@ -3,14 +3,16 @@
 One entry point so the hook (at its line budget) chains a single call:
 a vibe-seller MCP call missing required arguments
 (``mcp_args_guard``), any tool reaching into vibe-seller's own source
-(``source_guard``), an execution-only tool called while planning, or a
-shell command that calls the ads service around its tool.
+(``source_guard``), an execution-only tool called while planning, a
+shell command that calls the ads service around its tool, or new work
+started during post-result reflection (``reflection_guard``).
 """
 
 from urllib.parse import urlsplit
 
 from app.ads_client import SERVICE_URL
 from app.ai.mcp_args_guard import missing_args_deny
+from app.ai.reflection_guard import reflection_deny
 from app.ai.source_guard import source_access_deny
 
 # Tools that DO the task. While planning, the agent decides what to do;
@@ -117,4 +119,5 @@ def tool_call_deny(session, hook_input: dict) -> str | None:
         or source_access_deny(tool_name, tool_input)
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
+        or reflection_deny(session, tool_name, tool_input)
     )

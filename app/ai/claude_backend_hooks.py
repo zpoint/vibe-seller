@@ -33,6 +33,7 @@ from app.ai.image_guards import (
     check_image_read_without_vision,
 )
 from app.ai.profiles import ProfileManager, model_sees_images
+from app.ai.reflection_guard import begin_reflection, end_reflection
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
 from app.ai.tool_call_guards import tool_call_deny
@@ -361,8 +362,7 @@ class _HookMixin:
             # Claude Code sends stop_hook_active=true on the retry
             # after a block, preventing infinite loops.
             if tool_input.get('stop_hook_active'):
-                # Bracket-end of the reflection turn — paired with
-                # reflection_started; see comment there.
+                end_reflection(self)  # bracket-end; see reflection_started
                 _ev = json.dumps({'event': 'reflection_completed'})
                 await self._emit_message('agent_event', _ev)
                 await self._send_hook_response(
@@ -395,11 +395,10 @@ class _HookMixin:
                 self._pre_reflection_result = pre
                 if pre:
                     await self._save_result(pre)
-                # Reflection tool calls (e.g. Read of metadata.json)
-                # run after the turn's work is done — they must not
-                # count as "agent worked toward completion" in the
-                # interactive-Q&A finalize check.
-                self._reflection_active = True
+                # Reflection tool calls run after the turn's work is
+                # done — they must not count as progress in the Q&A
+                # finalize check, nor start new work (reflection_guard).
+                begin_reflection(self)
                 # Structured marker — makes the reflection PHASE
                 # observable independently of model wording.
                 _ev = json.dumps({'event': 'reflection_started'})
