@@ -14,6 +14,19 @@ have nothing to do with the contract.
 
 All figures are round and invented. Campaign ids follow the placeholder
 shape used throughout the repo.
+
+**It is an Amazon console, and must be a credible one.** The e2e store is
+an Amazon US store (``StoreCreate`` defaults), so a request to review bids
+rightly brings in the ``amazon-ads`` skill and its server-side
+completeness check. That check holds the report to what a real console
+can always show, so the fixture must show it too: every keyword's CPC
+(spend / clicks) at or below its bid, a search-term table per campaign
+whose spend adds up to the keyword spend, the marketplace's currency, and
+an active-campaign count on the list page (the ``list:`` source a console
+without a bulk export offers). An earlier cut charged 2.00 a click on a
+1.00 bid and had no search terms; the check rightly refused reports built
+on it, and the scoped e2e test ran out its clock arguing with data no
+console could produce. ``tests/unit/test_fake_ads_console.py`` pins these.
 """
 
 from __future__ import annotations
@@ -31,6 +44,8 @@ CAMPAIGN_B_NAME = 'sprocket-009 manual'
 _DASHBOARD = """<!doctype html><html><head><title>Ad Console</title></head>
 <body>
 <h1>Ad Console — acme</h1>
+<p>Sponsored Products &middot; Amazon US marketplace &middot; all amounts
+in USD</p>
 <h2>Last 30 days</h2>
 <table id="summary" border="1">
   <tr><th>Metric</th><th>Value</th></tr>
@@ -46,6 +61,7 @@ _DASHBOARD = """<!doctype html><html><head><title>Ad Console</title></head>
 _CAMPAIGNS = f"""<!doctype html><html><head><title>Campaigns</title></head>
 <body>
 <h1>Campaigns</h1>
+<p>Amazon US &middot; USD &middot; last 30 days</p>
 <p>Live 2 / Paused 0 / All 2</p>
 <table id="campaigns" border="1">
   <tr><th>Campaign ID</th><th>Name</th><th>Spend</th><th>Revenue</th>
@@ -61,53 +77,103 @@ _CAMPAIGNS = f"""<!doctype html><html><head><title>Campaigns</title></head>
 """
 
 
-def _campaign_page(cid: str, name: str, rows: list[tuple]) -> str:
+def _table(table_id: str, headers: tuple, rows: list[tuple]) -> str:
+    head = ''.join(f'<th>{h}</th>' for h in headers)
     body = '\n'.join(
         '<tr>' + ''.join(f'<td>{c}</td>' for c in row) + '</tr>' for row in rows
     )
+    return (
+        f'<table id="{table_id}" border="1">\n<tr>{head}</tr>\n{body}\n</table>'
+    )
+
+
+KEYWORD_HEADERS = (
+    'Keyword',
+    'Match',
+    'Bid',
+    'Clicks',
+    'Spend',
+    'Orders',
+    'Sales',
+    'ROAS',
+)
+SEARCH_TERM_HEADERS = (
+    'Search term',
+    'Matched keyword',
+    'Clicks',
+    'Spend',
+    'Orders',
+    'Sales',
+)
+
+
+def _campaign_page(
+    cid: str, name: str, keywords: list[tuple], search_terms: list[tuple]
+) -> str:
     return f"""<!doctype html><html><head><title>{name}</title></head>
 <body>
 <h1>{name}</h1>
 <p>Campaign ID: {cid}</p>
-<p>Status: Live &middot; Daily budget: 20.00</p>
+<p>Status: Live &middot; Daily budget: 20.00 &middot; Amazon US &middot; USD
+&middot; last 30 days</p>
 <h2>Keywords</h2>
-<table id="keywords" border="1">
-  <tr><th>Keyword</th><th>Match</th><th>Bid</th><th>Clicks</th>
-      <th>Spend</th><th>Orders</th><th>Sales</th><th>ROAS</th></tr>
-  {body}
-</table>
+{_table('keywords', KEYWORD_HEADERS, keywords)}
+<h2>Search terms</h2>
+{_table('search-terms', SEARCH_TERM_HEADERS, search_terms)}
 </body></html>
 """
 
 
-_PAGES = {
-    '/': _DASHBOARD,
-    '/index.html': _DASHBOARD,
-    '/campaigns': _CAMPAIGNS,
-    f'/campaign/{CAMPAIGN_A}': _campaign_page(
-        CAMPAIGN_A,
+# Per campaign: (keyword rows, search-term rows). Spend per campaign
+# matches the list page (200.00 / 100.00); search-term spend sums to it.
+CAMPAIGN_DATA = {
+    CAMPAIGN_A: (
         CAMPAIGN_A_NAME,
         [
-            ('widget red', 'Exact', '1.00', 60, '120.00', 12, '360.00', '3.00'),
-            ('widget blue', 'Exact', '0.80', 40, '80.00', 8, '240.00', '3.00'),
+            (
+                'widget red',
+                'Exact',
+                '1.50',
+                100,
+                '120.00',
+                12,
+                '360.00',
+                '3.00',
+            ),
+            ('widget blue', 'Exact', '1.00', 100, '80.00', 8, '240.00', '3.00'),
+        ],
+        [
+            ('red widget', 'widget red', 60, '72.00', 8, '240.00'),
+            ('widget red large', 'widget red', 40, '48.00', 4, '120.00'),
+            ('blue widget', 'widget blue', 100, '80.00', 8, '240.00'),
         ],
     ),
-    f'/campaign/{CAMPAIGN_B}': _campaign_page(
-        CAMPAIGN_B,
+    CAMPAIGN_B: (
         CAMPAIGN_B_NAME,
         [
             (
                 'sprocket small',
                 'Exact',
-                '0.50',
-                50,
+                '1.00',
+                125,
                 '100.00',
                 20,
                 '600.00',
                 '6.00',
             ),
         ],
+        [('small sprocket', 'sprocket small', 125, '100.00', 20, '600.00')],
     ),
+}
+
+_PAGES = {
+    '/': _DASHBOARD,
+    '/index.html': _DASHBOARD,
+    '/campaigns': _CAMPAIGNS,
+    **{
+        f'/campaign/{cid}': _campaign_page(cid, name, kws, terms)
+        for cid, (name, kws, terms) in CAMPAIGN_DATA.items()
+    },
 }
 
 
