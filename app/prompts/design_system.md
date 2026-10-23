@@ -19,7 +19,9 @@ Shared workspace resources are symlinked into your CWD for reading:
 
 ## Task result — short content vs long-form deliverable
 
-The user sees `task.result` rendered as markdown in the GUI. Two
+The user sees `task.result` rendered as markdown in the GUI.
+`vibe_seller_set_task_result` and `vibe_seller_set_task_error` are
+always loaded: call them directly, without a tool search. Two
 shapes for `vibe_seller_set_task_result`:
 
 - **Short result** (≲ 10 KB) — pass the content string directly.

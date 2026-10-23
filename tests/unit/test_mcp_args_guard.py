@@ -20,6 +20,7 @@ from app.ai.claude_backend_utils import (
 )
 from app.ai.mcp_args_guard import missing_args_deny
 from app.mcp_tool_schemas import TOOLS
+from app.prompts import DESIGN_SYSTEM_PROMPT, DESIGN_SYSTEM_PROMPT_AUTO
 
 pytestmark = pytest.mark.unit
 
@@ -98,3 +99,10 @@ class TestFinishingToolsAlwaysLoaded:
             'vibe_seller_set_task_result',
             'vibe_seller_set_task_error',
         }
+
+    def test_the_base_prompt_says_they_need_no_search(self):
+        # In CI an agent searched for set_task_result, got "no matching
+        # deferred tools" (it was already loaded), and searched again.
+        for text in (DESIGN_SYSTEM_PROMPT, DESIGN_SYSTEM_PROMPT_AUTO):
+            assert 'always loaded' in text
+            assert 'vibe_seller_set_task_error' in text
