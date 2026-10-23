@@ -7,12 +7,15 @@ role='result' card; ``_result_text`` tracks the LAST non-empty one —
 the process's final word is the deliverable.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from app.ai.claude_backend import AgentSession
-from app.ai.claude_backend_utils import REVIEW_REDRIVE_MAX
+from app.ai.claude_backend_utils import (
+    AUTO_APPROVE_CALLBACK,
+    REVIEW_REDRIVE_MAX,
+)
 from app.ai.review_redrive import RedriveClock
 
 pytestmark = pytest.mark.unit
@@ -1060,3 +1063,106 @@ class TestReviewFileAuthorshipTracking:
             )
             await session._handle_event(self._write_event(None))  # main
         assert session._async_agents == {'toolu_spawn1': 'agent-r'}
+
+
+class TestEmptyUnterminatedTurn:
+    """A response that stopped with no stop reason, no text and no action
+    is a stream that ended early. Observed in CI: "save this as a skill"
+    got a lone thinking block, stop_reason "", and the turn closed as
+    success with nothing done."""
+
+    async def test_it_is_continued_once(self):
+        session = _make_session('execute')
+        sent: list[str] = []
+
+        async def _noop(*a, **k):
+            pass
+
+        async def _send(msg):
+            sent.append(msg)
+
+        empty = {'type': 'result', 'result': '', 'stop_reason': ''}
+        with (
+            patch.object(session, '_emit_message', _noop),
+            patch.object(session, 'send_user_message', _send),
+        ):
+            await session._handle_event(dict(empty))
+            assert len(sent) == 1 and 'stopped early' in sent[0]
+            assert session._turn_result_seen is False  # not an answer
+            await session._handle_event(dict(empty))  # once only
+        assert len(sent) == 1
+
+    @pytest.mark.parametrize(
+        'event',
+        [
+            {'type': 'result', 'result': '', 'stop_reason': 'end_turn'},
+            {'type': 'result', 'result': 'Done.', 'stop_reason': ''},
+        ],
+    )
+    async def test_a_normal_end_is_not_continued(self, event):
+        session = _make_session('execute')
+        sent: list[str] = []
+
+        async def _noop(*a, **k):
+            pass
+
+        async def _send(msg):
+            sent.append(msg)
+
+        with (
+            patch.object(session, '_emit_message', _noop),
+            patch.object(session, 'send_user_message', _send),
+        ):
+            await session._handle_event(event)
+        assert sent == []
+
+
+class TestSubagentCannotFinishTheTask:
+    """Observed in CI: a reviewer subagent called set_task_result with
+    its own verdict text as the task's result."""
+
+    async def test_a_subagent_set_task_result_is_refused(self):
+        session = _make_session('execute')
+
+        async def _noop(*a, **k):
+            pass
+
+        tool = 'mcp__vibe-seller__vibe_seller_set_task_result'
+        with patch.object(session, '_emit_message', _noop):
+            for parent, tid in (
+                (None, 'call_main'),
+                ('toolu_spawn', 'call_sub'),
+            ):
+                await session._handle_event({
+                    'type': 'assistant',
+                    'parent_tool_use_id': parent,
+                    'message': {
+                        'content': [
+                            {
+                                'type': 'tool_use',
+                                'id': tid,
+                                'name': tool,
+                                'input': {'result': 'Status: ok'},
+                            }
+                        ]
+                    },
+                })
+        decisions = {}
+        for tid in ('call_main', 'call_sub'):
+            sent = []
+            session._send_hook_response = AsyncMock(
+                side_effect=lambda rid, out, s=sent: s.append(out)
+            )
+            await session._handle_hook_callback(
+                'req',
+                {
+                    'callback_id': AUTO_APPROVE_CALLBACK,
+                    'input': {
+                        'tool_name': tool,
+                        'tool_input': {'result': 'Status: ok'},
+                        'tool_use_id': tid,
+                    },
+                },
+            )
+            decisions[tid] = sent[0]['hookSpecificOutput']['permissionDecision']
+        assert decisions == {'call_main': 'allow', 'call_sub': 'deny'}

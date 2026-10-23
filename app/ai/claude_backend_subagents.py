@@ -88,6 +88,11 @@ class _SubagentMixin:
         self._review_file_writers: dict[str, str] = {}
         self._agent_spawn_ids: set[str] = set()
         self._async_agents: dict[str, str] = {}
+        # tool_use ids a SUBAGENT made (its events carry a parent id), so
+        # the PreToolUse hook can tell who is calling — see
+        # tool_call_guards.subagent_finish_deny.
+        self._subagent_tool_use_ids: set[str] = set()
+        self._empty_turn_continued: bool = False
 
     def _async_agents_pending_reason(self) -> str | None:
         """Deny reason while async work launched this turn is still

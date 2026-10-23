@@ -554,8 +554,12 @@ claimed drill with no TSV (or a TSV with no block) is a gap.
   audit (each with magnitude + basis), ordered by impact.
 - No leftover `<!-- INSERT: … -->` scaffold markers — every slot must
   be filled and its marker removed before the final submit.
-- Prose/recommendations in **Chinese** (identifiers, metric names,
-  search terms stay verbatim). Keep narrative tight — the TSVs carry
+- Prose/recommendations in **the language of the user's request** —
+  the result-language gate holds the report to it, so a Chinese report
+  for an English request is rewritten, not accepted. The labels this
+  spec names stay as written (`进度`, `搜索词对账` — or its English form
+  `Search-term reconciliation`, `汇总建议`, `建议`); identifiers, metric
+  names and search terms stay verbatim. Keep narrative tight — the TSVs carry
   the bulk structured data; the report needs the manifest + per-campaign
   tables + recommendations, not walls of text.
 

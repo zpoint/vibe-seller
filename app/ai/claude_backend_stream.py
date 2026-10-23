@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 _READLINE_HEARTBEAT_TIMEOUT_S = 60.0
 
 
+EMPTY_TURN_CONTINUE = (
+    'Your last response ended before you answered or acted — the model '
+    "stream stopped early. Continue with the user's last request."
+)
+
+
 class _StreamMixin:
     """Stdout/stderr readers and stream-json event handlers."""
 
@@ -291,6 +297,8 @@ class _StreamMixin:
                     # authorship signal for review verdicts and the
                     # spawn-tracking key for async agents.
                     parent_id = event.get('parent_tool_use_id')
+                    if parent_id and block.get('id'):
+                        self._subagent_tool_use_ids.add(block['id'])
                     # A DoD/review verdict only counts when a real reviewer
                     # SUBAGENT produced it. The main agent can't fabricate
                     # this tool_use it never made, so flag a review-ish
@@ -368,6 +376,19 @@ class _StreamMixin:
             # and used to work it out separately.
             if self._executing and not is_error:
                 self._note_review_turn_end()
+                # A turn whose model response stopped with NO stop reason,
+                # no text and no action is a stream that ended early, not
+                # an answer. Observed in CI: "save this as a skill" got a
+                # thinking block, stop_reason "", and the CLI closed the
+                # turn as success with nothing done. Continue it once.
+                if (
+                    event.get('stop_reason') == ''
+                    and not (text or '').strip()
+                    and not self._empty_turn_continued
+                ):
+                    self._empty_turn_continued = True
+                    await self.send_user_message(EMPTY_TURN_CONTINUE)
+                    return
                 gate_reason = (
                     self._async_agents_pending_reason()
                     or self._review_gate_deny_reason()

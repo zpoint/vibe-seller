@@ -78,10 +78,42 @@ def ads_service_deny(tool_name: str, tool_input) -> str | None:
     return None
 
 
-def tool_call_deny(session, tool_name: str, tool_input) -> str | None:
-    """First refusal for this tool call, else ``None``."""
+_FINISHING = frozenset({
+    'mcp__vibe-seller__vibe_seller_set_task_result',
+    'mcp__vibe-seller__vibe_seller_set_task_error',
+})
+
+
+def subagent_finish_deny(session, tool_name: str, tool_use_id) -> str | None:
+    """A subagent may not submit or fail the task it was spawned to help.
+
+    Observed in CI: a reviewer subagent called set_task_result with its
+    own "Status: ok …" text as the task's result. The stream records
+    which tool_use ids a subagent made (their events carry a parent id).
+    """
+    made_by_subagent = tool_use_id in getattr(
+        session, '_subagent_tool_use_ids', ()
+    )
+    if tool_name in _FINISHING and made_by_subagent:
+        return (
+            f"Blocked: `{tool_name}` is the main agent's call. You are a "
+            'subagent: write your output (e.g. the review verdict file) '
+            'and return; the main agent submits the task.'
+        )
+    return None
+
+
+def tool_call_deny(session, hook_input: dict) -> str | None:
+    """First refusal for this PreToolUse call, else ``None``.
+
+    ``hook_input`` is the hook callback's input: ``tool_name``,
+    ``tool_input`` and the CLI's ``tool_use_id``.
+    """
+    tool_name = hook_input.get('tool_name', '')
+    tool_input = hook_input.get('tool_input', {})
     return (
-        missing_args_deny(tool_name, tool_input)
+        subagent_finish_deny(session, tool_name, hook_input.get('tool_use_id'))
+        or missing_args_deny(tool_name, tool_input)
         or source_access_deny(tool_name, tool_input)
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
