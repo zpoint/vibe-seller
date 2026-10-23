@@ -92,8 +92,24 @@ class TestSkillNameFromRead:
             is None
         )
         assert (
-            skill_name_from_read('Bash', {'command': 'cat skills/a/SKILL.md'})
+            skill_name_from_read('Bash', {'command': 'ls skills/*/SKILL.md'})
             is None
+        )
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            'cat /x/.claude/skills/amazon-ads/SKILL.md',
+            'sed -n 1,80p .claude/skills/amazon-ads/SKILL.md | head',
+            "head -50 '/x/.claude/skills/amazon-ads/SKILL.md'",
+        ],
+    )
+    def test_a_shell_read_binds_the_skill(self, command):
+        """In CI an agent `cat`-ed amazon-ads, ran its audit, and its
+        gates never bound: set_task_result accepted the report unchecked
+        while the Stop hook demanded a reviewer."""
+        assert (
+            skill_name_from_read('Bash', {'command': command}) == 'amazon-ads'
         )
 
 

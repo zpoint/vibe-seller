@@ -49,24 +49,39 @@ def parse_skill_gates(skill_md_path: Path) -> list[str]:
 
 
 _SKILL_MD_READ_RE = re.compile(r'(?:^|/)skills/([^/]+)/SKILL\.md$')
+# A concrete SKILL.md named anywhere in a shell command (`cat`, `sed -n`,
+# `head` …). A glob (`skills/*/SKILL.md`) names no skill and binds none.
+_SKILL_MD_IN_CMD_RE = re.compile(
+    r"""(?:^|[/\s'"=])skills/([A-Za-z0-9_.-]+)/SKILL\.md\b"""
+)
 
 
 def skill_name_from_read(tool_name: str, tool_input: dict) -> str | None:
     """Return the skill name if this tool call Reads a SKILL.md.
 
-    Agents load skills two ways: the ``Skill`` tool (already tracked
-    into ``_loaded_skills`` by the prereq hook) and a plain ``Read``
-    of ``.claude/skills/<name>/SKILL.md`` (the catalog-driven path).
-    Skill-declared exit gates must see both, or a skill loaded via
-    Read would silently skip its own reviewers.
+    Agents load skills three ways: the ``Skill`` tool (already tracked
+    into ``_loaded_skills`` by the prereq hook), a plain ``Read`` of
+    ``.claude/skills/<name>/SKILL.md`` (the catalog-driven path), and a
+    shell read of the same file. Skill-declared exit gates must see all
+    of them, or a skill loaded another way silently skips its own
+    reviewers.
+
+    The shell path is not hypothetical. In CI an agent `cat`-ed the
+    amazon-ads SKILL.md, ran its whole audit procedure, and submitted --
+    with none of the skill's gates bound, so ``set_task_result``
+    accepted the report unchecked while the Stop hook (keyed on the
+    report file) demanded a reviewer: two exits, two verdicts.
     """
-    if tool_name != 'Read':
-        return None
-    path = tool_input.get('file_path', '')
-    if not isinstance(path, str) or not path:
-        return None
-    m = _SKILL_MD_READ_RE.search(path)
-    return m.group(1) if m else None
+    if tool_name == 'Read':
+        path = tool_input.get('file_path', '')
+        if not isinstance(path, str) or not path:
+            return None
+        m = _SKILL_MD_READ_RE.search(path)
+        return m.group(1) if m else None
+    if tool_name == 'Bash':
+        m = _SKILL_MD_IN_CMD_RE.search(str(tool_input.get('command', '')))
+        return m.group(1) if m else None
+    return None
 
 
 def find_skill_md(workspace_dir: Path, skill_name: str) -> Path | None:
