@@ -19,6 +19,7 @@ from app.ai.claude_backend_utils import (
     MAX_REPEAT_TOOL_CALLS,
 )
 from app.ai.mcp_args_guard import missing_args_deny
+from app.mcp_tool_schemas import TOOLS
 
 pytestmark = pytest.mark.unit
 
@@ -77,3 +78,23 @@ class TestHookWiring:
         s.stop.assert_not_called()
         assert s._recent_tool_calls == []
         assert getattr(s, '_error_category', None) != 'agent_loop'
+
+
+class TestFinishingToolsAlwaysLoaded:
+    """The tools that end a task are never deferred behind tool search.
+
+    Twice in CI a model that had loaded only write_workspace_file meant
+    "record the result" and called that instead, until the loop breaker
+    stopped a finished session.
+    """
+
+    def test_only_the_finishing_tools_are_pinned(self):
+        pinned = {
+            t['name']
+            for t in TOOLS
+            if (t.get('_meta') or {}).get('anthropic/alwaysLoad') is True
+        }
+        assert pinned == {
+            'vibe_seller_set_task_result',
+            'vibe_seller_set_task_error',
+        }

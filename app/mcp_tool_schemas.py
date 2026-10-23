@@ -28,6 +28,16 @@ _IMAGE_MODEL_GUIDE = (
     f'Default {_IMAGE_MODEL_DEFAULT}'
 )
 
+# The tools that END a task stay in the prompt, never deferred behind
+# Claude Code's tool search. Observed in CI, twice: a model that had
+# loaded only ``vibe_seller_write_workspace_file`` said "now record the
+# result" and called THAT, again and again (empty, then identical
+# rewrites), until the loop breaker stopped a session whose work was
+# done. A tool the model must reach at the end of every task cannot be
+# one it has to remember to search for first. Per-tool ``_meta`` key read
+# by the CLI; other MCP clients ignore it.
+_ALWAYS_LOADED = {'_meta': {'anthropic/alwaysLoad': True}}
+
 TOOLS = [
     *AD_TOOLS,
     {
@@ -303,6 +313,7 @@ TOOLS = [
     },
     {
         'name': 'vibe_seller_set_task_error',
+        **_ALWAYS_LOADED,
         'description': (
             'Record an unrecoverable error for the current task '
             '(e.g. browser cannot start, required service down). '
@@ -506,6 +517,7 @@ TOOLS = [
     },
     {
         'name': 'vibe_seller_set_task_result',
+        **_ALWAYS_LOADED,
         'description': (
             'Record the **final task result** shown to the user '
             'in the GUI. The result field renders as markdown.\n'
