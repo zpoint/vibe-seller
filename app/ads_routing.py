@@ -28,10 +28,20 @@ API_SKILL = 'amazon-ads-api'
 #: task id -> skills routed away from it, recorded as its workspace is
 #: prepared. Keyed by task so a retried session keeps the routing.
 _excluded: dict[str, frozenset[str]] = {}
+#: Tasks with no store: planners and orchestrators. They are refused the
+#: API skill for a different reason than an unbound store, and must be
+#: told that reason (see ``refusal``).
+_storeless: set[str] = set()
 
 
-def remember(task_id: str, skills: Iterable[str]) -> None:
+def remember(
+    task_id: str, skills: Iterable[str], *, has_store: bool = True
+) -> None:
     _excluded[task_id] = frozenset(skills)
+    if has_store:
+        _storeless.discard(task_id)
+    else:
+        _storeless.add(task_id)
 
 
 def refusal_for(task_id: str, tool: str, tool_input: dict) -> str | None:
@@ -42,26 +52,51 @@ def refusal_for(task_id: str, tool: str, tool_input: dict) -> str | None:
     """
     barred = _excluded.get(task_id, frozenset())
     if tool == 'Skill':
-        name = tool_input.get('skill', '')
+        names = [tool_input.get('skill', '')]
     elif tool == 'Read':
-        m = _SKILL_DIR.search(str(tool_input.get('file_path', '')))
-        name = m.group(1) if m else ''
+        names = _SKILL_DIR.findall(str(tool_input.get('file_path', '')))
+    elif tool == 'Bash':
+        # `cat …/skills/<name>/SKILL.md` is the same load by another
+        # tool. Observed in CI: a planner refused the Read went straight
+        # to `cat`, so the routing only cost it time and taught it that a
+        # refusal can be walked around.
+        names = _SKILL_DIR.findall(str(tool_input.get('command', '')))
     else:
         return None
-    return refusal(name) if name in barred else None
+    name = next((n for n in names if n in barred), None)
+    if name is None:
+        return None
+    return refusal(name, storeless=task_id in _storeless)
 
 
 _SKILL_DIR = re.compile(r'(?:^|/)skills/([^/]+)/')
 
 
-def refusal(skill: str) -> str:
+def refusal(skill: str, *, storeless: bool = False) -> str:
     """Why a task may not load *skill*, and what to load instead.
 
     Leaving a skill out of the task's workspace is not enough on its own:
     the agent can still find the shared copy by name. So a load of an
     excluded skill is refused at the moment it is attempted, with the
     store's actual path named.
+
+    A task with no store (a schedule's planner, an all-stores
+    orchestrator) is not "an unbound store": it writes instructions for
+    every store, bound ones included. Telling it "this task's store is
+    not authorized — use the browser skill" contradicted ``ORCHESTRATOR_
+    NOTE`` and sent a CI planner into the browser audit skill and then
+    into testing the API by hand. It gets the design instead.
     """
+    if storeless:
+        return (
+            f"`{skill}` is loaded by a store's own task, not here. This "
+            'task has no store: it writes WHAT every store should get '
+            '(e.g. ad spend and ad sales for the last 30 days). Each '
+            "store's task is told whether it is authorized with the ads "
+            'service and loads the matching skill itself — the API path '
+            'or the console path. You do not need either ad skill, and '
+            'should not call `vibe_seller_ads_call`, to write that.'
+        )
     if skill == API_SKILL:
         return (
             f'`{API_SKILL}` is for stores authorized with the ads service, '
