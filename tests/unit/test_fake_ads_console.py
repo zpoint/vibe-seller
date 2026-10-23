@@ -118,3 +118,14 @@ def test_campaign_spend_matches_the_list_page(console):
         spend = f'{sum(float(k[4]) for k in keywords):.2f}'
         row = listed[listed.index(cid) :][:3]
         assert spend in row, f'{cid}: keyword spend {spend} vs list {row}'
+
+
+@pytest.mark.parametrize('path', ['/', '/campaigns', *DETAIL_PATHS])
+def test_no_marketplace_branding(console, path):
+    """Branding the stub as an Amazon console turned a "just tell me the
+    numbers" lookup into a 15-25 minute skill-driven audit in CI. The
+    request never asks for one; the fixture must not invite it."""
+    with urllib.request.urlopen(f'{console.base}{path}', timeout=5) as r:
+        html = r.read().decode()
+    for brand in ('Amazon', 'Sponsored Products', 'noon'):
+        assert brand not in html, f'{path} brands itself: {brand}'

@@ -15,18 +15,24 @@ have nothing to do with the contract.
 All figures are round and invented. Campaign ids follow the placeholder
 shape used throughout the repo.
 
-**It is an Amazon console, and must be a credible one.** The e2e store is
-an Amazon US store (``StoreCreate`` defaults), so a request to review bids
-rightly brings in the ``amazon-ads`` skill and its server-side
-completeness check. That check holds the report to what a real console
-can always show, so the fixture must show it too: every keyword's CPC
-(spend / clicks) at or below its bid, a search-term table per campaign
-whose spend adds up to the keyword spend, the marketplace's currency, and
-an active-campaign count on the list page (the ``list:`` source a console
-without a bulk export offers). An earlier cut charged 2.00 a click on a
-1.00 bid and had no search terms; the check rightly refused reports built
-on it, and the scoped e2e test ran out its clock arguing with data no
-console could produce. ``tests/unit/test_fake_ads_console.py`` pins these.
+**Credible data, no marketplace branding.** The e2e store is an Amazon
+US store (``StoreCreate`` defaults), so a model MAY bring in
+``amazon-ads`` and its server-side completeness check; the figures must
+then be ones a real console could show: every keyword's CPC (spend /
+clicks) at or below its bid, a search-term table per campaign whose spend
+adds up to the keyword spend, a currency, and an active-campaign count on
+the list page. An earlier cut charged 2.00 a click on a 1.00 bid and had
+no search terms; the check rightly refused every report built on it.
+
+But the pages must not CLAIM to be an Amazon console. A later cut
+labelled them "Sponsored Products · Amazon US marketplace", and agents
+read that as a cue: one said "the console identifies as Sponsored
+Products / Amazon US, so let me load the amazon-ads skill", and a "just
+tell me the numbers" lookup became a full audit with a reviewer — 15 to
+25 minutes on the CI models. These tests are about SCOPE (did the agent
+stay on the asked-for campaign), and the request never asks for an Amazon
+audit, so the fixture must not invite one.
+``tests/unit/test_fake_ads_console.py`` pins both halves.
 """
 
 from __future__ import annotations
@@ -44,8 +50,7 @@ CAMPAIGN_B_NAME = 'sprocket-009 manual'
 _DASHBOARD = """<!doctype html><html><head><title>Ad Console</title></head>
 <body>
 <h1>Ad Console — acme</h1>
-<p>Sponsored Products &middot; Amazon US marketplace &middot; all amounts
-in USD</p>
+<p>All amounts in USD</p>
 <h2>Last 30 days</h2>
 <table id="summary" border="1">
   <tr><th>Metric</th><th>Value</th></tr>
@@ -61,7 +66,7 @@ in USD</p>
 _CAMPAIGNS = f"""<!doctype html><html><head><title>Campaigns</title></head>
 <body>
 <h1>Campaigns</h1>
-<p>Amazon US &middot; USD &middot; last 30 days</p>
+<p>USD &middot; last 30 days</p>
 <p>Live 2 / Paused 0 / All 2</p>
 <table id="campaigns" border="1">
   <tr><th>Campaign ID</th><th>Name</th><th>Spend</th><th>Revenue</th>
@@ -114,8 +119,8 @@ def _campaign_page(
 <body>
 <h1>{name}</h1>
 <p>Campaign ID: {cid}</p>
-<p>Status: Live &middot; Daily budget: 20.00 &middot; Amazon US &middot; USD
-&middot; last 30 days</p>
+<p>Status: Live &middot; Daily budget: 20.00 &middot; USD &middot; last 30
+days</p>
 <h2>Keywords</h2>
 {_table('keywords', KEYWORD_HEADERS, keywords)}
 <h2>Search terms</h2>

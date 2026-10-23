@@ -26,9 +26,10 @@ requirement is carried by the ad skills, and the gate that refuses a
 report lacking one lives in that same skill bundle. The store is an
 Amazon US store (``StoreCreate`` defaults), so a model MAY load
 ``amazon-ads`` for a bid review — and then its completeness check holds
-the report to a real audit, which is why the stub has to be a credible
-Amazon console (see ``fake_ads_console``). It may equally answer straight
-off the page without the skill. Observed in CI on ``glm-4.7``: a
+the report to a real audit, which is why the stub's figures must be ones
+a real console could show (see ``fake_ads_console``; it deliberately
+does not brand itself as Amazon, which invited a full audit for a
+lookup). It may equally answer straight off the page without the skill. Observed in CI on ``glm-4.7``: a
 correctly scoped review that named the asked-about campaign, explicitly
 said it had not opened the other, and declared nothing. That is the
 fail-safe direction — no declaration means no console, so nothing
