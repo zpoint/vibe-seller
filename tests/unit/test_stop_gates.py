@@ -785,6 +785,30 @@ class TestAdCompletenessReview:
         scope = _scope(('amazon', 'US', ['100000000000003']))
         assert completeness_gate.check(block, scope=scope) is None
 
+    def test_english_reconcile_line_passes(self):
+        # An English request gets an English report, and the language
+        # gate holds it to English prose. The completeness gate must read
+        # the English line too, or the two gates cannot both be met --
+        # observed in CI, where an audit ran out its clock between them.
+        block = self._campaign_block(
+            '\n#### Search Terms\n'
+            + self.DRILL
+            + '\nSearch-term reconciliation: targeting spend USD 942.39 / '
+            'clicks 762 = search-term spend USD 942.39 / clicks 762 (✓)\n'
+        )
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(block, scope=scope) is None
+
+    def test_english_mismatched_reconcile_still_flagged(self):
+        block = self._campaign_block(
+            '\n#### Search Terms\n'
+            + self.DRILL
+            + '\nSearch-term reconciliation: targeting spend USD 942.39 / '
+            'clicks 762 = search-term spend USD 215.10 / clicks 180 (✗)\n'
+        )
+        deny = completeness_gate.check(block)
+        assert deny is not None and '[对账]' in deny.reason
+
     def test_campaign_with_mismatched_reconcile_flagged(self):
         # 30d targeting vs 7d search-terms: spend 942 vs 215 — way out.
         block = self._campaign_block(
