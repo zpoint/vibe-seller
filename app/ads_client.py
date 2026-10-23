@@ -85,7 +85,14 @@ class AdsFile:
 
 
 class AdsServiceError(RuntimeError):
-    """The ads service is unreachable, unconfigured, or said no."""
+    """The ads service is unreachable, unconfigured, or said no.
+
+    ``status`` is the service's HTTP status when it answered, else None.
+    """
+
+    def __init__(self, message: str, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 async def get_config(session) -> dict[str, Any]:
@@ -175,7 +182,8 @@ async def call(
     if response.status_code >= 400:
         raise AdsServiceError(
             f'{method.upper()} {path} failed ({response.status_code}): '
-            f'{response.text[:400]}'
+            f'{response.text[:400]}',
+            status=response.status_code,
         )
     if not response.content:
         return None

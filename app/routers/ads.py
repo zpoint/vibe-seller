@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app import ads_client, ads_skill
+from app import ads_client, ads_path_guard, ads_skill
 from app.auth import get_current_user, require_admin
 from app.config import VIBE_SELLER_DIR
 from app.database import get_db
@@ -195,6 +195,9 @@ async def agent_call(
         except ads_client.AdsServiceError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
+    barred = ads_path_guard.refusal(payload.task_id, path)
+    if barred:
+        raise HTTPException(status_code=400, detail=barred)
     try:
         result = await ads_client.call(
             db,
@@ -204,7 +207,12 @@ async def agent_call(
             json_body=payload.body,
         )
     except ads_client.AdsServiceError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        ads_path_guard.record(payload.task_id, path, exc.status)
+        detail = str(exc)
+        if exc.status == 404:
+            detail += ads_path_guard.NOT_A_PATH
+        raise HTTPException(status_code=400, detail=detail)
+    ads_path_guard.record(payload.task_id, path, None)
     if isinstance(result, ads_client.AdsFile):
         return {'result': _save_file(result, payload.task_id)}
     return {'result': result}

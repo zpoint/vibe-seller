@@ -15,7 +15,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app import ads_client, ads_skill
+from app import ads_client, ads_path_guard, ads_skill
 from app.models.store import Store
 from app.routers import ads as ads_router
 
@@ -246,6 +246,60 @@ class TestAgentCall:
         assert response.status_code == 400
         detail = response.json()['detail']
         assert 'SA' in detail and 'AE' in detail
+
+
+class TestGuessedPaths:
+    """A task searches the service by its skill, not by guessing.
+
+    In CI a report had its answer from the documented path, then probed
+    forty invented ones for fields the service does not carry."""
+
+    @pytest.fixture
+    async def service(self, monkeypatch, async_db_session, test_store):
+        test_store.ads_store_keys = json.dumps({'SA': 'sk_sa'})
+        test_store.ads_authorized = True
+        await async_db_session.commit()
+        sent: list[str] = []
+
+        async def fake_call(_session, path, **kw):
+            sent.append(path)
+            if path != '/facts/rollup':
+                raise ads_client.AdsServiceError(
+                    f'GET {path} failed (404): no such path', status=404
+                )
+            return {'rows': []}
+
+        monkeypatch.setattr(ads_client, 'call', fake_call)
+        return sent
+
+    async def _call(self, client, task_id, path):
+        return await client.post(
+            '/api/ads/call', json={'path': path, 'task_id': task_id}
+        )
+
+    async def test_unknown_paths_stop_after_the_cap(
+        self, authenticated_client, test_task, service
+    ):
+        tid = test_task.id
+        ok = await self._call(authenticated_client, tid, '/facts/rollup')
+        assert ok.status_code == 200
+        for n in range(ads_path_guard.MAX_UNKNOWN):
+            miss = await self._call(authenticated_client, tid, f'/guess{n}')
+            assert 'do not guess' in miss.json()['detail']
+        sent_before = len(service)
+        barred = await self._call(authenticated_client, tid, '/guess-more')
+        assert barred.status_code == 400
+        assert 'Blocked' in barred.json()['detail']
+        assert len(service) == sent_before  # never reached the service
+        # A path the service answered stays open.
+        again = await self._call(authenticated_client, tid, '/facts/rollup')
+        assert again.status_code == 200
+
+    def test_the_cap_is_per_task(self):
+        for n in range(ads_path_guard.MAX_UNKNOWN):
+            ads_path_guard.record('task-a', f'/g{n}', 404)
+        assert ads_path_guard.refusal('task-a', '/g9')
+        assert ads_path_guard.refusal('task-b', '/g9') is None
 
 
 class TestFileAnswers:
