@@ -26,7 +26,6 @@ from app.ai.bash_safety import check_exec_review_status, check_review_status
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import AUTO_APPROVE_CALLBACK
 from app.ai.stop_gates import report_reviewer as rr
-from app.workspace import manager as mgr
 
 pytestmark = pytest.mark.unit
 
@@ -45,51 +44,49 @@ def review_bound(monkeypatch):
 
 
 class TestMarker:
-    def test_unmarked_dir_is_not_a_followup(self, tmp_path):
-        assert rr.is_followup(tmp_path) is False
-        assert rr.is_followup(None) is False
+    def test_unmarked_task_is_not_a_followup(self):
+        assert rr.is_followup('t-unmarked') is False
+        assert rr.is_followup('') is False
 
-    def test_mark_is_idempotent_and_none_safe(self, tmp_path):
-        rr.mark_followup(None)  # must not raise
-        rr.mark_followup(tmp_path)
-        rr.mark_followup(tmp_path)
-        assert rr.is_followup(tmp_path)
+    def test_mark_is_idempotent(self):
+        rr.mark_followup('t-1')
+        rr.mark_followup('t-1')
+        assert rr.is_followup('t-1')
 
-    def test_mark_never_creates_a_workspace(self, tmp_path):
-        rr.mark_followup(tmp_path / 'missing')
-        assert not (tmp_path / 'missing').exists()
+    def test_marker_lives_outside_the_workspace(self, tmp_path):
+        """The agent works in the task dir; a marker it can ``ls`` is a
+        marker it investigates (observed in CI)."""
+        tid = tmp_path.name
+        rr.mark_followup(tid)
+        assert rr.is_followup(tid)
+        assert list(tmp_path.iterdir()) == []
 
-    def test_marker_is_a_dotfile_hidden_from_task_files(self, tmp_path):
-        # The task-files listing hides dotfiles; the marker is infra, not
-        # a deliverable the user should see.
-        assert rr.FOLLOWUP_MARKER.startswith('.')
+    def test_unsafe_id_cannot_escape_the_dir(self):
+        rr.mark_followup('../../etc/x')
+        assert all(
+            p.parent == rr.FOLLOWUP_DIR for p in rr.FOLLOWUP_DIR.iterdir()
+        )
 
     def test_marker_survives_turn_rollover(self, tmp_path):
-        # A second follow-up is still a follow-up: rollover moves review
-        # verdicts aside, never the marker.
-        rr.mark_followup(tmp_path)
+        """A second follow-up is still a follow-up."""
+        rr.mark_followup(tmp_path.name)
         (tmp_path / 'REVIEW_2026-07-16_iter1.md').write_text('Status: ok\n')
         rr.rollover_reviews(tmp_path)
-        assert rr.is_followup(tmp_path)
+        assert rr.is_followup(tmp_path.name)
 
-    def test_retry_wipe_removes_the_marker(self, tmp_path, monkeypatch):
-        """``/retry`` starts the task over; its first run is reviewed."""
-        vibe = tmp_path / 'vibe'
-        monkeypatch.setattr(mgr, 'VIBE_SELLER_DIR', vibe)
-        monkeypatch.setenv('CLAUDE_CONFIG_DIR', str(tmp_path / 'claude'))
-        tid = 'abcd1234-0000-0000-0000-000000000000'
-        ws = vibe / 'tasks' / tid
-        ws.mkdir(parents=True)
-        rr.mark_followup(ws)
-        assert rr.is_followup(ws)
-        mgr.reset_task_runtime_state(tid)
-        assert not rr.is_followup(ws)
+    def test_clear_forgets_it(self):
+        """``/retry`` and task deletion clear it: a retried task's first
+        run is reviewed again."""
+        rr.mark_followup('t-2')
+        rr.clear_followup('t-2')
+        assert not rr.is_followup('t-2')
+        rr.clear_followup('t-never-marked')  # must not raise
 
 
 class TestReviewerStandsDown:
     def test_completed_followup_needs_no_reviewer(self, tmp_path):
         assert rr.reviewer_verdict(tmp_path) is not None  # first run
-        rr.mark_followup(tmp_path)
+        rr.mark_followup(tmp_path.name)
         assert rr.reviewer_verdict(tmp_path) is None
 
     def test_failed_then_continued_is_still_reviewed(self, tmp_path):
@@ -101,7 +98,7 @@ class TestReviewerStandsDown:
 
     def test_stop_hook_path_stands_down(self, tmp_path, review_bound):
         assert check_review_status(tmp_path) is not None
-        rr.mark_followup(tmp_path)
+        rr.mark_followup(tmp_path.name)
         assert check_review_status(tmp_path) is None
 
     def test_ad_task_followup_stands_down(self, tmp_path, monkeypatch):
@@ -109,13 +106,13 @@ class TestReviewerStandsDown:
             bash_safety, 'recorded_skills', lambda _t: frozenset({'noon-ads'})
         )
         assert check_review_status(tmp_path) is not None
-        rr.mark_followup(tmp_path)
+        rr.mark_followup(tmp_path.name)
         assert check_review_status(tmp_path) is None
 
     def test_upload_verdict_gate_still_applies(self, tmp_path, review_bound):
         """A follow-up that uploads a listing batch still owes the
         parse-feedback verdict for it — that gates a live write."""
-        rr.mark_followup(tmp_path)
+        rr.mark_followup(tmp_path.name)
         (tmp_path / 'UPLOAD_BATCH_100000000001.json').write_text(
             json.dumps({'batch_id': '100000000001'}), encoding='utf-8'
         )
@@ -125,7 +122,7 @@ class TestReviewerStandsDown:
     def test_exec_review_still_applies(self, tmp_path):
         """ "Now execute the plan" in a follow-up changes live bids; the
         execution reviewer still has to sign off."""
-        rr.mark_followup(tmp_path)
+        rr.mark_followup(tmp_path.name)
         (tmp_path / 'EXECUTION_LOG.md').write_text('# log\n')
         deny = check_exec_review_status(tmp_path)
         assert deny is not None and 'Execution reviewer never ran' in deny
@@ -146,7 +143,13 @@ class TestLoopConduct:
         assert 'TaskOutput' in text and 'sleep' in text
 
     def test_followup_note_tells_the_agent_not_to_review(self):
-        assert 'do NOT spawn a reviewer' in rr.FOLLOWUP_NOTE
+        assert 'Do not spawn a reviewer' in rr.FOLLOWUP_NOTE
+
+    def test_followup_note_does_not_say_followup(self):
+        """An earlier wording ("Follow-up on a task…") sent an agent to
+        load an unrelated skill named ``*-followup-*``. The note is about
+        the review only."""
+        assert 'follow' not in rr.FOLLOWUP_NOTE.lower()
 
 
 class TestBlockingSleep:

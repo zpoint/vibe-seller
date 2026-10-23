@@ -32,6 +32,7 @@ from pathlib import Path
 import re
 
 from app.ai.stop_gates import AD_REVIEW_ROUNDS
+from app.config import DATA_DIR
 
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
@@ -97,25 +98,34 @@ def exec_authorship_deny(review_writers, name, status, iter_num):
     )
 
 
-# Marker dropped in the task dir when a user message arrives on a task
-# that already COMPLETED (see ``mark_followup``).
-FOLLOWUP_MARKER = '.followup'
+# Tasks that COMPLETED once and are now taking follow-up turns, one empty
+# file per task id (see ``mark_followup``). Server-owned space next to
+# the skill bindings, NOT the task dir: the agent works in the task dir,
+# and a marker it can ``ls`` is a marker it investigates (observed in CI:
+# a model spent several turns asking what ``.followup`` was for).
+FOLLOWUP_DIR = DATA_DIR / 'followups'
+_SAFE_ID_RE = re.compile(r'[^A-Za-z0-9_-]')  # a task id names a file here
 
-# Appended to the message the AGENT receives on such a follow-up (not to
-# the stored transcript). The gate standing down is not enough on its
-# own: a resumed session still has the skill's review loop in context
-# and will run it unprompted unless told this turn is exempt.
+# Appended to the message the agent receives on a follow-up turn, only
+# when the task bound a DoD review (``tasks_files.binds_dod_review``),
+# never to the stored transcript. The gate standing down is not enough on
+# its own: a resumed session still has the skill's review loop in context
+# and would run it unprompted. Worded about the review only — an earlier
+# text that opened with "Follow-up on a task…" sent an agent to load an
+# unrelated skill whose name contained "followup".
 FOLLOWUP_NOTE = (
-    '\n\n[Follow-up on a task that already completed. The Definition-'
-    'of-Done reviewer does not run on follow-ups: do NOT spawn a reviewer '
-    "subagent or write REVIEW_* files this turn, even if a skill's "
-    'review loop says to. Do what this message asks and finish. Gates on '
-    'live writes (ad execution review, listing upload verdicts) still '
-    'apply.]'
+    "\n\n[System: no Definition-of-Done review this turn. This task's "
+    'deliverable was reviewed when it completed. Do not spawn a reviewer '
+    'subagent or write REVIEW_* files for this message, even if a '
+    "skill's review loop says to.]"
 )
 
 
-def mark_followup(task_dir) -> None:
+def _followup_path(task_id: str) -> Path:
+    return FOLLOWUP_DIR / _SAFE_ID_RE.sub('_', task_id)
+
+
+def mark_followup(task_id: str) -> None:
     """Record that this task finished once and is now taking follow-ups.
 
     The DoD reviewer verifies a task's deliverable; once the task has
@@ -125,29 +135,34 @@ def mark_followup(task_dir) -> None:
     full review for it is what made a tax-filing follow-up that only
     copied files spend four review rounds re-verifying the whole filing.
 
-    Written at most once and never removed: a later turn on the same
-    task is still a follow-up. A retry wipes the workspace (see
-    ``workspace.manager.PRESERVED_ON_CLEAN``), and the marker with it,
-    so a retried task is reviewed afresh. Never creates the workspace: a
-    task that completed has one, and one without has nothing to review.
+    Written once and kept: a later turn on the same task is still a
+    follow-up. Cleared by a retry (the task starts over and its first
+    run is reviewed) and by task deletion (``clear_followup``).
     Best-effort.
     """
-    if task_dir is None:
+    if not task_id:
         return
     try:
-        marker = Path(task_dir) / FOLLOWUP_MARKER
-        if marker.parent.is_dir() and not marker.exists():
-            marker.write_text('', encoding='utf-8')
+        FOLLOWUP_DIR.mkdir(parents=True, exist_ok=True)
+        _followup_path(task_id).touch(exist_ok=True)
     except OSError:  # pragma: no cover — best-effort
         pass
 
 
-def is_followup(task_dir) -> bool:
+def clear_followup(task_id: str) -> None:
+    """Forget the follow-up state (retry, task deletion)."""
+    try:
+        _followup_path(task_id).unlink(missing_ok=True)
+    except OSError:  # pragma: no cover
+        pass
+
+
+def is_followup(task_id: str) -> bool:
     """True when the task completed once and this turn is a follow-up."""
-    if task_dir is None:
+    if not task_id:
         return False
     try:
-        return (Path(task_dir) / FOLLOWUP_MARKER).exists()
+        return _followup_path(task_id).exists()
     except OSError:  # pragma: no cover
         return False
 
@@ -536,7 +551,7 @@ def reviewer_verdict(
     # (``apply_report_reviewer_gate``) — so they cannot disagree. The
     # upload-verdict and ad execution-review gates are separate checks
     # and still gate a follow-up's live writes.
-    if is_followup(task_dir):
+    if task_dir is not None and is_followup(Path(task_dir).name):
         return None
     deny = _verdict_reason(task_dir, subagent_ran, review_writers)
     if deny is None:

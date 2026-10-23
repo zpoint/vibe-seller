@@ -59,15 +59,18 @@ filename or a result-shape regex (both proven leaky — a report named
 - Survives resume / compaction / surgical-fix sessions (the reason the
   durable binding exists).
 - **Not on a follow-up to a completed task.** A user message that
-  arrives while the task is `COMPLETED` drops a `.followup` marker in
-  the task dir (`report_reviewer.mark_followup`, set by
-  `POST /api/tasks/{id}/messages`), and `reviewer_verdict` — the verdict
-  the Stop hook, the ending-turn re-drive and `set_task_result` share —
-  stands down for every later turn. The agent is told so in the
-  delivered message. A failed/stopped run that is continued is still
-  reviewed; a retry wipes the workspace and the marker with it. Gates on
-  live writes — the listing upload verdicts and the ads execution review
-  — are separate checks and still apply.
+  arrives while the task is `COMPLETED` marks the task a follow-up
+  (`report_reviewer.mark_followup`, set by
+  `POST /api/tasks/{id}/messages`; one file per task id under
+  `data/followups/`, server-owned like the bindings — never in the task
+  dir, where the agent would find and puzzle over it). `reviewer_verdict`
+  — the verdict the Stop hook, the ending-turn re-drive and
+  `set_task_result` share — stands down for every later turn. A task
+  that bound a DoD review is also told so in the delivered message; one
+  that never had a reviewer is told nothing. A failed/stopped run that
+  is continued is still reviewed; a retry and task deletion clear the
+  mark. Gates on live writes — the listing upload verdicts and the ads
+  execution review — are separate checks and still apply.
 
 ## 3. The review — hybrid, two tiers
 

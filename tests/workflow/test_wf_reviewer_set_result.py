@@ -312,7 +312,7 @@ class TestFollowupSkipsReviewer:
         (task_dir / 'AD_AUDIT_2026-07-09.md').write_text(
             '# 广告优化建议\n\n## Amazon SA\n报告内容\n', encoding='utf-8'
         )
-        report_reviewer.mark_followup(task_dir)
+        report_reviewer.mark_followup(task_id)
         reset_attempts(task_id)
 
         r = await admin_client.post(

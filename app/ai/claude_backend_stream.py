@@ -116,8 +116,15 @@ class _StreamMixin:
                     continue
                 # Any stdout traffic (events, control requests,
                 # subagent activity) means the turn is alive — reset
-                # the quiescence timer.
+                # the quiescence timer, and give the stall reaper the
+                # same answer. Liveness used to be bumped per event
+                # KIND (text/thinking/tool-input deltas, persisted
+                # messages), so each kind the CLI added was invisible
+                # until someone listed it: a model thinking for 3 min
+                # streamed ~500 ``system/thinking_tokens`` events a
+                # minute and was reaped as stalled. Throttled inside.
                 self._last_activity_at = time.monotonic()
+                await self._maybe_bump_updated_at()
 
                 try:
                     event = json.loads(text)

@@ -1,23 +1,26 @@
-"""E2E: multi-round follow-ups each get their OWN review (turn scoping).
+"""E2E: the first turn is reviewed; follow-ups on a completed task are not.
 
 Real agent, no browser. Pins the follow-up review-gate design:
 
 - A task bound to a skill that declares a ``review:`` block completes its
-  first deliverable through the DoD reviewer.
-- A follow-up on the SAME task is a NEW turn: the prior turn's review is
-  rolled aside (``.prev_turns/``) so the follow-up is reviewed on its own
-  merits — it can't ride the prior turn's verdict, and a one-shot
-  follow-up signs off fast instead of re-gating the earlier deliverable.
-- A separate task exercises the different-task path.
+  first deliverable through the DoD reviewer — a reviewer subagent is
+  spawned in round 1.
+- A follow-up on the SAME task after it completed is NOT re-reviewed
+  (``report_reviewer.mark_followup``): no reviewer subagent, no
+  review-gate re-drive. It used to be reviewed from scratch, which made
+  a follow-up that only copied files run four review rounds.
+- A separate task with the same skill is a first turn again, so it is
+  reviewed.
 
 Each round writes a note carrying a DISTINCTIVE marker so both the
 assertions here and a ``debug-ci`` pass over the agent/reviewer thinking
-log can confirm each round is scoped to its own request.
+log can tell the rounds apart.
 
 Runs in CI (real agent token); creates its own ephemeral store + a
 throwaway user-space review skill, needs no real creds.
 """
 
+import json
 import logging
 import time
 
@@ -109,6 +112,23 @@ def _recent_text(client, task_id, since):
     )
 
 
+def _review_activity(client, task_id, since=0):
+    """Reviewer spawns and review-gate re-drives after index *since*."""
+    found = []
+    for m in get_messages(client, task_id)[since:]:
+        content = m.get('content') or ''
+        if m.get('role') == 'tool_use':
+            try:
+                tool = json.loads(content).get('tool')
+            except (ValueError, AttributeError):
+                continue
+            if tool in ('Agent', 'Task'):
+                found.append(f'spawned {tool}')
+        elif 'review_gate_redrive' in content:
+            found.append('review_gate_redrive')
+    return found
+
+
 def _followup(client, task_id, content, marker):
     known = len(get_messages(client, task_id))
     r = client.post(
@@ -121,6 +141,11 @@ def _followup(client, task_id, content, marker):
     assert marker in text, (
         f'follow-up result missing its own marker {marker!r}; got: {text[:400]}'
     )
+    # The task already completed: its follow-up is not reviewed again.
+    activity = _review_activity(client, task_id, known)
+    assert not activity, (
+        f'follow-up {marker} on a completed task ran review work: {activity}'
+    )
     return text
 
 
@@ -131,9 +156,7 @@ def _followup(client, task_id, content, marker):
 # Requires ``--dist loadgroup`` (set in CI). See test_skill_save_reuse.py.
 @pytest.mark.xdist_group('workspace_skills')
 class TestFollowUpReviewScoping:
-    def test_multi_round_followups_each_reviewed_separately(
-        self, api_client, review_skill
-    ):
+    def test_first_turn_reviewed_followups_not(self, api_client, review_skill):
         tag = int(time.time())
         store = create_store(api_client, f'e2e-followup-{tag}')
 
@@ -154,10 +177,13 @@ class TestFollowUpReviewScoping:
         )
         assert t['status'] == 'completed', f'round1 failed: {t.get("error")}'
         assert 'ALPHA-R1' in _recent_text(api_client, task_a['id'], 0)
+        assert any(
+            a.startswith('spawned')
+            for a in _review_activity(api_client, task_a['id'])
+        ), 'the first turn of a review-bound task must spawn the reviewer'
 
         # ── Task A, round 2 (same task, one-shot follow-up) ──
-        # Must complete on its OWN review — not ride round 1's verdict,
-        # not re-gate round 1's note.
+        # Not reviewed: the task completed, so this is a follow-up.
         _followup(
             api_client,
             task_a['id'],
@@ -191,3 +217,7 @@ class TestFollowUpReviewScoping:
         )
         assert t2['status'] == 'completed', f'task B failed: {t2.get("error")}'
         assert 'DELTA-T2' in _recent_text(api_client, task_b['id'], 0)
+        assert any(
+            a.startswith('spawned')
+            for a in _review_activity(api_client, task_b['id'])
+        ), "a different task's first turn is reviewed again"

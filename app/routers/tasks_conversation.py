@@ -28,7 +28,10 @@ from app.models.task_step import TaskStep
 from app.models.user import User
 from app.plan_states import PlanStatus
 from app.routers.dida365_oauth import refresh_token_if_needed
-from app.routers.tasks_files import promote_staged_attachments
+from app.routers.tasks_files import (
+    binds_dod_review,
+    promote_staged_attachments,
+)
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_chat_context import build_chat_context
 from app.task_launch import schedule_or_run
@@ -128,9 +131,8 @@ async def send_task_message(
     # being continued is not a follow-up — its deliverable was never
     # accepted, so it is still reviewed. A plan-only task never executed
     # anything, so there is nothing finished to follow up on.
-    task_dir = VIBE_SELLER_DIR / 'tasks' / task_id
     if task.status == TaskStatus.COMPLETED and not task.is_plan_only:
-        report_reviewer.mark_followup(task_dir)
+        report_reviewer.mark_followup(task_id)
 
     requested_profile_id = body.get(
         'profile_id', task.ai_profile_id or DEFAULT_PROFILE_ID
@@ -198,9 +200,11 @@ async def send_task_message(
     # content so promoted attachments reach it (send_message stdin, wake
     # trigger_data, resume/fresh-session prompt all read ``content``).
     content = agent_content
-    # Tell the agent too: a resumed session still has the skill's review
-    # loop in context and would run it unprompted.
-    if report_reviewer.is_followup(task_dir):
+    # Tell the agent too, when it has a review loop to skip: a resumed
+    # session still holds the skill's loop and would run it unprompted.
+    if report_reviewer.is_followup(task_id) and binds_dod_review(
+        task_id, VIBE_SELLER_DIR / 'tasks' / task_id
+    ):
         content += report_reviewer.FOLLOWUP_NOTE
 
     # Canonical "message accepted" fields every return path echoes, so the
@@ -633,6 +637,8 @@ async def retry_task(
     # Claude Code's per-task Task/todo store + project transcripts) so a
     # prior run's todos/refs can't leak into the new session. See helper.
     reset_task_runtime_state(task_id)
+    # A retry starts the task over: its first run is reviewed again.
+    report_reviewer.clear_followup(task_id)
 
     store = None
     if task.store_id:
