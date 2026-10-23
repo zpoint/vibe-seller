@@ -19,6 +19,15 @@ dependencies = [
     "pydantic-settings",
     "sse-starlette",
     "httpx[socks]",
+    # certifi is the CA bundle httpx/requests verify against and only
+    # arrived transitively, so an existing install never upgraded it —
+    # `pip install -U vibe-seller` leaves a satisfied transitive dep
+    # alone. Below 2026.10.19 it still trusts the eMudhra intermediates
+    # whose private keys are public
+    # (https://emudhra.we-have-a-problem.com/): a forged certificate for
+    # any host the agents call (Amazon, noon, Anthropic, ALC) would pass,
+    # since none of these clients enforce Certificate Transparency.
+    "certifi>=2026.10.19",
     # Used by app/ai/skill_review.py to parse the per-skill ``review:``
     # DoD block from SKILL.md frontmatter (nested YAML with multiline
     # scalars — regex isn't enough). Was previously only a transitive dep.
