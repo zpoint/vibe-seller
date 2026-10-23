@@ -32,10 +32,10 @@ from app.ai.image_guards import (
     check_generated_image_write,
     check_image_read_without_vision,
 )
-from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.profiles import ProfileManager, model_sees_images
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
+from app.ai.tool_call_guards import tool_call_deny
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
@@ -270,8 +270,8 @@ class _HookMixin:
             # record_skill_load makes the binding durable per task.
             barred = ads_routing.refusal_for(
                 self.task_id, inner_name, inner_input
-            ) or missing_args_deny(inner_name, inner_input)
-            if barred:  # routed away (app.ads_routing) or malformed args
+            ) or tool_call_deny(inner_name, inner_input)
+            if barred:  # routed away, malformed MCP args, or app source
                 await self._deny_pre_tool_use(request_id, barred)
                 return
             read_skill = skill_name_from_read(inner_name, inner_input)
