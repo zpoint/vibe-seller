@@ -142,6 +142,12 @@ class TestLoopConduct:
         assert 'non-blocking' in text and 'final reply' in text
         assert rr.WAIT_FOR_BACKGROUND in text
 
+    def test_conduct_says_agent_is_built_in(self):
+        """An agent searched ToolSearch for Agent, concluded it did not
+        exist, and improvised a reviewer the gate refused."""
+        text = rr.REVIEW_LOOP_CONDUCT
+        assert 'built-in Agent tool' in text and 'ToolSearch' in text
+
     def test_wait_rule_does_not_depend_on_an_optional_tool(self):
         """A CI run's CLI had no TaskOutput; the rule must still say what
         to do — short waits under the guard's threshold."""

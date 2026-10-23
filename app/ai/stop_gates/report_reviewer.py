@@ -190,8 +190,15 @@ WAIT_FOR_BACKGROUND = (
 # The review-loop contract every reviewer deny carries (appended by
 # ``reviewer_verdict``), so it reaches the agent whichever skill's loop
 # doc it follows — including skills that live outside this repo.
+# The Agent tool is BUILT IN: it is always in the agent's tool list and
+# ToolSearch (which lists only deferred tools) never returns it. Observed
+# in CI: an agent searched for it, concluded "No Agent tool exists in this
+# session", improvised a reviewer the gate then refused, and lost seven
+# minutes before trying the tool it had all along.
 REVIEW_LOOP_CONDUCT = (
-    '\n\nRunning the review loop: ' + WAIT_FOR_BACKGROUND + ' Once a '
+    '\n\nRunning the review loop: spawn the reviewer with the built-in '
+    'Agent tool — call it directly; it is always available, and ToolSearch '
+    'does not list built-in tools. ' + WAIT_FOR_BACKGROUND + ' Once a '
     'verdict says `Status: ok` you are done — do not edit the '
     'deliverable for notes the reviewer marked non-blocking (cosmetic, '
     'optional, suggestions): an edit after `ok` invalidates the review '
