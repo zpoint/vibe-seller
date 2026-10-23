@@ -146,6 +146,12 @@ class TestScopeSurvivesAFollowUp:
         )
 
         # ── Phase 2: same task, new turn, one campaign ───────────────
+        # The exclusion starts HERE. Phase 1 ("how much did we spend")
+        # excluded nothing, and an agent that broke the totals down by
+        # campaign there opened both pages -- observed in CI, where the
+        # whole-test log then failed a phase 2 that never touched the
+        # excluded campaign. The scope assertion is about this turn.
+        phase2_start = ads_console.mark()
         r = api_client.post(
             f'{BASE_URL}/api/tasks/{task_id}/messages',
             json={
@@ -188,9 +194,12 @@ class TestScopeSurvivesAFollowUp:
             f'the campaign the user asked about was never opened, so the '
             f'review cannot have been grounded in its data: {served}'
         )
-        assert not ads_console.fetched_campaign(CAMPAIGN_B), (
-            f'the campaign the user explicitly excluded was opened — the '
-            f'narrowing follow-up did not bound the work: {served}'
+        assert not ads_console.fetched_campaign(
+            CAMPAIGN_B, since=phase2_start
+        ), (
+            f'the campaign the user explicitly excluded was opened after '
+            f'the narrowing follow-up — it did not bound the work: '
+            f'{served[phase2_start:]}'
         )
 
         # ── Each turn leaves its own answer ──────────────────────────

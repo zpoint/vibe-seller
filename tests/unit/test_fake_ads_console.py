@@ -129,3 +129,15 @@ def test_no_marketplace_branding(console, path):
         html = r.read().decode()
     for brand in ('Amazon', 'Sponsored Products', 'noon'):
         assert brand not in html, f'{path} brands itself: {brand}'
+
+
+def test_fetched_campaign_since_scopes_to_a_turn(console):
+    """A campaign opened BEFORE a mark does not count after it -- the
+    narrow e2e scopes its exclusion to the turn that made it."""
+    with urllib.request.urlopen(
+        f'{console.base}/campaign/{CAMPAIGN_B}', timeout=5
+    ) as r:
+        assert r.status == 200
+    mark = console.mark()
+    assert console.fetched_campaign(CAMPAIGN_B)
+    assert not console.fetched_campaign(CAMPAIGN_B, since=mark)
