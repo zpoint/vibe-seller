@@ -41,20 +41,42 @@ guard existed, zero the quantity (below) and verify.
 
 ## Detect
 
-**SP-API** — `GET /listings/2021-08-01/items/{sellerId}/{sku}?marketplaceIds=<MKT>&includedData=attributes,summaries`
-and read `attributes.fulfillment_availability`:
+**SP-API** — `GET /listings/2021-08-01/items/{sellerId}/{sku}?marketplaceIds=<MKT>&includedData=fulfillmentAvailability,attributes,summaries`.
+
+Detect from **`fulfillmentAvailability`**: it is the offer's *current*
+availability per channel (camel-case `fulfillmentChannelCode`, current
+`quantity`). `attributes.fulfillment_availability` holds what was last
+*submitted*: orders lower the live quantity without changing it, so a
+sold-out FBM offer can still show `quantity: 100` there.
 
 ```json
-[{"fulfillment_channel_code": "AMAZON_EU"},
- {"fulfillment_channel_code": "DEFAULT", "quantity": 100}]   ← FBM offer, live when FBA is empty
+"fulfillmentAvailability": [
+  {"fulfillmentChannelCode": "AMAZON_EU"},
+  {"fulfillmentChannelCode": "DEFAULT", "quantity": 100}]   ← FBM offer, live when FBA is empty
 ```
 
-To sweep a whole account, page `GET /listings/2021-08-01/items/{sellerId}`
-(`searchListingsItems`, `includedData=attributes`, `pageSize=20`,
-`pageToken` from `pagination.nextToken`) and flag every item whose
-`DEFAULT` entry has `quantity > 0`. Do it **per marketplace**: the
-attribute is marketplace-scoped, and one marketplace of a unified account
-can be clean while its sibling is not.
+Keep the `attributes` read too: the patch below is built from
+`attributes.fulfillment_availability` (snake-case codes), and it zeroes
+the submitted quantity, which is what keeps the offer from coming back.
+A `DEFAULT` entry whose current quantity is 0 but whose submitted
+quantity is above 0 is sold out, not gone, so zero it as well.
+
+To sweep a whole account, do it **per marketplace**: the offer is
+marketplace-scoped, and one marketplace of a unified account can be
+clean while its sibling is not. For each marketplace:
+
+- **Up to 1,000 listings:** page `GET /listings/2021-08-01/items/{sellerId}`
+  (`searchListingsItems`, `includedData=fulfillmentAvailability,attributes`,
+  `pageSize=20`, `pageToken` from `pagination.nextToken`). It returns
+  **at most 1,000 results** however far you page, so first compare
+  `numberOfResults` with 1,000.
+- **Above that:** do not trust a paged sweep, because it silently stops
+  at 1,000. Take the SKU list from a complete inventory report instead
+  (Reports API `GET_MERCHANT_LISTINGS_ALL_DATA`, one per marketplace)
+  and read each SKU with the single-item call above.
+
+Flag every item whose `DEFAULT` entry has a quantity above 0 in either
+place.
 
 **Seller Central** — Manage Inventory, filter Fulfilled by =
 *Merchant*. A SKU that also shows FBA stock columns is dual-channel.
@@ -83,10 +105,13 @@ can be clean while its sibling is not.
 - **Do not `delete` the attribute** to get rid of FBM. A delete on an
   offer attribute can take the whole offer down, and the listing then
   stops being buyable.
-- **`ACCEPTED` is not done.** Read the item back until `DEFAULT` shows
-  quantity 0, and check `offers` still holds the price and `issues` is
-  empty. If it does not land within ~2 min, the patch did not take, so
-  investigate rather than resubmit blindly.
+- **`ACCEPTED` is not done.** Read the item back with
+  `includedData=fulfillmentAvailability,attributes,offers,issues` (the
+  Detect request carries neither `offers` nor `issues`, and a field you
+  did not request is absent, not fine). It is done when `DEFAULT` shows
+  quantity 0, `offers` still holds the price, and `issues` is empty. If
+  it does not land within ~2 min, the patch did not take, so investigate
+  rather than resubmit blindly.
 - Snapshot `attributes.fulfillment_availability` before patching so the
   change can be put back exactly.
 - **Patch one SKU, verify it, then do the rest.**
