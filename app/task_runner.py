@@ -38,6 +38,7 @@ from app.task_runner_context import (
     ticktick_context,
 )
 from app.task_states import TaskStatus, assert_transition
+from app.todos import parse_stored
 from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
@@ -382,15 +383,14 @@ def has_incomplete_todos(task: Task) -> bool:
     """Return True if the task has any non-completed todo items."""
     if not task.todos:
         return False
-    try:
-        todos = json.loads(task.todos)
-        return any(t.get('status') != 'completed' for t in todos)
-    except (json.JSONDecodeError, TypeError):
+    todos = parse_stored(task.todos)
+    if todos is None:
         logger.warning(
             'Failed to parse todos for task %s, treating as incomplete',
             task.id,
         )
         return True
+    return any(t['status'] != 'completed' for t in todos)
 
 
 async def mark_waiting_for_input(task: Task, db: AsyncSession, task_id: str):

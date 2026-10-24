@@ -16,7 +16,7 @@ command, and this one needs the session's pending-work set.
 
 import re
 
-from app.ai.bash_safety import COMMAND_PREFIX
+from app.ai.shell_patterns import COMMAND_PREFIX
 from app.ai.stop_gates.report_reviewer import WAIT_FOR_BACKGROUND
 
 _SLEEP_INVOCATION = re.compile(

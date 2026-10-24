@@ -311,15 +311,35 @@ class TestShouldMarkCatalogRead:
             'Read', {'file_path': '/home/user/.vibe-seller/stores/x/notes.md'}
         )
 
-    def test_non_read_tool_does_not_flip(self):
-        # Even pointing at a CATALOG.md, only Read counts as
-        # "tried to consult the catalog".
-        assert not should_mark_catalog_read(
-            'Bash', {'command': 'cat stores/x/CATALOG.md'}
-        )
+    def test_a_write_tool_does_not_flip(self):
         assert not should_mark_catalog_read(
             'Edit', {'file_path': 'stores/x/CATALOG.md'}
         )
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            'cat stores/x/CATALOG.md',
+            'head -50 knowledge/CATALOG.md',
+            # The exact form a CI agent was refused for.
+            'find stores/x -name "CATALOG.md" -print -exec cat {} \\;',
+        ],
+    )
+    def test_a_shell_read_of_the_catalog_flips_and_passes(self, command):
+        assert should_mark_catalog_read('Bash', {'command': command})
+        assert check_catalog_first(command, catalog_read=False) is None
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            'grep -rn SECRET stores/ knowledge/',
+            'grep -rn CATALOG.md knowledge/',  # names it, does not read it
+            'ls stores/x/',
+        ],
+    )
+    def test_a_search_that_does_not_read_it_still_waits(self, command):
+        assert not should_mark_catalog_read('Bash', {'command': command})
+        assert check_catalog_first(command, catalog_read=False)
 
     def test_empty_input_does_not_flip(self):
         assert not should_mark_catalog_read('Read', {})

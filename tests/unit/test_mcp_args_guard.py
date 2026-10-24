@@ -19,6 +19,7 @@ from app.ai.claude_backend_utils import (
     MAX_REPEAT_TOOL_CALLS,
 )
 from app.ai.mcp_args_guard import missing_args_deny
+from app.ai.tool_call_guards import loaded_tool_search_deny, tool_call_deny
 from app.mcp_tool_schemas import TOOLS
 from app.prompts import DESIGN_SYSTEM_PROMPT, DESIGN_SYSTEM_PROMPT_AUTO
 
@@ -106,3 +107,41 @@ class TestFinishingToolsAlwaysLoaded:
         for text in (DESIGN_SYSTEM_PROMPT, DESIGN_SYSTEM_PROMPT_AUTO):
             assert 'always loaded' in text
             assert 'vibe_seller_set_task_error' in text
+            assert 'AskUserQuestion' in text
+
+
+class TestLoadedToolSearch:
+    """ToolSearch lists only deferred tools, so searching for a loaded
+    one comes back empty. In CI a model searched six times for the
+    set_task_result it already had."""
+
+    @pytest.mark.parametrize(
+        'query',
+        [
+            'vibe_seller_set_task_result',
+            'select:mcp__vibe-seller__vibe_seller_set_task_result',
+            'set_task',
+            'set_task_error',
+        ],
+    )
+    def test_a_search_for_a_loaded_tool_is_refused(self, query):
+        reason = tool_call_deny(
+            None, {'tool_name': 'ToolSearch', 'tool_input': {'query': query}}
+        )
+        assert reason and 'already loaded' in reason
+        assert 'vibe_seller_set_task_result' in reason
+
+    @pytest.mark.parametrize(
+        'query', ['ask.*question|AskUser', 'select:AskUserQuestion']
+    )
+    def test_a_search_for_ask_user_question_is_refused(self, query):
+        # In CI the empty result led an agent to ask in prose and park
+        # its task in WAITING.
+        reason = loaded_tool_search_deny('ToolSearch', {'query': query})
+        assert reason and '`AskUserQuestion` is already loaded' in reason
+
+    @pytest.mark.parametrize(
+        'query', ['task', 'vibe_seller', 'ads_call', 'read email', 'question']
+    )
+    def test_other_searches_pass(self, query):
+        assert loaded_tool_search_deny('ToolSearch', {'query': query}) is None

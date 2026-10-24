@@ -824,6 +824,70 @@ def test_fill_routes_row_level_our_price_and_quantity(mkt_template, tmp_path):
     assert row[_AE_PRICE] in (None, '')
 
 
+def _fbm_spec(tmp_path, quantity, code='DEFAULT', **top):
+    return _spec(
+        tmp_path,
+        {
+            'marketplace': 'SA',
+            'product_type': 'socks',
+            'mint_new_asin': True,
+            **top,
+            'rows': [
+                {
+                    'sku': 'K-WHT',
+                    'parentage': 'Child',
+                    'variation_theme': 'Color',
+                    'our_price': '19.99',
+                    'quantity': quantity,
+                    'fulfillment_channel_code': code,
+                    'fields': {
+                        'item_name': 'x',
+                        'color_name': 'White',
+                        'feed_product_type': 'socks',
+                    },
+                }
+            ],
+        },
+    )
+
+
+def test_fill_refuses_undeclared_merchant_quantity(mkt_template, tmp_path):
+    # DEFAULT + 100 is a live FBM offer: on an FBA seller it goes live, as
+    # "International shipping", whenever FBA stock runs out. Observed on a
+    # real account -- every listing the old example created carried one.
+    out = str(tmp_path / 'out.xlsx')
+    with pytest.raises(SystemExit) as e:
+        _run([
+            'fill',
+            mkt_template,
+            '--spec',
+            _fbm_spec(tmp_path, '100'),
+            '--out',
+            out,
+        ])
+    assert 'FBM' in str(e.value)
+
+
+def test_fill_keeps_merchant_quantity_when_spec_says_fbm(
+    mkt_template, tmp_path
+):
+    out = str(tmp_path / 'out.xlsx')
+    spec = _fbm_spec(tmp_path, '100', fulfillment='FBM')
+    _run(['fill', mkt_template, '--spec', spec, '--out', out])  # no refusal
+    assert '100' in _read_rows(out)[0].values()
+
+
+@pytest.mark.parametrize(
+    'quantity,code', [('0', 'DEFAULT'), ('', 'DEFAULT'), ('100', 'AMAZON_EU')]
+)
+def test_merchant_stock_guard_allows_zero_and_fba_codes(quantity, code):
+    fields = {
+        'fulfillment_availability#2.fulfillment_channel_code': code,
+        'fulfillment_availability#2.quantity': quantity,
+    }
+    assert listing_bulk._merchant_stock_guard(fields, {}, 0, 'K') is None
+
+
 def test_fill_warns_when_target_marketplace_has_no_offer(
     mkt_template, tmp_path, capsys
 ):
