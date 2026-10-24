@@ -4,16 +4,19 @@ One entry point so the hook (at its line budget) chains a single call:
 a vibe-seller MCP call missing required arguments
 (``mcp_args_guard``), any tool reaching into vibe-seller's own source
 (``source_guard``), an execution-only tool called while planning, a
-shell command that calls the ads service around its tool, or new work
-started during post-result reflection (``reflection_guard``).
+shell command that calls the ads service around its tool, new work
+started during post-result reflection (``reflection_guard``), or a tool
+search for a tool that is already loaded.
 """
 
+import os
 from urllib.parse import urlsplit
 
 from app.ads_client import SERVICE_URL
 from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.reflection_guard import reflection_deny
 from app.ai.source_guard import source_access_deny
+from app.mcp_tool_schemas import TOOLS
 
 # Tools that DO the task. While planning, the agent decides what to do;
 # these run when the plan executes. Observed in CI: a fanout planner
@@ -105,6 +108,33 @@ def subagent_finish_deny(session, tool_name: str, tool_use_id) -> str | None:
     return None
 
 
+# The always-loaded tools (``_meta`` alwaysLoad), by short name, plus the
+# stem they share. ToolSearch only lists DEFERRED tools, so a search for
+# one of these always comes back empty -- and a model reads empty as
+# "missing". In CI one searched six times (`set_task_result`,
+# `set_task`, `task`, ...) before calling the tool it already had.
+_LOADED = sorted(
+    t['name'].removeprefix('vibe_seller_')
+    for t in TOOLS
+    if (t.get('_meta') or {}).get('anthropic/alwaysLoad') is True
+)
+_LOADED_STEMS = (*_LOADED, os.path.commonprefix(_LOADED).rstrip('_'))
+
+
+def loaded_tool_search_deny(tool_name: str, tool_input) -> str | None:
+    """Refuse a ToolSearch for a tool that is already loaded."""
+    if tool_name != 'ToolSearch' or not isinstance(tool_input, dict):
+        return None
+    query = str(tool_input.get('query', '')).lower()
+    if not any(stem and stem in query for stem in _LOADED_STEMS):
+        return None
+    names = ', '.join(f'`mcp__vibe-seller__vibe_seller_{n}`' for n in _LOADED)
+    return (
+        f'Blocked: {names} are already loaded, so tool search will never '
+        'list them. Call the one you need directly.'
+    )
+
+
 def tool_call_deny(session, hook_input: dict) -> str | None:
     """First refusal for this PreToolUse call, else ``None``.
 
@@ -120,4 +150,5 @@ def tool_call_deny(session, hook_input: dict) -> str | None:
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
         or reflection_deny(session, tool_name, tool_input)
+        or loaded_tool_search_deny(tool_name, tool_input)
     )
