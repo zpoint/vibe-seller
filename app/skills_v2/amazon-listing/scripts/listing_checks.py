@@ -64,6 +64,48 @@ def enum_gate(fields, valid, allow, i, sku):
     return warns, None
 
 
+_FA_CODE = re.compile(
+    r'^fulfillment_availability#(\d+)\.fulfillment_channel_code$'
+)
+
+
+def merchant_stock_guard(fields, spec, i, sku):
+    """Refuse a merchant (FBM) quantity the spec never declared.
+
+    A group whose channel code is not an ``AMAZON_*`` (FBA) code is the
+    merchant channel (``DEFAULT`` / ``fulfilment by merchant (default)``),
+    and a quantity above 0 on it is a LIVE FBM offer. On an FBA seller it
+    sits idle while FBA has stock and becomes the offer buyers see -- as
+    "International shipping" on the merchant template -- the moment FBA
+    stock runs out; converting the SKU to FBA does not zero it. The old
+    template example wrote exactly that (``DEFAULT`` + 100), and every
+    listing created from it carried a hidden FBM offer. So the spec must
+    say which it is: ``"fulfillment": "FBM"`` keeps the merchant quantity,
+    anything else is refused here. See references/fulfillment-channel.md.
+    """
+    if str(spec.get('fulfillment') or '').strip().upper() == 'FBM':
+        return None
+    for k, code in fields.items():
+        m = _FA_CODE.match(k)
+        if not m or str(code or '').strip().upper().startswith('AMAZON'):
+            continue
+        qty = fields.get(f'fulfillment_availability#{m.group(1)}.quantity')
+        try:
+            n = float(str(qty).strip()) if qty not in (None, '') else 0
+        except ValueError:
+            n = 1
+        if n > 0:
+            return (
+                f'error: row {i} sku={sku} puts quantity {qty} on the '
+                f'merchant channel ({code!r}) -- that is a live FBM offer. '
+                'For an FBA product set quantity 0 (it goes live from FBA '
+                'stock); if the seller really ships it themselves, add '
+                '"fulfillment": "FBM" to the spec. See '
+                'references/fulfillment-channel.md.'
+            )
+    return None
+
+
 def enum_violation(fields, valid):
     """First (field, value, allowed) outside a NON-EMPTY valid set.
 

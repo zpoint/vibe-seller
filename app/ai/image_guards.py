@@ -34,7 +34,7 @@ would be bad.
 
 import re
 
-from app.ai.bash_safety import COMMAND_PREFIX
+from app.ai.shell_patterns import COMMAND_PREFIX
 
 _GEN_IMAGES_TOKEN = 'generated_images/'
 
