@@ -49,24 +49,48 @@ def parse_skill_gates(skill_md_path: Path) -> list[str]:
 
 
 _SKILL_MD_READ_RE = re.compile(r'(?:^|/)skills/([^/]+)/SKILL\.md$')
+# A concrete SKILL.md named anywhere in a shell command (`cat`, `sed -n`,
+# `head` …). A glob (`skills/*/SKILL.md`) names no skill and binds none.
+#
+# Only a READER in command position counts -- the agent printing the
+# skill to follow it. A search that merely names the file is not a load:
+# in CI a reflection step ran `grep -rn "ad console" …/amazon-ads/SKILL.md
+# …/amazon-reports/SKILL.md`, the first cut of this rule bound both
+# skills, and the ad review gate then turned a four-number lookup into a
+# full audit.
+_SKILL_MD_IN_CMD_RE = re.compile(
+    r'(?:^|[;&|\n(`]\s*)(?:(?:sudo|time)\s+)*'
+    r'(?:cat|less|more|head|tail|sed|bat|nl)\b[^;&|\n]*?'
+    r"""(?:^|[/\s'"=])skills/([A-Za-z0-9_.-]+)/SKILL\.md\b"""
+)
 
 
 def skill_name_from_read(tool_name: str, tool_input: dict) -> str | None:
     """Return the skill name if this tool call Reads a SKILL.md.
 
-    Agents load skills two ways: the ``Skill`` tool (already tracked
-    into ``_loaded_skills`` by the prereq hook) and a plain ``Read``
-    of ``.claude/skills/<name>/SKILL.md`` (the catalog-driven path).
-    Skill-declared exit gates must see both, or a skill loaded via
-    Read would silently skip its own reviewers.
+    Agents load skills three ways: the ``Skill`` tool (already tracked
+    into ``_loaded_skills`` by the prereq hook), a plain ``Read`` of
+    ``.claude/skills/<name>/SKILL.md`` (the catalog-driven path), and a
+    shell read of the same file. Skill-declared exit gates must see all
+    of them, or a skill loaded another way silently skips its own
+    reviewers.
+
+    The shell path is not hypothetical. In CI an agent `cat`-ed the
+    amazon-ads SKILL.md, ran its whole audit procedure, and submitted --
+    with none of the skill's gates bound, so ``set_task_result``
+    accepted the report unchecked while the Stop hook (keyed on the
+    report file) demanded a reviewer: two exits, two verdicts.
     """
-    if tool_name != 'Read':
-        return None
-    path = tool_input.get('file_path', '')
-    if not isinstance(path, str) or not path:
-        return None
-    m = _SKILL_MD_READ_RE.search(path)
-    return m.group(1) if m else None
+    if tool_name == 'Read':
+        path = tool_input.get('file_path', '')
+        if not isinstance(path, str) or not path:
+            return None
+        m = _SKILL_MD_READ_RE.search(path)
+        return m.group(1) if m else None
+    if tool_name == 'Bash':
+        m = _SKILL_MD_IN_CMD_RE.search(str(tool_input.get('command', '')))
+        return m.group(1) if m else None
+    return None
 
 
 def find_skill_md(workspace_dir: Path, skill_name: str) -> Path | None:

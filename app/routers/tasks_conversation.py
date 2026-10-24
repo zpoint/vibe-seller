@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
+from app.ai.stop_gates import report_reviewer
 from app.auth import get_current_user
 from app.browser.manager import browser_manager
 from app.database import get_db
@@ -119,6 +120,16 @@ async def send_task_message(
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
 
+    # A message on a task that already COMPLETED is a follow-up to
+    # finished, reviewed work: the DoD reviewer stands down for it (see
+    # ``report_reviewer.mark_followup``). Decided from the status AT
+    # ARRIVAL, before any branch below moves it. A failed/stopped run
+    # being continued is not a follow-up — its deliverable was never
+    # accepted, so it is still reviewed. A plan-only task never executed
+    # anything, so there is nothing finished to follow up on.
+    if task.status == TaskStatus.COMPLETED and not task.is_plan_only:
+        report_reviewer.mark_followup(task_id)
+
     requested_profile_id = body.get(
         'profile_id', task.ai_profile_id or DEFAULT_PROFILE_ID
     )
@@ -185,6 +196,10 @@ async def send_task_message(
     # content so promoted attachments reach it (send_message stdin, wake
     # trigger_data, resume/fresh-session prompt all read ``content``).
     content = agent_content
+    # Tell the agent too: a skill's review loop — already in a resumed
+    # session, or loaded later this turn — would have it review anyway.
+    if report_reviewer.is_followup(task_id):
+        content += report_reviewer.FOLLOWUP_NOTE
 
     # Canonical "message accepted" fields every return path echoes, so the
     # client can render the exact stored bubble (thumbnails, not paths).
@@ -616,6 +631,8 @@ async def retry_task(
     # Claude Code's per-task Task/todo store + project transcripts) so a
     # prior run's todos/refs can't leak into the new session. See helper.
     reset_task_runtime_state(task_id)
+    # A retry starts the task over: its first run is reviewed again.
+    report_reviewer.clear_followup(task_id)
 
     store = None
     if task.store_id:

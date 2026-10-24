@@ -318,6 +318,10 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
             return json.dumps({'error': f'Unknown tool: {name}'})
 
         return json.dumps(result, ensure_ascii=False, indent=2)
+    except KeyError as e:
+        # ``arguments['path']`` on a call without it: say what is missing
+        # (a bare ``"'path'"`` named nothing the model could act on).
+        return json.dumps({'error': f'missing required argument {e}'})
     except Exception as e:
         return json.dumps({'error': str(e)})
 

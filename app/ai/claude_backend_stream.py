@@ -17,8 +17,8 @@ from app.ai.claude_backend_utils import (
     get_next_seq,
 )
 from app.ai.stop_gates.report_reviewer import (
-    is_review_file_name,
     partial_banner,
+    review_files_written,
     rollover_reviews,
 )
 from app.ai.task_status_reconcile import reconcile_streaming_run_status
@@ -38,6 +38,12 @@ logger = logging.getLogger(__name__)
 # heartbeats land just inside `_maybe_bump_updated_at`'s 60s
 # throttle. Module-level so tests can patch.
 _READLINE_HEARTBEAT_TIMEOUT_S = 60.0
+
+
+EMPTY_TURN_CONTINUE = (
+    'Your last response ended before you answered or acted — the model '
+    "stream stopped early. Continue with the user's last request."
+)
 
 
 class _StreamMixin:
@@ -116,8 +122,15 @@ class _StreamMixin:
                     continue
                 # Any stdout traffic (events, control requests,
                 # subagent activity) means the turn is alive — reset
-                # the quiescence timer.
+                # the quiescence timer, and give the stall reaper the
+                # same answer. Liveness used to be bumped per event
+                # KIND (text/thinking/tool-input deltas, persisted
+                # messages), so each kind the CLI added was invisible
+                # until someone listed it: a model thinking for 3 min
+                # streamed ~500 ``system/thinking_tokens`` events a
+                # minute and was reaped as stalled. Throttled inside.
                 self._last_activity_at = time.monotonic()
+                await self._maybe_bump_updated_at()
 
                 try:
                     event = json.loads(text)
@@ -284,6 +297,8 @@ class _StreamMixin:
                     # authorship signal for review verdicts and the
                     # spawn-tracking key for async agents.
                     parent_id = event.get('parent_tool_use_id')
+                    if parent_id and block.get('id'):
+                        self._subagent_tool_use_ids.add(block['id'])
                     # A DoD/review verdict only counts when a real reviewer
                     # SUBAGENT produced it. The main agent can't fabricate
                     # this tool_use it never made, so flag a review-ish
@@ -305,16 +320,21 @@ class _StreamMixin:
                         ):
                             self._review_subagent_ran = True
                     # Review-verdict authorship: record WHO wrote each
-                    # review-named .md this turn. A file last written by
-                    # the main agent can never satisfy the review gates
-                    # (see report_reviewer.reviewer_verdict).
-                    if tool_name in ('Write', 'Edit', 'MultiEdit'):
-                        _fp = str(tool_input.get('file_path', ''))
-                        _base = _fp.rsplit('/', 1)[-1]
-                        if is_review_file_name(_base):
-                            self._review_file_writers[_base] = (
-                                'subagent' if parent_id else 'main'
-                            )
+                    # review-named .md this turn — by Write/Edit or a
+                    # shell redirect. A file last written by the main
+                    # agent can never satisfy the review gates (see
+                    # report_reviewer.reviewer_verdict).
+                    written = review_files_written(tool_name, tool_input)
+                    for _base in written:
+                        self._review_file_writers[_base] = (
+                            'subagent' if parent_id else 'main'
+                        )
+                    # A reviewer's verdict IS its deliverable: once it
+                    # writes one, it no longer holds the turn open. In CI
+                    # a reviewer wrote `Status: ok`, then browsed on for
+                    # 12 minutes while the accepted task could not end.
+                    if written and parent_id:
+                        self._release_async({parent_id})
                     if tool_name == 'TodoWrite':
                         todos = tool_input.get('todos', [])
                         await event_bus.emit(
@@ -356,6 +376,19 @@ class _StreamMixin:
             # and used to work it out separately.
             if self._executing and not is_error:
                 self._note_review_turn_end()
+                # A turn whose model response stopped with NO stop reason,
+                # no text and no action is a stream that ended early, not
+                # an answer. Observed in CI: "save this as a skill" got a
+                # thinking block, stop_reason "", and the CLI closed the
+                # turn as success with nothing done. Continue it once.
+                if (
+                    event.get('stop_reason') == ''
+                    and not (text or '').strip()
+                    and not self._empty_turn_continued
+                ):
+                    self._empty_turn_continued = True
+                    await self.send_user_message(EMPTY_TURN_CONTINUE)
+                    return
                 gate_reason = (
                     self._async_agents_pending_reason()
                     or self._review_gate_deny_reason()

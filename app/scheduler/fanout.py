@@ -227,6 +227,15 @@ async def run_fanout_job(
         )
         try:
             async with async_session() as db:
+                # The store list was read before the L2 phase, which can
+                # run for minutes. A store deleted since then must get no
+                # task: deleting a store deletes its tasks, and one
+                # created after that would only fail at dispatch.
+                if await db.get(Store, store.id) is None:
+                    logger.info(
+                        'Fan-out: store %s was deleted, skipping', store.id
+                    )
+                    continue
                 # Cancel any prior WAITING task for this (schedule, store)
                 # before firing — silent skip would stall a daily
                 # schedule for up to 30 days on one forgotten question.

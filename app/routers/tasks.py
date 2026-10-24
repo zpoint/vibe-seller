@@ -25,6 +25,7 @@ from app.ai.stop_gates import (
     resolve_skill_gates,
     take_review_round,
 )
+from app.ai.stop_gates.report_reviewer import clear_followup
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
@@ -256,6 +257,7 @@ async def delete_task(
     reset_attempts(task_id)
     reset_ledger(task_id)
     clear_skill_bindings(task_id)
+    clear_followup(task_id)
     return {'ok': True}
 
 

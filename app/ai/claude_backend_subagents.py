@@ -35,6 +35,7 @@ from app.ai.claude_backend_utils import (
     check_review_status_for_stop,
     get_open_tasklist_items,
 )
+from app.ai.stop_gates.report_reviewer import WAIT_FOR_BACKGROUND
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,11 @@ class _SubagentMixin:
         self._review_file_writers: dict[str, str] = {}
         self._agent_spawn_ids: set[str] = set()
         self._async_agents: dict[str, str] = {}
+        # tool_use ids a SUBAGENT made (its events carry a parent id), so
+        # the PreToolUse hook can tell who is calling — see
+        # tool_call_guards.subagent_finish_deny.
+        self._subagent_tool_use_ids: set[str] = set()
+        self._empty_turn_continued: bool = False
 
     def _async_agents_pending_reason(self) -> str | None:
         """Deny reason while async work launched this turn is still
@@ -102,11 +108,11 @@ class _SubagentMixin:
             'backgrounded shell commands. A turn must not end while they '
             "run: once you stop, a subagent's remaining tool calls are "
             'denied and a background command is orphaned, so any "it will '
-            'report later" claim would be false. WAIT for each one\'s '
-            '<task-notification> completion and incorporate its result '
-            'before finishing. If one is no longer needed, tell the user '
-            'what you launched and why you are abandoning it, and stop it '
-            '(TaskStop) before finishing.'
+            'report later" claim would be false. Wait for each one to '
+            'finish and incorporate its result before finishing. '
+            f'{WAIT_FOR_BACKGROUND} If one is no longer needed, tell the '
+            'user what you launched and why you are abandoning it, and '
+            'stop it (TaskStop) before finishing.'
         )
 
     def _track_async_agents(self, event: dict):

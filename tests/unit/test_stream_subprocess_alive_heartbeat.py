@@ -156,3 +156,45 @@ class TestSubprocessAliveHeartbeat:
             'Subprocess-alive readline timeout must bump '
             f'Task.updated_at; before={before} after={after}'
         )
+
+
+class _LinesStdout:
+    """Yields the given stream-json lines, then EOF."""
+
+    def __init__(self, lines):
+        self._lines = list(lines)
+
+    async def readline(self):
+        return self._lines.pop(0) if self._lines else b''
+
+
+class TestAnyStdoutLineIsLiveness:
+    """Liveness is "the CLI said something", not a list of event kinds.
+
+    Observed in CI: a model thinking for three minutes streamed ~500
+    ``system/thinking_tokens`` events a minute. None of them was a kind
+    the stream bumped ``updated_at`` for, readline never timed out
+    (lines kept arriving), and the stall reaper failed a healthy run.
+    """
+
+    async def test_unlisted_event_kind_bumps_heartbeat(self, _db, monkeypatch):
+        monkeypatch.setattr('app.ai.claude_backend_stream.async_session', _db)
+        session = AgentSession(task_id=_TASK_ID, prompt='hi', mode='auto')
+        proc = _FakeProc()
+        proc.stdout = _LinesStdout([
+            b'{"type": "system", "subtype": "thinking_tokens", '
+            b'"estimated_tokens": 10, "estimated_tokens_delta": 10}\n'
+        ])
+        session._proc = proc  # type: ignore[assignment]
+
+        async with _db() as db:
+            before = (await db.get(Task, _TASK_ID)).updated_at
+
+        await asyncio.wait_for(session._stream_output(), timeout=2.0)
+
+        async with _db() as db:
+            after = (await db.get(Task, _TASK_ID)).updated_at
+        assert after > before, (
+            'a stdout event of any kind must bump Task.updated_at; '
+            f'before={before} after={after}'
+        )

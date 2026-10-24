@@ -11,6 +11,7 @@ import json
 import logging
 
 from app import ads_routing
+from app.ai.background_wait import long_sleep_deny
 from app.ai.bash_safety import (
     check_catalog_first_tool_args,
     check_report_overwrite,
@@ -32,8 +33,10 @@ from app.ai.image_guards import (
     check_image_read_without_vision,
 )
 from app.ai.profiles import ProfileManager, model_sees_images
+from app.ai.reflection_guard import begin_reflection, end_reflection
 from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
 from app.ai.stop_gates import record_skill_load
+from app.ai.tool_call_guards import tool_call_deny
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
@@ -184,9 +187,8 @@ class _HookMixin:
             inner_input = tool_input.get('tool_input', {})
             if inner_name == 'Bash':
                 cmd = inner_input.get('command', '')
-                # Ordered Bash guards (first deny wins) live in
-                # bash_safety.first_bash_deny — see it for the chain.
                 deny = first_bash_deny(cmd, self.task_dir, self._catalog_read)
+                deny = deny or long_sleep_deny(inner_input, self._async_agents)
                 if deny:
                     label, deny_reason = deny
                     logger.warning(
@@ -269,8 +271,8 @@ class _HookMixin:
             # record_skill_load makes the binding durable per task.
             barred = ads_routing.refusal_for(
                 self.task_id, inner_name, inner_input
-            )
-            if barred:  # routed away from this task: see app.ads_routing
+            ) or tool_call_deny(self, tool_input)
+            if barred:  # routed away, malformed MCP args, or app source
                 await self._deny_pre_tool_use(request_id, barred)
                 return
             read_skill = skill_name_from_read(inner_name, inner_input)
@@ -360,8 +362,7 @@ class _HookMixin:
             # Claude Code sends stop_hook_active=true on the retry
             # after a block, preventing infinite loops.
             if tool_input.get('stop_hook_active'):
-                # Bracket-end of the reflection turn — paired with
-                # reflection_started; see comment there.
+                end_reflection(self)  # bracket-end; see reflection_started
                 _ev = json.dumps({'event': 'reflection_completed'})
                 await self._emit_message('agent_event', _ev)
                 await self._send_hook_response(
@@ -394,11 +395,10 @@ class _HookMixin:
                 self._pre_reflection_result = pre
                 if pre:
                     await self._save_result(pre)
-                # Reflection tool calls (e.g. Read of metadata.json)
-                # run after the turn's work is done — they must not
-                # count as "agent worked toward completion" in the
-                # interactive-Q&A finalize check.
-                self._reflection_active = True
+                # Reflection tool calls run after the turn's work is
+                # done — they must not count as progress in the Q&A
+                # finalize check, nor start new work (reflection_guard).
+                begin_reflection(self)
                 # Structured marker — makes the reflection PHASE
                 # observable independently of model wording.
                 _ev = json.dumps({'event': 'reflection_started'})

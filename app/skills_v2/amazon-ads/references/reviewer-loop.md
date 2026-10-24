@@ -33,6 +33,17 @@ doesn't match, it returns gaps, the agent fixes, and it re-verifies. The
 loop terminates when the reviewer returns `Status: ok` or after 5
 iterations with `Status: incomplete`.
 
+Three rules of conduct, the same for every DoD reviewer:
+
+- **Follow-ups are not reviewed.** A new user message on a task that
+  already completed does not run this Phase 3 loop — don't spawn the
+  reviewer for it. (Executing the plan still runs Phase 4 below.)
+- **`ok` ends it.** Don't edit the deliverable for notes the reviewer
+  marked non-blocking; list them in your final reply for the user.
+- **Never one long `sleep N` while the reviewer runs.** Its notice
+  arrives between tool calls: keep working, or wait in steps under 30s
+  (`TaskOutput` with `block: true` if your tools include it).
+
 ## Why a separate reviewer
 
 A reviewer in a separate LLM context catches things the writing
@@ -226,8 +237,9 @@ an explicit infra-block note if the console could not be opened>
 
 Set Status=ok ONLY if you independently verified, against live data /
 exports, that the CRITERIA are met. Otherwise Status=gaps with the
-bullets. After writing, return the path {review_out} as your final
-message — the file is the source of truth, not chat.
+bullets. Writing the file is your LAST action: return the path
+{review_out} right after it — the file is the source of truth, not chat,
+and the task cannot finish while you are still running.
 ```
 
 ## Status semantics

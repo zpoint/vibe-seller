@@ -32,6 +32,7 @@ from pathlib import Path
 import re
 
 from app.ai.stop_gates import AD_REVIEW_ROUNDS
+from app.config import DATA_DIR
 
 # Ad skills whose tasks carry a Definition-of-Done reviewer contract.
 AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
@@ -97,6 +98,149 @@ def exec_authorship_deny(review_writers, name, status, iter_num):
     )
 
 
+# Tasks that COMPLETED once and are now taking follow-up turns, one empty
+# file per task id (see ``mark_followup``). Server-owned space next to
+# the skill bindings, NOT the task dir: the agent works in the task dir,
+# and a marker it can ``ls`` is a marker it investigates (observed in CI:
+# a model spent several turns asking what ``.followup`` was for).
+FOLLOWUP_DIR = DATA_DIR / 'followups'
+_SAFE_ID_RE = re.compile(r'[^A-Za-z0-9_-]')  # a task id names a file here
+
+# Appended to the message the agent receives on EVERY follow-up turn,
+# never to the stored transcript. The gate standing down is not enough on
+# its own: a skill's review loop tells the agent to spawn the reviewer,
+# and the agent can load that skill at any point in the turn — sending
+# the note only to tasks that had bound a review skill when the message
+# arrived missed an agent that loaded one mid-turn and reviewed anyway
+# (observed in CI). Worded about the review only — an earlier text that
+# opened with "Follow-up on a task…" sent an agent to load an unrelated
+# skill whose name contained "followup".
+FOLLOWUP_NOTE = (
+    "\n\n[System: no Definition-of-Done review this turn. This task's "
+    'deliverable was reviewed when it completed. Do not spawn a reviewer '
+    'subagent or write REVIEW_* files for this message, even if a skill '
+    'you load says to run its review loop.]'
+)
+
+
+def _followup_path(task_id: str) -> Path:
+    return FOLLOWUP_DIR / _SAFE_ID_RE.sub('_', task_id)
+
+
+def mark_followup(task_id: str) -> None:
+    """Record that this task finished once and is now taking follow-ups.
+
+    The DoD reviewer verifies a task's deliverable; once the task has
+    COMPLETED, that deliverable was reviewed (or failed open, visibly).
+    A follow-up message ("copy the folder into the task dir", "list the
+    files") is a small change on top of finished work. Re-running the
+    full review for it is what made a tax-filing follow-up that only
+    copied files spend four review rounds re-verifying the whole filing.
+
+    Written once and kept: a later turn on the same task is still a
+    follow-up. Cleared by a retry (the task starts over and its first
+    run is reviewed) and by task deletion (``clear_followup``).
+    Best-effort.
+    """
+    if not task_id:
+        return
+    try:
+        FOLLOWUP_DIR.mkdir(parents=True, exist_ok=True)
+        _followup_path(task_id).touch(exist_ok=True)
+    except OSError:  # pragma: no cover — best-effort
+        pass
+
+
+def clear_followup(task_id: str) -> None:
+    """Forget the follow-up state (retry, task deletion)."""
+    try:
+        _followup_path(task_id).unlink(missing_ok=True)
+    except OSError:  # pragma: no cover
+        pass
+
+
+def is_followup(task_id: str) -> bool:
+    """True when the task completed once and this turn is a follow-up."""
+    if not task_id:
+        return False
+    try:
+        return _followup_path(task_id).exists()
+    except OSError:  # pragma: no cover
+        return False
+
+
+# How to wait for a subagent or background shell. A foreground ``sleep
+# 200`` cannot be interrupted by the completion notice — the CLI delivers
+# it between tool calls, so it lands only after the Bash call returns,
+# and a reviewer that finished in 60s still cost 200s. ``TaskOutput`` is
+# not offered by every CLI version (a CI run asked ToolSearch for it and
+# got nothing), so the rule names it as optional and rests on what always
+# holds: short calls let the notice in. Shared by the review-loop conduct
+# below, the Stop hook's pending-subagent deny and the long-sleep guard
+# (``background_wait``, whose threshold the "under 30s" matches).
+WAIT_FOR_BACKGROUND = (
+    'A subagent or background command reports back on its own: its '
+    'completion notice arrives between your tool calls. So keep working on '
+    'anything else left to do; if nothing is left, wait in short steps '
+    '(a `sleep` under 30s, then check again), or block on TaskOutput with '
+    'its task id if your tools include it. Never one long `sleep N` — the '
+    'notice cannot reach you while a foreground command is blocking.'
+)
+
+# The review-loop contract every reviewer deny carries (appended by
+# ``reviewer_verdict``), so it reaches the agent whichever skill's loop
+# doc it follows — including skills that live outside this repo.
+# The Agent tool is BUILT IN: it is always in the agent's tool list and
+# ToolSearch (which lists only deferred tools) never returns it. Observed
+# in CI: an agent searched for it, concluded "No Agent tool exists in this
+# session", improvised a reviewer the gate then refused, and lost seven
+# minutes before trying the tool it had all along.
+REVIEW_LOOP_CONDUCT = (
+    '\n\nRunning the review loop: spawn the reviewer with the built-in '
+    'Agent tool — call it directly; it is always available, and ToolSearch '
+    'does not list built-in tools. ' + WAIT_FOR_BACKGROUND + ' Once a '
+    'verdict says `Status: ok` you are done — do not edit the '
+    'deliverable for notes the reviewer marked non-blocking (cosmetic, '
+    'optional, suggestions): an edit after `ok` invalidates the review '
+    'and forces another round. List those notes in your final reply for '
+    'the user to decide.'
+)
+
+
+# A shell redirection that WRITES a file: ``>``/``>>`` (not ``2>``-style
+# fd redirects to /dev/null — any target is checked by name anyway) or
+# ``tee [-a]``. The target is the next shell word, quoted or not.
+_REDIRECT_TARGET_RE = re.compile(
+    r"""(?:>>?|\btee(?:\s+-a)?)\s*["']?([^\s"'<>|;&]+)"""
+)
+
+
+def review_files_written(tool_name: str, tool_input) -> list[str]:
+    """Basenames of review-verdict files this tool call writes.
+
+    The review gates trust a verdict only when the reviewer subagent
+    wrote it, and the stream learns who wrote what from tool calls. It
+    used to look at ``Write``/``Edit``/``MultiEdit`` only, so a reviewer
+    that wrote its verdict with a shell heredoc (``cat > REVIEW_….md
+    <<'EOF'``) — observed in CI — was never credited: the gate refused a
+    genuine verdict, the result failed open as UNVERIFIED, and the agent
+    spawned reviewer after reviewer. A Bash command counts for each file
+    it redirects INTO; one that only reads a verdict (``cat REVIEW_….md``)
+    writes nothing, so a subagent reading a main-written verdict cannot
+    launder it.
+    """
+    if not isinstance(tool_input, dict):
+        return []
+    if tool_name in ('Write', 'Edit', 'MultiEdit'):
+        paths = [str(tool_input.get('file_path', ''))]
+    elif tool_name == 'Bash':
+        paths = _REDIRECT_TARGET_RE.findall(str(tool_input.get('command', '')))
+    else:
+        return []
+    names = (p.rsplit('/', 1)[-1] for p in paths)
+    return [n for n in dict.fromkeys(names) if is_review_file_name(n)]
+
+
 def is_review_file_name(name: str) -> bool:
     """True when *name* looks like a review-verdict artifact.
 
@@ -124,6 +268,11 @@ def rollover_reviews(task_dir) -> None:
     can satisfy or misdirect this turn's gate. Files are preserved (moved,
     not deleted) under ``.prev_turns/`` for post-mortem. Best-effort;
     called once per turn at the ``system/init`` event.
+
+    A follow-up on a task that already COMPLETED is not reviewed at all
+    (``mark_followup``); the clean slate matters for a turn that IS
+    reviewed after an earlier one — a failed or stopped run the user
+    continues — and for the upload/exec gates, which still run.
     """
     if task_dir is None:
         return
@@ -433,15 +582,25 @@ def reviewer_verdict(
 ) -> str | None:
     """Deny reason if the reviewer hasn't signed off; else ``None``.
 
-    Thin wrapper over ``_verdict_reason`` whose only job is to append the
-    bound skills' Definition of Done to EVERY deny. Doing it here rather
-    than at each ``return`` is deliberate: the contract matters most on a
+    Thin wrapper over ``_verdict_reason`` that stands down on a
+    follow-up and appends the bound skills' Definition of Done (and the
+    loop conduct) to EVERY deny. Doing it here rather than at each
+    ``return`` is deliberate: the contract matters most on a
     RETRY (``Status: gaps`` / ``incomplete`` / an untrusted verdict),
     because that is exactly when the agent re-launches the reviewer and
     could hand it a narrower checklist again. Appending per-branch left
     those paths bare and would leave any future branch bare too.
     """
+    # A follow-up on a COMPLETED task is not reviewed (see
+    # ``mark_followup``). Checked here, the one verdict both completion
+    # paths share — the Stop hook / ending-turn re-drive
+    # (``bash_safety.check_review_status``) and ``set_task_result``
+    # (``apply_report_reviewer_gate``) — so they cannot disagree. The
+    # upload-verdict and ad execution-review gates are separate checks
+    # and still gate a follow-up's live writes.
+    if task_dir is not None and is_followup(Path(task_dir).name):
+        return None
     deny = _verdict_reason(task_dir, subagent_ran, review_writers)
     if deny is None:
         return None
-    return deny + skill_dod_addendum(skill_reviews)
+    return deny + skill_dod_addendum(skill_reviews) + REVIEW_LOOP_CONDUCT

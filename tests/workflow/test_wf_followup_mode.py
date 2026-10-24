@@ -17,6 +17,8 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+import app.ai.stop_gates as sg
+from app.ai.stop_gates import report_reviewer
 import app.database as _db
 from app.models.schedule import Schedule
 from app.models.task import Task
@@ -399,3 +401,130 @@ class TestFollowUpKwargs:
         assert (
             run_calls[-1].message_history is None
         )  # resume uses session_id, not history
+
+
+class TestFollowupOnCompletedSkipsReview:
+    """A message on a COMPLETED task marks it a follow-up: the DoD
+    reviewer stands down for it, and the agent is told so — a skill's
+    review loop, already in context or loaded later this turn, would
+    otherwise have it review anyway."""
+
+    async def _send(
+        self, admin_client, monkeypatch, tmp_path, *, bind=None, **seed
+    ):
+        monkeypatch.setattr(sg, 'GATE_BINDINGS_DIR', tmp_path / 'bindings')
+        task_id = await _seed_task(**seed)
+        if bind:
+            sg.record_skill_load(task_id, bind)
+        r = await admin_client.post(
+            f'/api/tasks/{task_id}/messages',
+            json={'content': 'list the files in the task directory'},
+        )
+        assert r.status_code == 200
+        return task_id
+
+    def _delivered(self, install_fake_agent, task_id):
+        run_calls = install_fake_agent.get_calls(task_id=task_id, action='run')
+        assert run_calls, 'FakeAgent.run was not invoked'
+        return run_calls[-1].prompt
+
+    async def test_completed_review_task_becomes_a_followup(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        task_id = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            bind='amazon-ads',
+            status='completed',
+            plan_mode=False,
+            started_at='2026-07-16T00:00:00+00:00',
+        )
+        assert report_reviewer.is_followup(task_id)
+        assert report_reviewer.FOLLOWUP_NOTE in self._delivered(
+            install_fake_agent, task_id
+        )
+        # Nothing lands in the agent's workspace.
+        assert not (tmp_path / 'tasks' / task_id).exists()
+        # The stored transcript keeps the user's own words only.
+        async with _db.async_session() as db:
+            msg = (
+                await db.execute(
+                    select(TaskMessage).where(
+                        TaskMessage.task_id == task_id,
+                        TaskMessage.role == 'user',
+                    )
+                )
+            ).scalar_one()
+        assert msg.content == 'list the files in the task directory'
+
+    async def test_note_does_not_wait_for_a_bound_skill(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        """The first turn bound no review skill, yet the follow-up turn
+        is told: the agent can load a skill with a review loop mid-turn
+        (observed in CI — it then spawned a reviewer the server no longer
+        required)."""
+        task_id = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            status='completed',
+            plan_mode=False,
+            started_at='2026-07-16T00:00:00+00:00',
+        )
+        assert report_reviewer.FOLLOWUP_NOTE in self._delivered(
+            install_fake_agent, task_id
+        )
+
+    async def test_failed_task_continued_is_still_reviewed(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        task_id = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            bind='amazon-ads',
+            status='failed',
+            plan_mode=False,
+            started_at='2026-07-16T00:00:00+00:00',
+        )
+        assert not report_reviewer.is_followup(task_id)
+        assert report_reviewer.FOLLOWUP_NOTE not in self._delivered(
+            install_fake_agent, task_id
+        )
+
+    async def test_plan_only_task_is_not_a_followup(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        install_fake_agent.default_scenario = FakeAgentScenario(plan='## p')
+        task_id = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            status='completed',
+            plan_mode=True,
+            is_plan_only=True,
+        )
+        assert not report_reviewer.is_followup(task_id)
+
+    async def test_retry_clears_it(
+        self, admin_client, install_fake_agent, monkeypatch, tmp_path
+    ):
+        """A retry starts the task over; its first run is reviewed."""
+        task_id = await self._send(
+            admin_client,
+            monkeypatch,
+            tmp_path,
+            status='completed',
+            plan_mode=False,
+            started_at='2026-07-16T00:00:00+00:00',
+        )
+        assert report_reviewer.is_followup(task_id)
+        async with _db.async_session() as db:
+            t = await db.get(Task, task_id)
+            t.status = 'completed'
+            await db.commit()
+        r = await admin_client.post(f'/api/tasks/{task_id}/retry', json={})
+        assert r.status_code == 200, r.text
+        assert not report_reviewer.is_followup(task_id)

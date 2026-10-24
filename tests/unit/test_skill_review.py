@@ -1,5 +1,7 @@
 """Parsing the per-skill ``review:`` Definition-of-Done block (Phase 2)."""
 
+from pathlib import Path
+
 import pytest
 
 from app.ai.skill_review import (
@@ -95,3 +97,22 @@ class TestSkillsRequiringReview:
             skills_requiring_review(frozenset({'amazon-shared'}), tmp_path)
             == {}
         )
+
+
+def test_amazon_ads_reviewer_checks_data_not_format():
+    """amazon-ads had no `review:` block, so the agent handed its reviewer
+    the whole output spec as "criteria". In CI the reviewer checked the
+    live data in 30 seconds, then spent eight minutes re-running the
+    server's format checks and hunting for the checker's source -- past
+    the deadline. The contract is the data; format is the server's."""
+    skill_md = (
+        Path(__file__).resolve().parents[2]
+        / 'app/skills_v2/amazon-ads/SKILL.md'
+    )
+    review = parse_skill_review(skill_md)
+    assert review is not None
+    criteria = ' '.join(review.criteria.split())
+    verify_by = ' '.join(review.verify_by.split())
+    assert 'match what the live console shows' in criteria
+    assert 'investigate' in criteria
+    assert "Do NOT re-check the report's format" in verify_by

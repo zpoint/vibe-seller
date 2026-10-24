@@ -23,16 +23,20 @@ campaign's own page. ``tests/unit/test_fake_ads_console.py`` pins that.
 The ``vibe_seller_declare_ad_task`` call is checked only *if the agent
 made one*, because the design does not promise one here. The declaration
 requirement is carried by the ad skills, and the gate that refuses a
-report lacking one lives in that same skill bundle and only bites a
-report presenting per-marketplace coverage. A localhost stub is neither
-Amazon nor noon, so the skill need not load and the report carries no
-combo sections. Observed in CI on ``glm-4.7``: a correctly scoped review
-that named the asked-about campaign, explicitly said it had not opened
-the other, and declared nothing. That is the fail-safe direction — no
-declaration means no console, so nothing over-wide is ever offered — and
-failing the run for it would be pinning a model's habits, not a
-contract. What must never happen is a declaration WIDER than the
-request, and that is asserted whenever one exists.
+report lacking one lives in that same skill bundle. The store is an
+Amazon US store (``StoreCreate`` defaults), so a model MAY load
+``amazon-ads`` for a bid review — and then its completeness check holds
+the report to a real audit, which is why the stub's figures must be ones
+a real console could show (see ``fake_ads_console``; it deliberately
+does not brand itself as Amazon, which invited a full audit for a
+lookup). It may equally answer straight off the page without the skill. Observed in CI on ``glm-4.7``: a
+correctly scoped review that named the asked-about campaign, explicitly
+said it had not opened the other, and declared nothing. That is the
+fail-safe direction — no declaration means no console, so nothing
+over-wide is ever offered — and failing the run for it would be pinning
+a model's habits, not a contract. What must never happen is a
+declaration WIDER than the request, and that is asserted whenever one
+exists.
 
 The console's own filtering (``scope ∩ report``) is deterministic
 TypeScript, pinned separately in
@@ -142,6 +146,12 @@ class TestScopeSurvivesAFollowUp:
         )
 
         # ── Phase 2: same task, new turn, one campaign ───────────────
+        # The exclusion starts HERE. Phase 1 ("how much did we spend")
+        # excluded nothing, and an agent that broke the totals down by
+        # campaign there opened both pages -- observed in CI, where the
+        # whole-test log then failed a phase 2 that never touched the
+        # excluded campaign. The scope assertion is about this turn.
+        phase2_start = ads_console.mark()
         r = api_client.post(
             f'{BASE_URL}/api/tasks/{task_id}/messages',
             json={
@@ -154,11 +164,21 @@ class TestScopeSurvivesAFollowUp:
             },
         )
         r.raise_for_status()
+        # A bid review is an audit when the model follows the store's
+        # ``amazon-ads`` skill — drill, TSVs, a report the completeness
+        # check accepts — and that is the slower job, same as the wide
+        # test below: observed at ~10 min on MiniMax for one campaign.
+        # The answer-off-the-page path still finishes in about a minute.
+        # The budget is for the honest job, not for a gate: the review
+        # gate's re-drives are bounded by wall clock at the source
+        # (``app/ai/review_redrive.py``), and a follow-up on a completed
+        # task is not reviewed at all.
         second = poll_task_status(
             api_client,
             task_id,
             {'completed', 'failed'},
             fail_statuses=set(),
+            timeout=PIPELINE_TIMEOUT * 2,
         )
         assert second['status'] == 'completed', (
             f'phase 2 failed: {second.get("error")}'
@@ -174,9 +194,12 @@ class TestScopeSurvivesAFollowUp:
             f'the campaign the user asked about was never opened, so the '
             f'review cannot have been grounded in its data: {served}'
         )
-        assert not ads_console.fetched_campaign(CAMPAIGN_B), (
-            f'the campaign the user explicitly excluded was opened — the '
-            f'narrowing follow-up did not bound the work: {served}'
+        assert not ads_console.fetched_campaign(
+            CAMPAIGN_B, since=phase2_start
+        ), (
+            f'the campaign the user explicitly excluded was opened after '
+            f'the narrowing follow-up — it did not bound the work: '
+            f'{served[phase2_start:]}'
         )
 
         # ── Each turn leaves its own answer ──────────────────────────

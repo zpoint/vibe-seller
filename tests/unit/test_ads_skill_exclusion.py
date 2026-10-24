@@ -112,3 +112,48 @@ def test_the_routing_is_kept_for_the_task_not_the_session():
         ads_routing.refusal_for('other-task', 'Skill', {'skill': 'amazon-ads'})
         is None
     )
+
+
+@pytest.mark.parametrize(
+    'command',
+    [
+        f'cat {SHARED}/amazon-ads-api/SKILL.md | head -120',
+        f'sed -n 25,200p {SHARED}/amazon-ads-api/SKILL.md',
+    ],
+)
+def test_a_shell_read_of_the_excluded_skill_is_refused_too(command):
+    """Observed in CI: refused the Read, a planner went straight to `cat`.
+    A refusal that one tool honours and another walks around only costs
+    time."""
+    out = _decision(UNBOUND, 'Bash', {'command': command})
+    assert out['permissionDecision'] == 'deny'
+
+
+def test_a_shell_command_naming_an_allowed_skill_runs():
+    out = _decision(
+        UNBOUND, 'Bash', {'command': f'cat {SHARED}/amazon-ads/SKILL.md'}
+    )
+    assert out['permissionDecision'] == 'allow'
+
+
+class TestStorelessTask:
+    """A planner or orchestrator writes for EVERY store, bound ones
+    included. "This task's store is not authorized — use the browser
+    skill" contradicted the design and sent a CI planner into the browser
+    audit skill and then into testing the API by hand."""
+
+    def test_it_is_told_the_design_not_that_its_store_is_unbound(self):
+        ads_routing.remember('planner', UNBOUND, has_store=False)
+        reason = ads_routing.refusal_for(
+            'planner', 'Skill', {'skill': 'amazon-ads-api'}
+        )
+        assert reason and 'WHAT' in reason and 'no store' in reason
+        assert "this task's store is not" not in reason
+        assert 'vibe_seller_ads_call' in reason
+
+    def test_a_store_task_keeps_its_own_message(self):
+        ads_routing.remember('store-task', UNBOUND, has_store=True)
+        reason = ads_routing.refusal_for(
+            'store-task', 'Skill', {'skill': 'amazon-ads-api'}
+        )
+        assert reason and "this task's store is not" in reason

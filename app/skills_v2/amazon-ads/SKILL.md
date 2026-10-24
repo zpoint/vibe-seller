@@ -4,6 +4,26 @@ description: "Amazon Sponsored Products / Sponsored Brands / Sponsored Display a
 allowed-tools: Bash(browser-use:*)
 requires: [amazon-shared]
 gates: [ad_change_cooldown, ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity, ad_writeback_backing]
+review:
+  criteria: |
+    - Every active campaign in the declared scope was drilled: its
+      targeting table and its search terms are in the report, read from
+      the console for the same date window.
+    - The report's figures (spend, sales, orders, clicks, bids — per
+      keyword and per search term) match what the live console shows.
+    - Every recommendation names a keyword or search term that really
+      exists on the console, with an exact action.
+    - For an `investigate` task (figures only, no recommendations), the
+      figures in the answer match the console; nothing more is owed.
+  verify_by: |
+    Open the console with the wrapper. Count the active campaigns
+    yourself (do not trust the report's total), open a sample of
+    campaign pages and compare their figures with the report, and
+    confirm a few recommended keywords / search terms exist. Do NOT
+    re-check the report's format — headings, the 进度 line, the
+    reconciliation-line syntax, table layout: the server's completeness
+    check owns format and runs on every submission. Write the verdict as
+    soon as the data is checked.
 ---
 
 # Amazon Ads — Catalog

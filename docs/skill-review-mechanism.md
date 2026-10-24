@@ -58,6 +58,20 @@ filename or a result-shape regex (both proven leaky — a report named
   the task; the infra runs the DoD review for each that declares one.
 - Survives resume / compaction / surgical-fix sessions (the reason the
   durable binding exists).
+- **Not on a follow-up to a completed task.** A user message that
+  arrives while the task is `COMPLETED` marks the task a follow-up
+  (`report_reviewer.mark_followup`, set by
+  `POST /api/tasks/{id}/messages`; one file per task id under
+  `data/followups/`, server-owned like the bindings — never in the task
+  dir, where the agent would find and puzzle over it). `reviewer_verdict`
+  — the verdict the Stop hook, the ending-turn re-drive and
+  `set_task_result` share — stands down for every later turn. The
+  delivered message tells the agent so on every follow-up — a skill it
+  loads mid-turn would otherwise have it run the loop anyway. A
+  failed/stopped run that
+  is continued is still reviewed; a retry and task deletion clear the
+  mark. Gates on live writes — the listing upload verdicts and the ads
+  execution review — are separate checks and still apply.
 
 ## 3. The review — hybrid, two tiers
 
@@ -133,6 +147,14 @@ answered by **going and looking**, not by reading the writer's prose.
   and the result path re-drive the agent while any launched subagent is
   still running — bounded by the same redrive budget, failing open with
   the UNVERIFIED banner so a lost notification can't wedge the turn.
+  The completion notice arrives between tool calls, so the agent keeps
+  working or waits in short steps (`TaskOutput` only where the CLI
+  offers it — not every version does); a foreground `sleep` of 30s or
+  more while one is pending is denied (`app/ai/background_wait.py`),
+  because the notice cannot arrive while it blocks.
+- **`ok` ends the loop.** Every reviewer deny carries the loop conduct
+  (`REVIEW_LOOP_CONDUCT`): after `Status: ok` the agent does not edit the
+  deliverable for non-blocking notes — it lists them for the user.
   Under the process-per-turn model
   (`app/ai/claude_backend_turns.py`) this hold is additionally
   structural: the quiescence watchdog refuses to close stdin while

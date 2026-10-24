@@ -92,7 +92,9 @@ class ClaudeCodeBackend(AIAgentBackend):
             # console in a browser, and the two need different
             # instructions. See app/ads_routing.py.
             ads_exclusions = await _ads_skill_exclusions(task_id, no_store)
-            ads_routing.remember(task_id, ads_exclusions)
+            ads_routing.remember(
+                task_id, ads_exclusions, has_store=not no_store
+            )
 
             # Prepare isolated per-task workspace. All other skills
             # (including browser-use) are copied regardless of store —
