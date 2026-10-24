@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 
-from app.ai.stop_gates import ad_scope
+from app.ai.stop_gates import ad_reconcile, ad_scope
 
 # A campaign block is a "### " heading that carries a campaign id
 # (Amazon: long numeric; noon: C_XXXX; or Amazon alphanumeric *entity*
@@ -30,37 +30,10 @@ from app.ai.stop_gates import ad_scope
 # here and is re-imported by the main module.
 _CAMPAIGN_HEAD_RE = re.compile(r'\d{10,}|C_[A-Z0-9]{6,}|A[0-9A-Z]{16,}')
 
-# Machine-readable reconciliation line (output-spec):
-#   搜索词对账: 定向花费 USD 942.39 / 点击 762 = 搜索词花费 USD 942.39 / 点击 762 (✓)
-# CLICKS ARE OPTIONAL, because the gate grades SPEND and the spec itself
-# calls clicks advisory ("Amazon's search-term report strips invalid
-# clicks, so click totals can legitimately diverge"). Requiring them to
-# PARSE was stricter than the contract being enforced, and some pages
-# simply do not expose the column: three live Amazon AU campaigns wrote
-# `定向花费 X = 搜索词花费 Y` and said so on the same line — "定向页与
-# 搜索词页均不提供 clicks 列". The gate then reported the line as
-# unparseable and demanded "四个数字齐全", i.e. demanded a number the
-# platform does not publish. An unsatisfiable check is a standing order to
-# retry the impossible, which is the failure mode already fixed for the
-# below-floor and contradiction cases.
-#
-# The optional targeting-clicks group is bounded by ``[^\n=]`` so it can
-# only match BEFORE the ``=``; without that it would happily consume the
-# search-term side's click count and pair the wrong numbers.
-# The label may carry markdown emphasis. Agents bold it — `**搜索词对账**:`
-# — because it is a label, and the report is markdown. Requiring the colon
-# to sit flush against the characters made an otherwise-perfect line
-# unparseable, and the resulting gap said only "格式不对" without naming
-# the emphasis, so the agent had to guess what to change. Observed live on
-# eleven campaigns at once. ``ad_rollup._RECON_RE`` already tolerated it,
-# so the two readers of the same line disagreed.
-_RECONCILE_RE = re.compile(
-    r'(?:\*\*|__|\*)?\s*搜索词对账\s*(?:\*\*|__|\*)?\s*[:：]'
-    r'[^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)'
-    r'(?:[^\n=]*?点击[^\d\n]*([\d,]+))?'
-    r'[^\n]*?搜索词花费[^\d\n]*([\d,]+(?:\.\d+)?)'
-    r'(?:[^\n]*?点击[^\d\n]*([\d,]+))?'
-)
+# Machine-readable reconciliation line — its grammar (both languages,
+# optional clicks, tolerated emphasis) lives in ``ad_reconcile``, shared
+# with the rollup cross-check so the two readers cannot disagree.
+_RECONCILE_RE = ad_reconcile.RECONCILE_RE
 # A campaign's NAME is what a human calls it; the id is a lookup handle.
 # ``output-spec.md`` requires the name in both the combo table
 # (`| id | name | type | …`) and each drill heading
@@ -390,7 +363,9 @@ def _check_campaign_blocks(
             # written a line, was told the layer was absent, and spent 11
             # rounds rewriting prose instead of fixing the line.
             raw = [
-                ln.strip() for ln in block.splitlines() if '搜索词对账' in ln
+                ln.strip()
+                for ln in block.splitlines()
+                if ad_reconcile.LABEL_RE.search(ln)
             ]
             if raw:
                 unparsed.append(f'「{name}」{raw[0][:70]}')
@@ -505,7 +480,10 @@ def _check_campaign_blocks(
             '`搜索词对账: 定向花费 <币> X = 搜索词花费 <币> Y (✓/✗)`。'
             '点击数**可选**——页面确实不提供 clicks 列时省掉即可，'
             '有就写成 `定向花费 <币> X / 点击 A = 搜索词花费 <币> Y / 点击 B`'
-            '（对账只看花费，点击仅供参考）。写「需回采」「待导出」'
+            '（对账只看花费，点击仅供参考）。英文报告可以写英文：'
+            '`Search-term reconciliation: targeting spend <cur> X / clicks A '
+            '= search-term spend <cur> Y / clicks B (✓/✗)`，两种都认。'
+            '写「需回采」「待导出」'
             '「→ 当前 30 天 …」这类'
             '说明**等于承认这一层没取到**——那就去把搜索词页锁到同一个 30 天'
             '窗口重新取数，再填上四个数字；确实没有搜索词报告的活动类型'

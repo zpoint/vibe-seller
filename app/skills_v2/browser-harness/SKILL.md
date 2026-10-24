@@ -93,8 +93,11 @@ start of the next invocation instead of assuming where you left off.
    is the primary way to drive the browser; a non-vision model completes
    the whole flow this way.
 3. **See the layout (OPTIONAL — vision models only):**
-   `capture_screenshot()` returns a PNG path (`~/.vibe-seller/bh-tmp/shot.png`,
+   `capture_screenshot()` returns a PNG path (`~/.vibe-seller/bh-tmp/<session>/shot.png`,
    overwritten each call); `print()` it and **Read that PNG** to view it.
+   It is a Python helper — call it **inside** the `browser-use <<'PY'`
+   heredoc; typed as a shell command it is a bash parse error, and an
+   `ls` of the dir then shows an older picture, not this page.
    Use it only to disambiguate a crowded layout — never *depend* on it. If
    your model can't view images, skip screenshots entirely and use step 2.
 
@@ -125,7 +128,7 @@ Helpers are pre-imported into the heredoc namespace:
 ```python
 new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
 page_info()  # structured summary of the current page
-capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/shot.png); LAYOUT only, never data
+capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/<session>/shot.png); LAYOUT only, never data
 click_at_xy(x, y)  # click at pixel coordinates
 wait_for_load()  # wait for navigation/network to settle
 ensure_real_tab()  # switch off a stale/internal (chrome://) tab
@@ -243,7 +246,7 @@ it. A plain JS `.click()` still no-ops on `kat-*` — you need the trusted
 
 For an element inside an **open shadow root** (Amazon `kat-*`), pierce it
 in the selector: `document.querySelector('kat-file-upload').shadowRoot.querySelector('input')`.
-Set an input's value with `js("document.querySelector('#q').value='socks'")`
+Set an input's value with `js("document.querySelector('#q').value='kettle'")`
 (then click its search icon — some inputs need the click to fire events).
 
 Only the helpers above (plus Python builtins) are in scope — the heredoc

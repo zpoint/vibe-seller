@@ -77,6 +77,45 @@ add the id to that combo's `collected`.
    degraded page and leave the product uncollected: if you truly cannot
    sign in, record the ASIN as a NAMED gap (still uncollected in the
    manifest), never a stale file.
+
+   **Read the rating summary by these selectors only** — they are the
+   product's own widget. Never a page-wide `i.a-icon-star` / `.a-icon-alt`
+   lookup: on a product with no ratings that returns a *review row's*
+   star (observed: unrated products yield `5.0`).
+   ```bash
+   browser-use <<'PY'
+   print(js("""
+     var pick = function (s) { var e = document.querySelector(s); return e ? (e.getAttribute('title') || e.textContent).trim() : null; };
+     var pct = function (r) { var a = r.querySelector('[aria-label]'); var m = a && a.getAttribute('aria-label').match(/(\\d+)\\s*(%|percent)/); return m ? Number(m[1]) : null; };
+     var rows = Array.from(document.querySelectorAll('#histogramTable li'));  // 5 rows, 5 star first
+     return JSON.stringify({
+       title:  pick('#productTitle'),                                        // dp/ page rendered
+       rating: pick('[data-hook=rating-out-of-text]') || pick('#acrPopover'),       // "1 out of 5" / "1.0 out of 5 stars"
+       count:  pick('[data-hook=total-review-count]') || pick('#acrCustomerReviewText'),  // "1 global rating" / "(1)"
+       histogram: rows.length === 5 ? {5: pct(rows[0]), 4: pct(rows[1]), 3: pct(rows[2]), 2: pct(rows[3]), 1: pct(rows[4])} : null,
+     });
+   """))
+   PY
+   ```
+   Parse the leading number of `rating` and `count`, and write
+   `histogram` as **`rating_histogram`** — percent of ratings per star,
+   keys `"5"`…`"1"` (e.g. `{"5": 84, "4": 0, "3": 12, "2": 0, "1": 4}`).
+   It is how a consumer learns that a review it stored earlier has since
+   been removed (a 0% star on a small count has no rating left), so copy
+   it exactly as the page shows it. **Rating, count and histogram all
+   absent is not yet a zero** — an empty or half-loaded reviews page keeps
+   its URL and reads exactly the same. Confirm on the product page before
+   declaring anything: open `https://www.amazon.<tld>/dp/<asin>`, and
+   require **both** `#productTitle` present **and**
+   `document.querySelector('input#ASIN').value` equal to the ASIN you
+   asked for (a dp/ link can land on a sibling variant). Then re-read the
+   three widgets above on that page. Only when that page passes both
+   checks and still has no rating, count or histogram is it a product
+   with no ratings: write `rating: 0`, `rating_count: 0`,
+   `no_ratings: true`. Anything else (no title, a different ASIN, block
+   page, sign-in, timeout) is a NAMED gap — write no file. A rating with
+   no count, or a count with no rating, means the read failed: re-open
+   and retry.
 2. Extract each review block via `js("return …")` returning JSON:
    stars, date, title, body, verified flag, variant, and the review id
    (`data-hook="review"` carries an `id`; fall back to a stable hash of
@@ -109,7 +148,9 @@ add the id to that combo's `collected`.
 1. Open the product page. **Read the overall rating + rating count from
    this page's header and record them as `rating`/`rating_count`** — the
    value on the page you opened, never copied from a sibling variant,
-   another country, or a previous run. Then scroll to the reviews
+   another country, or a previous run. A page that rendered with no
+   rating at all is `rating: 0`, `rating_count: 0`, `no_ratings: true`,
+   exactly as on Amazon. Then scroll to the reviews
    section, switch the sort to newest/by-date (verify the exact control on
    the live page — it has moved between noon redesigns), and page/scroll
    through all reviews.

@@ -21,6 +21,60 @@ from listing_schema import resolve_operation, row_fields  # noqa: E402
 MINT_KEY = 'mint_new_asin'
 
 
+def _op_key(spec_row):
+    return (spec_row.get('operation') or 'create').strip().lower()
+
+
+def _pinned_asin(spec_row, spec, schema):
+    """The ASIN a row pins, or '' -- only product_id_type=asin counts."""
+    id_field = schema.field('product_id')
+    type_field = schema.field('product_id_type')
+    if not id_field:
+        return ''
+    fields = row_fields(spec_row, spec, schema)
+    fields = {schema.resolve_field(k): v for k, v in fields.items()}
+    pinned = str(fields.get(id_field) or '').strip()
+    kind = str(fields.get(type_field) or '').strip().lower()
+    return pinned if kind == 'asin' else ''
+
+
+# An edit of an existing SKU must also name the ASIN it edits. Observed
+# live: a copy-only `Edit (Partial Update)` that carried no product id
+# (title, bullets, material, a product-type re-file) came back clean, and
+# within the hour Amazon had re-matched every variant SKU of the family to
+# NEW ASINs on one marketplace -- FNSKU and created date unchanged, the old
+# ASINs gone from the storefront, its sibling marketplace untouched. With
+# no product id on the row Amazon re-runs catalog matching on the new
+# attributes; a pinned ASIN tells it which record the edit belongs to.
+PIN_OPS = ('partialupdate', 'update')
+
+
+def pin_guard(rows, spec, schema):
+    """Refuse an edit / full-update row without a pinned ASIN."""
+    missing = [
+        str(r.get('sku') or f'row {i}')
+        for i, r in enumerate(rows)
+        if _op_key(r) in PIN_OPS and not _pinned_asin(r, spec, schema)
+    ]
+    if not missing:
+        return None
+    if not schema.field('product_id'):
+        return (
+            'error: this template has no product id column, so the edit '
+            'rows cannot pin their ASIN ({skus}). Download the category '
+            'template that carries one.'
+        ).format(skus=', '.join(missing))
+    return (
+        'error: {n} edit row(s) carry no ASIN: {skus}. Without the ASIN '
+        'Amazon re-runs catalog matching on the new attributes and can '
+        'move the SKU to a DIFFERENT ASIN (observed live on a copy-only '
+        "partial update). Read each SKU's current ASIN (Listings API, "
+        'Manage Inventory or the All-Listings report, on THIS marketplace) '
+        'and put it on the row: "asin": "B0EXAMPLE1". A parent row pins '
+        'the parent ASIN.'
+    ).format(n=len(missing), skus=', '.join(missing))
+
+
 def mint_guard(rows, spec, schema):
     """Refuse an UNDECLARED new-ASIN mint -> fatal string or None.
 
@@ -31,8 +85,7 @@ def mint_guard(rows, spec, schema):
     type_field = schema.field('product_id_type')
     creates, undeclared, any_pinned = [], [], False
     for i, spec_row in enumerate(rows):
-        _, op_key = resolve_operation(spec_row.get('operation'), schema.dialect)
-        if op_key != 'create':
+        if _op_key(spec_row) != 'create':
             continue
         fields = row_fields(spec_row, spec, schema)
         fields = {schema.resolve_field(k): v for k, v in fields.items()}
@@ -107,46 +160,92 @@ def mint_guard(rows, spec, schema):
     ).format(n=len(undeclared), skus=', '.join(undeclared), key=MINT_KEY)
 
 
-# A `delete` row removes the SKU, and on a unified account the SKU is
-# ACCOUNT-scoped: a Delete uploaded on ONE storefront took the SKU off every
-# marketplace it sold on. Observed live -- an AE-only delete of three
-# children, uploaded on the AE host with an AE-stamped template, also
-# deleted the same three SKUs on SA, which the user had said must not be
-# touched. The feed reported a clean delete; nothing downstream noticed.
-DELETE_EVERYWHERE_KEY = 'delete_everywhere'
+def ops_guard(rows, allowed):
+    """Refuse a disabled operation, or one outside ``--ops``.
 
-
-def delete_scope_guard(rows, spec, schema, template_ids):
-    """Refuse an undeclared delete on a multi-marketplace template.
-
-    -> fatal string or None. ``template_ids`` are the marketplaces the
-    template carries columns for; more than one means the account is
-    unified, so a delete cannot be scoped to one storefront.
+    ``allowed`` narrows the run to the operations the task asked for:
+    an "edit the copy" job passes ``--ops partialupdate`` so no row of
+    its spec can create a SKU or mint an ASIN by mistake.
     """
-    if len(set(template_ids or ())) < 2 or spec.get(DELETE_EVERYWHERE_KEY):
-        return None
-    skus = [
-        str(r.get('sku') or f'row {i}')
-        for i, r in enumerate(rows)
-        if resolve_operation(r.get('operation'), schema.dialect)[1] == 'delete'
-    ]
-    if not skus:
+    allowed = {a.strip().lower() for a in allowed or ()}
+    for i, r in enumerate(rows):
+        _, key = resolve_operation(r.get('operation'), 'legacy', allowed)
+        if allowed and key not in allowed:
+            raise SystemExit(
+                f"error: row {i} sku={r.get('sku')} has operation '{key}', "
+                f'but this run allows only {sorted(allowed)} (--ops). Do '
+                'not widen --ops to get past this: the task said which '
+                'operations it may perform.'
+            )
+
+
+# Words of the relationship itself, never a SKU. Observed live: a spec
+# copied from a Listings API dump put `child_relationship_type: variation`
+# into the parent-SKU cell of every child -- the family would not rejoin.
+_RELATIONSHIP_WORDS = {'variation', 'parent', 'child'}
+
+
+def family_guard(rows, spec, schema):
+    """Refuse a parent row naming a parent SKU, or a child naming a non-SKU.
+
+    Where the spec carries parent rows, every child must name one of them.
+    """
+    seen = []
+    for i, r in enumerate(rows):
+        fields = row_fields(r, spec, schema)
+        fields = {schema.resolve_field(k): v for k, v in fields.items()}
+        level = str(fields.get(schema.field('parentage')) or '').strip()
+        parent = str(fields.get(schema.field('parent_sku')) or '').strip()
+        seen.append((str(r.get('sku') or f'row {i}'), level.lower(), parent))
+    parents = {sku for sku, level, _ in seen if level == 'parent'}
+    bad = []
+    for sku, level, parent in seen:
+        if level == 'parent' and parent:
+            bad.append(f'{sku} is a parent but names parent SKU {parent!r}')
+        elif (
+            level == 'child'
+            and parent
+            and (
+                parent.lower() in _RELATIONSHIP_WORDS
+                or (parents and parent not in parents)
+            )
+        ):
+            bad.append(
+                f'{sku} names parent SKU {parent!r}, not one of the '
+                f'parent rows {sorted(parents) or "(none in this spec)"}'
+            )
+    if not bad:
         return None
     return (
-        'error: {n} delete row(s) on a template that carries {mkts} '
-        'marketplaces: {skus}. On this unified account a SKU is '
-        'ACCOUNT-scoped, so a Delete removes it from EVERY one of those '
-        'marketplaces -- not just the storefront you upload on. Observed '
-        'live: an AE-only delete also deleted the same SKUs on SA.\n'
-        '  * The user wants these SKUs gone EVERYWHERE -> declare it: '
-        '"{key}": true on the spec.\n'
-        '  * The user wants them off ONE marketplace only (or means to '
-        'rebuild them on one side) -> do NOT delete. There is no '
-        'one-storefront delete here; stop and tell the user what a delete '
-        'would remove, and ask how to proceed.'
-    ).format(
-        n=len(skus),
-        mkts=len(set(template_ids)),
-        skus=', '.join(skus),
-        key=DELETE_EVERYWHERE_KEY,
+        'error: the parent-SKU column is wrong: ' + '; '.join(bad) + '. '
+        "A parent row leaves it blank; a child names its parent row's "
+        'SKU. "variation" is the relationship type, not a SKU.'
+    )
+
+
+def nested_guard(rows):
+    """Refuse a field value that is an object: one cell holds one value."""
+    bad = [
+        f'{r.get("sku") or f"row {i}"}: {name}'
+        for i, r in enumerate(rows)
+        for name, value in (r.get('fields') or {}).items()
+        if isinstance(value, dict)
+    ]
+    if not bad:
+        return None
+    return (
+        'error: these fields carry an object, and a flat-file cell holds '
+        'one value: ' + ', '.join(bad) + '. Split each into its own '
+        'columns (e.g. item_package_dimensions -> ...#1.length.value, '
+        '...#1.length.unit, ...); `inspect TEMPLATE --field <name>` '
+        'lists them.'
+    )
+
+
+def row_guards(rows, spec, schema):
+    """Every per-row shape check `fill` runs before writing a cell."""
+    return (
+        nested_guard(rows)
+        or pin_guard(rows, spec, schema)
+        or family_guard(rows, spec, schema)
     )

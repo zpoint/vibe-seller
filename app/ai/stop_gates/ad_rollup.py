@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 
-from app.ai.stop_gates import ad_scope
+from app.ai.stop_gates import ad_reconcile, ad_scope
 
 # A combo section header: "## Amazon SA", "## noon AE 市场".
 _COMBO_HEAD_RE = re.compile(r'(?m)^##\s*' + ad_scope.COMBO_HEAD_PATTERN)
@@ -149,7 +149,8 @@ def _combo_table(section: str) -> list[tuple[str, float | None]]:
 
 # The drill block's own authoritative figure: the targeting side of the
 # reconciliation line, which IS the campaign's spend for the window.
-_RECON_RE = re.compile(r'搜索词对账[^\n]*?定向花费[^\d\n]*([\d,]+(?:\.\d+)?)')
+# Group 1 is the targeting spend; the grammar is shared (ad_reconcile).
+_RECON_RE = ad_reconcile.RECONCILE_RE
 # The targeting table's own 合计 footer — a THIRD statement of the same
 # number, inside the same block. Live, a campaign carried a corrected
 # figure in its table AND its reconciliation while the 合计 footer still

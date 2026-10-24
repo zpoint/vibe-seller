@@ -22,7 +22,7 @@ and re-exports the ones tests reach for.
 
 import re
 
-from marketplace_ids import fulfillment_index
+from marketplace_ids import MARKETPLACE_IDS, fulfillment_index
 
 # The Template sheet holds the flat file. Metadata lives in siblings.
 TEMPLATE_SHEET = 'Template'
@@ -120,6 +120,27 @@ def nearest_columns(name, cols, limit=3):
     return sorted(set(hits), key=lambda c: (len(c), c))[:limit]
 
 
+def match_fields(term, cols, mkt_id=None):
+    """Columns an `inspect --field TERM` lookup means -> list of names.
+
+    A unified template decorates every name
+    (`generic_keyword[marketplace_id=...][language_tag=...]#1.value`), so an
+    exact lookup of the bare attribute found nothing and the agent guessed
+    spellings one call at a time. Exact name first, then the base
+    attribute, then any column containing the term.
+    """
+    if term in cols:
+        return [term]
+    want = base_attr(term)
+    names = [c for c in cols if base_attr(c) == want] or [
+        c for c in cols if term.lower() in c.lower()
+    ]
+    if mkt_id:  # one storefront's columns, plus the undecorated ones
+        mkt_id = MARKETPLACE_IDS.get(str(mkt_id).upper(), mkt_id)
+        names = [c for c in names if marketplace_of(c) in (mkt_id, None)]
+    return names
+
+
 _MKT_IN_FIELD_RE = re.compile(r'marketplace_id=(A[0-9A-Z]{8,})')
 
 
@@ -199,7 +220,7 @@ class Schema:
     def op_tokens(self):
         return OP_TOKENS[self.dialect]
 
-    def resolve_field(self, name):
+    def resolve_field(self, name, mkt_id=None):
         """Map a spec `fields` key to the actual header column.
 
         A spec written with a bare/undecorated attribute name (e.g.
@@ -232,6 +253,14 @@ class Schema:
             cands = [c for c in self.cols if base_attr(c) == target]
             if want_mkt:
                 cands = [c for c in cands if marketplace_of(c) == want_mkt]
+            elif mkt_id:
+                # A bare name means the marketplace being filled. Without
+                # this, `item_name` on a two-marketplace template took the
+                # first column -- SA's -- on an AE fill, while the bullet
+                # list beside it (repeat_slots) went to AE.
+                cands = [
+                    c for c in cands if marketplace_of(c) in (mkt_id, None)
+                ] or cands
             if cands:
                 val = [c for c in cands if leaf(c) == 'value']
                 return (val or cands)[0]
@@ -511,9 +540,58 @@ def route_offer_price(fields, cols, mkt_id, i, sku, warnings):
                 )
 
 
-def resolve_operation(op, dialect):
+# Operations this tool refuses to write. Both cost a listing permanently and
+# neither is visible in the feed report, which answers each with a clean
+# success:
+#
+# * `delete` -- on a unified account (MENA: SA / AE) a seller SKU is
+#   ACCOUNT-scoped, so a Delete uploaded on one storefront removed the SKU
+#   from every marketplace it sold on (an AE-only delete of a family's
+#   three children also deleted them on SA). And a deleted SKU can never
+#   be used again: re-creating it lists fine, but publishing it as an FBA
+#   offer is refused ("seller SKU already exists, even if the product that
+#   used it was deleted"), so the whole family had to be
+#   rebuilt under new SKUs.
+# * `update` -- a full replace: every attribute the row leaves blank is
+#   CLEARED on the live listing. Editing existing copy is what
+#   `partialupdate` is for; it changes only the fields the row carries.
+#
+# Taking a listing down is a human decision made in Seller Central, not a
+# row an agent writes. A full update is refused unless the run opts in
+# with `--ops update`, which a task passes only when the user asked for a
+# full update by name (e.g. to re-list SKUs they deleted by hand).
+DISABLED_OPS = {
+    'update': (
+        'a full update CLEARS every attribute the row leaves blank on the '
+        "live listing. Use operation 'partialupdate' -- it changes only the "
+        'fields the row carries.'
+    ),
+    'delete': (
+        'a delete removes the SKU from EVERY marketplace of a unified '
+        'account, and a deleted SKU can never be used as an FBA offer '
+        'again. This tool does not delete listings: stop and tell the user '
+        'which SKUs they would have to remove by hand in Seller Central.'
+    ),
+}
+
+
+# The disabled operations a run may opt back into. Delete never.
+OPT_IN_OPS = frozenset({'update'})
+
+
+def resolve_operation(op, dialect, allowed=()):
+    """(token, key) for a spec operation; refuse a disabled one.
+
+    ``allowed`` is the run's ``--ops``: a disabled operation passes only
+    when it is opt-in-able and the run named it.
+    """
     tokens = OP_TOKENS[dialect]
     key = (op or 'create').strip().lower()
+    opted = {a.strip().lower() for a in allowed or ()} & OPT_IN_OPS
+    if key in DISABLED_OPS and key not in opted:
+        raise SystemExit(
+            f"error: operation '{op}' is disabled -- {DISABLED_OPS[key]}"
+        )
     if key not in tokens:
         raise SystemExit(
             f"error: operation '{op}' is not one of {', '.join(tokens)}"
@@ -674,7 +752,7 @@ def expand_repeats(fields, schema, mkt_id):
         if len(slots) < 2:
             # Not a repeated field in THIS template — keep the first
             # value rather than writing a Python list into a cell.
-            out[schema.resolve_field(name)] = value[0] if value else ''
+            out[schema.resolve_field(name, mkt_id)] = value[0] if value else ''
             if len(value) > 1:
                 warns.append(
                     f'{name} got {len(value)} values but this template '

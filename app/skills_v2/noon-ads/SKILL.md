@@ -407,7 +407,7 @@ The **Target cell carries the match type inline**: it extracts as
 `<keyword> Keyword Exact Match`, `<keyword> Keyword Phrase Match`, or
 `<path> Category Match`. Split it off before using the keyword text —
 and note the **keyword is truncated** in this cell when long
-(`women's socks c...`). To recover full keyword text, read the
+(`usb c fast charg...`). To recover full keyword text, read the
 campaign **editor** (§ 9), whose selected-target list is untruncated.
 
 ### SOI — the column that tells you what you are LEAVING on the table
@@ -892,7 +892,7 @@ dynamic-bid noise.
 
 > **Negative Targeting is available under Auto too** (§ 4 renders with
 > Auto selected). This is the only lever you get on an Auto campaign —
-> use it. Observed live: an Auto campaign matched a store's socks
+> use it. Observed live: an Auto campaign matched a store's
 > listing to unrelated categories (`beauty/…`, `luggage-and-bags/…`) and
 > to opposite-audience queries that drew clicks and **zero** orders.
 > Seed the negative list at creation rather than waiting to harvest.

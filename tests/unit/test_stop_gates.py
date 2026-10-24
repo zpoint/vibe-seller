@@ -785,6 +785,30 @@ class TestAdCompletenessReview:
         scope = _scope(('amazon', 'US', ['100000000000003']))
         assert completeness_gate.check(block, scope=scope) is None
 
+    def test_english_reconcile_line_passes(self):
+        # An English request gets an English report, and the language
+        # gate holds it to English prose. The completeness gate must read
+        # the English line too, or the two gates cannot both be met --
+        # observed in CI, where an audit ran out its clock between them.
+        block = self._campaign_block(
+            '\n#### Search Terms\n'
+            + self.DRILL
+            + '\nSearch-term reconciliation: targeting spend USD 942.39 / '
+            'clicks 762 = search-term spend USD 942.39 / clicks 762 (✓)\n'
+        )
+        scope = _scope(('amazon', 'US', ['100000000000003']))
+        assert completeness_gate.check(block, scope=scope) is None
+
+    def test_english_mismatched_reconcile_still_flagged(self):
+        block = self._campaign_block(
+            '\n#### Search Terms\n'
+            + self.DRILL
+            + '\nSearch-term reconciliation: targeting spend USD 942.39 / '
+            'clicks 762 = search-term spend USD 215.10 / clicks 180 (✗)\n'
+        )
+        deny = completeness_gate.check(block)
+        assert deny is not None and '[对账]' in deny.reason
+
     def test_campaign_with_mismatched_reconcile_flagged(self):
         # 30d targeting vs 7d search-terms: spend 942 vs 215 — way out.
         block = self._campaign_block(
@@ -2020,9 +2044,9 @@ class TestCitedNumberTruthfulness:
         report = (
             '| 搜索词 | 来源关键词 | 匹配 | 点击 | 花费 | 订单 | 销售额 '
             '| ROAS | 建议 |\n|---|---|---|---|---|---|---|---|---|\n'
-            '| panty high waist | panties for ladies | Phrase | 17 '
+            '| kettle 1.7l steel | electric kettle | Phrase | 17 '
             '| 17.00 | 1 | 49.99 | 2.94 | 提取为定向词（Exact，建议出价 '
-            '1.05——ROAS 2.94；来源词 panties for ladies ACOS 120% '
+            '1.05——ROAS 2.94；来源词 electric kettle ACOS 120% '
             '已建议暂停） |\n'
         )
         assert explicit_actions_gate.check(report) is None
@@ -2615,7 +2639,7 @@ class TestPlacementKeywordVerb:
     def test_exact_negation_on_subcat_flagged(self):
         deny = explicit_actions_gate.check(
             self._report(
-                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '| Kitchen/Category-1 | Kitchen/Category-1 | Subcat | 40 | 0 | '
                 '否定精确（40 点击零转化） |\n'
             )
         )
@@ -2635,7 +2659,7 @@ class TestPlacementKeywordVerb:
         """``否定投放`` is the whole action — nothing to disambiguate."""
         deny = explicit_actions_gate.check(
             self._report(
-                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '| Kitchen/Category-1 | Kitchen/Category-1 | Subcat | 40 | 0 | '
                 '否定投放（40 点击 / 90.00 花费零转化，浪费） |\n'
             )
         )
@@ -2644,7 +2668,7 @@ class TestPlacementKeywordVerb:
     def test_hold_on_placement_passes(self):
         deny = explicit_actions_gate.check(
             self._report(
-                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 9 | 2 | '
+                '| Kitchen/Category-1 | Kitchen/Category-1 | Subcat | 9 | 2 | '
                 '维持——转化词，ROAS 4.74 |\n'
             )
         )
@@ -2703,7 +2727,7 @@ class TestNewKeywordSpelling:
     def test_new_spelling_on_a_placement_is_still_flagged(self):
         deny = explicit_actions_gate.check(
             self._report(
-                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 40 | 0 | '
+                '| Kitchen/Category-1 | Kitchen/Category-1 | Subcat | 40 | 0 | '
                 '否定关键词（精准，40 点击零转化） |\n'
             )
         )
@@ -2713,7 +2737,7 @@ class TestNewKeywordSpelling:
         """「不可添加关键词」 explains why it CAN'T be done."""
         deny = explicit_actions_gate.check(
             self._report(
-                '| Apparel/Category-1 | Apparel/Category-1 | Subcat | 9 | 2 | '
+                '| Kitchen/Category-1 | Kitchen/Category-1 | Subcat | 9 | 2 | '
                 '维持——品类位不可添加关键词 |\n'
             )
         )

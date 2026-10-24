@@ -90,8 +90,26 @@ def test_helpers_exist():
     assert _HELPERS, 'no bh_*.py helpers found — did the tree move?'
 
 
+# Helpers whose every page carries its language IN THE URL, so English
+# copy is what renders whatever the session prefers. noon's portals are
+# addressed as `…noon.partners/en/…` (login included); seller central is
+# not, which is what this test exists for.
+_URL_PINNED_LANGUAGE = {'bh_noon_catalog.py', 'bh_noon_signin.py'}
+
+
+def test_url_pinned_helpers_really_pin_the_language():
+    for name in _URL_PINNED_LANGUAGE:
+        (path,) = [p for p in _HELPERS if p.name == name]
+        urls = re.findall(r'https://[^\s\'"]+', path.read_text('utf-8'))
+        assert urls and all('/en/' in u for u in urls), (
+            f'{name} loads a page without /en/ in its URL'
+        )
+
+
 @pytest.mark.parametrize('path', _HELPERS, ids=lambda p: p.name)
 def test_no_english_only_ui_text_match(path):
+    if path.name in _URL_PINNED_LANGUAGE:
+        pytest.skip('language is pinned by the /en/ URL')
     src = path.read_text(encoding='utf-8')
     offenders = [
         pat
@@ -146,6 +164,69 @@ def test_upload_helper_compares_marketplace_ids():
         assert src.index(missing) < stage, 'proof check runs after staging'
 
 
+def _disabled_rows_fn():
+    """Exec just `_disabled_rows` (and its token set) out of the helper."""
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    start = src.index('_DISABLED_TOKENS = ')
+    end = src.index('\n\n\n_bad = ', start)
+    ns = {'os': os}
+    exec(src[start:end], ns)  # noqa: S102 - our own source, under test
+    return ns['_disabled_rows'], src
+
+
+@pytest.mark.parametrize(
+    'head, rows, bad',
+    [
+        (
+            ['item_sku', 'update_delete'],
+            [['A-1', 'partialupdate'], ['A-2', ''], ['A-3', 'Delete']],
+            [('A-3', 'delete')],
+        ),
+        (
+            ['contribution_sku#1.value', '::record_action'],
+            [
+                ['B-1', 'Create or Replace (Full Update)'],
+                ['B-2', 'Edit (Partial Update)'],
+            ],
+            [('B-1', 'create or replace (full update)')],
+        ),
+        (['item_sku', 'update_delete'], [['C-1', 'partialupdate']], []),
+    ],
+)
+def test_upload_refuses_full_update_and_delete_rows(tmp_path, head, rows, bad):
+    """A hand-written upload file never went through `fill`.
+
+    So the upload helper reads the operation column itself and refuses a
+    full-update or delete row before anything is staged.
+    """
+    fn, src = _disabled_rows_fn()
+    f = tmp_path / 'up.txt'
+    lines = [['settings=x'], ['label'], head] + rows
+    f.write_text('\n'.join('\t'.join(r) for r in lines), encoding='utf-8')
+    assert fn(str(f)) == bad
+    assert src.index('REFUSED: the upload file') < src.index(
+        'DOM.setFileInputFiles'
+    )
+
+
+def test_upload_full_update_opt_in_never_covers_delete(tmp_path):
+    """ALLOW_FULL_UPDATE=1 lets a full update through; a delete never."""
+    fn, src = _disabled_rows_fn()
+    f = tmp_path / 'up.txt'
+    lines = [
+        ['settings=x'],
+        ['label'],
+        ['contribution_sku#1.value', '::record_action'],
+        ['B-1', 'Create or Replace (Full Update)'],
+        ['B-2', 'Delete'],
+    ]
+    f.write_text('\n'.join('\t'.join(r) for r in lines), encoding='utf-8')
+    assert fn(str(f), allow_full=True) == [('B-2', 'delete')]
+    assert "os.environ.get('ALLOW_FULL_UPDATE'" in src
+
+
 def test_upload_helper_checks_the_INTENDED_marketplace_too():
     """Two ids agreeing is not enough — they can agree on the wrong one.
 
@@ -180,6 +261,21 @@ def test_upload_helper_reads_submit_state_structurally():
         'readiness is back on an English-only page string'
     )
     assert "hasAttribute('disabled')" in src
+
+
+def test_upload_helper_names_amazons_bad_json_alert_as_a_session_problem():
+    """Amazon's BAD_JSON alert is not a slow page or a bad file.
+
+    Observed live: Submit never enabled, the alert read BAD_JSON_0, the
+    helper advised a longer wait, and the next load went to sign-in.
+    The alert has to send the agent to sign in, not to edit the file.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_upload_flatfile.py'
+    ).read_text(encoding='utf-8')
+    branch = src.index("'BAD_JSON' in a")
+    assert branch < src.index('file staged but Submit never enabled')
+    assert 'bh_signin.py' in src[branch : branch + 400]
 
 
 def _marker_dirs_fn(path, marker_dir):
@@ -234,6 +330,23 @@ def test_marker_dirs_does_not_duplicate_the_workspace(tmp_path, monkeypatch):
     assert _marker_dirs_fn(path, str(ws))() == [str(ws)]
 
 
+def test_fetched_row_is_the_batch_own_row():
+    """The status text is read from the batch's own table row.
+
+    A fixed window of cells around the batch id spilled into the next
+    row, and an agent read another batch's filename as its own upload.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_fetch_report.py'
+    ).read_text(encoding='utf-8')
+    first = src.index('row = js(')
+    own_row = src.index('/ROW|TR/.test(r.tagName', first)
+    window = src.index('seq.slice(', first)
+    assert own_row < window, 'the neighbour-spilling window runs first'
+    # A queued row's Cancel buttons are controls, not its status.
+    assert 'function ctl(c,r)' in src and '!ctl(c,r)' in src
+
+
 def test_fetched_report_is_tagged_with_its_batch():
     """The one moment a report is provably batch N's is when it downloads."""
     src = (
@@ -267,6 +380,41 @@ def test_listing_status_proves_the_marketplace_before_reporting_rows():
     report = src.index("out['rows'] = ")
     assert src.index('MARKETPLACE MISMATCH') < report
     assert src.index('if not live:') < report
+
+
+def test_listing_status_stops_on_a_signed_out_session():
+    """A lapsed session must end with a RESULT, not the wrapper's alarm.
+
+    Observed live: every search redirected to the sign-in page, each read
+    as zero rows, and the per-SKU retries ran past 120s with no output, so
+    the agent abandoned the helper and hand-drove the inventory grid.
+    """
+    src = _listing_status_src()
+    check = src.index("'/ap/signin' in href")
+    assert "'/ap/mfa' in href" in src
+    # Checked right after each load, before any polling for rows.
+    assert src.index('wait_for_load()') < check < src.index('_ROWS_JS) or')
+
+
+@pytest.mark.parametrize(
+    'name', ['bh_fetch_report.py', 'bh_upload_flatfile.py']
+)
+def test_helpers_name_a_signed_out_session(name):
+    """A sign-in page is not "batch not found" or a marketplace problem.
+
+    The sign-in page sets ue_mid, so a lapsed session read as the right
+    marketplace with the batch missing, and the agent was told to switch
+    the account switcher.
+    """
+    src = (_SCRIPTS / 'amazon-listing' / 'scripts' / name).read_text(
+        encoding='utf-8'
+    )
+    check = src.index("'/ap/signin' in _href")
+    assert "'/ap/mfa' in _href" in src
+    assert src.index("out['marketplace'] = js(") < check
+    for later in ('row = js(', 'MARKETPLACE MISMATCH'):
+        if later in src:
+            assert check < src.index(later)
 
 
 def test_listing_status_reads_the_page_by_structure():
@@ -370,3 +518,149 @@ def test_skill_sequences_a_fresh_mint_across_two_marketplaces():
     sec = sec[: sec.index('Make the match **proactively**')]
     for needle in ('mint_new_asin', 'bh_listing_status.py', 'Never\nmint'):
         assert needle in sec, needle
+
+
+def _signin_src():
+    return (_SCRIPTS / 'amazon-shared' / 'scripts' / 'bh_signin.py').read_text(
+        encoding='utf-8'
+    )
+
+
+def test_signin_helper_never_types_a_credential():
+    """It only presses what Ziniao filled -- no value is ever written."""
+    src = _signin_src()
+    assert '.value=' not in src.replace(' ', '')
+    assert 'type_text' not in src and 'insertText' not in src
+
+
+def test_signin_helper_finishes_inside_the_wrapper_alarm():
+    """The wrapper kills a call at 120s; the loop must answer before it."""
+    src = _signin_src()
+    budget = int(re.search(r"'SIGNIN_BUDGET', '(\d+)'", src).group(1))
+    assert budget + 15 < 120
+    assert "RESULT '" in src
+
+
+def test_signin_helper_stops_on_a_broken_env_and_on_a_passkey():
+    """Both are documented hand-offs (SKILL.md §2, §2c), never guessed."""
+    src = _signin_src()
+    assert 'navigator.webdriver===true' in src and "'broken_env'" in src
+    assert "'passkey'" in src
+    skill = (_SCRIPTS / 'amazon-shared' / 'SKILL.md').read_text(
+        encoding='utf-8'
+    )
+    assert 'amazon-shared/scripts/bh_signin.py' in skill
+
+
+def test_fetch_report_tells_pending_from_finished_by_the_count_cell():
+    """A queued batch is pending, not a reason to doubt the helper.
+
+    The old reason text told the agent a byte-identical row might be a
+    stale render, so every honest "still queued" sent it to the status
+    page by hand. A finished batch -- failed included -- shows x/y.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_fetch_report.py'
+    ).read_text(encoding='utf-8')
+    start = src.index("out['pending'] = not any(")
+    expr = src[
+        start + len("out['pending'] = ") : src.index('\n        )', start) + 10
+    ]
+    pending = lambda row: eval(expr, {'re': re, 'row': row})  # noqa: E731, S307
+    assert pending('f.txt | sheet | 1 | N/A | queued')
+    assert pending(
+        'f.txt | 2026/10/19 | 1 | N/A | queued'
+    )  # a date is no count
+    assert not pending('f.txt | sheet | 1 | 5/5 | done')
+    assert not pending('f.txt | sheet | 1 | 0 / 4 | failed')
+    assert 'stale render' not in src
+
+
+def _switch_src():
+    return (
+        _SCRIPTS / 'amazon-shared' / 'scripts' / 'bh_switch_marketplace.py'
+    ).read_text(encoding='utf-8')
+
+
+def test_switch_helper_matches_by_structure_not_words():
+    """Row by the localized region name, confirm by data-test -- no copy.
+
+    Observed live: an agent driving the switcher by hand never found the
+    confirm button (a kat-button) and spent ~45 calls on one switch.
+    """
+    src = _switch_src()
+    assert 'Intl.DisplayNames' in src
+    assert 'kat-button[data-test=confirm-selection]' in src
+    assert 'data-test")==="current-account"' in src
+
+
+def test_switch_helper_verifies_and_refuses_pending_rows():
+    src = _switch_src()
+    # The answer is the session's ue_mid afterwards, never the click.
+    assert "out['ok'] = out['marketplace'] == mid" in src
+    assert 'not an active marketplace' in src  # pending row refused
+    assert "'/ap/signin' in href" in src
+
+
+def test_mismatch_answers_name_the_switch_helper():
+    for name in (
+        'bh_listing_status.py',
+        'bh_fetch_report.py',
+        'bh_upload_flatfile.py',
+    ):
+        src = (_SCRIPTS / 'amazon-listing' / 'scripts' / name).read_text(
+            encoding='utf-8'
+        )
+        assert 'bh_switch_marketplace.py' in src, name
+
+
+def test_downloaded_template_is_named_for_its_marketplace():
+    """An AE template must not overwrite the SA one beside it.
+
+    Amazon names the file after the product type alone (e.g. KETTLE.xlsm);
+    observed live, an AE download replaced the SA template the agent was
+    about to fill.
+    """
+    src = (
+        _SCRIPTS / 'amazon-listing' / 'scripts' / 'bh_download_template.py'
+    ).read_text(encoding='utf-8')
+    tag = src.index("tagged = f'{stem}__{mkt")
+    assert src.index('os.replace(template, tagged)') > tag
+    # Renamed before the result and the upload marker name the file.
+    assert tag < src.index("out['template'] = template")
+
+
+def test_switch_helper_reads_the_session_off_an_ordinary_page():
+    """On the switcher page ue_mid follows the URL host, not the session.
+
+    Read from there, the helper said "already on AE" for a session still
+    on SA and reported a switch it never made -- observed live.
+    """
+    src = _switch_src()
+    reader = src.index('def _session_marketplace():')
+    assert "new_tab(f'https://{HOST}/home')" in src[reader : reader + 900]
+    first_read = src.index("out['marketplace'] = _session_marketplace()")
+    assert first_read < src.index("new_tab(f'https://{HOST}/account-switcher/")
+    assert src.count("out['marketplace'] = _session_marketplace()") == 2
+
+
+@pytest.mark.parametrize(
+    'rel',
+    [
+        'amazon-listing/scripts/bh_fetch_report.py',
+        'amazon-listing/scripts/bh_listing_status.py',
+        'amazon-listing/scripts/bh_upload_flatfile.py',
+        'amazon-listing/scripts/bh_download_template.py',
+        'amazon-shared/scripts/bh_signin.py',
+        'amazon-shared/scripts/bh_switch_marketplace.py',
+    ],
+)
+def test_helpers_name_a_missing_parameter(rel):
+    """A missing env var is a RESULT line, never a KeyError traceback."""
+    src = (_SCRIPTS / rel).read_text(encoding='utf-8')
+    assert "os.environ['" not in src
+    start = src.index('def _env(name):')
+    ns = {'os': os, 'json': __import__('json')}
+    exec(src[start : src.index('\n\n\n', start)], ns)  # noqa: S102
+    with pytest.raises(SystemExit):
+        ns['_env']('VIBE_TEST_SURELY_UNSET')

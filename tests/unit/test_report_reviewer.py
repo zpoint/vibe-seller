@@ -445,3 +445,49 @@ def test_gate_names_the_verdict_file_by_absolute_path(tmp_path):
     deny = rr.reviewer_verdict(tmp_path)
     assert deny is not None
     assert str(tmp_path.resolve()) + '/REVIEW_' in deny
+
+
+@pytest.mark.unit
+class TestReviewFilesWritten:
+    """Which review files a tool call writes — Write/Edit, or a shell
+    redirect INTO the file. Reads never count."""
+
+    @pytest.mark.parametrize(
+        ('tool', 'tool_input', 'expected'),
+        [
+            (
+                'Write',
+                {'file_path': '/ws/REVIEW_x_iter1.md'},
+                ['REVIEW_x_iter1.md'],
+            ),
+            ('Edit', {'file_path': 'REVIEW_x_iter2.md'}, ['REVIEW_x_iter2.md']),
+            (
+                'Bash',
+                {
+                    'command': "cat > /ws/REVIEW_x_iter1.md <<'EOF'\nStatus: ok\nEOF"
+                },
+                ['REVIEW_x_iter1.md'],
+            ),
+            (
+                'Bash',
+                {'command': 'echo ok >> "REVIEW_x_iter1.md"'},
+                ['REVIEW_x_iter1.md'],
+            ),
+            (
+                'Bash',
+                {'command': 'printf s | tee -a /ws/EXEC_REVIEW_y_iter1.md'},
+                ['EXEC_REVIEW_y_iter1.md'],
+            ),
+            ('Bash', {'command': 'cat /ws/REVIEW_x_iter1.md'}, []),
+            (
+                'Bash',
+                {'command': 'grep Status REVIEW_x_iter1.md > /tmp/out.txt'},
+                [],
+            ),
+            ('Bash', {'command': 'echo hi > PREVIEW.md'}, []),
+            ('Read', {'file_path': 'REVIEW_x_iter1.md'}, []),
+            ('Bash', 'not-a-dict', []),
+        ],
+    )
+    def test_cases(self, tool, tool_input, expected):
+        assert rr.review_files_written(tool, tool_input) == expected

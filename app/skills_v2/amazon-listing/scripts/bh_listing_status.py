@@ -40,8 +40,30 @@ import os
 import time
 from urllib.parse import quote
 
-HOST = os.environ['SC_HOST'].strip().rstrip('/')
-SKUS = [s.strip() for s in os.environ['SKUS'].split(',') if s.strip()]
+
+def _env(name):
+    """A required parameter, or one RESULT line saying how to pass it.
+
+    A plain `NAME=value` line before the command never reaches this
+    script; an agent did exactly that and got a bare KeyError traceback.
+    """
+    value = os.environ.get(name, '').strip()
+    if not value:
+        print(
+            'RESULT '
+            + json.dumps({
+                'ok': False,
+                'reason': f'{name} is not set -- put it on the same line '
+                'as browser-use (NAME=value browser-use < script) or '
+                'export it',
+            })
+        )
+        raise SystemExit(0)
+    return value
+
+
+HOST = _env('SC_HOST').strip().rstrip('/')
+SKUS = [s.strip() for s in _env('SKUS').split(',') if s.strip()]
 _WAIT = int(os.environ.get('INV_WAIT', '20'))
 
 # Domain / country -> marketplace id. Public platform constants, inline
@@ -153,6 +175,17 @@ def _search(term):
         '&sort=date_created_desc&status=all'
     )
     wait_for_load()
+    # A lapsed session redirects every search to the sign-in / MFA page,
+    # which has no rows -- read as "not found", that cost the full wait per
+    # SKU and ran past the wrapper's 120s alarm with no RESULT line at all.
+    href = js('return location.href') or ''
+    if '/ap/signin' in href or '/ap/mfa' in href:
+        out['signed_out'] = True
+        _finish(
+            f'signed out -- {HOST} redirected the inventory search to the '
+            'sign-in page. Run amazon-shared/scripts/bh_signin.py, then '
+            're-run this helper; nothing was read.'
+        )
     rows, last, stable = {}, None, 0
     deadline = time.time() + _WAIT
     while time.time() < deadline:
@@ -200,7 +233,8 @@ def _proven_search(term):
         _finish(
             f'MARKETPLACE MISMATCH -- this session is on {live}, you asked '
             f'for {want}. The URL host does not decide which inventory '
-            'renders; switch the account to the target marketplace first'
+            'renders; switch the account with '
+            'amazon-shared/scripts/bh_switch_marketplace.py, then re-run'
         )
     return rows
 

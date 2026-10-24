@@ -27,7 +27,12 @@ import urllib.request
 
 import pytest
 
-from tests.e2e.fake_ads_console import CAMPAIGN_A, CAMPAIGN_B, serve
+from tests.e2e.fake_ads_console import (
+    CAMPAIGN_A,
+    CAMPAIGN_B,
+    CAMPAIGN_DATA,
+    serve,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -89,3 +94,50 @@ def test_both_campaigns_are_listed_but_not_detailed(console):
     listed = _cells(console, '/campaigns')
     for cid in (CAMPAIGN_A, CAMPAIGN_B):
         assert cid in listed, f'{cid} vanished from the campaign list'
+
+
+@pytest.mark.parametrize('cid', [CAMPAIGN_A, CAMPAIGN_B])
+def test_figures_a_real_console_could_show(cid):
+    """CPC never exceeds the bid, and search-term spend reconciles to the
+    keyword spend — the facts the ad completeness check holds a report
+    to. Data that breaks them makes every honest report unacceptable:
+    the scoped e2e test once timed out arguing with a 2.00 CPC on a 1.00
+    bid and a campaign with no search terms at all."""
+    _name, keywords, terms = CAMPAIGN_DATA[cid]
+    for kw, _m, bid, clicks, spend, *_rest in keywords:
+        cpc = float(spend) / clicks
+        assert cpc <= float(bid), f'{kw}: CPC {cpc:.2f} above bid {bid}'
+    kw_spend = sum(float(k[4]) for k in keywords)
+    term_spend = sum(float(t[3]) for t in terms)
+    assert abs(kw_spend - term_spend) < 0.005, (cid, kw_spend, term_spend)
+
+
+def test_campaign_spend_matches_the_list_page(console):
+    listed = _cells(console, '/campaigns')
+    for cid, (_name, keywords, _terms) in CAMPAIGN_DATA.items():
+        spend = f'{sum(float(k[4]) for k in keywords):.2f}'
+        row = listed[listed.index(cid) :][:3]
+        assert spend in row, f'{cid}: keyword spend {spend} vs list {row}'
+
+
+@pytest.mark.parametrize('path', ['/', '/campaigns', *DETAIL_PATHS])
+def test_no_marketplace_branding(console, path):
+    """Branding the stub as an Amazon console turned a "just tell me the
+    numbers" lookup into a 15-25 minute skill-driven audit in CI. The
+    request never asks for one; the fixture must not invite it."""
+    with urllib.request.urlopen(f'{console.base}{path}', timeout=5) as r:
+        html = r.read().decode()
+    for brand in ('Amazon', 'Sponsored Products', 'noon'):
+        assert brand not in html, f'{path} brands itself: {brand}'
+
+
+def test_fetched_campaign_since_scopes_to_a_turn(console):
+    """A campaign opened BEFORE a mark does not count after it -- the
+    narrow e2e scopes its exclusion to the turn that made it."""
+    with urllib.request.urlopen(
+        f'{console.base}/campaign/{CAMPAIGN_B}', timeout=5
+    ) as r:
+        assert r.status == 200
+    mark = console.mark()
+    assert console.fetched_campaign(CAMPAIGN_B)
+    assert not console.fetched_campaign(CAMPAIGN_B, since=mark)

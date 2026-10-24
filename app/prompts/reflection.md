@@ -4,6 +4,11 @@ from actions taken AFTER your last reflection. **Writing nothing is a valid
 outcome** — if this task only produced data/results and no new procedural
 knowledge, stop without updating any file.
 
+Reflect from what this task already did. Do not start new work — no
+browser, scripts or network checks: a doubt you cannot settle from this
+task's own evidence is written down as unverified. Reflection is
+time-boxed; once tools are refused, end your turn.
+
 ## Correct what you relied on — FIRST, before writing anything new
 
 Look back at the notes/knowledge you **read** this task. If a stored fact

@@ -92,8 +92,40 @@ class TestSkillNameFromRead:
             is None
         )
         assert (
-            skill_name_from_read('Bash', {'command': 'cat skills/a/SKILL.md'})
+            skill_name_from_read('Bash', {'command': 'ls skills/*/SKILL.md'})
             is None
+        )
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            # A search that names the file is not a load. In CI this exact
+            # reflection-time grep bound amazon-ads, and the ad review gate
+            # turned a four-number lookup into a full audit.
+            'grep -rn -i "ad console" .claude/skills/amazon-ads/SKILL.md '
+            '.claude/skills/amazon-reports/SKILL.md',
+            'rg -n bid .claude/skills/amazon-ads/SKILL.md',
+            'ls -la .claude/skills/amazon-ads/SKILL.md',
+            'wc -l .claude/skills/amazon-ads/SKILL.md',
+        ],
+    )
+    def test_a_search_or_listing_binds_nothing(self, command):
+        assert skill_name_from_read('Bash', {'command': command}) is None
+
+    @pytest.mark.parametrize(
+        'command',
+        [
+            'cat /x/.claude/skills/amazon-ads/SKILL.md',
+            'sed -n 1,80p .claude/skills/amazon-ads/SKILL.md | head',
+            "head -50 '/x/.claude/skills/amazon-ads/SKILL.md'",
+        ],
+    )
+    def test_a_shell_read_binds_the_skill(self, command):
+        """In CI an agent `cat`-ed amazon-ads, ran its audit, and its
+        gates never bound: set_task_result accepted the report unchecked
+        while the Stop hook demanded a reviewer."""
+        assert (
+            skill_name_from_read('Bash', {'command': command}) == 'amazon-ads'
         )
 
 

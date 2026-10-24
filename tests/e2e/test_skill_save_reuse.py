@@ -262,6 +262,13 @@ class TestSaveAndReuseSkill:
         _assert_total(_result_text(api_client, task2['id']), 13500)
 
         # ── Follow-up 2: save again → EXTEND, don't duplicate ──
+        # Snapshot HERE, not after the first save. Task 2's own turn may
+        # legitimately save a NEW capability while it works (observed in
+        # CI: its post-task reflection saved a `wecom-post` skill for the
+        # posting step it had just learned) -- that is not this request
+        # duplicating anything. What this request must not do is answer
+        # "update that same skill" by minting another slug.
+        customs_before_update = _custom_skills(api_client)
         count2 = len(get_messages(api_client, task2['id']))
         r = api_client.post(
             f'{BASE_URL}/api/tasks/{task2["id"]}/messages',
@@ -281,7 +288,7 @@ class TestSaveAndReuseSkill:
         # check, scoped to this test's serialized worker) rather than
         # whole-namespace equality — equality would also trip if a
         # sibling test's skill were added/removed in the shared namespace.
-        dup_slugs = set(customs_final) - set(customs_after_save)
+        dup_slugs = set(customs_final) - set(customs_before_update)
         assert not dup_slugs, (
             'second "save as skill" duplicated instead of extending; '
             f'new slug(s) appeared: {sorted(dup_slugs)}'

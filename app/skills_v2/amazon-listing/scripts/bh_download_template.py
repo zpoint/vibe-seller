@@ -6,7 +6,7 @@ default to the account's home marketplace), so this drives the whole
 generator flow with the TARGET store ticked and the other leaf stores
 unticked. Run through the STORE WRAPPER:
 
-  SC_HOST=sellercentral.amazon.ae PRODUCT_TYPE=socks \
+  SC_HOST=sellercentral.amazon.ae PRODUCT_TYPE=kettle \
   STORE_LABEL=Amazon.ae DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \
   MARKER_DIR="$PWD" \
   browser-use < .claude/skills/amazon-listing/scripts/bh_download_template.py
@@ -39,10 +39,32 @@ import json
 import os
 import time
 
-HOST = os.environ['SC_HOST']
-PTYPE = os.environ['PRODUCT_TYPE']
-STORE = os.environ['STORE_LABEL']
-DL = os.path.expanduser(os.environ['DOWNLOADS_DIR'])
+
+def _env(name):
+    """A required parameter, or one RESULT line saying how to pass it.
+
+    A plain `NAME=value` line before the command never reaches this
+    script; an agent did exactly that and got a bare KeyError traceback.
+    """
+    value = os.environ.get(name, '').strip()
+    if not value:
+        print(
+            'RESULT '
+            + json.dumps({
+                'ok': False,
+                'reason': f'{name} is not set -- put it on the same line '
+                'as browser-use (NAME=value browser-use < script) or '
+                'export it',
+            })
+        )
+        raise SystemExit(0)
+    return value
+
+
+HOST = _env('SC_HOST')
+PTYPE = _env('PRODUCT_TYPE')
+STORE = _env('STORE_LABEL')
+DL = os.path.expanduser(_env('DOWNLOADS_DIR'))
 MARKER_DIR = os.environ.get('MARKER_DIR', '.')
 
 
@@ -289,6 +311,15 @@ else:
                     if cands:
                         template = max(cands, key=os.path.getmtime)
                         break
+                if template:
+                    # Amazon names the file after the product type alone,
+                    # so an AE download overwrote the SA template beside it
+                    # (observed live). Name it for its marketplace.
+                    mkt = HOST.split('amazon.', 1)[-1].strip('/')
+                    stem, ext = os.path.splitext(template)
+                    tagged = f'{stem}__{mkt.replace(".", "-").upper()}{ext}'
+                    os.replace(template, tagged)
+                    template = tagged
                 out['template'] = template
                 out['ok'] = bool(template)
                 if not template:

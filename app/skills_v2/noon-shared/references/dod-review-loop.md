@@ -13,16 +13,13 @@ The reviewer is an **adversarial verifier**: its job is to disprove
 processing report, the downloaded file, the product page) and
 cross-checking your deliverable against it — not to grade your prose.
 
-**Review only THIS turn's request.** On a follow-up (a new user message
-on an already-completed task), the prior turn's deliverable is done and
-already reviewed — do NOT re-open or re-gate it. Verify the work this
-turn produced for the *current* request. If the current request was a
-one-shot with nothing substantive to cross-check (an export, a quick
-lookup, a retry acknowledgement, "also do X on the other marketplace"
-where X just succeeded), sign off `Status: ok` immediately — don't
-invent work or drag in a previous turn's gaps. The server already moves
-the prior turn's `REVIEW_*` files aside at the start of each turn, so
-you always begin at `iter1` on a clean slate.
+**Follow-ups are not reviewed.** Once the task has completed, a new user
+message on it ("copy the folder into the task dir", "list the files",
+"also export it") is a follow-up: the server does not run this loop for
+it, so do NOT spawn the reviewer or write `REVIEW_*` files — do what
+was asked and finish. A run that failed or was stopped and is then
+continued is not a follow-up; it is reviewed as usual, starting at
+`iter1` (the server moves earlier `REVIEW_*` files aside each turn).
 
 ## Steps
 
@@ -31,8 +28,17 @@ you always begin at `iter1` on a clean slate.
 2. Spawn the reviewer as a subagent (`subagent_type="general-purpose"`)
    with the prompt below. **Fill every `{...}` yourself** — the subagent
    does not share your PATH or context.
+   Its completion notice arrives between your tool calls: keep working
+   meanwhile, or wait in short steps (a `sleep` under 30s, then check
+   again; `TaskOutput` with `block: true` if your tools include it).
+   Never one long `sleep N` — the notice cannot reach you while a
+   foreground command blocks, and the server denies a long `sleep`
+   while a subagent is running.
 3. Read the `Status:` line it writes:
-   - `ok` → you're done.
+   - `ok` → you're done. Do NOT edit the deliverable for notes the
+     reviewer marked non-blocking (cosmetic, optional, suggestions) —
+     an edit after `ok` voids the review. List them in your final reply
+     for the user to decide.
    - `gaps` → read the gap list and FIX the deliverable in place, then
      finish. There is no second review round.
    - `incomplete` → finish; the caveats stay on disk.
@@ -89,6 +95,8 @@ Write your verdict to `REVIEW_<YYYY-MM-DD>_iter<N>.md` starting with
 exactly one line `Status: ok | gaps | incomplete`, then a `## Gaps`
 section (empty if ok; else one bullet per gap citing WHAT YOU OPENED and
 WHAT DID NOT MATCH), then optional `## Notes`.
+Writing that file is your LAST action: return right after it. The task
+cannot finish while you are still running.
 ```
 
 ## Status semantics (what the server enforces)

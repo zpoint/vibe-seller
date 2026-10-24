@@ -70,8 +70,8 @@ The metadata sheets are the source of truth:
 Seller Central → **Catalogue → Add Products via Upload**
 (`sellercentral.amazon.<tld>/listing/upload` → `/product-search/bulk`).
 Open **Spreadsheet → Download Blank Template → Download Product
-Spreadsheet**, search the product type (e.g. "socks" → **Select**
-"Sock"), choose the language, then **just make sure your TARGET
+Spreadsheet**, search the product type (e.g. "charger" → **Select**
+the matching type), choose the language, then **just make sure your TARGET
 marketplace's checkbox is ticked** (it usually is by default) and
 **Generate Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
@@ -125,10 +125,10 @@ marketplace's checkbox is ticked** (it usually is by default) and
 >   if(!i)return null;var r=i.getBoundingClientRect();
 >   return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};""")
 > click_at_xy(box["x"], box["y"])                 # focus the input
-> cdp("Input.insertText", text="socks")           # TRUSTED typing (value= / events don't stick)
+> cdp("Input.insertText", text="charger")         # TRUSTED typing (value= / events don't stick)
 > time.sleep(1)
 > # click the search-icon button just right of the input (find it by position),
-> # then the matched type's **Select** button (e.g. the "Sock" row):
+> # then the matched type's **Select** button (the row for your type):
 > print(js(r"""return [].slice.call(document.querySelectorAll('button,kat-button'))
 >   .map(function(b){var r=b.getBoundingClientRect();
 >     return {t:(b.innerText||b.getAttribute('label')||'').trim().slice(0,20),
@@ -136,7 +136,7 @@ marketplace's checkbox is ticked** (it usually is by default) and
 >   .filter(function(e){return e.x>0;});"""))   # → click the search icon, then Select
 > PY
 > ```
-> After **Select**, the right column shows "Product Type Selected: Sock".
+> After **Select**, the right column shows "Product Type Selected: <type>".
 > Then tick the store(s) (the account's home marketplace may be force-
 > checked; ensure the marketplace you're listing on is ticked), and click
 > **Generate Spreadsheet** — which is below the fold, so use the CDP
@@ -174,7 +174,7 @@ fields.
 
 ```json
 {
-  "product_type": "socks",
+  "product_type": "charging_adapter",
   "brand": "ACME",
   "marketplace": "SA",
   "rows": [
@@ -226,8 +226,8 @@ fields.
 > hotlinked supplier URL. Give each child its category's full required
 > set, not just the differentiator (see the Parent-vs-Child note below).
 
-> **Apparel (socks, clothing, …) — the full `apparel_size` composite is
-> required on EVERY row, parent included.** A socks (apparel)
+> **Apparel categories — the full `apparel_size` composite is
+> required on EVERY row, parent included.** An apparel
 > variation only goes live when each row (parent + children) carries the
 > WHOLE size composite — `apparel_size_system`, `apparel_size_class`,
 > `apparel_size`, `apparel_body_type`, `apparel_height_type` — each a
@@ -281,29 +281,13 @@ the row declares no batteries.
 ### The operation column
 
 `operation` maps to the `update_delete` cell: `create`→blank,
-`update`→`Update`, `partialupdate`→`partialupdate`, `delete`→`delete`.
-A **delete** row needs only `sku` + `operation: delete`. **Changing a
-parent-child relationship** is an update: re-submit the child with the
-new `parent_sku` / `variation_theme` (or clear `parent_sku` and set
-`parent_child` appropriately to detach).
-
-> **Deleting a variation family — first ENUMERATE every SKU (don't guess).**
-> You usually know only the parent SKU (or its title). Do NOT try to
-> expand the parent's "Variations (N)" in Manage Inventory to read the
-> child SKUs — the New-Seller-Central inventory grid is a **virtualized
-> table** whose child rows aren't reachable from the DOM, and it will
-> waste the whole run. Instead get the authoritative SKU list from a
-> **fresh All Listings Report**: Seller Central → **Reports → Inventory
-> Reports → All Listings Report → Request** (a few min), then download the
-> TSV to `~/.vibe-seller/downloads/<slug>/`. It lists **every** SKU
-> (parent + children) with `seller-sku`, `asin`, and the parent linkage.
-> Grep the family (by your SKU prefix, or the parent ASIN),
-> collect all its SKUs, then delete: a spec with `operation: delete` for
-> **each CHILD first, then the parent** (a parent can't delete while it
-> still has live children). Upload the `.txt`, then verify each SKU is
-> gone: `bh_listing_status.py` lists it under `missing`. Never rely on a
-> local spec/file from the create step — a delete task is independent and
-> must discover SKUs from the account.
+`partialupdate`→`partialupdate`. **`delete` is disabled** and **`update`
+(full replace) is opt-in** — `fill` needs `--ops update` and
+`bh_upload_flatfile.py` needs `ALLOW_FULL_UPDATE=1`, both only when the
+user asked for a full update by name. Every `partialupdate` / `update`
+row must pin its `asin` (see SKILL.md, Operation rules). **Changing a parent-child relationship** is a
+partialupdate: re-submit the child with the new `parent_sku` /
+`variation_theme`.
 
 ```bash
 # Write under the store DOWNLOADS dir, NOT /tmp — the browser must read
@@ -390,7 +374,7 @@ re-uploads can complete them.
   whether that child's ASIN already exists:
   - **Exists** (re-submit, or a prior create left a catalog ASIN — a
     `delete` removes the SKU/offer, **not** the catalog ASIN): **match**
-    it — `operation: update`, `external_product_id` = the ASIN,
+    it — `operation: create`, `external_product_id` = the ASIN,
     `external_product_id_type: asin`. This is what lets a stuck variation
     child join its family (verified fix).
   - **Genuinely new, GTIN-exempt brand:** leave `external_product_id`

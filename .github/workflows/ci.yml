@@ -136,7 +136,12 @@ jobs:
 
   e2e-mock-cli:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The hang guard lives on the TEST step below. A job-wide 10 minutes
+    # also had to absorb `playwright install --with-deps`, whose apt fetch
+    # is at the mercy of the runner's Ubuntu mirror: twice in a row it
+    # crawled at ~50 kB/s for 8+ minutes and the job was cancelled with
+    # every test already passed.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
 
@@ -227,6 +232,9 @@ jobs:
           exit 1
 
       - name: Run mock CLI E2E tests
+        # A hung turn shows up here; the suite itself runs in under a
+        # minute (see the job-level timeout note above).
+        timeout-minutes: 8
         env:
           E2E_BASE_URL: http://127.0.0.1:7777
           MOCK_CLI: tests/e2e/mock_cli.py
@@ -277,7 +285,10 @@ jobs:
     runs-on: ubuntu-latest
     concurrency:
       group: e2e-test
-    timeout-minutes: 30
+    # As in e2e-mock-cli: the hang guard belongs on the test step.
+    # `install.sh` fetches Playwright's apt deps, and a slow Ubuntu mirror
+    # (observed: 25.9 MB in 9m18s) left the suite 20 of these 30 minutes.
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v6
 
@@ -359,6 +370,9 @@ jobs:
           exit 1
 
       - name: Run E2E tests
+        # The suite's own budget: the old 30-minute job minus a normal
+        # install, kept as tight as before (see the job-level note).
+        timeout-minutes: 32
         env:
           API_TIMEOUT_MS: 3000000
           CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
