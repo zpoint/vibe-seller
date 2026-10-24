@@ -107,6 +107,7 @@ class TestFinishingToolsAlwaysLoaded:
         for text in (DESIGN_SYSTEM_PROMPT, DESIGN_SYSTEM_PROMPT_AUTO):
             assert 'always loaded' in text
             assert 'vibe_seller_set_task_error' in text
+            assert 'AskUserQuestion' in text
 
 
 class TestLoadedToolSearch:
@@ -130,6 +131,17 @@ class TestLoadedToolSearch:
         assert reason and 'already loaded' in reason
         assert 'vibe_seller_set_task_result' in reason
 
-    @pytest.mark.parametrize('query', ['task', 'vibe_seller', 'ads_call'])
+    @pytest.mark.parametrize(
+        'query', ['ask.*question|AskUser', 'select:AskUserQuestion']
+    )
+    def test_a_search_for_ask_user_question_is_refused(self, query):
+        # In CI the empty result led an agent to ask in prose and park
+        # its task in WAITING.
+        reason = loaded_tool_search_deny('ToolSearch', {'query': query})
+        assert reason and '`AskUserQuestion` is already loaded' in reason
+
+    @pytest.mark.parametrize(
+        'query', ['task', 'vibe_seller', 'ads_call', 'read email', 'question']
+    )
     def test_other_searches_pass(self, query):
         assert loaded_tool_search_deny('ToolSearch', {'query': query}) is None

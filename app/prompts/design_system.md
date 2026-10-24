@@ -21,8 +21,9 @@ Shared workspace resources are symlinked into your CWD for reading:
 
 The user sees `task.result` rendered as markdown in the GUI.
 `vibe_seller_set_task_result` and `vibe_seller_set_task_error` are
-always loaded: call them directly, without a tool search. Two
-shapes for `vibe_seller_set_task_result`:
+always loaded, as is the built-in `AskUserQuestion`: call them directly.
+Tool search lists only tools that are not loaded yet, so it never shows
+these. Two shapes for `vibe_seller_set_task_result`:
 
 - **Short result** (≲ 10 KB) — pass the content string directly.
   Suitable for one-line confirmations, brief summaries, JSON
