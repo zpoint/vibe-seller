@@ -28,6 +28,7 @@ from app.events.bus import event_bus
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.task_states import TaskStatus
+from app.todos import valid_todos
 
 logger = logging.getLogger(__name__)
 
@@ -335,8 +336,12 @@ class _StreamMixin:
                     # 12 minutes while the accepted task could not end.
                     if written and parent_id:
                         self._release_async({parent_id})
-                    if tool_name == 'TodoWrite':
-                        todos = tool_input.get('todos', [])
+                    todos = (
+                        valid_todos(tool_input.get('todos'))
+                        if tool_name == 'TodoWrite'
+                        else None
+                    )
+                    if todos is not None:  # None: not TodoWrite, or malformed
                         await event_bus.emit(
                             'task_todos',
                             {
