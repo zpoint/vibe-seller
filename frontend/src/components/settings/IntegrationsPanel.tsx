@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
-import { WeComBotSection } from '../WeComBotSection'
+import { ChatBotSection } from '../ChatBotSection'
 import { Dida365Panel } from './Dida365Panel'
 import { AmazonAdsPanel } from './AmazonAdsPanel'
 
@@ -181,7 +181,7 @@ export function IntegrationsPanel() {
           </div>
         ) : null}
       </div>
-      <WeComBotSection />
+      <ChatBotSection />
       <Dida365Panel />
       <AmazonAdsPanel />
     </div>
