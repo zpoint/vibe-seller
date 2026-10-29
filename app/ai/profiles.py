@@ -156,7 +156,8 @@ def profile_kind(profile: dict | None) -> str:
     """Return a privacy-safe enum identifying which provider a profile uses.
 
     Matches the profile's ANTHROPIC_BASE_URL against PROVIDER_PRESETS
-    to get one of: kimi/minimax/glm/glm_intl/deepseek/qwen/qwen_coding/
+    to get the preset id (kimi, minimax, glm, glm_intl, deepseek, qwen,
+    qwen_intl, qwen_coding, qwen_token, mimo, mimo_token) or
     default/custom.
     Used by telemetry; never sends the env itself.
     """

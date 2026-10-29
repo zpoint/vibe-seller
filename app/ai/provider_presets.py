@@ -251,6 +251,77 @@ PROVIDER_PRESETS = {
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
         },
     },
+    # Xiaomi MiMo — Anthropic-Messages-compatible endpoint, documented
+    # for Claude Code by name. Two products on two hosts: the metered
+    # pay-as-you-go API (``sk-`` keys) and the Token Plan subscription
+    # (``tp-``/``ttp-`` keys), whose hosts are region-locked (China /
+    # Singapore / Europe clusters).
+    #
+    # Auth is ``Authorization: Bearer`` (MiMo documents ``api-key`` and
+    # ``Bearer``, NOT ``x-api-key``), so the key must go in
+    # ``ANTHROPIC_AUTH_TOKEN`` — the row the config modal seeds first.
+    #
+    # MiMo's own Claude Code block maps EVERY tier slot to the flagship.
+    # The haiku/subagent slots here use ``mimo-v2.6-flash`` instead: it is
+    # listed as an available ``model`` value in MiMo's Anthropic API
+    # reference and is described there as the low-cost full-modality
+    # model, so background calls do not bill at flagship rates.
+    #
+    # The ``[1m]`` suffix is the vendor-documented way to get the 1M
+    # window (all three chat models list "Context Window: 1M") — the same
+    # client-side convention Kimi/GLM/DeepSeek use. MiMo documents no
+    # ``count_tokens`` endpoint, so Claude Code cannot ask the server for
+    # a token count and the window vars below are what pin it.
+    # https://mimo.mi.com/docs/integration/claude-code
+    # https://mimo.mi.com/docs/api/chat/anthropic-api
+    'mimo': {
+        'name': 'MiMo (Pay-as-you-go)',
+        'group': 'MiMo',
+        'variant': 'Pay-as-you-go',
+        'description': 'MiMo V2.6 Pro (1M context) via Xiaomi MiMo',
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': 'https://api.xiaomimimo.com/anthropic',
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-flash[1m]',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'mimo-v2.6-flash[1m]',
+            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
+        },
+    },
+    # Token Plan (subscription) on the China cluster. Singapore is
+    # ``token-plan-sgp`` and Europe ``token-plan-ams`` — same paths,
+    # different host — so a user on another cluster edits the Base URL
+    # (a top-level, visible field) to their cluster's host.
+    # https://mimo.mi.com/docs/tokenplan/Token%20Plan/quick-access
+    'mimo_token': {
+        'name': 'MiMo (Token Plan)',
+        'group': 'MiMo',
+        'variant': 'Token Plan (China cluster)',
+        'description': (
+            'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan '
+            '(个人版 / 团队版)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://token-plan-cn.xiaomimimo.com/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-flash[1m]',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'mimo-v2.6-flash[1m]',
+            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
+        },
+    },
 }
 
 
@@ -601,6 +672,56 @@ PROVIDER_MODELS = {
         {
             'id': 'qwen3.6-flash',
             'label': 'Qwen3.6-Flash (fast, vision)',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    # MiMo: all three v2.6 chat models are 1M-context and accept image
+    # input. Vision is DOC-verified (MiMo's image-understanding guide
+    # lists ``mimo-v2.6-flash`` / ``mimo-v2.6-pro`` /
+    # ``mimo-v2.6-pro-ultraspeed`` as supported, and the Anthropic
+    # endpoint takes base64/url image blocks) — there is no MiMo key
+    # here to live-probe, so this is NOT live-verified like the
+    # GLM/MiniMax/DeepSeek entries. The ``[1m]`` suffix is MiMo's own
+    # documented way to request the 1M window.
+    # https://mimo.mi.com/docs/quick-start/usage-guide/multimodal-understanding/image-understanding
+    'mimo': [
+        {
+            'id': 'mimo-v2.6-pro[1m]',
+            'label': 'V2.6 Pro (1M context, flagship)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-flash[1m]',
+            'label': 'V2.6 Flash (1M, cheap)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-pro-ultraspeed[1m]',
+            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    # The Token Plan serves the same catalog as pay-as-you-go.
+    'mimo_token': [
+        {
+            'id': 'mimo-v2.6-pro[1m]',
+            'label': 'V2.6 Pro (1M context, flagship)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-flash[1m]',
+            'label': 'V2.6 Flash (1M, cheap)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-pro-ultraspeed[1m]',
+            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
             'context': '1M',
             'vision': True,
         },

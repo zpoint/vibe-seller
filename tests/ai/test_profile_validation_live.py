@@ -26,7 +26,7 @@ from app.ai.profiles import PROVIDER_PRESETS
 pytestmark = pytest.mark.ai
 
 # Providers whose secrets may be present in CI (each gated individually).
-PROVIDERS = ['minimax', 'deepseek', 'kimi', 'glm']
+PROVIDERS = ['minimax', 'deepseek', 'kimi', 'glm', 'mimo']
 
 
 def _secret(provider: str, suffix: str) -> str:

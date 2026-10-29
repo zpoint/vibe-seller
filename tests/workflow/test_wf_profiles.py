@@ -102,6 +102,8 @@ class TestProfileCrud:
             'qwen_intl',
             'qwen_coding',
             'qwen_token',
+            'mimo',
+            'mimo_token',
         ):
             assert name in presets
             assert 'name' in presets[name]
@@ -120,7 +122,9 @@ class TestProfileCrud:
         assert alibaba == {'qwen', 'qwen_intl', 'qwen_coding', 'qwen_token'}
         glm = {pid for pid, p in presets.items() if p.get('group') == 'GLM'}
         assert glm == {'glm', 'glm_intl'}
-        for pid in alibaba | glm:
+        mimo = {pid for pid, p in presets.items() if p.get('group') == 'MiMo'}
+        assert mimo == {'mimo', 'mimo_token'}
+        for pid in alibaba | glm | mimo:
             assert presets[pid]['variant'], f'{pid} missing variant label'
         # Standalone providers stay ungrouped.
         assert not presets['kimi'].get('group')
@@ -157,6 +161,9 @@ class TestProfileCrud:
         - Kimi has no usable key (lapsed Kimi Code subscription), so
           its vision is doc-verified (Moonshot's vision guide lists
           kimi-k3.1-pro / kimi-k3 / kimi-k2.7-code) -> True.
+        - MiMo has no key here either, so its vision is doc-verified
+          (MiMo's image-understanding guide lists all three v2.6 chat
+          models as supporting image input) -> True.
         - qwen3.8-max / qwen3.8-flash have no key to probe -> vision
           OMITTED (None) rather than guessed.
         """
@@ -185,6 +192,11 @@ class TestProfileCrud:
         # Kimi: doc-verified vision (Moonshot vision guide), no key.
         assert vis('kimi', 'k3.1-pro[1m]') is True
         assert vis('kimi', 'kimi-for-coding') is True
+        # MiMo: doc-verified vision (MiMo image-understanding guide), no
+        # key to live-probe.
+        assert vis('mimo', 'mimo-v2.6-pro[1m]') is True
+        assert vis('mimo', 'mimo-v2.6-flash[1m]') is True
+        assert vis('mimo', 'mimo-v2.6-pro-ultraspeed[1m]') is True
         # New Qwen ids with no key: omitted, not guessed.
         assert vis('qwen', 'qwen3.8-max') is None
         assert vis('qwen_token', 'auto') is None
@@ -204,6 +216,10 @@ class TestProfileCrud:
           auto-compact window.
         - Qwen split: pay-as-you-go vs Coding Plan vs Token Plan have
           DIFFERENT base URLs and DIFFERENT model name tiers.
+        - MiMo: the pay-as-you-go API and the Token Plan are DIFFERENT
+          hosts, the flagship is the 1M-context ``mimo-v2.6-pro[1m]``,
+          and the haiku/subagent slots use the cheaper
+          ``mimo-v2.6-flash[1m]``.
         """
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
@@ -305,6 +321,27 @@ class TestProfileCrud:
             qwen_intl['ANTHROPIC_BASE_URL'],
         }
         assert len(bases) == 4
+
+        # MiMo: two products on two hosts. The flagship carries the
+        # vendor-documented [1m] 1M tag; the budget tier is flash.
+        mimo = presets['mimo']['env']
+        assert mimo['ANTHROPIC_BASE_URL'] == (
+            'https://api.xiaomimimo.com/anthropic'
+        )
+        assert mimo['ANTHROPIC_MODEL'] == 'mimo-v2.6-pro[1m]'
+        assert mimo['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'mimo-v2.6-pro[1m]'
+        assert mimo['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'mimo-v2.6-pro[1m]'
+        assert mimo['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'mimo-v2.6-flash[1m]'
+        assert mimo['CLAUDE_CODE_SUBAGENT_MODEL'] == 'mimo-v2.6-flash[1m]'
+        assert mimo['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] == '1000000'
+        mimo_tp = presets['mimo_token']['env']
+        assert mimo_tp['ANTHROPIC_BASE_URL'] == (
+            'https://token-plan-cn.xiaomimimo.com/anthropic'
+        )
+        assert mimo_tp['ANTHROPIC_MODEL'] == 'mimo-v2.6-pro[1m]'
+        assert mimo_tp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'mimo-v2.6-flash[1m]'
+        # The two MiMo products MUST diverge on base URL.
+        assert mimo['ANTHROPIC_BASE_URL'] != mimo_tp['ANTHROPIC_BASE_URL']
 
     async def test_profile_env_injection_roundtrip(self, admin_client):
         env = {
