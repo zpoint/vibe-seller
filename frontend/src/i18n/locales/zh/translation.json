@@ -467,6 +467,7 @@
     "dida365Connect": "授权连接",
     "dida365Connecting": "等待授权中 — 请在弹出窗口中完成登录...",
     "dida365Connected": "已连接",
+    "dida365NotConnected": "未连接",
     "dida365Disconnect": "断开连接",
     "dida365DisconnectConfirm": "断开 TickTick 集成？AI 将无法使用 TickTick 工具。",
     "dida365Project": "默认项目（可选）",

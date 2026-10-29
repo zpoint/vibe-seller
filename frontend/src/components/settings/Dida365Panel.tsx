@@ -21,6 +21,10 @@ export function Dida365Panel() {
   const [polling, setPolling] = useState(false)
   const [popupBlocked, setPopupBlocked] = useState(false)
   const [authUrl, setAuthUrl] = useState('')
+  // The card starts COLLAPSED in every state — the 5-step OAuth
+  // wizard is long, and most visits are "is it connected?" which the
+  // status pill in the header answers without expanding anything.
+  const [expanded, setExpanded] = useState(false)
 
   const loadStatus = async () => {
     try {
@@ -152,10 +156,57 @@ export function Dida365Panel() {
     || hostname === '::1'
     || hostname.includes('.')
 
+  // An OAuth flow in flight, or an error, must never hide behind a
+  // collapsed header — force the body open and keep it open until the
+  // flow finishes or the error is dismissed.
+  const forcedOpen = connecting || polling || popupBlocked || Boolean(error)
+  const isOpen = expanded || forcedOpen
+
+  const serviceLabel = dida365Status?.service_type === 'ticktick'
+    ? 'TickTick'
+    : 'Dida365'
+
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <h3 className="font-semibold mb-3">{t('settings.dida365')}</h3>
+      <button
+        type="button"
+        data-testid="dida365-toggle"
+        aria-expanded={isOpen}
+        onClick={() => { if (!forcedOpen) setExpanded(v => !v) }}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <span className="font-semibold flex items-center gap-1.5">
+          {t('settings.dida365')}
+          <svg
+            data-testid="dida365-chevron"
+            className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              fillRule="evenodd"
+              d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z"
+              clipRule="evenodd"
+            />
+          </svg>
+        </span>
+        <span
+          data-testid="dida365-status"
+          className={
+            dida365Status?.connected
+              ? 'px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full shrink-0'
+              : 'px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full shrink-0'
+          }
+        >
+          {dida365Status?.connected
+            ? `${t('settings.dida365Connected')} · ${serviceLabel}`
+            : t('settings.dida365NotConnected')}
+        </span>
+      </button>
 
+      {isOpen && (
+      <div className="mt-3" data-testid="dida365-panel">
       {error && (
         <div className="mb-3 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
           {error}
@@ -281,6 +332,7 @@ export function Dida365Panel() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('settings.dida365ClientId')}</label>
                   <input
+                    data-testid="dida365-client-id"
                     value={clientId}
                     onChange={e => setClientId(e.target.value)}
                     className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
@@ -290,6 +342,7 @@ export function Dida365Panel() {
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">{t('settings.dida365ClientSecret')}</label>
                   <input
+                    data-testid="dida365-client-secret"
                     type="password"
                     value={clientSecret}
                     onChange={e => setClientSecret(e.target.value)}
@@ -350,6 +403,8 @@ export function Dida365Panel() {
             </div>
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   )

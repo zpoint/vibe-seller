@@ -465,6 +465,7 @@
     "dida365Connect": "Authorize",
     "dida365Connecting": "Waiting for authorization — complete the login in the popup window...",
     "dida365Connected": "Connected",
+    "dida365NotConnected": "Not connected",
     "dida365Disconnect": "Disconnect",
     "dida365DisconnectConfirm": "Disconnect TickTick integration? AI agent will lose access to TickTick tools.",
     "dida365Project": "Default Project (optional)",
