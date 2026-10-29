@@ -88,12 +88,6 @@ def _ensure_added_columns(conn) -> None:
                 f'PRAGMA table_info({table})'
             ).fetchall()
         }
-        # PRAGMA on a missing table lists no columns; a table that
-        # isn't there has nothing to ALTER (init_db's create_all makes
-        # every table before this runs, but this function must also be
-        # safe standalone — e.g. against a partial/test DB).
-        if not cols:
-            continue
         if column not in cols:
             conn.exec_driver_sql(
                 f'ALTER TABLE {table} ADD COLUMN {column} {sqltype}'
