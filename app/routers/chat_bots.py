@@ -115,6 +115,25 @@ def _platform_info(platform: Platform) -> dict:
     }
 
 
+def _check_platform_matches(bot: ChatBot) -> None:
+    """Send-time defense in depth.
+
+    Create/update derive the platform from the URL, but a row saved
+    BEFORE that validation existed (or while the loopback test hatch
+    was open) may still hold a URL the detector now refuses. Re-derive
+    at every send — /test, /send, /send-file — and refuse rather than
+    post the secret to a host that is no longer accepted.
+    """
+    if base.detect_platform(bot.webhook_url) != bot.platform:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This bot's webhook URL is no longer accepted — edit "
+                'the bot and re-save it.'
+            ),
+        )
+
+
 def _summary(bot: ChatBot) -> ChatBotSummary:
     platform = PLATFORMS.get(bot.platform)
     return ChatBotSummary(
@@ -316,6 +335,7 @@ async def test_chat_bot(
     bot = await db.get(ChatBot, bot_id)
     if not bot:
         raise HTTPException(status_code=404, detail='Bot not found')
+    _check_platform_matches(bot)
 
     raw = data.content if data else None
     content = (raw.strip() if raw else '') or DEFAULT_TEST_MESSAGE
@@ -336,6 +356,7 @@ async def send_chat_message(
     bot = await db.get(ChatBot, bot_id)
     if not bot:
         raise HTTPException(status_code=404, detail='Bot not found')
+    _check_platform_matches(bot)
 
     content = (data.content or '').strip()
     if not content:
@@ -370,6 +391,7 @@ async def send_chat_file(
     bot = await db.get(ChatBot, bot_id)
     if not bot:
         raise HTTPException(status_code=404, detail='Bot not found')
+    _check_platform_matches(bot)
 
     platform = PLATFORMS.get(bot.platform)
     label = platform.label if platform else bot.platform
