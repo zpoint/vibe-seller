@@ -30,10 +30,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The agent e2e below spends provider credits, so on PRs the build
+  # waits for a human to approve the `e2e` environment (same gate as
+  # ci.yml). Manual workflow_dispatch runs skip it.
+  e2e-approval:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    environment: e2e
+    steps:
+      - run: echo "e2e approved"
+
   # Per-PR validation: build the installer, install it, smoke + agent e2e.
   # (The heavy in-place upgrade test lives in windows-upgrade.yml and
   # runs on release only — kept separate so it's not a skipped PR check.)
   build:
+    needs: e2e-approval
+    if: >-
+      !cancelled() &&
+      (needs.e2e-approval.result == 'success' ||
+       needs.e2e-approval.result == 'skipped')
     runs-on: windows-latest
     timeout-minutes: 45
     steps:

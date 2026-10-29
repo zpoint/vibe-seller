@@ -281,7 +281,24 @@ jobs:
       - name: Run integration tests
         run: uv run pytest tests/integration -v
 
+  # Real-LLM e2e spends provider credits, so on PRs it waits for a human:
+  # the `e2e` environment requires a reviewer to approve ("Review
+  # deployments" on the run page). A separate job so an unapproved PR
+  # doesn't sit on the shared e2e-test concurrency slot. Nightly
+  # (workflow_call) skips the gate and runs e2e directly.
+  e2e-approval:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    environment: e2e
+    steps:
+      - run: echo "e2e approved"
+
   e2e-test:
+    needs: e2e-approval
+    if: >-
+      !cancelled() &&
+      (needs.e2e-approval.result == 'success' ||
+       needs.e2e-approval.result == 'skipped')
     runs-on: ubuntu-latest
     concurrency:
       group: e2e-test
