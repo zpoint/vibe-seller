@@ -448,32 +448,45 @@ TOOLS = [
         },
     },
     {
-        'name': 'vibe_seller_list_wecom_bots',
+        'name': 'vibe_seller_list_chat_bots',
         'description': (
-            'List configured WeChat Work (企业微信) group bots. '
-            'Returns an array of {id, name} — use the id with '
-            'vibe_seller_send_wecom_message. Webhook URLs are '
-            'never returned (they embed secrets).'
+            'List configured chat bots (group robots). Supported '
+            'platforms: WeCom / WeChat Work (企业微信), DingTalk '
+            '(钉钉), Feishu / Lark (飞书) and Slack. Returns an array '
+            'of {id, name, platform, can_send_file, max_message} — '
+            'use the id with vibe_seller_send_chat_message. Webhook '
+            'URLs and signing secrets are never returned (they embed '
+            'secrets). Formerly vibe_seller_list_wecom_bots.'
         ),
         'inputSchema': {'type': 'object', 'properties': {}, 'required': []},
     },
     {
-        'name': 'vibe_seller_send_wecom_message',
+        'name': 'vibe_seller_send_chat_message',
         'description': (
-            'Post a message to a WeChat Work group via its '
-            'configured bot webhook. Use msgtype="markdown" for '
-            'reports with headings/tables (WeCom markdown is a '
-            'reduced subset: headings, **bold**, lists, links, '
-            'inline code, blockquotes — no tables or images). '
-            'Hard limit: 4096 bytes per message; split longer '
-            'content across multiple calls.'
+            'Post a message to a group via its configured chat bot '
+            'webhook. Use msgtype="markdown" for reports with '
+            'headings/lists. The markdown dialect differs per '
+            'platform:\n'
+            '- WeCom (企业微信): a reduced subset — headings, '
+            '**bold**, lists, links, inline code, blockquotes; no '
+            'tables or images. Limit 4096 bytes per message.\n'
+            '- DingTalk (钉钉): headings, **bold**, lists, links, '
+            'quotes. A title is derived from the first line. Limit '
+            '20000 bytes per message.\n'
+            '- Feishu / Lark (飞书): standard markdown (headings, '
+            '**bold**, lists, links, code). Limit 20000 bytes per '
+            'message.\n'
+            '- Slack: standard markdown. Limit 12000 characters for '
+            'markdown, 40000 for plain text.\n'
+            'Split longer content across multiple calls. Formerly '
+            'vibe_seller_send_wecom_message.'
         ),
         'inputSchema': {
             'type': 'object',
             'properties': {
                 'bot_id': {
                     'type': 'string',
-                    'description': ('Bot ID from vibe_seller_list_wecom_bots.'),
+                    'description': ('Bot ID from vibe_seller_list_chat_bots.'),
                 },
                 'content': {
                     'type': 'string',
@@ -490,21 +503,24 @@ TOOLS = [
         },
     },
     {
-        'name': 'vibe_seller_send_wecom_file',
+        'name': 'vibe_seller_send_chat_file',
         'description': (
-            'Send a local file (PDF, image, xlsx, …) to a WeChat '
-            'Work group via its configured bot — e.g. a payment '
-            'receipt (comprovante) or a report. Pass the bot_id and '
-            'an absolute path on this host (task captures under '
-            '/tmp, browser downloads under ~/.vibe-seller/downloads). '
-            'Limit: 20 MB. The webhook secret stays on the server.'
+            'Send a local file (PDF, image, xlsx, …) to a group via '
+            'its configured bot — e.g. a payment receipt '
+            '(comprovante) or a report. Only WeCom (企业微信) group '
+            'bots support files; the other platforms have no file '
+            'endpoint. Pass the bot_id and an absolute path on this '
+            'host (task captures under /tmp, browser downloads under '
+            '~/.vibe-seller/downloads). Limit: 20 MB. The webhook '
+            'secret stays on the server. Formerly '
+            'vibe_seller_send_wecom_file.'
         ),
         'inputSchema': {
             'type': 'object',
             'properties': {
                 'bot_id': {
                     'type': 'string',
-                    'description': ('Bot ID from vibe_seller_list_wecom_bots.'),
+                    'description': ('Bot ID from vibe_seller_list_chat_bots.'),
                 },
                 'path': {
                     'type': 'string',

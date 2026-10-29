@@ -123,7 +123,7 @@ def wecom_stub(api_client):
 
     url = f'http://127.0.0.1:{port}/cgi-bin/webhook/send?key=e2e-stub'
     resp = api_client.post(
-        f'{BASE_URL}/api/wecom-bots',
+        f'{BASE_URL}/api/chat-bots',
         json={'name': f'e2e-stub-{port}', 'webhook_url': url},
     )
     resp.raise_for_status()
@@ -131,7 +131,7 @@ def wecom_stub(api_client):
 
     yield {'received': received, 'bot_id': bot_id}
 
-    api_client.delete(f'{BASE_URL}/api/wecom-bots/{bot_id}')
+    api_client.delete(f'{BASE_URL}/api/chat-bots/{bot_id}')
     server.shutdown()
     server.server_close()
 

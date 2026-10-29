@@ -3,8 +3,8 @@
 This is the live counterpart to ``test_skill_save_reuse.py``. It uses
 a real, already-bound store (its slug comes from ``VIBE_E2E_STORE``),
 a real browser to export orders from the seller center, and a real
-configured WeCom bot to post the summary. It is SKIPPED unless
-``VIBE_E2E_STORE`` is set, so it never runs in CI.
+configured chat bot (e.g. a WeCom group bot) to post the summary. It
+is SKIPPED unless ``VIBE_E2E_STORE`` is set, so it never runs in CI.
 
 Run locally, e.g.::
 
@@ -86,7 +86,7 @@ def live_store(api_client):
 
 @pytest.fixture
 def has_wecom_bot(api_client):
-    resp = api_client.get(f'{BASE_URL}/api/wecom-bots')
+    resp = api_client.get(f'{BASE_URL}/api/chat-bots')
     resp.raise_for_status()
     if not resp.json():
         pytest.skip('no WeCom bot configured; add one in Settings first')
