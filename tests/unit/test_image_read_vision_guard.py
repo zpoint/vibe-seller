@@ -25,11 +25,15 @@ pytestmark = pytest.mark.unit
 @pytest.mark.parametrize(
     ('model', 'expected'),
     [
-        ('MiniMax-M2.5', False),  # the CI model: text-only per catalog
-        ('MiniMax-M2.7', False),
-        ('MiniMax-M3[1m]', True),
-        ('MiniMax-M3', True),  # a [1m] suffix changes nothing it sees
-        ('minimax-m2.5', False),
+        # text-only per catalog (DeepSeek's pricing doc: 图像理解 不支持)
+        ('deepseek-v4-pro[1m]', False),
+        ('deepseek-v4-pro', False),
+        ('DeepSeek-V4-Pro', False),  # match is case-insensitive
+        # live-verified vision (2026-10-29 red+blue probe)
+        ('MiniMax-M3.1-Flash[1m]', True),
+        ('MiniMax-M3.1-Flash', True),  # a [1m] suffix changes nothing
+        # retired ids are unknown to the catalog -> no restriction
+        ('MiniMax-M2.5', None),
         ('some-custom-model', None),  # unknown -> no restriction
         ('', None),
         (None, None),
@@ -42,7 +46,7 @@ def test_model_sees_images_follows_the_catalog(model, expected):
 @pytest.mark.parametrize('path', ['/x/bh-tmp/shot.png', '/x/a.JPG', 'b.webp'])
 def test_text_only_model_is_refused_an_image_read(path):
     deny = check_image_read_without_vision(
-        'Read', {'file_path': path}, 'MiniMax-M2.5', False
+        'Read', {'file_path': path}, 'deepseek-v4-pro[1m]', False
     )
     assert deny and 'cannot see images' in deny
     assert 'innerText' in deny, 'the refusal must say what to read instead'
@@ -84,17 +88,19 @@ def _hook_decision(model_env: dict, path: str) -> dict:
 
 
 def test_hook_denies_a_screenshot_read_on_the_text_only_profile():
-    out = _hook_decision({'ANTHROPIC_MODEL': 'MiniMax-M2.5'}, '/t/shot.png')
+    out = _hook_decision(
+        {'ANTHROPIC_MODEL': 'deepseek-v4-pro[1m]'}, '/t/shot.png'
+    )
     assert out['permissionDecision'] == 'deny'
-    assert 'MiniMax-M2.5' in out['permissionDecisionReason']
+    assert 'deepseek-v4-pro[1m]' in out['permissionDecisionReason']
 
 
 @pytest.mark.parametrize(
     ('env', 'path'),
     [
-        ({'ANTHROPIC_MODEL': 'MiniMax-M3[1m]'}, '/t/shot.png'),
+        ({'ANTHROPIC_MODEL': 'MiniMax-M3.1-Flash[1m]'}, '/t/shot.png'),
         ({}, '/t/shot.png'),  # plain Claude profile: no model override
-        ({'ANTHROPIC_MODEL': 'MiniMax-M2.5'}, '/t/REPORT.md'),
+        ({'ANTHROPIC_MODEL': 'deepseek-v4-pro[1m]'}, '/t/REPORT.md'),
     ],
 )
 def test_hook_allows_what_the_model_can_actually_read(env, path):

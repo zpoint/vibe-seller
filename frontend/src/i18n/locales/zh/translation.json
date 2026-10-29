@@ -619,7 +619,7 @@
     "hideApiKey": "隐藏 API 密钥",
     "baseUrlPlaceholder": "保存前请将 Base URL 中的占位符 {{placeholder}} 替换为真实值。",
     "model": "模型",
-    "modelPlaceholder": "例如 deepseek-v4-pro[1m]",
+    "modelPlaceholder": "例如 deepseek-flash[1m]",
     "customModel": "自定义…",
     "vision": "视觉",
     "textOnly": "纯文本",
