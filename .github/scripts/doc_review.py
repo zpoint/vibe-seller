@@ -442,7 +442,13 @@ def main():
     # Get LLM configuration
     llm_base_url = os.environ['GLM_BASE_URL']
     llm_api_key = os.environ['GLM_API_KEY']
-    llm_model = os.environ['GLM_MODEL']
+    # GLM_MODEL may carry Claude Code's ``[1m]`` 1M-context tag (e.g.
+    # ``glm-5.3[1m]``). That tag is client-side only; Z.AI rejects the
+    # suffixed id with ``[1211] Unknown Model``, so send the bare id,
+    # as app/ai/profile_validation.py does.
+    llm_model = re.sub(
+        r'\[1m\]$', '', os.environ['GLM_MODEL'], flags=re.IGNORECASE
+    )
 
     # Get GitHub configuration
     repo = os.environ['REPO']

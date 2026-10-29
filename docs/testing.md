@@ -68,6 +68,16 @@ Configurable via `FakeAgentScenario` (fields: `plan`, `result`, `todos`, `should
 
 ## E2E Test Infrastructure
 
+### CI approval gate
+
+LLM-dependent e2e spends provider credits, so on PRs it does not start on
+its own: `ci.yml`'s `e2e-test` and `windows-installer.yml`'s `build` wait
+on an `e2e-approval` job bound to the `e2e` environment. If a PR's e2e sits
+in "Waiting", a reviewer must open the run page and click **Review
+deployments → e2e → Approve and deploy** (this approves the test run, not
+the PR). Each new push waits again. Nightly and `workflow_dispatch` runs
+skip the gate. Mock CLI e2e (`e2e-mock-cli`) never needs approval.
+
 ### Shared Helpers (`tests/e2e/e2e_helpers.py`)
 
 Consolidated helpers used by all LLM-dependent e2e tests:
