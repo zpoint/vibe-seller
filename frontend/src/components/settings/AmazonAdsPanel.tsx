@@ -145,10 +145,15 @@ export function AmazonAdsPanel() {
   }, {})
 
   return (
-    <div className="space-y-6">
+    /* A card like every other integration, so the panel reads as one
+       family of sections rather than loose text on the page. */
+    <div
+      data-testid="ads-card"
+      className="bg-white rounded-lg border border-gray-200 p-4 space-y-6"
+    >
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold">{t('ads.title')}</h3>
-        <p className="text-xs text-muted-foreground">{t('ads.blurb')}</p>
+        <h3 className="font-semibold mb-1">{t('ads.title')}</h3>
+        <p className="text-xs text-gray-500">{t('ads.blurb')}</p>
         <ol
           data-testid="ads-steps"
           className="list-decimal space-y-1 pl-5 text-xs text-muted-foreground"
@@ -162,44 +167,46 @@ export function AmazonAdsPanel() {
 
       {loaded && (
         <section className="space-y-2">
-          <h4 className="text-sm font-semibold">{t('ads.stores')}</h4>
-          <table className="w-full text-sm" data-testid="ads-stores">
-            <tbody>
-              {Object.entries(byStore).map(([localId, rows]) => {
-                const authorized = rows.filter(r => r.authorized)
-                return (
-                  <tr key={localId} className="border-t">
-                    <td className="py-2">{rows[0].name}</td>
-                    <td className="py-2 text-xs text-muted-foreground">
-                      {authorized.length
-                        ? authorized.map(r => r.marketplace).join(' · ')
-                        : t('ads.notAuthorized')}
-                    </td>
-                    <td className="space-x-2 whitespace-nowrap py-2 text-right">
-                      {authorized.length > 0 && (
+          <h4 className="text-sm font-medium text-gray-600">{t('ads.stores')}</h4>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="ads-stores">
+              <tbody>
+                {Object.entries(byStore).map(([localId, rows]) => {
+                  const authorized = rows.filter(r => r.authorized)
+                  return (
+                    <tr key={localId} className="border-t">
+                      <td className="py-2">{rows[0].name}</td>
+                      <td className="py-2 text-xs text-muted-foreground">
+                        {authorized.length
+                          ? authorized.map(r => r.marketplace).join(' · ')
+                          : t('ads.notAuthorized')}
+                      </td>
+                      <td className="space-x-2 whitespace-nowrap py-2 text-right">
+                        {authorized.length > 0 && (
+                          <button
+                            data-testid={`ads-unbind-${localId}`}
+                            disabled={busy}
+                            onClick={() => setUnbinding({ id: localId, name: rows[0].name, purge: false })}
+                            className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:border-red-500 hover:bg-red-50 hover:text-red-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {t('ads.unbind')}
+                          </button>
+                        )}
                         <button
-                          data-testid={`ads-unbind-${localId}`}
+                          data-testid={`ads-authorize-${localId}`}
                           disabled={busy}
-                          onClick={() => setUnbinding({ id: localId, name: rows[0].name, purge: false })}
-                          className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:border-red-500 hover:bg-red-50 hover:text-red-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                          onClick={() => authorize(localId, rows[0].name)}
+                          className="rounded border px-2 py-1 text-xs hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {t('ads.unbind')}
+                          {authorized.length ? t('ads.reauthorize') : t('ads.authorize')}
                         </button>
-                      )}
-                      <button
-                        data-testid={`ads-authorize-${localId}`}
-                        disabled={busy}
-                        onClick={() => authorize(localId, rows[0].name)}
-                        className="rounded border px-2 py-1 text-xs hover:border-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {authorized.length ? t('ads.reauthorize') : t('ads.authorize')}
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 
