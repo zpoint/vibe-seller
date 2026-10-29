@@ -1,7 +1,7 @@
 """Feishu / Lark (飞书) custom-bot webhook sender.
 
 Reference:
-https://open.feishu.cn/document/client-docs/bot-v2/add-custom-bot
+https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot
 
 Feishu's 签名校验 (signature check) looks nothing like DingTalk's 加签:
 
@@ -98,6 +98,17 @@ async def send_message(
     if resp is None:
         return False, err
     if resp.status_code >= 400:
+        # Feishu answers some failures (sign mismatch 19021, keyword
+        # 19024, IP 19022) with an HTTP 4xx whose JSON body carries the
+        # real code/msg — surface that instead of a bare status line.
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        err = body.get('msg') or body.get('StatusMessage')
+        if err:
+            logger.error('Feishu webhook API error: %s', err)
+            return False, err
         logger.error('Feishu webhook HTTP status %s', resp.status_code)
         return False, f'Feishu webhook returned HTTP {resp.status_code}.'
     try:

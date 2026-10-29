@@ -107,6 +107,17 @@ async def send_message(
     if resp is None:
         return False, err
     if resp.status_code >= 400:
+        # A proxy or gateway can answer 4xx with a JSON body carrying
+        # DingTalk's own error — prefer the platform's text when the
+        # body parses, else the generic status line.
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        err = body.get('errmsg') or body.get('msg')
+        if err:
+            logger.error('DingTalk webhook API error: %s', err)
+            return False, err
         logger.error('DingTalk webhook HTTP status %s', resp.status_code)
         return False, f'DingTalk webhook returned HTTP {resp.status_code}.'
     try:

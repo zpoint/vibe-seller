@@ -446,6 +446,37 @@ class TestDingtalkPayloads:
         assert ok is False
         assert 'sign not match' in msg
 
+    async def test_http_400_surfaces_json_body(self, monkeypatch):
+        """A 4xx whose body is JSON carries the platform's own error —
+        surface that, not a bare status line."""
+        captured = []
+        _patch_transport(
+            monkeypatch,
+            _transport(
+                _capture(
+                    captured,
+                    status=400,
+                    response_json={
+                        'errcode': 310000,
+                        'errmsg': 'ip address not in whitelist',
+                    },
+                )
+            ),
+        )
+        ok, msg = await dingtalk.send_message(DINGTALK_URL, None, 'hi')
+        assert ok is False
+        assert 'whitelist' in msg
+
+    async def test_http_500_non_json_falls_back(self, monkeypatch):
+        captured = []
+        _patch_transport(
+            monkeypatch,
+            _transport(_capture(captured, status=502, text='Bad gateway')),
+        )
+        ok, msg = await dingtalk.send_message(DINGTALK_URL, None, 'hi')
+        assert ok is False
+        assert 'HTTP 502' in msg
+
 
 class TestFeishuPayloads:
     async def test_text_shape(self, monkeypatch):
@@ -512,6 +543,34 @@ class TestFeishuPayloads:
         ok, msg = await feishu.send_message(FEISHU_URL, 'SECtest', 'hi')
         assert ok is False
         assert 'sign match fail' in msg
+
+    async def test_http_4xx_surfaces_json_body(self, monkeypatch):
+        """Feishu answers sign/keyword/IP failures with an HTTP 4xx
+        whose JSON body carries the real code/msg — surface that."""
+        captured = []
+        _patch_transport(
+            monkeypatch,
+            _transport(
+                _capture(
+                    captured,
+                    status=400,
+                    response_json={'code': 19024, 'msg': 'Key word Not Found'},
+                )
+            ),
+        )
+        ok, msg = await feishu.send_message(FEISHU_URL, 'SECtest', 'hi')
+        assert ok is False
+        assert 'Key word Not Found' in msg
+
+    async def test_http_4xx_non_json_falls_back(self, monkeypatch):
+        captured = []
+        _patch_transport(
+            monkeypatch,
+            _transport(_capture(captured, status=403, text='Forbidden')),
+        )
+        ok, msg = await feishu.send_message(FEISHU_URL, None, 'hi')
+        assert ok is False
+        assert 'HTTP 403' in msg
 
 
 class TestSlackPayloads:
