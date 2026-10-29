@@ -42,6 +42,7 @@ from app.routers.attachments import router as attachments_router
 from app.routers.auth import router as auth_router
 from app.routers.browser import router as browser_router
 from app.routers.channels import router as channels_router
+from app.routers.chat_bots import router as chat_bots_router
 from app.routers.cron import router as cron_router
 from app.routers.dida365_oauth import (
     refresh_token_if_needed as _refresh_dida365_token,
@@ -68,7 +69,6 @@ from app.routers.tasks_schedule_state import (
 from app.routers.telemetry import router as telemetry_router
 from app.routers.users import router as users_router
 from app.routers.vision import router as vision_router
-from app.routers.wecom_bots import router as wecom_bots_router
 from app.routers.workspace import router as workspace_router
 from app.routers.workspace_assistant import router as ws_assistant_router
 from app.routers.ziniao_accounts import router as ziniao_accounts_router
@@ -337,7 +337,7 @@ app.include_router(email_polling_router)
 app.include_router(profiles_router)
 app.include_router(dida365_oauth_router)
 app.include_router(ws_assistant_router)
-app.include_router(wecom_bots_router)
+app.include_router(chat_bots_router)
 app.include_router(system_router)
 app.include_router(vision_router)
 

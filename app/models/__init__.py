@@ -1,6 +1,7 @@
 from app.models.ad_declaration import AdTaskDeclaration
 from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
+from app.models.chat_bot import ChatBot
 from app.models.email_account import EmailAccount
 from app.models.event import Event
 from app.models.event_activity import EventActivity
@@ -15,7 +16,6 @@ from app.models.task_log import TaskLog
 from app.models.task_message import TaskMessage
 from app.models.task_step import TaskStep
 from app.models.user import User
-from app.models.wecom_bot import WeComBot
 from app.models.ziniao_account import ZiniaoAccount
 
 _all_models = [
@@ -37,5 +37,5 @@ _all_models = [
     EventActivity,
     EmailAccount,
     StoreEmailLink,
-    WeComBot,
+    ChatBot,
 ]

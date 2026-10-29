@@ -73,6 +73,13 @@ def _ensure_added_columns(conn) -> None:
         # Binding to an external Amazon Ads service. See app/ads_client.py.
         ('stores', 'ads_store_keys', "TEXT NOT NULL DEFAULT '{}'"),
         ('stores', 'ads_authorized', 'BOOLEAN NOT NULL DEFAULT 0'),
+        # Chat bots grew from WeCom-only to four platforms. The table
+        # keeps its original name (`wecom_bots`) — see
+        # app/models/chat_bot.py — so the platform of every existing row
+        # is backfilled as 'wecom' by the column default, and `secret`
+        # (DingTalk 加签 / Feishu 签名校验) starts out NULL.
+        ('wecom_bots', 'platform', "TEXT NOT NULL DEFAULT 'wecom'"),
+        ('wecom_bots', 'secret', 'TEXT'),
     ]
     for table, column, sqltype in added:
         cols = {
@@ -81,6 +88,12 @@ def _ensure_added_columns(conn) -> None:
                 f'PRAGMA table_info({table})'
             ).fetchall()
         }
+        # PRAGMA on a missing table lists no columns; a table that
+        # isn't there has nothing to ALTER (init_db's create_all makes
+        # every table before this runs, but this function must also be
+        # safe standalone — e.g. against a partial/test DB).
+        if not cols:
+            continue
         if column not in cols:
             conn.exec_driver_sql(
                 f'ALTER TABLE {table} ADD COLUMN {column} {sqltype}'
