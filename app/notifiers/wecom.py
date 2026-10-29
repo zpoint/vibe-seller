@@ -10,9 +10,10 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
+from app.notifiers import base
+
 logger = logging.getLogger(__name__)
 
-WEBHOOK_TIMEOUT = 30
 # WeCom group-bot file limit: ≤ 20 MB, > 5 bytes (per the upload_media
 # docs). We reject early so a too-big file fails with a clear message
 # instead of an opaque WeCom errcode.
@@ -21,16 +22,23 @@ MIN_FILE_BYTES = 6
 UPLOAD_TIMEOUT = 120
 
 
-async def send_webhook(
+async def send_message(
     webhook_url: str,
+    secret: str | None,
     content: str,
     msgtype: str = 'text',
 ) -> tuple[bool, str]:
     """Post a message to a WeCom group bot webhook.
 
-    Returns (ok, message). On success, message is empty; on
-    failure, it contains the API error or exception text.
+    Returns (ok, message). On success, message is empty; on failure it
+    contains the API error. WeCom has no signing secret — the ``secret``
+    argument exists only for the shared platform signature.
     """
+    platform = base.PLATFORMS['wecom']
+    too_big = base.size_error(platform, content, msgtype)
+    if too_big:
+        return False, too_big
+
     if msgtype == 'markdown':
         payload = {
             'msgtype': 'markdown',
@@ -42,25 +50,21 @@ async def send_webhook(
             'text': {'content': content},
         }
 
-    # NOTE: the webhook URL embeds a secret `key=...`. httpx
-    # exceptions (e.g. HTTPStatusError) include the request URL in
-    # their string form, so we never return the raw exception to
-    # callers — those strings flow to the frontend via /test.
+    resp, err = await base.post(
+        webhook_url,
+        label='WeCom',
+        json_payload=payload,
+        headers={'Content-Type': 'application/json'},
+    )
+    if resp is None:
+        return False, err
+    if resp.status_code >= 400:
+        logger.error('WeCom webhook HTTP status %s', resp.status_code)
+        return False, f'WeCom webhook returned HTTP {resp.status_code}.'
     try:
-        async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
-            resp = await client.post(
-                webhook_url,
-                json=payload,
-                headers={'Content-Type': 'application/json'},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except httpx.HTTPError:
-        logger.exception('WeCom webhook HTTP error')
-        return False, 'Failed to send webhook request.'
-    except Exception:
-        logger.exception('WeCom webhook error')
-        return False, 'Unexpected error while sending webhook.'
+        data = resp.json()
+    except ValueError:
+        return False, 'WeCom returned a non-JSON response.'
 
     if data.get('errcode') == 0:
         return True, ''
@@ -159,3 +163,6 @@ async def send_file_webhook(
     err = data.get('errmsg') or f'errcode={data.get("errcode")}'
     logger.error('WeCom file send API error: %s', err)
     return False, err
+
+
+base.PLATFORMS['wecom'].send = send_message
