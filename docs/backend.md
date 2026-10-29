@@ -22,7 +22,8 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
 | `events_system/` | Business event extraction + sync backends |
-| `channels/` | Message channel integrations (IMAP, WeCom) |
+| `channels/` | Message channel integrations (WeCom self-built app) |
+| `notifiers/` | Chat bot webhook senders (WeCom / DingTalk / Feishu / Slack) — `base.py` holds the `PLATFORMS` registry + `detect_platform` (platform is derived from the URL host, never client-supplied); one module per platform; never echoes the webhook URL in errors |
 | `scheduler/` | Task scheduling (cron, fan-out, concurrent per-store queue) |
 | `workspace/` | Workspace management (~/.vibe-seller/) |
 | `knowledge/` | Project knowledge files (synced to workspace) |
