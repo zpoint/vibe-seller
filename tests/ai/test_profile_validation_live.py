@@ -62,9 +62,9 @@ class TestLiveProfileValidation:
         """A bogus model id is either rejected (providers that validate
         ids server-side, e.g. DeepSeek) OR silently accepted with the
         endpoint reporting a *different*, real served model (providers
-        that fall back, e.g. MiniMax → ``MiniMax-M3``). Either way the
-        probe surfaces a signal the caller can act on; what it must
-        never do is pass the bogus id back as if it were honored."""
+        that fall back, e.g. MiniMax → ``MiniMax-M3.1-Flash``). Either
+        way the probe surfaces a signal the caller can act on; what it
+        must never do is pass the bogus id back as if it were honored."""
         _require_key(provider)
         bogus = 'no-such-model-vibe-seller-xyz'
         env = _good_env(provider)

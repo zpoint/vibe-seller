@@ -47,7 +47,7 @@ class TestProfileCrud:
             },
         )
         assert r.status_code == 200
-        assert r.json()['env']['ANTHROPIC_MODEL'] == 'k3[1m]'
+        assert r.json()['env']['ANTHROPIC_MODEL'] == 'k3.1-pro[1m]'
 
     async def test_update_profile_env_vars(self, admin_client):
         # Create
@@ -145,17 +145,20 @@ class TestProfileCrud:
         """Vision flags are pinned to what a live 2-color image probe
         (64x64 red + blue, x3) actually found — NOT web search:
 
-        - Qwen plus / flash / VL read both colors -> vision.
-        - qwen-max (400 on images), DeepSeek (empty), MiniMax M2.x
-          (no image support per docs) -> text-only.
-        - MiniMax M3 is multimodal per the MiniMax docs
-          (platform.minimaxi.com/docs/llms.txt — M3 accepts
-          type=image / type=video; M2.x is text+tool only). Doc-verified
-          because the earlier live probe conflicted with the doc; the
-          UI badge follows the doc so the agent doesn't degrade on
-          browser screenshots.
-        - Kimi + GLM have no account key to probe, so vision is OMITTED
-          (None) rather than guessed.
+        - Qwen plus / flash / VL read both colors -> vision
+          (live-verified on the pay-go endpoint, 2026-10).
+        - qwen3.7-max (400 on images) and glm-5.3 (misnamed both
+          colors) -> text-only.
+        - 2026-10-29 re-probe: glm-5.3-flash (Z.AI), deepseek-flash,
+          MiniMax-M3.1-Flash and MiniMax-M3 (api.minimax.cn) all named
+          red+blue correctly x3 -> vision. This settles the old
+          MiniMax-M3 doc-vs-live conflict in favor of the doc (the
+          earlier contradicting probe predates the M3 rollout).
+        - Kimi has no usable key (lapsed Kimi Code subscription), so
+          its vision is doc-verified (Moonshot's vision guide lists
+          kimi-k3.1-pro / kimi-k3 / kimi-k2.7-code) -> True.
+        - qwen3.8-max / qwen3.8-flash have no key to probe -> vision
+          OMITTED (None) rather than guessed.
         """
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
@@ -168,46 +171,87 @@ class TestProfileCrud:
         assert vis('qwen', 'qwen3.7-plus') is True
         assert vis('qwen', 'qwen3.6-flash') is True
         assert vis('qwen', 'qwen3-vl-plus') is True
+        assert vis('deepseek', 'deepseek-flash[1m]') is True
+        assert vis('deepseek', 'deepseek-flash') is True
+        assert vis('minimax', 'MiniMax-M3.1-Flash[1m]') is True
+        assert vis('minimax', 'MiniMax-M3[1m]') is True
+        assert vis('glm', 'glm-5.3-flash[1m]') is True
         # Live-verified text-only
         assert vis('qwen', 'qwen3.7-max') is False
         assert vis('deepseek', 'deepseek-v4-pro[1m]') is False
-        # MiniMax: M3 is multimodal per docs; M2.x stays text-only
-        # (docs explicitly say M2.x only supports text+tool blocks).
-        assert vis('minimax', 'MiniMax-M3[1m]') is True
-        assert vis('minimax', 'MiniMax-M2.7') is False
-        assert vis('minimax', 'MiniMax-M2.5') is False
-        assert vis('minimax', 'MiniMax-M2.1') is False
-        # GLM: text-only (confirmed — vision is the separate glm-4.5v /
-        # glm-4v line, not these). Kimi K3: vision per Moonshot's official
-        # vision guide + context7 (doc-verified, no key to live-probe).
+        assert vis('glm', 'glm-5.3[1m]') is False
         assert vis('glm', 'glm-5.2[1m]') is False
-        assert vis('kimi', 'k3[1m]') is True
+        assert vis('glm', 'glm-4.7') is False
+        # Kimi: doc-verified vision (Moonshot vision guide), no key.
+        assert vis('kimi', 'k3.1-pro[1m]') is True
+        assert vis('kimi', 'kimi-for-coding') is True
+        # New Qwen ids with no key: omitted, not guessed.
+        assert vis('qwen', 'qwen3.8-max') is None
+        assert vis('qwen_token', 'auto') is None
 
     async def test_presets_match_vendor_docs(self, admin_client):
         """Pin the load-bearing values for the vendor-doc-aligned
         presets so a typo or accidental revert is caught by CI rather
         than only surfacing on a real agent run. Asserts:
 
-        - DeepSeek: ``[1m]`` suffix on opus/sonnet (1M-context variant),
-          ``deepseek-v4-flash`` for haiku/small-fast/subagent, and the
-          new ``CLAUDE_CODE_EFFORT_LEVEL=max`` flag.
-        - Qwen split: pay-as-you-go vs Coding Plan have DIFFERENT
-          base URLs and DIFFERENT model name tiers.
+        - Kimi: api.kimi.ai endpoint + k3.1-pro[1m] in every slot
+          (incl. the FABLE tier) with the 1M window vars.
+        - MiniMax: api.minimax.cn endpoint + M3.1-Flash everywhere and
+          the 512K auto-compact window + effort=max per its doc.
+        - DeepSeek: deepseek-flash[1m] main/sonnet/opus (the doc's
+          current recommendation; flash reads images, v4-pro does
+          not), bare deepseek-flash for haiku/subagent, and the 768K
+          auto-compact window.
+        - Qwen split: pay-as-you-go vs Coding Plan vs Token Plan have
+          DIFFERENT base URLs and DIFFERENT model name tiers.
         """
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
+
+        kimi = presets['kimi']['env']
+        assert kimi['ANTHROPIC_BASE_URL'] == 'https://api.kimi.ai/coding/'
+        assert kimi['ANTHROPIC_MODEL'] == 'k3.1-pro[1m]'
+        assert kimi['ANTHROPIC_DEFAULT_FABLE_MODEL'] == 'k3.1-pro[1m]'
+        assert kimi['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'k3.1-pro[1m]'
+        assert kimi['CLAUDE_CODE_SUBAGENT_MODEL'] == 'k3.1-pro[1m]'
+        assert kimi['CLAUDE_CODE_EFFORT_LEVEL'] == 'high'
+        assert kimi['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] == '1048576'
+
+        mm = presets['minimax']['env']
+        assert mm['ANTHROPIC_BASE_URL'] == 'https://api.minimax.cn/anthropic'
+        assert mm['ANTHROPIC_MODEL'] == 'MiniMax-M3.1-Flash[1m]'
+        assert mm['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == ('MiniMax-M3.1-Flash[1m]')
+        assert mm['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] == '524288'
+        assert mm['CLAUDE_CODE_EFFORT_LEVEL'] == 'max'
+
+        glm = presets['glm']['env']
+        assert glm['ANTHROPIC_MODEL'] == 'glm-5.3[1m]'
+        assert glm['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'glm-5.3[1m]'
+        assert glm['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'glm-5.3-flash[1m]'
+        glm_intl = presets['glm_intl']['env']
+        assert glm_intl['ANTHROPIC_BASE_URL'] == (
+            'https://api.z.ai/api/anthropic'
+        )
+        assert glm_intl['ANTHROPIC_MODEL'] == 'glm-5.3[1m]'
+        assert glm_intl['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == (
+            'glm-5.3-flash[1m]'
+        )
 
         ds = presets['deepseek']['env']
         assert ds['ANTHROPIC_BASE_URL'] == (
             'https://api.deepseek.com/anthropic'
         )
-        assert ds['ANTHROPIC_MODEL'] == 'deepseek-v4-pro[1m]'
-        assert ds['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'deepseek-v4-pro[1m]'
-        assert ds['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'deepseek-v4-pro[1m]'
-        assert ds['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'deepseek-v4-flash'
-        assert ds['ANTHROPIC_SMALL_FAST_MODEL'] == 'deepseek-v4-flash'
-        assert ds['CLAUDE_CODE_SUBAGENT_MODEL'] == 'deepseek-v4-flash'
+        assert ds['ANTHROPIC_MODEL'] == 'deepseek-flash[1m]'
+        assert ds['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'deepseek-flash[1m]'
+        assert ds['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'deepseek-flash[1m]'
+        assert ds['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'deepseek-flash'
+        assert ds['CLAUDE_CODE_SUBAGENT_MODEL'] == 'deepseek-flash'
         assert ds['CLAUDE_CODE_EFFORT_LEVEL'] == 'max'
+        assert ds['CLAUDE_CODE_AUTO_COMPACT_WINDOW'] == '786432'
+        # The legacy var is gone from every preset (no provider doc
+        # still sets it).
+        for preset in presets.values():
+            assert 'ANTHROPIC_SMALL_FAST_MODEL' not in preset['env']
 
         qwen = presets['qwen']['env']
         assert qwen['ANTHROPIC_BASE_URL'] == (
@@ -215,7 +259,6 @@ class TestProfileCrud:
         )
         assert qwen['ANTHROPIC_MODEL'] == 'qwen3.7-max'
         assert qwen['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.6-flash'
-        assert qwen['ANTHROPIC_SMALL_FAST_MODEL'] == 'qwen3.6-flash'
         # Qwen gets its 1M window from the token count, not a [1m]
         # suffix (that 400s on DashScope — live-verified). No Qwen id
         # may carry the suffix.
@@ -235,14 +278,18 @@ class TestProfileCrud:
         assert qwen_cp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.7-plus'
         assert qwen_cp['CLAUDE_CODE_SUBAGENT_MODEL'] == 'qwen3.7-plus'
 
-        # Token Plan: distinct base URL + the qwen3.8-max-preview
-        # flagship + the explicit ~960K context window per Alibaba docs.
+        # Token Plan: distinct base URL + Alibaba's current tier
+        # routing (auto main/subagent, qwen3.8 tiers) + the explicit
+        # ~960K context window per Alibaba docs.
         qwen_tp = presets['qwen_token']['env']
         assert qwen_tp['ANTHROPIC_BASE_URL'] == (
             'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic'
         )
-        assert qwen_tp['ANTHROPIC_MODEL'] == 'qwen3.8-max-preview'
-        assert qwen_tp['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'qwen3.8-max-preview'
+        assert qwen_tp['ANTHROPIC_MODEL'] == 'auto'
+        assert qwen_tp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'qwen3.6-flash'
+        assert qwen_tp['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'qwen3.8-flash'
+        assert qwen_tp['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'qwen3.8-max'
+        assert qwen_tp['CLAUDE_CODE_SUBAGENT_MODEL'] == 'auto'
         assert qwen_tp['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] == '983616'
 
         # International pay-go carries the per-workspace placeholder host.

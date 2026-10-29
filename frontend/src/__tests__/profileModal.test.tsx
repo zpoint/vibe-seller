@@ -37,17 +37,17 @@ const makeI18n = () => {
 
 const DEEPSEEK_PRESET = {
   name: 'DeepSeek',
-  description: 'DeepSeek V4',
+  description: 'DeepSeek Flash',
   load_global_mcp: false,
   env: {
     ANTHROPIC_BASE_URL: 'https://api.deepseek.com/anthropic',
-    ANTHROPIC_MODEL: 'deepseek-v4-pro[1m]',
-    ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-v4-pro[1m]',
-    ANTHROPIC_SMALL_FAST_MODEL: 'deepseek-v4-flash',
+    ANTHROPIC_MODEL: 'deepseek-flash[1m]',
+    ANTHROPIC_DEFAULT_OPUS_MODEL: 'deepseek-flash[1m]',
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: 'deepseek-flash',
   },
   models: [
+    { id: 'deepseek-flash[1m]', label: 'Flash V4.1 (1M, vision)', context: '1M', vision: true },
     { id: 'deepseek-v4-pro[1m]', label: 'V4 Pro (1M context)', context: '1M', vision: false },
-    { id: 'deepseek-v4-flash', label: 'V4 Flash', context: '1M', vision: false },
   ],
 }
 
@@ -170,7 +170,7 @@ describe('ProfileModal', () => {
       { target: { value: 'https://api.custom.com/anthropic' } }
     )
     fireEvent.change(
-      screen.getByPlaceholderText('e.g., deepseek-v4-pro[1m]'),
+      screen.getByPlaceholderText('e.g., deepseek-flash[1m]'),
       { target: { value: 'my-model' } }
     )
 
@@ -261,7 +261,7 @@ describe('ProfileModal', () => {
       .toBe('Qwen - Plus (vision)')
   })
 
-  it('shows a text-only badge and syncs model + name when a cheaper chip is picked', async () => {
+  it('shows a text-only badge and syncs model + name when another chip is picked', async () => {
     mockPresets({ deepseek: DEEPSEEK_PRESET })
     ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
     const { onSave } = renderModal()
@@ -269,10 +269,10 @@ describe('ProfileModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek' }))
     expect(screen.getAllByText('Text only').length).toBeGreaterThan(0)
 
-    // Pick the cheaper flash model.
-    fireEvent.click(await screen.findByText('V4 Flash'))
+    // Pick the text-only flagship model.
+    fireEvent.click(await screen.findByText('V4 Pro (1M context)'))
     expect((screen.getByPlaceholderText('e.g., MiniMax') as HTMLInputElement).value)
-      .toBe('DeepSeek - V4 Flash')
+      .toBe('DeepSeek - V4 Pro (1M context)')
 
     fireEvent.change(
       screen.getByPlaceholderText('Paste your provider API key'),
@@ -282,11 +282,11 @@ describe('ProfileModal', () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalled())
     const savedEnv = onSave.mock.calls[0][0].env
-    expect(savedEnv.ANTHROPIC_MODEL).toBe('deepseek-v4-flash')
+    expect(savedEnv.ANTHROPIC_MODEL).toBe('deepseek-v4-pro[1m]')
     // The opus alias mirrored the old flagship, so it follows along.
-    expect(savedEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('deepseek-v4-flash')
-    // The distinct fast tier is left untouched.
-    expect(savedEnv.ANTHROPIC_SMALL_FAST_MODEL).toBe('deepseek-v4-flash')
+    expect(savedEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('deepseek-v4-pro[1m]')
+    // The distinct haiku tier is left untouched.
+    expect(savedEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('deepseek-flash')
   })
 
   it('collapses grouped providers under one button with a variant sub-row', async () => {
@@ -339,7 +339,7 @@ describe('ProfileModal', () => {
       { target: { value: 'https://api.c.com/anthropic' } }
     )
     fireEvent.change(
-      screen.getByPlaceholderText('e.g., deepseek-v4-pro[1m]'),
+      screen.getByPlaceholderText('e.g., deepseek-flash[1m]'),
       { target: { value: 'my-model' } }
     )
     // ...and exactly one advanced value (API_TIMEOUT_MS is the first row).
@@ -368,9 +368,9 @@ describe('ProfileModal', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'DeepSeek' }))
     // The chip pre-filled the always-visible model text field.
     const modelInput = screen.getByPlaceholderText(
-      'e.g., deepseek-v4-pro[1m]'
+      'e.g., deepseek-flash[1m]'
     ) as HTMLInputElement
-    expect(modelInput.value).toBe('deepseek-v4-pro[1m]')
+    expect(modelInput.value).toBe('deepseek-flash[1m]')
 
     // Typing your own model id is allowed and is what gets saved.
     fireEvent.change(modelInput, { target: { value: 'deepseek-v4-custom' } })

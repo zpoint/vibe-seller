@@ -617,7 +617,7 @@
     "hideApiKey": "Hide API key",
     "baseUrlPlaceholder": "Replace the placeholder {{placeholder}} in the Base URL before saving.",
     "model": "Model",
-    "modelPlaceholder": "e.g., deepseek-v4-pro[1m]",
+    "modelPlaceholder": "e.g., deepseek-flash[1m]",
     "customModel": "Custom…",
     "vision": "Vision",
     "textOnly": "Text only",

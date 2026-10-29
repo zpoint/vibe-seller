@@ -50,11 +50,14 @@ const API_KEY_CANDIDATES = ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY']
 // The per-tier model aliases a preset points at the flagship. When the
 // user switches the main model, every slot that mirrored the previous
 // main value follows it (so e.g. Kimi's all-same slots stay coherent),
-// while a distinct fast/haiku tier (e.g. deepseek-v4-flash) is left be.
+// while a distinct fast/haiku tier (e.g. deepseek-flash) is left be.
+// ANTHROPIC_SMALL_FAST_MODEL is legacy but kept so editing an older
+// profile that still sets it stays coherent.
 const MODEL_TIER_KEYS = [
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
   'ANTHROPIC_SMALL_FAST_MODEL',
   'CLAUDE_CODE_SUBAGENT_MODEL',
 ]
@@ -64,10 +67,10 @@ const MODEL_TIER_KEYS = [
 // is fine. (Excludes the promoted primary fields: base URL, model, key.)
 const CUSTOM_ENV_TEMPLATE = [
   'API_TIMEOUT_MS',
-  'ANTHROPIC_SMALL_FAST_MODEL',
   'ANTHROPIC_DEFAULT_SONNET_MODEL',
   'ANTHROPIC_DEFAULT_OPUS_MODEL',
   'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_FABLE_MODEL',
   'CLAUDE_CODE_SUBAGENT_MODEL',
 ]
 
