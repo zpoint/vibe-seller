@@ -367,6 +367,12 @@ jobs:
           # The ads service is a stand-in the e2e serves itself
           # (tests/e2e/fake_ads_service.py) — never the real one.
           VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
+          # test_skill_save_reuse.py posts to a LOOPBACK stub that
+          # impersonates a chat-bot webhook. Production rejects
+          # loopback webhook URLs outright (a webhook secret never
+          # goes anywhere but a real platform host over https);
+          # this flag opts this e2e server into the stub.
+          VIBE_ALLOW_LOOPBACK_WEBHOOKS: '1'
         run: |
           source .venv/bin/activate
           echo "=== Starting server via vibe-seller CLI ==="

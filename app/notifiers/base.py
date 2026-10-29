@@ -24,7 +24,9 @@ if it has not been loaded yet.
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from importlib import import_module
+import ipaddress
 import logging
+import os
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -102,7 +104,7 @@ PLATFORMS: dict[str, Platform] = {
         max_message=20000,
         limit_unit='bytes',
         doc_url=(
-            'https://open.feishu.cn/document/client-docs/bot-v2/add-custom-bot'
+            'https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot'
         ),
     ),
     'slack': Platform(
@@ -124,10 +126,38 @@ PLATFORMS: dict[str, Platform] = {
 # ── URL detection ───────────────────────────────────
 
 
+def _loopback_allowed() -> bool:
+    """Whether loopback test webhooks are accepted at all.
+
+    OFF in production: a webhook secret may only ever go to a real
+    platform host over https. The offline e2e suite runs a loopback
+    stub that impersonates a platform webhook, so the CI jobs (and a
+    local e2e run) start the server with
+    ``VIBE_ALLOW_LOOPBACK_WEBHOOKS=1``. Read from the environment at
+    CALL time (not import time) so tests can monkeypatch it.
+    """
+    return os.environ.get('VIBE_ALLOW_LOOPBACK_WEBHOOKS', '') in (
+        '1',
+        'true',
+    )
+
+
 def _is_loopback(host: str) -> bool:
-    if host in ('localhost', '::1'):
+    """Strict loopback check.
+
+    The host must BE a loopback address (``ipaddress``, which covers
+    all of 127.0.0.0/8 and ``::1``) or the exact name ``localhost``.
+    NEVER a string prefix: ``127.evil.com`` and ``127.0.0.1.nip.io``
+    both start with ``127.`` and both resolve to arbitrary internet
+    hosts — accepting them as "loopback" would post the webhook secret
+    in cleartext to an attacker-chosen machine.
+    """
+    if host == 'localhost':
         return True
-    return host.startswith('127.')
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def detect_platform(url: str) -> str | None:
@@ -135,20 +165,24 @@ def detect_platform(url: str) -> str | None:
 
     A URL is accepted only when ALL of the following hold:
 
-      * the scheme is ``https``, OR plain ``http`` on a LOOPBACK host
-        (the offline e2e suite registers a loopback stub that
-        impersonates a platform webhook; loopback never leaves the
-        machine, so the secret cannot leak through it),
-      * the host is an EXACT match for one of the platform's hosts
-        (loopback excepted — the platform is read off the path),
-      * the path starts with that platform's path prefix,
-      * there is no userinfo (``https://host@evil.com/...``) and, for
-        https, no non-default port.
+      * the scheme is ``https`` and the host is an EXACT match for one
+        of the platform's hosts, with that platform's path prefix —
+        the only place a webhook secret is ever allowed to go;
+      * there is no userinfo (``https://host@evil.com/...``) and no
+        non-default port.
+
+    The single exception is a LOOPBACK host (``ipaddress`` loopback or
+    ``localhost``), accepted only — plain ``http`` included — while
+    the server process runs with ``VIBE_ALLOW_LOOPBACK_WEBHOOKS=1``
+    (see :func:`_loopback_allowed`); the platform is then read off the
+    path. Loopback never leaves the machine, so the stub the offline
+    e2e suite runs can receive a "secret" without any real one going
+    anywhere.
 
     Everything else — a look-alike host, a URL that merely mentions a
-    platform host in its query string, a userinfo trick, cleartext to
-    a non-loopback host — is rejected, because the webhook URL *is*
-    the secret.
+    platform host in its query string, a userinfo trick, cleartext,
+    loopback-without-the-flag — is rejected, because the webhook URL
+    *is* the secret.
     """
     if not url:
         return None
@@ -168,20 +202,20 @@ def detect_platform(url: str) -> str | None:
         return None
 
     path = parts.path or ''
-    loopback = _is_loopback(host)
 
-    if scheme == 'http' and not loopback:
-        return None
-    if scheme == 'https' and not loopback and port not in (None, 443):
-        return None
-
-    if loopback:
+    if _is_loopback(host):
+        if not _loopback_allowed():
+            return None
         # The stub carries the platform in its path.
         for name, plat in PLATFORMS.items():
             if path.startswith(plat.path_prefix):
                 return name
         return None
 
+    if scheme != 'https':
+        return None
+    if port not in (None, 443):
+        return None
     for name, plat in PLATFORMS.items():
         if host in plat.hosts and path.startswith(plat.path_prefix):
             return name

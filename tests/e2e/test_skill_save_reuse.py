@@ -10,7 +10,11 @@ built-in skill was touched.
 Runs in CI (creates its own ephemeral store, needs no real creds).
 The WeCom send targets a loopback stub so the "post to WeCom" leg is
 deterministic; delivery itself is not asserted (the skill flow is what
-this test pins).
+this test pins). The server must be started with
+``VIBE_ALLOW_LOOPBACK_WEBHOOKS=1`` (CI and docker/e2e do) to accept
+the stub's loopback webhook URL — production never accepts loopback
+webhooks, and without the flag this module SKIPS (see the wecom_stub
+fixture).
 """
 
 import http.server
@@ -126,6 +130,17 @@ def wecom_stub(api_client):
         f'{BASE_URL}/api/chat-bots',
         json={'name': f'e2e-stub-{port}', 'webhook_url': url},
     )
+    if resp.status_code == 400 and 'Unsupported webhook URL' in resp.text:
+        # Not a failure: this server (correctly) refuses loopback
+        # webhook URLs — production never accepts them. Only a server
+        # started with VIBE_ALLOW_LOOPBACK_WEBHOOKS=1 (CI / a local
+        # e2e run) can register the stub.
+        server.shutdown()
+        server.server_close()
+        pytest.skip(
+            'server rejects the loopback stub webhook — restart it '
+            'with VIBE_ALLOW_LOOPBACK_WEBHOOKS=1 to run this test'
+        )
     resp.raise_for_status()
     bot_id = resp.json()['id']
 

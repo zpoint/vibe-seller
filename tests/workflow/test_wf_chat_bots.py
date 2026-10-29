@@ -93,6 +93,11 @@ class TestChatBotCRUD:
             'https://evil.com/?u=oapi.dingtalk.com',
             'https://oapi.dingtalk.com@evil.com/robot/send?access_token=x',
             'not a url',
+            # Loopback is a test-only hatch behind
+            # VIBE_ALLOW_LOOPBACK_WEBHOOKS; this process runs without
+            # it, so the offline stub URL must be refused here.
+            'http://127.0.0.1:9999/cgi-bin/webhook/send?key=stub',
+            'http://127.evil.com/cgi-bin/webhook/send?key=stub',
         ],
     )
     async def test_create_rejects_unsupported_url(self, admin_client, url):
@@ -102,6 +107,19 @@ class TestChatBotCRUD:
         )
         assert r.status_code == 400, url
         assert 'Unsupported webhook URL' in r.json()['detail']
+
+    async def test_loopback_needs_the_env_flag(self, admin_client):
+        """The flag is read from THIS server process's env at call
+        time; with it unset (production default) even a strict
+        loopback IP is refused."""
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={
+                'name': 'Stub',
+                'webhook_url': 'http://localhost:9999/robot/send?access_token=x',
+            },
+        )
+        assert r.status_code == 400
 
     async def test_create_rejects_blank_fields(self, admin_client):
         r = await admin_client.post(
@@ -724,6 +742,78 @@ class TestWecomFileNotifierGuards:
         ok, msg = await wecom.send_file_webhook(WECOM_URL, str(f))
         assert ok is False
         assert 'too small' in msg.lower()
+
+
+class TestLegacyRowSendGuard:
+    """A row saved BEFORE URL validation must not be sendable.
+
+    Create/update derive the platform from the URL, but a legacy row
+    can still hold an arbitrary host. Every send endpoint re-derives
+    and refuses, so the stored secret can never be posted to a host
+    the detector no longer accepts.
+    """
+
+    LEGACY_URL = 'http://example.com/webhook?key=very-secret'
+
+    async def _legacy_bot(self, override_async_session, admin_user):
+        async with override_async_session() as db:
+            bot = ChatBot(
+                name='Ancient',
+                webhook_url=self.LEGACY_URL,
+                platform='wecom',
+                created_by=admin_user.id,
+            )
+            db.add(bot)
+            await db.commit()
+            await db.refresh(bot)
+            return bot
+
+    @pytest.mark.parametrize('action', ['test', 'send', 'send-file'])
+    async def test_send_endpoints_refuse_legacy_url(
+        self, admin_client, override_async_session, admin_user, action
+    ):
+        bot = await self._legacy_bot(override_async_session, admin_user)
+        body = (
+            {'path': '/tmp/x.pdf'}
+            if action == 'send-file'
+            else {'content': 'hi'}
+        )
+        r = await admin_client.post(
+            f'/api/chat-bots/{bot.id}/{action}', json=body
+        )
+        assert r.status_code == 400, action
+        assert 'no longer accepted' in r.json()['detail']
+        # The message tells the user what to do.
+        assert 'edit the bot and re-save' in r.json()['detail']
+
+    async def test_valid_legacy_row_still_sends(
+        self, admin_client, override_async_session, admin_user, monkeypatch
+    ):
+        """A legacy row whose URL IS a real platform URL keeps working."""
+        calls = []
+
+        async def _fake_send(platform, url, secret, content, msgtype='text'):
+            calls.append(url)
+            return True, ''
+
+        monkeypatch.setattr(
+            'app.routers.chat_bots.base.send_message', _fake_send
+        )
+        async with override_async_session() as db:
+            bot = ChatBot(
+                name='Ancient but valid',
+                webhook_url=WECOM_URL,
+                platform='wecom',
+                created_by=admin_user.id,
+            )
+            db.add(bot)
+            await db.commit()
+            await db.refresh(bot)
+            id_ = bot.id
+
+        r = await admin_client.post(f'/api/chat-bots/{id_}/test', json={})
+        assert r.status_code == 200, r.text
+        assert calls == [WECOM_URL]
 
 
 class TestLegacyRows:

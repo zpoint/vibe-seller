@@ -209,9 +209,14 @@ host match (`qyapi.weixin.qq.com`, `oapi.dingtalk.com`,
 `hooks.slack-gov.com`) plus the platform's path prefix; anything else
 (cleartext, look-alike hosts like `oapi.dingtalk.com.evil.com`,
 userinfo tricks like `https://oapi.dingtalk.com@evil.com/...`) → 400.
-(Plain `http` is accepted only for loopback hosts — the offline e2e
-suite registers a loopback stub webhook; loopback never leaves the
-machine.)
+The single exception: a LOOPBACK host (strict `ipaddress` loopback or
+`localhost`) is accepted — plain `http` included — only while the
+server process runs with `VIBE_ALLOW_LOOPBACK_WEBHOOKS=1`, which the
+offline e2e suite (CI and `docker/e2e`) uses to register a loopback
+stub webhook; production leaves it unset. Send endpoints (`/test`,
+`/send`, `/send-file`) re-derive the platform from the stored URL and
+refuse with 400 when it no longer matches, so a row saved before this
+validation cannot send to a non-platform host.
 
 List responses mask `webhook_url` (the URL *is* the secret) and report
 only `has_secret` — use the single-item GET to retrieve the full URL +

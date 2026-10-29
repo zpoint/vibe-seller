@@ -129,12 +129,43 @@ class TestDetectPlatform:
         assert detect_platform('ftp://oapi.dingtalk.com/robot/send') is None
         assert detect_platform('https://evil.com') is None
 
-    def test_loopback_http_is_allowed_for_offline_tests(self):
-        """The offline e2e suite registers a loopback stub webhook.
+    def test_loopback_rejected_without_the_flag(self, monkeypatch):
+        """Production never accepts loopback webhook URLs.
 
-        Loopback never leaves the machine, so the secret cannot leak;
-        the platform is read off the path.
+        A webhook secret may only ever go to a real platform host over
+        https; loopback (plain http included) is a test-only hatch
+        behind VIBE_ALLOW_LOOPBACK_WEBHOOKS, OFF by default.
         """
+        monkeypatch.delenv('VIBE_ALLOW_LOOPBACK_WEBHOOKS', raising=False)
+        assert (
+            detect_platform(
+                'http://127.0.0.1:9999/cgi-bin/webhook/send?key=stub'
+            )
+            is None
+        )
+        assert detect_platform('http://localhost/cgi-bin/webhook/send') is None
+        assert (
+            detect_platform('http://[::1]:9999/cgi-bin/webhook/send?key=x')
+            is None
+        )
+        # https loopback is not a platform host either.
+        assert (
+            detect_platform('https://127.0.0.1:9999/cgi-bin/webhook/send')
+            is None
+        )
+
+    def test_loopback_allowed_only_with_the_flag(self, monkeypatch):
+        """With the flag, a STRICT loopback check applies.
+
+        The host must BE a loopback address (ipaddress) or the exact
+        name `localhost` — never a string prefix. `127.evil.com` and
+        `127.0.0.1.nip.io` both start with "127." and both resolve to
+        arbitrary internet hosts; accepting them would post the
+        webhook secret in cleartext to an attacker-chosen machine.
+        """
+        monkeypatch.setenv('VIBE_ALLOW_LOOPBACK_WEBHOOKS', '1')
+
+        # Real loopback addresses — 127.0.0.0/8, ::1, localhost.
         assert (
             detect_platform(
                 'http://127.0.0.1:9999/cgi-bin/webhook/send?key=stub'
@@ -142,11 +173,39 @@ class TestDetectPlatform:
             == 'wecom'
         )
         assert (
+            detect_platform(
+                'http://127.44.0.9:9999/cgi-bin/webhook/send?key=stub'
+            )
+            == 'wecom'
+        )
+        assert (
             detect_platform('http://localhost:9999/robot/send?access_token=s')
             == 'dingtalk'
         )
-        # But a loopback URL with an unknown path is still rejected.
+        assert (
+            detect_platform('http://[::1]:9999/cgi-bin/webhook/send?key=x')
+            == 'wecom'
+        )
+        # A loopback URL with an unknown path is still rejected.
         assert detect_platform('http://127.0.0.1:9999/nope') is None
+
+        # Look-alike names that merely START with a loopback prefix.
+        assert (
+            detect_platform('http://127.evil.com/cgi-bin/webhook/send?key=x')
+            is None
+        )
+        assert (
+            detect_platform(
+                'http://127.0.0.1.nip.io/cgi-bin/webhook/send?key=x'
+            )
+            is None
+        )
+        assert (
+            detect_platform(
+                'http://localhost.evil.com/cgi-bin/webhook/send?key=x'
+            )
+            is None
+        )
         # And loopback does not open the door to other hosts.
         assert detect_platform('http://10.0.0.5:9999/robot/send') is None
 
