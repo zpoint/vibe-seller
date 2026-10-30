@@ -396,12 +396,30 @@ def test_chat_bot_agent_send(api_client, platform, webhook_url, secret):
             skip_reflection=True,
         )
         task_id = task['id']
+        # A store-less task is ALWAYS plan mode (app/routers/tasks.py:
+        # `if data.store_id is None: plan_mode = True`), so the agent
+        # stops at 'planned' and waits for a human to approve — the
+        # same flow the UI drives. Poll for 'planned' too, approve the
+        # plan, then wait for the run to finish.
         final = e2e_helpers.poll_task_status(
             api_client,
             task_id,
-            {'completed', 'failed'},
+            {'planned', 'completed', 'failed'},
             timeout=600,
         )
+        if final['status'] == 'planned':
+            approve = api_client.post(
+                f'{BASE_URL}/api/tasks/{task_id}/execute-plan'
+            )
+            assert approve.status_code == 200, (
+                f'execute-plan returned {approve.status_code}'
+            )
+            final = e2e_helpers.poll_task_status(
+                api_client,
+                task_id,
+                {'completed', 'failed'},
+                timeout=600,
+            )
         assert final['status'] == 'completed', (
             f'task {task_id[:8]} ended {final["status"]}: '
             f'{(final.get("error") or "")[:300]}'
