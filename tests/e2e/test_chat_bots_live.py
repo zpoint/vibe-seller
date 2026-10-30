@@ -28,12 +28,19 @@ Two tests per platform, so the UI leg can run WITHOUT an LLM provider:
 
   - ``test_chat_bot_agent_send`` — creates the bot via the API, runs
     a real send-message task created through the same API the
-    frontend uses, verifies from the task's recorded tool_use
-    messages that the MCP tool ``vibe_seller_send_chat_message`` was
-    called with this bot's id, prints the nonce so a human can eyeball
-    the message in the group, and deletes the bot in a ``finally``.
-    SKIPS unless ``E2E_PROVIDER_MAP`` is set (the conftest assigns one
-    LLM profile per xdist worker from it) — it spends provider credits.
+    frontend uses, then ``assert_agent_sent`` verifies from the
+    task's recorded messages that the MCP tool (recorded under its
+    prefixed name ``mcp__vibe-seller__vibe_seller_send_chat_message``)
+    was called with this bot's id AND its tool_result returned
+    ``ok: true``; prints the nonce so a human can eyeball the message
+    in the group, and deletes the bot in a ``finally``. SKIPS unless
+    ``E2E_PROVIDER_MAP`` is set (the conftest assigns one LLM profile
+    per xdist worker from it) — it spends provider credits.
+
+  - ``test_agent_sent_replay`` — re-runs ``assert_agent_sent`` against
+    an already-completed agent-send task (no LLM spend): set
+    ``E2E_REPLAY_TASK_ID`` + ``E2E_REPLAY_BOT_ID`` (+
+    ``E2E_REPLAY_NONCE``), which the live test prints.
 
 Webhook URLs and secrets NEVER go to logs or screenshots of the edit
 form (the form is closed before screenshots are taken), and never to
@@ -209,17 +216,132 @@ def _open_integrations(page):
     page.locator('[data-testid="chat-bot-section"]').wait_for(timeout=10000)
 
 
-def _tool_use_messages(client: httpx.Client, task_id: str) -> list[dict]:
-    """Parsed tool_use blocks recorded for a task."""
-    out = []
-    for m in e2e_helpers.get_messages(client, task_id):
+def _tool_result_after(messages: list[dict], idx: int) -> dict | None:
+    """The tool_result paired with the tool_use at ``messages[idx]``.
+
+    The tool_use record itself carries no tool_use_id (it is just
+    ``{tool, input}``), so the pairing is positional: the FIRST
+    agent_event at a LATER seq whose content carries a tool_result.
+    MCP tool calls are not concurrent within one task, so the next
+    result after the call is its own. When the record DOES carry a
+    ``tool_use_id``, it is matched exactly instead.
+    """
+    try:
+        call = json.loads(messages[idx].get('content') or '{}')
+    except ValueError:
+        return None
+    call_id = call.get('tool_use_id')
+    for m in messages[idx + 1 :]:
+        if m.get('role') != 'agent_event':
+            continue
+        try:
+            event = json.loads(m.get('content') or '{}')
+        except ValueError:
+            continue
+        blocks = (event.get('message') or {}).get('content') or []
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get('type') != 'tool_result':
+                continue
+            if call_id and block.get('tool_use_id') != call_id:
+                continue
+            return block
+    return None
+
+
+def _result_text(block: dict) -> str:
+    """The text of a tool_result block (list-of-parts or bare string)."""
+    content = block.get('content')
+    if isinstance(content, str):
+        return content
+    parts = []
+    for part in content or []:
+        if isinstance(part, dict) and part.get('type') == 'text':
+            parts.append(part.get('text') or '')
+    return '\n'.join(parts)
+
+
+def assert_agent_sent(
+    client: httpx.Client, task_id: str, bot_id: str, nonce: str = ''
+) -> None:
+    """The post-task checks for the agent-send leg.
+
+    Asserts that the task's recorded stream shows a real
+    ``vibe_seller_send_chat_message`` call against ``bot_id`` (the
+    recorded name is MCP-prefixed: ``mcp__vibe-seller__…``) whose
+    tool_result returned ``ok: true``, optionally carrying ``nonce``.
+
+    Module-level so it can be re-run standalone against an
+    already-completed task — see ``test_agent_sent_replay`` — without
+    spending LLM credits.
+    """
+    messages = e2e_helpers.get_messages(client, task_id)
+
+    calls = []
+    for idx, m in enumerate(messages):
         if m.get('role') != 'tool_use':
             continue
         try:
-            out.append(json.loads(m.get('content') or '{}'))
+            payload = json.loads(m.get('content') or '{}')
         except ValueError:
             continue
-    return out
+        # MCP tools are recorded under their prefixed names
+        # (mcp__vibe-seller__vibe_seller_send_chat_message).
+        if not str(payload.get('tool', '')).endswith(
+            'vibe_seller_send_chat_message'
+        ):
+            continue
+        calls.append((idx, payload))
+    assert calls, (
+        'no vibe_seller_send_chat_message tool call recorded for '
+        f'task {task_id[:8]}'
+    )
+
+    def _carries(payload: dict, text: str) -> bool:
+        return text in json.dumps(
+            payload.get('input') or {}, ensure_ascii=False
+        )
+
+    matching = [
+        (idx, payload)
+        for idx, payload in calls
+        if (payload.get('input') or {}).get('bot_id') == bot_id
+        and (not nonce or _carries(payload, nonce))
+    ]
+    assert matching, (
+        'send tool call used a different bot id or missed the nonce '
+        f'(bot_id={bot_id}, nonce={nonce or "any"})'
+    )
+
+    for idx, _ in matching:
+        block = _tool_result_after(messages, idx)
+        assert block is not None, (
+            f'send tool call at seq {idx} has no tool_result recorded'
+        )
+        text = _result_text(block)
+        try:
+            result = json.loads(text)
+        except ValueError:
+            result = {}
+        if result.get('ok') is True:
+            return
+        # Some records carry the text twice (tool_use_result); if the
+        # block text is not JSON, fall back to searching it.
+        if '"ok": true' in text or '"ok":true' in text:
+            return
+    pytest.fail(
+        'the send tool call did not return ok=true: '
+        + '; '.join(
+            _result_text(block or {})[:200]
+            for block in (
+                _tool_result_after(messages, idx) for idx, _ in matching
+            )
+            if block is not None
+        )
+    )
 
 
 @pytest.mark.parametrize('platform,webhook_url,secret', _live_cases())
@@ -427,25 +549,16 @@ def test_chat_bot_agent_send(api_client, platform, webhook_url, secret):
 
         # The agent really called the MCP tool with THIS bot's id and
         # the call returned ok (recorded in the tool_use stream).
-        calls = [
-            c
-            for c in _tool_use_messages(api_client, task_id)
-            if c.get('tool') == 'vibe_seller_send_chat_message'
-        ]
-        assert calls, (
-            'no vibe_seller_send_chat_message tool call recorded for '
-            f'task {task_id[:8]}'
-        )
-        assert any(
-            (c.get('input') or {}).get('bot_id') == bot_id for c in calls
-        ), 'tool call used a different bot id'
-        assert nonce in json.dumps(calls, ensure_ascii=False), (
-            'the sent message did not carry the nonce'
-        )
+        assert_agent_sent(api_client, task_id, bot_id, nonce)
         print(f'\n[chat-bot-e2e] {platform}: nonce={nonce} bot={bot_name}')
         print(
             f'[chat-bot-e2e] eyeball the group for: "## Vibe Seller '
             f'e2e {nonce}"'
+        )
+        print(
+            f'[chat-bot-e2e] replay the checks anytime (no LLM): '
+            f'E2E_REPLAY_TASK_ID={task_id} E2E_REPLAY_BOT_ID={bot_id} '
+            f'E2E_REPLAY_NONCE={nonce}'
         )
     finally:
         if bot_id:
@@ -453,3 +566,27 @@ def test_chat_bot_agent_send(api_client, platform, webhook_url, secret):
                 api_client.delete(f'{BASE_URL}/api/chat-bots/{bot_id}')
             except httpx.HTTPError:
                 logger.exception('cleanup delete failed for %s', bot_id)
+
+
+def test_agent_sent_replay(api_client):
+    """Re-run assert_agent_sent against an ALREADY-completed task.
+
+    Zero LLM spend — it only reads the recorded task_messages. Point
+    it at a finished agent-send task:
+
+        E2E_REPLAY_TASK_ID=<task uuid> \\
+        E2E_REPLAY_BOT_ID=<bot uuid> \\
+        [E2E_REPLAY_NONCE=<nonce>] \\
+        .venv/bin/python -m pytest --e2e \\
+            tests/e2e/test_chat_bots_live.py -k agent_sent_replay -v
+    """
+    task_id = os.environ.get('E2E_REPLAY_TASK_ID', '').strip()
+    bot_id = os.environ.get('E2E_REPLAY_BOT_ID', '').strip()
+    nonce = os.environ.get('E2E_REPLAY_NONCE', '').strip()
+    if not task_id or not bot_id:
+        pytest.skip(
+            'replay reads an existing task — set E2E_REPLAY_TASK_ID '
+            '+ E2E_REPLAY_BOT_ID (optionally E2E_REPLAY_NONCE); the '
+            'ids of a finished agent-send run are printed by that test'
+        )
+    assert_agent_sent(api_client, task_id, bot_id, nonce)
