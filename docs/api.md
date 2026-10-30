@@ -220,15 +220,17 @@ validation cannot send to a non-platform host.
 
 List responses mask `webhook_url` (the URL *is* the secret) and report
 only `has_secret` — use the single-item GET to retrieve the full URL +
-secret for the edit form.
+secret for the edit form. The keyword is returned in the list too: it
+is not a secret (the UI shows it on the row), and it never reaches the
+agent — keyword handling is entirely server-side.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/chat-bots/platforms` | Registry metadata the UI renders from: `{name, label, hosts, path_prefix, uses_secret, supports_file, max_message, limits, limit_unit, doc_url}` per platform |
 | GET | `/api/chat-bots` | List bots — `{id, name, platform, webhook_url_masked, has_secret, can_send_file, created_at, updated_at}`; the mask shows the host + last 4 chars of the secret-bearing part (e.g. `https://hooks.slack.com/...****abcd`) |
 | GET | `/api/chat-bots/{id}` | Get one bot with the full `webhook_url` and `secret` (for edit) |
-| POST | `/api/chat-bots` | Create `{name, webhook_url, secret?}`. `secret` is only valid for DingTalk (加签) / Feishu (签名校验) — non-empty on WeCom/Slack → 400 |
-| PUT | `/api/chat-bots/{id}` | Update `name`, `webhook_url` or `secret`; `null`/blank required fields → 400; changing the URL re-derives `platform` (and drops a secret the new platform cannot use); `secret: ""` clears it |
+| POST | `/api/chat-bots` | Create `{name, webhook_url, secret?, keyword?}`. `secret` is only valid for DingTalk (加签) / Feishu (签名校验) — non-empty on WeCom/Slack → 400; `keyword` only for DingTalk (自定义关键词) / Feishu (关键词) — the SERVER appends it to any outgoing message that lacks it, so agents and the Test button work unchanged |
+| PUT | `/api/chat-bots/{id}` | Update `name`, `webhook_url`, `secret` or `keyword`; `null`/blank required fields → 400; changing the URL re-derives `platform` (and drops a secret/keyword the new platform cannot use); `""` clears a secret or keyword |
 | DELETE | `/api/chat-bots/{id}` | Delete bot |
 | POST | `/api/chat-bots/{id}/test` | Post a test message to the webhook; optional `{content}` (blank/whitespace → default, which starts with "Vibe Seller" — matters for DingTalk keyword security) |
 | POST | `/api/chat-bots/{id}/send` | Post a real message: `{content, msgtype?}`. `msgtype` is `text` (default) or `markdown`; blank `content` / unknown `msgtype` → 400. Pre-send size check per platform (WeCom 4096 B, DingTalk 20000 B, Feishu 20000 B body, Slack 40000 chars text / 12000 markdown) rejects without a network call. Used by agents via the MCP bridge (see `docs/workspace.md`). |
@@ -236,12 +238,12 @@ secret for the edit form.
 
 ### Platform notes
 
-| Platform | Text | Markdown | File | Signing | Limits |
+| Platform | Text | Markdown | File | Signing | Keyword | Limits |
 |---|---|---|---|---|---|
-| WeCom 企业微信 | `{"msgtype":"text","text":{"content":…}}` | `{"msgtype":"markdown","markdown":{"content":…}}` (reduced subset) | Yes (`upload_media` → `media_id` → `msgtype=file`) | — | 4096 B / msg |
-| DingTalk 钉钉 | `{"msgtype":"text","text":{"content":…}}` | `{"msgtype":"markdown","markdown":{"title":…,"text":…}}` — `title` derived from the first non-empty line | No | Optional 加签: HMAC-SHA256(key=secret, msg=`"<ts-ms>\n<secret>"`) → base64 → URL-encoded, sent as `&timestamp=&sign=` **query** params | 20000 B / msg, 20 msg/min |
-| Feishu / Lark 飞书 | `{"msg_type":"text","content":{"text":…}}` | Interactive card (`msg_type=interactive`, card JSON 2.0, `markdown` element) | No | Optional 签名校验: HMAC-SHA256(key=`"<ts-s>\n<secret>"`, msg empty) → base64 (NOT URL-encoded), sent as **top-level JSON body** `timestamp`/`sign` | 20 KB body, 100 req/min, 5 req/s |
-| Slack | `{"text": …}` with `&<>` escaped | Block Kit `{"text": <summary>, "blocks":[{"type":"markdown","text":…}]}` (falls back to a standard→mrkdwn converter if the block is rejected) | No | — (the URL is the secret) | 40000 chars text / 12000 markdown |
+| WeCom 企业微信 | `{"msgtype":"text","text":{"content":…}}` | `{"msgtype":"markdown","markdown":{"content":…}}` (reduced subset) | Yes (`upload_media` → `media_id` → `msgtype=file`) | — | — | 4096 B / msg |
+| DingTalk 钉钉 | `{"msgtype":"text","text":{"content":…}}` | `{"msgtype":"markdown","markdown":{"title":…,"text":…}}` — `title` derived from the first non-empty line | No | Optional 加签: HMAC-SHA256(key=secret, msg=`"<ts-ms>\n<secret>"`) → base64 → URL-encoded, sent as `&timestamp=&sign=` **query** params; combinable with a keyword | Optional 自定义关键词 — server appends it to any message that lacks it | 20000 B / msg, 20 msg/min |
+| Feishu / Lark 飞书 | `{"msg_type":"text","content":{"text":…}}` | Interactive card (`msg_type=interactive`, card JSON 2.0, `markdown` element) | No | Optional 签名校验: HMAC-SHA256(key=`"<ts-s>\n<secret>"`, msg empty) → base64 (NOT URL-encoded), sent as **top-level JSON body** `timestamp`/`sign` | Optional 关键词 — server appends it to any message that lacks it | 20 KB body, 100 req/min, 5 req/s |
+| Slack | `{"text": …}` with `&<>` escaped | Block Kit `{"text": <summary>, "blocks":[{"type":"markdown","text":…}]}` (falls back to a standard→mrkdwn converter if the block is rejected) | No | — (the URL is the secret) | — | 40000 chars text / 12000 markdown |
 
 Backend senders live in `app/notifiers/` — `base.py` holds the
 `PLATFORMS` registry, `detect_platform`, shared error handling and the

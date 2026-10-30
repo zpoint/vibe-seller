@@ -107,6 +107,7 @@ def _platform_info(platform: Platform) -> dict:
         'hosts': list(platform.hosts),
         'path_prefix': platform.path_prefix,
         'uses_secret': platform.uses_secret,
+        'uses_keyword': platform.uses_keyword,
         'supports_file': platform.supports_file,
         'max_message': platform.max_message,
         'limits': dict(platform.limits),
@@ -142,6 +143,8 @@ def _summary(bot: ChatBot) -> ChatBotSummary:
         platform=bot.platform,
         webhook_url_masked=base.mask_webhook_url(bot.webhook_url, bot.platform),
         has_secret=bool(bot.secret),
+        # The keyword is not a secret — the UI shows it on the row.
+        keyword=bot.keyword,
         can_send_file=bool(platform and platform.supports_file),
         created_at=bot.created_at,
         updated_at=bot.updated_at,
@@ -156,6 +159,7 @@ def _response(bot: ChatBot) -> ChatBotResponse:
         webhook_url=bot.webhook_url,
         platform=bot.platform,
         secret=bot.secret,
+        keyword=bot.keyword,
         has_secret=bool(bot.secret),
         can_send_file=bool(platform and platform.supports_file),
         created_at=bot.created_at,
@@ -225,12 +229,19 @@ async def create_chat_bot(
             status_code=400,
             detail=(f'{platform.label} webhooks do not use a signing secret'),
         )
+    keyword = (data.keyword or '').strip()
+    if keyword and not platform.uses_keyword:
+        raise HTTPException(
+            status_code=400,
+            detail=(f'{platform.label} webhooks do not use keyword security'),
+        )
 
     bot = ChatBot(
         name=name,
         webhook_url=url,
         platform=platform.name,
         secret=secret or None,
+        keyword=keyword or None,
         created_by=user.id,
     )
     db.add(bot)
@@ -250,8 +261,8 @@ async def update_chat_bot(
     or None values for required fields are rejected with a 400.
 
     Changing the webhook URL re-derives the platform. A signing
-    secret that no longer applies (the platform moved to WeCom or
-    Slack) is cleared rather than kept around.
+    secret or keyword that no longer applies (the platform moved to
+    WeCom or Slack) is cleared rather than kept around.
     """
     bot = await db.get(ChatBot, bot_id)
     if not bot:
@@ -297,11 +308,26 @@ async def update_chat_bot(
             )
         bot.secret = secret or None
 
-    # A secret that the (possibly new) platform cannot use is dropped:
-    # keeping it would leave a secret on a row that never signs with it.
+    if 'keyword' in update:
+        keyword = (update['keyword'] or '').strip()
+        platform = PLATFORMS.get(platform_name)
+        if keyword and not (platform and platform.uses_keyword):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f'{platform.label if platform else platform_name} '
+                    'webhooks do not use keyword security'
+                ),
+            )
+        bot.keyword = keyword or None
+
+    # A secret or keyword the (possibly new) platform cannot use is
+    # dropped: keeping either would leave it on a row that never uses it.
     platform = PLATFORMS.get(platform_name)
     if bot.secret and not (platform and platform.uses_secret):
         bot.secret = None
+    if bot.keyword and not (platform and platform.uses_keyword):
+        bot.keyword = None
 
     bot.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
@@ -340,7 +366,11 @@ async def test_chat_bot(
     raw = data.content if data else None
     content = (raw.strip() if raw else '') or DEFAULT_TEST_MESSAGE
     ok, err = await base.send_message(
-        bot.platform, bot.webhook_url, bot.secret, content
+        bot.platform,
+        bot.webhook_url,
+        bot.secret,
+        content,
+        keyword=bot.keyword,
     )
     return {'ok': ok, 'message': err or 'Message sent'}
 
@@ -368,7 +398,12 @@ async def send_chat_message(
         )
 
     ok, err = await base.send_message(
-        bot.platform, bot.webhook_url, bot.secret, content, msgtype=data.msgtype
+        bot.platform,
+        bot.webhook_url,
+        bot.secret,
+        content,
+        msgtype=data.msgtype,
+        keyword=bot.keyword,
     )
     return {'ok': ok, 'message': err or 'Message sent'}
 

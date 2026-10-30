@@ -15,13 +15,18 @@ class ChatBotCreate(BaseModel):
     name: str
     webhook_url: str
     secret: str | None = None
+    #: Security keyword (DingTalk 自定义关键词 / Feishu 关键词). Not a
+    #: secret — the UI shows it and the server appends it to any
+    #: outgoing message that doesn't already contain it.
+    keyword: str | None = None
 
 
 class ChatBotUpdate(BaseModel):
     name: str | None = None
     webhook_url: str | None = None
-    #: ``""`` clears the stored secret.
+    #: ``""`` clears the stored secret / keyword.
     secret: str | None = None
+    keyword: str | None = None
 
 
 class ChatBotResponse(BaseModel):
@@ -39,6 +44,7 @@ class ChatBotResponse(BaseModel):
     webhook_url: str
     platform: str
     secret: str | None = None
+    keyword: str | None = None
     has_secret: bool = False
     can_send_file: bool = False
     created_at: str
@@ -46,7 +52,11 @@ class ChatBotResponse(BaseModel):
 
 
 class ChatBotSummary(BaseModel):
-    """Safe list-endpoint payload — masks the webhook URL."""
+    """Safe list-endpoint payload — masks the webhook URL.
+
+    The keyword IS included: it is not a secret (the UI shows it next
+    to the row) — only the URL and the signing secret are masked.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,6 +65,7 @@ class ChatBotSummary(BaseModel):
     platform: str
     webhook_url_masked: str
     has_secret: bool
+    keyword: str | None = None
     can_send_file: bool
     created_at: str
     updated_at: str

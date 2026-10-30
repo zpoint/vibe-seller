@@ -419,7 +419,9 @@ class TestChatBotTest:
     async def test_test_endpoint_success(self, admin_client, monkeypatch):
         calls = []
 
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             calls.append((platform, url, secret, content, msgtype))
             return True, ''
 
@@ -444,7 +446,9 @@ class TestChatBotTest:
     async def test_test_endpoint_passes_secret(self, admin_client, monkeypatch):
         calls = []
 
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             calls.append(secret)
             return True, ''
 
@@ -473,7 +477,9 @@ class TestChatBotTest:
     ):
         calls = []
 
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             calls.append(content)
             return True, ''
 
@@ -493,7 +499,9 @@ class TestChatBotTest:
     async def test_test_endpoint_failure_surfaces_error(
         self, admin_client, monkeypatch
     ):
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             return False, 'keyword not in content'
 
         monkeypatch.setattr(
@@ -530,7 +538,9 @@ class TestChatBotSend:
     async def test_send_text_success(self, admin_client, monkeypatch):
         calls = []
 
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             calls.append((platform, url, secret, content, msgtype))
             return True, ''
 
@@ -552,7 +562,9 @@ class TestChatBotSend:
     async def test_send_markdown_success(self, admin_client, monkeypatch):
         calls = []
 
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             calls.append(msgtype)
             return True, ''
 
@@ -592,7 +604,9 @@ class TestChatBotSend:
         assert r.status_code == 404
 
     async def test_send_failure_surfaces_error(self, admin_client, monkeypatch):
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             return False, 'Slack limit is 12000 chars; message is 99999'
 
         monkeypatch.setattr(
@@ -792,7 +806,9 @@ class TestLegacyRowSendGuard:
         """A legacy row whose URL IS a real platform URL keeps working."""
         calls = []
 
-        async def _fake_send(platform, url, secret, content, msgtype='text'):
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
             calls.append(url)
             return True, ''
 

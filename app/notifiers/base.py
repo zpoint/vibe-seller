@@ -58,6 +58,9 @@ class Platform:
     max_message: int
     limit_unit: str
     doc_url: str
+    #: Whether the platform offers keyword security (DingTalk
+    #: 自定义关键词, Feishu 关键词) that the server must satisfy.
+    uses_keyword: bool = False
     #: Per-msgtype overrides of ``max_message`` (Slack caps markdown
     #: lower than plain text).
     limits: dict[str, int] = field(default_factory=dict)
@@ -87,6 +90,7 @@ PLATFORMS: dict[str, Platform] = {
         hosts=('oapi.dingtalk.com',),
         path_prefix='/robot/send',
         uses_secret=True,
+        uses_keyword=True,
         supports_file=False,
         max_message=20000,
         limit_unit='bytes',
@@ -100,6 +104,7 @@ PLATFORMS: dict[str, Platform] = {
         hosts=('open.feishu.cn', 'open.larksuite.com'),
         path_prefix='/open-apis/bot/v2/hook/',
         uses_secret=True,
+        uses_keyword=True,
         supports_file=False,
         max_message=20000,
         limit_unit='bytes',
@@ -327,6 +332,29 @@ def size_error(
     )
 
 
+# ── Keyword security ────────────────────────────────
+
+
+def ensure_keyword(content: str, keyword: str | None) -> str:
+    """Guarantee ``keyword`` appears in ``content`` (DingTalk 自定义关键词
+    / Feishu 关键词 security).
+
+    A keyword-secured bot rejects every message that does not contain
+    one of its configured keywords (DingTalk errcode 310000, Feishu
+    19024), so the SERVER appends the keyword when the user's content
+    doesn't already carry it — the agent never has to know it exists.
+    Appended at the END after a blank line, so the real content still
+    leads the notification/preview (and DingTalk's markdown title,
+    derived from the first line, is unaffected). Returns ``content``
+    unchanged when the keyword is already present or not set.
+    """
+    if not keyword:
+        return content
+    if keyword in content:
+        return content
+    return content.rstrip() + '\n\n' + keyword
+
+
 # ── Dispatch ────────────────────────────────────────
 
 
@@ -336,8 +364,15 @@ async def send_message(
     secret: str | None,
     content: str,
     msgtype: str = 'text',
+    keyword: str | None = None,
 ) -> tuple[bool, str]:
-    """Send ``content`` through the ``platform`` webhook."""
+    """Send ``content`` through the ``platform`` webhook.
+
+    Keyword security is applied HERE — the single send path /test and
+    /send both use — and BEFORE the platform senders run their size
+    pre-checks, so the limit always accounts for the appended keyword.
+    """
+    content = ensure_keyword(content, keyword)
     plat = PLATFORMS.get(platform)
     if plat is None:
         return False, f'Unknown chat bot platform: {platform}'

@@ -9,6 +9,7 @@ export interface ChatPlatform {
   hosts: string[]
   path_prefix: string
   uses_secret: boolean
+  uses_keyword: boolean
   supports_file: boolean
   max_message: number
   limits: Record<string, number>
@@ -22,14 +23,17 @@ export interface ChatBotSummary {
   platform: string
   webhook_url_masked: string
   has_secret: boolean
+  /** Security keyword (DingTalk/Feishu) — not a secret, shown on the row. */
+  keyword: string | null
   can_send_file: boolean
   created_at: string
   updated_at: string
 }
 
-export interface ChatBot extends Omit<ChatBotSummary, 'webhook_url_masked' | 'has_secret' | 'can_send_file'> {
+export interface ChatBot extends Omit<ChatBotSummary, 'webhook_url_masked' | 'has_secret' | 'can_send_file' | 'keyword'> {
   webhook_url: string
   secret: string | null
+  keyword: string | null
 }
 
 /**
@@ -75,9 +79,12 @@ export function ChatBotSection() {
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
-  const [form, setForm] = useState<{ name: string; webhook_url: string; secret: string }>(
-    { name: '', webhook_url: '', secret: '' },
-  )
+  const [form, setForm] = useState<{
+    name: string
+    webhook_url: string
+    secret: string
+    keyword: string
+  }>({ name: '', webhook_url: '', secret: '', keyword: '' })
   const [saving, setSaving] = useState(false)
   const [testingId, setTestingId] = useState<string | null>(null)
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
@@ -112,7 +119,7 @@ export function ChatBotSection() {
   const startCreate = () => {
     setEditingId(null)
     setCreating(true)
-    setForm({ name: '', webhook_url: '', secret: '' })
+    setForm({ name: '', webhook_url: '', secret: '', keyword: '' })
   }
 
   const startEdit = async (bot: ChatBotSummary) => {
@@ -121,10 +128,15 @@ export function ChatBotSection() {
     // Populate name/platform immediately; fetch the full URL + secret
     // so the edit form shows the real values (the list only exposes
     // masks).
-    setForm({ name: bot.name, webhook_url: '', secret: '' })
+    setForm({ name: bot.name, webhook_url: '', secret: '', keyword: '' })
     try {
       const full = (await api.get(`/api/chat-bots/${bot.id}`)) as ChatBot
-      setForm({ name: full.name, webhook_url: full.webhook_url, secret: full.secret ?? '' })
+      setForm({
+        name: full.name,
+        webhook_url: full.webhook_url,
+        secret: full.secret ?? '',
+        keyword: full.keyword ?? '',
+      })
     } catch (e) {
       setToast({ kind: 'err', text: e instanceof Error ? e.message : String(e) })
     }
@@ -133,7 +145,7 @@ export function ChatBotSection() {
   const cancelEdit = () => {
     setCreating(false)
     setEditingId(null)
-    setForm({ name: '', webhook_url: '', secret: '' })
+    setForm({ name: '', webhook_url: '', secret: '', keyword: '' })
   }
 
   const save = async () => {
@@ -142,7 +154,12 @@ export function ChatBotSection() {
     setSaving(true)
     setToast(null)
     try {
-      const body = { name: form.name, webhook_url: form.webhook_url, secret: form.secret }
+      const body = {
+        name: form.name,
+        webhook_url: form.webhook_url,
+        secret: form.secret,
+        keyword: form.keyword,
+      }
       if (editingId) {
         await api.put(`/api/chat-bots/${editingId}`, body)
       } else {
@@ -277,6 +294,22 @@ export function ChatBotSection() {
               <p className="text-xs text-gray-500 mt-1">{t('integrations.chat_bot.secretHint')}</p>
             </div>
           )}
+          {detected?.uses_keyword && (
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">
+                {t('integrations.chat_bot.keywordLabel')}
+              </label>
+              <input
+                type="text"
+                data-testid="chat-bot-keyword"
+                value={form.keyword}
+                onChange={(e) => setForm({ ...form, keyword: e.target.value })}
+                placeholder={t('integrations.chat_bot.keywordPlaceholder')}
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded font-mono"
+              />
+              <p className="text-xs text-gray-500 mt-1">{t('integrations.chat_bot.keywordHint')}</p>
+            </div>
+          )}
           <div className="flex gap-2">
             <button
               data-testid="chat-bot-save"
@@ -322,6 +355,15 @@ export function ChatBotSection() {
                       title={t('integrations.chat_bot.signedHint')}
                     >
                       {t('integrations.chat_bot.signed')}
+                    </span>
+                  )}
+                  {bot.keyword && (
+                    <span
+                      data-testid={`chat-bot-keyword-pill-${bot.id}`}
+                      className="px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-800 font-mono shrink-0"
+                      title={t('integrations.chat_bot.keywordPillHint')}
+                    >
+                      {t('integrations.chat_bot.keywordPill', { keyword: bot.keyword })}
                     </span>
                   )}
                 </div>

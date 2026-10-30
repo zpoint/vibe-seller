@@ -80,6 +80,9 @@ def _ensure_added_columns(conn) -> None:
         # (DingTalk 加签 / Feishu 签名校验) starts out NULL.
         ('wecom_bots', 'platform', "TEXT NOT NULL DEFAULT 'wecom'"),
         ('wecom_bots', 'secret', 'TEXT'),
+        # Keyword security (DingTalk 自定义关键词 / Feishu 关键词):
+        # the server appends it to outgoing messages that lack it.
+        ('wecom_bots', 'keyword', 'TEXT'),
     ]
     for table, column, sqltype in added:
         cols = {

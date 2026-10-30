@@ -228,7 +228,10 @@ Defined in `app/mcp_server.py`; every tool proxies an HTTP call to the backend. 
 | `vibe_seller_email_info` / `vibe_seller_send_email` / `vibe_seller_sync_email_now` | Per-store IMAP email DB paths, send, force-sync |
 | `vibe_seller_get_schedule_state` / `vibe_seller_set_schedule_state` | Cross-run cursor for scheduled tasks (e.g. email watermark) |
 | `vibe_seller_list_chat_bots` | List configured chat bots (WeCom 企业微信 / DingTalk 钉钉 / Feishu 飞书 / Slack) as `[{id, name, platform, can_send_file, max_message}]`. Webhook URLs and secrets are stripped so nothing secret reaches the LLM. Formerly `vibe_seller_list_wecom_bots` |
-| `vibe_seller_send_chat_message` | Post to a group via `{bot_id, content, msgtype?}`. `msgtype` accepts `text` (default) or `markdown`. The markdown dialect and size limit differ per platform (WeCom: reduced subset, 4096 B; DingTalk: title auto-derived, 20000 B; Feishu: standard markdown as a card, 20000 B; Slack: Block Kit, 12000 chars) — the pre-send check refuses oversized messages without a network call. Proxies `POST /api/chat-bots/{id}/send`. Formerly `vibe_seller_send_wecom_message` |
+| `vibe_seller_send_chat_message` | Post to a group via `{bot_id, content, msgtype?}`. `msgtype` accepts `text` (default) or `markdown`. The markdown dialect and size limit differ per platform (WeCom: reduced subset, 4096 B; DingTalk: title auto-derived, 20000 B; Feishu: standard markdown as a card, 20000 B; Slack: Block Kit, 12000 chars) — the pre-send check refuses oversized messages without a network call.
+Keyword security (DingTalk 自定义关键词 / Feishu 关键词) is handled
+entirely server-side: the agent never sees or passes the keyword.
+Proxies `POST /api/chat-bots/{id}/send`. Formerly `vibe_seller_send_wecom_message` |
 | `vibe_seller_send_chat_file` | Send a local file `{bot_id, path}` — WeCom bots only (20 MB). Proxies `POST /api/chat-bots/{id}/send-file`. Formerly `vibe_seller_send_wecom_file` |
 
 ### Adding a Built-in Skill

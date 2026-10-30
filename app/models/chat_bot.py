@@ -32,6 +32,11 @@ class ChatBot(Base):
     # Optional signing secret (DingTalk 加签 / Feishu 签名校验).
     # Meaningless for WeCom and Slack, which the API rejects.
     secret: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Optional security keyword (DingTalk 自定义关键词 / Feishu 关键词).
+    # NOT a secret: the UI shows it and the server appends it to any
+    # outgoing message that doesn't already contain it. The agent never
+    # sees it — keyword bots must work without the LLM knowing.
+    keyword: Mapped[str | None] = mapped_column(String, nullable=True)
     created_by: Mapped[str] = mapped_column(
         String, ForeignKey('users.id'), nullable=False
     )
