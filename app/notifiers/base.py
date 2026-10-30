@@ -318,17 +318,40 @@ def size_error(
 ) -> str:
     """The error message when ``content`` is over the platform limit.
 
+    The measurement follows ``platform.limit_unit`` — 'chars' counts
+    CHARACTERS (Slack's markdown-block cap is 12,000 characters), 'bytes'
+    counts UTF-8 bytes (WeCom/DingTalk/Feishu). Measuring Slack's
+    content in bytes refused a Chinese markdown message at ~4,000
+    characters instead of 12,000 (a Chinese character is 3 bytes).
+
     ``measured`` lets a platform check the size of what it will
     actually send (Feishu counts the serialized body, not the text).
     An empty string means the message fits.
     """
     limit = platform.limit_for(msgtype)
-    size = measured if measured is not None else len(content.encode('utf-8'))
+    size = measured if measured is not None else _measure(platform, content)
     if size <= limit:
         return ''
     return (
         f'{platform.label} limit is {limit} {platform.limit_unit}; '
         f'message is {size} — split it into several messages.'
+    )
+
+
+def _measure(platform: Platform, content: str) -> int:
+    """The size of ``content`` in the platform's own unit.
+
+    Raises ValueError for a unit the checker cannot measure: a
+    platform declaring an unknown unit must fail loudly rather than
+    silently be measured in the wrong one.
+    """
+    if platform.limit_unit == 'chars':
+        return len(content)
+    if platform.limit_unit == 'bytes':
+        return len(content.encode('utf-8'))
+    raise ValueError(
+        f'Unknown limit unit {platform.limit_unit!r} for platform '
+        f'{platform.name!r} — expected "chars" or "bytes"'
     )
 
 

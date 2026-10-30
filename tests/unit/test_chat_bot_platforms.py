@@ -29,6 +29,7 @@ from app.notifiers import dingtalk, feishu, slack, wecom
 import app.notifiers.base as base_mod
 from app.notifiers.base import (
     PLATFORMS,
+    Platform,
     detect_platform,
     ensure_keyword,
     mask_webhook_url,
@@ -690,6 +691,87 @@ class TestSizePreCheck:
             SLACK_URL, None, content, msgtype='markdown'
         )
         assert ok is False
+
+
+class TestSizeUnitIsHonoured:
+    """The size check must measure in the platform's OWN unit.
+
+    Slack's limits are CHARACTERS (its markdown-block cap is 12,000
+    characters), while WeCom/DingTalk/Feishu limits are BYTES. A
+    Chinese character is 3 UTF-8 bytes, so measuring Slack's content in
+    bytes refuses a Chinese markdown message at ~4,000 characters
+    instead of 12,000 — with an error that says "12000 chars".
+    """
+
+    async def test_slack_accepts_5000_chinese_chars(self, monkeypatch):
+        """5,000 Chinese chars = 15,000 bytes but only 5,000 chars —
+        inside Slack's 12,000-character markdown limit."""
+        captured = []
+        _patch_transport(monkeypatch, _transport(_capture(captured, text='ok')))
+        content = '中' * 5000
+        ok, msg = await slack.send_message(
+            SLACK_URL, None, content, msgtype='markdown'
+        )
+        assert ok is True, msg
+        assert len(captured) == 1, 'the message must actually be sent'
+        body = json.loads(captured[0].read())
+        assert body['blocks'][0]['text'] == content
+
+    async def test_slack_refuses_12001_ascii_chars_offline(self, monkeypatch):
+        def _boom(*a, **kw):
+            raise AssertionError('network must not be reached')
+
+        monkeypatch.setattr('app.notifiers.base.post', _boom)
+        content = 'x' * 12001
+        ok, msg = await slack.send_message(
+            SLACK_URL, None, content, msgtype='markdown'
+        )
+        assert ok is False
+        assert '12000 chars' in msg
+        assert 'message is 12001' in msg
+
+    async def test_dingtalk_still_counts_bytes(self, monkeypatch):
+        """DingTalk's limit really is bytes: 7,000 Chinese chars =
+        21,000 bytes > 20,000 → refused."""
+
+        def _boom(*a, **kw):
+            raise AssertionError('network must not be reached')
+
+        monkeypatch.setattr('app.notifiers.base.post', _boom)
+        content = '中' * 7000
+        ok, msg = await dingtalk.send_message(DINGTALK_URL, None, content)
+        assert ok is False
+        assert 'split it into several messages' in msg
+        assert '20000 bytes' in msg
+        assert 'message is 21000' in msg
+
+    async def test_dingtalk_accepts_6000_chinese_chars(self, monkeypatch):
+        """6,000 Chinese chars = 18,000 bytes < 20,000 → sent."""
+        captured = []
+        _patch_transport(
+            monkeypatch, _transport(_capture(captured, {'errcode': 0}))
+        )
+        content = '中' * 6000
+        ok, msg = await dingtalk.send_message(DINGTALK_URL, None, content)
+        assert ok is True, msg
+        assert len(captured) == 1
+
+    def test_unknown_unit_is_rejected(self):
+        """A platform that declares a unit the checker cannot measure
+        must fail loudly, not silently measure the wrong thing."""
+        plat = Platform(
+            name='x',
+            label='X',
+            hosts=('x.test',),
+            path_prefix='/x',
+            uses_secret=False,
+            supports_file=False,
+            max_message=10,
+            limit_unit='furlongs',
+            doc_url='https://x.test',
+        )
+        with pytest.raises(ValueError):
+            base_mod.size_error(plat, 'x' * 11)
 
 
 class TestSecretLeakGuard:
