@@ -26,9 +26,11 @@ import httpx
 import pytest
 
 from app.notifiers import dingtalk, feishu, slack, wecom
+import app.notifiers.base as base_mod
 from app.notifiers.base import (
     PLATFORMS,
     detect_platform,
+    ensure_keyword,
     mask_webhook_url,
     platform_for_url,
 )
@@ -782,3 +784,146 @@ class TestRegistryMetadata:
         assert PLATFORMS['slack'].uses_secret is False
         assert PLATFORMS['dingtalk'].uses_secret is True
         assert PLATFORMS['feishu'].uses_secret is True
+
+
+class TestEnsureKeyword:
+    """Keyword security (DingTalk 自定义关键词 / Feishu 关键词).
+
+    The server guarantees every outgoing message contains the bot's
+    configured keyword: appended at the end (after a blank line) only
+    when not already present, so the real content still leads the
+    notification/preview.
+    """
+
+    def test_appended_when_missing(self):
+        assert ensure_keyword('daily report', 'SALES') == (
+            'daily report\n\nSALES'
+        )
+
+    def test_appended_after_trailing_whitespace(self):
+        assert ensure_keyword('report  \n', 'SALES') == ('report\n\nSALES')
+
+    def test_untouched_when_already_present(self):
+        assert ensure_keyword('SALES daily report', 'SALES') == (
+            'SALES daily report'
+        )
+        assert ensure_keyword('daily SALES report', 'SALES') == (
+            'daily SALES report'
+        )
+
+    def test_untouched_when_keyword_empty_or_none(self):
+        assert ensure_keyword('report', '') == 'report'
+        assert ensure_keyword('report', None) == 'report'
+
+    def test_appended_keyword_is_counted_by_size_check(self):
+        """The append happens BEFORE the size pre-check, so a message
+        that fits only without the keyword must be refused offline."""
+        limit = PLATFORMS['dingtalk'].max_message
+        keyword = 'SALES'
+        content = 'x' * (limit - 1)  # fits alone, not with the keyword
+        assert len(ensure_keyword(content, keyword).encode()) > limit
+
+    async def test_dispatch_refuses_without_network(self):
+        def _boom(*a, **kw):
+            raise AssertionError('network must not be reached')
+
+        orig = base_mod.post
+        base_mod.post = _boom
+        try:
+            limit = PLATFORMS['dingtalk'].max_message
+            keyword = 'SALES'
+            content = 'x' * (limit - 1)
+            ok, msg = await base_mod.send_message(
+                'dingtalk', DINGTALK_URL, None, content, keyword=keyword
+            )
+        finally:
+            base_mod.post = orig
+        assert ok is False
+        assert 'split it into several messages' in msg
+
+    async def test_dingtalk_text_carries_keyword(self, monkeypatch):
+        captured = []
+        _patch_transport(
+            monkeypatch, _transport(_capture(captured, {'errcode': 0}))
+        )
+        ok, _ = await base_mod.send_message(
+            'dingtalk', DINGTALK_URL, None, 'hello team', keyword='SALES'
+        )
+        assert ok is True
+        body = json.loads(captured[0].read())
+        assert body['text']['content'] == 'hello team\n\nSALES'
+
+    async def test_dingtalk_markdown_carries_keyword(self, monkeypatch):
+        captured = []
+        _patch_transport(
+            monkeypatch, _transport(_capture(captured, {'errcode': 0}))
+        )
+        ok, _ = await base_mod.send_message(
+            'dingtalk',
+            DINGTALK_URL,
+            None,
+            '## Daily\n- item',
+            msgtype='markdown',
+            keyword='SALES',
+        )
+        assert ok is True
+        body = json.loads(captured[0].read())
+        # Title still comes from the FIRST line — the keyword append
+        # must not change it.
+        assert body['markdown']['title'] == 'Daily'
+        assert body['markdown']['text'] == '## Daily\n- item\n\nSALES'
+
+    async def test_feishu_text_carries_keyword(self, monkeypatch):
+        captured = []
+        _patch_transport(
+            monkeypatch,
+            _transport(_capture(captured, {'code': 0, 'msg': 'success'})),
+        )
+        ok, _ = await base_mod.send_message(
+            'feishu', FEISHU_URL, None, 'hello team', keyword='SALES'
+        )
+        assert ok is True
+        body = json.loads(captured[0].read())
+        assert body['content']['text'] == 'hello team\n\nSALES'
+
+    async def test_feishu_card_carries_keyword(self, monkeypatch):
+        captured = []
+        _patch_transport(
+            monkeypatch,
+            _transport(_capture(captured, {'code': 0, 'msg': 'success'})),
+        )
+        ok, _ = await base_mod.send_message(
+            'feishu',
+            FEISHU_URL,
+            None,
+            '## Daily\n- item',
+            msgtype='markdown',
+            keyword='SALES',
+        )
+        assert ok is True
+        body = json.loads(captured[0].read())
+        assert body['card']['body']['elements'][0]['content'] == (
+            '## Daily\n- item\n\nSALES'
+        )
+
+    async def test_content_already_containing_keyword_untouched(
+        self, monkeypatch
+    ):
+        captured = []
+        _patch_transport(
+            monkeypatch, _transport(_capture(captured, {'errcode': 0}))
+        )
+        ok, _ = await base_mod.send_message(
+            'dingtalk', DINGTALK_URL, None, 'SALES wins', keyword='SALES'
+        )
+        assert ok is True
+        body = json.loads(captured[0].read())
+        assert body['text']['content'] == 'SALES wins'
+
+
+class TestKeywordSupportMatrix:
+    def test_only_dingtalk_and_feishu_use_keywords(self):
+        assert PLATFORMS['dingtalk'].uses_keyword is True
+        assert PLATFORMS['feishu'].uses_keyword is True
+        assert PLATFORMS['wecom'].uses_keyword is False
+        assert PLATFORMS['slack'].uses_keyword is False

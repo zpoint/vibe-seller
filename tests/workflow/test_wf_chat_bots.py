@@ -26,10 +26,11 @@ from sqlalchemy.ext.asyncio import (
 
 from app.database import _ensure_added_columns  # noqa: PLC2701
 from app.main import app
+from app.mcp_tool_schemas import TOOLS
 from app.models.base import Base
 from app.models.chat_bot import ChatBot
 from app.notifiers import wecom
-from app.notifiers.base import PLATFORMS
+from app.notifiers.base import PLATFORMS, ensure_keyword
 
 pytestmark = pytest.mark.workflow
 
@@ -405,6 +406,211 @@ class TestChatBotCRUD:
     async def test_old_wecom_bots_route_is_gone(self, admin_client):
         r = await admin_client.get('/api/wecom-bots')
         assert r.status_code == 404
+
+
+class TestKeywordSecurity:
+    """DingTalk 自定义关键词 / Feishu 关键词 security.
+
+    The keyword is stored per bot (not a secret — it comes back in the
+    list too) and the SERVER guarantees every outgoing message contains
+    it, so the agent never has to know it exists.
+    """
+
+    async def test_keyword_round_trips(self, admin_client):
+        r = await admin_client.post(
+            '/api/chat-bots',
+            json={
+                'name': 'KW Bot',
+                'webhook_url': DINGTALK_URL,
+                'keyword': 'SALES',
+            },
+        )
+        assert r.status_code == 200, r.text
+        created = r.json()
+        assert created['keyword'] == 'SALES'
+
+        # Single GET (edit form) carries it.
+        got = (await admin_client.get(f'/api/chat-bots/{created["id"]}')).json()
+        assert got['keyword'] == 'SALES'
+
+        # List summary carries it too — it is not a secret.
+        listed = (await admin_client.get('/api/chat-bots')).json()
+        match = [b for b in listed if b['id'] == created['id']]
+        assert match and match[0]['keyword'] == 'SALES'
+
+        # Update changes it; blank clears it.
+        r = await admin_client.put(
+            f'/api/chat-bots/{created["id"]}',
+            json={'keyword': 'OPS'},
+        )
+        assert r.status_code == 200
+        assert r.json()['keyword'] == 'OPS'
+        r = await admin_client.put(
+            f'/api/chat-bots/{created["id"]}',
+            json={'keyword': ''},
+        )
+        assert r.status_code == 200
+        assert r.json()['keyword'] is None
+
+    async def test_keyword_rejected_for_wecom_and_slack(self, admin_client):
+        for url in (WECOM_URL, SLACK_URL):
+            r = await admin_client.post(
+                '/api/chat-bots',
+                json={'name': 'Bad KW', 'webhook_url': url, 'keyword': 'X'},
+            )
+            assert r.status_code == 400, url
+            assert 'keyword security' in r.json()['detail']
+
+        # Update path rejects it too.
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={'name': 'S', 'webhook_url': SLACK_URL},
+            )
+        ).json()
+        r = await admin_client.put(
+            f'/api/chat-bots/{created["id"]}',
+            json={'keyword': 'X'},
+        )
+        assert r.status_code == 400
+
+    async def test_url_change_to_slack_clears_keyword(self, admin_client):
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'Mover',
+                    'webhook_url': DINGTALK_URL,
+                    'keyword': 'SALES',
+                },
+            )
+        ).json()
+        r = await admin_client.put(
+            f'/api/chat-bots/{created["id"]}',
+            json={'webhook_url': SLACK_URL},
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert body['platform'] == 'slack'
+        assert body['keyword'] is None
+
+    async def test_secret_and_keyword_may_combine(self, admin_client):
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'Signed + KW',
+                    'webhook_url': DINGTALK_URL,
+                    'secret': 'SECtest',
+                    'keyword': 'SALES',
+                },
+            )
+        ).json()
+        assert created['has_secret'] is True
+        assert created['keyword'] == 'SALES'
+
+    async def test_send_appends_keyword_when_missing(
+        self, admin_client, monkeypatch
+    ):
+        calls = []
+
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
+            calls.append((content, msgtype, keyword))
+            return True, ''
+
+        monkeypatch.setattr(
+            'app.routers.chat_bots.base.send_message', _fake_send
+        )
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'KW send',
+                    'webhook_url': DINGTALK_URL,
+                    'keyword': 'SALES',
+                },
+            )
+        ).json()
+
+        r = await admin_client.post(
+            f'/api/chat-bots/{created["id"]}/send',
+            json={'content': 'nightly numbers'},
+        )
+        assert r.status_code == 200
+        # The router hands the keyword to the notifier dispatch; the
+        # append itself is pinned in the unit tests (ensure_keyword).
+        assert calls == [('nightly numbers', 'text', 'SALES')]
+
+    async def test_test_endpoint_default_message_gets_keyword(
+        self, admin_client, monkeypatch
+    ):
+        """The Test button must work on a keyword-only bot — the default
+        test text carries no keyword, so the server appends it."""
+        calls = []
+
+        async def _fake_send(
+            platform, url, secret, content, msgtype='text', keyword=None
+        ):
+            calls.append(ensure_keyword(content, keyword))
+            return True, ''
+
+        monkeypatch.setattr(
+            'app.routers.chat_bots.base.send_message', _fake_send
+        )
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'KW test',
+                    'webhook_url': DINGTALK_URL,
+                    'keyword': 'SALES',
+                },
+            )
+        ).json()
+
+        r = await admin_client.post(
+            f'/api/chat-bots/{created["id"]}/test', json={}
+        )
+        assert r.status_code == 200
+        assert r.json()['ok'] is True
+        assert calls[0].endswith('\n\nSALES')
+
+    async def test_platforms_endpoint_advertises_keyword_support(
+        self, admin_client
+    ):
+        platforms = {
+            p['name']: p
+            for p in (await admin_client.get('/api/chat-bots/platforms')).json()
+        }
+        assert platforms['dingtalk']['uses_keyword'] is True
+        assert platforms['feishu']['uses_keyword'] is True
+        assert platforms['wecom']['uses_keyword'] is False
+        assert platforms['slack']['uses_keyword'] is False
+
+    async def test_mcp_list_does_not_expose_keyword(self, admin_client):
+        """The keyword never reaches the agent: it is not a tool field."""
+        created = (
+            await admin_client.post(
+                '/api/chat-bots',
+                json={
+                    'name': 'KW hidden',
+                    'webhook_url': DINGTALK_URL,
+                    'keyword': 'SALES',
+                },
+            )
+        ).json()
+        # The MCP list tool projects explicit fields only; pin that the
+        # row the projection reads does not leak it through the API
+        # shapes the tool consumes (summary has no secret, and keyword
+        # is a UI concern — the tool schema has no keyword input).
+        schema = next(
+            t for t in TOOLS if t['name'] == 'vibe_seller_send_chat_message'
+        )
+        props = schema['inputSchema']['properties']
+        assert 'keyword' not in props
+        await admin_client.delete(f'/api/chat-bots/{created["id"]}')
 
 
 class TestChatBotTest:

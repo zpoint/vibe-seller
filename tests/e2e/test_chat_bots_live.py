@@ -16,9 +16,15 @@ Two tests per platform, so the UI leg can run WITHOUT an LLM provider:
     Add bot: paste the URL (+secret), the live platform badge shows
     the right platform, Save succeeds, the row shows the masked URL,
     and the RAW URL/secret never appears in the page text), the UI
-    Test button (a REAL delivery; screenshot to
-    /tmp/chatbot-e2e/<platform>-test.png), then delete via the UI.
+    Test button (a REAL delivery; screenshot), then delete via the UI.
     No agent task.
+
+  - ``test_chat_bot_keyword_ui_flow`` — keyword-security cases
+    (DingTalk 自定义关键词 / Feishu 关键词): fill the keyword field,
+    Save, Test → the platform accepts (the server appended the
+    keyword). Driven by ``E2E_DINGTALK_KW_WEBHOOK`` +
+    ``E2E_DINGTALK_KW_KEYWORD`` (Feishu: ``E2E_FEISHU_KW_WEBHOOK`` +
+    ``E2E_FEISHU_KW_KEYWORD``).
 
   - ``test_chat_bot_agent_send`` — creates the bot via the API, runs
     a real send-message task created through the same API the
@@ -31,16 +37,22 @@ Two tests per platform, so the UI leg can run WITHOUT an LLM provider:
 
 Webhook URLs and secrets NEVER go to logs or screenshots of the edit
 form (the form is closed before screenshots are taken), and never to
-files under the repo.
+files under the repo. Screenshots go to ``E2E_CHATBOT_SHOT_DIR``
+(default: a ``chatbot-e2e`` dir under the system temp).
 
-Run (isolated server, port 7798 — never 7777):
+Run (isolated server, port 7798 — never 7777). The worktree venv needs
+pytest-playwright for the browser fixtures (CI installs it separately):
 
+    uv pip install pytest-playwright
     VIBE_HOME=~/.vibe-seller-chatbot-e2e ./start.sh 7798 --dev
 
-  # UI leg only — no LLM provider needed:
+  # UI legs — no LLM provider needed:
     E2E_BASE_URL=http://127.0.0.1:7798 \\
+    E2E_CHATBOT_SHOT_DIR=~/chatbot-e2e \\
     E2E_WECOM_WEBHOOK='https://qyapi.weixin.qq.com/…' \\
     E2E_SLACK_WEBHOOK='https://hooks.slack.com/services/…' \\
+    E2E_DINGTALK_KW_WEBHOOK='https://oapi.dingtalk.com/…' \\
+    E2E_DINGTALK_KW_KEYWORD='SALES' \\
     .venv/bin/python -m pytest --e2e tests/e2e/test_chat_bots_live.py -v \\
         -k ui_flow
 
@@ -58,6 +70,7 @@ import json
 import logging
 import os
 import re
+import tempfile
 import uuid
 
 import httpx
@@ -85,7 +98,10 @@ except Exception:
         allow_module_level=True,
     )
 
-SCREENSHOT_DIR = '/tmp/chatbot-e2e'
+SCREENSHOT_DIR = os.environ.get(
+    'E2E_CHATBOT_SHOT_DIR',
+    os.path.join(tempfile.gettempdir(), 'chatbot-e2e'),
+)
 
 PLATFORM_CASES = {
     'wecom': {
@@ -103,6 +119,22 @@ PLATFORM_CASES = {
     'slack': {
         'url_env': 'E2E_SLACK_WEBHOOK',
         'secret_env': None,
+    },
+}
+
+# Keyword-security-only cases (自定义关键词): a UI case each for
+# DingTalk and Feishu, driven by their own env pairs. The keyword
+# itself is not a secret, but the webhook URL still is — never log it.
+KEYWORD_CASES = {
+    'dingtalk-keyword': {
+        'platform': 'dingtalk',
+        'url_env': 'E2E_DINGTALK_KW_WEBHOOK',
+        'keyword_env': 'E2E_DINGTALK_KW_KEYWORD',
+    },
+    'feishu-keyword': {
+        'platform': 'feishu',
+        'url_env': 'E2E_FEISHU_KW_WEBHOOK',
+        'keyword_env': 'E2E_FEISHU_KW_KEYWORD',
     },
 }
 
@@ -143,6 +175,30 @@ def _live_cases():
             )
         ]
     return [pytest.param(p, u, s, id=p) for p, u, s in cases]
+
+
+def _keyword_cases():
+    """UI-only keyword-security cases; skips when no env pair is set."""
+    cases = []
+    for case, spec in sorted(KEYWORD_CASES.items()):
+        url = os.environ.get(spec['url_env'], '').strip()
+        keyword = os.environ.get(spec['keyword_env'], '').strip()
+        if url and keyword:
+            cases.append(pytest.param(spec['platform'], url, keyword, id=case))
+    if not cases:
+        return [
+            pytest.param(
+                None,
+                None,
+                None,
+                marks=pytest.mark.skip(
+                    'no keyword-security env pairs set — set '
+                    'E2E_DINGTALK_KW_WEBHOOK + E2E_DINGTALK_KW_KEYWORD '
+                    'or E2E_FEISHU_KW_WEBHOOK + E2E_FEISHU_KW_KEYWORD'
+                ),
+            )
+        ]
+    return cases
 
 
 def _open_integrations(page):
@@ -235,6 +291,67 @@ def test_chat_bot_ui_flow(
     row.locator('[data-testid^="chat-bot-delete-"]').click()
     expect(row).to_have_count(0, timeout=10000)
     assert bot_name not in page.locator('body').inner_text()
+
+
+@pytest.mark.parametrize('platform,webhook_url,keyword', _keyword_cases())
+def test_chat_bot_keyword_ui_flow(
+    authenticated_page, api_client, platform, webhook_url, keyword
+):
+    """Keyword-security UI case (DingTalk 自定义关键词 / Feishu 关键词).
+
+    A keyword-only bot rejects every message that doesn't contain the
+    keyword — including the default test text. The server appends it,
+    so filling the keyword field must make the Test button succeed
+    against the REAL platform API.
+    """
+    assert webhook_url.startswith('https://'), 'webhook must be https'
+    nonce = uuid.uuid4().hex[:8]
+    bot_name = f'e2e-kw-{platform}-{nonce}'
+    page = authenticated_page
+    os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+
+    _open_integrations(page)
+    page.locator('[data-testid="chat-bot-add"]').click()
+    page.locator('[data-testid="chat-bot-name"]').fill(bot_name)
+    page.locator('[data-testid="chat-bot-url"]').fill(webhook_url)
+
+    badge = page.locator('[data-testid="chat-bot-platform-badge"]')
+    expect(badge).to_contain_text(PLATFORM_LABELS[platform], timeout=5000)
+
+    # The keyword field appears only for keyword platforms; fill it.
+    keyword_box = page.locator('[data-testid="chat-bot-keyword"]')
+    expect(keyword_box).to_be_visible()
+    keyword_box.fill(keyword)
+    page.locator('[data-testid="chat-bot-save"]').click()
+
+    row = page.locator('[data-testid^="chat-bot-row-"]', has_text=bot_name)
+    row.wait_for(timeout=10000)
+    # The row carries a keyword pill; the RAW URL never shows.
+    pill = row.locator('[data-testid^="chat-bot-keyword-pill-"]')
+    expect(pill).to_contain_text(keyword)
+    body_text = page.locator('body').inner_text()
+    assert webhook_url not in body_text, 'raw webhook URL leaked'
+
+    bots = api_client.get(f'{BASE_URL}/api/chat-bots').json()
+    match = [b for b in bots if b['name'] == bot_name]
+    assert match, f'bot {bot_name} not found via API'
+    bot_id = match[0]['id']
+    assert match[0]['keyword'] == keyword
+
+    # The Test button's default text has NO keyword — the server must
+    # append it and the platform must accept the message.
+    page.locator(f'[data-testid="chat-bot-test-{bot_id}"]').click()
+    toast = page.locator('[data-testid="chat-bot-toast"]')
+    expect(toast).to_have_class(re.compile(r'text-green'), timeout=30000)
+    page.screenshot(
+        path=f'{SCREENSHOT_DIR}/{platform}-keyword-test.png',
+        full_page=True,
+    )
+
+    # Cleanup via the UI.
+    page.once('dialog', lambda d: d.accept())
+    row.locator('[data-testid^="chat-bot-delete-"]').click()
+    expect(row).to_have_count(0, timeout=10000)
 
 
 @pytest.mark.parametrize('platform,webhook_url,secret', _live_cases())

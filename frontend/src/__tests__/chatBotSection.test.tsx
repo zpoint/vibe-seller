@@ -48,6 +48,7 @@ const PLATFORMS = [
     hosts: ['qyapi.weixin.qq.com'],
     path_prefix: '/cgi-bin/webhook/',
     uses_secret: false,
+    uses_keyword: false,
     supports_file: true,
     max_message: 4096,
     limits: {},
@@ -60,6 +61,7 @@ const PLATFORMS = [
     hosts: ['oapi.dingtalk.com'],
     path_prefix: '/robot/send',
     uses_secret: true,
+    uses_keyword: true,
     supports_file: false,
     max_message: 20000,
     limits: {},
@@ -72,6 +74,7 @@ const PLATFORMS = [
     hosts: ['open.feishu.cn', 'open.larksuite.com'],
     path_prefix: '/open-apis/bot/v2/hook/',
     uses_secret: true,
+    uses_keyword: true,
     supports_file: false,
     max_message: 20000,
     limits: {},
@@ -84,6 +87,7 @@ const PLATFORMS = [
     hosts: ['hooks.slack.com', 'hooks.slack-gov.com'],
     path_prefix: '/services/',
     uses_secret: false,
+    uses_keyword: false,
     supports_file: false,
     max_message: 40000,
     limits: { markdown: 12000 },
@@ -102,6 +106,7 @@ const BOT_A_SUMMARY = {
   platform: 'wecom',
   webhook_url_masked: 'https://qyapi.weixin.qq.com/...****abcd',
   has_secret: false,
+  keyword: null,
   can_send_file: true,
   created_at: '2026-04-17T10:00:00Z',
   updated_at: '2026-04-17T10:00:00Z',
@@ -113,6 +118,7 @@ const BOT_DING_SUMMARY = {
   platform: 'dingtalk',
   webhook_url_masked: 'https://oapi.dingtalk.com/...****abcd',
   has_secret: true,
+  keyword: 'SALES',
   can_send_file: false,
   created_at: '2026-04-17T10:00:00Z',
   updated_at: '2026-04-17T10:00:00Z',
@@ -124,6 +130,7 @@ const BOT_A_FULL = {
   platform: 'wecom',
   webhook_url: WECOM_URL,
   secret: null,
+  keyword: null,
   created_at: '2026-04-17T10:00:00Z',
   updated_at: '2026-04-17T10:00:00Z',
 }
@@ -225,6 +232,68 @@ describe('ChatBotSection', () => {
     expect(!!screen.queryByTestId('chat-bot-secret')).toBe(hasSecret)
   })
 
+  it.each([
+    [WECOM_URL, false],
+    [DINGTALK_URL, true],
+    ['https://open.feishu.cn/open-apis/bot/v2/hook/tok-1234', true],
+    [SLACK_URL, false],
+  ])('keyword field visibility for %s → %s', async (url, hasKeyword) => {
+    renderSection()
+    fireEvent.click(await screen.findByTestId('chat-bot-add'))
+
+    fireEvent.change(screen.getByTestId('chat-bot-url'), {
+      target: { value: url },
+    })
+    await screen.findByTestId('chat-bot-platform-badge')
+
+    expect(!!screen.queryByTestId('chat-bot-keyword')).toBe(hasKeyword)
+  })
+
+  it('shows a keyword pill on the row when the bot has one', async () => {
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
+      return Promise.resolve([BOT_DING_SUMMARY])
+    })
+    renderSection()
+
+    const pill = await screen.findByTestId('chat-bot-keyword-pill-bot-ding')
+    expect(pill).toHaveTextContent('SALES')
+    // WeCom bot without a keyword → no pill.
+    expect(
+      screen.queryByTestId('chat-bot-keyword-pill-bot-a'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('saves a DingTalk bot with its keyword', async () => {
+    mockApi.post.mockResolvedValueOnce({ ...BOT_DING_SUMMARY })
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
+      return Promise.resolve([])
+    })
+    renderSection()
+    fireEvent.click(await screen.findByTestId('chat-bot-add'))
+
+    fireEvent.change(screen.getByTestId('chat-bot-name'), {
+      target: { value: 'Ops DingTalk' },
+    })
+    fireEvent.change(screen.getByTestId('chat-bot-url'), {
+      target: { value: DINGTALK_URL },
+    })
+    fireEvent.change(await screen.findByTestId('chat-bot-keyword'), {
+      target: { value: 'SALES' },
+    })
+    fireEvent.click(screen.getByTestId('chat-bot-save'))
+
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenCalledWith('/api/chat-bots', {
+        name: 'Ops DingTalk',
+        webhook_url: DINGTALK_URL,
+        secret: '',
+        keyword: 'SALES',
+      })
+    })
+  })
+
   it('shows the generic hint while the URL is unrecognized', async () => {
     renderSection()
     fireEvent.click(await screen.findByTestId('chat-bot-add'))
@@ -265,6 +334,7 @@ describe('ChatBotSection', () => {
         name: 'Ops DingTalk',
         webhook_url: DINGTALK_URL,
         secret: 'SECtest',
+        keyword: '',
       })
     })
   })
@@ -287,6 +357,7 @@ describe('ChatBotSection', () => {
         name: 'Ops Alerts',
         webhook_url: WECOM_URL,
         secret: '',
+        keyword: '',
       })
     })
     expect(await screen.findByTestId('chat-bot-empty')).toBeInTheDocument()
@@ -341,6 +412,7 @@ describe('ChatBotSection', () => {
         name: 'Renamed',
         webhook_url: WECOM_URL,
         secret: '',
+        keyword: '',
       })
     })
     const row = await screen.findByTestId('chat-bot-row-bot-a')
