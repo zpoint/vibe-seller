@@ -454,6 +454,19 @@ class ClaudeCodeBackend(AIAgentBackend):
         session = self._sessions.get(task_id)
         return session.running if session else False
 
+    def is_process_alive(self, task_id: str) -> bool:
+        """True while the task's agent subprocess has not exited.
+
+        The stall reaper's authority question — "can anything still
+        progress?" — is answered by the process table, not by a DB
+        timestamp: a live process may legitimately be silent for
+        minutes while a slow model composes (see
+        ``app/scheduler/stall_reaper.py``).
+        """
+        session = self._sessions.get(task_id)
+        proc = getattr(session, '_proc', None) if session else None
+        return proc is not None and proc.returncode is None
+
 
 # Singleton
 agent_backend = ClaudeCodeBackend()

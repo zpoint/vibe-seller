@@ -229,6 +229,11 @@ class FakeAgent(AIAgentBackend):
                 return False
         self._running[task_id] = True
         session = _FakeSession(auto_approve_plan=auto_approve_plan)
+        # A live "subprocess" for the whole run — the stall reaper's
+        # liveness probe (is_process_alive) must see the fake the way
+        # it sees a real composing agent: alive while work is in
+        # flight, returncode set only at exit (finally below).
+        session._proc = _SNS(returncode=None)
         self._sessions[task_id] = session
         self._last_mode[task_id] = mode
         self.calls.append(
@@ -273,6 +278,16 @@ class FakeAgent(AIAgentBackend):
     def get_session(self, task_id: str) -> _FakeSession | None:
         """Return the fake session for a task, if any."""
         return self._sessions.get(task_id)
+
+    def get_pending_questions(self, task_id: str) -> dict | None:
+        """The fake never asks — mirrors a question-free session."""
+        return None
+
+    def is_process_alive(self, task_id: str) -> bool:
+        """Mirror ClaudeCodeBackend.is_process_alive (stall reaper)."""
+        session = self._sessions.get(task_id)
+        proc = getattr(session, '_proc', None) if session else None
+        return proc is not None and getattr(proc, 'returncode', None) is None
 
     async def wait_started(self, task_id: str, timeout: float = 5.0) -> None:
         """Wait until the agent session for *task_id* has started."""
@@ -379,6 +394,7 @@ class FakeAgent(AIAgentBackend):
             auto_approve_plan=prior.auto_approve_plan,
             resume_session_id=None,  # fresh — no --resume
         )
+        new_session._proc = _SNS(returncode=None)  # live for the run
         self._sessions[task_id] = new_session
         self._running[task_id] = True
         self.calls.append(

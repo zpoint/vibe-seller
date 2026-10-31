@@ -143,13 +143,15 @@ def _register_idle_browser_sweeper() -> None:
 
 
 def _register_stall_reaper():
-    """Fail RUNNING tasks whose agent stream has gone silent.
+    """Terminalize RUNNING tasks whose agent can no longer progress.
 
-    1-min interval keeps test + UI latency tight: a stalled task is
-    reaped within 5–6 min end-to-end (5 min stall threshold + up to
-    one interval to notice). Previous 2-min interval added an extra
-    minute to that worst case, which under heavy parallel CI load
-    pushed reap time outside the catalog-sync e2e test budget.
+    1-min interval keeps test + UI latency tight: a task whose agent
+    process is gone is reaped within ~4 min end-to-end (3 min stall
+    threshold + up to one interval to notice); a live agent gets its
+    full stream-silence bound first (see stall_reaper's module
+    docstring for the authority split). Previous 2-min interval added
+    an extra minute to that worst case, which under heavy parallel CI
+    load pushed reap time outside the catalog-sync e2e test budget.
     """
     scheduler.add_job(
         reap_stalled_running_tasks,
