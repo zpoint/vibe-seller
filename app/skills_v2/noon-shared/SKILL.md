@@ -232,15 +232,23 @@ most pages; sidebar only for Support/Help.
 | My Catalog | `noon-catalog.noon.partners/en/catalog` |
 | Catalog Imports | `noon-catalog.noon.partners/en/imports` |
 | Catalog Exports | `noon-catalog.noon.partners/en/exports` |
-| FBN My ASN & Storage | `fbn.noon.partners/en-{cc}/asn` |
-| FBN Create ASN | `fbn.noon.partners/en-{cc}/asn/createasn` |
+| FBN My ASN & Storage | `fbn-inbound.noon.partners/en-{cc}` |
+| FBN Create ASN | `fbn-inbound.noon.partners/en-{cc}/asn/create` |
 | FBN My Inventory | `fbn.noon.partners/en-{cc}/inventory` |
+| FBN My Returns (RTV) | `fbn.noon.partners/en-{cc}/rtv/requests` |
+| FBN Fees & Disputes | `fbn.noon.partners/en-{cc}/fees` |
+| FBN Reports | `fbn.noon.partners/en-{cc}/fbnreports` |
 | Sales | `reports.noon.partners/en/sales/` |
 | Transaction View | `noon-payments.noon.partners/en/transaction-view` |
 | Ad Manager | `admanager.noon.partners/en-{cc}/home?mpCode=noon` |
 | Campaign Detail | `admanager.noon.partners/en-{cc}/campaign/details/{id}?mpCode=noon` |
 | Create Campaign | `admanager.noon.partners/en-{cc}/campaign/start?mpCode=noon` |
 | Vantage | `vantage.noon.partners/en/` |
+
+> FBN's inbound pages (My ASN & Storage, Create ASN) live on their own host,
+> `fbn-inbound.noon.partners`; the old `fbn.noon.partners/en-{cc}/asn` path
+> no longer loads. The rest of FBN (inventory, returns, fees, reports) stays
+> on `fbn.noon.partners`.
 
 ## 3. My Catalog (read access)
 
@@ -252,7 +260,10 @@ most pages; sidebar only for Support/Help.
 
 **URL**: `https://noon-catalog.noon.partners/en/catalog?project=PRJ{project_id}`
 
-Tabs: `noon` (default), `supermall`, `global`.
+Tabs: `noon` (default), `supermall`, `global`. The list toolbar carries
+**Live Status / Offer Issues / Stock** filters, **Saved Views**, a **Sort
+by** control and an **Export** button — the URL params below remain the
+exact, resumable way to enumerate.
 
 Each row has:
 - Product title + Brand

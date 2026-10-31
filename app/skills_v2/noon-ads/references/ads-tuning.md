@@ -682,10 +682,15 @@ independently re-read live. Mechanisms:
   campaign name often differs from the live UI name (same `C_ID`).
   Open `…/en-<cc>/campaign/details/<C_ID>?mpCode=noon&project=<PRJ>`;
   the Targets grid is `…&tab=target&target_filter=all`.
-- **Keyword bid edit** — each target row has a bid `<button
-  class=performanceSectionTabs_editWrapper…>` showing the current
-  bid. Click it → a shadow-DOM `<input type=number>` appears.
-  **The shadow input does NOT reliably clear with Control+a/Delete
+- **Keyword bid edit** — the row's **Edit Bid** button opens a modal
+  editor, not an in-row input. A manual campaign's keyword /
+  category row opens **`BidUpdateModal`**: one `<input
+  type=number>` whose **placeholder is the current bid**, and an
+  **Update** button that stays disabled until the value changes.
+  (An auto campaign's `auto keyword` / `auto category` rows open
+  the campaign's *Targeting & BIDDING* settings modal; the box is
+  **Bid Amount**, `placeholder="Enter Bid Amount"`.)
+  **The modal input does NOT reliably clear with Control+a/Delete
   — it silently concatenates, turning a 1.30 target into 11.3 (a
   10× overspend that shipped live). Clear it with the React native
   setter and VERIFY EMPTY before typing:**
@@ -696,8 +701,9 @@ independently re-read live. Mechanisms:
      EXACTLY the report's target number** (e.g. `1.30`, not `11.3`,
      `1.301`, `11.30`). If it is anything else, the clear failed —
      clear and redo; do NOT commit;
-  4. commit (Enter), then **reload the Targets tab and re-read the
-     row** — confirm the live bid equals the exact target.
+  4. press **Update**, wait for the modal to close, then **reload
+     the Targets tab and re-read the row** — confirm the live bid
+     equals the exact target.
   **The target is an EXACT value, not a floor.** `提高至 1.30`
   means set the bid to 1.30 — NEVER accept a higher value (e.g.
   11.3) "because it's ≥ the target / satisfies only-raise". Only-
@@ -705,29 +711,37 @@ independently re-read live. Mechanisms:
   otherwise set it to exactly the target. Bid rules still hold:
   ROAS > 3.33 (⇔ ACOS < 30 %) = raise/hold only, never lower;
   new bid ≥ actual CPC × 1.1.
-- **Keyword pause** — each row's last cell is a `<button
-  role=switch class="ant-switch …">`; `ant-switch-checked` =
-  Active, unchecked = Paused. Click to toggle; re-read to confirm.
+- **Keyword pause** — a Live keyword row carries a **Pause** button
+  in its Actions cell; a paused one carries **Activate**. Click it,
+  then re-read the row's status word to confirm.
   **Pause ONLY the exact (keyword, match-type) rows the report
   marks `暂停定向词`. NEVER pause a row marked `维持`/Hold — not
   even a zero-impression one.** After pausing, count newly-paused
   rows; it MUST equal the number the report listed for this
   campaign. A prior run swept the whole keyword list (paused 45 of
   49 when only 2 were intended) — if your paused count exceeds the
-  report's, you over-paused: un-pause the extras.
+  report's, you over-paused: un-pause the extras. (An auto
+  campaign's `auto keyword` / `auto category` rows have no per-row
+  switch at all — they live and die with the campaign.)
 - **Scope discipline (all edits):** touch ONLY the specific
   (keyword, match-type) rows the report names. The same keyword
   text often has multiple rows (Phrase / Exact / Broad / a longer
   variant) — match BOTH the text and the match type, and leave
   every other row untouched. (A prior run 10×'d an Exact row the
   report never mentioned because it only matched on text.)
-- **Negative keywords** — NOT inline. Open the campaign →
-  **Edit Campaign** (`<button alt=editCampaign>`) →
-  `…/en-<cc>/campaign/v2?campaignCode=<C_ID>&mode=edit` →
-  **Section 4 Negative Targeting**: two `<input type=search>`
-  fields — Exact (`id=rc_select_0`) and Phrase (`id=rc_select_1`).
-  Type each term + Enter (verify a `.ant-select-selection-item`
-  tag appears). **Limit is 100 Exact + 100 Phrase** — read the
+- **Negative keywords** — NOT inline. The close path is the
+  campaign detail page's **NEGATIVE TARGETING** settings card: its
+  title button opens the negatives editor modal with the same two
+  labelled boxes as the create form (**Exact Keywords** /
+  **Phrase Keywords** — find them by label, never by `rc_select_N`
+  id or document order: those ids are assigned at render time and
+  the keyword section has a select of its own). Each box takes a
+  comma-separated list committed with one Enter (verify the
+  `.ant-select-selection-item` tags appear); words already listed
+  are left alone. The same editor also exists inside the full
+  campaign editor
+  (`…/en-<cc>/campaign/v2?campaignCode=<C_ID>&mode=edit`,
+  Section 4 Negative Targeting). **Limit is 100 Exact + 100 Phrase** — read the
   counter under each box (`N/100 … Selected`) rather than trusting
   any number written here; it has changed twice (30 → 20 → 100).
   The edit page is a **single-page

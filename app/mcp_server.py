@@ -15,7 +15,8 @@ Tools provided:
   - send_email: Send email via configured account
   - sync_email_now: Trigger immediate IMAP sync for one account
   - write_workspace_file: Write file via relative path (stores/, knowledge/)
-  - list_wecom_bots / send_wecom_message: Post to WeChat Work groups
+  - list_chat_bots / send_chat_message: Post to a group chat via a
+    chat bot webhook (WeCom / DingTalk / Feishu / Slack)
 """
 
 import asyncio
@@ -28,6 +29,7 @@ import httpx
 from app import vision
 from app.config import BACKEND_PORT, LOCALHOST
 from app.mcp_tool_schemas import TOOLS
+from app.notifiers.base import PLATFORMS
 from app.text_utils import sanitize_json
 
 
@@ -57,6 +59,16 @@ _config: dict[str, str | None] = {
     'auth_token': None,
     'task_id': None,
 }
+
+
+def _platform_limit(platform: str | None) -> int:
+    """The message size limit for a chat platform.
+
+    Read from the same registry the API uses, so the agent's idea of
+    the limit can never drift from the server's.
+    """
+    plat = PLATFORMS.get(platform or '')
+    return plat.max_message if plat else 4096
 
 
 async def call_api(
@@ -248,28 +260,35 @@ async def handle_tool_call(name: str, arguments: dict) -> str:
                 f'/api/tasks/{_config["task_id"]}/register-finalize',
                 {'description': arguments['description']},
             )
-        elif name == 'vibe_seller_list_wecom_bots':
-            # API returns masked URLs; strip them so the agent only
-            # sees {id, name} and never a webhook secret.
-            bots = await call_api('GET', '/api/wecom-bots')
+        elif name == 'vibe_seller_list_chat_bots':
+            # API returns masked URLs and no secrets; keep it that way
+            # and add the platform's size limit, which the agent needs
+            # to know before it writes a long report.
+            bots = await call_api('GET', '/api/chat-bots')
             result = [
-                {'id': b['id'], 'name': b['name']}
+                {
+                    'id': b['id'],
+                    'name': b['name'],
+                    'platform': b.get('platform', 'wecom'),
+                    'can_send_file': b.get('can_send_file', False),
+                    'max_message': _platform_limit(b.get('platform')),
+                }
                 for b in (bots if isinstance(bots, list) else [])
             ]
-        elif name == 'vibe_seller_send_wecom_message':
+        elif name == 'vibe_seller_send_chat_message':
             send_body = {
                 'content': arguments['content'],
                 'msgtype': arguments.get('msgtype', 'text'),
             }
             result = await call_api(
                 'POST',
-                f'/api/wecom-bots/{arguments["bot_id"]}/send',
+                f'/api/chat-bots/{arguments["bot_id"]}/send',
                 send_body,
             )
-        elif name == 'vibe_seller_send_wecom_file':
+        elif name == 'vibe_seller_send_chat_file':
             result = await call_api(
                 'POST',
-                f'/api/wecom-bots/{arguments["bot_id"]}/send-file',
+                f'/api/chat-bots/{arguments["bot_id"]}/send-file',
                 {'path': arguments['path']},
             )
         elif name == 'vibe_seller_set_task_result':

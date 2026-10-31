@@ -467,14 +467,16 @@ was a wall until pinned down. Follow them literally.
 
 **URL**: `https://noon-catalog.noon.partners/en/catalog/{sku}/d?code={code}&offerTab=noon&project=PRJ{project_id}`
 
-The product detail/edit page has 5 primary tabs:
+The product detail/edit page has 5 primary tabs. **Click them by
+visible text** — the tab ids are generated per render (a
+`base-ui-…` hash) and are not stable selectors:
 
-| Tab | ID | Purpose |
-|-----|----|----|
-| Offer | `rc-tabs-0-tab-offer` | Price, stock, barcode, warranty, offer note |
-| Content | `rc-tabs-0-tab-content` | Title, description, images, attributes |
-| Sizes | `rc-tabs-0-tab-sizes` | Size variants of one parent (new style) |
-| Groups | `rc-tabs-0-tab-groups` | Product groupings |
+| Tab | Purpose |
+|-----|----|
+| Offer | Price, stock, barcode, warranty, offer note |
+| Content | Title, description, images, attributes |
+| Sizes | Size variants of one parent (new style) |
+| Groups | Product groupings |
 
 > **Sizes tab = the click way to manage size variants** (the interactive
 > equivalent of NIS parent+child, §1.2). On the **parent** SKU's Sizes
@@ -485,9 +487,10 @@ The product detail/edit page has 5 primary tabs:
 > the only one to use for new listings. (Prefer the file-based NIS path
 > in §1.2 for creating many sizes at once; use this tab to add/adjust a
 > size on an existing parent.)
-| Product Insights | `rc-tabs-0-tab-product-insights` | Performance insights |
+| Product Insights | Performance insights |
 
-And country/market sub-tabs: `rc-tabs-1-tab-noon`, `rc-tabs-1-tab-supermall`, `rc-tabs-1-tab-global`.
+And country/market sub-tabs (noon / supermall / global) — also
+matched by their visible text, not by id.
 
 ### Unsaved Changes Warning
 
@@ -508,7 +511,7 @@ Inputs (all Ant Design shadow DOM, `name=` attribute identifies):
 | Seller Price Minimum | `new_price_min` | Optional |
 | Seller Price Maximum | `new_price_max` | Optional |
 | Sale Price | `new_sale_price` | Optional (inside expandable Sale Price section) |
-| Sale Duration | `sale_duration` | Optional (Start Date / End Date) |
+| Sale Duration | (date-range control) | Optional, inside the Sale section |
 
 ```bash
 browser-use <<'PY'
@@ -684,7 +687,7 @@ When stock is already configured, FBN section shows:
 > the Content tab's **Add Image** file-chooser, or surface "Missing
 > Image" as the one remaining item for the seller.
 
-Click `rc-tabs-0-tab-content`. Left sub-nav: **Basic Content** /
+Click the **Content** tab by text. Left sub-nav: **Basic Content** /
 **Detailed Content**.
 
 #### Mandatory Content section (top)

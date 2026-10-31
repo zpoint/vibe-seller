@@ -456,7 +456,7 @@ Vibe Seller 是个 **AI Agent 框架**，浏览器只是它的工具之一。Age
 | 服务 | 干啥 |
 |---|---|
 | **邮件**（IMAP/SMTP） | 读你绑定的店铺邮箱，分类、转发、起草回复 |
-| **企业微信**（WeCom） | 推送重要事件、跨群通知、买家询盘转发 |
+| **群机器人**（企业微信 / 钉钉 / 飞书 / Slack） | 推送重要事件、跨群通知、买家询盘转发 |
 | **滴答清单 / TickTick** | 自动建待办（追单、跟进、定期检查） |
 | **Google Workspace** | Gmail、Drive、Docs、Sheets、Slides、Calendar——读、写、改都行 |
 

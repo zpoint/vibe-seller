@@ -34,8 +34,8 @@ class TestStoreSlug:
     def test_cjk_name_falls_back_to_id(self):
         # Non-ASCII (CJK) store name reduces to empty; fall back
         # to the id-derived slug.
-        slug = _store_slug('测试店铺', 'ba034737-37e5-4510')
-        assert slug == 'store-ba034737'
+        slug = _store_slug('测试店铺', 'feedface-1234')
+        assert slug == 'store-feedface'
 
     def test_other_non_ascii_name_falls_back_to_id(self):
         slug = _store_slug('テスト商店', 'deadbeef-1234')

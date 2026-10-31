@@ -57,12 +57,13 @@ barcode printing for noon's fulfillment service.
 
 ## 1. Overview
 
-**URL**: `https://fbn.noon.partners/en-{cc}/asn?project=PRJ{project_id}`
+**URL**: `https://fbn-inbound.noon.partners/en-{cc}?project=PRJ{project_id}`
 
-Top section shows **Inbound Performance Tier** (Launchpad, etc.)
-with 90-day delivery score. Best practices: "Avoid creating ASNs
-with no intention to ship", "Ship ASNs on time", "Ensure delivered
-quantities match what you scheduled."
+FBN's inbound pages (My ASN & Storage, Create ASN) live on their own
+host, `fbn-inbound.noon.partners`; the rest of FBN (inventory,
+returns, fees, reports) stays on `fbn.noon.partners`. Top section
+shows **Inbound performance tier** with the 90-day delivery score,
+and the page carries **Print barcodes** and **Create ASN** buttons.
 
 ## 2. Tabs on My ASN & Storage
 
@@ -71,8 +72,8 @@ quantities match what you scheduled."
 | Shipments (ASN) | List of all ASNs |
 | Storage | Warehouse storage summary |
 | Requests | Special requests |
-| Product Dimensions | SKU dimension overrides |
-| Serialization Service | Per-unit serial numbers |
+| Product dimensions | SKU dimension overrides |
+| Manifestation | Per-unit serial / manifestation records |
 
 ## 3. ASN Status Values (verified)
 
@@ -93,57 +94,47 @@ From the Status filter dropdown on the Shipments tab:
 ## 4. Filters
 
 - Search by ASN #
-- Status multi-select dropdown
-- Auto Generated / Manual / 70 Active checkbox toggles
+- Status dropdown
+- Shipment-type chips: `All shipments` / `Auto-generated` /
+  `Drop-off` / `Pickup`
 
 ## 5. Create ASN — Full Flow
 
-**URL**: `https://fbn.noon.partners/en-{cc}/asn/createasn?project=PRJ{project_id}`
+**URL**: `https://fbn-inbound.noon.partners/en-{cc}/asn/create?project=PRJ{project_id}`
 
 Button entry points:
 - "Create ASN" link in left nav
-- "Create ASN" button at top-right of Shipments tab
+- "Create ASN" button on My ASN & Storage
 - "Add FBN Stock" button on product edit page (see `noon-listing § 2.3`)
 
-### Step 1 — Product Selection Method
+A **4-step wizard** (stepper at the top):
+**1 Logistics Mode → 2 Select SKUs → 3 Review ASN Creation →
+4 Seal & Schedule**.
+
+### Step 1 — Logistics Mode
 
 Two options:
-1. **Choose from Your Catalog** — searchable product list
-2. **Upload CSV File** — download template, fill, upload
+1. **Self Delivery** — you or your logistics partner deliver
+   directly to the assigned FBN warehouse ("Existing flow", no
+   pickup fee, supports all storage types)
+2. **noon Pickup Service** — noon Logistics collects from your
+   warehouse and delivers to FBN (door-to-door, pickup scheduling;
+   noon checks warehouse serviceability first; some size
+   classifications / storage types are not eligible)
 
-### Step 2 — Select Products (if "From Catalog")
+### Step 2 — Select SKUs
 
-Table columns: Product Name, SKU, Quantity (editable), Volume,
-Storage Type, Size Classification. Click a row checkbox to select,
-then adjust quantity. Bottom bar shows "N items selected" with:
-- **Add Serialization** button
-- **Continue** button
+Choose SKUs from your catalog or upload a CSV; set quantities per
+SKU. Continue advances to Review, then Seal & Schedule.
 
-```bash
-browser-use <<'PY'
-# select the product row (qty=1 default) — match its checkbox by row text
-js("Array.from(document.querySelectorAll('tr')).find(r=>/SKU-100234/.test(r.textContent))?.querySelector('input[type=checkbox]')?.click()")
-js("Array.from(document.querySelectorAll('button')).find(b=>/continue/i.test(b.textContent))?.click()")
-PY
-```
+### Quota commitment — read before Agree
 
-URL advances to `?type=catalog&step=1`.
-
-### Step 3 — Penalty Warning Modal
-
-Before quota reservation, a modal appears:
-> **Penalty Warning**
-> You selected these items for delivery:
-> Products Selected: N
-> Selected Quantity: N
-> Sellers who consistently deliver as committed are not affected.
-> [Cancel] [Agree & Proceed]
-
-**Clicking "Agree & Proceed" reserves quota** — noon counts this
-against your inbound quota allocation. Only click if you actually
-intend to ship.
-
-For exploration without committing, click **Cancel**.
+On the way to sealing, noon asks you to acknowledge a **penalty
+warning** (delivery commitment; sellers who consistently deliver as
+committed are not affected). **Proceeding past it reserves inbound
+quota** — noon counts this against your allocation. Only continue
+if you actually intend to ship. For exploration without committing,
+**Cancel** / step back.
 
 ```bash
 # exit without reserving:
@@ -207,6 +198,12 @@ reconcile exactly to that settlement:
 | Long Term Storage Charge | `sku` | per-SKU long-term (aged 6m/12m) storage fee |
 | Non Saleable Storage Charge | `sku` | per-SKU non-saleable ageing storage fee |
 | RTV Removal Charge | `barcode` | per-barcode removal/return fee + `shipped_qty` |
+
+The report list on the page also carries other report types beside
+these four — **RTV Report - Shipments / RTV Report - Requests**
+(the 退仓 record sources) and **FBN Received Report /
+FBN Inventory Detail Report** — each row with its parameters
+(Country, date window) and a per-row **Download**.
 
 Four things that will bite you, each covered in the reference:
 

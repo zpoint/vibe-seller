@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
-import { WeComBotSection } from '../WeComBotSection'
+import { ChatBotSection } from '../ChatBotSection'
 import { Dida365Panel } from './Dida365Panel'
 import { AmazonAdsPanel } from './AmazonAdsPanel'
 
@@ -75,6 +75,7 @@ export function IntegrationsPanel() {
 
   return (
     <div className="space-y-4">
+      <AmazonAdsPanel />
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h3 className="font-semibold mb-1">{t('integrations.gws.title')}</h3>
         <p className="text-xs text-gray-500 mb-3">{t('integrations.gws.description')}</p>
@@ -181,9 +182,8 @@ export function IntegrationsPanel() {
           </div>
         ) : null}
       </div>
-      <WeComBotSection />
+      <ChatBotSection />
       <Dida365Panel />
-      <AmazonAdsPanel />
     </div>
   )
 }

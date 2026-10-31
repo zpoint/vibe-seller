@@ -89,9 +89,9 @@ describe('Settings tab redesign', () => {
       expect(settingsSource).not.toMatch(/settingsTab\s*===\s*['"]channels['"]/)
     })
 
-    it('IntegrationsPanel still renders Dida365Panel + WeCom', () => {
+    it('IntegrationsPanel still renders Dida365Panel + chat bots', () => {
       expect(integrationsPanelSource).toMatch(/<Dida365Panel\s*\/>/)
-      expect(integrationsPanelSource).toMatch(/<WeComBotSection\s*\/>/)
+      expect(integrationsPanelSource).toMatch(/<ChatBotSection\s*\/>/)
     })
   })
 

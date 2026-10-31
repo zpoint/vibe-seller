@@ -226,7 +226,11 @@ def poll_task_status(
         Task dict when a target or fail status is reached.
 
     Raises:
-        TimeoutError: if timeout expires without reaching target.
+        TimeoutError: if timeout expires without reaching target. The
+        task's agent is stopped first (the same endpoint the UI's stop
+        button uses) — a poll that gives up must relinquish the task,
+        or the agent keeps running against fixtures the failing test is
+        tearing down.
 
     On fail_status: returns the task data (caller decides what to do).
     This matches the majority of existing callers.
@@ -252,6 +256,21 @@ def poll_task_status(
             return data
 
         time.sleep(POLL_INTERVAL)
+
+    # Best-effort: a stop failure must not mask the TimeoutError.
+    # Observed in CI (PR #181 e2e run 41162900220): the timed-out
+    # test's mock-console fixture was torn down while the agent kept
+    # running, and the agent spent its last minutes trying to restart
+    # the dead console instead of finishing.
+    try:
+        r = client.post(f'{BASE_URL}/api/tasks/{task_id}/agent/stop')
+        log.info(
+            'timeout: stopped agent (HTTP %s, status=%s)',
+            r.status_code,
+            last_status,
+        )
+    except Exception as exc:  # noqa: BLE001 - never mask the timeout
+        log.warning('timeout: could not stop agent: %s', exc)
 
     raise TimeoutError(
         f'Task {task_id[:8]} did not reach {target_statuses} '
