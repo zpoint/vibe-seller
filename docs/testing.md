@@ -66,6 +66,18 @@ Configurable via `FakeAgentScenario` (fields: `plan`, `result`, `todos`, `should
 
 **Critical rule**: Don't mock away critical pipelines (like `_auto_run_task`) — use FakeAgent instead.
 
+## Fake Anthropic server
+
+`tests/fixtures/fake_anthropic_server.py` is a stdlib, deterministic fake of the Anthropic Messages API (`POST /v1/messages`, streaming and non-streaming) for driving the **real** Claude Code CLI without a model or network. Point a profile's `ANTHROPIC_BASE_URL` at it; the requested model name selects the behaviour:
+
+- `fake-instant` — reply immediately
+- `fake-delay-<SECONDS>` — hold the request, then stream a short reply (a slow but healthy model)
+- `fake-hang` — accept and never answer (a dead provider)
+- `fake-tool-then-delay-<SECONDS>` — one tool call, then the slow reply (slow compose after a `tool_result`)
+- `fake-silent-after-delta` — `message_start` + one delta, then silence (a stream that dies mid-body)
+
+Run it with `python tests/fixtures/fake_anthropic_server.py PORT`. It is how the stall reaper's live scenarios were verified (slow first token survives; a dead stream ends within the bound).
+
 ## E2E Test Infrastructure
 
 ### CI approval gate

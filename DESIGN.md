@@ -78,7 +78,8 @@ AIAgentBackend (ABC)              app/ai/base.py
          ├── stop(task_id)
          ├── submit_answer(task_id, request_id, answers)
          ├── send_message(task_id, message)
-         └── is_running(task_id)
+         ├── is_running(task_id)
+         └── is_process_alive(task_id)   # worker not yet exited (stall reaper)
 ```
 
 ### Task Execution Flow (Auto Plan+Execute)
