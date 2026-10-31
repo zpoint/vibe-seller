@@ -159,10 +159,12 @@ jobs:
           # The wrapper the user would actually run — not the module
           # behind it. On Linux that is scripts/reset_auth.sh, on
           # Windows scripts/reset_auth.bat.
-          $isWindows = $env:OS -eq 'Windows_NT'
+          # NOT $IsWindows — that is a read-only PowerShell automatic
+          # variable, and assigning to it aborts the step.
+          $vsOnWindows = $env:OS -eq 'Windows_NT'
           function Invoke-Wrapper {
             param([string[]]$Arguments)
-            if ($isWindows) {
+            if ($vsOnWindows) {
               & .\scripts\reset_auth.bat @Arguments
             } else {
               & bash ./scripts/reset_auth.sh @Arguments
