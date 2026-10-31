@@ -392,33 +392,44 @@ The UI generation above (§4b) is orthogonal to **which kind of seller
 account the store is**: an **old store** (registered early, marketplaces
 walled off) vs a **new store** (newer unified registration, marketplaces
 aggregated). The same page renders differently on each, so detect the
-type before trusting any per-country assumption:
+type before trusting any per-country assumption (both verified live
+2026-10-31):
 
 - **Ads console (the clearest signal).** Read the top-right account chip:
-  - *Old store* → the chip reads `Sponsored ads, <Country>` and is a
-    **switcher between separate per-country ad accounts** (dropdown
-    "Sponsored Ads Accounts", one entry per country; the campaign list
-    and every export cover ONLY the selected country). Verified live on
-    an old store 2026-10-31.
-  - *New store* → one list spans all countries (a Country column on
-    rows, one export covering all). Not yet verified live — treat any
-    account that shows a Country column as this type regardless.
-- **Seller Central country switch.** Old store: full-page account
-  switcher (§4a-bis) lists each country; you switch explicitly. New
-  store: the same surface exists but the listing/inventory pages show
-  cross-country listings in one view (a `+N marketplace` chip appears on
-  rows that exist in more than one marketplace — verified on an old
-  store's child rows too).
+  - *Old store* → the chip reads `Sponsored ads, <Country>` (one
+    country) and is a **switcher between separate per-country ad
+    accounts** (dropdown "Sponsored Ads Accounts", one entry per
+    country; the campaign list and every export cover ONLY the selected
+    country).
+  - *New store* → the chip reads `Sponsored ads, multiple
+    countries/regions` (localized, e.g. 搜索广告，多个国家/地区); the
+    campaign list has a **Country/Region column** whose one list spans
+    every marketplace the entity covers, and one export covers all of
+    them. The Campaign Builder's country dropdown (§ of the ads skill)
+    lists every country in the entity — the campaign picks its country
+    there.
+- **Seller Central side — same surface on both types.** The header
+  account chip (same `dropdown-account-switcher-*` component) and the
+  full-page account switcher (§4a-bis) work identically; both store
+  types list their marketplaces there. Inventory pages are also
+  structurally identical (same tabs, same row kebab menus, same
+  `+N marketplace` chip on listings that exist on more than one
+  marketplace). What differs is scope: on an old store a marketplace's
+  data is visible only after switching to it; on a new store one
+  marketplace's pages can carry cross-marketplace state (and the ads
+  side is aggregated outright).
 - **Detection shortcuts**: `ue_mid` (§ above) on an ordinary page tells
-  you the CURRENT marketplace, never the store type. The ads-console
-  chip and the presence of a Country column in the campaign list are the
-  reliable tell. When in doubt, ask the data: open the campaign list and
-  look.
+  you the CURRENT marketplace, never the store type — and a URL
+  subdomain tells you even less (a `.sa` inventory URL happily serves
+  `ue_mid=AE`). The ads-console chip and the presence of a Country
+  column in the campaign list are the reliable tell. When in doubt, ask
+  the data: open the campaign list and look.
 
 Practical consequence for any task naming a country: on an old store you
 MUST switch (ads) / verify `ue_mid` (seller central) before reading
 anything; on a new store you may see every country at once and must
-FILTER to the requested one instead of assuming the view is scoped.
+FILTER to the requested one (ads: Country column filter / Campaign
+Builder country dropdown) instead of assuming the view is scoped.
 
 ## 5. Capture rule
 

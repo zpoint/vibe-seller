@@ -89,11 +89,16 @@ account/entity*, and the displayed brand name can differ per country
 The campaign list **and any bulk export cover only the selected
 country.**
 
-**Layout B — unified multi-market entity (one list, many countries).** A
-single campaign list spans several marketplaces, with a **Country column**
-per row, and the bulk export carries a marketplace/country column with all
-of them. No switching needed to see every market — but confirm the column
-is actually there and populated before relying on it.
+**Layout B — unified multi-market entity (one list, many countries).**
+The top-right chip reads `Sponsored ads, multiple countries/regions`
+(localized — observed 搜索广告，多个国家/地区). A single campaign list
+spans several marketplaces, with a **Country/Region column** per row
+(observed 国家/地区 on a Chinese-locale unified account), and the bulk
+export carries a marketplace/country column with all of them. The
+Campaign Builder (`/cb`) country dropdown lists every country the
+entity covers and the campaign picks one there. No switching needed to
+see every market — but confirm the column is actually there and
+populated before relying on it.
 
 **How to tell them apart:** read the top-left control and the list. If the
 control names a single country and the rows have no differing Country
