@@ -51,11 +51,12 @@ for store X" is ambiguous.
 > Entries read `<Country>` when available and `<Country> (pending
 > registration)` when not — only the former can be selected. Selection is
 > two steps: click the country row (it ticks), **then** the "Select
-> account" button that appears; a single click looks like a no-op. Success
-> shows `?mons_sel_mkid=amzn1.mp.o.…` on the URL and the new country in
-> the header. Every subsequent page on the SAME domain then serves that
-> marketplace's data — so per-marketplace reports are pulled from the
-> original domain after switching, not from the other country's domain.
+> account" button that appears at the bottom of the list; a single click
+> looks like a no-op. On success the session **redirects to the target
+> marketplace's own domain** (e.g. `sellercentral.amazon.sa`), sometimes
+> with a `mons_sel_mkid=`/`mons_sel_dir_mcid=` parameter on the way, and
+> the header chip shows the new country. Confirm the switch by reading
+> `ue_mid`, not just the chrome.
 >
 > **Confirm the switch changed the data, not just the chrome.** These
 > report pages cache aggressively; compare something content-bearing
@@ -257,7 +258,9 @@ reports a failure:
 
 Use the account-switcher PAGE — it is directly addressable (verified
 live; do NOT fight the header dropdown, whose kat/Vue rows ignore JS
-clicks and render off-viewport):
+clicks and render off-viewport; the classic header chip opens
+`#dropdown-account-switcher-container` with a "Switch Accounts" entry
+that leads to the same page):
 
 The page is the same everywhere — its LANGUAGE follows the session and
 its ROWS are whatever marketplaces this account holds — so drive it by
@@ -268,25 +271,28 @@ for, its `sellercentral.amazon.<tld>`, its marketplace id), and click:
 1. `new_tab('https://sellercentral.amazon.<tld>/account-switcher/default/merchantMarketplace')`
    (the old `/gp/account/switcher` path 404s). `<tld>` is the target
    country's TLD (see §1).
-2. Click the ACCOUNT row to EXPAND its marketplace list — mandatory:
-   before expanding, only the currently-active marketplace shows, so
-   the target looks absent (a live agent wrongly concluded "no
-   marketplace list / no confirm button" and gave up; both appear only
-   after expanding). The active row is flagged (a parenthesised
-   "current"-type marker in the session's language).
+2. Rows are `button.full-page-account-switcher-account-details`; the
+   ACTIVE row's label carries `data-test="current-account"`. On a
+   single-account store the whole marketplace list is rendered
+   immediately; if the target row is missing, click the ACCOUNT row to
+   expand its list (a live agent wrongly concluded "no marketplace
+   list / no confirm button" on a collapsed render). Rows the account
+   does not hold read `<Country> (pending registration)` — skip those.
 3. Click the target marketplace's row. Match it to the country you
    want by its full name AS RENDERED in the session's language (it is
    the localized country name, not a short form or a code) — enumerate
-   the expanded rows and pick the one naming your target country;
-   skip rows flagged as pending/not-registered. Don't assume a fixed
-   string.
-4. Click the confirm/select-account button (always present on this
-   page — do not conclude it is missing; it is
-   `kat-button[data-test=confirm-selection]`, a custom element, not a
-   `button`, and a JS click on the row only ticks it). Wait for the redirect (lands on a home /
-   business dashboard, often with a `mons_sel_dir_mcid=` param), then
-   RE-READ the switcher label and confirm it now names the target
-   country before trusting anything on subsequent pages.
+   the rows and pick the one naming your target country.
+4. Clicking the row only TICKS it (the row gains the
+   `full-page-account-switcher-account-selected` class; no navigation).
+   The confirm button — **`kat-button[data-test=confirm-selection]`,
+   visible text "Select account"** — appears at the BOTTOM of the list
+   (below the last row) only after a row is selected, and it needs a
+   real coordinate click. Wait for the redirect: the session lands on
+   the TARGET marketplace's own domain (e.g.
+   `sellercentral.amazon.sa/amazonsell/business?ref=homepage_redirect_ngs`),
+   then RE-READ the switcher label — or better `js("return ue_mid")` —
+   and confirm it names the target country before trusting anything on
+   subsequent pages.
 5. If the page or any step is genuinely absent, open the target
    subdomain in a fresh tab and re-read the label; only after that
    fails too, ask the user — with what you observed. (The aux browser
@@ -295,31 +301,68 @@ for, its `sellercentral.amazon.<tld>`, its marketplace id), and click:
 
 ### 4b. Detecting the version
 
-Load `/home` and check where you land / what renders:
+Load `/home` and check where you land / what renders (verified live
+2026-10-31; Amazon renames this chrome often, so re-check on a stale
+session):
 
 - **New Seller Central (NGS)** — `/home` redirects to
-  **`/amazonsell/business`** (`?ref=homepage_redirect_ngs`); the page has
-  a **"New Seller Central" toggle** in the top bar, a dashboard
-  **channel-tab row** (My business / Products / Supply chain / Orders /
-  Finance / Customers / Marketing) and `casino-*` web components
-  (`document.querySelector('casino-greeting-header, navigation-favorites-bar')`).
-- **Classic** — plain `/home` dashboard, no `casino-*` elements; the old
-  hamburger hover-menu (§4d).
+  **`/amazonsell/business?ref=homepage_redirect_ngs`**; the page title
+  reads **"New Amazon Selling Experience"**; the chrome is the
+  **`ngstrim-*`** trim: `nav.ngstrim-top-navigation` (top bar),
+  `button[aria-label="Menu"]` (drawer toggle, top-left),
+  `div#ngstrim-nav-menu` (left drawer),
+  `nav#ngstrim-bookmarks` (horizontal favorites row of
+  `navigation-favorites-button` links),
+  `nav#ngstrim-breadcrumbs`. A "Classic Seller Central" link
+  (href `/home?ngs_do_not_redirect_flag=1`) sits at the **bottom of the
+  left drawer**.
+- **Classic** — plain `/home` (title just "Amazon"),
+  `#sc-navbar-container` / `#navbar`, the
+  `navigation-hamburger-menu` web component, and a **top-right
+  "New Seller Central" link** (`a[href^="/amazonsell"]`, observed
+  `href="/amazonsell?ref=sc_trim_header&path=%2Fhome"`).
+
+> ⚠️ **`casino-*` web components are NOT an NGS signal anymore.** The
+> classic home now also renders `casino-card-compact`,
+> `casino-product-summary`, `casino-select-bar`, … Key on the URL
+> (`/amazonsell/business` vs `/home`), the title, and the `ngstrim-*`
+> vs `#sc-navbar-container` chrome instead.
+
+- **Switching**: on NGS, open the drawer (`button[aria-label="Menu"]`)
+  and click the **"Classic Seller Central"** link at its bottom
+  (→ `/home?ngs_do_not_redirect_flag=1`). On classic, click the
+  top-right **"New Seller Central"** link (→ `/amazonsell`). Classic
+  warns "Switching back as your default will no longer be available" —
+  Amazon is sunsetting the classic default; switching per session still
+  works.
 - **Force classic** when a page misbehaves under NGS: append
-  **`?ngs_do_not_redirect_flag=1`** to `/home` to stay on the classic home.
+  **`?ngs_do_not_redirect_flag=1`** to `/home` to stay on the classic home
+  (verified working).
 
 ### 4c. NGS chrome (for discovery only)
 
-- **Favorites / quick-nav bar** (`navigation-favorites-bar`, top,
-  horizontal): direct links (Manage All Inventory, Payments, Business
-  Reports, …). Read their real hrefs from the bar's (shadow) DOM and open
-  them.
-- **Hamburger** (`navigation-hamburger-menu`, top-left) opens a
-  full-height **left drawer** with categories (Catalog, Inventory,
-  Pricing, Orders, Advertising, Stores, Growth, Reports, Payments,
-  Performance, Apps and Services, Brands, Learn). Categories expand to a
-  flyout; if a stable selector isn't obvious, `capture_screenshot()` then
-  `click_at_xy(x, y)`.
+- **Favorites / quick-nav row** (`nav#ngstrim-bookmarks`, horizontal,
+  under the top bar): direct links (Manage products
+  `/amazonsell/manage-products`, Manage shipments `/manage/shipments`,
+  Manage orders `/amazonsell/orders/mfn`, Ads console `/cm?source=ngs`,
+  Coupons `/manage/promotions`, Manage payments
+  `/payments/dashboard/index.html`, Business reports
+  `/business-reports#/dashboard`, Fulfillment `/reportcentral`, Manage
+  Amazon inventory `/amazonsell/fba-inventory`, …). Each is a plain
+  `navigation-favorites-button` anchor — read its href and open it.
+- **Hamburger drawer** (`button[aria-label="Menu"]` top-left opens
+  `div#ngstrim-nav-menu`): sections **Products / Supply chain / Orders /
+  Marketing / Finance / Account health / Programs and apps**, each
+  expanding a sub-list with a "Workspace" link plus items (e.g.
+  Supply chain → Manage Amazon inventory, Manage shipments,
+  **Send to Amazon** (`/fba/sendtoamazon`), Supply chain console,
+  Supply chain reports). A **"Classic Seller Central"** toggle sits at
+  the drawer's bottom. Sub-list items are plain anchors with real
+  hrefs — read and open them rather than clicking blind.
+- On an NGS session the trim WRAPS the classic page bodies:
+  `/myinventory/inventory`, `/orders-v3`, report pages etc. render their
+  classic content under the `ngstrim` top bar + drawer. Only `/home`
+  (→ `/amazonsell/business`) is a different page altogether.
 
 ### 4d. Classic chrome — hamburger hover-to-reveal
 
@@ -342,6 +385,51 @@ PY
 
 If a stable selector isn't obvious, `capture_screenshot()` + `click_at_xy(x, y)`.
 But prefer §4a (direct URL) over any of this whenever you know the path.
+
+### 4e. Store TYPE is a second axis — old (per-country) vs new (aggregated)
+
+The UI generation above (§4b) is orthogonal to **which kind of seller
+account the store is**: an **old store** (registered early, marketplaces
+walled off) vs a **new store** (newer unified registration, marketplaces
+aggregated). The same page renders differently on each, so detect the
+type before trusting any per-country assumption (both verified live
+2026-10-31):
+
+- **Ads console (the clearest signal).** Read the top-right account chip:
+  - *Old store* → the chip reads `Sponsored ads, <Country>` (one
+    country) and is a **switcher between separate per-country ad
+    accounts** (dropdown "Sponsored Ads Accounts", one entry per
+    country; the campaign list and every export cover ONLY the selected
+    country).
+  - *New store* → the chip reads `Sponsored ads, multiple
+    countries/regions` (localized, e.g. 搜索广告，多个国家/地区); the
+    campaign list has a **Country/Region column** whose one list spans
+    every marketplace the entity covers, and one export covers all of
+    them. The Campaign Builder's country dropdown (§ of the ads skill)
+    lists every country in the entity — the campaign picks its country
+    there.
+- **Seller Central side — same surface on both types.** The header
+  account chip (same `dropdown-account-switcher-*` component) and the
+  full-page account switcher (§4a-bis) work identically; both store
+  types list their marketplaces there. Inventory pages are also
+  structurally identical (same tabs, same row kebab menus, same
+  `+N marketplace` chip on listings that exist on more than one
+  marketplace). What differs is scope: on an old store a marketplace's
+  data is visible only after switching to it; on a new store one
+  marketplace's pages can carry cross-marketplace state (and the ads
+  side is aggregated outright).
+- **Detection shortcuts**: `ue_mid` (§ above) on an ordinary page tells
+  you the CURRENT marketplace, never the store type — and a URL
+  subdomain tells you even less (a `.sa` inventory URL happily serves
+  `ue_mid=AE`). The ads-console chip and the presence of a Country
+  column in the campaign list are the reliable tell. When in doubt, ask
+  the data: open the campaign list and look.
+
+Practical consequence for any task naming a country: on an old store you
+MUST switch (ads) / verify `ue_mid` (seller central) before reading
+anything; on a new store you may see every country at once and must
+FILTER to the requested one (ads: Country column filter / Campaign
+Builder country dropdown) instead of assuming the view is scoped.
 
 ## 5. Capture rule
 
