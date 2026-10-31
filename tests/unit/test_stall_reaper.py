@@ -2,11 +2,18 @@
 
 Covers:
   - Core reaper logic (status transitions, skip rules)
+  - The authority split: an alive, input-capable agent is only
+    reapable past its request-timeout bound; a dead (or
+    terminator-passed) process is reaped on the flat 3-min rule
   - Partial result preservation (saves last assistant message)
   - _maybe_bump_updated_at throttle (delta streaming heartbeat)
+  - effective_api_timeout_ms / ensure_bounded_api_timeout (the
+    env guarantee that every CLI gets a bounded request
+    timeout — the number the reaper's alive-branch defers to)
 """
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -20,6 +27,11 @@ from sqlalchemy.pool import StaticPool
 
 import app.ai.claude_backend_manager as _cb
 import app.ai.claude_backend_stream as _stream_mod
+from app.ai.profiles import (
+    DEFAULT_API_TIMEOUT_MS,
+    effective_api_timeout_ms,
+    ensure_bounded_api_timeout,
+)
 import app.database as _db
 from app.models.base import Base
 from app.models.task import Task
@@ -30,12 +42,22 @@ from app.task_states import TaskStatus
 pytestmark = pytest.mark.unit
 
 
+class _FakeAgentSession:
+    """Stand-in for AgentSession with just the liveness surface the
+    reaper reads: ``running`` (input-capable) and ``_proc.returncode``."""
+
+    def __init__(self, *, running: bool, returncode: int | None):
+        self.running = running
+        self._proc = SimpleNamespace(returncode=returncode)
+
+
 class _FakeManager:
     """Substitute for agent_manager — records stop() calls."""
 
     def __init__(self):
         self.stopped: list[str] = []
         self.pending: dict[str, dict] = {}
+        self.sessions: dict[str, _FakeAgentSession] = {}
 
     async def stop(self, task_id: str) -> bool:
         self.stopped.append(task_id)
@@ -43,6 +65,14 @@ class _FakeManager:
 
     def get_pending_questions(self, task_id: str) -> dict | None:
         return self.pending.get(task_id)
+
+    def get_session(self, task_id: str):
+        return self.sessions.get(task_id)
+
+    def is_process_alive(self, task_id: str) -> bool:
+        session = self.sessions.get(task_id)
+        proc = getattr(session, '_proc', None) if session else None
+        return proc is not None and proc.returncode is None
 
 
 @pytest_asyncio.fixture
@@ -212,6 +242,175 @@ class TestStallReaper:
         # agent_manager.stop() should have been called exactly once —
         # the second pass saw no RUNNING task and did nothing.
         assert fake.stopped == [task_id]
+
+
+class TestAliveAgentDefersToRequestTimeout:
+    """The authority split: ``updated_at`` staleness alone must not
+    kill an agent whose process is alive and input-capable.
+
+    Pins the observed live bug (MiniMax-M3, 3× in one day): a
+    healthy agent sat silent for 3–4 min after a large tool_result
+    while the model composed a report; the flat 3-min rule
+    force-failed it with rc=0 and no result. While the process is
+    alive, the CLI's own per-request timeout (API_TIMEOUT_MS) is the
+    authority for "the request is dead" — the reaper defers until
+    silence outlasts that timeout plus margin.
+    """
+
+    async def test_alive_composing_agent_not_reaped(self, reaper_env):
+        """10 min stale + alive input-capable agent + default 50-min
+        request timeout → left alone (the slow-model case)."""
+        maker, fake = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=10
+        )
+        fake.sessions[task_id] = _FakeAgentSession(
+            running=True, returncode=None
+        )
+        await _reaper.reap_stalled_running_tasks()
+        t = await _get(maker, task_id)
+        assert t.status == TaskStatus.RUNNING
+        assert t.error is None
+        assert fake.stopped == []
+
+    async def test_alive_agent_past_request_bound_is_reaped(
+        self, reaper_env, monkeypatch
+    ):
+        """Silence beyond API_TIMEOUT_MS + margin with the process
+        still alive → the CLI's own machinery failed to bound the
+        request; the reaper is the backstop and fires."""
+        maker, fake = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=30
+        )
+        fake.sessions[task_id] = _FakeAgentSession(
+            running=True, returncode=None
+        )
+        monkeypatch.setattr(
+            _reaper, '_request_timeout_bound', lambda task: timedelta(minutes=5)
+        )
+        await _reaper.reap_stalled_running_tasks()
+        t = await _get(maker, task_id)
+        assert t.status == TaskStatus.FAILED
+        assert t.error_category == 'agent_stream_stalled'
+        assert fake.stopped == [task_id]
+
+    async def test_alive_past_terminator_reaped_on_flat_rule(self, reaper_env):
+        """Process alive but NOT input-capable (stdin closed by the
+        turn terminator, stop() in progress): the post-close kill
+        escalation owns it with a 120 s grace, so the reaper keeps
+        the fast 3-min rule instead of the request-timeout bound."""
+        maker, fake = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=10
+        )
+        fake.sessions[task_id] = _FakeAgentSession(
+            running=False, returncode=None
+        )
+        await _reaper.reap_stalled_running_tasks()
+        t = await _get(maker, task_id)
+        assert t.status == TaskStatus.FAILED
+        assert fake.stopped == [task_id]
+
+    async def test_dead_process_reaped_on_flat_rule(self, reaper_env):
+        """Session exists but the process exited — nothing can bump
+        ``updated_at``; staleness is authoritative again."""
+        maker, fake = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=10
+        )
+        fake.sessions[task_id] = _FakeAgentSession(running=False, returncode=0)
+        await _reaper.reap_stalled_running_tasks()
+        t = await _get(maker, task_id)
+        assert t.status == TaskStatus.FAILED
+        assert fake.stopped == [task_id]
+
+    async def test_bound_reflects_profile_env_and_margin(
+        self, reaper_env, monkeypatch
+    ):
+        """``_request_timeout_bound`` = the spawn env's
+        API_TIMEOUT_MS + _ALIVE_MARGIN — the same env the CLI was
+        actually spawned with (get_env_for_profile injects the key
+        when missing), so reaper and CLI can never disagree."""
+        maker, _ = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=1
+        )
+        async with maker() as db:
+            t = await db.get(Task, task_id)
+            t.ai_profile_id = 'slowprov'
+            await db.commit()
+        monkeypatch.setattr(
+            _reaper.ProfileManager,
+            'get_env_for_profile',
+            staticmethod(lambda pid: {'API_TIMEOUT_MS': '45000'}),
+        )
+        bound = _reaper._request_timeout_bound(t)
+        assert bound == timedelta(milliseconds=45000) + _reaper._ALIVE_MARGIN
+
+    async def test_stale_alive_task_deferred_then_reaped_after_bound(
+        self, reaper_env, monkeypatch
+    ):
+        """Both directions in sequence: the same alive+stale task is
+        skipped while inside the bound, then reaped once the bound
+        drops below its staleness (a pass simulating the CLI's
+        timeout having elapsed)."""
+        maker, fake = reaper_env
+        task_id = await _seed(
+            maker, status=TaskStatus.RUNNING, minutes_since_update=10
+        )
+        fake.sessions[task_id] = _FakeAgentSession(
+            running=True, returncode=None
+        )
+        monkeypatch.setattr(
+            _reaper, '_request_timeout_bound', lambda task: timedelta.max
+        )
+        await _reaper.reap_stalled_running_tasks()
+        assert (await _get(maker, task_id)).status == TaskStatus.RUNNING
+        monkeypatch.setattr(
+            _reaper,
+            '_request_timeout_bound',
+            lambda task: timedelta(minutes=1),
+        )
+        await _reaper.reap_stalled_running_tasks()
+        assert (await _get(maker, task_id)).status == TaskStatus.FAILED
+
+
+class TestEffectiveApiTimeout:
+    """Parsing + injection of the bounded per-request timeout."""
+
+    def test_missing_falls_back_to_default(self):
+        assert effective_api_timeout_ms({}) == DEFAULT_API_TIMEOUT_MS
+        assert effective_api_timeout_ms(None) == DEFAULT_API_TIMEOUT_MS
+
+    def test_garbage_falls_back_to_default(self):
+        assert (
+            effective_api_timeout_ms({'API_TIMEOUT_MS': 'soon'})
+            == DEFAULT_API_TIMEOUT_MS
+        )
+
+    def test_non_positive_falls_back_to_default(self):
+        assert (
+            effective_api_timeout_ms({'API_TIMEOUT_MS': '0'})
+            == DEFAULT_API_TIMEOUT_MS
+        )
+        assert (
+            effective_api_timeout_ms({'API_TIMEOUT_MS': '-5'})
+            == DEFAULT_API_TIMEOUT_MS
+        )
+
+    def test_valid_value_honoured(self):
+        assert effective_api_timeout_ms({'API_TIMEOUT_MS': '45000'}) == 45000
+
+    def test_ensure_injects_when_missing(self):
+        env = {'ANTHROPIC_MODEL': 'x'}
+        ensure_bounded_api_timeout(env)
+        assert env['API_TIMEOUT_MS'] == str(DEFAULT_API_TIMEOUT_MS)
+
+    def test_ensure_preserves_explicit_value(self):
+        env = {'API_TIMEOUT_MS': '90000'}
+        ensure_bounded_api_timeout(env)
+        assert env['API_TIMEOUT_MS'] == '90000'
 
 
 async def _add_msg(maker, task_id, role, content, seq):

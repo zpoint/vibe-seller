@@ -21,14 +21,41 @@ The terminal status depends on WHEN the stream died:
 - **Mid-work** (no declared result) → ``FAILED``, preserving the
   last substantial assistant message as a PARTIAL result.
 
-The signal we key off is ``Task.updated_at``: every streamed event,
-tool call, and hook callback already bumps it (see
-``app/ai/claude_backend_stream.py`` + ``claude_backend_hooks.py``),
-so a stalled stream naturally lets ``updated_at`` go stale.
+**Who owns "this request is dead"** — the decision is split by the
+agent process state, because a DB timestamp alone cannot tell a
+slow model from a dropped stream (both are minutes of silence):
+
+- **Agent process alive and input-capable** (``session.running``):
+  the CLI owns the in-flight request — it has its own per-request
+  timeout (``API_TIMEOUT_MS``, bounded at spawn; 50 min with every
+  provider preset) plus retries, and the session's turn watchdog
+  owns the process (hard-idle stdin close → post-close kill). The
+  reaper defers to that authority and only fires once silence has
+  outlasted the effective request timeout ``+ _ALIVE_MARGIN``. A
+  slow first token is structurally inside that bound: observed
+  live (MiniMax-M3), 3–4 min of silence after a large tool_result
+  while the model composed a report — healthy, and reaped as
+  stalled by the old flat 3-min rule.
+- **No session / process exited** (or alive past its turn
+  terminator — ``running`` is False once stdin is closed or
+  ``stop()`` began, and the post-close kill escalation disposes of
+  the process within its grace): nothing can bump ``updated_at``
+  any more, so staleness is authoritative again and the fast 3-min
+  rule applies.
+
+The ``updated_at`` signal itself (every streamed event, tool call,
+and hook callback bumps it — see ``claude_backend_stream.py``) is
+kept as the *staleness clock* but no longer as the *death verdict*
+while its owner is alive: the streaming heartbeat that refreshes
+it runs inside the same reader task as the stream, so anything
+that starves the reader (a blocked control-request handler, a DB
+stall) freezes the timestamp of a perfectly healthy agent. The
+reaper must not execute that agent on the frozen evidence.
 
 Only RUNNING tasks are in scope. WAITING tasks are handled by the
 waiting checker. DESIGNING tasks (plan-only) are handled by
-``plan_reaper``.
+``plan_reaper``. An outstanding AskUserQuestion is always skipped
+(the operator may take hours).
 
 See issue #141 for the full discovery context.
 """
@@ -39,6 +66,7 @@ import logging
 from sqlalchemy import select
 
 from app.ai.claude_backend_manager import agent_manager
+from app.ai.profiles import ProfileManager, effective_api_timeout_ms
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task import Task
@@ -47,29 +75,63 @@ from app.task_states import TaskStatus
 
 logger = logging.getLogger(__name__)
 
-# Real agent work bumps ``updated_at`` every tool call / streamed
-# event. The streaming-delta heartbeat in ``claude_backend_stream``
-# throttles bumps to once per 60 s, so a healthy task is always
-# within 60 s of fresh. Three minutes of silence is well past
-# "just thinking" and strongly indicates the stream died upstream.
-# Previously this was 5 min, which combined with the 1 min poll
-# interval gave a 6 min worst-case detection window — too tight for
-# the catalog-sync e2e test's 900 s budget when GLM-4.7 emits a
-# late-arriving degenerate response followed by silence. 3 min keeps
-# ample headroom over the heartbeat cadence while halving the gap
-# between "stalled" and "reaped".
+# Fast rule for tasks whose agent cannot progress any more (process
+# gone, or past its turn terminator). Real agent work bumps
+# ``updated_at`` every tool call / streamed event; the streaming
+# heartbeat throttles bumps to once per 60 s, so a healthy task is
+# always within ~60 s of fresh. Three minutes of silence from a
+# dead process is well past "just thinking". Previously this flat
+# rule also applied to LIVE agents — see the module docstring.
 _STALL_THRESHOLD = timedelta(minutes=3)
 
-_STALL_ERROR_MESSAGE = (
-    'Agent stream stalled — no events for 3+ minutes. Upstream '
-    'provider likely dropped the SSE stream without emitting a '
-    'stop event. Task was force-failed by stall_reaper. Re-run to '
-    'retry.'
-)
+# Slack added on top of the CLI's effective ``API_TIMEOUT_MS`` while
+# the agent process is alive: one reaper poll interval (60 s) plus
+# one heartbeat throttle window (60 s), so a bump that is due but
+# not yet committed can never tip the decision.
+_ALIVE_MARGIN = timedelta(seconds=120)
+
+
+def _request_timeout_bound(task: Task) -> timedelta:
+    """When a silent-but-alive agent becomes reapable.
+
+    ``API_TIMEOUT_MS`` as the CLI was actually spawned with it
+    (``ProfileManager.get_env_for_profile`` — the same merge the
+    spawn used, and it guarantees the key is present via
+    ``ensure_bounded_api_timeout``) plus the margin. Module-level
+    indirection so tests can patch the bound.
+    """
+    env = ProfileManager.get_env_for_profile(task.ai_profile_id or 'default')
+    return timedelta(milliseconds=effective_api_timeout_ms(env)) + _ALIVE_MARGIN
+
+
+def _staleness(updated_at: str | None, now: datetime) -> timedelta:
+    """Age of ``updated_at``; huge when unparseable (reap rather
+    than trust a timestamp we cannot even read)."""
+    if not updated_at:
+        return timedelta.max
+    try:
+        return now - datetime.fromisoformat(updated_at)
+    except ValueError:
+        return timedelta.max
+
+
+def _stall_error_message(minutes: int) -> str:
+    return (
+        f'Agent stream stalled — no events for {minutes}+ minutes. '
+        'Upstream provider likely dropped the SSE stream without '
+        'emitting a stop event. Task was force-failed by '
+        'stall_reaper. Re-run to retry.'
+    )
 
 
 async def reap_stalled_running_tasks() -> None:
-    """Terminate RUNNING tasks whose last activity is past the cutoff.
+    """Terminate RUNNING tasks whose agent can no longer progress.
+
+    Two thresholds, by authority (see the module docstring): a task
+    whose agent process is alive and input-capable is only reapable
+    once silence has outlasted its effective ``API_TIMEOUT_MS`` plus
+    margin; everything else (no session, dead process, or a process
+    past its turn terminator) uses the flat 3-min rule.
 
     COMPLETED when the deliverable was already declared (result set
     with no error, or a final ``result`` event recovered from the
@@ -116,11 +178,44 @@ async def reap_stalled_running_tasks() -> None:
         if not stalled:
             return
 
-        # (task_id, terminal_status) actually written this pass —
-        # tasks the re-check skipped must NOT get events emitted.
-        outcomes: list[tuple[str, str]] = []
+        # (task_id, terminal_status, stale_minutes) actually written
+        # this pass — tasks the re-check skipped must NOT get events
+        # emitted.
+        outcomes: list[tuple[str, str, int]] = []
 
+        now = datetime.now(UTC)
         for task in stalled:
+            stale_for = _staleness(task.updated_at, now)
+            # Authority check: an alive, input-capable agent owns its
+            # in-flight request (CLI timeout + retries; turn
+            # watchdog owns the process). Silence alone — even
+            # silence that outlasted the heartbeat — is not death
+            # until it also outlasts the request timeout bound.
+            session = agent_manager.get_session(task.id)
+            if agent_manager.is_process_alive(task.id) and getattr(
+                session, 'running', False
+            ):
+                bound = _request_timeout_bound(task)
+                if stale_for < bound:
+                    logger.info(
+                        'Task %s silent for %.0fs but agent process '
+                        'is alive (request in flight) — deferring to '
+                        'the CLI request-timeout bound of %.0fs',
+                        task.id,
+                        stale_for.total_seconds(),
+                        bound.total_seconds(),
+                    )
+                    continue
+                logger.warning(
+                    'Task %s silent for %.0fs WITH the agent process '
+                    'alive — past the request-timeout bound %.0fs '
+                    "(the CLI's own timeout should have ended the "
+                    'request); reaping',
+                    task.id,
+                    stale_for.total_seconds(),
+                    bound.total_seconds(),
+                )
+
             logger.warning(
                 'Reaping stalled task %s (updated_at=%s, threshold=%s)',
                 task.id,
@@ -183,6 +278,7 @@ async def reap_stalled_running_tasks() -> None:
                         )
 
             now_iso = datetime.now(UTC).isoformat()
+            stale_minutes = max(1, int(stale_for.total_seconds() // 60))
             if deliverable_done:
                 # Post-completion stream drop: the work is done, the
                 # transport died. COMPLETED — never tell the user to
@@ -196,15 +292,15 @@ async def reap_stalled_running_tasks() -> None:
                 fresh.status = TaskStatus.COMPLETED
             else:
                 fresh.status = TaskStatus.FAILED
-                fresh.error = _STALL_ERROR_MESSAGE
+                fresh.error = _stall_error_message(stale_minutes)
                 fresh.error_category = 'agent_stream_stalled'
             fresh.updated_at = now_iso
             fresh.completed_at = now_iso
-            outcomes.append((task.id, fresh.status))
+            outcomes.append((task.id, fresh.status, stale_minutes))
 
         await db.commit()
 
-    for task_id, status in outcomes:
+    for task_id, status, stale_minutes in outcomes:
         await event_bus.emit(
             'task_update',
             {'task_id': task_id, 'status': status},
@@ -214,7 +310,7 @@ async def reap_stalled_running_tasks() -> None:
                 'task_failed',
                 {
                     'task_id': task_id,
-                    'error': _STALL_ERROR_MESSAGE,
+                    'error': _stall_error_message(stale_minutes),
                     'error_category': 'agent_stream_stalled',
                 },
             )

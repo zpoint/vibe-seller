@@ -12,6 +12,45 @@ PROFILES_PATH = VIBE_SELLER_DIR / 'profiles.json'
 
 DEFAULT_PROFILE_ID = 'default'
 
+# Per-request API timeout (ms) every agent CLI is spawned with. Every
+# provider preset in provider_presets.py ships this value; a custom
+# profile (or a bare server env) without it would leave the CLI on its
+# own default, and nothing could compute the bound a request actually
+# runs under — injected by ``ProfileManager.get_env_for_profile``;
+# consumed by the stall reaper's alive-branch
+# (``app/scheduler/stall_reaper.py``).
+DEFAULT_API_TIMEOUT_MS = 3_000_000
+
+
+def effective_api_timeout_ms(env: dict | None) -> int:
+    """The per-request timeout a CLI spawned with ``env`` will use.
+
+    Missing, unparseable, or non-positive values fall back to
+    ``DEFAULT_API_TIMEOUT_MS`` — the same value ``AgentSession.start``
+    injects when the env lacks one, so both sides (the CLI and the
+    stall reaper) always agree on the bound.
+    """
+    raw = (env or {}).get('API_TIMEOUT_MS')
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_API_TIMEOUT_MS
+    return value if value > 0 else DEFAULT_API_TIMEOUT_MS
+
+
+def ensure_bounded_api_timeout(env: dict) -> dict:
+    """Inject ``API_TIMEOUT_MS`` into a spawn env that lacks one.
+
+    An explicit value always wins (operator's choice); only a
+    missing key gets the default. Applied by
+    ``ProfileManager.get_env_for_profile`` so no CLI ever runs an
+    unbounded request — the guarantee the stall reaper's
+    alive-branch relies on.
+    """
+    env.setdefault('API_TIMEOUT_MS', str(DEFAULT_API_TIMEOUT_MS))
+    return env
+
+
 DEFAULT_PROFILES = {
     'profiles': {
         DEFAULT_PROFILE_ID: {
@@ -123,15 +162,20 @@ class ProfileManager:
     def get_env_for_profile(profile_id: str) -> dict:
         """Get the environment variables for a profile.
 
-        Returns merged system env + profile overrides.
+        Returns merged system env + profile overrides, with a
+        bounded per-request ``API_TIMEOUT_MS`` guaranteed present
+        (``ensure_bounded_api_timeout``): every consumer of "the env
+        a profile runs under" — agent spawn (``AgentSession.start``)
+        and the stall reaper's request-timeout bound — sees the same
+        value the CLI will actually run with.
         """
         profile = ProfileManager.get_profile(profile_id)
         if not profile:
-            return os.environ.copy()
+            return ensure_bounded_api_timeout(os.environ.copy())
 
         env = os.environ.copy()
         env.update(profile.get('env', {}))
-        return env
+        return ensure_bounded_api_timeout(env)
 
     @staticmethod
     def get_load_global_mcp(profile_id: str) -> bool:

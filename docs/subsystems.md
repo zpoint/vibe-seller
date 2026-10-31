@@ -271,8 +271,10 @@ Persistent per-account email storage with background sync and SMTP send capabili
 | `waiting_checker` | every 15 min | `app/scheduler/waiting.py` | Check `WAITING` tasks for email/condition triggers; time out stale waits |
 | `email_sync` | every 5 min | `app/scheduler/email_sync.py` | Sync configured email accounts into per-account SQLite DBs |
 | `plan_reaper` | every 5 min | `app/scheduler/plan_reaper.py` | Fail schedules stuck in `plan_status='planning'` |
-| `stall_reaper` | every 2 min | `app/scheduler/stall_reaper.py` | Fail RUNNING tasks whose agent stream has gone silent |
+| `stall_reaper` | every 1 min | `app/scheduler/stall_reaper.py` | Terminalize RUNNING tasks whose agent can no longer progress |
 | `task_cleanup` | daily 03:30 server-tz | `app/scheduler/task_cleanup.py` | Auto-delete terminal leaf tasks past `AppSettings.task_retention_days` (see [docs/tasks.md § Task deletion + auto-cleanup](tasks.md#task-deletion--auto-cleanup)) |
+
+**stall_reaper's authority split** — who may declare "this request is dead": while the agent **process is alive and input-capable**, the CLI owns the in-flight request (it has its own per-request timeout, `API_TIMEOUT_MS` — bounded at spawn, 50 min with every provider preset — plus retries), so the reaper only fires after silence has outlasted that timeout + a 2-min margin. A slow first token is structurally inside that bound: a healthy agent composing a long report after a large `tool_result` can be silent for many minutes (observed 3–4 min live), and `updated_at` staleness alone can't distinguish it from a dropped stream. When there is **no session, the process has exited, or the process is past its turn terminator** (stdin closed — the post-close kill escalation in `app/ai/claude_backend_turns.py` disposes of it), nothing can bump `updated_at` any more and the flat 3-min silence rule applies. Pending `AskUserQuestion`s are always skipped (the operator may take hours).
 
 ## Ziniao on WSL
 

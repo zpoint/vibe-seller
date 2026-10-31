@@ -33,7 +33,6 @@ UNPATCHED_ALLOWLIST = {
     'app.main',
     'app.routers.schedule_planning',
     'app.scheduler.plan_reaper',
-    'app.scheduler.stall_reaper',
     'app.task_delete',
     # Package facade re-export only — nothing on a workflow-test path
     # imports the manager through it.
