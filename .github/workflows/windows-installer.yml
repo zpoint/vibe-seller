@@ -18,6 +18,9 @@ on:
       - 'app/**'
       - 'frontend/**'
       - 'tests/releases/**'
+      # The install check drives the shipped recovery wrapper.
+      - 'scripts/reset_auth.bat'
+      - 'scripts/reset_auth.sh'
   workflow_dispatch:
     inputs:
       app_version:
