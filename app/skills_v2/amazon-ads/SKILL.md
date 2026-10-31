@@ -301,14 +301,15 @@ report is not done until it's checked against the live console:**
 1. The server's **coverage floor** (deterministic): every marketplace
    enumerated, every active id drilled, drills never regress. It replies
    with "what's still missing"; fix and re-submit until clean.
-2. The **`ads-report-review` reviewer loop** (active verification): spawn
-   the reviewer subagent per
+2. The **`ads-report-review` reviewer** (active verification): spawn
+   the reviewer subagent ONCE per
    [`reviewer-loop.md`](references/reviewer-loop.md) — it **opens the live
    console / re-exports and cross-checks your report against reality**
    (samples your claimed drills, switches to any "empty" marketplace to
-   confirm, rejects count/category summaries that aren't word-level). Fix
-   the gaps it writes, re-run it, until it writes `Status: ok`. The
-   Stop-hook will not let you finish until it does.
+   confirm, rejects count/category summaries that aren't word-level).
+   Fix the gaps it writes in place, then finish. The verdict is
+   single-round — one verdict, whatever it says; the Stop-hook will
+   not let you finish until it exists, and never asks for a second one.
 
 Both must pass. This is how "done" is defined for an ad report: verified
 against the live console, drilled to the word level — never a claim.
@@ -325,7 +326,7 @@ it, and a summary has no `##` combo sections to grade.
 | [`output-spec.md`](references/output-spec.md) | **Read first for every audit.** The report contract the server completeness reviewer checks against — per-(platform,country) 进度 line, header table, per-campaign drills, the 4 bid rules, TSV-per-campaign. |
 | [`audit-quickref.md`](references/audit-quickref.md) | **The procedure, one page.** Run this top-to-bottom; it points to heavy refs on demand. |
 | [`format-anchor.md`](references/format-anchor.md) | _Legacy detail._ Per-campaign table column shape; load only if you need the exact table layout. (The mandatory subagent reviewer-loop is superseded by the server completeness reviewer — partial is accepted, it lists gaps each round.) |
-| [`reviewer-loop.md`](references/reviewer-loop.md) | **Required before finishing ANY ad report.** Phase-3 `ads-report-review` = active verification (opens the live console/export, cross-checks your report, loops until `Status: ok`; Stop-hook enforced). Phase-4 `ads-execution-review` for apply tasks (`EXEC_REVIEW_*`). |
+| [`reviewer-loop.md`](references/reviewer-loop.md) | **Required before finishing ANY ad report.** Phase-3 `ads-report-review` = active verification, one round only (opens the live console/export, cross-checks your report; fix its gaps in place and finish — no re-run). Phase-4 `ads-execution-review` for apply tasks (`EXEC_REVIEW_*`). |
 | [`tuning-workflow.md`](references/tuning-workflow.md) | User asks to tune ads, improve ACOS, "review last month's ads", harvest search terms, lower bids on losers, weekly ad review, "why is X campaign burning money", or any ongoing-campaign refinement task. |
 | [`tuning-campaign-types.md`](references/tuning-campaign-types.md) | A campaign isn't SP-Manual-Keyword. The skill defaults to SP-Manual-Keyword; for SP-Auto / SP-Manual-Product / Sponsored Brands / Sponsored Brands Video / Sponsored Display, this reference has the per-type sidebar tabs, Targeting-tab columns, and lever-applicability matrix observed on a live merchant account. Pair with `tuning-workflow.md` Phase 3 — that phase branches on type. |
 | [`tuning-thresholds.md`](references/tuning-thresholds.md) | Need to derive per-store thresholds (breakeven ACOS = margin %, target ACOS = 0.7 × breakeven, protect-zone, waste/harvest cutoffs). Always heuristic, never hardcoded. |

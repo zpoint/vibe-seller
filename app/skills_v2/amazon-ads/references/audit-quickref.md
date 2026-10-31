@@ -397,6 +397,11 @@ It renders CJK + tables via headless Chrome (throwaway profile — safe to
 run while the store browser is up) and fails loudly if the PDF has no
 pages. Mention the `.pdf` path in your result summary.
 
+Run it once and accept what it produces — the `.md` report is the
+deliverable, the PDF is a convenience copy. Do not install packages,
+write your own renderer, screenshot pages, or iterate on the PDF's
+layout; a wide table that wraps is fine.
+
 ## Reference index (load on demand only)
 
 - `output-spec.md` — the report contract (read first).

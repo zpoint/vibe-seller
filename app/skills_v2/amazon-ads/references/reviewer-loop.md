@@ -21,17 +21,20 @@ This file documents **two reviewer subagents**:
 - **Phase 4 (`ads-execution-review`)** — verifies every Recommendation
   was actually applied on the live console (already active — see below).
 
-Both follow the same loop shape and Status semantics; they differ in
-*what they open* and *what they cross-check*.
+Both share the same Status semantics; they differ in *what they open*,
+*what they cross-check*, and in shape: Phase 3 is exactly ONE round
+(verdict → fix in place → finish), while Phase 4 re-reviews only when
+`EXECUTION_LOG.md` changed after its verdict.
 
 ## Phase 3 — Report verification reviewer (`ads-report-review`)
 
 Before calling `vibe_seller_set_task_result`, the agent spawns a reviewer
 subagent whose job is to **disprove "done"** by going and looking. The
-reviewer opens the live source and cross-verifies the report; if reality
-doesn't match, it returns gaps, the agent fixes, and it re-verifies. The
-loop terminates when the reviewer returns `Status: ok` or after 5
-iterations with `Status: incomplete`.
+reviewer opens the live source, cross-verifies the report, and writes ONE
+verdict. Whatever that verdict says — `ok`, `gaps`, or `incomplete` —
+the agent fixes the listed gaps in place and finishes. The reviewer is
+never re-run for the same deliverable: there is exactly one round, and
+the first verdict is final.
 
 Three rules of conduct, the same for every DoD reviewer:
 
@@ -65,44 +68,45 @@ file to decide whether to allow stop. **The agent cannot exit
 before the reviewer has written a verdict.** There is one review
 round: that first verdict is final.
 
-## How the loop works (concrete steps)
+## How the single round works (concrete steps)
 
 ```
 # At end of Phase 3, immediately after writing AD_AUDIT_<date>.md
 # and all per-campaign TSVs:
 
-iter = 1
-loop:
-    # Spawn reviewer subagent. Use general-purpose subagent_type;
-    # the reviewer's job is fully specified by the prompt below.
-    Agent(
-        description="Format-check the audit",
-        subagent_type="general-purpose",
-        prompt=REVIEWER_PROMPT.format(
-            audit_path="./AD_AUDIT_<YYYY-MM-DD>.md",
-            anchor_path="<.claude/skills>/amazon-ads/references/format-anchor.md",
-            iter=iter,
-            review_out=f"./REVIEW_<YYYY-MM-DD>_iter{iter}.md",
-        ),
-    )
+# 1. Spawn the reviewer ONCE. Use general-purpose subagent_type;
+#    the reviewer's job is fully specified by the prompt below.
+Agent(
+    description="Format-check the audit",
+    subagent_type="general-purpose",
+    prompt=REVIEWER_PROMPT.format(
+        audit_path="./AD_AUDIT_<YYYY-MM-DD>.md",
+        anchor_path="<.claude/skills>/amazon-ads/references/format-anchor.md",
+        iter=1,
+        review_out="./REVIEW_<YYYY-MM-DD>_iter1.md",
+    ),
+)
 
-    # Reviewer wrote REVIEW_<date>_iter<N>.md. Parse its Status line.
-    status = read_status_line(f"./REVIEW_<YYYY-MM-DD>_iter{iter}.md")
+# 2. The reviewer wrote REVIEW_<date>_iter1.md. Parse its Status line.
+status = read_status_line("./REVIEW_<YYYY-MM-DD>_iter1.md")
 
-    if status == "ok":
-        break                              # done — proceed to set_task_result
-    if iter == 5:
-        write_incomplete_status(iter)      # last-resort marker
-        break
-    fix_gaps_from_review_file(iter)        # Edit the audit in place
-    iter += 1
-
-# Stop-hook gate (in claude_backend_hooks.py) reads the last
-# REVIEW_*_iter*.md and refuses to stop unless Status is "ok" or
-# (iter >= 5 AND Status is "incomplete").
+# 3. Act on the verdict — the reviewer is NOT re-run:
+if status == "gaps":
+    fix_gaps_from_review_file(1)        # Edit the audit in place, surgically
+# "ok" needs nothing; "incomplete" leaves its caveat trail on disk.
 
 vibe_seller_set_task_result("./AD_AUDIT_<YYYY-MM-DD>.md")
 ```
+
+**What the gate actually enforces** (`report_reviewer.py`, wired into
+BOTH finish paths — the Stop hook and `set_task_result`): finishing is
+denied until a verdict file exists for this turn, written by the
+reviewer subagent itself. Once it does, the round is over — `Status:
+ok` passes outright, and `gaps`/`incomplete` at iter 1 ALSO pass:
+their findings are fixed in place (or left as the documented caveat
+trail) and are not re-reviewed. There is no iter 2. Spawning the
+reviewer again buys nothing the gate asks for, and costs a full
+subagent round plus a re-render of everything downstream.
 
 **That last call takes the report PATH — never a summary of it.** Pass
 `"./AD_AUDIT_<YYYY-MM-DD>.md"` exactly as written above. Whatever string
