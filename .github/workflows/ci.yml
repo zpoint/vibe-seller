@@ -98,127 +98,129 @@ jobs:
           flags: unit
           name: unit-tests
 
-  # The account-recovery command ships to every platform, and its
+  # The account-recovery command ships to every platform, and the
   # wrappers are where the platform-specific breakage lives: path
-  # separators, PowerShell argument splatting, Git Bash's POSIX paths,
-  # and the Windows install layout. A Linux unit test cannot see any of
-  # that, so both wrappers run here on a real Windows runner.
-  windows-reset-auth-test:
-    runs-on: windows-latest
+  # separators, the batch file's argument passing, and the Windows
+  # install layout. A Linux unit test cannot see any of that, so each
+  # platform runs its own shipped wrapper here — against a real server
+  # whose database the wrapper then resets.
+  reset-auth-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v5
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
         with:
-          python-version: '3.11'
+          enable-cache: true
 
-      # bcrypt hashes the password; sqlalchemy seeds the test database
-      # from the real models, so the tables are the ones the app uses.
-      - name: Install the reset tool's dependencies
-        run: pip install bcrypt sqlalchemy
+      - name: Install Python 3.11
+        run: uv python install 3.11
 
-      - name: Seed a throwaway install
-        shell: bash
-        env:
-          VS_TEST_DB: reset-auth-test.db
-        run: |
-          python - <<'PY'
-          import os
-          from datetime import UTC, datetime
+      - name: Create virtual environment
+        run: uv venv
 
-          from sqlalchemy import create_engine
+      - name: Install dependencies
+        run: uv pip install -e .
 
-          from app.models.app_settings import AppSettings
-          from app.models.base import Base
-          from app.models.user import User
-
-          path = os.environ['VS_TEST_DB']
-          engine = create_engine(f'sqlite:///{path}')
-          Base.metadata.create_all(
-              engine, tables=[User.__table__, AppSettings.__table__]
-          )
-          now = datetime.now(UTC).isoformat()
-          with engine.begin() as conn:
-              conn.execute(
-                  User.__table__.insert(),
-                  [{
-                      'id': '00000000-0000-0000-0000-000000000001',
-                      'username': 'operator',
-                      'email': 'admin@vibe-seller.local',
-                      'password_hash': 'x',
-                      'role': 'admin',
-                      'is_active': 1,
-                      'created_at': now,
-                      'updated_at': now,
-                  }],
-              )
-              conn.execute(
-                  AppSettings.__table__.insert(),
-                  [{'key': 'auth_required', 'value': 'true'}],
-              )
-          print('seeded', path)
-          PY
-
-      - name: Verify the PowerShell wrapper
+      - name: Start the server (a cold first boot creates the database)
         shell: pwsh
-        env:
-          VS_TEST_DB: reset-auth-test.db
         run: |
-          .\scripts\reset_auth.ps1 status --db $env:VS_TEST_DB
-          if ($LASTEXITCODE -ne 0) { throw 'status failed' }
-          .\scripts\reset_auth.ps1 password --user admin --rename --password ci-secret --db $env:VS_TEST_DB
-          if ($LASTEXITCODE -ne 0) { throw 'password reset failed' }
-          .\scripts\reset_auth.ps1 disable --db $env:VS_TEST_DB
-          if ($LASTEXITCODE -ne 0) { throw 'disable failed' }
-          @'
-          import os
-          import sqlite3
+          # A cold first boot is what creates the database and seeds the
+          # default admin — the state an install is in before anyone
+          # changes the password.
+          Remove-Item -Recurse -Force "$env:USERPROFILE\.vibe-seller" `
+            -ErrorAction SilentlyContinue
+          .\.venv\Scripts\vibe-seller.exe start --port 7778
+          if ($LASTEXITCODE -ne 0) { throw "vibe-seller start failed" }
+          # 90s: the cold first boot runs the full skills+knowledge sync
+          # plus the DB init, which crosses 30s on a contended runner.
+          for ($i = 0; $i -lt 90; $i++) {
+            try {
+              Invoke-RestMethod -Uri 'http://127.0.0.1:7778/api/health' `
+                -TimeoutSec 2 | Out-Null
+              Write-Host "Server healthy after ${i}s"
+              exit 0
+            } catch {
+              Start-Sleep -Seconds 1
+            }
+          }
+          throw 'server did not become healthy'
 
-          from app.password import verify_password
-
-          conn = sqlite3.connect(os.environ['VS_TEST_DB'])
-          row = conn.execute(
-              'SELECT username, password_hash FROM users WHERE id = ?',
-              ('00000000-0000-0000-0000-000000000001',),
-          ).fetchone()
-          assert row[0] == 'admin', row
-          assert verify_password('ci-secret', row[1]), 'password did not change'
-          setting = conn.execute(
-              "SELECT value FROM app_settings WHERE key = 'auth_required'"
-          ).fetchone()
-          assert setting[0] == 'false', setting
-          print('OK: the PowerShell wrapper resets an account on Windows')
-          '@ | python -
-
-      - name: Verify the bash wrapper (Git Bash)
-        shell: bash
-        env:
-          VS_TEST_DB: reset-auth-test.db
+      - name: Run the shipped wrapper (Linux sh, Windows bat)
+        shell: pwsh
         run: |
-          bash scripts/reset_auth.sh status --db "$VS_TEST_DB"
-          bash scripts/reset_auth.sh password --user admin --rename \
-            --password bash-secret --db "$VS_TEST_DB"
-          bash scripts/reset_auth.sh enable --db "$VS_TEST_DB"
-          python - <<'PY'
-          import os
-          import sqlite3
+          # The wrapper the user would actually run — not the module
+          # behind it. On Linux that is scripts/reset_auth.sh, on
+          # Windows scripts/reset_auth.bat.
+          $isWindows = $env:OS -eq 'Windows_NT'
+          function Invoke-Wrapper {
+            param([string[]]$Arguments)
+            if ($isWindows) {
+              & .\scripts\reset_auth.bat @Arguments
+            } else {
+              & bash ./scripts/reset_auth.sh @Arguments
+            }
+            if ($LASTEXITCODE -ne 0) {
+              throw "reset_auth failed: $($Arguments -join ' ')"
+            }
+          }
 
-          from app.password import verify_password
+          # 1. What the install looks like before anything is changed.
+          Invoke-Wrapper @('status')
 
-          conn = sqlite3.connect(os.environ['VS_TEST_DB'])
-          row = conn.execute(
-              'SELECT username, password_hash FROM users WHERE id = ?',
-              ('00000000-0000-0000-0000-000000000001',),
-          ).fetchone()
-          assert row[0] == 'admin', row
-          assert verify_password('bash-secret', row[1]), 'password did not change'
-          setting = conn.execute(
-              "SELECT value FROM app_settings WHERE key = 'auth_required'"
-          ).fetchone()
-          assert setting[0] == 'true', setting
-          print('OK: the bash wrapper resets an account on Windows')
-          PY
+          # 2. Reset the password, restoring the canonical admin login.
+          Invoke-Wrapper @(
+            'password', '--user', 'admin', '--rename',
+            '--password', 'ci-secret'
+          )
+
+          # 3. The new password logs in ...
+          $body = @{identifier = 'admin'; password = 'ci-secret'} |
+            ConvertTo-Json -Compress
+          $resp = Invoke-RestMethod `
+            -Uri 'http://127.0.0.1:7778/api/auth/login' -Method Post `
+            -ContentType 'application/json' -Body $body
+          if ($resp.username -ne 'admin') {
+            throw "unexpected login response: $resp"
+          }
+
+          # 4. ... and the seeded default no longer does.
+          $old = $null
+          try {
+            $old = Invoke-RestMethod `
+              -Uri 'http://127.0.0.1:7778/api/auth/login' -Method Post `
+              -ContentType 'application/json' `
+              -Body (@{identifier = 'admin'; password = 'admin'} |
+                ConvertTo-Json -Compress)
+          } catch { }
+          if ($old) { throw 'the old default password still logs in' }
+
+          # 5. Turning the login screen off and on again.
+          Invoke-Wrapper @('disable')
+          $status = Invoke-RestMethod `
+            -Uri 'http://127.0.0.1:7778/api/auth/status'
+          if ($status.auth_required) { throw 'auth_required should be false' }
+          Invoke-Wrapper @('enable')
+          $status = Invoke-RestMethod `
+            -Uri 'http://127.0.0.1:7778/api/auth/status'
+          if (-not $status.auth_required) {
+            throw 'auth_required should be true'
+          }
+
+          # 6. The server is still serving.
+          Invoke-RestMethod -Uri 'http://127.0.0.1:7778/api/health' |
+            Out-Null
+          Write-Host 'OK: the shipped wrapper resets a password and the server keeps serving'
+
+      - name: Stop the server
+        shell: pwsh
+        if: always()
+        run: .\.venv\Scripts\vibe-seller.exe stop --port 7778
 
   workflow-test:
     runs-on: ubuntu-latest

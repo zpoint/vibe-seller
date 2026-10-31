@@ -1,0 +1,8 @@
+# Shell scripts must stay LF in the working tree. A Windows checkout with
+# `core.autocrlf=true` would give them CRLF, and a CRLF shebang breaks
+# both `bash script.sh` and the extensionless wrappers the agent runs.
+*.sh text eol=lf
+
+# Batch files want CRLF: cmd.exe's label handling (`goto`) is the one
+# place where a lone LF is a known source of trouble.
+scripts/*.bat text eol=crlf

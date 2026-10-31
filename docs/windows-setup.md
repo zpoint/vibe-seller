@@ -460,6 +460,6 @@ powercfg /h off
 - [docs/browser.md](browser.md) — browser backends (Ziniao, chrome,
   winchrome), CDP proxy internals.
 - `scripts/win-machine-setup.bat` — the SSH bootstrap script.
-- `scripts/reset_auth.ps1` — the Windows password-recovery wrapper
+- `scripts/reset_auth.bat` — the Windows password-recovery wrapper
   (`status` / `password` / `disable` / `enable`).
 - `app/browser/winchrome.py` — the Windows-native Chrome backend.

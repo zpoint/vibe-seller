@@ -18,7 +18,8 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 #    `app.auth_reset` is the module the `vibe-seller reset-auth`
 #    command runs, and it needs nothing but bcrypt.
 if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
-  exec "$REPO_ROOT/.venv/bin/python" -m app.auth_reset "$@"
+  exec env PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+    "$REPO_ROOT/.venv/bin/python" -m app.auth_reset "$@"
 fi
 
 # 2. The installed CLI (`uv tool install vibe-seller`).

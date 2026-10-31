@@ -413,12 +413,12 @@ scripts/reset_auth.sh password --user admin --rename
 scripts/reset_auth.sh disable
 ```
 
-Windows 用 PowerShell 版本（原生 Windows、WSL 里的 PowerShell 都能跑）：
+Windows 用批处理版本：
 
-```powershell
-.\scripts\reset_auth.ps1 status
-.\scripts\reset_auth.ps1 password --user admin --rename
-.\scripts\reset_auth.ps1 disable
+```bat
+scripts\reset_auth.bat status
+scripts\reset_auth.bat password --user admin --rename
+scripts\reset_auth.bat disable
 ```
 
 用 `pip install vibe-seller` / `uv tool install vibe-seller` 装的，`vibe-seller reset-auth ...` 直接就能用；实在找不到命令，也可以 `python -m app.auth_reset`（需要能 import 到 `app` 包）。
