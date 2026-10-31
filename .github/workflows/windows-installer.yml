@@ -18,6 +18,9 @@ on:
       - 'app/**'
       - 'frontend/**'
       - 'tests/releases/**'
+      # The install check drives the shipped recovery wrapper.
+      - 'scripts/reset_auth.bat'
+      - 'scripts/reset_auth.sh'
   workflow_dispatch:
     inputs:
       app_version:
@@ -144,6 +147,31 @@ jobs:
           # Empty version arg → skip the version-match check (this is a
           # dev build, not a published release).
           bash tests/releases/verify_install.sh ""
+
+      - name: Verify the installed app can recover a forgotten password
+        shell: pwsh
+        run: |
+          # `vibe-seller reset-auth` is how an operator gets back in when
+          # the admin password is lost. It has to work in the INSTALLED
+          # package (not just the checkout), so run the shipped wrapper
+          # — it finds the installed app — and then log in with the
+          # password it just set.
+          .\scripts\reset_auth.bat status
+          if ($LASTEXITCODE -ne 0) { throw "reset-auth status failed" }
+          .\scripts\reset_auth.bat password --user admin --rename --password ci-secret
+          if ($LASTEXITCODE -ne 0) { throw "reset-auth password failed" }
+          $body = @{identifier = 'admin'; password = 'ci-secret'} |
+            ConvertTo-Json -Compress
+          try {
+            Invoke-RestMethod -Uri 'http://127.0.0.1:7777/api/auth/login' `
+              -Method Post -ContentType 'application/json' -Body $body |
+              Out-Null
+          } catch {
+            throw "login with the reset password failed: $_"
+          }
+          # The server must still be serving after the reset.
+          Invoke-RestMethod -Uri 'http://127.0.0.1:7777/api/health' | Out-Null
+          Write-Host 'OK: the installed app can reset a forgotten password'
 
       - name: Verify bundled bash runs the extensionless wrapper shape
         shell: pwsh

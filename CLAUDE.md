@@ -21,7 +21,7 @@ Team collaboration platform for e-commerce store automation. Users create browse
 - AI agent abstraction in `app/ai/` (`AIAgentBackend` ABC, `ClaudeCodeBackend` impl)
 - System prompts in `app/prompts/*.md` — loaded once at import via `app/prompts/__init__.py`
 - Tasks auto-execute on creation in **auto mode** (default, `plan_mode=false`): `bypassPermissions`, PENDING → RUNNING → COMPLETED. Opt-in **plan mode** (`plan_mode=true`): agent plans in read-only mode, user reviews, then executes (PENDING → DESIGNING → PLANNED → RUNNING → COMPLETED). Toggle via Auto/Plan switch in task detail footer. Non-store tasks always use plan mode. Plan-mode schedules author the plan once at creation via an `is_plan_only=True` Task (user reviews, plan is frozen on `Schedule.plan`, `plan_status=ready`); each subsequent fire copies the frozen plan and skips planning. See `app/plan_states.py` + [docs/subsystems.md](docs/subsystems.md#plan-at-creation-lifecycle).
-- JWT cookie auth (httpOnly, 7-day expiry)
+- JWT cookie auth (httpOnly, 24h rolling expiry; service tokens are 7-day)
 - UUIDs for all primary keys
 - API routes prefixed with `/api/`
 - i18n translations in `frontend/src/i18n/locales/{en,zh}/`

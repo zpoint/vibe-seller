@@ -294,7 +294,7 @@ curl -N http://localhost:7777/api/sse
 - Real-time SSE streaming (task status, agent messages, progress, logs)
 - Three-panel UI: store sidebar, task list, agent chat with progress
 - Bilingual i18n support (English/Chinese) with language switcher
-- JWT cookie auth (httpOnly, 7-day expiry)
+- JWT cookie auth (httpOnly, 24h rolling expiry; service tokens are 7-day)
 - All-stores schedules: cross-store recurring tasks with automatic fan-out to all stores
 - Task archiving: terminal tasks >7 days hidden by default with toggle to show
 

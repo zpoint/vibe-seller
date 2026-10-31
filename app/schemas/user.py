@@ -3,7 +3,7 @@ import re
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
 
-def _validate_username(v: str) -> str:
+def validate_username(v: str) -> str:
     v = v.strip().lower()
     if len(v) < 3 or len(v) > 50:
         msg = 'Username must be 3-50 characters'
@@ -47,7 +47,7 @@ class UserCreate(BaseModel):
     @field_validator('username')
     @classmethod
     def check_username(cls, v: str) -> str:
-        return _validate_username(v)
+        return validate_username(v)
 
 
 class UserUpdate(BaseModel):
@@ -62,7 +62,7 @@ class UserUpdate(BaseModel):
     def check_username(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        return _validate_username(v)
+        return validate_username(v)
 
 
 class PasswordChange(BaseModel):
@@ -81,7 +81,7 @@ class ProfileUpdate(BaseModel):
     def check_username(cls, v: str | None) -> str | None:
         if v is None:
             return v
-        return _validate_username(v)
+        return validate_username(v)
 
 
 class TaskModeToggle(BaseModel):
