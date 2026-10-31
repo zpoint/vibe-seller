@@ -148,7 +148,7 @@ def _register_stall_reaper():
     1-min interval keeps test + UI latency tight: a task whose agent
     process is gone is reaped within ~4 min end-to-end (3 min stall
     threshold + up to one interval to notice); a live agent gets its
-    full request-timeout bound first (see stall_reaper's module
+    full stream-silence bound first (see stall_reaper's module
     docstring for the authority split). Previous 2-min interval added
     an extra minute to that worst case, which under heavy parallel CI
     load pushed reap time outside the catalog-sync e2e test budget.

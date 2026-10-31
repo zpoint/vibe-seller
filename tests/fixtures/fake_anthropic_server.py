@@ -20,6 +20,13 @@ server covers every scenario without a side channel:
                           wait <SECONDS> then reply — the "large
                           tool_result, then minutes of silence while
                           the model composes" phase
+- ``fake-silent-after-delta``
+                          headers, ``message_start`` and ONE text
+                          delta, then the connection stays open and
+                          silent forever — the provider "dropped the
+                          stream" mid-body (issue #141): the CLI is
+                          alive and the request is in flight, but
+                          nothing more ever arrives
 
 Text replies all carry the same text (``FAKE-REPLY-OK``); the task
 prompt tells the agent to reply with exactly that, so a run ends in a
@@ -61,6 +68,8 @@ def _parse_mode(model: str) -> tuple[str, float]:
     """Model name -> (mode, seconds). Unknown models reply instantly."""
     if model == 'fake-hang':
         return ('hang', 0.0)
+    if model == 'fake-silent-after-delta':
+        return ('silent_after_delta', 0.0)
     if model.startswith('fake-tool-then-delay-'):
         tail = model[len('fake-tool-then-delay-') :]
         try:
@@ -135,6 +144,49 @@ def _sse_tool_use(model: str) -> bytes:
             'usage': {'output_tokens': 8},
         }),
         _event({'type': 'message_stop'}),
+    ]
+    return b''.join(parts)
+
+
+def _sse_silent_after_delta(model: str) -> bytes:
+    """A stream that starts, sends ONE delta, then goes silent.
+
+    The provider answered (headers + ``message_start`` + a text
+    delta) and then dropped the stream mid-body: the connection
+    stays open, but no further byte ever arrives. This is the
+    issue #141 shape as seen from the CLI — the request is in
+    flight, the process is alive, and stdout goes quiet.
+    """
+
+    def _event(payload: dict) -> bytes:
+        return (
+            f'event: {payload["type"]}\ndata: {json.dumps(payload)}\n\n'
+        ).encode()
+
+    parts = [
+        _event({
+            'type': 'message_start',
+            'message': {
+                'id': 'msg_fake_silent',
+                'type': 'message',
+                'role': 'assistant',
+                'model': model,
+                'content': [],
+                'stop_reason': None,
+                'stop_sequence': None,
+                'usage': {'input_tokens': 25, 'output_tokens': 0},
+            },
+        }),
+        _event({
+            'type': 'content_block_start',
+            'index': 0,
+            'content_block': {'type': 'text', 'text': ''},
+        }),
+        _event({
+            'type': 'content_block_delta',
+            'index': 0,
+            'delta': {'type': 'text_delta', 'text': REPLY_TEXT},
+        }),
     ]
     return b''.join(parts)
 
@@ -249,6 +301,15 @@ class _Handler(BaseHTTPRequestHandler):
                 while time.monotonic() < deadline:
                     time.sleep(30)
                 return
+            if mode == 'silent_after_delta':
+                # Answered, then dropped the stream: flush the prefix
+                # and hold the connection open with nothing more.
+                self.wfile.write(_sse_silent_after_delta(model))
+                self.wfile.flush()
+                deadline = time.monotonic() + _HANG_CAP_S
+                while time.monotonic() < deadline:
+                    time.sleep(30)
+                return
             if mode == 'tool_then_delay' and ordinal == 1:
                 self.wfile.write(_sse_tool_use(model))
                 self.wfile.flush()
@@ -259,7 +320,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
             return
         # Non-streaming (rare from the CLI; kept for completeness).
-        if mode == 'hang':
+        # The CLI's stream-idle watchdog recovers into a non-streaming
+        # fallback request, so the dead-provider modes must be dead
+        # there too — otherwise the fallback would "succeed" and the
+        # scenario would end via recovery instead of detection.
+        if mode in ('hang', 'silent_after_delta'):
             time.sleep(_HANG_CAP_S)
             return
         if mode == 'delay':

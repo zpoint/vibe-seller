@@ -21,6 +21,24 @@ DEFAULT_PROFILE_ID = 'default'
 # (``app/scheduler/stall_reaper.py``).
 DEFAULT_API_TIMEOUT_MS = 3_000_000
 
+# Stream-idle watchdog bound (ms) injected into every agent spawn
+# env, together with the switch that arms it. The Claude Code CLI's
+# own watchdog (CLAUDE_ENABLE_STREAM_WATCHDOG +
+# CLAUDE_STREAM_IDLE_TIMEOUT_MS; src/services/api/claude.ts) aborts
+# an SSE stream from which NO chunk has arrived for this long — the
+# timer arms before the first chunk (post-headers TTFB counts) and
+# resets on every chunk, so it bounds every silent gap of the
+# response BODY. The CLI's own default (90 000) sits below the worst
+# silent compose observed from a healthy slow provider (MiniMax-M3:
+# 3–4 min after a large tool_result), so it is raised here with
+# headroom; anything the CLI still considers dead at 7 min goes to
+# its non-streaming fallback → api_retry (visible on stdout).
+DEFAULT_STREAM_IDLE_TIMEOUT_MS = 420_000
+
+# The CLI's isEnvTruthy (src/utils/envUtils.ts) — mirrored so the
+# reaper and the CLI always agree on whether the watchdog is armed.
+_ENV_TRUTHY = {'1', 'true', 'yes', 'on'}
+
 
 def effective_api_timeout_ms(env: dict | None) -> int:
     """The per-request timeout a CLI spawned with ``env`` will use.
@@ -38,6 +56,35 @@ def effective_api_timeout_ms(env: dict | None) -> int:
     return value if value > 0 else DEFAULT_API_TIMEOUT_MS
 
 
+def effective_stream_idle_timeout_ms(env: dict | None) -> int:
+    """The stream-idle watchdog bound a CLI spawned with ``env`` uses.
+
+    Same parse contract as ``effective_api_timeout_ms``: the value
+    ``get_env_for_profile`` injects when the key is missing, so the
+    stall reaper's silence bound and the watchdog the CLI actually
+    runs under can never disagree.
+    """
+    raw = (env or {}).get('CLAUDE_STREAM_IDLE_TIMEOUT_MS')
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_STREAM_IDLE_TIMEOUT_MS
+    return value if value > 0 else DEFAULT_STREAM_IDLE_TIMEOUT_MS
+
+
+def stream_watchdog_enabled(env: dict | None) -> bool:
+    """Whether the CLI's stream-idle watchdog is armed for ``env``.
+
+    Mirrors the CLI's truthiness check exactly ('0'/'false'/'off'/
+    ''/missing ⇒ disarmed), so a profile that disables the watchdog
+    also disables the tight reaper bound that relies on it.
+    """
+    raw = (env or {}).get('CLAUDE_ENABLE_STREAM_WATCHDOG')
+    if raw is None:
+        return False
+    return str(raw).strip().lower() in _ENV_TRUTHY
+
+
 def ensure_bounded_api_timeout(env: dict) -> dict:
     """Inject ``API_TIMEOUT_MS`` into a spawn env that lacks one.
 
@@ -48,6 +95,37 @@ def ensure_bounded_api_timeout(env: dict) -> dict:
     alive-branch relies on.
     """
     env.setdefault('API_TIMEOUT_MS', str(DEFAULT_API_TIMEOUT_MS))
+    return env
+
+
+def ensure_stream_liveness_env(env: dict) -> dict:
+    """Arm the CLI's own stream liveness machinery in a spawn env.
+
+    Three keys, each ``setdefault`` so an explicit profile value
+    always wins:
+
+    - ``CLAUDE_ENABLE_STREAM_WATCHDOG`` — make a silently-dead SSE
+      stream LOUD inside the CLI: without it the SDK timeout covers
+      only the headers phase and a dropped body hangs the session
+      indefinitely (the CLI's own comment).
+    - ``CLAUDE_STREAM_IDLE_TIMEOUT_MS`` — the bound above (see
+      ``DEFAULT_STREAM_IDLE_TIMEOUT_MS``).
+    - ``CLAUDE_CODE_INCLUDE_PARTIAL_MESSAGES`` — forward raw SSE
+      parts (message_start / deltas / pings) to stdout. Without it a
+      healthy slow compose and a dead stream are BOTH pure stdout
+      silence; with it, every part is a stdout line, and the
+      backend's any-line heartbeat
+      (``claude_backend_stream._stream_output``) feeds
+      ``Task.updated_at`` with zero parser changes.
+
+    These are what make "silent but alive" a bounded state the
+    stall reaper can reason about (``app/scheduler/stall_reaper.py``).
+    """
+    env.setdefault('CLAUDE_ENABLE_STREAM_WATCHDOG', '1')
+    env.setdefault(
+        'CLAUDE_STREAM_IDLE_TIMEOUT_MS', str(DEFAULT_STREAM_IDLE_TIMEOUT_MS)
+    )
+    env.setdefault('CLAUDE_CODE_INCLUDE_PARTIAL_MESSAGES', '1')
     return env
 
 
@@ -162,20 +240,22 @@ class ProfileManager:
     def get_env_for_profile(profile_id: str) -> dict:
         """Get the environment variables for a profile.
 
-        Returns merged system env + profile overrides, with a
-        bounded per-request ``API_TIMEOUT_MS`` guaranteed present
-        (``ensure_bounded_api_timeout``): every consumer of "the env
+        Returns merged system env + profile overrides, with the CLI
+        stream guards guaranteed present (``ensure_bounded_api_timeout``
+        + ``ensure_stream_liveness_env``): every consumer of "the env
         a profile runs under" — agent spawn (``AgentSession.start``)
-        and the stall reaper's request-timeout bound — sees the same
-        value the CLI will actually run with.
+        and the stall reaper's silence bound — sees the same values
+        the CLI will actually run with.
         """
         profile = ProfileManager.get_profile(profile_id)
         if not profile:
-            return ensure_bounded_api_timeout(os.environ.copy())
+            return ensure_stream_liveness_env(
+                ensure_bounded_api_timeout(os.environ.copy())
+            )
 
         env = os.environ.copy()
         env.update(profile.get('env', {}))
-        return ensure_bounded_api_timeout(env)
+        return ensure_stream_liveness_env(ensure_bounded_api_timeout(env))
 
     @staticmethod
     def get_load_global_mcp(profile_id: str) -> bool:

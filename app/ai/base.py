@@ -105,7 +105,7 @@ class AIAgentBackend(ABC):
         terminator (stdin closed, stop in progress) is NOT running
         but its process may still be exiting. The stall reaper uses
         this to decide who owns "the request is dead" — a live,
-        input-capable agent is given its full request-timeout bound;
+        input-capable agent is given its full stream-silence bound;
         everything else is reaped on the flat threshold. Backends
         without a real subprocess default to False (dead), which
         preserves the flat rule for them.

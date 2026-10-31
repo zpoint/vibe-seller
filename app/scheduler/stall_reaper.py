@@ -26,16 +26,26 @@ agent process state, because a DB timestamp alone cannot tell a
 slow model from a dropped stream (both are minutes of silence):
 
 - **Agent process alive and input-capable** (``session.running``):
-  the CLI owns the in-flight request — it has its own per-request
-  timeout (``API_TIMEOUT_MS``, bounded at spawn; 50 min with every
-  provider preset) plus retries, and the session's turn watchdog
+  the CLI owns the in-flight request, and every spawn env arms the
+  machinery that makes a dead stream LOUD inside the CLI
+  (``ensure_stream_liveness_env``): the CLI's stream-idle watchdog
+  aborts a stream that has produced no chunk for
+  ``CLAUDE_STREAM_IDLE_TIMEOUT_MS`` (7 min default; time to first
+  chunk counts — the timer arms before the first chunk — and every
+  chunk resets it), the abort falls into the CLI's non-streaming
+  fallback, and each failed attempt is announced on stdout as a
+  ``system/api_retry`` line; partial messages
+  (``CLAUDE_CODE_INCLUDE_PARTIAL_MESSAGES``) forward every raw SSE
+  part as a stdout line, so a healthy compose bumps ``updated_at``
+  per part instead of going silent. The session's turn watchdog
   owns the process (hard-idle stdin close → post-close kill). The
-  reaper defers to that authority and only fires once silence has
-  outlasted the effective request timeout ``+ _ALIVE_MARGIN``. A
-  slow first token is structurally inside that bound: observed
-  live (MiniMax-M3), 3–4 min of silence after a large tool_result
-  while the model composed a report — healthy, and reaped as
-  stalled by the old flat 3-min rule.
+  reaper defers to that authority and only fires once true stdout
+  silence has outlasted the watchdog bound plus recovery headroom
+  (``_stream_silence_bound`` — arithmetic below). A slow first
+  token is structurally inside that bound: observed live
+  (MiniMax-M3), 3–4 min of silence after a large tool_result while
+  the model composed a report — healthy, and reaped as stalled by
+  the old flat 3-min rule.
 - **No session / process exited** (or alive past its turn
   terminator — ``running`` is False once stdin is closed or
   ``stop()`` began, and the post-close kill escalation disposes of
@@ -66,7 +76,12 @@ import logging
 from sqlalchemy import select
 
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.profiles import ProfileManager, effective_api_timeout_ms
+from app.ai.profiles import (
+    ProfileManager,
+    effective_api_timeout_ms,
+    effective_stream_idle_timeout_ms,
+    stream_watchdog_enabled,
+)
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task import Task
@@ -84,23 +99,63 @@ logger = logging.getLogger(__name__)
 # rule also applied to LIVE agents — see the module docstring.
 _STALL_THRESHOLD = timedelta(minutes=3)
 
-# Slack added on top of the CLI's effective ``API_TIMEOUT_MS`` while
-# the agent process is alive: one reaper poll interval (60 s) plus
-# one heartbeat throttle window (60 s), so a bump that is due but
-# not yet committed can never tip the decision.
+# Slack added on top of the CLI's stream-idle watchdog while the
+# agent process is alive. Derived from the CLI's OWN numbers
+# (claude-code src/services/api/withRetry.ts + the backend's own
+# cadences): the sum of all retry backoffs across the CLI's retry
+# budget is <= ~200 s (min(500 ms · 2^(n-1), 32 s) over 10 retries
+# = 159.5 s, +<=25 % jitter = ~200 s), one reaper poll interval is
+# 60 s, and the heartbeat throttle window is 60 s — so a bump that
+# is due but not yet committed can never tip the decision. The
+# headroom also covers a post-watchdog non-streaming fallback
+# request completing for an observed-worst healthy compose (3–4
+# min): recovery lands ~W+4 min, inside W+6 min.
+_RECOVERY_HEADROOM = timedelta(seconds=360)
+
+# Degraded-config bound (watchdog disarmed by the profile): the
+# CLI's request timeout + the same poll/heartbeat slack, which is
+# the best bound available when nothing bounds body silence.
 _ALIVE_MARGIN = timedelta(seconds=120)
 
 
-def _request_timeout_bound(task: Task) -> timedelta:
+def _stream_silence_bound(task: Task) -> timedelta:
     """When a silent-but-alive agent becomes reapable.
 
-    ``API_TIMEOUT_MS`` as the CLI was actually spawned with it
-    (``ProfileManager.get_env_for_profile`` — the same merge the
-    spawn used, and it guarantees the key is present via
-    ``ensure_bounded_api_timeout``) plus the margin. Module-level
-    indirection so tests can patch the bound.
+    With the stream-idle watchdog armed (the default every spawn
+    env now carries), the bound is the CLI's own dead-stream
+    declaration — ``CLAUDE_STREAM_IDLE_TIMEOUT_MS`` as the CLI was
+    actually spawned with it (``ProfileManager.get_env_for_profile``
+    — the same merge the spawn used, and it guarantees the key is
+    present via ``ensure_stream_liveness_env``) — plus
+    ``_RECOVERY_HEADROOM``. With presets that is 7 min + 6 min =
+    **13 min** of true stdout silence, replacing the previous
+    ``API_TIMEOUT_MS + 2 min`` (~52 min): the API timeout only
+    bounds the headers phase (the SDK timeout does not cover the
+    streaming body), so keying off it made the #141 shape —
+    provider drops the stream, process alive — take ~52 min to end
+    instead of ~3.
+
+    Why not wait out the CLI's full recovery machinery? A watchdog
+    abort falls into a non-streaming fallback whose per-attempt
+    timeout READS ``API_TIMEOUT_MS`` (50 min with presets) — a
+    dead provider would grind there silently for 50 min before its
+    first ``api_retry``. Silence past W + headroom means either
+    that grind (dead — reaping is the point) or a compose longer
+    than any ever observed from a healthy provider (worst
+    observed: 4 min, and W already gives it 7). The reaper takes
+    the dead-read.
+
+    Without the watchdog (a profile that explicitly disables it)
+    nothing bounds body silence, so the bound degrades to the
+    request-timeout form. Module-level indirection so tests can
+    patch the bound.
     """
     env = ProfileManager.get_env_for_profile(task.ai_profile_id or 'default')
+    if stream_watchdog_enabled(env):
+        return (
+            timedelta(milliseconds=effective_stream_idle_timeout_ms(env))
+            + _RECOVERY_HEADROOM
+        )
     return timedelta(milliseconds=effective_api_timeout_ms(env)) + _ALIVE_MARGIN
 
 
@@ -129,9 +184,10 @@ async def reap_stalled_running_tasks() -> None:
 
     Two thresholds, by authority (see the module docstring): a task
     whose agent process is alive and input-capable is only reapable
-    once silence has outlasted its effective ``API_TIMEOUT_MS`` plus
-    margin; everything else (no session, dead process, or a process
-    past its turn terminator) uses the flat 3-min rule.
+    once silence has outlasted its stream-silence bound (the CLI's
+    own stream-idle watchdog value plus recovery headroom);
+    everything else (no session, dead process, or a process past
+    its turn terminator) uses the flat 3-min rule.
 
     COMPLETED when the deliverable was already declared (result set
     with no error, or a final ``result`` event recovered from the
@@ -195,12 +251,12 @@ async def reap_stalled_running_tasks() -> None:
             if agent_manager.is_process_alive(task.id) and getattr(
                 session, 'running', False
             ):
-                bound = _request_timeout_bound(task)
+                bound = _stream_silence_bound(task)
                 if stale_for < bound:
                     logger.info(
                         'Task %s silent for %.0fs but agent process '
                         'is alive (request in flight) — deferring to '
-                        'the CLI request-timeout bound of %.0fs',
+                        'the CLI stream-idle bound of %.0fs',
                         task.id,
                         stale_for.total_seconds(),
                         bound.total_seconds(),
@@ -208,9 +264,9 @@ async def reap_stalled_running_tasks() -> None:
                     continue
                 logger.warning(
                     'Task %s silent for %.0fs WITH the agent process '
-                    'alive — past the request-timeout bound %.0fs '
-                    "(the CLI's own timeout should have ended the "
-                    'request); reaping',
+                    'alive — past the stream-silence bound %.0fs '
+                    "(the CLI's own watchdog should have made the "
+                    'stream loud by now); reaping',
                     task.id,
                     stale_for.total_seconds(),
                     bound.total_seconds(),

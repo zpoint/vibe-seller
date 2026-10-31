@@ -3,9 +3,10 @@
 The flat 3-min silence rule force-failed live agents whose model was
 merely slow to first token (observed with a large tool_result
 pending: 3–4 min of healthy silence, 3 incidents in one day). The
-reaper now defers to the CLI's own per-request timeout while the
-agent process is alive and input-capable, and keeps the fast rule
-only when nothing can progress any more.
+reaper now defers to the CLI's own stream-idle watchdog bound (armed
+in every spawn env) while the agent process is alive and
+input-capable, and keeps the fast rule only when nothing can
+progress any more.
 
 These tests drive the real API → task_runner → FakeAgent pipeline,
 then backdate ``updated_at`` (the fakeness stands in for a starved
@@ -53,7 +54,8 @@ class TestSlowFirstTokenNotReaped:
     ):
         """Slow-model scenario: agent in flight (FakeAgent gated mid-
         work), no events for 10 min of clock — far past the old 3-min
-        rule, far inside the CLI's request timeout. Not reaped."""
+        rule, inside the CLI's stream-silence bound (13 min with the
+        injected watchdog defaults). Not reaped."""
         store_id = await _create_store(admin_client)
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
@@ -122,7 +124,7 @@ class TestSlowFirstTokenNotReaped:
         await _backdate(override_async_session, task_id, minutes=10)
         monkeypatch.setattr(
             reaper_mod,
-            '_request_timeout_bound',
+            '_stream_silence_bound',
             lambda task: timedelta(minutes=5),
         )
         await reap_stalled_running_tasks()
