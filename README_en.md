@@ -218,7 +218,7 @@ report. Auto mode is the default — just run it. The toggle in the
 task footer can flip to Plan mode if you want to review the plan
 before execution.
 
-> Want email / WeCom / TickTick / Google Workspace hooked up too?
+> Want email / group chat bots (WeCom / DingTalk / Feishu / Slack) / TickTick / Google Workspace hooked up too?
 > `Settings → Integrations`, any time after install — optional, and
 > doesn't block your first task.
 
@@ -319,7 +319,7 @@ and pick plain Chrome instead if you prefer.
 
 <img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
 
-### 7. (Optional) Wire up email / WeCom
+### 7. (Optional) Wire up email / chat bots
 
 Want the agent to do daily email triage and push critical items to a
 group chat? `Settings → Integrations`:
@@ -329,7 +329,7 @@ group chat? `Settings → Integrations`:
   supported), so all you fill in is the secret (an app password
   usually). Not sure how to generate one? Ask any AI with the name
   of your email provider. Agent scans daily afterwards.
-- **WeCom (企业微信)**: set up a group bot, paste the webhook URL.
+- **Chat bots (企业微信 WeCom / 钉钉 DingTalk / 飞书 Feishu / Slack)**: set up a group bot / custom robot / incoming webhook in the platform, paste the webhook URL — the platform is detected automatically (optional signing secret for DingTalk 加签 / Feishu 签名校验).
   High-priority anomalies post automatically.
 - **TickTick / Google Workspace**: connect here if you want results
   synced into a calendar or Doc.
@@ -460,7 +460,7 @@ Windows:
 
 <img width="906" height="1251" alt="ziniao_wsl" src="docs/images/ziniao_wsl.png" />
 
-### 7. (Optional) Wire up email / WeCom
+### 7. (Optional) Wire up email / chat bots
 
 Want the agent to do daily email triage and push critical items to a
 group chat? `Settings → Integrations`:
@@ -470,7 +470,7 @@ group chat? `Settings → Integrations`:
   supported), so all you fill in is the secret (an app password
   usually). Not sure how to generate one? Ask any AI with the name
   of your email provider. Agent scans daily afterwards.
-- **WeCom (企业微信)**: set up a group bot, paste the webhook URL.
+- **Chat bots (企业微信 WeCom / 钉钉 DingTalk / 飞书 Feishu / Slack)**: set up a group bot / custom robot / incoming webhook in the platform, paste the webhook URL — the platform is detected automatically (optional signing secret for DingTalk 加签 / Feishu 签名校验).
   High-priority anomalies post automatically.
 - **TickTick / Google Workspace**: connect here if you want results
   synced into a calendar or Doc.
@@ -496,7 +496,7 @@ before execution.
 
 Vibe Seller is an **AI agent framework** — the browser is one of
 its tools, not the only one. The agent can browse pages, read your
-email, send WeCom messages, write to TickTick / Dida365, update
+email, send group chat messages (WeCom / DingTalk / Feishu / Slack), write to TickTick / Dida365, update
 Google Docs. Anything that fits *observe → decide → act* — whether
 a browser is involved or not.
 
@@ -507,11 +507,11 @@ A few cross-border scenarios it's commonly used for:
 | **Ad tuning** | Reads Campaign Manager, finds under- and over-spenders, proposes bid / budget changes, applies them with your approval. |
 | **Listing publication** | Creates new listings from a template — title, bullets, photos, A+ content, variations. |
 | **Listing audit** | Walks every store's catalog, flags suppressed / out-of-stock / inactive items. |
-| **Inventory check** | Pulls stock levels; low-stock SKUs get pushed to WeCom automatically. |
+| **Inventory check** | Pulls stock levels; low-stock SKUs get pushed to the group chat automatically. |
 | **Warehouse / inbound setup** | Creates inbound shipments, allocates SKUs to FBA / FBN, prints box labels. |
 | **Logistics lookup** | Tracks in-transit shipments, freight delivery, customs clearance; flagged shipments get filed as TickTick todos. |
 | **Invoices & reports** | Crawls tax docs, business reports, advertising reports; downloads are archived to Google Drive. |
-| **Email handling** | Sorts buyer messages, forwards important ones to WeCom, drafts replies. |
+| **Email handling** | Sorts buyer messages, forwards important ones to the group chat, drafts replies. |
 | **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. |
 
 A single ad-tuning run is ≈ 3–5 minutes and costs ≈ ¥1 in LLM tokens
@@ -525,13 +525,13 @@ directly (hook up permissions in First run — no code):
 | Service | What it does |
 |---|---|
 | **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies |
-| **WeCom** (企业微信) | Push important events, cross-group notifications, forward buyer inquiries |
+| **Group chat bots** (企业微信 / 钉钉 / 飞书 / Slack) | Push important events, cross-group notifications, forward buyer inquiries |
 | **TickTick / Dida365** | Auto-create todos (follow-ups, order tracking, periodic checks) |
 | **Google Workspace** | Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit |
 
 A single task can mix browser + service calls. e.g. *"Find all
 slow-moving SKUs across stores"* → browser pulls inventory →
-generates a Google Sheet → posts a WeCom summary → drops a "price
+generates a Google Sheet → posts a chat summary → drops a "price
 review next week" todo into TickTick.
 
 ## Platforms

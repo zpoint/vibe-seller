@@ -24,8 +24,8 @@ Three options, but practically:
   bids on low-conversion impressions. Use when you want Auto but
   are bid-shy.
 - **Dynamic Bid (Up & Down)** — Auto-only. Aggressive; noon may
-  bid up to 2× on top placements. Don't use on a new / unproven
-  listing.
+  bid up to 1.5× your bid when it expects an order. Don't use on a
+  new / unproven listing.
 
 ## Per-keyword bid: heuristic for first launch
 
@@ -170,24 +170,6 @@ save a draft first.
 > no error banner, because nothing was submitted).
 > `scrollIntoView({block: "center"})` first, re-read the rect, then
 > click. Same applies to the keyword `Exact`/`Phrase` add buttons.
-
-### Save as Draft → Launch — UI quirk (drafts only)
-
-If you do save a draft, noon shows a success modal that *overlays*
-the page-level **Launch Campaign** button, making it un-clickable
-directly. Three-step recovery to launch a saved draft:
-
-1. In the Save success modal, click **View Campaign**.
-2. On the campaign-detail page, click the **blue Edit pencil**
-   icon top-right (no text label; it's the colored circular
-   button next to the date range picker).
-3. The full create form re-opens with all fields populated. Scroll
-   to the bottom and click **Launch Campaign**.
-
-This is the only path to launch a saved draft. There is no
-Launch / Activate / Enable button on the campaign detail page or
-the campaigns list — the detail page only displays the Draft
-status badge.
 
 ## Campaign naming convention
 

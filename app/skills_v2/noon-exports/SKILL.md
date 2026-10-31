@@ -63,8 +63,9 @@ filter in the toolbar. Each store shows a flag icon.
 
 ```bash
 browser-use <<'PY'
-fill_input("input[name=start_date]", "01 Mar 2026")   # start-date input
-fill_input("input[name=end_date]",   "31 Mar 2026")   # end-date input
+# The date inputs carry no name= — address them by placeholder:
+fill_input('input[placeholder="Start date"]', "01 Mar 2026")
+fill_input('input[placeholder="End date"]',   "31 Mar 2026")
 # Calendar popup opens; click the end date cell (td title) to confirm:
 js("document.querySelector('td[title=\"2026-03-31\"]')?.click()")
 PY
@@ -91,7 +92,7 @@ After the first country's export, close modal, switch "My Stores" to the next co
 
 **URL**: `https://noon-payments.noon.partners/en/transaction-view?project=PRJ{project_id}`
 
-Left nav: Statements, SOA, Transaction View, Invoices & Creditnotes,
+Left nav: SOA, Statements, Transaction View, Invoices & Creditnotes,
 Legacy Exports.
 
 ### Critical facts (read before acting)
@@ -151,8 +152,8 @@ usually don't need to switch country at all.
 browser-use <<'PY'
 new_tab("https://noon-payments.noon.partners/en/transaction-view?project=PRJ{project_id}")
 wait_for_load()
-fill_input("input[name=start_date]", "YYYY-MM-DD")   # Start date input
-fill_input("input[name=end_date]",   "YYYY-MM-DD")   # End date input
+fill_input('input[placeholder="Start date"]', "YYYY-MM-DD")
+fill_input('input[placeholder="End date"]',   "YYYY-MM-DD")
 # Optional: filter Contracts dropdown to a single country's contract.
 print(page_info())
 PY
@@ -267,7 +268,8 @@ filter liberally when aggregating.
 
 **URL**: `https://noon-catalog.noon.partners/en/exports?project=PRJ{project_id}`
 
-Click "Add Export" → modal with Type dropdown:
+Click **Add Export** → a modal with a **Type** dropdown button (and
+Cancel / Create):
 
 | Type | Description |
 |------|-------------|
@@ -312,7 +314,7 @@ it:
   to this settlement (with a **one-month lag** and a **VAT gross-up**).
 - **Per-SKU ad spend.** `statement_fee` rows give only an account-level
   `Advertising Fee`. Per-SKU spend comes from Ad Manager's
-  `Export all campaigns` — see `noon-ads` § 7.1.
+  *Export campaigns* — see `noon-ads` § 7.1.
 
 **This export is, however, the SKU bridge for both.** Its `SKUs` column
 is the noon-internal key (`Z…Z-<n>`) and `Partner SKUs` the seller's own

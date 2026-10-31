@@ -185,7 +185,7 @@ class TestAgentFacingRequestModels:
                 'app.routers.tasks_schedule_state.SetScheduleStateRequest',
                 ('value',),
             ),
-            ('app.schemas.wecom_bot.WeComBotSendRequest', ('content',)),
+            ('app.schemas.chat_bot.ChatBotSendRequest', ('content',)),
             (
                 'app.routers.workspace_assistant.MessageRequest',
                 ('content',),

@@ -61,18 +61,30 @@ Append these to any base URL above:
 | Home/Dashboard | `/home` |
 | Manage Orders | `/orders-v3` |
 | Order Details | `/orders-v3/order/{orderId}` |
-| Inventory | `/inventory/manageInventory` |
-| Listings | `/listings/manage` |
+| Inventory (Manage All Inventory) | `/myinventory/inventory` |
+| Inventory — FBA view | `/amazonsell/fba-inventory` |
 | Pricing Dashboard | `/pricing/dashboard` |
-| Business Reports | `/business-analytics` |
+| Business Reports | `/business-reports` |
+| Fulfilment / FBA reports | `/reportcentral/WelcomePage` |
+| Custom (listing) reports | `/listing/reports` |
+| Tax Document Library | `/tax/seller-fee-invoices` |
+| Manage promotions (coupons & deals) | `/manage/promotions` |
 | Account Health | `/performance/dashboard` |
 | Feedback Manager | `/performance/feedback` |
-| Payments | `/payments/transaction-view` |
+| Payments | `/payments/dashboard/index.html` |
+| Payments reports | `/payments/reports-repository` |
 | Settings | `/settings/account-info` |
 | A+ Content | `/aplus-manager` |
 | Brand Registry | `/brandregistry` |
 | Help/Case Log | `/help/hub/support` |
-| FBA Shipments | `/fba/inbound-shipments` |
+| Send to Amazon (FBA inbound) | `/fba/sendtoamazon` |
+| FBA shipments queue | `/fba/inbound-shipments` |
+
+These paths render under BOTH UI generations (New Seller Central and
+classic) — the New Seller Central trim (`ngstrim-*` chrome) wraps the
+same page bodies. Verified live 2026-10-31 on `sellercentral.amazon.sa`.
+`/business-analytics` (seen in older docs) is not the current path —
+use `/business-reports`.
 
 ## How to Determine the Correct URL
 
@@ -100,6 +112,16 @@ Workflow (see the browser-use skill for exact commands):
 3. Inspect the page again to find the country options.
 4. Click the target country option — the page reloads with the new
    country context.
+
+The reliable switcher is the full-page one,
+`/account-switcher/default/merchantMarketplace` — see
+`skills_v2/amazon-shared/SKILL.md § 4a-bis` for the verified recipe
+(rows are `button.full-page-account-switcher-account-details`; clicking
+a row only ticks it; a `kat-button[data-test=confirm-selection]`
+rendering "Select account" appears at the bottom of the list only after
+a row is selected and needs a real coordinate click; on success the
+session redirects to the target marketplace's own domain and `ue_mid`
+becomes that marketplace's id).
 
 After switching, all pages load data for the new country automatically.
 You do NOT need separate login sessions for different countries under the
