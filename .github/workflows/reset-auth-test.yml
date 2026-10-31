@@ -131,16 +131,26 @@ jobs:
             throw "unexpected login response: $resp"
           }
 
-          # 4. ... and the seeded default no longer does.
-          $old = $null
+          # 4. ... and the seeded default no longer does. The refusal
+          #    must be a 401 from a live server — not just "not 200",
+          #    which an unreachable or broken server would also give.
+          $code = $null
           try {
-            $old = Invoke-RestMethod `
+            Invoke-RestMethod `
               -Uri 'http://127.0.0.1:7778/api/auth/login' -Method Post `
               -ContentType 'application/json' `
               -Body (@{identifier = 'admin'; password = 'admin'} |
-                ConvertTo-Json -Compress)
-          } catch { }
-          if ($old) { throw 'the old default password still logs in' }
+                ConvertTo-Json -Compress) | Out-Null
+          } catch {
+            # pwsh 7 (both runners): the error's .Exception.Response is
+            # an HttpResponseMessage whose StatusCode is the HTTP code.
+            if ($_.Exception.Response) {
+              $code = [int]$_.Exception.Response.StatusCode
+            }
+          }
+          if ($code -ne 401) {
+            throw "the old default password must be refused with 401, got: $code"
+          }
 
           # 5. Turning the login screen off and on again.
           Invoke-Wrapper @('disable')

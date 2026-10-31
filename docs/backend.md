@@ -360,7 +360,7 @@ All config in `config.py`. Key settings:
 
 SQLite with async access via `aiosqlite`. Tables auto-created on startup via `Base.metadata.create_all`. No Alembic migrations — schema managed directly by SQLAlchemy model definitions.
 
-Auth: JWT httpOnly cookie (7-day expiry). Login is **optional** (default off). When `auth_required` is `false` (DB setting), all endpoints return the default admin user without authentication. When enabled, JWT validation applies as usual. The `auth_required` setting is seeded from `VIBE_AUTH_REQUIRED` env var on first boot only — once toggled in the UI, the env var is ignored. Admin credentials (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) are also first-boot-only; once changed in the UI, env vars are ignored unless `FORCE_ADMIN_RESET=true` is set.
+Auth: JWT httpOnly cookie (24h rolling expiry — rolled forward on activity; the 7-day TTL is the service tokens, not browser sessions). Login is **optional** (default off). When `auth_required` is `false` (DB setting), all endpoints return the default admin user without authentication. When enabled, JWT validation applies as usual. The `auth_required` setting is seeded from `VIBE_AUTH_REQUIRED` env var on first boot only — once toggled in the UI, the env var is ignored. Admin credentials (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) are also first-boot-only; once changed in the UI, env vars are ignored unless `FORCE_ADMIN_RESET=true` is set.
 
 ### Locked out: `vibe-seller reset-auth`
 
@@ -382,7 +382,7 @@ The seeded admin is `admin` / `admin@vibe-seller.local` / `admin` (`app/env_opti
 
 A reset of the seeded admin also pins the `admin_credentials_set` setting: while that flag is unset, the boot seed re-applies `ADMIN_USERNAME` / `ADMIN_PASSWORD` on every start, which would undo the reset at the next restart. That guarantee has one exception the tool cannot fix from the outside: with `FORCE_ADMIN_RESET=true` in the server's environment, the boot seed overwrites the credentials **and deletes the pin** on every start, so the reset does not survive a restart. The command detects that and says so instead of promising otherwise; `status` reports it too. It reads the environment of the shell it runs in, which is not necessarily the server's — a launchd/systemd service can have its own, and there is no portable way to read it from outside.
 
-A reset does **not** end existing sessions: the session is a stateless JWT in an httpOnly cookie with a 7-day expiry, and nothing in it is tied to the password. To force every session to log in again, stop the server, delete `~/.vibe-seller/data/jwt_secret` (the next start regenerates it) and start it again — that also invalidates the tokens the agent's MCP client holds, which the tasks re-issue as they run.
+A reset does **not** end existing sessions: the session is a stateless JWT in an httpOnly cookie with a 24h rolling expiry (the frontend keepalive rolls it forward on activity; 7 days is the service-token TTL, not the browser session), and nothing in it is tied to the password. To force every session to log in again, stop the server, delete `~/.vibe-seller/data/jwt_secret` (the next start regenerates it) and start it again — that also invalidates the tokens the agent's MCP client holds, which the tasks re-issue as they run. Deleting the file only helps when the secret comes from the file: an install that pins `JWT_SECRET` in the environment never reads it (`app/config.py:_resolve_jwt_secret`), so change or drop that variable instead.
 
 Database file: `~/.vibe-seller/data/vibe_seller.db`. Delete to reset.
 

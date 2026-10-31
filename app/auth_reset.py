@@ -323,14 +323,20 @@ def prompt_password() -> str:
     """Ask for a new password on the terminal, twice."""
     import getpass  # noqa: PLC0415
 
-    try:
-        first = getpass.getpass('New password: ')
-    except (EOFError, OSError) as exc:
-        raise RecoveryError(
-            'Cannot read a password from this terminal — pass '
-            '--password instead.'
-        ) from exc
-    second = getpass.getpass('Confirm password: ')
+    def _ask(prompt: str) -> str:
+        # Both prompts get the same guard: piped input that runs out on
+        # the CONFIRM prompt (one line piped, two asked) is the same
+        # unreadable-terminal case as running out on the first.
+        try:
+            return getpass.getpass(prompt)
+        except (EOFError, OSError) as exc:
+            raise RecoveryError(
+                'Cannot read a password from this terminal — pass '
+                '--password instead.'
+            ) from exc
+
+    first = _ask('New password: ')
+    second = _ask('Confirm password: ')
     if not first:
         raise RecoveryError('The password must not be empty.')
     if first != second:

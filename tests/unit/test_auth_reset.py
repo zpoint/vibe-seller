@@ -6,6 +6,7 @@ recovery command talks to the same file the server does.
 """
 
 from datetime import UTC, datetime
+import getpass
 import sqlite3
 
 import pytest
@@ -339,6 +340,30 @@ class TestCommandLine:
         ])
         assert rc == 1
         assert 'must not be empty' in capsys.readouterr().err
+
+    def test_eof_on_the_confirm_prompt_is_a_clean_error(
+        self, db_path, monkeypatch, capsys
+    ):
+        # Piped input that answers only the FIRST prompt runs out on the
+        # confirm — the same unreadable-terminal case as EOF on the
+        # first, so it must be the friendly one-liner, not a getpass
+        # traceback. Nothing is written when it happens.
+        answers = iter(['new-secret'])
+
+        def fake_getpass(_prompt):
+            try:
+                return next(answers)
+            except StopIteration:
+                raise EOFError
+
+        monkeypatch.setattr(getpass, 'getpass', fake_getpass)
+        rc = main(['password', '--db', str(db_path)])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert 'Cannot read a password from this terminal' in err
+        assert 'Traceback' not in err
+        # The failure happened before any write.
+        assert _hash_of(db_path, 'operator') == 'x'
 
     def test_a_corrupt_database_is_a_one_liner_not_a_traceback(
         self, tmp_path, capsys
