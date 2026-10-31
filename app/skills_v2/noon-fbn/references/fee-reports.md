@@ -356,5 +356,5 @@ dropping them, or the per-SKU total stops matching § 4.
 
 - `noon-exports` § 2 — the Transaction View export that provides both
   the settlement line to reconcile against and the SKU bridge
-- `noon-ads` § Export all campaigns — per-SKU **ad spend**, same
+- `noon-ads` § Export campaigns — per-SKU **ad spend**, same
   keyspace trap, same rename-on-arrival rule

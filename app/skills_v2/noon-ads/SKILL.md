@@ -99,7 +99,7 @@ in the three reference files (see § 11).
 **URL**: `https://admanager.noon.partners/en-{cc}/home?mpCode=noon&project=PRJ{project_id}`
 
 Left nav is an **icon rail** (not a text `ul[role=menu]`): **Campaigns**,
-**Recommendations**, **Budget**, **Vantage**, **Billing**, **Settings**
+**Budget**, **Billing**, **Vantage**, **Access Management**, **Settings**
 — the labels render as `role=menuitem` spans, so match by text, not by
 `ul[role=menu] a`.
 
@@ -143,9 +143,8 @@ the list:
 - **Status count control** (segmented): `Live N` · `Paused N` · `All N`
   + a `More status filter` dropdown. The counts are the **true totals**
   for the current filter — read them directly; there is no page math.
-- **Export campaigns** (top-right of the list; labelled *Export all
-  campaigns* before 2026-10-06) — a list-level bulk export (distinct
-  from the per-tab Export Data in § 7).
+- **Export campaigns** (top-right of the list) — a list-level bulk
+  export (distinct from the per-tab Export Data in § 7).
 
 Columns (horizontally scrollable): Campaign, Status, Budget, Revenue,
 ROAS, Ad Spend, eCPC, Orders, Views, Clicks, ATC, … Actions.
@@ -284,13 +283,24 @@ PY
 the **Products tab** — do not trust the campaign name. A campaign
 named "mouse004 Auto" may target keyboard SKUs, not a mouse.
 
-Header shows: campaign name, Status badge, Budget, **Top-of-Search
-boost** (displayed as `Top Slot: N%` between Budget and Bidding
-Strategy for manual campaigns with TOS configured), Bidding
-Strategy, Running From date, Last Updated. **Top-right action icons:**
-a date-range picker, **pause/resume**, **duplicate**, and a round
-**blue pencil = Edit** (opens the campaign editor — see § 9 for
-adding/removing keywords & negatives).
+The page header carries the campaign name (with its own **pencil**
+button that edits the name), the ad-type tag (`Product Ad` / `Brand
+Ad`), the **status badge** (`Live` / `Paused` / …), and
+*Last updated*. Below it, a **Campaign Settings** strip with two
+labelled buttons — **Pause** (or Resume) and **Duplicate** — followed
+by the settings cards:
+
+`DURATION` · `PRODUCTS` · `TARGETING & BIDDING` · `TOP OF SEARCH BID`
+(Top of Search N% / Product Detail Page N%) · `NEGATIVE TARGETING` ·
+`DAILY BUDGET`
+
+Each card is its own editor: the card's **title button** or the
+**pencil** beside it opens that setting's modal (the NEGATIVE
+TARGETING card opens the negatives editor — § 9). The same page in
+full-editor form is still reachable by URL
+(`…/campaign/v2?…&campaignCode={id}&mode=edit`). The **Campaign
+Performance** card below carries its own date-range control and
+**Export** button.
 
 `target_filter` query param on the Targets tab switches the view:
 `target_filter=all` (positive keywords, default) vs
@@ -313,7 +323,7 @@ KPI cards (same 10 metrics as overview, scoped to this campaign).
 Performance chart with metric toggles: ROAS, Revenue, Spends, eCPC,
 CTR, CvR, Orders, Clicks, Views, ATC.
 
-**4 Sub-tabs on campaign detail:**
+**5 Sub-tabs on campaign detail:**
 
 | Tab | Purpose |
 |-----|---------|
@@ -321,6 +331,7 @@ CTR, CvR, Orders, Clicks, Views, ATC.
 | Placements | Ad placement performance |
 | **Targets** | **Keywords** with match types and bids |
 | Customer Queries | Actual customer search terms |
+| Day on Day Trends | Daily time series |
 
 **Sub-tab access patterns.** The 4 sub-tabs have no stable selector
 between page loads; click them by visible label via `js()`. Scroll
@@ -460,19 +471,27 @@ Per-keyword actions:
 
 ## 5. Change Target / Keyword Price
 
-On the Targets tab, the Bid column is directly editable:
-```bash
-browser-use <<'PY'
-print(page_info())                     # confirm the bid input for the target row
-fill_input("input.bid-input", "2.50")  # adjust selector to the live bid field
-# Confirmation/save happens per-row
-PY
-```
+The bid is **not editable in the row**. Each Targets-tab row (and the
+bid figure itself) has an **Edit Bid** button that opens a modal
+editor:
 
-> **Shadow-DOM bid inputs concatenate — clear and verify first.**
-> See `references/ads-tuning.md § Applying changes` for the native-
-> setter clear + read-back protocol; a naive `fill_input` on the
-> Ant Design shadow input can turn `1.30` into `11.3`.
+- a **manual** campaign's keyword / category row opens
+  **`BidUpdateModal`** — one number input whose **placeholder is the
+  current bid**, and an **Update** button that stays disabled until
+  the value changes;
+- an **auto** campaign's `auto keyword` / `auto category` rows open
+  the campaign's **Targeting & BIDDING** settings modal
+  (`CampaignSettingsEditModal`) — the **Bid Amount** box
+  (`placeholder="Enter Bid Amount"`), bidding-strategy radios, and
+  Cancel / Update.
+
+Fill the input with the native setter + `input` event, **read the
+value back and confirm it is exactly the target number**, press
+Update, wait for the modal to close, then **re-read the row's bid**
+(the figure in the row's `editWrapper` button) — it must equal the
+target. A naive typed-over value can concatenate (`1.30` → `11.3`):
+clear-then-set, verify before Update. Full protocol:
+`references/ads-tuning.md § Applying changes`.
 
 There is no "Apply the suggested bid" shortcut on this tab in the
 current build — the Recommended Bid column it belonged to is gone
@@ -511,19 +530,24 @@ not a target (`references/ads-creation.md § Per-keyword bid`).
 > 1. Open the campaign detail, click the **Customer Queries** tab.
 > 2. Click **`Export`** (a plain button; match on its exact text).
 > 3. Wait for `~/.vibe-seller/downloads/<slug>/` to gain
->    **`_OVERVIEW_ALL_Report_<start>_<end>.xlsx`**. Snapshot the directory
->    listing BEFORE clicking so you can diff, rather than guessing.
-> 4. **Rename it immediately, per campaign** — the filename carries only
->    the date range, so the next campaign's export OVERWRITES it.
+>    **`campaigns-export-<ts>-<id>.xlsx`** — the same bulk-update
+>    workbook the list-level *Export campaigns* produces (§ 7.2), just
+>    scoped to this campaign. Snapshot the directory listing BEFORE
+>    clicking so you can diff, rather than guessing.
+> 4. **Rename it immediately, per campaign** — the filename pattern is
+>    shared with the list-level export, so the next export (this
+>    campaign or another) OVERWRITES it.
 > 5. Read it with openpyxl. It is scoped to the campaign you were on and
 >    contains BOTH layers, so read them from this ONE file and the
 >    reconciliation holds by construction:
->    - **`(Product) Queries`** — the full query set. Columns include
->      `Campaign Name`, `Sku`, `Query`, `Views`, `Clicks`, `Orders`,
->      `Spends`, `Revenue`, `ROAS`.
->    - **`(Product) Target`** — the targeting layer (`Target Value`,
->      `Targeting Type`, `Bid`, `Spends`, …).
->    - also `(Product) Campaign`, `(Product) Sku`, `(Product) Placement`.
+>    - **`Queries`** — the full query set (`Campaign ID`, `Campaign
+>      Name`, `SKU`, `Query`, `Views`, `Clicks`, `Orders`, `ATC`,
+>      `Spends`, `Revenue`, `CTR`, `ROAS`).
+>    - **`Targets`** — the targeting layer (Target Value, Target Type,
+>      Bid, Spends, …).
+>    - also `Campaigns`, `SKUs`, `Negative Keywords`, `Placement`,
+>      `Read me`. Every data sheet's row 1 is the colour-group banner;
+>      **row 2 is the header** (§ 7.2).
 >
 > The scroll+eval walk below is still the right tool for the **Targets**
 > tab (§ 4), and it remains a fallback for a quick eyeball of the top
@@ -548,16 +572,8 @@ The on-screen state shows only the top spenders; the long-tail
 decisions live are below the fold. The eval above pulls the
 full table on most campaigns; if you see fewer than ~15 rows on
 a 14d+ campaign, scroll the inner table container and re-eval.
-
-Shows the actual search terms customers used that triggered your ads.
-Columns (from an earlier build): Customer Query Term, Target, Match
-Type, Target Bid, eCPC, Spends, Verticals, Engagement.
-
-> ⚠️ **Not re-verified.** The Targets tab's column list was written in
-> this same vocabulary (`Verticals`, `Engagement`) and turned out to
-> be stale — those columns no longer exist there (§ 4). Treat this
-> list as a hint, read the live header row before parsing positionally,
-> and prefer the **Export** (§ 7) which is the complete source anyway.
+Read the live header row before parsing positionally, and prefer
+the **Export** (above), which is the complete source anyway.
 
 **Auto campaign query routing per-product.** On Auto campaigns,
 the Customer Queries tab shows queries scoped to the product
@@ -630,8 +646,7 @@ the list's **date-range filter**, so set the range first.
 
 1. Click it once. It flips to **`disabled`** while noon builds the file.
 2. The file lands in `~/.vibe-seller/downloads/<slug>/` as
-   **`campaigns-export-*.xlsx`** (before 2026-10-06 it was
-   `_OVERVIEW_ALL_Report_{from}_{to}.xlsx`), typically after 1–5 min
+   **`campaigns-export-*.xlsx`**, typically after 1–5 min
    for a few dozen campaigns.
 3. **`disabled: true` means "generating", not "broken".** Poll the
    download dir; do NOT re-click — and do NOT apply § 4's
@@ -837,27 +852,21 @@ Click Continue.
 
 ### Step 2/3 — Product Selection + Bidding + Targeting
 
-**1. Product Selection**: Manual Selection OR Bulk Upload
-- Search by SKU name input
-- Selected products shown in right panel
-
-> ⚠️ **noon PRE-SELECTS products you did not choose.** On entering
-> step 2 the right panel already reads `Selected Products (3)` — a
-> "Preselected Recommendations" block of `High Potential` SKUs. Adding
-> your own SKU makes it **4**, and launching ships ads for three
-> products you never picked. **Clear it first**: click
-> **`Remove all (N)`** at the top of that panel, THEN search and add
-> your SKU. Re-check the counter reads `Selected Products (1)` before
-> launching — the block **re-populates when the product search text
-> changes**, so clearing it once is not enough if you search again.
+The form is one page of numbered sections: **1. Product Selection\***
+→ **2. Bidding Strategy\*** → **3. Targeting\*** →
+**4. Negative Targeting (Optional)** → **5. Increase bid by
+placements (Optional)**, then General Settings and the action buttons.
 
 **1. Product Selection** — `Manual Selection` / `Bulk Upload`.
 Type into the `Search products` box (SKU or title words). Each result
 row is a `div[class*="ProductCard_cardContent"]`; the control that
 adds it is an **`img[alt="add"]`** button at the RIGHT edge of the
 row, outside `cardContent` — locate it by nearest-y to the card, not
-by descending into the card. In the selected panel each row has an
-**`img[alt="removeIcon"]`** to drop it again.
+by descending into the card. In the selected panel each row has a
+remove control to drop it again. The panel opens at
+**Selected Products (0)** — nothing is preselected; whatever is
+listed there when you launch is what the campaign advertises, so
+re-check the counter before launching.
 
 **Pick the variant that actually sells.** A variant family
 (`…Z-3/-4/-5`) usually has ONE variant carrying the traffic and the
@@ -867,24 +876,18 @@ prior Export `Sku` sheet before choosing. For a product with no noon
 history, noon's own `High Potential` badge on the card is a
 defensible tiebreak.
 
-**2. Bidding Strategy** (choose one) — verified live 2026-08-10, the
-radio group renders **three** options:
+**2. Bidding Strategy** (choose one) — the radio group renders
+**three** options:
 
 | Strategy | Behavior |
 |----------|----------|
-| **Maximize ROAS** | Default selection. noon optimises toward return. |
-| **Maximize Orders** | noon optimises toward order count. |
+| **Dynamic Bid (Up & Down)** — *Maximize Orders* | noon bids up to 1.5× your bid when it expects an order. |
+| **Dynamic Bid (Down Only)** — *Maximize ROAS* | noon lowers your bid when conversion looks unlikely. |
 | **Fixed** | Your exact per-target bids are honoured; no dynamic adjustment. |
 
 Use **Fixed** for Manual Targeting — per-keyword bids are honoured
 as-is, which is the only way to read per-keyword performance without
 dynamic-bid noise.
-
-> The older `Dynamic Bid (Up & Down)` / `Dynamic Bid (Down Only)`
-> names are **not** what this form offers. They still appear in the
-> campaign LIST for previously-created Auto campaigns
-> (`Auto targeting - Dynamic down only`), so don't treat a list value
-> as a form option.
 
 **3. Targeting**:
 - **Auto Targeting** (default): noon matches ads automatically.
@@ -946,11 +949,15 @@ Phrase** (the counter under each box reads `0/100 … Selected`); an
 earlier revision of this skill said 30/30.
 
 The two boxes are **`ant-select` in tags mode**, not plain inputs —
-their `<input>` is ~4px wide and is skipped by any
-`width > 60` filter. Add terms one at a time: set the inner input's
-value with the native setter, dispatch `input`, then dispatch
-`keydown`/`keypress`/`keyup` for `Enter` to commit the tag. Pasting a
-comma-separated list into the placeholder does **not** commit.
+their `<input>` is ~4px wide and is skipped by any `width > 60`
+filter. Identify them by their own labels (**Exact Keywords** /
+**Phrase Keywords**), never by document order: the keyword section
+above renders a select of its own that can precede them. Each box
+takes a **comma-separated list committed with one Enter** (its own
+placeholder says so): set the inner input's value with the native
+setter, dispatch `input`, then dispatch `keydown`/`keypress`/`keyup`
+for `Enter` — every word becomes a tag. A word that itself contains
+a comma must be entered on its own.
 
 ### Adding keywords — the search box IS the keyword tool
 
@@ -993,7 +1000,7 @@ actually run.
   - Campaign Budget — dedicated to this campaign
 - **Maximum Daily Budget** input
 
-Action buttons at bottom: **Cancel & Go Back**, **Save As Draft**,
+Action buttons at bottom: **Cancel & Go Back**,
 **Launch Campaign**.
 
 > **`Launch Campaign` sits below the fold.** On a full form it lands
@@ -1015,22 +1022,25 @@ chose**. The preselect trap above is silent and only shows up here.
 ## 9. Edit an Existing Campaign — Add / Remove Keywords & Negatives
 
 **There is no in-place "Add target" / "Add negative" button on the
-Targets tab** (verified live 2026-07-21) — the tab only *reads* and
-inline-edits bids (§ 5). To change the keyword or negative SET of a
-live campaign you re-enter the campaign editor:
+Targets tab** — the tab only *reads* and edits bids through the
+modal (§ 5). Two ways to change the keyword or negative SET of a
+live campaign:
 
-1. On the campaign-detail header (top-right, beside the **pause** and
-   **duplicate** icons) click the round **blue pencil = Edit** button.
-   It opens the same builder as § 8 in edit mode:
+1. **The detail page's own setting cards** (§ 3). Each card's title
+   button / pencil opens that setting's editor modal — the
+   **NEGATIVE TARGETING** card opens the negatives editor: the same
+   two labelled boxes as the create form (Exact / Phrase Keywords,
+   § 8; find them by label, not order), noon's own
+   `N/100 … Selected` counters, and **Cancel / Update**. Words
+   already listed are left alone; **Update** saves.
+2. **The full editor**, same builder as § 8 in edit mode:
    `…/campaign/v2?project=PRJ{project_id}&mpCode=noon&campaignCode={campaign_id}&mode=edit`
-2. Scroll to the numbered sections:
-   - **§ 5 Targeting → Manual Targeting Settings** — add positive
-     keywords / category / product targets, or remove existing rows.
-   - **§ 6 Negative Targeting (Optional)** — add or remove negative
-     keywords (limits: **100 Exact + 100 Phrase**, § 8).
-3. **Save** to apply. Deleting a keyword/negative is the same flow:
-   open the editor, remove the row, Save. (The Targets-tab Status
-   toggle only *pauses* a keyword; it does not remove it.)
+   — sections **3. Targeting** (add/remove positive keyword /
+   category / product targets) and **4. Negative Targeting**
+   (limits: **100 Exact + 100 Phrase**, § 8). **Save** to apply.
+   Deleting a keyword/negative is the same flow: open the editor,
+   remove the row, Save. (The Targets-tab row button only *pauses*
+   a keyword; it does not remove it.)
 
 ### The editor is also a READ-ONLY research tool
 
@@ -1081,7 +1091,7 @@ one, how to research keywords — lives in three reference files:
 | [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | **The report contract for every audit** (shared across noon + Amazon — same shape for both platforms). 进度 line, per-campaign drill blocks (Targets table + Customer-Queries table + `搜索词对账` reconciliation line, same date window), bid rules, TSV naming. Before finishing you MUST pass BOTH the **coverage floor** (deterministic, at `set_task_result`) AND the **`ads-report-review` reviewer loop** (active verification — spawn the reviewer per `../amazon-ads/references/reviewer-loop.md`; it opens the live console/export and cross-checks your report, looping until `Status: ok`; Stop-hook enforced). A report is done only when verified against the live console, drilled to the word level. **Submit the FILE — `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`, the path, never a chat summary of the report**: the reviewer grades whatever string you pass it, and a summary has no `##` combo sections. |
 | [`../amazon-ads/references/audit-quickref.md`](../amazon-ads/references/audit-quickref.md) | **The audit procedure, one page** (shared). Enumerate ALL pages → two-layer drill per campaign (Targets + Customer Queries, same window, reconcile) → build the report with Read+Edit via INSERT markers → converge with the server reviewer. |
 | [`../amazon-ads/references/format-anchor.md`](../amazon-ads/references/format-anchor.md) | _Legacy detail._ Exact per-campaign table layouts; load only if you need the precise column shape. Superseded as a contract by `output-spec.md`. |
-| [`references/ads-creation.md`](references/ads-creation.md) | Creating a new campaign. Covers targeting choice, bidding strategy, per-keyword bid heuristic, match-type strategy, negative scoping, TOS boost rules, budget choice, the Save-as-Draft → Launch UI quirk, naming convention, post-launch verification cadence. |
+| [`references/ads-creation.md`](references/ads-creation.md) | Creating a new campaign. Covers targeting choice, bidding strategy, per-keyword bid heuristic, match-type strategy, negative scoping, TOS boost rules, budget choice, the below-the-fold Launch button, naming convention, post-launch verification cadence. |
 | [`references/ads-tuning.md`](references/ads-tuning.md) | **Any task that reads existing campaigns and proposes changes** — phrasings like "review all ads", "audit the campaigns", "give me an improvement plan", "weekly ad review", "tune ads", "fix ACOS / ROAS". Defines the steps and noon-specific click paths (Customer Queries tab, Targets tab, etc.); the **output contract** lives in `output-spec.md` (shared with Amazon — same shape for both platforms). |
 | [`references/ads-keyword-research.md`](references/ads-keyword-research.md) | Building the initial keyword list for a Manual campaign. **Step 1 is noon's built-in keyword-volume tool** (`searches/month` per term, via the editor's `Search for keywords` box) — every keyword you ship must carry its volume bucket, volume is per-country, and word order changes it. Then buyer-vs-seller language, storefront autocomplete (English + local language), peer-listing reading, cross-checking against existing campaigns to avoid self-competition, parallel negative-list build, match-type assignment. |
 
@@ -1099,11 +1109,12 @@ Safety rails:
 ## Tips
 
 - **Ad Manager is per country** (e.g. `/en-<cc1>/` vs `/en-<cc2>/`).
-- **Campaign Detail tabs**: Products / Placements / Targets / Customer Queries.
+- **Campaign Detail tabs**: Products / Placements / Targets / Customer
+  Queries / Day on Day Trends.
 - **ROAS** = Revenue / Spends, target > 1.0 minimum (but real
   scale-target depends on margin — see `ads-tuning.md`).
 - **Export Data** buttons exist on Products, Targets, Customer Queries tabs.
-- **Negative keyword limits**: 30 Day negatives + 30 Phrase negatives per campaign.
+- **Negative keyword limits**: 100 Exact + 100 Phrase per campaign.
 - **Top-of-search bid boost**: up to 900%.
 - **Session timeout recovery**: during long audits (7+ campaigns,
 two countries), a `page_info()` call may time out. Recovery: pipe a
