@@ -362,6 +362,24 @@ SQLite with async access via `aiosqlite`. Tables auto-created on startup via `Ba
 
 Auth: JWT httpOnly cookie (7-day expiry). Login is **optional** (default off). When `auth_required` is `false` (DB setting), all endpoints return the default admin user without authentication. When enabled, JWT validation applies as usual. The `auth_required` setting is seeded from `VIBE_AUTH_REQUIRED` env var on first boot only — once toggled in the UI, the env var is ignored. Admin credentials (`ADMIN_EMAIL`/`ADMIN_PASSWORD`) are also first-boot-only; once changed in the UI, env vars are ignored unless `FORCE_ADMIN_RESET=true` is set.
 
+### Locked out: `vibe-seller reset-auth`
+
+The seeded admin is `admin` / `admin@vibe-seller.local` / `admin` (`app/env_options.py`), valid only until someone changes the password in the UI — after that the env defaults are ignored and bcrypt keeps no copy of the old password. `FORCE_ADMIN_RESET=true` resets it, but the flag is applied by the **boot seed**, so it needs a server restart, and the agent tasks run as children of that server — the restart kills whatever was running.
+
+`vibe-seller reset-auth` (implemented in `app/auth_reset.py`) is the third way in. It edits the app database directly, so the server stays up and running tasks are not interrupted:
+
+| Command | Effect |
+|---|---|
+| `vibe-seller reset-auth status` | Whether a password is required, whether the seeded default still works, which accounts can log in |
+| `vibe-seller reset-auth password` | Reset the default admin account's password (prompts for it) |
+| `vibe-seller reset-auth password --user admin --rename` | Rename the default admin account back to `admin` and reset its password |
+| `vibe-seller reset-auth disable` | Turn the login screen off — every request acts as the default admin |
+| `vibe-seller reset-auth enable` | Turn the login screen back on |
+
+`--db PATH` points at a database other than the app's runtime one. The action reads `app_settings` per request, so `disable` / `enable` take effect immediately (the frontend caches the flag — the browser needs a reload).
+
+A reset of the seeded admin also pins the `admin_credentials_set` setting: while that flag is unset, the boot seed re-applies `ADMIN_USERNAME` / `ADMIN_PASSWORD` on every start, which would undo the reset at the next restart.
+
 Database file: `~/.vibe-seller/data/vibe_seller.db`. Delete to reset.
 
 ### Conventions

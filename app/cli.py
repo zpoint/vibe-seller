@@ -209,6 +209,19 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Leave the nightly channel: reinstall the latest stable release.',
     )
 
+    # reset-auth -----------------------------------------------------
+    # Declared so it shows up in `vibe-seller --help`. The command is
+    # intercepted in main() before argparse runs, because it brings its
+    # own parser (see app/auth_reset.py).
+    subs.add_parser(
+        'reset-auth',
+        help=(
+            'Recover a locked-out install: reset the admin password, or '
+            'turn the login screen off. Works while the server is up.'
+        ),
+        add_help=False,
+    )
+
     return parser
 
 
@@ -527,6 +540,17 @@ def _upgrade_from_test_pypi(version: str | None) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    # `reset-auth` owns its own parser (app/auth_reset.py is also a
+    # standalone module and a standalone script), so hand it the rest of
+    # the command line untouched instead of re-declaring its options
+    # here — argparse.REMAINDER would swallow `--db` and friends.
+    if argv and argv[0] == 'reset-auth':
+        from app.auth_reset import main as auth_reset_main  # noqa: PLC0415
+
+        return auth_reset_main(argv[1:])
+
     args = _build_parser().parse_args(argv)
     if args.command == 'start':
         return _cmd_start(args)

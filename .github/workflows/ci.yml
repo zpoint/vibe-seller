@@ -98,6 +98,128 @@ jobs:
           flags: unit
           name: unit-tests
 
+  # The account-recovery command ships to every platform, and its
+  # wrappers are where the platform-specific breakage lives: path
+  # separators, PowerShell argument splatting, Git Bash's POSIX paths,
+  # and the Windows install layout. A Linux unit test cannot see any of
+  # that, so both wrappers run here on a real Windows runner.
+  windows-reset-auth-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # bcrypt hashes the password; sqlalchemy seeds the test database
+      # from the real models, so the tables are the ones the app uses.
+      - name: Install the reset tool's dependencies
+        run: pip install bcrypt sqlalchemy
+
+      - name: Seed a throwaway install
+        shell: bash
+        env:
+          VS_TEST_DB: reset-auth-test.db
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import UTC, datetime
+
+          from sqlalchemy import create_engine
+
+          from app.models.app_settings import AppSettings
+          from app.models.base import Base
+          from app.models.user import User
+
+          path = os.environ['VS_TEST_DB']
+          engine = create_engine(f'sqlite:///{path}')
+          Base.metadata.create_all(
+              engine, tables=[User.__table__, AppSettings.__table__]
+          )
+          now = datetime.now(UTC).isoformat()
+          with engine.begin() as conn:
+              conn.execute(
+                  User.__table__.insert(),
+                  [{
+                      'id': '00000000-0000-0000-0000-000000000001',
+                      'username': 'operator',
+                      'email': 'admin@vibe-seller.local',
+                      'password_hash': 'x',
+                      'role': 'admin',
+                      'is_active': 1,
+                      'created_at': now,
+                      'updated_at': now,
+                  }],
+              )
+              conn.execute(
+                  AppSettings.__table__.insert(),
+                  [{'key': 'auth_required', 'value': 'true'}],
+              )
+          print('seeded', path)
+          PY
+
+      - name: Verify the PowerShell wrapper
+        shell: pwsh
+        env:
+          VS_TEST_DB: reset-auth-test.db
+        run: |
+          .\scripts\reset_auth.ps1 status --db $env:VS_TEST_DB
+          if ($LASTEXITCODE -ne 0) { throw 'status failed' }
+          .\scripts\reset_auth.ps1 password --user admin --rename --password ci-secret --db $env:VS_TEST_DB
+          if ($LASTEXITCODE -ne 0) { throw 'password reset failed' }
+          .\scripts\reset_auth.ps1 disable --db $env:VS_TEST_DB
+          if ($LASTEXITCODE -ne 0) { throw 'disable failed' }
+          @'
+          import os
+          import sqlite3
+
+          from app.password import verify_password
+
+          conn = sqlite3.connect(os.environ['VS_TEST_DB'])
+          row = conn.execute(
+              'SELECT username, password_hash FROM users WHERE id = ?',
+              ('00000000-0000-0000-0000-000000000001',),
+          ).fetchone()
+          assert row[0] == 'admin', row
+          assert verify_password('ci-secret', row[1]), 'password did not change'
+          setting = conn.execute(
+              "SELECT value FROM app_settings WHERE key = 'auth_required'"
+          ).fetchone()
+          assert setting[0] == 'false', setting
+          print('OK: the PowerShell wrapper resets an account on Windows')
+          '@ | python -
+
+      - name: Verify the bash wrapper (Git Bash)
+        shell: bash
+        env:
+          VS_TEST_DB: reset-auth-test.db
+        run: |
+          bash scripts/reset_auth.sh status --db "$VS_TEST_DB"
+          bash scripts/reset_auth.sh password --user admin --rename \
+            --password bash-secret --db "$VS_TEST_DB"
+          bash scripts/reset_auth.sh enable --db "$VS_TEST_DB"
+          python - <<'PY'
+          import os
+          import sqlite3
+
+          from app.password import verify_password
+
+          conn = sqlite3.connect(os.environ['VS_TEST_DB'])
+          row = conn.execute(
+              'SELECT username, password_hash FROM users WHERE id = ?',
+              ('00000000-0000-0000-0000-000000000001',),
+          ).fetchone()
+          assert row[0] == 'admin', row
+          assert verify_password('bash-secret', row[1]), 'password did not change'
+          setting = conn.execute(
+              "SELECT value FROM app_settings WHERE key = 'auth_required'"
+          ).fetchone()
+          assert setting[0] == 'true', setting
+          print('OK: the bash wrapper resets an account on Windows')
+          PY
+
   workflow-test:
     runs-on: ubuntu-latest
     steps:

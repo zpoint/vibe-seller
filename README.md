@@ -360,6 +360,69 @@ Agent 自己规划步骤、操作浏览器、最后给你一份结果报告。�
 
 </details>
 
+## 登录与忘记密码
+
+**默认是不需要登录的。** 全新装好后直接进主界面——登录是可选功能，只有在「设置 → 账号」里手动打开才会生效。所以你要是看到登录页，说明这台机器上有人（多半是给你装机器的同事）主动开了登录、并把密码改掉了。
+
+| 项 | 默认值 |
+|---|---|
+| 用户名 | `admin` |
+| 邮箱 | `admin@vibe-seller.local` |
+| 密码 | `admin` |
+
+**但这套默认值只在「密码没被改过」的时候有效。** 只要有人在「设置 → 账号」里改过密码，默认值立刻作废——密码是 bcrypt 单向哈希存着的，**没法从数据库里读回来**，用户名也可能被改过（你这台机器上的管理员账号就未必叫 `admin`）。
+
+### 先看现状
+
+```bash
+vibe-seller reset-auth status
+```
+
+会告诉你：现在要不要登录、默认密码还管不管用、哪些账号能登录、哪个是默认管理员。
+
+### 改密码（推荐）
+
+```bash
+# 交互输入密码（不会记进 shell history）
+vibe-seller reset-auth password --user admin --rename
+
+# 或者直接写在命令里（会留在 shell history 里，介意就别用这行）
+vibe-seller reset-auth password --user admin --password '你的新密码'
+```
+
+- `--user admin --rename`：把默认管理员账号**改名回 `admin`**（如果它现在叫别的名字）并重置密码。没有 `--rename` 而又没有叫 `admin` 的账号时，会报错并列出所有能登录的账号。
+- 不写 `--user`：重置「默认管理员」账号本身，不管它被改成了什么名字。
+- 命令直接改数据库，**服务不用重启，正在跑的任务不会断**。
+
+### 关掉登录（应急用）
+
+```bash
+vibe-seller reset-auth disable    # 关掉登录页
+vibe-seller reset-auth enable     # 想开回来的时候
+```
+
+关掉之后，任何能访问到这个端口的人都以默认管理员身份操作——内网自用没问题，别直接暴露到公网。
+
+### 没有 `vibe-seller` 命令？
+
+源码安装（clone 下来跑的）用仓库里的脚本：
+
+```bash
+scripts/reset_auth.sh status
+scripts/reset_auth.sh password --user admin --rename
+scripts/reset_auth.sh disable
+```
+
+Windows 用 PowerShell 版本（原生 Windows、WSL 里的 PowerShell 都能跑）：
+
+```powershell
+.\scripts\reset_auth.ps1 status
+.\scripts\reset_auth.ps1 password --user admin --rename
+.\scripts\reset_auth.ps1 disable
+```
+
+用 `pip install vibe-seller` / `uv tool install vibe-seller` 装的，`vibe-seller reset-auth ...` 直接就能用；实在找不到命令，也可以 `python -m app.auth_reset`（需要能 import 到 `app` 包）。
+
 ## 能干什么
 
 Vibe Seller 是个 **AI Agent 框架**，浏览器只是它的工具之一。Agent 能浏览页面、读你的邮件、发企业微信、写滴答清单、改 Google Doc ——只要符合「看了 → 判断 → 操作」的活，能用浏览器就走浏览器，能用集成接口就直接调接口。

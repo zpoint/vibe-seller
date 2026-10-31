@@ -449,6 +449,7 @@ powercfg /h off
 | Chrome doesn't appear on screen | launched from non-interactive (SSH/systemd) session | launch via Task Scheduler `Interactive` (`winchrome` does this) |
 | `install.sh --dev` "missing uv/pnpm" though installed | PATH not bootstrapped in non-interactive shell | already fixed in `install.sh`; re-pull |
 | SSH output is mojibake | GBK Windows in UTF-8 terminal | cosmetic; `chcp 65001` in scripts mitigates |
+| Login page appears, password unknown | Someone enabled `auth_required` and changed the admin password | `vibe-seller reset-auth status` → `vibe-seller reset-auth password --user admin --rename` (or `disable` to turn the login screen off). Native Windows install: `"%LOCALAPPDATA%\Programs\VibeSeller\.venv\Scripts\vibe-seller.exe" reset-auth status`. See [docs/backend.md](backend.md#locked-out-vibe-seller-reset-auth) |
 
 ---
 
@@ -459,4 +460,6 @@ powercfg /h off
 - [docs/browser.md](browser.md) — browser backends (Ziniao, chrome,
   winchrome), CDP proxy internals.
 - `scripts/win-machine-setup.bat` — the SSH bootstrap script.
+- `scripts/reset_auth.ps1` — the Windows password-recovery wrapper
+  (`status` / `password` / `disable` / `enable`).
 - `app/browser/winchrome.py` — the Windows-native Chrome backend.

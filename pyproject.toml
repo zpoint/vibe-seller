@@ -231,6 +231,7 @@ classmethod-decorators = ["classmethod"]
 [tool.ruff.lint.per-file-ignores]
 "app/events_system/backends/google_calendar.py" = ["E402"]
 "app/cli.py" = ["T20"]  # CLI uses print for user-facing output
+"app/auth_reset.py" = ["T20"]  # same: a command-line tool
 "app/skills/**/generate_invoice.py" = ["T20"]
 "app/skills/**/scripts/*.py" = ["T20"]  # skill CLI tools print output
 "app/skills_v2/**/generate_invoice.py" = ["T20"]

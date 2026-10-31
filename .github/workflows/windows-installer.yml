@@ -145,6 +145,30 @@ jobs:
           # dev build, not a published release).
           bash tests/releases/verify_install.sh ""
 
+      - name: Verify the installed app can recover a forgotten password
+        shell: pwsh
+        run: |
+          # `vibe-seller reset-auth` is how an operator gets back in when
+          # the admin password is lost. It has to exist in the INSTALLED
+          # package (not just the checkout), so prove it end to end on
+          # the real install: reset the password, then log in with it.
+          $cli = "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe"
+          if (-not (Test-Path $cli)) { throw "vibe-seller.exe not found" }
+          & $cli reset-auth status
+          if ($LASTEXITCODE -ne 0) { throw "reset-auth status failed" }
+          & $cli reset-auth password --user admin --rename --password ci-secret
+          if ($LASTEXITCODE -ne 0) { throw "reset-auth password failed" }
+          $body = @{identifier = 'admin'; password = 'ci-secret'} |
+            ConvertTo-Json -Compress
+          try {
+            Invoke-RestMethod -Uri 'http://127.0.0.1:7777/api/auth/login' `
+              -Method Post -ContentType 'application/json' -Body $body |
+              Out-Null
+          } catch {
+            throw "login with the reset password failed: $_"
+          }
+          Write-Host 'OK: the installed app can reset a forgotten password'
+
       - name: Verify bundled bash runs the extensionless wrapper shape
         shell: pwsh
         run: |
