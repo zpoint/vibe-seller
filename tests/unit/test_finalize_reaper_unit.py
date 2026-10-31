@@ -4,8 +4,15 @@ import sqlite3
 import types
 
 import pytest
+from sqlalchemy import (
+    create_engine as sqlalchemy_create_engine,
+    insert as sqlalchemy_insert,
+)
 
-import app.database as _database
+import app.database as _database  # noqa: F401 — also registers all models
+from app.models.base import Base
+from app.models.schedule import Schedule
+from app.models.task import Task
 import app.scheduler.finalize_reaper as _fr
 from app.task_states import TaskStatus
 
@@ -79,6 +86,18 @@ class TestOnlyBatchesFromTheFinalizeEra:
         )
 
 
+def _sched_row(id_, finalize_description):
+    """A Schedule row for the legacy-DB seed (NOT NULLs satisfied)."""
+    return Schedule(
+        id=id_,
+        title=f'sched {id_}',
+        schedule_type='daily',
+        schedule_time='09:00',
+        created_by='u1',
+        finalize_description=finalize_description,
+    )
+
+
 def test_backfill_arms_existing_schedules_from_now_not_forever(tmp_path):
     """An upgrade must keep working finalize schedules working.
 
@@ -86,21 +105,22 @@ def test_backfill_arms_existing_schedules_from_now_not_forever(tmp_path):
     for everyone already using the feature — their next batch would
     silently stop finalizing. Stamping the upgrade instant keeps them
     working AND leaves every past batch outside the era.
-    """
-    db = tmp_path / 'upgrade.db'
-    con = sqlite3.connect(db)
-    con.execute('CREATE TABLE schedules (id TEXT PRIMARY KEY)')
-    for t_ in ('tasks', 'users', 'stores'):
-        con.execute(f'CREATE TABLE {t_} (id TEXT PRIMARY KEY)')
-    con.commit()
-    shim = _ConnShim(con)
-    _ensure_added_columns(shim)
 
-    con.execute(
-        'INSERT INTO schedules (id, finalize_description) VALUES '
-        "('armed', 'combine the reports'), ('blank', NULL), ('ws', '   ')"
+    The DB holds rows with finalize prompts; only the stamp column is
+    missing (the exact pre-backfill shape — the prompt column predates
+    the stamp), so the migration re-adds the column and backfills at
+    the upgrade instant.
+    """
+    con, shim = _legacy_db(
+        tmp_path,
+        [('schedules', 'finalize_enabled_at')],
+        seed=[
+            _sched_row('armed', 'combine the reports'),
+            _sched_row('blank', None),
+            _sched_row('ws', '   '),
+        ],
     )
-    con.commit()
+
     _ensure_added_columns(shim)  # the boot after the prompt existed
 
     got = dict(
@@ -160,16 +180,57 @@ class _ConnShim:
         return self._con.execute(sql, params or ())
 
 
-def test_ensure_added_columns_is_idempotent(tmp_path):
-    db = tmp_path / 'old.db'
+def _legacy_db(tmp_path, drop_columns, seed=None):
+    """A DB built from the REAL schema, minus columns a pre-migration
+    install wouldn't have, optionally holding pre-upgrade rows.
+
+    Building from ``Base.metadata.create_all`` (not a hand-maintained
+    CREATE TABLE list) is the point: every table the migration walks
+    exists, so a new entry in ``_ensure_added_columns`` never needs
+    this fixture's table list updated — only its drop list grows if
+    the new column matters to the assertions. Rows are seeded through
+    the ORM BEFORE the columns are dropped, so Python-side defaults
+    satisfy the schema's NOT NULLs (raw INSERT would have to enumerate
+    them, which is exactly the hand-maintenance this rewrite removes).
+    SQLite ≥ 3.35 (Python ≥ 3.11) supports ALTER TABLE … DROP COLUMN.
+    """
+    db = tmp_path / 'legacy.db'
+    engine = sqlalchemy_create_engine(f'sqlite:///{db}')
+    Base.metadata.create_all(engine)
+    if seed:
+        with engine.begin() as conn:
+            for row in seed:
+                conn.execute(
+                    sqlalchemy_insert(type(row)).values(**{
+                        c: getattr(row, c)
+                        for c in row.__mapper__.columns.keys()
+                        if getattr(row, c) is not None
+                    })
+                )
+    engine.dispose()
     con = sqlite3.connect(db)
-    # Simulate a pre-feature DB: tables without the new columns.
-    con.execute('CREATE TABLE schedules (id TEXT PRIMARY KEY)')
-    con.execute('CREATE TABLE tasks (id TEXT PRIMARY KEY)')
-    con.execute('CREATE TABLE users (id TEXT PRIMARY KEY)')
-    con.execute('CREATE TABLE stores (id TEXT PRIMARY KEY)')
+    for table, column in drop_columns:
+        con.execute(f'ALTER TABLE {table} DROP COLUMN {column}')
     con.commit()
-    shim = _ConnShim(con)
+    return con, _ConnShim(con)
+
+
+def test_ensure_added_columns_is_idempotent(tmp_path):
+    # One representative migration column per table: the first run
+    # must ADD the dropped ones (and skip the ones that never left),
+    # the second must be a no-op. The pre-existing task row must read
+    # back as non-finalize (column default 0).
+    con, shim = _legacy_db(
+        tmp_path,
+        [
+            ('schedules', 'finalize_description'),
+            ('tasks', 'is_finalize'),
+            ('users', 'sync_profile_to_schedules'),
+            ('stores', 'capabilities'),
+            ('wecom_bots', 'platform'),
+        ],
+        seed=[Task(id='x', created_by='u1', title='legacy', status='pending')],
+    )
 
     _ensure_added_columns(shim)  # first run adds columns
     _ensure_added_columns(shim)  # second run must be a no-op (no error)
@@ -178,11 +239,11 @@ def test_ensure_added_columns_is_idempotent(tmp_path):
     assert 'sync_profile_to_schedules' in user_cols
     sched_cols = {r[1] for r in con.execute('PRAGMA table_info(schedules)')}
     task_cols = {r[1] for r in con.execute('PRAGMA table_info(tasks)')}
+    bot_cols = {r[1] for r in con.execute('PRAGMA table_info(wecom_bots)')}
     assert 'finalize_description' in sched_cols
     assert 'is_finalize' in task_cols
+    assert 'platform' in bot_cols
     # Default must let existing rows be non-finalize.
-    con.execute("INSERT INTO tasks (id) VALUES ('x')")
-    con.commit()
     assert (
         con.execute("SELECT is_finalize FROM tasks WHERE id='x'").fetchone()[0]
         == 0

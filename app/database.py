@@ -73,6 +73,16 @@ def _ensure_added_columns(conn) -> None:
         # Binding to an external Amazon Ads service. See app/ads_client.py.
         ('stores', 'ads_store_keys', "TEXT NOT NULL DEFAULT '{}'"),
         ('stores', 'ads_authorized', 'BOOLEAN NOT NULL DEFAULT 0'),
+        # Chat bots grew from WeCom-only to four platforms. The table
+        # keeps its original name (`wecom_bots`) — see
+        # app/models/chat_bot.py — so the platform of every existing row
+        # is backfilled as 'wecom' by the column default, and `secret`
+        # (DingTalk 加签 / Feishu 签名校验) starts out NULL.
+        ('wecom_bots', 'platform', "TEXT NOT NULL DEFAULT 'wecom'"),
+        ('wecom_bots', 'secret', 'TEXT'),
+        # Keyword security (DingTalk 自定义关键词 / Feishu 关键词):
+        # the server appends it to outgoing messages that lack it.
+        ('wecom_bots', 'keyword', 'TEXT'),
     ]
     for table, column, sqltype in added:
         cols = {

@@ -70,6 +70,10 @@ x-e2e-env: &e2e-env
   MAX_AGENT_CONCURRENCY: "9"
   AGENT_DEBUG: "1"
   LOG_LEVEL: "DEBUG"
+  # test_skill_save_reuse.py posts to a LOOPBACK stub impersonating
+  # a chat-bot webhook; production rejects loopback webhook URLs
+  # outright, so the e2e server opts in here.
+  VIBE_ALLOW_LOOPBACK_WEBHOOKS: "1"
 
 services:
   app:

@@ -68,7 +68,7 @@ src/
 - **EventsView**: Event list with status filters, event detail with activity timeline
 - **WorkspaceView**: File editor for knowledge/skills files, file history viewer
 - **WorkspaceAssistantView**: AI chat for workspace organization (default when entering Workspace)
-- **SettingsView**: Tabbed settings — Stores, General (cross-cutting defaults: default execution mode [Auto/Review segmented control], task retention, max concurrency, default schedule timezone via `TimezoneSelect`, fanout/single schedule default, telemetry opt-out), AI (backend status + AI profiles), Email (email accounts), Account (auth toggle, profile, password, users), Integrations (Google Workspace toggle with prereq check, WeCom bot, Dida365/TickTick). Each tab's body is a separate `components/settings/*Panel.tsx` component. The `SettingsTab` union type is exported from `SettingsView.tsx` and reused by `App.tsx`.
+- **SettingsView**: Tabbed settings — Stores, General (cross-cutting defaults: default execution mode [Auto/Review segmented control], task retention, max concurrency, default schedule timezone via `TimezoneSelect`, fanout/single schedule default, telemetry opt-out), AI (backend status + AI profiles), Email (email accounts), Account (auth toggle, profile, password, users), Integrations (Google Workspace toggle with prereq check, chat bots (WeCom/DingTalk/Feishu/Slack, `ChatBotSection.tsx` — live platform badge from `/api/chat-bots/platforms`, signing-secret field only for DingTalk/Feishu), Dida365/TickTick). Each tab's body is a separate `components/settings/*Panel.tsx` component. The `SettingsTab` union type is exported from `SettingsView.tsx` and reused by `App.tsx`.
 
 ## Auth expiry handling
 

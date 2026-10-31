@@ -194,25 +194,64 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | POST | `/api/dida365/setup-mcp` | Auto-install ticktick-mcp |
 | DELETE | `/api/dida365/disconnect` | Disconnect integration |
 
-## `wecom_bots.py` — WeChat Work (企业微信) Bot Webhooks
+## `chat_bots.py` — Chat Bot Webhooks (WeCom / DingTalk / Feishu / Slack)
 
-Workspace-level webhook configs for WeChat Work group bots. Not
-bound to any store. List responses mask `webhook_url` (the URL
-carries a secret `?key=...`) — use the single-item GET to retrieve
-the full URL for the edit form.
+Workspace-level webhook configs for group chat bots. Not bound to any
+store. Four platforms are supported: **WeCom / WeChat Work (企业微信)**,
+**DingTalk (钉钉)**, **Feishu / Lark (飞书)** and **Slack**.
+
+The platform is **derived by the server from the webhook URL host** —
+it is never accepted from the client, so a stored bot can never
+disagree with its own URL and a signing secret can never be posted to
+a host the user did not choose. URLs must be `https` with an exact
+host match (`qyapi.weixin.qq.com`, `oapi.dingtalk.com`,
+`open.feishu.cn` / `open.larksuite.com`, `hooks.slack.com` /
+`hooks.slack-gov.com`) plus the platform's path prefix; anything else
+(cleartext, look-alike hosts like `oapi.dingtalk.com.evil.com`,
+userinfo tricks like `https://oapi.dingtalk.com@evil.com/...`) → 400.
+The single exception: a LOOPBACK host (strict `ipaddress` loopback or
+`localhost`) is accepted — plain `http` included — only while the
+server process runs with `VIBE_ALLOW_LOOPBACK_WEBHOOKS=1`, which the
+offline e2e suite (CI and `docker/e2e`) uses to register a loopback
+stub webhook; production leaves it unset. Send endpoints (`/test`,
+`/send`, `/send-file`) re-derive the platform from the stored URL and
+refuse with 400 when it no longer matches, so a row saved before this
+validation cannot send to a non-platform host.
+
+List responses mask `webhook_url` (the URL *is* the secret) and report
+only `has_secret` — use the single-item GET to retrieve the full URL +
+secret for the edit form. The keyword is returned in the list too: it
+is not a secret (the UI shows it on the row), and it never reaches the
+agent — keyword handling is entirely server-side.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/wecom-bots` | List bots — returns `webhook_url_masked` (e.g. `https://host/...?key=****abcd`) |
-| GET | `/api/wecom-bots/{id}` | Get one bot with the full `webhook_url` (for edit) |
-| POST | `/api/wecom-bots` | Create `{name, webhook_url}` |
-| PUT | `/api/wecom-bots/{id}` | Update `name` or `webhook_url`; `null`/blank required fields → 400 |
-| DELETE | `/api/wecom-bots/{id}` | Delete bot |
-| POST | `/api/wecom-bots/{id}/test` | Post a test message to the webhook; optional `{content}` (blank/whitespace → default) |
-| POST | `/api/wecom-bots/{id}/send` | Post a real message: `{content, msgtype?}`. `msgtype` is `text` (default) or `markdown`. Blank `content` → 400; unknown `msgtype` → 400. Used by agents via the MCP bridge (see `docs/workspace.md`). |
-| POST | `/api/wecom-bots/{id}/send-file` | Upload a local file and post it as a `file` message: `{path}`. `path` is expanded (`~`) and must be absolute under an allowed root (`/tmp`, `/private/tmp`, or `~/.vibe-seller/downloads`) — anything else → 400 (blocks exfiltrating the DB/secrets/`~/.ssh`). File must be 6 B–20 MB (WeCom limit). Returns `{ok, message}`. Used by agents via the MCP tool `vibe_seller_send_wecom_file`. |
+| GET | `/api/chat-bots/platforms` | Registry metadata the UI renders from: `{name, label, hosts, path_prefix, uses_secret, supports_file, max_message, limits, limit_unit, doc_url}` per platform |
+| GET | `/api/chat-bots` | List bots — `{id, name, platform, webhook_url_masked, has_secret, can_send_file, created_at, updated_at}`; the mask shows the host + last 4 chars of the secret-bearing part (e.g. `https://hooks.slack.com/...****abcd`) |
+| GET | `/api/chat-bots/{id}` | Get one bot with the full `webhook_url` and `secret` (for edit) |
+| POST | `/api/chat-bots` | Create `{name, webhook_url, secret?, keyword?}`. `secret` is only valid for DingTalk (加签) / Feishu (签名校验) — non-empty on WeCom/Slack → 400; `keyword` only for DingTalk (自定义关键词) / Feishu (关键词) — the SERVER appends it to any outgoing message that lacks it, so agents and the Test button work unchanged |
+| PUT | `/api/chat-bots/{id}` | Update `name`, `webhook_url`, `secret` or `keyword`; `null`/blank required fields → 400; changing the URL re-derives `platform` (and drops a secret/keyword the new platform cannot use); `""` clears a secret or keyword |
+| DELETE | `/api/chat-bots/{id}` | Delete bot |
+| POST | `/api/chat-bots/{id}/test` | Post a test message to the webhook; optional `{content}` (blank/whitespace → default, which starts with "Vibe Seller" — matters for DingTalk keyword security) |
+| POST | `/api/chat-bots/{id}/send` | Post a real message: `{content, msgtype?}`. `msgtype` is `text` (default) or `markdown`; blank `content` / unknown `msgtype` → 400. Pre-send size check per platform (WeCom 4096 B, DingTalk 20000 B, Feishu 20000 B body, Slack 40000 chars text / 12000 markdown) rejects without a network call. Used by agents via the MCP bridge (see `docs/workspace.md`). |
+| POST | `/api/chat-bots/{id}/send-file` | Upload a local file and post it as a `file` message: `{path}`. **WeCom only** — other platforms → 400 *before* path resolution. `path` is expanded (`~`) and must be absolute under an allowed root (`/tmp`, `/private/tmp`, or `~/.vibe-seller/downloads`) — anything else → 400 (blocks exfiltrating the DB/secrets/`~/.ssh`). File must be 6 B–20 MB (WeCom limit). Returns `{ok, message}`. Used by agents via the MCP tool `vibe_seller_send_chat_file`. |
 
-Backend senders: `app/notifiers/wecom.py::send_webhook(url, content, msgtype='text'|'markdown')` and `send_file_webhook(url, file_path)` (two-step `upload_media` → `media_id` → `msgtype=file`). Errors are logged server-side; the response message never echoes the URL back to the client.
+### Platform notes
+
+| Platform | Text | Markdown | File | Signing | Keyword | Limits |
+|---|---|---|---|---|---|
+| WeCom 企业微信 | `{"msgtype":"text","text":{"content":…}}` | `{"msgtype":"markdown","markdown":{"content":…}}` (reduced subset) | Yes (`upload_media` → `media_id` → `msgtype=file`) | — | — | 4096 B / msg |
+| DingTalk 钉钉 | `{"msgtype":"text","text":{"content":…}}` | `{"msgtype":"markdown","markdown":{"title":…,"text":…}}` — `title` derived from the first non-empty line | No | Optional 加签: HMAC-SHA256(key=secret, msg=`"<ts-ms>\n<secret>"`) → base64 → URL-encoded, sent as `&timestamp=&sign=` **query** params; combinable with a keyword | Optional 自定义关键词 — server appends it to any message that lacks it | 20000 B / msg, 20 msg/min |
+| Feishu / Lark 飞书 | `{"msg_type":"text","content":{"text":…}}` | Interactive card (`msg_type=interactive`, card JSON 2.0, `markdown` element) | No | Optional 签名校验: HMAC-SHA256(key=`"<ts-s>\n<secret>"`, msg empty) → base64 (NOT URL-encoded), sent as **top-level JSON body** `timestamp`/`sign` | Optional 关键词 — server appends it to any message that lacks it | 20 KB body, 100 req/min, 5 req/s |
+| Slack | `{"text": …}` with `&<>` escaped | Block Kit `{"text": <summary>, "blocks":[{"type":"markdown","text":…}]}` (falls back to a standard→mrkdwn converter if the block is rejected) | No | — (the URL is the secret) | — | 40000 chars text / 12000 markdown |
+
+Backend senders live in `app/notifiers/` — `base.py` holds the
+`PLATFORMS` registry, `detect_platform`, shared error handling and the
+size guard; one module per platform (`wecom.py`, `dingtalk.py`,
+`feishu.py`, `slack.py`). Signing helpers are pure functions taking an
+explicit timestamp (unit-tested against independent reference
+implementations). Errors are logged server-side; the response message
+never echoes the URL back to the client.
 
 ## `sse.py` — Server-Sent Events
 
