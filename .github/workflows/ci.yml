@@ -135,7 +135,9 @@ jobs:
           # changes the password.
           Remove-Item -Recurse -Force (Join-Path $HOME '.vibe-seller') `
             -ErrorAction SilentlyContinue
-          .\.venv\Scripts\vibe-seller.exe start --port 7778
+          # `uv run` keeps this the same command on both platforms
+          # (the venv layout differs: bin/ vs Scripts\).
+          uv run vibe-seller start --port 7778
           if ($LASTEXITCODE -ne 0) { throw "vibe-seller start failed" }
           # 90s: the cold first boot runs the full skills+knowledge sync
           # plus the DB init, which crosses 30s on a contended runner.
@@ -220,7 +222,7 @@ jobs:
       - name: Stop the server
         shell: pwsh
         if: always()
-        run: .\.venv\Scripts\vibe-seller.exe stop --port 7778
+        run: uv run vibe-seller stop --port 7778
 
   workflow-test:
     runs-on: ubuntu-latest
