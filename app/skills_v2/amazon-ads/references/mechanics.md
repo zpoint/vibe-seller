@@ -24,6 +24,14 @@ Before any browser-use call:
 
 ## 1. URLs that work (and ones that don't)
 
+> **Two working prefixes for campaign pages (verified 2026-10-31).** The
+> campaign LIST's anchors and the address bar now use
+> `/campaign-manager/sp/campaigns/…`, while in-page tabs and ad-group
+> deep links still emit `/cm/sp/campaigns/…`. BOTH resolve (one 302s to
+> the other); every `/cm/…` URL in this table was re-verified working.
+> The SPA may settle the address bar on either form — don't treat a
+> prefix mismatch as a broken link.
+
 This table covers **advertising and coupons URLs only**. For
 seller-central paths (inventory, listings, orders, performance,
 etc.) read `knowledge/project/common/amazon-sites.md` — that file
@@ -37,9 +45,10 @@ guess seller-central paths.
 | Ad group | `…/cm/sp/campaigns/<campId>/ad-groups/<agId>/<tab>?entityId=...` where tab ∈ `ads`/`targeting`/`negative-targeting`/`search-terms`/`history` |  |
 | Campaign tabs | `…/cm/sp/campaigns/<id>/<tab>` where tab ∈ `ad-groups`/`bid-adjustments`/`negative-targeting`/`budget-rules`/`settings`/`history` | |
 | Bulk operations | `https://advertising.amazon.<tld>/bulk-operations?entityId=...` — **host ROOT, no path prefix** | The one row here whose `…` is NOT `…/cm/`. Every prefixed variant 404s — verified live: `/campaign-manager/bulk-operations`, `/cm/bulk-operations`, `/cm/bulk`, `/bulk/campaigns`, `/sp/bulk-operations`. An agent that assumed the neighbouring rows' `/cm/` prefix burned four navigations before finding it. |
-| Drafts | `…/cm/drafts?entityId=...` | NOT `/cm/sp/drafts/...` (only the inner path). |
-| Coupons dashboard | `https://sellercentral.amazon.<tld>/coupons/dashboard` | NOT `/promotions/coupons` (redirects elsewhere) and NOT `/cppd/coupons` (404). |
-| Coupon create | `https://sellercentral.amazon.<tld>/coupons/create-coupon` | |
+| Drafts | `…/cm/drafts?entityId=...` | NOT `/cm/sp/drafts/...` (only the inner path). Also reachable via the `View drafts` button on the Campaign Builder page (`/cb?entityId=…`). |
+| Campaign Builder (create) | `https://advertising.amazon.<tld>/cb?entityId=...` | Host root `/cb`, no `/cm/` prefix. "Choose your campaign type" page — country selector top-left, one Create-campaign button per card (Sponsored Products → `/cb/sp?entityId=…`). `/cb/sp/campaigns` and other `/cb/sp/*` deep paths 404. |
+| Coupons dashboard | `https://sellercentral.amazon.<tld>/coupons/dashboard` | **Now REDIRECTS to `/manage/promotions`** — the unified Manage promotions page (see §5). |
+| Coupon create | `https://sellercentral.amazon.<tld>/workflow/coupons/create` | 4-step wizard (was `/coupons/create-coupon`). Bulk coupons: `/coupons/bulk-upload`. |
 
 The ad console **redirects through Amazon sign-in on first hit per
 session** even though the seller-central session is good. Follow the
@@ -65,13 +74,20 @@ account's marketplaces are registered. Detect which one you're on before
 trusting any list or export — never assume.
 
 **Layout A — per-country account (one marketplace at a time).** The
-top-left control reads `Sponsored ads, <Country>` (e.g.
-`Sponsored ads, Saudi Arabia`) and is a **switcher**. Clicking it opens a
-menu of the account's marketplaces; each entry is a *separate
+top-right control reads `<account name>` over `Sponsored ads, <Country>`
+and is a **switcher**.
+Verified mechanics (2026-10-31): clicking the OUTER button does nothing —
+**click the inner `Sponsored ads, <Country>` line** (the `<p>` inside the
+button) to open a panel titled **"Sponsored Ads Accounts"** listing one
+`<li>` per country, each with two lines: the account display name and
+the country. The CURRENT country renders as a plain `<div>` (not a
+link); the others are `<a>`. The panel also shows the ads account id
+(an `amzn1.ads-account.g.…` URN). Each entry is a *separate
 account/entity*, and the displayed brand name can differ per country
 (observed on a live account: `<brandA>  United Arab Emirates` and
-`<brandB>  Saudi Arabia` under one login). The campaign list **and any
-bulk export cover only the selected country.**
+`<brandB>  Saudi Arabia` under one login — do not key on the name).
+The campaign list **and any bulk export cover only the selected
+country.**
 
 **Layout B — unified multi-market entity (one list, many countries).** A
 single campaign list spans several marketplaces, with a **Country column**
@@ -104,10 +120,14 @@ reading.
 
 ### 2a. The campaign-list "Find a campaign" search
 
-The campaign list has a search input with placeholder
-`Find a campaign` (or `查找广告活动`). Setting its value via the standard
-React-friendly setter and dispatching `input` + `keydown:Enter` triggers
-the table filter. Returns deep-links to each campaign in the result rows
+The campaign list has a search input whose placeholder has moved over
+time — observed `Find a campaign` / `查找广告活动`, and **`Search by name
+or ID`** on the current console (verified 2026-10-31). Never key on the
+placeholder; key on position (the input directly above the campaign
+grid) or on the `Clear search terms` aria-label of its ✕. Setting its
+value via the standard React-friendly setter and dispatching `input` +
+`keydown:Enter` triggers the table filter. Returns deep-links to each
+campaign in the result rows
 (`<a href="…/cm/sp/campaigns/<id>?entityId=…">`).
 
 The other top-of-page input — placeholder `Search with metrics or
@@ -436,60 +456,79 @@ form at once. Save-as-draft also writes the entire form.
 
 ### 3a. Open the form
 
+The entry points changed with the "Amazon Ads Agent" rebrand (verified
+2026-10-31). The old modal (商品推广 / 品牌推广 / 展示 tiles) is gone; the
+reliable path is the **Campaign Builder page**:
+
 ```bash
-# campaign-manager landing → the visible "Create campaign" link/button
-# (the icon-only one is at x≈12, the labeled link is at x≈316; click the
-# labeled one — the icon variant doesn't always navigate)
+# Option 1 (deterministic): the plain bottom link on the all-campaigns
+# page — a real <a> with href /cb?entityId=… :
+#   https://advertising.amazon.<tld>/cb?entityId=ENTITY…
+# Open it directly. That "Campaign Builder" page shows:
+#   - a COUNTRY selector top-left ("Saudi Arabia ⌄")
+#   - H1 "Choose your campaign type" + a "View drafts" button
+#   - three cards: Sponsored Products / Sponsored Brands /
+#     Display, Video, and Audio — each with its own "Create campaign"
+#     button (Sponsored Products → /cb/sp?entityId=…)
+# Option 2: button[aria-label="Create campaign"] on the left icon rail
+# opens a FLYOUT with three rows: Campaigns / Ad groups / Targets —
+# clicking its rows proved unreliable (the row buttons did not navigate
+# in testing); prefer Option 1.
 browser-use <<'PY'
-js("(()=>{const all=document.querySelectorAll('a, button');for(const a of all){const t=(a.innerText||'').trim();const r=a.getBoundingClientRect();if((t==='创建广告活动'||t==='Create campaign')&&Math.abs(r.x-316)<10){a.click();return;}}})()")
+new_tab("https://advertising.amazon.<tld>/cb?entityId=ENTITY…")
+wait_for_load()
+# then coordinate-click the Sponsored Products card's "Create campaign"
 PY
-# A modal opens with options: 商品推广 / 品牌推广 / 展示
-# (Sponsored Products / Sponsored Brands / Sponsored Display)
-# click the matching one.
 ```
 
-**Country selector — verify before proceeding (gotcha).** The
-modal renders a country control above the campaign-type tiles.
-There are two shapes depending on how the seller account is
-registered with Amazon Ads — the agent must read the DOM, not guess
-from the URL.
+The SP create form itself still carries the exact field ids documented
+in §3b (all re-verified 2026-10-31) — only the way in changed.
 
-DOM shapes verified live:
+**Old deep paths 404 now**: `/cb/sp/campaigns?entityId=…` renders
+"Page not found". Don't construct `/cb/sp/...` URLs; reach the form via
+`/cb` and the card buttons.
+
+**Country selector — verify before proceeding (gotcha).** The country
+control now sits at the TOP-LEFT of the Campaign Builder page (a
+dropdown next to the breadcrumb, e.g. `Saudi Arabia ⌄`), where the old
+modal used to render it above the campaign-type tiles. There are two
+shapes depending on how the seller account is registered with Amazon
+Ads — read the DOM, don't guess from the URL:
 
 ```text
 # A) multi-market account (one Amazon Ads entity registered for
-#    several marketplaces, e.g. multiple country marketplaces under
-#    the same login)
+#    several marketplaces under the same login)
 <button aria-label="<current-country-name>">  # clickable trigger
   …click to open…
   <button value="<CC1>" role="option" selected="false">Country One</button>
   <button value="<CC2>" role="option" selected="true">Country Two</button>
-  <button value="<CC3>" role="option" selected="false">Country Three</button>
 
 # B) single-market account (Amazon Ads entity registered for one
-#    marketplace only — typical when the seller signed up Amazon
-#    Ads for one country and never extended)
+#    marketplace only)
 <button aria-label="<country-name>" disabled="true">  # NOT clickable
   Country One
 ```
 
 Procedure:
 
-1. Read the country trigger button's attributes from the modal.
-2. If `disabled="true"` (shape B): this account can only advertise
-   on the country shown. The campaign you're about to create will
-   land on that country regardless of which seller-central
-   marketplace the listing lives on. If that doesn't match the
-   task's intent, **stop and tell the user** — the fix is not on
-   this page (the account needs Amazon Ads registration for the
-   target marketplace, or use a different store whose Amazon Ads
-   entity already covers it). Do NOT proceed and "hope it sorts
-   out at submit time".
-3. If the trigger is clickable (shape A): read its `aria-label`. If
-   it doesn't already match the task's country, click the trigger,
-   then click the option whose `value` equals the target ISO code
-   (a 2-letter country code). Re-read the trigger's `aria-label` after the
-   click to confirm the switch took.
+1. Read the country trigger button's attributes.
+2. If `disabled="true"` (shape B): this account can only advertise on
+   the country shown. If that doesn't match the task's intent,
+   **stop and tell the user** — the fix is not on this page. Do NOT
+   proceed and "hope it sorts out at submit time".
+3. If the trigger is clickable (shape A): read its `aria-label`. If it
+   doesn't already match the task's country, click the trigger, then
+   click the option whose `value` equals the target ISO code. Re-read
+   the trigger's `aria-label` after the click to confirm the switch
+   took.
+
+The URL TLD (e.g. `advertising.amazon.<tld>`)
+**does not** force the country in shape A — the dropdown
+overrides it. The TLD matters only as the entry point of an
+already-authenticated session: in shape B, the TLD typically
+matches the only registered marketplace; in shape A it's just
+where this entity's console happens to live, and the dropdown is
+authoritative.
 
 The URL TLD (e.g. `advertising.amazon.<tld>`)
 **does not** force the country in shape A — the modal dropdown
@@ -721,9 +760,10 @@ Bottom of the form has three actions: `返回广告活动` (cancel) /
 `另存为草稿` (save as draft) / `启动N个广告活动` (launch N campaigns).
 
 For the new-product-launch plan-stop pattern, **always click 另存为
-草稿 first**, then re-open the draft from the `草稿` (Drafts)
-sidebar link, screenshot it for the user, get explicit "proceed",
-then click `启动` from inside the draft.
+草稿 first**, then re-open the draft from the drafts list — reach it via
+the **`View drafts`** button on the Campaign Builder page
+(`/cb?entityId=…`) or the URL below — screenshot it for the user, get
+explicit "proceed", then click `启动` from inside the draft.
 
 The drafts list is at `https://advertising.amazon.<tld>/cm/drafts?entityId=…`;
 each draft row has an `编辑` (Edit) button. Reopening loads the same
@@ -1060,19 +1100,24 @@ the seller-side SKU.
 
 ### 4c. Bulk Excel schema (Sponsored Products Campaigns sheet, 52 columns)
 
+Verified against a live 2026-10 export (52 columns, exact header
+strings — several "(informational)" labels were renamed from the older
+"(Informational only)" wording, and one from "Reason for Ineligibility"
+to "Ineligibility Reason"; treat the sheet's own header row as truth):
+
 ```
 Product, Entity, Operation, Campaign ID, Ad Group ID, Portfolio ID, Ad ID,
 Keyword ID, Product Targeting ID, Campaign Name, Ad Group Name,
-Campaign Name (Informational only), Ad Group Name (Informational only),
-Portfolio Name (Informational only), Start Date, End Date, Targeting Type,
-State, Campaign State (Informational only), Ad Group State (Informational only),
-Daily Budget, SKU, ASIN (Informational only), Eligibility Status (Informational only),
-Reason for Ineligibility (Informational only), Ad Group Default Bid,
-Ad Group Default Bid (Informational only), Bid, Keyword Text, Native Language Keyword,
+Campaign Name (informational), Ad Group Name (informational),
+Portfolio Name (informational), Start Date, End Date, Targeting Type,
+State, Campaign State (informational), Ad Group State (informational),
+Daily Budget, SKU, ASIN (informational), Eligibility Status (informational),
+Ineligibility Reason (informational), Ad Group Default Bid,
+Ad Group Default Bid (informational), Bid, Keyword Text, Native Language Keyword,
 Native Language Locale, Match Type, Bidding Strategy, Placement, Percentage,
-Product Targeting Expression, Resolved Product Targeting Expression (Informational only),
-Audience ID, Shopper Cohort Percentage, Shopper Cohort Type,
-Segment Name (Informational only), Impressions, Clicks, Click-through Rate,
+Product Targeting Expression, Resolved Product Targeting Expression (informational),
+Audience ID, Shopper Cohort % (informational), Shopper Cohort Type (informational),
+Segment Name (informational), Impressions, Clicks, Click-through Rate,
 Spend, Sales, Orders, Units, Conversion Rate, ACOS, CPC, ROAS
 ```
 
@@ -1108,6 +1153,67 @@ source of the seller's SKU naming scheme for that store.
 
 ## 5. Coupons
 
+> **REDESIGNED (verified 2026-10-31).** The old coupons dashboard is
+> gone: `https://sellercentral.amazon.<tld>/coupons/dashboard` now
+> **redirects to the unified `Manage promotions` page**
+> (`/manage/promotions?ref=sc_promotions`), and coupon creation is a
+> 4-step wizard under `/workflow/coupons/create`. The subsections below
+> carry the new layout; the eligibility rules (§5a) and the kat-input
+> wall (§5e) still describe real behaviour but were observed on the old
+> UI — re-verify the input behaviour against the new wizard before
+> trusting the workarounds.
+
+### 5b-0. The unified Manage promotions page
+
+`https://sellercentral.amazon.<tld>/manage/promotions` — title
+"Manage Promotions (N)". Top tab row: **Manage promotions | Create
+promotions | Manage brand tailored promotions** (breadcrumb Marketing >
+Manage promotions and deals). Right controls: **Promotion Performance**
+link · **All promotions ⌄** view picker · **Create promotion ⌄**.
+Filters: Search by ASIN/SKU · Promotion type ⌄ · Running/Upcoming ⌄ ·
+Store ⌄ · +2 · Save view · Clear filters. Type chips: **Deals | Coupons |
+Price Discounts | Buy X, Get Y**. Table columns: Promotion (Promotion
+type | ASINs) · Status · Schedule (Events) · Audience · Promotion terms ·
+Performance · Action (Edit ⌄ split button).
+
+**The list is account-wide, not per-marketplace**: rows from different
+countries render in one table (a UAE deal shows while the session is on
+SA, with AED figures) — filter with the **Store ⌄** control instead of
+switching the marketplace, the opposite of the ads console.
+
+`Create promotion ⌄` opens the menu of creation flows (hrefs verified):
+
+| Menu item | URL |
+|---|---|
+| Create Coupon | `/workflow/coupons/create` |
+| Create Coupons in bulk | `/coupons/bulk-upload` |
+| Create Deal | `/merchandising-new/create` |
+| Create Deals in bulk | `/promotion-central/manage-in-bulk/` |
+| Create Buy X, Get Y | `/promotion-central/bxgy/create` |
+| Create Price Discount | `/discounts/create` |
+
+### 5c. Four-step coupon wizard
+
+`/workflow/coupons/create` redirects to
+`/workflow/coupons/create/<uuid>/step/1` (app title "NGS Workflows
+Application"). The wizard is a left rail titled "Create Coupon" with a
+progress line ("0 of 4 steps completed · 0%") and **four steps**:
+
+1. **Store & products** — "Store to launch coupon" (**`Choose store`**
+   dropdown listing every marketplace this account sells on, e.g.
+   Saudi Arabia (Middle East & North Africa) / United Arab Emirates) +
+   **"All ASINs"** ("ASINs will be available once you select a store").
+   The product search appears only after a store is chosen. Bottom
+   controls: `Back ⌄` · `Continue`.
+2. **Coupon set up** (locked until step 1 is done)
+3. **More details** (locked)
+4. **Review and confirm** (locked)
+
+Unlike the old flow, the coupon's marketplace is chosen EXPLICITLY in
+step 1 (the `Choose store` dropdown), not inherited from the session's
+marketplace — pick the store the task names even when the session is on
+another marketplace.
+
 ### 5a. Eligibility ≠ inventory
 
 A SKU being Active and in stock is **not** sufficient for it to appear
@@ -1128,30 +1234,25 @@ coupon search returns no eligible ASINs, try the account's other
 marketplace(s)** before concluding the SKU can't run a coupon. Run
 the coupon in that marketplace's currency.
 
-### 5b. Coupon dashboard URLs
+### 5b. Coupon dashboard URLs — LEGACY (pre-redesign)
 
 ```
 https://sellercentral.amazon.<tld>/coupons/dashboard
 ```
 
-The dashboard lists existing coupons with status pills, dates, budget,
-budget-utilization. Two top-right buttons: `Create coupons in bulk`
-and `Create a new Coupon` — both inside shadow DOM. Walk
-`document → element.shadowRoot` recursively to find them.
+This URL now REDIRECTS to `/manage/promotions` (§5b-0). The old
+dashboard — status pills, budget-utilization, two shadow-DOM buttons
+`Create coupons in bulk` / `Create a new Coupon` — no longer renders.
 
-### 5c. Three-step form
+### 5c. Three-step form — LEGACY (pre-redesign)
 
-`/coupons/create-coupon` is a 3-step wizard:
+`/coupons/create-coupon` was a 3-step wizard (Products / Details /
+Review). The live wizard is the four-step one in §5c above
+(Store & products / Coupon set up / More details / Review and
+confirm). The field-level notes in §5d–§5e were observed on the old
+form and have not yet been re-verified against the new one.
 
-1. **Products** — choose coupon type (Standard), Audience Type (All
-   customers), search and check products.
-2. **Details** — schedule (start/end), discount type (Money off /
-   Percentage off), discount amount, redemption-limit checkbox,
-   budget, coupon title (max 150 chars), stacked-promotions radio
-   (Yes/No allow stacking).
-3. **Review** — final review screen, then submit.
-
-### 5d. Step 1: Products
+### 5d. Step 1: Products — LEGACY
 
 Search input placeholder: `Search by product name or ASIN`. Search by
 SKU works too. The result row has a checkbox at the far left

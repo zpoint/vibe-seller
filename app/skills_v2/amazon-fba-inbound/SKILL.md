@@ -121,6 +121,11 @@ merchant id — do not use it as an account check.
 
 ## 2. The wizard
 
+The Supply-chain workspace (NGS drawer) now lists three sibling links:
+**Send to Amazon** (`/fba/sendtoamazon`), **Send to AWD** and **Move
+from AWD** (Amazon Warehousing Distribution). This skill is only about
+the first; don't follow an AWD link by mistake when the task says FBA.
+
 **Step 1 and Step 2 are two different pages**, and confusing them wastes a
 run — Step 2 cannot be reached until Step 1 is clean:
 

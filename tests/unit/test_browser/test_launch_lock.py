@@ -40,8 +40,8 @@ def _wait(seconds: str, launch_cap: str = '180'):
 async def test_an_uncontended_lock_is_taken_immediately():
     lock = GlobalLaunchLock()
     with _wait('5'):
-        async with lock.hold('start_session(zuly)'):
-            assert lock.holder == 'start_session(zuly)'
+        async with lock.hold('start_session(store-a)'):
+            assert lock.holder == 'start_session(store-a)'
     assert lock.holder is None
 
 
@@ -51,18 +51,18 @@ async def test_a_wedged_holder_is_refused_not_waited_out():
     released = asyncio.Event()
 
     async def wedged():
-        async with lock.hold('start_session(zuly)'):
+        async with lock.hold('start_session(store-a)'):
             await released.wait()
 
     task = asyncio.create_task(wedged())
     await asyncio.sleep(0)  # let it take the lock
 
     with _wait('0.05'), pytest.raises(BrowserBusyError) as err:
-        async with lock.hold('start_session(infino)'):
+        async with lock.hold('start_session(store-b)'):
             pass  # pragma: no cover
 
-    assert 'start_session(zuly)' in str(err.value)
-    assert 'start_session(infino)' in str(err.value)
+    assert 'start_session(store-a)' in str(err.value)
+    assert 'start_session(store-b)' in str(err.value)
     released.set()
     await task
 
@@ -73,7 +73,7 @@ async def test_the_lock_is_still_usable_after_a_refusal():
     released = asyncio.Event()
 
     async def wedged():
-        async with lock.hold('stop_session(zuly)'):
+        async with lock.hold('stop_session(store-a)'):
             await released.wait()
 
     task = asyncio.create_task(wedged())
@@ -95,7 +95,7 @@ async def test_a_holder_inside_the_launch_budget_reads_as_contention():
     released = asyncio.Event()
 
     async def holder():
-        async with lock.hold('start_session(zuly)'):
+        async with lock.hold('start_session(store-a)'):
             await released.wait()
 
     task = asyncio.create_task(holder())
@@ -117,7 +117,7 @@ async def test_a_holder_past_the_launch_budget_reads_as_stuck():
     released = asyncio.Event()
 
     async def holder():
-        async with lock.hold('start_session(zuly)'):
+        async with lock.hold('start_session(store-a)'):
             await released.wait()
 
     task = asyncio.create_task(holder())
@@ -144,7 +144,7 @@ async def test_no_launch_ceiling_means_no_verdict():
     released = asyncio.Event()
 
     async def holder():
-        async with lock.hold('start_session(zuly)'):
+        async with lock.hold('start_session(store-a)'):
             await released.wait()
 
     task = asyncio.create_task(holder())
@@ -169,7 +169,7 @@ async def test_zero_disables_the_ceiling():
     took = asyncio.Event()
 
     async def holder():
-        async with lock.hold('start_session(zuly)'):
+        async with lock.hold('start_session(store-a)'):
             await released.wait()
 
     async def peer():
@@ -191,7 +191,7 @@ async def test_zero_disables_the_ceiling():
 async def test_the_holder_is_forgotten_when_the_body_raises():
     lock = GlobalLaunchLock()
     with _wait('5'), pytest.raises(ValueError):
-        async with lock.hold('start_session(zuly)'):
+        async with lock.hold('start_session(store-a)'):
             raise ValueError('launch blew up')
     assert lock.holder is None
     assert lock.held_for() == 0.0

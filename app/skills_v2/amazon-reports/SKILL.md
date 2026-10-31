@@ -28,13 +28,24 @@ CSV/PDF structures for building analysis scripts.
 
 ## Critical: Hamburger Menu Navigation
 
-Many reports are accessed via the **hamburger menu** (top-left corner).
-This menu uses a **hover-to-reveal** pattern — you must dispatch a
-`mouseover`, not a `click`, on a category to reveal its submenu items.
-(See `../amazon-shared/SKILL.md § 4` for the canonical version.)
+Many reports are accessed via a menu, but WHICH menu depends on the UI
+generation (`../amazon-shared/SKILL.md § 4b` — detect it first):
+
+- **Classic UI** — the hamburger (`navigation-hamburger-menu`, top-left)
+  uses a **hover-to-reveal** pattern: dispatch `mouseover` (not click)
+  on a category to reveal its submenu. The recipe below.
+- **New Seller Central (NGS trim)** — there is no
+  `navigation-hamburger-menu`; the drawer is `div#ngstrim-nav-menu`
+  opened by `button[aria-label="Menu"]`, and its items are **plain
+  anchors with real hrefs** (Reports → `/reportcentral/WelcomePage`,
+  Tax Document Library → `/tax/seller-fee-invoices`, Finance reports →
+  `/payments/reports-repository`, …). No hover dance needed — read the
+  href and open it. When you know the path, prefer the direct URL
+  (§ above each report below) on BOTH UIs.
 
 ```bash
 browser-use <<'PY'
+# CLASSIC UI only:
 # 1. Open the hamburger menu (opens the full sidebar overlay).
 #    The button is a role=button inside the navigation-hamburger-menu
 #    shadow DOM — reach it through its shadow host.
@@ -422,9 +433,18 @@ downstream consumers looking like real data.
 
 ### Sub-sections (left sidebar)
 
-- **Dashboards** → Sales Dashboard
-- **By Date** → Sales and Traffic, Detail Page Sales and Traffic, Seller Performance
-- **By ASIN** → Detail Page Sales and Traffic, By Parent Item, By Child Item
+Grouped as **Dashboards** (Sales Dashboard), **By Date**, and **By
+ASIN**. The report rows are anchors whose `#/report?id=…` hrefs are
+language-stable handles (verified 2026-10-31) — match by href, not by
+the localized label:
+
+| Report | href fragment |
+|---|---|
+| Sales and Traffic | `#/report?id=102:SalesTrafficTimeSeries` |
+| Detail Page Sales and Traffic | `#/report?id=102:DetailSalesTrafficByTime` |
+| Seller Performance | `#/report?id=102:SellerPerformanceForMerchants` |
+| Detail Page Sales and Traffic By Parent Item | `#/report?id=102:DetailSalesTrafficByParentItem` |
+| Detail Page Sales and Traffic By Child Item | `#/report?id=102:DetailSalesTrafficByChildItem` |
 
 ### Export Flow
 
@@ -710,6 +730,11 @@ asks for that exact name.
 - **Tab**: Seller Fee Invoices (default and only tab)
 - Displays most recent 1,000 invoices. Click "Load More" at bottom for older.
 - **Invoices grouped by month** (newest first)
+- **Transaction-level CSV (new, 2026-10)**: a banner announces a CSV
+  breakdown "of the individual transactions behind each invoice total —
+  including Transaction ID, Order ID, Fee Type and Total Fees"; rows
+  marked **CSV** carry it and download via their `View` button, same as
+  the PDFs ("Your PDF invoices remain available and unchanged").
 
 ### Table Columns
 

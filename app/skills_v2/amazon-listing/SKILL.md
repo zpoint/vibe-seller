@@ -53,9 +53,15 @@ review:
     the task workspace) and confirm each SKU is in `rows` with
     a real ASIN (the one intended, for a pinned row) and nothing
     attempted is in `missing`; it refuses unless the page's `ue_mid` is
-    that marketplace. Do NOT verify on `skucentral?mSku=` -- it renders
-    an empty body in this console (one run spent 19 calls on it). Then
-    confirm the offer/price/stock on that marketplace's Pricing view.
+    that marketplace. `skucentral?mSku=` is an UNRELIABLE verification
+    surface -- it has rendered an empty body in some sessions (one run
+    spent 19 calls on it) though it renders normally in others
+    (re-checked 2026-10-31: SKU/ASIN/FNSKU header + Sales/Economics/
+    Pricing/Inventory tabs all present). If you open it, first confirm
+    it actually rendered (a `SKU:` header line in the body text);
+    an empty body is this page's known failure mode, not a missing SKU.
+    Then confirm the offer/price/stock on that marketplace's Pricing
+    view.
     FIRST, on every page you verify from, read WHICH marketplace the
     page is actually displaying: the header account/marketplace
     switcher label (store name + country/flag next to Settings) is the
@@ -204,8 +210,33 @@ each SKU's ASIN off the page's own `div[data-sku]` rows, proves the
 marketplace by `ue_mid`, and names the SKUs that are not there. Confirm
 every SKU has the ASIN you meant, and for a family that the parent row
 (the one with `offer_cell: false`) carries the family's parent ASIN.
-`skucentral?mSku=` is not a verification surface: it renders empty in
-this console.
+`skucentral?mSku=` is an unreliable verification surface: it has
+rendered an empty body in some sessions (see the review block above for
+the render check).
+
+> **The inventory page itself (re-verified 2026-10-31).** URL is still
+> `/myinventory/inventory`; the header now reads **"Manage All
+> Inventory"** (NGS naming) and, on an NGS session, the classic page
+> body renders under the `ngstrim` trim. Tab row: **All listings (N) /
+> Complete drafts (N) / Activate listings (N) / Enhance listings (N) /
+> Review listing changes**; quick filters + Listing status / Fulfilled
+> by dropdowns + "All filters"; top-right buttons **"Add a variation"**
+> and **"Add a product"**. Row actions live in a per-row kebab
+> (`button.indicator` inside a `kat-dropdown-button` at the row's far
+> right — **outside** the `div[data-sku]` element, so row-scoped
+> queries miss it). Parent (family) rows offer Edit listing / Manage
+> images / Copy listing / Analyze for FBA / Delete listing / Advertise
+> listing; child rows add Add another condition / Change to Fulfilled
+> by Merchant / Send or replenish inventory / Create removal order /
+> Print item labels / Close listing / Change shipping template.
+> Expanding a family ("Variations (N)") opens a "Related to N
+> variations" panel whose child rows carry an inline **price input**
+> plus "View reference prices" and a **`+N marketplace` chip** on
+> listings that exist on more than one marketplace. Automation caveat:
+> in testing the kebab menu's items did not respond to synthetic
+> clicks (the `kat-dropdown-button` host won the hit-test over its own
+> popup); the flat-file helpers and `bh_listing_status.py` are the
+> reliable paths — don't burn a run on the menu.
 
 > **"Missing Information / ASIN -" is usually NOT a failure — don't
 > thrash.** Two benign causes, and re-uploading fixes neither:
