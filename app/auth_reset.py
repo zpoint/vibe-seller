@@ -42,6 +42,7 @@ from app.schemas.user import validate_username
 SEED_USERNAME = 'admin'
 SEED_EMAIL = 'admin@vibe-seller.local'
 SEED_PASSWORD = 'admin'
+SEED_LOGIN = f'{SEED_USERNAME} / {SEED_EMAIL} / {SEED_PASSWORD}'
 
 # bcrypt silently ignores everything past 72 bytes.
 BCRYPT_MAX_BYTES = 72
@@ -352,7 +353,7 @@ def _print_status(status: dict, db_path: Path) -> None:
     elif default['seed_password_works']:
         print(
             f'Default admin account: {default["username"]} — the seeded '
-            f'{SEED_USERNAME} / {SEED_PASSWORD} still works.'
+            f'login ({SEED_LOGIN}) still works.'
         )
     else:
         print(
