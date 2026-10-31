@@ -378,7 +378,9 @@ The seeded admin is `admin` / `admin@vibe-seller.local` / `admin` (`app/env_opti
 
 `--db PATH` points at a database other than the app's runtime one. The action reads `app_settings` per request, so `disable` / `enable` take effect immediately (the frontend caches the flag — the browser needs a reload).
 
-A reset of the seeded admin also pins the `admin_credentials_set` setting: while that flag is unset, the boot seed re-applies `ADMIN_USERNAME` / `ADMIN_PASSWORD` on every start, which would undo the reset at the next restart.
+`--user` follows the login screen's own rule: an identifier containing `@` is an email, anything else is a username. A username is validated with the app's own rules (`app/schemas/user.py:validate_username`) before it is written, because the login screen routes an `@` to the email lookup — a username that broke either rule could never log in, and the recovery tool must not write one. An email identifies an account but cannot be renamed to.
+
+A reset of the seeded admin also pins the `admin_credentials_set` setting: while that flag is unset, the boot seed re-applies `ADMIN_USERNAME` / `ADMIN_PASSWORD` on every start, which would undo the reset at the next restart. That guarantee has one exception the tool cannot fix from the outside: with `FORCE_ADMIN_RESET=true` in the server's environment, the boot seed overwrites the credentials **and deletes the pin** on every start, so the reset does not survive a restart. The command detects that and says so instead of promising otherwise; `status` reports it too.
 
 A reset does **not** end existing sessions: the session is a stateless JWT in an httpOnly cookie with a 7-day expiry, and nothing in it is tied to the password. To force every session to log in again, stop the server, delete `~/.vibe-seller/data/jwt_secret` (the next start regenerates it) and start it again — that also invalidates the tokens the agent's MCP client holds, which the tasks re-issue as they run.
 

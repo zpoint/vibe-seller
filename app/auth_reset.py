@@ -10,7 +10,9 @@ password, and the two documented ways back in both have a catch:
 * ``FORCE_ADMIN_RESET=true`` is the supported reset path, but it is
   applied by the boot seed, so it needs a server restart — and the
   agent tasks run as children of that server, so the restart kills
-  whatever was running.
+  whatever was running. It also means the next restart undoes any
+  reset made here, which this module warns about rather than pretends
+  otherwise.
 
 This module is the third way in: a standalone command that edits the
 same SQLite file the app reads. The server can stay up and the running
@@ -24,12 +26,14 @@ the server may be holding the database open while it runs.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 import sqlite3
 import sys
 
 from app.password import hash_password, verify_password
+from app.schemas.user import validate_username
 
 # The credentials the boot seed writes on a fresh install
 # (app/env_options.py). Kept here so `status` can answer the question
@@ -71,6 +75,20 @@ def resolve_db_path(explicit: str | None = None) -> Path:
     from app.config import DB_PATH  # noqa: PLC0415
 
     return Path(DB_PATH)
+
+
+def force_admin_reset() -> bool:
+    """Whether the boot seed will re-apply the env credentials.
+
+    `FORCE_ADMIN_RESET=true` makes the boot seed overwrite the admin
+    credentials and delete the `admin_credentials_set` flag on every
+    start — so a reset made now would be undone by the next restart.
+    The tool cannot change the environment the server runs in, but it
+    can refuse to promise something the environment will take back.
+    """
+    from app.env_options import Options  # noqa: PLC0415
+
+    return Options.FORCE_ADMIN_RESET.get_bool()
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -126,26 +144,80 @@ def login_users(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def find_account(
+    conn: sqlite3.Connection, identifier: str
+) -> sqlite3.Row | None:
+    """Find an account by the same rule the login screen uses.
+
+    An identifier containing '@' is an email, anything else is a
+    username — mirroring app/routers/auth.py, so whatever the operator
+    types into the login box also finds the account here.
+    """
+    if '@' in identifier:
+        return conn.execute(
+            'SELECT * FROM users WHERE email = ?', (identifier,)
+        ).fetchone()
+    return conn.execute(
+        'SELECT * FROM users WHERE username = ?', (identifier.lower(),)
+    ).fetchone()
+
+
+def validate_new_username(name: str) -> str:
+    """Check a username against the app's own rules.
+
+    The login screen routes an identifier containing '@' to the email
+    lookup, and the user schema allows only [a-z0-9_-] — a username
+    breaking either rule could never log in, so the recovery tool must
+    not write one.
+    """
+    try:
+        return validate_username(name)
+    except ValueError as exc:
+        raise RecoveryError(f'Invalid username: {exc}') from exc
+
+
+def default_admin_row(conn: sqlite3.Connection, default_id: str) -> sqlite3.Row:
+    """The account the boot seed created, or an error if it is gone."""
+    row = conn.execute(
+        'SELECT * FROM users WHERE id = ?', (default_id,)
+    ).fetchone()
+    if row is None:
+        raise RecoveryError(
+            'The default admin account is missing from the database — '
+            'there is nothing to reset. A server restart re-seeds it.'
+        )
+    return row
+
+
 def collect_status(conn: sqlite3.Connection) -> dict:
     """Everything `status` prints, as data."""
     default_id = _default_admin_id()
     users = []
+    default_admin = None
     for row in login_users(conn):
-        users.append({
+        is_default = row['id'] == default_id
+        user = {
             'username': row['username'],
             'email': row['email'],
             'role': row['role'],
             'is_active': bool(row['is_active']),
-            'is_default_admin': row['id'] == default_id,
-            'seed_password_works': _password_matches(
+            'is_default_admin': is_default,
+        }
+        if is_default:
+            # Only the default admin's seed password is worth a bcrypt
+            # verify (~100ms each, and there is exactly one such row).
+            user['seed_password_works'] = _password_matches(
                 SEED_PASSWORD, row['password_hash']
-            ),
-        })
+            )
+            default_admin = user
+        users.append(user)
     return {
         'auth_required': _is_true(_get_setting(conn, 'auth_required')),
         'admin_credentials_set': _is_true(
             _get_setting(conn, 'admin_credentials_set')
         ),
+        'force_admin_reset': force_admin_reset(),
+        'default_admin': default_admin,
         'users': users,
     }
 
@@ -175,37 +247,35 @@ def reset_password(
     locked-out operator restores the canonical `admin` login.
     """
     default_id = _default_admin_id()
-    requested = username.strip().lower() if username else None
+    requested = (username or '').strip()
+    if username is not None and not requested:
+        raise RecoveryError('--user must not be empty.')
+
+    rename_to = None
+    row = None
 
     if requested:
-        row = conn.execute(
-            'SELECT * FROM users WHERE username = ?', (requested,)
-        ).fetchone()
+        row = find_account(conn, requested)
         if row is None:
             if not rename:
                 known = ', '.join(u['username'] for u in login_users(conn))
                 raise RecoveryError(
-                    f"No account named '{requested}'. Known accounts: "
+                    f"No account matches '{requested}'. Known accounts: "
                     f'{known}. Pass --rename to rename the default admin '
                     'account to that name instead.'
                 )
-            row = conn.execute(
-                'SELECT * FROM users WHERE id = ?', (default_id,)
-            ).fetchone()
-            if row is None:
+            if '@' in requested:
                 raise RecoveryError(
-                    'The default admin account is missing from the '
-                    'database — there is nothing to reset.'
+                    'An email address cannot be used as a username: the '
+                    'login screen routes any identifier containing @ to '
+                    'the email lookup, and the user schema forbids @ in '
+                    'usernames. Drop --rename to reset that account in '
+                    'place.'
                 )
+            rename_to = validate_new_username(requested)
+            row = default_admin_row(conn, default_id)
     else:
-        row = conn.execute(
-            'SELECT * FROM users WHERE id = ?', (default_id,)
-        ).fetchone()
-        if row is None:
-            raise RecoveryError(
-                'The default admin account is missing from the database '
-                '— there is nothing to reset.'
-            )
+        row = default_admin_row(conn, default_id)
 
     if row['role'] == 'ai_bot':
         raise RecoveryError(
@@ -214,10 +284,10 @@ def reset_password(
 
     previous_username = row['username']
     renamed = False
-    if requested and requested != previous_username:
+    if rename_to and rename_to != previous_username:
         conn.execute(
             'UPDATE users SET username = ? WHERE id = ?',
-            (requested, row['id']),
+            (rename_to, row['id']),
         )
         renamed = True
 
@@ -239,11 +309,12 @@ def reset_password(
 
     conn.commit()
     return {
-        'username': requested or previous_username,
+        'username': rename_to or previous_username,
         'previous_username': previous_username,
         'renamed': renamed,
         'is_default_admin': row['id'] == default_id,
         'was_inactive': not bool(row['is_active']),
+        'force_admin_reset': force_admin_reset(),
     }
 
 
@@ -272,14 +343,35 @@ def _print_status(status: dict, db_path: Path) -> None:
         'Login screen: '
         + ('ON (a password is required)' if status['auth_required'] else 'OFF')
     )
+    default = status['default_admin']
+    if default is None:
+        print(
+            'Default admin account: MISSING — a server restart re-seeds '
+            'it from the environment.'
+        )
+    elif default['seed_password_works']:
+        print(
+            f'Default admin account: {default["username"]} — the seeded '
+            f'{SEED_USERNAME} / {SEED_PASSWORD} still works.'
+        )
+    else:
+        print(
+            f'Default admin account: {default["username"]} — its password '
+            'is not the seeded default.'
+        )
     print(
-        'Default credentials: '
+        'Startup credentials: '
         + (
-            'overridden (the seeded admin/admin no longer applies)'
-            if status['admin_credentials_set']
-            else 'untouched (admin/admin still applies)'
+            'the environment defaults are re-applied on every start'
+            if not status['admin_credentials_set']
+            else 'user-set (kept across restarts)'
         )
     )
+    if status['force_admin_reset']:
+        print(
+            '  WARNING: FORCE_ADMIN_RESET is set — the next restart will '
+            'overwrite the admin credentials and undo any reset.'
+        )
     print('Accounts that can log in:')
     for user in status['users']:
         flags = []
@@ -287,8 +379,6 @@ def _print_status(status: dict, db_path: Path) -> None:
             flags.append('default admin')
         if not user['is_active']:
             flags.append('disabled')
-        if user['seed_password_works']:
-            flags.append('password is the default "admin"')
         suffix = f' [{", ".join(flags)}]' if flags else ''
         email = user['email'] or '-'
         print(f'  - {user["username"]} <{email}> ({user["role"]}){suffix}')
@@ -298,13 +388,18 @@ def _print_status(status: dict, db_path: Path) -> None:
 
 def _run_status(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         _print_status(collect_status(conn), db_path)
     return 0
 
 
 def _run_password(args: argparse.Namespace) -> int:
-    password = args.password or prompt_password()
+    if args.password is None:
+        password = prompt_password()
+    else:
+        password = args.password
+        if not password:
+            raise RecoveryError('--password must not be empty.')
     if len(password.encode('utf-8')) > BCRYPT_MAX_BYTES:
         print(
             f'Note: bcrypt only uses the first {BCRYPT_MAX_BYTES} bytes '
@@ -312,7 +407,7 @@ def _run_password(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
     db_path = resolve_db_path(args.db)
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         result = reset_password(conn, args.user, password, rename=args.rename)
     if result['renamed']:
         print(
@@ -323,12 +418,20 @@ def _run_password(args: argparse.Namespace) -> int:
         print('Reactivated the account — it was disabled.')
     print(f'Password reset for "{result["username"]}".')
     print('Log in with that username and the new password.')
+    if result['force_admin_reset']:
+        print(
+            'WARNING: FORCE_ADMIN_RESET is set in this environment. The '
+            'next server restart re-applies ADMIN_USERNAME / '
+            'ADMIN_PASSWORD and undoes this reset. Drop the variable (or '
+            'point it at the credentials you just set) before restarting.',
+            file=sys.stderr,
+        )
     return 0
 
 
 def _run_disable(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         set_auth_required(conn, False)
     print('Login screen OFF.')
     print(
@@ -341,7 +444,7 @@ def _run_disable(args: argparse.Namespace) -> int:
 
 def _run_enable(args: argparse.Namespace) -> int:
     db_path = resolve_db_path(args.db)
-    with connect(db_path) as conn:
+    with closing(connect(db_path)) as conn:
         set_auth_required(conn, True)
     print('Login screen ON.')
     print(
@@ -443,6 +546,12 @@ def main(argv: list[str] | None = None) -> int:
         return args.func(args)
     except RecoveryError as exc:
         print(f'Error: {exc}', file=sys.stderr)
+        return 1
+    except sqlite3.Error as exc:
+        # A corrupt or unreadable database is a one-liner, not a
+        # traceback: the operator is trying to fix something that is
+        # already broken.
+        print(f'Error: cannot read the database: {exc}', file=sys.stderr)
         return 1
 
 

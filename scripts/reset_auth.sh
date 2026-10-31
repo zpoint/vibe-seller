@@ -8,7 +8,7 @@
 #
 # The command edits the app database in place, so the server can stay up
 # and the agent tasks running under it are not interrupted. On Windows
-# use scripts/reset_auth.ps1 instead.
+# use scripts/reset_auth.bat instead.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,7 +16,8 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 # 1. A checkout's own venv — the common case for a source install.
 #    `app.auth_reset` is the module the `vibe-seller reset-auth`
-#    command runs, and it needs nothing but bcrypt.
+#    command runs, and it needs nothing but the app's own deps
+#    (bcrypt, pydantic).
 if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
   exec env PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
     "$REPO_ROOT/.venv/bin/python" -m app.auth_reset "$@"

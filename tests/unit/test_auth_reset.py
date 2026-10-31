@@ -96,6 +96,13 @@ def _setting(path, key):
     return None if row is None else row['value']
 
 
+def _usernames(path):
+    with _connect(path) as conn:
+        return [
+            r[0] for r in conn.execute('SELECT username FROM users').fetchall()
+        ]
+
+
 def _add_user(path, username, role='admin'):
     """Add a user the way the app does — SQLAlchemy fills the defaults."""
     engine = create_engine(f'sqlite:///{path}')
@@ -128,6 +135,7 @@ class TestStatus:
         # The AI bot cannot log in, so it is not listed.
         assert [u['username'] for u in status['users']] == ['operator']
         assert status['users'][0]['is_default_admin'] is True
+        assert status['default_admin']['username'] == 'operator'
 
     def test_flags_an_account_whose_password_is_the_seed_default(self, db_path):
         with _connect(db_path) as conn:
@@ -137,7 +145,24 @@ class TestStatus:
             )
             conn.commit()
             status = collect_status(conn)
-        assert status['users'][0]['seed_password_works'] is True
+        assert status['default_admin']['seed_password_works'] is True
+
+    def test_a_missing_default_admin_is_reported_as_missing(self, db_path):
+        # Another admin can hard-delete the default admin (the delete
+        # route only blocks the AI bot and self) — the claim "the seeded
+        # admin/admin still applies" must not survive that.
+        with _connect(db_path) as conn:
+            conn.execute('DELETE FROM users WHERE id = ?', (DEFAULT_ADMIN_ID,))
+            conn.commit()
+            status = collect_status(conn)
+        assert status['default_admin'] is None
+        assert status['users'] == []
+
+    def test_reports_the_force_admin_reset_hazard(self, db_path, monkeypatch):
+        monkeypatch.setenv('FORCE_ADMIN_RESET', 'true')
+        with _connect(db_path) as conn:
+            status = collect_status(conn)
+        assert status['force_admin_reset'] is True
 
 
 class TestResetPassword:
@@ -173,6 +198,53 @@ class TestResetPassword:
         assert result['previous_username'] == 'operator'
         assert result['username'] == 'admin'
         assert verify_password('x', _hash_of(db_path, 'admin'))
+
+    def test_rename_refuses_a_name_that_could_never_log_in(self, db_path):
+        # The login screen routes an identifier containing '@' to the
+        # email lookup, so a username with one could never log in — the
+        # tool must not write it.
+        with _connect(db_path) as conn:
+            with pytest.raises(RecoveryError) as exc:
+                reset_password(conn, 'ops@corp.com', 'x', rename=True)
+        assert 'email' in str(exc.value).lower()
+        # The account was not touched.
+        assert _hash_of(db_path, 'operator') == 'x'
+
+    def test_rename_refuses_a_name_the_user_schema_would_reject(self, db_path):
+        for bad in ('ab', 'has space', 'UPPER!', 'x' * 51):
+            with _connect(db_path) as conn:
+                with pytest.raises(RecoveryError):
+                    reset_password(conn, bad, 'x', rename=True)
+            assert 'operator' in _usernames(db_path)
+
+    def test_an_email_identifies_an_account_like_the_login_screen(
+        self, db_path
+    ):
+        with _connect(db_path) as conn:
+            result = reset_password(conn, 'admin@vibe-seller.local', 'x')
+        assert result['username'] == 'operator'
+        assert verify_password('x', _hash_of(db_path, 'operator'))
+
+    def test_an_unknown_email_is_refused(self, db_path):
+        with _connect(db_path) as conn:
+            with pytest.raises(RecoveryError):
+                reset_password(conn, 'nobody@vibe-seller.local', 'x')
+
+    def test_an_empty_or_blank_user_is_refused_not_treated_as_absent(
+        self, db_path
+    ):
+        # `--user '   '` must not silently reset the default admin.
+        for blank in ('', '   '):
+            with _connect(db_path) as conn:
+                with pytest.raises(RecoveryError):
+                    reset_password(conn, blank, 'x')
+            assert _hash_of(db_path, 'operator') == 'x'
+
+    def test_reports_the_force_admin_reset_hazard(self, db_path, monkeypatch):
+        monkeypatch.setenv('FORCE_ADMIN_RESET', 'true')
+        with _connect(db_path) as conn:
+            result = reset_password(conn, None, 'x')
+        assert result['force_admin_reset'] is True
 
     def test_reactivates_a_disabled_account(self, db_path):
         with _connect(db_path) as conn:
@@ -253,7 +325,31 @@ class TestCommandLine:
             str(db_path),
         ])
         assert rc == 1
-        assert 'No account named' in capsys.readouterr().err
+        assert 'No account matches' in capsys.readouterr().err
+
+    def test_an_empty_password_is_refused_not_prompted(self, db_path, capsys):
+        # An empty --password must not fall through to the interactive
+        # prompt, which a script can never answer.
+        rc = main([
+            'password',
+            '--password',
+            '',
+            '--db',
+            str(db_path),
+        ])
+        assert rc == 1
+        assert 'must not be empty' in capsys.readouterr().err
+
+    def test_a_corrupt_database_is_a_one_liner_not_a_traceback(
+        self, tmp_path, capsys
+    ):
+        broken = tmp_path / 'broken.db'
+        broken.write_bytes(b'this is not a database')
+        rc = main(['status', '--db', str(broken)])
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert 'cannot read the database' in err
+        assert 'Traceback' not in err
 
     def test_missing_database_is_reported(self, tmp_path, capsys):
         rc = main(['status', '--db', str(tmp_path / 'nope.db')])

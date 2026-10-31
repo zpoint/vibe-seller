@@ -21,7 +21,8 @@ popd
 
 REM 1. A checkout's own venv — the common case for a source install.
 REM    app.auth_reset is the module the `vibe-seller reset-auth` command
-REM    runs, and it needs nothing but bcrypt.
+REM    runs, and it needs nothing but the app's own deps (bcrypt,
+REM    pydantic).
 if exist "%REPO_ROOT%\.venv\Scripts\python.exe" goto venv
 
 REM 2. The native Windows install (the Inno Setup package lays the app

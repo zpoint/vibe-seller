@@ -22,6 +22,7 @@ on:
       - 'app/env_options.py'
       - 'app/database.py'
       - 'app/routers/auth.py'
+      - 'app/schemas/user.py'
       - 'app/models/user.py'
       - 'app/models/app_settings.py'
       - 'scripts/reset_auth.sh'
