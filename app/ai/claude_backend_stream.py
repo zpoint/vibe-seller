@@ -21,6 +21,7 @@ from app.ai.stop_gates.report_reviewer import (
     review_files_written,
     rollover_reviews,
 )
+from app.ai.stream_event_trace import trace_stream_event
 from app.ai.task_status_reconcile import reconcile_streaming_run_status
 from app.database import async_session
 from app.errors import STREAM_ERROR_MAP, categorize_error_text
@@ -499,43 +500,13 @@ class _StreamMixin:
                 await self._close_stdin('legacy_result_close', emit=False)
 
         elif etype == 'stream_event':
-            # Raw SSE part forwarded by the CLI because every spawn
-            # env carries CLAUDE_CODE_INCLUDE_PARTIAL_MESSAGES=1
-            # (ensure_stream_liveness_env): message_start /
-            # content_block_start|delta|stop / pings, wrapped as
-            # {type:'stream_event', event:{...}}. Liveness needs no
-            # handling here — the any-line bump at the top of the
-            # read loop already fed these to the stall-reaper
-            # heartbeat, which is the whole point of the flag: a
-            # healthy slow compose now bumps updated_at per part
-            # instead of going silent for minutes. This branch exists
-            # so the parts are CONSUMED: the unknown-type fallthrough
-            # below would persist every one as an agent_event
-            # TaskMessage row (hundreds per turn). Deliberately NOT
-            # re-emitted to the frontend — the dormant 'delta' SSE
-            # path stays off (UI behaviour unchanged); when deltas
-            # are ever surfaced, unwrap event['event'] and route
-            # content_block_delta through the branch below.
+            # Partial-message SSE part (CLAUDE_CODE_INCLUDE_PARTIAL_
+            # MESSAGES=1). The any-line bump above already fed the
+            # stall-reaper heartbeat; this branch only CONSUMES it so the
+            # unknown-type fallthrough doesn't persist one agent_event
+            # row per part. Not re-emitted to the frontend.
             if AGENT_DEBUG:
-                inner = event.get('event') or {}
-                itype = inner.get('type', '')
-                if itype == 'content_block_delta':
-                    delta = inner.get('delta', {})
-                    dtype = delta.get('type')
-                    if dtype == 'text_delta':
-                        sz = len(delta.get('text', '') or '')
-                    elif dtype == 'thinking_delta':
-                        sz = len(delta.get('thinking', '') or '')
-                    elif dtype == 'input_json_delta':
-                        sz = len(delta.get('partial_json', '') or '')
-                    else:
-                        sz = -1
-                    logger.info(
-                        'STREAM_DELTA task=%s type=%s size=%d',
-                        self.task_id[:8],
-                        dtype,
-                        sz,
-                    )
+                trace_stream_event(self.task_id, event)
 
         elif etype == 'content_block_delta':
             delta = event.get('delta', {})
