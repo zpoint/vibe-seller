@@ -380,6 +380,8 @@ The seeded admin is `admin` / `admin@vibe-seller.local` / `admin` (`app/env_opti
 
 A reset of the seeded admin also pins the `admin_credentials_set` setting: while that flag is unset, the boot seed re-applies `ADMIN_USERNAME` / `ADMIN_PASSWORD` on every start, which would undo the reset at the next restart.
 
+A reset does **not** end existing sessions: the session is a stateless JWT in an httpOnly cookie with a 7-day expiry, and nothing in it is tied to the password. To force every session to log in again, stop the server, delete `~/.vibe-seller/data/jwt_secret` (the next start regenerates it) and start it again — that also invalidates the tokens the agent's MCP client holds, which the tasks re-issue as they run.
+
 Database file: `~/.vibe-seller/data/vibe_seller.db`. Delete to reset.
 
 ### Conventions
