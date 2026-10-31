@@ -133,7 +133,7 @@ jobs:
           # A cold first boot is what creates the database and seeds the
           # default admin — the state an install is in before anyone
           # changes the password.
-          Remove-Item -Recurse -Force "$env:USERPROFILE\.vibe-seller" `
+          Remove-Item -Recurse -Force (Join-Path $HOME '.vibe-seller') `
             -ErrorAction SilentlyContinue
           .\.venv\Scripts\vibe-seller.exe start --port 7778
           if ($LASTEXITCODE -ne 0) { throw "vibe-seller start failed" }
