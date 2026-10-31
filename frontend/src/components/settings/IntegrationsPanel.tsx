@@ -75,6 +75,7 @@ export function IntegrationsPanel() {
 
   return (
     <div className="space-y-4">
+      <AmazonAdsPanel />
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h3 className="font-semibold mb-1">{t('integrations.gws.title')}</h3>
         <p className="text-xs text-gray-500 mb-3">{t('integrations.gws.description')}</p>
@@ -183,7 +184,6 @@ export function IntegrationsPanel() {
       </div>
       <WeComBotSection />
       <Dida365Panel />
-      <AmazonAdsPanel />
     </div>
   )
 }

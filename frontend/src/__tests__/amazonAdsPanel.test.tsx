@@ -65,6 +65,20 @@ describe('AmazonAdsPanel', () => {
     expect(screen.getByText('SA · AE')).toBeTruthy()
   })
 
+  it('is a card like every other integration', async () => {
+    renderPanel()
+    const card = await screen.findByTestId('ads-card')
+    expect(card.className).toContain('bg-white')
+    expect(card.className).toContain('rounded-lg')
+    expect(card.className).toContain('border')
+    expect(card.className).toContain('border-gray-200')
+    expect(card.className).toContain('p-4')
+    // The card title reads like the other integration titles, not as
+    // loose text on the page background.
+    const title = screen.getByRole('heading', { name: enTranslation.ads.title })
+    expect(title.className).toContain('font-semibold')
+  })
+
   it('says it is Amazon only', async () => {
     renderPanel()
     await screen.findByTestId('ads-stores')
