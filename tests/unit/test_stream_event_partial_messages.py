@@ -79,31 +79,48 @@ class TestStreamEventConsumed:
         zero TaskMessage rows and zero SSE task_message frames — the
         branch exists precisely to keep them out of the agent_event
         fallthrough."""
-        monkeypatch.setattr(
-            'app.ai.claude_backend_stream.async_session', _db
-        )
+        monkeypatch.setattr('app.ai.claude_backend_stream.async_session', _db)
         emit = AsyncMock()
         monkeypatch.setattr(event_bus, 'emit', emit)
 
         session = AgentSession(task_id=_TASK_ID, prompt='hi', mode='auto')
         for part in (
             {'type': 'message_start', 'message': {'id': 'm1'}},
-            {'type': 'content_block_start', 'index': 0,
-             'content_block': {'type': 'text', 'text': ''}},
-            {'type': 'content_block_delta', 'index': 0,
-             'delta': {'type': 'text_delta', 'text': 'FAKE'}},
-            {'type': 'content_block_delta', 'index': 0,
-             'delta': {'type': 'input_json_delta',
-                       'partial_json': '{"a": 1}'}},
+            {
+                'type': 'content_block_start',
+                'index': 0,
+                'content_block': {'type': 'text', 'text': ''},
+            },
+            {
+                'type': 'content_block_delta',
+                'index': 0,
+                'delta': {'type': 'text_delta', 'text': 'FAKE'},
+            },
+            {
+                'type': 'content_block_delta',
+                'index': 0,
+                'delta': {
+                    'type': 'input_json_delta',
+                    'partial_json': '{"a": 1}',
+                },
+            },
             {'type': 'ping'},
             {'type': 'content_block_stop', 'index': 0},
         ):
             await session._handle_event(_stream_event(part))
 
         async with _db() as db:
-            rows = (await db.execute(
-                select(TaskMessage).where(TaskMessage.task_id == _TASK_ID)
-            )).scalars().all()
+            rows = (
+                (
+                    await db.execute(
+                        select(TaskMessage).where(
+                            TaskMessage.task_id == _TASK_ID
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
         assert rows == [], (
             'stream_event parts must not be persisted as messages; '
             f'got {len(rows)} rows'
@@ -122,15 +139,21 @@ class TestStreamEventConsumed:
     async def test_unknown_event_still_falls_through(self, _db, monkeypatch):
         """The agent_event fallthrough keeps working for genuinely
         unknown types — the new branch must not swallow them."""
-        monkeypatch.setattr(
-            'app.ai.claude_backend_stream.async_session', _db
-        )
+        monkeypatch.setattr('app.ai.claude_backend_stream.async_session', _db)
         session = AgentSession(task_id=_TASK_ID, prompt='hi', mode='auto')
         await session._handle_event({'type': 'exotic_future_thing'})
 
         async with _db() as db:
-            rows = (await db.execute(
-                select(TaskMessage).where(TaskMessage.task_id == _TASK_ID)
-            )).scalars().all()
+            rows = (
+                (
+                    await db.execute(
+                        select(TaskMessage).where(
+                            TaskMessage.task_id == _TASK_ID
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
         assert len(rows) == 1
         assert rows[0].role == 'agent_event'
