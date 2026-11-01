@@ -43,6 +43,9 @@ def _run(tmp_path, *, fail, extra=()):
     (tmp_path / 'fail_fast.py').write_text(_PLUGIN.read_text())
     (tmp_path / 'conftest.py').write_text(_CONFTEST)
     (tmp_path / 'test_inner.py').write_text(_SUITE.format(fail=fail))
+    # An empty ini keeps the repo's pytest.ini (addopts, markers) out of
+    # the inner run; pytest >= 9.2 rejects a .py file as -c.
+    (tmp_path / 'pytest.ini').write_text('[pytest]\n')
     proc = subprocess.run(
         [
             sys.executable,
@@ -53,7 +56,7 @@ def _run(tmp_path, *, fail, extra=()):
             '--rootdir',
             str(tmp_path),
             '-c',
-            str(tmp_path / 'conftest.py'),
+            str(tmp_path / 'pytest.ini'),
             '-n',
             '3',
             '--dist',
@@ -67,7 +70,9 @@ def _run(tmp_path, *, fail, extra=()):
         text=True,
         timeout=120,
     )
-    return proc.stdout.strip().splitlines()[-1]
+    lines = proc.stdout.strip().splitlines()
+    assert lines, f'inner pytest printed nothing: {proc.stderr[-2000:]}'
+    return lines[-1]
 
 
 def test_unstarted_tests_are_skipped_after_the_first_failure(tmp_path):
