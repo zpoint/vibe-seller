@@ -16,8 +16,10 @@ The task wording is pure human intent — the *how* (which report to
 export, how to post to WeCom) lives in the skills, not the prompt.
 """
 
+import json
 import logging
 import os
+import re
 import time
 
 import pytest
@@ -74,14 +76,46 @@ def _skill_md(client, slug):
     return body.get('content', '') if isinstance(body, dict) else str(body)
 
 
-# Provenance for THIS test's skills (the workspace skill namespace is
-# global and shared across parallel workers; a raw namespace delta can
-# contain a sibling's skill or one minted by any agent's reflection).
-# This test's skills are all about pulling Noon orders and totalling
-# revenue — 'noon' is the unambiguous marker.
-def _is_my_workflow_skill(client, slug):
-    md = _skill_md(client, slug).lower()
-    return 'noon' in md or 'revenue' in md or 'total' in md
+# Ownership is attributed by TASK, not by content: the workspace skill
+# namespace is global and shared across parallel workers, so a raw
+# namespace delta can contain a sibling's skill or one minted by any
+# agent's reflection. The server records every skill write an agent
+# makes as a ``tool_use`` message on ITS task with the full input, so
+# "written by one of this test's tasks" is a recorded fact. See
+# test_skill_save_reuse.py for the helper's contract.
+_SKILL_PATH_RE = re.compile(r'\.claude/skills/([a-z0-9][a-z0-9-]*)')
+
+
+def _skill_slugs_in_messages(messages) -> set:
+    slugs: set[str] = set()
+    for m in messages:
+        if m.get('role') != 'tool_use':
+            continue
+        try:
+            payload = json.loads(m.get('content') or '')
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        tool = str(payload.get('tool') or '')
+        inp = payload.get('input')
+        if not isinstance(inp, dict):
+            continue
+        if tool.endswith('vibe_seller_save_skill') and isinstance(
+            inp.get('slug'), str
+        ):
+            slugs.add(inp['slug'])
+        for value in inp.values():
+            if isinstance(value, str):
+                slugs.update(_SKILL_PATH_RE.findall(value))
+    return slugs
+
+
+def _skills_saved_by(client, *task_ids) -> set:
+    slugs: set[str] = set()
+    for task_id in task_ids:
+        slugs |= _skill_slugs_in_messages(get_messages(client, task_id))
+    return slugs
 
 
 @pytest.fixture
@@ -104,9 +138,9 @@ def has_wecom_bot(api_client):
 
 
 # Runs concurrently with the other skill-mutating e2e tests: both delta
-# checks below are provenance-scoped to this test's Noon workflow
-# (see _is_my_workflow_skill), and this test never deletes from the
-# shared namespace at all.
+# checks below are attributed to this test's own tasks
+# (see _skills_saved_by), and this test never deletes from the shared
+# namespace at all.
 class TestSaveAndReuseSkillLive:
     def test_create_then_extend_live(
         self, api_client, live_store, has_wecom_bot
@@ -147,12 +181,10 @@ class TestSaveAndReuseSkillLive:
         _wait_for_followup_result(api_client, task1['id'], count1)
 
         customs_after_save = _custom_skills(api_client)
-        new_slugs = {
-            slug
-            for slug in set(customs_after_save) - customs_start
-            if _is_my_workflow_skill(api_client, slug)
-        }
-        assert new_slugs, 'no user-space skill about this workflow created'
+        new_slugs = _skills_saved_by(api_client, task1['id']) & (
+            set(customs_after_save) - customs_start
+        )
+        assert new_slugs, 'no user-space skill created on this task'
         for slug in new_slugs:
             assert customs_after_save[slug]['source'] == 'custom'
 
@@ -189,11 +221,9 @@ class TestSaveAndReuseSkillLive:
         _wait_for_followup_result(api_client, task2['id'], count2)
 
         customs_final = _custom_skills(api_client)
-        dup_slugs = {
-            slug
-            for slug in set(customs_final) - set(customs_after_save)
-            if _is_my_workflow_skill(api_client, slug)
-        }
+        dup_slugs = _skills_saved_by(api_client, task1['id'], task2['id']) & (
+            set(customs_final) - set(customs_after_save)
+        )
         assert not dup_slugs, (
             'second save duplicated instead of extending; '
             f'new slug(s) appeared: {sorted(dup_slugs)}'
