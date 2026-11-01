@@ -438,7 +438,7 @@ class ClaudeCodeBackend(AIAgentBackend):
         gates. Skills are the union of the live session's loads and
         the task's durable bindings (``stop_gates.recorded_skills``):
         a retry-resume session that edits the report without
-        re-Reading SKILL.md still faces the gates the original
+        re-loading the skill still faces the gates the original
         session bound, across server restarts.
         """
         durable = recorded_skills(task_id)

@@ -207,6 +207,10 @@ not missing? → allow, then self._loaded_skills.add("noon-ads")
 
 The deny lands back at Claude Code as an `is_error: true` tool_result, which the agent reads and reacts to in the same turn — typically by calling `Skill(noon-shared)` next, then retrying `Skill(noon-ads)`.
 
+### One load path: the Skill tool
+
+A skill is loaded — added to `_loaded_skills`, durably bound via `record_skill_load`, and its `gates:` armed — **only** by a `Skill(<name>)` call, the same single path Claude Code itself uses (`addInvokedSkill` / `registerSkillHooks`). Reading a SKILL.md as a file (`Read`, `cat`, `sed -n`, …) loads nothing; the hook allows it and, if the skill isn't loaded, attaches `additionalContext` saying that a lookup can carry on but following the procedure needs `Skill(<name>)` (`skill_gate_utils.unloaded_skill_read_hint`). Reads used to bind too, and that guess bound the wrong gates: an ad audit `sed`-ed 22 lines of review-collect for a metadata shape, review-collect's gate refused the ad report, and the run went collecting product reviews.
+
 ### Per-session state
 
 `self._loaded_skills: set[str]` lives on `AgentSession`. It resets when the session resets (e.g. a fresh restart of a failed task) — which is correct, because the restarted agent's context window doesn't have the prior skill body. The hook then re-enforces the order against the fresh session.

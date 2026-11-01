@@ -154,10 +154,10 @@ def contradiction_banner(contradictions) -> str:
 #
 # Skill loads are tracked per SESSION (claude_backend hooks), but the
 # gate contract is per TASK: a retry-resume session that goes straight
-# to editing the report without re-Reading SKILL.md must still face
+# to editing the report without re-loading the skill must still face
 # the gates the original session bound. (The hole this closes: a
 # surgical fix session submitted with ZERO skill gates because nothing
-# in that session had Read the skill file — gate coverage depended on
+# in that session had loaded the skill — gate coverage depended on
 # a runtime accident.) Bindings persist as one newline-separated file
 # per task under ``data/gate_bindings/`` — server-owned space the
 # agent never touches (unlike the task dir, which the workspace-
