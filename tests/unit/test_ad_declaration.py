@@ -653,20 +653,32 @@ class TestAScopedAuditIsNotAShrinkingMarket:
         assert any('不到历史的一半' in g for g in gaps), gaps
 
 
-class TestAnUnconfiguredStoreGetsAnEmptyMenu:
-    """The skill promises ``AUDIT_TARGETS.json``; a store with no
-    configured marketplace used to get no file at all. In CI an audit on
+class TestADeclaredTaskAlwaysHasAMenu:
+    """The skill says "declare, then read ``AUDIT_TARGETS.json``"; a store
+    with no configured marketplace used to get no file. In CI audits on
     such a store hunted for it through dozens of spec re-reads, rewrote
     the store's metadata.json to invent a menu, and ran out of time."""
 
-    def test_the_file_is_written_with_an_empty_menu(self, tmp_path):
-        ad_scope.write_declared_targets(tmp_path, {}, slug='acme')
-        data = json.loads((tmp_path / 'AUDIT_TARGETS.json').read_text())
-        assert data == {'combos': [], 'slug': 'acme'}
-
-    def test_an_empty_menu_owes_what_an_absent_one_did(
-        self, monkeypatch, tmp_path
-    ):
-        _setup(monkeypatch, tmp_path, 't-empty', targets={})
+    def test_declaring_writes_an_empty_menu(self, monkeypatch, tmp_path):
+        tdir = _setup(monkeypatch, tmp_path, 't-empty')
+        assert not (tdir / 'AUDIT_TARGETS.json').exists()
+        ad.write_declaration_file('t-empty', 'audit', {})
+        data = json.loads((tdir / 'AUDIT_TARGETS.json').read_text())
+        assert data == {'combos': []}
+        # An empty menu owes exactly what an absent one did.
         assert ad_scope.load_declared_targets('t-empty') == []
-        assert ad_scope.declared_slug('t-empty') == 'acme'
+
+    def test_declaring_keeps_the_server_menu(self, monkeypatch, tmp_path):
+        _setup(monkeypatch, tmp_path, 't-menu', targets={'noon': ['AE']})
+        ad.write_declaration_file('t-menu', 'audit', {})
+        assert ad_scope.load_declared_targets('t-menu') == [
+            {'platform': 'noon', 'country': 'AE'}
+        ]
+        assert ad_scope.declared_slug('t-menu') == 'acme'
+
+    def test_task_start_hands_no_menu_to_an_unconfigured_store(self, tmp_path):
+        """A store task that never declares (a lookup, a listing edit)
+        is not handed an ad artefact: in CI a "find the secret" task
+        cat-ed it and spent turns on it."""
+        ad_scope.write_declared_targets(tmp_path, {}, slug='acme')
+        assert not (tmp_path / 'AUDIT_TARGETS.json').exists()

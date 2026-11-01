@@ -22,7 +22,7 @@ What you **owe** comes from your `vibe_seller_declare_ad_task` call:
   here;
 * no `combos` declared (a whole-store audit) → every combo in the menu.
 
-The file is always there. **An empty menu (`"combos": []`) is a
+Once you have declared, the file is always there. **An empty menu (`"combos": []`) is a
 complete answer**, not a file still being written: the store has no
 marketplace configured in Settings. Use the platform of the skill you
 are following and the country the console itself shows (its
