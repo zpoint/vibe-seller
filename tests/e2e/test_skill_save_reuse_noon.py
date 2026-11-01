@@ -74,6 +74,16 @@ def _skill_md(client, slug):
     return body.get('content', '') if isinstance(body, dict) else str(body)
 
 
+# Provenance for THIS test's skills (the workspace skill namespace is
+# global and shared across parallel workers; a raw namespace delta can
+# contain a sibling's skill or one minted by any agent's reflection).
+# This test's skills are all about pulling Noon orders and totalling
+# revenue — 'noon' is the unambiguous marker.
+def _is_my_workflow_skill(client, slug):
+    md = _skill_md(client, slug).lower()
+    return 'noon' in md or 'revenue' in md or 'total' in md
+
+
 @pytest.fixture
 def live_store(api_client):
     resp = api_client.get(f'{BASE_URL}/api/stores')
@@ -93,9 +103,10 @@ def has_wecom_bot(api_client):
     return True
 
 
-# Serialize with the other skill-mutating e2e tests (shared workspace
-# skill namespace). See test_skill_save_reuse.py for the rationale.
-@pytest.mark.xdist_group('workspace_skills')
+# Runs concurrently with the other skill-mutating e2e tests: both delta
+# checks below are provenance-scoped to this test's Noon workflow
+# (see _is_my_workflow_skill), and this test never deletes from the
+# shared namespace at all.
 class TestSaveAndReuseSkillLive:
     def test_create_then_extend_live(
         self, api_client, live_store, has_wecom_bot
@@ -136,8 +147,12 @@ class TestSaveAndReuseSkillLive:
         _wait_for_followup_result(api_client, task1['id'], count1)
 
         customs_after_save = _custom_skills(api_client)
-        new_slugs = set(customs_after_save) - customs_start
-        assert new_slugs, 'no user-space skill created'
+        new_slugs = {
+            slug
+            for slug in set(customs_after_save) - customs_start
+            if _is_my_workflow_skill(api_client, slug)
+        }
+        assert new_slugs, 'no user-space skill about this workflow created'
         for slug in new_slugs:
             assert customs_after_save[slug]['source'] == 'custom'
 
@@ -174,7 +189,11 @@ class TestSaveAndReuseSkillLive:
         _wait_for_followup_result(api_client, task2['id'], count2)
 
         customs_final = _custom_skills(api_client)
-        dup_slugs = set(customs_final) - set(customs_after_save)
+        dup_slugs = {
+            slug
+            for slug in set(customs_final) - set(customs_after_save)
+            if _is_my_workflow_skill(api_client, slug)
+        }
         assert not dup_slugs, (
             'second save duplicated instead of extending; '
             f'new slug(s) appeared: {sorted(dup_slugs)}'

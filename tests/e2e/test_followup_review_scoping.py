@@ -22,6 +22,7 @@ throwaway user-space review skill, needs no real creds.
 
 import json
 import logging
+import os
 import time
 
 import pytest
@@ -45,9 +46,16 @@ pytestmark = [pytest.mark.e2e]
 # but whose work + verification are purely LOCAL — so the reviewer runs
 # for real without a browser/seller. The verify_by explicitly scopes the
 # reviewer to THIS turn's file and tells it to sign off fast (one-shot).
-_SKILL_SLUG = 'e2e-followup-note'
-_SKILL_MD = """---
-name: e2e-followup-note
+# The slug is unique per run: the namespace is workspace-global (shared
+# by every xdist worker), and a leftover install from a crashed earlier
+# run — or a second suite pointed at the same server — must never be
+# mistaken for (or overwrite) this run's skill.
+_SKILL_SLUG_BASE = 'e2e-followup-note'
+
+
+def _skill_md(slug: str) -> str:
+    return f"""---
+name: {slug}
 description: "Record a short note containing an exact marker string. Use \
 whenever the user asks to 'record a note' / 'jot down' a marker. Pure \
 local text work — never open a browser."
@@ -71,14 +79,19 @@ result verbatim. One note per request; do not touch prior notes.
 
 @pytest.fixture
 def review_skill(api_client):
-    """Install the throwaway review-declaring skill, remove it after."""
+    """Install the throwaway review-declaring skill, remove it after.
+
+    The slug carries a per-run tag, and teardown deletes exactly that
+    slug — nothing else in the shared namespace is touched.
+    """
+    slug = f'{_SKILL_SLUG_BASE}-{int(time.time())}-{os.getpid()}'
     resp = api_client.put(
-        f'{BASE_URL}/api/workspace/skills/{_SKILL_SLUG}',
-        json={'skill_md': _SKILL_MD},
+        f'{BASE_URL}/api/workspace/skills/{slug}',
+        json={'skill_md': _skill_md(slug)},
     )
     resp.raise_for_status()
-    yield _SKILL_SLUG
-    api_client.delete(f'{BASE_URL}/api/workspace/skills/{_SKILL_SLUG}')
+    yield slug
+    api_client.delete(f'{BASE_URL}/api/workspace/skills/{slug}')
 
 
 def _wait_for_followup_result(client, task_id, known_count, marker):
@@ -149,12 +162,10 @@ def _followup(client, task_id, content, marker):
     return text
 
 
-# Shares the workspace-global skill namespace with the other
-# skill-mutating e2e tests, so it must run on the SAME xdist worker
-# (serially). Without this, a sibling test's whole-namespace cleanup
-# deleted this test's review skill mid-run and its follow-up stalled.
-# Requires ``--dist loadgroup`` (set in CI). See test_skill_save_reuse.py.
-@pytest.mark.xdist_group('workspace_skills')
+# Runs concurrently with the other skill-mutating e2e tests: this test
+# owns a per-run slug (see review_skill) and its teardown deletes only
+# that slug, so no sibling's skills — and no skill a sibling's reflection
+# minted — is ever touched from here.
 class TestFollowUpReviewScoping:
     def test_first_turn_reviewed_followups_not(self, api_client, review_skill):
         tag = int(time.time())
@@ -166,7 +177,7 @@ class TestFollowUpReviewScoping:
             title='Record a note (round 1)',
             store_id=store['id'],
             description=(
-                'Use the e2e-followup-note skill. Record a note whose '
+                f'Use the {review_skill} skill. Record a note whose '
                 'exact marker string is ALPHA-R1. Echo ALPHA-R1 back in '
                 'your result. Local only — do not open a browser or ask '
                 'questions.'
@@ -207,7 +218,7 @@ class TestFollowUpReviewScoping:
             title='Record a note (separate task)',
             store_id=store['id'],
             description=(
-                'Use the e2e-followup-note skill. Record a note whose '
+                f'Use the {review_skill} skill. Record a note whose '
                 'exact marker is DELTA-T2. Echo DELTA-T2 back. Local '
                 'only, no questions.'
             ),

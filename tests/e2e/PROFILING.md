@@ -38,8 +38,12 @@ is marked `xfail` and documents the exact failure pattern.
 
 ## Worker Distribution
 
-Tests use `-n 4` with default `--dist load` (round-robin).
-All tests are provider-agnostic — no `xdist_group` pinning needed.
+Tests use `-n 4` with `--dist worksteal` (CI): even initial split, idle
+workers steal queued tests from busy ones — one long LLM test cannot
+strand the suite's tail. All tests are provider-agnostic, and the
+skill-mutating tests own exactly the skills they create (per-run slugs,
+provenance-scoped snapshots), so no worker pinning/serialization is
+needed.
 
 ## Per-Test Timing (CI run #23712021696)
 

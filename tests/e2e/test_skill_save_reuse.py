@@ -84,6 +84,28 @@ def _skill_md(client, slug):
     return body.get('content', '') if isinstance(body, dict) else str(body)
 
 
+# The namespace delta between two snapshots can contain skills this test
+# did NOT create: the namespace is workspace-global, every xdist worker
+# shares it, and any sibling test's install — or its agent's post-task
+# reflection (observed in CI: a `wecom-post` skill minted mid-run) — can
+# land inside the window. Provenance, not membership in a raw delta,
+# decides what this test owns: the skills this test's agents save all
+# describe the order-export totalling workflow.
+_MY_WORKFLOW_WORDS = ('order', 'export', 'revenue', 'total')
+
+
+def _is_my_workflow_skill(client, slug):
+    """Whether *slug*'s SKILL.md describes this test's workflow.
+
+    The sibling skill-mutating tests create skills about notes/markers
+    and (noon variant) Noon exports; reflection skills mention whatever
+    task minted them. Only the order-export totalling words identify
+    THIS test's skills.
+    """
+    md = _skill_md(client, slug).lower()
+    return any(w in md for w in _MY_WORKFLOW_WORDS)
+
+
 def _mentions_wecom(text):
     low = text.lower()
     return any(k in low for k in ('wecom', 'wechat work', '企业微信'))
@@ -177,11 +199,12 @@ def created_skills_cleanup(api_client):
     """Delete only the user-space skills THIS test registers (by adding
     their slugs to the yielded set), so re-runs stay clean.
 
-    Must NOT delete the whole before/after delta of the skill list: that
+    The registry is filled exclusively with provenance-verified slugs
+    (``_is_my_workflow_skill``), never with a raw namespace delta: the
     namespace is workspace-global and shared across parallel xdist
-    workers, so a delta cleanup would delete a *sibling* test's skill
-    mid-run. The test owns the slugs it created and registers exactly
-    those.
+    workers, so a delta would also capture a sibling test's skill and
+    deleting it mid-run is exactly the interference that once stalled
+    the follow-up review test.
     """
     owned: set[str] = set()
     yield owned
@@ -198,11 +221,10 @@ def _assert_total(text, total):
 # ── Test ────────────────────────────────────────────
 
 
-# All skill-mutating e2e tests share the workspace-global skill namespace,
-# so they must run on the SAME xdist worker (serially) — never
-# concurrently. Otherwise one test's snapshot/cleanup races another's
-# create/delete. Requires ``--dist loadgroup`` (set in CI).
-@pytest.mark.xdist_group('workspace_skills')
+# Runs concurrently with the other skill-mutating e2e tests: everything
+# this test does to the shared namespace is provenance-scoped — it reads
+# only its own workflow's skills, and cleanup deletes only slugs it
+# verified as its own (see created_skills_cleanup / _is_my_workflow_skill).
 class TestSaveAndReuseSkill:
     def test_create_then_extend(
         self, api_client, orders_csv, wecom_stub, created_skills_cleanup
@@ -248,9 +270,18 @@ class TestSaveAndReuseSkill:
         _wait_for_followup_result(api_client, task1['id'], count1)
 
         customs_after_save = _custom_skills(api_client)
-        new_slugs = set(customs_after_save) - customs_start
+        # Provenance-scoped, not a raw delta: a sibling worker's skill can
+        # appear in the namespace inside this window, and it must be
+        # neither owned here (cleanup would delete it mid-run) nor fail
+        # the assertions below.
+        new_slugs = {
+            slug
+            for slug in set(customs_after_save) - customs_start
+            if _is_my_workflow_skill(api_client, slug)
+        }
         assert new_slugs, (
-            'no user-space skill was created by "save as skill"; '
+            'no user-space skill about this workflow was created by '
+            '"save as skill"; '
             f'custom skills: {sorted(customs_after_save)}'
         )
         created_skills_cleanup.update(new_slugs)  # own these for teardown
@@ -299,11 +330,15 @@ class TestSaveAndReuseSkill:
 
         customs_final = _custom_skills(api_client)
         # The second save must EXTEND the existing slug, not mint a new
-        # near-duplicate. Check only for a NEW slug appearing (a subset
-        # check, scoped to this test's serialized worker) rather than
-        # whole-namespace equality — equality would also trip if a
-        # sibling test's skill were added/removed in the shared namespace.
-        dup_slugs = set(customs_final) - set(customs_before_update)
+        # near-duplicate. Scope the check to THIS workflow's skills: the
+        # raw namespace delta would also flag a skill any sibling (or its
+        # agent's reflection) minted inside the window, which is not this
+        # request duplicating anything.
+        dup_slugs = {
+            slug
+            for slug in set(customs_final) - set(customs_before_update)
+            if _is_my_workflow_skill(api_client, slug)
+        }
         assert not dup_slugs, (
             'second "save as skill" duplicated instead of extending; '
             f'new slug(s) appeared: {sorted(dup_slugs)}'
