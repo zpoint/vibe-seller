@@ -20,6 +20,7 @@ fixture).
 import http.server
 import json
 import logging
+import re
 import threading
 import time
 
@@ -82,6 +83,56 @@ def _skill_md(client, slug):
     resp.raise_for_status()
     body = resp.json()
     return body.get('content', '') if isinstance(body, dict) else str(body)
+
+
+# Ownership is attributed by TASK, not by content. The namespace is
+# workspace-global (every xdist worker shares it), so a raw namespace
+# delta can contain skills this test did not create — a sibling test's
+# install, or a skill any agent's post-task reflection minted mid-window
+# (observed in CI: a `wecom-post` skill). But the server records every
+# skill write an agent makes as a ``tool_use`` message on ITS task,
+# carrying the full tool input (app/ai/claude_backend_stream.py):
+# ``vibe_seller_save_skill`` has the slug in ``input.slug``, and any
+# file write under the skills namespace shows the path. A skill belongs
+# to this test iff one of THIS test's tasks wrote it — a fact recorded
+# by the server, not a guess about the skill's wording (keyword-matching
+# a sibling's order/export/revenue skill would wrongly adopt it, and
+# cleanup would then delete it mid-run).
+_SKILL_PATH_RE = re.compile(r'\.claude/skills/([a-z0-9][a-z0-9-]*)')
+
+
+def _skill_slugs_in_messages(messages) -> set:
+    """Slugs whose user-skill writes appear in a task's message log."""
+    slugs: set[str] = set()
+    for m in messages:
+        if m.get('role') != 'tool_use':
+            continue
+        try:
+            payload = json.loads(m.get('content') or '')
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        tool = str(payload.get('tool') or '')
+        inp = payload.get('input')
+        if not isinstance(inp, dict):
+            continue
+        if tool.endswith('vibe_seller_save_skill') and isinstance(
+            inp.get('slug'), str
+        ):
+            slugs.add(inp['slug'])
+        for value in inp.values():
+            if isinstance(value, str):
+                slugs.update(_SKILL_PATH_RE.findall(value))
+    return slugs
+
+
+def _skills_saved_by(client, *task_ids) -> set:
+    """User-skill slugs written by the given tasks' agents."""
+    slugs: set[str] = set()
+    for task_id in task_ids:
+        slugs |= _skill_slugs_in_messages(get_messages(client, task_id))
+    return slugs
 
 
 def _mentions_wecom(text):
@@ -177,11 +228,12 @@ def created_skills_cleanup(api_client):
     """Delete only the user-space skills THIS test registers (by adding
     their slugs to the yielded set), so re-runs stay clean.
 
-    Must NOT delete the whole before/after delta of the skill list: that
-    namespace is workspace-global and shared across parallel xdist
-    workers, so a delta cleanup would delete a *sibling* test's skill
-    mid-run. The test owns the slugs it created and registers exactly
-    those.
+    The registry is filled exclusively with slugs attributed to this
+    test's own tasks (``_skills_saved_by``) — never with a raw namespace
+    delta: the namespace is workspace-global and shared across parallel
+    xdist workers, so a delta would also capture a sibling test's skill
+    and deleting it mid-run is exactly the interference that once
+    stalled the follow-up review test.
     """
     owned: set[str] = set()
     yield owned
@@ -198,11 +250,10 @@ def _assert_total(text, total):
 # ── Test ────────────────────────────────────────────
 
 
-# All skill-mutating e2e tests share the workspace-global skill namespace,
-# so they must run on the SAME xdist worker (serially) — never
-# concurrently. Otherwise one test's snapshot/cleanup races another's
-# create/delete. Requires ``--dist loadgroup`` (set in CI).
-@pytest.mark.xdist_group('workspace_skills')
+# Runs concurrently with the other skill-mutating e2e tests: everything
+# this test does to the shared namespace is task-attributed — it claims
+# only skills its own tasks wrote, and cleanup deletes exactly those
+# (see created_skills_cleanup / _skills_saved_by).
 class TestSaveAndReuseSkill:
     def test_create_then_extend(
         self, api_client, orders_csv, wecom_stub, created_skills_cleanup
@@ -248,10 +299,17 @@ class TestSaveAndReuseSkill:
         _wait_for_followup_result(api_client, task1['id'], count1)
 
         customs_after_save = _custom_skills(api_client)
-        new_slugs = set(customs_after_save) - customs_start
+        # Attributed to task1, not a raw delta: a sibling worker's skill
+        # can appear in the namespace inside this window and must be
+        # neither owned here (cleanup would delete it mid-run) nor fail
+        # the assertions below. The delta only decides created-vs-
+        # pre-existing; task attribution decides WHOSE it is.
+        new_slugs = _skills_saved_by(api_client, task1['id']) & (
+            set(customs_after_save) - customs_start
+        )
         assert new_slugs, (
-            'no user-space skill was created by "save as skill"; '
-            f'custom skills: {sorted(customs_after_save)}'
+            'no user-space skill was created by "save as skill" on this '
+            f'task; custom skills: {sorted(customs_after_save)}'
         )
         created_skills_cleanup.update(new_slugs)  # own these for teardown
         for slug in new_slugs:
@@ -299,11 +357,13 @@ class TestSaveAndReuseSkill:
 
         customs_final = _custom_skills(api_client)
         # The second save must EXTEND the existing slug, not mint a new
-        # near-duplicate. Check only for a NEW slug appearing (a subset
-        # check, scoped to this test's serialized worker) rather than
-        # whole-namespace equality — equality would also trip if a
-        # sibling test's skill were added/removed in the shared namespace.
-        dup_slugs = set(customs_final) - set(customs_before_update)
+        # near-duplicate. Scope the check to skills THIS test's tasks
+        # wrote: the raw namespace delta would also flag a skill any
+        # sibling test (or its agent's reflection) minted inside the
+        # window, which is not this request duplicating anything.
+        dup_slugs = _skills_saved_by(api_client, task1['id'], task2['id']) & (
+            set(customs_final) - set(customs_before_update)
+        )
         assert not dup_slugs, (
             'second "save as skill" duplicated instead of extending; '
             f'new slug(s) appeared: {sorted(dup_slugs)}'
