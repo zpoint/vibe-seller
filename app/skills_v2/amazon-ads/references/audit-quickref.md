@@ -38,8 +38,12 @@ combo you declared, each with its own `AUDIT_SCOPE.json` entry (Step 1)
 and its own `## <Platform> <Country>` section. If you declared no combos
 at all, you owe every combo in the file. Never audit a marketplace
 outside your declaration because the file lists it.
-(`stores/<slug>/metadata.json` → `platform_countries` is the fallback
-only when `AUDIT_TARGETS.json` is absent.) 30-day window. Create
+**An empty menu (`"combos": []`) is a complete answer**, not a file still
+being written: the store has no marketplace configured in Settings. Use
+this skill's platform and the country the console itself shows (its
+marketplace switcher, else its currency), declare that combo in
+`AUDIT_SCOPE.json`, and carry on. Never edit the store's
+`metadata.json` or settings to build a menu. 30-day window. Create
 `./AD_AUDIT_<YYYY-MM-DD>.md` with the header.
 
 **Scaffold every section up front, each with a unique append-marker.**

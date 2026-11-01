@@ -178,6 +178,13 @@ def write_declared_targets(
     ``slug`` is recorded so the reviewer can find this store's own audit
     history without globbing ``stores/*`` and borrowing another store's.
 
+    A store with NO configured marketplace still gets the file, with
+    ``"combos": []``. The skill promises the file, so its absence read as
+    "the server hasn't finished yet": in CI an audit on such a store
+    re-read the spec dozens of times hunting for it, rewrote the store's
+    ``metadata.json`` to invent a menu, and ran out of time. An explicit
+    empty menu is a fact the spec can give a rule for.
+
     Best-effort: an unwritable workspace degrades to the previous
     behaviour (agent-chosen combo set) rather than blocking the task.
     """
@@ -188,8 +195,6 @@ def write_declared_targets(
         for c in cs
         if str(p).strip() and str(c).strip()
     ]
-    if not combos:
-        return
     payload: dict = {'combos': combos}
     if slug:
         payload['slug'] = slug

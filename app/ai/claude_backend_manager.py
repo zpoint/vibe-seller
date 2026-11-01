@@ -116,11 +116,11 @@ class ClaudeCodeBackend(AIAgentBackend):
                         if task and task.store_id
                         else None
                     )
-                if store is not None and store.platform_countries:
+                if store is not None:
                     try:
                         ad_scope.write_declared_targets(
                             task_dir,
-                            json.loads(store.platform_countries),
+                            json.loads(store.platform_countries or '{}'),
                             slug=store_slug,
                         )
                     except (ValueError, TypeError):

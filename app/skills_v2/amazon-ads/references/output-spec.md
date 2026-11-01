@@ -22,6 +22,14 @@ What you **owe** comes from your `vibe_seller_declare_ad_task` call:
   here;
 * no `combos` declared (a whole-store audit) → every combo in the menu.
 
+The file is always there. **An empty menu (`"combos": []`) is a
+complete answer**, not a file still being written: the store has no
+marketplace configured in Settings. Use the platform of the skill you
+are following and the country the console itself shows (its
+marketplace switcher, else its currency) for the one combo you audit —
+its `AUDIT_SCOPE.json` entry and its `## <Platform> <Country>` section.
+Never edit the store's `metadata.json` or settings to build a menu.
+
 **A market list in the task title, description or plan still does NOT
 narrow this.** Those are prose, often written once and reused across
 stores, and they go stale the moment a store adds a marketplace. Seen

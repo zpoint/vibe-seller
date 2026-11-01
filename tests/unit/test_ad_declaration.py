@@ -651,3 +651,22 @@ class TestAScopedAuditIsNotAShrinkingMarket:
             't-wide-shrink',
         )
         assert any('不到历史的一半' in g for g in gaps), gaps
+
+
+class TestAnUnconfiguredStoreGetsAnEmptyMenu:
+    """The skill promises ``AUDIT_TARGETS.json``; a store with no
+    configured marketplace used to get no file at all. In CI an audit on
+    such a store hunted for it through dozens of spec re-reads, rewrote
+    the store's metadata.json to invent a menu, and ran out of time."""
+
+    def test_the_file_is_written_with_an_empty_menu(self, tmp_path):
+        ad_scope.write_declared_targets(tmp_path, {}, slug='acme')
+        data = json.loads((tmp_path / 'AUDIT_TARGETS.json').read_text())
+        assert data == {'combos': [], 'slug': 'acme'}
+
+    def test_an_empty_menu_owes_what_an_absent_one_did(
+        self, monkeypatch, tmp_path
+    ):
+        _setup(monkeypatch, tmp_path, 't-empty', targets={})
+        assert ad_scope.load_declared_targets('t-empty') == []
+        assert ad_scope.declared_slug('t-empty') == 'acme'

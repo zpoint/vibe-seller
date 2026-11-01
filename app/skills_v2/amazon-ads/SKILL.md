@@ -289,6 +289,10 @@ part of that menu into an obligation:
 * declared NO `combos` (a whole-store audit) → you owe every combo in
   `AUDIT_TARGETS.json`, same rules.
 
+An empty menu (`"combos": []`) means the store has no marketplace
+configured — see `references/output-spec.md` for the one-combo rule;
+never edit store metadata to build a menu.
+
 Do NOT expand past your declaration because the menu is longer. A user
 who asked about one marketplace gets one marketplace; auditing the other
 four is work nobody asked for, and reporting on them is a `[基线]`
