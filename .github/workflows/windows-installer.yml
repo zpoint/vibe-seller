@@ -18,6 +18,9 @@ on:
       - 'app/**'
       - 'frontend/**'
       - 'tests/releases/**'
+      # The install check drives the shipped recovery wrapper.
+      - 'scripts/reset_auth.bat'
+      - 'scripts/reset_auth.sh'
   workflow_dispatch:
     inputs:
       app_version:
@@ -144,6 +147,63 @@ jobs:
           # Empty version arg → skip the version-match check (this is a
           # dev build, not a published release).
           bash tests/releases/verify_install.sh ""
+
+      - name: Verify the installed app can recover a forgotten password
+        shell: pwsh
+        run: |
+          # `vibe-seller reset-auth` is how an operator gets back in when
+          # the admin password is lost. It has to work in the INSTALLED
+          # package (not just the checkout), so run the shipped wrapper
+          # — it finds the installed app — and then log in with the
+          # password it just set.
+          #
+          # A reset MUTATES the database it points at, so this runs
+          # against its own throwaway install (VIBE_HOME under
+          # RUNNER_TEMP, second server on port 7793), not the shared
+          # ~/.vibe-seller the later agent e2e logs into with the seeded
+          # admin/admin. Resetting the shared one here left that e2e
+          # answering 401 at every login attempt.
+          $resetHome = Join-Path $env:RUNNER_TEMP 'vs-reset-home'
+          if (Test-Path $resetHome) {
+            Remove-Item -Recurse -Force $resetHome
+          }
+          $env:VIBE_HOME = $resetHome
+          $exe = "$env:VS_INSTALL\.venv\Scripts\vibe-seller.exe"
+          & $exe start --port 7793
+          if ($LASTEXITCODE -ne 0) { throw "second server failed to start" }
+          # A cold first boot is what creates the database and seeds the
+          # default admin — the state recovery is meant for. 150s: the
+          # cold boot runs the skills+knowledge sync, which can cross a
+          # minute on a contended runner.
+          $healthy = $false
+          for ($i = 0; $i -lt 150; $i++) {
+            try {
+              Invoke-RestMethod -Uri 'http://127.0.0.1:7793/api/health' `
+                -TimeoutSec 2 | Out-Null
+              $healthy = $true
+              break
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $healthy) { throw 'reset-auth server never became healthy' }
+
+          .\scripts\reset_auth.bat status
+          if ($LASTEXITCODE -ne 0) { throw "reset-auth status failed" }
+          .\scripts\reset_auth.bat password --user admin --rename --password ci-secret
+          if ($LASTEXITCODE -ne 0) { throw "reset-auth password failed" }
+          $body = @{identifier = 'admin'; password = 'ci-secret'} |
+            ConvertTo-Json -Compress
+          try {
+            Invoke-RestMethod -Uri 'http://127.0.0.1:7793/api/auth/login' `
+              -Method Post -ContentType 'application/json' -Body $body |
+              Out-Null
+          } catch {
+            throw "login with the reset password failed: $_"
+          }
+          # The server must still be serving after the reset.
+          Invoke-RestMethod -Uri 'http://127.0.0.1:7793/api/health' | Out-Null
+          Write-Host 'OK: the installed app can reset a forgotten password'
+          & $exe stop --port 7793
+          Remove-Item -Recurse -Force $resetHome
 
       - name: Verify bundled bash runs the extensionless wrapper shape
         shell: pwsh
