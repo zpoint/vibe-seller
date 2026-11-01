@@ -115,9 +115,49 @@ class TestSkillNameFromRead:
     @pytest.mark.parametrize(
         'command',
         [
+            # In CI an ad audit copied one metadata shape out of
+            # review-collect this way; binding it made the review gate
+            # refuse the ad report and the run went collecting reviews.
+            "sed -n '68,90p' /x/.claude/skills/review-collect/SKILL.md",
+            'sed -n 120p .claude/skills/review-collect/SKILL.md',
+            "sed -n '/^## Output/,/^## Next/p' "
+            '.claude/skills/review-collect/SKILL.md',
+            'tail -40 .claude/skills/review-collect/SKILL.md',
+        ],
+    )
+    def test_a_slice_from_the_middle_binds_nothing(self, command):
+        assert skill_name_from_read('Bash', {'command': command}) is None
+
+    def test_a_middle_read_tool_slice_binds_nothing(self):
+        path = '/x/.claude/skills/review-collect/SKILL.md'
+        assert (
+            skill_name_from_read(
+                'Read', {'file_path': path, 'offset': 68, 'limit': 22}
+            )
+            is None
+        )
+        assert (
+            skill_name_from_read('Read', {'file_path': path, 'limit': 80})
+            == 'review-collect'
+        )
+
+    def test_a_full_read_after_a_peek_still_binds(self):
+        command = (
+            "sed -n '68,90p' .claude/skills/review-collect/SKILL.md; "
+            'cat .claude/skills/amazon-ads/SKILL.md'
+        )
+        assert (
+            skill_name_from_read('Bash', {'command': command}) == 'amazon-ads'
+        )
+
+    @pytest.mark.parametrize(
+        'command',
+        [
             'cat /x/.claude/skills/amazon-ads/SKILL.md',
             'sed -n 1,80p .claude/skills/amazon-ads/SKILL.md | head',
             "head -50 '/x/.claude/skills/amazon-ads/SKILL.md'",
+            'sed "s/x/y/" .claude/skills/amazon-ads/SKILL.md',
+            'tail -n +1 .claude/skills/amazon-ads/SKILL.md',
         ],
     )
     def test_a_shell_read_binds_the_skill(self, command):

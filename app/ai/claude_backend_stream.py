@@ -254,7 +254,8 @@ class _StreamMixin:
         """Route stream-json events to SSE."""
         etype = event.get('type', '')
 
-        if AGENT_DEBUG:
+        # Partial parts: one STREAM_DELTA line below, not a full dump.
+        if AGENT_DEBUG and etype != 'stream_event':
             logger.info(
                 'AGENT_DEBUG [%s] event=%s',
                 self.task_id[:8],
@@ -502,9 +503,8 @@ class _StreamMixin:
         elif etype == 'stream_event':
             # Partial-message SSE part (CLAUDE_CODE_INCLUDE_PARTIAL_
             # MESSAGES=1). The any-line bump above already fed the
-            # stall-reaper heartbeat; this branch only CONSUMES it so the
-            # unknown-type fallthrough doesn't persist one agent_event
-            # row per part. Not re-emitted to the frontend.
+            # stall-reaper heartbeat; this branch only CONSUMES it (no
+            # agent_event row per part, no frontend re-emit).
             if AGENT_DEBUG:
                 trace_stream_event(self.task_id, event)
 

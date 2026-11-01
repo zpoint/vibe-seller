@@ -58,11 +58,36 @@ _SKILL_MD_READ_RE = re.compile(r'(?:^|/)skills/([^/]+)/SKILL\.md$')
 # …/amazon-reports/SKILL.md`, the first cut of this rule bound both
 # skills, and the ad review gate then turned a four-number lookup into a
 # full audit.
+#
+# And only a read that shows the file's TOP counts: a skill is its
+# frontmatter plus the procedure that opens it, and that is what the
+# agent follows. A slice from the middle is a lookup. In CI an ad audit
+# ran `sed -n '68,90p' …/review-collect/SKILL.md` to copy one metadata
+# shape; the first cut of this rule bound review-collect, its gate
+# refused the ad report for a missing review manifest, and the agent
+# spent the rest of the run collecting product reviews nobody asked for.
 _SKILL_MD_IN_CMD_RE = re.compile(
     r'(?:^|[;&|\n(`]\s*)(?:(?:sudo|time)\s+)*'
-    r'(?:cat|less|more|head|tail|sed|bat|nl)\b[^;&|\n]*?'
+    r'(cat|less|more|head|tail|sed|bat|nl)\b([^;&|\n]*?)'
     r"""(?:^|[/\s'"=])skills/([A-Za-z0-9_.-]+)/SKILL\.md\b"""
 )
+# `sed -n '68,90p'` / `sed -n 120p` — the first line a sed print starts at.
+_SED_START_RE = re.compile(r"""(?:^|[\s'"])(\d+)(?:,(?:\d+|\$))?p\b""")
+
+
+def _shell_read_starts_at_top(reader: str, args: str) -> bool:
+    """True when this reader prints the SKILL.md from its first line."""
+    if reader == 'tail':
+        return bool(re.search(r'(?:^|\s)(?:-n\s*)?\+1\b', args))
+    if reader == 'sed':
+        # Without -n sed prints the whole file; with it, only the
+        # addressed lines — a pattern address (`/^## X/,/^## Y/p`) is a
+        # slice too, so -n binds only for an explicit range from line 1.
+        if not re.search(r'(?:^|\s)(?:-n|--quiet|--silent)\b', args):
+            return True
+        m = _SED_START_RE.search(args)
+        return m is not None and int(m.group(1)) <= 1
+    return True
 
 
 def skill_name_from_read(tool_name: str, tool_input: dict) -> str | None:
@@ -86,10 +111,15 @@ def skill_name_from_read(tool_name: str, tool_input: dict) -> str | None:
         if not isinstance(path, str) or not path:
             return None
         m = _SKILL_MD_READ_RE.search(path)
+        offset = tool_input.get('offset')
+        if isinstance(offset, int) and offset > 1:
+            return None  # a slice from the middle is a lookup
         return m.group(1) if m else None
     if tool_name == 'Bash':
-        m = _SKILL_MD_IN_CMD_RE.search(str(tool_input.get('command', '')))
-        return m.group(1) if m else None
+        command = str(tool_input.get('command', ''))
+        for m in _SKILL_MD_IN_CMD_RE.finditer(command):
+            if _shell_read_starts_at_top(m.group(1), m.group(2)):
+                return m.group(3)
     return None
 
 
