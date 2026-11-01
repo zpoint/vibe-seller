@@ -18,6 +18,7 @@ import httpx
 from playwright.sync_api import Page, expect
 import pytest
 
+from tests.e2e import fail_fast
 import tests.e2e.e2e_helpers as e2e_helpers
 from tests.e2e.e2e_helpers import (
     BASE_URL,
@@ -37,6 +38,11 @@ logger = logging.getLogger('e2e')
 # session-wide auto-answer must NOT race it. Kept in sync with the
 # mock CLI's ASK_QUESTION (tests/e2e/mock_cli.py).
 MANUAL_ANSWER_TAG = '(free-text-e2e)'
+
+
+def pytest_configure(config):
+    # --maxfail must STOP an xdist run, not drain it (see fail_fast).
+    fail_fast.register(config)
 
 
 def pytest_report_header(config):

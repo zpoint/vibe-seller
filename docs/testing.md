@@ -189,7 +189,9 @@ E2E_WORKERS=2 pytest tests/e2e/ --e2e -n 2 --dist loadfile -v
 | `E2E_PROVIDER_MAP` | Test runner (CI) | (empty) | Comma-separated provider per worker (e.g., `kimi,kimi,minimax`). Each xdist worker creates a profile for its assigned provider so tasks are spread across APIs. |
 | `MAX_AGENT_CONCURRENCY` | Server (`app/ai/claude_backend.py`) | 2 | Max simultaneous Claude CLI agent subprocesses. Semaphore gate — exceeding this blocks new tasks until a slot opens. |
 
-**Relationship**: `MAX_AGENT_CONCURRENCY` must be ≥ 2× `E2E_WORKERS` to avoid test timeouts from semaphore contention. CI uses `E2E_WORKERS=3` + `E2E_PROVIDER_MAP=kimi,kimi,minimax` + `MAX_AGENT_CONCURRENCY=9`.
+**Relationship**: `MAX_AGENT_CONCURRENCY` must be ≥ 2× `E2E_WORKERS` to avoid test timeouts from semaphore contention. CI uses `E2E_WORKERS=4` + `E2E_PROVIDER_MAP=minimax,minimax,minimax,glm`; tests that need two models (profile switch, compaction) take the first two *distinct* providers from the map.
+
+**`--maxfail` under xdist** — pytest-xdist alone does not stop on `--maxfail`: each worker runs every test it was already handed before it shuts down, so an early failure under `--dist worksteal` drains the suite on fewer workers and can outlive the step timeout, which then kills the run before pytest prints the failure. `tests/e2e/fail_fast.py` makes it stop: from the `--maxfail`-th failure on, workers skip every test they have not started; tests already running finish.
 
 ### Log Tracing
 
