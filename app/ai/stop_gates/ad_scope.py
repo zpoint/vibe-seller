@@ -47,6 +47,7 @@ must equal ``len(active_ids)``:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import re
 import time
 
@@ -189,7 +190,7 @@ def write_declared_targets(
         if str(p).strip() and str(c).strip()
     ]
     if not combos:
-        return
+        return  # ensure_targets_file covers it once an ad task declares
     payload: dict = {'combos': combos}
     if slug:
         payload['slug'] = slug
@@ -198,6 +199,29 @@ def write_declared_targets(
             json.dumps(payload, indent=2) + '\n',
             encoding='utf-8',
         )
+    except OSError:  # pragma: no cover — best-effort
+        pass
+
+
+def ensure_targets_file(task_dir) -> None:
+    """Give a declared ad task an explicit empty menu if it has none.
+
+    The ad skills say "declare, then read ``AUDIT_TARGETS.json``", but a
+    store with no configured marketplace never got the file, and its
+    absence read as "the server hasn't finished yet": in CI audits on
+    such a store re-read the spec dozens of times hunting for it,
+    rewrote the store's ``metadata.json`` to invent a menu, and ran out
+    of time. Written at DECLARATION, not at task start, so only work
+    that reads a menu ever sees one — a store task that merely looks
+    something up is not handed an ad artefact to wonder about. An empty
+    menu owes exactly what an absent one did (see
+    :func:`load_declared_targets`); the skill docs give its rule.
+    """
+    path = Path(task_dir) / TARGETS_FILENAME
+    if path.exists():
+        return
+    try:
+        path.write_text(json.dumps({'combos': []}) + '\n', encoding='utf-8')
     except OSError:  # pragma: no cover — best-effort
         pass
 

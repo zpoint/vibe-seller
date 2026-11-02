@@ -438,7 +438,7 @@ class ClaudeCodeBackend(AIAgentBackend):
         gates. Skills are the union of the live session's loads and
         the task's durable bindings (``stop_gates.recorded_skills``):
         a retry-resume session that edits the report without
-        re-Reading SKILL.md still faces the gates the original
+        re-loading the skill still faces the gates the original
         session bound, across server restarts.
         """
         durable = recorded_skills(task_id)
@@ -453,6 +453,19 @@ class ClaudeCodeBackend(AIAgentBackend):
     def is_running(self, task_id: str) -> bool:
         session = self._sessions.get(task_id)
         return session.running if session else False
+
+    def is_process_alive(self, task_id: str) -> bool:
+        """True while the task's agent subprocess has not exited.
+
+        The stall reaper's authority question — "can anything still
+        progress?" — is answered by the process table, not by a DB
+        timestamp: a live process may legitimately be silent for
+        minutes while a slow model composes (see
+        ``app/scheduler/stall_reaper.py``).
+        """
+        session = self._sessions.get(task_id)
+        proc = getattr(session, '_proc', None) if session else None
+        return proc is not None and proc.returncode is None
 
 
 # Singleton

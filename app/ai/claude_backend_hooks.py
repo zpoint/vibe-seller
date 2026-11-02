@@ -34,7 +34,7 @@ from app.ai.image_guards import (
 )
 from app.ai.profiles import ProfileManager, model_sees_images
 from app.ai.reflection_guard import begin_reflection, end_reflection
-from app.ai.skill_gate_utils import find_skill_md, skill_name_from_read
+from app.ai.skill_gate_utils import find_skill_md, unloaded_skill_read_hint
 from app.ai.stop_gates import record_skill_load
 from app.ai.tool_call_guards import tool_call_deny
 from app.database import async_session
@@ -265,20 +265,17 @@ class _HookMixin:
                 return
             if should_mark_catalog_read(inner_name, inner_input):
                 self._catalog_read = True
-            # Skill-load tracking for skill-declared exit gates: a
-            # Read of skills/<name>/SKILL.md loads that skill (the
-            # Skill-tool path is tracked by the prereq hook below);
-            # record_skill_load makes the binding durable per task.
             barred = ads_routing.refusal_for(
                 self.task_id, inner_name, inner_input
             ) or tool_call_deny(self, tool_input)
             if barred:  # routed away, malformed MCP args, or app source
                 await self._deny_pre_tool_use(request_id, barred)
                 return
-            read_skill = skill_name_from_read(inner_name, inner_input)
-            if read_skill:
-                self._loaded_skills.add(read_skill)
-                record_skill_load(self.task_id, read_skill)
+            # Skills load (and bind their exit gates) ONLY via the Skill
+            # tool below; a plain read of a SKILL.md gets a pointer.
+            read_hint = unloaded_skill_read_hint(
+                inner_name, inner_input, self._loaded_skills
+            )
             if check_tool_loop(
                 self._recent_tool_calls, inner_name, inner_input
             ):
@@ -345,17 +342,15 @@ class _HookMixin:
                     self._loaded_skills.add(skill_name)
                     record_skill_load(self.task_id, skill_name)
             # Auto-approve all other tools
+            allow = {
+                'hookEventName': 'PreToolUse',
+                'permissionDecision': 'allow',
+                'permissionDecisionReason': 'Auto-approved by backend',
+            }
+            if read_hint:
+                allow['additionalContext'] = read_hint
             await self._send_hook_response(
-                request_id,
-                {
-                    'hookSpecificOutput': {
-                        'hookEventName': 'PreToolUse',
-                        'permissionDecision': 'allow',
-                        'permissionDecisionReason': (
-                            'Auto-approved by backend'
-                        ),
-                    },
-                },
+                request_id, {'hookSpecificOutput': allow}
             )
         elif callback_id == STOP_REFLECTION_CALLBACK:
             # Stop hook: block to force reflection, approve on retry.

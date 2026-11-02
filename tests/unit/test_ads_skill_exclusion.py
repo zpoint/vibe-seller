@@ -69,14 +69,15 @@ class TestAuthorizedStore:
         out = _decision(AUTHORIZED, 'Read', {'file_path': path})
         assert out['permissionDecision'] == 'deny'
 
-    def test_its_own_skill_loads(self):
+    def test_reading_its_own_skill_is_allowed_but_loads_nothing(self):
         out = _decision(
             AUTHORIZED,
             'Read',
             {'file_path': f'{SHARED}/amazon-ads-api/SKILL.md'},
         )
         assert out['permissionDecision'] == 'allow'
-        assert out['recorded'] == ['amazon-ads-api']
+        assert out['recorded'] == [], 'only the Skill tool binds gates'
+        assert "skill='amazon-ads-api'" in out['additionalContext']
 
 
 class TestUnboundStore:

@@ -412,7 +412,9 @@ jobs:
           GLM_BASE_URL: ${{ secrets.GLM_BASE_URL }}
           GLM_MODEL: ${{ secrets.GLM_MODEL }}
           E2E_WORKERS: 4
-          E2E_PROVIDER_MAP: minimax,minimax,glm,glm
+          # The two-model tests (profile switch, compaction) take the first
+          # two DISTINCT providers here, so one glm worker is enough.
+          E2E_PROVIDER_MAP: minimax,minimax,minimax,glm
           VIBE_ADS_SERVICE_URL: http://127.0.0.1:7791
         run: |
           E2E_N="${E2E_WORKERS:-0}"

@@ -207,6 +207,10 @@ not missing? → allow, then self._loaded_skills.add("noon-ads")
 
 The deny lands back at Claude Code as an `is_error: true` tool_result, which the agent reads and reacts to in the same turn — typically by calling `Skill(noon-shared)` next, then retrying `Skill(noon-ads)`.
 
+### One load path: the Skill tool
+
+A skill is loaded — added to `_loaded_skills`, durably bound via `record_skill_load`, and its `gates:` armed — **only** by a `Skill(<name>)` call, the same single path Claude Code itself uses (`addInvokedSkill` / `registerSkillHooks`). Reading a SKILL.md as a file (`Read`, `cat`, `sed -n`, …) loads nothing; the hook allows it and, if the skill isn't loaded, attaches `additionalContext` saying that a lookup can carry on but following the procedure needs `Skill(<name>)` (`skill_gate_utils.unloaded_skill_read_hint`). Reads used to bind too, and that guess bound the wrong gates: an ad audit `sed`-ed 22 lines of review-collect for a metadata shape, review-collect's gate refused the ad report, and the run went collecting product reviews.
+
 ### Per-session state
 
 `self._loaded_skills: set[str]` lives on `AgentSession`. It resets when the session resets (e.g. a fresh restart of a failed task) — which is correct, because the restarted agent's context window doesn't have the prior skill body. The hook then re-enforces the order against the fresh session.
@@ -271,8 +275,10 @@ Persistent per-account email storage with background sync and SMTP send capabili
 | `waiting_checker` | every 15 min | `app/scheduler/waiting.py` | Check `WAITING` tasks for email/condition triggers; time out stale waits |
 | `email_sync` | every 5 min | `app/scheduler/email_sync.py` | Sync configured email accounts into per-account SQLite DBs |
 | `plan_reaper` | every 5 min | `app/scheduler/plan_reaper.py` | Fail schedules stuck in `plan_status='planning'` |
-| `stall_reaper` | every 2 min | `app/scheduler/stall_reaper.py` | Fail RUNNING tasks whose agent stream has gone silent |
+| `stall_reaper` | every 1 min | `app/scheduler/stall_reaper.py` | Terminalize RUNNING tasks whose agent can no longer progress |
 | `task_cleanup` | daily 03:30 server-tz | `app/scheduler/task_cleanup.py` | Auto-delete terminal leaf tasks past `AppSettings.task_retention_days` (see [docs/tasks.md § Task deletion + auto-cleanup](tasks.md#task-deletion--auto-cleanup)) |
+
+**stall_reaper's authority split** — who may declare "this request is dead": while the agent **process is alive and input-capable**, the CLI owns the in-flight request, and every spawn env arms the CLI's own dead-stream machinery (`ProfileManager.get_env_for_profile` → `ensure_stream_liveness_env`): `CLAUDE_ENABLE_STREAM_WATCHDOG=1` + `CLAUDE_STREAM_IDLE_TIMEOUT_MS=420000` (7 min) make the CLI abort a stream with no chunk for 7 min (TTFB counts, every chunk resets it) and fall into its non-streaming fallback, with each failed attempt announced on stdout as `system/api_retry`; `CLAUDE_CODE_INCLUDE_PARTIAL_MESSAGES=1` forwards every raw SSE part (message_start / deltas / pings) as a stdout line, so a healthy compose bumps `updated_at` per part instead of going silent. The reaper only fires after **true stdout silence** has outlasted that watchdog bound + recovery headroom (~200 s retry backoff + 60 s poll + 60 s heartbeat throttle) — **13 min with presets** — instead of the earlier `API_TIMEOUT_MS + 2 min` (~52 min), which only bounded the headers phase. A slow first token is structurally inside the bound: a healthy agent composing a long report after a large `tool_result` can be silent for minutes (observed 3–4 min live), and `updated_at` staleness alone can't distinguish it from a dropped stream. When there is **no session, the process has exited, or the process is past its turn terminator** (stdin closed — the post-close kill escalation in `app/ai/claude_backend_turns.py` disposes of it), nothing can bump `updated_at` any more and the flat 3-min silence rule applies. Pending `AskUserQuestion`s are always skipped (the operator may take hours).
 
 ## Ziniao on WSL
 

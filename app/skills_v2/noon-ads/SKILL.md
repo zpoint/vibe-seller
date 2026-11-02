@@ -181,7 +181,9 @@ into an obligation: the countries you declared each need their own
 report section; declaring no combos at all (a whole-store audit) means
 you owe every country in the file. Do NOT expand past your declaration
 because the menu is longer — reporting on a market nobody asked about is
-an out-of-scope gap. A country with
+an out-of-scope gap. An empty menu (`"combos": []`) means the store has
+no country configured: audit the one country the console shows, and
+never edit store metadata to build a menu. A country with
 genuinely no Live campaigns is still written down — an entry with
 `"active_ids": []` and `"total_active": 0`, plus a section saying so;
 可以为空，但不能不写。Omitting a declared combo is a `[基线]` gap that

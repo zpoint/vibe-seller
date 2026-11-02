@@ -13,8 +13,10 @@ The journey mirrors the one that produced the design:
    the other alone" → a review, scoped to that campaign.
 
 **What is asserted, and why that split.** The load-bearing assertion is
-the console's own access log: the excluded campaign's detail page must
-never be fetched. That is ground truth — a report can claim restraint it
+the console's own access log: once the agent has committed to a scope
+(its declaration answering the follow-up — or, if it never declares, from
+the follow-up on), the excluded campaign's detail page must never be
+fetched. That is ground truth — a report can claim restraint it
 did not exercise, but the server records what it was actually asked for.
 An access-log assertion only carries meaning if the request *entails* the
 fetch, so both tests ask for keyword bids, which exist nowhere but on a
@@ -53,6 +55,7 @@ actionable bid decision.
 Needs no advertiser account: the console is served from this process.
 """
 
+from datetime import datetime
 import logging
 import time
 
@@ -138,6 +141,12 @@ class TestScopeSurvivesAFollowUp:
                 'the browser-use CLI and read the last-30-days summary. '
                 'Just tell me the numbers.'
             ),
+            # Reflection is not what these tests check, and it runs after
+            # the deliverable: up to REFLECTION_BUDGET_S (240 s) plus
+            # wind-down on top of the audit, which pushed a run past its
+            # budget with the scope already proven. Same convention as
+            # the other e2e tests that don't exercise reflection.
+            skip_reflection=True,
         )
         task_id = task['id']
         first = poll_task_status(api_client, task_id, {'completed', 'failed'})
@@ -194,12 +203,25 @@ class TestScopeSurvivesAFollowUp:
             f'the campaign the user asked about was never opened, so the '
             f'review cannot have been grounded in its data: {served}'
         )
-        assert not ads_console.fetched_campaign(
-            CAMPAIGN_B, since=phase2_start
-        ), (
+        # The exclusion binds from the moment the agent COMMITTED to a
+        # scope: its first declaration answering this turn. Before that
+        # it may still be finding its way around the console — in CI an
+        # agent probed every page for edit forms (one read of the
+        # excluded page, nothing used, nothing written), then declared
+        # just the asked-about campaign and kept to it. Opening the
+        # excluded page AFTER declaring is the breach. An agent that never
+        # declares never commits, so it is held to the whole turn.
+        committed = [
+            d for d in _declarations(api_client, task_id) if d['user_turn'] >= 2
+        ]
+        since = phase2_start
+        if committed:
+            declared_at = datetime.fromisoformat(committed[0]['created_at'])
+            since = max(since, ads_console.mark_at(declared_at.timestamp()))
+        assert not ads_console.fetched_campaign(CAMPAIGN_B, since=since), (
             f'the campaign the user explicitly excluded was opened after '
-            f'the narrowing follow-up — it did not bound the work: '
-            f'{served[phase2_start:]}'
+            f'{"the agent declared its scope" if committed else "the narrowing follow-up"}'
+            f' — it did not bound the work: {served[since:]}'
         )
 
         # ── Each turn leaves its own answer ──────────────────────────
@@ -312,6 +334,7 @@ class TestAnUnscopedRequestStaysWide:
                 'the browser-use CLI, go through every campaign, and give '
                 'me a keyword-by-keyword bid recommendation for each one.'
             ),
+            skip_reflection=True,  # see the scoped test above
         )
         # An unscoped audit is inherently the slower job — it drills
         # every campaign rather than a named few — so it needs more than

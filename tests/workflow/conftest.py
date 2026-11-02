@@ -65,6 +65,7 @@ ASYNC_SESSION_MODULES = [
     'app.scheduler.fanout',
     'app.scheduler.plan_reaper',
     'app.scheduler.finalize_reaper',
+    'app.scheduler.stall_reaper',
     'app.routers.workspace_assistant',
     'app.browser.daemon_reaper',
     'app.telemetry_tasks',
@@ -161,6 +162,10 @@ def install_fake_agent(fake_agent, monkeypatch):
     monkeypatch.setattr('app.task_runner_exec.agent_manager', fake_agent)
     monkeypatch.setattr('app.task_session_lifecycle.agent_manager', fake_agent)
     monkeypatch.setattr('app.routers.app_settings.agent_manager', fake_agent)
+    # The stall reaper must see the same backend the rest of the app
+    # does — its alive/deferral decision reads session state
+    # (is_process_alive / get_session) off the manager.
+    monkeypatch.setattr('app.scheduler.stall_reaper.agent_manager', fake_agent)
     return fake_agent
 
 

@@ -49,15 +49,9 @@ def parse_skill_gates(skill_md_path: Path) -> list[str]:
 
 
 _SKILL_MD_READ_RE = re.compile(r'(?:^|/)skills/([^/]+)/SKILL\.md$')
-# A concrete SKILL.md named anywhere in a shell command (`cat`, `sed -n`,
-# `head` …). A glob (`skills/*/SKILL.md`) names no skill and binds none.
-#
-# Only a READER in command position counts -- the agent printing the
-# skill to follow it. A search that merely names the file is not a load:
-# in CI a reflection step ran `grep -rn "ad console" …/amazon-ads/SKILL.md
-# …/amazon-reports/SKILL.md`, the first cut of this rule bound both
-# skills, and the ad review gate then turned a four-number lookup into a
-# full audit.
+# A concrete SKILL.md printed by a shell reader in command position
+# (`cat`, `sed -n`, `head` …). A glob (`skills/*/SKILL.md`) names no
+# skill, and a search (`grep … SKILL.md`) is not a reader.
 _SKILL_MD_IN_CMD_RE = re.compile(
     r'(?:^|[;&|\n(`]\s*)(?:(?:sudo|time)\s+)*'
     r'(?:cat|less|more|head|tail|sed|bat|nl)\b[^;&|\n]*?'
@@ -66,20 +60,19 @@ _SKILL_MD_IN_CMD_RE = re.compile(
 
 
 def skill_name_from_read(tool_name: str, tool_input: dict) -> str | None:
-    """Return the skill name if this tool call Reads a SKILL.md.
+    """Return the skill whose SKILL.md this tool call reads as a file.
 
-    Agents load skills three ways: the ``Skill`` tool (already tracked
-    into ``_loaded_skills`` by the prereq hook), a plain ``Read`` of
-    ``.claude/skills/<name>/SKILL.md`` (the catalog-driven path), and a
-    shell read of the same file. Skill-declared exit gates must see all
-    of them, or a skill loaded another way silently skips its own
-    reviewers.
-
-    The shell path is not hypothetical. In CI an agent `cat`-ed the
-    amazon-ads SKILL.md, ran its whole audit procedure, and submitted --
-    with none of the skill's gates bound, so ``set_task_result``
-    accepted the report unchecked while the Stop hook (keyed on the
-    report file) demanded a reviewer: two exits, two verdicts.
+    Reading the file is NOT loading the skill. Claude Code has exactly
+    one load path — the ``Skill`` tool, which registers the skill with
+    the session — and skill-declared exit gates bind on that alone. A
+    read can be anything from following the whole procedure to copying
+    one schema, and guessing which binds the wrong gates: in CI an ad
+    audit ran ``sed -n '68,90p' …/review-collect/SKILL.md`` for one
+    metadata shape, the read bound review-collect, its gate refused the
+    ad report for a missing review manifest, and the agent spent its
+    budget collecting product reviews nobody asked for. The hook uses
+    this only to tell the agent which path loads (see
+    :func:`unloaded_skill_read_hint`).
     """
     if tool_name == 'Read':
         path = tool_input.get('file_path', '')
@@ -91,6 +84,29 @@ def skill_name_from_read(tool_name: str, tool_input: dict) -> str | None:
         m = _SKILL_MD_IN_CMD_RE.search(str(tool_input.get('command', '')))
         return m.group(1) if m else None
     return None
+
+
+def unloaded_skill_read_hint(
+    tool_name: str, tool_input: dict, loaded: set[str] | frozenset[str]
+) -> str | None:
+    """Context for a read of a SKILL.md the session has not loaded.
+
+    Closes the gap the read-binding used to paper over: an agent that
+    ``cat``-s a skill and follows it would run with none of its gates.
+    Instead of guessing intent, say once, at the read, which path
+    loads. A lookup carries on; a run that means to follow the skill
+    calls the ``Skill`` tool and gets its gates the standard way.
+    """
+    name = skill_name_from_read(tool_name, tool_input)
+    if not name or name in loaded:
+        return None
+    return (
+        f'You read {name}/SKILL.md as a plain file. That does not load '
+        f'the skill: its checks and prerequisites are not active. If '
+        f'you only needed a snippet, carry on. If you mean to FOLLOW '
+        f"this skill's procedure, load it first with the Skill tool "
+        f"(skill='{name}')."
+    )
 
 
 def find_skill_md(workspace_dir: Path, skill_name: str) -> Path | None:

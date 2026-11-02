@@ -38,6 +38,7 @@ import json
 import logging
 from pathlib import Path
 
+from app.ai.stop_gates import ad_scope
 from app.config import VIBE_SELLER_DIR
 from app.models.ad_declaration import (
     AD_TASK_KINDS,
@@ -274,6 +275,7 @@ def write_declaration_file(task_id: str, kind: str, scope: dict) -> None:
             ),
             encoding='utf-8',
         )
+        ad_scope.ensure_targets_file(path.parent)
     except OSError:
         logger.warning(
             'could not mirror AD_TASK.json for task %s',

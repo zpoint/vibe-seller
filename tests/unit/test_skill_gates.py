@@ -4,14 +4,19 @@ through ``stop_gates.get_registered_gates`` at ``set_task_result``.
 Tasks that loaded no gate-declaring skill get only the generic gates
 — ad reviewers must never fire for a listing/email task again."""
 
+import asyncio
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_manager import agent_backend
+from app.ai.claude_backend_utils import AUTO_APPROVE_CALLBACK
 from app.ai.skill_gate_utils import (
     parse_skill_gates,
     skill_name_from_read,
+    unloaded_skill_read_hint,
 )
 import app.ai.stop_gates as sg
 from app.ai.stop_gates import (
@@ -75,7 +80,13 @@ class TestResolveSkillGates:
 
 
 class TestSkillNameFromRead:
-    def test_read_of_skill_md_tracked(self):
+    """Which SKILL.md a tool call reads as a file — detection only.
+
+    Reading never loads a skill (see TestOnlyTheSkillToolBindsGates);
+    this only decides when the agent is told which path does.
+    """
+
+    def test_read_of_skill_md_detected(self):
         assert (
             skill_name_from_read(
                 'Read',
@@ -99,9 +110,6 @@ class TestSkillNameFromRead:
     @pytest.mark.parametrize(
         'command',
         [
-            # A search that names the file is not a load. In CI this exact
-            # reflection-time grep bound amazon-ads, and the ad review gate
-            # turned a four-number lookup into a full audit.
             'grep -rn -i "ad console" .claude/skills/amazon-ads/SKILL.md '
             '.claude/skills/amazon-reports/SKILL.md',
             'rg -n bid .claude/skills/amazon-ads/SKILL.md',
@@ -109,24 +117,44 @@ class TestSkillNameFromRead:
             'wc -l .claude/skills/amazon-ads/SKILL.md',
         ],
     )
-    def test_a_search_or_listing_binds_nothing(self, command):
+    def test_a_search_or_listing_is_not_a_read(self, command):
         assert skill_name_from_read('Bash', {'command': command}) is None
 
     @pytest.mark.parametrize(
         'command',
         [
             'cat /x/.claude/skills/amazon-ads/SKILL.md',
-            'sed -n 1,80p .claude/skills/amazon-ads/SKILL.md | head',
+            "sed -n '68,90p' .claude/skills/amazon-ads/SKILL.md",
             "head -50 '/x/.claude/skills/amazon-ads/SKILL.md'",
         ],
     )
-    def test_a_shell_read_binds_the_skill(self, command):
-        """In CI an agent `cat`-ed amazon-ads, ran its audit, and its
-        gates never bound: set_task_result accepted the report unchecked
-        while the Stop hook demanded a reviewer."""
+    def test_a_shell_read_is_detected(self, command):
         assert (
             skill_name_from_read('Bash', {'command': command}) == 'amazon-ads'
         )
+
+
+class TestUnloadedSkillReadHint:
+    """A read of a skill the session hasn't loaded says how to load it."""
+
+    PEEK = {
+        'command': "sed -n '68,90p' /x/.claude/skills/review-collect/SKILL.md"
+    }
+
+    def test_points_an_unloaded_read_at_the_skill_tool(self):
+        hint = unloaded_skill_read_hint('Bash', self.PEEK, set())
+        assert hint and "skill='review-collect'" in hint
+        assert 'carry on' in hint  # a lookup is not told to load it
+
+    def test_silent_once_the_skill_is_loaded(self):
+        assert (
+            unloaded_skill_read_hint('Bash', self.PEEK, {'review-collect'})
+            is None
+        )
+
+    def test_silent_for_other_files(self):
+        other = {'file_path': '/x/.claude/skills/amazon-ads/references/a.md'}
+        assert unloaded_skill_read_hint('Read', other, set()) is None
 
 
 class TestDurableSkillBindings:
@@ -164,3 +192,72 @@ class TestDurableSkillBindings:
         assert recorded_skills('../../evil') == {'amazon-ads'}
         # Nothing escaped the bindings dir.
         assert not (tmp_path.parent / 'evil').exists()
+
+
+class TestOnlyTheSkillToolBindsGates:
+    """Claude Code has one load path — the Skill tool — and gates bind
+    on it alone. In CI an ad audit `sed`-ed 22 lines out of
+    review-collect for a metadata shape; when reads bound skills, that
+    attached review-collect's gate, which refused the ad report and
+    sent the run off collecting product reviews."""
+
+    @staticmethod
+    def _hook(tmp_path, tool, tool_input):
+        skill_dir = tmp_path / '.claude' / 'skills' / 'review-collect'
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / 'SKILL.md').write_text('---\nname: review-collect\n---\n')
+        s = AgentSession(task_id='t-bind', prompt='p', mode='auto')
+        s.task_dir = tmp_path
+        sent = []
+        s._send_hook_response = AsyncMock(
+            side_effect=lambda rid, out: sent.append(out)
+        )
+        request = {
+            'callback_id': AUTO_APPROVE_CALLBACK,
+            'input': {'tool_name': tool, 'tool_input': tool_input},
+        }
+        with (
+            patch(
+                'app.ai.claude_backend_hooks.ProfileManager'
+                '.get_env_for_profile',
+                return_value={},
+            ),
+            patch('app.ai.claude_backend_hooks.record_skill_load') as rec,
+        ):
+            asyncio.run(s._handle_hook_callback('r1', request))
+        out = sent[0]['hookSpecificOutput']
+        return out, s._loaded_skills, [c.args[1] for c in rec.call_args_list]
+
+    @pytest.mark.parametrize(
+        ('tool', 'tool_input'),
+        [
+            (
+                'Bash',
+                {
+                    'command': "sed -n '68,90p' "
+                    '.claude/skills/review-collect/SKILL.md'
+                },
+            ),
+            ('Bash', {'command': 'cat .claude/skills/review-collect/SKILL.md'}),
+            (
+                'Read',
+                {'file_path': '/x/.claude/skills/review-collect/SKILL.md'},
+            ),
+        ],
+    )
+    def test_a_read_binds_nothing_and_names_the_load_path(
+        self, tmp_path, tool, tool_input
+    ):
+        out, loaded, recorded = self._hook(tmp_path, tool, tool_input)
+        assert out['permissionDecision'] == 'allow'
+        assert loaded == set() and recorded == []
+        assert "skill='review-collect'" in out['additionalContext']
+
+    def test_the_skill_tool_binds(self, tmp_path):
+        out, loaded, recorded = self._hook(
+            tmp_path, 'Skill', {'skill': 'review-collect'}
+        )
+        assert out['permissionDecision'] == 'allow'
+        assert 'additionalContext' not in out
+        assert loaded == {'review-collect'}
+        assert recorded == ['review-collect']

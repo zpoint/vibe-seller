@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import http.server
 import threading
+import time
 
 # Two campaigns. The tests ask about WIDGET-006 only; SPROCKET-009 is the
 # control that must never appear in a scoped review.
@@ -198,6 +199,7 @@ class ConsoleServer(http.server.HTTPServer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.hits: list[str] = []
+        self.times: list[float] = []
         self._lock = threading.Lock()
 
     @property
@@ -207,11 +209,25 @@ class ConsoleServer(http.server.HTTPServer):
     def record(self, path: str) -> None:
         with self._lock:
             self.hits.append(path)
+            self.times.append(time.time())
 
     def mark(self) -> int:
         """A position in the access log, for ``fetched_campaign(since=)``."""
         with self._lock:
             return len(self.hits)
+
+    def mark_at(self, when: float) -> int:
+        """The log position of the first request served at/after ``when``.
+
+        Lets a test start its window at a moment it learns afterwards —
+        e.g. when the agent declared its scope — rather than only at a
+        point it marked live.
+        """
+        with self._lock:
+            return next(
+                (i for i, t in enumerate(self.times) if t >= when),
+                len(self.times),
+            )
 
     def fetched_campaign(self, cid: str, since: int = 0) -> bool:
         """Was this campaign's DETAIL page opened (after ``since``)?

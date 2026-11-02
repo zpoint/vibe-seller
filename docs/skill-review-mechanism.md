@@ -52,8 +52,9 @@ the agent named its output. So the trigger is **task-level**, not a
 filename or a result-shape regex (both proven leaky — a report named
 `FOO.md` escaped the old `AD_AUDIT_*.md` glob).
 
-- When a skill is resolved/loaded for a task, its name is recorded
-  durably (existing `record_skill_load` → `data/gate_bindings/<task>`).
+- When a skill is loaded for a task — via the `Skill` tool, the only
+  load path; reading its SKILL.md as a file binds nothing — its name is
+  recorded durably (`record_skill_load` → `data/gate_bindings/<task>`).
 - At completion, `recorded_skills(task_id)` gives every skill bound to
   the task; the infra runs the DoD review for each that declares one.
 - Survives resume / compaction / surgical-fix sessions (the reason the

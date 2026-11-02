@@ -65,6 +65,17 @@ marketplaces of drill work behind a question that wanted four numbers. And the o
 CI: "review the keyword bids on <campaign>" was declared `investigate`,
 so the bid recommendations it produced contradicted its own declaration.
 
+**What an `investigate` task does — and does not.** You declared you are
+reading figures, not proposing changes. So: read the figures from the
+console (summary / campaign list, for the window asked), answer them with
+`vibe_seller_set_task_result`, done. The audit procedure is for `audit` —
+an optimization report — and does not apply here: no `output-spec.md` /
+`audit-quickref.md`, no per-campaign drill, no TSVs, no
+`AUDIT_SCOPE.json`, no `AD_AUDIT_*.md` report. The server still asks the
+verification reviewer to confirm your figures against the console; that
+is a quick check of the numbers, nothing more. If the answer turns into
+recommendations, re-declare `audit` and follow the full procedure.
+
 **If you got it wrong, correct it upward.** If you declared
 `investigate` and the work turned out to produce decisions — a table
 telling someone to raise, cut, pause or negate — call
@@ -288,6 +299,10 @@ part of that menu into an obligation:
   `"total_active": 0`);
 * declared NO `combos` (a whole-store audit) → you owe every combo in
   `AUDIT_TARGETS.json`, same rules.
+
+An empty menu (`"combos": []`) means the store has no marketplace
+configured — see `references/output-spec.md` for the one-combo rule;
+never edit store metadata to build a menu.
 
 Do NOT expand past your declaration because the menu is longer. A user
 who asked about one marketplace gets one marketplace; auditing the other

@@ -21,6 +21,7 @@ from app.ai.stop_gates.report_reviewer import (
     review_files_written,
     rollover_reviews,
 )
+from app.ai.stream_event_trace import trace_stream_event
 from app.ai.task_status_reconcile import reconcile_streaming_run_status
 from app.database import async_session
 from app.errors import STREAM_ERROR_MAP, categorize_error_text
@@ -253,7 +254,8 @@ class _StreamMixin:
         """Route stream-json events to SSE."""
         etype = event.get('type', '')
 
-        if AGENT_DEBUG:
+        # Partial parts: one STREAM_DELTA line below, not a full dump.
+        if AGENT_DEBUG and etype != 'stream_event':
             logger.info(
                 'AGENT_DEBUG [%s] event=%s',
                 self.task_id[:8],
@@ -497,6 +499,14 @@ class _StreamMixin:
                 await self._close_stdin('plan_skip', emit=False)
             elif self._executing and self._turn_linger_seconds() <= 0:
                 await self._close_stdin('legacy_result_close', emit=False)
+
+        elif etype == 'stream_event':
+            # Partial-message SSE part (CLAUDE_CODE_INCLUDE_PARTIAL_
+            # MESSAGES=1). The any-line bump above already fed the
+            # stall-reaper heartbeat; this branch only CONSUMES it (no
+            # agent_event row per part, no frontend re-emit).
+            if AGENT_DEBUG:
+                trace_stream_event(self.task_id, event)
 
         elif etype == 'content_block_delta':
             delta = event.get('delta', {})
