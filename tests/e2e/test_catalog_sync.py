@@ -12,6 +12,7 @@ Single test flow:
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import re
 import time
 import uuid
 import warnings
@@ -38,6 +39,53 @@ FAKE_COUNTRY = 'PL'
 
 KNOWLEDGE_DIR = Path.home() / '.vibe-seller' / 'knowledge'
 STORES_DIR = Path.home() / '.vibe-seller' / 'stores'
+
+
+# Calls allowed between reading the catalog and opening the file it points
+# to (e.g. reading the store's own profile on the way). A stubbed catalog
+# row sends the agent hunting through many files instead.
+MAX_STEPS_CATALOG_TO_SECRET = 2
+_SEARCH_TOOLS = ('Grep', 'Glob')
+_SHELL_SEARCH = re.compile(r'(?:^|[;&|\n(]\s*)(grep|rg|find|fd)\b')
+
+
+def catalog_to_secret_gap(
+    messages: list[dict], secret_file: str
+) -> tuple[list[str], int] | None:
+    """What the agent did between reading a catalog and the secret's file.
+
+    Returns ``(searches, steps)`` for the calls strictly between the first
+    catalog read and the first call that opens ``secret_file``, or None if
+    either never happened in that order.
+    """
+    calls = []
+    for m in messages:
+        if m['role'] != 'tool_use':
+            continue
+        try:
+            calls.append(json.loads(m['content']))
+        except (TypeError, ValueError):
+            continue
+    text = [json.dumps(c.get('input', {}), ensure_ascii=False) for c in calls]
+    cat = next((i for i, t in enumerate(text) if 'CATALOG.md' in t), None)
+    if cat is None:
+        return None
+    sec = next(
+        (i for i in range(cat, len(text)) if secret_file in text[i]), None
+    )
+    if sec is None:
+        return None
+    between = calls[cat + 1 : sec]
+    searches = [
+        json.dumps(c, ensure_ascii=False)[:200]
+        for c in between
+        if c.get('tool') in _SEARCH_TOOLS
+        or (
+            c.get('tool') == 'Bash'
+            and _SHELL_SEARCH.search(str(c.get('input', {}).get('command')))
+        )
+    ]
+    return searches, len(between)
 
 
 @pytest.fixture(scope='module')
@@ -332,7 +380,7 @@ class TestCatalogSystem:
         # non-near-empty files (a bare `SECRET: <token>` line is
         # "near-empty" and gets stubbed as "Empty/stub", which hides
         # WHERE the secret is and forces the find-secret agent to grep
-        # instead of using the catalog — see MAX_TOTAL_TURNS below).
+        # instead of using the catalog — see catalog_to_secret_gap below).
         _write_file(
             KNOWLEDGE_DIR / l2_file,
             (
@@ -482,52 +530,30 @@ class TestCatalogSystem:
             f'Agent did not reference {l2_file} or find {secret}'
         )
 
-        # Transient API/gateway errors are NOT reasoning turns. When the
-        # CI model proxy returns 429 / overloaded / "Content block not
-        # found" / stalls, the backend emits a synthetic *assistant*
-        # message carrying that error text (claude_backend_stream emits
-        # the error block as a normal assistant message) and the CLI
-        # retries. Counting those inflated this bound from its original
-        # 6 up to 15 over time. Exclude them so the count reflects the
-        # agent's actual catalog-first work, not gateway flakiness.
-        _TRANSIENT_MARKERS = (
-            'api error',
-            'overloaded',
-            'rate limit',
-            '429',
-            'content block not found',
-            'agent stream stalled',
+        # Catalog-first, measured as what it means: once the agent has
+        # read the catalog, the catalog alone gets it to the secret's file
+        # — no search between the two. That is the regression this guards
+        # (the secret file stubbed as "Empty/stub", so the agent grepped
+        # for 17 turns). Searching BEFORE the catalog is the server's job
+        # and is refused there (``catalog_guard``).
+        #
+        # This replaced a cap on TOTAL turns, which measured something
+        # else: in CI it passed a GLM run that tried `grep -r secret
+        # knowledge/` first (refused by the guard) and failed a MiniMax run
+        # that went catalog -> file directly, then re-checked its answer
+        # and narrated between calls. Do not reintroduce a turn count.
+        gap = catalog_to_secret_gap(messages, l2_file)
+        assert gap is not None, (
+            f'Agent never read the catalog and then {l2_file}: '
+            f'{[m["content"][:120] for m in messages if m["role"] == "tool_use"]}'
         )
-
-        def _is_transient_error(m: dict) -> bool:
-            content = (m.get('content') or '').lower()
-            return any(mark in content for mark in _TRANSIENT_MARKERS)
-
-        tool_use_msgs = [m for m in messages if m['role'] == 'tool_use']
-        assistant_msgs = [
-            m
-            for m in messages
-            if m['role'] == 'assistant' and not _is_transient_error(m)
-        ]
-        total_turns = len(tool_use_msgs) + len(assistant_msgs)
-        # Efficiency guard — the POINT of this test: catalog-first must
-        # let the agent go straight to the knowledge file the catalog
-        # describes as holding the secret (read CATALOG → read that one
-        # file → reply). On the weak CI model that's ~5-7 reasoning
-        # turns; the original bound was 6.
-        #
-        # Two things had inflated it: (1) transient API-error turns
-        # counted as reasoning turns — now excluded above; (2) a regress
-        # where the secret lived in a near-empty `SECRET: <token>` file
-        # that the L2 sync stubbed as "Empty/stub", giving the catalog no
-        # signal so the agent grepped (17 turns). The fixture now carries
-        # a describable topic (see Setup) so the catalog summarizes it.
-        #
-        # With both fixed the bound is back to its tight original. If it
-        # is exceeded again, catalog-first is broken (file stubbed? row
-        # missing?) — investigate the catalog, do NOT raise the number.
-        MAX_TOTAL_TURNS = 8
-        assert total_turns <= MAX_TOTAL_TURNS, (
-            f'Agent took {total_turns} reasoning turns '
-            f'(max {MAX_TOTAL_TURNS}; transient API-error turns excluded).'
+        searches, steps = gap
+        assert not searches, (
+            f'After reading the catalog the agent searched before opening '
+            f'{l2_file} — the catalog did not point it there: {searches}'
+        )
+        assert steps <= MAX_STEPS_CATALOG_TO_SECRET, (
+            f'{steps} calls between the catalog and {l2_file} '
+            f'(max {MAX_STEPS_CATALOG_TO_SECRET}): it went looking instead '
+            'of following the catalog'
         )
