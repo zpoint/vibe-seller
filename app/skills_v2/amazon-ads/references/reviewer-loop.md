@@ -6,6 +6,9 @@
 > it **re-opens the live source of truth (the ad console / the export /
 > the report page) and cross-checks the deliverable against reality**,
 > exactly the way the Phase-4 execution reviewer verifies applied changes.
+> For an `investigate` answer (figures only) the reviewer just checks those
+> figures against the console — it is not a reason to produce an audit
+> report first.
 > It runs on top of the deterministic coverage floor
 > (`ad_completeness_review` / `ad_scope` — AUDIT_SCOPE active-id coverage,
 > which the LLM cannot reproduce and which stays in code). This is the
