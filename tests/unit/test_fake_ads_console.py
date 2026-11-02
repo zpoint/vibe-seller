@@ -23,6 +23,7 @@ the page constants so it covers what the handler actually serves.
 """
 
 import re
+import time
 import urllib.request
 
 import pytest
@@ -141,3 +142,21 @@ def test_fetched_campaign_since_scopes_to_a_turn(console):
     mark = console.mark()
     assert console.fetched_campaign(CAMPAIGN_B)
     assert not console.fetched_campaign(CAMPAIGN_B, since=mark)
+
+
+def test_mark_at_starts_a_window_at_a_moment(console):
+    """The narrow e2e starts its exclusion window at the agent's
+    declaration time, learned only after the run: a page read before
+    that moment is outside the window, one read after is inside."""
+    with urllib.request.urlopen(
+        f'{console.base}/campaign/{CAMPAIGN_B}', timeout=5
+    ) as r:
+        assert r.status == 200
+    moment = time.time()
+    since = console.mark_at(moment)
+    assert not console.fetched_campaign(CAMPAIGN_B, since=since)
+    with urllib.request.urlopen(
+        f'{console.base}/campaign/{CAMPAIGN_B}', timeout=5
+    ) as r:
+        assert r.status == 200
+    assert console.fetched_campaign(CAMPAIGN_B, since=console.mark_at(moment))
