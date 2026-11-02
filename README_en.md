@@ -781,8 +781,10 @@ It reports whether login is on, whether the default password still
 works, which accounts can log in, and which one is the default admin.
 
 Locked out? Reset the password with
-`vibe-seller reset-auth password ...` — it writes straight to the
-database, no server restart needed, and running tasks are unaffected.
+`vibe-seller reset-auth password` — with no arguments it prompts for
+a new password and targets the default administrator account, even
+if it was renamed. It writes straight to the database, no server
+restart needed, and running tasks are unaffected.
 Note that **resetting the password does not log anyone out**: sessions
 ride on a JWT cookie in the browser (renewed on activity for up to 24
 hours), and old sessions stay valid after a reset. To force everyone
