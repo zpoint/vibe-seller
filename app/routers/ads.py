@@ -207,12 +207,16 @@ async def agent_call(
             json_body=payload.body,
         )
     except ads_client.AdsServiceError as exc:
-        ads_path_guard.record(payload.task_id, path, exc.status)
+        ads_path_guard.record(
+            payload.task_id, path, ads_path_guard.outcome_for(exc)
+        )
         detail = str(exc)
-        if exc.status == 404:
+        if exc.unknown_route:
             detail += ads_path_guard.NOT_A_PATH
         raise HTTPException(status_code=400, detail=detail)
-    ads_path_guard.record(payload.task_id, path, None)
+    ads_path_guard.record(
+        payload.task_id, path, ads_path_guard.Outcome.ANSWERED
+    )
     if isinstance(result, ads_client.AdsFile):
         return {'result': _save_file(result, payload.task_id)}
     return {'result': result}
