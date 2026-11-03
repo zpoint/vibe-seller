@@ -79,6 +79,11 @@ For every audited `(platform, country)`, the report MUST contain a
 
    `**进度**: drilled <D>/<A> active (<T> total, <P> pages)`
 
+   The label follows the report language — an English report writes
+   `**Progress**: drilled <D>/<A> active (<T> total, <P> pages)`. The
+   gate reads only the `drilled <D>/<A> active` part, which stays
+   English in both.
+
    - `<A>` = active/Live campaigns you found AFTER full enumeration
      (Amazon: cleared search + bulk export; noon: paginated ALL pages).
    - `<D>` = how many of those you've drilled per-campaign so far.
@@ -616,8 +621,10 @@ claimed drill with no TSV (or a TSV with no block) is a gap.
   for an English request is rewritten, not accepted. That includes the
   action column and the column headers (see **Report language** above).
   The labels this
-  spec names stay as written (`进度`, `搜索词对账` — or its English form
-  `Search-term reconciliation`, `汇总建议`, `建议`); identifiers, metric
+  spec names follow the same rule — write the form matching the report
+  language (`进度` / `Progress`, `搜索词对账` / `Search-term
+  reconciliation`, `汇总建议` / `Summary`, `建议` / `Recommendation`);
+  identifiers, metric
   names and search terms stay verbatim. Keep narrative tight — the TSVs carry
   the bulk structured data; the report needs the manifest + per-campaign
   tables + recommendations, not walls of text.
