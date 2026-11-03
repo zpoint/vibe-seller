@@ -13,9 +13,9 @@
 
 <p align="center"><img width="1200" height="338" alt="combined_small" src="docs/images/combined_small.gif" /></p>
 
-<img width="2779" height="1737" alt="1_combined" src="docs/images/1_combined.png" />
+<img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_en.png" />
 
-<img width="1989" height="1490" alt="2_combined" src="docs/images/2_combined.png" />
+<img width="2981" height="1360" alt="2_combined" src="docs/images/2_combined_en.png" />
 
 
 
