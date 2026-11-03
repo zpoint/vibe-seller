@@ -11,7 +11,7 @@
 </p>
 
 
-<p align="center"><img width="1200" height="338" alt="combined_small" src="docs/images/combined_small.gif" /></p>
+https://github.com/user-attachments/assets/250cb119-3770-4c79-ab3b-607a3958e51c
 
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_zh.png" />
 
