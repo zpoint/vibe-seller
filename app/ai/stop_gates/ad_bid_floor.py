@@ -34,6 +34,8 @@ from __future__ import annotations
 
 import re
 
+from app.ai import ad_action_vocab as vocab
+from app.ai.ad_action_vocab import Col
 from app.ai.stop_gates import GateDeny
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
 
@@ -56,26 +58,11 @@ _FENCED_CODE_RE = re.compile(r'```.*?```', re.DOTALL)
 # Verbs that mean "lower this keyword's bid". Deliberately excludes
 # raise (提高/上调/raise), hold (保持/Hold), and negate (否定/negate —
 # a search-term action, not a converting-keyword bid cut).
-_LOWER_RE = re.compile(
-    r'下调|调低|降低出价|lower (?:the )?bid|reduce bid|trim to|bid trim'
-    r'|cut bid|lower to',
-    re.IGNORECASE,
-)
+_LOWER_RE = vocab.LOWER_VERB_RE
 
-# Negated mentions of lowering — the recommendation is actually a Hold
-# whose NOTE explains why it must NOT be lowered (e.g. a compliant row
-# reads "维持 — ACOS 29.7% 低于 30%，不可下调"). Stripping these before
-# the _LOWER_RE test stops the gate false-flagging its own rule being
-# obeyed: 下调 inside 不可下调 / 不下调 / "do not lower" is not a trim
-# directive. Without this the gate matches the substring 下调 inside
-# 不可下调 and rejects a correct Hold.
-_NEGATED_LOWER_RE = re.compile(
-    r'不可下调|不能下调|不得下调|不下调|不应下调|不予下调|无需下调'
-    r'|不建议下调|不宜下调|禁止下调|勿下调|切勿下调'
-    r'|(?:do not|don\'t|cannot|can\'t|must not|no need to|never)\s+'
-    r'(?:lower|reduce|cut|trim)',
-    re.IGNORECASE,
-)
+# Negated mentions of lowering ("do not lower", 不可下调): a Hold whose
+# NOTE explains why it must NOT be lowered is not a lower directive.
+_NEGATED_LOWER_RE = vocab.NEGATED_LOWER_RE
 
 _SEP_RE = re.compile(r':?-{2,}:?')
 _PCT_RE = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*%\s*$')
@@ -136,8 +123,8 @@ def check(
         if _is_separator(cells):
             continue
         low = [c.lower() for c in cells]
-        has_rec = any(h in ('建议', 'recommendation') for h in low)
-        has_bid = any(('出价' in h) or (h == 'bid') for h in low)
+        has_rec = vocab.has_rec_col(cells)
+        has_bid = vocab.find_col(cells, Col.BID) is not None
         has_metric = any(h in ('acos', 'roas') for h in low)
         if has_rec and has_bid and has_metric:
             # header row of a keyword/target bid table
@@ -147,9 +134,9 @@ def check(
                     col['acos'] = i
                 elif h == 'roas':
                     col.setdefault('roas', i)
-                elif h in ('建议', 'recommendation'):
+                elif vocab.is_col(h, Col.REC):
                     col['rec'] = i
-                elif ('关键词' in h) or (h in ('keyword', 'target')):
+                elif vocab.is_col(h, Col.KEYWORD):
                     col.setdefault('name', i)
             col.setdefault('name', 0)
             in_table = True
@@ -182,9 +169,9 @@ def check(
     reason = (
         f'硬性规则违规：{len(violations)} 个关键词 ACOS 低于 {t}% 却被建议'
         f'「下调出价」。ACOS < {t}% 的关键词正在盈利并贡献订单，只能 '
-        '**Hold 或提高出价**，绝不能下调——出价只是竞价上限，二价拍卖'
+        '**维持/Hold 或提高出价/Raise bid**，绝不能下调——出价只是竞价上限，二价拍卖'
         '的实际花费远低于出价，下调会丢失已盈利的流量。请把这些行的建议'
-        f'改为 Hold 或提高出价（仅 ACOS ≥ {t}% 才允许下调），再重新 '
+        f'改为 维持/Hold 或 提高/Raise（按报告语言写其一；仅 ACOS ≥ {t}% 才允许下调），再重新 '
         f'set_task_result。违规行：{sample}{more}'
     )
     return GateDeny(gate=GATE_NAME, reason=reason)

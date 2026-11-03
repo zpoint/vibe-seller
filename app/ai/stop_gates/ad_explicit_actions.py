@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import re
 
+from app.ai import ad_action_vocab as vocab
+from app.ai.ad_action_vocab import Col
 from app.ai.stop_gates import GateDeny
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
 
@@ -42,15 +44,11 @@ GATE_NAME = 'ad_explicit_actions'
 
 # Raise/lower verbs. On targeting rows they demand magnitude+basis;
 # on search-term rows they are categorically invalid.
-_BID_VERB_RE = re.compile(r'提高|降低|上调|下调|加投|减投|降至|提至')
+_BID_VERB_RE = vocab.BID_VERB_RE
 
 # An explicit magnitude: a target value (至/→ 0.96), a percentage
 # (25% / +25% / -10%), or an absolute currency target.
-_MAGNITUDE_RE = re.compile(
-    r'(?:至|→|->)\s*\d+(?:\.\d+)?'
-    r'|[+\-±]?\d+(?:\.\d+)?\s*%'
-    r'|\d+(?:\.\d+)?\s*(?:SAR|AED|USD)'
-)
+_MAGNITUDE_RE = vocab.MAGNITUDE_RE
 
 # A stated basis: an explanatory clause opener followed by ≥4 chars.
 _REASON_RE = re.compile(r'[（(，,：:—\-]\s*\S{4,}')
@@ -62,11 +60,8 @@ _REASON_RE = re.compile(r'[（(，,：:—\-]\s*\S{4,}')
 # Extraction, in either spelling. `添加为关键词` is the wording the console
 # now shows, so a report using it must still reach the suggested-bid check
 # below — otherwise the clearer phrasing would quietly buy an exemption.
-_EXTRACT_RE = re.compile(
-    r'(?<!不可)(?<!无法)(?<!没法)提取'
-    r'|(?<!不可)(?<!无法)(?<!没法)添加为?关键词'
-)
-_SUGGEST_BID_RE = re.compile(r'(?:出价|至)\s*[=＝]?\s*\d+(?:\.\d+)?')
+_EXTRACT_RE = vocab.EXTRACT_RE
+_SUGGEST_BID_RE = vocab.SUGGEST_BID_RE
 
 # A ROAS/ACOS number CITED inside a 建议 cell. Three review rounds
 # found fabricated citations — the clicks column quoted as ROAS
@@ -77,9 +72,7 @@ _CITED_ACOS_RE = re.compile(r'ACOS\s*[=＝:：约]?\s*(\d+(?:\.\d+)?)\s*%')
 # A cite about some OTHER row/value (the source keyword's metric, a
 # projected value, another campaign's number) is skipped, not
 # compared — skipping is safe (it can only reduce coverage).
-_CITED_OTHER_RE = re.compile(
-    r'来源|预计|预期|目标|另一|其他|其它|整体|全店|汇总|历史|新词'
-)
+_CITED_OTHER_RE = vocab.CITED_OTHER_RE
 # Clause boundaries used to scope that attribution check. A metric belongs
 # to whatever the CLAUSE attributes it to, so the search window runs from
 # the nearest preceding separator rather than a fixed character count.
@@ -90,39 +83,39 @@ _CITED_OTHER_RE = re.compile(
 # treating the comma as a boundary would re-flag the very shape this skips.
 # Erring wide is the safe direction: a missed skip flags correct prose,
 # while an extra skip only reduces coverage (see :func:`_cited_metric`).
-_CLAUSE_SEPS = ('；', ';', '。', '（', '(', '——', '\n')
+_CLAUSE_SEPS = vocab.CLAUSE_SEPS
 
 # An absolute bid trim (「降至 1.20」「下调至1.63」). Percentage-only
 # trims (「下调 10%」) are not floor-checked — the base is ambiguous.
-_TRIM_TO_RE = re.compile(r'(?:降至|下调至|降到)\s*([\d.]+)')
+_TRIM_TO_RE = vocab.TRIM_TO_RE
 # A percentage trim (「降低出价 25%」「下调 10%」) — the base is the
 # row's own 出价 column, so the implied target IS floor-checkable.
-_TRIM_PCT_RE = re.compile(
-    r'(?:大幅)?(?:降低|下调|调低)(?:出价)?\s*(\d{1,2})\s*%'
-)
+_TRIM_PCT_RE = vocab.TRIM_PCT_RE
 # A raise verb, for the phantom-metric check below.
-_RAISE_VERB_RE = re.compile(r'提高|提至|上调|加投')
+_RAISE_VERB_RE = vocab.RAISE_VERB_RE
 # 「已是定向词」-style claims: the search term is said to already be
 # managed by a targeting row. Verified against the campaign's actual
 # targeting table (the claim is false when no such row exists, and
 # orphaned when every matching row is itself being cut).
-_MANAGED_CLAIM_RE = re.compile(r'已是定向词|由定向表管理')
-_CUT_ACT_RE = re.compile(r'否定|暂停|停')
+_MANAGED_CLAIM_RE = vocab.MANAGED_CLAIM_RE
+_CUT_ACT_RE = vocab.CUT_ACT_RE
 
 _DENY_TARGETING = (
-    '{n} 行定向关键词的「提高/降低」类建议缺少明确幅度或依据。每行必须'
-    '写明 (a) 幅度——目标价（如「提高至 0.96」）或百分比（如「下调 '
-    '10%」）；(b) 简短依据——规则（如「ACOS 41%>30 规则」）或假设。'
+    '{n} 行定向关键词的「提高/降低」(raise/lower) 类建议缺少明确幅度或依据。每行必须'
+    '写明 (a) 幅度——目标价（如「提高至 0.96」/ "Raise to 0.96"）或百分比（如「下调 '
+    '10%」/ "Lower by 10%"）；(b) 简短依据——规则（如「ACOS 41%>30 规则」）或假设。'
     '维持/否定/暂停行不需要幅度。违规样例：{samples}。'
 )
 
 _DENY_SEARCHTERM = (
     '{n} 行搜索词建议用了出价动作（提高/降低/加投…）——维度错误：搜索词'
     '不是出价对象，出价在定向关键词上。搜索词只有三种有效建议：'
-    '(a) **提取为定向词**（表现好的词，写明匹配方式与新定向词的建议出价，'
+    '(a) **提取为定向词 / Add as keyword**（表现好的词，写明匹配方式与新定向词的建议出价，'
     '如「提取为定向词（Exact，建议出价 0.95——ROAS 5.66>5，来源 broad 词'
-    '可相应降档）」，必要时在来源关键词行级联调整）；(b) **否定**（高花费'
-    '零单词）；(c) **维持观察**（样本不足）。违规样例：{samples}。'
+    '可相应降档）」，必要时在来源关键词行级联调整）；(b) **否定 / Negative keyword**（高花费'
+    '零单词）；(c) **维持观察 / Keep and monitor**（样本不足）。'
+    '写在 English 报告里就用英文动作词 (Add as keyword (exact, bid X) / '
+    'Negative keyword (exact|phrase) / Keep)。违规样例：{samples}。'
 )
 
 _DENY_EXTRACT_NO_BID = (
@@ -133,7 +126,7 @@ _DENY_EXTRACT_NO_BID = (
 _DENY_IDENTITY_EXTRACT = (
     '{n} 行把与来源关键词完全相同的搜索词「提取为定向词」——该词本来'
     '就是定向词（只是 Broad/Phrase 匹配），提取无意义。改为 维持'
-    '（来源词承接）或在定向关键词表上处理。违规样例：{samples}。'
+    '（来源词承接 / carried by source keyword）或在定向关键词表上处理。违规样例：{samples}。'
 )
 
 _DENY_WASTE_HOLD = (
@@ -180,34 +173,33 @@ _DENY_AUTO_PAUSE_CARRY = (
 # have. The console renders the action head as the pre-selected button, so
 # an invented match type becomes an instruction nobody can carry out.
 _PRODUCT_TARGET_RE = re.compile(r'subcat|categor|product|asin|品类|类目|商品')
-_KEYWORD_ONLY_ACT_RE = re.compile(
-    r'否定精确|否定词组|否定关键词|拓词|提取为定向词|添加为?关键词'
-)
+_KEYWORD_ONLY_ACT_RE = vocab.KEYWORD_ONLY_ACT_RE
 
 _DENY_PLACEMENT_KEYWORD_VERB = (
     '{n} 行「品类/商品投放」搜索词用了只属于关键词的动作（否定精确／'
     '否定词组／拓词／提取为定向词）——匹配方式是关键词的属性：品类位'
     '（Subcat/Category/Product/ASIN）没有精确与词组之分，也无法提取成'
-    '关键词。这类行只有两种有效建议：**否定投放**（写明依据）或 '
-    '**维持**。违规样例：{samples}。'
+    '关键词。这类行只有两种有效建议：**否定投放 / Negative target**（写明依据）或 '
+    '**维持 / Keep**。违规样例：{samples}。'
 )
 
 _DENY_NEGATE_ON_TARGET = (
     '{n} 行定向关键词写了「否定搜索词」——维度错误：否定搜索词是搜索词层'
-    '动作，控制台里关键词只能 暂停定向词/否定精确/降至，不能「否定搜索'
-    '词」。改为 暂停定向词（依据）。违规样例：{samples}。'
+    '动作，控制台里关键词只能 暂停定向词(Pause target)/否定精确(Negative keyword '
+    '(exact))/降至(Lower to)，不能「否定搜索'
+    '词」(Negate search term)。改为 暂停定向词 / Pause target（依据）。违规样例：{samples}。'
 )
 
 _DENY_SPLIT_HEAD = (
-    '{n} 行动作头写 维持 但单元格内藏着「建议暂停/建议否定」——操作者'
+    '{n} 行动作头写 维持(Keep) 但单元格内藏着「建议暂停/建议否定」(suggest pause/negate)——操作者'
     '只执行动作头，藏起来的决定等于没做（output-spec：动作头就是决定）。'
-    '把动作头改成 暂停定向词/否定（括注地板锁死+ROAS 依据），或删掉'
+    '把动作头改成 暂停定向词 / Pause target、否定 / Negative keyword（括注地板锁死+ROAS 依据），或删掉'
     '矛盾的建议尾巴。违规样例：{samples}。'
 )
 
 _DENY_TRIM_DIRECTION = (
     '{n} 行「下调至 X」的目标价高于该行当前出价——这实际是提价，动作'
-    '方向标错了。出价已低于地板且表现差的词：写 维持（出价已低于'
+    '方向标错了。出价已低于地板且表现差的词：写 维持 / Keep（出价已低于'
     'CPC×1.1 地板，无法再降）并视情况建议暂停，不要写成「下调」。'
     '违规样例：{samples}。'
 )
@@ -215,7 +207,7 @@ _DENY_TRIM_DIRECTION = (
 _DENY_PHANTOM_RAISE = (
     '{n} 行在零点击/零花费的行上用 ACOS/ROAS 规则做「提高」依据——零花费'
     '行的 ACOS 是未定义（0÷0），不是 0.0%，不能触发任何表现规则。'
-    '改为 维持（无数据信号）或以「预算内试投/新词启动」之类的意图依据'
+    '改为 维持 / Keep（无数据信号）或以「预算内试投/新词启动」之类的意图依据'
     '另行说明。违规样例：{samples}。'
 )
 
@@ -223,7 +215,7 @@ _DENY_FALSE_MANAGED = (
     '{n} 行搜索词声称「已是定向词/由定向表管理」但该活动定向表里'
     '查不到对应行，或对应定向行本身已被 否定/暂停（停用后「由定向表'
     '管理」不成立，反而是该词的处置缺口）。核对定向表：词不存在 → '
-    '改为如实的 维持/否定/提取 建议；定向行被停 → 给该搜索词独立的'
+    '改为如实的 维持/否定/提取 (Keep/Negative keyword/Add as keyword) 建议；定向行被停 → 给该搜索词独立的'
     '处置。违规样例：{samples}。'
 )
 
@@ -240,7 +232,7 @@ _DENY_HEALTHY_SRC_EXTRACT = (
     '定向词」——提取是救援动作，只在来源词要被 降/停/否定 时才提取'
     '（先救出好流量再砍来源词）。来源词健康时 Broad/Phrase 会继续'
     '承接这些搜索词，全部提取只会把定向词列表搞成一锅粥并和来源词'
-    '自我竞价。改为 维持（来源 Broad 词承接，ROAS X）。'
+    '自我竞价。改为 维持 / Keep（来源 Broad 词承接 / carried by source Broad keyword，ROAS X）。'
     '违规样例：{samples}。'
 )
 
@@ -270,15 +262,9 @@ def _strip_cat(key: str) -> str:
     return re.sub(r'\s*[（(][^（）()]*[）)]\s*$', '', key).strip()
 
 
-_HOLD_HEAD_RE = re.compile(r'^\s*(?:\*\*)?\s*(?:维持|观察|否定|暂停)')
-# Source-action heads: the ACTION is the leading verb; reason text may
-# cite the opposite verb negatively (维持（…已否定的垃圾词…回归）).
-_HEALTHY_HEAD_RE = re.compile(
-    r'^\s*(?:\*\*)?\s*(?:提高|提至|上调|加投|维持|观察)'
-)
-_CUT_HEAD_RE = re.compile(
-    r'^\s*(?:\*\*)?\s*(?:否定|暂停|停|降至|下调|降低|大幅降低|移除)'
-)
+_HOLD_HEAD_RE = vocab.HOLD_HEAD_RE
+_HEALTHY_HEAD_RE = vocab.HEALTHY_HEAD_RE
+_CUT_HEAD_RE = vocab.CUT_HEAD_RE
 
 
 def _is_hold(rec: str) -> bool:
@@ -452,49 +438,21 @@ def check(
             # status cell that must not be read as a hold (live FP:
             # a campaign header row flagged as a zero-order waste
             # hold because its last cell was 「✓」).
-            has_rec = any(
-                '建议' in c or c.lower() == 'recommendation' for c in cells
+            has_rec = vocab.has_rec_col(cells)
+            in_search_table = has_rec and vocab.is_search_term_head(cells[0])
+            in_targeting_table = has_rec and not vocab.is_search_term_head(
+                cells[0]
             )
-            in_search_table = has_rec and '搜索词' in cells[0]
-            in_targeting_table = has_rec and '搜索词' not in cells[0]
-            src_idx = next(
-                (j for j, c in enumerate(cells) if '来源' in c), None
-            )
-            orders_idx = next(
-                (j for j, c in enumerate(cells) if '订单' in c), None
-            )
-            spend_idx = next(
-                (j for j, c in enumerate(cells) if '花费' in c), None
-            )
-            sales_idx = next(
-                (j for j, c in enumerate(cells) if '销售额' in c), None
-            )
-            clicks_idx = next(
-                (j for j, c in enumerate(cells) if '点击' in c), None
-            )
-            roas_idx = next(
-                (j for j, c in enumerate(cells) if c.lower() == 'roas'),
-                None,
-            )
-            acos_idx = next(
-                (j for j, c in enumerate(cells) if c.lower() == 'acos'),
-                None,
-            )
-            bid_idx = next(
-                (
-                    j
-                    for j, c in enumerate(cells)
-                    if '出价' in c and '建议' not in c
-                ),
-                None,
-            )
-            cpc_idx = next(
-                (j for j, c in enumerate(cells) if 'cpc' in c.lower()),
-                None,
-            )
-            match_i = next(
-                (j for j, c in enumerate(cells) if '匹配' in c), None
-            )
+            src_idx = vocab.find_col(cells, Col.SOURCE)
+            orders_idx = vocab.find_col(cells, Col.ORDERS)
+            spend_idx = vocab.find_col(cells, Col.SPEND)
+            sales_idx = vocab.find_col(cells, Col.SALES)
+            clicks_idx = vocab.find_col(cells, Col.CLICKS)
+            roas_idx = vocab.find_col(cells, Col.ROAS)
+            acos_idx = vocab.find_col(cells, Col.ACOS)
+            bid_idx = vocab.find_col(cells, Col.BID)
+            cpc_idx = vocab.find_col(cells, Col.CPC)
+            match_i = vocab.find_col(cells, Col.MATCH)
             if in_search_table:
                 st_match_idx = match_i
             else:
@@ -509,7 +467,7 @@ def check(
             # the executor reads the head, the buried decision dies
             # (round-13: pattern recurred in 7 rows beyond the listed
             # fixes whenever floor-lock + bad ROAS co-occurred).
-            if re.search(r'(?<!已)建议\s*(?:暂停|否定|停)', rec):
+            if vocab.BURIED_CUT_RE.search(rec):
                 bad_split_head.append(f'{_norm(cells[0])[:25]} → {rec[:45]}')
         if in_search_table or in_targeting_table:
             mm = _cited_mismatch(
@@ -564,12 +522,17 @@ def check(
                     for (k, m_t), act in targeting_actions.items()
                     if k == t_norm or _strip_cat(k) == t_norm
                 ]
-                m_claim = re.search(r'已是定向词\s*[（(]\s*([A-Za-z]+)', rec)
-                claimed = m_claim.group(1).casefold() if m_claim else ''
+                m_claim = vocab.MANAGED_MATCH_RE.search(rec)
+                claimed = (
+                    (m_claim.group(1) or m_claim.group(2)).casefold()
+                    if m_claim
+                    else ''
+                )
                 if not rows:
                     bad_false_managed.append(f'{term[:30]}（定向表无此行）')
                 elif all(
-                    _CUT_ACT_RE.search(act) and not re.search(r'提高|维持', act)
+                    _CUT_ACT_RE.search(act)
+                    and not vocab.RAISE_OR_KEEP_RE.search(act)
                     for _, act in rows
                 ):
                     bad_false_managed.append(
@@ -597,7 +560,7 @@ def check(
                 if not _SUGGEST_BID_RE.search(rec):
                     bad_extract.append(rec[:60])
                 continue
-            if re.search(r'维持', rec) and not re.search(r'否定|暂停|停', rec):
+            if vocab.KEEP_ANY_RE.search(rec) and not _CUT_ACT_RE.search(rec):
                 # Zero-order waste must be negated, never held — auto
                 # campaigns have no per-target row, so the search-term
                 # row IS the only place to act (store-owner rule).
@@ -614,11 +577,11 @@ def check(
                     continue
             if (
                 auto_group_cut
-                and '承接' in rec
-                and re.search(r'auto|自动', rec)
+                and vocab.CARRIED_RE.search(rec)
+                and vocab.AUTO_RE.search(rec)
             ):
                 bad_auto_pause_carry.append(f'{_norm(cells[0])[:25]}')
-            if '承接' in rec and src and src != term and src_act:
+            if vocab.CARRIED_RE.search(rec) and src and src != term and src_act:
                 # Inverse harvest check: 「来源词承接」 is FALSE when
                 # the source is being cut — it won't keep catching the
                 # term. A CONVERTING term there is the missed rescue
@@ -632,7 +595,7 @@ def check(
                         )
             continue
         if in_targeting_table and len(cells) >= 2:
-            if re.search(r'合计|总计|汇总', cells[0]) or not rec:
+            if vocab.TOTAL_ROW_RE.search(cells[0]) or not rec:
                 continue  # totals row / data-only row, not a 建议
             t_match_cell = (
                 cells[tgt_match_idx]
@@ -649,7 +612,7 @@ def check(
                 # blanket-pausing an auto group with converters is the
                 # wrong lever (negate waste, keep the group). Round-18.
                 auto_group_cut = True
-            if '否定搜索词' in rec:
+            if vocab.NEG_TERM_RE.search(rec):
                 # Wrong dimension: 否定搜索词 is a search-term action;
                 # a targeting keyword is 暂停定向词/降至/否定精确, never
                 # "negate the search term" (you can't negate a keyword
@@ -665,7 +628,7 @@ def check(
                     (spend or 0) >= waste_spend or (clicks or 0) >= waste_clicks
                 )
                 and not _CUT_ACT_RE.search(rec)
-                and '最低' not in rec
+                and not vocab.MINIMUM_RE.search(rec)
             ):
                 # Proven zero-converter: ANY non-cut action — a hold,
                 # a trim that still buys clicks, a raise — keeps
@@ -685,15 +648,19 @@ def check(
                 cpc = spend / clicks
             m_trim = _TRIM_TO_RE.search(rec)
             if m_trim:
-                target = float(m_trim.group(1))
+                target = float(m_trim.group(1) or m_trim.group(2))
                 # output-spec floor: a trim target below actual
                 # CPC×1.1 never wins another impression or locks in
                 # a loss; half-cent slack forgives rounding only.
                 # 「降至最低出价」 on a waste row is exempt — starving
                 # a proven zero-converter is the POINT there.
-                if cpc and '最低' not in rec and target < cpc * 1.1 - 0.005:
+                if (
+                    cpc
+                    and not vocab.MINIMUM_RE.search(rec)
+                    and target < cpc * 1.1 - 0.005
+                ):
                     bad_cpc_floor.append(
-                        f'{_norm(cells[0])[:25]}（降至 {target:g} < '
+                        f'{_norm(cells[0])[:25]}（降至/Lower to {target:g} < '
                         f'CPC {cpc:g}×1.1≈{cpc * 1.1:.2f}）'
                     )
                 # Direction truth: a 「下调至 X」 with X above the
@@ -701,29 +668,30 @@ def check(
                 # 0.88 on a 0.80 bid) — mislabeled action.
                 if bid and target > bid + 0.005:
                     bad_trim_direction.append(
-                        f'{_norm(cells[0])[:25]}（下调至 {target:g} > '
-                        f'当前出价 {bid:g}——实为提价）'
+                        f'{_norm(cells[0])[:25]}（下调至/Lower to {target:g} > '
+                        f'当前出价/current bid {bid:g}——实为提价/actually a raise）'
                     )
-            m_raise = re.search(r'提高至\s*([\d.]+)', rec)
+            m_raise = vocab.RAISE_TO_RE.search(rec)
             if m_raise and cpc:
                 # A RAISE target still below CPC×1.1 is incoherent:
                 # even after raising, the bid can't clear its own cost
                 # floor (round-16: SB Video rows where CPC > current
                 # bid got a +30% raise that still landed under floor).
-                rt = float(m_raise.group(1))
+                rt = float(m_raise.group(1) or m_raise.group(2))
                 if rt < cpc * 1.1 - 0.005:
                     bad_cpc_floor.append(
-                        f'{_norm(cells[0])[:25]}（提高至 {rt:g} 仍 < '
+                        f'{_norm(cells[0])[:25]}（提高至/Raise to {rt:g} 仍 < '
                         f'CPC {cpc:g}×1.1≈{cpc * 1.1:.2f}）'
                     )
             m_pct = _TRIM_PCT_RE.search(rec)
             if m_pct and bid and cpc:
                 # A percent trim's implied target must clear the same
                 # floor (live: 降低 25% off 0.66 → 0.495 vs 0.726).
-                implied = bid * (1 - float(m_pct.group(1)) / 100.0)
+                pct = m_pct.group(1) or m_pct.group(2)
+                implied = bid * (1 - float(pct) / 100.0)
                 if implied < cpc * 1.1 - 0.005:
                     bad_cpc_floor.append(
-                        f'{_norm(cells[0])[:25]}（降 {m_pct.group(1)}% '
+                        f'{_norm(cells[0])[:25]}（降 {pct}% '
                         f'→ {implied:.2f} < CPC {cpc:g}×1.1≈'
                         f'{cpc * 1.1:.2f}）'
                     )
@@ -732,7 +700,7 @@ def check(
                 and (spend or 0) == 0
                 and _RAISE_VERB_RE.search(rec)
                 and re.search(r'ACOS|ROAS', rec)
-                and '规则' in rec
+                and vocab.RULE_WORD_RE.search(rec)
             ):
                 # ACOS on a zero-spend row is 0/0 — citing
                 # 「ACOS 0.0%<30 规则」 there is a fabricated metric.

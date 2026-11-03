@@ -319,6 +319,18 @@ before you can read it.
 
 ## Output format
 
+**Report language.** Action verbs, column headers and rule names are ours,
+so they follow the language of the user's request; only platform-owned
+text (UI labels, export column names) stays as the platform shows it,
+quoted. Chinese request: `提高至 <bid>` / `下调至 <bid>` / `暂停` / `维持` /
+`否定关键词（精准|词组）` / `添加为关键词（精准|词组，建议出价 X）` /
+`否定投放`, headers `定向词 … 建议`. English request: `Raise to <bid>` /
+`Lower to <bid>` / `Pause` / `Keep` / `Negative keyword (exact|phrase)` /
+`Add as keyword (exact|phrase, bid X)` / `Negative target`, headers
+`Keyword … Recommendation`. The full table (both header sets included) is
+in `../../amazon-ads/references/output-spec.md` → *Report language*; the
+server reads both identically, so pick the one matching the report.
+
 ### Structure (in order)
 
 The report is intentionally compact. Per campaign: data tables
@@ -704,7 +716,8 @@ independently re-read live. Mechanisms:
   4. press **Update**, wait for the modal to close, then **reload
      the Targets tab and re-read the row** — confirm the live bid
      equals the exact target.
-  **The target is an EXACT value, not a floor.** `提高至 1.30`
+  **The target is an EXACT value, not a floor.** `提高至 1.30` (English
+  report: `Raise to 1.30`)
   means set the bid to 1.30 — NEVER accept a higher value (e.g.
   11.3) "because it's ≥ the target / satisfies only-raise". Only-
   raise means: if the *current* live bid already ≥ target, skip;
@@ -715,7 +728,7 @@ independently re-read live. Mechanisms:
   in its Actions cell; a paused one carries **Activate**. Click it,
   then re-read the row's status word to confirm.
   **Pause ONLY the exact (keyword, match-type) rows the report
-  marks `暂停定向词`. NEVER pause a row marked `维持`/Hold — not
+  marks `暂停定向词` / `Pause target`. NEVER pause a row marked `维持`/`Keep`/Hold — not
   even a zero-impression one.** After pausing, count newly-paused
   rows; it MUST equal the number the report listed for this
   campaign. A prior run swept the whole keyword list (paused 45 of

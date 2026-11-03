@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import re
 
+from app.ai import ad_action_vocab as vocab
 from app.ai.stop_gates import ad_reconcile, ad_scope
 
 # A campaign block is a "### " heading that carries a campaign id
@@ -86,9 +87,15 @@ def _name_capture_gap(part: str, head: str, gaps: list[str]) -> None:
     )
 
 
+def _header_cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip('|').split('|')]
+
+
 _NO_SEARCHTERM_RE = re.compile(
     r'无搜索词报告|无\s*Search\s*Terms|该活动类型无搜索词|无点击(?:无搜索词)?'
-    r'|0\s*点击.{0,12}无搜索词',
+    r'|0\s*点击.{0,12}无搜索词'
+    r'|no\s+search[- ]terms?\s+report|no\s+search[- ]terms?\b'
+    r'|no\s+clicks?,?\s+no\s+search[- ]terms?',
     re.IGNORECASE,
 )
 # An escape token asserts "this campaign type HAS no search-term report".
@@ -101,7 +108,9 @@ _NO_SEARCHTERM_RE = re.compile(
 _PENDING_WORK_RE = re.compile(
     r'待\s*(?:导出|获取|采集|回采|钻取|补)|尚未|还没|未获取|未导出|未采集'
     r'|需\s*(?:要)?\s*(?:从|回采|重新|再)|需[^\n。；]{0,14}?(?:导出|钻取|采集|回采)'
-    r'|to\s?be\s+(?:exported|fetched|drilled)|pending\s+(?:export|drill)',
+    r'|to\s?be\s+(?:exported|fetched|drilled)|pending\s+(?:export|drill)'
+    r'|need(?:s|ed)?\s+to\s+(?:export|fetch|re-?capture|drill)|not\s+yet\s+'
+    r'(?:exported|fetched|captured)',
     re.IGNORECASE,
 )
 
@@ -114,7 +123,9 @@ _PENDING_WORK_RE = re.compile(
 # and passed, because the presence check was satisfied by the HEADER row
 # alone (every markdown table has one).
 _AGGREGATE_ROW_RE = re.compile(
-    r'合计|总计|汇总|整体活动|定位层|overall|^total\b', re.IGNORECASE
+    r'合计|总计|汇总|整体活动|定位层|overall|^total\b|^subtotal\b'
+    r'|campaign[- ]level|whole campaign',
+    re.IGNORECASE,
 )
 # A markdown header underline: ``|---|---|`` (alignment colons allowed).
 _TABLE_SEP_RE = re.compile(r'^\|[\s:|-]+\|?$')
@@ -201,11 +212,13 @@ def _layer_row_count(block: str, *, searchterm: bool) -> int:
         line = lines[i].strip()
         nxt = lines[i + 1].strip() if i + 1 < len(lines) else ''
         if not (
-            line.startswith('|') and '建议' in line and _TABLE_SEP_RE.match(nxt)
+            line.startswith('|')
+            and vocab.has_rec_col(_header_cells(line))
+            and _TABLE_SEP_RE.match(nxt)
         ):
             i += 1
             continue
-        is_st = '搜索词' in line.strip('|').split('|')[0]
+        is_st = vocab.is_search_term_head(line.strip('|').split('|')[0])
         if is_st is not searchterm:
             i += 1
             continue
@@ -326,14 +339,18 @@ def _check_campaign_blocks(
         has_st_table = False
         has_tgt_table = False
         for bl in block.splitlines():
-            if not (bl.startswith('|') and '建议' in bl):
+            if not (
+                bl.startswith('|') and vocab.has_rec_col(_header_cells(bl))
+            ):
                 continue
             first = bl.strip().strip('|').split('|')[0]
-            if '搜索词' in first:
+            if vocab.is_search_term_head(first):
                 has_st_table = True
             else:
                 has_tgt_table = True
-        no_data_page = bool(re.search(r'无数据|无\s*SKU', block))
+        no_data_page = bool(
+            re.search(r'无数据|无\s*SKU|no\s+data|no\s+SKUs?', block, re.I)
+        )
         if has_st_table and not has_tgt_table and not no_data_page:
             no_target_table.append(name)
         elif (

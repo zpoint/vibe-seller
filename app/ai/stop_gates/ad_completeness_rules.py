@@ -88,7 +88,11 @@ _GARBLED_RE = re.compile(
 # A collapse row ("其余 N 个…") hides per-row data. Only acceptable for
 # rows that are explicitly zero-impression/zero-click filler; any
 # collapsed row WITH traffic makes the report unauditable.
-_COLLAPSE_ROW_RE = re.compile(r'^\|[^\n]*其余\s*\d+\s*个[^\n]*$', re.MULTILINE)
+_COLLAPSE_ROW_RE = re.compile(
+    r'^\|[^\n]*(?:其余\s*\d+\s*个|其他\s*\d+\s*个'
+    r'|\b(?:other|remaining)\s+\d+\b|\+\s*\d+\s+more\b)[^\n]*$',
+    re.MULTILINE | re.IGNORECASE,
+)
 _ZERO_JUSTIFIED_RE = re.compile(
     r'0\s*展示|0\s*点击|0\s*impressions?', re.IGNORECASE
 )

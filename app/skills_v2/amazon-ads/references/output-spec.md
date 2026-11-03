@@ -107,6 +107,52 @@ For every audited `(platform, country)`, the report MUST contain a
 
 4. **Inactive campaigns**: one line each (id + state), not drilled.
 
+## Report language — OUR words follow the user's language
+
+**The rule.** Words that are ours — action verbs, column headers, rule
+names (bid floor, actual CPC, 25% step cap), match-type labels we write —
+are written in **the language of the user's request** (an English request
+gets an English report, a Chinese request a Chinese one). Only text that
+is the PLATFORM's own — UI labels, buttons, export column names, quoted
+exactly as the marketplace shows them — stays in the platform's language,
+and you mark it by quoting it. Never mix: an English report whose action
+column says `暂停 + 否定关键词（精准）` is rejected by the language gate, and
+so is a Chinese report whose headers are English. The server reads BOTH
+vocabularies identically (one shared list, `app/ai/ad_action_vocab.py`):
+an English `Raise to 1.00` counts exactly like `提高至 1.00`. Write the
+column that matches the report language; do not translate word by word
+from memory — copy the spelling below.
+
+| Action | 中文 | English |
+|---|---|---|
+| raise a bid | `提高至 <bid>` | `Raise to <bid>` |
+| lower a bid | `下调至 <bid>` | `Lower to <bid>` |
+| pause a target | `暂停` / `暂停定向词` | `Pause` / `Pause target` |
+| hold | `维持` / `维持观察` | `Keep` / `Keep and monitor` |
+| negate a keyword query | `否定关键词（精准\|词组）` | `Negative keyword (exact\|phrase)` |
+| harvest a query | `添加为关键词（精准\|词组，建议出价 X）` | `Add as keyword (exact\|phrase, bid X)` |
+| negate a placement | `否定投放` | `Negative target` |
+| percentage move | `下调 10%` | `Lower by 10%` |
+| basis tag | `（ACOS 41%>30 规则）` | `(ACOS 41%>30 rule)` |
+
+Older zh spellings (`上调至`, `降至`, `拓词`, `否定精确`, `否定词组`,
+`提取为定向词`) and English `Hold` / `Increase to` / `Reduce to` are still
+read, but write the canonical ones above.
+
+| Column | 中文 header | English header |
+|---|---|---|
+| targeting table | `定向词 \| 广告组 \| 匹配 \| 出价 \| 展示 \| 点击 \| 花费 \| 订单 \| 销售额 \| ACOS \| ROAS \| 实际 CPC \| 建议` | `Keyword \| Ad group \| Match \| Bid \| Impressions \| Clicks \| Spend \| Orders \| Sales \| ACOS \| ROAS \| Actual CPC \| Recommendation` |
+| search-term table | `搜索词 \| 广告组 \| 来源关键词 \| 匹配 \| 点击 \| 花费 \| 订单 \| 销售额 \| ROAS \| 建议` | `Search term \| Ad group \| Source keyword \| Match \| Clicks \| Spend \| Orders \| Sales \| ROAS \| Recommendation` |
+| totals row | `合计` | `Total` |
+| summary section | `## 汇总建议` | `## Summary` |
+| report title | `# 广告优化建议 — <store> — <date>` | `# Ad Optimization Recommendations — <store> — <date>` |
+
+The column that carries the action is always the LAST one, headed `建议` /
+`Recommendation` (an `Action` header is also read). Everywhere below, a
+Chinese literal in this spec stands for its English counterpart in this
+table when the report is English — the structure, not the language, is
+the contract.
+
 ## Per-campaign drill block — required shape
 
 Each `### <campaign id> | <name> | …` block MUST contain, in order:
@@ -188,14 +234,17 @@ Each `### <campaign id> | <name> | …` block MUST contain, in order:
    money is not theirs to make. Use exactly one of:
 
    - targeting rows: `提高至 <bid>` / `下调至 <bid>` / `暂停` / `维持`
+     (English report: `Raise to <bid>` / `Lower to <bid>` / `Pause` / `Keep`)
    - search-term rows **that are keyword queries** — the action AND the
      match type, because both directions have one:
      `添加为关键词（精准|词组，建议出价 X）` (older spelling `拓词` is still
      read) / `否定关键词（精准|词组）` (older `否定精确` / `否定词组` still
      read) / `维持`
+     (English report: `Add as keyword (exact|phrase, bid X)` /
+     `Negative keyword (exact|phrase)` / `Keep`)
    - search-term rows **that are category / product placements** — the
      match column says `Subcat`, `Category`, `Product`, an ASIN, or the
-     like: `否定投放` / `维持`
+     like: `否定投放` / `维持` (English: `Negative target` / `Keep`)
 
    Bare `否定` is NOT acceptable on a KEYWORD search-term row: phrase-
    negating and exact-negating a query have very different blast radius,
@@ -564,7 +613,9 @@ claimed drill with no TSV (or a TSV with no block) is a gap.
   be filled and its marker removed before the final submit.
 - Prose/recommendations in **the language of the user's request** —
   the result-language gate holds the report to it, so a Chinese report
-  for an English request is rewritten, not accepted. The labels this
+  for an English request is rewritten, not accepted. That includes the
+  action column and the column headers (see **Report language** above).
+  The labels this
   spec names stay as written (`进度`, `搜索词对账` — or its English form
   `Search-term reconciliation`, `汇总建议`, `建议`); identifiers, metric
   names and search terms stay verbatim. Keep narrative tight — the TSVs carry
@@ -572,6 +623,11 @@ claimed drill with no TSV (or a TSV with no block) is a gap.
   tables + recommendations, not walls of text.
 
 ## 建议列格式 (reviewable actions)
+
+_English report: this section's header is `Recommendation column format`, and
+every verb below is its English counterpart from the vocabulary table above
+(`Raise to 0.96`, `Lower by 10%`, `Keep`, `Pause`, `Negative keyword
+(exact)`, `Add as keyword (exact, bid 0.95 — …)`). Same rules, same checks._
 
 Every raise/lower recommendation must state **how much** and **why** —
 a bare 「提高出价」/「降低出价」/「加投」 is unreviewable and the

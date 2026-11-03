@@ -44,14 +44,30 @@ _NEGATE_MARK = '否定'
 # (startswith), symmetric with _NEGATE_MARK, so prose mentions don't
 # count. CJK matched exactly; English matched case-insensitively.
 _KEEP_MARKS_CJK = ('维持', '保持', '提高', '上调', '加投')
-_KEEP_MARKS_EN = ('raise', 'scale', 'keep', 'maintain', 'increase', 'hold')
+_KEEP_MARKS_EN = (
+    'raise',
+    'scale',
+    'keep',
+    'maintain',
+    'increase',
+    'hold',
+    'monitor',
+    'bid up',
+)
+# English negation heads (``Negative keyword (exact)``, ``Negate search
+# term``, ``Negative target``). Head-matched like the zh mark so a Keep
+# row explaining itself with "already negated" never reads as a negation.
+_NEGATE_HEAD_EN_RE = re.compile(r'^negat(?:ive|e)\b', re.IGNORECASE)
 
 _HEADER_CELLS = frozenset({
     '搜索词',
     '客户搜索词',
     'customer search term',
+    'search term',
+    'search terms',
     '关键词',
     'keyword',
+    'target',
     '',
 })
 
@@ -90,7 +106,7 @@ def _row_verdict(cells: list[str]) -> str | None:
     rec = cells[-1].replace('*', '').strip()
     if not rec:
         return None
-    if rec.startswith(_NEGATE_MARK):
+    if rec.startswith(_NEGATE_MARK) or _NEGATE_HEAD_EN_RE.match(rec):
         return 'negate'
     if rec.startswith(_KEEP_MARKS_CJK) or rec.lower().startswith(
         _KEEP_MARKS_EN
@@ -314,6 +330,17 @@ _NON_TERM_CELLS = frozenset({
     '暂停',
     '暂停活动',
     '暂停定向词',
+    'search term',
+    'keyword',
+    'action',
+    'match',
+    'campaign',
+    'pause',
+    'pause target',
+    'negative keyword',
+    'negative search term',
+    'negate search term',
+    'negative target',
 })
 
 # Substrings that mark a cell as flow/recipe/summary prose, not a term.
