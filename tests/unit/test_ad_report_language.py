@@ -28,6 +28,8 @@ from app.ai.stop_gates import (
     ad_scale_winners,
     result_language,
 )
+from app.ai.stop_gates.ad_completeness_rules import count_drill_tables
+from app.ai.stop_gates.ad_declaration_checks import actionable_rows
 from app.ai.stop_gates.ad_moves import MOVE_RE
 
 ZH_TGT_HEAD = (
@@ -570,3 +572,83 @@ class TestLanguageGate:
             + _tgt('维持（控制台状态 Delivering）')
         )
         assert result_language.check(report, ZH_TITLE, None) is None
+
+
+@pytest.mark.unit
+class TestReviewRegressions:
+    """Each case is one review finding on the shared vocabulary."""
+
+    def test_negative_search_term_is_a_decision(self):
+
+        for rec in ('否定搜索词', 'Negative search term'):
+            table = f'| Search term | Recommendation |\n|---|---|\n| red widget | {rec} |\n'
+            assert actionable_rows([table]) == 1, rec
+
+    @pytest.mark.parametrize('label', ['Negative exact', '否定精准'])
+    def test_inventory_of_existing_negatives_decides_nothing(self, label):
+
+        table = (
+            '| Keyword | Match | Status |\n|---|---|---|\n'
+            f'| red widget | {label} | Enabled |\n'
+        )
+        assert actionable_rows([table]) == 0
+        decided = (
+            '| Keyword | Match | Recommendation |\n|---|---|---|\n'
+            f'| red widget | Broad | {label} |\n'
+        )
+        assert actionable_rows([decided]) == 1
+
+    def test_percentage_cut_on_low_acos_is_denied_in_both(self):
+        t = TestBidRuleGatesParity()
+        zh = t._amz('关键词', '建议', '下调 10%')
+        en = t._amz('Keyword', 'Recommendation', 'Lower by 10%')
+        assert ad_bid_floor.check(zh) is not None
+        assert ad_bid_floor.check(en) is not None
+
+    @pytest.mark.parametrize(
+        'rec',
+        [
+            '维持（不拓词，来源词承接）',
+            'Keep (do not harvest; carried by source keyword)',
+        ],
+    )
+    def test_a_hold_that_declines_harvest_is_not_a_harvest(self, rec):
+        assert not vocab.EXTRACT_RE.search(rec)
+        assert vocab.EXTRACT_RE.search('拓词（精准，出价 0.95）')
+        assert vocab.EXTRACT_RE.search('Harvest as keyword (exact, bid 0.95)')
+
+    def test_placement_rows_reject_harvest(self):
+        en = EN_ST_HEAD + (
+            '| B0EXAMPLE1 | grp | cat-1 | Category | 5 | 12.00 | 2 | 40.00 '
+            '| 3.33 | Harvest as keyword (exact, bid 0.95) |\n'
+        )
+        assert ad_explicit_actions.check(en) is not None
+
+    def test_drill_tables_with_an_action_header_count(self):
+
+        zh = '| 定向词 | 建议 |\n|---|---|\n| widget-006 | 维持 |\n'
+        en = '| Keyword | Action |\n|---|---|\n| widget-006 | Keep |\n'
+        assert count_drill_tables(zh) == count_drill_tables(en) == 1
+
+    def test_keep_inside_a_keyword_is_not_a_skip(self):
+        row = '| 100000000001 | widget keeper | Pause | ✅ |'
+        assert not exec_targets._SKIP_MARK_EN.search(row)
+        assert exec_targets._SKIP_MARK_EN.search('| x | Keep | skipped |')
+
+    def test_title_cased_action_cell_is_not_the_term(self):
+        log = (
+            '| 100000000001 | Negate search term | red widget '
+            '| Negative exact | ✅ |\n'
+        )
+        assert allowlist.extract_executed_negations(log) == [
+            ('100000000001', 'red widget')
+        ]
+
+    @pytest.mark.parametrize(
+        'label', ['Negative keyword (exact)', '否定关键词（精准）']
+    )
+    def test_canonical_negation_label_is_an_execution(self, label):
+        log = f'| 100000000001 | red widget | {label} | ✅ |\n'
+        assert allowlist.extract_executed_negations(log) == [
+            ('100000000001', 'red widget')
+        ]

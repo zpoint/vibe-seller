@@ -67,10 +67,10 @@ __all__ = [
 from app.ai.stop_gates.ad_completeness_rules import (  # noqa: E402
     _COLLAPSE_ROW_RE,
     _COMBO_HEADER_RE,
-    _DRILL_TABLE_RE,
     _PROGRESS_RE,
     _ZERO_JUSTIFIED_RE,
     _check_campaign_spend,
+    count_drill_tables,
     cross_cutting_gaps,
 )
 
@@ -297,7 +297,7 @@ def check(
         # is strict (``>=``): one drill table per active campaign. Without
         # one we keep the old 2× slack so a narrow single-ad audit isn't
         # tripped by a search-term table doubling the count.
-        n_drill_tables = len(_DRILL_TABLE_RE.findall(part))
+        n_drill_tables = count_drill_tables(part)
         if combo is not None:
             n_active_authoritative = len(combo['active_ids'])
             if (

@@ -31,7 +31,7 @@ work started.
 
 from __future__ import annotations
 
-from app.ai import ad_declaration
+from app.ai import ad_action_vocab as vocab, ad_declaration
 from app.ai.stop_gates.ad_completeness_rules import _COMBO_HEADER_RE
 from app.ai.stop_gates.ad_moves import MOVE_RE
 from app.models.ad_declaration import KIND_INVESTIGATE
@@ -77,14 +77,45 @@ def actionable_rows(parts: list[str]) -> int:
     wherever it sits, and a report with no ``## <platform> <CC>``
     sections at all is one single part — skipping ``parts[0]`` meant such
     a report could carry nothing but decisions and count zero.
+
+    A bare negative match-type label (``Negative exact`` / ``否定精准``)
+    is a decision only in the recommendation column. Anywhere else in a
+    row it is inventory — the platform's match type of a negative that
+    already exists — and a listing of existing negatives decides nothing.
+    Every other move word counts wherever it sits in the row.
     """
     n = 0
     for part in parts:
-        for line in part.splitlines():
-            stripped = line.strip()
-            if stripped.startswith('|') and MOVE_RE.search(stripped):
+        lines = [ln.strip() for ln in part.splitlines()]
+        rec_idx: int | None = None
+        for i, line in enumerate(lines):
+            if not line.startswith('|'):
+                rec_idx = None
+                continue
+            cells = _cells(line)
+            if _is_sep(cells):
+                continue
+            nxt = lines[i + 1] if i + 1 < len(lines) else ''
+            if nxt.startswith('|') and _is_sep(_cells(nxt)):
+                rec_idx = vocab.find_col(cells, vocab.Col.REC)
+                continue  # header row: names columns, decides nothing
+            kept = [
+                c
+                for j, c in enumerate(cells)
+                if j == rec_idx
+                or not vocab.MATCH_TYPE_LABEL_RE.fullmatch(c.strip('* '))
+            ]
+            if MOVE_RE.search('|'.join(kept)):
                 n += 1
     return n
+
+
+def _cells(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip('|').split('|')]
+
+
+def _is_sep(cells: list[str]) -> bool:
+    return all(c and set(c) <= set('-: ') for c in cells)
 
 
 def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:

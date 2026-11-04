@@ -207,8 +207,11 @@ _SUMMARY_HDR_RE = re.compile(
 # change the agent applied this run. Counting these as agent actions is what
 # made the gate flag an already-paused row as an "over-pause" and tell the
 # agent to RE-ENABLE a live ad (a state change the report never requested).
+# Whole words only: the row includes the keyword text, and ``keep`` /
+# ``hold`` inside ``widget keeper`` / ``household`` is not a skip.
 _SKIP_MARK_EN = re.compile(
-    r'skip|maintain|hold|keep|already|drift|unreachable|inapplicable|n/a|no[- ]op',
+    r'\b(?:skip(?:ped|s)?|maintain(?:ed|s)?|holds?|keeps?|kept|already'
+    r'|drift(?:ed|s)?|unreachable|inapplicable|no[- ]op)\b|\bn/a\b',
     re.IGNORECASE,
 )
 _SKIP_MARK_CJK = re.compile(

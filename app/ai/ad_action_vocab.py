@@ -166,7 +166,17 @@ MOVE_RE = re.compile(
     r'|\bbid\s+(?:up|down)\b'
     r'|\bpause\b'
     r'|\bnegate\b|\bnegative\s+(?:keyword|exact|phrase|target)\b'
+    r'|\bnegative\s+search\s+terms?\b'
     r'|\badd\s+(?:it\s+)?(?:as\s+)?(?:an?\s+)?negative\b',
+    re.IGNORECASE,
+)
+
+#: A bare negative MATCH-TYPE label (``Negative exact`` / ``否定精准``).
+#: Outside the recommendation column it is inventory data — the platform's
+#: match type of an existing negative — not a decision; see
+#: ``ad_declaration_checks.actionable_rows``.
+MATCH_TYPE_LABEL_RE = re.compile(
+    r'\s*(?:negative\s+(?:exact|phrase)|否定(?:精准|精确|词组))\s*',
     re.IGNORECASE,
 )
 
@@ -193,7 +203,8 @@ RAISE_VERB_RE = re.compile(
 LOWER_VERB_RE = re.compile(
     r'下调|调低|降低出价|降至|\blower (?:the )?bid\b|\breduce (?:the )?bid\b'
     r'|\btrim to\b|\bbid trim\b|\bcut (?:the )?bid\b|\blower to\b'
-    r'|\breduce to\b|\bdecrease to\b|\bbid down\b',
+    r'|\breduce to\b|\bdecrease to\b|\bbid down\b'
+    r'|\b(?:lower|reduce|decrease|cut)(?:\s+(?:the\s+)?bids?)?\s+by\b',
     re.IGNORECASE,
 )
 #: A negated mention of lowering ("do not lower", "不可下调").
@@ -235,13 +246,20 @@ RAISE_OR_KEEP_RE = re.compile(
 #: ``Keep`` in a cell and no cut in it.
 KEEP_ANY_RE = re.compile(r'维持|\b(?:keep|hold|maintain)\b', re.IGNORECASE)
 
+#: ``拓词`` / ``harvest`` not declined in the same breath: a hold that
+#: explains itself (``维持（不拓词）`` / ``Keep (do not harvest)``) is
+#: not a request to create a keyword.
+_HARVEST = (
+    r'(?<!不)(?<!不予)(?<!无需)(?<!无须)(?<!不必)(?<!无法)(?<!不可)拓词'
+    r"|(?<!not )(?<!no )(?<!n't )(?<!never )\bharvest\b"
+)
 #: Search-term extraction / harvest ("add as keyword").
 EXTRACT_RE = re.compile(
     r'(?<!不可)(?<!无法)(?<!没法)提取'
     r'|(?<!不可)(?<!无法)(?<!没法)添加为?关键词'
-    r'|拓词'
+    rf'|{_HARVEST}'
     r'|(?<!not )(?<!cannot )\badd\s+(?:it\s+)?as\s+(?:a\s+)?keyword\b'
-    r'|\bpromote\s+to\s+(?:a\s+)?keyword\b|\bharvest\b',
+    r'|(?<!not )(?<!cannot )\bpromote\s+to\s+(?:a\s+)?keyword\b',
     re.IGNORECASE,
 )
 #: A bid figure for a NEW keyword: ``建议出价 0.95`` / ``bid 0.95``.
@@ -311,10 +329,12 @@ NEG_TERM_RE = re.compile(
 )
 #: Actions that only exist for KEYWORDS (match type is a keyword trait).
 KEYWORD_ONLY_ACT_RE = re.compile(
-    r'否定精确|否定词组|否定关键词|拓词|提取为定向词|添加为?关键词'
+    r'否定精确|否定词组|否定关键词|提取为定向词|添加为?关键词'
+    rf'|{_HARVEST}'
     r'|\bnegative\s+(?:keyword|exact|phrase)\b'
     r'|\bnegate\s+(?:exact|phrase)\b'
-    r'|\badd\s+as\s+(?:a\s+)?keyword\b|\bpromote\s+to\s+keyword\b',
+    r'|\badd\s+as\s+(?:a\s+)?keyword\b'
+    r'|\bpromote\s+to\s+(?:a\s+)?keyword\b',
     re.IGNORECASE,
 )
 #: Attribution markers: a cited metric belonging to another entity.

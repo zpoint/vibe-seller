@@ -26,6 +26,7 @@ from pathlib import Path
 import re
 import sqlite3
 
+from app.ai import ad_action_vocab as vocab
 from app.config import VIBE_SELLER_DIR
 
 # "### 100000000000000 | kw-018-manual-keyword | Manual | ..."
@@ -309,7 +310,15 @@ def load_allowlist(task_id: str) -> dict[str, set[str]]:
 # negation match type (Negative exact/phrase, 否定) AND is marked done
 # (✅). Conservative: a row without ✅ is a plan, not an execution.
 _EXEC_DONE = '✅'
-_NEG_MATCH_RE = re.compile(r'negative\s+(?:exact|phrase)|否定', re.IGNORECASE)
+# Every negation label the vocabulary allows (``Negative keyword (exact)``
+# as well as the bare platform ``Negative exact``), matched as a whole cell.
+_NEG_MATCH_RE = re.compile(
+    r'否定|'
+    + vocab.alt(
+        vocab.Kind.NEG_EXACT, vocab.Kind.NEG_PHRASE, vocab.Kind.NEG_TERM
+    ),
+    re.IGNORECASE,
+)
 _CAMPAIGN_ID_RE = re.compile(r'\b(\d{12,})\b')
 
 # Category / verb / column-header cells that can sit in the term column
@@ -415,6 +424,7 @@ def extract_executed_negations(
                 or re.fullmatch(r'p\d', low)  # priority label P0/P1/P2
                 or _NEG_MATCH_RE.fullmatch(low)
                 or c in _NON_TERM_CELLS
+                or low in _NON_TERM_CELLS
                 or not _is_term_like(c)
             ):
                 continue

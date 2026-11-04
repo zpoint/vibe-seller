@@ -13,6 +13,7 @@ marketplace from every per-campaign check.
 
 import re
 
+from app.ai import ad_action_vocab as vocab
 from app.ai.stop_gates import (
     ad_bid_floor,
     ad_explicit_actions,
@@ -38,14 +39,24 @@ _PROGRESS_RE = re.compile(
     r'drilled\s+(\d+)\s*/\s*(\d+)\s*active', re.IGNORECASE
 )
 
+
 # A per-campaign keyword/target table header has a 建议/recommendation
 # column — the EVIDENCE of a real drill. A page-manifest table
 # (活动ID|类型|花费|ROAS, no 建议 column) does NOT match, so a section
 # claiming drills but with ~none of these is a manifest, not a drill —
 # this closes the "write drilled D/A but no real content" gaming hole.
-_DRILL_TABLE_RE = re.compile(
-    r'^\|.*(?:建议|recommendation).*\|\s*$', re.IGNORECASE | re.MULTILINE
-)
+# Recognised by the shared header vocabulary, so an English table headed
+# ``Action`` counts exactly like one headed ``建议``.
+def count_drill_tables(part: str) -> int:
+    """Table rows in ``part`` carrying a recommendation-column cell."""
+    n = 0
+    for line in part.splitlines():
+        s = line.strip()
+        if s.startswith('|') and s.endswith('|'):
+            cells = [c.strip() for c in s.strip('|').split('|')]
+            n += vocab.has_rec_col(cells)
+    return n
+
 
 # Excuse phrases that defer work which must be done THIS session
 # (Brand Analytics is accessible without OTP; cross-platform / per-
