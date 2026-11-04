@@ -73,18 +73,19 @@ export function buildConversationItems(
     // message. So it refreshes the LAST result item, not the first.
     //
     // Replacing the FIRST one is what drew the newest answer above the
-    // question that asked for it: on a two-turn task the ad-audit console
-    // rendered between turn 1's question and turn 2's, reading as though
-    // it answered "how much did we sell today?". The earlier turn's own
-    // answer was displaced to the bottom of the thread as loose prose.
+    // question that asked for it: on a two-turn task the turn-2 ad-audit
+    // result rendered between turn 1's question and turn 2's, reading as
+    // though it answered "how much did we sell today?". The earlier
+    // turn's own answer was displaced to the bottom of the thread as
+    // loose prose.
     let lastIdx = -1
     for (let i = convItems.length - 1; i >= 0; i--) {
       if (convItems[i].type === 'result') { lastIdx = i; break }
     }
     if (lastIdx >= 0) {
-      // Keep the replaced item's timestamp: the audit console binds a
-      // result to the declaration in force when it landed, so stamping
-      // "now" here would bind by rebuild time instead.
+      // Keep the replaced item's timestamp: it is when this result
+      // actually landed — stamping "now" here would re-date the answer
+      // to whenever the history happened to be rebuilt.
       convItems[lastIdx] = {
         id: 'hist-result-final',
         type: 'result' as const,

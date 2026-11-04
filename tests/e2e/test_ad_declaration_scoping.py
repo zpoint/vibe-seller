@@ -1,7 +1,7 @@
 """A real agent, a fake ad console, and one question: did the scope hold?
 
 This closes the loop that unit tests cannot. The scoping contract has two
-halves — the agent must keep to what it was asked for, and the console
+halves — the agent must keep to what it was asked for, and the report
 must be bounded by what it declared — and only the first half depends on
 a model reading a natural-language request. So this drives a real agent
 against a stand-in ad console carrying TWO campaigns and asks about ONE.
@@ -34,22 +34,22 @@ does not brand itself as Amazon, which invited a full audit for a
 lookup). It may equally answer straight off the page without the skill. Observed in CI on ``glm-4.7``: a
 correctly scoped review that named the asked-about campaign, explicitly
 said it had not opened the other, and declared nothing. That is the
-fail-safe direction — no declaration means no console, so nothing
-over-wide is ever offered — and failing the run for it would be pinning
-a model's habits, not a contract. What must never happen is a
+fail-safe direction — no declaration means no obligation is inferred, so
+nothing over-wide is ever demanded — and failing the run for it would be
+pinning a model's habits, not a contract. What must never happen is a
 declaration WIDER than the request, and that is asserted whenever one
 exists.
 
-The console's own filtering (``scope ∩ report``) is deterministic
-TypeScript, pinned separately in
-``frontend/src/__tests__/adAuditDeclaration.test.ts`` and verified in a
-real browser against a multi-campaign report. Do NOT read a pass here as
-evidence the console rendered anything.
+The bounding of a report by its declaration (an out-of-scope marketplace
+is a gap) is deterministic Python, pinned separately in
+``tests/unit/test_ad_declaration.py``. Do NOT read a pass here as
+evidence those gates ran — they ride on the ad skills, and this test's
+agent may never load one.
 
 The failure this guards against is not hypothetical. Live, a task asked
 to create two campaigns for one product produced a report covering five
 marketplaces — because a gate inferred "audit" from a heading and
-demanded them — and the console offered every one of them as an
+demanded them — and every one of them was offered up as an
 actionable bid decision.
 
 Needs no advertiser account: the console is served from this process.
@@ -239,13 +239,14 @@ class TestScopeSurvivesAFollowUp:
         # ── If it declared, the declaration must be narrow ───────────
         #
         # Conditional by design — see the module docstring. Absent is
-        # fail-safe (no declaration → no console); WIDER than asked is
-        # the regression this whole change exists to prevent.
+        # fail-safe (no declaration → no widening obligation); WIDER
+        # than asked is the regression this whole change exists to
+        # prevent.
         decls = _declarations(api_client, task_id)
         if not decls:
             logger.info(
-                'no declaration recorded; console stays closed. Scope was '
-                'still held — verified against the console access log.'
+                'no declaration recorded. Scope was still held — '
+                'verified against the ad-console access log.'
             )
             return
         logger.info('declarations: %s', decls)
@@ -275,25 +276,24 @@ class TestScopeSurvivesAFollowUp:
         named = _scope_text(review)
         assert CAMPAIGN_A in named or CAMPAIGN_A_NAME in named, (
             f'the campaign the user asked about is missing from the '
-            f'declared scope, so the console would not show it: {review}'
+            f'declared scope, so a report covering it would trip the '
+            f'out-of-scope gap: {review}'
         )
         assert CAMPAIGN_B not in named and CAMPAIGN_B_NAME not in named, (
             f'the campaign the user explicitly excluded is inside the '
-            f'declared scope, so the console would offer it as an '
-            f'actionable decision: {review}'
+            f'declared scope — the scope is wider than asked: {review}'
         )
         # A scope that named no campaigns would silently mean "every
         # campaign in these markets" — narrow-looking, but not narrow.
         assert (review.get('scope') or {}).get('campaigns'), (
             f'scope named no campaigns, which means ALL of them: {review}'
         )
-        # The console binds each result to the declaration in force when
-        # that result landed. An audit declared BEFORE turn 1's answer
-        # would attach the console to the revenue answer as well, showing
-        # two consoles for one review.
+        # A declaration belongs to the phase whose work needs it. An
+        # audit declared BEFORE turn 1's answer would cover the revenue
+        # phase as well — one audit declaration spanning two phases.
         assert review['created_at'] > results[0]['created_at'], (
             "the audit declaration must post-date the first turn's "
-            'answer, or the console binds to that answer too: '
+            'answer, or it covers that answer too: '
             f'declared {review["created_at"]}, first result '
             f'{results[0]["created_at"]}'
         )
@@ -374,7 +374,7 @@ class TestAnUnscopedRequestStaysWide:
 
         decls = _declarations(api_client, task['id'])
         if not decls:
-            logger.info('no declaration recorded; console stays closed')
+            logger.info('no declaration recorded')
             return
         review = decls[-1]
         assert review['kind'] == 'audit', review

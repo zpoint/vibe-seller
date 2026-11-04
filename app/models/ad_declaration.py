@@ -7,8 +7,8 @@ second turn is genuinely an audit; the first genuinely was not. Modelled
 as one flag per task, that conversation is unrepresentable.
 
 So a declaration belongs to an agent RUN, not to the task. Each run gets
-at most one, they accumulate, and the console binds to the run whose
-declaration says ``audit`` rather than to the task as a whole.
+at most one, they accumulate, and a report is judged against the
+declaration its run made rather than against the task as a whole.
 
 **Why this exists at all.** Both the completeness gate and the frontend
 used to answer "is this an audit?" by pattern-matching the agent's own
@@ -16,8 +16,9 @@ prose — a ``## noon AE`` heading plus a ``drilled N/N`` line. Observed
 live: a task asked to create two campaigns for one product tripped that
 heuristic, was told by the gate it therefore owed all five of the store's
 marketplaces, had no data for four of them, and satisfied the gate by
-transcribing the previous week's audit file. The console then rendered
-51 campaigns of mostly four-day-old numbers as actionable decisions.
+transcribing the previous week's audit file. What passed was 51
+campaigns of mostly four-day-old numbers presented as actionable
+decisions.
 
 The inference ran AFTER the work and WIDENED the obligation. A
 declaration runs BEFORE the work and NARROWS it. Same actor deciding —
@@ -45,7 +46,7 @@ from app.text_utils import SafeText
 # What an ad task can be. ``edit`` is deliberately absent: "change these
 # three bids" is a one-campaign AUDIT, and the scope carries the
 # difference. Two kinds that mean almost the same thing drift apart —
-# one console path and one obligation rule is the whole point.
+# one obligation rule for recommending changes is the whole point.
 KIND_AUDIT = 'audit'
 KIND_CREATE = 'create'
 KIND_EXECUTE = 'execute'
@@ -73,8 +74,8 @@ class AdTaskDeclaration(Base):
         nullable=False,
         index=True,
     )
-    # 1-based phase number within the task. The console binds a result
-    # item to the declaration that was current when that result landed.
+    # 1-based phase number within the task: declarations accumulate one
+    # per phase, and each accepted declaration takes the next number.
     seq: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     kind: Mapped[str] = mapped_column(String, nullable=False)
     # JSON. See app.ai.ad_declaration for the shape and the

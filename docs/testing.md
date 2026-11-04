@@ -150,8 +150,9 @@ respect a boundary?" tests, and the split it makes is the point:
   does not oblige a model to load. CI on `glm-4.7` produced a correctly
   scoped review that declared nothing; failing on that would pin one
   model's habits instead of the contract. Absent is fail-safe (no
-  declaration → no console); **wider than asked** is the regression, and
-  that is asserted whenever a declaration is present.
+  declaration → no widening obligation inferred); **wider than asked**
+  is the regression, and that is asserted whenever a declaration is
+  present.
 - **Give each test its own stub.** The fixture is function-scoped: the
   whole-store test visits both campaigns, and a shared server would leave
   that visit in the log for the scoped test to trip over — only when

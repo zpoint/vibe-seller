@@ -4,8 +4,8 @@ The journey this pins is the one that broke the first version of this
 design. A seller writes "create a listing for widget-006"; the task
 finishes; then, in the SAME conversation with the same workspace, they
 write "now audit the ads for the listing you just made". The second turn
-is genuinely an audit and must open a review console. The first was not
-and must not.
+is genuinely an audit and must owe an audit's coverage. The first was
+not and must not.
 
 Modelled as one flag per task, that conversation is unrepresentable. So
 declarations belong to a RUN and accumulate. What must NOT be possible
@@ -66,8 +66,8 @@ class TestDeclaringAPhase:
         assert body['kind'] == 'create'
         assert body['scope']['campaigns'] == ['A1234567']
 
-        # The frontend reads the sequence to decide which result item
-        # gets a console; it must be able to.
+        # The declaration sequence is the task's phase history;
+        # it must stay readable.
         r = await admin_client.get(f'/api/tasks/{task_id}/ad-declarations')
         assert r.status_code == 200
         assert [d['kind'] for d in r.json()] == ['create']
@@ -84,7 +84,7 @@ class TestDeclaringAPhase:
     ):
         # Deliberately absent: "change these three bids" is a one-campaign
         # AUDIT. Two kinds meaning nearly the same thing drift apart, and
-        # the console would need two code paths.
+        # the gates would need two obligation rules.
         task_id = await _make_task(admin_client)
         r = await _declare(admin_client, task_id, 'edit')
         assert r.status_code == 400
@@ -129,8 +129,7 @@ class TestOnlyTheUserOpensANewPhase:
         assert r.json()['kind'] == 'audit'
 
         r = await admin_client.get(f'/api/tasks/{task_id}/ad-declarations')
-        # Both phases survive: the create result keeps no console, the
-        # audit result gets one.
+        # Both phases survive as separate declarations, one per phase.
         assert [d['kind'] for d in r.json()] == ['create', 'audit']
 
     async def test_the_earlier_declaration_is_never_rewritten(
@@ -252,9 +251,9 @@ class TestNarrowingWithinATurn:
     async def test_shedding_an_obligation_by_changing_the_kind_is_refused(
         self, admin_client, install_fake_agent
     ):
-        # `investigate` owes no marketplace coverage and opens no
-        # console. Reaching it from `audit` mid-turn is how an agent
-        # would drop both, so it is the move that has to stay shut.
+        # `investigate` owes no marketplace coverage. Reaching it from
+        # `audit` mid-turn is how an agent would shed the obligation,
+        # so it is the move that has to stay shut.
         task_id = await _make_task(admin_client)
         market = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
         await _declare(admin_client, task_id, 'audit', market)
@@ -281,11 +280,11 @@ class TestCorrectingAnUnderDeclaredPhase:
     Before this, the ratchet refused every kind change, so its only way
     to comply was to DELETE the recommendations — the opposite of what
     the person asked for, and the state a CI run reached: a bid review
-    declared `investigate`, so the user got recommendations and no
-    console to approve them on.
+    declared `investigate`, so the user got recommendations that faced
+    no audit obligation at all.
 
     `investigate` → `audit` is safe to allow precisely because it is not
-    an escape: it ADDS the coverage obligation and opens the console. The
+    an escape: it ADDS the coverage obligation. The
     reach checks are what stop it smuggling in a wider scope.
     """
 

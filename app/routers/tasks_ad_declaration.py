@@ -93,9 +93,8 @@ async def list_ad_declarations(
 ):
     """Every declaration this task has made, oldest first.
 
-    The frontend needs the whole sequence, not just the latest: a task
-    that created a listing and then audited its ads has two result items
-    in the conversation, and only the second gets a console.
+    The sequence is the task's phase history: a task that created a
+    listing and then audited its ads has two declarations, one per phase.
     """
     rows = (
         await db.scalars(
@@ -188,8 +187,8 @@ async def declare_ad_task(
                 'work turned out to produce bid/pause/negate decisions '
                 'rather than just figures — same marketplaces or fewer, '
                 'same campaigns or fewer. This one exists so an '
-                'under-declared phase can still hand the user a review '
-                'console instead of deleting its recommendations.\n'
+                'under-declared phase can own its recommendations as an '
+                'audit instead of deleting them.\n'
                 'You cannot add a marketplace, widen the campaign list, '
                 'or move to a kind that owes LESS than the one you '
                 'declared (audit → investigate is refused). A wider '

@@ -1,7 +1,7 @@
 """The per-campaign TSVs have a FIXED header, and the server checks it.
 
-These files are the machine-readable half of an audit: the review console
-renders from them, an execution task acts on them, and the next audit
+These files are the machine-readable half of an audit: an execution task
+acts on them, and the next audit
 diffs against them. ``output-spec.md`` said to write them and said what
 they were for — but never said what the columns were, so every run
 invented a header.
@@ -50,8 +50,8 @@ TARGETING_COLUMNS = (
     # second ledger to keep in sync with it, and `git log` on the file
     # answers "when did we last touch this target?".
     #
-    # Written by the EXECUTION pass (after a human approves decisions in
-    # the review console), never by the audit that merely suggests. Blank
+    # Written by the EXECUTION pass (after the user approves the
+    # audit's changes), never by the audit that merely suggests. Blank
     # means untouched. `previous_bid` holds the value replaced, so the
     # pair (previous_bid, bid) is the old->new of the last applied move.
     'applied_action',

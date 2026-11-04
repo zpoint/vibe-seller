@@ -2,8 +2,8 @@
 
 The DB row is the authority (see ``app.models.ad_declaration``); this
 module is the vocabulary everything else shares — the scope shape, the
-whole-store rule, the in-scope predicates the gate and the console both
-need, and the workspace mirror the gates actually read.
+whole-store rule, the in-scope predicates the gate needs, and the
+workspace mirror the gates actually read.
 
 **Why a file at all when the row exists.** Stop gates run in-process and
 could query the DB, but the AGENT also needs to see what it committed to
@@ -211,14 +211,14 @@ def reach_within(prev: dict | None, new: dict | None) -> bool:
 # move at all for the opposite mistake. An agent that declared
 # `investigate` ("just read the numbers") and then produced a table of
 # bid changes has UNDER-declared what it owes: `investigate` owes no
-# marketplace coverage and opens no review console, so the user is handed
-# recommendations with no way to act on them. Its only legal option was
+# marketplace coverage, so the user is handed recommendations that were
+# never held to an audit's obligations. Its only legal option was
 # to delete the recommendations.
 #
 # So the rule is not "the kind may never change", it is **a
 # re-declaration may never reduce what the phase owes, and may never
 # widen its reach**. `investigate` → `audit` adds the coverage
-# obligation and opens the console; it is a tightening, and the reach
+# obligation; it is a tightening, and the reach
 # check below is what keeps it from smuggling in a wider scope.
 # `audit` → `investigate` is the escape and stays refused, as does
 # every other pair.

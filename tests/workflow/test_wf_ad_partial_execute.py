@@ -3,16 +3,15 @@
 This is the journey a seller actually runs:
 
 1. An audit produces a report covering several campaigns.
-2. In the console the reviewer keeps ONE bid change, drops everything
+2. The user reviews the report, keeps ONE bid change, drops everything
    else, and leaves another target in the same ad group on 维持.
-3. Submit — the agent must receive exactly that one change, and be told
+3. Reply — the agent must receive exactly that one change, and be told
    what was deliberately excluded so "absent" is never read as "missing".
 4. Execution records what it applied onto the campaign's TSV.
 5. The NEXT audit must not adjust that target again: it was moved days
    ago and there is not a week of data behind it yet.
 
-Steps 2-3 are covered end-to-end in the frontend suite (the console
-builds the submission, the handler posts it). What is pinned HERE is the
+Steps 2-3 are the user typing in chat. What is pinned HERE is the
 server half — that the follow-up reaches the task, and that the cooldown
 gate turns the second report's "lower it again" into a refusal with a
 reason a reader can act on.
@@ -86,7 +85,7 @@ class TestFollowUpReachesTheTask:
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
 
-        # The console posts the reviewed decisions as a follow-up.
+        # The human-reviewed decisions arrive as a follow-up message.
         follow_up = '广告审计已人工复核完毕。**只执行下面 JSON 里的决定**，其余一律不动。'
         r = await admin_client.post(
             f'/api/tasks/{task_id}/messages', json={'content': follow_up}
