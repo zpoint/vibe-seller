@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import re
 
+from app.ai import ad_action_vocab as vocab
+from app.ai.ad_action_vocab import Col
 from app.ai.stop_gates import GateDeny
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
 
@@ -44,9 +46,9 @@ _PCT_RE = re.compile(r'^\s*(\d+(?:\.\d+)?)\s*%\s*$')
 _NUM_RE = re.compile(r'-?\d+(?:\.\d+)?')
 
 # A recommendation is a "hold" if it says hold/keep and does NOT raise.
-_HOLD_RE = re.compile(r'\bhold\b|保持|维持', re.IGNORECASE)
+_HOLD_RE = vocab.HOLD_VERB_RE
 _RAISE_RE = re.compile(
-    r'提高|上调|加价|raise|increase bid|bid up', re.IGNORECASE
+    r'提高|上调|加价|\braise\b|\bincrease\b|\bbid up\b', re.IGNORECASE
 )
 
 # Concrete reasons a high-ROAS keyword may legitimately be held — if any
@@ -61,7 +63,9 @@ _BLOCKER_RE = re.compile(
     r'|搜索量|search volume|low volume|饱和|saturated|已是上限'
     r'|出价已高于|bid already above'
     r'|样本不足|样本太小|数据太少|数据不足|small sample'
-    r'|仅\s*\d+\s*(?:次)?\s*点击|点击不足|点击太少',
+    r'|仅\s*\d+\s*(?:次)?\s*点击|点击不足|点击太少'
+    r'|too few clicks|not enough (?:data|clicks)|insufficient data'
+    r'|only\s+\d+\s+clicks?',
     re.IGNORECASE,
 )
 
@@ -142,8 +146,8 @@ def check(
         if _is_separator(cells):
             continue
         low = [c.lower() for c in cells]
-        has_rec = any(h in ('建议', 'recommendation') for h in low)
-        has_bid = any(('出价' in h) or (h == 'bid') for h in low)
+        has_rec = vocab.has_rec_col(cells)
+        has_bid = vocab.find_col(cells, Col.BID) is not None
         has_metric = any(h in ('acos', 'roas') for h in low)
         if has_rec and has_bid and has_metric:
             # Search-term tables (first header cell 搜索词) are a
@@ -152,7 +156,7 @@ def check(
             # targeting tables only (ad_explicit_actions owns the
             # search-term vocabulary). Skipping prevents demanding a
             # raise on a term that correctly says 维持——来源词承接.
-            if '搜索词' in cells[0]:
+            if vocab.is_search_term_head(cells[0]):
                 in_table = False
                 col = {}
                 continue
@@ -162,11 +166,11 @@ def check(
                     col['acos'] = i
                 elif h == 'roas':
                     col.setdefault('roas', i)
-                elif h in ('建议', 'recommendation'):
+                elif vocab.is_col(h, Col.REC):
                     col['rec'] = i
-                elif ('出价' in h) or (h == 'bid'):
+                elif vocab.is_col(h, Col.BID):
                     col.setdefault('bid', i)
-                elif ('关键词' in h) or (h in ('keyword', 'target')):
+                elif vocab.is_col(h, Col.KEYWORD):
                     col.setdefault('name', i)
             col.setdefault('name', 0)
             in_table = True
@@ -199,11 +203,11 @@ def check(
     more = '' if len(flagged) <= 6 else f'（共 {len(flagged)} 行）'
     reason = (
         f'{len(flagged)} 个 ROAS > {threshold:g} 的高效关键词'
-        '被简单 Hold，既没提高出价也没说明原因。高 ROAS + 有订单的词通常'
+        '被简单 Hold/维持，既没提高出价也没说明原因。高 ROAS + 有订单的词通常'
         '是「投得太少」而非「保护」——应**提高出价**抢占明显盈利的流量。'
         'Efficiency-PROTECT 只是「不砍」，不是「不加」。若确实不能提高，'
         '请在该行建议里写明原因（出价已达建议上限 / 展示份额已高 / 预算'
-        f'受限 / 搜索量低）。否则改为提高出价后重新 set_task_result。'
+        f'受限 / 搜索量低）。否则改为提高出价（提高至 / Raise to）后重新 set_task_result。'
         f'待处理行：{sample}{more}'
     )
     return GateDeny(gate=GATE_NAME, reason=reason)

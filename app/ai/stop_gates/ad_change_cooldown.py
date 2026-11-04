@@ -32,6 +32,7 @@ import logging
 from pathlib import Path
 import re
 
+from app.ai import ad_action_vocab as vocab
 from app.ai.stop_gates import GateDeny, ad_scope
 from app.ai.stop_gates.ad_moves import HOLD_RE, MOVE_RE
 from app.ai.stop_gates.ad_rules import DEFAULT_RULES
@@ -148,8 +149,8 @@ def _campaign_of_file(path: Path) -> str:
 # targeting table and ``search_term`` first in the search-term one, so a
 # gate assuming column 1 compares an AD GROUP name against target
 # history — it never matches, and the bid cooldown silently never fires.
-_TARGET_COLS = ('target', '定向词', 'keyword', '关键词')
-_SEARCH_TERM_COLS = ('search_term', 'search term', '搜索词')
+_TARGET_COLS = vocab.TARGET_COLS
+_SEARCH_TERM_COLS = vocab.SEARCH_TERM_COLS
 
 
 def row_key_column(header: list[str]) -> tuple[str, int] | None:
@@ -362,8 +363,9 @@ def check(
             f'{len(bad)} 行对「刚改过」的定向词又给了调整建议。这些行在 '
             f'{window:.0f} 天冷却期内已经执行过改动，改动后的数据还没攒够，'
             '再调一次只会把上一次的效果也搅乱、之后谁也说不清是哪一次起的作用。'
-            '这些行请改成 **维持**，并在建议里写明依据（几天前改过什么、'
-            '冷却期还没到、要看满一周数据再判断）。'
+            '这些行请改成 **维持 / Keep**（按报告语言写其一），并在建议里写明依据（几天前改过什么、'
+            '冷却期还没到、要看满一周数据再判断 / what changed and when, '
+            'cooldown not over, wait for a full week of data）。'
             f'违规样例：{"；".join(bad[:5])}。'
         ),
         gaps=tuple(bad[:12]),

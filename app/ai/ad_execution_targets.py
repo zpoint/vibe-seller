@@ -36,13 +36,28 @@ _BID_HEAD_CJK = (
     '下调至',
     '调低至',
     '调整至',
+    '提至',
+    '下调到',
+    '降到',
 )
-_BID_HEAD_EN = ('trim to', 'raise to', 'lower to', 'increase to', 'set to')
+_BID_HEAD_EN = (
+    'trim to',
+    'raise to',
+    'lower to',
+    'increase to',
+    'reduce to',
+    'decrease to',
+    'raise bid to',
+    'lower bid to',
+    'increase bid to',
+    'reduce bid to',
+    'set to',
+)
 _PAUSE_HEAD_CJK = ('暂停',)
 _PAUSE_HEAD_EN = ('pause',)
 
-_BID_UP_HEAD = ('提高至', '上调至', '提高到')
-_BID_DOWN_HEAD = ('降至', '下调至', '调低至')
+_BID_UP_HEAD = ('提高至', '上调至', '提高到', '提至')
+_BID_DOWN_HEAD = ('降至', '下调至', '调低至', '下调到', '降到')
 
 
 def _norm_match(cell: str) -> str:
@@ -89,9 +104,18 @@ def _bid_direction(rec: str) -> str:
     if r.startswith(_BID_UP_HEAD) or low.startswith((
         'raise to',
         'increase to',
+        'raise bid to',
+        'increase bid to',
     )):
         return 'up'
-    if r.startswith(_BID_DOWN_HEAD) or low.startswith(('trim to', 'lower to')):
+    if r.startswith(_BID_DOWN_HEAD) or low.startswith((
+        'trim to',
+        'lower to',
+        'reduce to',
+        'decrease to',
+        'lower bid to',
+        'reduce bid to',
+    )):
         return 'down'
     return 'exact'
 
@@ -183,8 +207,11 @@ _SUMMARY_HDR_RE = re.compile(
 # change the agent applied this run. Counting these as agent actions is what
 # made the gate flag an already-paused row as an "over-pause" and tell the
 # agent to RE-ENABLE a live ad (a state change the report never requested).
+# Whole words only: the row includes the keyword text, and ``keep`` /
+# ``hold`` inside ``widget keeper`` / ``household`` is not a skip.
 _SKIP_MARK_EN = re.compile(
-    r'skip|maintain|hold|already|drift|unreachable|inapplicable|n/a|no[- ]op',
+    r'\b(?:skip(?:ped|s)?|maintain(?:ed|s)?|holds?|keeps?|kept|already'
+    r'|drift(?:ed|s)?|unreachable|inapplicable|no[- ]op)\b|\bn/a\b',
     re.IGNORECASE,
 )
 _SKIP_MARK_CJK = re.compile(

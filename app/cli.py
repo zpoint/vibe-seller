@@ -175,7 +175,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             'Upgrade vibe-seller in place. Uses `uv tool upgrade` when '
             'uv is on PATH (the install.sh path), falls back to '
-            '`pip install --upgrade` otherwise.'
+            '`pip install --upgrade` otherwise, then moves the '
+            'project-local Claude Code CLI to its latest release.'
         ),
     )
     up.add_argument(
@@ -461,7 +462,56 @@ def _upgrade_cmd(
     return _uv_reinstall(spec) if has_uv else _pip_install(spec)
 
 
+#: The Claude Code CLI every agent task spawns lives here, project-local
+#: (``app.ai.claude_backend_utils.resolve_claude_binary``), so a global
+#: upgrade never reaches it. Presets lean on newer CLI behaviour (e.g.
+#: ``CLAUDE_CODE_MAX_CONTEXT_TOKENS`` for third-party models), so an
+#: upgrade of vibe-seller upgrades the CLI with it.
+CLAUDE_CODE_PACKAGE = '@anthropic-ai/claude-code'
+
+
+def _claude_cli_upgrade_cmd() -> list[str] | None:
+    """npm command that moves the project-local CLI to the latest release.
+
+    None without npm — the packaged Windows installer bundles its own
+    ``claude.exe`` and upgrades it by shipping a new installer.
+    """
+    npm = shutil.which('npm')
+    if not npm:
+        return None
+    return [
+        npm,
+        'install',
+        '--prefix',
+        str(_vibe_home()),
+        '--no-save',
+        f'{CLAUDE_CODE_PACKAGE}@latest',
+    ]
+
+
+def _upgrade_claude_cli() -> int:
+    cmd = _claude_cli_upgrade_cmd()
+    if cmd is None:
+        print(
+            'npm not found — skipped the Claude Code CLI upgrade.',
+            file=sys.stderr,
+        )
+        return 0
+    print(f'==> {" ".join(cmd)}')
+    rc = subprocess.run(cmd).returncode
+    if rc != 0:
+        print('Claude Code CLI upgrade failed.', file=sys.stderr)
+    return rc
+
+
 def _cmd_upgrade(args: argparse.Namespace) -> int:
+    rc = _upgrade_package(args)
+    if rc != 0:
+        return rc
+    return _upgrade_claude_cli()
+
+
+def _upgrade_package(args: argparse.Namespace) -> int:
     if getattr(args, 'test_pypi', False):
         return _upgrade_from_test_pypi(args.target_version)
     current = _resolve_version()

@@ -11,11 +11,11 @@
 </p>
 
 
-<p align="center"><img width="1200" height="338" alt="combined_small" src="docs/images/combined_small.gif" /></p>
+https://github.com/user-attachments/assets/d8e9deda-8ffc-4516-9fe1-abb65a9ebdcc
 
-<img width="2779" height="1737" alt="1_combined" src="docs/images/1_combined.png" />
+<img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_en.png" />
 
-<img width="1989" height="1490" alt="2_combined" src="docs/images/2_combined.png" />
+<img width="2981" height="1360" alt="2_combined" src="docs/images/2_combined_en.png" />
 
 
 
@@ -125,7 +125,7 @@ curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh |
 vibe-seller start
 ```
 
-Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade`. Uninstall: `uv tool uninstall vibe-seller`.
+Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade` (also upgrades the Claude Code CLI it runs). Uninstall: `uv tool uninstall vibe-seller`.
 
 <sub>Nightly builds (published only when `main` has new commits; may be unstable): `curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`. On Windows, set `$env:VIBE_SELLER_CHANNEL='nightly'` before the PowerShell one-liner, or download the installer from the [nightly release](https://github.com/zpoint/vibe-seller/releases/tag/nightly). A nightly install is offered newer nightlies or stable releases; a stable install is never offered a nightly. Back to stable: `vibe-seller upgrade --stable`.</sub>
 
@@ -514,7 +514,7 @@ A few cross-border scenarios it's commonly used for:
 | **Email handling** | Sorts buyer messages, forwards important ones to the group chat, drafts replies. |
 | **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. |
 
-A single ad-tuning run is ≈ 3–5 minutes and costs ≈ ¥1 in LLM tokens
+A single ad-tuning run is ≈ 3–5 minutes and costs about $1 in LLM tokens
 (rough — depends on provider and campaign volume).
 
 ## Integrations
@@ -589,39 +589,28 @@ To let teammates use the same instance, they open
 <summary><b>How much does it cost?</b></summary>
 
 Vibe Seller is free and open source. You pay your LLM provider
-directly. Rough scale: one ad-tuning run ≈ ¥1 in DeepSeek tokens.
+directly. Rough scale: one ad-tuning run costs about $1 in DeepSeek
+tokens.
 
 </details>
 
 <details>
 <summary><b>Which LLM should I pick?</b></summary>
 
-Different tasks need different model strength. Match the model to
-the task:
+Most current models ship with a 1M context window and most can read
+images, so we no longer recommend specific vendors. Pick the tier by
+how hard the task is:
 
-| Task type | Recommended |
+| Task type | Tier |
 |---|---|
-| **Simple** — email classification, fixed-flow data entry, structured extraction | MiniMax, Kimi, GLM, or Qwen — pick whatever's cheapest |
-| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | **Claude or DeepSeek. Don't use the cheap models here.** |
+| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | The provider's **SOTA flagship** |
+| **Simple** — email classification, fixed-flow data entry, structured extraction | A **flash / budget** tier is enough |
 
-Why? Complex tasks ask the agent to read the Skill, judge page
-state, call tools, and take notes — all in the same context window.
-Cheap models (the low-tier MiniMax tiers especially) commonly:
-
-- Skip Skill steps or run them out of order
-- Garble tool-call arguments
-- Forget earlier decisions once the context grows
-
-One often-overlooked factor: **context window size.** Claude and
-DeepSeek v4 ship with 1M context windows; most other models sit
-around 200k. On a long task (multi-page tables, cross-flow
-conversation history, accumulated notes), 200k fills up fast — the
-model starts forgetting earlier decisions, dropping details, or
-breaking outright. 1M handles the same task with room to spare.
-
-For simple tasks, model choice barely matters; save tokens with a
-cheap one. For hard tasks, paying for a SOTA model isn't a luxury —
-it's the cheaper option once you count failed runs.
+On complex tasks the agent reads the Skill, judges page state, calls
+tools and takes notes all at once; weaker models skip steps, garble
+tool arguments or forget earlier decisions. A failed complex run
+costs more tokens and time than getting it right once with a SOTA
+model. For simple tasks the choice barely matters, so save tokens.
 
 </details>
 

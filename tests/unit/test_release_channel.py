@@ -227,7 +227,7 @@ class TestCliUpgrade:
             patch.object(cli.subprocess, 'run') as run,
         ):
             run.return_value = MagicMock(returncode=0)
-            rc = cli._cmd_upgrade(cli._build_parser().parse_args(argv))
+            rc = cli._upgrade_package(cli._build_parser().parse_args(argv))
         return rc, run.call_args[0][0] if run.call_args else None
 
     def test_stable_upgrade_is_unchanged(self):

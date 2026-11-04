@@ -20,6 +20,7 @@ import re
 
 from lingua import Language, LanguageDetectorBuilder
 
+from app.ai import ad_action_vocab as vocab
 from app.ai.stop_gates import GateDeny
 
 GATE_NAME = 'result_language'
@@ -146,6 +147,83 @@ def _language_scan(
     return in_lang / total, in_lang, other, uniq[:5]
 
 
+_SEP_CELL_RE = re.compile(r'^:?-{2,}:?$')
+
+
+def _split_row(line: str) -> list[str]:
+    return [c.strip() for c in line.strip().strip('|').split('|')]
+
+
+def stray_cjk_in_english_report(text: str) -> list[str]:
+    """Chinese that is OURS inside an English report, one sample per hit.
+
+    The per-line language scan skips table rows (they are data), which
+    left a hole: an English report whose action column still read
+    ``暂停 + 否定关键词（精准）`` passed. Words we write ourselves — action
+    verbs, column headers, rule names — follow the report language; only
+    text quoted exactly as the platform shows it stays in the platform's
+    language, so quoted spans (backticks, quotes, 「」) are exempt, and so
+    are data cells (search terms, product names) that are not headers or
+    the recommendation/action column. Prose lines are checked against
+    OUR vocabulary only — a verbatim Chinese keyword in a sentence is not
+    a leak, ``地板`` is.
+    """
+    cleaned = _strip_code(text)
+    # Only an ad-style report (a table with a recommendation/action column)
+    # owes the vocabulary rule; any other English result may legitimately
+    # discuss Chinese platform text.
+    if not any(
+        ln.strip().startswith('|') and vocab.has_rec_col(_split_row(ln))
+        for ln in cleaned.splitlines()
+    ):
+        return []
+    out: list[str] = []
+    rec_i: int | None = None
+    in_table = False
+    lines = cleaned.splitlines()
+    for n, raw in enumerate(lines):
+        line = raw.strip()
+        if not line.startswith('|'):
+            in_table = False
+            rec_i = None
+            hit = vocab.our_zh_words(line)
+            if hit:
+                out.append(' '.join(line.split())[:60])
+            continue
+        cells = _split_row(line)
+        if all(_SEP_CELL_RE.match(c) for c in cells if c):
+            continue
+        nxt = lines[n + 1].strip() if n + 1 < len(lines) else ''
+        if (
+            not in_table
+            and nxt.startswith('|')
+            and all(_SEP_CELL_RE.match(c) for c in _split_row(nxt) if c)
+        ):
+            # Header row: every header cell is our word.
+            in_table = True
+            rec_i = next(
+                (
+                    j
+                    for j, c in enumerate(cells)
+                    if vocab.is_col(c, vocab.Col.REC)
+                ),
+                None,
+            )
+            if any(vocab.has_cjk(vocab.strip_quoted(c)) for c in cells):
+                out.append(' '.join(line.split())[:60])
+            continue
+        if not in_table or not cells:
+            continue
+        j = rec_i if rec_i is not None and rec_i < len(cells) else None
+        if j is None:
+            continue
+        cell = cells[j]
+        if vocab.has_cjk(vocab.strip_quoted(cell)):
+            out.append(' '.join(cell.split())[:60])
+    seen: set[str] = set()
+    return [o for o in out if not (o in seen or seen.add(o))]
+
+
 def check(
     result_text: str, title: str, description: str | None
 ) -> GateDeny | None:
@@ -155,6 +233,27 @@ def check(
     if not result_text or not isinstance(result_text, str):
         return None
     expected = detect_expected_language(title, description)
+    if expected == 'en':
+        stray = stray_cjk_in_english_report(result_text)
+        if stray:
+            return GateDeny(
+                gate=GATE_NAME,
+                reason=(
+                    'The user wrote the task in English, so the words WE '
+                    'write — action verbs, column headers, rule names — '
+                    'must be English too; only text quoted exactly as the '
+                    'platform shows it stays in its own language. Chinese '
+                    'found in: '
+                    + '; '.join(f'“{o}”' for o in stray[:5])
+                    + '. Use the English spellings: Raise to <bid> / Lower '
+                    'to <bid> / Pause / Keep / Negative keyword (exact|'
+                    'phrase) / Add as keyword (exact|phrase, bid X) / '
+                    'Negative target; headers Keyword | Ad group | Match | '
+                    'Bid | Clicks | Spend | Orders | Sales | ACOS | ROAS | '
+                    'Actual CPC | Recommendation. Then call '
+                    'set_task_result again.'
+                ),
+            )
     ratio, in_lang, other, offenders = _language_scan(result_text, expected)
     if ratio >= LANGUAGE_MIN_RATIO:
         return None

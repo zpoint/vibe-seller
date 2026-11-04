@@ -34,8 +34,9 @@ _COMBO_HEAD_RE = re.compile(r'(?m)^##\s*' + ad_scope.COMBO_HEAD_PATTERN)
 # HEADER CELLS rather than a column index, so a section that adds or
 # reorders a column is still read correctly instead of silently parsing
 # the wrong cell as money.
+_TOTAL_LABELS = ('合计', '总计', '汇总', 'total', 'subtotal', 'overall')
 _ID_HEADER_CELLS = ('id', '活动 id', '活动id', 'campaign id')
-_SPEND_HEADER_CELLS = ('spend', '花费', '总花费')
+_SPEND_HEADER_CELLS = ('spend', '花费', '总花费', 'total spend')
 # Spend was the only figure cross-checked, and that was too narrow. The
 # LLM reviewer kept finding the same defect in the OTHER columns: one
 # campaign's head row read sales 921 / 15 orders while its own 合计 row
@@ -43,8 +44,8 @@ _SPEND_HEADER_CELLS = ('spend', '花费', '总花费')
 # orders over a table summing to 880 / 42 — spend matched in both cases,
 # so nothing fired. Sales and orders are the same "one number written
 # twice" invariant and cost the same to check.
-_SALES_HEADER_CELLS = ('sales', '销售额', '总销售额', '销售')
-_ORDERS_HEADER_CELLS = ('orders', '订单', '总订单', '订单数')
+_SALES_HEADER_CELLS = ('sales', '销售额', '总销售额', '销售', 'total sales')
+_ORDERS_HEADER_CELLS = ('orders', '订单', '总订单', '订单数', 'total orders')
 _EXTRA_METRICS = (
     ('sales', _SALES_HEADER_CELLS, '销售额'),
     ('orders', _ORDERS_HEADER_CELLS, '订单'),
@@ -141,7 +142,7 @@ def _combo_table(section: str) -> list[tuple[str, float | None]]:
             continue
         cid = cells[id_i].strip().strip('*')
         # The grand-total row is not a campaign.
-        if not cid or cid.startswith('总计') or '总计' in cid:
+        if not cid or cid.lower() in _TOTAL_LABELS or '总计' in cid:
             continue
         rows.append((cid, _money(cells[spend_i])))
     return rows
@@ -158,7 +159,8 @@ _RECON_RE = ad_reconcile.RECONCILE_RE
 # the reconciliation agreed with each other, so the table-vs-drill check
 # passed while the block openly contradicted itself two lines apart.
 _TOTAL_ROW_RE = re.compile(
-    r'(?m)^\|\s*\*{0,2}(?:合计|总计|汇总)\*{0,2}\s*\|(.+)$'
+    r'(?m)^\|\s*\*{0,2}(?:合计|总计|汇总|total|subtotal|overall)\*{0,2}\s*\|(.+)$',
+    re.IGNORECASE,
 )
 
 
@@ -190,7 +192,7 @@ def _footer_with_header(block: str):
         if set(''.join(cells)) <= set('-: '):
             continue  # |---|---| separator
         first = cells[0].strip().strip('*')
-        if first in ('合计', '总计', '汇总'):
+        if first.lower() in _TOTAL_LABELS:
             if header is not None:
                 return header, cells
             continue

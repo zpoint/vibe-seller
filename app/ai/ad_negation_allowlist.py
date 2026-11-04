@@ -26,6 +26,7 @@ from pathlib import Path
 import re
 import sqlite3
 
+from app.ai import ad_action_vocab as vocab
 from app.config import VIBE_SELLER_DIR
 
 # "### 100000000000000 | kw-018-manual-keyword | Manual | ..."
@@ -44,14 +45,30 @@ _NEGATE_MARK = '否定'
 # (startswith), symmetric with _NEGATE_MARK, so prose mentions don't
 # count. CJK matched exactly; English matched case-insensitively.
 _KEEP_MARKS_CJK = ('维持', '保持', '提高', '上调', '加投')
-_KEEP_MARKS_EN = ('raise', 'scale', 'keep', 'maintain', 'increase', 'hold')
+_KEEP_MARKS_EN = (
+    'raise',
+    'scale',
+    'keep',
+    'maintain',
+    'increase',
+    'hold',
+    'monitor',
+    'bid up',
+)
+# English negation heads (``Negative keyword (exact)``, ``Negate search
+# term``, ``Negative target``). Head-matched like the zh mark so a Keep
+# row explaining itself with "already negated" never reads as a negation.
+_NEGATE_HEAD_EN_RE = re.compile(r'^negat(?:ive|e)\b', re.IGNORECASE)
 
 _HEADER_CELLS = frozenset({
     '搜索词',
     '客户搜索词',
     'customer search term',
+    'search term',
+    'search terms',
     '关键词',
     'keyword',
+    'target',
     '',
 })
 
@@ -90,7 +107,7 @@ def _row_verdict(cells: list[str]) -> str | None:
     rec = cells[-1].replace('*', '').strip()
     if not rec:
         return None
-    if rec.startswith(_NEGATE_MARK):
+    if rec.startswith(_NEGATE_MARK) or _NEGATE_HEAD_EN_RE.match(rec):
         return 'negate'
     if rec.startswith(_KEEP_MARKS_CJK) or rec.lower().startswith(
         _KEEP_MARKS_EN
@@ -293,7 +310,15 @@ def load_allowlist(task_id: str) -> dict[str, set[str]]:
 # negation match type (Negative exact/phrase, 否定) AND is marked done
 # (✅). Conservative: a row without ✅ is a plan, not an execution.
 _EXEC_DONE = '✅'
-_NEG_MATCH_RE = re.compile(r'negative\s+(?:exact|phrase)|否定', re.IGNORECASE)
+# Every negation label the vocabulary allows (``Negative keyword (exact)``
+# as well as the bare platform ``Negative exact``), matched as a whole cell.
+_NEG_MATCH_RE = re.compile(
+    r'否定|'
+    + vocab.alt(
+        vocab.Kind.NEG_EXACT, vocab.Kind.NEG_PHRASE, vocab.Kind.NEG_TERM
+    ),
+    re.IGNORECASE,
+)
 _CAMPAIGN_ID_RE = re.compile(r'\b(\d{12,})\b')
 
 # Category / verb / column-header cells that can sit in the term column
@@ -314,6 +339,17 @@ _NON_TERM_CELLS = frozenset({
     '暂停',
     '暂停活动',
     '暂停定向词',
+    'search term',
+    'keyword',
+    'action',
+    'match',
+    'campaign',
+    'pause',
+    'pause target',
+    'negative keyword',
+    'negative search term',
+    'negate search term',
+    'negative target',
 })
 
 # Substrings that mark a cell as flow/recipe/summary prose, not a term.
@@ -388,6 +424,7 @@ def extract_executed_negations(
                 or re.fullmatch(r'p\d', low)  # priority label P0/P1/P2
                 or _NEG_MATCH_RE.fullmatch(low)
                 or c in _NON_TERM_CELLS
+                or low in _NON_TERM_CELLS
                 or not _is_term_like(c)
             ):
                 continue

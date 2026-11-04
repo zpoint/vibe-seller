@@ -261,18 +261,12 @@ PROVIDER_PRESETS = {
     # ``Bearer``, NOT ``x-api-key``), so the key must go in
     # ``ANTHROPIC_AUTH_TOKEN`` — the row the config modal seeds first.
     #
-    # MiMo's own Claude Code block maps EVERY tier slot to the flagship.
-    # The haiku/subagent slots here use ``mimo-v2.6-flash`` instead: it is
-    # listed as an available ``model`` value in MiMo's Anthropic API
-    # reference and is described there as the low-cost full-modality
-    # model, so background calls do not bill at flagship rates.
-    #
-    # The ``[1m]`` suffix is the vendor-documented way to get the 1M
-    # window (all three chat models list "Context Window: 1M") — the same
-    # client-side convention Kimi/GLM/DeepSeek use. MiMo documents no
-    # ``count_tokens`` endpoint, so Claude Code cannot ask the server for
-    # a token count and the window vars below are what pin it.
-    # https://mimo.mi.com/docs/integration/claude-code
+    # MiMo's own Claude Code block maps EVERY tier slot to the flagship
+    # and sets no subagent model or window vars; the presets follow it.
+    # The ``[1m]`` suffix is the doc's own way to get the 1M window
+    # ("可以在模型 ID 后加上 [1m] 后缀以扩展上下文") and is all Claude Code
+    # needs to size the window — no compact/max-context override.
+    # https://mimo.mi.com/docs/zh-CN/tokenplan/integration/claudecode
     # https://mimo.mi.com/docs/api/chat/anthropic-api
     'mimo': {
         'name': 'MiMo (Pay-as-you-go)',
@@ -287,10 +281,7 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_MODEL': 'mimo-v2.6-pro[1m]',
             'ANTHROPIC_DEFAULT_SONNET_MODEL': 'mimo-v2.6-pro[1m]',
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'mimo-v2.6-pro[1m]',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-flash[1m]',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'mimo-v2.6-flash[1m]',
-            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
-            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-pro[1m]',
         },
     },
     # Token Plan (subscription) on the China cluster. Singapore is
@@ -316,10 +307,7 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_MODEL': 'mimo-v2.6-pro[1m]',
             'ANTHROPIC_DEFAULT_SONNET_MODEL': 'mimo-v2.6-pro[1m]',
             'ANTHROPIC_DEFAULT_OPUS_MODEL': 'mimo-v2.6-pro[1m]',
-            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-flash[1m]',
-            'CLAUDE_CODE_SUBAGENT_MODEL': 'mimo-v2.6-flash[1m]',
-            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
-            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-pro[1m]',
         },
     },
 }

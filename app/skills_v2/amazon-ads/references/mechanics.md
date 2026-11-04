@@ -2754,9 +2754,9 @@ the full report. Three rules close that gap — follow all three:
 DIRECTION RULE (this is the one that bit us — read carefully). Every bid
 recommendation carries a direction; obey it, do NOT apply "only-raise" to a
 lowering row:
-- **`提高至 / 上调至 X` (RAISE)**: set to X **only if live < X**; if live ≥ X,
+- **`提高至 / 上调至 X` / `Raise to X` (RAISE)**: set to X **only if live < X**; if live ≥ X,
   skip and log `skipped — live ≥ target (only-raise)`. Never lower a raise row.
-- **`降至 / 下调至 / 调低至 X` (LOWER)**: set to X **if live > X** (these are
+- **`降至 / 下调至 / 调低至 X` / `Lower to X` (LOWER)**: set to X **if live > X** (these are
   high-ACOS bids the report wants CUT — applying the cut saves spend); if live
   ≤ X already, skip and log `skipped — already ≤ target`. **"only-raise" does
   NOT apply to a 降至 row** — skipping a lowering row because "live ≥ target" is

@@ -616,10 +616,10 @@ install_lsof() {
 check_claude() {
     # Specifically check for the project-local install — that's what
     # the daemon's resolve_claude_binary() prefers, and the whole
-    # point of this design is to pin the version vibe-seller uses
-    # regardless of any global claude. Returning true on "global
-    # exists" would skip install_claude() for every existing user
-    # and they'd silently stay on the broken global version. The
+    # point of this design is that vibe-seller owns the copy it runs,
+    # whatever the global claude is. Returning true on "global exists"
+    # would skip install_claude() for every existing user and leave
+    # them on whatever global version they happen to have. The
     # daemon's PATH fallback is a runtime safety net, NOT a signal
     # that we don't need the local install. Use VIBE_HOME for the
     # same reason — must match the daemon (see app/config.py).
@@ -629,11 +629,11 @@ check_claude() {
         return 0
     fi
     # System claude on PATH is acknowledged but does NOT satisfy the
-    # check — install_claude() still runs to lay down the pinned
+    # check — install_claude() still runs to lay down the
     # project-local copy. Logged only as info so the user
     # understands why the install runs.
     if _check claude; then
-        _info "system claude on PATH detected — installing project-local pinned version alongside (does not affect global)"
+        _info "system claude on PATH detected — installing a project-local copy alongside (does not affect global)"
     fi
     return 1
 }
@@ -648,12 +648,12 @@ install_claude() {
     # globally. The daemon resolves <VIBE_SELLER_DIR>/node_modules/.bin/
     # claude before the system PATH, so the version we install here is
     # the one every agent task uses — independent of whatever the user
-    # has globally (which may be auto-updated to a broken release).
+    # has globally. `vibe-seller upgrade` moves it to the latest release.
     #
     # Match the daemon's resolver (VIBE_HOME — see app/config.py). If
     # this env var name drifts apart from the Python side, installer
-    # and daemon disagree on the location and the project-local pin
-    # silently doesn't apply.
+    # and daemon disagree on the location and the project-local copy
+    # silently isn't the one that runs.
     local data_dir="${VIBE_HOME:-$HOME/.vibe-seller}"
     mkdir -p "$data_dir"
     npm install --prefix "$data_dir" --no-save \
@@ -921,7 +921,7 @@ main() {
     if ! check_claude; then
         if [[ "$CHECK_ONLY" == true ]]; then
             _warn "claude CLI not found — AI agent features will not work"
-            _warn "Install: ./install.sh (installs project-local pinned version)"
+            _warn "Install: ./install.sh (installs the project-local copy)"
         else
             _info "Claude CLI is optional (needed for AI agent features)"
             # Auto-install only if npm is available; don't prompt

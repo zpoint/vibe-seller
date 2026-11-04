@@ -78,11 +78,9 @@ def resolve_claude_binary() -> str:
     ``<VIBE_SELLER_DIR>/.venv/``); falls back to ``claude`` on ``PATH``
     when the project-local install is absent.
 
-    Pinning the version vibe-seller uses to whatever ``install.sh``
-    installs, instead of trusting whatever the user has globally,
-    insulates the daemon from upstream regressions (e.g. Claude Code
-    2.1.154+ shipped a request-body change that strict Anthropic-
-    compatible providers reject with HTTP 400).
+    Owning the copy vibe-seller uses, instead of trusting whatever the
+    user has globally, means ``install.sh`` and ``vibe-seller upgrade``
+    decide its version (see ``app.cli._claude_cli_upgrade_cmd``).
 
     The contract is "a path THIS OS can execute" — see
     ``_is_spawnable`` and ``_claude_candidates`` for why that differs
