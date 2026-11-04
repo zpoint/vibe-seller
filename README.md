@@ -10,6 +10,11 @@
   <a href="README.md">中文</a>
 </p>
 
+<p align="center">
+  <a href="#加入社区"><img alt="企业微信群" src="https://img.shields.io/badge/%E4%BC%81%E4%B8%9A%E5%BE%AE%E4%BF%A1%E7%BE%A4-%E6%89%AB%E7%A0%81%E5%8A%A0%E5%85%A5-07C160?logo=wechat&logoColor=white" /></a>
+  <a href="https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew"><img alt="Slack" src="https://img.shields.io/badge/Slack-%E5%8A%A0%E5%85%A5-4A154B?logo=slack&logoColor=white" /></a>
+</p>
+
 
 <img alt="Vibe Seller 演示" src="https://github.com/user-attachments/assets/1cafbec3-72a2-4b94-a3ed-69a242fb6bfa" width="100%" />
 
@@ -572,6 +577,10 @@ vibe-seller reset-auth enable     # 想开回来的时候
 
 [Apache License 2.0](LICENSE)。
 
-## 联系作者
+## 加入社区
 
-有问题欢迎邮件联系：<zp0int@qq.com>。
+用微信扫码加入用户交流群（个人微信可直接扫，无需安装企业微信）：
+
+<img alt="Vibe Seller 企业微信用户群" src="docs/images/wecom_group_qr.png" width="200" />
+
+海外用户也可以加入 [Slack](https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew)。
