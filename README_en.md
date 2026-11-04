@@ -10,6 +10,11 @@
   <a href="README.md">中文</a>
 </p>
 
+<p align="center">
+  <a href="https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew"><img alt="Slack" src="https://img.shields.io/badge/Slack-Join-4A154B?logo=slack&logoColor=white" /></a>
+  <a href="#community"><img alt="WeChat group" src="https://img.shields.io/badge/WeChat-Scan%20to%20join-07C160?logo=wechat&logoColor=white" /></a>
+</p>
+
 
 <img alt="Vibe Seller demo" src="https://github.com/user-attachments/assets/029ac6d9-b0e8-4ac2-ace1-cda4190616cd" width="100%" />
 
@@ -819,6 +824,13 @@ written for AI agents and reads cleanly as a contributor guide.
 ## License
 
 [Apache License 2.0](LICENSE).
+
+## Community
+
+- **Slack** — [join the VibeSeller workspace](https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew)
+- **WeChat** — scan to join the user group (works from a personal WeChat account; no WeCom install needed):
+
+<img alt="Vibe Seller WeChat user group" src="docs/images/wecom_group_qr.png" width="200" />
 
 ## Contact
 
