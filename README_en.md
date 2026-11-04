@@ -831,7 +831,3 @@ written for AI agents and reads cleanly as a contributor guide.
 - **WeChat** — scan to join the user group (works from a personal WeChat account; no WeCom install needed):
 
 <img alt="Vibe Seller WeChat user group" src="docs/images/wecom_group_qr.png" width="200" />
-
-## Contact
-
-Questions or issues? Email the author at <zp0int@qq.com>.

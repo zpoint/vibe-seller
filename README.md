@@ -584,7 +584,3 @@ vibe-seller reset-auth enable     # 想开回来的时候
 <img alt="Vibe Seller 企业微信用户群" src="docs/images/wecom_group_qr.png" width="200" />
 
 海外用户也可以加入 [Slack](https://join.slack.com/t/vibeseller/shared_invite/zt-4fjzkwkqs-L0pM6VS7~_2WsPCxTeLbew)。
-
-## 联系作者
-
-有问题欢迎邮件联系：<zp0int@qq.com>。
