@@ -264,8 +264,12 @@ class TestGuessedPaths:
         async def fake_call(_session, path, **kw):
             sent.append(path)
             if path != '/facts/rollup':
+                # A route the service does not have: the body says so,
+                # and only that makes it an unknown path.
                 raise ads_client.AdsServiceError(
-                    f'GET {path} failed (404): no such path', status=404
+                    f'GET {path} failed (404): no such path',
+                    status=404,
+                    unknown_route=True,
                 )
             return {'rows': []}
 
@@ -297,7 +301,9 @@ class TestGuessedPaths:
 
     def test_the_cap_is_per_task(self):
         for n in range(ads_path_guard.MAX_UNKNOWN):
-            ads_path_guard.record('task-a', f'/g{n}', 404)
+            ads_path_guard.record(
+                'task-a', f'/g{n}', ads_path_guard.Outcome.UNKNOWN_ROUTE
+            )
         assert ads_path_guard.refusal('task-a', '/g9')
         assert ads_path_guard.refusal('task-b', '/g9') is None
 

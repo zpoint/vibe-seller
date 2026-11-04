@@ -69,6 +69,10 @@ RESERVED_PREFIXES = (
 #: install do not each mint a key and keep the second.
 _REGISTERING = asyncio.Lock()
 
+#: What FastAPI answers for a path it has no route for. A route that
+#: 404s on purpose carries its own words instead.
+_ROUTE_ABSENT = {'detail': 'Not Found'}
+
 
 @dataclass(frozen=True)
 class AdsFile:
@@ -88,11 +92,25 @@ class AdsServiceError(RuntimeError):
     """The ads service is unreachable, unconfigured, or said no.
 
     ``status`` is the service's HTTP status when it answered, else None.
+
+    ``unknown_route`` says the service has no such path — as opposed to
+    answering 404 about something the path points at. The body decides,
+    never the status: the same 404 is how the service says "no such
+    store" and how FastAPI says "no such route", and only the second
+    one means the caller invented a path. Default False, so every other
+    raiser of this error (the registration below, ``resolve_store_key``)
+    keeps its meaning unchanged.
     """
 
-    def __init__(self, message: str, status: int | None = None):
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        unknown_route: bool = False,
+    ):
         super().__init__(message)
         self.status = status
+        self.unknown_route = unknown_route
 
 
 async def get_config(session) -> dict[str, Any]:
@@ -151,6 +169,25 @@ async def _register(session) -> str:
         return api_key
 
 
+def _is_unknown_route(response: httpx.Response) -> bool:
+    """Whether the service answered that it has no such path.
+
+    A 404 status alone cannot say: the same status is how the service
+    answers for a store, a campaign or a search term it does not have,
+    and reading those as missing paths pushes the agent off a route
+    that works. FastAPI's answer for an unrouted path is exactly
+    ``{"detail": "Not Found"}``; any other body — including one that is
+    not JSON at all — is the route talking.
+    """
+    if response.status_code != 404:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    return body == _ROUTE_ABSENT
+
+
 async def call(
     session,
     path: str,
@@ -184,6 +221,7 @@ async def call(
             f'{method.upper()} {path} failed ({response.status_code}): '
             f'{response.text[:400]}',
             status=response.status_code,
+            unknown_route=_is_unknown_route(response),
         )
     if not response.content:
         return None
