@@ -597,9 +597,9 @@ tokens.
 <details>
 <summary><b>Which LLM should I pick?</b></summary>
 
-Most current models ship with a 1M context window and most can read
-images, so we no longer recommend specific vendors. Pick the tier by
-how hard the task is:
+Pick a model with a 1M context window that can read images, such as
+Claude Opus or GLM-5.3-Flash. Then pick the tier by how hard the task
+is:
 
 | Task type | Tier |
 |---|---|
