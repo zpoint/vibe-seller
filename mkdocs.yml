@@ -1,0 +1,139 @@
+# MkDocs configuration for the vibe-seller documentation site.
+#
+# Homepages are generated at build time from README.md (zh) and
+# README_en.md (en) — see docs_hooks.py. Build locally with:
+#   .venv-docs/bin/mkdocs serve   /   .venv-docs/bin/mkdocs build --strict
+
+site_name: Vibe Seller
+site_url: https://docs.vibe-sellers.com/
+site_description: >-
+  AI browser-automation framework for cross-border sellers. Locally
+  deployed, per-store isolation, any LLM provider — agents drive Ziniao or
+  Chrome to run ad tuning, listings, reports and audits.
+
+repo_url: https://github.com/zpoint/vibe-seller
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+site_dir: site
+# docs/README.md is a GitHub-only index page; the site builds its own nav.
+# docs/requirements.txt pins the CI build deps — a build input, not site
+# content.
+exclude_docs: |
+  README.md
+  requirements.txt
+
+hooks:
+  - docs_hooks.py
+
+theme:
+  name: material
+  language: zh
+  font: false  # system fonts: the audience includes users behind the GFW
+  icon:
+    logo: material/robot-outline
+    repo: fontawesome/brands/github
+  features:
+    - content.code.copy
+    - content.action.edit
+    - navigation.tracking
+    - navigation.top
+    - navigation.sections
+    - search.highlight
+    - search.share
+    - toc.follow
+  palette:
+    - media: '(prefers-color-scheme: light)'
+      scheme: default
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: '(prefers-color-scheme: dark)'
+      scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+
+plugins:
+  - search
+  - social:
+      cards: true
+  - i18n:
+      docs_structure: suffix
+      languages:
+        - locale: zh
+          name: 简体中文
+          default: true
+          build: true
+        - locale: en
+          name: English
+          build: true
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      # Unicode-preserving slugs so CJK anchors (e.g. #安装) match the
+      # in-page links the READMEs already use on GitHub.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.betterem
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Developer Guide: dev-guide.md
+      - Windows + WSL2 Deployment: windows-setup.md
+      - macOS Deployment: macos-setup.md
+  - Core:
+      - Tasks: tasks.md
+      - Workspace: workspace.md
+      - Subsystems: subsystems.md
+      - Events: events.md
+  - Browser Automation:
+      - Browser Management: browser.md
+      - Ziniao Concurrency: ziniao-concurrency.md
+      - browser-use 0.13 Migration: browser-use-0.13-migration.md
+  - Reference:
+      - Backend: backend.md
+      - Frontend: frontend.md
+      - API Routes: api.md
+      - Testing: testing.md
+      - Telemetry: telemetry.md
+      - Vision — AI Images: vision.md
+      - Skill Review Mechanism: skill-review-mechanism.md
+
+extra:
+  # Demo-video link rendered on the site homepages below the intro GIF.
+  # Read by docs_hooks.py at build time (see _rewrite_homepage); single
+  # source of truth for both locales.
+  demo_video:
+    zh:
+      label: 观看完整视频
+      url: https://github.com/user-attachments/assets/250cb119-3770-4c79-ab3b-607a3958e51c
+    en:
+      label: Watch the full video
+      url: https://github.com/user-attachments/assets/d8e9deda-8ffc-4516-9fe1-abb65a9ebdcc
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/zpoint/vibe-seller
+
+watch:
+  - README.md
+  - README_en.md
+  - docs_hooks.py
