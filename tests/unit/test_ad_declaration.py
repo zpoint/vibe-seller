@@ -6,7 +6,7 @@ campaigns for ONE product on ONE marketplace wrote a single
 the task was an audit, and demanded all five of the store's
 marketplaces. The agent had fresh data for none of the other four and
 satisfied the gate by transcribing the previous week's audit file — so
-the review console then offered 51 campaigns of four-day-old numbers as
+what passed was 51 campaigns of four-day-old numbers offered up as
 actionable bid decisions.
 
 Every test below is one edge of the contract that makes that
@@ -128,7 +128,8 @@ class TestTheIncidentCannotRecur:
     def test_scoped_audit_is_not_asked_for_other_marketplaces(
         self, monkeypatch, tmp_path
     ):
-        # "Audit just this one campaign" is an AUDIT — it opens a console.
+        # "Audit just this one campaign" is an AUDIT — it owes coverage
+        # of exactly that campaign.
         # It still must not be inflated into a whole-store sweep.
         _setup(
             monkeypatch,
@@ -264,7 +265,7 @@ class TestTheInTurnRatchet:
 
     So the rule is stated the way it was always meant: never widen reach,
     never shed an obligation. `investigate` → `audit` satisfies both (it
-    adds coverage AND opens the console), and every other pair does not.
+    only ADDS the coverage obligation), and every other pair does not.
     """
 
     _SA = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
@@ -298,8 +299,8 @@ class TestTheInTurnRatchet:
         assert not ad.supersedes('investigate', self._SA, 'audit', {})
 
     def test_audit_may_not_downgrade_to_investigate(self):
-        # The escape. `investigate` owes no coverage and opens no
-        # console, so this is how an agent would shed both.
+        # The escape. `investigate` owes no coverage, so this is how an
+        # agent would shed it.
         assert not ad.supersedes('audit', self._SA, 'investigate', self._SA)
 
     def test_no_other_kind_change_is_allowed(self):
@@ -373,12 +374,13 @@ class TestEverySkillThatIsGatedTeachesTheDeclaration:
 
 
 class TestInvestigateMayNotHandOutDecisions:
-    """Reading is reading. Recommending is an audit, and owes a console.
+    """Reading is reading. Recommending is an audit, and owes coverage.
 
     Sharpening the investigate/audit line in the skill — a question about
     figures is `investigate` — opens exactly one hole if left unguarded:
-    declare `investigate`, owe no marketplace coverage, get no console,
-    and hand the user a table of bid changes they have no way to act on.
+    declare `investigate`, owe no marketplace coverage,
+    and hand the user a table of bid changes that faced no audit
+    obligation at all.
     """
 
     def test_investigate_with_bid_changes_is_a_gap(self, monkeypatch, tmp_path):
@@ -436,8 +438,7 @@ class TestInvestigateMayNotHandOutDecisions:
         did not use per-marketplace headings, escaped entirely.
 
         Observed in CI: a bid review declared `investigate`, delivered
-        its bid changes, raised no gap, and gave the user no console to
-        approve them on.
+        its bid changes, and raised no gap.
         """
         _setup(monkeypatch, tmp_path, 't-inv-flat', declare=('investigate', {}))
         report = (

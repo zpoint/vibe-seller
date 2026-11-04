@@ -8,7 +8,7 @@ narrow?" has an observable answer.
 
 Deliberately boring HTML. The agent's browser work is not what is under
 test here; what is under test is whether the phase it declares matches
-what the user asked for, and whether the console it produces is bounded
+what the user asked for, and whether the report it produces is bounded
 by that. A page that needs clever scraping would fail for reasons that
 have nothing to do with the contract.
 

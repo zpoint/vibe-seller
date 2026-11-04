@@ -7,16 +7,16 @@ recorded the task's intent.
 coverage with no declaration behind it is refused. Without one, nothing
 downstream knows how much the report owes or how much of it the user
 should be shown — and the old answer was to guess from the prose, which
-is the guess that turned a two-campaign task into a 51-campaign console.
+is the guess that told a two-campaign task it owed five marketplaces.
 
 **The declaration binds the output.** A phase that declared one market
 and reported five has either under-declared or over-reached. Either way
 someone must look, and only the user may widen a scope.
 
 **A phase that said it would only read may not hand out decisions.**
-`investigate` owes no marketplace coverage and opens no console, so a
-report that declares it and then delivers a table of bid changes leaves
-the user holding recommendations with no way to approve them. Unlike the
+`investigate` owes no marketplace coverage, so a report that declares it
+and then delivers a table of bid changes hands the user recommendations
+that were never held to an audit's obligations. Unlike the
 two above, this one does NOT depend on the report carrying
 per-marketplace sections — decisions are decisions however the markdown
 is arranged, and conditioning it on headings is what let a bid review
@@ -126,9 +126,9 @@ def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
     # table of bid changes. Sharpening the investigate/audit line in the
     # skill (a question about figures is `investigate`) opens exactly one
     # hole if left unguarded: declare `investigate`, owe no marketplace
-    # coverage, get no console — and hand the user recommendations they
-    # have no way to act on. If the work produced decisions, it was an
-    # audit and the user is owed the console.
+    # coverage — and hand the user recommendations that never faced an
+    # audit's obligations. If the work produced decisions, it was an
+    # audit and owes the audit's coverage.
     #
     # Checked BEFORE the marketplace-coverage question and independently
     # of it. It used to sit behind "does this report carry
@@ -137,7 +137,7 @@ def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
     # some other host, or one that simply wrote its findings without
     # per-marketplace headings, escaped the check entirely. Observed in
     # CI: `investigate` declared for a bid review, decisions delivered,
-    # no gate raised, no console for the user.
+    # no gate raised.
     #
     # This is not the forbidden "is this an audit?" heuristic wearing a
     # new hat. That one INFERRED a declaration from prose and WIDENED

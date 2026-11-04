@@ -54,7 +54,7 @@ describe('buildConversationItems', () => {
     // The journey that exposed this. A seller asks for today's revenue,
     // gets it, then asks for an ad review in the same task. `task.result`
     // used to refresh the FIRST result slot, which drew turn 2's answer —
-    // the ad-audit console — between the two questions, reading as though
+    // the ad-audit result — between the two questions, reading as though
     // it answered "how much did we sell today?", while turn 1's own
     // answer was displaced to the bottom of the thread as loose prose.
     const items = buildConversationItems(
@@ -79,8 +79,9 @@ describe('buildConversationItems', () => {
   })
 
   it('the refreshed result keeps its own timestamp, not the rebuild time', () => {
-    // The audit console binds a result to the declaration in force when
-    // it landed; stamping "now" here would bind by rebuild time instead.
+    // The refreshed card must carry when the result actually landed;
+    // stamping "now" here would re-date it to whenever the history
+    // happened to be rebuilt.
     const items = buildConversationItems(
       [{ role: 'result', content: 'snippet', created_at: '2026-08-02T10:00:00Z' }],
       task({ result: 'canonical' }),

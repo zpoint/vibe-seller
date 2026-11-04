@@ -554,9 +554,9 @@ noticed. Outside the window, judge it on the data as usual.
 
 ### The TSV schema is FIXED — same columns every time
 
-These files are the machine-readable artifact: the console renders from
-them, the execution task acts on them, and the next audit diffs against
-them. So the header is not yours to choose.
+These files are the machine-readable artifact: the execution task acts
+on them, and the next audit diffs against them. So the header is not
+yours to choose.
 
 **Tab-separated. First line is the header, exactly these columns, in this
 order.** Targeting (`<campaign_id>.tsv`):

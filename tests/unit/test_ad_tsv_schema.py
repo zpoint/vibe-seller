@@ -1,7 +1,7 @@
 """The per-campaign TSVs must have a header a stranger can read.
 
-They are the machine-readable half of an audit — the console renders from
-them, an execution task acts on them, the next audit diffs against them —
+They are the machine-readable half of an audit — an execution task acts
+on them, the next audit diffs against them —
 and the spec named their paths and purpose but never their columns. So
 every run invented a header: 22 different targeting headers and 12
 search-term headers across one store, including two delimited with PIPES,

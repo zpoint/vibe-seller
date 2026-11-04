@@ -191,9 +191,9 @@ def report_bid_mismatches(
 ) -> list[str]:
     """Targets whose report row still shows the pre-change bid.
 
-    The review console renders the report's own table, so a table left at
-    the old value shows the next reviewer a bid the account no longer
-    has. Typing what they can see then produces a move that changes
+    The report's own table is what the user and the next reviewer see,
+    so a table left at the old value shows them a bid the account no
+    longer has. Typing what they can see then produces a move that changes
     nothing. Only rows this run actually applied are graded.
     """
     today = today or datetime.now(UTC).date()

@@ -12,7 +12,8 @@ description is in context every time the tool is, which is every time
 the decision is made. A contract stated only where the agent might not
 be reading it is a contract that gets guessed at: observed in CI, "review
 the keyword bids on <campaign>" was declared ``investigate`` twice in one
-run, which is the kind that owes no coverage and opens no console. The
+run, which is the kind that owes no coverage — so its bid
+recommendations faced no audit obligation at all. The
 skills still carry the longer version with worked examples; the line
 itself belongs at the call site.
 """
@@ -55,8 +56,9 @@ AD_TOOLS = [
                     ],
                     'description': (
                         'audit = judge existing ads and recommend changes '
-                        '(this is the only kind that opens the review '
-                        'console). create = build new campaigns. execute '
+                        '(the only kind that owes marketplace '
+                        'coverage). '
+                        'create = build new campaigns. execute '
                         '= apply changes the user already approved. '
                         'investigate = answer a question, change nothing. '
                         '\n\nNUMBERS OR CHANGES is the line between '
@@ -68,8 +70,9 @@ AD_TOOLS = [
                         'reading, not proposing. If they want to know '
                         'what to CHANGE, asked you to review/check '
                         'something, or asked "is this right?", that is '
-                        '`audit`, and it is what gives them a console to '
-                        'approve your recommendations line by line. '
+                        '`audit`, and it is the kind whose report the '
+                        'completeness gate holds to its declared '
+                        'marketplaces. '
                         '"Review the bids on <campaign>" is an audit. '
                         'When you cannot tell, ask yourself whether your '
                         'answer will contain a recommendation; if it '
@@ -120,7 +123,7 @@ AD_TOOLS = [
                             'items': {'type': 'string'},
                             'description': (
                                 'The SKUs/products the user named, for '
-                                'the human reading the review page. '
+                                'the human reading the report. '
                                 'Does not narrow anything by itself.'
                             ),
                         },
