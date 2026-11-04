@@ -13,8 +13,6 @@
 
 <img alt="Vibe Seller 演示" src="https://github.com/user-attachments/assets/1cafbec3-72a2-4b94-a3ed-69a242fb6bfa" width="100%" />
 
-<sub>[高清视频版](https://github.com/user-attachments/assets/250cb119-3770-4c79-ab3b-607a3958e51c)</sub>
-
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_zh.png" />
 
 <img width="3073" height="1360" alt="2_combined" src="docs/images/2_combined_zh.png" />
