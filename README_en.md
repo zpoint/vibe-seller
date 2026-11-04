@@ -11,7 +11,9 @@
 </p>
 
 
-https://github.com/user-attachments/assets/d8e9deda-8ffc-4516-9fe1-abb65a9ebdcc
+<img alt="Vibe Seller demo" src="https://github.com/user-attachments/assets/029ac6d9-b0e8-4ac2-ace1-cda4190616cd" width="100%" />
+
+<sub>[Full-quality video](https://github.com/user-attachments/assets/d8e9deda-8ffc-4516-9fe1-abb65a9ebdcc)</sub>
 
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_en.png" />
 
