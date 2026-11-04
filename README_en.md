@@ -514,7 +514,7 @@ A few cross-border scenarios it's commonly used for:
 | **Email handling** | Sorts buyer messages, forwards important ones to the group chat, drafts replies. |
 | **Anything you add** | Write a Skill (a markdown file with steps) or teach the agent once — it'll remember next time. |
 
-A single ad-tuning run is ≈ 3–5 minutes and costs ≈ ¥1 in LLM tokens
+A single ad-tuning run is ≈ 3–5 minutes and costs about $1 in LLM tokens
 (rough — depends on provider and campaign volume).
 
 ## Integrations
@@ -589,39 +589,28 @@ To let teammates use the same instance, they open
 <summary><b>How much does it cost?</b></summary>
 
 Vibe Seller is free and open source. You pay your LLM provider
-directly. Rough scale: one ad-tuning run ≈ ¥1 in DeepSeek tokens.
+directly. Rough scale: one ad-tuning run costs about $1 in DeepSeek
+tokens.
 
 </details>
 
 <details>
 <summary><b>Which LLM should I pick?</b></summary>
 
-Different tasks need different model strength. Match the model to
-the task:
+Most current models ship with a 1M context window and most can read
+images, so we no longer recommend specific vendors. Pick the tier by
+how hard the task is:
 
-| Task type | Recommended |
+| Task type | Tier |
 |---|---|
-| **Simple** — email classification, fixed-flow data entry, structured extraction | MiniMax, Kimi, GLM, or Qwen — pick whatever's cheapest |
-| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | **Claude or DeepSeek. Don't use the cheap models here.** |
+| **Complex** — exploring a new platform (no built-in Skill), ad optimization, inventory strategy, long multi-page flows | The provider's **SOTA flagship** |
+| **Simple** — email classification, fixed-flow data entry, structured extraction | A **flash / budget** tier is enough |
 
-Why? Complex tasks ask the agent to read the Skill, judge page
-state, call tools, and take notes — all in the same context window.
-Cheap models (the low-tier MiniMax tiers especially) commonly:
-
-- Skip Skill steps or run them out of order
-- Garble tool-call arguments
-- Forget earlier decisions once the context grows
-
-One often-overlooked factor: **context window size.** Claude and
-DeepSeek v4 ship with 1M context windows; most other models sit
-around 200k. On a long task (multi-page tables, cross-flow
-conversation history, accumulated notes), 200k fills up fast — the
-model starts forgetting earlier decisions, dropping details, or
-breaking outright. 1M handles the same task with room to spare.
-
-For simple tasks, model choice barely matters; save tokens with a
-cheap one. For hard tasks, paying for a SOTA model isn't a luxury —
-it's the cheaper option once you count failed runs.
+On complex tasks the agent reads the Skill, judges page state, calls
+tools and takes notes all at once; weaker models skip steps, garble
+tool arguments or forget earlier decisions. A failed complex run
+costs more tokens and time than getting it right once with a SOTA
+model. For simple tasks the choice barely matters, so save tokens.
 
 </details>
 
