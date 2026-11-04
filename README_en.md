@@ -11,7 +11,7 @@
 </p>
 
 
-https://github.com/user-attachments/assets/d8e9deda-8ffc-4516-9fe1-abb65a9ebdcc
+<img alt="Vibe Seller demo" src="https://github.com/user-attachments/assets/029ac6d9-b0e8-4ac2-ace1-cda4190616cd" width="100%" />
 
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_en.png" />
 
@@ -597,9 +597,9 @@ tokens.
 <details>
 <summary><b>Which LLM should I pick?</b></summary>
 
-Most current models ship with a 1M context window and most can read
-images, so we no longer recommend specific vendors. Pick the tier by
-how hard the task is:
+Pick a model with a 1M context window that can read images, such as
+Claude Opus or GLM-5.3-Flash. Then pick the tier by how hard the task
+is:
 
 | Task type | Tier |
 |---|---|

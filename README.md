@@ -11,7 +11,7 @@
 </p>
 
 
-https://github.com/user-attachments/assets/250cb119-3770-4c79-ab3b-607a3958e51c
+<img alt="Vibe Seller 演示" src="https://github.com/user-attachments/assets/1cafbec3-72a2-4b94-a3ed-69a242fb6bfa" width="100%" />
 
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_zh.png" />
 
@@ -437,7 +437,7 @@ Vibe Seller 本身免费开源，花钱的只有你自己的 LLM API Key——�
 <details>
 <summary><b>该选哪个 LLM？</b></summary>
 
-现在主流模型基本都支持 1M 上下文，大部分也能看图，所以不再按厂商推荐，只按任务难度挑档位：
+推荐用支持 1M 上下文、支持多模态（能看图）的模型，比如 Claude Opus、GLM-5.3-Flash。档位按任务难度挑：
 
 | 任务类型 | 用什么档位 |
 |---|---|
