@@ -1,6 +1,6 @@
 # Subsystem Details
 
-> Deep-dive architecture for cross-cutting subsystems. See also [DESIGN.md](/DESIGN.md#subsystem-details).
+> Deep-dive architecture for cross-cutting subsystems. See also [DESIGN.md](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md#subsystem-details).
 
 ## All-Stores Scheduling
 
