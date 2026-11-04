@@ -13,7 +13,7 @@ machine is a checklist, not an investigation.
 > build 26200 (25H2) or newer**. On build 26100 (24H2) the same config
 > works *locally* but not for inbound external connections — and no
 > portproxy workaround is clean. **Upgrade to 25H2 first.** See
-> [Networking](#networking-wsl2-mirrored-mode) below.
+> [Networking](#4-networking-wsl2-mirrored-mode) below.
 
 ---
 

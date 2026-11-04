@@ -1,0 +1,78 @@
+name: docs
+
+# Docs site (MkDocs Material, zh + en) built from the repo and deployed to
+# GitHub Pages. PRs get a strict build only; pushes to main that touch docs
+# content are built and deployed via the official Pages Actions flow.
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'README*.md'
+      - 'mkdocs.yml'
+      - 'docs_hooks.py'
+      - '.github/workflows/docs.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - 'README*.md'
+      - 'mkdocs.yml'
+      - 'docs_hooks.py'
+      - '.github/workflows/docs.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      # Social cards (og:image) are rendered with cairosvg, which needs the
+      # system cairo library and a font to draw with.
+      - name: Install system deps for social cards
+        run: sudo apt-get update && sudo apt-get install -y libcairo2 fonts-roboto
+
+      - name: Install docs dependencies
+        run: pip install -r docs/requirements.txt
+
+      - name: Build site (strict)
+        run: mkdocs build --strict
+
+      - name: Configure Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

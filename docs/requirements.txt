@@ -1,0 +1,9 @@
+# Docs-site build dependencies (MkDocs Material + i18n + social cards).
+# Pinned exactly so the GitHub Pages build (docs.yml) is reproducible.
+# The social-cards plugin additionally needs libcairo on the system
+# (brew install cairo / apt-get install libcairo2).
+mkdocs==1.6.1
+mkdocs-material==9.8.0
+mkdocs-static-i18n==1.3.1
+CairoSVG==2.9.1
+Pillow==13.0.0
