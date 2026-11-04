@@ -579,14 +579,12 @@ class TestReviewRegressions:
     """Each case is one review finding on the shared vocabulary."""
 
     def test_negative_search_term_is_a_decision(self):
-
         for rec in ('否定搜索词', 'Negative search term'):
             table = f'| Search term | Recommendation |\n|---|---|\n| red widget | {rec} |\n'
             assert actionable_rows([table]) == 1, rec
 
     @pytest.mark.parametrize('label', ['Negative exact', '否定精准'])
     def test_inventory_of_existing_negatives_decides_nothing(self, label):
-
         table = (
             '| Keyword | Match | Status |\n|---|---|---|\n'
             f'| red widget | {label} | Enabled |\n'
@@ -625,7 +623,6 @@ class TestReviewRegressions:
         assert ad_explicit_actions.check(en) is not None
 
     def test_drill_tables_with_an_action_header_count(self):
-
         zh = '| 定向词 | 建议 |\n|---|---|\n| widget-006 | 维持 |\n'
         en = '| Keyword | Action |\n|---|---|\n| widget-006 | Keep |\n'
         assert count_drill_tables(zh) == count_drill_tables(en) == 1
