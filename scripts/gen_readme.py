@@ -100,13 +100,16 @@ def generate(text: str, source_name: str, locale: str) -> str:
         kept.append(line)
     text = '\n'.join(kept)
 
-    # Rule 4: media paths.
+    # Rule 4: media paths. Markdown links resolve against the source
+    # file, so ``](images/`` is right in BOTH locales. Raw HTML is copied
+    # verbatim and resolved against the served URL, which is under
+    # ``/en/`` for English — hence ``src="../images/`` there only.
     if locale == 'en':
         text = text.replace('src="../images/', 'src="docs/images/')
         text = text.replace('](../images/', '](docs/images/')
     else:
         text = text.replace('src="images/', 'src="docs/images/')
-        text = text.replace('](images/', '](docs/images/')
+    text = text.replace('](images/', '](docs/images/')
     text = text.replace('](videos/', '](docs/videos/')
 
     # Rule 5: sibling docs pages.
