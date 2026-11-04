@@ -4,6 +4,19 @@ Detailed reference for contributors: feature surface, project
 structure, API endpoints, testing flows, and implementation status.
 For the user-facing landing page, see [`../README.md`](../README.md).
 
+## Editing the docs
+
+`docs/` is the single source of truth for documentation:
+
+- The homepages are [`index.md`](index.md) (Chinese) and
+  [`index.en.md`](index.en.md) (English). **Never edit `README.md` /
+  `README_en.md` by hand** — they are generated.
+- After editing `docs/index*.md` (or any `docs/*.md`), run
+  `python scripts/gen_readme.py` to regenerate the READMEs; CI and the
+  `readme-sync` pre-commit hook fail if they drift.
+- Preview the site with `mkdocs serve` (deps: `docs/requirements.txt`,
+  config: `mkdocs.yml`; see the header comment there).
+
 ## What it does
 
 - **Store Management**: Configure e-commerce stores with pluggable browser backends (Chrome, Ziniao, custom CDP)

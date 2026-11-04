@@ -11,6 +11,7 @@ on:
       - 'README*.md'
       - 'mkdocs.yml'
       - 'docs_hooks.py'
+      - 'scripts/gen_readme.py'
       - '.github/workflows/docs.yml'
   push:
     branches:
@@ -20,6 +21,7 @@ on:
       - 'README*.md'
       - 'mkdocs.yml'
       - 'docs_hooks.py'
+      - 'scripts/gen_readme.py'
       - '.github/workflows/docs.yml'
 
 permissions:
@@ -48,6 +50,11 @@ jobs:
 
       - name: Install docs dependencies
         run: pip install -r docs/requirements.txt
+
+      # docs/ is the source of truth; fail if the committed READMEs are
+      # not what scripts/gen_readme.py would produce.
+      - name: Check READMEs are in sync with docs/index*.md
+        run: python scripts/gen_readme.py --check
 
       - name: Build site (strict)
         run: mkdocs build --strict

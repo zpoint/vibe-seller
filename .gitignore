@@ -7,14 +7,12 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Docs site (MkDocs): builder venv, built output, social-card cache, and
-# the homepages generated from README.md / README_en.md at build time
-# (docs_hooks.py).
+# Docs site (MkDocs): builder venv, built output, and the social-card
+# cache. docs/index.md and docs/index.en.md are committed sources — the
+# READMEs are generated from them (scripts/gen_readme.py).
 .venv-docs/
 site/
 .cache/
-docs/index.md
-docs/index.en.md
 
 # Node
 node_modules/

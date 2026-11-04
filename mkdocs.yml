@@ -1,7 +1,8 @@
 # MkDocs configuration for the vibe-seller documentation site.
 #
-# Homepages are generated at build time from README.md (zh) and
-# README_en.md (en) — see docs_hooks.py. Build locally with:
+# docs/ is the single source of truth: docs/index.md (zh) and
+# docs/index.en.md (en) are committed homepages; the GitHub READMEs are
+# generated from them by scripts/gen_readme.py. Build locally with:
 #   .venv-docs/bin/mkdocs serve   /   .venv-docs/bin/mkdocs build --strict
 
 site_name: Vibe Seller
@@ -65,6 +66,30 @@ plugins:
           name: 简体中文
           default: true
           build: true
+          # Chinese nav labels for the (English) section and page titles.
+          nav_translations:
+            Home: 首页
+            Getting Started: 入门
+            Core: 核心
+            Browser Automation: 浏览器自动化
+            Reference: 参考
+            Developer Guide: 开发者指南
+            Windows + WSL2 Deployment: Windows + WSL2 部署
+            macOS Deployment: macOS 部署
+            Tasks: 任务
+            Workspace: 工作区
+            Subsystems: 子系统
+            Events: 事件
+            Browser Management: 浏览器管理
+            Ziniao Concurrency: 紫鸟并发
+            browser-use 0.13 Migration: browser-use 0.13 迁移
+            Backend: 后端
+            Frontend: 前端
+            API Routes: API 路由
+            Testing: 测试
+            Telemetry: 遥测
+            Vision — AI Images: AI 图像生成
+            Skill Review Mechanism: Skill 审查机制
         - locale: en
           name: English
           build: true
@@ -119,21 +144,9 @@ nav:
       - Skill Review Mechanism: skill-review-mechanism.md
 
 extra:
-  # Demo-video link rendered on the site homepages below the intro GIF.
-  # Read by docs_hooks.py at build time (see _rewrite_homepage); single
-  # source of truth for both locales.
-  demo_video:
-    zh:
-      label: 观看完整视频
-      url: https://github.com/user-attachments/assets/250cb119-3770-4c79-ab3b-607a3958e51c
-    en:
-      label: Watch the full video
-      url: https://github.com/user-attachments/assets/d8e9deda-8ffc-4516-9fe1-abb65a9ebdcc
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/zpoint/vibe-seller
 
 watch:
-  - README.md
-  - README_en.md
   - docs_hooks.py
