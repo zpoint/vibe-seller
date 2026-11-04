@@ -217,9 +217,8 @@ class TestProfileCrud:
         - Qwen split: pay-as-you-go vs Coding Plan vs Token Plan have
           DIFFERENT base URLs and DIFFERENT model name tiers.
         - MiMo: the pay-as-you-go API and the Token Plan are DIFFERENT
-          hosts, the flagship is the 1M-context ``mimo-v2.6-pro[1m]``,
-          and the haiku/subagent slots use the cheaper
-          ``mimo-v2.6-flash[1m]``.
+          hosts, and every tier is the 1M-context ``mimo-v2.6-pro[1m]``
+          with no subagent or window override, as MiMo's doc sets it.
         """
         r = await admin_client.get('/api/profiles/presets')
         presets = r.json()['presets']
@@ -322,8 +321,8 @@ class TestProfileCrud:
         }
         assert len(bases) == 4
 
-        # MiMo: two products on two hosts. The flagship carries the
-        # vendor-documented [1m] 1M tag; the budget tier is flash.
+        # MiMo: two products on two hosts; the flagship in every tier,
+        # carrying the vendor-documented [1m] 1M tag.
         mimo = presets['mimo']['env']
         assert mimo['ANTHROPIC_BASE_URL'] == (
             'https://api.xiaomimimo.com/anthropic'
@@ -331,15 +330,17 @@ class TestProfileCrud:
         assert mimo['ANTHROPIC_MODEL'] == 'mimo-v2.6-pro[1m]'
         assert mimo['ANTHROPIC_DEFAULT_OPUS_MODEL'] == 'mimo-v2.6-pro[1m]'
         assert mimo['ANTHROPIC_DEFAULT_SONNET_MODEL'] == 'mimo-v2.6-pro[1m]'
-        assert mimo['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'mimo-v2.6-flash[1m]'
-        assert mimo['CLAUDE_CODE_SUBAGENT_MODEL'] == 'mimo-v2.6-flash[1m]'
-        assert mimo['CLAUDE_CODE_MAX_CONTEXT_TOKENS'] == '1000000'
+        assert mimo['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'mimo-v2.6-pro[1m]'
+        assert 'CLAUDE_CODE_SUBAGENT_MODEL' not in mimo
+        assert 'CLAUDE_CODE_AUTO_COMPACT_WINDOW' not in mimo
+        assert 'CLAUDE_CODE_MAX_CONTEXT_TOKENS' not in mimo
         mimo_tp = presets['mimo_token']['env']
         assert mimo_tp['ANTHROPIC_BASE_URL'] == (
             'https://token-plan-cn.xiaomimimo.com/anthropic'
         )
         assert mimo_tp['ANTHROPIC_MODEL'] == 'mimo-v2.6-pro[1m]'
-        assert mimo_tp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'mimo-v2.6-flash[1m]'
+        assert mimo_tp['ANTHROPIC_DEFAULT_HAIKU_MODEL'] == 'mimo-v2.6-pro[1m]'
+        assert 'CLAUDE_CODE_SUBAGENT_MODEL' not in mimo_tp
         # The two MiMo products MUST diverge on base URL.
         assert mimo['ANTHROPIC_BASE_URL'] != mimo_tp['ANTHROPIC_BASE_URL']
 
