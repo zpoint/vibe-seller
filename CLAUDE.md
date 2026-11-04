@@ -1,7 +1,9 @@
 # Vibe Seller - Claude Code Context
 
 > **For full documentation**: See [docs/dev-guide.md](docs/dev-guide.md)
-> (user-facing landing page is [README.md](README.md))
+> (the READMEs are generated from the homepage sources
+> [docs/index.md](docs/index.md) / [docs/index.en.md](docs/index.en.md)
+> by `scripts/gen_readme.py` — edit those, never the READMEs)
 
 ## What & Why
 

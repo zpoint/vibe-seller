@@ -10,6 +10,9 @@ repos:
         # emoji index) that safe YAML loaders cannot construct.
         exclude: '^(mkdocs\.yml|\.?mkdocs\.yaml)$'
     -   id: check-added-large-files
+        # Demo GIFs/mp4s and screenshots committed under docs/ are the
+        # exception to the 500 KB limit — nothing else may exceed it.
+        exclude: '^docs/(images|videos)/'
 
 -   repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.9.10
@@ -22,6 +25,13 @@ repos:
 
 -   repo: local
     hooks:
+    -   id: readme-sync
+        name: READMEs regenerated from docs/index*.md
+        entry: python3 scripts/gen_readme.py --check
+        language: system
+        files: ^(docs/index(\.en)?\.md|README(_en)?\.md)$
+        pass_filenames: false
+
     -   id: frontend-lint
         name: frontend lint
         entry: bash -c 'cd frontend && npm run lint'

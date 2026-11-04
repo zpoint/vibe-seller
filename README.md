@@ -1,3 +1,5 @@
+<!-- Generated from docs/index.md by scripts/gen_readme.py — edit those, not this file. -->
+
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
@@ -16,7 +18,7 @@
 </p>
 
 
-<img alt="Vibe Seller 演示" src="https://github.com/user-attachments/assets/1cafbec3-72a2-4b94-a3ed-69a242fb6bfa" width="100%" />
+<img alt="Vibe Seller 演示" src="docs/images/demo_zh.gif" width="100%" />
 
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_zh.png" />
 
@@ -492,7 +494,7 @@ Vibe Seller 本身免费开源，花钱的只有你自己的 LLM API Key——�
 
 主账号（BOSS）还没给子账号开通 WebDriver 登录权限。按[紫鸟官方指南](https://open.ziniao.com/docSupport?docId=99#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E7%99%BB%E5%BD%95%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0%E6%8E%A7%E5%88%B6%E5%8F%B00)，在开放平台控制台里把 WebDriver 登录选项勾上：
 
-<img width="1857" height="903" alt="紫鸟开放平台——勾选 WebDriver 登录" src="https://github.com/user-attachments/assets/c6066eff-f877-470e-a061-6abd73b6d2f8" />
+<img width="1857" height="903" alt="紫鸟开放平台——勾选 WebDriver 登录" src="docs/images/ziniao_webdriver_login.png" />
 
 只需要主账号操作一次，保存之后子账号就能通过 WebDriver 登录，回到 Vibe Seller 点「刷新」就能绑上店铺。
 
@@ -565,17 +567,17 @@ vibe-seller reset-auth enable     # 想开回来的时候
 ## 文档
 
 - [`docs/dev-guide.md`](docs/dev-guide.md) —— 完整功能说明、API、项目结构、测试流程
-- [`DESIGN.md`](DESIGN.md) —— 架构设计
-- [`docs/`](docs/) —— 各子系统的深入说明（浏览器、事件、调度、workspace 等）
-- [`CLAUDE.md`](CLAUDE.md) —— Claude Code 在本仓库的协作规范
+- [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md) —— 架构设计
+- [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) —— 各子系统的深入说明（浏览器、事件、调度、workspace 等）
+- [`CLAUDE.md`](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md) —— Claude Code 在本仓库的协作规范
 
 ## 贡献代码
 
-欢迎 PR——自己写代码、或者让 Claude Code / Cursor / 你顺手的编程 Agent 来写都行。Python 侧 Google 风格（ruff 强制），前端 TypeScript 严格模式 + ESLint。[`CLAUDE.md`](CLAUDE.md) 是项目规范文档——写给 AI Agent 看的，人读起来也清楚。
+欢迎 PR——自己写代码、或者让 Claude Code / Cursor / 你顺手的编程 Agent 来写都行。Python 侧 Google 风格（ruff 强制），前端 TypeScript 严格模式 + ESLint。[`CLAUDE.md`](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md) 是项目规范文档——写给 AI Agent 看的，人读起来也清楚。
 
 ## License
 
-[Apache License 2.0](LICENSE)。
+[Apache License 2.0](https://github.com/zpoint/vibe-seller/blob/main/LICENSE)。
 
 ## 加入社区
 

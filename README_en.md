@@ -1,3 +1,5 @@
+<!-- Generated from docs/index.en.md by scripts/gen_readme.py — edit those, not this file. -->
+
 <h1 align="center">Vibe Seller</h1>
 
 <p align="center">
@@ -16,7 +18,7 @@
 </p>
 
 
-<img alt="Vibe Seller demo" src="https://github.com/user-attachments/assets/029ac6d9-b0e8-4ac2-ace1-cda4190616cd" width="100%" />
+<img alt="Vibe Seller demo" src="docs/images/demo_en.gif" width="100%" />
 
 <img width="3200" height="1800" alt="1_combined" src="docs/images/1_combined_en.png" />
 
@@ -690,7 +692,7 @@ The BOSS (admin) account hasn't enabled WebDriver login for your
 sub-account yet. Follow [Ziniao's official guide](https://open.ziniao.com/docSupport?docId=99#%E7%AC%AC%E4%B8%80%E6%AD%A5%EF%BC%9A%E7%99%BB%E5%BD%95%E5%BC%80%E6%94%BE%E5%B9%B3%E5%8F%B0%E6%8E%A7%E5%88%B6%E5%8F%B00)
 and tick the WebDriver-login option in the Open Platform console:
 
-<img width="1857" height="903" alt="Ziniao Open Platform — enable WebDriver login" src="https://github.com/user-attachments/assets/c6066eff-f877-470e-a061-6abd73b6d2f8" />
+<img width="1857" height="903" alt="Ziniao Open Platform — enable WebDriver login" src="docs/images/ziniao_webdriver_login.png" />
 
 The admin (BOSS) account has to do this once. After it's saved,
 your sub-account can log in via WebDriver and Vibe Seller will
@@ -808,22 +810,22 @@ arguments.
 
 - [`docs/dev-guide.md`](docs/dev-guide.md) — full feature reference,
   API, project structure, testing
-- [`DESIGN.md`](DESIGN.md) — architecture
-- [`docs/`](docs/) — subsystem deep-dives (browser, events,
+- [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md) — architecture
+- [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) — subsystem deep-dives (browser, events,
   scheduling, workspace, etc.)
-- [`CLAUDE.md`](CLAUDE.md) — contributor guide for Claude Code
+- [`CLAUDE.md`](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md) — contributor guide for Claude Code
 
 ## Contributing
 
 PRs welcome — whether you write the code yourself or let Claude
 Code / Cursor / your coding agent do it. Python side is Google
 style (ruff-enforced); frontend is TypeScript strict + ESLint.
-[`CLAUDE.md`](CLAUDE.md) is the project conventions doc — it's
+[`CLAUDE.md`](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md) is the project conventions doc — it's
 written for AI agents and reads cleanly as a contributor guide.
 
 ## License
 
-[Apache License 2.0](LICENSE).
+[Apache License 2.0](https://github.com/zpoint/vibe-seller/blob/main/LICENSE).
 
 ## Community
 
