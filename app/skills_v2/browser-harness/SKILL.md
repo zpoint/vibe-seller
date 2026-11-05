@@ -146,10 +146,9 @@ file"), `goto_url(url)` (moves the *current* tab — prefer `new_tab`).
 
 - **`js()` returns serializable values only.** `js("document.title")` and
   `js("return 1+1")` work; but `js("document.querySelector(...)")` returns
-  `None` (a DOM node can't serialize — and `None` is also what a missing
-  element gives, so never rely on getting a node back). Return **numbers,
-  strings, or plain objects/arrays** — e.g. an element's coordinates
-  (below), not the element itself. For an element *reference* (to set a file input) use
+  `None` (a DOM node can't serialize). Return **numbers, strings, or
+  plain objects/arrays** — e.g. an element's coordinates (below), not the
+  element itself. For an element *reference* (to set a file input) use
   `cdp('Runtime.evaluate', expression=..., returnByValue=False)` → `objectId`
   (note: `cdp()` params are **keyword args**, never a positional dict —
   see "Uploading a file").
