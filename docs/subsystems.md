@@ -266,6 +266,10 @@ Persistent per-account email storage with background sync and SMTP send capabili
 
 **Ziniao dual-browser**: Ziniao stores get dual-session support in their wrapper — a main session (`{slug}`, routed via CDP proxy to Ziniao) and an aux session (`{slug}-aux`, Chrome for non-seller-center URLs). The agent uses AI judgment to route: seller center → Ziniao session, everything else → Chrome aux session. Routing rules defined in `app/prompts/dual_browser.md`. Users can override via `stores/{slug}/browser-routing.md`.
 
+## Provider-preset catalog sync
+
+The AI provider presets (Settings → AI) auto-sync from `main` every 48 h: fetch `app/ai/provider_presets.py` → literal-only `ast` parse (never executed) → per-preset validation (env-key allowlist, https-only base URL, `load_global_mcp` forced off; a rejected preset falls back to the bundled copy, which is also the floor for omitted ids) → sha256-keyed atomic cache → served cache-first, bundled on a miss. Presets only seed newly created profiles. Full design, env vars and trust model: [backend.md § Auto-synced preset catalog](backend.md#auto-synced-preset-catalog-aiprovider_presets_syncpy).
+
 ## System Scheduler Jobs
 
 `start_scheduler()` in `app/scheduler/cron.py` registers a fixed set of system-only APScheduler jobs (none of these correspond to a row in the `schedules` table, so they don't appear in the UI):

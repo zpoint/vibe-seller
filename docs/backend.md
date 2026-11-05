@@ -18,7 +18,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `schemas/` | Pydantic request/response schemas |
 | `routers/` | FastAPI route handlers (API endpoints) |
 | `browser/` | Pluggable browser backends + session management |
-| `ai/` | AI agent abstraction (Claude Code CLI backend) |
+| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL` / `PROVIDER_PRESETS_SYNC_INTERVAL_S`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)) |
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
 | `events_system/` | Business event extraction + sync backends |
