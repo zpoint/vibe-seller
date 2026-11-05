@@ -824,9 +824,17 @@ async def wait_for_task(
 
     Uses the REAL asyncio.sleep (not the patched fast version) so the
     background pipeline has time to make progress between polls.
+
+    Raises when the deadline expires first. A silent return made
+    "wait for a state the scenario never reaches" cost the timeout
+    and still pass — a dozen tests polled for 10 s at a plan-mode
+    task parked at ``planned`` and went on to assert about messages,
+    never looking at the status. Waiting must either see the state or
+    fail the test.
     """
     # Give the background pipeline a chance to start before polling
     await real_sleep(0.05)
+    data: dict = {}
     for _ in range(int(timeout / 0.1)):
         await real_sleep(0.1)
         resp = await client.get(f'/api/tasks/{task_id}')
@@ -835,4 +843,7 @@ async def wait_for_task(
             return data
         if data.get('status') == 'failed' and target != 'failed':
             return data
-    return data
+    raise AssertionError(
+        f'task {task_id} never reached {target!r} within {timeout}s '
+        f'(last status: {data.get("status")!r})'
+    )
