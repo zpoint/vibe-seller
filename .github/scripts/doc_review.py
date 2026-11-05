@@ -296,14 +296,20 @@ def call_llm_api(
             f'LLM returned empty content '
             f'(stop_reason={getattr(message, "stop_reason", "?")})'
         )
-    response_text = ''
-    for block in message.content:
-        if hasattr(block, 'text'):
-            response_text += block.text
-        elif hasattr(block, 'thinking'):
-            response_text += block.thinking
-        else:
-            response_text += str(block)
+    # The answer is the TEXT blocks only. Thinking is the model's
+    # scratchpad: it echoes the prompt's JSON template and drafts prose,
+    # and parsing it as the answer is what made a well-formed review
+    # fail as "not valid JSON".
+    response_text = ''.join(
+        block.text
+        for block in message.content
+        if getattr(block, 'type', None) == 'text'
+    )
+    if not response_text.strip():
+        raise RuntimeError(
+            'LLM returned no text block '
+            f'(stop_reason={getattr(message, "stop_reason", "?")})'
+        )
 
     # Clean up meta-commentary that some models add
     meta_phrases = [
