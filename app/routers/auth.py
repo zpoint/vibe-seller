@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -14,7 +14,6 @@ from app.auth import (
     create_token,
     get_current_user,
     is_auth_required,
-    refuse_api_token,
     set_session_cookie,
 )
 from app.config import DEFAULT_USER_ID
@@ -82,7 +81,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post('/refresh')
 async def refresh_session(
-    request: Request, current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Roll the session cookie forward by another full window.
 
@@ -94,9 +93,10 @@ async def refresh_session(
     redirect to the login page (no hung screen).
 
     An API token cannot refresh: that would trade a revocable ``vst_``
-    credential for a session JWT that outlives the token's revocation.
+    credential for a session JWT that outlives the token's revocation
+    — refused by ``ApiTokenScopeMiddleware`` (``app/api_token_scope.py``),
+    the one place every credential-issuing route is guarded.
     """
-    refuse_api_token(request, 'start a web session')
     token = create_token(
         current_user.id, current_user.role, expires_delta=USER_SESSION_EXPIRE
     )
@@ -299,7 +299,6 @@ async def list_api_tokens(
 @router.post('/tokens', response_model=ApiTokenCreatedResponse)
 async def create_api_token(
     body: ApiTokenCreate,
-    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -312,8 +311,8 @@ async def create_api_token(
     # A leaked token must not be able to mint its own replacement: a
     # ``vst_`` credential can list and revoke tokens (revoking itself
     # is harmless — that is what its owner wants) but never mint one,
-    # so cutting a leaked token's access stays cut.
-    refuse_api_token(request, 'mint API tokens')
+    # so cutting a leaked token's access stays cut — refused by
+    # ``ApiTokenScopeMiddleware`` with the user-management routes.
     row, plaintext = await create_token_row(
         db, current_user.id, body.name, body.expires_in_days
     )

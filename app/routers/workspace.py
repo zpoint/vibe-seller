@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.auth import get_current_user
+from app.browser.wrapper import validate_store_slug
 from app.models.user import User
 from app.schemas.workspace import (
     FileResetRequest,
@@ -189,6 +190,10 @@ async def delete_skill(
 async def create_store_profile(
     body: StoreProfileCreateRequest, _user: User = Depends(get_current_user)
 ):
+    try:
+        validate_store_slug(body.slug)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     rel_path = await workspace_manager.create_store_profile(
         body.slug,
         body.name,

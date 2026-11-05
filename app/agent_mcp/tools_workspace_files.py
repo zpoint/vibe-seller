@@ -14,12 +14,17 @@ knowledge tool; this one is the write-capable superset over the roots
 the UI may edit.
 """
 
+from pathlib import Path
 import posixpath
 from urllib.parse import quote
 
 from fastapi import HTTPException
 
-from app.agent_mcp.files import file_result
+from app.agent_mcp.files import (
+    MAX_INLINE_BYTES,
+    decode_text,
+    file_result,
+)
 from app.agent_mcp.registry import schema, tool
 from app.agent_mcp.support import (
     MAX_FILE_CHARS,
@@ -29,6 +34,7 @@ from app.agent_mcp.support import (
     require,
     trim,
 )
+from app.browser.wrapper import validate_store_slug
 from app.routers import workspace as workspace_route
 from app.schemas.workspace import (
     FileResetRequest,
@@ -47,6 +53,10 @@ _PATH_RULE = (
     'path must be relative, without "..", under knowledge/, stores/ '
     'or .claude/skills/ (the workspace roots the web UI edits)'
 )
+
+# read: bytes pulled from an oversize file for its inline preview
+# (see the read action). Bounds the memory one read can spend.
+_PREVIEW_BYTES = 64 * 1024
 
 _ACTIONS = (
     'tree',
@@ -225,6 +235,13 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
     if action == 'store_profile':
         slug = require(args, 'slug')
         name = require(args, 'name')
+        try:
+            # The slug becomes a path segment (stores/<slug>/); the
+            # route checks it too — checking here keeps the MCP error
+            # a ToolError instead of an opaque 422 from pydantic.
+            validate_store_slug(slug)
+        except ValueError as e:
+            raise ToolError(str(e)) from e
         result = await call_route(
             workspace_route.create_store_profile,
             StoreProfileCreateRequest(
@@ -253,6 +270,47 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
     path = _validated_workspace_path(args.get('path'))
 
     if action == 'read':
+        # Stat BEFORE reading (the task-files discipline): a file over
+        # the inline cap must not be materialised whole just to be
+        # trimmed or refused. read_file_raw only resolves + validates
+        # the path (FileResponse reads lazily), so its `.path` is the
+        # size probe. Oversize text is previewed from a bounded prefix
+        # — identical output to read-then-trim, bounded memory.
+        raw = await call_route(
+            workspace_route.read_file_raw, path=path, _user=ctx.user
+        )
+        size = Path(raw.path).stat().st_size
+        if size > MAX_INLINE_BYTES:
+            # 64 KiB covers the 8000-char trim budget in every text
+            # encoding the reader knows (≤4 bytes/char). The strict
+            # decoder gets the head MINUS a few tail bytes: a prefix
+            # cut mid–multi-byte-character must not fail an otherwise
+            # decodable file, and the dropped tail is far past what
+            # the trim shows anyway.
+            with open(raw.path, 'rb') as fh:
+                head = fh.read(_PREVIEW_BYTES + 16)
+            text = decode_text(head[:-16])
+            if text is None:
+                return file_result(
+                    ctx,
+                    path=path,
+                    abs_path=raw.path,
+                    mime_type=raw.media_type,
+                    download_path=(
+                        f'/api/workspace/file/raw?path={quote(path)}'
+                    ),
+                )
+            return {
+                'path': path,
+                'size': size,
+                'content': (
+                    text[:MAX_FILE_CHARS]
+                    + f'\n\n[truncated: file is {size:,} bytes on '
+                    f'disk; showing the first {MAX_FILE_CHARS} '
+                    'characters]'
+                ),
+                'truncated': True,
+            }
         try:
             result = await call_route(
                 workspace_route.read_file, path=path, _user=ctx.user
@@ -263,9 +321,6 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
             # same shape as task_files.read (URL + optional blob).
             if 'Binary file' not in str(exc.detail):
                 raise
-            raw = await call_route(
-                workspace_route.read_file_raw, path=path, _user=ctx.user
-            )
             return file_result(
                 ctx,
                 path=path,

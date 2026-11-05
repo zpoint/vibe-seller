@@ -26,12 +26,15 @@ The token starts with `vst_`. Treat it like a password:
 - revoke it from the same page when you are done, or when you suspect it
   leaked.
 
-A token has its owner's full role: an **admin token can manage users and
-settings**, so treat it like the password. The one thing a token cannot
-do is **mint more tokens** — `POST /api/auth/tokens` answers 403 to a
-`vst_` credential, so a leaked token can never mint its own
-never-expiring replacement. Listing and revoking tokens stay open to it.
-Mint always from a signed-in browser session.
+A token has its owner's full role on everything except **user
+management and credentials**: the mutating `/api/users` routes,
+`/api/auth/me/password`, `POST /api/auth/tokens` (minting — a leaked
+token can never mint its own never-expiring replacement) and
+`POST /api/auth/refresh` all answer 403 to a `vst_` credential, so
+revoking a token cuts everything it could have planted. Listing and
+revoking tokens stay open to it. Mint always from a signed-in browser
+session, and manage users from the web UI — so treat the token like
+the password anyway: it can still create and run tasks.
 
 If the server runs with `auth_required` off, a token still works (and
 still gets revoked for real) — mint one anyway, so turning auth on later
@@ -230,13 +233,19 @@ pass the text through unchanged.
 ### Attachments
 
 `create_task` and `send_message` accept `attachments`:
-`[{filename, mime_type, content_base64}]`, up to 10 MB each, types
-png / jpeg / gif / webp / pdf. They are handed to the SAME upload
-routes the web UI uses — create-time files land in the task workspace
-before the agent starts (its prompt names them), chat files ride
-along with the message and reach the agent when it is delivered. The
-round trip is real: the task agent reads the files from its own
-workspace.
+`[{filename, mime_type, content_base64}]`, up to 10 MB each, at most
+10 per call, types png / jpeg / gif / webp / pdf. They are handed to
+the SAME upload routes the web UI uses — create-time files land in
+the task workspace before the agent starts (its prompt names them),
+chat files ride along with the message and reach the agent when it is
+delivered. The round trip is real: the task agent reads the files
+from its own workspace.
+
+The 10 MB per-file ceiling is deliberately tighter than the web UI's
+100 MB: the UI's multipart upload streams to disk, while an MCP
+attachment is base64 inside the JSON body the endpoint parses in
+memory (one request is capped at 64 MB total). A larger file goes
+through the UI, or any HTTP file path the agent can reach.
 
 ### Files a task produced
 

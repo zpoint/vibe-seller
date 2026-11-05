@@ -13,6 +13,7 @@ from app import ads_skill, telemetry
 from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_gate_loader import preload_skill_gates
+from app.api_token_scope import ApiTokenScopeMiddleware
 from app.api_token_secrets import ApiTokenSecretMiddleware
 from app.browser.daemon_reaper import start_reaper_loop
 from app.browser.manager import browser_manager
@@ -300,7 +301,11 @@ app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
 # Registered before anything parses bodies: it rewrites the request
 # `receive` channel before FastAPI's JSON parser runs, and redacts
 # JSON responses for API-token callers (app/api_token_secrets.py).
+# The token SCOPE guard sits just outside it (added second): the
+# user-management/credential routes it refuses (403) are answered
+# before their bodies are parsed at all (app/api_token_scope.py).
 app.add_middleware(ApiTokenSecretMiddleware)
+app.add_middleware(ApiTokenScopeMiddleware)
 app.add_middleware(UploadBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,

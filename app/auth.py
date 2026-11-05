@@ -112,25 +112,6 @@ async def _authenticate_api_token(db: AsyncSession, plaintext: str) -> User:
     return user
 
 
-def refuse_api_token(request: Request, action: str) -> None:
-    """403 when the caller authenticated with a ``vst_`` API token.
-
-    A token must never be able to turn itself into another credential:
-    not a new API token, and not a session JWT. Either would survive
-    revoking (or the expiry of) the token that produced it, so "revoke
-    the leaked token" would stop meaning anything. Every route that
-    hands out a credential calls this — one rule, one place.
-    """
-    if getattr(request.state, 'auth_via', None) == 'api_token':
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                f'An API token cannot {action} — sign in to the web UI '
-                'to do this'
-            ),
-        )
-
-
 async def get_current_user(
     request: Request, db: AsyncSession = Depends(get_db)
 ):
@@ -149,6 +130,8 @@ async def get_current_user(
     token must not be able to mint another API token) without inventing
     a second permission model: the transport a JWT arrived by is what
     distinguishes an interactive login from a machine credential.
+    That refusal lives in ONE place — ``ApiTokenScopeMiddleware``
+    (``app/api_token_scope.py``) — not in per-route helpers.
 
     The same resolution attributes workspace git commits to the caller
     (``app/workspace/actor.py``): cleared up front — this request does

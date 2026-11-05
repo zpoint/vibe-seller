@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agent_mcp.files import attachment_problem
 from app.agent_mcp.lifecycle import render_instructions
 from app.agent_mcp.protocol import (
     FORBIDDEN,
@@ -37,6 +38,7 @@ from app.agent_mcp.protocol import (
     negotiate_version,
     success,
 )
+from app.agent_mcp.redact import redact
 from app.agent_mcp.tools import (
     McpContext,
     ToolError,
@@ -52,6 +54,20 @@ from app.version import get_version
 logger = logging.getLogger(__name__)
 
 SERVER_NAME = 'vibe-seller'
+
+# ── transport ceilings (one JSON-RPC document per POST) ──────────
+#
+# The MCP endpoint reads its body into memory and parses it as one
+# JSON document, so it needs its OWN caps: the 100 MB multipart limit
+# (``app.uploads``) does not apply to ``application/json`` bodies, and
+# an unbounded read lets one request OOM the server — on an auth-off
+# server with nothing but a Content-Type header. 64 MB admits every
+# legitimate call (the largest argument is a base64 attachment; see
+# ``app/agent_mcp/files.py`` for the per-file ceiling) and keeps the
+# parse bounded. A batch is capped the same way: 20 items is an order
+# of magnitude beyond what any client sends in one envelope.
+MAX_BODY_BYTES = 64 * 1024 * 1024
+MAX_BATCH_ITEMS = 20
 
 # The instructions a client may show the model at connect time. The
 # lifecycle part is RENDERED from the table in
@@ -210,14 +226,86 @@ def _tool_error(request_id, message: str) -> dict:
     )
 
 
+# Insertion order matters: bool BEFORE int, because every Python
+# bool is an int instance and must map to 'boolean'.
+_JSON_TYPE_OF = {
+    bool: 'boolean',
+    int: 'integer',
+    float: 'number',
+    str: 'string',
+    list: 'array',
+    dict: 'object',
+    type(None): 'null',
+}
+
+
+def _json_type_name(value) -> str:
+    for cls, name in _JSON_TYPE_OF.items():
+        if isinstance(value, cls):
+            return name
+    return 'unknown'
+
+
+def _type_problem(name: str, spec: dict, value) -> str | None:
+    """Why *value* does not fit one property's schema, if it does not.
+
+    Validates the keywords the tool schemas actually use — ``type``
+    (single or list), ``enum``, ``minimum``/``maximum``,
+    ``maxItems`` — so a malformed argument is answered with
+    ``INVALID_PARAMS`` instead of dying inside the tool as "Tool
+    failed unexpectedly" (``limit: {}`` used to crash at ``int()``
+    with no clue about which argument was wrong).
+    """
+    declared = spec.get('type')
+    if declared is not None:
+        allowed = {declared} if isinstance(declared, str) else set(declared)
+        actual = _json_type_name(value)
+        if actual not in allowed:
+            # JSON Schema: 1.0 IS an integer (a number with zero
+            # fractional part). Accept it rather than making an
+            # agent rewrite 5.0 as 5.
+            if not (
+                'integer' in allowed
+                and actual == 'number'
+                and isinstance(value, float)
+                and value.is_integer()
+            ):
+                return (
+                    f'argument {name} must be '
+                    f'{" or ".join(sorted(allowed))} (got {actual})'
+                )
+    enum = spec.get('enum')
+    if enum is not None and value not in enum:
+        shown = repr(value)
+        if len(shown) > 40:
+            shown = shown[:37] + '...'
+        return f'argument {name} must be one of {enum} (got {shown})'
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        if 'minimum' in spec and value < spec['minimum']:
+            return f'argument {name} must be >= {spec["minimum"]}'
+        if 'maximum' in spec and value > spec['maximum']:
+            return f'argument {name} must be <= {spec["maximum"]}'
+    if isinstance(value, list) and 'maxItems' in spec:
+        if len(value) > spec['maxItems']:
+            return f'argument {name} accepts at most {spec["maxItems"]} items'
+    return None
+
+
 def _argument_problem(definition, arguments: dict) -> str | None:
     """Why *arguments* do not fit the tool's schema, if they do not.
 
-    The advertised schema says ``additionalProperties: false`` — so the
-    server had better mean it. A silently ignored argument is the
-    worst failure mode for an agent: it believes it filtered by store
-    and gets every task instead. Saying "unknown argument" costs one
-    round trip and lets it fix the call.
+    The advertised schema is a promise the server keeps: unknown keys
+    are rejected (``additionalProperties: false``), required keys must
+    be present, and every present key's TYPE is checked against its
+    declared shape (``type``/``enum``/``minimum``/``maximum``/
+    ``maxItems``). A silently ignored or coerced argument is the worst
+    failure mode for an agent: it believes it filtered by store and
+    gets every task instead. Saying what is wrong costs one round trip
+    and lets it fix the call.
+
+    ``None`` counts as absent — the tools treat a null optional the
+    same way (``args.get('limit') or DEFAULT``), so a client that
+    sends explicit nulls is not punished.
     """
     schema = definition.input_schema
     properties = schema.get('properties', {})
@@ -238,6 +326,22 @@ def _argument_problem(definition, arguments: dict) -> str | None:
             f'Missing required argument(s) for {definition.name}: '
             f'{", ".join(missing)}'
         )
+    for name, value in arguments.items():
+        if value is None:
+            continue
+        problem = _type_problem(name, properties[name], value)
+        if problem:
+            return f'{problem} (tool {definition.name})'
+        if name == 'attachments':
+            # The call-level attachment caps (count, total decoded
+            # bytes) are a property of the TRANSPORT, not of each
+            # tool: enforced here, every tool that accepts
+            # attachments is bounded the same way — a tool that
+            # forgets to call decode_uploads cannot stage a
+            # hundred files.
+            problem = attachment_problem(value)
+            if problem:
+                return f'{problem} (tool {definition.name})'
     return None
 
 
@@ -272,6 +376,13 @@ async def _call_tool(message: dict, ctx: McpContext) -> dict:
         return _tool_error(
             request_id, f'Tool {name} failed unexpectedly — see server logs'
         )
+    # Redact ONCE, HERE: every tool result is masked by construction,
+    # at the layer — the guarantee ``redact``'s docstring always
+    # claimed but only per-tool calls provided. A tool that forgets
+    # its own ``redact()`` call cannot leak through this dispatcher.
+    # (Masking is idempotent, so the per-tool calls stay valid as a
+    # second line.) Error texts above are NOT walked: they are the
+    # tool's own message, already free of stored secrets.
     return success(
         request_id,
         {
@@ -279,7 +390,7 @@ async def _call_tool(message: dict, ctx: McpContext) -> dict:
                 {
                     'type': 'text',
                     'text': json.dumps(
-                        result,
+                        redact(result),
                         ensure_ascii=False,
                         indent=2,
                         default=str,
@@ -324,6 +435,28 @@ async def _dispatch(message: dict, ctx: McpContext) -> dict | None:
     )
 
 
+async def _read_capped_body(request: Request) -> bytes | None:
+    """The request body, or None when it exceeds ``MAX_BODY_BYTES``.
+
+    Read through ``request.stream()`` — never ``request.body()``, which
+    buffers whatever arrives — stopping the moment the running total
+    crosses the cap, so an oversized request costs one chunk of memory
+    instead of its full size. A declared ``Content-Length`` past the
+    cap is refused before any read.
+    """
+    declared = request.headers.get('content-length')
+    if declared and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+        return None
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > MAX_BODY_BYTES:
+            return None
+        chunks.append(chunk)
+    return b''.join(chunks)
+
+
 @router.post('')
 async def mcp_endpoint(
     request: Request,
@@ -335,7 +468,16 @@ async def mcp_endpoint(
     if guard is not None:
         return guard
 
-    raw = await request.body()
+    raw = await _read_capped_body(request)
+    if raw is None:
+        return JSONResponse(
+            failure(
+                None,
+                INVALID_REQUEST,
+                f'Request body exceeds {MAX_BODY_BYTES // (1024 * 1024)} MB',
+            ),
+            status_code=413,
+        )
     try:
         payload = json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError):
@@ -351,6 +493,16 @@ async def mcp_endpoint(
                 failure(None, INVALID_REQUEST, 'Empty batch'),
                 status_code=400,
             )
+        if len(payload) > MAX_BATCH_ITEMS:
+            return JSONResponse(
+                failure(
+                    None,
+                    INVALID_REQUEST,
+                    f'Batch exceeds {MAX_BATCH_ITEMS} items '
+                    f'(got {len(payload)})',
+                ),
+                status_code=400,
+            )
         responses = []
         for message in payload:
             if not isinstance(message, dict):
@@ -363,6 +515,15 @@ async def mcp_endpoint(
                 )
                 continue
             response = await _dispatch(message, ctx)
+            # One DB session is shared by the whole batch: an item
+            # that died inside a transaction leaves it
+            # rollback-pending, and the next item would inherit that
+            # state (PendingRollbackError on its first query).
+            # Responses are already serialised JSON at this point, so
+            # resetting the session between items cannot detach
+            # anything a caller still holds. Committed work — the
+            # routes commit explicitly — is untouched.
+            await ctx.db.rollback()
             if response is not None:
                 responses.append(response)
         if not responses:

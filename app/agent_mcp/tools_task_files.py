@@ -13,6 +13,7 @@ contract they follow is documented there. Three tools:
 """
 
 import os
+from urllib.parse import quote
 
 from app.agent_mcp.files import (
     absolute_url,
@@ -203,7 +204,11 @@ async def task_files(ctx: McpContext, args: dict) -> dict:
             path=path,
             abs_path=response.path,
             mime_type=response.media_type,
-            download_path=f'/api/tasks/{task_id}/files/{path}',
+            # Percent-encoded like the workspace branch: a filename
+            # with '?' or '#' would otherwise truncate the URL at the
+            # first delimiter. '/' stays a separator (quote's default
+            # safe set).
+            download_path=f'/api/tasks/{task_id}/files/{quote(path)}',
         )
 
     if action == 'zip_url':
