@@ -525,7 +525,7 @@ class TestTaskLifecycle:
     ):
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Wait Store')
         r = await admin_client.post(
@@ -649,7 +649,7 @@ class TestTaskLifecycle:
 
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Msg Profile Store')
         data, _ = await call_tool(
@@ -678,7 +678,7 @@ class TestTaskLifecycle:
     ):
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Message Store')
         data, _ = await call_tool(
@@ -1222,7 +1222,7 @@ class TestDeleteTask:
         """The route's own rule: an active task must be stopped first."""
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Delete Running Store')
         data, _ = await call_tool(
