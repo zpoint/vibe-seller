@@ -208,6 +208,14 @@ how to verify; the per-skill recipe (§5) says *what* source to open and
    re-verify. Converge with the stall-based policy (§3c).
 5. **Don't pass a half-done job.** Partial upload, undrilled campaign,
    empty export, "please do the rest manually" → gaps, not pass.
+6. **Stay within the task's sources.** The reviewer checks the live
+   page, its exports, the deliverable, the task's working directory, the
+   store's files and the skill's references, and nothing else. A claim
+   it cannot trace there is reported as a gap, never hunted for through
+   processes, server code or other paths. The reviewer verifies; it never
+   calls `set_task_result`. (A CI audit's reviewer spent 11 of its 14
+   minutes searching the machine for the source of one mislabeled
+   threshold, and the task overran its budget.)
 
 ### 3c. Multi-round convergence
 

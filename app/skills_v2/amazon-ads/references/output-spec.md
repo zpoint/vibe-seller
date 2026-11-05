@@ -463,6 +463,13 @@ not a substitute for it.
 are the single source in `ad_rules.py`; a store's `notes.md` may
 override — see tuning-thresholds.md.)
 
+**Name the real source of every threshold or rule you cite.** A number
+from this skill (the defaults above, or a cutoff from
+tuning-thresholds.md such as the 1.5 × AOV waste line) is "the skill's
+default"; only a line in `stores/<slug>/notes.md` is "the store's rule".
+Never present a skill default as the store's rule: the reviewer checks
+that claim against the store's files, and an untraceable one is a gap.
+
 - **⚠️ `ACOS = 0` / blank, when `spend > 0`, is NOT "low ACOS = good" —
   it means ZERO SALES.** (With `spend = 0`, `ACOS = 0` is a benign zero.)
   When `spend > 0` but `orders = 0` / `sales = 0`, Amazon prints
