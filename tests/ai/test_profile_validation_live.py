@@ -21,7 +21,10 @@ import os
 import pytest
 
 from app.ai.profile_validation import validate_profile_env
-from app.ai.profiles import PROVIDER_PRESETS
+
+# The BUNDLED catalog, not the auto-synced one: this probes the
+# presets this release ships against live endpoints.
+from app.ai.provider_presets import PROVIDER_PRESETS
 
 pytestmark = pytest.mark.ai
 

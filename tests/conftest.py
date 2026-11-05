@@ -14,6 +14,12 @@ import os
 # exercise the telemetry path against a self-hosted PostHog instance.
 os.environ.setdefault('VIBE_SELLER_TELEMETRY', '0')
 
+# Disable the background provider-preset sync loop across the suite.
+# Left enabled it would fetch from GitHub on every test boot (and at
+# 48 h intervals after); tests that exercise the loop set the interval
+# explicitly. Same ``setdefault`` contract as telemetry above.
+os.environ.setdefault('PROVIDER_PRESETS_SYNC_INTERVAL_S', '0')
+
 from collections.abc import AsyncGenerator  # noqa: E402
 from datetime import UTC, datetime  # noqa: E402
 import uuid  # noqa: E402
@@ -35,6 +41,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 # Event, ...) silently aren't created and a test that touches them
 # fails later with "no such table: <name>".
 from app import models  # noqa: F401, E402
+from app.ai import provider_presets_sync as presets_sync  # noqa: E402
 from app.ai.review_redrive import _ledgers  # noqa: E402, PLC2701
 from app.auth import create_token  # noqa: E402
 from app.database import get_db  # noqa: E402
@@ -74,6 +81,26 @@ def _isolate_wrapper_bin_dir(tmp_path_factory, monkeypatch):
         'app.browser.manager.BROWSER_USE_BIN_DIR', bin_dir, raising=False
     )
     return bin_dir
+
+
+@pytest.fixture(autouse=True)
+def _isolate_presets_sync(tmp_path_factory, monkeypatch):
+    """Keep the provider-preset catalog cache out of the machine.
+
+    ``app.ai.provider_presets_sync`` seeds its served catalog from
+    ``$VIBE_SELLER_DIR/cache/provider_presets.json`` — a developer who
+    has run the app has a REAL one there, and tests asserting on
+    preset contents (kimi's model id, the MiMo group, …) would then
+    depend on whatever the background sync last fetched. Point the
+    module at a per-test dir and reset its in-memory catalog so every
+    test starts from the bundled data.
+    """
+    presets_sync.reset()
+    monkeypatch.setattr(
+        presets_sync, 'VIBE_SELLER_DIR', tmp_path_factory.mktemp('vs_presets')
+    )
+    yield
+    presets_sync.reset()
 
 
 @pytest.fixture(autouse=True)

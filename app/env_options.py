@@ -125,6 +125,19 @@ class Options(enum.Enum):
     KNOWLEDGE_REPO_URL = ('KNOWLEDGE_REPO_URL', '')
     SKILLS_REPO_URL = ('SKILLS_REPO_URL', '')
 
+    # Provider presets sync (app/ai/provider_presets_sync.py): pull
+    # app/ai/provider_presets.py from the project's main so a running
+    # install sees new providers without a release. The URL defaults
+    # to the raw.githubusercontent copy of that file; the interval is
+    # seconds between fetches (default 48 h) and 0 disables the loop
+    # — which is what tests/conftest.py sets, so nothing under tests/
+    # ever reaches GitHub.
+    PROVIDER_PRESETS_URL = ('PROVIDER_PRESETS_URL', '')
+    PROVIDER_PRESETS_SYNC_INTERVAL_S = (
+        'PROVIDER_PRESETS_SYNC_INTERVAL_S',
+        '172800',
+    )
+
     def __init__(self, env_var: str, default: str) -> None:
         super().__init__()
         self.env_var = env_var
