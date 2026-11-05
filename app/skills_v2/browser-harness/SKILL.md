@@ -45,10 +45,8 @@ print(page_info())
 PY
 ```
 
-Use the heredoc form on **every** browser-use 0.13.x — it is the one
-form that works on all of them. **Never pass `-c`**: it was removed in
-0.13.9+ (it exits with a migration hint), and only 0.13.3–0.13.8 ever
-accepted it. Put every statement inside the heredoc.
+The wrapper takes the heredoc form only. Put every statement inside the
+heredoc.
 
 ## Prerequisites
 
