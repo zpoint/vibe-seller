@@ -32,7 +32,10 @@ Fetch → parse → validate → cache → serve:
 * **Cache** the validated result at
   ``$VIBE_SELLER_DIR/cache/provider_presets.json`` (atomic write),
   keyed by the sha256 of the raw fetched bytes, so an unchanged body
-  is a no-op. The cache is re-validated on load: a corrupt or
+  is a no-op. The response's ETag is stored beside it and sent back as
+  ``If-None-Match``, so an unchanged upstream costs a 304 instead of a
+  download (the sha256 comparison stays as the fallback for servers
+  without an ETag). The cache is re-validated on load: a corrupt or
   hand-edited cache is a miss, never a source of config.
 * **Serve** through :func:`current_presets` / :func:`current_models`,
   which back ``GET /api/profiles/presets``, the telemetry
@@ -90,6 +93,7 @@ HTTP_TIMEOUT_S = 15.0
 # in an env var; nothing legitimate is anywhere near these.
 _MAX_ID = 40
 _MAX_LABEL = 200
+_MAX_ETAG = 200
 _MAX_DESC = 500
 _MAX_ENV_VALUE = 2000
 _MAX_PRESETS = 100
@@ -138,6 +142,17 @@ def _text_ok(value: object, max_len: int) -> bool:
         and 0 < len(value) <= max_len
         and not _CONTROL_RE.search(value)
     )
+
+
+def _sane_etag(value: object) -> str | None:
+    """The ETag to store/send verbatim, or ``None`` if unusable.
+
+    An ETag goes back into an ``If-None-Match`` header, so it is held
+    to the same bar as every other remote string: real str, short,
+    no control characters (which is also what keeps header injection
+    out of the question).
+    """
+    return value if _text_ok(value, _MAX_ETAG) else None
 
 
 def parse_presets_source(text: str) -> tuple[dict, dict]:
@@ -410,9 +425,17 @@ def _load_cache() -> tuple[dict, dict] | None:
 
 
 def _write_cache(
-    sha256: str, source_url: str, presets: dict, models: dict
+    sha256: str,
+    source_url: str,
+    presets: dict,
+    models: dict,
+    etag: str | None = None,
 ) -> None:
-    """Persist the validated catalog atomically (tmp + rename)."""
+    """Persist the validated catalog atomically (tmp + rename).
+
+    ``etag`` is the response's validator (stored verbatim when sane),
+    which the next fetch sends back as ``If-None-Match``.
+    """
     path = _cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -422,8 +445,35 @@ def _write_cache(
         'presets': presets,
         'models': models,
     }
+    if etag:
+        payload['etag'] = etag
     tmp = path.parent / f'{path.name}.tmp'
     tmp.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+    os.replace(tmp, path)
+
+
+def _refresh_cached_meta(etag: str | None, source_url: str) -> None:
+    """Refresh ONLY the cache's fetch metadata; the catalog stays.
+
+    The one exception to "an identical body is a no-op": a changed
+    validator or source URL is worth persisting, or the next fetch
+    keeps paying for the same body (a stale ETag never gets a 304
+    again, a stale URL never gets a conditional GET at all).
+    """
+    path = _cache_path()
+    try:
+        blob = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return
+    if not isinstance(blob, dict):
+        return
+    blob['source_url'] = source_url
+    if etag:
+        blob['etag'] = etag
+    else:
+        blob.pop('etag', None)
+    tmp = path.parent / f'{path.name}.tmp'
+    tmp.write_text(json.dumps(blob, indent=2), encoding='utf-8')
     os.replace(tmp, path)
 
 
@@ -516,7 +566,35 @@ async def _read_capped(resp: httpx.Response) -> bytes | None:
 
 
 async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
-    async with client.stream('GET', url, timeout=HTTP_TIMEOUT_S) as resp:
+    meta = _read_cache_meta()
+    cached_etag = _sane_etag(meta.get('etag'))
+    # A conditional GET only when the cached validator applies to
+    # what is being served: the cache holds a sane etag, it IS what
+    # the accessors serve, and it was fetched from THIS url. Anything
+    # else gets a full body — that is what repairs a corrupt cache or
+    # retargets a changed source.
+    conditional = (
+        cached_etag is not None
+        and _current_matches_cache
+        and meta.get('source_url') == url
+    )
+    headers = {'If-None-Match': cached_etag} if conditional else {}
+
+    async with client.stream(
+        'GET', url, timeout=HTTP_TIMEOUT_S, headers=headers
+    ) as resp:
+        if resp.status_code == 304:
+            if not conditional:
+                # A 304 we never asked for: no body to trust and
+                # nothing to compare it against. Keep what we serve.
+                return {
+                    'status': 'failed',
+                    'error': 'HTTP 304 without If-None-Match',
+                }
+            # "Not modified" is the answer: nothing read, nothing
+            # rewritten, cache mtime untouched.
+            return {'status': 'unchanged', 'sha256': meta.get('sha256')}
+
         if resp.status_code != 200:
             return {'status': 'failed', 'error': f'HTTP {resp.status_code}'}
 
@@ -533,12 +611,20 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
                 'status': 'rejected',
                 'error': f'body over {MAX_BODY_BYTES} bytes',
             }
+        etag = _sane_etag(resp.headers.get('etag'))
 
     sha = hashlib.sha256(raw).hexdigest()
 
-    meta = _read_cache_meta()
     if meta.get('sha256') == sha and _current_matches_cache:
-        # Identical body, already served and cached: no rewrite.
+        # Identical body, already served and cached: no rewrite —
+        # except for fetch metadata drift (see _refresh_cached_meta).
+        if etag != meta.get('etag') or url != meta.get('source_url'):
+            _refresh_cached_meta(etag, url)
+            return {
+                'status': 'unchanged',
+                'sha256': sha,
+                'meta_refreshed': True,
+            }
         return {'status': 'unchanged', 'sha256': sha}
 
     try:
@@ -551,7 +637,7 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
     except PresetsSourceError as e:
         return {'status': 'rejected', 'error': str(e)}
 
-    _write_cache(sha, url, presets, models)
+    _write_cache(sha, url, presets, models, etag=etag)
     _apply(presets, models)
     logger.info(
         'Provider presets updated from %s (%d presets)',

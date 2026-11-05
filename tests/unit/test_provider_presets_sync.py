@@ -643,6 +643,182 @@ async def test_loop_is_cancelled_cleanly_at_shutdown(monkeypatch):
     assert task.done()
 
 
+# ── Conditional GET (ETag / If-None-Match) ──────────────────────
+
+
+def etag_handler(body: str, etag: str, captured: list):
+    """A handler that serves ``body`` and records the request's etag."""
+
+    def handler(request):
+        captured.append(request.headers.get('if-none-match'))
+        headers = {'etag': etag} if etag else {}
+        return httpx.Response(200, text=body, headers=headers)
+
+    return handler
+
+
+async def test_conditional_get_after_an_update():
+    """An update stores the ETag; the next fetch asks with it."""
+    body = acme_source()
+    first = []
+    result = await fetch_with(etag_handler(body, 'W/"v1"', first))
+    assert result['status'] == 'updated'
+    assert first == [None]  # nothing cached yet -> unconditional
+    assert json.loads(cache_path().read_text())['etag'] == 'W/"v1"'
+
+    before = cache_path().stat()
+    good = sync.current_presets()
+    seen = []
+
+    def not_modified(request):
+        seen.append(request.headers.get('if-none-match'))
+        return httpx.Response(304)
+
+    result = await fetch_with(not_modified)
+
+    assert seen == ['W/"v1"']
+    assert result['status'] == 'unchanged'
+    assert sync.current_presets() == good
+    after = cache_path().stat()
+    assert after.st_size == before.st_size
+    assert after.st_mtime_ns == before.st_mtime_ns
+
+
+async def test_no_etag_stored_means_no_conditional_header():
+    """Servers without an ETag keep the sha256 path, header-free."""
+    body = acme_source()
+    seen = []
+    await fetch_with(etag_handler(body, '', seen))
+    result = await fetch_with(etag_handler(body, '', seen))
+
+    assert seen == [None, None]
+    assert result['status'] == 'unchanged'
+
+
+async def test_no_conditional_header_when_cache_is_not_served():
+    """A cache that failed re-validation must be repaired in full."""
+    blob = {
+        'sha256': '0' * 64,
+        'etag': 'W/"stale"',
+        'source_url': sync._source_url(),
+        'presets': {
+            'acme_test': make_preset(
+                env={
+                    'ANTHROPIC_BASE_URL': ACME_URL,
+                    'ANTHROPIC_MODEL': 'acme-1',
+                    'HTTPS_PROXY': 'http://evil.example',
+                }
+            )
+        },
+        'models': {'acme_test': make_models()},
+    }
+    write_cache(json.dumps(blob))
+    sync.reset()
+    assert 'acme_test' not in sync.current_presets()
+
+    seen = []
+    result = await fetch_with(etag_handler(acme_source(), 'W/"v2"', seen))
+
+    assert seen == [None]
+    assert result['status'] == 'updated'
+    assert 'acme_test' in sync.current_presets()
+
+
+async def test_no_conditional_header_when_the_url_changed(monkeypatch):
+    """The cached validator belongs to the URL that produced it."""
+    await fetch_with(etag_handler(acme_source(), 'W/"v1"', []))
+
+    monkeypatch.setenv(
+        'PROVIDER_PRESETS_URL', 'https://mirror.example/presets.py'
+    )
+    seen = []
+    result = await fetch_with(
+        etag_handler(acme_source({'name': 'Mirror Acme'}), 'W/"m1"', seen)
+    )
+
+    assert seen == [None]
+    assert result['status'] == 'updated'
+    assert sync.current_presets()['acme_test']['name'] == 'Mirror Acme'
+    assert json.loads(cache_path().read_text())['source_url'] == (
+        'https://mirror.example/presets.py'
+    )
+
+
+async def test_identical_body_from_a_new_url_refreshes_the_stored_url(
+    monkeypatch,
+):
+    """Same bytes, new source: the metadata follows so conditional
+    GETs can resume — the catalog itself is untouched."""
+    body = acme_source()
+    await fetch_with(etag_handler(body, 'W/"v1"', []))
+    before = json.loads(cache_path().read_text())
+
+    monkeypatch.setenv(
+        'PROVIDER_PRESETS_URL', 'https://mirror.example/presets.py'
+    )
+    result = await fetch_with(etag_handler(body, 'W/"v1"', []))
+
+    assert result['status'] == 'unchanged'
+    assert result['meta_refreshed'] is True
+    after = json.loads(cache_path().read_text())
+    assert after['source_url'] == 'https://mirror.example/presets.py'
+    for key in ('sha256', 'fetched_at', 'presets', 'models', 'etag'):
+        assert after[key] == before[key], key
+
+
+async def test_unsolicited_304_is_failure_and_keeps_data():
+    """A 304 we never asked for proves nothing; keep what we serve."""
+    await fetch_with(ok_handler)
+    good = sync.current_presets()
+    cached_bytes = cache_path().read_bytes()
+
+    result = await fetch_with(lambda request: httpx.Response(304))
+
+    assert result['status'] == 'failed'
+    assert '304' in result['error']
+    assert sync.current_presets() == good
+    assert cache_path().read_bytes() == cached_bytes
+
+
+async def test_new_etag_on_identical_body_updates_the_stored_etag():
+    """The one allowed write on an unchanged body: the validator.
+
+    Without it a rotated ETag would leave every later fetch paying
+    for the same body instead of getting a 304.
+    """
+    body = acme_source()
+    await fetch_with(etag_handler(body, 'W/"v1"', []))
+    before = json.loads(cache_path().read_text())
+
+    result = await fetch_with(etag_handler(body, 'W/"v2"', []))
+
+    assert result['status'] == 'unchanged'
+    assert result['meta_refreshed'] is True
+    after = json.loads(cache_path().read_text())
+    assert after['etag'] == 'W/"v2"'
+    # Everything else is untouched — this was not a catalog update.
+    for key in ('sha256', 'fetched_at', 'source_url', 'presets', 'models'):
+        assert after[key] == before[key], key
+
+
+async def test_insane_etag_is_neither_stored_nor_sent():
+    """A control-carrying/oversized ETag is treated as absent."""
+    assert sync._sane_etag('W/"v1"\r\nX-Evil: 1') is None
+    assert sync._sane_etag('e' * 500) is None
+    assert sync._sane_etag(None) is None
+    assert sync._sane_etag(42) is None
+
+    seen = []
+    result = await fetch_with(etag_handler(acme_source(), 'e' * 500, seen))
+    assert result['status'] == 'updated'
+    assert 'etag' not in json.loads(cache_path().read_text())
+
+    result = await fetch_with(etag_handler(acme_source(), 'e' * 500, seen))
+    assert result['status'] == 'unchanged'
+    assert 'etag' not in json.loads(cache_path().read_text())
+    assert seen == [None, None]
+
+
 # ── Consumers read the current catalog ──────────────────────────
 
 

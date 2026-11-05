@@ -214,9 +214,18 @@ Settings → AI picker shows the synced catalog the moment it lands.
 
 **Fetch path**: `lifespan()` starts `sync_loop()` — one fetch in the
 background at boot (never blocking `/api/health`), then every
-`PROVIDER_PRESETS_SYNC_INTERVAL_S` seconds. A body whose sha256
-matches the cache is a no-op (no rewrite, mtime untouched); anything
-else is validated, written atomically (tmp + rename) and swapped in.
+`PROVIDER_PRESETS_SYNC_INTERVAL_S` seconds. The fetch is a **conditional
+GET**: the cached `ETag` goes back as `If-None-Match` (only while the
+cache is valid, is what the accessors serve, and was fetched from the
+current URL), and a `304` is an `unchanged` no-op — nothing read, cache
+mtime untouched. Servers without a usable `ETag` (mirrors,
+`http.server`) fall back to the body hash: a body whose sha256 matches
+the cache is not rewritten. Anything else is validated, written
+atomically (tmp + rename, `ETag` stored beside the sha256) and swapped
+in; a changed validator or source URL on an otherwise identical body
+refreshes just that metadata so the cheap path can resume. A `304` to a
+request that carried no `If-None-Match` proves nothing and is treated as
+a failure — the install keeps what it serves.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
