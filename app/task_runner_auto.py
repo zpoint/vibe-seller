@@ -24,7 +24,7 @@ from app.task_finalize import (
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
-    check_parent_completion,
+    check_parent_after_run,
     get_store_emails,
     maybe_inject_pending_answers,
     sync_store_metadata,
@@ -359,17 +359,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                 )
         # If this task has a parent waiting on children, check
         # whether all siblings are now terminal.
-        try:
-            async with async_session() as db_parent:
-                task = await db_parent.get(Task, task_id)
-                if task:
-                    await check_parent_completion(task, db_parent)
-        except Exception:
-            logger.debug(
-                'Parent check after task %s: %s',
-                task_id,
-                exc_info=True,
-            )
+        await check_parent_after_run(task_id)
 
 
 async def finalize_followup_session(task_id: str, store: Store | None):
@@ -478,3 +468,7 @@ async def finalize_followup_session(task_id: str, store: Store | None):
                 'Failed to update task %s status after finalize error',
                 task_id,
             )
+    finally:
+        # A follow-up turn's end re-checks the parent just like
+        # auto_run_task's finally does — see check_parent_after_run.
+        await check_parent_after_run(task_id)

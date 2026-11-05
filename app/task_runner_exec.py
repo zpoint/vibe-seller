@@ -24,6 +24,7 @@ from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
+    check_parent_after_run,
     coalesce_history,
     format_trigger_context,
     get_store_emails,
@@ -481,7 +482,9 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 task_id,
             )
     finally:
-        pass
+        # A planned run's end re-checks the parent just like
+        # auto_run_task's finally does — see check_parent_after_run.
+        await check_parent_after_run(task_id)
 
 
 async def execute_woken_task(task_id: str, store: Store | None):
@@ -796,3 +799,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
                 'Failed to update woken task %s after error',
                 task_id,
             )
+    finally:
+        # A woken run's end re-checks the parent just like
+        # auto_run_task's finally does — see check_parent_after_run.
+        await check_parent_after_run(task_id)
