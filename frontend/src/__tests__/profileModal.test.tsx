@@ -99,6 +99,32 @@ const INTL_PRESET = {
   models: [{ id: 'qwen3.7-max', label: 'Qwen3.7-Max', context: '1M', vision: false }],
 }
 
+// A catalog as the auto-sync can deliver it: a GROUP the bundled set
+// never had, with variants + model dropdowns. Must render and apply
+// exactly like a bundled one — nothing about the UI may assume a
+// hardcoded provider list.
+const ACME_STANDARD = {
+  name: 'Acme Standard',
+  group: 'Acme Cloud',
+  variant: 'Standard',
+  env: {
+    ANTHROPIC_BASE_URL: 'https://api.acme.example/anthropic',
+    ANTHROPIC_MODEL: 'acme-1',
+  },
+  models: [{ id: 'acme-1', label: 'Acme One', context: '1M', vision: true }],
+}
+
+const ACME_PRO = {
+  name: 'Acme Pro',
+  group: 'Acme Cloud',
+  variant: 'Pro',
+  env: {
+    ANTHROPIC_BASE_URL: 'https://api.acme.example/pro/anthropic',
+    ANTHROPIC_MODEL: 'acme-2',
+  },
+  models: [{ id: 'acme-2', label: 'Acme Two', context: '1M', vision: true }],
+}
+
 function mockPresets(presets: Record<string, unknown>) {
   ;(global.fetch as unknown) = vi.fn().mockResolvedValue({
     json: async () => ({ presets }),
@@ -310,6 +336,36 @@ describe('ProfileModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Coding Plan' }))
     expect(nameInput.value).toBe('Qwen (Coding Plan) - Qwen3.7-Plus')
     expect(screen.getByText('Qwen3.7-Plus')).toBeInTheDocument()
+  })
+
+  it('renders and applies a preset delivered with a new group + variants', async () => {
+    mockPresets({ acme_test: ACME_STANDARD, acme_test_pro: ACME_PRO })
+    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
+    const { onSave } = renderModal()
+
+    // The unknown group shows up as its own top-level entry...
+    const groupBtn = await screen.findByRole('button', { name: /Acme Cloud/ })
+    fireEvent.click(groupBtn)
+
+    // ...its first variant applies immediately (fields + model chip)...
+    const nameInput = screen.getByPlaceholderText('e.g., MiniMax') as HTMLInputElement
+    expect(nameInput.value).toBe('Acme Standard - Acme One')
+    expect(await screen.findByText('Acme One')).toBeInTheDocument()
+
+    // ...and the other variant re-applies that preset.
+    fireEvent.click(screen.getByRole('button', { name: 'Pro' }))
+    expect(nameInput.value).toBe('Acme Pro - Acme Two')
+
+    fireEvent.change(
+      screen.getByPlaceholderText('Paste your provider API key'),
+      { target: { value: 'sk-acme' } }
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    const env = onSave.mock.calls[0][0].env
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://api.acme.example/pro/anthropic')
+    expect(env.ANTHROPIC_MODEL).toBe('acme-2')
   })
 
   it('seeds the Custom advanced template and drops blank rows on save', async () => {

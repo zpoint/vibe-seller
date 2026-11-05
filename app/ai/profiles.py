@@ -3,7 +3,7 @@
 import json
 import os
 
-from app.ai.provider_presets import PROVIDER_MODELS, PROVIDER_PRESETS
+from app.ai.provider_presets_sync import current_models, current_presets
 from app.config import AI_BOT_ROLE, DEFAULT_USER_ID
 from app.models.user import User
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -142,7 +142,7 @@ DEFAULT_PROFILES = {
 
 
 def model_sees_images(model_id: str | None) -> bool | None:
-    """Whether ``model_id`` can take an image input, per PROVIDER_MODELS.
+    """Whether ``model_id`` can take an image input, per the catalog.
 
     ``False`` only for a model the catalog labels text-only, ``None``
     when it is unknown (not listed, or listed without a ``vision``
@@ -157,7 +157,7 @@ def model_sees_images(model_id: str | None) -> bool | None:
     if not model_id or not base(model_id):
         return None
     want = base(model_id)
-    for models in PROVIDER_MODELS.values():
+    for models in current_models().values():
         for m in models:
             if base(m.get('id', '')) == want and 'vision' in m:
                 return bool(m['vision'])
@@ -268,21 +268,26 @@ class ProfileManager:
     @staticmethod
     def get_provider_presets() -> dict:
         """Return provider presets for the UI, each augmented with its
-        ``models`` dropdown options. Builds a fresh dict so the module
-        globals are never mutated."""
+        ``models`` dropdown options.
+
+        Reads the CURRENT catalog (the auto-synced cache when valid,
+        else the bundled copy — see ``app.ai.provider_presets_sync``)
+        and builds a fresh dict so the served catalog is never
+        mutated."""
+        models = current_models()
         return {
-            pid: {**preset, 'models': PROVIDER_MODELS.get(pid, [])}
-            for pid, preset in PROVIDER_PRESETS.items()
+            pid: {**preset, 'models': models.get(pid, [])}
+            for pid, preset in current_presets().items()
         }
 
 
 def profile_kind(profile: dict | None) -> str:
     """Return a privacy-safe enum identifying which provider a profile uses.
 
-    Matches the profile's ANTHROPIC_BASE_URL against PROVIDER_PRESETS
-    to get the preset id (kimi, minimax, glm, glm_intl, deepseek, qwen,
-    qwen_intl, qwen_coding, qwen_token, mimo, mimo_token) or
-    default/custom.
+    Matches the profile's ANTHROPIC_BASE_URL against the current
+    provider-preset catalog to get the preset id (kimi, minimax, glm,
+    glm_intl, deepseek, qwen, qwen_intl, qwen_coding, qwen_token,
+    mimo, mimo_token, ...) or default/custom.
     Used by telemetry; never sends the env itself.
     """
     if not profile:
@@ -291,7 +296,7 @@ def profile_kind(profile: dict | None) -> str:
     base_url = (env.get('ANTHROPIC_BASE_URL') or '').strip()
     if not base_url:
         return 'default'
-    for preset_id, preset in PROVIDER_PRESETS.items():
+    for preset_id, preset in current_presets().items():
         preset_url = preset.get('env', {}).get('ANTHROPIC_BASE_URL', '').strip()
         if preset_url and preset_url == base_url:
             return preset_id

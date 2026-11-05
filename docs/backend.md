@@ -18,7 +18,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `schemas/` | Pydantic request/response schemas |
 | `routers/` | FastAPI route handlers (API endpoints) |
 | `browser/` | Pluggable browser backends + session management |
-| `ai/` | AI agent abstraction (Claude Code CLI backend) |
+| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL` / `PROVIDER_PRESETS_SYNC_INTERVAL_S`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)) |
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
 | `events_system/` | Business event extraction + sync backends |
@@ -186,7 +186,7 @@ Design notes:
 
 ### Provider presets & model options (`ai/profiles.py`)
 
-`PROVIDER_PRESETS` holds the per-provider env template (base URL, timeouts, per-tier model aliases). `PROVIDER_MODELS` holds the config UI's model dropdown per provider — each option is `{id, label, context?, vision?}`; the first entry is the default and must equal the preset's `ANTHROPIC_MODEL` (pinned by a test). `get_provider_presets()` merges the two for the UI. Both are convenience shortlists (the UI also offers free-text "Custom"), and every choice is endpoint-validated on save, so a stale entry is caught rather than silently breaking a run.
+`PROVIDER_PRESETS` holds the per-provider env template (base URL, timeouts, per-tier model aliases). `PROVIDER_MODELS` holds the config UI's model dropdown per provider — each option is `{id, label, context?, vision?}`; the first entry is the default and must equal the preset's `ANTHROPIC_MODEL` (pinned by a test). `get_provider_presets()` merges the two for the UI — reading the CURRENT catalog (auto-synced cache or bundled, see below), never the module dicts directly. Both are convenience shortlists (the UI also offers free-text "Custom"), and every choice is endpoint-validated on save, so a stale entry is caught rather than silently breaking a run.
 
 A preset may also carry `group` + `variant`: presets sharing a `group` (e.g. `Alibaba Cloud` → Pay-as-you-go China/International, Coding Plan, Token Plan; `GLM` → China/International; `MiMo` → Pay-as-you-go / Token Plan) collapse into one top-level button in the picker that reveals a variant sub-row, instead of cluttering the flat list.
 
@@ -194,11 +194,69 @@ A preset may also carry `group` + `variant`: presets sharing a `group` (e.g. `Al
 
 A provider only gets a preset if its **own** docs ship an Anthropic-Messages-compatible endpoint for Claude Code — no third-party gateways. That bar is why **xAI/Grok is absent**: `POST https://api.x.ai/v1/messages` does answer Anthropic-shaped requests, but xAI's own REST reference marks it "Deprecated: The Anthropic SDK compatibility is fully deprecated. Please migrate to the Responses API or the gRPC API." and xAI publishes no Claude Code guide (its official Claude Code integration is the Grok Build CLI + `grok-build-plugin-cc`, which shells out to a local binary rather than re-formatting the API). Google Gemini and OpenAI are absent for a plainer reason: they ship no Anthropic-Messages endpoint for their own models at all — `POST https://api.openai.com/v1/messages` and `POST https://generativelanguage.googleapis.com/v1/messages` both 404. (Google's Anthropic-format endpoints on Google Cloud serve **Claude**, not Gemini.)
 
+### Auto-synced preset catalog (`ai/provider_presets_sync.py`)
+
+The catalog above is not frozen at release time. A background loop
+pulls `app/ai/provider_presets.py` from the project's `main` so a
+running install picks up new providers without an upgrade — and the
+fetched unit is the **`.py` file itself** (parsed with `ast` +
+`ast.literal_eval`, never executed or imported), so the provenance
+comments stay the single source of truth instead of being lost to a
+JSON mirror.
+
+**Serve path** (no network on a request): `current_presets()` /
+`current_models()` serve the in-memory catalog, seeded at first use
+from `~/.vibe-seller/cache/provider_presets.json` and falling back to
+the bundled dicts when that cache is missing, corrupt or fails
+re-validation. `GET /api/profiles/presets`, the telemetry
+`profile_kind()` lookup and `model_sees_images()` all read it, so the
+Settings → AI picker shows the synced catalog the moment it lands.
+
+**Fetch path**: `lifespan()` starts `sync_loop()` — one fetch in the
+background at boot (never blocking `/api/health`), then every
+`PROVIDER_PRESETS_SYNC_INTERVAL_S` seconds. The fetch is a **conditional
+GET**: the cached `ETag` goes back as `If-None-Match` (only while the
+cache is valid, is what the accessors serve, and was fetched from the
+current URL), and a `304` is an `unchanged` no-op — nothing read, cache
+mtime untouched. Servers without a usable `ETag` (mirrors,
+`http.server`) fall back to the body hash: a body whose sha256 matches
+the cache is not rewritten. Anything else is validated, written
+atomically (tmp + rename, `ETag` stored beside the sha256) and swapped
+in; a changed validator or source URL on an otherwise identical body
+refreshes just that metadata so the cheap path can resume. A `304` to a
+request that carried no `If-None-Match` proves nothing and is treated as
+a failure — the install keeps what it serves.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PROVIDER_PRESETS_URL` | raw.githubusercontent copy of `app/ai/provider_presets.py` on `main` | Where the catalog is fetched from (a mirror or a local test server) |
+| `PROVIDER_PRESETS_SYNC_INTERVAL_S` | `172800` (48 h) | Seconds between fetches. `0` disables the loop — what `tests/conftest.py` sets so nothing under `tests/` reaches GitHub |
+
+**Remote content configures API endpoints, so it is treated as
+hostile.** Per preset: env keys are allowlisted (no `ANTHROPIC_AUTH_TOKEN`
+/ `ANTHROPIC_API_KEY`, no `HTTPS_PROXY` / `NODE_OPTIONS`, no
+Bedrock/Vertex switch), `ANTHROPIC_BASE_URL` must be `https` with a host
+and no userinfo (`{WorkspaceId}` placeholders stay legal),
+`load_global_mcp` can never turn on, unknown fields are dropped, and the
+model dropdown must agree with the preset's `ANTHROPIC_MODEL` (first
+entry). A preset that fails falls back to the BUNDLED copy of the same
+id; the bundled catalog is also the FLOOR for ids the body omits, so a
+stale or partial `main` can never unpick a provider the release shipped
+(ids only `main` ever had do live and die with `main`). A body that
+parses but yields nothing valid, is oversized (512 KB cap) or is not
+literal data is rejected whole — the install keeps what it was serving.
+The cache is re-validated on load for the same reason. Residual trust
+assumption (documented in the module docstring): the source is the
+project's own `main`, i.e. the same trust as a release — and presets
+only ever seed **newly created** profiles, never retargeting saved ones.
+
 ### Test surface
 
 - `tests/unit/test_profile_validation.py` — the full verdict matrix via `httpx.MockTransport` (success/auth/not-found/stale-model/unreachable/wrong-protocol/non-JSON/missing-key/missing-model, trailing-slash join, header mapping).
 - `tests/workflow/test_wf_profiles.py` — the `/validate` endpoint contract (200, no persistence) and the model-options contract.
 - `tests/ai/test_profile_validation_live.py` — `ai`-marked, against real vendor endpoints using CI's `{PROVIDER}_API_KEY` secrets: good key/model → ok, bad model → rejected or reports-a-different-model, bad key → rejected (each provider self-skips without a key).
+- `tests/unit/test_provider_presets_sync.py` — the bundled file round-trips through the literal parser, every bundled env key is allowlisted, each hostile-body case (non-https/userinfo URL, credential or proxy env key, `load_global_mcp=True`, control chars, non-literal code, oversize body, first-model mismatch, unknown fields) is dropped or rejected, the bundled-fallback/floor rules, cache re-validation, and the loop (mocked `httpx.MockTransport`, ~0.05 s interval: repeated ticks, changed-body update, unchanged-body no-op, 500/timeout/garbage keep the previous data, clean cancellation).
+- `tests/workflow/test_wf_presets_sync.py` — `GET /api/profiles/presets` serves the synced catalog, follows a changed body, and falls back to bundled on a corrupt cache or a rejected body.
 
 ## Plugin Framework
 
