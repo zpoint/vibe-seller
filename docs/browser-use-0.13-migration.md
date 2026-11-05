@@ -1,8 +1,63 @@
 # browser-use 0.13 (CLI 3.0) Migration Plan
 
-Status: **proposed** · Target: bump `browser-use` from `0.12.x` (subcommand
-CLI) to `>=0.13.3` (the "CLI 3.0" / browser-harness heredoc interface)
+Status: **shipped** (the plan below) · **updated 2026-11-05**: audited
+through browser-use **0.13.14**, floor raised to `browser-use>=0.13.14`
+— see [§ 0](#0-update-2026-11-05--audited-through-01314-floor-raised-to-01314).
+Original target: bump `browser-use` from `0.12.x` (subcommand CLI) to
+`>=0.13.3` (the "CLI 3.0" / browser-harness heredoc interface)
 **without breaking any already-released client** (v0.0.1 – v0.0.7).
+
+---
+
+## 0. Update 2026-11-05 — audited through 0.13.14, floor raised to >=0.13.14
+
+Wheels for 0.13.3 / 0.13.9 / 0.13.14 (plus their `browser-harness`
+pins 0.1.4 / 0.1.12 / 0.1.13) were diffed directly. Summary of what
+changed between those versions and what it means for us:
+
+- **Entry points are stable** across all three: `browser-use`, `bu`,
+  `browser`, `browseruse`, `browser-use-tui` → `browser_use.cli:main`.
+  `REAL_BU` resolution and the wrapper's forwarding still work.
+- **`browser-harness` is the whole integration surface** (helpers,
+  daemon, pid/sock files, `BH_*`/`BU_*` env), and it is unchanged where
+  it matters: `BH_RUNTIME_DIR`/`BH_TMP_DIR`(+`_SHARED`) handling,
+  `bu-<BU_NAME>.pid`/`.sock` naming, the `BU_NAME` charset check
+  (`[A-Za-z0-9_-]{1,64}`), `--doctor`/`--reload` all behave identically
+  from 0.1.4 to 0.1.13. **0.1.13 (browser-use 0.13.14) is byte-identical
+  to 0.1.12 (0.13.9)** — nothing in the harness layer changed in
+  0.13.10–0.13.14.
+- **One change our code had to absorb, and it predates 0.13.14:** the
+  daemon pid record gained a second shape in browser-harness 0.1.12
+  (browser-use 0.13.9) — the spawn-lock JSON
+  `{"pid": N, "started": <fingerprint>}`, published on upstream's
+  local-Chrome spawn path and retained by the daemon. Our wrapper
+  always exports `BU_CDP_WS`, so its spawn path still writes plain
+  ints (verified live on 0.13.14), but the file is upstream-owned and
+  both shapes exist on the same versions: `bh_daemons.iter_pidfiles`'s
+  plain-int read treats the JSON as corrupt and unlinks a live
+  daemon's files without killing it. Fixed by `parse_pid_record`
+  (`app/browser/bh_daemons.py`), which accepts both shapes (pinned by
+  `tests/unit/test_browser/test_bh_daemons.py` and
+  `tests/workflow/test_daemon_reaper.py`).
+- **CLI: `-c`/`--code` were removed in 0.13.9** (they now print a
+  migration hint and exit 2). The heredoc form works on every 0.13.x,
+  so the skill mandates it and warns against `-c`.
+- **Helpers:** everything `app/skills_v2/browser-harness/SKILL.md`
+  documents exists on 0.13.3 **and** 0.13.14. Added in 0.13.9 only:
+  `activate_tab`, `start_recording`/`stop_recording`, `switch_tab(…,
+  activate=)` — marked "(browser-use ≥ 0.13.9)" in the skill. Note
+  `upload_file(selector, path)` has existed since 0.13.3 (the skill's
+  old "no native upload helper" line was wrong and is fixed).
+- **Dependency pins:** `posthog==7.7.0` is still exact-pinned in all
+  three (compatible with our `posthog>=4.0`). From 0.13.10 upstream
+  exact-pins everything (`pydantic==2.13.5`, `mcp==2.1.1`,
+  `pydantic-settings==2.15.0`, …); `uv lock` resolves all of them
+  cleanly against our deps.
+
+The floor is now `browser-use>=0.13.14` in `pyproject.toml` (what fresh
+installs already resolved to). The skill tree stays valid across
+0.13.3–0.13.14 regardless, because `app/skills_v2/` syncs to clients on
+any of those versions.
 
 ---
 
@@ -152,6 +207,7 @@ cross.
 ### 4.1 Version pin — `pyproject.toml:22-31`
 Replace the `<0.13` cap and its rationale comment with `browser-use>=0.13.3`
 (or `>=0.13,<0.14`). Regenerate `uv.lock`.
+*(2026-11-05: the floor is now `browser-use>=0.13.14` — see § 0.)*
 
 ### 4.2 Wrappers — the shape flips from flags to env + heredoc passthrough
 - `app/browser/wrapper.py` (`write_browser_use_wrapper`) and

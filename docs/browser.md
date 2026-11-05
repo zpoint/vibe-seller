@@ -278,7 +278,15 @@ browser-use 0.13 (`browser_harness`) spawns each daemon as
 **PID FILE** — `<BH_RUNTIME_DIR>/bu-<BU_NAME>.pid` (+ `.sock`) — with the
 session name in the `BU_NAME` env var, **not** in argv. So the reaper
 reads identity from the pid files (portable; avoids macOS
-`psutil.environ()` `AccessDenied`). It runs every 5 minutes:
+`psutil.environ()` `AccessDenied`). The pid *record* has two shapes on
+live browser-use versions — a plain integer (what our wrapper-spawned
+daemons write: the wrapper always exports `BU_CDP_WS`, so upstream takes
+its non-local spawn branch) and the spawn-lock JSON
+`{"pid": N, "started": <fingerprint>}` (browser-use ≥ 0.13.9,
+local-Chrome spawn path, retained by the daemon) — and
+`parse_pid_record` (`bh_daemons.py`) accepts both. A reader that assumed
+the plain int treats the JSON as corrupt and unlinks a live daemon's
+files without killing it. It runs every 5 minutes:
 
 1. Enumerates `bu-*.pid` files under `BH_RUNTIME_DIR` (via
    `iter_pidfiles()` in `bh_daemons.py`), each keyed on
@@ -312,6 +320,28 @@ accepted as known limitation.
 Cleanup at `start()` was removed because it caused a race condition: if a task was retried quickly, the new session could start its daemon, then the cleanup from the new `start()` would kill the freshly-started daemon. Cleanup now only happens at `stop()` (guaranteed to kill the old daemon) and via the periodic reaper (for orphaned daemons when server restarts).
 
 **Note**: Live-process discovery goes through `find_processes_by_pattern` and killing through `kill_with_escalation` (`process_utils.py`), both `psutil`-backed for cross-platform support.
+
+## browser-use 0.13 version notes (audited 2026-11-05)
+
+The server pins `browser-use>=0.13.14` (`pyproject.toml`). The
+integration surface we depend on is unchanged from 0.13.3 through
+0.13.14: the `browser-use`/`bu`/`browser` console scripts, the heredoc
+code-eval CLI, `BU_NAME`/`BU_CDP_WS`/`BU_CDP_URL`/
+`BH_RUNTIME_DIR(_SHARED)`/`BH_TMP_DIR(_SHARED)`, daemon files
+`bu-<BU_NAME>.pid`/`.sock` under `BH_RUNTIME_DIR`, `--doctor`,
+`--reload`. What changed between those versions:
+
+| Version | Change | Affects us |
+|---|---|---|
+| 0.13.9 (browser-harness 0.1.12) | daemon pid records *can* be JSON (`{"pid", "started"}`) — the local-Chrome spawn path publishes it and the daemon retains it; our wrapper path (always `BU_CDP_WS`) still writes plain ints | yes — `parse_pid_record` accepts both shapes |
+| 0.13.9 | the `-c`/`--code` code-string form is removed (exit 2 + migration hint); heredoc stdin works on every 0.13.x | skill mandates the heredoc form |
+| 0.13.9 | new helpers `activate_tab`, `start_recording`/`stop_recording`; `switch_tab` gains an `activate=` kwarg | optional; marked "(browser-use ≥ 0.13.9)" in the skill |
+| 0.13.14 | nothing in the harness layer — `browser-harness` 0.1.13 is byte-identical to 0.1.12 (changes are in browser-use's own agent/LLM/integration code) | no |
+
+The agent-facing skill (`app/skills_v2/browser-harness/SKILL.md`) stays
+valid across 0.13.3–0.13.14 — it syncs to clients on any of them, so
+version-specific helpers there carry an explicit minimum-version note.
+Full diff record: [browser-use-0.13-migration.md](browser-use-0.13-migration.md).
 
 ## Adding a New Backend
 

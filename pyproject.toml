@@ -39,8 +39,15 @@ dependencies = [
     # (app/browser/wrapper.py), the reaper (pid-file identity), and the
     # skills_v2 tree are all migrated to it. The `browser-use` entry point
     # is unchanged, so the wrapper still resolves after an in-place
-    # upgrade. See docs/browser-use-0.13-migration.md.
-    "browser-use>=0.13.3",
+    # upgrade. Floor raised 0.13.3 -> 0.13.14 after a full interface
+    # audit (entry points, heredoc helpers, env vars, daemon pid
+    # records): nothing we depend on changed incompatibly. The one
+    # change our code had to absorb landed earlier, in 0.13.9 — pid
+    # records gained a JSON shape — and `parse_pid_record` accepts both
+    # shapes (app/browser/bh_daemons.py). The skills_v2 tree stays valid
+    # across 0.13.3-0.13.14 for older clients. See
+    # docs/browser-use-0.13-migration.md.
+    "browser-use>=0.13.14",
     "python-multipart",
     # The completeness gate opens the Amazon bulk export to check the
     # report against the platform's own figures — the campaign count

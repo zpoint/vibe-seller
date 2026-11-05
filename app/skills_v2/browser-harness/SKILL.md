@@ -45,8 +45,10 @@ print(page_info())
 PY
 ```
 
-The wrapper takes the heredoc form **only** — there is no `-c` flag
-(passing one just prints usage). Put every statement inside the heredoc.
+Use the heredoc form on **every** browser-use 0.13.x — it is the one
+form that works on all of them. **Never pass `-c`**: it was removed in
+0.13.9+ (it exits with a migration hint), and only 0.13.3–0.13.8 ever
+accepted it. Put every statement inside the heredoc.
 
 ## Prerequisites
 
@@ -135,7 +137,20 @@ ensure_real_tab()  # switch off a stale/internal (chrome://) tab
 js('<javascript>')  # run JS; returns the SERIALIZABLE result only
 cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
 # e.g. cdp('Page.navigate', url='...')
+drain_events()  # → and clear the buffered CDP events (see file upload, below)
 ```
+
+Also available on **every** browser-use 0.13.x (no version caveat):
+`wait_for_element(selector)`, `wait_for_network_idle()`, `wait(s)`,
+`type_text(text)`, `fill_input(selector, text)`, `press_key(key)`,
+`list_tabs()`, `current_tab()`, `switch_tab(target)`,
+`close_tab(target)`, `upload_file(selector, path)` (see "Uploading a
+file"), `goto_url(url)` (moves the *current* tab — prefer `new_tab`).
+
+(browser-use ≥ 0.13.9): `activate_tab(target)` brings that tab to the
+foreground — don't call it unless the user asks to see the tab;
+`start_recording(name)` / `stop_recording()` capture local action
+traces when the user asks for a recording.
 
 - **`js()` returns serializable values only.** `js("document.title")` and
   `js("return 1+1")` work; but `js("document.querySelector(...)")` returns
@@ -249,10 +264,11 @@ in the selector: `document.querySelector('kat-file-upload').shadowRoot.querySele
 Set an input's value with `js("document.querySelector('#q').value='kettle'")`
 (then click its search icon — some inputs need the click to fire events).
 
-Only the helpers above (plus Python builtins) are in scope — the heredoc
-runs as a plain Python script. **`time`, `json`, `re`, etc. are NOT
-pre-imported; `import` them yourself.** Bare `sleep 3` is a `SyntaxError`
-and `time.sleep(3)` without `import time` is a `NameError`. **Prefer
+Only the helper names listed in this skill (plus Python builtins) are
+guaranteed — the heredoc runs as a plain Python script. **`import` every
+stdlib module you use; do not rely on the leak described above** (it is
+`json`/`time`/`os`/`math` that leak today, **not** `re` — `import re` or
+get a `NameError`). Bare `sleep 3` is a `SyntaxError`. **Prefer
 `wait_for_load()` over sleeping** — reach for `import time; time.sleep(n)`
 only when you must wait on something `wait_for_load()` can't observe (e.g.
 an async in-page render after a click).
@@ -286,20 +302,38 @@ PY
 > **Windows-form** path (`C:\…\downloads\<slug>\file`, via `wslpath -w`) —
 > a `/mnt/c` or WSL path is unreadable by native Chrome.
 
-There is **no native upload helper**. Never coordinate-click the visible
-"Browse"/"Upload file" button expecting to then drive the OS file picker
-(you can't). Attach the file via CDP. **`cdp()` takes keyword args, NOT a
-params dict** — the signature is `cdp(method, session_id=None, **params)`,
-so a dict in the 2nd slot binds to `session_id` and the proxy rejects it
-with `-32600 "Message may have string 'sessionId' property"`. Always use
+Never coordinate-click the visible "Browse"/"Upload file" button
+expecting to then drive the OS file picker (you can't). Attach the file
+with the helpers below. **`cdp()` takes keyword args, NOT a params
+dict** — the signature is `cdp(method, session_id=None, **params)` (all
+keywords on every 0.13.x; 0.13.9+ adds one internal keyword-only
+timeout), so a dict in the 2nd slot binds to `session_id` and the proxy
+rejects it with
+`-32600 "Message may have string 'sessionId' property"`. Always use
 keywords: `cdp('Runtime.evaluate', expression=..., returnByValue=False)`.
 
 There are **two kinds of file input** — pick the matching method:
 
-### Method 1 — a plain `<input type=file>` (set the node directly)
+### Method 1 — a plain `<input type=file>` (`upload_file`, or set the node)
 
-Works for a normal light-DOM input, or a simple open-shadow-DOM input
-whose node the component actually reads from. Get an objectId, set files:
+For an input a plain CSS selector can reach, the native helper does the
+whole job (it exists on **every** 0.13.x):
+
+```bash
+browser-use <<'PY'
+upload_file("input[type=file]", "/abs/path/to/file.txt")   # ABSOLUTE path
+print('files.length:',
+      js("document.querySelector('input[type=file]').files.length"))  # MUST verify → 1
+PY
+```
+
+Its selector is a plain CSS selector: it cannot pierce a shadow root,
+and its `setFileInputFiles` call silently no-ops on an inert placeholder
+input (below) — so **always verify `files.length` right after**; if the
+selector matches nothing, `upload_file` raises. For an input inside an
+**open shadow root** (Amazon `kat-file-upload`) — or any input where
+`upload_file` left `files.length` at 0 — set the node directly via an
+objectId:
 
 ```bash
 browser-use <<'PY'
@@ -415,10 +449,17 @@ The wrapper rejects these — do not use them:
 
 | Blocked | Why |
 |---------|-----|
-| `BU_NAME=…` (your own) | session is auto-injected per store/task |
-| `BU_CDP_URL` / `BU_CDP_WS` | CDP endpoint is managed by the store proxy |
-| `--mcp` | not allowed inside tasks |
-| local-profile / cloud daemon helpers (`start_remote_daemon`, profile sync) | tasks use the store's managed browser only |
+| `BU_NAME=…` (your own), `BU_AUTOSPAWN` | session is auto-injected per store/task |
+| `BU_CDP_URL` / `BU_CDP_WS`, `--cdp-url` / `--cdp-ws` | CDP endpoint is managed by the store proxy |
+| `--mcp`, `--connect`, `--profile` | not allowed inside tasks |
+| `--session <anything-but-{slug}-aux>` | session is auto-assigned per task |
+
+The wrapper cannot see inside a heredoc, so it does **not** block the
+cloud/local-profile helper calls (`start_remote_daemon`,
+`stop_remote_daemon`, profile sync). Calling them is still forbidden in
+tasks — they provision or reach browsers outside the store's managed
+session (the wrapper strips `BROWSER_USE_API_KEY`/`BU_AUTOSPAWN`, so
+cloud auto-spawn is defanged).
 
 ## Tips
 
@@ -426,10 +467,16 @@ The wrapper rejects these — do not use them:
    `getBoundingClientRect` (see "Locate & click without vision") and act on
    the coords — this works with or without vision. A screenshot is an
    optional cross-check for vision models, never a prerequisite.
-2. **`new_tab(url)` is how you navigate — every time**, not `goto` (there
-   is no `page` object in the heredoc scope).
+2. **`new_tab(url)` is how you navigate — every time.** Not
+   `page.goto(url)` (there is no `page` object — that's a `NameError`),
+   and not `goto_url(url)`: it moves whatever tab is current, which after
+   a wedge/timeout may not be the one you think it is.
 3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
-4. **CLI aliases**: `bu` and `browser` also invoke the wrapper.
+   A title may carry a leading 🐴 — the harness marks the tab it drives
+   (every 0.13.x) — so strip it before comparing or reporting titles.
+4. **Never use the `bu` / `browser` / `browseruse` aliases.** Only bare
+   `browser-use` is the store wrapper; the aliases resolve to the raw
+   binary and can attach to the user's own Chrome.
 5. **Raw-string your `js()` when it contains backslashes** (regex like
    `/foo\/bar/`, `\d`, `\.`): `js(r"""…""")`. A plain triple-quoted string
    makes Python emit `SyntaxWarning: invalid escape sequence` and can

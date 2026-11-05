@@ -16,6 +16,7 @@ docs/browser-use-0.13-migration.md.
 """
 
 from collections.abc import Callable, Iterator
+import json
 import logging
 from pathlib import Path
 
@@ -28,6 +29,36 @@ logger = logging.getLogger(__name__)
 # `python -m browser_harness.daemon` (0.13) and the legacy 0.12 daemon.
 NEW_DAEMON_PATTERN = 'browser_harness.daemon'
 LEGACY_DAEMON_PATTERN = 'browser_use.skill_cli.daemon'
+
+
+def parse_pid_record(text: str) -> int | None:
+    """PID from a ``bu-<BU_NAME>.pid`` record, or None if unparseable.
+
+    The record is written by browser_harness, and its shape changed
+    mid-0.13 — the contract must accept every shape the runtime writes:
+
+    * **plain int** (``"12345"``) — every version writes this shape, and
+      it is what our wrappers' spawn path writes today (we always export
+      ``BU_CDP_WS``, so upstream takes its non-local spawn branch);
+    * **JSON** (``{"pid": 12345, "started": <fingerprint>}``) —
+      browser_harness >= 0.1.12 (browser-use >= 0.13.9) publishes this
+      spawn-lock record in ``admin._publish_pid`` on the local-Chrome
+      spawn path, and ``daemon._publish_own_pid`` retains it. Same
+      versions, same ``BH_RUNTIME_DIR`` — so a bare-binary run or a
+      future upstream change can put either shape under our reaper.
+
+    A record we cannot read must yield None, never a wrong pid: the
+    callers treat None as "identity unknown" and only ever clean files up
+    (never kill by number). Mirrors upstream ``admin._pid_number``.
+    """
+    raw = text.strip()
+    try:
+        try:
+            return int(json.loads(raw)['pid'])
+        except (json.JSONDecodeError, TypeError, KeyError):
+            return int(raw.split()[0])
+    except (ValueError, IndexError):
+        return None
 
 
 def iter_pidfiles() -> Iterator[tuple[str, int | None, Path, Path]]:
@@ -43,8 +74,8 @@ def iter_pidfiles() -> Iterator[tuple[str, int | None, Path, Path]]:
         bu_name = pf.name[len('bu-') : -len('.pid')]
         sock = pf.with_suffix('.sock')
         try:
-            pid = int(pf.read_text().strip())
-        except (ValueError, OSError):
+            pid = parse_pid_record(pf.read_text())
+        except OSError:
             pid = None
         yield bu_name, pid, pf, sock
 
