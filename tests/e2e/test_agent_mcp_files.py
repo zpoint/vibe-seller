@@ -254,9 +254,14 @@ class TestTaskFiles:
         assert 'path' in bare['text']
 
     def test_unknown_action_is_rejected(self, mcp):
-        refused = mcp.call_tool('task_files', task_id='any', action='rename')
-        assert not refused['ok']
-        assert 'rename' in refused['text']
+        # Refused by the dispatcher's schema validation (INVALID_PARAMS),
+        # naming the bad value and the valid choices.
+        error = mcp.call_tool_rejected(
+            'task_files', task_id='any', action='rename'
+        )
+        assert error['code'] == -32602
+        assert 'rename' in error['message']
+        assert 'list' in error['message']
 
 
 # ── attachments ──────────────────────────────────────

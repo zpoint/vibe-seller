@@ -150,6 +150,26 @@ class McpClient:
                 data = None
         return {'ok': ok, 'data': data, 'text': text}
 
+    def call_tool_rejected(self, tool_name: str, **arguments) -> dict:
+        """Call a tool whose arguments the dispatcher must refuse.
+
+        Argument validation against the advertised schema (an off-enum
+        ``action``, a wrong type) happens BEFORE the tool runs and answers
+        with a JSON-RPC ``INVALID_PARAMS`` error, not a tool-level
+        ``isError``. Returns that ``error`` object.
+        """
+        self._id += 1
+        resp = self.post({
+            'jsonrpc': '2.0',
+            'id': self._id,
+            'method': 'tools/call',
+            'params': {'name': tool_name, 'arguments': arguments},
+        })
+        resp.raise_for_status()
+        body = resp.json()
+        assert 'error' in body, f'expected a refusal, got {body}'
+        return body['error']
+
 
 # ── Fixtures ────────────────────────────────────────
 

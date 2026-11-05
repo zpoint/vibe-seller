@@ -157,9 +157,12 @@ class TestManageStore:
         assert deleted['ok'], deleted['text']
 
     def test_unknown_action_names_the_valid_ones(self, mcp):
-        refused = mcp.call_tool('manage_store', action='remove')
-        assert not refused['ok']
-        assert 'delete' in refused['text']
+        # Refused by the dispatcher's schema validation (INVALID_PARAMS),
+        # naming the bad value and the valid choices.
+        error = mcp.call_tool_rejected('manage_store', action='remove')
+        assert error['code'] == -32602
+        assert 'remove' in error['message']
+        assert 'delete' in error['message']
 
 
 # ── browser ──────────────────────────────────────────

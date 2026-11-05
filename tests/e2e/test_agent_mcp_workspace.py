@@ -180,9 +180,12 @@ class TestWorkspaceFile:
         assert 'content' in refused['text']
 
     def test_unknown_action_is_rejected(self, mcp):
-        refused = mcp.call_tool('workspace_file', action='chmod')
-        assert not refused['ok']
-        assert 'chmod' in refused['text']
+        # Refused by the dispatcher's schema validation (INVALID_PARAMS),
+        # naming the bad value and the valid choices.
+        error = mcp.call_tool_rejected('workspace_file', action='chmod')
+        assert error['code'] == -32602
+        assert 'chmod' in error['message']
+        assert 'read' in error['message']
 
 
 # ── manage_skill ─────────────────────────────────────
@@ -311,6 +314,9 @@ class TestWorkspaceAssistant:
         assert 'message' in refused['text']
 
     def test_unknown_action_is_rejected(self, mcp):
-        refused = mcp.call_tool('workspace_assistant', action='restart')
-        assert not refused['ok']
-        assert 'restart' in refused['text']
+        # Refused by the dispatcher's schema validation (INVALID_PARAMS),
+        # naming the bad value and the valid choices.
+        error = mcp.call_tool_rejected('workspace_assistant', action='restart')
+        assert error['code'] == -32602
+        assert 'restart' in error['message']
+        assert 'send' in error['message']
