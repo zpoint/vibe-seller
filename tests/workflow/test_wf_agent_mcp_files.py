@@ -272,14 +272,21 @@ class TestTaskFiles:
     ):
         """The schema's enum is a promise to the CLIENT; the server
         enforces the action list itself, so a client that ignores the
-        enum gets a tool error naming the accepted actions."""
-        _, envelope = await call_tool(
+        enum gets an INVALID_PARAMS error naming the accepted actions."""
+        # Refused by the dispatcher's schema validation (INVALID_PARAMS),
+        # naming the bad value and the valid choices.
+        r = await rpc(
             admin_client,
-            'task_files',
-            {'task_id': 'x', 'action': 'rename'},
+            'tools/call',
+            {
+                'name': 'task_files',
+                'arguments': {'task_id': 'x', 'action': 'rename'},
+            },
         )
-        assert envelope['isError'] is True
-        assert 'rename' in envelope['content'][0]['text']
+        error = r.json()['error']
+        assert error['code'] == -32602
+        assert 'rename' in error['message']
+        assert 'list' in error['message']
 
     async def test_zip_url_for_a_missing_task_is_the_routes_404(
         self, admin_client, install_fake_agent

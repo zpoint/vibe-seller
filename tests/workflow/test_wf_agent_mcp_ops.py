@@ -35,7 +35,7 @@ from app.models.ziniao_account import ZiniaoAccount
 from app.utils.crypto import decrypt_password, encrypt_password
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
-from tests.workflow.test_wf_agent_mcp import call_tool
+from tests.workflow.test_wf_agent_mcp import call_tool, rpc
 
 pytestmark = pytest.mark.workflow
 
@@ -170,11 +170,17 @@ class TestManageStore:
         assert deleted['ok'] is True
 
     async def test_unknown_action_names_the_valid_ones(self, admin_client):
-        _, envelope = await call_tool(
-            admin_client, 'manage_store', {'action': 'remove'}
+        # Refused by the dispatcher's schema validation (INVALID_PARAMS),
+        # naming the bad value and the valid choices.
+        r = await rpc(
+            admin_client,
+            'tools/call',
+            {'name': 'manage_store', 'arguments': {'action': 'remove'}},
         )
-        assert envelope['isError'] is True
-        assert 'delete' in envelope['content'][0]['text']
+        error = r.json()['error']
+        assert error['code'] == -32602
+        assert 'remove' in error['message']
+        assert 'delete' in error['message']
 
 
 # ── browser ───────────────────────────────────────────

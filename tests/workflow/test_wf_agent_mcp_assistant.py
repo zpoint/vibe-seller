@@ -245,13 +245,17 @@ class TestValidationAndAuth:
     async def test_unknown_action_is_rejected(
         self, admin_client, mock_ws_assistant
     ):
-        _, envelope = await call_tool(
+        # Refused by the dispatcher's schema validation (INVALID_PARAMS),
+        # naming the bad value and the valid choices.
+        r = await rpc(
             admin_client,
-            'workspace_assistant',
-            {'action': 'restart'},
+            'tools/call',
+            {'name': 'workspace_assistant', 'arguments': {'action': 'restart'}},
         )
-        assert envelope['isError'] is True
-        assert 'restart' in envelope['content'][0]['text']
+        error = r.json()['error']
+        assert error['code'] == -32602
+        assert 'restart' in error['message']
+        assert 'send' in error['message']
 
     async def test_member_and_unauthenticated(
         self, member_client, unauthed_client, mock_ws_assistant, admin_user
