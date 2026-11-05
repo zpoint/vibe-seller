@@ -133,7 +133,7 @@ export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, pla
         </div>
       )}
 
-      <div className={taskStatus === 'designing' && isViewingCurrent ? 'opacity-50 pointer-events-none' : ''}>
+      <div className={taskStatus === 'designing' && isViewingCurrent ? 'ph-sensitive opacity-50 pointer-events-none' : 'ph-sensitive'}>
         {sections.map((sec, si) => {
           const contentText = sec.content.join('\n').trim()
           if (!sec.heading && !contentText) return null

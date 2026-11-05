@@ -230,7 +230,7 @@ export function Sidebar(props: SidebarProps) {
                 onClick={() => selectStore(store)}
                 className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedStore?.id === store.id && !showAllTasks ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}`}
               >
-                <div className="font-medium text-sm">{store.name}</div>
+                <div className="ph-sensitive font-medium text-sm">{store.name}</div>
                 <div className="text-xs text-gray-500">{store.browser_backend}</div>
               </button>
             ))}
