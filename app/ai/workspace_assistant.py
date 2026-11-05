@@ -7,13 +7,17 @@ Reuses AgentSession with overrides for:
 """
 
 import asyncio
+from collections.abc import Callable
 import json
 import logging
+import os
+import sys
 
 from app.ai.agent_proxy import drop_dead_proxy
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import append_system_prompt
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
+from app.env_options import Options
 from app.events.bus import event_bus
 from app.platform import prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR, workspace_manager
@@ -37,6 +41,7 @@ class WorkspaceAgentSession(AgentSession):
         system_prompt_extra: str = '',
         profile_id: str = DEFAULT_PROFILE_ID,
         message_history: list[dict] | None = None,
+        on_result: Callable[[str], None] | None = None,
     ):
         super().__init__(
             task_id=session_key,
@@ -47,6 +52,15 @@ class WorkspaceAgentSession(AgentSession):
             message_history=message_history or [],
             no_store=False,
         )
+        # Fired with each `result` text, so the manager can keep the
+        # user's LAST reply across sessions (a later session that
+        # errors before answering must not erase it). No DB exists for
+        # the assistant — this callback is the persistence.
+        self._on_result = on_result
+
+    def _report_result(self, text: str) -> None:
+        if self._on_result is not None:
+            self._on_result(text)
 
     # ── Overrides ────────────────────────────────────────
 
@@ -87,6 +101,7 @@ class WorkspaceAgentSession(AgentSession):
             text = event.get('result', '')
             if text:
                 self._result_text = text
+                self._report_result(text)
                 await self._emit_message('result', text)
 
         elif etype == 'content_block_delta':
@@ -185,19 +200,33 @@ class WorkspaceAgentSession(AgentSession):
         """Spawn claude with workspace mode."""
         await workspace_manager.ensure_init()
 
-        cmd = [
-            'claude',
-            '-p',
-            '--output-format',
-            'stream-json',
-            '--input-format',
-            'stream-json',
-            '--verbose',
-            '--permission-mode',
-            'bypassPermissions',
-            '--permission-prompt-tool',
-            'stdio',
-        ]
+        mock_cli = Options.MOCK_CLI.get()
+        if mock_cli:
+            # Test mode: the same mock CLI the task agent runs under.
+            # The assistant is an agent pipeline too, and MOCK_CLI is
+            # what lets CI exercise this turn loop without model
+            # credits. '--mode=workspace' maps the mock to its execute
+            # flow (it has no plan gate — control requests are
+            # auto-allowed below).
+            cmd = [
+                sys.executable,
+                os.path.abspath(mock_cli),
+                '--mode=workspace',
+            ]
+        else:
+            cmd = [
+                'claude',
+                '-p',
+                '--output-format',
+                'stream-json',
+                '--input-format',
+                'stream-json',
+                '--verbose',
+                '--permission-mode',
+                'bypassPermissions',
+                '--permission-prompt-tool',
+                'stdio',
+            ]
 
         ws_dir = VIBE_SELLER_DIR
         if ws_dir.exists():
@@ -270,9 +299,34 @@ class WorkspaceAssistantManager:
         self._sessions: dict[str, WorkspaceAgentSession] = {}
         self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
         self._message_history: dict[str, list[dict]] = {}
+        # The last result text each user's assistant produced, kept by
+        # the sessions' ``on_result`` callbacks — a session that errors
+        # before answering must not erase the previous answer.
+        self._last_replies: dict[str, str] = {}
+        # One in-flight TOOL send per user (see ``send_lock``).
+        self._send_locks: dict[str, asyncio.Lock] = {}
 
     def _session_key(self, user_id: str) -> str:
         return f'__ws_assistant_{user_id}__'
+
+    def send_lock(self, user_id: str) -> asyncio.Lock:
+        """The per-user serializer for MCP-driven assistant sends.
+
+        The assistant's reply arrives on a live-only event stream
+        keyed by the USER (no per-turn id), so two concurrent
+        ``workspace_assistant(send)`` calls would each collect the
+        other turn's messages and done event — replies crossed. The
+        hosted-MCP tool holds this lock for the whole send-and-wait;
+        a caller that finds it held is told to wait (see
+        ``app/agent_mcp/tools_assistant.py``). The web UI is
+        unaffected: it renders the stream, it does not collect a
+        turn.
+        """
+        key = self._session_key(user_id)
+        lock = self._send_locks.get(key)
+        if lock is None:
+            lock = self._send_locks[key] = asyncio.Lock()
+        return lock
 
     async def send_or_start(
         self,
@@ -305,12 +359,17 @@ class WorkspaceAssistantManager:
         try:
             # Build message history (exclude last, it's the prompt)
             history = self._message_history.get(key, [])[:-1]
+
+            def _keep_reply(text: str, _key=key) -> None:
+                self._last_replies[_key] = text
+
             session = WorkspaceAgentSession(
                 session_key=key,
                 prompt=message,
                 system_prompt_extra=system_prompt,
                 profile_id=profile_id,
                 message_history=history,
+                on_result=_keep_reply,
             )
             self._sessions[key] = session
             await session.start()
@@ -343,10 +402,31 @@ class WorkspaceAssistantManager:
         session = self._sessions.get(key)
         return session.running if session else False
 
+    def session_key(self, user_id: str) -> str:
+        """The per-user session key (public form).
+
+        The assistant's output is SSE-only (``ws_assistant_*`` events
+        keyed by it); the hosted MCP tool filters the same events by
+        this key, so it must be the ONE definition.
+        """
+        return self._session_key(user_id)
+
+    def last_reply(self, user_id: str) -> str | None:
+        """The last result text this user's assistant produced, if any.
+
+        Nothing is persisted to the DB for the assistant — the
+        ``on_result`` callbacks into ``_last_replies`` are the only
+        record, so the answer SURVIVES the session that produced it
+        (a later session that errors before answering must not erase
+        it). ``None`` when the user's assistant never answered.
+        """
+        return self._last_replies.get(self._session_key(user_id))
+
     def clear_history(self, user_id: str):
-        """Clear message history for a user."""
+        """Clear message history for a user (and their last reply)."""
         key = self._session_key(user_id)
         self._message_history.pop(key, None)
+        self._last_replies.pop(key, None)
 
 
 # Singleton

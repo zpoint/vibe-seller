@@ -1,10 +1,12 @@
 /**
  * Contract tests for the Settings tab shape after the redesign:
- *   - tabs: stores, general, aiAgent, email, account, integrations
+ *   - tabs: stores, general, aiAgent, email, account, apiTokens,
+ *     integrations
  *   - tab_security renamed to tab_account (login settings + users)
  *   - tab_channels renamed to tab_email (email accounts)
  *   - new tab_general for cross-cutting defaults (task retention,
  *     concurrency, schedule defaults, telemetry, default plan mode)
+ *   - new tab_apiTokens for personal access tokens (external agents)
  *   - eventSync tab still removed; its content lives in Integrations
  */
 import { describe, it, expect } from 'vitest'
@@ -40,6 +42,7 @@ describe('Settings tab redesign', () => {
       expect(s.tab_aiAgent).toBeTruthy()
       expect(s.tab_email).toBeTruthy()
       expect(s.tab_account).toBeTruthy()
+      expect(s.tab_apiTokens).toBeTruthy()
       expect(s.tab_integrations).toBeTruthy()
     })
 
@@ -50,6 +53,7 @@ describe('Settings tab redesign', () => {
       expect(s.tab_aiAgent).toBeTruthy()
       expect(s.tab_email).toBeTruthy()
       expect(s.tab_account).toBeTruthy()
+      expect(s.tab_apiTokens).toBeTruthy()
       expect(s.tab_integrations).toBeTruthy()
     })
 
@@ -78,6 +82,7 @@ describe('Settings tab redesign', () => {
       expect(tabList).toMatch(/['"]general['"]/)
       expect(tabList).toMatch(/['"]account['"]/)
       expect(tabList).toMatch(/['"]email['"]/)
+      expect(tabList).toMatch(/['"]apiTokens['"]/)
       expect(tabList).not.toMatch(/['"]security['"]/)
       expect(tabList).not.toMatch(/['"]channels['"]/)
       expect(tabList).not.toMatch(/['"]eventSync['"]/)
@@ -91,7 +96,9 @@ describe('Settings tab redesign', () => {
 
     it('IntegrationsPanel still renders Dida365Panel + chat bots', () => {
       expect(integrationsPanelSource).toMatch(/<Dida365Panel\s*\/>/)
-      expect(integrationsPanelSource).toMatch(/<ChatBotSection\s*\/>/)
+      expect(integrationsPanelSource).toMatch(
+        /<ChatBotSection isAdmin=\{isAdmin\} \/>/,
+      )
     })
   })
 

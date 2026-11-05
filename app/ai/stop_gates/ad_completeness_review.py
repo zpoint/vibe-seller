@@ -69,6 +69,7 @@ from app.ai.stop_gates.ad_completeness_rules import (  # noqa: E402
     _COMBO_HEADER_RE,
     _PROGRESS_RE,
     _ZERO_JUSTIFIED_RE,
+    RESUME_REASON_HEAD,
     _check_campaign_spend,
     count_drill_tables,
     cross_cutting_gaps,
@@ -104,6 +105,15 @@ def check(
     """
     if not result_text or not isinstance(result_text, str):
         return None
+
+    # Coverage is owed by the DECLARATION, not the report's shape: a phase
+    # declared non-audit is decided by the declaration checks alone.
+    if task_id is not None:
+        decided, deny = ad_declaration_checks.non_audit_verdict(
+            result_text, task_id, GATE_NAME
+        )
+        if decided:
+            return deny
 
     if scope is None:
         scope = ad_scope.load_audit_scope(task_id)
@@ -781,17 +791,7 @@ def check(
 
     body = '\n'.join('- ' + g for g in gaps[:12])
     extra = '' if len(gaps) <= 12 else f'\n…还有 {len(gaps) - 12} 项'
-    reason = (
-        '本轮审计报告仍有缺口——逐轮补全，直到每个 combo 的 进度 都达到 '
-        'D==A（所有 active campaign 全部 drill 完）才算完成；未 drill 完不可'
-        '结束任务（server 会拦截提交与结束对话）。\n'
-        '**这是续作（RESUME，不是重做）**：你已经 drill 的数据、已写的 '
-        'AD_AUDIT 报告和 per-campaign TSV 都还在——保留它们，只去补下面列出的'
-        '缺失部分（打开尚未 drill 的 campaign 详情页、把它们的表格 APPEND 进报告）。'
-        '**不要从头重写整份报告，不要重新 drill 已完成的 campaign** —— 那正是导致'
-        '卡住、D 不增长的原因。每一轮只需让 D 朝 A 多走几个。补完后重新 '
-        'set_task_result；评审会再列出剩余缺口，直到补齐：\n' + body + extra
-    )
+    reason = RESUME_REASON_HEAD + body + extra
     return GateDeny(
         gate=GATE_NAME,
         reason=reason,

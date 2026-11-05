@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
 import { ApiKeyEyeButton } from './ApiKeyEyeButton'
+import { ProfileModalPresets } from './ProfileModalPresets'
+import { SecretReveal } from './SecretReveal'
 
 interface Profile {
   id: string
@@ -38,6 +40,9 @@ interface ProfileModalProps {
     opts: { setAsDefault: boolean }
   ) => void | Promise<void>
   editingProfile?: Profile
+  /** Admins get the Show/Copy reveal buttons next to masked secrets
+   *  (members never read a stored secret — they may only overwrite). */
+  isAdmin?: boolean
 }
 
 // The three fields worth promoting to the top of the form. Everything
@@ -76,11 +81,18 @@ const CUSTOM_ENV_TEMPLATE = [
 
 type EnvRow = { key: string; value: string }
 
+/** Client-side mirror of the server's env-key classifier (name-based):
+ *  a row whose KEY names a credential holds a MASK on edit — that is
+ *  the row an admin may want to reveal. */
+const looksSecretKey = (key: string) =>
+  /token|key|secret|password|credential/i.test(key)
+
 export function ProfileModal({
   isOpen,
   onClose,
   onSave,
   editingProfile,
+  isAdmin = false,
 }: ProfileModalProps) {
   if (!isOpen) return null
 
@@ -91,6 +103,7 @@ export function ProfileModal({
         editingProfile={editingProfile}
         onClose={onClose}
         onSave={onSave}
+        isAdmin={isAdmin}
       />
     </div>
   )
@@ -101,6 +114,7 @@ function ProfileForm({
   editingProfile,
   onClose,
   onSave,
+  isAdmin = false,
 }: {
   editingProfile?: Profile
   onClose: () => void
@@ -108,6 +122,7 @@ function ProfileForm({
     profile: Profile,
     opts: { setAsDefault: boolean }
   ) => void | Promise<void>
+  isAdmin?: boolean
 }) {
   const { t } = useTranslation()
 
@@ -255,32 +270,9 @@ function ProfileForm({
     setName(label ? `${preset.name} - ${label}` : preset.name)
   }
 
-  // Top-level provider entries: standalone presets stay as-is; presets
-  // sharing a `group` collapse into one entry (first occurrence wins
-  // ordering). Selecting a group reveals its variant row below.
-  const providerEntries = useMemo(() => {
-    const seen = new Set<string>()
-    const entries: Array<
-      | { kind: 'preset'; id: string; label: string }
-      | { kind: 'group'; group: string }
-    > = []
-    for (const [id, p] of Object.entries(presets)) {
-      if (p.group) {
-        if (!seen.has(p.group)) {
-          seen.add(p.group)
-          entries.push({ kind: 'group', group: p.group })
-        }
-      } else {
-        entries.push({ kind: 'preset', id, label: p.name })
-      }
-    }
-    return entries
-  }, [presets])
-
-  const groupVariants = (group: string) =>
-    Object.entries(presets)
-      .filter(([, p]) => p.group === group)
-      .map(([id, p]) => ({ id, label: p.variant || p.name }))
+  // Top-level provider entries + the variant rows live in
+  // ProfileModalPresets (extracted to keep this file under the
+  // 800-line limit).
 
   const selectCustom = () => {
     setSelectedPreset('custom')
@@ -369,10 +361,16 @@ function ProfileForm({
 
     // Gate: probe the endpoint before persisting. An unreachable base
     // URL, a wrong key, or a retired model id fails here rather than on
-    // the next agent run.
+    // the next agent run. When EDITING, the form holds the server's
+    // masks for untouched secrets — name the profile so the server
+    // restores them against the stored env before probing (a create
+    // probe carries the real key the user just typed).
     setValidating(true)
     try {
-      const res = await api.post('/api/profiles/validate', { env })
+      const res = await api.post('/api/profiles/validate', {
+        env,
+        ...(editingProfile ? { profile_id: editingProfile.id } : {}),
+      })
       if (!res.ok) {
         setError(
           `${t('profiles.validationFailed')}: ${res.error || ''}`.trim()
@@ -443,79 +441,14 @@ function ProfileForm({
           {/* Provider preset selector — only when creating. Grouped
               providers (Alibaba Cloud, GLM) show a variant sub-row. */}
           {!editingProfile && Object.keys(presets).length > 0 && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('profiles.envPresets')}
-              </label>
-              <div className="flex flex-wrap gap-2">
-                {providerEntries.map((entry) =>
-                  entry.kind === 'preset' ? (
-                    <button
-                      key={entry.id}
-                      onClick={() => applyPreset(entry.id)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPreset === entry.id
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {entry.label}
-                    </button>
-                  ) : (
-                    <button
-                      key={entry.group}
-                      onClick={() => {
-                        // Open the group AND apply its first variant so
-                        // the fields populate immediately (rather than
-                        // leaving the previously-selected provider's
-                        // values in place). Re-clicking an already-open
-                        // group is a no-op so a typed key isn't wiped.
-                        if (selectedGroup === entry.group) return
-                        const first = groupVariants(entry.group)[0]
-                        if (first) applyPreset(first.id)
-                        else setSelectedGroup(entry.group)
-                      }}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        selectedGroup === entry.group
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {entry.group} ›
-                    </button>
-                  )
-                )}
-                <button
-                  onClick={selectCustom}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    selectedPreset === 'custom'
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {t('profiles.custom')}
-                </button>
-              </div>
-
-              {/* Variant sub-row for the selected group */}
-              {selectedGroup && (
-                <div className="flex flex-wrap gap-2 mt-2 pl-3 border-l-2 border-indigo-200">
-                  {groupVariants(selectedGroup).map((v) => (
-                    <button
-                      key={v.id}
-                      onClick={() => applyPreset(v.id)}
-                      className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                        selectedPreset === v.id
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      {v.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <ProfileModalPresets
+              presets={presets}
+              selectedPreset={selectedPreset}
+              selectedGroup={selectedGroup}
+              setSelectedGroup={setSelectedGroup}
+              applyPreset={applyPreset}
+              selectCustom={selectCustom}
+            />
           )}
 
           {/* Profile Name */}
@@ -535,11 +468,27 @@ function ProfileForm({
             />
           </div>
 
-          {/* API Key — the one required credential, front and center */}
+          {/* API Key — the one required credential, front and center.
+              On edit the field holds the server's mask (**** + last
+              4); leaving it untouched keeps the stored key, typing a
+              new value replaces it. Admins can Show/Copy the stored
+              key via the reveal endpoint. The buttons live OUTSIDE the
+              <label>: a button inside a label loses its accessible
+              name and hijacks the label's click target. */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('profiles.apiKey')} <span className="text-red-500">*</span>
-            </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <label className="block text-sm font-medium text-gray-700">
+                {t('profiles.apiKey')} <span className="text-red-500">*</span>
+              </label>
+              {isAdmin && editingProfile && (
+                <SecretReveal
+                  resource="profile"
+                  id={editingProfile.id}
+                  field={apiKeyName}
+                  compact
+                />
+              )}
+            </div>
             <div className="relative">
               <input
                 type={showApiKey ? 'text' : 'password'}
@@ -685,7 +634,7 @@ function ProfileForm({
                 ) : (
                   <div className="space-y-2">
                     {advancedRows.map(({ row, idx }) => (
-                      <div key={idx} className="flex gap-2">
+                      <div key={idx} className="flex gap-2 items-center">
                         <input
                           type="text"
                           placeholder="KEY"
@@ -700,6 +649,14 @@ function ProfileForm({
                           onChange={(e) => updateEnvValue(idx, e.target.value)}
                           className="flex-[2] px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                         />
+                        {isAdmin && editingProfile && looksSecretKey(row.key) && (
+                          <SecretReveal
+                            resource="profile"
+                            id={editingProfile.id}
+                            field={row.key}
+                            compact
+                          />
+                        )}
                         <button
                           onClick={() => removeEnv(idx)}
                           className="px-3 py-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"

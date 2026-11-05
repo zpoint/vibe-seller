@@ -3,6 +3,8 @@
 // `auth:expired` event so any view/button that hits an expired
 // session redirects to the login screen — no per-caller handling
 // needed (App.tsx listens once and clears auth state).
+import type { ApiToken, CreatedApiToken } from './types'
+
 export const AUTH_EXPIRED_EVENT = 'auth:expired'
 
 const handleResponse = async (r: Response) => {
@@ -46,6 +48,40 @@ export const api = {
   del: async (url: string) =>
     handleResponse(await fetch(url, { method: 'DELETE', credentials: 'include' })),
 }
+
+// ─── API tokens (external-agent access) ───────────────
+// Typed wrappers over the generic `api` helper: a caller that mints
+// or revokes a token should not have to re-declare the response
+// shape, and the shapes live with the rest of the types.
+export const apiTokens = {
+  /** Tokens owned by the signed-in user. Never includes the
+   *  plaintext — only the display prefix. */
+  list: (): Promise<ApiToken[]> => api.get('/api/auth/tokens'),
+  /** Mint a token. `expiresInDays` null = never expires. The
+   *  plaintext `token` is returned by this call and by no other. */
+  create: (
+    name: string,
+    expiresInDays: number | null,
+  ): Promise<CreatedApiToken> =>
+    api.post('/api/auth/tokens', {
+      name,
+      expires_in_days: expiresInDays,
+    }),
+  /** Revoke a token. */
+  revoke: (id: string): Promise<void> => api.del(`/api/auth/tokens/${id}`),
+}
+
+// ─── Stored-secret reveal (admin only) ────────────────
+// Every list/get returns secrets masked, for every caller; this is
+// the one endpoint that hands the stored value out — admin session
+// only (members and every API token are refused server-side). Used
+// by SecretReveal's Show/Copy buttons next to masked fields.
+export const revealSecret = (
+  resource: string,
+  id: string,
+  field: string,
+): Promise<{ resource: string; id: string; field: string; value: string }> =>
+  api.post('/api/secrets/reveal', { resource, id, field })
 
 /**
  * Upload one attachment into a task's workspace.

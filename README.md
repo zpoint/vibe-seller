@@ -567,6 +567,7 @@ vibe-seller reset-auth enable     # 想开回来的时候
 ## 文档
 
 - [`docs/dev-guide.md`](docs/dev-guide.md) —— 完整功能说明、API、项目结构、测试流程
+- [`docs/agents.md`](docs/agents.md) —— 接入外部 Agent（Claude Code 插件 / Codex / WorkBuddy 的 MCP 配置）
 - [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md) —— 架构设计
 - [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) —— 各子系统的深入说明（浏览器、事件、调度、workspace 等）
 - [`CLAUDE.md`](https://github.com/zpoint/vibe-seller/blob/main/CLAUDE.md) —— Claude Code 在本仓库的协作规范

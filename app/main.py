@@ -10,18 +10,18 @@ from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import ads_skill, telemetry
+from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.provider_presets_sync import sync_loop as presets_sync_loop
 from app.ai.skill_gate_loader import preload_skill_gates
+from app.api_token_scope import ApiTokenScopeMiddleware
 from app.browser.daemon_reaper import start_reaper_loop
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
 from app.config import (
     BACKEND_PORT,
+    CORS_ORIGINS,
     FRONTEND_DIST,
-    FRONTEND_URL,
-    LOCALHOST,
-    LOCALHOST_NAME,
     LOG_DIR,
 )
 from app.database import async_session, init_db
@@ -37,6 +37,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.plugins import get_extension_context
+from app.rest_secret_guard import SecretGuardMiddleware
 from app.routers.ads import router as ads_router
 from app.routers.app_settings import router as app_settings_router
 from app.routers.attachments import router as attachments_router
@@ -55,6 +56,7 @@ from app.routers.events import router as events_router
 from app.routers.profiles import router as profiles_router
 from app.routers.schedules import router as schedules_router
 from app.routers.screenshots import router as screenshots_router
+from app.routers.secrets import router as secrets_router
 from app.routers.sse import router as sse_router
 from app.routers.stores import router as stores_router
 from app.routers.system import router as system_router
@@ -301,17 +303,23 @@ app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
 # Order matters. add_middleware inserts at the front of the list, so
 # the LAST one registered is the OUTERMOST. CORS must wrap the body
 # limit: a 413 emitted outside CORS reaches a cross-origin caller as
-# an opaque network error rather than a readable status.
+# an opaque network error rather than a readable status. The REST
+# secret guard is added FIRST so it ends up INNERMOST — closest to the
+# routes — and its 400 (a masked secret refused on the way in) flows
+# out through the body limit and CORS like any other readable error.
+# Registered before anything parses bodies: it rewrites the request
+# `receive` channel before FastAPI's JSON parser runs, and masks
+# stored secrets out of JSON responses for EVERY caller
+# (app/rest_secret_guard.py).
+# The token SCOPE guard sits just outside it (added second): the
+# credential/user-management routes it refuses (403) are answered
+# before their bodies are parsed at all (app/api_token_scope.py).
+app.add_middleware(SecretGuardMiddleware)
+app.add_middleware(ApiTokenScopeMiddleware)
 app.add_middleware(UploadBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        f'http://{LOCALHOST_NAME}:5173',
-        f'http://{LOCALHOST}:5173',
-        f'http://{LOCALHOST_NAME}:{BACKEND_PORT}',
-        f'http://{LOCALHOST}:{BACKEND_PORT}',
-    ],
+    allow_origins=list(CORS_ORIGINS),
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
@@ -334,6 +342,7 @@ app.include_router(browser_router)
 app.include_router(sse_router)
 app.include_router(events_router)
 app.include_router(screenshots_router)
+app.include_router(secrets_router)
 app.include_router(attachments_router)
 app.include_router(workspace_router)
 app.include_router(channels_router)
@@ -348,6 +357,10 @@ app.include_router(ws_assistant_router)
 app.include_router(chat_bots_router)
 app.include_router(system_router)
 app.include_router(vision_router)
+# Hosted MCP endpoint for external agents (see app/agent_mcp/). Mounted
+# AFTER the REST routers so /api/mcp is matched by its own route and
+# never by the SPA fallback.
+app.include_router(agent_mcp_router)
 
 
 @app.get('/api/health')

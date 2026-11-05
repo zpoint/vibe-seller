@@ -2,7 +2,12 @@
 Shared pytest fixtures for all tests.
 """
 
+import atexit
 import os
+import shlex
+import shutil
+import sys
+import tempfile
 
 # Disable telemetry across the entire test suite. Set BEFORE any
 # `app.*` import so app.telemetry never opens a PostHog client when
@@ -14,6 +19,101 @@ import os
 # exercise the telemetry path against a self-hosted PostHog instance.
 os.environ.setdefault('VIBE_SELLER_TELEMETRY', '0')
 
+# -- Test-home isolation (BEFORE any `app.*` import) ------------------
+#
+# app.config resolves the runtime home (``VIBE_SELLER_DIR``) from
+# VIBE_HOME at import time. Without this block, a plain
+# ``pytest -m unit`` run makes the TEST PROCESS's home the developer's
+# real ``~/.vibe-seller`` — and module-level constants derived from it
+# (``_CHAT_STAGING_DIR``, ``HISTORY_DIR``, the import-time
+# ``backend_<port>.log``, …) read and WRITE production state. Observed:
+# empty ``chat_staging/<task>/`` dirs accumulating in the real home on
+# every run for months.
+#
+# The invariant: the test process's runtime home is never the
+# developer's real home, unless it is an e2e run pointed at a server
+# that lives there.
+#
+# ``--e2e`` is read from argv (plus PYTEST_ADDOPTS) because
+# pytest_addoption runs AFTER conftest import — this block must precede
+# the first ``app.*`` import, which is right below. PYTEST_ADDOPTS
+# matters because options injected there never appear in ``sys.argv``:
+# without it a ``PYTEST_ADDOPTS='--e2e' pytest tests/e2e`` run would
+# execute e2e tests while this block forced a throwaway home and
+# skipped the e2e-specific env derivation.
+
+
+# The controller's decision, published for its pytest-xdist workers.
+# A worker is a child process whose sys.argv is execnet's command line —
+# it never carries ``--e2e`` — so it must not re-derive the decision; it
+# inherits this from the environment the controller spawned it with.
+_E2E_MARKER = 'VIBE_TEST_E2E'
+
+
+def e2e_requested() -> bool:
+    """Whether pytest will run with ``--e2e``, read the way this
+    pre-import block can: the decision the controller published (xdist
+    workers), else the raw command line plus PYTEST_ADDOPTS (both
+    spellings pytest honours before its own config parsing)."""
+    if os.environ.get(_E2E_MARKER) == '1':
+        return True
+    tokens = list(sys.argv[1:]) + shlex.split(
+        os.environ.get('PYTEST_ADDOPTS', '')
+    )
+    return any('--e2e' in token for token in tokens)
+
+
+_E2E_RUN = e2e_requested()
+if _E2E_RUN:
+    os.environ[_E2E_MARKER] = '1'
+
+if _E2E_RUN:
+    # E2e tests drive a SEPARATELY RUNNING server. The test process
+    # resolves DB/workspace/log paths through app.config, so its home
+    # must be THAT server's home: E2E_VIBE_HOME wins, then an explicit
+    # VIBE_HOME, else the default (~/.vibe-seller — CI's server lives
+    # there; keep CI working unchanged). Same FILESYSTEM required: the
+    # e2e helpers seed/read workspace files by local path — a remote
+    # E2E_BASE_URL cannot work with E2E_VIBE_HOME (see
+    # docs/testing.md § Test-home isolation).
+    if os.environ.get('E2E_VIBE_HOME'):
+        os.environ['VIBE_HOME'] = os.environ['E2E_VIBE_HOME']
+    # BACKEND_PORT from the target URL so anything the test process
+    # derives port-wise (the import-time ``backend_<port>.log``) names
+    # the same file the server writes — a test-side log can never
+    # masquerade as the server's decoy. A URL without an explicit
+    # port means the scheme's default (80/443); naming THAT is still
+    # more honest than leaving BACKEND_PORT unset.
+    from urllib.parse import urlparse
+
+    _parsed = urlparse(os.environ.get('E2E_BASE_URL', ''))
+    if _parsed.port:
+        os.environ.setdefault('BACKEND_PORT', str(_parsed.port))
+    elif _parsed.scheme:
+        os.environ.setdefault(
+            'BACKEND_PORT', '443' if _parsed.scheme == 'https' else '80'
+        )
+else:
+    # Every other run gets a FRESH throwaway home, forced — a stale
+    # VIBE_HOME in the environment must not quietly keep pointing the
+    # suite at a real (or production) home.
+    #
+    # Idempotent across this file being imported as TWO module
+    # objects (pytest loads it as ``conftest`` for the session and
+    # ``tests.conftest`` for tests/unit/test_conftest_home_isolation
+    # — verified: the two are not the same module object). The second
+    # import must reuse the home the first one forced — app.config has
+    # already latched it — and must not register a second atexit
+    # rmtree. The marker env var carries the value across both.
+    _FORCED_HOME = os.environ.get('VIBE_TEST_FORCED_HOME', '')
+    if _FORCED_HOME and os.path.isdir(_FORCED_HOME):
+        _TEST_HOME = _FORCED_HOME
+    else:
+        _TEST_HOME = tempfile.mkdtemp(prefix='vibe-seller-test-home-')
+        os.environ['VIBE_TEST_FORCED_HOME'] = _TEST_HOME
+        atexit.register(shutil.rmtree, _TEST_HOME, ignore_errors=True)
+    os.environ['VIBE_HOME'] = _TEST_HOME
+
 # Disable the background provider-preset sync loop across the suite.
 # Left enabled it would fetch from GitHub on every test boot (and at
 # 48 h intervals after); tests that exercise the loop set the interval
@@ -22,6 +122,7 @@ os.environ.setdefault('PROVIDER_PRESETS_SYNC_INTERVAL_S', '0')
 
 from collections.abc import AsyncGenerator  # noqa: E402
 from datetime import UTC, datetime  # noqa: E402
+from pathlib import Path  # noqa: E402
 import uuid  # noqa: E402
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
@@ -44,12 +145,71 @@ from app import models  # noqa: F401, E402
 from app.ai import provider_presets_sync as presets_sync  # noqa: E402
 from app.ai.review_redrive import _ledgers  # noqa: E402, PLC2701
 from app.auth import create_token  # noqa: E402
+from app.config import VIBE_SELLER_DIR  # noqa: E402
 from app.database import get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.base import Base  # noqa: E402
 from app.models.store import Store  # noqa: E402
 from app.models.task import Task  # noqa: E402
 from app.models.user import User  # noqa: E402
+
+
+def assert_test_home_isolated(
+    vibe_seller_dir: Path,
+    real_home: Path,
+    *,
+    e2e_run: bool,
+    forced_home: str | None = None,
+) -> None:
+    """The loud guard behind the test-home isolation above.
+
+    In a NON-e2e run, the resolved runtime home must be the forced
+    throwaway home — never the developer's real ``~/.vibe-seller``
+    and never any OTHER pre-existing home (e.g. an exported
+    ``VIBE_HOME`` that something latched by importing ``app.*``
+    before this conftest ran). Either shape means the isolation did
+    not take effect, and every module-level path derived from it —
+    chat staging, task history, the backend log, profiles.json —
+    silently reads and writes that home's real state. Fail the whole
+    session instead.
+
+    An e2e run is EXEMPT: its ``VIBE_HOME`` deliberately resolves to
+    the server's home, which on CI and a dev box IS ``~/.vibe-seller``.
+    Kept as a plain function so its logic is unit-tested
+    (tests/unit/test_conftest_home_isolation.py).
+    """
+    if e2e_run:
+        return
+    resolved = Path(vibe_seller_dir).resolve()
+    default_home = (Path(real_home) / '.vibe-seller').resolve()
+    if resolved == default_home:
+        raise RuntimeError(
+            'pytest is running against the REAL ~/.vibe-seller '
+            f'({default_home}) in a non-e2e run — refusing. The test '
+            'home isolation in tests/conftest.py did not take effect; '
+            'most likely something imported app.* before conftest, or '
+            'the isolation block was changed. Fix the import order, '
+            'do not point the suite at a real home.'
+        )
+    if forced_home is not None and resolved != Path(forced_home).resolve():
+        raise RuntimeError(
+            f'pytest resolved the runtime home to {resolved} in a '
+            f'non-e2e run, which is neither the real ~/.vibe-seller '
+            f'nor the forced test home ({forced_home}) — refusing. '
+            'Something imported app.* (latching VIBE_SELLER_DIR) '
+            'before tests/conftest.py forced the throwaway home — '
+            'most likely a -p plugin or a conftest ordering change. '
+            'Fix the import order; do not point the suite at a real '
+            'home.'
+        )
+
+
+assert_test_home_isolated(
+    VIBE_SELLER_DIR,
+    Path.home(),
+    e2e_run=_E2E_RUN,
+    forced_home=os.environ.get('VIBE_TEST_FORCED_HOME'),
+)
 
 # -- E2E test gating --------------------------------------------------
 # Tests marked @pytest.mark.e2e are deselected (not collected) unless

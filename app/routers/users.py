@@ -1,13 +1,14 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select, update
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
 from app.auth import require_admin
 from app.database import get_db
+from app.models.api_token import ApiToken
 from app.models.email_account import EmailAccount
 from app.models.event import Event
 from app.models.event_activity import EventActivity
@@ -165,6 +166,11 @@ async def delete_user(
         .where(EventActivity.user_id == user_id)
         .values(user_id=None)
     )
+    # A deleted user's credentials die with them. The tokens cannot
+    # authenticate any more (the owner is gone), but leaving the rows
+    # behind means nobody can ever revoke them — and the table grows a
+    # set of dead rows per deleted user.
+    await db.execute(delete(ApiToken).where(ApiToken.user_id == user_id))
     deleted_role = user.role
     await db.delete(user)
     await db.commit()

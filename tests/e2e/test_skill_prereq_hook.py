@@ -32,6 +32,7 @@ import time
 import httpx
 import pytest
 
+from app.config import BACKEND_PORT, VIBE_SELLER_DIR
 from tests.e2e.e2e_helpers import (
     PIPELINE_TIMEOUT,
     create_store,
@@ -57,15 +58,20 @@ NOON_SHARED_MARKER = 'https://login.noon.partners/en/'
 # Candidates the e2e test searches for the server log, in order:
 # - docker-runner convention (docker-entrypoint.sh symlinks here)
 # - public-repo start.sh (writes to ``$LOG_DIR/backend.log`` where
-#   LOG_DIR defaults to ``logs`` or ``~/.vibe-seller/logs``)
+#   LOG_DIR defaults to ``logs`` or the server home's ``logs/``)
 # - dev-repo start.sh (port-suffixed)
-# The first one that exists and is non-empty wins.
+#
+# Everything home-relative resolves through app.config: for an e2e run
+# the root conftest points the test process's home at the SERVER's
+# home (E2E_VIBE_HOME / VIBE_HOME), and BACKEND_PORT comes from
+# E2E_BASE_URL — so a log the pytest process itself writes can never
+# masquerade as the server's.
 HOOK_LOG_CANDIDATES = (
     Path('logs/server_stdout.log'),
-    Path('logs/backend_7777.log'),
+    Path(f'logs/backend_{BACKEND_PORT}.log'),
     Path('logs/backend.log'),
-    Path.home() / '.vibe-seller' / 'logs' / 'backend_7777.log',
-    Path.home() / '.vibe-seller' / 'logs' / 'backend.log',
+    VIBE_SELLER_DIR / 'logs' / f'backend_{BACKEND_PORT}.log',
+    VIBE_SELLER_DIR / 'logs' / 'backend.log',
 )
 
 

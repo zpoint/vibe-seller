@@ -99,6 +99,18 @@ LOCALHOST_NAME = 'localhost'
 BACKEND_PORT = Options.BACKEND_PORT.get_int()
 FRONTEND_URL = Options.FRONTEND_URL.get() or f'http://{LOCALHOST_NAME}:5173'
 
+# The single source of the browser origins this server answers as
+# CORS-allowed. Used by the CORSMiddleware in app/main.py AND by the
+# hosted MCP endpoint's cross-site guard (app/agent_mcp/router.py) —
+# one list, so the two can never disagree about who is allowed.
+CORS_ORIGINS: tuple[str, ...] = (
+    FRONTEND_URL,
+    f'http://{LOCALHOST_NAME}:5173',
+    f'http://{LOCALHOST}:5173',
+    f'http://{LOCALHOST_NAME}:{BACKEND_PORT}',
+    f'http://{LOCALHOST}:{BACKEND_PORT}',
+)
+
 LOG_DIR = Path(Options.LOG_DIR.get() or (BASE_DIR / 'logs'))
 LOG_DIR.mkdir(exist_ok=True)
 

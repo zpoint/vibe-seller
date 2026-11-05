@@ -111,6 +111,37 @@ def store_slug(name: str, store_id: str | None = None) -> str:
     return f'store-{store_id[:8]}'
 
 
+# The shape every ``store_slug`` output has: lowercase alphanumerics
+# and hyphens, no leading/trailing/doubled hyphen. The single source
+# of truth for what a stores/<slug>/ path segment may contain: routes
+# that take a caller-supplied slug validate it against this pattern
+# (``validate_store_slug``) instead of trusting the string.
+STORE_SLUG_RE = re.compile(r'[a-z0-9]+(?:-[a-z0-9]+)*')
+
+
+def validate_store_slug(slug: str) -> str:
+    """Reject a caller-supplied slug that is not a store-slug shape.
+
+    ``routers/stores.py`` never takes a slug from the caller — it
+    DERIVES one with :func:`store_slug`, so every on-disk store path
+    there is this shape by construction. The workspace store-profile
+    route is the one surface where a raw slug string arrives (REST and
+    MCP alike), and it flows straight into ``root / 'stores' / slug``:
+    an unvalidated ``'/tmp/evil'`` or ``'../../..'`` writes outside
+    the workspace. Rejecting everything outside the derived alphabet
+    (400 at the route, ToolError at the MCP tool) makes the path
+    segment incapable of escaping — there is no ``/``, no ``..``, no
+    absolute prefix in ``[a-z0-9-]``.
+    """
+    if not isinstance(slug, str) or not STORE_SLUG_RE.fullmatch(slug):
+        raise ValueError(
+            f'Invalid store slug {slug!r}: use lowercase letters, '
+            'digits and single hyphens (the shape store names derive '
+            'to), e.g. "acme-shop"'
+        )
+    return slug
+
+
 def write_browser_use_wrapper(
     store_name: str,
     backend: str,

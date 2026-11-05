@@ -14,7 +14,11 @@ same logged-in browser.
 
 These tests drive the wrapper **directly**, as two real concurrent
 processes sharing one ``VIBE_TASK_ID`` — the exact shape of a parent and
-a subagent. That is deliberate: routing this through a task and hoping
+a subagent. Each ``VIBE_TASK_ID`` is a REAL task on the store, created
+with ``defer_start`` so it stays PENDING and no agent runs: the server's
+orphan reaper (``app/browser/daemon_reaper.py``, every 5 min) kills any
+daemon whose task is not active, so a made-up id is an orphan by
+contract and a reaper tick mid-test kills the daemon under test. That is deliberate: routing this through a task and hoping
 the LLM chooses to parallelise would make the regression test depend on
 a model's judgement. The plumbing is what must not regress, so the
 plumbing is what is tested.
@@ -34,16 +38,18 @@ import subprocess
 import tempfile
 import threading
 import time
-import uuid
 
 import pytest
 
+from app.config import VIBE_SELLER_DIR
 from tests.e2e.e2e_helpers import BASE_URL, create_store
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
 
-VIBE_HOME = Path.home() / '.vibe-seller'
+# The SERVER's home (the root conftest points the test process's
+# app.config at it for e2e runs — E2E_VIBE_HOME / VIBE_HOME).
+VIBE_HOME = VIBE_SELLER_DIR
 BIN_DIR = VIBE_HOME / 'bin'
 RUNTIME_DIR = VIBE_HOME / 'r'
 
@@ -128,6 +134,40 @@ def chrome_store(api_client):
             logger.warning('could not delete e2e store %s', store['id'])
 
 
+@pytest.fixture
+def live_task_id(api_client, chrome_store):
+    """Factory: the id of a real, ACTIVE task on the store, no agent.
+
+    ``defer_start`` is what the UI sends when it uploads attachments
+    before starting a task: the task is created PENDING and nothing
+    launches it until ``/start``. PENDING is an active status, so the
+    daemons a wrapper starts under this id are owned, not orphans.
+    """
+    created: list[str] = []
+
+    def make() -> str:
+        resp = api_client.post(
+            f'{BASE_URL}/api/tasks',
+            json={
+                'title': 'worker-slot wrapper probe',
+                'store_id': chrome_store['id'],
+                'defer_start': True,
+            },
+        )
+        resp.raise_for_status()
+        task = resp.json()
+        assert task['status'] == 'pending', task
+        created.append(task['id'])
+        return task['id']
+
+    yield make
+    for task_id in created:
+        try:
+            api_client.delete(f'{BASE_URL}/api/tasks/{task_id}', timeout=60)
+        except Exception:
+            logger.warning('could not delete probe task %s', task_id)
+
+
 def _drive(wrapper: Path, task_id: str, url: str, *flags: str) -> str:
     """One wrapper invocation: open ``url``, read the token back.
 
@@ -208,7 +248,7 @@ def _daemons_for(slug: str, task8: str) -> set[str]:
 @pytest.mark.e2e
 class TestParallelWorkerTabs:
     def test_concurrent_drivers_each_read_their_own_page(
-        self, chrome_store, test_site
+        self, chrome_store, test_site, live_task_id
     ):
         """The property that matters: neither driver reads the other's page.
 
@@ -217,7 +257,7 @@ class TestParallelWorkerTabs:
         separates them.
         """
         wrapper = chrome_store['wrapper']
-        task_id = str(uuid.uuid4())
+        task_id = live_task_id()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             main = pool.submit(_drive, wrapper, task_id, f'{test_site}/alpha')
@@ -237,7 +277,7 @@ class TestParallelWorkerTabs:
         )
 
     def test_the_slot_is_what_creates_the_separation(
-        self, chrome_store, test_site
+        self, chrome_store, test_site, live_task_id
     ):
         """Contrast case, so a pass above cannot be luck.
 
@@ -249,7 +289,7 @@ class TestParallelWorkerTabs:
         wrapper = chrome_store['wrapper']
         slug = chrome_store['slug']
 
-        shared_id = str(uuid.uuid4())
+        shared_id = live_task_id()
         _drive(wrapper, shared_id, f'{test_site}/alpha')
         _drive(wrapper, shared_id, f'{test_site}/beta')
         no_slot = _daemons_for(slug, shared_id[:8])
@@ -257,7 +297,7 @@ class TestParallelWorkerTabs:
             f'two flagless callers must share one daemon, got {no_slot}'
         )
 
-        slot_id = str(uuid.uuid4())
+        slot_id = live_task_id()
         _drive(wrapper, slot_id, f'{test_site}/alpha')
         _drive(wrapper, slot_id, f'{test_site}/beta', '--worker', '1')
         with_slot = _daemons_for(slug, slot_id[:8])
@@ -266,7 +306,9 @@ class TestParallelWorkerTabs:
             f'{slug}-{slot_id[:8]}-w1',
         }, f'the slot must add a second daemon, got {with_slot}'
 
-    def test_every_slot_is_its_own_daemon(self, chrome_store, test_site):
+    def test_every_slot_is_its_own_daemon(
+        self, chrome_store, test_site, live_task_id
+    ):
         """All configured slots are usable at once, none aliasing another.
 
         Also proves the CDP mux capacity covers what the wrapper
@@ -276,7 +318,7 @@ class TestParallelWorkerTabs:
         wrapper = chrome_store['wrapper']
         slug = chrome_store['slug']
         slots = int(os.environ.get('VIBE_BROWSER_WORKER_SLOTS', '3'))
-        task_id = str(uuid.uuid4())
+        task_id = live_task_id()
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=slots + 1
@@ -300,7 +342,9 @@ class TestParallelWorkerTabs:
         assert all(t == 'TOKEN_BETA_B2' for t in tokens[1:]), tokens
         assert len(_daemons_for(slug, task_id[:8])) == slots + 1
 
-    def test_out_of_range_slot_is_refused(self, chrome_store, test_site):
+    def test_out_of_range_slot_is_refused(
+        self, chrome_store, test_site, live_task_id
+    ):
         """The bound is enforced by the server-generated script.
 
         An agent cannot widen it, and a refusal must not leave a daemon
@@ -310,7 +354,7 @@ class TestParallelWorkerTabs:
         wrapper = chrome_store['wrapper']
         slug = chrome_store['slug']
         slots = int(os.environ.get('VIBE_BROWSER_WORKER_SLOTS', '3'))
-        task_id = str(uuid.uuid4())
+        task_id = live_task_id()
 
         proc = subprocess.run(
             [str(wrapper), '--worker', str(slots + 1)],

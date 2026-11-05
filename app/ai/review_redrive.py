@@ -33,6 +33,8 @@ from __future__ import annotations
 from collections.abc import Callable
 import time
 
+from app.workspace.actor import clear_request_actor
+
 
 class RedriveClock:
     """Wall-clock budget for one session's review-gate re-drives.
@@ -184,6 +186,14 @@ def reset_ledger(task_id: str) -> None:
     post-circuit-breaker respawn does NOT re-enter one, which is why
     they keep the spend.
 
+    Entering an orchestrator is also where the work stops being the
+    CALLER's and becomes the task agent's: the pipeline (spawned as a
+    background task from an authenticated request, whose context —
+    including the workspace actor — asyncio copies at spawn time)
+    files its knowledge commits under the AGENT identity, so the
+    caller who merely launched the task is never their author. See
+    ``app/workspace/actor.py``.
+
     Called at BOTH ends, which is what keeps ``_ledgers`` bounded:
     turn entry alone does not, because a task that runs one turn and
     never runs again leaves its entry behind for the life of the
@@ -193,6 +203,7 @@ def reset_ledger(task_id: str) -> None:
     both) costs nothing.
     """
     _ledgers.pop(task_id, None)
+    clear_request_actor()
 
 
 def redrive_count(task_id: str) -> int:

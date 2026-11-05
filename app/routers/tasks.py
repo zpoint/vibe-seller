@@ -112,9 +112,19 @@ async def list_tasks(
     store_id: str | None = None,
     parent_task_id: str | None = None,
     include_archived: bool = True,
+    status: str | None = None,
+    limit: int | None = None,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
+    """List tasks, newest first.
+
+    ``status`` and ``limit`` are filters the hosted MCP endpoint needs
+    (``app/agent_mcp/tools.py``). They live HERE rather than in the MCP
+    layer so both callers run the same query — a filter that only the
+    MCP path had would be a second definition of "which tasks are
+    these".
+    """
     q = select(Task).order_by(Task.created_at.desc())
     if store_id == '__none__':
         q = q.where(Task.store_id.is_(None))
@@ -122,11 +132,15 @@ async def list_tasks(
         q = q.where(Task.store_id == store_id)
     if parent_task_id:
         q = q.where(Task.parent_task_id == parent_task_id)
+    if status:
+        q = q.where(Task.status == status)
     if not include_archived:
         # Exclude terminal tasks older than 7 days
         cutoff = (datetime.now(UTC) - timedelta(days=7)).isoformat()
         terminal = (TaskStatus.COMPLETED, TaskStatus.FAILED)
         q = q.where(~(Task.status.in_(terminal) & (Task.updated_at < cutoff)))
+    if limit is not None:
+        q = q.limit(limit)
     result = await db.execute(q)
     tasks = list(result.scalars().all())
     names = await _resolve_creator_names(tasks, db)

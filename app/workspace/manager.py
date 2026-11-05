@@ -20,15 +20,17 @@ from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
 from app.text_utils import sanitize_text
 from app.workspace import task_links, venv_bootstrap
+from app.workspace.actor import current_actor
 from app.workspace.ignored_paths import (
     RUNTIME_DIRS,
     git_env as ignored_git_env,
     purge_ignored_history,
     untrack_ignored,
 )
+from app.workspace.paths import WorkspacePaths
 from app.workspace.skills_manager import SkillsMixin
 from app.workspace.store_data_migrate import migrate_store_data
-from app.workspace.store_seed import write_catalog_stub
+from app.workspace.store_profile import scaffold_store_profile
 from app.workspace.structured_stores import collect_store_entries
 from app.workspace.templates import WORKSPACE_CLAUDE_MD
 
@@ -49,6 +51,9 @@ class WorkspaceManager(SkillsMixin):
 
     def __init__(self, root: Path | None = None):
         self.root = root or VIBE_SELLER_DIR
+        # The path-confinement policy (containment, the skills-symlink
+        # rule, the read-only L1 tree) — see app/workspace/paths.py.
+        self._paths = WorkspacePaths(self.root)
         self._repo: gitlib.Repo | None = None
         # Serialise git subprocesses; concurrent tasks race on index.lock.
         self._git_lock = asyncio.Lock()
@@ -211,7 +216,10 @@ class WorkspaceManager(SkillsMixin):
                 continue
             rel = path.relative_to(self.root)
             items.append({
-                'path': str(rel),
+                # Always '/'-separated: callers (the UI tree, the MCP
+                # read_knowledge filters) match on POSIX prefixes, and
+                # str() would give 'knowledge\\x.md' on native Windows.
+                'path': rel.as_posix(),
                 'is_dir': path.is_dir(),
                 'size': path.stat().st_size if path.is_file() else 0,
             })
@@ -220,10 +228,10 @@ class WorkspaceManager(SkillsMixin):
     async def read_file(self, rel_path: str) -> str:
         """Read a file from the workspace.
 
-        Skill reads (``.claude/skills/<slug>``) use a lax check that
-        follows symlinks so maintainer-installed external skills are
-        viewable in the UI. Every other tree keeps the strict
-        ``_safe_path`` guard.
+        Skill reads (``.claude/skills/<slug>``) follow symlinks for
+        the web UI (maintainer-installed external skills) but stay
+        contained for API-token callers — see ``resolve_file``. Every
+        other tree keeps the strict ``_safe_path`` guard.
         """
         file_path = self.resolve_file(rel_path)
         try:
@@ -240,33 +248,19 @@ class WorkspaceManager(SkillsMixin):
     def resolve_file(self, rel_path: str) -> Path:
         """Validated absolute path for a workspace file.
 
-        Skill paths (``.claude/skills/<slug>``) use a lax check that
-        follows symlinks so maintainer-installed external skills are
-        viewable in the UI; every other tree keeps ``_safe_path``.
+        The policy (containment, the skills-symlink rule) lives in
+        ``app/workspace/paths.py`` (``WorkspacePaths.resolve_file``);
+        this keeps the manager's own name working for every existing
+        call site (``routers/workspace.py`` passes it as a callable).
         """
-        p = Path(rel_path)
-        if p.parts[:2] == ('.claude', 'skills'):
-            if p.is_absolute() or any(part == '..' for part in p.parts):
-                raise ValueError(f'Path traversal not allowed: {rel_path}')
-            file_path = self.root / p
-        else:
-            file_path = self._safe_path(rel_path)
-        if not file_path.is_file():
-            raise FileNotFoundError(f'File not found: {rel_path}')
-        return file_path
+        return self._paths.resolve_file(rel_path)
 
     def _reject_l1_write(self, rel_path: str) -> None:
-        """Raise if rel_path targets read-only L1 knowledge."""
-        resolved = self._safe_path(rel_path)
-        try:
-            resolved.relative_to(self.root.resolve() / 'knowledge' / 'project')
-        except ValueError:
-            return  # Not under knowledge/project/ — allowed
-        raise ValueError(
-            f'Cannot modify read-only L1 path: {rel_path}. '
-            'Write to knowledge/ (L2) or '
-            'stores/<slug>/ (L3).'
-        )
+        """Raise if rel_path targets read-only L1 knowledge.
+
+        The rule lives in ``app/workspace/paths.py``.
+        """
+        self._paths.reject_l1_write(rel_path)
 
     async def write_file(self, rel_path: str, content: str) -> None:
         """Write a file and auto-commit.
@@ -433,51 +427,14 @@ class WorkspaceManager(SkillsMixin):
         country: str = '',
         backend: str = 'chrome',
     ) -> str:
-        """Scaffold store profile directory."""
-        store_dir = self.root / 'stores' / slug
-        store_dir.mkdir(parents=True, exist_ok=True)
+        """Scaffold store profile directory.
 
-        store_md = store_dir / 'STORE.md'
-        if not store_md.exists():
-            store_md.write_text(
-                f"""---
-browser: {backend}
----
-
-# Store: {name}
-
-""",
-                encoding='utf-8',
-            )
-
-        notes_md = store_dir / 'notes.md'
-        if not notes_md.exists():
-            notes_md.write_text(f'# Notes for {name}\n\n', encoding='utf-8')
-
-        logistics_md = store_dir / 'logistics.md'
-        if not logistics_md.exists():
-            logistics_md.write_text(
-                f'# Logistics for {name}\n\n', encoding='utf-8'
-            )
-
-        write_catalog_stub(store_dir, slug, name)
-
-        if backend == 'ziniao':
-            routing_md = store_dir / 'browser-routing.md'
-            if not routing_md.exists():
-                routing_md.write_text(
-                    '# Browser Routing Rules\n\n'
-                    '<!-- Custom routing rules for this store. '
-                    'These override the default dual-browser '
-                    'routing. -->\n\n'
-                    '## Examples\n\n'
-                    '<!-- Uncomment and edit as needed:\n'
-                    '- logistics.example.com → Chrome aux\n'
-                    '- sellercentral.amazon.* → Ziniao\n'
-                    '-->\n',
-                    encoding='utf-8',
-                )
-
+        The files a new store starts with are written by
+        ``app.workspace.store_profile.scaffold_store_profile`` (which
+        also validates the slug — the layer that builds the path); the
+        manager keeps the git commit and the public method name.
+        """
+        store_dir = scaffold_store_profile(self.root, slug, name, backend)
         await self._auto_commit(f'Create store profile: {name}')
         return str(store_dir.relative_to(self.root))
 
@@ -535,14 +492,27 @@ browser: {backend}
         await self._auto_commit(f'Revert {rel_path} to {commit_sha[:12]}')
 
     def _safe_path(self, rel_path: str) -> Path:
-        """Resolve path and ensure it's within workspace."""
-        resolved = (self.root / rel_path).resolve()
-        if not str(resolved).startswith(str(self.root.resolve())):
-            raise ValueError(f'Path traversal not allowed: {rel_path}')
-        return resolved
+        """Resolve path and ensure it's within workspace.
+
+        The policy itself lives in ``app/workspace/paths.py``
+        (``WorkspacePaths.safe_path``); this keeps the manager's own
+        name working for every existing call site.
+        """
+        return self._paths.safe_path(rel_path)
 
     async def _auto_commit(self, message: str):
-        """Stage all changes and commit."""
+        """Stage all changes and commit.
+
+        When a signed-in caller's request is on the stack the commit is
+        authored by that caller and the message says how they
+        authenticated (``Via: session`` / ``api_token`` / …) — see
+        ``app/workspace/actor.py``. The identity itself is set by
+        ``git_env``; the trailer is the part only the commit message
+        can carry.
+        """
+        actor = current_actor()
+        if actor is not None:
+            message = f'{message}\n\nVia: {actor.via}'
         try:
             await self._run_git('add', '-A')
             # Check if there are changes to commit

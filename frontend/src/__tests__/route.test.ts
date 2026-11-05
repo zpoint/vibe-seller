@@ -57,6 +57,11 @@ describe('settings slug ↔ tab id', () => {
     expect(settingsTabToSlug('aiAgent')).toBe('ai')
     expect(slugToSettingsTab('ai')).toBe('aiAgent')
   })
+  it('maps the API-tokens tab both ways', () => {
+    expect(parseNav('/settings/api-tokens').settingsTab).toBe('apiTokens')
+    expect(settingsTabToSlug('apiTokens')).toBe('api-tokens')
+    expect(slugToSettingsTab('api-tokens')).toBe('apiTokens')
+  })
   it('passes other tabs through unchanged', () => {
     expect(parseNav('/settings/email').settingsTab).toBe('email')
     expect(settingsTabToSlug('integrations')).toBe('integrations')

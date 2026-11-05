@@ -7,10 +7,22 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api_tokens import (
+    TOKEN_PREFIX,
+    find_token,
+    is_expired,
+    is_revoked,
+    touch_last_used,
+)
 from app.config import DEFAULT_USER_ID, JWT_SECRET
 from app.database import get_db
 from app.models.app_settings import AppSettings
 from app.models.user import User
+from app.workspace.actor import (
+    actor_for,
+    clear_request_actor,
+    set_request_actor,
+)
 
 ALGORITHM = 'HS256'
 COOKIE_NAME = 'auth_token'
@@ -65,16 +77,92 @@ async def is_auth_required(db: AsyncSession) -> bool:
     return setting.value.strip().lower() in ('true', '1')
 
 
+def _bearer_token(request: Request) -> str:
+    """The bearer credential of this request, or '' when absent.
+
+    Used by the browser-use wrapper scripts for auto-start and by
+    external agents presenting an API token.
+    """
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        return auth_header[7:]
+    return ''
+
+
+async def _authenticate_api_token(db: AsyncSession, plaintext: str) -> User:
+    """Authenticate a ``vst_`` personal API token.
+
+    Every failure here is a 401 — including when auth is disabled. The
+    token table is the only authority on whether this credential works:
+    if a revoked token were allowed to fall through to the
+    default-admin path, the owner would believe their access was cut
+    when it was not.
+    """
+    row = await find_token(db, plaintext)
+    if row is None:
+        raise HTTPException(status_code=401, detail='Invalid API token')
+    if is_revoked(row):
+        raise HTTPException(status_code=401, detail='API token revoked')
+    if is_expired(row):
+        raise HTTPException(status_code=401, detail='API token expired')
+    user = await db.get(User, row.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=401, detail='Invalid API token')
+    await touch_last_used(db, row)
+    return user
+
+
 async def get_current_user(
     request: Request, db: AsyncSession = Depends(get_db)
 ):
-    token = request.cookies.get(COOKIE_NAME)
-    if not token:
-        # Fall back to Authorization: Bearer header (used by
-        # browser-use wrapper scripts for auto-start).
-        auth_header = request.headers.get('Authorization', '')
-        if auth_header.startswith('Bearer '):
-            token = auth_header[7:]
+    """Resolve the caller, and record HOW they authenticated.
+
+    Every successful return sets ``request.state.auth_via`` to one of:
+
+    * ``'api_token'`` — a ``vst_`` personal API token (external agents);
+    * ``'session'`` — a JWT presented as the login cookie (the web UI);
+    * ``'service'`` — a JWT presented as a Bearer header (the
+      browser-use wrapper scripts and other non-interactive callers);
+    * ``'no_auth'`` — no credential, on a server with auth turned off
+      (the default admin).
+
+    Routes can then refuse credential-escalation with a token (an API
+    token must not be able to mint another API token) without inventing
+    a second permission model: the transport a JWT arrived by is what
+    distinguishes an interactive login from a machine credential.
+    That refusal lives in ONE place — ``ApiTokenScopeMiddleware``
+    (``app/api_token_scope.py``) — not in per-route helpers.
+
+    The same resolution attributes workspace git commits to the caller
+    (``app/workspace/actor.py``): cleared up front — this request does
+    not speak for whoever a previous one resolved — and set on every
+    successful return.
+    """
+    clear_request_actor()
+    cookie_token = request.cookies.get(COOKIE_NAME, '')
+    bearer_token = _bearer_token(request)
+
+    # A credential that starts with ``vst_`` is an API token, wherever
+    # it was presented, and is always checked against the token table.
+    # The header wins over the cookie: it is the credential the caller
+    # chose for this request.
+    api_token = next(
+        (
+            candidate
+            for candidate in (bearer_token, cookie_token)
+            if candidate.startswith(TOKEN_PREFIX)
+        ),
+        None,
+    )
+    if api_token is not None:
+        user = await _authenticate_api_token(db, api_token)
+        request.state.auth_via = 'api_token'
+        set_request_actor(actor_for(user, 'api_token'))
+        return user
+
+    # Cookie first, Authorization header as the fallback (used by
+    # browser-use wrapper scripts for auto-start).
+    token = cookie_token or bearer_token
 
     auth_on = await is_auth_required(db)
 
@@ -84,6 +172,9 @@ async def get_current_user(
             payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
             user = await db.get(User, payload.get('sub', ''))
             if user and user.is_active:
+                via = 'session' if cookie_token else 'service'
+                request.state.auth_via = via
+                set_request_actor(actor_for(user, via))
                 return user
         except jwt.PyJWTError:
             user = None
@@ -98,6 +189,8 @@ async def get_current_user(
     if not auth_on:
         user = await db.get(User, DEFAULT_USER_ID)
         if user:
+            request.state.auth_via = 'no_auth'
+            set_request_actor(actor_for(user, 'no_auth'))
             return user
 
     raise HTTPException(status_code=401, detail='Not authenticated')

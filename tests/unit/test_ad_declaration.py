@@ -373,6 +373,51 @@ class TestEverySkillThatIsGatedTeachesTheDeclaration:
             )
 
 
+class TestCoverageIsOwedOnlyByAnAuditDeclaration:
+    """The declaration — not the report's headings — decides coverage.
+
+    Observed in CI: "how much did we spend? just tell me the numbers",
+    declared `investigate`, answered with a correct `## amazon US`
+    figures table. The completeness gate demanded the audit-only
+    ``**进度**: drilled D/A`` line for that heading, refused the answer,
+    and the agent's only way out was to upgrade to `audit` and drill
+    every campaign — a one-minute question ran past its 10-minute budget.
+    A heading is layout; only an `audit` declaration owes coverage.
+    """
+
+    _FIGURES = (
+        '## amazon US\n\n'
+        '| Metric | Value |\n|---|---|\n'
+        '| Spend | $300.00 |\n| Revenue | $1,200.00 |\n| ROAS | 4.00x |\n'
+    )
+
+    @pytest.mark.parametrize('kind', ['investigate', 'create', 'execute'])
+    def test_a_non_audit_answer_with_a_marketplace_heading_passes(
+        self, monkeypatch, tmp_path, kind
+    ):
+        _setup(
+            monkeypatch,
+            tmp_path,
+            f't-{kind}-fig',
+            declare=(kind, {}),
+            targets={'amazon': ['US']},
+        )
+        assert _gaps(self._FIGURES, f't-{kind}-fig') == []
+
+    def test_an_audit_with_the_same_report_still_owes_coverage(
+        self, monkeypatch, tmp_path
+    ):
+        _setup(
+            monkeypatch,
+            tmp_path,
+            't-aud-fig',
+            declare=('audit', {}),
+            targets={'amazon': ['US']},
+        )
+        gaps = _gaps(self._FIGURES, 't-aud-fig')
+        assert any('进度' in g for g in gaps), gaps
+
+
 class TestInvestigateMayNotHandOutDecisions:
     """Reading is reading. Recommending is an audit, and owes coverage.
 

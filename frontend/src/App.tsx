@@ -766,6 +766,7 @@ export default function App() {
             }
           }}
           editingProfile={editingProfile}
+          isAdmin={currentUser?.role === 'admin'}
         />
       )}
       {updateCheck && (

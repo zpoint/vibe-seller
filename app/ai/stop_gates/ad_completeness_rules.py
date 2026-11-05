@@ -232,3 +232,18 @@ def cross_cutting_gaps(result_text: str, rules) -> list[str]:
             '属性或小写串直接塞进表格。'
         )
     return gaps
+
+
+# The deny reason's fixed head: what an incomplete audit round must do
+# next (resume, append, never rewrite). The per-gap list follows it.
+RESUME_REASON_HEAD = (
+    '本轮审计报告仍有缺口——逐轮补全，直到每个 combo 的 进度 都达到 '
+    'D==A（所有 active campaign 全部 drill 完）才算完成；未 drill 完不可'
+    '结束任务（server 会拦截提交与结束对话）。\n'
+    '**这是续作（RESUME，不是重做）**：你已经 drill 的数据、已写的 '
+    'AD_AUDIT 报告和 per-campaign TSV 都还在——保留它们，只去补下面列出的'
+    '缺失部分（打开尚未 drill 的 campaign 详情页、把它们的表格 APPEND 进报告）。'
+    '**不要从头重写整份报告，不要重新 drill 已完成的 campaign** —— 那正是导致'
+    '卡住、D 不增长的原因。每一轮只需让 D 朝 A 多走几个。补完后重新 '
+    'set_task_result；评审会再列出剩余缺口，直到补齐：\n'
+)

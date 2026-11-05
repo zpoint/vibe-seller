@@ -501,4 +501,97 @@ describe('ChatBotSection', () => {
     const err = await screen.findByTestId('chat-bot-error')
     expect(err.textContent).toContain('boom')
   })
+
+  // ── masked edit form (stored secrets are masks for every caller) ──
+
+  const BOT_DING_FULL_MASKED = {
+    id: 'bot-ding',
+    name: 'Ops DingTalk',
+    platform: 'dingtalk',
+    // the server returns masks, never the stored values
+    webhook_url: '****',
+    secret: '****abcd',
+    keyword: 'SALES',
+    created_at: '2026-04-17T10:00:00Z',
+    updated_at: '2026-04-17T10:00:00Z',
+  }
+
+  function mockMaskedEdit() {
+    mockApi.get.mockImplementation((url: string) => {
+      if (url === '/api/chat-bots/platforms') return Promise.resolve(PLATFORMS)
+      if (url === '/api/chat-bots/bot-ding')
+        return Promise.resolve(BOT_DING_FULL_MASKED)
+      return Promise.resolve([BOT_DING_SUMMARY])
+    })
+    mockApi.put.mockResolvedValueOnce(BOT_DING_FULL_MASKED)
+  }
+
+  it('edit with the masked URL still shows the stored platform fields', async () => {
+    mockMaskedEdit()
+    renderSection()
+
+    fireEvent.click(await screen.findByTestId('chat-bot-edit-bot-ding'))
+    await waitFor(() => {
+      expect(
+        (screen.getByTestId('chat-bot-url') as HTMLInputElement).value,
+      ).toBe('****')
+    })
+    // the mask parses as no platform — the form falls back to the
+    // bot's STORED platform (dingtalk) for badge + secret/keyword
+    expect(screen.getByTestId('chat-bot-platform-badge')).toHaveTextContent(
+      'DingTalk',
+    )
+    expect(screen.getByTestId('chat-bot-secret')).toBeInTheDocument()
+    expect(screen.getByTestId('chat-bot-keyword')).toBeInTheDocument()
+
+    // saving the untouched form posts the masks back — the server
+    // restores them to the stored values ("unchanged")
+    fireEvent.click(screen.getByTestId('chat-bot-save'))
+    await waitFor(() => {
+      expect(mockApi.put).toHaveBeenCalledWith('/api/chat-bots/bot-ding', {
+        name: 'Ops DingTalk',
+        webhook_url: '****',
+        secret: '****abcd',
+        keyword: 'SALES',
+      })
+    })
+  })
+
+  it('admins see Show/Copy reveal buttons on the edit form', async () => {
+    mockMaskedEdit()
+    render(
+      <I18nextProvider i18n={i18nTestInstance}>
+        <ChatBotSection isAdmin />
+      </I18nextProvider>,
+    )
+    fireEvent.click(await screen.findByTestId('chat-bot-edit-bot-ding'))
+    await waitFor(() => {
+      expect(
+        (screen.getByTestId('chat-bot-url') as HTMLInputElement).value,
+      ).toBe('****')
+    })
+    expect(
+      screen.getByTestId('secret-reveal-chat_bot-webhook_url'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByTestId('secret-reveal-chat_bot-secret'),
+    ).toBeInTheDocument()
+  })
+
+  it('members get no reveal buttons on the edit form', async () => {
+    mockMaskedEdit()
+    renderSection()
+    fireEvent.click(await screen.findByTestId('chat-bot-edit-bot-ding'))
+    await waitFor(() => {
+      expect(
+        (screen.getByTestId('chat-bot-url') as HTMLInputElement).value,
+      ).toBe('****')
+    })
+    expect(
+      screen.queryByTestId('secret-reveal-chat_bot-webhook_url'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('secret-reveal-chat_bot-secret'),
+    ).not.toBeInTheDocument()
+  })
 })

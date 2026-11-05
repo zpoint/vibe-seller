@@ -138,6 +138,7 @@ nav:
       - Backend: backend.md
       - Frontend: frontend.md
       - API Routes: api.md
+      - Connect an External Agent: agents.md
       - Testing: testing.md
       - Telemetry: telemetry.md
       - Vision — AI Images: vision.md

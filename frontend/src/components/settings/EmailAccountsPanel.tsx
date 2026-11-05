@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
+import { SecretReveal } from '../SecretReveal'
 import type { EmailAccount, Store } from '../../types'
 
 interface StoreLink {
@@ -13,9 +14,10 @@ interface EmailAccountsPanelProps {
   emailAccounts: EmailAccount[]
   loadEmailAccounts: () => void
   stores: Store[]
+  isAdmin?: boolean
 }
 
-export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores }: EmailAccountsPanelProps) {
+export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, isAdmin = false }: EmailAccountsPanelProps) {
   const { t } = useTranslation()
   const [showAddEmail, setShowAddEmail] = useState(false)
   const [emailForm, setEmailForm] = useState({ email: '', imap_host: '', imap_port: 993, password: '', smtp_host: '', smtp_port: 465, smtp_use_tls: false })
@@ -256,17 +258,22 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores }:
             const available = getAvailableStores(acct.id)
             return (
               <div key={acct.id} className="p-3 border border-gray-200 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0">
                     <p className="text-sm font-medium">{acct.email}</p>
                     <p className="text-xs text-gray-400">{acct.imap_host}:{acct.imap_port} {acct.use_ssl ? '(SSL)' : ''} | {acct.smtp_host ? `SMTP: ${acct.smtp_host}:${acct.smtp_port}` : t('email.noSmtp')}</p>
                   </div>
-                  <button
-                    onClick={() => { if (confirm(t('common.confirm'))) deleteAccount(acct.id) }}
-                    className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50"
-                  >
-                    {t('common.delete')}
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {isAdmin && (
+                      <SecretReveal resource="email_account" id={acct.id} field="password" compact />
+                    )}
+                    <button
+                      onClick={() => { if (confirm(t('common.confirm'))) deleteAccount(acct.id) }}
+                      className="px-2 py-1 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50"
+                    >
+                      {t('common.delete')}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Store links section */}

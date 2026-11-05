@@ -668,7 +668,15 @@ async def retry_task(
     # created by a non-cron path (manual API call) and its recorded
     # mode wins — we don't flip an auto-mode task into planned
     # execution just because its schedule is plan-mode.
-    if task.schedule_id and task.plan_mode:
+    #
+    # PLAN-ONLY tasks (is_plan_only) are excluded: their whole job is
+    # to AUTHOR the schedule's plan, never to execute it. Retrying one
+    # with a re-seeded plan would route it through
+    # execute_planned_task, whose no-live-session branch spawns an
+    # EXECUTE session whenever task.plan is set — "retry" would run
+    # the plan the task was only supposed to write. A retried planner
+    # re-authors instead: plan wiped, PENDING, the default launcher.
+    if task.schedule_id and task.plan_mode and not task.is_plan_only:
         sched = await db.get(Schedule, task.schedule_id)
         if (
             sched

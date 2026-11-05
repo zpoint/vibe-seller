@@ -82,6 +82,13 @@ class FakeAgentScenario:
     # `auto_run_task` / `finalize_followup_session` /
     # `execute_planned_task` / `execute_woken_task`.
     simulate_resume_failure_first: bool = False
+    # A pending AskUserQuestion, as the agent would raise it:
+    # ``{'request_id': ..., 'questions': [{'question': ..., 'header':
+    # ..., 'options': [...]}]}``.  While set, the fake reports the
+    # question as pending for as long as the task runs, and
+    # ``submit_answer`` records what the operator answered.  Pair it
+    # with ``gate`` to hold the turn open until the answer lands.
+    pending_question: dict | None = None
 
 
 @dataclass
@@ -280,8 +287,16 @@ class FakeAgent(AIAgentBackend):
         return self._sessions.get(task_id)
 
     def get_pending_questions(self, task_id: str) -> dict | None:
-        """The fake never asks — mirrors a question-free session."""
-        return None
+        """The pending question this scenario raises, if any.
+
+        A question is only pending while the task runs — the same
+        window the real backend holds it in.
+        """
+        scenario = self.scenarios.get(task_id, self.default_scenario)
+        pending = scenario.pending_question
+        if not pending or not self._running.get(task_id):
+            return None
+        return dict(pending)
 
     def is_process_alive(self, task_id: str) -> bool:
         """Mirror ClaudeCodeBackend.is_process_alive (stall reaper)."""

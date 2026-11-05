@@ -37,6 +37,8 @@ import os
 from pathlib import Path
 import signal
 
+from app.workspace.actor import current_actor
+
 logger = logging.getLogger(__name__)
 
 #: Every directory the app itself creates under the workspace root for
@@ -72,13 +74,28 @@ PURGE_PENDING = 'vibe-seller-history-purge-pending'
 
 
 def git_env() -> dict[str, str]:
-    """``os.environ`` plus a fallback identity, so commits work on hosts
-    with no global ``user.name`` / ``user.email`` (a real identity wins)."""
+    """``os.environ`` plus a git identity, so commits always work.
+
+    The identity is the CALLER whose request is on the stack (see
+    ``app/workspace/actor.py``) when there is one — a workspace commit
+    made on behalf of a signed-in user is authored by that user, so
+    ``file_history`` can say who changed what. With no caller (server
+    startup, the schedulers, a task pipeline — which clears the actor
+    at its entry points) the fallback identity makes commits work on
+    hosts with no global ``user.name`` / ``user.email`` (a real
+    identity in the environment still wins over the fallback).
+    """
     env = dict(os.environ)
     env.setdefault('GIT_AUTHOR_NAME', 'Vibe Seller')
     env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
     env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller')
     env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
+    actor = current_actor()
+    if actor is not None:
+        env['GIT_AUTHOR_NAME'] = actor.name
+        env['GIT_AUTHOR_EMAIL'] = actor.email
+        env['GIT_COMMITTER_NAME'] = actor.name
+        env['GIT_COMMITTER_EMAIL'] = actor.email
     return env
 
 

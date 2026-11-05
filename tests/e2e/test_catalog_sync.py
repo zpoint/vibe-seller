@@ -20,6 +20,7 @@ import httpx
 import pytest
 
 from app.browser.manager import store_slug as _store_slug
+from app.config import VIBE_SELLER_DIR
 from app.models.schedule_constants import SYSTEM_CATALOG_SYNC_ID
 from tests.e2e import e2e_helpers
 from tests.e2e.e2e_helpers import (
@@ -36,8 +37,13 @@ pytestmark = [pytest.mark.e2e]
 FAKE_PLATFORM = 'amazon'
 FAKE_COUNTRY = 'PL'
 
-KNOWLEDGE_DIR = Path.home() / '.vibe-seller' / 'knowledge'
-STORES_DIR = Path.home() / '.vibe-seller' / 'stores'
+# The SERVER's workspace, resolved through app.config: the root
+# conftest points the test process's home at the server's home for
+# e2e runs (E2E_VIBE_HOME / VIBE_HOME), so seeding files here lands
+# where the server's workspace manager reads them — never blindly in
+# the developer's ~/.vibe-seller.
+KNOWLEDGE_DIR = VIBE_SELLER_DIR / 'knowledge'
+STORES_DIR = VIBE_SELLER_DIR / 'stores'
 
 
 @pytest.fixture(scope='module')

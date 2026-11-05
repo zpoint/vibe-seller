@@ -209,6 +209,19 @@ CREATE TABLE users (
     updated_at      TEXT NOT NULL
 );
 
+-- Personal API tokens (external agents; plaintext shown once, only the hash stored)
+CREATE TABLE api_tokens (
+    id            TEXT PRIMARY KEY,       -- UUID
+    user_id       TEXT NOT NULL REFERENCES users(id),  -- the token acts as its owner
+    name          TEXT NOT NULL,          -- label shown in Settings
+    token_hash    TEXT NOT NULL UNIQUE,   -- SHA-256 of the vst_ plaintext
+    prefix        TEXT NOT NULL,          -- first ~12 chars, for display
+    created_at    TEXT NOT NULL,
+    last_used_at  TEXT,                   -- stamped at most once a minute
+    expires_at    TEXT,                   -- null = never
+    revoked_at    TEXT                    -- set = revoked (row kept so it can never be resurrected)
+);
+
 -- Stores (e-commerce store = browser profile)
 CREATE TABLE stores (
     id              TEXT PRIMARY KEY,       -- UUID

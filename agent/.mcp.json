@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "vibe-seller": {
+      "type": "http",
+      "url": "${user_config.url}/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${user_config.token}"
+      }
+    }
+  }
+}

@@ -31,10 +31,13 @@ work started.
 
 from __future__ import annotations
 
+import re
+
 from app.ai import ad_action_vocab as vocab, ad_declaration
+from app.ai.stop_gates import GateDeny
 from app.ai.stop_gates.ad_completeness_rules import _COMBO_HEADER_RE
 from app.ai.stop_gates.ad_moves import MOVE_RE
-from app.models.ad_declaration import KIND_INVESTIGATE
+from app.models.ad_declaration import KIND_AUDIT, KIND_INVESTIGATE
 
 # A table row telling someone to MOVE money: the shape that becomes an
 # actionable decision row in the report. Same vocabulary the
@@ -186,3 +189,39 @@ def declaration_gaps(parts: list[str], decl: dict | None) -> list[str]:
         '请把范围外的内容从报告里去掉；如果用户确实需要这些市场，'
         '在结果里说明，由用户再发一条消息来扩大范围。'
     ]
+
+
+def non_audit_verdict(
+    result_text: str, task_id: str, gate: str
+) -> tuple[bool, GateDeny | None]:
+    """Decide a phase DECLARED as anything but `audit`.
+
+    Coverage is owed by the declaration, never by the report's shape.
+    Only an `audit` owes marketplace coverage, the 进度 line, the
+    per-campaign drill and the audit format; `investigate` / `create` /
+    `execute` owe none of it, so for them these declaration checks are
+    the whole gate — including "an investigate may not hand out
+    decisions", which runs whatever the headings. Observed in CI before
+    this: a figures-only answer under a ``## amazon US`` heading was
+    graded as an audit section, refused for a missing 进度 line, and the
+    agent's only way out was to upgrade to `audit` and drill everything.
+
+    Returns ``(decided, deny)``: ``decided`` is False when the full audit
+    check applies (declared `audit`, or undeclared — refused there for
+    not declaring); otherwise ``deny`` is the verdict (None = pass).
+    """
+    decl = ad_declaration.load_declaration(task_id)
+    if decl is None or decl['kind'] == KIND_AUDIT:
+        return False, None
+    gaps = declaration_gaps(re.split(r'(?m)^##\s+', result_text), decl)
+    if not gaps:
+        return True, None
+    return True, GateDeny(
+        gate=gate,
+        reason=(
+            '报告与本次声明不一致，先按下面的说明处理，再重新 '
+            'set_task_result：\n' + '\n'.join('- ' + g for g in gaps[:12])
+        ),
+        gaps=tuple(gaps),
+        contradictions=(),
+    )

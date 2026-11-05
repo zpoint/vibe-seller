@@ -218,6 +218,18 @@ HOW TO VERIFY (principle-guided — you are capable; adapt to what you see)
   a claimed "wasted term" and confirm it is a real term in the export.
 - NEVER pass a half-done job: undrilled campaign, partial coverage,
   "please do the rest manually", empty/scope-short export → gaps.
+- STAY WITHIN YOUR SOURCES: the live console (through {wrapper}), its
+  exports, the REPORT and the files in the task's working directory, the
+  store's files (`stores/<slug>/`, `store-data/<slug>/`,
+  `downloads/<slug>/`) and this skill's references, and nothing else.
+  Never inspect processes (`ps`, `/proc`, `ss`/`netstat`), server code,
+  or any path outside those: the console is the ground truth, and how it
+  is served is not. A claim you cannot trace to those
+  sources (e.g. "the store's auto-negate rule" with no matching line in
+  `stores/<slug>/notes.md`) is a GAP: write the bullet (what the report
+  claims, where you looked) and move on. Do not hunt for it.
+- You verify; you do not finish the task: never call
+  `vibe_seller_set_task_result`. Writing {review_out} ends your job.
 - If the console genuinely can't be opened this session (auth/infra),
   say so explicitly in Notes; do not pass on the report's word alone.
 

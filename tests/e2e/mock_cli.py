@@ -145,6 +145,32 @@ ASYNC_MARKER = '[[MOCK_ASYNC_SUBAGENT]]'
 PREMATURE_MARKER = '[[MOCK_PREMATURE_RESULT]]'
 LINGER_MARKER = '[[MOCK_LINGER_WAIT]]'
 
+# The producing-task marker: write the two output files a real agent
+# leaves behind (its Write tool), so the MCP task-files e2e has real
+# files to list/read/zip. cwd IS the task workspace — the backend
+# spawns this CLI there (app/ai/claude_backend.py start()).
+OUTPUT_FILES_MARKER = '[[MOCK_OUTPUT_FILES]]'
+OUTPUT_TEXT = 'quarterly numbers for acme\n' * 10
+OUTPUT_PNG = b'\x89PNG\r\n\x1a\n' + b'\x00MOCK-CHART' * 16
+
+
+def run_output_files():
+    """Emit a producing run and drop its deliverables in the cwd."""
+    emit_system()
+    emit_thinking('Producing the deliverable files...')
+    emit_tool_calls([
+        {'tool': 'Write', 'input': {'file_path': 'report.txt'}},
+        {'tool': 'Write', 'input': {'file_path': 'chart.png'}},
+    ])
+    with open('report.txt', 'wb') as fh:
+        fh.write(OUTPUT_TEXT.encode('utf-8'))
+    with open('chart.png', 'wb') as fh:
+        fh.write(OUTPUT_PNG)
+    final = 'Wrote report.txt and chart.png.'
+    emit_text(final)
+    emit_result(final)
+
+
 _SPAWN_ID = 'toolu_mock_spawn_1'
 
 
@@ -491,10 +517,13 @@ def run_execute():
 
 
 if __name__ == '__main__':
-    # Determine mode from args (matches real claude CLI interface)
+    # Determine mode from args (matches real claude CLI interface).
+    # 'workspace' (the workspace-assistant session's mode) maps to the
+    # execute flow: the assistant has no plan gate, and its handler
+    # auto-allows any control request anyway.
     mode = 'plan_then_execute'
     for arg in sys.argv:
-        if 'auto' in arg:
+        if 'auto' in arg or 'workspace' in arg:
             mode = 'execute'  # auto behaves like execute in mock
             break
         if 'execute' in arg and 'plan' not in arg:
@@ -514,6 +543,8 @@ if __name__ == '__main__':
         run_premature_result()
     elif LINGER_MARKER in prompt:
         run_linger_wait()
+    elif OUTPUT_FILES_MARKER in prompt:
+        run_output_files()
     elif mode == 'plan_then_execute':
         run_plan_then_execute()
     else:

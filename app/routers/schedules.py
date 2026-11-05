@@ -495,14 +495,22 @@ async def delete_schedule(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    """Remove APScheduler job and delete the schedule record."""
+    """Remove APScheduler job and delete the schedule record.
+
+    An in-flight planning task is stopped too: left running, its
+    ExitPlanMode would find the schedule gone and park the task at
+    PLANNED — holding one of the server's agent slots forever.
+    """
     schedule = await db.get(Schedule, schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail='Schedule not found')
 
     remove_schedule_job(schedule.id)
+    await abort_current_planning_task(schedule, db, 'Schedule deleted.')
     await db.delete(schedule)
     await db.commit()
+    # After the delete: stop the agent, fail the task in its own session.
+    await finalize_pending_abort(schedule)
     return {'ok': True}
 
 

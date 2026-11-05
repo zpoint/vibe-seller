@@ -22,6 +22,47 @@ pytest --e2e                  # Everything including e2e
 
 E2E tests are **deselected by default** — `pytest tests/` only runs unit+workflow. Pass `--e2e` to include them. When `--e2e` is passed, missing LLM secrets cause hard failures (no silent skip).
 
+## Test-home isolation
+
+The test process never uses the developer's real `~/.vibe-seller` as
+its runtime home unless it is an e2e run pointed at a server that
+lives there (`tests/conftest.py` enforces this before the first
+`app.*` import, and a session-start guard fails loudly if it ever
+regresses):
+
+- **Non-e2e runs** get a fresh throwaway `VIBE_HOME` (a session temp
+  dir, removed on exit), forced — a stale `VIBE_HOME` in the
+  environment cannot quietly keep the suite on a real home. Without
+  this, module-level paths derived from the runtime home (chat
+  staging, task history, the import-time `backend_<port>.log`) read
+  and wrote production state.
+- **E2E runs (`--e2e`)** must resolve paths the way the
+  **separately-running server** does, so the test home is the
+  server's home: set **`E2E_VIBE_HOME`** to the server's home
+  (e.g. `E2E_VIBE_HOME=~/.vibe-seller-e2e`), or export `VIBE_HOME`
+  the same way. With neither set, the default `~/.vibe-seller` is
+  used — which is correct on CI, where the server itself lives there.
+  `BACKEND_PORT` is derived from `E2E_BASE_URL`'s port (a URL without
+  an explicit port means the scheme's default, 80/443) so the test
+  process cannot create a decoy server log under the wrong name.
+  `--e2e` is detected from the command line AND `PYTEST_ADDOPTS`
+  (options injected there never appear in `sys.argv`). Under
+  pytest-xdist (`-n N`, as CI's e2e job runs) the controller publishes
+  the decision as `VIBE_TEST_E2E=1` and the workers inherit it — a
+  worker's own `sys.argv` never carries `--e2e`.
+
+  **`E2E_VIBE_HOME` requires the server to be on the same
+  filesystem**: the e2e helpers seed and read workspace files by local
+  path. A remote `E2E_BASE_URL` cannot work with it — run those
+  suites from a checkout on the server's host (or in the same
+  container; see [docker/E2E_TESTING.md](https://github.com/zpoint/vibe-seller/blob/main/docker/E2E_TESTING.md)).
+
+```bash
+# e2e against a server on an isolated home + port
+E2E_VIBE_HOME=~/.vibe-seller-e2e E2E_BASE_URL=http://127.0.0.1:7799 \
+  pytest --e2e tests/e2e
+```
+
 ## Test Structure
 
 ```

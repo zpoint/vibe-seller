@@ -422,6 +422,15 @@ async def sync_email_now(
             detail=(f'No account found for {data.account_email}'),
         )
 
+    # The per-account DB (and its sync_state table) must exist before
+    # the cooldown read below can query it: a freshly created account
+    # has never synced, so nothing has initialized its DB yet — the
+    # first "Sync now" would die on `no such table: sync_state`. The
+    # background scheduler seeds before it reads; the route does too.
+    # Idempotent, and the seed is what gives a linked account its
+    # store watermarks.
+    await maybe_seed_sync_state(account.id)
+
     # Cooldown: skip sync if polled within last 30 seconds
     _SYNC_COOLDOWN_SECONDS = 30
     state = await asyncio.to_thread(get_sync_state, account.id, 'INBOX')
@@ -438,8 +447,6 @@ async def sync_email_now(
                 'last_polled_at': state['last_polled_at'],
                 'skipped': True,
             }
-
-    await maybe_seed_sync_state(account.id)
 
     password = decrypt_password(account.encrypted_password)
     try:
