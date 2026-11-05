@@ -23,6 +23,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `events/` | SSE event bus for real-time streaming |
 | `events_system/` | Business event extraction + sync backends |
 | `channels/` | Message channel integrations (WeCom self-built app) |
+| `agent_mcp/` | The hosted MCP endpoint (`POST /api/mcp`, 32 tools): JSON-RPC dispatch, tool registry, lifecycle/status guidance, and one thin adapter module per tool family — every adapter calls the REST route handlers via `call_route`, never the DB directly. See [api.md § Hosted MCP endpoint](api.md#hosted-mcp-endpoint) and [agents.md](agents.md). |
 | `notifiers/` | Chat bot webhook senders (WeCom / DingTalk / Feishu / Slack) — `base.py` holds the `PLATFORMS` registry + `detect_platform` (platform is derived from the URL host, never client-supplied); one module per platform; never echoes the webhook URL in errors |
 | `scheduler/` | Task scheduling (cron, fan-out, concurrent per-store queue) |
 | `workspace/` | Workspace management (~/.vibe-seller/) |
@@ -32,6 +33,8 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `plugins.py` | Plugin framework (IoC registry) — core reads gates/guards/backends/skills/services from here instead of hardcoding them. See [Plugin Framework](#plugin-framework). |
 | `builtin_plugin.py` | The OSS "builtin plugin" — registers every core contribution through the plugin API. |
 | `utils/` | Shared utilities (crypto, etc.) |
+| `api_tokens.py` | Personal API tokens (`vst_…`): generation, SHA-256 hashing, expiry/revocation rules. Rows live in `api_tokens`; the plaintext is returned exactly once, at mint. |
+| `api_token_secrets.py` | The REST side of the write-only-secret contract for API-token callers: one ASGI middleware that masks secret-classified fields in JSON responses and restores masked echoes on write routes (`RESTORE_RULES`). See [api.md § API tokens](api.md#api-tokens-personal-access-tokens). |
 | `uploads.py` | One definition of what may be uploaded and how big: MIME allow-list, extensions, `MAX_UPLOAD_SIZE` (100MB), the streaming `save_upload()` writer, and `UploadBodyLimitMiddleware`. Every multipart route imports from here — the limit used to live in four places and had already drifted. See [Upload limits](api.md#upload-limits). |
 | `text_utils.py` | Surrogate-safe text: `SafeStr` (request fields), `SafeText` (DB columns), `sanitize_text` (file writes). Agent text can carry a lone surrogate that no UTF-8 encode accepts — see [Lone surrogates](#lone-surrogates-in-agent-text). |
 | `platform.py` | Cross-platform abstractions (Windows/macOS/Linux) — psutil-based process management (`kill_process`, `find_processes_by_pattern`, `reap_task_agents`, `collect_agent_descendants`), venv path helpers (`Scripts/` vs `bin/`, `venv_python`, `venv_executable`), `prepend_to_path` (uses `os.pathsep`), `safe_chmod` (no-op on Windows). Centralises every platform difference so the rest of the code stays platform-agnostic. See [Cross-platform support](subsystems.md#cross-platform-support-native-windows). |
@@ -80,6 +83,7 @@ SQLAlchemy 2.0 ORM models. All extend `Base` from `app/database.py`.
 |-------|-------|-------------|
 | `AppSettings` | `app_settings` | Key-value app settings (`auth_required`, `admin_credentials_set`, `max_agent_concurrency`, `default_schedule_phase_mode`, `default_schedule_timezone`, `task_retention_days`, `google_workspace_enabled`) |
 | `User` | `users` | Team members with JWT auth. `username` (unique, required), `email` (unique, nullable, validated). Login by username or email. Admin seeds from env (`ADMIN_USERNAME`, `ADMIN_EMAIL`). Per-user prefs: `plan_mode_default`, `debug_mode`, `default_profile_id`, `sync_profile_to_schedules` (re-pin owned schedules on default-profile change — see [subsystems.md § Schedule AI profile resolution](subsystems.md#schedule-ai-profile-resolution)). |
+| `ApiToken` | `api_tokens` | Personal API tokens (`vst_…`) for external agents: SHA-256 `token_hash` only (plaintext returned once at mint), owner FK to `users`, display `prefix`, `expires_at` (null = never), soft `revoked_at`, throttled `last_used_at`. Deleting a user deletes their tokens. |
 | `Store` | `stores` | E-commerce stores with browser config |
 | `BrowserSession` | `browser_sessions` | Active browser sessions per store |
 | `Task` | `tasks` | Units of work created by users |
@@ -356,6 +360,7 @@ All config in `config.py`. Key settings:
 | `DATABASE_URL` | `sqlite+aiosqlite:///$HOME/.vibe-seller/data/vibe_seller.db` | Database connection (computed at runtime via `Path.home()`, not settable via env) |
 | `SECRET_KEY` | Auto-generated | JWT signing key (env: `SECRET_KEY`) |
 | `LOG_LEVEL` | `INFO` | Python logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Use `./start.sh --dev` to set `DEBUG` + `AGENT_DEBUG=1` |
+| `CORS_ORIGINS` | frontend dev/prod + localhost URLs | The single source of the browser origins this server answers as CORS-allowed — used by `CORSMiddleware` in `main.py` AND by the hosted MCP endpoint's cross-site guard (`app/agent_mcp/router.py`), so the two can never disagree. |
 
 ## Database
 

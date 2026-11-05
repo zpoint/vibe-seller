@@ -31,7 +31,10 @@ from app.agent_mcp.lifecycle import (
     task_guidance,
 )
 from app.agent_mcp.router import INSTRUCTIONS
-from app.agent_mcp.support import WAIT_TASK_INSTANT_STATUSES
+from app.agent_mcp.support import (
+    WAIT_TASK_INSTANT_STATUSES,
+    wait_task_instant,
+)
 from app.models.schedule import Schedule
 from app.models.task import Task
 from app.plan_states import PlanStatus
@@ -564,3 +567,132 @@ def test_image_gate_survives_into_instructions_and_reference():
     reference = render_status_reference()
     assert 'image_confirm' in reference
     assert 'image_request' in reference
+
+
+# ── 6. Schedule-fired and message-rejection shapes (fix-b) ────────
+
+
+def test_schedule_fired_planned_offers_no_review_and_waits():
+    """A schedule-fired task at ``planned`` auto-executes its frozen
+    plan (task_queue._dispatch routes on task.plan): the plan was
+    accepted when the schedule was armed, so review_plan must not be
+    offered — and rejecting it would discard the approved plan and
+    re-plan with AUTO-approval (``_follow_up_auto_approve`` is true
+    for any schedule_id task). The state is pre-execution, so
+    wait_task (which blocks there) IS the guidance.
+    """
+    task = _task(TaskStatus.PLANNED)
+    task.schedule_id = 'sched-1'
+    guidance = task_guidance(task, has_pending_question=False)
+    assert 'review_plan' not in guidance['next_actions']
+    assert 'wait_task' in guidance['next_actions']
+    assert 'schedule' in guidance['status_meaning']
+    assert 'frozen plan' in guidance['status_meaning']
+
+
+def test_schedule_fired_variants_only_where_they_differ():
+    # Mirror of the plan-only pin: the fired override applies to
+    # exactly PLANNED — a fired task reads like any other task in
+    # every other state.
+    differing = set()
+    for status in TaskStatus:
+        base = task_guidance(_task(status), has_pending_question=False)[
+            'status_meaning'
+        ]
+        fired = _task(status)
+        fired.schedule_id = 'sched-1'
+        overridden = task_guidance(fired, has_pending_question=False)[
+            'status_meaning'
+        ]
+        if overridden != base:
+            differing.add(status)
+            assert 'schedule' in overridden
+    assert differing == {TaskStatus.PLANNED}
+
+
+def test_plan_only_planned_keeps_review_plan_even_with_schedule():
+    # A PLAN-ONLY task parked at planned (its ExitPlanMode was denied)
+    # is the author, not a fire: approving freezes the plan onto the
+    # schedule. The fired override must not swallow this shape.
+    task = _task(TaskStatus.PLANNED, is_plan_only=True)
+    task.schedule_id = 'sched-1'
+    guidance = task_guidance(task, has_pending_question=False)
+    assert 'review_plan' in guidance['next_actions']
+    assert 'schedule' in guidance['status_meaning']
+
+
+def test_wait_task_instant_carves_out_the_fired_planned():
+    """support.wait_task_instant is the loop's break condition."""
+    plain = _task(TaskStatus.PLANNED)
+    assert wait_task_instant(plain) is True
+
+    fired = _task(TaskStatus.PLANNED)
+    fired.schedule_id = 'sched-1'
+    assert wait_task_instant(fired) is False, (
+        'a schedule-fired planned task is pre-execution — the poll '
+        'must keep waiting, not report needs_operator'
+    )
+
+    planner = _task(TaskStatus.PLANNED, is_plan_only=True)
+    planner.schedule_id = 'sched-1'
+    assert wait_task_instant(planner) is True
+
+    assert wait_task_instant(_task(TaskStatus.RUNNING)) is False
+    assert wait_task_instant(_task(TaskStatus.COMPLETED)) is True
+
+
+def test_paused_ready_names_resume_before_run():
+    """run_schedule fires a PAUSED schedule (the UI's Run-now button
+    is not disabled by the pause — verified in
+    ScheduleDetailView.tsx), so naming it first for a paused+ready
+    schedule invites skipping the checkpoint the pause established:
+    resume (update_schedule) leads, run_schedule follows.
+    """
+    guidance = plan_guidance(_sched(PlanStatus.READY, active=False))
+    assert guidance['next_actions'][:2] == ['update_schedule', 'run_schedule']
+    # An ACTIVE ready schedule keeps run_schedule first — there is no
+    # checkpoint left to honour.
+    active = plan_guidance(_sched(PlanStatus.READY, active=True))
+    assert active['next_actions'][0] == 'run_schedule'
+
+
+def test_dead_planner_names_replan_not_wait():
+    """A planning task that already ended (failed/stopped) under a
+    `planning` row is the reaper's window: nothing is authoring the
+    plan, so wait_task/get_task would wait on nothing. replan is the
+    move, for BOTH the active and the paused schedule (the paused
+    variant's old "replan is an idempotent no-op" justification was
+    false for a terminal planner — /replan's early return covers only
+    a NON-terminal one).
+    """
+    for active in (True, False):
+        guidance = plan_guidance(
+            _sched(PlanStatus.PLANNING, active=active),
+            planner_terminal=True,
+        )
+        assert guidance['next_actions'] == ['update_schedule']
+        assert 'replan' in guidance['plan_status_meaning']
+        assert 'ended' in guidance['plan_status_meaning']
+
+
+def test_live_planner_still_names_the_pause_and_wait():
+    # The flag defaults to False — a LIVE planner keeps the
+    # checkpoint guidance (pause first, then follow the planner).
+    assert plan_guidance(_sched(PlanStatus.PLANNING, active=True))[
+        'next_actions'
+    ] == ['update_schedule', 'wait_task', 'get_task']
+
+
+def test_planned_meaning_warns_a_message_is_a_rejection():
+    """send_task_message treats ANY message to a PLANNED task as the
+    reject verdict (PLANNED → DESIGNING, message = feedback), in both
+    the base and the plan-only meanings, and in the served
+    instructions.
+    """
+    base = TASK_STATUS_MEANINGS[TaskStatus.PLANNED].lower()
+    assert 'rejection' in base or 'rejects' in base
+    task = _task(TaskStatus.PLANNED)
+    task.schedule_id = 'sched-1'
+    fired = task_guidance(task, has_pending_question=False)['status_meaning']
+    assert 'messaging the task' in fired.lower()
+    assert 'schedule-fired task' in render_instructions().lower()

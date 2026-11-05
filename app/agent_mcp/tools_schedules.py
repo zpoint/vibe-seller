@@ -23,8 +23,10 @@ from app.agent_mcp.support import (
     require,
     trim,
 )
+from app.models.task import Task
 from app.routers import schedules as schedules_route
 from app.schemas.schedule import ScheduleCreate, ScheduleUpdate
+from app.task_states import TaskStatus
 
 # Fields update_schedule forwards to the PUT route, mapped from the
 # tool's arguments. ``paused`` and ``replan`` are NOT here — they map
@@ -69,9 +71,9 @@ def _edit_fields(args: dict) -> dict:
 
 
 _CREATE_NOTE = (
-    'The schedule does not fire until its plan is ready. A plan-only '
-    'task (plan_task_id) is authoring the plan now: follow it with '
-    'wait_task. When it finishes, the plan is frozen onto the '
+    'The schedule is PAUSED and does not fire until you resume it. A '
+    'plan-only task (plan_task_id) is authoring the plan now: follow '
+    'it with wait_task. When it finishes, the plan is frozen onto the '
     'schedule (plan_status=ready) — the planning task executes '
     'nothing, and the server accepts the plan without anyone reading '
     'it. Show the plan (in `plan`) to your user and resume the '
@@ -80,9 +82,32 @@ _CREATE_NOTE = (
 )
 
 
-def _plan_fields(schedule) -> dict:
+async def _planner_terminal(ctx: McpContext, schedule) -> bool:
+    """Whether the planning already ended under a `planning` row.
+
+    The plan reaper reconciles a dead planner's schedule row within
+    minutes; in that window the honest guidance is "replan", not
+    "wait for the planner" — this flag is how the lifecycle table
+    tells the two apart (see ``plan_guidance``).
+    """
+    if str(schedule.plan_status or '') != 'planning':
+        return False
+    task_id = schedule.current_planning_task_id
+    if not task_id:
+        # `planning` with no planner pointer: nothing is in flight
+        # (creation sets both atomically), so nothing will freeze.
+        return True
+    task = await ctx.db.get(Task, task_id)
+    return bool(
+        task and task.status in {TaskStatus.COMPLETED, TaskStatus.FAILED}
+    )
+
+
+async def _plan_fields(ctx: McpContext, schedule) -> dict:
     """The lifecycle block every schedule result carries."""
-    guidance = plan_guidance(schedule)
+    guidance = plan_guidance(
+        schedule, planner_terminal=await _planner_terminal(ctx, schedule)
+    )
     return {
         'plan_status': guidance['plan_status'],
         'plan_status_meaning': guidance['plan_status_meaning'],
@@ -91,7 +116,7 @@ def _plan_fields(schedule) -> dict:
     }
 
 
-def _schedule_summary(schedule) -> dict:
+async def _schedule_summary(ctx: McpContext, schedule) -> dict:
     """An agent-sized view of one schedule.
 
     The FROZEN PLAN TEXT is part of it, not a summary of it: a
@@ -131,8 +156,48 @@ def _schedule_summary(schedule) -> dict:
         ),
         'last_run_status': schedule.last_run_status,
         'child_task_count': schedule.child_task_count,
-        **_plan_fields(schedule),
+        **(await _plan_fields(ctx, schedule)),
     }
+
+
+async def _create_paused_or_delete(ctx: McpContext, schedule):
+    """Pause the just-created schedule — or delete it if that fails.
+
+    The caller asked for a paused schedule (the tool's default). If
+    the pause call fails and the schedule were left ACTIVE, the plan
+    could freeze to `ready` moments later and fire on its cron with
+    nobody watching — the exact unattended execution the pause exists
+    to prevent. Deleting the row we just created restores the
+    pre-call world; the agent retries the create.
+    """
+    try:
+        return await call_route(
+            schedules_route.pause_schedule,
+            schedule_id=schedule.id,
+            db=ctx.db,
+            _user=ctx.user,
+        )
+    except Exception as exc:
+        try:
+            await call_route(
+                schedules_route.delete_schedule,
+                schedule_id=schedule.id,
+                db=ctx.db,
+                _user=ctx.user,
+            )
+        except Exception:
+            raise ToolError(
+                f'Created schedule {schedule.id} but pausing it failed '
+                f'({exc}), and deleting it to undo the create failed '
+                'too — pause or delete that schedule NOW before its '
+                'plan freezes and it fires unattended.'
+            ) from exc
+        raise ToolError(
+            f'Created schedule {schedule.id} but pausing it failed '
+            f'({exc}) — the schedule was deleted again; nothing was '
+            'left armed. Retry the create, or pass paused=false to '
+            'create it active on purpose.'
+        ) from exc
 
 
 @tool(
@@ -155,24 +220,22 @@ async def list_schedules(ctx: McpContext, args: dict) -> dict:
         db=ctx.db,
         _user=ctx.user,
     )
-    return {'schedules': [_schedule_summary(s) for s in schedules]}
+    return {'schedules': [await _schedule_summary(ctx, s) for s in schedules]}
 
 
 @tool(
     'create_schedule',
-    'Create a scheduled task. Every schedule plans first: a '
-    'plan-only task authors the plan (follow it with wait_task); '
-    'once it finishes, the plan is frozen onto the schedule and the '
-    'schedule fires on its cron. The schedule does not fire until '
-    "the plan is ready. Omit ai_profile_id to inherit the owner's "
-    'default AI profile at fire time. '
-    'Pass paused=true unless your user already told you to go ahead: '
-    "a schedule's plan is accepted by the server without anyone "
-    'reading it, so pausing keeps the plan a checkpoint your user '
-    'can actually see — you resume it with '
-    'update_schedule(paused=false) after they have seen the plan. '
-    'The schedule cannot fire while the plan is still being written, '
-    'so pausing at creation closes that window completely.',
+    'Create a scheduled task — PAUSED by default. Every schedule '
+    'plans first: a plan-only task authors the plan (follow it with '
+    'wait_task); once it finishes, the plan is frozen onto the '
+    'schedule and — once resumed — it fires on its cron. The plan is '
+    'accepted by the server without anyone reading it, so the pause '
+    'is what keeps it a checkpoint your user can actually see: '
+    'show them the plan, then resume with '
+    'update_schedule(paused=false). Pass paused=false only when your '
+    'user already told you to go ahead. '
+    "Omit ai_profile_id to inherit the owner's default AI profile at "
+    'fire time.',
     schema(
         {
             'title': {
@@ -258,13 +321,16 @@ async def list_schedules(ctx: McpContext, args: dict) -> dict:
             'paused': {
                 'type': ['boolean', 'null'],
                 'description': (
-                    'true creates the schedule PAUSED, so it cannot '
-                    'fire until you resume it with '
-                    'update_schedule(paused=false). Pass true unless '
-                    'your user already told you to go ahead: the '
-                    "schedule's plan is accepted by the server without "
-                    'anyone reading it, and pausing keeps that plan a '
-                    'checkpoint your user can see.'
+                    'Omit (or true) to create the schedule PAUSED — '
+                    'it cannot fire until you resume it with '
+                    'update_schedule(paused=false). Pass false ONLY '
+                    'when your user already told you to go ahead: '
+                    "the schedule's plan is accepted by the server "
+                    'without anyone reading it, and the pause keeps '
+                    'that plan a checkpoint your user can see. (The '
+                    'web UI creates schedules ACTIVE; paused is the '
+                    'default here for the same reason '
+                    'manage_profile leaves set_default off.)'
                 ),
             },
         },
@@ -292,20 +358,19 @@ async def create_schedule(ctx: McpContext, args: dict) -> dict:
         db=ctx.db,
         current_user=ctx.user,
     )
-    if args.get('paused'):
-        # Pause it in the SAME tool call: the REST create path has no
-        # "create it paused" (ScheduleCreate carries no is_active and
-        # the route always creates it active), and the plan is still
-        # being written — the fire gate refuses a PLANNING schedule —
-        # so pausing here leaves no window in which it could fire.
-        schedule = await call_route(
-            schedules_route.pause_schedule,
-            schedule_id=schedule.id,
-            db=ctx.db,
-            _user=ctx.user,
-        )
+    # PAUSED is the default (the divergence from the UI's
+    # active-on-create is documented in the tool description and the
+    # argument schema): a plan the server auto-accepts must not arm
+    # itself unless the caller explicitly opted in with
+    # ``paused: false``. The REST create path has no "create it
+    # paused" (ScheduleCreate carries no is_active; the route always
+    # creates it active), so the pause is a second call — and if THAT
+    # fails, the just-created schedule is deleted again rather than
+    # left armed (see _create_paused_or_delete).
+    if args.get('paused') is not False:
+        schedule = await _create_paused_or_delete(ctx, schedule)
     return {
-        **_schedule_summary(schedule),
+        **(await _schedule_summary(ctx, schedule)),
         'schedule_id': schedule.id,
         'note': _CREATE_NOTE,
     }
@@ -420,7 +485,7 @@ async def update_schedule(ctx: McpContext, args: dict) -> dict:
         _user=ctx.user,
     )
     return {
-        **_schedule_summary(final),
+        **(await _schedule_summary(ctx, final)),
         'updated_fields': sorted(fields),
         'replanned': wants_replan,
     }
@@ -452,7 +517,11 @@ async def delete_schedule(ctx: McpContext, args: dict) -> dict:
     'next scheduled fire would create. Requires the plan to be '
     'ready — a schedule whose plan is not ready never fires, and '
     'the refusal says why. The created task does not re-plan: it '
-    'runs the frozen plan.',
+    'runs the frozen plan. NOTE: this fires a PAUSED schedule too '
+    "(the web UI's Run-now button is not disabled by the pause) — "
+    'get your user’s go-ahead before firing a paused one; '
+    'resuming (update_schedule paused=false) is the move when they '
+    'have already approved the plan.',
     schema(
         {'schedule_id': {'type': 'string', 'description': 'The schedule id.'}},
         required=['schedule_id'],
@@ -488,5 +557,5 @@ async def run_schedule(ctx: McpContext, args: dict) -> dict:
         'task_id': task_id,
         'mode': mode,
         'note': note,
-        **_plan_fields(final),
+        **(await _plan_fields(ctx, final)),
     }

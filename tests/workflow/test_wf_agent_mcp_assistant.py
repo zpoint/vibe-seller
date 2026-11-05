@@ -27,7 +27,7 @@ MCP_PATH = '/api/mcp'
 _SESSION = {}  # user_id -> mock state
 
 
-class _MockManager:
+class MockAssistantManager:
     """Mirrors WorkspaceAssistantManager's route-facing surface.
 
     ``reply_plan`` is a list of (delay, text) the fake session
@@ -41,9 +41,18 @@ class _MockManager:
         self.never_finishes = False
         self._running: dict[str, bool] = {}
         self._last_reply: dict[str, str] = {}
+        self._send_locks: dict[str, asyncio.Lock] = {}
 
     def session_key(self, user_id):
         return f'__ws_assistant_{user_id}__'
+
+    def send_lock(self, user_id):
+        """The per-user send serializer (mirrors the real manager)."""
+        key = self.session_key(user_id)
+        lock = self._send_locks.get(key)
+        if lock is None:
+            lock = self._send_locks[key] = asyncio.Lock()
+        return lock
 
     def last_reply(self, user_id):
         return self._last_reply.get(user_id)
@@ -86,7 +95,7 @@ class _MockManager:
 
 @pytest.fixture
 def mock_ws_assistant(monkeypatch):
-    mock = _MockManager()
+    mock = MockAssistantManager()
     monkeypatch.setattr(
         'app.routers.workspace_assistant.ws_assistant_manager', mock
     )

@@ -27,10 +27,12 @@ The token starts with `vst_`. Treat it like a password:
   leaked.
 
 A token has its owner's full role: an **admin token can manage users and
-settings**, so treat it like the password. The one thing a token cannot
-do is **mint more tokens** — `POST /api/auth/tokens` answers 403 to a
-`vst_` credential, so a leaked token can never mint its own
-never-expiring replacement. Listing and revoking tokens stay open to it.
+settings**, so treat it like the password. The two things a token cannot
+do are **mint more tokens** and **refresh into a web session** —
+`POST /api/auth/tokens` and `POST /api/auth/refresh` both answer 403 to
+a `vst_` credential, so a leaked token can never beget a second
+credential (a new token, or a session JWT) that outlives revoking it.
+Listing and revoking tokens stay open to it.
 Mint always from a signed-in browser session.
 
 If the server runs with `auth_required` off, a token still works (and
@@ -171,10 +173,10 @@ curl -sS http://127.0.0.1:7777/api/mcp \
 | `manage_skill` | Manage the server's agent skills: list / get / create / update / delete / sync. |
 | `workspace_assistant` | Drive the workspace assistant (organize knowledge): send (waits for the reply), status, stop. |
 | `list_schedules` | The schedules on this server, with their plan status and whether they can fire. |
-| `create_schedule` | Create a scheduled task (a prompt on a recurrence); optionally created paused. |
+| `create_schedule` | Create a scheduled task (a prompt on a recurrence) — paused by default; pass `paused: false` to arm it at creation. |
 | `update_schedule` | Edit a schedule, pause/resume it, or re-plan it. |
-| `delete_schedule` | Delete a schedule (its fired tasks are kept). |
-| `run_schedule` | Fire a schedule now, outside its cron. Refused while its plan is not ready. |
+| `delete_schedule` | Delete a schedule (its fired tasks are kept; an in-flight planner is stopped, never left parked). |
+| `run_schedule` | Fire a schedule now, outside its cron. Refused while its plan is not ready; fires a paused schedule too (get your user's go-ahead first). |
 | `manage_store` | Stores: list/get/create/update/delete, and a store's browser bookmarks (Settings → Stores). |
 | `browser` | Start a browser session a task uses (store main / aux / store-less web); the Ziniao Windows launcher download URL. |
 | `manage_ziniao_account` | Ziniao accounts: CRUD, list their browser profiles, force-restart in WebDriver mode. |
@@ -208,13 +210,28 @@ so in plain words: `plan_status`, `fires` and `plan_status_meaning`.
 
 **The plan is accepted by the server, not by a human.** The plan-only task
 auto-approves at `ExitPlanMode`, so `plan_status: ready` means "the server
-took the plan the planner wrote" — nobody has read it yet. Pass
-`paused: true` to `create_schedule` (the default is `false`, which matches
-what the web UI does) so the schedule cannot fire before your user has
-seen the plan; show them the plan text from the result, then resume it
-with `update_schedule(paused: false)`. While the plan is still being
-written the schedule could not fire anyway, so pausing at creation closes
-that window completely.
+took the plan the planner wrote" — nobody has read it yet.
+`create_schedule` therefore creates the schedule **paused by default**
+(pass `paused: false` only when your user already told you to go ahead —
+the web UI creates active schedules, but an armed schedule fires on its
+own the moment the plan freezes). Show your user the plan text from the
+result, then resume it with `update_schedule(paused: false)`. If the
+pause step itself fails, the tool deletes the schedule it just created —
+nothing half-armed is left behind.
+
+**A task fired by its schedule skips the review.** Its `planned` status
+means the frozen plan is auto-executing (the queue picks it up) — the
+result says so, does not offer `review_plan`, and rejecting or messaging
+such a task would discard the approved plan and re-plan with automatic
+approval. Follow it with `wait_task` like any running work. (A
+non-scheduled task's `planned` is the interactive checkpoint: use
+`review_plan` there — and remember a plain message to a `planned` task IS
+a rejection.)
+
+**`run_schedule` fires a paused schedule too** (the web UI's Run-now
+button is not disabled by the pause). Get your user's go-ahead before
+firing a paused one; resuming is the move when they have already approved
+the plan.
 
 Editing a schedule's prompt makes its plan `stale` — it stops firing until
 `update_schedule(replan: true)` authors a new one.

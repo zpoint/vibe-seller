@@ -14,7 +14,7 @@ import fastapi.params
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
-from app.agent_mcp.lifecycle import task_guidance
+from app.agent_mcp.lifecycle import schedule_fired, task_guidance
 from app.browser.wrapper import store_slug
 from app.models.store import Store
 from app.models.task import Task
@@ -60,10 +60,29 @@ _ACTIVE_STATUS_VALUES = {status.value for status in ACTIVE}
 # where waiting actually waits — the two are pinned together by
 # tests/unit/test_agent_mcp_lifecycle.py. Built from the SAME sets the
 # loop breaks on, so a new instant status cannot drift away from the
-# table.
+# table. ONE exception, mirrored in both places: a schedule-FIRED task
+# at `planned` (schedule_id set, not is_plan_only) is PRE-execution —
+# the queue auto-runs its frozen plan — so the poll does NOT return
+# and the table still names wait_task there (see
+# app/agent_mcp/lifecycle.py _SCHEDULE_FIRED_MEANINGS).
 WAIT_TASK_INSTANT_STATUSES = frozenset(
     TERMINAL_STATUSES | NEEDS_OPERATOR_STATUSES | WAITING_STATUSES
 )
+
+
+def wait_task_instant(task) -> bool:
+    """Whether wait_task returns immediately for this task's status.
+
+    The loop's break condition, in one place: the sets above, minus
+    the schedule-fired `planned` exception (that state is a
+    pre-execution park, not an operator checkpoint — the wait should
+    block until the queue starts the frozen plan).
+    """
+    if task is None:
+        return False
+    if task.status in NEEDS_OPERATOR_STATUSES and schedule_fired(task):
+        return False
+    return task.status in WAIT_TASK_INSTANT_STATUSES
 
 
 class ToolError(Exception):

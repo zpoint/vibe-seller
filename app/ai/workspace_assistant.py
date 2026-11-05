@@ -7,6 +7,7 @@ Reuses AgentSession with overrides for:
 """
 
 import asyncio
+from collections.abc import Callable
 import json
 import logging
 import os
@@ -40,6 +41,7 @@ class WorkspaceAgentSession(AgentSession):
         system_prompt_extra: str = '',
         profile_id: str = DEFAULT_PROFILE_ID,
         message_history: list[dict] | None = None,
+        on_result: Callable[[str], None] | None = None,
     ):
         super().__init__(
             task_id=session_key,
@@ -50,6 +52,15 @@ class WorkspaceAgentSession(AgentSession):
             message_history=message_history or [],
             no_store=False,
         )
+        # Fired with each `result` text, so the manager can keep the
+        # user's LAST reply across sessions (a later session that
+        # errors before answering must not erase it). No DB exists for
+        # the assistant — this callback is the persistence.
+        self._on_result = on_result
+
+    def _report_result(self, text: str) -> None:
+        if self._on_result is not None:
+            self._on_result(text)
 
     # ── Overrides ────────────────────────────────────────
 
@@ -90,6 +101,7 @@ class WorkspaceAgentSession(AgentSession):
             text = event.get('result', '')
             if text:
                 self._result_text = text
+                self._report_result(text)
                 await self._emit_message('result', text)
 
         elif etype == 'content_block_delta':
@@ -287,9 +299,34 @@ class WorkspaceAssistantManager:
         self._sessions: dict[str, WorkspaceAgentSession] = {}
         self._semaphore = asyncio.Semaphore(self.MAX_CONCURRENT)
         self._message_history: dict[str, list[dict]] = {}
+        # The last result text each user's assistant produced, kept by
+        # the sessions' ``on_result`` callbacks — a session that errors
+        # before answering must not erase the previous answer.
+        self._last_replies: dict[str, str] = {}
+        # One in-flight TOOL send per user (see ``send_lock``).
+        self._send_locks: dict[str, asyncio.Lock] = {}
 
     def _session_key(self, user_id: str) -> str:
         return f'__ws_assistant_{user_id}__'
+
+    def send_lock(self, user_id: str) -> asyncio.Lock:
+        """The per-user serializer for MCP-driven assistant sends.
+
+        The assistant's reply arrives on a live-only event stream
+        keyed by the USER (no per-turn id), so two concurrent
+        ``workspace_assistant(send)`` calls would each collect the
+        other turn's messages and done event — replies crossed. The
+        hosted-MCP tool holds this lock for the whole send-and-wait;
+        a caller that finds it held is told to wait (see
+        ``app/agent_mcp/tools_assistant.py``). The web UI is
+        unaffected: it renders the stream, it does not collect a
+        turn.
+        """
+        key = self._session_key(user_id)
+        lock = self._send_locks.get(key)
+        if lock is None:
+            lock = self._send_locks[key] = asyncio.Lock()
+        return lock
 
     async def send_or_start(
         self,
@@ -322,12 +359,17 @@ class WorkspaceAssistantManager:
         try:
             # Build message history (exclude last, it's the prompt)
             history = self._message_history.get(key, [])[:-1]
+
+            def _keep_reply(text: str, _key=key) -> None:
+                self._last_replies[_key] = text
+
             session = WorkspaceAgentSession(
                 session_key=key,
                 prompt=message,
                 system_prompt_extra=system_prompt,
                 profile_id=profile_id,
                 message_history=history,
+                on_result=_keep_reply,
             )
             self._sessions[key] = session
             await session.start()
@@ -372,21 +414,19 @@ class WorkspaceAssistantManager:
     def last_reply(self, user_id: str) -> str | None:
         """The last result text this user's assistant produced, if any.
 
-        Nothing is persisted to the DB for the assistant — the live
-        session object is the only place the latest answer exists.
-        ``None`` when the user never started a session or it has not
-        answered yet.
+        Nothing is persisted to the DB for the assistant — the
+        ``on_result`` callbacks into ``_last_replies`` are the only
+        record, so the answer SURVIVES the session that produced it
+        (a later session that errors before answering must not erase
+        it). ``None`` when the user's assistant never answered.
         """
-        session = self._sessions.get(self._session_key(user_id))
-        if session is None:
-            return None
-        text = getattr(session, '_result_text', '') or ''
-        return text or None
+        return self._last_replies.get(self._session_key(user_id))
 
     def clear_history(self, user_id: str):
-        """Clear message history for a user."""
+        """Clear message history for a user (and their last reply)."""
         key = self._session_key(user_id)
         self._message_history.pop(key, None)
+        self._last_replies.pop(key, None)
 
 
 # Singleton

@@ -12,7 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from tests.conftest import assert_test_home_isolated
+from tests.conftest import (
+    assert_test_home_isolated,
+    e2e_requested,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -29,11 +32,36 @@ class TestGuard:
                 home / '.vibe-seller', home, e2e_run=False
             )
 
-    def test_any_other_home_passes_in_a_non_e2e_run(self, tmp_path):
+    def test_any_other_home_passes_without_a_forced_home(self, tmp_path):
         home = _home(tmp_path)
-        # The forced temp home, a developer-provided home, anything.
+        # With no forced home known (the historical call shape), the
+        # guard can only refuse the default real home.
         assert_test_home_isolated(
             tmp_path / 'vibe-seller-test-home-x', home, e2e_run=False
+        )
+
+    def test_a_home_that_is_not_the_forced_one_is_refused(self, tmp_path):
+        """The 2026-11 review hole: an exported VIBE_HOME latched by a
+        pre-conftest ``app.*`` import made the suite run against a
+        REAL (non-default) home, and the old guard — which only knew
+        the default-home spelling — passed it. With the forced home
+        known, anything else is refused."""
+        home = _home(tmp_path)
+        with pytest.raises(RuntimeError, match='neither the real'):
+            assert_test_home_isolated(
+                tmp_path / 'exported-e2e-home' / '.vibe-seller',
+                home,
+                e2e_run=False,
+                forced_home=str(tmp_path / 'vibe-seller-test-home-x'),
+            )
+
+    def test_the_forced_home_passes(self, tmp_path):
+        home = _home(tmp_path)
+        assert_test_home_isolated(
+            tmp_path / 'vibe-seller-test-home-x',
+            home,
+            e2e_run=False,
+            forced_home=str(tmp_path / 'vibe-seller-test-home-x'),
         )
 
     def test_an_e2e_run_may_target_the_default_home(self, tmp_path):
@@ -54,3 +82,38 @@ class TestGuard:
         with pytest.raises(RuntimeError):
             # The UNRESOLVED alias — the guard must resolve it itself.
             assert_test_home_isolated(alias, home, e2e_run=False)
+
+
+class TestE2eDetection:
+    """``--e2e`` must be detected the way pytest itself reads it —
+    including PYTEST_ADDOPTS, which never appears in ``sys.argv``.
+    Pre-fix, a ``PYTEST_ADDOPTS='--e2e' pytest tests/e2e`` run executed
+    e2e tests while the conftest took the NON-e2e branch (throwaway
+    home, no E2E env derivation)."""
+
+    def test_plain_argv_token(self, monkeypatch):
+        monkeypatch.setattr('sys.argv', ['pytest', 'tests/e2e', '--e2e'])
+        monkeypatch.delenv('PYTEST_ADDOPTS', raising=False)
+        assert e2e_requested() is True
+
+    def test_argv_without_the_flag(self, monkeypatch):
+        monkeypatch.setattr('sys.argv', ['pytest', 'tests/unit'])
+        monkeypatch.delenv('PYTEST_ADDOPTS', raising=False)
+        assert e2e_requested() is False
+
+    def test_pytest_addopts_is_read_too(self, monkeypatch):
+        """The CI-relevant shape: options injected via PYTEST_ADDOPTS
+        are invisible in sys.argv."""
+        monkeypatch.setattr('sys.argv', ['pytest', 'tests/e2e/test_x.py'])
+        monkeypatch.setenv('PYTEST_ADDOPTS', '--e2e')
+        assert e2e_requested() is True
+
+    def test_addopts_without_the_flag(self, monkeypatch):
+        monkeypatch.setattr('sys.argv', ['pytest'])
+        monkeypatch.setenv('PYTEST_ADDOPTS', '-k foo')
+        assert e2e_requested() is False
+
+    def test_addopts_may_carry_several_tokens(self, monkeypatch):
+        monkeypatch.setattr('sys.argv', ['pytest'])
+        monkeypatch.setenv('PYTEST_ADDOPTS', '-n 4 --e2e -vv')
+        assert e2e_requested() is True

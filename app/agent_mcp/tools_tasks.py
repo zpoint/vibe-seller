@@ -16,6 +16,7 @@ from app.agent_mcp.files import (
     as_upload_file,
     decode_upload,
 )
+from app.agent_mcp.lifecycle import schedule_fired
 from app.agent_mcp.registry import schema, tool
 from app.agent_mcp.support import (
     DEFAULT_LIST_LIMIT,
@@ -224,6 +225,16 @@ async def wait_task(ctx: McpContext, args: dict) -> dict:
     # statuses (pending → queued → running) are progress; returning on
     # them would turn a long-poll into a busy loop.
     while True:
+        # The budget is checked BEFORE the iteration's work, not after
+        # it: one poll cycle costs a DB read plus two route probes, and
+        # with the check last, that work ran past the deadline before
+        # the loop noticed (a 1 s wait could answer at 1.6 s+). With it
+        # first, the ceiling is honest — the caller re-issues the wait
+        # and any news that landed inside the final interval answers
+        # instantly on that next call.
+        if time.monotonic() >= deadline:
+            reason = 'timeout'
+            break
         # A dropped client ends the wait instead of polling on: the
         # response will never be read, and the poll would otherwise
         # hold a request slot for up to the full timeout. The reason
@@ -253,16 +264,24 @@ async def wait_task(ctx: McpContext, args: dict) -> dict:
         if status in TERMINAL_STATUSES:
             reason = 'terminal'
             break
-        if status in NEEDS_OPERATOR_STATUSES:
+        if status in NEEDS_OPERATOR_STATUSES and not schedule_fired(task):
+            # `planned` needs an operator — EXCEPT on a schedule-fired
+            # task, whose plan is the schedule's frozen one: the queue
+            # auto-executes it, so the state is pre-execution, not a
+            # checkpoint. Reporting needs_operator there would steer
+            # the agent into review_plan, and rejecting that plan
+            # swaps in an auto-approved revision (see
+            # app/agent_mcp/lifecycle.py _SCHEDULE_FIRED_MEANINGS).
             reason = 'needs_operator'
             break
         if status in WAITING_STATUSES:
             reason = 'waiting'
             break
-        if time.monotonic() >= deadline:
-            reason = 'timeout'
-            break
-        await asyncio.sleep(WAIT_POLL_SECONDS)
+        # Never sleep past the caller's budget: a fixed interval with
+        # a fraction of it left pushed the next deadline check (and
+        # its work) past the ceiling.
+        remaining = deadline - time.monotonic()
+        await asyncio.sleep(max(0.05, min(WAIT_POLL_SECONDS, remaining)))
 
     guidance = await guidance_for(ctx, final_task)
     return {
@@ -540,6 +559,10 @@ async def review_plan(ctx: McpContext, args: dict) -> dict:
     '— it keeps the plan, the transcript and the progress — so use it '
     'for a mid-way or transient error and for follow-ups; use '
     'retry_task when the approach or the inputs were wrong. '
+    'WARNING: on a task parked at `planned` the message is a plan '
+    'REJECTION — the text becomes the re-plan feedback (the route '
+    'treats any incoming message as the reject verdict). Use '
+    'review_plan there, never a clarification. '
     'attachments: files the agent should work on next (same shape and '
     'limits as create_task) — they reach the agent with this message, '
     'as an upload in the chat bar does.',

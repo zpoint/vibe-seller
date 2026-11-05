@@ -32,7 +32,11 @@ Route guards each derivation cites (verified 2026-11-04):
   ``status != PLANNED`` → 400, and ``plan is None`` → 400. (Approve
   on a plan-only task freezes the plan onto its schedule —
   ``execute_planned_task`` → ``approve_plan`` →
-  ``_commit_plan_only_approval``.)
+  ``_commit_plan_only_approval``.) NOT named for a schedule-FIRED
+  task at ``planned``: its plan is the schedule's frozen one and the
+  queue auto-executes it (``task_queue._dispatch``) — a review there
+  would discard an already-accepted plan (see
+  ``_SCHEDULE_FIRED_MEANINGS``).
 * ``answer_question`` — ``app/routers/tasks_conversation.py``
   ``answer_question``: 409 unless a live session or a parked
   question matches — i.e. unless the pending-question flag is set.
@@ -44,7 +48,9 @@ Route guards each derivation cites (verified 2026-11-04):
   finished one).
 * ``wait_task``     — the MCP long-poll; it returns instantly on
   planned/waiting/terminal, so it is only named for in-flight
-  states where waiting means something.
+  states where waiting means something — except a schedule-FIRED
+  ``planned``, which is pre-execution (the poll keeps waiting for
+  the queue to pick the frozen plan up).
 * ``run_schedule``  — ``app/routers/schedules.py``
   ``trigger_schedule``: 409 for a plan-mode schedule unless
   ``plan_status == ready``.
@@ -112,7 +118,9 @@ TASK_STATUS_MEANINGS: dict[TaskStatus, str] = {
         'Plan ready — review_plan approves (executes) or rejects '
         'with feedback (revises). An unreviewed planned task holds '
         "one of the server's agent slots until it is approved, "
-        'rejected or stopped — never abandon one.'
+        'rejected or stopped — never abandon one. Sending it a '
+        'message (send_message) is itself a REJECTION: the message '
+        'becomes the re-plan feedback — use review_plan.'
     ),
     TaskStatus.RUNNING: (
         'The agent is executing the task; it may ask a question.'
@@ -140,11 +148,33 @@ _PLAN_ONLY_MEANINGS: dict[TaskStatus, str] = {
         'approving (review_plan) freezes the plan onto the schedule '
         'and nothing executes. An unreviewed planned task holds one '
         "of the server's agent slots — approve, reject or stop it, "
-        'never abandon one.'
+        'never abandon one. A message REJECTS the plan and re-plans '
+        'with the text as feedback.'
     ),
     TaskStatus.COMPLETED: (
         "Done — it authored its schedule's plan; nothing was "
-        'executed. send_message revises it.'
+        'executed. send_message revises it; retry_task re-authors '
+        'from scratch.'
+    ),
+}
+
+# Schedule-FIRED tasks (``schedule_id`` set and NOT ``is_plan_only``):
+# the plan on the row is the schedule's FROZEN plan, pre-seeded at fire
+# time (``trigger_schedule`` / the cron path), and the queue
+# auto-executes it (``task_queue._dispatch`` routes on ``task.plan``).
+# The one status where that changes what the operator should do is
+# ``planned``: the plan was already accepted when the schedule was
+# armed, so an interactive review would be wrong — and acting on it is
+# worse: rejecting (or sending any message) discards the approved plan
+# and re-plans with AUTO-approval (``_follow_up_auto_approve`` is true
+# for every task with a ``schedule_id``).
+_SCHEDULE_FIRED_MEANINGS: dict[TaskStatus, str] = {
+    TaskStatus.PLANNED: (
+        'Auto-executing the frozen plan from its schedule — it starts '
+        'on its own; wait_task follows it. The plan was accepted when '
+        'the schedule was armed, so review_plan is not offered — and '
+        'rejecting or messaging the task would discard that plan and '
+        're-plan with automatic approval. Do not.'
     ),
 }
 
@@ -184,6 +214,18 @@ _NEEDS_PLAN_NONE_MEANING = (
     'No plan authored yet; re-plan to author one. It cannot fire.'
 )
 
+# ``planning`` on a schedule whose planning task has already ENDED
+# (failed or stopped): the row lags reality until the plan reaper
+# reconciles it (minutes). Telling the agent "a plan-only task is
+# authoring the plan" here would point it at a planner that no longer
+# exists.
+_DEAD_PLANNER_MEANING = (
+    'The planning task already ended (failed or stopped) before a '
+    'plan froze — the schedule has not reconciled it yet. Nothing is '
+    'coming: replan (update_schedule replan=true) starts a fresh '
+    'planner. It cannot fire.'
+)
+
 # A status the enum does not know (only reachable by a hand-edited
 # row). Reported as-is instead of raising: one bad row must not
 # make a whole listing fail.
@@ -203,11 +245,17 @@ def _task_next_actions(
     has_plan: bool,
     has_active_descendant: bool = False,
     has_pending_image: bool = False,
+    schedule_fired: bool = False,
 ) -> list[str]:
     """The tools that make sense right now, best first.
 
     Derived from the same groups the routes check (see the module
     docstring for the citation per tool) — never a per-status list.
+    ``schedule_fired`` marks a task whose plan is its schedule's
+    frozen plan (see ``_SCHEDULE_FIRED_MEANINGS``): the auto-executed
+    ``planned`` state offers wait_task (it moves on its own) instead
+    of review_plan (the plan is already accepted — and rejecting it
+    would swap in an auto-approved revision).
     """
     actions: list[str] = []
     if has_pending_question:
@@ -221,15 +269,23 @@ def _task_next_actions(
         # future until confirm/cancel). image_request(get) is the read
         # that names the card; confirm/cancel resolve it.
         actions.append(IMAGE_REQUEST)
-    if status == TaskStatus.PLANNED and has_plan:
-        # execute_plan: PLANNED + a plan (both guards).
+    if status == TaskStatus.PLANNED and has_plan and not schedule_fired:
+        # execute_plan: PLANNED + a plan (both guards). A schedule-
+        # fired planned task is NOT this shape: its plan is the
+        # schedule's frozen one and the queue executes it without a
+        # review (see _SCHEDULE_FIRED_MEANINGS).
         actions.append(REVIEW_PLAN)
     if status in WAKEABLE or status in _TERMINAL:
         # send_task_message wakes a WAITING task, continues a
         # finished one. No status guard exists; named where it is
         # the move.
         actions.append(SEND_MESSAGE)
-    if status in _IN_FLIGHT:
+    if status in _IN_FLIGHT or (
+        schedule_fired and status is TaskStatus.PLANNED
+    ):
+        # A schedule-fired task at `planned` is a PRE-execution state
+        # (the queue has not picked it up yet), not a checkpoint —
+        # wait_task blocks until it starts, exactly like pending.
         actions.append(WAIT_TASK)
     if status in STOPPABLE:
         actions.append(STOP_TASK)
@@ -244,6 +300,19 @@ def _task_next_actions(
         # route's own query.
         actions.append(DELETE_TASK)
     return actions
+
+
+def schedule_fired(task) -> bool:
+    """Whether *task* runs its schedule's FROZEN plan (a fire).
+
+    True exactly for tasks with a ``schedule_id`` that are NOT
+    plan-only authors: their ``plan`` was pre-seeded by the trigger /
+    cron path and the queue auto-executes it. The one guidance
+    consequence is at ``planned`` (see ``_SCHEDULE_FIRED_MEANINGS``).
+    """
+    return bool(getattr(task, 'schedule_id', None)) and not bool(
+        getattr(task, 'is_plan_only', False)
+    )
 
 
 def task_guidance(
@@ -270,6 +339,12 @@ def task_guidance(
     must not be offered ``delete_task``. The tool layer resolves it
     with the route's own query.
 
+    Two task shapes re-read a status through their own lens, both
+    derived from the row (no extra flags): a PLAN-ONLY task
+    (``is_plan_only``) authored a schedule's plan and never executes;
+    a SCHEDULE-FIRED task (``schedule_id`` set, not plan-only) runs
+    the schedule's frozen plan without an interactive review.
+
     A status the enum does not know is reported as-is with a
     "look at it" meaning rather than raising: one hand-edited row
     must not make a whole task listing fail.
@@ -283,9 +358,12 @@ def task_guidance(
             'next_actions': [GET_TASK],
         }
     plan_only = bool(getattr(task, 'is_plan_only', False))
+    fired = schedule_fired(task)
     meaning = (
-        _PLAN_ONLY_MEANINGS.get(status) if plan_only else None
-    ) or TASK_STATUS_MEANINGS[status]
+        (_PLAN_ONLY_MEANINGS.get(status) if plan_only else None)
+        or (_SCHEDULE_FIRED_MEANINGS.get(status) if fired else None)
+        or TASK_STATUS_MEANINGS[status]
+    )
     return {
         'status': status.value,
         'status_meaning': meaning,
@@ -295,6 +373,7 @@ def task_guidance(
             has_plan=task.plan is not None,
             has_active_descendant=has_active_descendant,
             has_pending_image=has_pending_image,
+            schedule_fired=fired,
         ),
     }
 
@@ -313,6 +392,7 @@ def _plan_next_actions(
     is_active: bool,
     plan_status: PlanStatus,
     needs_plan: bool,
+    planner_terminal: bool = False,
 ) -> list[str]:
     """The tools that make sense for a schedule in this plan state.
 
@@ -324,15 +404,29 @@ def _plan_next_actions(
       that preserves the human checkpoint: the plan is not ready yet,
       so the schedule cannot fire, and pausing now closes the window
       before the plan freezes.
-    * ``replan`` — a plan-mode schedule that is not already planning.
+    * ``replan`` — a plan-mode schedule that is not already planning,
+      OR one whose planner has ended (``planner_terminal``): the
+      /replan route's idempotency early-return only covers a
+      NON-terminal planner, so with a dead one replan spawns a fresh
+      task instead of no-op'ing.
     * ``paused=false`` (resume) — 409 unless the plan gate is open.
 
     A PAUSED schedule mid-``planning`` therefore names no update:
     pausing again is a no-op, resume would be refused, replan is an
-    idempotent no-op, and the move is to wait for the planner.
+    idempotent no-op, and the move is to wait for the planner —
+    UNLESS the planner already ended, when replan is the move and
+    waiting is waiting on nothing.
     """
     actions: list[str] = []
     if plan_status == PlanStatus.PLANNING:
+        if planner_terminal:
+            # The planning task is FAILED or stopped but the schedule
+            # row still says `planning` (the reaper reconciles it
+            # within minutes). Nothing will freeze on its own: name
+            # replan, and do NOT point the agent at wait_task —
+            # following a dead planner is exactly the wait that never
+            # ends.
+            return [UPDATE_SCHEDULE]
         if is_active:
             # Pause it FIRST: the plan freezes on its own, and once
             # it is ready the schedule fires unattended. Naming this
@@ -345,11 +439,17 @@ def _plan_next_actions(
         # task-level review_plan freezes it.
         actions += [WAIT_TASK, GET_TASK]
     if _plan_gate_open(plan_status, needs_plan):
-        # trigger_schedule accepts regardless of is_active.
-        actions.append(RUN_SCHEDULE)
-        if not is_active:
-            # Resume: accepted because the gate is open.
+        if is_active:
+            # trigger_schedule accepts regardless of is_active.
+            actions.append(RUN_SCHEDULE)
+        else:
+            # PAUSED with the gate open: resume leads. run_schedule
+            # would fire the schedule DESPITE the pause (the web UI's
+            # Run-now button is not disabled by it), so naming it
+            # first invites skipping the checkpoint the pause
+            # established — resume is the checkpoint-honouring move.
             actions.append(UPDATE_SCHEDULE)
+            actions.append(RUN_SCHEDULE)
     elif plan_status != PlanStatus.PLANNING:
         # Plan-mode schedule, gate closed, not mid-planning:
         # stale / failed / never-authored all move through replan.
@@ -359,7 +459,9 @@ def _plan_next_actions(
     return actions
 
 
-def plan_guidance(schedule: Schedule) -> dict:
+def plan_guidance(
+    schedule: Schedule, *, planner_terminal: bool = False
+) -> dict:
     """Meaning + fire-ability + next actions for a schedule's plan.
 
     ``fires`` answers "will this schedule fire as things stand?":
@@ -367,6 +469,13 @@ def plan_guidance(schedule: Schedule) -> dict:
     paused ready schedule reports ``fires: false`` — anything else
     and an external agent reports "scheduled" for a schedule that
     will never run.
+
+    ``planner_terminal`` is resolved by the tool layer from the
+    schedule's own planning task (``current_planning_task_id``): a
+    FAILED or stopped planner under a row that still says
+    ``planning`` is the reaper's reconciliation window (up to ~5
+    minutes), and the guidance for it is replan — not "wait for the
+    planner", which would be waiting on nothing.
 
     A plan status the enum does not know is treated as NOT ready
     (gate closed) rather than raising: one hand-edited row must not
@@ -385,6 +494,8 @@ def plan_guidance(schedule: Schedule) -> dict:
         }
     if plan_status == PlanStatus.NONE and needs_plan:
         meaning = _NEEDS_PLAN_NONE_MEANING
+    elif plan_status == PlanStatus.PLANNING and planner_terminal:
+        meaning = _DEAD_PLANNER_MEANING
     else:
         meaning = PLAN_STATUS_MEANINGS[plan_status]
     return {
@@ -393,7 +504,10 @@ def plan_guidance(schedule: Schedule) -> dict:
         'fires': bool(schedule.is_active)
         and _plan_gate_open(plan_status, needs_plan),
         'next_actions': _plan_next_actions(
-            bool(schedule.is_active), plan_status, needs_plan
+            bool(schedule.is_active),
+            plan_status,
+            needs_plan,
+            planner_terminal=planner_terminal,
         ),
     }
 
@@ -410,29 +524,29 @@ def render_instructions() -> str:
     tight; the per-status meanings carry the detail.
     """
     return (
-        'Task lifecycle: pending (not started) → queued (waiting for '
-        'a free slot) → designing (agent writes a plan, read-only) → '
-        'planned (plan ready; review_plan approves or rejects with '
-        'feedback) → running (executing) → waiting (parked on '
-        'children or a condition; send_message wakes it) → completed '
-        'or failed. A question can arrive mid-run: wait_task reason='
+        'Task lifecycle: pending (not started) → queued (free-slot '
+        'wait) → designing (agent writes a plan) → planned (plan '
+        'ready; review_plan approves or rejects; a message is itself '
+        'a rejection) → running (executing) → waiting (parked on '
+        'children/conditions; send_message wakes it) → completed '
+        'or failed. A schedule-fired task auto-runs its frozen plan '
+        'at planned — never review or message it. A question can '
+        'arrive mid-run: wait_task reason='
         'question → get_pending_questions → answer_question (key = '
-        'full question text). An image proposal parks the agent: '
+        'question text). An image proposal parks the agent: '
         'needs_operator pending.kind=image_confirm → '
-        'image_request. Follow live tasks with '
-        'wait_task: on question, on needs_operator (planned: '
-        'review_plan) or terminal (read '
-        'get_task). failed: retry_task '
-        'starts over (wipes the workspace); send_message continues. '
-        'completed: send_message continues or retry_task re-runs. A '
+        'image_request. Follow live tasks with wait_task; on '
+        'needs_operator act (planned: review_plan); read get_task '
+        'on terminal. failed: retry_task starts over. completed: '
+        'send_message continues, retry re-runs. A '
         'planned task holds an agent slot until approved, rejected or '
         'stopped — never abandon one. Schedule plan lifecycle: none '
         '(no plan; fires as-is) → planning (a plan-only task authors '
-        'the plan; wait_task follows it) → ready (accepted '
-        'automatically; it WILL fire — show the plan to your user, '
-        'pause or replan if they object) → stale (prompt edited; '
-        're-plan) → failed (planner failed; re-plan). A schedule whose '
-        'plan is not ready never fires; a paused one neither.'
+        'it; wait_task follows) → ready (accepted '
+        'automatically; it WILL fire — show the plan to your user; '
+        'pause/replan if they object) → stale (prompt edited; '
+        're-plan) → failed (planner failed; re-plan). A not-ready '
+        'plan never fires; a paused schedule neither.'
     )
 
 
@@ -504,6 +618,14 @@ def render_status_reference() -> str:
         lines.append(f'- `{status.value}` — {meaning}')
     lines += [
         '',
+        'A task FIRED by its schedule (schedule_id set) runs the',
+        'frozen plan without a review:',
+        '',
+    ]
+    for status, meaning in _SCHEDULE_FIRED_MEANINGS.items():
+        lines.append(f'- `{status.value}` — {meaning}')
+    lines += [
+        '',
         '### Schedule plan statuses',
         '',
         'Shown for an active schedule; a paused one fires in no plan',
@@ -568,5 +690,6 @@ __all__ = [
     'regenerate_flows_section',
     'render_instructions',
     'render_status_reference',
+    'schedule_fired',
     'task_guidance',
 ]
