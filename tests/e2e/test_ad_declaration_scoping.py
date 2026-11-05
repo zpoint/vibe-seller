@@ -124,6 +124,19 @@ def _scope_text(decl: dict) -> str:
 
 
 @pytest.mark.e2e
+# The business facts a bid review turns on (margin, goal) come from
+# the user, as they would from a real seller. Left out, the agent asks,
+# and the session auto-answer picks whichever option the MODEL listed
+# first: a run that listed "30%" first got an over-break-even campaign,
+# trims, a negation and a cross-SKU question; one that listed "40%" got
+# a modest trim. Same test, 5x the reasoning, and a timeout. Stating
+# the facts makes the job this test measures the same job every run.
+SELLER_FACTS = (
+    'For context: we make about 40% margin on everything we sell, and '
+    'the goal right now is to grow sales, not to cut spend.'
+)
+
+
 class TestScopeSurvivesAFollowUp:
     def test_a_narrow_follow_up_reviews_only_what_was_asked(
         self, api_client, ads_console
@@ -168,7 +181,7 @@ class TestScopeSurvivesAFollowUp:
                     f'Now review the keyword bids on the "{CAMPAIGN_A_NAME}" '
                     f'campaign only ({CAMPAIGN_A}). Leave '
                     f'"{CAMPAIGN_B_NAME}" alone — I do not want to touch it '
-                    'this week.'
+                    f'this week. {SELLER_FACTS}'
                 )
             },
         )
@@ -332,7 +345,8 @@ class TestAnUnscopedRequestStaysWide:
             description=(
                 f'Our ad console is at {ads_console.base} — open it with '
                 'the browser-use CLI, go through every campaign, and give '
-                'me a keyword-by-keyword bid recommendation for each one.'
+                'me a keyword-by-keyword bid recommendation for each one. '
+                f'{SELLER_FACTS}'
             ),
             skip_reflection=True,  # see the scoped test above
         )
