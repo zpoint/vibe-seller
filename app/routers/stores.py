@@ -247,6 +247,7 @@ async def update_store(
     store.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     await db.refresh(store)
+    telemetry.send(TelemetryEvent.STORE_UPDATED, {'store_id': store_id})
     return _to_response(store)
 
 

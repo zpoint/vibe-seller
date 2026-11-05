@@ -109,6 +109,7 @@ async def put_vision_config(
     body = sanitize_json(body)
     vision.save_vision_config(body.get('kie_api_key', ''))
     key = vision.get_kie_api_key()
+    telemetry.send(TelemetryEvent.VISION_KEY_SAVED, {'key_set': bool(key)})
     return {
         'kie_api_key_set': bool(key),
         'kie_api_key_masked': vision.mask_key(key),

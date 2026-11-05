@@ -179,6 +179,16 @@ def base_properties() -> dict:
     }
 
 
+def set_person_properties(properties: dict) -> None:
+    """Set person-level properties ($set) on this install."""
+    if _client is None or _install_id is None:
+        return
+    try:
+        _client.set(distinct_id=_install_id, properties=properties)
+    except Exception:
+        logger.debug('Telemetry $set failed', exc_info=True)
+
+
 def user_hash(user_id: str | None) -> str | None:
     """Per-install seat pseudonym: sha256(install_id:user_id)[:12]."""
     if not user_id:

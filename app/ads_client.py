@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any
 
 import httpx
@@ -407,3 +408,20 @@ def resolve_store_key(store: Store, marketplace: str | None) -> str:
         f'Store {store.name!r} is authorized on '
         f'{", ".join(sorted(keys))} — name the marketplace.'
     )
+
+
+_CALL_TIMES: list = []
+
+
+def note_api_call() -> None:
+    """Record one /call invocation (24h sliding window, in-memory)."""
+    now = time.time()
+    _CALL_TIMES.append(now)
+    cutoff = now - 86400
+    _CALL_TIMES[:] = [t for t in _CALL_TIMES if t >= cutoff]
+
+
+def api_calls_last_24h() -> int:
+    cutoff = time.time() - 86400
+    _CALL_TIMES[:] = [t for t in _CALL_TIMES if t >= cutoff]
+    return len(_CALL_TIMES)

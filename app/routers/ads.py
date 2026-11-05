@@ -25,13 +25,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app import ads_client, ads_path_guard, ads_skill
+from app import ads_client, ads_path_guard, ads_skill, telemetry
 from app.auth import get_current_user, require_admin
 from app.config import VIBE_SELLER_DIR
 from app.database import get_db
 from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
+from app.telemetry_events import TelemetryEvent
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +61,14 @@ async def sync_stores(
     domain and nothing calls back here, so this is how a deployment finds
     out that a store became authorized.
     """
+    before = {st.id: st.ads_authorized for st in await _all_stores(db)}
     try:
         rows = await ads_client.sync_stores(db)
     except ads_client.AdsServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    for st in await _all_stores(db):
+        if st.ads_authorized and not before.get(st.id):
+            telemetry.send(TelemetryEvent.ADS_STORE_BOUND, {'store_id': st.id})
     if any(r.get('authorized') for r in rows):
         # An authorized store wants the current skill now, not at the next
         # boot: a button a person has to find is one they will forget.
@@ -94,6 +99,10 @@ async def unbind_store(
     store = await db.get(Store, store_id)
     if store is None:
         raise HTTPException(status_code=404, detail='Store not found')
+    telemetry.send(
+        TelemetryEvent.ADS_STORE_UNBOUND,
+        {'store_id': store_id, 'purge': payload.purge},
+    )
     try:
         body = await ads_client.unbind(db, store_id, purge=payload.purge)
     except ads_client.AdsServiceError as exc:
@@ -175,6 +184,7 @@ async def agent_call(
     What constrains the agent is the skill, which the service can revise
     at any time — not a schema frozen into a released client.
     """
+    ads_client.note_api_call()
     path = payload.path if payload.path.startswith('/') else '/' + payload.path
     if path.startswith(ads_client.RESERVED_PREFIXES):
         raise HTTPException(

@@ -22,7 +22,7 @@ class TestTaskSourceDerivation:
         assert r.status_code in (200, 201), r.text
         async with override_async_session() as db:
             task = await db.get(Task, r.json()['id'])
-        assert task.source == 'ui', 'body source must be ignored' 
+        assert task.source == 'ui', 'body source must be ignored'
 
     async def test_parent_task_derives_subtask(
         self, admin_client, override_async_session, install_fake_agent

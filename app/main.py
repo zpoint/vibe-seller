@@ -38,6 +38,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.plugins import get_extension_context
+from app.release_channel import channel_of
 from app.rest_secret_guard import SecretGuardMiddleware
 from app.routers.ads import router as ads_router
 from app.routers.app_settings import router as app_settings_router
@@ -230,6 +231,10 @@ async def lifespan(app: FastAPI):
         props = {}
     # base_properties() (app_version, os, …) is merged in by send().
     telemetry.send(TelemetryEvent.APP_STARTED, props)
+    telemetry.set_person_properties({
+        'app_version': telemetry.APP_VERSION,
+        'release_channel': channel_of(telemetry.APP_VERSION),
+    })
     # Trigger initial email sync in background
     sync_task = asyncio.create_task(sync_all_email_accounts())
     # Start periodic daemon reaper (kills orphaned browser-use)

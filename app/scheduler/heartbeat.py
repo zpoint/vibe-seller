@@ -8,6 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy import func, select
 
 from app import telemetry
+from app.ads_client import api_calls_last_24h
 from app.ai.profiles import ProfileManager
 from app.database import async_session
 from app.models.chat_bot import ChatBot
@@ -16,6 +17,7 @@ from app.models.schedule import Schedule
 from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
+from app.release_channel import channel_of
 from app.telemetry_events import TelemetryEvent
 from app.utils.timezone import get_server_timezone
 
@@ -86,8 +88,13 @@ async def send_install_heartbeat() -> None:
             'email_account_count': email_count,
             'chat_bot_count': chat_bot_count,
             'tasks_last_24h': tasks_last_24h,
+            'ads_calls_last_24h': api_calls_last_24h(),
         },
     )
+    telemetry.set_person_properties({
+        'app_version': telemetry.APP_VERSION,
+        'release_channel': channel_of(telemetry.APP_VERSION),
+    })
 
 
 def _ai_profile_count() -> int:

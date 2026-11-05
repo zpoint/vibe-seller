@@ -58,6 +58,13 @@ class TelemetryEvent:
     IMAGE_GENERATED = 'image_generated'
     WORKSPACE_ASSISTANT_MESSAGE = 'workspace_assistant_message'
 
+    STORE_UPDATED = 'store_updated'
+    ADS_STORE_BOUND = 'ads_store_bound'
+    ADS_STORE_UNBOUND = 'ads_store_unbound'
+    VISION_KEY_SAVED = 'vision_key_saved'
+    DIDA365_AUTHORIZED = 'dida365_authorized'
+    DIDA365_MCP_SETUP = 'dida365_mcp_setup'
+
 
 class TaskSource(enum.StrEnum):
     """What launched a task; recorded on the row at creation."""
