@@ -814,13 +814,19 @@ async def unauthed_client(
 # ── Helpers ──────────────────────────────────────────
 
 
+TERMINAL_STATUSES = ('completed', 'failed')
+
+
 async def wait_for_task(
     client: AsyncClient,
     task_id: str,
-    target: str = 'completed',
+    target: str | tuple[str, ...] = 'completed',
     timeout: float = 10.0,
 ) -> dict:
     """Poll GET /api/tasks/{id} until status matches target or fails.
+
+    *target* is one status, or a tuple of statuses any of which ends
+    the wait (``TERMINAL_STATUSES`` for "finished, either way").
 
     Uses the REAL asyncio.sleep (not the patched fast version) so the
     background pipeline has time to make progress between polls.
@@ -834,14 +840,15 @@ async def wait_for_task(
     """
     # Give the background pipeline a chance to start before polling
     await real_sleep(0.05)
+    targets = (target,) if isinstance(target, str) else target
     data: dict = {}
     for _ in range(int(timeout / 0.1)):
         await real_sleep(0.1)
         resp = await client.get(f'/api/tasks/{task_id}')
         data = resp.json()
-        if data.get('status') == target:
+        if data.get('status') in targets:
             return data
-        if data.get('status') == 'failed' and target != 'failed':
+        if data.get('status') == 'failed':
             return data
     raise AssertionError(
         f'task {task_id} never reached {target!r} within {timeout}s '
