@@ -123,7 +123,6 @@ def _scope_text(decl: dict) -> str:
     return ' | '.join(str(p) for p in parts)
 
 
-@pytest.mark.e2e
 # The business facts a bid review turns on (margin, goal) come from
 # the user, as they would from a real seller. Left out, the agent asks,
 # and the session auto-answer picks whichever option the MODEL listed
@@ -137,6 +136,7 @@ SELLER_FACTS = (
 )
 
 
+@pytest.mark.e2e
 class TestScopeSurvivesAFollowUp:
     def test_a_narrow_follow_up_reviews_only_what_was_asked(
         self, api_client, ads_console
