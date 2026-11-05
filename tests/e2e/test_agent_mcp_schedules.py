@@ -198,6 +198,10 @@ class TestScheduleLifecycle:
             store_id=store_id,
             schedule_type='weekly',
             schedule_time='03:00',
+            # ARMED on purpose: this test drives the fire path. The
+            # tool's default is paused (the human checkpoint) — see
+            # test_create_is_paused_by_default below.
+            paused=False,
         )
         assert created['ok'], created['text']
         data = created['data']
@@ -267,6 +271,38 @@ class TestScheduleLifecycle:
             assert removed['ok'], removed['text']
             for task_id in fired_tasks:
                 mcp.call_tool('delete_task', task_id=task_id)
+
+
+class TestCreateIsPausedByDefault:
+    """The MCP create path arms nothing by default.
+
+    The web UI creates active schedules; the hosted MCP tool creates
+    them PAUSED, because the server accepts a schedule's plan without
+    anyone reading it — an armed schedule fires on its own the moment
+    the plan freezes. The agent resumes it after showing the plan to
+    its user.
+    """
+
+    def test_create_is_paused_and_says_so(self, mcp, store_id):
+        created = mcp.call_tool(
+            'create_schedule',
+            title='MCP e2e paused report',
+            description='Pull the weekly campaign report.',
+            store_id=store_id,
+            schedule_type='weekly',
+            schedule_time='03:20',
+        )
+        assert created['ok'], created['text']
+        data = created['data']
+        schedule_id = data['id']
+        try:
+            assert data['paused'] is True, data
+            assert data['fires'] is False, data
+            # The note tells the agent what to do next.
+            assert 'resume' in (data.get('note') or '').lower(), data
+        finally:
+            removed = mcp.call_tool('delete_schedule', schedule_id=schedule_id)
+            assert removed['ok'], removed['text']
 
 
 # ── Lifecycle guidance in results ───────────────────

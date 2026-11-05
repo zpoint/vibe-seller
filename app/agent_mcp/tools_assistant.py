@@ -103,7 +103,9 @@ def _reply_text(messages: list[dict]) -> str | None:
     'organizes the workspace (knowledge files, store notes) for you. '
     'action=send delivers a message and waits (default ~45 s) for the '
     'reply, which it returns; a slow turn times out and the reply can '
-    'be picked up with action=status. action=status reports whether '
+    'be picked up with action=status. Only ONE send may be in flight '
+    'per user at a time — a second send while one is still waiting '
+    'for its reply is refused. action=status reports whether '
     'it is running and its last reply. action=stop halts it. The '
     'assistant edits workspace files itself; it does not run store '
     'tasks.',
@@ -179,41 +181,54 @@ async def workspace_assistant(ctx: McpContext, args: dict) -> dict:
     timeout = args.get('wait_seconds') or DEFAULT_WAIT_SECONDS
     timeout = max(1, min(int(timeout), MAX_WAIT_SECONDS))
 
-    # Subscribe BEFORE sending: the answer can be fast, and there is
-    # no replay — the bus is live-only, like the SSE stream the UI
-    # reads.
-    collector = asyncio.create_task(_collect_reply(session_key, timeout))
-    try:
-        sent = await call_route(
-            assistant_route.send_message,
-            MessageRequest(
-                content=message,
-                profile_id=args.get('profile_id') or None,
-            ),
-            _user=ctx.user,
+    # ONE in-flight send per user. The reply arrives on a live-only
+    # stream keyed by the USER, not the turn — a second concurrent
+    # send would collect the first turn's messages and done event and
+    # cross the two replies. Refuse (the manager's lock is held for
+    # the whole send-and-wait) instead of racing.
+    lock = manager.send_lock(ctx.user.id)
+    if lock.locked():
+        raise ToolError(
+            'Another workspace_assistant send for this user is still '
+            'waiting for its reply — wait for it to finish (or poll '
+            'workspace_assistant(action=status)) before sending again.'
         )
-    except BaseException:
-        collector.cancel()
-        raise
-    outcome = await collector
+    async with lock:
+        # Subscribe BEFORE sending: the answer can be fast, and there is
+        # no replay — the bus is live-only, like the SSE stream the UI
+        # reads.
+        collector = asyncio.create_task(_collect_reply(session_key, timeout))
+        try:
+            sent = await call_route(
+                assistant_route.send_message,
+                MessageRequest(
+                    content=message,
+                    profile_id=args.get('profile_id') or None,
+                ),
+                _user=ctx.user,
+            )
+        except BaseException:
+            collector.cancel()
+            raise
+        outcome = await collector
 
-    reply = _reply_text(outcome['messages'])
-    result = {
-        'ok': bool((sent or {}).get('ok')),
-        'running': manager.is_running(ctx.user.id),
-        'done': outcome['done'],
-        'timed_out': not outcome['done'],
-        'reply': reply,
-        'messages': outcome['messages'],
-    }
-    if outcome['done'] and outcome.get('return_code') not in (0, None):
-        result['note'] = (
-            f"The assistant's process exited with code "
-            f'{outcome.get("return_code")} — the reply may be partial.'
-        )
-    if not outcome['done']:
-        result['note'] = (
-            'The assistant is still working. Poll '
-            'workspace_assistant(action=status) for its reply.'
-        )
-    return result
+        reply = _reply_text(outcome['messages'])
+        result = {
+            'ok': bool((sent or {}).get('ok')),
+            'running': manager.is_running(ctx.user.id),
+            'done': outcome['done'],
+            'timed_out': not outcome['done'],
+            'reply': reply,
+            'messages': outcome['messages'],
+        }
+        if outcome['done'] and outcome.get('return_code') not in (0, None):
+            result['note'] = (
+                f"The assistant's process exited with code "
+                f'{outcome.get("return_code")} — the reply may be partial.'
+            )
+        if not outcome['done']:
+            result['note'] = (
+                'The assistant is still working. Poll '
+                'workspace_assistant(action=status) for its reply.'
+            )
+        return result

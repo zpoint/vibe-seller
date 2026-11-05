@@ -42,8 +42,17 @@ regresses):
   (e.g. `E2E_VIBE_HOME=~/.vibe-seller-e2e`), or export `VIBE_HOME`
   the same way. With neither set, the default `~/.vibe-seller` is
   used — which is correct on CI, where the server itself lives there.
-  `BACKEND_PORT` is derived from `E2E_BASE_URL`'s port so the test
+  `BACKEND_PORT` is derived from `E2E_BASE_URL`'s port (a URL without
+  an explicit port means the scheme's default, 80/443) so the test
   process cannot create a decoy server log under the wrong name.
+  `--e2e` is detected from the command line AND `PYTEST_ADDOPTS`
+  (options injected there never appear in `sys.argv`).
+
+  **`E2E_VIBE_HOME` requires the server to be on the same
+  filesystem**: the e2e helpers seed and read workspace files by local
+  path. A remote `E2E_BASE_URL` cannot work with it — run those
+  suites from a checkout on the server's host (or in the same
+  container; see [docker/E2E_TESTING.md](../docker/E2E_TESTING.md)).
 
 ```bash
 # e2e against a server on an isolated home + port

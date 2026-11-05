@@ -133,6 +133,9 @@ async def create_ready_schedule(client, *, store_id=None):
             'schedule_type': 'weekly',
             'schedule_time': '09:05',
             'store_id': store_id,
+            # These tests exercise the ready/fire lifecycle, which
+            # needs an ARMED schedule — the tool's default is paused.
+            'paused': False,
         },
     )
     assert not is_error, result
@@ -157,6 +160,10 @@ class TestCreateSchedule:
                 'description': 'Check product links for anomalies',
                 'schedule_type': 'weekly',
                 'schedule_time': '09:05',
+                # Active on purpose: this test pins the ACTIVE-created
+                # guidance (pause named first). The paused default has
+                # its own test.
+                'paused': False,
             },
         )
         assert not is_error, result
@@ -256,14 +263,14 @@ class TestCreateSchedule:
         assert resumed['fires'] is True
         assert 'run_schedule' in resumed['next_actions']
 
-    async def test_create_without_paused_is_active_like_the_ui(
+    async def test_create_defaults_to_paused_until_opt_in(
         self, admin_client, install_fake_agent
     ):
-        """The default stays UI parity: an active schedule.
-
-        ``paused`` is opt-in because the web UI creates active
-        schedules; the tool description and the lifecycle guidance
-        are what tell an agent to pass it.
+        """The tool's default is PAUSED — a deliberate divergence
+        from the web UI (which creates active schedules), documented
+        in the tool description like manage_profile's set_default: a
+        plan the server auto-accepts must not arm itself unless the
+        caller explicitly opted in with ``paused: false``.
         """
         install_fake_agent.default_scenario = FakeAgentScenario(plan=PLAN_TEXT)
         created, is_error = await call_tool(
@@ -277,22 +284,44 @@ class TestCreateSchedule:
             },
         )
         assert not is_error, created
-        assert created['paused'] is False
-        assert created['fires'] is False  # the plan is not ready yet
+        assert created['paused'] is True, 'paused is the default'
+        assert created['fires'] is False
+        # Paused mid-planning: no update named, the planner is the
+        # thing to follow.
+        assert created['next_actions'] == ['wait_task', 'get_task']
+
+        # The opt-in is explicit and quiet: paused=false creates the
+        # schedule ACTIVE, like the UI.
+        armed, is_error = await call_tool(
+            admin_client,
+            'create_schedule',
+            {
+                'title': 'Armed weekly check',
+                'description': 'Check product links for anomalies',
+                'schedule_type': 'weekly',
+                'schedule_time': '09:05',
+                'paused': False,
+            },
+        )
+        assert not is_error, armed
+        assert armed['paused'] is False
+        assert armed['fires'] is False  # the plan is not ready yet
         # And the guidance names the pause — the call that preserves
         # the checkpoint before the plan freezes.
-        assert created['next_actions'][0] == 'update_schedule'
+        assert armed['next_actions'][0] == 'update_schedule'
+        await wait_planner_settled(armed['schedule_id'])
+        await wait_planner_settled(created['schedule_id'])
 
     async def test_create_pause_show_approve_is_a_real_checkpoint(
         self, admin_client, install_fake_agent
     ):
         """The human checkpoint, end to end.
 
-        The server accepts a schedule's plan by itself, so the agent
-        has to make the checkpoint: pause the schedule (it is active
-        from creation), let the plan freeze, show the plan text, and
-        only then resume. Until the resume, `fires` is false — the
-        schedule cannot run anything the user has not seen.
+        The server accepts a schedule's plan by itself, so the tool
+        creates the schedule PAUSED (its default): the plan freezes,
+        the agent shows the plan text, and only then resumes. Until
+        the resume, `fires` is false — the schedule cannot run
+        anything the user has not seen.
         """
         install_fake_agent.default_scenario = FakeAgentScenario(plan=PLAN_TEXT)
         created, is_error = await call_tool(
@@ -407,6 +436,7 @@ class TestCreateSchedule:
                 'description': 'Audit yesterday',
                 'schedule_type': 'days',
                 'schedule_time': '08:00',
+                'paused': False,
             },
         )
         listed, is_error = await call_tool(admin_client, 'list_schedules', {})

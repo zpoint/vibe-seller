@@ -231,6 +231,13 @@ A follow-up on a task that is waiting for an answer **redirects** it
 rather than queueing behind it. If the task is parked on a question card,
 answer the card (`answer_question`), not the composer.
 
+**On a task parked at `planned` a message IS a plan rejection.** The
+route treats any incoming message as the reject verdict — the text
+becomes the re-plan feedback. Use `review_plan` there, never a
+clarification. (On a task FIRED by its schedule, `planned` means the
+frozen plan is auto-executing — never review or message it; follow it
+with `wait_task`.)
+
 ## stop_task
 
 **Purpose.** Stop the agent working on a task. The task ends as
@@ -361,7 +368,7 @@ recurrence.
 | `fanout_serial` | bool | Optional. Fanout only: run the batch's stores one at a time. |
 | `finalize_description` | string | Optional. Fanout only: a reduce task run after every store of a batch finishes. |
 | `ai_profile_id` | string | Optional. Pin an AI profile. Omit to inherit the owner's current default at fire time. |
-| `paused` | bool | Optional. `true` creates the schedule paused, so it cannot fire until you resume it with `update_schedule(paused: false)`. Pass `true` unless your user already told you to go ahead. |
+| `paused` | bool | Optional. Omit (or `true`) to create the schedule PAUSED — it cannot fire until you resume it with `update_schedule(paused: false)`. Pass `false` only when your user already told you to go ahead (the web UI creates active schedules; paused is this tool's default). |
 
 **Returns.** The schedule, plus `plan_status`, `plan_task_id`, `plan`
 and the lifecycle block.
@@ -372,15 +379,15 @@ plan is frozen onto the schedule (`plan_status=ready`) and the
 planning task executes **nothing**. Until then the schedule does not
 fire.
 
-**Pass `paused: true` unless your user already told you to go ahead.**
-The schedule is then created paused, so it cannot fire until you resume
+**The default is PAUSED — resume only with your user's go-ahead.**
+The schedule is created paused, so it cannot fire until you resume
 it — which is what keeps its plan a checkpoint your user can actually
-see. While the plan is still being written the schedule could not have
-fired anyway, so pausing at creation closes that window completely;
-pausing after the plan is ready leaves a window in which the schedule
-fires on its own, with nobody having seen the plan. The default
-(`paused` omitted) is an active schedule, exactly what the web UI
-creates.
+see: the plan is accepted by the server without anyone reading it, and
+an armed schedule fires on its own once the plan is ready. (The web UI
+creates active schedules; the divergence is deliberate, like
+`manage_profile` leaving `set_default` off.) If the pause step itself
+fails, the tool deletes the schedule it just created — nothing
+half-armed is left behind; retry the create.
 
 **The plan is accepted by the server, not by a human.** `plan_status:
 ready` means the server took the plan the planner wrote — nobody
@@ -423,7 +430,8 @@ the pause/resume.
 ## delete_schedule
 
 **Purpose.** Delete a schedule. Its future fires stop; the fired
-tasks are kept.
+tasks are kept, and an in-flight planning task is stopped (ended as
+`failed`), never left parked at `planned` holding an agent slot.
 
 **Arguments.** `schedule_id` (string, required).
 
@@ -444,6 +452,12 @@ and answers with `mode: fanout` instead — find the tasks with
 **The plan must be ready.** A schedule whose plan is not `ready` never
 fires; the refusal says why, and it is not an error you can retry
 your way out of — re-plan it first.
+
+**It fires a PAUSED schedule too.** The web UI's Run-now button is not
+disabled by the pause, and neither is this tool — get your user's
+go-ahead before firing a paused one; resuming
+(`update_schedule(paused: false)`) is the move when they have already
+approved the plan.
 
 **The fired task does not re-plan.** It runs the frozen plan, so the
 work happens without another review stop.

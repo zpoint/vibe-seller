@@ -129,25 +129,52 @@ async def create_task(ctx: McpContext, args: dict) -> dict:
         tasks_route.create_task, data, db=ctx.db, current_user=ctx.user
     )
     attached = []
-    for filename, mime_type, payload in uploads:
-        record = await call_route(
-            attachments_route.upload_attachment,
-            task.id,
-            as_upload_file(filename, mime_type, payload),
-            db=ctx.db,
-            _user=ctx.user,
-        )
-        attached.append({
-            'id': record['id'],
-            'file_name': record['file_name'],
-            'file_size': record['file_size'],
-        })
-    if uploads:
-        # The resume half of the deferred create: the same route the
-        # UI's "upload then start" chain ends on.
-        await call_route(
-            tasks_route.start_task, task.id, db=ctx.db, _user=ctx.user
-        )
+    try:
+        for filename, mime_type, payload in uploads:
+            record = await call_route(
+                attachments_route.upload_attachment,
+                task.id,
+                as_upload_file(filename, mime_type, payload),
+                db=ctx.db,
+                _user=ctx.user,
+            )
+            attached.append({
+                'id': record['id'],
+                'file_name': record['file_name'],
+                'file_size': record['file_size'],
+            })
+        if uploads:
+            # The resume half of the deferred create: the same route the
+            # UI's "upload then start" chain ends on.
+            await call_route(
+                tasks_route.start_task, task.id, db=ctx.db, _user=ctx.user
+            )
+    except Exception as exc:
+        # A deferred task whose upload or start failed stays PENDING
+        # forever — no agent is attached, no error column is set, no
+        # SSE event fires (the UI routes this through onStartError for
+        # exactly that reason; an agent has no screen). Delete what was
+        # just created and report, so the caller can retry instead of
+        # following a task that will never run.
+        try:
+            await call_route(
+                tasks_route.delete_task,
+                task.id,
+                db=ctx.db,
+                _user=ctx.user,
+            )
+        except Exception:
+            raise ToolError(
+                f'Attachments upload/start failed ({exc}) and cleaning '
+                f'up the created task {task.id} failed too — it is '
+                'PENDING and will never start; stop/delete it before '
+                'retrying.'
+            ) from exc
+        raise ToolError(
+            f'Attachments upload/start failed ({exc}) — the task was '
+            'deleted again; nothing half-created was left behind. '
+            'Retry the create.'
+        ) from exc
     fresh = await ctx.db.get(Task, task.id)
     return {
         **await guidance_for(ctx, fresh or task),

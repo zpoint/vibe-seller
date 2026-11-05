@@ -13,6 +13,7 @@ External agents connect over the MCP endpoint at `/api/mcp` with a `vst_` API to
 | GET | `/api/auth/status` | **Public.** Returns `{ auth_required: bool }` |
 | POST | `/api/auth/login` | Login with `identifier` (username or email) + `password`; sets httpOnly cookie. If `identifier` contains `@`, matches by email; otherwise by username. |
 | POST | `/api/auth/logout` | Clear auth cookie |
+| POST | `/api/auth/refresh` | Roll the session cookie forward by another 24h window (the frontend keepalive calls it on real activity). **Refused (403) for API-token callers** — a `vst_` credential must never be traded for a session JWT that outlives the token's revocation. |
 | GET | `/api/auth/me` | Return current user (includes `username`, nullable `email`) |
 | PATCH | `/api/auth/me/password` | Change own password (`current_password` + `new_password`) |
 | PATCH | `/api/auth/me/profile` | Update own profile: `username`, `name`, `email` (nullable, `EmailStr`), `plan_mode_default`. Admin can change email; send `null` to clear email. |
@@ -63,7 +64,7 @@ create-style route is a 400, never a stored `****`.
 | GET | `/api/users` | List all users |
 | POST | `/api/users` | Create user (`username` required, `name`, `email` optional/validated, `password`, `role`) |
 | PUT | `/api/users/{id}` | Update user (supports `username`, `email`; send `email: null` to clear) |
-| DELETE | `/api/users/{id}` | Soft-delete (set is_active=false) |
+| DELETE | `/api/users/{id}` | Delete the user: their API tokens are deleted with them, owned events are reassigned / activity detached, and the row is removed (hard delete — the UI's "delete" is not a deactivation). |
 
 ## `stores.py` — Store Management
 
@@ -78,11 +79,11 @@ create-style route is a 400, never a stored `****`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/tasks?store_id=&include_archived=&parent_task_id=` | List tasks (filter by store, archived, or parent task) |
+| GET | `/api/tasks?store_id=&include_archived=&parent_task_id=&status=&limit=` | List tasks, newest first (filter by store, archived, parent task, or status; `limit` caps the count). `status`/`limit` are the filters the hosted MCP `list_tasks` tool uses — they live in the route so both callers run the same query. |
 | POST | `/api/tasks` | Create task (auto mode by default; `plan_mode=true` for plan mode; optional `parent_task_id` to create a sub-task — sub-tasks must have a `store_id`) |
 | GET | `/api/tasks/{task_id}` | Get task by ID |
 | DELETE | `/api/tasks/{task_id}` | Cascade-delete a task and its full subtree (children, grandchildren, …). Removes dependent rows (`task_steps`, `task_messages`, `task_attachments`, `task_logs`, `screenshots`), drops the on-disk workspace at `~/.vibe-seller/tasks/{task_id}/`, and best-effort stops any running agent. Refuses with 409 if any task in the subtree is in `designing` / `running` — caller must Stop first. Idempotent: returns `{ok: true}` even when the task does not exist. Cleanup logic lives in `app/task_delete.py` and is shared with the auto-cleanup job. |
-| POST | `/api/tasks/{task_id}/retry` | Retry failed/completed task (clears plan_history, wipes workspace) |
+| POST | `/api/tasks/{task_id}/retry` | Retry failed/completed task (clears plan_history, wipes workspace). For a schedule-owned plan-mode task with a ready plan, the frozen plan is re-seeded so the retry executes it directly. A plan-only task (`is_plan_only`) is excluded from that re-seed: retrying the planner re-authors the plan instead of executing it. |
 | POST | `/api/tasks/{task_id}/start` | Queue task via scheduler |
 | GET | `/api/tasks/{task_id}/steps` | Get task steps |
 | POST | `/api/tasks/{task_id}/agent/start` | Start Claude Code agent |
@@ -98,7 +99,7 @@ create-style route is a 400, never a stored `****`.
 | PUT | `/api/tasks/{task_id}/schedule-state/{key}` | Upsert a cross-run cursor (agent-only via MCP `vibe_seller_set_schedule_state`). Body: `{value: string}` (non-empty). Uses SQLite `INSERT ON CONFLICT DO UPDATE` so concurrent manual triggers can't race the PK insert. Same scoping / key rules as GET. Typed keys: `email_watermark` must be a unix epoch seconds integer string (regex `^[0-9]{1,15}$`) — ISO timestamps are rejected because lex compare with microseconds / timezone variants is unsafe. |
 | POST | `/api/tasks/{task_id}/wake` | Wake a waiting task (optional message) |
 | GET | `/api/tasks/{task_id}/messages` | Get agent chat history |
-| POST | `/api/tasks/{task_id}/messages` | Send chat message to agent; if task is in `waiting` status, also wakes the task (response includes `woken: true`) |
+| POST | `/api/tasks/{task_id}/messages` | Send chat message to agent; if task is in `waiting` status, also wakes the task (response includes `woken: true`). On a task at `planned`, the message is a plan REJECTION: the route flips it to `designing` and the text becomes the re-plan feedback — there is no neutral "comment" channel into a planned task. |
 | GET | `/api/tasks/{task_id}/files` | List agent-generated files in task workspace (non-symlink, non-dot files in task root) |
 | GET | `/api/tasks/{task_id}/files/{filename}` | Download a task output file (path traversal protected) |
 
@@ -300,11 +301,11 @@ This is NOT `app/mcp_server.py`: that module is the *in-task* stdio MCP
 | POST | `/api/schedules` | Create a recurring schedule. Optional `phase_mode` (`fanout` \| `single`) only honored when `store_id` is null; store-bound schedules always resolve to `single`. When omitted, server uses `AppSettings.default_schedule_phase_mode`, falling back to `fanout`. `two_phase` is system-only and rejected with 400. Optional `fanout_serial` (bool, default false) runs the fanout's stores one at a time (see [All-Stores Scheduling](subsystems.md#all-stores-scheduling)); 400 when set on a store-bound or `single` schedule. When `plan_mode=true`, the response is returned with `plan_status='planning'` and a fresh `is_plan_only` Task is spawned; the schedule is not eligible to fire until the user approves the plan (see [Plan-at-creation lifecycle](subsystems.md#plan-at-creation-lifecycle)). |
 | GET | `/api/schedules/{id}` | Get schedule detail |
 | PUT | `/api/schedules/{id}` | Update schedule. Mutable: `title`, `description`, `schedule_type`, `schedule_time`, `schedule_day`, `interval_value`, `timezone`, `ai_profile_id`, `finalize_description`, `fanout_serial` (400 on a store-bound or `single` schedule; omitted leaves it unchanged). `plan_mode`, `phase_mode`, and `store_id` are immutable (400 / 422 respectively). `plan_version` acts as an `If-Match` optimistic-lock token — stale values return 412. On a plan-mode schedule, a `description` change (normalized whitespace) aborts any in-flight planner and flips `plan_status='stale'`; call `/replan` to author a new plan. |
-| DELETE | `/api/schedules/{id}` | Delete schedule |
+| DELETE | `/api/schedules/{id}` | Delete schedule. An in-flight planning task is stopped and ended as `failed` (`error='Schedule deleted.'`) through the same abort path the prompt-edit and replan flows use — deleting mid-planning never strands a planner parked at `planned` holding an agent slot. |
 | POST | `/api/schedules/{id}/pause` | Pause schedule |
 | POST | `/api/schedules/{id}/resume` | Resume schedule. Returns 409 if `plan_mode=true` and `plan_status != 'ready'` (gate with the cron fire-gate so APScheduler doesn't fire a blocked schedule). |
 | GET | `/api/schedules/{id}/tasks` | List child tasks for schedule |
-| POST | `/api/schedules/{id}/trigger` | Manually trigger schedule. Returns 409 if `plan_mode=true` and `plan_status != 'ready'`. All-stores schedules route by `phase_mode`: `fanout`/`two_phase` → one task per active store; `single` → one no-store task. Store-bound schedules always create one store-scoped task. Before creating a per-store child task, any prior `waiting` task for the same `(schedule, store)` is cancel-forwarded (FAILED with `error_category='superseded_by_next_fire'`) and a `schedule_waiting_cancelled` SSE event is emitted. |
+| POST | `/api/schedules/{id}/trigger` | Manually trigger schedule. Returns 409 if `plan_mode=true` and `plan_status != 'ready'`. All-stores schedules route by `phase_mode`: `fanout`/`two_phase` → one task per active store; `single` → one no-store task. Fires a PAUSED schedule too (the pause gates the cron, not the manual trigger — same as the web UI's Run-now button). Store-bound schedules always create one store-scoped task. Before creating a per-store child task, any prior `waiting` task for the same `(schedule, store)` is cancel-forwarded (FAILED with `error_category='superseded_by_next_fire'`) and a `schedule_waiting_cancelled` SSE event is emitted. |
 | POST | `/api/schedules/{id}/replan` | **Idempotent.** Spawn a new `is_plan_only` Task to author the schedule's plan. If a non-terminal planning Task already exists, returns the current response without spawning a duplicate. Returns 400 for non-plan-mode schedules. |
 
 ### `ScheduleResponse` fields

@@ -34,7 +34,7 @@ offered it.
 | `pending` | Created, not started yet; it launches on its own. | `wait_task, retry_task, delete_task` |
 | `queued` | Waiting for a free run slot (the store's browser session is busy); it starts by itself. | `wait_task, delete_task` |
 | `designing` | The agent is writing a plan (read-only); it may ask a question. | `wait_task, stop_task` |
-| `planned` | Plan ready — review_plan approves (executes) or rejects with feedback (revises). An unreviewed planned task holds one of the server's agent slots until it is approved, rejected or stopped — never abandon one. | `review_plan, stop_task, delete_task` |
+| `planned` | Plan ready — review_plan approves (executes) or rejects with feedback (revises). An unreviewed planned task holds one of the server's agent slots until it is approved, rejected or stopped — never abandon one. Sending it a message (send_message) is itself a REJECTION: the message becomes the re-plan feedback — use review_plan. | `review_plan, stop_task, delete_task` |
 | `running` | The agent is executing the task; it may ask a question. | `wait_task, stop_task` |
 | `waiting` | Parked on child tasks or a wake condition; send_message wakes it. | `send_message, stop_task, delete_task` |
 | `completed` | Done — the result is available. send_message continues it; retry_task starts over. | `send_message, retry_task, delete_task` |
@@ -43,8 +43,13 @@ offered it.
 A plan-only task (one authoring a schedule's plan) reads
 differently at the two statuses that matter:
 
-- `planned` — Plan ready — this task only authors its schedule's plan: approving (review_plan) freezes the plan onto the schedule and nothing executes. An unreviewed planned task holds one of the server's agent slots — approve, reject or stop it, never abandon one.
-- `completed` — Done — it authored its schedule's plan; nothing was executed. send_message revises it.
+- `planned` — Plan ready — this task only authors its schedule's plan: approving (review_plan) freezes the plan onto the schedule and nothing executes. An unreviewed planned task holds one of the server's agent slots — approve, reject or stop it, never abandon one. A message REJECTS the plan and re-plans with the text as feedback.
+- `completed` — Done — it authored its schedule's plan; nothing was executed. send_message revises it; retry_task re-authors from scratch.
+
+A task FIRED by its schedule (schedule_id set) runs the
+frozen plan without a review:
+
+- `planned` — Auto-executing the frozen plan from its schedule — it starts on its own; wait_task follows it. The plan was accepted when the schedule was armed, so review_plan is not offered — and rejecting or messaging the task would discard that plan and re-plan with automatic approval. Do not.
 
 ### Schedule plan statuses
 
