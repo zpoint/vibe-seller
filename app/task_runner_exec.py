@@ -20,11 +20,14 @@ from app.events.bus import event_bus
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_message import TaskMessage
+from app.task_finalize import (
+    check_parent_after_run,
+    fail_task_external_config_override,
+)
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
-    check_parent_after_run,
     coalesce_history,
     format_trigger_context,
     get_store_emails,
@@ -82,30 +85,6 @@ async def _fail_on_agent_error(db, task, task_id, outcome) -> bool:
         category=TaskFailureCategory.AGENT_SET_ERROR,
     )
     return True
-
-
-async def _fail_task_external_config_override(
-    task_id: str, ext_err: ExternalConfigOverrideError
-) -> None:
-    # Persist as structured failure: JSON detail in task.error +
-    # error_category='external_config_override' so the frontend's
-    # ExternalConfigOverrideErrorCard renders the localized template.
-    async with async_session() as db_fail:
-        t = await db_fail.get(Task, task_id)
-        if t and can_transition(t.status, TaskStatus.FAILED):
-            t.status = TaskStatus.FAILED
-            t.error = json.dumps(ext_err.to_api_detail())
-            t.error_category = 'external_config_override'
-            t.completed_at = datetime.now(UTC).isoformat()
-            await db_fail.commit()
-            await event_bus.emit(
-                'task_update',
-                {
-                    'task_id': task_id,
-                    'status': TaskStatus.FAILED,
-                    'error': t.error,
-                },
-            )
 
 
 async def execute_planned_task(task_id: str, store: Store | None):
@@ -249,7 +228,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                     task.ai_profile_id or DEFAULT_PROFILE_ID
                 )
             except ExternalConfigOverrideError as ext_err:
-                await _fail_task_external_config_override(task_id, ext_err)
+                await fail_task_external_config_override(task_id, ext_err)
                 return
             await agent_manager.run(
                 task_id,
@@ -482,8 +461,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                 task_id,
             )
     finally:
-        # A planned run's end re-checks the parent just like
-        # auto_run_task's finally does — see check_parent_after_run.
         await check_parent_after_run(task_id)
 
 
@@ -604,7 +581,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
         try:
             assert_profile_compatible(task.ai_profile_id or DEFAULT_PROFILE_ID)
         except ExternalConfigOverrideError as ext_err:
-            await _fail_task_external_config_override(task_id, ext_err)
+            await fail_task_external_config_override(task_id, ext_err)
             return
         await agent_manager.run(
             task_id,
@@ -800,6 +777,4 @@ async def execute_woken_task(task_id: str, store: Store | None):
                 task_id,
             )
     finally:
-        # A woken run's end re-checks the parent just like
-        # auto_run_task's finally does — see check_parent_after_run.
         await check_parent_after_run(task_id)

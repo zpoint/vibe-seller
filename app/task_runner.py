@@ -752,30 +752,6 @@ async def check_parent_completion(
     )
 
 
-async def check_parent_after_run(task_id: str) -> None:
-    """Re-check a parent waiting on children after a child's run ends.
-
-    THE CONTRACT: ``reopen_parent_if_child_active`` reverts the parent
-    to WAITING every time a child becomes active again (follow-up,
-    retry, wake). The mirror side — re-completing the parent once the
-    child is terminal and all siblings are done — must therefore run
-    at the end of EVERY pipeline that owns a child's run, whoever
-    owns it: ``auto_run_task``, ``finalize_followup_session``, the
-    planned executor, the woken executor. Wiring it into only the
-    auto-run finally left the parent parked at WAITING forever after
-    a child follow-up turn (the follow-up finalize is a separate
-    pipeline). Errors are logged, never fatal — the terminal
-    transition has already happened.
-    """
-    try:
-        async with async_session() as db:
-            task = await db.get(Task, task_id)
-            if task:
-                await check_parent_completion(task, db)
-    except Exception:
-        logger.debug('Parent check after task %s: %s', task_id, exc_info=True)
-
-
 async def reopen_parent_if_child_active(
     task: 'Task',
     db: AsyncSession,

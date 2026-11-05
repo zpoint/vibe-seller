@@ -19,12 +19,12 @@ from app.models.store import Store
 from app.models.task import Task
 from app.routers.dida365_oauth import refresh_token_if_needed
 from app.task_finalize import (
+    check_parent_after_run,
     finalize_terminal_state as _finalize_terminal_state,
 )
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
-    check_parent_after_run,
     get_store_emails,
     maybe_inject_pending_answers,
     sync_store_metadata,
