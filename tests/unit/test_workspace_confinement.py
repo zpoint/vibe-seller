@@ -137,8 +137,19 @@ class TestSkillsSymlinkPolicy:
 
 class TestStoreSlugValidation:
     @pytest.mark.parametrize(
-        'slug', ['/tmp/evil', '../../..', 'acme/notes.md', 'Acme', 'acme_1',
-                 '-acme', 'acme-', 'a--b', '', 'acme.md']
+        'slug',
+        [
+            '/tmp/evil',
+            '../../..',
+            'acme/notes.md',
+            'Acme',
+            'acme_1',
+            '-acme',
+            'acme-',
+            'a--b',
+            '',
+            'acme.md',
+        ],
     )
     def test_out_of_shape_slugs_are_refused(self, slug):
         with pytest.raises(ValueError):
@@ -180,9 +191,7 @@ def _ctx() -> McpContext:
         'headers': [(b'host', b'testserver')],
         'query_string': b'',
     }
-    return McpContext(
-        user=User(username='ci'), db=None, request=Request(scope)
-    )
+    return McpContext(user=User(username='ci'), db=None, request=Request(scope))
 
 
 async def _read(path: str) -> dict:
@@ -219,9 +228,7 @@ class TestReadStatsFirst:
         assert result['truncated'] is True
         assert f'{len(text):,} bytes' in result['content']
 
-    async def test_an_oversize_binary_file_answers_the_url_shape(
-        self, ws_root
-    ):
+    async def test_an_oversize_binary_file_answers_the_url_shape(self, ws_root):
         blob = b'\x89PNG\r\n\x1a\n' + bytes(range(256)) * 2_048
         assert len(blob) > 256 * 1024
         target = ws_root / 'knowledge' / 'big.png'

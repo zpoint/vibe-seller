@@ -52,9 +52,7 @@ class TestTokenCannotManageUsers:
         assert 'sign in to the web UI' in r.json()['detail']
         # and nothing was created
         listed = await unauthed_client.get('/api/users', headers=auth)
-        assert all(
-            u['username'] != 'planted' for u in listed.json()
-        )
+        assert all(u['username'] != 'planted' for u in listed.json())
 
     async def test_token_cannot_update_a_user(
         self, admin_client, unauthed_client, member_user
@@ -171,9 +169,7 @@ class TestBatchSessionHygiene:
 
 
 class TestEndpointLevelGuards:
-    async def test_a_mistyped_argument_is_invalid_params(
-        self, admin_client
-    ):
+    async def test_a_mistyped_argument_is_invalid_params(self, admin_client):
         """M5, the review's exact case: ``limit: {}`` used to crash at
         ``int()`` inside the tool and answer "Tool failed
         unexpectedly"."""

@@ -71,7 +71,9 @@ def _credential_writing_routes() -> set[tuple[str, str]]:
     found = set()
     for route in _api_routes():
         source = inspect.getsource(route.endpoint)
-        if any(pattern.search(source) for pattern in _CREDENTIAL_WRITE_PATTERNS):
+        if any(
+            pattern.search(source) for pattern in _CREDENTIAL_WRITE_PATTERNS
+        ):
             for method in route.methods - {'HEAD'}:
                 found.add((method, _norm(route.path)))
     return found
@@ -191,9 +193,7 @@ class TestMiddleware:
         downstream = _RecordingApp()
         out, send = _messages()
         middleware = ApiTokenScopeMiddleware(downstream)
-        await middleware(
-            _scope(headers=(_TOKEN_HEADER,)), _receive(), send
-        )
+        await middleware(_scope(headers=(_TOKEN_HEADER,)), _receive(), send)
         assert not downstream.called
         assert out[0]['status'] == 403
         assert 'sign in to the web UI' in _json_of(out)['detail']

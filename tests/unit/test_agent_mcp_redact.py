@@ -373,9 +373,7 @@ class TestEnvScopedClassification:
 
     def test_an_env_key_mask_with_nothing_stored_is_an_error(self):
         with pytest.raises(ToolError):
-            restore_masked(
-                {'env': {'MY_PROVIDER_KEY': '****'}}, {'env': {}}
-            )
+            restore_masked({'env': {'MY_PROVIDER_KEY': '****'}}, {'env': {}})
 
     def test_a_top_level_env_dict_takes_the_scope_argument(self):
         """The profile tools pass the env dict itself as the payload —

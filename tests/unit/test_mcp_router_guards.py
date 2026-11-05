@@ -53,9 +53,7 @@ def _ctx() -> McpContext:
         'headers': [(b'host', b'testserver')],
         'query_string': b'',
     }
-    return McpContext(
-        user=User(username='ci'), db=None, request=Request(scope)
-    )
+    return McpContext(user=User(username='ci'), db=None, request=Request(scope))
 
 
 def _fake_tool(monkeypatch, handler) -> ToolDef:
@@ -108,15 +106,21 @@ class TestArgumentTypeValidation:
     """M5: the schema is enforced — types, enums, min/max, maxItems."""
 
     def test_an_object_where_an_integer_belongs(self):
-        problem = router_mod._argument_problem(find_tool('list_tasks'), {'limit': {}})
+        problem = router_mod._argument_problem(
+            find_tool('list_tasks'), {'limit': {}}
+        )
         assert problem and 'limit' in problem and 'integer' in problem
 
     def test_a_string_where_an_integer_belongs(self):
-        problem = router_mod._argument_problem(find_tool('list_tasks'), {'limit': '50'})
+        problem = router_mod._argument_problem(
+            find_tool('list_tasks'), {'limit': '50'}
+        )
         assert problem and 'integer' in problem
 
     def test_a_bool_is_not_an_integer(self):
-        problem = router_mod._argument_problem(find_tool('list_tasks'), {'limit': True})
+        problem = router_mod._argument_problem(
+            find_tool('list_tasks'), {'limit': True}
+        )
         assert problem and 'boolean' in problem
 
     def test_an_enum_violation_names_the_choices(self):
@@ -149,7 +153,9 @@ class TestArgumentTypeValidation:
         (``args.get('limit') or DEFAULT``); the protocol check must
         not punish a client that sends explicit nulls."""
         assert (
-            router_mod._argument_problem(find_tool('list_tasks'), {'limit': None})
+            router_mod._argument_problem(
+                find_tool('list_tasks'), {'limit': None}
+            )
             is None
         )
 
@@ -198,9 +204,7 @@ class TestCappedBodyRead:
         assert await router_mod._read_capped_body(request) == b'{"a":1}'
 
     async def test_a_declared_length_past_the_cap_is_refused_unread(self):
-        request = _request(
-            [b'{}'], content_length=str(MAX_BODY_BYTES + 1)
-        )
+        request = _request([b'{}'], content_length=str(MAX_BODY_BYTES + 1))
         assert await router_mod._read_capped_body(request) is None
 
     async def test_a_stream_crossing_the_cap_stops_mid_read(self):
@@ -213,13 +217,12 @@ class TestCappedBodyRead:
 
 
 def _attachment(size_kb: int, name='file.png') -> dict:
-
     return {
         'filename': name,
         'mime_type': 'image/png',
-        'content_base64': base64.b64encode(
-            b'x' * (size_kb * 1024)
-        ).decode('ascii'),
+        'content_base64': base64.b64encode(b'x' * (size_kb * 1024)).decode(
+            'ascii'
+        ),
     }
 
 
@@ -238,9 +241,9 @@ class TestAttachmentCaps:
             decode_uploads([_attachment(1)] * (MAX_ATTACHMENTS_PER_CALL + 1))
 
     def test_the_total_decoded_cap_is_enforced(self):
-        each = MAX_ATTACHMENTS_TOTAL_BYTES // (
-            MAX_ATTACHMENTS_PER_CALL - 1
-        ) + 1024
+        each = (
+            MAX_ATTACHMENTS_TOTAL_BYTES // (MAX_ATTACHMENTS_PER_CALL - 1) + 1024
+        )
         with pytest.raises(ToolError, match='per-call ceiling'):
             decode_uploads(
                 [_attachment(each // 1024)] * (MAX_ATTACHMENTS_PER_CALL - 1)
@@ -269,9 +272,9 @@ class TestAttachmentCaps:
         assert 'at most' in problem
 
     def test_the_dispatcher_refuses_an_oversized_total(self):
-        each = MAX_ATTACHMENTS_TOTAL_BYTES // (
-            MAX_ATTACHMENTS_PER_CALL - 1
-        ) + 1024
+        each = (
+            MAX_ATTACHMENTS_TOTAL_BYTES // (MAX_ATTACHMENTS_PER_CALL - 1) + 1024
+        )
         problem = router_mod._argument_problem(
             find_tool('create_task'),
             {
