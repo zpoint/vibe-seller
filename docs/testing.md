@@ -52,7 +52,7 @@ regresses):
   filesystem**: the e2e helpers seed and read workspace files by local
   path. A remote `E2E_BASE_URL` cannot work with it — run those
   suites from a checkout on the server's host (or in the same
-  container; see [docker/E2E_TESTING.md](../docker/E2E_TESTING.md)).
+  container; see [docker/E2E_TESTING.md](https://github.com/zpoint/vibe-seller/blob/main/docker/E2E_TESTING.md)).
 
 ```bash
 # e2e against a server on an isolated home + port

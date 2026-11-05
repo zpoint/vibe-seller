@@ -91,7 +91,13 @@ class TestProfilesRouter:
         data = response.json()
         assert data['id'] == 'to-update'
         assert data['name'] == 'Updated'
-        assert data['env'] == {'KEY': 'new'}
+        # Stored secrets are write-only for every caller: the response
+        # carries the mask, and the new value is what landed in storage.
+        assert data['env'] == {'KEY': '****'}
+        from app.ai.profiles import ProfileManager
+
+        stored = ProfileManager.get_profile('to-update')
+        assert stored['env'] == {'KEY': 'new'}
 
     @pytest.mark.asyncio
     async def test_create_profile_load_global_mcp_default_false(
