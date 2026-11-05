@@ -219,8 +219,8 @@ async def drain_background_tasks(deadline_seconds: float = 10.0) -> None:
 
 
 @pytest_asyncio.fixture
-async def test_engine():
-    """In-memory SQLite with ``isolation_level='AUTOCOMMIT'``.
+async def test_engine(tmp_path):
+    """Per-test SQLite FILE with ``isolation_level='AUTOCOMMIT'``.
 
     StaticPool + aiosqlite has a stale-read race: SQLAlchemy
     sessions open BEGIN DEFERRED under SQLite's default
@@ -234,9 +234,23 @@ async def test_engine():
     AUTOCOMMIT removes the implicit BEGIN — each statement sees
     the latest committed state. StaticPool still shared so fixture
     setup/teardown uses one engine; reads are now coherent.
+
+    A FILE, not ``sqlite+aiosqlite://`` in-memory: an in-memory
+    database LIVES in its one connection, so anything that
+    invalidates that connection destroys every row and table —
+    and SQLAlchemy invalidates on a cut-short call
+    (``_exec_single_context`` catches ``BaseException``, which
+    includes ``CancelledError``, and runs
+    ``_handle_dbapi_exception``). Measured: ``FakeAgent.stop()``
+    cancelling its run mid-write silently emptied the schema
+    (intermittent ``no such table: app_settings`` on the NEXT
+    request of the same test — reproduced on ~1 in 3 runs of the
+    lifecycle-guidance class). With the database on disk, a
+    replaced connection reopens the same data and a cancelled
+    call costs one connection, not the test.
     """
     engine = create_async_engine(
-        'sqlite+aiosqlite://',
+        f'sqlite+aiosqlite:///{tmp_path / "test.db"}',
         connect_args={'check_same_thread': False},
         poolclass=StaticPool,
         isolation_level='AUTOCOMMIT',
