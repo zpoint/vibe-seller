@@ -78,51 +78,144 @@ ASYNC_SESSION_MODULES = [
 # ── Core DB ──────────────────────────────────────────
 
 
+class _DbCallTracker:
+    """Counts database calls in flight on the test engine.
+
+    The teardown must never cancel a task that is INSIDE a database
+    call. A cut-short aiosqlite call invalidates the shared
+    connection — and for this in-memory engine the database LIVES in
+    that connection (StaticPool, one connection). Measured: cancelling
+    a leaked writer mid-call left ``drop_all`` on a dead connection
+    ("Cannot operate on a closed database"), and awaiting the
+    cancelled task then deadlocked outright — the aiosqlite worker
+    thread was gone and the rollback future would never resolve.
+
+    So the drain reads this counter instead of guessing: while any
+    call is in flight it waits (real calls finish in microseconds);
+    only once every task is parked at a NON-DB await is a cancel
+    guaranteed to land outside a call.
+    """
+
+    def __init__(self) -> None:
+        self.in_flight = 0
+
+
+_db_calls = _DbCallTracker()
+
+
+class _TrackedAsyncSession(AsyncSession):
+    """``AsyncSession`` whose awaitable calls register with
+    ``_db_calls``.
+
+    Every test-database session goes through the fixture's
+    ``async_sessionmaker`` below, so this subclass is the single
+    choke point for "is a task inside a database call right now".
+    The counter is incremented before the call suspends and
+    decremented after it resumes, on the event-loop thread — so
+    ``in_flight == 0`` really means "every task is suspended at a
+    non-DB await", which is exactly when cancelling is safe.
+    """
+
+    async def _counted(self, fn, /, *args, **kwargs):
+        _db_calls.in_flight += 1
+        try:
+            return await fn(*args, **kwargs)
+        finally:
+            _db_calls.in_flight -= 1
+
+    async def get(self, *args, **kwargs):
+        return await self._counted(super().get, *args, **kwargs)
+
+    async def execute(self, *args, **kwargs):
+        return await self._counted(super().execute, *args, **kwargs)
+
+    async def scalar(self, *args, **kwargs):
+        return await self._counted(super().scalar, *args, **kwargs)
+
+    async def scalars(self, *args, **kwargs):
+        return await self._counted(super().scalars, *args, **kwargs)
+
+    async def stream(self, *args, **kwargs):
+        return await self._counted(super().stream, *args, **kwargs)
+
+    async def execute_stream(self, *args, **kwargs):
+        return await self._counted(super().execute_stream, *args, **kwargs)
+
+    async def commit(self, *args, **kwargs):
+        return await self._counted(super().commit, *args, **kwargs)
+
+    async def rollback(self, *args, **kwargs):
+        return await self._counted(super().rollback, *args, **kwargs)
+
+    async def flush(self, *args, **kwargs):
+        return await self._counted(super().flush, *args, **kwargs)
+
+    async def refresh(self, *args, **kwargs):
+        return await self._counted(super().refresh, *args, **kwargs)
+
+    async def close(self, *args, **kwargs):
+        return await self._counted(super().close, *args, **kwargs)
+
+    async def run_sync(self, *args, **kwargs):
+        return await self._counted(super().run_sync, *args, **kwargs)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return await self._counted(super().__aexit__, *args)
+
+
 async def drain_background_tasks(deadline_seconds: float = 10.0) -> None:
-    """Wait for the app's background work to finish, then stop it.
+    """Make the database idle, then stop whatever is still running.
 
-    WHY. The engine fixture drops the database at teardown. A
+    WHY. The engine fixture drops the database at teardown, and a
     background pipeline (auto_run_task, the follow-up spawn, the plan
-    executor) that is still running is USING that database: the drop
-    lands under it, its next write fails on a closed database, and
-    the teardown itself then errors — "Cannot operate on a closed
-    database" at ``drop_all`` — which pytest reports against the test
-    that leaked the writer, even though the writer belongs to none of
-    them.
+    executor) may still be using it. Two things must hold before the
+    drop:
 
-    So the teardown lets the work FINISH first. A FRESH snapshot
-    each round, because a task can be CREATED while we wait: the
-    follow-up spawn ends with
-    ``create_task(finalize_followup_session(...))`` — the finalize is
-    created after the agent run, i.e. after the spawn we were waiting
-    for finished.
+    1. No call is IN FLIGHT. A cut-short call invalidates the shared
+       connection and — the database living in it — the database
+       itself (see ``_DbCallTracker``).
+    2. Nothing can touch the database afterwards. A pipeline parked
+       on an event (the FakeAgent waiting for plan approval is the
+       common case here) would wake later and write to a dropped
+       database; the error surfaces against an unrelated test.
 
-    On the deadline, what is left is cancelled AND awaited: a
-    cancelled task that is still running would land its cancel inside
-    the database write we are about to tear down — the same broken
-    connection, one step earlier.
+    So the drain waits only while calls are in flight — chained
+    writes are covered naturally, because each next call re-increments
+    the counter before the loop can observe zero — and then cancels
+    what is left and awaits its unwind. The cancel lands at a non-DB
+    await, which is the safe point; the unwind is awaited so no
+    cancelled task is still unwinding when the drop runs.
+
+    The previous drain waited for every pending task to COMPLETE with
+    a 10 s deadline. A task that never completes — the parked
+    FakeAgent, leaked on purpose by tests that just create a plan-mode
+    task and return — therefore cost every leaking test the full
+    deadline: 28 tests x 10 s, 280 s of a 860 s run. "Wait for the
+    database, not for the tasks" is the fix.
+
+    ``deadline_seconds`` is a backstop only: if a call stays in flight
+    past it (a hung worker), the drain falls through to cancelling
+    anyway — bounded beats stuck.
     """
     current = asyncio.current_task()
     deadline = time.monotonic() + deadline_seconds
-    while True:
-        pending = [
-            t for t in asyncio.all_tasks() if t is not current and not t.done()
-        ]
-        if not pending:
-            return
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
+    while _db_calls.in_flight:
+        if time.monotonic() >= deadline:
             break
-        await asyncio.wait(pending, timeout=remaining)
-    # Deadline reached: stop what is left, and WAIT for it to unwind
-    # before the database goes away.
+        await real_sleep(0.002)
     pending = [
         t for t in asyncio.all_tasks() if t is not current and not t.done()
     ]
     for task in pending:
         task.cancel()
     if pending:
-        await asyncio.gather(*pending, return_exceptions=True)
+        # Bounded unwind: a task that swallows its cancellation must
+        # not be able to hang the teardown forever. Two seconds is
+        # orders of magnitude past a real unwind (rollback + finally).
+        await asyncio.wait(pending, timeout=2.0)
 
 
 @pytest_asyncio.fixture
@@ -152,9 +245,9 @@ async def test_engine():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
-    # Let the app's background work finish BEFORE the database goes
-    # away: a pipeline that is still running writes to a dropped
-    # database, and the teardown then errors on a closed connection.
+    # Make the database idle BEFORE it goes away: no call in flight,
+    # nothing left that can wake up and write (see
+    # drain_background_tasks).
     await drain_background_tasks()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
@@ -165,7 +258,7 @@ async def test_engine():
 async def override_async_session(test_engine, monkeypatch):
     """Patch async_session in ALL modules to use the test DB."""
     test_maker = async_sessionmaker(
-        test_engine, class_=AsyncSession, expire_on_commit=False
+        test_engine, class_=_TrackedAsyncSession, expire_on_commit=False
     )
     for mod in ASYNC_SESSION_MODULES:
         try:
