@@ -647,11 +647,18 @@ async def test_loop_is_cancelled_cleanly_at_shutdown(monkeypatch):
 
 
 def etag_handler(body: str, etag: str, captured: list):
-    """A handler that serves ``body`` and records the request's etag."""
+    """A handler that serves ``body`` and records the request's etag.
+
+    The ETag goes on the wire as BYTES: httpx decodes response
+    headers leniently (utf-8 → latin-1) but refuses non-ASCII str
+    values, and it is exactly that asymmetry which makes a sloppy
+    validator check dangerous. Tests here must exercise the real
+    decode path, not a stricter one.
+    """
 
     def handler(request):
         captured.append(request.headers.get('if-none-match'))
-        headers = {'etag': etag} if etag else {}
+        headers = [(b'etag', etag.encode())] if etag else []
         return httpx.Response(200, text=body, headers=headers)
 
     return handler
@@ -817,6 +824,85 @@ async def test_insane_etag_is_neither_stored_nor_sent():
     assert result['status'] == 'unchanged'
     assert 'etag' not in json.loads(cache_path().read_text())
     assert seen == [None, None]
+
+
+def test_etag_grammar_follows_rfc_7232():
+    """``[W/] "*etagc*"`` with etagc = visible ASCII minus quote."""
+    assert sync._sane_etag('"x"') == '"x"'
+    assert sync._sane_etag('W/"x"') == 'W/"x"'
+    assert sync._sane_etag('""') == '""'
+    assert sync._sane_etag('"a-b_c.d/e"') == '"a-b_c.d/e"'
+    for bad in (
+        'x',  # unquoted
+        '"x',
+        'x"',
+        'W/x',
+        'W/"x',
+        '"x"\n',  # $ would have let this through; fullmatch does not
+        '"café"',
+        'W/"café"',
+        '"q"uote"',
+    ):
+        assert sync._sane_etag(bad) is None, bad
+
+
+async def test_non_ascii_etag_is_neither_stored_nor_sent():
+    """The wedge this pins: httpx decodes a non-ASCII ETag off the
+    wire fine, but ASCII-ENCODING it into the next If-None-Match
+    raises — so storing one fails every later fetch forever."""
+    seen = []
+    result = await fetch_with(etag_handler(acme_source(), '"café"', seen))
+    assert result['status'] == 'updated'
+    assert 'etag' not in json.loads(cache_path().read_text())
+
+    result = await fetch_with(etag_handler(acme_source(), '"café"', seen))
+    assert result['status'] == 'unchanged'
+    assert seen == [None, None]
+
+
+async def test_unquoted_etag_is_neither_stored_nor_sent():
+    """Not an RFC 7232 entity-tag ⇒ no validator at all."""
+    seen = []
+    await fetch_with(etag_handler(acme_source(), 'abc123', seen))
+    await fetch_with(etag_handler(acme_source(), 'abc123', seen))
+
+    assert 'etag' not in json.loads(cache_path().read_text())
+    assert seen == [None, None]
+
+
+async def test_bad_cached_etag_recovers_unconditionally():
+    """A cache already holding a bad validator must not wedge.
+
+    The cache is valid AND served (so the conditional path would
+    apply), but its validator is not even well-formed: no conditional
+    header may go out — sending the stored non-ASCII etag is exactly
+    what used to raise and fail every later fetch. The full body then
+    repairs the cache, and the cheap 304 path resumes with the fresh
+    ETag.
+    """
+    body = acme_source()
+    write_cache(
+        json.dumps({
+            'sha256': '0' * 64,
+            'etag': '"café"',
+            'source_url': sync._source_url(),
+            'presets': {'acme_test': make_preset()},
+            'models': {'acme_test': make_models()},
+        })
+    )
+    sync.reset()
+    # Precondition: the cache is what the accessors serve.
+    assert 'acme_test' in sync.current_presets()
+
+    seen = []
+    result = await fetch_with(etag_handler(body, 'W/"good"', seen))
+    assert seen == [None]
+    assert result['status'] == 'updated'
+    assert json.loads(cache_path().read_text())['etag'] == 'W/"good"'
+
+    result = await fetch_with(etag_handler(body, 'W/"good"', seen))
+    assert seen == [None, 'W/"good"']
+    assert result['status'] == 'unchanged'
 
 
 # ── Consumers read the current catalog ──────────────────────────

@@ -102,6 +102,12 @@ _MAX_MODELS = 50
 _PRESET_ID_RE = re.compile(r'^[a-z0-9_]{1,40}$')
 _CONTROL_RE = re.compile(r'[\x00-\x1f\x7f]')
 
+# RFC 7232 entity-tag: ``[W/] DQUOTE *etagc DQUOTE`` where ``etagc``
+# is visible ASCII except the quote itself. No ``^``/``$`` — matched
+# with ``fullmatch`` so a trailing newline can't slip through the way
+# ``$`` would allow it.
+_ETAG_RE = re.compile(r'(W/)?"[\x21\x23-\x7e]*"')
+
 # Env keys a preset may set. Everything else is a rejection — in
 # particular every key that could carry a credential
 # (ANTHROPIC_AUTH_TOKEN / ANTHROPIC_API_KEY), redirect traffic
@@ -147,12 +153,19 @@ def _text_ok(value: object, max_len: int) -> bool:
 def _sane_etag(value: object) -> str | None:
     """The ETag to store/send verbatim, or ``None`` if unusable.
 
-    An ETag goes back into an ``If-None-Match`` header, so it is held
-    to the same bar as every other remote string: real str, short,
-    no control characters (which is also what keeps header injection
-    out of the question).
+    RFC 7232's entity-tag and nothing else: ``[W/] "*etagc*"`` with
+    ``etagc = %x21 / %x23-7E`` (visible ASCII minus the quote), via
+    :data:`_ETAG_RE`, plus the length cap. The grammar is ASCII-only
+    on purpose: httpx DECODES response headers leniently (ascii, then
+    utf-8, then latin-1) but ASCII-ENCODES request headers strictly,
+    so a non-ASCII validator that got stored would raise on the very
+    next ``If-None-Match`` — and, with the bad etag never cleared,
+    wedge every later fetch. Anything outside the grammar is treated
+    as absent: not stored, never sent.
     """
-    return value if _text_ok(value, _MAX_ETAG) else None
+    if not isinstance(value, str) or len(value) > _MAX_ETAG:
+        return None
+    return value if _ETAG_RE.fullmatch(value) else None
 
 
 def parse_presets_source(text: str) -> tuple[dict, dict]:
