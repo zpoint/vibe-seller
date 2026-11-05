@@ -125,7 +125,7 @@ jobs:
           git config --local user.name "CI Bot"
 
       - name: Run workflow tests
-        run: uv run pytest tests/workflow -v --cov=app --cov-report=xml
+        run: uv run pytest tests/workflow -v --cov=app --cov-report=xml -n auto --dist loadfile
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
