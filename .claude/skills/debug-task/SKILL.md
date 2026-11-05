@@ -64,10 +64,13 @@ powershell.exe -NoProfile -Command "Get-Process python,pythonw -ErrorAction Sile
 ```
 
 **Need to call the HTTP API from this skill (not just read the DB)?**
-Get a session cookie via the JWT-auth workaround described in
-`debug-store/SKILL.md` § "Skipping JWT-cookie auth" — it uses a single
-stable `taskbot_debug` account, rotates the password per session, and
-deactivates on exit.
+Use a personal API token (`vst_…`) as described in
+`debug-store/SKILL.md` § "Skipping JWT-cookie auth": export
+`VIBE_SELLER_TOKEN` and send `-H "Authorization: Bearer $VIBE_SELLER_TOKEN"`.
+That section's Option A2 is the fallback for an auth-ON server with no
+session at hand — it bootstraps the single stable `taskbot_debug`
+account, mints a one-day token with it, and revokes the token and
+deactivates the account on exit.
 
 **When the live server is native-Windows, everything relocates.** The
 real runtime data root is **`/mnt/c/Users/<WinUser>/.vibe-seller/`**

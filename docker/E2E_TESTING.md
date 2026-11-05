@@ -26,6 +26,12 @@ Provider names must match env var prefixes (uppercased):
 `provider_a` reads `PROVIDER_A_API_KEY`, `PROVIDER_A_BASE_URL`,
 `PROVIDER_A_MODEL`.
 
+In Docker the server and the tests share one home, so nothing else is
+needed. Running e2e against a server on a DIFFERENT home (a dev box
+with `VIBE_HOME` isolation) additionally needs `E2E_VIBE_HOME` and
+`E2E_BASE_URL` — see *Test-home isolation* in
+[docs/testing.md](../docs/testing.md).
+
 ## Quick Start — Single Provider
 
 ```bash

@@ -1,6 +1,6 @@
 ---
 name: debug-store
-description: "Developer-only skill for poking at vibe-seller stores from outside the task system — inspect the SQLite DB, drive a store's browser-use wrapper directly via the CDP proxy, manage VIBE_TASK_ID for stable sessions, recover wedged daemons, find seller SKUs, and authenticate without the JWT cookie path. Load when the user says 'debug a store', 'why is store X broken', 'check the wrapper for store X', 'I need to drive Ziniao directly without creating a task', or anything that touches the runtime store layer outside the normal task → agent flow."
+description: "Developer-only skill for poking at vibe-seller stores from outside the task system — inspect the SQLite DB, drive a store's browser-use wrapper directly via the CDP proxy, manage VIBE_TASK_ID for stable sessions, recover wedged daemons, find seller SKUs, and authenticate to the HTTP API with a personal API token (vst_) instead of the JWT cookie path. Load when the user says 'debug a store', 'why is store X broken', 'check the wrapper for store X', 'I need to drive Ziniao directly without creating a task', or anything that touches the runtime store layer outside the normal task → agent flow."
 ---
 
 # Debug Store Infrastructure (developer-only)
@@ -8,7 +8,9 @@ description: "Developer-only skill for poking at vibe-seller stores from outside
 This is the inside-out view of vibe-seller stores: how to inspect and
 drive the runtime — the database, the browser-use wrapper, the CDP
 proxy, the per-store Ziniao session — *without* going through the task
-system, the web UI, or the JWT-cookie auth wall.
+system, the web UI, or the JWT-cookie auth wall. For API access, use a
+personal API token (`vst_…`), not the cookie — see "Skipping JWT-cookie
+auth" below.
 
 This is for the platform builder, not for end-user agents running tasks.
 For end-user/agent flows (running campaigns, etc.), see `amazon-ads` and
@@ -193,15 +195,51 @@ answers (curl hangs to `-m` timeout, HTTP 000). Distinct from a clean
 
 The vibe-seller HTTP API (`/api/tasks`, `/api/stores`, etc.) gates
 everything on a JWT cookie. From a Claude Code shell, you don't have
-that cookie. Two ways to work around without touching the user's
-admin password:
+that cookie. Use a **personal API token** instead — a `vst_` bearer
+that acts as the user who minted it, with that user's role.
 
-### Option A — reusable `taskbot_debug` account, login via API, then deactivate
+### Option A — an API token (`vst_…`) in `VIBE_SELLER_TOKEN`
 
-Use the single stable `taskbot_debug` account for every debug session.
-The flow below is idempotent: it creates the account on first use,
-reactivates + rotates the password on every later use, and deactivates
-it when you're done.
+The normal path: the human mints a token in **Settings → API tokens**
+(the UI shows the plaintext once) and exports it:
+
+```bash
+export VIBE_SELLER_TOKEN='vst_…'      # pasted by the human
+export BASE=http://localhost:7777
+
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" "$BASE/api/auth/me"
+```
+
+A token is revocable on its own (`DELETE /api/auth/tokens/{id}`) —
+unlike a JWT, which cannot be revoked without rotating the install's
+secret. Tokens carry the owner's role and permissions: mint one as the
+user whose view you need.
+
+You can also mint one over HTTP, but only with an existing session
+(cookie or token) — see Option A2 for the no-session case:
+
+```bash
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -X POST "$BASE/api/auth/tokens" \
+  -d '{"name":"debug-shell","expires_in_days":1}'
+# → {"id":"…","token":"vst_…","expires_at":"…"}   ← the plaintext, ONCE
+```
+
+`expires_in_days: null` means "never expires"; the default is 90.
+When you are done with a token you minted, revoke it:
+
+```bash
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" \
+  -X DELETE "$BASE/api/auth/tokens/<token_id>"
+```
+
+### Option A2 — bootstrap one session, then mint a short-lived token
+
+Unattended debugging on an **auth-ON** server with no human at the
+keyboard: there is no session to mint a token *with*, so bootstrap the
+stable `taskbot_debug` account **once**, use that one session to mint a
+token that expires in a day, and use the bearer from then on.
 
 ```bash
 # 1. Generate password + bcrypt hash
@@ -209,35 +247,52 @@ PW=$(python3 -c "import secrets;print('tmp_'+secrets.token_hex(8))")
 HASH=$(./.venv/bin/python3 -c "from app.password import hash_password;print(hash_password('$PW'))")  # run from repo root
 
 # 2. Upsert the stable debug user (admin role, fixed id + username)
+#    NOTE: every NOT NULL column of `users` must be listed — the model
+#    declares them in Python, so a fresh DB has NO column-level default
+#    for them and the INSERT fails if one is missing. If `users` grows a
+#    new NOT NULL column, add it here too.
 DBG_UID="taskbot-debug"
 NOW="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 sqlite3 ~/.vibe-seller/data/vibe_seller.db \
   "INSERT INTO users (id, username, email, password_hash, role, is_active,
                       plan_mode_default, debug_mode, default_profile_id,
-                      created_at, updated_at)
-   VALUES ('$DBG_UID','taskbot_debug',NULL,'$HASH','admin',1,1,0,'default',
+                      sync_profile_to_schedules, created_at, updated_at)
+   VALUES ('$DBG_UID','taskbot_debug',NULL,'$HASH','admin',1,1,0,'default',0,
            '$NOW','$NOW')
    ON CONFLICT(id) DO UPDATE SET
      password_hash='$HASH', is_active=1, updated_at='$NOW';"
 
-# 3. Login → cookie
-curl -s -c /tmp/vs_cookie.txt -H 'Content-Type: application/json' \
+# 3. Login → cookie (used ONCE, to mint the token)
+curl -sf -c /tmp/vs_cookie.txt -H 'Content-Type: application/json' \
   -X POST http://localhost:7777/api/auth/login \
-  -d "{\"identifier\":\"taskbot_debug\",\"password\":\"$PW\"}"
+  -d "{\"identifier\":\"taskbot_debug\",\"password\":\"$PW\"}" \
+  || { echo "LOGIN FAILED — did step 2 create taskbot_debug?"; exit 1; }
 
-# 4. Use the cookie for any API call
-curl -s -b /tmp/vs_cookie.txt http://localhost:7777/api/stores
+# 4. Mint a token that dies in a day
+TOK_JSON=$(curl -sf -b /tmp/vs_cookie.txt -H 'Content-Type: application/json' \
+  -X POST http://localhost:7777/api/auth/tokens \
+  -d '{"name":"debug-shell","expires_in_days":1}') \
+  || { echo "MINT FAILED — the session has no user, or auth is on and the login failed"; exit 1; }
+export VIBE_SELLER_TOKEN=$(echo "$TOK_JSON" | jq -r .token)
+TOKEN_ID=$(echo "$TOK_JSON" | jq -r .id)
 
-# 5. Cleanup before ending the session
+# 5. From here on, the bearer is the credential
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" http://localhost:7777/api/stores
+
+# 6. Cleanup before ending the session — revoke the token AND retire the account
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" \
+  -X DELETE "http://localhost:7777/api/auth/tokens/$TOKEN_ID"
 sqlite3 ~/.vibe-seller/data/vibe_seller.db \
   "UPDATE users SET is_active=0 WHERE id='$DBG_UID';"
+rm -f /tmp/vs_cookie.txt
 ```
 
-`is_active=0` blocks future logins for this account. The
-`tasks.created_by` column uses FK = restrict, so the row itself can
-never be deleted once it owns tasks — that's fine, it's one stable
-row across all sessions. If you forget step 5 the account stays
-dormant with a throwaway password; the next session rotates it.
+Revoking the token is what actually cuts access — a revoked `vst_` token
+is a **401 even when `auth_required` is off**, so it can never fall back
+to "no auth needed". `is_active=0` blocks future logins for the account.
+The `tasks.created_by` column uses FK = restrict, so the row itself can
+never be deleted once it owns tasks — that's fine, it's one stable row
+across all sessions.
 
 ### Option B — drive the wrapper directly (no API auth needed)
 
@@ -262,16 +317,15 @@ This is the WRONG choice when:
 
 ## Calling the HTTP API
 
-Once you have a cookie file (Option A) — assume `COOKIE=/tmp/vs_cookie.txt`
-and `BASE=http://localhost:7777` below — every authenticated route is
-just `curl -b "$COOKIE" "$BASE/<path>"`. Use `-c "$COOKIE"` on the
-login call (writes), `-b` everywhere else (reads).
+With a token in hand — assume `VIBE_SELLER_TOKEN=vst_…` and
+`BASE=http://localhost:7777` below — every authenticated route is just
+`curl -H "Authorization: Bearer $VIBE_SELLER_TOKEN" "$BASE/<path>"`.
 
 The API surface (full list in `docs/api.md`) breaks into a few groups:
 
 | Group | Common routes | Use for |
 |---|---|---|
-| Auth | `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/logout` | Cookie lifecycle |
+| Auth | `GET /api/auth/me`, `POST /api/auth/login`, `POST /api/auth/logout`, `GET/POST/DELETE /api/auth/tokens` | Who am I; cookie lifecycle; API-token lifecycle |
 | Stores | `GET /api/stores`, `GET /api/stores/<id>`, `POST /api/stores/<id>/browser/start` (`?force=1`), `POST /api/stores/<id>/browser/aux/start` | Store metadata + per-store browser lifecycle |
 | Tasks | `POST /api/tasks`, `GET /api/tasks`, `GET /api/tasks/<id>`, `POST /api/tasks/<id>/messages`, `POST /api/tasks/<id>/stop` | Create / list / inspect / message / stop tasks |
 | Schedules | `GET /api/schedules`, `POST /api/schedules`, `POST /api/schedules/<id>/run` | Cron-style routines |
@@ -296,14 +350,14 @@ Keys to remember:
 
 ```bash
 # List stores → pick the one you want by name
-curl -s -b "$COOKIE" "$BASE/api/stores" | jq '.[] | {id,name,browser_backend,platforms,countries}'
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" "$BASE/api/stores" | jq '.[] | {id,name,browser_backend,platforms,countries}'
 
 # List recent tasks for a store
-curl -s -b "$COOKIE" "$BASE/api/tasks?store_id=<store_id>&limit=10" \
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" "$BASE/api/tasks?store_id=<store_id>&limit=10" \
   | jq '.[] | {id,title,status,created_at}'
 
 # Inspect a single task
-curl -s -b "$COOKIE" "$BASE/api/tasks/<task_id>" | jq
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" "$BASE/api/tasks/<task_id>" | jq
 ```
 
 `jq` is optional but makes the JSON readable. The DB cheatsheet
@@ -327,7 +381,7 @@ PROFILE=$(sqlite3 ~/.vibe-seller/data/vibe_seller.db \
 PROFILE=$(sqlite3 ~/.vibe-seller/data/vibe_seller.db \
   "SELECT ai_profile_id FROM schedules WHERE id='<schedule_id>';")
 
-curl -s -b "$COOKIE" -H 'Content-Type: application/json' \
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" -H 'Content-Type: application/json' \
   -X POST "$BASE/api/tasks/$TASK_ID/retry" -d "{\"profile_id\":\"$PROFILE\"}"
 ```
 
@@ -374,7 +428,7 @@ DESIGNING / PLANNED first and waits for explicit `/run`.
 ### Minimal request
 
 ```bash
-curl -s -b "$COOKIE" -H 'Content-Type: application/json' \
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" -H 'Content-Type: application/json' \
   -X POST "$BASE/api/tasks" \
   -d '{
     "title": "<short imperative — what the agent should do>",
@@ -388,7 +442,7 @@ curl -s -b "$COOKIE" -H 'Content-Type: application/json' \
 The response is the new task row including `id`. Save it:
 
 ```bash
-TASK_ID=$(curl -s -b "$COOKIE" -H 'Content-Type: application/json' \
+TASK_ID=$(curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" -H 'Content-Type: application/json' \
   -X POST "$BASE/api/tasks" \
   -d "$(jq -n --arg t "..." --arg d "..." --arg s "$STORE_ID" --arg p "$PROFILE" \
         '{title:$t,description:$d,store_id:$s,ai_profile_id:$p,plan_mode:false}')" \
@@ -412,7 +466,7 @@ echo "$TASK_ID"
 
 ```bash
 # Quick status poll
-curl -s -b "$COOKIE" "$BASE/api/tasks/$TASK_ID" \
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" "$BASE/api/tasks/$TASK_ID" \
   | jq '{status,error,result_len:(.result|length),updated_at}'
 
 # Or tail directly from SQLite (faster, no auth dance)
@@ -421,7 +475,7 @@ sqlite3 ~/.vibe-seller/data/vibe_seller.db \
    FROM tasks WHERE id='$TASK_ID'"
 
 # Live event stream (SSE) — every state transition + agent message
-curl -N -b "$COOKIE" "$BASE/api/events/stream?task_id=$TASK_ID"
+curl -N -H "Authorization: Bearer $VIBE_SELLER_TOKEN" "$BASE/api/events/stream?task_id=$TASK_ID"
 ```
 
 Per-message stream from the `task_messages` table is the richest
@@ -440,7 +494,7 @@ sqlite3 ~/.vibe-seller/data/vibe_seller.db \
 If the agent stalls or you want to redirect it:
 
 ```bash
-curl -s -b "$COOKIE" -H 'Content-Type: application/json' \
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" -H 'Content-Type: application/json' \
   -X POST "$BASE/api/tasks/$TASK_ID/messages" \
   -d '{"content":"<your follow-up — e.g. resume from where the run stalled>"}'
 ```
@@ -451,7 +505,7 @@ detail panel. The agent receives the message as a user turn.
 ### Stopping a runaway task
 
 ```bash
-curl -s -b "$COOKIE" -X POST "$BASE/api/tasks/$TASK_ID/stop"
+curl -s -H "Authorization: Bearer $VIBE_SELLER_TOKEN" -X POST "$BASE/api/tasks/$TASK_ID/stop"
 ```
 
 `stop` flips status → `cancelled` and signals the agent backend to

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "vibe-seller",
+  "description": "Plugins for connecting external agents to a Vibe Seller server.",
+  "version": "0.1.0",
+  "owner": {
+    "name": "Vibe Seller",
+    "url": "https://github.com/zpoint/vibe-seller"
+  },
+  "plugins": [
+    {
+      "name": "vibe-seller",
+      "source": "./agent",
+      "description": "Create and drive Vibe Seller tasks from your agent over the hosted /api/mcp endpoint.",
+      "category": "automation",
+      "tags": [
+        "mcp",
+        "ecommerce",
+        "browser-automation"
+      ]
+    }
+  ]
+}

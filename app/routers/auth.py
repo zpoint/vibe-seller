@@ -1,25 +1,33 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import telemetry
+from app.api_tokens import create_token_row
 from app.auth import (
     COOKIE_NAME,
     USER_SESSION_EXPIRE,
     create_token,
     get_current_user,
     is_auth_required,
+    refuse_api_token,
     set_session_cookie,
 )
 from app.config import DEFAULT_USER_ID
 from app.database import get_db
+from app.models.api_token import ApiToken
 from app.models.app_settings import AppSettings
 from app.models.user import User
 from app.password import hash_password, verify_password
+from app.schemas.api_token import (
+    ApiTokenCreate,
+    ApiTokenCreatedResponse,
+    ApiTokenResponse,
+)
 from app.schemas.user import (
     LoginRequest,
     PasswordChange,
@@ -73,7 +81,9 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post('/refresh')
-async def refresh_session(current_user: User = Depends(get_current_user)):
+async def refresh_session(
+    request: Request, current_user: User = Depends(get_current_user)
+):
     """Roll the session cookie forward by another full window.
 
     The frontend keepalive calls this on real user activity so an
@@ -82,7 +92,11 @@ async def refresh_session(current_user: User = Depends(get_current_user)):
     and the cookie has already lapsed, ``get_current_user`` raises 401
     here — which the shared API client turns into an ``auth:expired``
     redirect to the login page (no hung screen).
+
+    An API token cannot refresh: that would trade a revocable ``vst_``
+    credential for a session JWT that outlives the token's revocation.
     """
+    refuse_api_token(request, 'start a web session')
     token = create_token(
         current_user.id, current_user.role, expires_delta=USER_SESSION_EXPIRE
     )
@@ -254,4 +268,90 @@ async def update_profile(
                 detail='Username or email already in use',
             )
 
+    return {'ok': True}
+
+
+# ── Personal API tokens ──────────────────────────────
+#
+# A user manages their OWN tokens. A token acts as its owner, with the
+# owner's role — there are no scopes and no separate permission model.
+
+
+@router.get('/tokens', response_model=list[ApiTokenResponse])
+async def list_api_tokens(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """List the caller's live (non-revoked) API tokens.
+
+    The secret is never part of this response — only the prefix that
+    was stored at creation time.
+    """
+    result = await db.execute(
+        select(ApiToken)
+        .where(ApiToken.user_id == current_user.id)
+        .where(ApiToken.revoked_at.is_(None))
+        .order_by(ApiToken.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+@router.post('/tokens', response_model=ApiTokenCreatedResponse)
+async def create_api_token(
+    body: ApiTokenCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Mint an API token. The plaintext is returned ONCE, here."""
+    if current_user.role == 'ai_bot':
+        raise HTTPException(
+            status_code=403,
+            detail='AI bot tokens cannot create API tokens',
+        )
+    # A leaked token must not be able to mint its own replacement: a
+    # ``vst_`` credential can list and revoke tokens (revoking itself
+    # is harmless — that is what its owner wants) but never mint one,
+    # so cutting a leaked token's access stays cut.
+    refuse_api_token(request, 'mint API tokens')
+    row, plaintext = await create_token_row(
+        db, current_user.id, body.name, body.expires_in_days
+    )
+    return ApiTokenCreatedResponse(
+        id=row.id,
+        name=row.name,
+        prefix=row.prefix,
+        created_at=row.created_at,
+        last_used_at=row.last_used_at,
+        expires_at=row.expires_at,
+        token=plaintext,
+    )
+
+
+@router.delete('/tokens/{token_id}')
+async def revoke_api_token(
+    token_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Revoke one of the caller's own tokens.
+
+    Revoking is a soft delete: the row stays, so a client still holding
+    the plaintext gets a 401 and the token can never be resurrected.
+    """
+    result = await db.execute(
+        select(ApiToken).where(
+            ApiToken.id == token_id,
+            ApiToken.user_id == current_user.id,
+            ApiToken.revoked_at.is_(None),
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        # Another user's token, an unknown id and an already-revoked id
+        # are all "not found" — never "forbidden", which would confirm
+        # that the id exists.
+        raise HTTPException(status_code=404, detail='Token not found')
+    row.revoked_at = datetime.now(UTC).isoformat()
+    await db.commit()
     return {'ok': True}

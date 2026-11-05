@@ -9,11 +9,14 @@ Reuses AgentSession with overrides for:
 import asyncio
 import json
 import logging
+import os
+import sys
 
 from app.ai.agent_proxy import drop_dead_proxy
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import append_system_prompt
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
+from app.env_options import Options
 from app.events.bus import event_bus
 from app.platform import prepend_to_path, venv_bin_dir
 from app.workspace.manager import VIBE_SELLER_DIR, workspace_manager
@@ -185,19 +188,33 @@ class WorkspaceAgentSession(AgentSession):
         """Spawn claude with workspace mode."""
         await workspace_manager.ensure_init()
 
-        cmd = [
-            'claude',
-            '-p',
-            '--output-format',
-            'stream-json',
-            '--input-format',
-            'stream-json',
-            '--verbose',
-            '--permission-mode',
-            'bypassPermissions',
-            '--permission-prompt-tool',
-            'stdio',
-        ]
+        mock_cli = Options.MOCK_CLI.get()
+        if mock_cli:
+            # Test mode: the same mock CLI the task agent runs under.
+            # The assistant is an agent pipeline too, and MOCK_CLI is
+            # what lets CI exercise this turn loop without model
+            # credits. '--mode=workspace' maps the mock to its execute
+            # flow (it has no plan gate — control requests are
+            # auto-allowed below).
+            cmd = [
+                sys.executable,
+                os.path.abspath(mock_cli),
+                '--mode=workspace',
+            ]
+        else:
+            cmd = [
+                'claude',
+                '-p',
+                '--output-format',
+                'stream-json',
+                '--input-format',
+                'stream-json',
+                '--verbose',
+                '--permission-mode',
+                'bypassPermissions',
+                '--permission-prompt-tool',
+                'stdio',
+            ]
 
         ws_dir = VIBE_SELLER_DIR
         if ws_dir.exists():
@@ -342,6 +359,29 @@ class WorkspaceAssistantManager:
         key = self._session_key(user_id)
         session = self._sessions.get(key)
         return session.running if session else False
+
+    def session_key(self, user_id: str) -> str:
+        """The per-user session key (public form).
+
+        The assistant's output is SSE-only (``ws_assistant_*`` events
+        keyed by it); the hosted MCP tool filters the same events by
+        this key, so it must be the ONE definition.
+        """
+        return self._session_key(user_id)
+
+    def last_reply(self, user_id: str) -> str | None:
+        """The last result text this user's assistant produced, if any.
+
+        Nothing is persisted to the DB for the assistant — the live
+        session object is the only place the latest answer exists.
+        ``None`` when the user never started a session or it has not
+        answered yet.
+        """
+        session = self._sessions.get(self._session_key(user_id))
+        if session is None:
+            return None
+        text = getattr(session, '_result_text', '') or ''
+        return text or None
 
     def clear_history(self, user_id: str):
         """Clear message history for a user."""

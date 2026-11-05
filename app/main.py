@@ -10,17 +10,17 @@ from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import ads_skill, telemetry
+from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_gate_loader import preload_skill_gates
+from app.api_token_secrets import ApiTokenSecretMiddleware
 from app.browser.daemon_reaper import start_reaper_loop
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
 from app.config import (
     BACKEND_PORT,
+    CORS_ORIGINS,
     FRONTEND_DIST,
-    FRONTEND_URL,
-    LOCALHOST,
-    LOCALHOST_NAME,
     LOG_DIR,
 )
 from app.database import async_session, init_db
@@ -293,17 +293,18 @@ app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
 # Order matters. add_middleware inserts at the front of the list, so
 # the LAST one registered is the OUTERMOST. CORS must wrap the body
 # limit: a 413 emitted outside CORS reaches a cross-origin caller as
-# an opaque network error rather than a readable status.
+# an opaque network error rather than a readable status. The API-token
+# secret guard is added FIRST so it ends up INNERMOST — closest to the
+# routes — and its 400 (a masked secret refused on the way in) flows
+# out through the body limit and CORS like any other readable error.
+# Registered before anything parses bodies: it rewrites the request
+# `receive` channel before FastAPI's JSON parser runs, and redacts
+# JSON responses for API-token callers (app/api_token_secrets.py).
+app.add_middleware(ApiTokenSecretMiddleware)
 app.add_middleware(UploadBodyLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        FRONTEND_URL,
-        f'http://{LOCALHOST_NAME}:5173',
-        f'http://{LOCALHOST}:5173',
-        f'http://{LOCALHOST_NAME}:{BACKEND_PORT}',
-        f'http://{LOCALHOST}:{BACKEND_PORT}',
-    ],
+    allow_origins=list(CORS_ORIGINS),
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
@@ -340,6 +341,10 @@ app.include_router(ws_assistant_router)
 app.include_router(chat_bots_router)
 app.include_router(system_router)
 app.include_router(vision_router)
+# Hosted MCP endpoint for external agents (see app/agent_mcp/). Mounted
+# AFTER the REST routers so /api/mcp is matched by its own route and
+# never by the SPA fallback.
+app.include_router(agent_mcp_router)
 
 
 @app.get('/api/health')

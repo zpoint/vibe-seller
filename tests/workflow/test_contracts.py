@@ -111,6 +111,15 @@ AUTH_USER_KEYS = {
     'created_at',
 }
 
+API_TOKEN_KEYS = {
+    'id',
+    'name',
+    'prefix',
+    'created_at',
+    'last_used_at',
+    'expires_at',
+}
+
 WS_STRUCTURED_KEYS = {
     'skills',
     'store_profiles',
@@ -270,6 +279,35 @@ class TestAuthContracts:
         assert AUTH_USER_KEYS <= set(r.json().keys()), (
             f'Missing: {AUTH_USER_KEYS - set(r.json().keys())}'
         )
+
+
+# ── API token contracts ──────────────────────────────
+
+
+class TestApiTokenContracts:
+    async def test_token_list_shape(self, admin_client):
+        await admin_client.post(
+            '/api/auth/tokens', json={'name': 'shape-token'}
+        )
+        r = await admin_client.get('/api/auth/tokens')
+        assert r.status_code == 200
+        entry = r.json()[0]
+        assert API_TOKEN_KEYS <= set(entry.keys()), (
+            f'Missing: {API_TOKEN_KEYS - set(entry.keys())}'
+        )
+        # The secret is never part of the list.
+        assert 'token' not in entry
+
+    async def test_token_created_shape_carries_the_secret(self, admin_client):
+        r = await admin_client.post(
+            '/api/auth/tokens', json={'name': 'shape-token'}
+        )
+        assert r.status_code == 200
+        body = r.json()
+        assert API_TOKEN_KEYS <= set(body.keys()), (
+            f'Missing: {API_TOKEN_KEYS - set(body.keys())}'
+        )
+        assert body['token'].startswith('vst_')
 
 
 # ── Workspace contracts ──────────────────────────────

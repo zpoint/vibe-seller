@@ -10,9 +10,16 @@ import type { AppView } from '../types'
 import type { SettingsTab } from '../views/SettingsView'
 
 // The settings URL slug is the human-friendly form; SettingsView's
-// internal id differs only for the AI tab ('ai' ↔ 'aiAgent').
-const SLUG_TO_TAB: Record<string, SettingsTab> = { ai: 'aiAgent' }
-const TAB_TO_SLUG: Partial<Record<SettingsTab, string>> = { aiAgent: 'ai' }
+// internal id differs from it for the AI tab ('ai' ↔ 'aiAgent') and
+// the API-tokens tab ('api-tokens' ↔ 'apiTokens').
+const SLUG_TO_TAB: Record<string, SettingsTab> = {
+  ai: 'aiAgent',
+  'api-tokens': 'apiTokens',
+}
+const TAB_TO_SLUG: Partial<Record<SettingsTab, string>> = {
+  aiAgent: 'ai',
+  apiTokens: 'api-tokens',
+}
 
 export function settingsTabToSlug(tab: SettingsTab): string {
   return TAB_TO_SLUG[tab] || tab

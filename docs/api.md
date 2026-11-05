@@ -2,6 +2,10 @@
 
 All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings), all routes except `/api/auth/status`, `/api/auth/login`, `/api/health`, and `/api/sse` require JWT auth via httpOnly cookie. When `auth_required` is disabled (default), all routes return the default admin user without authentication.
 
+A request may also carry a personal API token (`vst_…`) as `Authorization: Bearer vst_…`. Such a token is always checked against the token table — an unknown, revoked or expired one is a **401 even when `auth_required` is off**. Any other bearer value keeps the JWT/cookie behaviour described above.
+
+External agents connect over the MCP endpoint at `/api/mcp` with a `vst_` API token — see [Connect an external agent](agents.md).
+
 ## `auth.py` — Authentication
 
 | Method | Path | Description |
@@ -12,6 +16,35 @@ All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings)
 | GET | `/api/auth/me` | Return current user (includes `username`, nullable `email`) |
 | PATCH | `/api/auth/me/password` | Change own password (`current_password` + `new_password`) |
 | PATCH | `/api/auth/me/profile` | Update own profile: `username`, `name`, `email` (nullable, `EmailStr`), `plan_mode_default`. Admin can change email; send `null` to clear email. |
+
+### Personal API tokens
+
+A personal API token lets an external agent (Claude Code, Codex, …) call
+the API as the user who minted it — the token carries the owner's role,
+there are no scopes. The plaintext (`vst_` + 32 random bytes) is shown
+**once**, in the creation response; only its SHA-256 hash is stored.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/auth/tokens` | List the caller's own live tokens: `[{ id, name, prefix, created_at, last_used_at, expires_at }]`. Never contains the secret; revoked tokens are omitted. |
+| POST | `/api/auth/tokens` | Create a token. Body `{ name, expires_in_days? }` — `expires_in_days` defaults to `90`, `null` means "never expires" (1–3650 otherwise). Returns the token fields **plus `token`** (the plaintext, shown once). The `ai_bot` role cannot mint tokens (403), and neither can an API token (403 — a token must never beget another credential). |
+| DELETE | `/api/auth/tokens/{id}` | Revoke one of the caller's own tokens. Another user's token id, an unknown id and an already-revoked id all return **404** (never 403 — that would confirm the id exists). |
+
+**API tokens never read secrets back, on MCP or REST.** Every request
+authenticated by a `vst_` token passes through one guard
+(`app/api_token_secrets.py`, the same classifier as the MCP redaction
+layer): any JSON response a token caller receives has its
+secret-classified fields masked — including the REST routes the web
+UI reads raw (the profile list's `env` with `ANTHROPIC_AUTH_TOKEN`,
+the chat-bot single GET's `webhook_url` + `secret`). Non-JSON
+responses (SSE, file downloads) and session / service / no-auth
+callers are untouched — the UI's edit forms keep working. The write
+side holds too: a mask a token caller sends back through an update
+route (`PUT /api/profiles/{id}`, `PUT /api/chat-bots/{id}`,
+`PUT /api/vision/config`, email/Ziniao account updates) is recognised
+as an echo of the read and the stored secret is kept; a mask on a
+create-style route is a 400, never a stored `****`.
+
 
 ## `app_settings.py` — App Settings
 
@@ -70,6 +103,194 @@ All routes prefixed with `/api/`. When `auth_required` is enabled (see Settings)
 | GET | `/api/tasks/{task_id}/files/{filename}` | Download a task output file (path traversal protected) |
 
 `TaskResponse` includes `created_by_name: str | null` — the creator's display name resolved from the users table (defaults to `"admin"` if not found).
+
+## `agent_mcp/` — Hosted MCP endpoint (external agents)
+
+Serves the Model Context Protocol so an external agent (Claude Code,
+Codex, …) can drive tasks over HTTP. See
+[Connect an external agent](agents.md) for the client-side setup.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/mcp` | One JSON-RPC 2.0 message (or a batch) per call. Methods: `initialize`, `tools/list`, `tools/call`, `ping`, `notifications/initialized`. Stateless — no session id, one `application/json` document per call. A notification (no `id`) is answered with **202** and no body. |
+| GET | `/api/mcp` | **405** — the endpoint is stateless and offers no server-to-client event stream. |
+
+Auth is the same dependency the REST API uses (`get_current_user`), so a
+session cookie, a `vst_` API token as `Authorization: Bearer vst_…`, and a
+server with `auth_required` off all behave exactly as they do for the web
+UI. A 401 carries `WWW-Authenticate: Bearer`.
+
+**Transport rules** (checked before the body is parsed): the request's
+`Content-Type` must be `application/json` (or any `+json` type; parameters
+like `charset` allowed), else **415** — this keeps the endpoint out of the
+CORS "simple request" class, so a webpage cannot drive an auth-off server
+with a `text/plain` POST. `Sec-Fetch-Site: cross-site` is **403**. An
+`Origin` header, when present, must be same-origin or in the app's CORS
+allow-list, else **403** (non-browser clients send no `Origin` and are
+unaffected).
+
+Tools (`tools/call` → `params.name`, `params.arguments`): `list_stores`,
+`list_tasks`, `get_task`, `get_task_log`, `wait_task`, `create_task`,
+`get_pending_questions`, `answer_question`, `review_plan`,
+`image_request`, `send_message`, `stop_task`, `retry_task`,
+`delete_task`, `task_files`, `read_knowledge`, `workspace_file`,
+`manage_skill`, `workspace_assistant`, `list_schedules`,
+`create_schedule`, `update_schedule`, `delete_schedule`,
+`run_schedule`, plus the Settings-page tools (`manage_store`,
+`browser`, `manage_ziniao_account`, `manage_profile`, `app_settings`,
+`manage_email_account`, `manage_chat_bot`, `manage_ticktick`) — one
+tool per resource with an `action` enum, so the
+list stays usable in a client's context. Every mutating tool calls the
+REST route handlers, so the task state machine, the plan lifecycle and the
+launch path are the same code the web UI runs. A tool that fails answers
+`isError: true` with the reason; a protocol problem (unknown tool, bad
+arguments, non-object `params`) answers with a JSON-RPC error.
+
+**Task detail, files and attachments.** `get_task_log` pages the full
+step log (offset/limit) and carries the conversation messages — the
+debug view behind the summaries. `task_files` wraps the task file
+browser (`list` / `read` / `zip_url`): text ≤ 256 KB inline, anything
+else an absolute download URL (a `vst_` bearer works there) plus a
+base64 blob for binaries ≤ 5 MB. `create_task` / `send_message`
+accept `attachments: [{filename, mime_type, content_base64}]` (≤ 10 MB
+each) handed to the same upload routes the UI uses — the deferred
+create → upload → start chain, and the chat staging →
+promote-on-delivery flow respectively.
+
+**Image confirm gate.** A task agent's image generation parks on a
+confirm card; `image_request` (get / confirm / cancel) resolves it
+through the same routes the web card uses, `wait_task` surfaces the
+card as `needs_operator` with a `pending.kind=image_confirm` block
+(the task stays `running`), and the guidance names `image_request`
+while one is showing.
+
+**Workspace, skills, assistant.** `workspace_file` (actions `tree`,
+`read`, `write`, `delete`, `history`, `version`, `reset`,
+`structured`, `store_profile`, `knowledge_sync`, `knowledge_status`,
+`knowledge_meta`) wraps the workspace routes over the roots the UI
+edits (`knowledge/`, `stores/`, `.claude/skills/`) — path confinement
+is enforced up front (no `..`, no backslash, no absolute) with the
+route's own guard as the second line; writes land in the same
+workspace git history a UI write does. **Workspace commits are
+attributed** (`app/workspace/actor.py`): a commit made while a
+signed-in caller's request is on the stack is authored by that caller
+(`name <name@users.vibe-seller.local>`) with a `Via: session` /
+`Via: api_token` / `Via: service` / `Via: no_auth` trailer in the
+message; the task pipelines' own knowledge commits (and anything
+outside a request) keep the agent identity — the orchestrator entry
+points drop the caller's context (`reset_ledger`), so a task launched
+by a token never files the agent's edits under the token owner's
+name. `history` reports the author. `manage_skill` wraps the
+skills routes (list / get / create / update / delete / sync /
+sync_meta). `workspace_assistant` wraps the assistant routes; `send`
+also waits (bounded, default 45 s) for the reply on the same SSE
+events the UI reads, and `status` reports the last reply held in
+memory (assistant answers are not persisted to the DB).
+**Settings-page tools.** Each `manage_*` tool validates its per-action
+required fields and answers a tool error naming the missing one; unknown
+keys are rejected rather than silently dropped (`app_settings(update)`
+checks its body against the route's own `ALLOWED_KEYS`). Secrets are
+write-only through one shared redaction layer
+(`app/agent_mcp/redact.py`): passwords, API keys (profile env keys
+included), bot webhook URLs, signing secrets and the kie.ai key are
+accepted on write and returned masked (`****` + last 4) or as a
+`has_secret`/`*_set` flag — including on the chat-bot `get`, whose REST
+route returns the raw URL to the edit form. The same guarantee covers
+plain REST for `vst_` token callers (see "Personal API tokens" above):
+the edit-form routes answer masks to a token and plaintext to a
+session. A drift test
+(`tests/unit/test_agent_mcp_redact.py`) fails when a new field appears on
+one of the wrapped response models unclassified. Real-world side effects
+are named in the tool descriptions: `manage_email_account(send)` sends a
+real email, `manage_chat_bot(test|send)` posts to the group,
+`manage_profile(validate)` spends one tiny real model call, and
+`manage_ticktick(authorize)` returns an OAuth URL only a human can finish.
+
+**Schedule semantics.** A user-created schedule always plans first: a
+plan-only task (`plan_task_id` in the result) authors the plan, and when
+it finishes the plan is frozen onto the schedule (`plan_status=ready`) —
+the planning task executes nothing. Every schedule result carries
+`plan_status`, `plan_status_meaning`, `fires` and `next_actions` (from
+`app/agent_mcp/lifecycle.py`), plus the frozen plan text itself
+(`plan`, `plan_truncated`, `plan_full_text_where`) — the agent has to be
+able to SHOW that plan to its user before the schedule runs it.
+`fires` is **false** unless the plan gate is open *and* the schedule is
+active: a schedule whose plan is not `ready` never fires, and
+`run_schedule` on one is refused with the route's reason verbatim.
+`update_schedule` folds the UI's separate routes into one call: the
+edit applies first, then `replan: true` (spawns a fresh plan-only
+task), then `paused` (→ `/pause` or `/resume`; resuming needs a ready
+plan). Editing the prompt makes the stored plan `stale`.
+
+**A schedule's plan is accepted by the SERVER, not by a human.** The
+plan-only task auto-approves at `ExitPlanMode`, so `plan_status=ready`
+means "the server took the plan the planner wrote", not "someone
+reviewed it". The human checkpoint is made by the agent: pass
+`paused: true` to `create_schedule` (the default `false` is what the
+web UI does) and the tool creates the schedule and pauses it in the
+same call — no REST change, no direct DB write; the REST create path
+has no `is_active` of its own (`ScheduleCreate` carries none, and the
+create route always makes an active schedule), and only `/pause`
+deactivates one. While the plan is still `planning` the fire gate
+refuses the schedule anyway, so pausing at creation leaves no window.
+Then show the plan text and resume it with
+`update_schedule(paused=false)` only with the user's go-ahead.
+
+**Task lifecycle guidance.** Every tool result that carries a task —
+`create_task`, `get_task`, `wait_task`, each `list_tasks` item,
+`retry_task`, `review_plan`, `send_message`, `stop_task`,
+`answer_question` — also carries `status`, `status_meaning` and
+`next_actions` (from `app/agent_mcp/lifecycle.py`): what the status
+means and which tools are valid in it *right now*. `next_actions` is
+derived from the same state-machine groups the routes check
+(`STOPPABLE`, `RETRIABLE`, `WAKEABLE`, the plan gate), so a named
+tool is one the server accepts in that state; `wait_task` is named
+only where waiting actually waits — it returns at once on `planned`,
+`waiting` and the terminal states. A pending question is a **flag**,
+not a status: while one is outstanding the guidance names
+`get_pending_questions` and `answer_question` first, whichever status
+the task is in. `delete_task` follows the delete route's **subtree**
+guard (`app/task_delete.py`): the route refuses with 409 while any
+task in the tree is running, so the guidance drops `delete_task` for
+a parent whose child is still live — the query is the route's own.
+The same table is served as `initialize.instructions` and, generated,
+in the packaged skill's `references/flows.md`.
+
+**Profile semantics (mirrors the web UI).** An omitted `profile_id` on
+`create_task` uses the owner's default profile (the route resolves it). On
+`retry_task`, `send_message` and a `review_plan` reject, an omitted
+`profile_id` is sent as **the caller's default profile** — exactly what
+the UI's composer does, whose profile picker starts from the signed-in
+user's `default_profile_id` — so replaying what a person would click runs
+the same model. Pass `profile_id` explicitly to choose another.
+
+`list_tasks` returns at most 50 tasks by default (`limit`, max 200).
+`wait_task` long-polls (default 45 s, max 120 s) and ends early when the
+client disconnects. Its `reason` is exactly one of `question` (the agent
+asked something — `answer_question`), `needs_operator` (a plan is ready
+— `review_plan`; or an image confirm card is showing, distinguished by
+the `pending` block with `kind=image_confirm` — `image_request`),
+`waiting` (parked on child tasks or a condition —
+`send_message` wakes it), `terminal` (`completed`/`failed`), or
+`timeout` (nothing happened — call again).
+
+`review_plan` with `approve: true` returns only once the task has left
+`planned` (the route hands the executor to the background, so the
+transition is asynchronous); its result carries the status it reached.
+`send_message` CONTINUES a task (plan, transcript and progress are kept)
+and `retry_task` STARTS OVER (they are wiped).
+
+`create_task` omits `plan_mode` by default, so the owner's
+`plan_mode_default` applies exactly as in the web UI; the result echoes
+the `plan_mode` the task actually got. A task with no store always
+plans.
+
+`answer_question` maps the answers onto the **full question text** the
+agent reads (the header or a 1-based index are also accepted) — an answer
+keyed by the header alone would reach the agent as an empty answer.
+
+This is NOT `app/mcp_server.py`: that module is the *in-task* stdio MCP
+(`--task-id`, tools like `set_task_result`), and is never exposed here.
 
 ## `schedules.py` — Schedule Management
 
@@ -228,7 +449,7 @@ agent — keyword handling is entirely server-side.
 |--------|------|-------------|
 | GET | `/api/chat-bots/platforms` | Registry metadata the UI renders from: `{name, label, hosts, path_prefix, uses_secret, supports_file, max_message, limits, limit_unit, doc_url}` per platform |
 | GET | `/api/chat-bots` | List bots — `{id, name, platform, webhook_url_masked, has_secret, can_send_file, created_at, updated_at}`; the mask shows the host + last 4 chars of the secret-bearing part (e.g. `https://hooks.slack.com/...****abcd`) |
-| GET | `/api/chat-bots/{id}` | Get one bot with the full `webhook_url` and `secret` (for edit) |
+| GET | `/api/chat-bots/{id}` | Get one bot with the full `webhook_url` and `secret` (for edit). Session callers only — an API-token caller receives both masked (see "Personal API tokens") |
 | POST | `/api/chat-bots` | Create `{name, webhook_url, secret?, keyword?}`. `secret` is only valid for DingTalk (加签) / Feishu (签名校验) — non-empty on WeCom/Slack → 400; `keyword` only for DingTalk (自定义关键词) / Feishu (关键词) — the SERVER appends it to any outgoing message that lacks it, so agents and the Test button work unchanged |
 | PUT | `/api/chat-bots/{id}` | Update `name`, `webhook_url`, `secret` or `keyword`; `null`/blank required fields → 400; changing the URL re-derives `platform` (and drops a secret/keyword the new platform cannot use); `""` clears a secret or keyword |
 | DELETE | `/api/chat-bots/{id}` | Delete bot |

@@ -157,9 +157,13 @@ class TestPromoteOnSend:
         assert att['url'] == f'/api/tasks/{tid}/files/uploads/{att["filename"]}'
 
         # The promoted file now lives in the agent's cwd under uploads/.
+        # The route resolves the task dir (its traversal guard), so on
+        # macOS the two spellings differ by the /var → /private/var
+        # symlink whenever the test home sits under /var/folders —
+        # compare the directories, not their spellings.
         promoted = Path(att['abs_path'])
         assert promoted.is_file()
-        assert promoted.parent == (_TASKS_DIR / tid / 'uploads')
+        assert promoted.parent == (_TASKS_DIR / tid / 'uploads').resolve()
         # Staging for this item is consumed.
         assert not (_STAGING_DIR / tid / staged['id']).exists()
 

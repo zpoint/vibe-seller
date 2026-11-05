@@ -7,6 +7,7 @@ import { StoresPanel } from '../components/settings/StoresPanel'
 import { EmailAccountsPanel } from '../components/settings/EmailAccountsPanel'
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
 import { VisionPanel } from '../components/settings/VisionPanel'
+import { ApiTokensPanel } from '../components/settings/ApiTokensPanel'
 import { ExternalConfigOverrideModal } from '../components/ExternalConfigOverrideModal'
 import {
   isExternalConfigOverrideDetail,
@@ -14,7 +15,14 @@ import {
 } from '../components/externalConfigOverrideDetail'
 import type { AuthUser, Profile, EmailAccount, Store } from '../types'
 
-export type SettingsTab = 'stores' | 'general' | 'aiAgent' | 'email' | 'account' | 'integrations'
+export type SettingsTab =
+  | 'stores'
+  | 'general'
+  | 'aiAgent'
+  | 'email'
+  | 'account'
+  | 'apiTokens'
+  | 'integrations'
 
 interface SettingsViewProps {
   currentUser: AuthUser
@@ -68,7 +76,7 @@ export function SettingsView({
   loadUsers,
 }: SettingsViewProps) {
   const { t } = useTranslation()
-  const tabs: SettingsTab[] = ['stores', 'general', 'aiAgent', 'email', 'account', 'integrations']
+  const tabs: SettingsTab[] = ['stores', 'general', 'aiAgent', 'email', 'account', 'apiTokens', 'integrations']
   const [overrideError, setOverrideError] = useState<ExternalConfigOverrideDetail | null>(null)
 
   // Centralized handler — surfaces the cc-switch / external-config
@@ -134,6 +142,8 @@ export function SettingsView({
         />
       ) : settingsTab === 'email' ? (
         <EmailAccountsPanel emailAccounts={emailAccounts} loadEmailAccounts={loadEmailAccounts} stores={stores} />
+      ) : settingsTab === 'apiTokens' ? (
+        <ApiTokensPanel authRequired={authRequired} />
       ) : settingsTab === 'aiAgent' ? (
         <div className="space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">

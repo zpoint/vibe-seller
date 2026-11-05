@@ -200,6 +200,10 @@ jobs:
         env:
           MOCK_CLI: tests/e2e/mock_cli.py
           VIBE_SELLER_TELEMETRY: '0'
+          # The MCP files e2e parks an image-confirm card; fake vision
+          # keeps it offline + deterministic (same flag the e2e-test
+          # job sets).
+          VISION_FAKE: '1'
         run: |
           mkdir -p logs
           BACKEND_PORT=7777 MOCK_CLI=tests/e2e/mock_cli.py \
@@ -240,7 +244,12 @@ jobs:
           MOCK_CLI: tests/e2e/mock_cli.py
         run: >
           uv run pytest tests/e2e/test_conversation_ui.py
-          tests/e2e/test_turn_lifecycle_mock.py --e2e -v
+          tests/e2e/test_turn_lifecycle_mock.py
+          tests/e2e/test_agent_mcp.py
+          tests/e2e/test_agent_mcp_schedules.py
+          tests/e2e/test_agent_mcp_files.py
+          tests/e2e/test_agent_mcp_ops.py
+          tests/e2e/test_agent_mcp_workspace.py --e2e -v
           --log-cli-level=INFO
 
       - name: Stop mock CLI server

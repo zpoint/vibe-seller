@@ -1,4 +1,5 @@
 from app.models.ad_declaration import AdTaskDeclaration
+from app.models.api_token import ApiToken
 from app.models.app_settings import AppSettings
 from app.models.browser_session import BrowserSession
 from app.models.chat_bot import ChatBot
@@ -21,6 +22,7 @@ from app.models.ziniao_account import ZiniaoAccount
 _all_models = [
     AppSettings,
     AdTaskDeclaration,
+    ApiToken,
     User,
     Store,
     BrowserSession,

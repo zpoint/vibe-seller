@@ -1,0 +1,98 @@
+{
+  "$comment": [
+    "Trigger evals for the `vibe-seller` skill.",
+    "Each case is a user prompt plus what the skill is expected to do with",
+    "it. `expect.skill_triggers` is the assertion that matters: a positive",
+    "case must load the skill, a negative case must not. `expect.first_tool`",
+    "records the tool the agent is expected to reach for first (null = no",
+    "tool call expected); it is a hint for the human reading the transcript,",
+    "not a hard pass/fail.",
+    "Prompts use placeholder store names on purpose - no real account data.",
+    "This file is a plain trigger list, reviewed by hand. The runnable",
+    "Claude Code suite lives in agent/evals/ and is run with",
+    "`claude plugin eval ./agent` (see agent/README.md)."
+  ],
+  "skill": "vibe-seller",
+  "cases": [
+    {
+      "id": "trigger-listing-audit",
+      "prompt": "audit the listings on my acme store and tell me which ones are missing images",
+      "expect": {
+        "skill_triggers": true,
+        "first_tool": "list_stores"
+      }
+    },
+    {
+      "id": "trigger-ads-report",
+      "prompt": "how did my Sponsored Products campaigns do last week?",
+      "expect": {
+        "skill_triggers": true,
+        "first_tool": "list_tasks"
+      }
+    },
+    {
+      "id": "trigger-orders-summary",
+      "prompt": "pull the last 7 days of orders and summarise the top sellers",
+      "expect": {
+        "skill_triggers": true,
+        "first_tool": "list_stores"
+      }
+    },
+    {
+      "id": "trigger-follow-up-on-running-task",
+      "prompt": "the task you started is asking me which marketplace to cover - answer it with US only",
+      "expect": {
+        "skill_triggers": true,
+        "first_tool": "get_pending_questions"
+      }
+    },
+    {
+      "id": "trigger-plan-review",
+      "prompt": "review the plan the store task came up with and approve it",
+      "expect": {
+        "skill_triggers": true,
+        "first_tool": "get_task"
+      }
+    },
+    {
+      "id": "trigger-knowledge-read",
+      "prompt": "what has the acme store already learned about its listings?",
+      "expect": {
+        "skill_triggers": true,
+        "first_tool": "read_knowledge"
+      }
+    },
+    {
+      "id": "no-trigger-plain-coding",
+      "prompt": "write a python script that sorts a csv by two columns",
+      "expect": {
+        "skill_triggers": false,
+        "first_tool": null
+      }
+    },
+    {
+      "id": "no-trigger-general-question",
+      "prompt": "what is the capital of France?",
+      "expect": {
+        "skill_triggers": false,
+        "first_tool": null
+      }
+    },
+    {
+      "id": "no-trigger-browser-without-server",
+      "prompt": "open amazon.com in a browser and search for a wireless mouse",
+      "expect": {
+        "skill_triggers": false,
+        "first_tool": null
+      }
+    },
+    {
+      "id": "no-trigger-local-dev-setup",
+      "prompt": "how do I create a virtualenv for a python project?",
+      "expect": {
+        "skill_triggers": false,
+        "first_tool": null
+      }
+    }
+  ]
+}

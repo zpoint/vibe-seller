@@ -38,12 +38,15 @@ import uuid
 
 import pytest
 
+from app.config import VIBE_SELLER_DIR
 from tests.e2e.e2e_helpers import BASE_URL, create_store
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
 
-VIBE_HOME = Path.home() / '.vibe-seller'
+# The SERVER's home (the root conftest points the test process's
+# app.config at it for e2e runs — E2E_VIBE_HOME / VIBE_HOME).
+VIBE_HOME = VIBE_SELLER_DIR
 BIN_DIR = VIBE_HOME / 'bin'
 RUNTIME_DIR = VIBE_HOME / 'r'
 

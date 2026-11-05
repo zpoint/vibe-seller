@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import time
 import uuid
 
 from httpx import ASGITransport, AsyncClient
@@ -44,6 +45,7 @@ real_sleep = asyncio.sleep
 # at module level — must be patched so they all use the test DB.
 ASYNC_SESSION_MODULES = [
     'app.database',
+    'app.api_token_secrets',
     'app.routers.tasks',
     'app.routers.vision',
     'app.task_runner',
@@ -75,6 +77,53 @@ ASYNC_SESSION_MODULES = [
 # ── Core DB ──────────────────────────────────────────
 
 
+async def drain_background_tasks(deadline_seconds: float = 10.0) -> None:
+    """Wait for the app's background work to finish, then stop it.
+
+    WHY. The engine fixture drops the database at teardown. A
+    background pipeline (auto_run_task, the follow-up spawn, the plan
+    executor) that is still running is USING that database: the drop
+    lands under it, its next write fails on a closed database, and
+    the teardown itself then errors — "Cannot operate on a closed
+    database" at ``drop_all`` — which pytest reports against the test
+    that leaked the writer, even though the writer belongs to none of
+    them.
+
+    So the teardown lets the work FINISH first. A FRESH snapshot
+    each round, because a task can be CREATED while we wait: the
+    follow-up spawn ends with
+    ``create_task(finalize_followup_session(...))`` — the finalize is
+    created after the agent run, i.e. after the spawn we were waiting
+    for finished.
+
+    On the deadline, what is left is cancelled AND awaited: a
+    cancelled task that is still running would land its cancel inside
+    the database write we are about to tear down — the same broken
+    connection, one step earlier.
+    """
+    current = asyncio.current_task()
+    deadline = time.monotonic() + deadline_seconds
+    while True:
+        pending = [
+            t for t in asyncio.all_tasks() if t is not current and not t.done()
+        ]
+        if not pending:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        await asyncio.wait(pending, timeout=remaining)
+    # Deadline reached: stop what is left, and WAIT for it to unwind
+    # before the database goes away.
+    pending = [
+        t for t in asyncio.all_tasks() if t is not current and not t.done()
+    ]
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
 @pytest_asyncio.fixture
 async def test_engine():
     """In-memory SQLite with ``isolation_level='AUTOCOMMIT'``.
@@ -102,12 +151,10 @@ async def test_engine():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
-    # Cancel lingering background tasks (e.g. auto_run_task)
-    # before tearing down the DB to avoid "closed database" errors.
-    for t in asyncio.all_tasks():
-        if t is not asyncio.current_task() and not t.done():
-            t.cancel()
-    await asyncio.sleep(0.2)
+    # Let the app's background work finish BEFORE the database goes
+    # away: a pipeline that is still running writes to a dropped
+    # database, and the teardown then errors on a closed connection.
+    await drain_background_tasks()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
     await engine.dispose()
@@ -502,6 +549,8 @@ def mock_workspace(monkeypatch, tmp_path):
     monkeypatch.setattr('app.task_runner_auto.workspace_manager', mock)
     monkeypatch.setattr('app.task_runner_exec.workspace_manager', mock)
     monkeypatch.setattr('app.scheduler.finalize_reaper.workspace_manager', mock)
+    # The hosted MCP endpoint reads knowledge through the same manager.
+    monkeypatch.setattr('app.agent_mcp.tools_workspace.workspace_manager', mock)
     return mock
 
 

@@ -240,6 +240,27 @@ export interface Schedule {
   pending_questions_count: number
 }
 
+// ─── API tokens (external-agent access) ───────────────
+// A personal access token: an external agent (Claude Code, Codex,
+// WorkBuddy, …) presents it as `Authorization: Bearer vst_…` and acts
+// as the user who minted it. The plaintext token is returned exactly
+// once, at creation — the list only ever shows the display prefix.
+export interface ApiToken {
+  id: string
+  name: string
+  prefix: string
+  created_at: string
+  /** null until the token has been used at least once. */
+  last_used_at: string | null
+  /** null = never expires. */
+  expires_at: string | null
+}
+
+export interface CreatedApiToken extends ApiToken {
+  /** Plaintext token — shown once, never stored server-side. */
+  token: string
+}
+
 export interface EmailAccount {
   id: string
   email: string

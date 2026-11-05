@@ -37,6 +37,7 @@ from app.task_states import (
     assert_transition,
     can_transition,
 )
+from app.workspace.actor import clear_request_actor
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
 from app.workspace.skills_sync import skills_sync
@@ -390,6 +391,10 @@ async def finalize_followup_session(task_id: str, store: Store | None):
       the Plan rejected path, which `execute_planned_task` owns
       after approve; the standalone case is not reachable here).
     """
+    # This coroutine owns a "Knowledge update after task" commit; like
+    # the orchestrators (which clear via reset_ledger), its work is the
+    # task AGENT's, never whoever's request happened to spawn it.
+    clear_request_actor()
     initial_session = agent_manager.get_session(task_id)
     if initial_session is None:
         return

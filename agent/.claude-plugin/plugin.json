@@ -1,0 +1,36 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "vibe-seller",
+  "displayName": "Vibe Seller",
+  "version": "0.1.0",
+  "description": "Drive a Vibe Seller server from your agent: create tasks, follow their progress, answer the agent's questions and review plans over the hosted /api/mcp endpoint.",
+  "author": {
+    "name": "Vibe Seller",
+    "url": "https://github.com/zpoint/vibe-seller"
+  },
+  "homepage": "https://github.com/zpoint/vibe-seller",
+  "repository": "https://github.com/zpoint/vibe-seller",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "ecommerce",
+    "automation",
+    "amazon",
+    "vibe-seller"
+  ],
+  "userConfig": {
+    "url": {
+      "type": "string",
+      "title": "Vibe Seller server URL",
+      "description": "Base URL of the Vibe Seller server, e.g. http://127.0.0.1:7777 or https://vibe.example.com. No trailing slash, no /api/mcp suffix.",
+      "required": true
+    },
+    "token": {
+      "type": "string",
+      "title": "API token",
+      "description": "Personal access token, minted in Vibe Seller under Settings -> API tokens. Sent as a Bearer token.",
+      "required": true,
+      "sensitive": true
+    }
+  }
+}

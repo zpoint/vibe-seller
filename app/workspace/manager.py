@@ -20,6 +20,7 @@ from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
 from app.text_utils import sanitize_text
 from app.workspace import task_links, venv_bootstrap
+from app.workspace.actor import current_actor
 from app.workspace.ignored_paths import (
     RUNTIME_DIRS,
     git_env as ignored_git_env,
@@ -211,7 +212,10 @@ class WorkspaceManager(SkillsMixin):
                 continue
             rel = path.relative_to(self.root)
             items.append({
-                'path': str(rel),
+                # Always '/'-separated: callers (the UI tree, the MCP
+                # read_knowledge filters) match on POSIX prefixes, and
+                # str() would give 'knowledge\\x.md' on native Windows.
+                'path': rel.as_posix(),
                 'is_dir': path.is_dir(),
                 'size': path.stat().st_size if path.is_file() else 0,
             })
@@ -542,7 +546,18 @@ browser: {backend}
         return resolved
 
     async def _auto_commit(self, message: str):
-        """Stage all changes and commit."""
+        """Stage all changes and commit.
+
+        When a signed-in caller's request is on the stack the commit is
+        authored by that caller and the message says how they
+        authenticated (``Via: session`` / ``api_token`` / …) — see
+        ``app/workspace/actor.py``. The identity itself is set by
+        ``git_env``; the trailer is the part only the commit message
+        can carry.
+        """
+        actor = current_actor()
+        if actor is not None:
+            message = f'{message}\n\nVia: {actor.via}'
         try:
             await self._run_git('add', '-A')
             # Check if there are changes to commit

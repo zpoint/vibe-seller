@@ -41,14 +41,18 @@ def _task_workspace_dir(task_id: str) -> Path:
     return candidate
 
 
-async def _collect_descendants(
-    db: AsyncSession, root_task_id: str
-) -> list[str]:
+async def collect_descendants(db: AsyncSession, root_task_id: str) -> list[str]:
     """Return ``root`` followed by every descendant task id (BFS).
 
     Order matters: callers process children before parents so the
     final ``DELETE`` on the root happens after all FK references
     are gone.
+
+    Public because it is part of the DELETE GUARD, not an
+    implementation detail of this module: the MCP guidance asks the
+    same question ("is anything in this tree running?") through
+    :func:`active_in_subtree`, so the guidance and the route can never
+    disagree about whether a delete is allowed.
     """
     order: list[str] = [root_task_id]
     frontier: list[str] = [root_task_id]
@@ -64,6 +68,29 @@ async def _collect_descendants(
         seen.update(next_ids)
         frontier = next_ids
     return order
+
+
+async def active_in_subtree(
+    db: AsyncSession, ids: list[str]
+) -> list[tuple[str, str]]:
+    """The ACTIVE tasks among *ids* — ``(id, status)`` pairs.
+
+    ONE implementation of the delete guard. The route raises while
+    any of them is ACTIVE (a tree with a running task in it cannot
+    be deleted), and the MCP guidance drops ``delete_task`` from its
+    next-actions when there are any — so the guidance can never
+    promise a delete the route refuses.
+    """
+    active_states = {s.value for s in ACTIVE}
+    rows = (
+        await db.execute(
+            select(Task.id, Task.status).where(
+                Task.id.in_(ids),
+                Task.status.in_(active_states),
+            )
+        )
+    ).all()
+    return [(row[0], row[1]) for row in rows]
 
 
 async def delete_task(
@@ -85,18 +112,10 @@ async def delete_task(
     if not root:
         return False
 
-    ids = await _collect_descendants(db, task_id)
+    ids = await collect_descendants(db, task_id)
 
     if not allow_active:
-        active_states = {s.value for s in ACTIVE}
-        active_rows = (
-            await db.execute(
-                select(Task.id, Task.status).where(
-                    Task.id.in_(ids),
-                    Task.status.in_(active_states),
-                )
-            )
-        ).all()
+        active_rows = await active_in_subtree(db, ids)
         if active_rows:
             statuses = ', '.join(sorted({r[1] for r in active_rows}))
             raise ValueError(
