@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 import uuid
 
 from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, event
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, object_session
 
 from app.models.base import Base
 from app.text_utils import SafeText
@@ -174,6 +174,9 @@ def paused_total(task: 'Task', at_iso: str | None = None) -> int:
     return total
 
 
+TERMINAL_STATES = frozenset({'completed', 'failed'})
+
+
 @event.listens_for(Task.status, 'set')
 def _park_clock(target: 'Task', value, oldvalue, _initiator) -> None:
     new = str(value) if value is not None else ''
@@ -184,3 +187,10 @@ def _park_clock(target: 'Task', value, oldvalue, _initiator) -> None:
         open_pause(target)
     elif old in PARKED_STATES:
         close_pause(target)
+    if new in TERMINAL_STATES and old not in TERMINAL_STATES:
+        session = object_session(target)
+        if session is not None:
+            session.info.setdefault('terminal_transitions', {})[target.id] = (
+                old,
+                new,
+            )

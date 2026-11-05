@@ -44,19 +44,10 @@ from app.task_states import (
     assert_transition,
     can_transition,
 )
-from app.telemetry_events import TaskFailureCategory, TaskFailurePhase
-from app.telemetry_tasks import (
-    send_task_completed,
-    send_task_failed,
-    send_task_resumed,
-)
+from app.telemetry_tasks import send_task_resumed
 from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
-
-
-_send_task_completed = send_task_completed
-_send_task_failed = send_task_failed
 
 
 async def _fail_on_agent_error(db, task, task_id, outcome) -> bool:
@@ -81,11 +72,6 @@ async def _fail_on_agent_error(db, task, task_id, outcome) -> bool:
             'status': TaskStatus.FAILED,
             'error': task.error,
         },
-    )
-    await _send_task_failed(
-        task,
-        phase=TaskFailurePhase.RUNNING,
-        category=TaskFailureCategory.AGENT_SET_ERROR,
     )
     return True
 
@@ -211,11 +197,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                                 'error': task.error,
                             },
                         )
-                        await _send_task_failed(
-                            task,
-                            phase=TaskFailurePhase.PRE_RUNNING,
-                            category=TaskFailureCategory.ZINIAO_UNAVAILABLE,
-                        )
                         return
 
             bundle = await build_system_extra(
@@ -307,11 +288,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                         'error': task.error,
                     },
                 )
-                await _send_task_failed(
-                    task,
-                    phase=TaskFailurePhase.RUNNING,
-                    category=TaskFailureCategory.NO_RESULT,
-                )
                 return
 
         # Commit any knowledge changes from the agent
@@ -397,11 +373,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                             'error': task.error,
                         },
                     )
-                    await _send_task_failed(
-                        task,
-                        phase=TaskFailurePhase.RUNNING,
-                        category=TaskFailureCategory.CLI_ERROR,
-                    )
                     return
 
                 # Agent exited with incomplete todos → wait (only if no result)
@@ -429,7 +400,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                         'status': TaskStatus.COMPLETED,
                     },
                 )
-                await _send_task_completed(task)
 
     except Exception as e:
         logger.exception(
@@ -452,11 +422,6 @@ async def execute_planned_task(task_id: str, store: Store | None):
                             'status': TaskStatus.FAILED,
                             'error': str(e),
                         },
-                    )
-                    await _send_task_failed(
-                        task,
-                        phase=TaskFailurePhase.PIPELINE,
-                        category=TaskFailureCategory.UNHANDLED_EXCEPTION,
                     )
         except Exception:
             logger.exception(
@@ -539,11 +504,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
                             'status': TaskStatus.FAILED,
                             'error': task.error,
                         },
-                    )
-                    await _send_task_failed(
-                        task,
-                        phase=TaskFailurePhase.PRE_RUNNING,
-                        category=TaskFailureCategory.ZINIAO_UNAVAILABLE,
                     )
                     return
 
@@ -703,11 +663,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
                             'error': task.error,
                         },
                     )
-                    await _send_task_failed(
-                        task,
-                        phase=TaskFailurePhase.RUNNING,
-                        category=TaskFailureCategory.CLI_ERROR,
-                    )
                     return
 
                 # Agent exited with incomplete todos → wait (only if no result)
@@ -735,7 +690,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
                         'status': TaskStatus.COMPLETED,
                     },
                 )
-                await _send_task_completed(task)
 
     except Exception as e:
         logger.exception(
@@ -758,11 +712,6 @@ async def execute_woken_task(task_id: str, store: Store | None):
                             'status': TaskStatus.FAILED,
                             'error': str(e),
                         },
-                    )
-                    await _send_task_failed(
-                        task,
-                        phase=TaskFailurePhase.PIPELINE,
-                        category=TaskFailureCategory.UNHANDLED_EXCEPTION,
                     )
         except Exception:
             logger.exception(

@@ -32,6 +32,7 @@ from app.models.task import Task
 from app.task_runner_auto import auto_run_task
 from app.task_runner_exec import execute_planned_task, execute_woken_task
 from app.task_states import TaskStatus
+from app.telemetry_tasks import PipelinePhase
 
 logger = logging.getLogger(__name__)
 
@@ -387,7 +388,8 @@ class TaskQueueScheduler:
 
         except Exception as e:
             logger.exception('Failed to dispatch task %s: %s', task_id, e)
-            await self._mark_failed(task_id, str(e))
+            with PipelinePhase():
+                await self._mark_failed(task_id, str(e))
             async with self._lock:
                 self._running_tasks.get(store_id, set()).discard(task_id)
             self._tick_event.set()

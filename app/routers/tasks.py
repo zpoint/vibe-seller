@@ -68,7 +68,7 @@ from app.task_states import (
     assert_transition,
 )
 from app.telemetry_events import TaskSource, TelemetryEvent
-from app.telemetry_tasks import send_task_cancelled, send_task_created
+from app.telemetry_tasks import send_task_created
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -533,8 +533,6 @@ async def stop_agent(
         # Best-effort stop even if task is already terminal
         await agent_manager.stop(task_id)
         return {'ok': True, 'task_id': task_id, 'status': task.status}
-
-    send_task_cancelled(task)
 
     # Commit FAILED *before* stopping the agent so that
     # auto_run_task sees FAILED when it reads the DB after

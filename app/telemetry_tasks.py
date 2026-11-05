@@ -2,11 +2,15 @@
 so that file stays under the 800-line limit. Anonymous + privacy-safe;
 see app.telemetry."""
 
+import asyncio
+from contextvars import ContextVar
 from datetime import UTC, datetime
 import json
+import logging
 import re
 
-from sqlalchemy import func, select
+from sqlalchemy import event, func, select
+from sqlalchemy.orm import Session as _SyncSession
 
 from app import telemetry
 from app.ai.profiles import profile_kind_for_id
@@ -14,6 +18,8 @@ from app.database import async_session
 from app.models.task import Task, close_pause, open_pause, paused_total
 from app.models.task_message import TaskMessage
 from app.telemetry_events import TaskSource, TelemetryEvent
+
+logger = logging.getLogger(__name__)
 
 _SKILL_PATH_RE = re.compile(r'\.claude/skills/([^/]+)/SKILL\.md$')
 
@@ -183,12 +189,12 @@ async def send_task_failed(task: Task, *, phase: str, category: str) -> None:
     telemetry.send(TelemetryEvent.TASK_FAILED, props)
 
 
-def send_task_cancelled(task: Task) -> None:
+def send_task_cancelled(task: Task, *, status_at: str | None = None) -> None:
     telemetry.send(
         TelemetryEvent.TASK_CANCELLED,
         {
             'task_id': task.id,
-            'status_at_cancel': task.status,
+            'status_at_cancel': status_at or task.status,
             'source': task.source or TaskSource.OTHER,
         },
     )
@@ -279,5 +285,77 @@ async def accumulate_run_usage(task_id: str, event: dict) -> None:
             task.output_tokens = (task.output_tokens or 0) + out_tok
             task.num_turns = (task.num_turns or 0) + turns
             await db.commit()
+    except Exception:
+        pass
+
+
+# ── Terminal-event emission ───────────────────────────────────
+
+terminal_failure_phase: ContextVar[str | None] = ContextVar(
+    'terminal_failure_phase', default=None
+)
+
+
+class PipelinePhase:
+    """Mark terminal transitions inside as lifecycle phase 'pipeline'
+    (queue/session plumbing rather than the agent run)."""
+
+    def __enter__(self):
+        self._token = terminal_failure_phase.set('pipeline')
+        return self
+
+    def __exit__(self, *exc):
+        terminal_failure_phase.reset(self._token)
+
+
+_pending_terminal_emits: set = set()
+
+
+@event.listens_for(_SyncSession, 'after_commit')
+def _emit_terminal_on_commit(sync_session) -> None:
+    transitions = sync_session.info.pop('terminal_transitions', None)
+    if not transitions:
+        return
+    for task_id, (from_status, to_status) in transitions.items():
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug(
+                'terminal emit skipped (no running loop) for %s',
+                task_id,
+            )
+            continue
+        task = loop.create_task(_emit_terminal(task_id, from_status, to_status))
+        _pending_terminal_emits.add(task)
+        task.add_done_callback(_pending_terminal_emits.discard)
+
+
+@event.listens_for(_SyncSession, 'after_rollback')
+def _drop_terminal_on_rollback(sync_session) -> None:
+    sync_session.info.pop('terminal_transitions', None)
+
+
+async def _emit_terminal(task_id: str, from_status: str, to_status: str):
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+        if task is None:
+            return
+        if to_status == 'completed':
+            await send_task_completed(task)
+            return
+        if (task.error_category or '') == 'stopped_by_user':
+            await send_task_cancelled(task, status_at=from_status)
+            return
+        phase = terminal_failure_phase.get()
+        if not phase:
+            phase = (
+                'pre_running'
+                if from_status in ('pending', 'queued')
+                else 'running'
+            )
+        await send_task_failed(
+            task, phase=phase, category='unhandled_exception'
+        )
     except Exception:
         pass
