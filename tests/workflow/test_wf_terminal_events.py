@@ -192,7 +192,6 @@ class TestTerminalEvents:
         assert cancelled[0]['task_id'] == task_id
         assert failed == [], f'stops are cancellations, not failures: {calls}'
 
-
     async def test_stall_reaper_emits_once(
         self, admin_client, override_async_session, monkeypatch
     ):
@@ -203,9 +202,7 @@ class TestTerminalEvents:
             'app.telemetry.send',
             lambda event, props=None: calls.append((event, props)),
         )
-        stale = (
-            datetime.now(UTC) - timedelta(minutes=30)
-        ).isoformat()
+        stale = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
         async with override_async_session() as db:
             t = Task(
                 id='t-stall-1',
@@ -232,9 +229,7 @@ class TestTerminalEvents:
             'app.telemetry.send',
             lambda event, props=None: calls.append((event, props)),
         )
-        stale = (
-            datetime.now(UTC) - timedelta(hours=2)
-        ).isoformat()
+        stale = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         async with override_async_session() as db:
             db.add(
                 Schedule(
@@ -354,9 +349,9 @@ class TestTerminalStructural:
         from app import telemetry_tasks
         from app.models import task as task_model
 
-        assert event.contains(
-            Task.status, 'set', task_model._park_clock
-        ), 'Task.status set listener missing'
+        assert event.contains(Task.status, 'set', task_model._park_clock), (
+            'Task.status set listener missing'
+        )
         assert event.contains(
             telemetry_tasks._SyncSession,
             'after_commit',
