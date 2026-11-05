@@ -16,6 +16,7 @@ import time
 
 import git as gitlib
 
+from app.browser.wrapper import validate_store_slug
 from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
 from app.text_utils import sanitize_text
@@ -224,10 +225,10 @@ class WorkspaceManager(SkillsMixin):
     async def read_file(self, rel_path: str) -> str:
         """Read a file from the workspace.
 
-        Skill reads (``.claude/skills/<slug>``) use a lax check that
-        follows symlinks so maintainer-installed external skills are
-        viewable in the UI. Every other tree keeps the strict
-        ``_safe_path`` guard.
+        Skill reads (``.claude/skills/<slug>``) follow symlinks for
+        the web UI (maintainer-installed external skills) but stay
+        contained for API-token callers — see ``resolve_file``. Every
+        other tree keeps the strict ``_safe_path`` guard.
         """
         file_path = self.resolve_file(rel_path)
         try:
@@ -244,15 +245,27 @@ class WorkspaceManager(SkillsMixin):
     def resolve_file(self, rel_path: str) -> Path:
         """Validated absolute path for a workspace file.
 
-        Skill paths (``.claude/skills/<slug>``) use a lax check that
-        follows symlinks so maintainer-installed external skills are
-        viewable in the UI; every other tree keeps ``_safe_path``.
+        Skill paths (``.claude/skills/<slug>``) follow symlinks so
+        maintainer-installed external skills (a hand-placed ``ln -s``)
+        stay viewable in the web UI — an explicitly supported feature,
+        and the reason this branch is lax at all. But the skills tree
+        is also writable by task agents (bash can create a symlink
+        there even where it cannot write files), so the lax branch is
+        NOT unconditional: for a caller authenticated with an API
+        token (an external agent — the credential class every hosted
+        surface keys on), the resolved path must still sit under the
+        workspace root, exactly like ``_safe_path``. A session/no-auth
+        caller is the UI's own viewer; a token caller reading through
+        a planted symlink to anywhere on the host (the SQLite DB
+        included) is an escape, not a feature.
         """
         p = Path(rel_path)
         if p.parts[:2] == ('.claude', 'skills'):
             if p.is_absolute() or any(part == '..' for part in p.parts):
                 raise ValueError(f'Path traversal not allowed: {rel_path}')
             file_path = self.root / p
+            if self._is_api_token_caller() and not self._under_root(file_path):
+                raise ValueError(f'Path traversal not allowed: {rel_path}')
         else:
             file_path = self._safe_path(rel_path)
         if not file_path.is_file():
@@ -437,7 +450,15 @@ class WorkspaceManager(SkillsMixin):
         country: str = '',
         backend: str = 'chrome',
     ) -> str:
-        """Scaffold store profile directory."""
+        """Scaffold store profile directory.
+
+        The slug becomes a filesystem path segment; it is validated
+        against the shape ``store_slug`` derives (single source:
+        ``app.browser.wrapper.validate_store_slug``) HERE — the layer
+        that builds the path — so no caller above can hand this method
+        an escaping string, whatever the route layers check.
+        """
+        validate_store_slug(slug)
         store_dir = self.root / 'stores' / slug
         store_dir.mkdir(parents=True, exist_ok=True)
 
@@ -539,11 +560,35 @@ browser: {backend}
         await self._auto_commit(f'Revert {rel_path} to {commit_sha[:12]}')
 
     def _safe_path(self, rel_path: str) -> Path:
-        """Resolve path and ensure it's within workspace."""
+        """Resolve path and ensure it's within workspace.
+
+        Containment is ``is_relative_to`` on the RESOLVED pair — the
+        pattern ``routers/tasks_files.py`` uses — never a string-prefix
+        comparison: a prefix check accepts any sibling that shares the
+        root's name (``<root>-evil``), and ``resolve()`` is what makes
+        a symlink planted under knowledge/ point somewhere honest.
+        """
         resolved = (self.root / rel_path).resolve()
-        if not str(resolved).startswith(str(self.root.resolve())):
+        if not self._under_root(resolved):
             raise ValueError(f'Path traversal not allowed: {rel_path}')
         return resolved
+
+    def _under_root(self, candidate: Path) -> bool:
+        """Whether *candidate* (resolved) sits inside the workspace."""
+        return candidate.resolve().is_relative_to(self.root.resolve())
+
+    def _is_api_token_caller(self) -> bool:
+        """Whether an API-token caller's request is on the stack.
+
+        The same signal ``_auto_commit`` attributes commits by
+        (``app.workspace.actor``): set by ``get_current_user`` for
+        HTTP callers, cleared by the task-pipeline entry points, and
+        absent for internal (non-request) callers — so the lax skills
+        branch keeps working for the UI and for background jobs while
+        refusing the external-agent credential class.
+        """
+        actor = current_actor()
+        return actor is not None and actor.via == 'api_token'
 
     async def _auto_commit(self, message: str):
         """Stage all changes and commit.

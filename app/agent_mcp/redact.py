@@ -33,6 +33,14 @@ How a field NAME is judged, in precedence order:
    (a new ``smtp_password`` on a schema) is covered with no code
    change.
 
+Inside an ``env`` dict (a profile's environment variables) there is
+a FOURTH, wider rule (:func:`is_secret_env_key`): any key containing
+``key`` is a secret. ``env`` values are arbitrary strings the
+profile's owner typed, and provider credential names that miss the
+general pattern (``MY_PROVIDER_KEY``) are the norm there; the rule
+is scoped to env dicts so plain fields like ``keyword`` stay
+plaintext.
+
 Every field of the wrapped resources' response models sits in
 ``SECRET_EXACT_KEYS`` or ``PLAINTEXT_FIELDS`` or matches the
 pattern — and a drift test
@@ -136,6 +144,26 @@ def is_secret_key(name: str) -> bool:
     return bool(_SECRET_KEY_RE.search(name.lower()))
 
 
+def is_secret_env_key(name: str) -> bool:
+    """Whether an ENV-VAR name (a key inside a profile ``env``) is one.
+
+    ``env`` values are arbitrary strings the profile's owner typed —
+    provider credential names that miss the general pattern are the
+    norm there (``MY_PROVIDER_KEY``), so inside an env dict any name
+    containing ``key`` counts as a secret, on top of the general
+    classifier. Scoped to env dicts ONLY: a response field merely
+    containing "key" (``keyword`` on a chat bot) is not a secret, and
+    the env names that are not credentials (``ANTHROPIC_BASE_URL``,
+    ``*_MODEL``) contain no "key" and keep passing.
+    """
+    return is_secret_key(name) or 'key' in name.lower()
+
+
+# The dict-valued argument/result whose KEYS are env-var names and so
+# are classified with :func:`is_secret_env_key` instead.
+_ENV_KEY = 'env'
+
+
 def mask_secret(value):
     """Mask one secret value, keeping the last 4 characters.
 
@@ -157,29 +185,37 @@ def mask_secret(value):
     return f'****{value[-4:]}'
 
 
-def redact(value):
+def redact(value, *, env_scope: bool = False):
     """A copy of *value* with every secret-named field masked.
 
     Walks dicts, lists and pydantic models recursively. The input is
     never mutated. Anything else (str, int, bool, None, datetime) is
-    returned as-is.
+    returned as-is. Keys inside an ``env`` dict are judged with
+    :func:`is_secret_env_key` (env-var names have their own, wider
+    secret shapes).
+
+    The enforcement point for MCP tool results is the DISPATCHER
+    (``router._call_tool`` masks every result before it is
+    serialised); the per-tool ``redact()`` calls are a second line,
+    not the guarantee.
     """
     if isinstance(value, BaseModel):
         return redact(value.model_dump())
     if isinstance(value, dict):
         out = {}
         for key, item in value.items():
-            if isinstance(key, str) and is_secret_key(key):
+            classify = is_secret_env_key if env_scope else is_secret_key
+            if isinstance(key, str) and classify(key):
                 out[key] = (
                     mask_secret(item)
                     if item is None or isinstance(item, str)
                     else redact(item)
                 )
             else:
-                out[key] = redact(item)
+                out[key] = redact(item, env_scope=key == _ENV_KEY)
         return out
     if isinstance(value, list | tuple):
-        return [redact(item) for item in value]
+        return [redact(item, env_scope=env_scope) for item in value]
     return value
 
 
@@ -225,7 +261,7 @@ def is_mask(value) -> bool:
     )
 
 
-def restore_masked(incoming, stored):
+def restore_masked(incoming, stored, *, env_scope: bool = False):
     """The write-side counterpart of :func:`redact`.
 
     Walks *incoming* (the payload an agent sent) against *stored*
@@ -248,14 +284,19 @@ def restore_masked(incoming, stored):
     key stays null (the profile tool uses null to DELETE an env
     key).
 
-    The input is never mutated; a corrected copy is returned.
+    The input is never mutated; a corrected copy is returned. Keys
+    inside an ``env`` dict are judged with :func:`is_secret_env_key`
+    — the mirror of :func:`redact`'s env scoping, so a masked
+    ``MY_PROVIDER_KEY`` echo is restored exactly like an
+    ``ANTHROPIC_API_KEY`` one.
     """
     if isinstance(incoming, dict):
         stored_map = stored if isinstance(stored, dict) else {}
         out = {}
         for key, value in incoming.items():
             stored_value = stored_map.get(key)
-            if isinstance(key, str) and is_secret_key(key):
+            classify = is_secret_env_key if env_scope else is_secret_key
+            if isinstance(key, str) and classify(key):
                 if is_mask(value):
                     if stored_value is None or stored_value == '':
                         raise ToolError(
@@ -267,7 +308,9 @@ def restore_masked(incoming, stored):
                 else:
                     out[key] = value
             else:
-                out[key] = restore_masked(value, stored_value)
+                out[key] = restore_masked(
+                    value, stored_value, env_scope=key == _ENV_KEY
+                )
         return out
     if isinstance(incoming, list):
         stored_list = stored if isinstance(stored, list) else []
@@ -275,6 +318,7 @@ def restore_masked(incoming, stored):
             restore_masked(
                 item,
                 stored_list[i] if i < len(stored_list) else None,
+                env_scope=env_scope,
             )
             for i, item in enumerate(incoming)
         ]

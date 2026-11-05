@@ -42,7 +42,24 @@ MAX_INLINE_BYTES = 256 * 1024
 MAX_BLOB_BYTES = 5 * 1024 * 1024
 # A decoded upload may not exceed this (base64 inflates ~4/3, so the
 # ENCODED argument is rejected proportionally earlier).
+#
+# Deliberately NOT the web UI's 100 MB (``app.uploads``): the UI's
+# multipart upload STREAMS to disk, while an MCP attachment is
+# base64 inside a JSON document the endpoint parses in memory — a
+# 100 MB file would mean a ~137 MB JSON string and a multi-hundred-MB
+# parse. 10 MB keeps one attachment at roughly 14 MB of JSON; the
+# 64 MB endpoint body cap (``router.MAX_BODY_BYTES``) bounds a whole
+# call. An agent with a detail image past this ceiling uploads it
+# through the web UI (or any HTTP file path) and references it.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+# How many attachments one tool call accepts, and the total DECODED
+# bytes a call's attachments may sum to (the per-file cap alone would
+# let a call stage count × cap). The total is set BELOW what the
+# endpoint's 64 MB body cap allows after base64 inflation (~53 MB
+# encoded), so the specific "your attachments are too big" answer
+# wins over a generic body-size refusal.
+MAX_ATTACHMENTS_PER_CALL = 10
+MAX_ATTACHMENTS_TOTAL_BYTES = 40 * 1024 * 1024
 
 # Text the agent is handed for one inline file. Even an inlinable file
 # can be large for a context window; the existing read budget
@@ -90,6 +107,18 @@ def absolute_url(ctx: McpContext, path: str) -> str:
 
     Built from the request's own base URL, so a server behind a proxy
     answers with the host the agent already reached it on.
+
+    TRUST MODEL (documented, deliberate): Starlette's ``base_url``
+    follows the client-controlled ``Host`` header, so a caller CAN
+    make the tool print ``http://<their-host>/api/...``. The URL is
+    inert text — fetching it sends nothing anywhere — but an agent
+    that follows it would hand its bearer to that host. Behind a
+    reverse proxy the operator pins the header (proxy_set_header
+    Host), which is the real fix; on a LAN deployment the Host header
+    is not attacker-influenceable for a directly-connected agent. If
+    this needs to be server-authoritative, a configured external base
+    URL replaces ``request.base_url`` — nothing else in this function
+    changes.
     """
     base = str(ctx.request.base_url).rstrip('/')
     return f'{base}{path}'
@@ -116,12 +145,16 @@ def validated_task_path(raw: object) -> str:
     return posixpath.normpath(candidate)
 
 
-def _decode_text(data: bytes) -> str | None:
+def decode_text(data: bytes) -> str | None:
     """The file's text, if it decodes as one of the known text encodings.
 
     The workspace reader tries UTF-8 then GB18030 (platform exports);
     the same pair decides "text" here so a tool and the UI agree about
-    what a file is.
+    what a file is. Strict both times — an ``errors='ignore'`` decode
+    would accept almost any bytes and hand a binary back as mojibake
+    text. (A caller decoding a BOUNDED PREFIX should slice off a few
+    tail bytes first: a cut mid–multi-byte-character must not fail an
+    otherwise decodable file.)
     """
     for encoding in _TEXT_DECODINGS:
         try:
@@ -155,7 +188,7 @@ def file_result(
     if size <= MAX_INLINE_BYTES:
         data = abs_path.read_bytes()
         if _is_text_candidate(mime_type, data):
-            text = _decode_text(data)
+            text = decode_text(data)
             if text is not None:
                 payload['encoding'] = 'text'
                 payload['content'] = text
@@ -212,6 +245,73 @@ def decode_upload(raw: object, *, what: str = 'attachment') -> tuple:
     if len(data) > MAX_UPLOAD_BYTES:
         raise ToolError(f'{what} {filename!r} exceeds the 10 MB upload limit')
     return filename.strip(), mime_type.strip(), data
+
+
+def decode_uploads(raw: object) -> list[tuple]:
+    """Validate a whole ``attachments`` argument (list of uploads).
+
+    The per-entry rules come from :func:`decode_upload` (the per-file
+    ceiling, the type allow-list, the base64 shape); the CALL-level
+    caps (count, total decoded bytes) live in
+    :func:`attachment_problem` and are enforced at the dispatcher, so
+    a tool that forgets this helper is still bounded.
+    """
+    if not isinstance(raw, list):
+        raise ToolError('attachments must be an array')
+    problem = attachment_problem(raw)
+    if problem:
+        raise ToolError(problem)
+    return [decode_upload(item) for item in raw]
+
+
+def _decoded_size_estimate(encoded: str) -> int:
+    """The decoded size of a base64 string, from its length alone.
+
+    An UPPER bound (padding included), computed without decoding —
+    the call-level total cap must be checkable before any of the
+    payload is materialised.
+    """
+    return (len(encoded) // 4) * 3
+
+
+def attachment_problem(raw: object) -> str | None:
+    """Why an ``attachments`` argument is over the call-level caps.
+
+    The policy, in ONE place, so every tool that accepts attachments
+    (create_task, send_message, and any future one) is bounded the
+    same way without each having to remember:
+
+    * at most :data:`MAX_ATTACHMENTS_PER_CALL` entries — a hundred
+      files is not a task instruction, it is a denial of service on
+      the server's own memory;
+    * at most :data:`MAX_ATTACHMENTS_TOTAL_BYTES` decoded in total —
+      the per-file ceiling alone would let one call stage
+      count × ceiling.
+
+    The total is computed from the base64 LENGTHS (an upper bound),
+    so a hostile payload is refused without being decoded.
+    """
+    if not isinstance(raw, list):
+        return None  # the schema check reports the type problem
+    if len(raw) > MAX_ATTACHMENTS_PER_CALL:
+        return (
+            f'attachments accepts at most {MAX_ATTACHMENTS_PER_CALL} '
+            f'items (got {len(raw)})'
+        )
+    total = 0
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        encoded = item.get('content_base64')
+        if isinstance(encoded, str):
+            total += _decoded_size_estimate(encoded)
+    if total > MAX_ATTACHMENTS_TOTAL_BYTES:
+        return (
+            'attachments total about '
+            f'{total // (1024 * 1024)} MB — the per-call ceiling is '
+            f'{MAX_ATTACHMENTS_TOTAL_BYTES // (1024 * 1024)} MB'
+        )
+    return None
 
 
 def as_upload_file(filename: str, mime_type: str, data: bytes) -> UploadFile:

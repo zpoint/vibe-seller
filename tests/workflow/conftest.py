@@ -409,6 +409,17 @@ def mock_workspace(monkeypatch, tmp_path):
                 'root_files': [],
             }
 
+        def resolve_file(self, path):
+            # The real manager's contract for the raw route (and the
+            # MCP read tool's size probe): resolve, refuse traversal,
+            # require an existing file.
+            if '..' in path:
+                raise ValueError(f'Path traversal blocked: {path}')
+            full = self.root / path
+            if not full.is_file():
+                raise FileNotFoundError(path)
+            return full
+
         async def read_file(self, path):
             if '..' in path:
                 raise ValueError(f'Path traversal blocked: {path}')

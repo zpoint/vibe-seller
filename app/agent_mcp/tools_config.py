@@ -379,7 +379,7 @@ async def manage_profile(ctx: McpContext, args: dict) -> dict:
         body = {
             'id': profile_id,
             'name': name,
-            'env': restore_masked(args.get('env') or {}, {}),
+            'env': restore_masked(args.get('env') or {}, {}, env_scope=True),
             'description': args.get('description') or '',
             'load_global_mcp': bool(args.get('load_global_mcp')),
         }
@@ -416,7 +416,8 @@ async def manage_profile(ctx: McpContext, args: dict) -> dict:
             )
         if 'env' in fields:
             fields['env'] = _merged_env(
-                restore_masked(fields['env'], stored_env), stored_env
+                restore_masked(fields['env'], stored_env, env_scope=True),
+                stored_env,
             )
         profile = await call_route(
             profiles_route.update_profile,
@@ -457,7 +458,11 @@ async def manage_profile(ctx: McpContext, args: dict) -> dict:
         )
         result = await call_route(
             profiles_route.validate_profile,
-            {'env': restore_masked(args.get('env') or {}, stored)},
+            {
+                'env': restore_masked(
+                    args.get('env') or {}, stored, env_scope=True
+                )
+            },
             _user=ctx.user,
         )
         return redact(result)

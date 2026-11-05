@@ -337,6 +337,63 @@ class TestRestoreMasked:
         assert restore_masked(echoed, stored) == stored
 
 
+class TestEnvScopedClassification:
+    """Q1: inside an ``env`` dict, a key containing ``key`` is a
+    secret — profile env names are owner-typed, and provider
+    credentials that miss the general pattern (``MY_PROVIDER_KEY``)
+    are the norm there. Scoped to env dicts only."""
+
+    def test_a_key_named_env_secret_is_masked(self):
+        out = redact({'env': {'MY_PROVIDER_KEY': SECRET}})
+        assert out['env']['MY_PROVIDER_KEY'] != SECRET
+        assert out['env']['MY_PROVIDER_KEY'].startswith('****')
+
+    def test_non_secret_env_names_stay_readable(self):
+        env = {
+            'ANTHROPIC_BASE_URL': 'https://api.example.com',
+            'ANTHROPIC_MODEL': 'model-x',
+            'MINIMAX_MODEL': 'abab-6',
+            'HTTP_PROXY': 'http://127.0.0.1:7890',
+        }
+        assert redact({'env': dict(env)}) == {'env': env}
+
+    def test_the_env_rule_does_not_leak_out_of_env_dicts(self):
+        """``keyword`` on a chat bot contains "key" and is plaintext —
+        the wider rule must be scoped to env dicts, not global."""
+        payload = {'keyword': 'vibe', 'env': {'keyword': SECRET}}
+        out = redact(payload)
+        assert out['keyword'] == 'vibe'
+        assert out['env']['keyword'] != SECRET
+
+    def test_an_env_key_mask_is_restored(self):
+        stored = {'env': {'MY_PROVIDER_KEY': 'sk-provider-real'}}
+        incoming = {'env': {'MY_PROVIDER_KEY': '****real'}}
+        out = restore_masked(incoming, stored)
+        assert out['env']['MY_PROVIDER_KEY'] == 'sk-provider-real'
+
+    def test_an_env_key_mask_with_nothing_stored_is_an_error(self):
+        with pytest.raises(ToolError):
+            restore_masked(
+                {'env': {'MY_PROVIDER_KEY': '****'}}, {'env': {}}
+            )
+
+    def test_a_top_level_env_dict_takes_the_scope_argument(self):
+        """The profile tools pass the env dict itself as the payload —
+        ``env_scope=True`` must classify its keys the same way the
+        nested walk does."""
+        out = restore_masked(
+            {'MY_PROVIDER_KEY': '****real'},
+            {'MY_PROVIDER_KEY': 'sk-real'},
+            env_scope=True,
+        )
+        assert out['MY_PROVIDER_KEY'] == 'sk-real'
+
+    def test_the_rest_mechanism_roundtrips_the_wider_rule(self):
+        stored = {'env': {'MY_PROVIDER_KEY': SECRET}}
+        echoed = redact(stored)
+        assert restore_masked(echoed, stored) == stored
+
+
 class TestWriteSideDriftGuard:
     """Every tool that accepts a secret-classified ARGUMENT must route
     its writes through restore_masked — or an agent's get → edit →

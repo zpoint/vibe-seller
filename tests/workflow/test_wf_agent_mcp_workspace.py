@@ -249,11 +249,20 @@ class TestWorkspaceFile:
     async def test_unknown_action_is_rejected(
         self, admin_client, install_fake_agent
     ):
-        _, envelope = await call_tool(
-            admin_client, 'workspace_file', {'action': 'chmod'}
+        """An off-enum action is refused by the DISPATCHER's schema
+        validation (``INVALID_PARAMS``, naming the argument and the
+        choices) — the tool's own "Unknown action" check stays as the
+        second line."""
+        r = await rpc(
+            admin_client,
+            'tools/call',
+            {'name': 'workspace_file', 'arguments': {'action': 'chmod'}},
         )
-        assert envelope['isError'] is True
-        assert 'chmod' in envelope['content'][0]['text']
+        body = r.json()
+        assert body['error']['code'] == -32602
+        assert 'action' in body['error']['message']
+        assert 'chmod' in body['error']['message']
+        assert 'read' in body['error']['message']  # the choices listed
 
     async def test_member_has_the_same_workspace_tools(
         self, member_client, install_fake_agent, mock_workspace
