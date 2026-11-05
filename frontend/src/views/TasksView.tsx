@@ -298,6 +298,7 @@ export function TasksView({
                       key={task.id}
                       onClick={() => {
                         sendEvent(FrontendEvent.TASK_OPENED, {
+                          task_id: task.id,
                           task_status: task.status,
                           is_planned: !!task.plan_mode,
                           has_error: !!task.error,

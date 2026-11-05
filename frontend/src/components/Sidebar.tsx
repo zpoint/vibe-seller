@@ -4,8 +4,6 @@ import { LanguageSwitcher, WsFileItem } from './ui'
 import { SkillItem } from './SkillItem'
 import { StoreFilesSection } from './WorkspaceStoreSections'
 import { api } from '../api'
-import { sendEvent } from '../lib/telemetry'
-import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Store, AuthUser, AppView, ServerPlatform, WsStructured, ZiniaoAccount, ZiniaoBrowserProfile } from '../types'
 import { InstallIdBadge } from './InstallIdBadge'
 import { SecretReveal } from './SecretReveal'
@@ -164,7 +162,7 @@ export function Sidebar(props: SidebarProps) {
           <div className="flex items-center gap-1">
             <LanguageSwitcher />
             {currentUser.role === 'admin' && (
-              <button data-testid="nav-settings" onClick={() => { sendEvent(FrontendEvent.VIEW_CHANGED, { view: 'settings' }); setAppView('settings') }} className="p-1 text-gray-400 hover:text-gray-700" title={t('settings.title')}>
+              <button data-testid="nav-settings" onClick={() => setAppView('settings')} className="p-1 text-gray-400 hover:text-gray-700" title={t('settings.title')}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
               </button>
             )}
@@ -181,7 +179,7 @@ export function Sidebar(props: SidebarProps) {
           {(['tasks', 'workspace'] as const).map(v => (
             <button
               key={v}
-              onClick={() => { sendEvent(FrontendEvent.VIEW_CHANGED, { view: v }); setAppView(v); closeNav() }}
+              onClick={() => { setAppView(v); closeNav() }}
               className={`flex-1 px-2 py-1 text-xs font-medium rounded-md transition-colors ${appView === v ? 'bg-white shadow text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
             >
               {t(`navigation.${v}`)}
@@ -229,7 +227,7 @@ export function Sidebar(props: SidebarProps) {
             {stores.map(store => (
               <button
                 key={store.id}
-                onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: false, backend: store.browser_backend }); selectStore(store) }}
+                onClick={() => selectStore(store)}
                 className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedStore?.id === store.id && !showAllTasks ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}`}
               >
                 <div className="font-medium text-sm">{store.name}</div>
@@ -240,7 +238,7 @@ export function Sidebar(props: SidebarProps) {
               <div className="p-4 text-sm text-gray-400 text-center">{t('navigation.stores')}</div>
             )}
             <button
-              onClick={() => { sendEvent(FrontendEvent.STORE_SWITCHED, { is_all_stores: true }); selectAllTasks() }}
+              onClick={() => selectAllTasks()}
               className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${showAllTasks ? 'bg-indigo-50 border-l-4 border-l-indigo-600' : ''}`}
             >
               <div className="font-medium text-sm">{t('tasks.allStores')}</div>

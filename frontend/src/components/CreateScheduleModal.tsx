@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
-import { sendEvent } from '../lib/telemetry'
-import { FrontendEvent } from '../lib/telemetryEvents'
 import type { Schedule, SchedulePhaseMode } from '../types'
 import { FanoutSerialToggle } from './FanoutSerialToggle'
 import {
@@ -100,11 +98,8 @@ export function CreateScheduleModal({
         body.fanout_serial = fanoutSerial
       }
       const schedule = await api.post('/api/schedules', body)
-      sendEvent(FrontendEvent.SCHEDULE_CREATED, {
-        schedule_type: form.scheduleType,
-        phase_mode: showModeSelector ? phaseMode : 'single',
-        is_store_scoped: !!storeId,
-      })
+      // schedule_created is emitted server-side (routers/schedules.py)
+      // with the schedule_id join keys — no client copy here.
       onCreated(schedule)
       onClose()
     } catch {

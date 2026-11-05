@@ -14,6 +14,7 @@ interface PlanCardProps {
   plan: PlanVersion
   allVersions?: PlanVersion[]
   todoItems: TodoItem[]
+  taskId: string
   taskStatus: string
   planMode: boolean
   scheduleId: string | null
@@ -41,7 +42,7 @@ function parsePlanSections(plan: string) {
   return sections
 }
 
-export function PlanCard({ plan, allVersions, todoItems, taskStatus, planMode, scheduleId, onConfirm, onRequestChanges }: PlanCardProps) {
+export function PlanCard({ plan, allVersions, todoItems, taskId, taskStatus, planMode, scheduleId, onConfirm, onRequestChanges }: PlanCardProps) {
   const { t } = useTranslation()
   const [viewingVersion, setViewingVersion] = useState(plan.version)
   const planShownAt = useRef(0)
@@ -201,6 +202,7 @@ export function PlanCard({ plan, allVersions, todoItems, taskStatus, planMode, s
               onClick={() => {
                 const elapsed = Date.now() - planShownAt.current
                 sendEvent(FrontendEvent.PLAN_CHANGES_REQUESTED, {
+                  task_id: taskId,
                   revision_count: plan.version,
                   time_to_request_bucket: durationBucket(elapsed),
                   time_to_request_seconds: Math.floor(elapsed / 1000),
@@ -217,6 +219,7 @@ export function PlanCard({ plan, allVersions, todoItems, taskStatus, planMode, s
             onClick={() => {
               const elapsed = Date.now() - planShownAt.current
               sendEvent(FrontendEvent.PLAN_APPROVED, {
+                task_id: taskId,
                 time_to_approve_bucket: durationBucket(elapsed),
                 time_to_approve_seconds: Math.floor(elapsed / 1000),
                 had_changes_request_first: hadChangesRequest.current,

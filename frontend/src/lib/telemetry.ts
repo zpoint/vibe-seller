@@ -6,6 +6,7 @@ const INSTALL_ID_LS_KEY = 'vibe_seller.install_id'
 
 let _initialized = false
 let _enabled = false
+let _installId: string | null = null
 
 // ─── Path normalization ─────────────────────────────────────────
 
@@ -201,12 +202,16 @@ function ensureInstallId(serverInstallId: string | null): string {
   return fallback
 }
 
-export function initTelemetry(serverInstallId: string | null): void {
+export function initTelemetry(
+  serverInstallId: string | null,
+  superProps: Record<string, string> = {},
+): void {
   if (_initialized) return
   _initialized = true
   if (typeof window === 'undefined') return
   try {
     const distinctId = ensureInstallId(serverInstallId)
+    _installId = distinctId
     posthog.init(POSTHOG_PROJECT_KEY, {
       api_host: POSTHOG_HOST,
       autocapture: true,
@@ -216,6 +221,7 @@ export function initTelemetry(serverInstallId: string | null): void {
       // it, only the initial URL would ever be reported.
       capture_pageview: 'history_change',
       capture_pageleave: true,
+      capture_exceptions: true,
       persistence: 'localStorage',
       disable_session_recording: true,
       disable_external_dependency_loading: true,
@@ -243,8 +249,35 @@ export function initTelemetry(serverInstallId: string | null): void {
       },
     })
     _enabled = true
+    if (Object.keys(superProps).length > 0) {
+      posthog.register(superProps)
+    }
   } catch {
     _enabled = false
+  }
+}
+
+/** Per-install seat pseudonym: sha256(install_id:user_id)[:12]. */
+export async function registerUserHash(userId: string): Promise<void> {
+  if (!_enabled || !_installId || !userId) return
+  try {
+    const data = new TextEncoder().encode(`${_installId}:${userId}`)
+    const digest = await crypto.subtle.digest('SHA-256', data)
+    const hex = Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+    posthog.register({ user_hash: hex.slice(0, 12) })
+  } catch {
+    // ignore
+  }
+}
+
+export function unregisterUserHash(): void {
+  if (!_enabled) return
+  try {
+    posthog.unregister('user_hash')
+  } catch {
+    // ignore
   }
 }
 
