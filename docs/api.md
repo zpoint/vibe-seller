@@ -31,20 +31,52 @@ there are no scopes. The plaintext (`vst_` + 32 random bytes) is shown
 | POST | `/api/auth/tokens` | Create a token. Body `{ name, expires_in_days? }` — `expires_in_days` defaults to `90`, `null` means "never expires" (1–3650 otherwise). Returns the token fields **plus `token`** (the plaintext, shown once). The `ai_bot` role cannot mint tokens (403), and neither can an API token (403 — a token must never beget another credential). |
 | DELETE | `/api/auth/tokens/{id}` | Revoke one of the caller's own tokens. Another user's token id, an unknown id and an already-revoked id all return **404** (never 403 — that would confirm the id exists). |
 
-**API tokens never read secrets back, on MCP or REST.** Every request
-authenticated by a `vst_` token passes through one guard
-(`app/api_token_secrets.py`, the same classifier as the MCP redaction
-layer): any JSON response a token caller receives has its
+**API tokens never read secrets back, on MCP or REST** — and neither
+does anyone else: see [Stored secrets are write-only](#secretspy--stored-secrets-are-write-only-for-every-caller)
+below. Every request passes through one guard
+(`app/rest_secret_guard.py`, the same classifier as the MCP redaction
+layer): any JSON response any caller receives has its
 secret-classified fields masked — including the REST routes the web
-UI reads raw (the profile list's `env` with `ANTHROPIC_AUTH_TOKEN`,
-the chat-bot single GET's `webhook_url` + `secret`). Non-JSON
-responses (SSE, file downloads) and session / service / no-auth
-callers are untouched — the UI's edit forms keep working. The write
-side holds too: a mask a token caller sends back through an update
-route (`PUT /api/profiles/{id}`, `PUT /api/chat-bots/{id}`,
+UI's edit forms read (the profile list's `env` with
+`ANTHROPIC_AUTH_TOKEN`, the chat-bot single GET's `webhook_url` +
+`secret`). Non-JSON responses (SSE, file downloads) pass untouched.
+The write side holds too: a mask a caller sends back through an
+update route (`PUT /api/profiles/{id}`, `PUT /api/chat-bots/{id}`,
 `PUT /api/vision/config`, email/Ziniao account updates) is recognised
 as an echo of the read and the stored secret is kept; a mask on a
 create-style route is a 400, never a stored `****`.
+
+
+## `secrets.py` — Stored secrets are write-only, for every caller
+
+No route returns a stored secret in a normal response — not to a
+member session, not to an admin session, not to a `vst_` token, not
+to the no-auth default admin. One middleware
+(`app/rest_secret_guard.py`, the same classifier as the MCP redaction
+layer) masks secret-classified fields out of every JSON response:
+list/get/create/update answers carry the mask (`****` + last 4; a
+webhook URL is masked whole, `****`) or a `has_secret`/`*_set` flag,
+and non-secret neighbours (a profile's `ANTHROPIC_BASE_URL`) stay
+readable. SSE streams and file downloads pass through untouched.
+
+The write side of the same contract: a form that still holds the
+mask — or an EMPTY secret field on an update (an untouched password
+box posts `''`) — means **unchanged**; the guard restores the stored
+value before the route runs. A mask on a create-style route (nothing
+stored to keep) is a 400 naming the field. A member may OVERWRITE a
+secret with a fresh real value; they can never read the stored one.
+`POST /api/profiles/validate` takes an optional `profile_id` for the
+same purpose: the Settings edit form names the profile it is about to
+save, and masked keys in the probe env are restored against that
+profile's stored env (a create probe sends the real key).
+
+The two deliberate exceptions, curated and drift-guarded: minting an
+API token (the fresh plaintext is shown to its creator exactly once)
+and the reveal endpoint below.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/secrets/reveal` | **Admin only**, and an interactive admin at that: members get 403 for every credential class, and ANY `vst_` API-token caller gets 403 (an admin's token included — tokens never read secrets). Body `{resource, id, field}` → `{resource, id, field, value}`. Resources: `profile` (`field` = one secret-classified env KEY, e.g. `ANTHROPIC_AUTH_TOKEN`), `chat_bot` (`webhook_url` / `secret`), `email_account` (`password`), `ziniao_account` (`password`), `vision` (`kie_api_key`; `id` unused), `dida365` (`client_secret`; `id` unused). Unknown resource/field, a missing id, or a field with nothing stored → 404. Every successful reveal writes ONE log line — `secret revealed: user=… role=… resource=… field=… via=…` — and NEVER the value. The response is `Cache-Control: no-store`. This powers the admin "Show / Copy full key" buttons next to masked fields in the UI. |
 
 
 ## `app_settings.py` — App Settings
@@ -196,10 +228,11 @@ write-only through one shared redaction layer
 included), bot webhook URLs, signing secrets and the kie.ai key are
 accepted on write and returned masked (`****` + last 4) or as a
 `has_secret`/`*_set` flag — including on the chat-bot `get`, whose REST
-route returns the raw URL to the edit form. The same guarantee covers
-plain REST for `vst_` token callers (see "Personal API tokens" above):
-the edit-form routes answer masks to a token and plaintext to a
-session. A drift test
+route used to return the raw URL to the edit form. The same guarantee
+covers plain REST for EVERY caller (see "Stored secrets are
+write-only" above): the edit-form routes answer masks to tokens and
+sessions alike, and the admin reads the real value only through
+`POST /api/secrets/reveal`. A drift test
 (`tests/unit/test_agent_mcp_redact.py`) fails when a new field appears on
 one of the wrapped response models unclassified. Real-world side effects
 are named in the tool descriptions: `manage_email_account(send)` sends a
@@ -372,12 +405,12 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/profiles` | List AI profiles |
+| GET | `/api/profiles` | List AI profiles. Secret-classified env keys (`*_TOKEN`/`*_KEY`/…) arrive masked (`****` + last 4) for every caller; non-secret keys stay readable. See [Stored secrets are write-only](#secretspy--stored-secrets-are-write-only-for-every-caller) |
 | POST | `/api/profiles` | Create AI profile |
 | PUT | `/api/profiles/{id}` | Update AI profile |
 | DELETE | `/api/profiles/{id}` | Delete AI profile |
 | PATCH | `/api/profiles/{id}/set-default` | Set a profile as the user's default. Response: `{'ok', 'default_profile_id', 'schedules_synced'}` — `schedules_synced` counts the caller's pinned schedules re-pinned to the new default (only when the caller's `sync_profile_to_schedules` pref is on; see [subsystems.md § Schedule AI profile resolution](subsystems.md#schedule-ai-profile-resolution)) |
-| POST | `/api/profiles/validate` | Probe a profile's endpoint config (no persistence) |
+| POST | `/api/profiles/validate` | Probe a profile's endpoint config (no persistence). Optional `profile_id` names the profile being edited: masked secret values in `env` are restored against that profile's stored env before the probe (a create probe sends the real key) |
 | GET | `/api/profiles/presets` | Provider presets + per-provider model options |
 
 `POST /api/profiles/validate` takes `{"env": {...}}` and makes one minimal Anthropic `/v1/messages` request against the config's own `ANTHROPIC_BASE_URL` (mirroring Claude Code's auth). It **always returns HTTP 200** — the verdict is in the body: `{"ok": bool, "code": str, "error": str, "reported_model": str | null}`. The Settings UI hits it on save so an unreachable base URL, a wrong/expired key, a wrong protocol, or a retired model id is caught on the config page rather than on the next agent run. See [backend.md § Profile Endpoint Validation](backend.md#profile-endpoint-validation-aiprofile_validationpy).
@@ -441,18 +474,24 @@ refuse with 400 when it no longer matches, so a row saved before this
 validation cannot send to a non-platform host.
 
 List responses mask `webhook_url` (the URL *is* the secret) and report
-only `has_secret` — use the single-item GET to retrieve the full URL +
-secret for the edit form. The keyword is returned in the list too: it
-is not a secret (the UI shows it on the row), and it never reaches the
-agent — keyword handling is entirely server-side.
+only `has_secret`; the single-item GET (and every create/update
+response) returns the SAME masks for every caller — `webhook_url` as
+`****` and `secret` as `****` + last 4 — because no route returns a
+stored secret (see [Stored secrets are
+write-only](#secretspy--stored-secrets-are-write-only-for-every-caller)).
+The edit form posts the masks back untouched to mean "keep"; the
+admin's Show/Copy buttons go through `POST /api/secrets/reveal`. The
+keyword is returned in the list too: it is not a secret (the UI shows
+it on the row), and it never reaches the agent — keyword handling is
+entirely server-side.
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/chat-bots/platforms` | Registry metadata the UI renders from: `{name, label, hosts, path_prefix, uses_secret, supports_file, max_message, limits, limit_unit, doc_url}` per platform |
 | GET | `/api/chat-bots` | List bots — `{id, name, platform, webhook_url_masked, has_secret, can_send_file, created_at, updated_at}`; the mask shows the host + last 4 chars of the secret-bearing part (e.g. `https://hooks.slack.com/...****abcd`) |
-| GET | `/api/chat-bots/{id}` | Get one bot with the full `webhook_url` and `secret` (for edit). Session callers only — an API-token caller receives both masked (see "Personal API tokens") |
-| POST | `/api/chat-bots` | Create `{name, webhook_url, secret?, keyword?}`. `secret` is only valid for DingTalk (加签) / Feishu (签名校验) — non-empty on WeCom/Slack → 400; `keyword` only for DingTalk (自定义关键词) / Feishu (关键词) — the SERVER appends it to any outgoing message that lacks it, so agents and the Test button work unchanged |
-| PUT | `/api/chat-bots/{id}` | Update `name`, `webhook_url`, `secret` or `keyword`; `null`/blank required fields → 400; changing the URL re-derives `platform` (and drops a secret/keyword the new platform cannot use); `""` clears a secret or keyword |
+| GET | `/api/chat-bots/{id}` | Get one bot for the edit form — `webhook_url` (`****`) and `secret` (`****` + last 4) arrive masked for EVERY caller; the real values leave the server only through `POST /api/secrets/reveal` |
+| POST | `/api/chat-bots` | Create `{name, webhook_url, secret?, keyword?}`. `secret` is only valid for DingTalk (加签) / Feishu (签名校验) — non-empty on WeCom/Slack → 400; `keyword` only for DingTalk (自定义关键词) / Feishu (关键词) — the SERVER appends it to any outgoing message that lacks it, so agents and the Test button work unchanged. The response carries the masks, not the values you just posted |
+| PUT | `/api/chat-bots/{id}` | Update `name`, `webhook_url`, `secret` or `keyword`; `null`/blank required fields → 400; changing the URL re-derives `platform` (and drops a secret/keyword the new platform cannot use); a MASK (or an empty `secret`) means "keep the stored value" |
 | DELETE | `/api/chat-bots/{id}` | Delete bot |
 | POST | `/api/chat-bots/{id}/test` | Post a test message to the webhook; optional `{content}` (blank/whitespace → default, which starts with "Vibe Seller" — matters for DingTalk keyword security) |
 | POST | `/api/chat-bots/{id}/send` | Post a real message: `{content, msgtype?}`. `msgtype` is `text` (default) or `markdown`; blank `content` / unknown `msgtype` → 400. Pre-send size check per platform (WeCom 4096 B, DingTalk 20000 B, Feishu 20000 B body, Slack 40000 chars text / 12000 markdown) rejects without a network call. Used by agents via the MCP bridge (see `docs/workspace.md`). |

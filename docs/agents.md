@@ -323,23 +323,26 @@ same REST route the web UI calls, so:
   keys such as `ANTHROPIC_AUTH_TOKEN`), webhook URLs, signing secrets and
   the kie.ai key are accepted on create/update and **never returned** —
   reads carry a mask (`****` plus the last 4 characters; a bare `****`
-  for URLs) or a `has_secret` / `*_set` flag. Even the routes the edit
-  form reads raw (the single chat-bot GET) come back masked over MCP.
+  for URLs) or a `has_secret` / `*_set` flag. Even the routes that used
+  to feed the edit form raw (the single chat-bot GET) come back masked
+  over MCP.
   A masked value sent back is recognised as an echo of the read and the
   server substitutes the stored secret, so read → edit one field →
   update is safe; a mask when nothing is stored is an error (send the
   real secret or omit the field). Profile `env` updates MERGE with the
   stored env — omitted keys stay, a null deletes a key.
 - **The same guarantee covers plain REST.** The token also authenticates
-  on every `/api/...` route, and a request authenticated by an API
-  token never receives a stored secret from ANY of them — one guard
-  (`app/api_token_secrets.py`) masks secret-classified fields in JSON
-  responses with the same classifier MCP uses, and restores masked
-  echoes sent to the update routes (`PUT /api/profiles/{id}`,
-  `PUT /api/chat-bots/{id}`, `PUT /api/vision/config`, email/Ziniao
-  account updates). So there is no bypassing the masks by swapping the
-  MCP tool call for `curl` with the same bearer. Session (web UI),
-  service and no-auth callers are unchanged.
+  on every `/api/...` route, and NO caller — API token, session (web
+  UI), or no-auth — receives a stored secret from ANY of them: one
+  guard (`app/rest_secret_guard.py`) masks secret-classified fields in
+  every JSON response with the same classifier MCP uses, and restores
+  masked (or empty) echoes sent to the update routes
+  (`PUT /api/profiles/{id}`, `PUT /api/chat-bots/{id}`,
+  `PUT /api/vision/config`, email/Ziniao account updates). So there is
+  no bypassing the masks by swapping the MCP tool call for `curl` with
+  the same bearer — and the web UI's edit forms read the same masks
+  too (the admin's Show/Copy goes through `POST /api/secrets/reveal`,
+  which refuses tokens; see docs/api.md).
 - **Payloads mirror the UI's**, defaults included: a store create gets
   `platforms=['amazon']`, `countries=['US']`; a Ziniao create defaults
   `socket_port` to 16851; an email create auto-discovers IMAP when no

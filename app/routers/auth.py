@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
@@ -22,6 +22,7 @@ from app.models.api_token import ApiToken
 from app.models.app_settings import AppSettings
 from app.models.user import User
 from app.password import hash_password, verify_password
+from app.rest_secret_guard import mark_secret_disclosure
 from app.schemas.api_token import (
     ApiTokenCreate,
     ApiTokenCreatedResponse,
@@ -299,6 +300,7 @@ async def list_api_tokens(
 @router.post('/tokens', response_model=ApiTokenCreatedResponse)
 async def create_api_token(
     body: ApiTokenCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -313,6 +315,10 @@ async def create_api_token(
     # is harmless — that is what its owner wants) but never mint one,
     # so cutting a leaked token's access stays cut — refused by
     # ``ApiTokenScopeMiddleware`` with the user-management routes.
+    # The response carries the fresh credential in plaintext — the
+    # one deliberate disclosure the REST secret guard lets through
+    # (it masks every other JSON response for every caller).
+    mark_secret_disclosure(request)
     row, plaintext = await create_token_row(
         db, current_user.id, body.name, body.expires_in_days
     )

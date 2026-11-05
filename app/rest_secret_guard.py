@@ -1,50 +1,56 @@
-"""The REST side of the write-only-secret contract.
+"""The REST side of the write-only-secret contract — for EVERY caller.
 
-MCP tool results already pass through ``app/agent_mcp/redact.py`` —
-but a ``vst_`` token also authenticates on every REST route, and some
-REST routes return stored secrets in plaintext to the web UI (a
-profile's ``env`` with ``ANTHROPIC_AUTH_TOKEN``/``ANTHROPIC_API_KEY``,
-the chat-bot ``webhook_url`` + signing ``secret``). A leaked token
-could bypass MCP's masking with plain curl.
+MCP tool results pass through ``app/agent_mcp/redact.py``, and the
+same classifier now guards plain REST for every credential class:
+a stored secret is returned to NOBODY as plaintext — not to a
+``vst_`` token, not to a member session, not to an admin session,
+not to the no-auth default admin. The only way out is the admin
+reveal endpoint (``app/routers/secrets.py``), which refuses token
+callers and writes a log line per reveal.
 
-THE INVARIANT, enforced here for the whole REST surface: a request
-authenticated by an API token never receives a stored secret from ANY
-route — the same masks, from the same classifier, MCP shows.
+THE INVARIANT, enforced here for the whole REST surface: no route
+returns a stored secret in a normal response — every caller sees the
+same masks, from the same classifier, MCP shows.
 
-Enforcement point: ONE middleware (``ApiTokenSecretMiddleware``), not
-a helper each secret-returning route must remember to call. The
-invariant is a property of the CALLER's credential class, not of
-individual routes — "ANY route" is structurally true only where every
-response passes through, and that is the transport. A per-route
-helper keeps the invariant aspirational (true as long as every route
-author opts in and a test enumerates them); here a new
-secret-returning route is masked without anybody doing anything. The
-drift guards then PIN the behaviour, they do not provide it.
+Enforcement point: ONE middleware (``SecretGuardMiddleware``), not a
+helper each secret-returning route must remember to call. The
+invariant is a property of the RESPONSE, not of individual routes —
+"ANY route" is structurally true only where every response passes
+through, and that is the transport. A per-route helper keeps the
+invariant aspirational (true as long as every route author opts in
+and a test enumerates them); here a new secret-returning route is
+masked without anybody doing anything. The drift guards then PIN
+the behaviour, they do not provide it.
+
+The ONE deliberate exception is the route that hands out a FRESH
+credential (minting an API token): its creation response carries the
+plaintext once, on purpose, because that is the only moment the
+caller can ever see it. Such a route marks itself with
+:func:`mark_secret_disclosure` — the response-side twin of the
+token-scope refusals (``app/api_token_scope.py``) — and the curated
+list of those routes is pinned by the drift guard.
 
 Both directions of the contract, at the same enforcement point:
 
-* RESPONSE — when ``request.state.auth_via == 'api_token'`` (set by
-  ``get_current_user``, the one place every caller resolves) and the
-  response is JSON, the body is walked with the shared classifier
+* RESPONSE — when the response is JSON (and not a file delivery),
+  the body is walked with the shared classifier
   (:func:`app.agent_mcp.redact.redact`). Only classified field NAMES
   holding STRING values are masked: numeric ``*_tokens`` counts,
   booleans like ``has_secret`` and the routes' own ``*_masked``
-  fields pass through (``PLAINTEXT_FIELDS``). Anything not JSON — SSE
-  streams, file downloads, HTML — passes untouched, and so do
-  session / service / no-auth callers: the web UI's edit forms keep
-  receiving plaintext, because changing UI secret handling is a
-  different contract.
+  fields pass through (``PLAINTEXT_FIELDS``). Anything not JSON —
+  SSE streams, file downloads, HTML — passes untouched.
 
-* REQUEST — the write side. A token caller can only ever hold a MASK
-  (it just read one from us), so a mask posted back to a write route
-  means "keep the stored secret". The same ``restore_masked`` the MCP
-  tools apply runs here through a table of rules
-  (``RESTORE_RULES``), and a mask with NO stored secret is a 400, not
-  a silent store of ``'****1234'``. Session callers are untouched —
-  the UI posts the plaintext its form loaded.
+* REQUEST — the write side. Every caller can only ever hold a MASK
+  (nobody receives plaintext any more), so a mask posted back to a
+  write route means "keep the stored secret". The same
+  ``restore_masked`` the MCP tools apply runs here through a table
+  of rules (``RESTORE_RULES``); an EMPTY string means the same
+  (``empty_stays`` — an untouched password box posts empty), and a
+  mask with NO stored secret is a 400, not a silent store of
+  ``'****1234'``.
 
 The rule table is what keeps the request side total:
-``tests/unit/test_api_token_secrets.py`` enumerates every REST route
+``tests/unit/test_rest_secret_guard.py`` enumerates every REST route
 whose BODY carries a secret-classified field (pydantic body models
 introspected from the real app; the plain-dict bodies — profiles
 ``env``, vision ``kie_api_key`` — listed alongside) and fails when
@@ -75,10 +81,37 @@ logger = logging.getLogger(__name__)
 # A stored-secret shape handed to a provider: field name -> the value
 # the server currently holds (None when nothing is stored).
 StoredMap = dict[str, str | None]
-StoredProvider = Callable[[dict[str, str]], Awaitable[StoredMap]]
+# The provider gets the matched path params AND the parsed request
+# body — the one route that needs it is ``POST /api/profiles/validate``,
+# whose stored env is named by a body field (``profile_id``), not by
+# the path.
+StoredProvider = Callable[[dict[str, str], dict], Awaitable[StoredMap]]
 
-_COOKIE_NAME = b'auth_token'
-_BEARER = b'Bearer '
+_SECRET_DISCLOSURE_STATE = 'discloses_secret'
+
+
+def mark_secret_disclosure(request) -> None:
+    """Flag THIS request's response as a deliberate credential
+    disclosure (the token-mint route; the admin reveal endpoint).
+
+    The middleware masks every JSON response for every caller; a
+    route that just CREATED (or explicitly revealed) a credential
+    and must hand it over once calls this so its own response is not
+    masked. The shared ``scope['state']`` dict is read back at
+    response time — the same mechanism ``auth_via`` uses.
+
+    Curated by the drift guard: every route that calls this is
+    listed in ``SECRET_DISCLOSURE_ROUTES``
+    (tests/unit/test_rest_secret_guard.py), and each entry's
+    behaviour is pinned by a workflow test.
+    """
+    setattr(request.state, _SECRET_DISCLOSURE_STATE, True)
+
+
+def _discloses_secret(scope: dict) -> bool:
+    """Whether the app flagged this request as a disclosure."""
+    state = scope.get('state') or {}
+    return bool(state.get(_SECRET_DISCLOSURE_STATE))
 
 
 # ── rule table ──────────────────────────────────────────────────
@@ -134,7 +167,7 @@ def compile_template(template: str) -> str:
     return ''.join(out)
 
 
-async def _nothing(match: dict[str, str]) -> StoredMap:
+async def _nothing(match: dict[str, str], body: dict) -> StoredMap:
     """No restorable stored value — a mask here can only be an error.
 
     Create-style bodies, and secrets stored only as a one-way hash
@@ -144,13 +177,28 @@ async def _nothing(match: dict[str, str]) -> StoredMap:
     return {}
 
 
-async def _stored_profile_env(match: dict[str, str]) -> StoredMap:
+async def _stored_profile_env(match: dict[str, str], body: dict) -> StoredMap:
     """The env a profile stores, via the same manager the route uses."""
     profile = ProfileManager.get_profile(match['profile_id'])
     return {'env': (profile or {}).get('env') or {}}
 
 
-async def _stored_chat_bot(match: dict[str, str]) -> StoredMap:
+async def _stored_profile_env_by_body(
+    match: dict[str, str], body: dict
+) -> StoredMap:
+    """The env of the profile a validate probe names in its body.
+
+    ``POST /api/profiles/validate`` takes no profile id in its path;
+    the Settings form sends the id it is about to save, so a masked
+    key in the probe env is restored against THAT profile's stored
+    env before the probe runs. No id (create flow) → nothing stored.
+    """
+    profile_id = body.get('profile_id') or ''
+    profile = ProfileManager.get_profile(profile_id) if profile_id else None
+    return {'env': (profile or {}).get('env') or {}}
+
+
+async def _stored_chat_bot(match: dict[str, str], body: dict) -> StoredMap:
     """The stored webhook URL + signing secret of one bot."""
     async with async_session() as db:
         bot = await db.get(ChatBot, match['bot_id'])
@@ -159,12 +207,14 @@ async def _stored_chat_bot(match: dict[str, str]) -> StoredMap:
     return {'webhook_url': bot.webhook_url, 'secret': bot.secret}
 
 
-async def _stored_vision_key(match: dict[str, str]) -> StoredMap:
+async def _stored_vision_key(match: dict[str, str], body: dict) -> StoredMap:
     """The stored kie.ai key."""
     return {'kie_api_key': get_kie_api_key()}
 
 
-async def _stored_email_password(match: dict[str, str]) -> StoredMap:
+async def _stored_email_password(
+    match: dict[str, str], body: dict
+) -> StoredMap:
     """The stored (decrypted) email account password."""
     async with async_session() as db:
         account = await db.get(EmailAccount, match['account_id'])
@@ -173,7 +223,9 @@ async def _stored_email_password(match: dict[str, str]) -> StoredMap:
     return {'password': decrypt_password(account.encrypted_password)}
 
 
-async def _stored_ziniao_password(match: dict[str, str]) -> StoredMap:
+async def _stored_ziniao_password(
+    match: dict[str, str], body: dict
+) -> StoredMap:
     """The stored (decrypted) Ziniao account password."""
     async with async_session() as db:
         account = await db.get(ZiniaoAccount, match['account_id'])
@@ -182,7 +234,7 @@ async def _stored_ziniao_password(match: dict[str, str]) -> StoredMap:
     return {'password': decrypt_password(account.encrypted_password)}
 
 
-async def _stored_dida_secret(match: dict[str, str]) -> StoredMap:
+async def _stored_dida_secret(match: dict[str, str], body: dict) -> StoredMap:
     """The stored (decrypted) Dida365 OAuth client secret."""
     enc = load_backend_config('dida365').get('client_secret_enc')
     return {'client_secret': decrypt_password(enc) if enc else None}
@@ -192,9 +244,11 @@ RESTORE_RULES: tuple[RestoreRule, ...] = (
     # AI profiles — the env dict carries the provider credentials.
     _rule({'POST'}, '/api/profiles', _nothing),
     _rule({'PUT'}, '/api/profiles/{profile_id}', _stored_profile_env),
-    # validate takes an env but no profile id: a mask cannot be
-    # resolved to any stored key, so it must be sent for real.
-    _rule({'POST'}, '/api/profiles/validate', _nothing),
+    # validate probes an env it does not persist; the id of the
+    # profile being edited (if any) arrives in the body, and a masked
+    # key is restored against that profile so an untouched key probes
+    # the stored secret instead of the mask.
+    _rule({'POST'}, '/api/profiles/validate', _stored_profile_env_by_body),
     # Chat bots — the webhook URL embeds the key; the secret signs.
     _rule({'POST'}, '/api/chat-bots', _nothing),
     _rule({'PUT'}, '/api/chat-bots/{bot_id}', _stored_chat_bot),
@@ -238,6 +292,9 @@ def matching_restore_rule(method: str, path: str) -> RestoreRule | None:
 
 # ── scope helpers ───────────────────────────────────────────────
 
+_COOKIE_NAME = b'auth_token'
+_BEARER = b'Bearer '
+
 
 def _headers(scope: dict) -> dict[bytes, bytes]:
     return {key: value for key, value in scope.get('headers') or []}
@@ -247,9 +304,11 @@ def _presented_api_token(scope: dict) -> bool:
     """Whether this request presents a ``vst_`` credential at all.
 
     The route resolves the token against the DB later (a bad token
-    401s there); for deciding whether the RESTORE contract applies,
-    the presentation is enough — the same signal ``get_current_user``
-    keys on (Bearer header first, then the session cookie).
+    401s there); for deciding whether the restore or scope contract
+    applies, the presentation is enough — the same signal
+    ``get_current_user`` keys on (Bearer header first, then the
+    session cookie). Imported by ``app/api_token_scope.py`` for the
+    token-scope refusal table.
     """
     headers = _headers(scope)
     auth = headers.get(b'authorization', b'')
@@ -262,18 +321,6 @@ def _presented_api_token(scope: dict) -> bool:
         if name == _COOKIE_NAME and value.startswith(TOKEN_PREFIX.encode()):
             return True
     return False
-
-
-def _is_api_token_scope(scope: dict) -> bool:
-    """Whether the caller RESOLVED as an API-token request.
-
-    ``request.state.auth_via`` is set by ``get_current_user`` during
-    routing — before any response message, so the response path can
-    read it. Requests that never authenticate keep their secrets-free
-    public payloads as they are.
-    """
-    state = scope.get('state') or {}
-    return state.get('auth_via') == 'api_token'
 
 
 def _is_json_type(media_type: bytes | str) -> bool:
@@ -322,7 +369,7 @@ def _set_request_content_length(scope: dict, length: int) -> None:
 # ── the middleware ──────────────────────────────────────────────
 
 
-class ApiTokenSecretMiddleware:
+class SecretGuardMiddleware:
     """Pure ASGI (the request side must rebuild ``receive`` before the
     multipart/JSON parsers run, exactly like
     ``UploadBodyLimitMiddleware``). Registered innermost, inside the
@@ -339,9 +386,7 @@ class ApiTokenSecretMiddleware:
             await self.app(scope, receive, send)
             return
 
-        rule = None
-        if _presented_api_token(scope):
-            rule = self._matching_rule(scope)
+        rule = self._matching_rule(scope)
         if rule is None:
             await self._run(scope, receive, send)
             return
@@ -351,10 +396,12 @@ class ApiTokenSecretMiddleware:
         if parsed is not None:
             try:
                 match = rule.pattern.fullmatch(scope['path'])
-                stored = await rule.stored(match.groupdict() if match else {})
-                payload = json.dumps(restore_masked(parsed, stored)).encode(
-                    'utf-8'
+                stored = await rule.stored(
+                    match.groupdict() if match else {}, parsed
                 )
+                payload = json.dumps(
+                    restore_masked(parsed, stored, empty_stays=True)
+                ).encode('utf-8')
             except ToolError as exc:
                 logger.info(
                     'Refused masked secret on %s %s: %s',
@@ -414,7 +461,8 @@ class ApiTokenSecretMiddleware:
 
     async def _run(self, scope, receive, send):
         """Call the app with a send that redacts JSON responses for
-        API-token callers. Everything else passes through as it came.
+        every caller (unless the route flagged a deliberate
+        disclosure). Everything else passes through as it came.
         """
         buffering = False
         started: dict | None = None
@@ -425,7 +473,7 @@ class ApiTokenSecretMiddleware:
             if message['type'] == 'http.response.start':
                 headers = dict(message.get('headers') or [])
                 buffering = (
-                    _is_api_token_scope(scope)
+                    not _discloses_secret(scope)
                     and _is_json_type(headers.get(b'content-type', b''))
                     # A content-disposition marks a FILE delivery
                     # (every download route passes filename=), not an

@@ -164,6 +164,13 @@ async def validate_profile(
     on the config page rather than on the next agent run. Always returns
     200 — the verdict is the body's ``ok`` flag (with ``code``/``error``
     for display and ``reported_model`` echoed back on success).
+
+    An optional ``profile_id`` names the profile being EDITED: the
+    secret guard restores masked secret values in ``env`` against that
+    profile's stored env before the probe runs (see
+    ``app/rest_secret_guard.py``), so saving an edit with an untouched
+    key validates the stored key, not the mask. Creation probes send
+    no ``profile_id`` and must carry the real key.
     """
     result = await validate_profile_env(data.get('env') or {})
     return result.to_dict()

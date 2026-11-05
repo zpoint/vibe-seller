@@ -132,6 +132,11 @@ PLAINTEXT_FIELDS = frozenset({
     # Boolean flags whose names merely LOOK secret-like.
     'has_secret',
     'kie_api_key_set',
+    # Profile env keys that merely LOOK secret-like: a CONTEXT WINDOW
+    # SIZE (a plain number, edited in the profile form's Advanced
+    # section), not a credential. Without this entry the name pattern
+    # would mask it out of the presets and the profile lists.
+    'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
 })
 
 
@@ -261,7 +266,9 @@ def is_mask(value) -> bool:
     )
 
 
-def restore_masked(incoming, stored, *, env_scope: bool = False):
+def restore_masked(
+    incoming, stored, *, env_scope: bool = False, empty_stays: bool = False
+):
     """The write-side counterpart of :func:`redact`.
 
     Walks *incoming* (the payload an agent sent) against *stored*
@@ -278,6 +285,13 @@ def restore_masked(incoming, stored, *, env_scope: bool = False):
       secret or omit the field;
     * anything else passes through untouched — a fresh real secret
       is a legitimate write.
+
+    *empty_stays* (the REST contract for edit forms, not the MCP
+    one) additionally treats an EMPTY STRING like a mask: a password
+    box the user never filled posts ``''``, and that must mean "keep
+    the stored secret", not "store an empty". Empty with nothing
+    stored still passes through — an optional secret legitimately
+    unset — so create-style bodies are unaffected.
 
     Non-secret fields are walked for nested dicts (``env``) but
     never altered. ``None`` is not a mask, so a null under a secret
@@ -305,11 +319,24 @@ def restore_masked(incoming, stored, *, env_scope: bool = False):
                             'secret or omit the field'
                         )
                     out[key] = stored_value
+                elif (
+                    empty_stays
+                    and value == ''
+                    and stored_value
+                    not in (
+                        None,
+                        '',
+                    )
+                ):
+                    out[key] = stored_value
                 else:
                     out[key] = value
             else:
                 out[key] = restore_masked(
-                    value, stored_value, env_scope=key == _ENV_KEY
+                    value,
+                    stored_value,
+                    env_scope=key == _ENV_KEY,
+                    empty_stays=empty_stays,
                 )
         return out
     if isinstance(incoming, list):
@@ -319,6 +346,7 @@ def restore_masked(incoming, stored, *, env_scope: bool = False):
                 item,
                 stored_list[i] if i < len(stored_list) else None,
                 env_scope=env_scope,
+                empty_stays=empty_stays,
             )
             for i, item in enumerate(incoming)
         ]

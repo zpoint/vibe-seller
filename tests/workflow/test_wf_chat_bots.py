@@ -7,7 +7,9 @@ Covers:
 - unsupported / spoofed webhook URLs → 400
 - signing secret only for DingTalk/Feishu (400 on WeCom/Slack)
 - list returns masked URL + has_secret, never the raw URL or secret
-- single-bot GET returns the full URL (for edit)
+- single-bot GET (and every create/update response) returns the MASKS
+  too — no route hands a stored secret to any caller; the admin
+  reads the real value through POST /api/secrets/reveal
 - create/update/delete + DB state; update rejects None/blank
 - /test and /send delegate to the notifier dispatch
 - /send-file refuses non-WeCom platforms BEFORE path resolution
@@ -147,7 +149,9 @@ class TestChatBotCRUD:
             )
             assert r.status_code == 200, platform
             body = r.json()
-            assert body['secret'] == 'SECtest123'
+            # the stored secret never comes back — the caller that
+            # just wrote it sees the mask like everyone else
+            assert body['secret'] == '****t123'
             assert body['has_secret'] is True
 
     async def test_secret_rejected_for_wecom_and_slack(self, admin_client):
@@ -200,7 +204,11 @@ class TestChatBotCRUD:
         assert 'hosts' in platforms['dingtalk']
         assert 'doc_url' in platforms['feishu']
 
-    async def test_get_single_returns_full_url_and_secret(self, admin_client):
+    async def test_get_single_returns_masks_admin_reads_via_reveal(
+        self, admin_client
+    ):
+        """The edit form gets the masks like everyone else; the real
+        values leave the server only through the reveal endpoint."""
         created = (
             await admin_client.post(
                 '/api/chat-bots',
@@ -214,8 +222,19 @@ class TestChatBotCRUD:
         r = await admin_client.get(f'/api/chat-bots/{created["id"]}')
         assert r.status_code == 200
         body = r.json()
-        assert body['webhook_url'] == DINGTALK_URL
-        assert body['secret'] == 'SECeditme'
+        assert body['webhook_url'] == '****'
+        assert body['secret'] == '****itme'  # last 4 of 'SECeditme'
+        # the admin's explicit Show/Copy action gets the real values
+        r = await admin_client.post(
+            '/api/secrets/reveal',
+            json={
+                'resource': 'chat_bot',
+                'id': created['id'],
+                'field': 'webhook_url',
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()['value'] == DINGTALK_URL
 
     async def test_get_single_missing_returns_404(self, admin_client):
         r = await admin_client.get('/api/chat-bots/missing')
@@ -239,7 +258,7 @@ class TestChatBotCRUD:
         assert r.status_code == 200
         body = r.json()
         assert body['platform'] == 'dingtalk'
-        assert body['webhook_url'] == DINGTALK_URL
+        assert body['webhook_url'] == '****'  # fresh URL, masked too
 
         async with override_async_session() as db:
             row = await db.get(ChatBot, created['id'])
@@ -289,7 +308,14 @@ class TestChatBotCRUD:
         assert r.status_code == 400
         assert 'Unsupported webhook URL' in r.json()['detail']
 
-    async def test_update_blank_secret_clears_it(self, admin_client):
+    async def test_update_blank_secret_keeps_it(self, admin_client):
+        """An empty secret field on an update means UNCHANGED.
+
+        The edit form no longer holds the plaintext (it holds the
+        mask), so an emptied box is an untouched box — posting ''
+        must not clear the stored secret. Clearing happens by moving
+        the bot to a platform that cannot use a secret.
+        """
         created = (
             await admin_client.post(
                 '/api/chat-bots',
@@ -306,8 +332,8 @@ class TestChatBotCRUD:
         )
         assert r.status_code == 200
         body = r.json()
-        assert body['secret'] is None
-        assert body['has_secret'] is False
+        assert body['secret'] == '****Cold'
+        assert body['has_secret'] is True
 
     async def test_update_secret_rejected_for_slack(self, admin_client):
         created = (
@@ -341,12 +367,13 @@ class TestChatBotCRUD:
         assert r.status_code == 200
         body = r.json()
         assert body['name'] == 'New'
-        assert body['webhook_url'] == WECOM_URL  # untouched
+        assert body['webhook_url'] == '****'  # masked, like everywhere
         assert body['updated_at'] != original_updated
 
         async with override_async_session() as db:
             row = await db.get(ChatBot, created['id'])
             assert row.name == 'New'
+            assert row.webhook_url == WECOM_URL  # untouched in storage
 
     async def test_update_rejects_null_required_field(self, admin_client):
         created = (

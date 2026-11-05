@@ -41,7 +41,7 @@ from dataclasses import dataclass
 import json
 import re
 
-from app.api_token_secrets import _presented_api_token, compile_template
+from app.rest_secret_guard import _presented_api_token, compile_template
 
 
 @dataclass(frozen=True)
@@ -87,6 +87,11 @@ TOKEN_REFUSALS: tuple[TokenRefusal, ...] = (
     # outlive the credential that produced it.
     _refusal({'POST'}, '/api/auth/tokens', 'mint API tokens'),
     _refusal({'POST'}, '/api/auth/refresh', 'start a web session'),
+    # Reading a stored secret is the one capability a token must
+    # never gain (the token contract: write-only secrets). The
+    # admin reveal endpoint refuses members by role and tokens by
+    # this row — an admin's own token included.
+    _refusal({'POST'}, '/api/secrets/reveal', 'reveal a stored secret'),
 )
 
 _DETAIL = 'An API token cannot {action} — sign in to the web UI to do this'

@@ -1,23 +1,26 @@
-"""The REST-side secret guard for API-token callers.
+"""The REST-side secret guard — for EVERY caller.
 
-Three jobs:
+Four jobs:
 
 * the READ drift guard — every REST route whose response model
   carries a secret-classified field is in ``SECRET_READ_ROUTES``
   (curated below; the workflow twin pins the actual behaviour:
-  masked for a token caller, plaintext for a session caller). A new
-  secret-returning route fails here until it is curated — and the
-  middleware masks it regardless, so curation pins, it does not
-  protect;
+  masked for a session caller AND a token caller, or a deliberate
+  disclosure). A new secret-returning route fails here until it is
+  curated — and the middleware masks it regardless, so curation
+  pins, it does not protect;
 * the WRITE drift guard — every REST route whose BODY carries a
-  secret-classified field (pydantic body models introspected from the
-  real app, plus the plain-dict bodies listed alongside) has a
+  secret-classified field (pydantic body models introspected from
+  the real app, plus the plain-dict bodies listed alongside) has a
   restore rule in ``RESTORE_RULES``: a masked echo must be restored
   (update) or refused (create), never stored;
+* the DISCLOSURE drift guard — the routes allowed to hand a
+  credential out in plaintext (``mark_secret_disclosure``) are
+  curated in ``SECRET_DISCLOSURE_ROUTES`` and must be real routes;
 * the middleware mechanics, on a scratch ASGI app — what is redacted
-  (JSON, api_token scope only), what passes untouched (session,
-  SSE/streaming, non-JSON, unparsable bodies), and both directions of
-  the request path (restore, refusal, replay).
+  (every JSON response, whatever the caller), what passes untouched
+  (SSE/streaming, non-JSON, file deliveries, disclosed responses),
+  and the request path (restore, empty-means-keep, refusal, replay).
 """
 
 import inspect
@@ -28,24 +31,34 @@ from typing import get_args, get_origin
 
 from pydantic import BaseModel
 import pytest
+from starlette.datastructures import State
 
 from app.agent_mcp.redact import is_secret_key
-from app.api_token_secrets import (
-    RESTORE_RULES,
-    ApiTokenSecretMiddleware,
-    RestoreRule,
-    compile_template,
-)
 from app.main import app
+from app.rest_secret_guard import (
+    RESTORE_RULES,
+    RestoreRule,
+    SecretGuardMiddleware,
+    compile_template,
+    mark_secret_disclosure,
+)
 
 pytestmark = pytest.mark.unit
 
 SECRET = 'super-secret-value-1234'
 
 # Every REST route whose response payload carries a secret-classified
-# field, mapped to what a TOKEN caller receives: 'masked' (the route
-# answers, with the secrets masked) or 'refused' (the route refuses
-# token callers outright). The workflow tests pin both behaviours.
+# field, mapped to what callers receive:
+#
+# * 'masked' — every caller (session, token, no-auth) receives the
+#   field masked; the middleware provides it, the workflow tests pin
+#   it for each credential class;
+# * 'refused' — an API-token caller is refused outright (403), so the
+#   field only exists for interactive callers;
+# * 'disclosed' — a DELIBERATE plaintext disclosure to its allowed
+#   caller: the route calls ``mark_secret_disclosure`` (mint hands
+#   the fresh token to its creator once) or is the admin-only reveal
+#   endpoint itself.
 SECRET_READ_ROUTES = {
     ('GET', '/api/profiles'): 'masked',
     ('POST', '/api/profiles'): 'masked',
@@ -58,8 +71,12 @@ SECRET_READ_ROUTES = {
     ('PUT', '/api/chat-bots/{bot_id}'): 'masked',
     # The mint response is the one REST payload that carries a FRESH
     # credential; a token caller is refused (refuse_api_token) rather
-    # than shown it masked — a new token must never beget another.
-    ('POST', '/api/auth/tokens'): 'refused',
+    # than shown it masked — a new token must never beget another —
+    # and the creating session receives it once (disclosed).
+    ('POST', '/api/auth/tokens'): 'disclosed',
+    # The admin reveal endpoint IS a disclosure — that is its whole
+    # purpose (members and every token caller are 403).
+    ('POST', '/api/secrets/reveal'): 'disclosed',
 }
 
 # Routes whose body is a plain dict carrying secret-classified fields
@@ -70,6 +87,15 @@ SECRET_DICT_BODY_ROUTES = {
     ('PUT', '/api/profiles/{profile_id}'),
     ('POST', '/api/profiles/validate'),
     ('PUT', '/api/vision/config'),
+}
+
+# The routes that deliberately disclose a credential in plaintext by
+# calling ``mark_secret_disclosure``. Both entries are pinned by the
+# workflow tests (mint → plaintext for the creating session; reveal
+# → plaintext for an admin session, 403 for everyone else).
+SECRET_DISCLOSURE_ROUTES = {
+    ('POST', '/api/auth/tokens'),
+    ('POST', '/api/secrets/reveal'),
 }
 
 
@@ -187,9 +213,8 @@ class TestWriteDriftGuard:
         missing = required - covered
         assert not missing, (
             'These routes ACCEPT a secret-classified body field but no '
-            'RESTORE_RULES entry restores a masked echo for a token '
-            'caller — an echoed mask would be stored verbatim: '
-            f'{sorted(missing)}'
+            'RESTORE_RULES entry restores a masked echo — an echoed '
+            f'mask would be stored verbatim: {sorted(missing)}'
         )
 
     def test_every_rule_targets_a_real_route(self):
@@ -210,14 +235,65 @@ class TestWriteDriftGuard:
 
     def test_rule_providers_are_async_and_named_like_the_resource(self):
         """A rule whose provider is not awaitable would 500 on every
-        matching token write; a nameless inline lambda would make the
-        table unreadable in the 400 logs."""
+        matching write; a nameless inline lambda would make the table
+        unreadable in the 400 logs."""
         for rule in RESTORE_RULES:
             assert inspect.iscoroutinefunction(rule.stored), rule.template
             assert rule.stored.__name__ not in ('<lambda>',), rule.template
 
 
+class TestDisclosureDriftGuard:
+    def test_disclosure_routes_are_real_routes(self):
+        real = {
+            (method, route.path)
+            for route in _api_routes()
+            for method in route.methods - {'HEAD'}
+        }
+        stale = SECRET_DISCLOSURE_ROUTES - real
+        assert not stale, f'stale disclosure entries: {sorted(stale)}'
+
+    def test_the_mint_and_reveal_routes_are_both_disclosures(self):
+        """The two deliberate plaintext hand-outs — the fresh token to
+        its creator, and the reveal endpoint — must stay in the
+        curated set; anything else arriving here changes what the
+        workflow tests must pin."""
+        assert ('POST', '/api/auth/tokens') in SECRET_DISCLOSURE_ROUTES
+        assert ('POST', '/api/secrets/reveal') in SECRET_DISCLOSURE_ROUTES
+
+    def test_no_other_route_marks_itself_a_disclosure(self):
+        """A route that marks itself a disclosure BYPASSES the mask
+        for every caller — so the set of routes allowed to do that is
+        pinned from the SOURCE side too, not only the curated list.
+
+        Without this, a new route could call
+        ``mark_secret_disclosure`` and hand a stored secret to any
+        caller, while the curated list (and the workflow pins) still
+        look right.
+        """
+        marking_routes = set()
+        for route in _api_routes():
+            source = inspect.getsource(route.endpoint)
+            if 'mark_secret_disclosure' in source:
+                marking_routes.add((
+                    next(iter(route.methods - {'HEAD'})),
+                    route.path,
+                ))
+        assert marking_routes == SECRET_DISCLOSURE_ROUTES, (
+            'These routes mark their response as a deliberate '
+            'plaintext disclosure but are not in '
+            f'SECRET_DISCLOSURE_ROUTES: {sorted(marking_routes)}'
+        )
+
+
 # ── middleware mechanics on a scratch ASGI app ───────────────────
+
+
+class _FakeStateRequest:
+    """Just enough Request for ``mark_secret_disclosure``."""
+
+    def __init__(self):
+        self.scope = {}
+        self.state = State(self.scope.setdefault('state', {}))
 
 
 def _scope(
@@ -262,11 +338,13 @@ def _messages():
     return out, send
 
 
-def _json_app(payload, auth_via='api_token', status=200):
+def _json_app(payload, auth_via=None, status=200, disclose=False):
     async def app(scope, receive, send):
         state = scope.setdefault('state', {})
         if auth_via:
             state['auth_via'] = auth_via
+        if disclose:
+            state['discloses_secret'] = True
         body = json.dumps(payload).encode()
         await send({
             'type': 'http.response.start',
@@ -297,10 +375,10 @@ def _header_of(messages, name: bytes):
 
 
 class TestResponseRedaction:
-    async def test_json_is_redacted_for_an_api_token_caller(self):
-        """The scratch app sets auth_via the way a real dependency
-        does — DURING routing, after the middleware handed the scope
-        over. The shared scope is what makes the check honest."""
+    async def test_json_is_redacted_for_every_caller(self):
+        """Session callers (the web UI), token callers and no-auth
+        callers all receive the same masks — the invariant is a
+        property of the response, not of the credential class."""
         payload = {
             'profiles': [
                 {
@@ -309,55 +387,43 @@ class TestResponseRedaction:
                 }
             ]
         }
-        out, send = _messages()
-        middleware = ApiTokenSecretMiddleware(_json_app(payload))
-        await middleware(_scope(), _receive(), send)
-        data = json.loads(_body_of(out))
-        token = data['profiles'][0]['env']['ANTHROPIC_AUTH_TOKEN']
-        assert token != SECRET
-        assert token == f'****{SECRET[-4:]}'
+        for via in ('session', 'api_token', 'service', 'no_auth', None):
+            out, send = _messages()
+            middleware = SecretGuardMiddleware(_json_app(payload, auth_via=via))
+            await middleware(_scope(auth_via=via), _receive(), send)
+            data = json.loads(_body_of(out))
+            token = data['profiles'][0]['env']['ANTHROPIC_AUTH_TOKEN']
+            assert token != SECRET, via
+            assert token == f'****{SECRET[-4:]}', via
 
-    async def test_a_request_that_never_resolves_a_caller_is_untouched(
-        self,
-    ):
-        """Public no-auth payloads keep their exact bytes — the guard
-        keys on auth_via, never on the path."""
+    async def test_a_marked_disclosure_passes_untouched(self):
+        """A route that hands out a credential it just created (the
+        token mint; the reveal endpoint) flags itself — its response
+        is the one deliberate plaintext disclosure."""
         out, send = _messages()
-        middleware = ApiTokenSecretMiddleware(
-            _json_app({'a': SECRET}, auth_via=None)
+        middleware = SecretGuardMiddleware(
+            _json_app({'token': SECRET}, disclose=True)
         )
         await middleware(_scope(), _receive(), send)
-        assert _body_of(out) == json.dumps({'a': SECRET}).encode()
+        assert json.loads(_body_of(out)) == {'token': SECRET}
 
-    async def test_session_callers_see_plaintext(self):
-        out, send = _messages()
-        middleware = ApiTokenSecretMiddleware(
-            _json_app({'a': SECRET}, auth_via='session')
-        )
-        await middleware(_scope(), _receive(), send)
-        assert json.loads(_body_of(out)) == {'a': SECRET}
-
-    async def test_service_callers_see_plaintext(self):
-        """The browser-use wrapper scripts present a long-lived JWT as
-        a Bearer header — a machine credential, not an API token, and
-        outside this contract."""
-        out, send = _messages()
-        middleware = ApiTokenSecretMiddleware(
-            _json_app({'a': SECRET}, auth_via='service')
-        )
-        await middleware(_scope(), _receive(), send)
-        assert json.loads(_body_of(out)) == {'a': SECRET}
+    def test_the_marker_writes_through_the_request_state(self):
+        """``mark_secret_disclosure`` writes into the scope's state
+        dict — the same shared dict the middleware reads at response
+        time (the ``auth_via`` mechanism)."""
+        request = _FakeStateRequest()
+        mark_secret_disclosure(request)
+        assert request.scope['state']['discloses_secret'] is True
 
     async def test_content_length_is_recomputed(self):
         out, send = _messages()
-        middleware = ApiTokenSecretMiddleware(_json_app({'secret_key': SECRET}))
+        middleware = SecretGuardMiddleware(_json_app({'secret_key': SECRET}))
         await middleware(_scope(), _receive(), send)
         body = _body_of(out)
         assert _header_of(out, b'content-length') == str(len(body)).encode()
 
     async def test_streaming_sse_passes_chunk_by_chunk(self):
         async def app(scope, receive, send):
-            scope['state'] = {'auth_via': 'api_token'}
             await send({
                 'type': 'http.response.start',
                 'status': 200,
@@ -375,7 +441,7 @@ class TestResponseRedaction:
             })
 
         out, send = _messages()
-        await ApiTokenSecretMiddleware(app)(_scope(), _receive(), send)
+        await SecretGuardMiddleware(app)(_scope(), _receive(), send)
         # Chunk boundaries and bytes preserved exactly.
         assert [m.get('body') for m in out[1:]] == [
             b'data: {"secret": "abc"}',
@@ -388,7 +454,6 @@ class TestResponseRedaction:
         payload, and must arrive byte-for-byte."""
 
         async def app(scope, receive, send):
-            scope['state'] = {'auth_via': 'api_token'}
             body = b'{"api_key": "sk-live-unchanged"}'
             await send({
                 'type': 'http.response.start',
@@ -404,12 +469,11 @@ class TestResponseRedaction:
             await send({'type': 'http.response.body', 'body': body})
 
         out, send = _messages()
-        await ApiTokenSecretMiddleware(app)(_scope(), _receive(), send)
+        await SecretGuardMiddleware(app)(_scope(), _receive(), send)
         assert _body_of(out) == b'{"api_key": "sk-live-unchanged"}'
 
     async def test_non_json_bodies_pass_untouched(self):
         async def app(scope, receive, send):
-            scope['state'] = {'auth_via': 'api_token'}
             await send({
                 'type': 'http.response.start',
                 'status': 200,
@@ -418,12 +482,11 @@ class TestResponseRedaction:
             await send({'type': 'http.response.body', 'body': b'PK\x03\x04'})
 
         out, send = _messages()
-        await ApiTokenSecretMiddleware(app)(_scope(), _receive(), send)
+        await SecretGuardMiddleware(app)(_scope(), _receive(), send)
         assert _body_of(out) == b'PK\x03\x04'
 
     async def test_json_content_type_with_unparsable_body_passes(self):
         async def app(scope, receive, send):
-            scope['state'] = {'auth_via': 'api_token'}
             await send({
                 'type': 'http.response.start',
                 'status': 200,
@@ -432,12 +495,11 @@ class TestResponseRedaction:
             await send({'type': 'http.response.body', 'body': b'{"broken": '})
 
         out, send = _messages()
-        await ApiTokenSecretMiddleware(app)(_scope(), _receive(), send)
+        await SecretGuardMiddleware(app)(_scope(), _receive(), send)
         assert _body_of(out) == b'{"broken": '
 
     async def test_empty_body_response_survives(self):
         async def app(scope, receive, send):
-            scope['state'] = {'auth_via': 'api_token'}
             await send({
                 'type': 'http.response.start',
                 'status': 204,
@@ -446,7 +508,7 @@ class TestResponseRedaction:
             await send({'type': 'http.response.body', 'body': b''})
 
         out, send = _messages()
-        await ApiTokenSecretMiddleware(app)(_scope(), _receive(), send)
+        await SecretGuardMiddleware(app)(_scope(), _receive(), send)
         assert _body_of(out) == b''
         assert out[0]['status'] == 204
 
@@ -454,7 +516,7 @@ class TestResponseRedaction:
         """A route that fails may still embed what it was holding —
         the redaction is not success-only."""
         out, send = _messages()
-        middleware = ApiTokenSecretMiddleware(
+        middleware = SecretGuardMiddleware(
             _json_app(
                 {'detail': {'env': {'ANTHROPIC_API_KEY': SECRET}}},
                 status=400,
@@ -503,17 +565,16 @@ def _rule(template, stored, methods=frozenset({'PUT'})):
     )
 
 
-_TOKEN_HEADER = (b'authorization', b'Bearer vst_scratch-token')
 _JSON_TYPE = (b'content-type', b'application/json')
 
 
 class TestRequestRestore:
     async def test_a_masked_echo_is_restored_before_the_route(self):
-        async def stored(match):
+        async def stored(match, body):
             return {'env': {'ANTHROPIC_AUTH_TOKEN': SECRET}}
 
         downstream = _RecordingApp()
-        middleware = ApiTokenSecretMiddleware(
+        middleware = SecretGuardMiddleware(
             downstream, rules=(_rule('/api/profiles/{pid}', stored),)
         )
         body = json.dumps({
@@ -526,7 +587,6 @@ class TestRequestRestore:
                 path='/api/profiles/prof-1',
                 method='PUT',
                 headers=(
-                    _TOKEN_HEADER,
                     _JSON_TYPE,
                     (b'content-length', str(len(body)).encode()),
                 ),
@@ -544,21 +604,87 @@ class TestRequestRestore:
         ]
         assert lengths == [str(len(b''.join(downstream.bodies))).encode()]
 
-    async def test_a_mask_with_no_stored_secret_is_refused(self):
-        async def stored(match):
+    async def test_the_restore_applies_to_session_callers_too(self):
+        """No credential is presented at all (the session UI, or a
+        no-auth server) — the mask the form echoes is still restored,
+        because nobody can hold plaintext any more."""
+
+        async def stored(match, body):
+            return {'env': {'ANTHROPIC_AUTH_TOKEN': SECRET}}
+
+        downstream = _RecordingApp()
+        middleware = SecretGuardMiddleware(
+            downstream, rules=(_rule('/api/profiles/{pid}', stored),)
+        )
+        body = json.dumps({
+            'env': {'ANTHROPIC_AUTH_TOKEN': '****1234'}
+        }).encode()
+        out, send = _messages()
+        await middleware(
+            _scope(
+                path='/api/profiles/prof-1', method='PUT', headers=(_JSON_TYPE,)
+            ),
+            _receive(body),
+            send,
+        )
+        received = json.loads(b''.join(downstream.bodies))
+        assert received['env']['ANTHROPIC_AUTH_TOKEN'] == SECRET
+
+    async def test_an_empty_secret_keeps_the_stored_value(self):
+        """An untouched password box posts '' — on an update that
+        means "unchanged", never "store an empty"."""
+
+        async def stored(match, body):
+            return {'password': SECRET}
+
+        downstream = _RecordingApp()
+        middleware = SecretGuardMiddleware(
+            downstream, rules=(_rule('/api/ziniao/{aid}', stored),)
+        )
+        body = json.dumps({'password': ''}).encode()
+        out, send = _messages()
+        await middleware(
+            _scope(path='/api/ziniao/a1', method='PUT', headers=(_JSON_TYPE,)),
+            _receive(body),
+            send,
+        )
+        received = json.loads(b''.join(downstream.bodies))
+        assert received['password'] == SECRET
+
+    async def test_an_empty_secret_with_nothing_stored_passes_through(self):
+        """Create-style bodies may legitimately send '' for an
+        optional secret — nothing is stored, so nothing is kept."""
+
+        async def stored(match, body):
             return {}
 
         downstream = _RecordingApp()
-        middleware = ApiTokenSecretMiddleware(
+        middleware = SecretGuardMiddleware(
+            downstream, rules=(_rule('/api/chat-bots', stored, {'POST'}),)
+        )
+        body = json.dumps({'name': 'acme', 'secret': ''}).encode()
+        out, send = _messages()
+        await middleware(
+            _scope(path='/api/chat-bots', method='POST', headers=(_JSON_TYPE,)),
+            _receive(body),
+            send,
+        )
+        received = json.loads(b''.join(downstream.bodies))
+        assert received['secret'] == ''
+
+    async def test_a_mask_with_no_stored_secret_is_refused(self):
+        async def stored(match, body):
+            return {}
+
+        downstream = _RecordingApp()
+        middleware = SecretGuardMiddleware(
             downstream, rules=(_rule('/api/profiles/{pid}', stored),)
         )
         body = json.dumps({'env': {'ANTHROPIC_AUTH_TOKEN': '****'}}).encode()
         out, send = _messages()
         await middleware(
             _scope(
-                path='/api/profiles/prof-1',
-                method='PUT',
-                headers=(_TOKEN_HEADER, _JSON_TYPE),
+                path='/api/profiles/prof-1', method='PUT', headers=(_JSON_TYPE,)
             ),
             _receive(body),
             send,
@@ -568,11 +694,11 @@ class TestRequestRestore:
         assert 'real secret' in json.loads(_body_of(out))['detail']
 
     async def test_a_fresh_secret_passes_through(self):
-        async def stored(match):
+        async def stored(match, body):
             return {'env': {'ANTHROPIC_AUTH_TOKEN': 'the-old-one'}}
 
         downstream = _RecordingApp()
-        middleware = ApiTokenSecretMiddleware(
+        middleware = SecretGuardMiddleware(
             downstream, rules=(_rule('/api/profiles/{pid}', stored),)
         )
         body = json.dumps({
@@ -581,9 +707,7 @@ class TestRequestRestore:
         out, send = _messages()
         await middleware(
             _scope(
-                path='/api/profiles/prof-1',
-                method='PUT',
-                headers=(_TOKEN_HEADER, _JSON_TYPE),
+                path='/api/profiles/prof-1', method='PUT', headers=(_JSON_TYPE,)
             ),
             _receive(body),
             send,
@@ -591,53 +715,35 @@ class TestRequestRestore:
         received = json.loads(b''.join(downstream.bodies))
         assert received['env']['ANTHROPIC_AUTH_TOKEN'] == 'brand-new'
 
-    async def test_non_token_callers_bodies_pass_through(self):
-        """The session UI posts the plaintext its form loaded — the
-        restore contract applies to token callers only."""
+    async def test_a_rule_may_read_the_stored_values_from_the_body(self):
+        """The validate probe carries the edited profile's id in its
+        BODY — the provider resolves the stored env through it."""
 
-        async def stored(match):
+        async def stored(match, body):
+            assert body['profile_id'] == 'acme'
             return {'env': {'ANTHROPIC_AUTH_TOKEN': SECRET}}
 
         downstream = _RecordingApp()
-        middleware = ApiTokenSecretMiddleware(
-            downstream, rules=(_rule('/api/profiles/{pid}', stored),)
-        )
-        body = json.dumps({
-            'env': {'ANTHROPIC_AUTH_TOKEN': '****1234'}
-        }).encode()
-        out, send = _messages()
-        await middleware(
-            _scope(
-                path='/api/profiles/prof-1',
-                method='PUT',
-                headers=(_JSON_TYPE,),
-            ),
-            _receive(body),
-            send,
-        )
-        received = json.loads(b''.join(downstream.bodies))
-        assert received['env']['ANTHROPIC_AUTH_TOKEN'] == '****1234'
-
-    async def test_a_cookie_presented_token_also_triggers(self):
-        async def stored(match):
-            return {'env': {'ANTHROPIC_AUTH_TOKEN': SECRET}}
-
-        downstream = _RecordingApp()
-        middleware = ApiTokenSecretMiddleware(
-            downstream, rules=(_rule('/api/profiles/{pid}', stored),)
-        )
-        body = json.dumps({
-            'env': {'ANTHROPIC_AUTH_TOKEN': '****1234'}
-        }).encode()
-        out, send = _messages()
-        await middleware(
-            _scope(
-                path='/api/profiles/prof-1',
-                method='PUT',
-                headers=(
-                    (b'cookie', b'other=1; auth_token=vst_cookie-token'),
-                    _JSON_TYPE,
+        middleware = SecretGuardMiddleware(
+            downstream,
+            rules=(
+                _rule(
+                    '/api/profiles/validate',
+                    stored,
+                    methods=frozenset({'POST'}),
                 ),
+            ),
+        )
+        body = json.dumps({
+            'profile_id': 'acme',
+            'env': {'ANTHROPIC_AUTH_TOKEN': '****1234'},
+        }).encode()
+        out, send = _messages()
+        await middleware(
+            _scope(
+                path='/api/profiles/validate',
+                method='POST',
+                headers=(_JSON_TYPE,),
             ),
             _receive(body),
             send,
@@ -649,20 +755,18 @@ class TestRequestRestore:
         """Whatever the restore cannot walk, the app still receives
         byte-for-byte — consuming receive is irreversible."""
 
-        async def stored(match):
+        async def stored(match, body):
             return {}
 
         downstream = _RecordingApp()
-        middleware = ApiTokenSecretMiddleware(
+        middleware = SecretGuardMiddleware(
             downstream, rules=(_rule('/api/profiles/{pid}', stored),)
         )
         raw = b'not json at all'
         out, send = _messages()
         await middleware(
             _scope(
-                path='/api/profiles/prof-1',
-                method='PUT',
-                headers=(_TOKEN_HEADER, _JSON_TYPE),
+                path='/api/profiles/prof-1', method='PUT', headers=(_JSON_TYPE,)
             ),
             _receive(raw),
             send,
@@ -672,15 +776,11 @@ class TestRequestRestore:
 
     async def test_no_rule_no_touch(self):
         downstream = _RecordingApp()
-        middleware = ApiTokenSecretMiddleware(downstream, rules=())
+        middleware = SecretGuardMiddleware(downstream, rules=())
         body = json.dumps({'env': {'ANTHROPIC_AUTH_TOKEN': '****'}}).encode()
         out, send = _messages()
         await middleware(
-            _scope(
-                path='/api/profiles/prof-1',
-                method='PUT',
-                headers=(_TOKEN_HEADER, _JSON_TYPE),
-            ),
+            _scope(path='/api/other', method='PUT', headers=(_JSON_TYPE,)),
             _receive(body),
             send,
         )
@@ -706,7 +806,7 @@ class TestRuleMatching:
 
 
 def _nothing_like():
-    async def stored(match):
+    async def stored(match, body):
         return {}
 
     return stored

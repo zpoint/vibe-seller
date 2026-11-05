@@ -71,6 +71,18 @@ export const apiTokens = {
   revoke: (id: string): Promise<void> => api.del(`/api/auth/tokens/${id}`),
 }
 
+// ─── Stored-secret reveal (admin only) ────────────────
+// Every list/get returns secrets masked, for every caller; this is
+// the one endpoint that hands the stored value out — admin session
+// only (members and every API token are refused server-side). Used
+// by SecretReveal's Show/Copy buttons next to masked fields.
+export const revealSecret = (
+  resource: string,
+  id: string,
+  field: string,
+): Promise<{ resource: string; id: string; field: string; value: string }> =>
+  api.post('/api/secrets/reveal', { resource, id, field })
+
 /**
  * Upload one attachment into a task's workspace.
  *

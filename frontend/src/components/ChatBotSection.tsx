@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../api'
+import { SecretReveal } from './SecretReveal'
 
 /** Registry metadata from GET /api/chat-bots/platforms. */
 export interface ChatPlatform {
@@ -71,13 +72,18 @@ const PLATFORM_COLORS: Record<string, string> = {
   slack: 'bg-violet-100 text-violet-800',
 }
 
-export function ChatBotSection() {
+export function ChatBotSection({ isAdmin = false }: { isAdmin?: boolean }) {
   const { t } = useTranslation()
   const [bots, setBots] = useState<ChatBotSummary[]>([])
   const [platforms, setPlatforms] = useState<ChatPlatform[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  /** The stored platform of the bot being edited — the URL field
+   *  holds the server's mask ('****'), which parses as no platform,
+   *  so the secret/keyword fields and badge fall back to this until
+   *  the user types a new URL. */
+  const [editingPlatform, setEditingPlatform] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [form, setForm] = useState<{
     name: string
@@ -115,9 +121,18 @@ export function ChatBotSection() {
     () => detectClientPlatform(form.webhook_url, platforms),
     [form.webhook_url, platforms],
   )
+  /** Which platform's fields to show: the URL the user is typing, or
+   *  — while the edit form still holds the masked URL — the stored
+   *  platform of the bot being edited. */
+  const effectivePlatform =
+    detected ??
+    (editingId && editingPlatform
+      ? platforms.find(p => p.name === editingPlatform)
+      : undefined)
 
   const startCreate = () => {
     setEditingId(null)
+    setEditingPlatform(null)
     setCreating(true)
     setForm({ name: '', webhook_url: '', secret: '', keyword: '' })
   }
@@ -125,9 +140,10 @@ export function ChatBotSection() {
   const startEdit = async (bot: ChatBotSummary) => {
     setCreating(false)
     setEditingId(bot.id)
-    // Populate name/platform immediately; fetch the full URL + secret
-    // so the edit form shows the real values (the list only exposes
-    // masks).
+    setEditingPlatform(bot.platform)
+    // Populate name/platform immediately; fetch the bot — the values
+    // arrive MASKED (the server returns masks to every caller), and
+    // leaving them untouched in the form keeps the stored secret.
     setForm({ name: bot.name, webhook_url: '', secret: '', keyword: '' })
     try {
       const full = (await api.get(`/api/chat-bots/${bot.id}`)) as ChatBot
@@ -145,6 +161,7 @@ export function ChatBotSection() {
   const cancelEdit = () => {
     setCreating(false)
     setEditingId(null)
+    setEditingPlatform(null)
     setForm({ name: '', webhook_url: '', secret: '', keyword: '' })
   }
 
@@ -204,7 +221,9 @@ export function ChatBotSection() {
   const platformLabel = (name: string) =>
     platforms.find(p => p.name === name)?.label ?? name
 
-  const hintKey = detected ? `integrations.chat_bot.hint_${detected.name}` : null
+  const hintKey = effectivePlatform
+    ? `integrations.chat_bot.hint_${effectivePlatform.name}`
+    : null
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4" data-testid="chat-bot-section">
@@ -240,7 +259,12 @@ export function ChatBotSection() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">{t('integrations.chat_bot.webhookUrl')}</label>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="block text-xs text-gray-600">{t('integrations.chat_bot.webhookUrl')}</label>
+              {isAdmin && editingId && (
+                <SecretReveal resource="chat_bot" id={editingId} field="webhook_url" compact />
+              )}
+            </div>
             <input
               type="text"
               data-testid="chat-bot-url"
@@ -250,22 +274,22 @@ export function ChatBotSection() {
               className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded font-mono"
             />
             <div className="flex items-center gap-2 mt-1">
-              {detected ? (
+              {effectivePlatform ? (
                 <span
                   data-testid="chat-bot-platform-badge"
-                  className={`px-2 py-0.5 text-xs rounded-full font-medium ${PLATFORM_COLORS[detected.name] ?? 'bg-gray-100 text-gray-700'}`}
+                  className={`px-2 py-0.5 text-xs rounded-full font-medium ${PLATFORM_COLORS[effectivePlatform.name] ?? 'bg-gray-100 text-gray-700'}`}
                 >
-                  {detected.label}
+                  {effectivePlatform.label}
                 </span>
               ) : (
                 <span data-testid="chat-bot-platform-badge" className="text-xs text-gray-400">
                   {t('integrations.chat_bot.platformDetecting')}
                 </span>
               )}
-              {detected && (
+              {effectivePlatform && (
                 <a
                   data-testid="chat-bot-doc-link"
-                  href={detected.doc_url}
+                  href={effectivePlatform.doc_url}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs text-indigo-600 hover:underline"
@@ -278,11 +302,16 @@ export function ChatBotSection() {
               {hintKey ? t(hintKey) : t('integrations.chat_bot.webhookHint')}
             </p>
           </div>
-          {detected?.uses_secret && (
+          {effectivePlatform?.uses_secret && (
             <div>
-              <label className="block text-xs text-gray-600 mb-1">
-                {t('integrations.chat_bot.secretLabel')}
-              </label>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <label className="block text-xs text-gray-600">
+                  {t('integrations.chat_bot.secretLabel')}
+                </label>
+                {isAdmin && editingId && (
+                  <SecretReveal resource="chat_bot" id={editingId} field="secret" compact />
+                )}
+              </div>
               <input
                 type="password"
                 data-testid="chat-bot-secret"
@@ -294,7 +323,7 @@ export function ChatBotSection() {
               <p className="text-xs text-gray-500 mt-1">{t('integrations.chat_bot.secretHint')}</p>
             </div>
           )}
-          {detected?.uses_keyword && (
+          {effectivePlatform?.uses_keyword && (
             <div>
               <label className="block text-xs text-gray-600 mb-1">
                 {t('integrations.chat_bot.keywordLabel')}

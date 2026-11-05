@@ -933,5 +933,14 @@
     "copy": "复制",
     "copied": "已复制",
     "done": "完成"
+  },
+  "secrets": {
+    "showValue": "显示",
+    "hideValue": "隐藏",
+    "copyValue": "复制",
+    "copied": "已复制",
+    "revealFailed": "读取已保存的密钥失败",
+    "copyFailed": "复制失败，请手动选择复制",
+    "maskedHint": "已保存的密钥仅显示掩码；输入框不做修改则保持原值。"
   }
 }

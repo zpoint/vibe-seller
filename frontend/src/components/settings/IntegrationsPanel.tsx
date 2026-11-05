@@ -27,7 +27,7 @@ interface GwsStatus {
   installed: boolean
 }
 
-export function IntegrationsPanel() {
+export function IntegrationsPanel({ isAdmin = false }: { isAdmin?: boolean }) {
   const { t } = useTranslation()
   const [status, setStatus] = useState<GwsStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -182,7 +182,7 @@ export function IntegrationsPanel() {
           </div>
         ) : null}
       </div>
-      <ChatBotSection />
+      <ChatBotSection isAdmin={isAdmin} />
       <Dida365Panel />
     </div>
   )

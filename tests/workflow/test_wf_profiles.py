@@ -3,6 +3,7 @@
 import pytest
 
 from app.ai.profile_validation import ProfileValidationResult
+from app.ai.profiles import ProfileManager
 from tests.workflow.conftest import wait_for_task
 
 pytestmark = pytest.mark.workflow
@@ -345,6 +346,9 @@ class TestProfileCrud:
         assert mimo['ANTHROPIC_BASE_URL'] != mimo_tp['ANTHROPIC_BASE_URL']
 
     async def test_profile_env_injection_roundtrip(self, admin_client):
+        """Env vars round-trip into storage — but secret-classified
+        keys come back MASKED from every read (stored secrets are
+        write-only; see tests/workflow/test_wf_rest_secret_guard.py)."""
         env = {
             'ANTHROPIC_API_KEY': 'sk-test-key',
             'ANTHROPIC_BASE_URL': 'https://example.com',
@@ -359,12 +363,17 @@ class TestProfileCrud:
         )
         assert r.status_code == 200
 
-        # Read back via list
+        # The stored env is exactly what was posted (storage, not API)
+        stored = ProfileManager.get_profile('inject-test')
+        assert stored['env'] == env
+
+        # Read back via list: non-secret keys intact, the key masked
         r = await admin_client.get('/api/profiles')
         profile = next(
             p for p in r.json()['profiles'] if p['id'] == 'inject-test'
         )
-        assert profile['env'] == env
+        assert profile['env']['ANTHROPIC_BASE_URL'] == env['ANTHROPIC_BASE_URL']
+        assert profile['env']['ANTHROPIC_API_KEY'] == '****-key'
 
     async def test_profile_used_in_task(self, admin_client, install_fake_agent):
         """Task creation uses default profile; agent receives it."""

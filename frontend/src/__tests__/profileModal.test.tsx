@@ -10,7 +10,7 @@
  * - Preset: model options render as chips with context/vision badges,
  *   and picking one auto-names the profile "Provider - Model".
  */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 import i18n from 'i18next'
@@ -408,5 +408,60 @@ describe('ProfileModal', () => {
       },
     })
     expect(createBtn).toBeEnabled()
+  })
+
+  // ── masked secrets on edit (every caller receives masks) ──
+
+  const EDITING_PROFILE = {
+    id: 'minimax',
+    name: 'MiniMax',
+    description: '',
+    env: {
+      ANTHROPIC_BASE_URL: 'https://api.minimax.chat/anthropic',
+      ANTHROPIC_MODEL: 'minimax-m2',
+      // the server returns the MASK, never the stored key
+      ANTHROPIC_AUTH_TOKEN: '****abcd',
+    },
+  }
+
+  it('editing sends profile_id with the validate probe (mask restored server-side)', async () => {
+    ;(api.post as ReturnType<typeof vi.fn>).mockResolvedValue({ ok: true })
+    const { onSave } = renderModal({ editingProfile: EDITING_PROFILE })
+
+    // the masked key counts as "present" — save is enabled
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith('/api/profiles/validate', {
+        env: expect.objectContaining({
+          ANTHROPIC_AUTH_TOKEN: '****abcd',
+          ANTHROPIC_BASE_URL: 'https://api.minimax.chat/anthropic',
+        }),
+        profile_id: 'minimax',
+      })
+    )
+    await waitFor(() => expect(onSave).toHaveBeenCalled())
+    // the untouched mask is saved back (the server keeps the stored key)
+    expect(onSave.mock.calls[0][0].env.ANTHROPIC_AUTH_TOKEN).toBe('****abcd')
+  })
+
+  it('admins get the Show/Copy reveal on the key field when editing; members do not', async () => {
+    renderModal({ editingProfile: EDITING_PROFILE, isAdmin: true })
+    expect(
+      screen.getByTestId('secret-reveal-profile-ANTHROPIC_AUTH_TOKEN'),
+    ).toBeInTheDocument()
+
+    cleanup()
+    renderModal({ editingProfile: EDITING_PROFILE })
+    expect(
+      screen.queryByTestId('secret-reveal-profile-ANTHROPIC_AUTH_TOKEN'),
+    ).not.toBeInTheDocument()
+
+    // and never on create (there is no stored secret to reveal yet)
+    cleanup()
+    renderModal({ isAdmin: true })
+    expect(
+      screen.queryByTestId('secret-reveal-profile-ANTHROPIC_AUTH_TOKEN'),
+    ).not.toBeInTheDocument()
   })
 })

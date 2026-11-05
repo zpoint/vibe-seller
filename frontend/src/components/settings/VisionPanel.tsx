@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
+import { SecretReveal } from '../SecretReveal'
 import type { ImageModelOption } from '../../types'
 
 interface VisionConfig {
@@ -66,14 +67,14 @@ export function VisionPanel({ isAdmin }: VisionPanelProps) {
       <p className="text-xs text-gray-500 mb-3">{t('settings.visionHint')}</p>
 
       {isAdmin ? (
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <input
             data-testid="vision-key-input"
             type="password"
             value={keyInput}
             onChange={e => setKeyInput(e.target.value)}
             placeholder={t('settings.visionKeyPlaceholder')}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            className="flex-1 min-w-[12rem] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           />
           <button
             data-testid="vision-key-save"
@@ -83,6 +84,9 @@ export function VisionPanel({ isAdmin }: VisionPanelProps) {
           >
             {t('common.save')}
           </button>
+          {config?.kie_api_key_set && (
+            <SecretReveal resource="vision" field="kie_api_key" compact />
+          )}
         </div>
       ) : (
         <p className="text-xs text-gray-400">{t('settings.visionAdminOnly')}</p>

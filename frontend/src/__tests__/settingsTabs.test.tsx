@@ -96,7 +96,9 @@ describe('Settings tab redesign', () => {
 
     it('IntegrationsPanel still renders Dida365Panel + chat bots', () => {
       expect(integrationsPanelSource).toMatch(/<Dida365Panel\s*\/>/)
-      expect(integrationsPanelSource).toMatch(/<ChatBotSection\s*\/>/)
+      expect(integrationsPanelSource).toMatch(
+        /<ChatBotSection isAdmin=\{isAdmin\} \/>/,
+      )
     })
   })
 

@@ -122,7 +122,12 @@ export function SettingsView({
       </div>
 
       {settingsTab === 'stores' ? (
-        <StoresPanel stores={stores} loadStores={loadStores} emailAccounts={emailAccounts} loadEmailAccounts={loadEmailAccounts} />
+        <StoresPanel
+          stores={stores}
+          loadStores={loadStores}
+          emailAccounts={emailAccounts}
+          loadEmailAccounts={loadEmailAccounts}
+        />
       ) : settingsTab === 'general' ? (
         <GeneralPanel currentUser={currentUser} setCurrentUser={setCurrentUser} />
       ) : settingsTab === 'account' ? (
@@ -141,7 +146,7 @@ export function SettingsView({
           loadUsers={loadUsers}
         />
       ) : settingsTab === 'email' ? (
-        <EmailAccountsPanel emailAccounts={emailAccounts} loadEmailAccounts={loadEmailAccounts} stores={stores} />
+        <EmailAccountsPanel emailAccounts={emailAccounts} loadEmailAccounts={loadEmailAccounts} stores={stores} isAdmin={currentUser?.role === 'admin'} />
       ) : settingsTab === 'apiTokens' ? (
         <ApiTokensPanel authRequired={authRequired} />
       ) : settingsTab === 'aiAgent' ? (
@@ -284,7 +289,7 @@ export function SettingsView({
           <VisionPanel isAdmin={currentUser?.role === 'admin'} />
         </div>
       ) : settingsTab === 'integrations' ? (
-        <IntegrationsPanel />
+        <IntegrationsPanel isAdmin={currentUser?.role === 'admin'} />
       ) : null}
 
       {overrideError && (

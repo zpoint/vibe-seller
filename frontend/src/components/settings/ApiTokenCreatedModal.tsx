@@ -1,37 +1,13 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { buildSnippets, isLoopbackAddress } from '../../lib/apiTokenSnippets'
+import { copyText } from '../../lib/clipboard'
 
 type Props = {
   /** The plaintext token. Shown exactly once — the server never
    *  stores it, so there is nothing to re-fetch later. */
   token: string
   onClose: () => void
-}
-
-/** Copy to the clipboard, falling back to a hidden-textarea copy when
- *  the async Clipboard API is refused (some embedded browsers do).
- *  Returns whether it worked, so the UI never claims a copy that did
- *  not happen. */
-const copyText = async (text: string): Promise<boolean> => {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.position = 'fixed'
-      ta.style.opacity = '0'
-      document.body.appendChild(ta)
-      ta.select()
-      const ok = document.execCommand('copy')
-      document.body.removeChild(ta)
-      return ok
-    } catch {
-      return false
-    }
-  }
 }
 
 /** One snippet: a label, a copy button and the text itself. */

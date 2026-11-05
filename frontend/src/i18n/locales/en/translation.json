@@ -931,5 +931,14 @@
     "copy": "Copy",
     "copied": "Copied",
     "done": "Done"
+  },
+  "secrets": {
+    "showValue": "Show",
+    "hideValue": "Hide",
+    "copyValue": "Copy",
+    "copied": "Copied",
+    "revealFailed": "Failed to reveal the stored secret",
+    "copyFailed": "Copy failed — select and copy manually",
+    "maskedHint": "Stored secrets are shown masked; leaving the field untouched keeps the stored value."
   }
 }
