@@ -58,6 +58,12 @@ from app.schemas.schedule import (
 )
 from app.schemas.task import TaskResponse
 from app.task_states import TaskStatus, can_transition
+from app.telemetry_events import TaskSource
+from app.telemetry_schedules import (
+    send_schedule_created,
+    send_schedule_deleted,
+)
+from app.telemetry_tasks import send_task_created
 from app.utils.timezone import get_server_timezone
 
 logger = logging.getLogger(__name__)
@@ -328,6 +334,7 @@ async def create_schedule(
             schedule.plan_error = f'Failed to spawn planning task: {e}'
             await db.commit()
 
+    send_schedule_created(schedule)
     return await _enrich_response(schedule)
 
 
@@ -507,6 +514,7 @@ async def delete_schedule(
 
     remove_schedule_job(schedule.id)
     await abort_current_planning_task(schedule, db, 'Schedule deleted.')
+    send_schedule_deleted(schedule)
     await db.delete(schedule)
     await db.commit()
     # After the delete: stop the agent, fail the task in its own session.
@@ -716,6 +724,7 @@ async def trigger_schedule(
         country=schedule.country,
         status=TaskStatus.PENDING,
         plan_mode=schedule.plan_mode,
+        source=TaskSource.SCHEDULE,
         ai_profile_id=await resolve_schedule_profile(schedule, db),
     )
     if schedule.plan:
@@ -725,6 +734,7 @@ async def trigger_schedule(
     db.add(task)
     await db.commit()
     await db.refresh(task)
+    send_task_created(task, user_id=current_user.id)
 
     # Emit SSE event
     await event_bus.emit(

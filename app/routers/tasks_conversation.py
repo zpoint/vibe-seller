@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import vision
+from app import telemetry, vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.stop_gates import report_reviewer
@@ -50,6 +50,7 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
+from app.telemetry_events import TelemetryEvent
 from app.text_utils import sanitize_json
 from app.workspace.manager import (
     reset_task_runtime_state,
@@ -655,6 +656,8 @@ async def retry_task(
     # branch uses ``task.started_at or now()``, preserving a stale value).
     task.started_at = None
     task.completed_at = None
+    task.paused_seconds = 0
+    task.paused_since = None
 
     # For plan-mode scheduled tasks, re-seed the frozen schedule
     # plan so retry skips re-planning — mirrors the cron fire path
@@ -688,8 +691,10 @@ async def retry_task(
             task.plan_version = sched.plan_version
             task.status = TaskStatus.PLANNED
 
+    task.retry_count = (task.retry_count or 0) + 1
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
+    telemetry.send(TelemetryEvent.TASK_RETRIED, {'task_id': task_id})
     await event_bus.emit(
         'task_update',
         {

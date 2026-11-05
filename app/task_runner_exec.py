@@ -4,14 +4,13 @@ import logging
 
 from sqlalchemy import select
 
-from app import telemetry
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import parse_wait_condition
 from app.ai.external_config import (
     ExternalConfigOverrideError,
     assert_profile_compatible,
 )
-from app.ai.profiles import DEFAULT_PROFILE_ID, profile_kind_for_id
+from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.review_redrive import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
@@ -46,7 +45,11 @@ from app.task_states import (
     can_transition,
 )
 from app.telemetry_events import TaskFailureCategory, TaskFailurePhase
-from app.telemetry_tasks import send_task_completed, send_task_failed
+from app.telemetry_tasks import (
+    send_task_completed,
+    send_task_failed,
+    send_task_resumed,
+)
 from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
@@ -79,7 +82,7 @@ async def _fail_on_agent_error(db, task, task_id, outcome) -> bool:
             'error': task.error,
         },
     )
-    _send_task_failed(
+    await _send_task_failed(
         task,
         phase=TaskFailurePhase.RUNNING,
         category=TaskFailureCategory.AGENT_SET_ERROR,
@@ -208,7 +211,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                                 'error': task.error,
                             },
                         )
-                        _send_task_failed(
+                        await _send_task_failed(
                             task,
                             phase=TaskFailurePhase.PRE_RUNNING,
                             category=TaskFailureCategory.ZINIAO_UNAVAILABLE,
@@ -304,7 +307,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                         'error': task.error,
                     },
                 )
-                _send_task_failed(
+                await _send_task_failed(
                     task,
                     phase=TaskFailurePhase.RUNNING,
                     category=TaskFailureCategory.NO_RESULT,
@@ -394,7 +397,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                             'error': task.error,
                         },
                     )
-                    _send_task_failed(
+                    await _send_task_failed(
                         task,
                         phase=TaskFailurePhase.RUNNING,
                         category=TaskFailureCategory.CLI_ERROR,
@@ -450,7 +453,7 @@ async def execute_planned_task(task_id: str, store: Store | None):
                             'error': str(e),
                         },
                     )
-                    _send_task_failed(
+                    await _send_task_failed(
                         task,
                         phase=TaskFailurePhase.PIPELINE,
                         category=TaskFailureCategory.UNHANDLED_EXCEPTION,
@@ -486,17 +489,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
                     ).total_seconds()
                 except (ValueError, TypeError):
                     wait_secs = None
-            telemetry.send(
-                'task_resumed',
-                {
-                    'is_store_task': task.store_id is not None,
-                    'wait_duration_bucket': telemetry.duration_bucket(
-                        wait_secs
-                    ),
-                    'wake_reason': woken_by,
-                    'ai_profile_kind': profile_kind_for_id(task.ai_profile_id),
-                },
-            )
+            send_task_resumed(task, wait_secs=wait_secs, wake_reason=woken_by)
 
             trigger_context = format_trigger_context(
                 strategy, woken_by, trigger_data
@@ -547,7 +540,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
                             'error': task.error,
                         },
                     )
-                    _send_task_failed(
+                    await _send_task_failed(
                         task,
                         phase=TaskFailurePhase.PRE_RUNNING,
                         category=TaskFailureCategory.ZINIAO_UNAVAILABLE,
@@ -710,7 +703,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
                             'error': task.error,
                         },
                     )
-                    _send_task_failed(
+                    await _send_task_failed(
                         task,
                         phase=TaskFailurePhase.RUNNING,
                         category=TaskFailureCategory.CLI_ERROR,
@@ -766,7 +759,7 @@ async def execute_woken_task(task_id: str, store: Store | None):
                             'error': str(e),
                         },
                     )
-                    _send_task_failed(
+                    await _send_task_failed(
                         task,
                         phase=TaskFailurePhase.PIPELINE,
                         category=TaskFailureCategory.UNHANDLED_EXCEPTION,

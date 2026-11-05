@@ -103,7 +103,10 @@ class TestStopStates:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Stop design test', 'plan_mode': True},
+            json={
+                'title': 'Stop design test',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
 
@@ -129,7 +132,10 @@ class TestStopStates:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Stop running test', 'store_id': store_id},
+            json={
+                'title': 'Stop running test',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
 
@@ -181,7 +187,10 @@ class TestRetryConversation:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Retry clear test', 'plan_mode': True},
+            json={
+                'title': 'Retry clear test',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id, target='failed')
@@ -222,7 +231,10 @@ class TestRetryConversation:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Retry timestamps test', 'store_id': store_id},
+            json={
+                'title': 'Retry timestamps test',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
         data = await wait_for_task(admin_client, task_id)
@@ -273,7 +285,10 @@ class TestRetryConversation:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Stop-retry design', 'plan_mode': True},
+            json={
+                'title': 'Stop-retry design',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
 
@@ -306,7 +321,10 @@ class TestRetryConversation:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Stop-retry exec', 'plan_mode': True},
+            json={
+                'title': 'Stop-retry exec',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
 
@@ -417,7 +435,10 @@ class TestRetryConversation:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Standalone plan retry', 'plan_mode': True},
+            json={
+                'title': 'Standalone plan retry',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id, target='failed')
@@ -865,7 +886,10 @@ class TestChatDuringExecution:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Chat running test', 'store_id': store_id},
+            json={
+                'title': 'Chat running test',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
 
@@ -950,7 +974,10 @@ class TestRetryClearsWorkspaceFiles:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Retry clear-files test', 'store_id': store_id},
+            json={
+                'title': 'Retry clear-files test',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
@@ -1109,7 +1136,10 @@ class TestRetryFullPipeline:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Retry pipeline test', 'plan_mode': True},
+            json={
+                'title': 'Retry pipeline test',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id, target='failed')
@@ -1226,7 +1256,10 @@ class TestAgentErrorResult:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Error result design', 'plan_mode': True},
+            json={
+                'title': 'Error result design',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
 

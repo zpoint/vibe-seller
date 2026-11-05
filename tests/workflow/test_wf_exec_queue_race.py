@@ -39,7 +39,11 @@ async def _planned_task_with_dead_session(
     queues on the semaphore)."""
     r = await admin_client.post(
         '/api/tasks',
-        json={'title': title, 'store_id': store_id, 'plan_mode': True},
+        json={
+            'title': title,
+            'store_id': store_id,
+            'plan_mode': True,
+        },
     )
     task_id = r.json()['id']
     await wait_for_task(admin_client, task_id, target='planned')
@@ -123,7 +127,10 @@ class TestQueuedExecKeepsPreRunStatus:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'slot holder 2', 'store_id': store_id},
+            json={
+                'title': 'slot holder 2',
+                'store_id': store_id,
+            },
         )
         holder_id = r.json()['id']
         for _ in range(200):

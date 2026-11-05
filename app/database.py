@@ -83,6 +83,14 @@ def _ensure_added_columns(conn) -> None:
         # Keyword security (DingTalk 自定义关键词 / Feishu 关键词):
         # the server appends it to outgoing messages that lack it.
         ('wecom_bots', 'keyword', 'TEXT'),
+        ('tasks', 'source', 'TEXT'),
+        ('tasks', 'cost_usd', 'REAL'),
+        ('tasks', 'input_tokens', 'INTEGER'),
+        ('tasks', 'output_tokens', 'INTEGER'),
+        ('tasks', 'num_turns', 'INTEGER'),
+        ('tasks', 'retry_count', 'INTEGER NOT NULL DEFAULT 0'),
+        ('tasks', 'paused_seconds', 'INTEGER NOT NULL DEFAULT 0'),
+        ('tasks', 'paused_since', 'TEXT'),
     ]
     for table, column, sqltype in added:
         cols = {

@@ -64,7 +64,10 @@ class TestSlowFirstTokenNotReaped:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Slow compose', 'store_id': store_id},
+            json={
+                'title': 'Slow compose',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
 
@@ -149,7 +152,10 @@ class TestSlowFirstTokenNotReaped:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Crashed agent', 'store_id': store_id},
+            json={
+                'title': 'Crashed agent',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
         for _ in range(250):

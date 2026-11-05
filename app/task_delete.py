@@ -23,7 +23,8 @@ from app.models.task_attachment import TaskAttachment
 from app.models.task_log import TaskLog
 from app.models.task_message import TaskMessage
 from app.models.task_step import TaskStep
-from app.task_states import ACTIVE
+from app.task_states import ACTIVE, TaskStatus
+from app.telemetry_tasks import send_task_cancelled
 from app.workspace.manager import VIBE_SELLER_DIR
 from app.workspace.task_links import remove_task_workspace
 
@@ -141,6 +142,13 @@ async def delete_task(
         Screenshot,
     ):
         await db.execute(delete(model).where(model.task_id.in_(ids)))
+
+    doomed = (
+        (await db.execute(select(Task).where(Task.id.in_(ids)))).scalars().all()
+    )
+    for t in doomed:
+        if t.status not in (TaskStatus.COMPLETED, TaskStatus.FAILED):
+            send_task_cancelled(t)
 
     # Delete Task rows leaves → root so each parent's children are
     # gone before its own row drops (matters when SQLite is run with

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app import telemetry
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.workspace_assistant import ws_assistant_manager
 from app.auth import get_current_user
@@ -12,6 +13,7 @@ from app.database import async_session
 from app.models.store import Store
 from app.models.user import User
 from app.prompts import WORKSPACE_ASSISTANT_PROMPT
+from app.telemetry_events import TelemetryEvent
 from app.text_utils import SafeStr
 
 router = APIRouter(
@@ -65,6 +67,7 @@ async def send_message(
         profile_id=profile_id,
         system_prompt=system_prompt,
     )
+    telemetry.send(TelemetryEvent.WORKSPACE_ASSISTANT_MESSAGE)
 
     return {'ok': started, 'user_id': _user.id}
 

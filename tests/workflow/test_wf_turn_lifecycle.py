@@ -42,7 +42,10 @@ class TestPostResultWindow:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Post-result window', 'store_id': store_id},
+            json={
+                'title': 'Post-result window',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
 
@@ -81,7 +84,10 @@ class TestPostResultWindow:
         store_id = await _create_store(admin_client)
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Delivery race', 'store_id': store_id},
+            json={
+                'title': 'Delivery race',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
@@ -151,7 +157,10 @@ class TestTurnScopedVerdict:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Turn-scoped verdict', 'store_id': store_id},
+            json={
+                'title': 'Turn-scoped verdict',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
 

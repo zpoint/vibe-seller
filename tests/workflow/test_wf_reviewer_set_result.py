@@ -284,7 +284,11 @@ async def test_set_result_and_delete_drop_the_redrive_ledger(
     ).json()
     made = await admin_client.post(
         '/api/tasks',
-        json={'title': 'ledger', 'store_id': store['id'], 'defer_start': True},
+        json={
+            'title': 'ledger',
+            'store_id': store['id'],
+            'defer_start': True,
+        },
     )
     task_id = made.json()['id']
 

@@ -5,12 +5,14 @@ a dimension silently. Every emit site references these constants so
 renames are atomic and a grep for "EventName" finds every emit.
 """
 
+import enum
+
 
 class TelemetryEvent:
     """All vibe-seller telemetry event names."""
 
     APP_STARTED = 'app_started'
-    DAILY_HEARTBEAT = 'daily_heartbeat'
+    INSTALL_HEARTBEAT = 'install_heartbeat'
 
     STORE_CREATED = 'store_created'
     STORE_DELETED = 'store_deleted'
@@ -19,7 +21,14 @@ class TelemetryEvent:
     TASK_COMPLETED = 'task_completed'
     TASK_FAILED = 'task_failed'
     TASK_RESUMED = 'task_resumed'
+    TASK_CANCELLED = 'task_cancelled'
+    TASK_RETRIED = 'task_retried'
 
+    AGENT_QUESTION_ASKED = 'agent_question_asked'
+    AGENT_QUESTION_ANSWERED = 'agent_question_answered'
+
+    SCHEDULE_CREATED = 'schedule_created'
+    SCHEDULE_DELETED = 'schedule_deleted'
     SCHEDULE_FIRED = 'schedule_fired'
 
     SETTING_CHANGED = 'setting_changed'
@@ -41,9 +50,25 @@ class TelemetryEvent:
     ADMIN_USER_CREATED = 'admin_user_created'
     ADMIN_USER_DELETED = 'admin_user_deleted'
 
-    BROWSER_SESSION_ATTEMPTED = 'browser_session_attempted'
     BROWSER_SESSION_STARTED = 'browser_session_started'
     BROWSER_SESSION_FAILED = 'browser_session_failed'
+
+    CHAT_BOT_ADDED = 'chat_bot_added'
+    CHAT_BOT_REMOVED = 'chat_bot_removed'
+    IMAGE_GENERATED = 'image_generated'
+    WORKSPACE_ASSISTANT_MESSAGE = 'workspace_assistant_message'
+
+
+class TaskSource(enum.StrEnum):
+    """What launched a task; recorded on the row at creation."""
+
+    UI = 'ui'
+    SCHEDULE = 'schedule'
+    SUBTASK = 'subtask'
+    MCP_EXTERNAL = 'mcp_external'
+    CHAT_BOT = 'chat_bot'
+    WORKSPACE_ASSISTANT = 'workspace_assistant'
+    OTHER = 'other'
 
 
 class BrowserFailureReason:

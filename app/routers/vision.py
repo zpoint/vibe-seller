@@ -30,13 +30,14 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 import httpx
 
-from app import vision
+from app import telemetry, vision
 from app.ai.claude_backend_utils import get_next_seq
 from app.auth import get_current_user
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task_message import TaskMessage
 from app.models.user import User
+from app.telemetry_events import TelemetryEvent
 from app.text_utils import sanitize_json
 from app.uploads import save_upload
 from app.workspace.manager import VIBE_SELLER_DIR
@@ -261,6 +262,10 @@ async def generate_task_image(
     except vision.GenerationTimeout as e:
         # Keep the handle so the agent's retry collects this same job.
         _INFLIGHT[task_id] = (e.kie_task_id, final_model)
+        telemetry.send(
+            TelemetryEvent.IMAGE_GENERATED,
+            {'ok': False, 'error_category': 'timeout'},
+        )
         logger.warning(
             'Image generation for task %s still running after %ss '
             '(model %s, kie taskId %s) — handle kept for resume',
@@ -283,6 +288,10 @@ async def generate_task_image(
             ),
         )
     except Exception as e:  # noqa: BLE001 — relay any kie.ai failure
+        telemetry.send(
+            TelemetryEvent.IMAGE_GENERATED,
+            {'ok': False, 'error_category': 'error'},
+        )
         logger.warning('Image generation failed for task %s: %s', task_id, e)
         raise HTTPException(status_code=502, detail=f'Generation failed: {e}')
     _INFLIGHT.pop(task_id, None)
@@ -309,6 +318,7 @@ async def generate_task_image(
             'kind': kind,
         },
     )
+    telemetry.send(TelemetryEvent.IMAGE_GENERATED, {'ok': True})
     # Persist the generated image so it re-renders inline on reload.
     # image_generated is otherwise a live-only SSE event, and the
     # conversation is rebuilt from persisted messages

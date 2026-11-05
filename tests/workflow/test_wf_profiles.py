@@ -385,7 +385,10 @@ class TestProfileCrud:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Profile task', 'store_id': store_id},
+            json={
+                'title': 'Profile task',
+                'store_id': store_id,
+            },
         )
         assert r.status_code == 200
         task_id = r.json()['id']

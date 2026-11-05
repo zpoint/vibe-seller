@@ -47,7 +47,11 @@ async def _create_store_task(client):
     store_id = rs.json()['id']
     rt = await client.post(
         '/api/tasks',
-        json={'title': 'Attach task', 'plan_mode': False, 'store_id': store_id},
+        json={
+            'title': 'Attach task',
+            'plan_mode': False,
+            'store_id': store_id,
+        },
     )
     assert rt.status_code == 200
     return rt.json()['id']

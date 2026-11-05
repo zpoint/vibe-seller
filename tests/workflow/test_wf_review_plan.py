@@ -159,7 +159,10 @@ class TestPlanModeToggle:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Default test', 'store_id': store_id},
+            json={
+                'title': 'Default test',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
@@ -195,7 +198,10 @@ class TestPlanModeToggle:
 
         r2 = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Inherits default', 'store_id': store_id},
+            json={
+                'title': 'Inherits default',
+                'store_id': store_id,
+            },
         )
         assert r2.json()['plan_mode'] is True
 
@@ -207,7 +213,10 @@ class TestNonStoreTaskPlanModeDefault:
         """Non-store tasks force plan_mode=True."""
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'No store plan mode', 'store_id': None},
+            json={
+                'title': 'No store plan mode',
+                'store_id': None,
+            },
         )
         assert r.status_code == 200
         assert r.json()['plan_mode'] is True
@@ -228,7 +237,10 @@ class TestNonStoreTaskPlanModeDefault:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Store auto mode', 'store_id': store_id},
+            json={
+                'title': 'Store auto mode',
+                'store_id': store_id,
+            },
         )
         assert r.status_code == 200
         assert r.json()['plan_mode'] is False

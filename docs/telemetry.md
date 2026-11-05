@@ -5,7 +5,10 @@ understand adoption and reliability. **No business content is sent**:
 no task titles, store/product names, error message text, screenshots,
 chat content, AI profile names, email addresses, or credentials.
 Identification is by an anonymous UUID
-(`~/.vibe-seller/data/install_id`), never by user or email.
+(`~/.vibe-seller/data/install_id`), never by user or email. Seats on a
+multi-user install are counted with a one-way pseudonym
+(`sha256(install_id:user_id)`, truncated) — the raw user id never
+leaves the machine.
 
 ## Opt out
 

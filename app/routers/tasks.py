@@ -7,12 +7,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import telemetry
 from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import (
     DEFAULT_PROFILE_ID,
-    profile_kind_for_id,
     resolve_owner_profile,
 )
 from app.ai.review_redrive import reset_ledger
@@ -69,7 +67,8 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
-from app.telemetry_events import TelemetryEvent
+from app.telemetry_events import TaskSource, TelemetryEvent
+from app.telemetry_tasks import send_task_cancelled, send_task_created
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -164,6 +163,8 @@ async def create_task(
             detail='Sub-tasks must have a store_id',
         )
 
+    source = TaskSource.SUBTASK if data.parent_task_id else TaskSource.UI
+
     # Resolve plan_mode
     plan_mode = data.plan_mode
     if data.store_id is None:
@@ -183,6 +184,7 @@ async def create_task(
         status=TaskStatus.PENDING,
         plan_mode=plan_mode,
         skip_reflection=bool(data.skip_reflection),
+        source=source,
         ai_profile_id=(
             data.profile_id
             or await resolve_owner_profile(current_user, db)
@@ -210,18 +212,10 @@ async def create_task(
             'task': payload.model_dump(mode='json'),
         },
     )
-    desc_len = len(task.description or '')
-    telemetry.send(
-        TelemetryEvent.TASK_CREATED,
-        {
-            'is_store_task': task.store_id is not None,
-            'plan_mode': bool(plan_mode),
-            'has_schedule': task.schedule_id is not None,
-            'has_parent': task.parent_task_id is not None,
-            'ai_profile_kind': profile_kind_for_id(task.ai_profile_id),
-            'description_length_bucket': telemetry.length_bucket(desc_len),
-            'created_by_role': current_user.role,
-        },
+    send_task_created(
+        task,
+        user_id=current_user.id,
+        created_by_role=current_user.role,
     )
 
     # Route through queue for store tasks (enforces
@@ -539,6 +533,8 @@ async def stop_agent(
         # Best-effort stop even if task is already terminal
         await agent_manager.stop(task_id)
         return {'ok': True, 'task_id': task_id, 'status': task.status}
+
+    send_task_cancelled(task)
 
     # Commit FAILED *before* stopping the agent so that
     # auto_run_task sees FAILED when it reads the DB after

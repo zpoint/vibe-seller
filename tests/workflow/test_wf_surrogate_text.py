@@ -42,7 +42,8 @@ async def _running_task(admin_client, install_fake_agent, name):
     r = await admin_client.post('/api/stores', json={'name': name})
     store_id = r.json()['id']
     r = await admin_client.post(
-        '/api/tasks', json={'title': 'surrogate', 'store_id': store_id}
+        '/api/tasks',
+        json={'title': 'surrogate', 'store_id': store_id},
     )
     task_id = r.json()['id']
     for _ in range(200):

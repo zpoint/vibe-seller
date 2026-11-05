@@ -30,12 +30,16 @@ from app.scheduler.fanout import (
     run_single_job,
 )
 from app.scheduler.finalize_reaper import reap_finalized_batches
+from app.scheduler.heartbeat import register_install_heartbeat
 from app.scheduler.plan_reaper import reap_stuck_planning_tasks
 from app.scheduler.stall_reaper import reap_stalled_running_tasks
 from app.scheduler.task_cleanup import cleanup_old_tasks
 from app.scheduler.task_queue import task_queue_scheduler
 from app.scheduler.waiting import check_waiting_tasks
 from app.task_states import TaskStatus
+from app.telemetry_events import TaskSource
+from app.telemetry_schedules import send_schedule_fired
+from app.telemetry_tasks import send_task_created
 from app.utils.timezone import get_server_timezone
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,7 @@ def start_scheduler():
     _register_idle_browser_sweeper()
     _register_finalize_reaper()
     _register_task_cleanup()
+    register_install_heartbeat(scheduler)
 
 
 def _register_waiting_checker():
@@ -222,6 +227,7 @@ async def _run_task_job(
     saved_plan_version: int | None = None
     platform = None
     country = None
+    schedule_type: str | None = None
     # Inherit the owner's current default unless the schedule
     # explicitly pins a provider (see resolve_schedule_profile).
     resolved_profile: str = ai_profile_id or 'default'
@@ -254,6 +260,7 @@ async def _run_task_job(
                 saved_plan_version = sched.plan_version
                 platform = sched.platform
                 country = sched.country
+                schedule_type = sched.schedule_type
                 resolved_profile = await resolve_schedule_profile(sched, db)
 
     async with async_session() as db:
@@ -272,6 +279,7 @@ async def _run_task_job(
             country=country,
             status=TaskStatus.PENDING,
             plan_mode=plan_mode,
+            source=TaskSource.SCHEDULE,
             ai_profile_id=resolved_profile,
         )
         # If the schedule has a saved plan, pre-load it so the
@@ -283,6 +291,15 @@ async def _run_task_job(
         db.add(task)
         await db.commit()
         await db.refresh(task)
+        send_task_created(task)
+        if schedule_id:
+            send_schedule_fired(
+                schedule_id,
+                task_id=task.id,
+                schedule_type=schedule_type,
+                phase_mode='store_bound',
+                target_count=1,
+            )
 
         # Emit SSE event
         await event_bus.emit(

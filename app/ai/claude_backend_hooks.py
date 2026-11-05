@@ -49,6 +49,10 @@ from app.prompts import (
 )
 from app.question_answers import expand_free_text_answers
 from app.task_states import TaskStatus
+from app.telemetry_tasks import (
+    send_question_answered,
+    send_question_asked,
+)
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -770,6 +774,7 @@ class _HookMixin:
             'questions': questions,
         }
         self._answer_events[request_id] = asyncio.Event()
+        asked_at = await send_question_asked(self.task_id)
         await event_bus.emit(
             'task_questions',
             {
@@ -779,6 +784,7 @@ class _HookMixin:
             },
         )
         await self._answer_events[request_id].wait()
+        await send_question_answered(self.task_id, asked_at)
         answers = self._answers.pop(request_id, {})
         self._answer_events.pop(request_id, None)
         self._pending_questions.pop(request_id, None)

@@ -641,13 +641,6 @@ async def ensure_ziniao_running(
         'requestId': str(uuid.uuid4()),
         **user_info,
     }
-    try:
-        telemetry.send(
-            TelemetryEvent.BROWSER_SESSION_ATTEMPTED,
-            {'backend': 'ziniao', 'os': runtime_os, 'attempt_number': 1},
-        )
-    except Exception:
-        pass
     result, host_used = await try_connect_ziniao(
         socket_port, probe, timeout=probe_timeout
     )
@@ -742,17 +735,6 @@ async def ensure_ziniao_running(
     # as proof that Ziniao is in WebDriver mode. The caller
     # handles permission errors separately.
     for i in range(30):
-        try:
-            telemetry.send(
-                TelemetryEvent.BROWSER_SESSION_ATTEMPTED,
-                {
-                    'backend': 'ziniao',
-                    'os': runtime_os,
-                    'attempt_number': i + 2,  # 1 was the initial probe
-                },
-            )
-        except Exception:
-            pass
         await asyncio.sleep(2)
         result, _ = await try_connect_ziniao(socket_port, probe, timeout=10)
         if result is not None:

@@ -72,7 +72,7 @@ async def test_store_deleted_during_l2_gets_no_task(maker):
         patch.object(
             fanout, 'resolve_schedule_profile', AsyncMock(return_value='p')
         ),
-        patch.object(fanout.telemetry, 'send'),
+        patch('app.telemetry.send'),
         patch.object(fanout.event_bus, 'emit', AsyncMock()),
     ):
         await fanout.run_fanout_job('sched-1', 'Catalog sync')
