@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import ads_skill, telemetry
 from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
+from app.ai.provider_presets_sync import sync_loop as presets_sync_loop
 from app.ai.skill_gate_loader import preload_skill_gates
 from app.api_token_scope import ApiTokenScopeMiddleware
 from app.browser.daemon_reaper import start_reaper_loop
@@ -238,6 +239,12 @@ async def lifespan(app: FastAPI):
     # boot or leave the deployment on an older bundle for ever waiting
     # for somebody to press something.
     ads_skill_task = asyncio.create_task(ads_skill.refresh_if_bound())
+    # Auto-sync the AI provider-preset catalog from the project's
+    # main (first fetch immediately, then every
+    # PROVIDER_PRESETS_SYNC_INTERVAL_S; 0 — what tests set — disables
+    # it). Background, never awaited: boot must not wait on GitHub,
+    # and a down GitHub just leaves the bundled catalog in place.
+    presets_sync_task = asyncio.create_task(presets_sync_loop())
     # Start any plugin-registered background services (e.g. a customer
     # alerting/monitoring service). Core ships none, so this is a no-op
     # in an OSS-only install. A done-callback surfaces a crashing service
@@ -268,6 +275,7 @@ async def lifespan(app: FastAPI):
         venv_task,
         history_task,
         ads_skill_task,
+        presets_sync_task,
         *service_tasks,
     ]:
         if not t.done():
