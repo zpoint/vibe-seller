@@ -43,10 +43,20 @@ os.environ.setdefault('VIBE_SELLER_TELEMETRY', '0')
 # skipped the e2e-specific env derivation.
 
 
+# The controller's decision, published for its pytest-xdist workers.
+# A worker is a child process whose sys.argv is execnet's command line —
+# it never carries ``--e2e`` — so it must not re-derive the decision; it
+# inherits this from the environment the controller spawned it with.
+_E2E_MARKER = 'VIBE_TEST_E2E'
+
+
 def e2e_requested() -> bool:
     """Whether pytest will run with ``--e2e``, read the way this
-    pre-import block can: the raw command line plus PYTEST_ADDOPTS
-    (both spellings pytest honours before its own config parsing)."""
+    pre-import block can: the decision the controller published (xdist
+    workers), else the raw command line plus PYTEST_ADDOPTS (both
+    spellings pytest honours before its own config parsing)."""
+    if os.environ.get(_E2E_MARKER) == '1':
+        return True
     tokens = list(sys.argv[1:]) + shlex.split(
         os.environ.get('PYTEST_ADDOPTS', '')
     )
@@ -54,6 +64,8 @@ def e2e_requested() -> bool:
 
 
 _E2E_RUN = e2e_requested()
+if _E2E_RUN:
+    os.environ[_E2E_MARKER] = '1'
 
 if _E2E_RUN:
     # E2e tests drive a SEPARATELY RUNNING server. The test process

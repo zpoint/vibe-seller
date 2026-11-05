@@ -46,7 +46,10 @@ regresses):
   an explicit port means the scheme's default, 80/443) so the test
   process cannot create a decoy server log under the wrong name.
   `--e2e` is detected from the command line AND `PYTEST_ADDOPTS`
-  (options injected there never appear in `sys.argv`).
+  (options injected there never appear in `sys.argv`). Under
+  pytest-xdist (`-n N`, as CI's e2e job runs) the controller publishes
+  the decision as `VIBE_TEST_E2E=1` and the workers inherit it — a
+  worker's own `sys.argv` never carries `--e2e`.
 
   **`E2E_VIBE_HOME` requires the server to be on the same
   filesystem**: the e2e helpers seed and read workspace files by local

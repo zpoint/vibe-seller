@@ -117,3 +117,21 @@ class TestE2eDetection:
         monkeypatch.setattr('sys.argv', ['pytest'])
         monkeypatch.setenv('PYTEST_ADDOPTS', '-n 4 --e2e -vv')
         assert e2e_requested() is True
+
+    def test_an_xdist_worker_inherits_the_decision(self, monkeypatch):
+        """CI's e2e job runs ``-n 4``. An xdist worker's sys.argv is
+        execnet's command line — no ``--e2e`` — so re-parsing it there
+        took the NON-e2e branch: each worker forced a throwaway home and
+        test_catalog_sync looked for CATALOG.md under /tmp instead of the
+        server's home. The controller publishes its decision in the
+        environment the workers inherit; a worker reads that."""
+        monkeypatch.setattr('sys.argv', ['-c'])  # what a worker sees
+        monkeypatch.delenv('PYTEST_ADDOPTS', raising=False)
+        monkeypatch.setenv('VIBE_TEST_E2E', '1')
+        assert e2e_requested() is True
+
+    def test_the_inherited_marker_must_say_yes(self, monkeypatch):
+        monkeypatch.setattr('sys.argv', ['-c'])
+        monkeypatch.delenv('PYTEST_ADDOPTS', raising=False)
+        monkeypatch.setenv('VIBE_TEST_E2E', '0')
+        assert e2e_requested() is False
