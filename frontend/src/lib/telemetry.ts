@@ -239,6 +239,14 @@ export function initTelemetry(
           if (props && typeof props.$pathname === 'string') {
             props.$pathname = normalizePath(props.$pathname)
           }
+          if (
+            props &&
+            typeof props.$prev_pageview_pathname === 'string'
+          ) {
+            props.$prev_pageview_pathname = normalizePath(
+              props.$prev_pageview_pathname,
+            )
+          }
           enrichAutocaptureEvent(
             event as unknown as Record<string, unknown>,
           )
