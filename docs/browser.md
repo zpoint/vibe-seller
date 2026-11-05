@@ -334,7 +334,7 @@ code-eval CLI, `BU_NAME`/`BU_CDP_WS`/`BU_CDP_URL`/
 | Version | Change | Affects us |
 |---|---|---|
 | 0.13.9 (browser-harness 0.1.12) | daemon pid records *can* be JSON (`{"pid", "started"}`) — the local-Chrome spawn path publishes it and the daemon retains it; our wrapper path (always `BU_CDP_WS`) still writes plain ints | yes — `parse_pid_record` accepts both shapes |
-| 0.13.9 | the `-c`/`--code` code-string form is removed (exit 2 + migration hint); heredoc stdin works on every 0.13.x | skill mandates the heredoc form |
+| 0.13.9 | `-c`/`--code` become an explicit removal hint (exit 2) — they never executed code on any 0.13.x (0.13.3 already fell through to the harness USAGE); heredoc stdin works on every 0.13.x | skill mandates the heredoc form |
 | 0.13.9 | new helpers `activate_tab`, `start_recording`/`stop_recording`; `switch_tab` gains an `activate=` kwarg | optional; marked "(browser-use ≥ 0.13.9)" in the skill |
 | 0.13.14 | nothing in the harness layer — `browser-harness` 0.1.13 is byte-identical to 0.1.12 (changes are in browser-use's own agent/LLM/integration code) | no |
 

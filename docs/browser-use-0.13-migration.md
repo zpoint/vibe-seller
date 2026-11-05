@@ -39,9 +39,11 @@ changed between those versions and what it means for us:
   (`app/browser/bh_daemons.py`), which accepts both shapes (pinned by
   `tests/unit/test_browser/test_bh_daemons.py` and
   `tests/workflow/test_daemon_reaper.py`).
-- **CLI: `-c`/`--code` were removed in 0.13.9** (they now print a
-  migration hint and exit 2). The heredoc form works on every 0.13.x,
-  so the skill mandates it and warns against `-c`.
+- **CLI: `-c`/`--code` never executed code on any 0.13.x.** Even
+  0.13.3 falls through to the harness USAGE (exit 1; the flag is only
+  read for telemetry); 0.13.9+ prints an explicit removal hint
+  (exit 2). Verified live against 0.13.3. The heredoc form works on
+  every 0.13.x, so the skill mandates it.
 - **Helpers:** everything `app/skills_v2/browser-harness/SKILL.md`
   documents exists on 0.13.3 **and** 0.13.14. Added in 0.13.9 only:
   `activate_tab`, `start_recording`/`stop_recording`, `switch_tab(…,
