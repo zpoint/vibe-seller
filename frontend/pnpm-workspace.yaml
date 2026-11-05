@@ -11,3 +11,7 @@ allowBuilds:
   core-js: true
   esbuild: true
   protobufjs: true
+
+overrides:
+  '@posthog/browser-common': 0.10.5
+  '@posthog/types': 1.419.0
