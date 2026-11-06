@@ -558,6 +558,7 @@ directly (hook up permissions in First run — no code):
 
 | Service | What it does |
 |---|---|
+| **Amazon Ads API** | Amazon ad tasks call the API directly instead of clicking through the seller console — in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](docs/ads-api.en.md) |
 | **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies |
 | **Group chat bots** (企业微信 / 钉钉 / 飞书 / Slack) | Push important events, cross-group notifications, forward buyer inquiries |
 | **TickTick / Dida365** | Auto-create todos (follow-ups, order tracking, periodic checks) |
@@ -567,10 +568,6 @@ A single task can mix browser + service calls. e.g. *"Find all
 slow-moving SKUs across stores"* → browser pulls inventory →
 generates a Google Sheet → posts a chat summary → drops a "price
 review next week" todo into TickTick.
-
-### Amazon Ads API
-
-Amazon stores can bind the Amazon Ads API, so ad tasks call the API directly instead of clicking through the seller console in a browser — in our test the same ad task went from 147 minutes to 11. Setup steps and the measured comparison: [Amazon Ads API setup](docs/ads-api.en.md).
 
 ## Platforms
 
