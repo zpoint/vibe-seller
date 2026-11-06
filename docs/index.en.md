@@ -140,9 +140,12 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
+
+# Upgrade: vibe-seller upgrade (also upgrades the Claude Code CLI it runs)
+# Uninstall: uv tool uninstall vibe-seller
 ```
 
-Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade` (also upgrades the Claude Code CLI it runs). Uninstall: `uv tool uninstall vibe-seller`.
+Open <http://localhost:7777>.
 
 > The Chrome browser engine (Chromium, about 250 MB) is downloaded during install.
 

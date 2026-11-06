@@ -105,9 +105,12 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
+
+# 升级：vibe-seller upgrade（会一并升级它使用的 Claude Code）
+# 卸载：uv tool uninstall vibe-seller
 ```
 
-打开 <http://localhost:7777>。升级：`vibe-seller upgrade`（会一并升级它使用的 Claude Code）。卸载：`uv tool uninstall vibe-seller`。
+打开 <http://localhost:7777>。
 
 > Chrome 浏览器引擎（Chromium，约 250 MB）会在安装时下载。
 
