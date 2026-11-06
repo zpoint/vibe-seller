@@ -96,6 +96,33 @@ jobs:
           retention-days: 14
 
       # --- Verify the BUILT PACKAGE works on Windows -----------------
+      # Reproduce the field failure: a network that can't reach
+      # Playwright's CDN. Users in mainland China watched "Downloading
+      # browser engine" for an hour; the installer now bundles Chromium
+      # and must not need the CDN at all. Blocked AFTER the build (which
+      # fetches the bundle) and BEFORE the install, for the rest of the
+      # job — so any download the install or the app attempts fails, and
+      # the Chromium checks below catch it.
+      - name: Block the Playwright CDN (simulate an unreachable CDN)
+        shell: pwsh
+        run: |
+          $hostsFile = "$env:SystemRoot\System32\drivers\etc\hosts"
+          $names = 'cdn.playwright.dev',
+                   'playwright.download.prss.microsoft.com',
+                   'playwright.azureedge.net',
+                   'playwright-akamai.azureedge.net',
+                   'playwright-verizon.azureedge.net'
+          Add-Content -Path $hostsFile -Value ($names | ForEach-Object { "0.0.0.0 $_" })
+          ipconfig /flushdns | Out-Null
+          foreach ($n in $names) {
+            curl.exe -s -o NUL --max-time 10 "https://$n/"
+            if ($LASTEXITCODE -eq 0) { throw "$n is still reachable — the block did not take" }
+          }
+          Write-Host "Blocked: $($names -join ', ')"
+          # The runner ends a pwsh step with the LAST native exit code —
+          # here the curl that was meant to fail.
+          exit 0
+
       - name: Silent-install the built package
         shell: pwsh
         run: |
@@ -110,6 +137,60 @@ jobs:
             throw "vibe-seller.exe not found under $install after install"
           }
           echo "VS_INSTALL=$install" >> $env:GITHUB_ENV
+
+      - name: Verify the bundled Chromium (installed offline, launches)
+        shell: pwsh
+        run: |
+          $install = $env:VS_INSTALL
+          $browsers = "$env:LOCALAPPDATA\ms-playwright"
+          # 1. Complete. With the CDN blocked AND a dead download host,
+          #    `playwright install` can only succeed if every piece the
+          #    INSTALLED Playwright wants is already on disk.
+          $env:PLAYWRIGHT_DOWNLOAD_HOST = 'http://127.0.0.1:9'
+          & "$install\.venv\Scripts\playwright.exe" install chromium
+          if ($LASTEXITCODE -ne 0) {
+            throw "bundled browsers incomplete: playwright wanted to download"
+          }
+          Remove-Item Env:PLAYWRIGHT_DOWNLOAD_HOST
+          # 2. Registered. The installer's own `playwright install` wrote a
+          #    .links entry for THIS venv; without it another Playwright's
+          #    `install` garbage-collects our browsers as unreferenced.
+          $pkg = "$install\.venv\Lib\site-packages\playwright\driver\package"
+          $linked = Get-ChildItem "$browsers\.links" -File -ErrorAction SilentlyContinue |
+            Where-Object { (Get-Content $_.FullName -Raw).Trim() -eq $pkg }
+          if (-not $linked) { throw "no ms-playwright\.links entry for $pkg" }
+          # 3. Launches, through the same launch_persistent_context call
+          #    the chrome backend makes: the full Chromium (headed stores)
+          #    and the headless shell (the headless toggle).
+          $test = Join-Path $env:RUNNER_TEMP 'launch_bundled_chromium.py'
+          Set-Content -LiteralPath $test -Encoding ascii -Value @'
+          import asyncio
+          import tempfile
+
+          from playwright.async_api import async_playwright
+
+          CASES = (
+              ('chromium', {'channel': 'chromium', 'headless': True}),
+              ('headless-shell', {'headless': True}),
+          )
+
+
+          async def main():
+              async with async_playwright() as pw:
+                  print('executable:', pw.chromium.executable_path)
+                  for label, kw in CASES:
+                      ctx = await pw.chromium.launch_persistent_context(
+                          user_data_dir=tempfile.mkdtemp(), **kw)
+                      page = await ctx.new_page()
+                      ua = await page.evaluate('navigator.userAgent')
+                      print('OK', label, ua)
+                      await ctx.close()
+
+
+          asyncio.run(main())
+          '@
+          & "$install\.venv\Scripts\python.exe" $test
+          if ($LASTEXITCODE -ne 0) { throw "bundled Chromium failed to launch" }
 
       - name: Start server (background)
         shell: pwsh
@@ -320,6 +401,10 @@ jobs:
     name: Uninstall (python running) -> reinstall
     runs-on: windows-latest
     needs: build
+    # Explicit: the implicit success() also requires every ANCESTOR to
+    # have run, so a workflow_dispatch (e2e-approval skipped) silently
+    # skipped this job even when the build passed.
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     timeout-minutes: 30
     steps:
       - name: Download the built installer
@@ -331,6 +416,8 @@ jobs:
       - name: Install
         shell: pwsh
         run: |
+          $browsers = "$env:LOCALAPPDATA\ms-playwright"
+          $before = @(Get-ChildItem $browsers -Directory -ErrorAction SilentlyContinue).Name
           $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -Wait -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
           if ($p.ExitCode -ne 0) { throw "install exited $($p.ExitCode)" }
@@ -339,6 +426,78 @@ jobs:
             throw "first install did not build the venv"
           }
           echo "VS_INSTALL=$install" >> $env:GITHUB_ENV
+          # The browser dirs THIS install added (the runner image may carry
+          # other Playwright browsers; those are not ours to remove).
+          $added = @(Get-ChildItem $browsers -Directory).Name |
+            Where-Object { $_ -ne '.links' -and $before -notcontains $_ }
+          if (-not $added) { throw "install added no browser dirs under $browsers" }
+          Write-Host "bundled browser dirs: $($added -join ',')"
+          echo "VS_BUNDLED_BROWSERS=$($added -join ',')" >> $env:GITHUB_ENV
+          # Launches a Chromium like one the chrome backend opened: it
+          # outlives the server the installer kills (Windows doesn't take
+          # children down with the parent). -From picks the ms-playwright
+          # dir (default: the bundled chromium-<rev>); -UserDataDir under
+          # ...\browser_profiles\ makes it a store's. Prints its pid.
+          Set-Content -LiteralPath "$env:RUNNER_TEMP\hold_chromium.ps1" -Encoding ascii -Value @'
+          param([string]$From = '', [string]$UserDataDir = '')
+          $browsers = "$env:LOCALAPPDATA\ms-playwright"
+          if (-not $From) {
+            $From = $env:VS_BUNDLED_BROWSERS -split ',' |
+              Where-Object { $_ -like 'chromium-*' } | Select-Object -First 1
+          }
+          $chrome = Get-ChildItem (Join-Path $browsers $From) -Recurse -Filter chrome.exe |
+            Select-Object -First 1
+          if (-not $chrome) { throw "no chrome.exe under $browsers\$From" }
+          if (-not $UserDataDir) {
+            $UserDataDir = Join-Path $env:RUNNER_TEMP ("held-chromium-" + [guid]::NewGuid())
+          }
+          $p = Start-Process -FilePath $chrome.FullName -PassThru -ArgumentList `
+            '--headless=new', "--user-data-dir=$UserDataDir", '--no-first-run', 'about:blank'
+          Start-Sleep 5
+          if ($p.HasExited) { throw "precondition: held Chromium exited immediately ($($chrome.FullName))" }
+          Write-Host "holding Chromium pid=$($p.Id) from $From (profile $UserDataDir)"
+          $p.Id
+          '@
+
+      - name: Upgrade in place while Chromium runs (old revision + bundled)
+        shell: pwsh
+        run: |
+          # PrepareToInstall must stop two kinds of Chromium the killed
+          # server leaves behind:
+          #  - a store's, from an OLD revision: an upgrade that bumps
+          #    Playwright installs a new revision dir, and the orphan keeps
+          #    its store's profile locked; Chrome then refuses that store
+          #    until a reboot. Matched by ownership (browser_profiles).
+          #  - anything running from the bundled revision: it locks files
+          #    [Files] overwrites; a silent install would hit "file in use"
+          #    and abort (a GUI one asks the user to close it).
+          $browsers = "$env:LOCALAPPDATA\ms-playwright"
+          $bundled = $env:VS_BUNDLED_BROWSERS -split ',' |
+            Where-Object { $_ -like 'chromium-*' } | Select-Object -First 1
+          Copy-Item -Recurse "$browsers\$bundled" "$browsers\chromium-1000"
+          $storeProfile = "$env:USERPROFILE\.vibe-seller\browser_profiles\ci-old-revision"
+          New-Item -ItemType Directory -Force $storeProfile | Out-Null
+          $heldOld = & "$env:RUNNER_TEMP\hold_chromium.ps1" -From chromium-1000 -UserDataDir $storeProfile
+          $heldNew = & "$env:RUNNER_TEMP\hold_chromium.ps1"
+          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -Wait -PassThru `
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          if ($p.ExitCode -ne 0) {
+            throw "in-place reinstall over a running Chromium exited $($p.ExitCode)"
+          }
+          foreach ($h in @($heldOld, $heldNew)) {
+            if (Get-Process -Id $h -ErrorAction SilentlyContinue) {
+              throw "held Chromium pid=$h survived the reinstall"
+            }
+          }
+          $left = Get-CimInstance Win32_Process | Where-Object {
+            $_.ExecutablePath -like "$browsers\*" }
+          if ($left) { throw "Chromium still running from ms-playwright: $($left.ProcessId -join ',')" }
+          Remove-Item -Recurse -Force "$browsers\chromium-1000" -ErrorAction SilentlyContinue
+          # The overwritten bundle is still complete (nothing to download).
+          $env:PLAYWRIGHT_DOWNLOAD_HOST = 'http://127.0.0.1:9'
+          & "$env:VS_INSTALL\.venv\Scripts\playwright.exe" install chromium
+          if ($LASTEXITCODE -ne 0) { throw "bundle incomplete after in-place reinstall" }
+          Write-Host "OK: upgrade over running Chromium (old revision + bundled)"
 
       - name: Hold a venv python open (locks .venv, like the tray)
         shell: pwsh
@@ -387,12 +546,18 @@ jobs:
             $_.ExecutablePath -and $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) }
           if (-not $running) { throw "precondition failed: no venv python holding the lock" }
           Write-Host "holding python pid(s): $($running.ProcessId -join ',')"
+          # And a Chromium from the bundle, which the uninstaller must stop too.
+          $held = & "$env:RUNNER_TEMP\hold_chromium.ps1"
+          echo "VS_HELD_CHROMIUM=$held" >> $env:GITHUB_ENV
 
       - name: Uninstall WHILE the pythonw is running
         shell: pwsh
         run: |
           $u = "$env:VS_INSTALL\unins000.exe"
           if (-not (Test-Path $u)) { throw "uninstaller missing: $u" }
+          if (-not (Get-Process -Id $env:VS_HELD_CHROMIUM -ErrorAction SilentlyContinue)) {
+            throw "precondition: the held Chromium died before the uninstall"
+          }
           $p = Start-Process -FilePath $u -Wait -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
           Write-Host "uninstall exit=$($p.ExitCode)"
@@ -404,6 +569,14 @@ jobs:
             ($_.Name -eq 'pythonw.exe' -or $_.Name -eq 'python.exe') -and
             $_.ExecutablePath -like '*\VibeSeller\*' }
           if ($left) { throw "venv python still running after uninstall: $($left.ProcessId -join ',')" }
+          $browsers = "$env:LOCALAPPDATA\ms-playwright"
+          $chromeLeft = Get-CimInstance Win32_Process | Where-Object {
+            $_.ExecutablePath -like "$browsers\*" }
+          if ($chromeLeft) { throw "bundled Chromium still running after uninstall: $($chromeLeft.ProcessId -join ',')" }
+          # The bundled browser dirs go with the app (~700 MB).
+          $kept = $env:VS_BUNDLED_BROWSERS -split ',' |
+            Where-Object { Test-Path (Join-Path $browsers $_) }
+          if ($kept) { throw "bundled browsers left after uninstall: $($kept -join ', ')" }
 
       - name: Reinstall
         shell: pwsh
@@ -419,6 +592,11 @@ jobs:
           foreach ($f in @('.venv\Scripts\python.exe','.venv\Scripts\playwright.exe','.venv\Scripts\vibe-seller.exe')) {
             if (-not (Test-Path "$install\$f")) { throw "missing after reinstall: $f (venv rebuild failed)" }
           }
+          # The reinstall laid the bundle down again, complete.
+          $env:PLAYWRIGHT_DOWNLOAD_HOST = 'http://127.0.0.1:9'
+          & "$install\.venv\Scripts\playwright.exe" install chromium
+          if ($LASTEXITCODE -ne 0) { throw "bundle incomplete after uninstall -> reinstall" }
+          Remove-Item Env:PLAYWRIGHT_DOWNLOAD_HOST
           $env:PATH = "$install\.venv\Scripts;$install;$install\git\bin;$install\git\usr\bin;$env:PATH"
           $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
           $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"

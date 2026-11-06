@@ -120,6 +120,9 @@ class TestUpgradeClaudeCli:
 
     def _run(self, tmp_path, monkeypatch, *, which, rcs, argv=('upgrade',)):
         monkeypatch.setenv('VIBE_HOME', str(tmp_path))
+        # The browser-engine step between the two has its own tests
+        # (test_chromium_engine.py); keep these about the CLI sequence.
+        monkeypatch.setattr(cli, '_install_browser_after_upgrade', lambda: None)
         with (
             patch.object(cli.shutil, 'which', side_effect=which),
             patch.object(cli.subprocess, 'run') as run,

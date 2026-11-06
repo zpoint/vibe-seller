@@ -24,15 +24,27 @@ reason; there is no supported way to run it on older Windows.
 | **uv** | [astral-sh/uv](https://github.com/astral-sh/uv) | Fast venv + offline install on the target |
 | **Git for Windows (PortableGit)** | [git-for-windows releases](https://github.com/git-for-windows/git/releases) | `git`, `bash.exe`, and the MSYS userland (`curl`, `perl`, `sleep`). Claude Code's Bash tool **requires a file named `bash.exe`** (with only `sh.exe` it silently falls back to the PowerShell tool, which can't run the extensionless bash wrapper). The browser-use wrapper also shells out to `curl`/`perl`/`sleep`. **MinGit is insufficient** — it ships none of these. |
 | **claude CLI** | Anthropic native installer | The agent runtime |
+| **Playwright Chromium** (+ headless shell, ffmpeg, winldd) | `playwright install chromium` in CI, run by the Playwright from this bundle's own wheel set | The `chrome` backend's browser. Installed to `%LOCALAPPDATA%\ms-playwright\` (Playwright's default per-user dir, so the app needs no env var), each dir carrying its `INSTALLATION_COMPLETE` marker. Bundled — not downloaded at install — because that download went straight to `cdn.playwright.dev`, ignored the Windows system proxy, and ran hidden behind a wizard whose Cancel is disabled: on networks that can't reach the CDN users sat on "Downloading browser engine" for an hour. Adds ~260 MB to the installer (652 MB with Playwright 1.64's chromium-1248, up from 394 MB). |
 | **tray.py** | this dir | Login launcher: Open / Restart / Quit / Check for updates, runs via the bundled `pythonw.exe`. Menu + popups follow the OS language (en/zh). `--open` (used by the finish step) waits for health then opens the browser. |
 | **vibe-seller.ico** | `make_icon.py` | Shared brand mark (matches the web favicon); installer/Start-Menu/tray icon |
 | **ChineseSimplified.isl** | fetched by `build.ps1` (best-effort) | Chinese wizard strings; auto-selected on Chinese systems, English fallback |
 
-**Browser engine: Playwright Chromium**, downloaded at install via
-`playwright install chromium` (so the first install needs network). It
-is not the user's system Chrome — a follow-up issue switches the
-`chrome` backend to drive the user's installed Chrome/Edge and drops the
-download step.
+**The install needs no network.** The post-install
+`playwright install chromium` still runs, but against the bundled
+browsers it is an offline, sub-second no-op: it registers this install
+under `ms-playwright\.links` (so another Playwright's garbage collection
+keeps our browsers) and would download only a piece the bundle lacked.
+`build.ps1` fails the build if any location the shipped Playwright looks
+in is incomplete, and `windows-installer.yml` installs with the
+Playwright CDN blocked in the hosts file, then requires `playwright
+install` to succeed against a dead download host and Chromium to launch.
+
+A Chromium the `chrome` backend launched runs *from* the bundled dirs and
+outlives the server the installer kills (Windows doesn't take children
+down with the parent), so `PrepareToInstall` and the uninstaller stop
+processes running from exactly those dirs (`BrowserDirs`, passed by
+`build.ps1`) before overwriting or removing them; the uninstaller then
+deletes the dirs. CI covers both with a held-open Chromium.
 
 ## Architecture (why no Windows Service / no PyInstaller)
 
@@ -138,5 +150,3 @@ because this is the only native-Windows doc.
   installer's output path is captured by globbing for `claude.exe`;
   verify and pin once the first CI run shows the real layout.
 - python-build-standalone tag/asset name drift (pinned `$PbsTag`).
-- `playwright install chromium` needs network at install time (removed
-  when the system-Chrome backend lands).

@@ -7,6 +7,7 @@ Requires Unix (ps/pgrep); skipped on Windows.
 """
 
 import asyncio
+import json
 import os
 import signal
 import subprocess
@@ -240,6 +241,30 @@ class TestDaemonReaperPidFile:
             assert _wait_for_death(proc), 'orphaned 0.13 daemon must die'
             assert killed >= 1
             # Runtime files for the reaped daemon are cleaned up.
+            assert not pf.exists()
+            assert not sock.exists()
+        finally:
+            _ensure_dead(proc)
+
+    async def test_reaper_kills_orphaned_013_daemon_json_pid_record(
+        self, monkeypatch, override_async_session, tmp_path, fake_task_id
+    ):
+        """browser-harness >= 0.1.12 (browser-use >= 0.13.9) can record
+        the pid as JSON ``{"pid": N, "started": ...}`` (local-Chrome
+        spawn path) and the daemon retains it. The reaper must kill
+        through that shape too — a plain-int-only parser read it as
+        corrupt and unlinked a live daemon's files without killing it."""
+        monkeypatch.setattr('app.browser.bh_daemons.BH_RUNTIME_DIR', tmp_path)
+        proc = _spawn_bh_daemon()
+        bu_name = f'acme-store-{fake_task_id[:8]}'
+        pf = tmp_path / f'bu-{bu_name}.pid'
+        sock = tmp_path / f'bu-{bu_name}.sock'
+        pf.write_text(json.dumps({'pid': proc.pid, 'started': 'Mon Jan 1'}))
+        sock.touch()
+        try:
+            killed = await reap_orphaned_daemons()
+            assert _wait_for_death(proc), 'orphaned 0.13 daemon must die'
+            assert killed >= 1
             assert not pf.exists()
             assert not sock.exists()
         finally:

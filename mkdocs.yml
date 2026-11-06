@@ -76,6 +76,7 @@ plugins:
             Developer Guide: 开发者指南
             Windows + WSL2 Deployment: Windows + WSL2 部署
             macOS Deployment: macOS 部署
+            Amazon Ads API: 广告 API 绑定
             Tasks: 任务
             Workspace: 工作区
             Subsystems: 子系统
@@ -125,6 +126,7 @@ nav:
       - Developer Guide: dev-guide.md
       - Windows + WSL2 Deployment: windows-setup.md
       - macOS Deployment: macos-setup.md
+      - Amazon Ads API: ads-api.md
   - Core:
       - Tasks: tasks.md
       - Workspace: workspace.md

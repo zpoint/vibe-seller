@@ -24,6 +24,10 @@
 
 <img width="2981" height="1360" alt="2_combined" src="docs/images/2_combined_en.png" />
 
+🔥 *News* 🔥
+
+- [Nov 2026] **Amazon ads over the Ads API**: the same ad-optimization task went from 147 minutes to 11, with less need to step in: [**details**](docs/ads-api.en.md)
+
 
 
 
@@ -112,9 +116,11 @@ scratch.
 <details open>
 <summary><b>🪟 Windows — native installer (recommended)</b></summary>
 
-No WSL, no Python setup. Download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
+Download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
 
 > Requires **Windows 10 version 1809 / Windows Server 2019 or later** (64-bit). The bundled Claude Code cannot start on older systems (e.g. Server 2016), so the installer refuses to install there.
+>
+> To make installation more reliable, every dependency (the Python runtime, Claude Code, Git and the Chrome browser engine) is bundled in the installer, so nothing else is downloaded during setup. That makes the installer larger: about 650 MB.
 
 Or, in **PowerShell**:
 
@@ -127,16 +133,30 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 <details open>
 <summary><b>🍎 macOS / 🐧 Linux</b></summary>
 
+Install:
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
 
-Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade` (also upgrades the Claude Code CLI it runs). Uninstall: `uv tool uninstall vibe-seller`.
+Open <http://localhost:7777>.
 
-<sub>Nightly builds (published only when `main` has new commits; may be unstable): `curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`. On Windows, set `$env:VIBE_SELLER_CHANNEL='nightly'` before the PowerShell one-liner, or download the installer from the [nightly release](https://github.com/zpoint/vibe-seller/releases/tag/nightly). A nightly install is offered newer nightlies or stable releases; a stable install is never offered a nightly. Back to stable: `vibe-seller upgrade --stable`.</sub>
+> The Chrome browser engine (Chromium, about 250 MB) is downloaded during install.
 
-<sub>Prerequisites (auto-handled by <code>install.sh</code>): Python 3.11+ via <a href="https://docs.astral.sh/uv/"><code>uv</code></a>, Node.js 22+.</sub>
+Upgrade:
+
+```bash
+vibe-seller upgrade
+```
+
+This also upgrades the Claude Code CLI it runs.
+
+Uninstall:
+
+```bash
+uv tool uninstall vibe-seller
+```
 
 </details>
 
@@ -187,7 +207,7 @@ the wizard, or open <http://localhost:7777> yourself.
 
 ### 2. Add your LLM key
 
-`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
+`Settings → AI` → pick a provider (DeepSeek bills per token,
 Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
 work), paste your API key, save. Keys are encrypted at rest.
 
@@ -200,17 +220,23 @@ work), paste your API key, save. Keys are encrypted at rest.
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
 
-<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+<img width="2048" height="1208" alt="Settings → AI" src="docs/images/setup_ai_en.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+<img width="1344" height="1800" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
+
+<img width="100%" alt="Demo: set up AI" src="docs/images/setup_ai_en.gif" />
 
 ### 3. Connect your stores
 
-`Settings → Stores → Add Ziniao account`, fill in the account, pick
-the right Ziniao profile for each store, save. Skip the Ziniao bit
-and pick plain Chrome instead if you prefer.
+Click **+ New Store** in the sidebar, name the store, and set the
+browser backend to **Ziniao (Browser Backend)**: hit `+` to add your
+Ziniao account (company / username / password), pick the right Ziniao
+profile for the store, then **Create**. Skip the Ziniao bit and pick
+Chrome (Playwright) instead if you prefer.
 
-<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
+<img width="1152" height="1028" alt="New store form" src="docs/images/setup_store_en.png" />
+
+<img width="100%" alt="Demo: bind a store" src="docs/images/setup_store_en.gif" />
 
 ### 4. Create your first task
 
@@ -228,6 +254,8 @@ before execution.
 > Want email / group chat bots (WeCom / DingTalk / Feishu / Slack) / TickTick / Google Workspace hooked up too?
 > `Settings → Integrations`, any time after install — optional, and
 > doesn't block your first task.
+
+> Want Amazon ad work to run over the Ads API (steadier, batch-friendly, with history)? Optional — see [Amazon Ads API setup](docs/ads-api.en.md).
 
 </details>
 
@@ -283,7 +311,7 @@ default).
 
 ### 5. Add your LLM key
 
-`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
+`Settings → AI` → pick a provider (DeepSeek bills per token,
 Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
 work), paste your API key, save. Keys are encrypted at rest.
 
@@ -314,17 +342,23 @@ work), paste your API key, save. Keys are encrypted at rest.
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
 > ```
 
-<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+<img width="2048" height="1208" alt="Settings → AI" src="docs/images/setup_ai_en.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+<img width="1344" height="1800" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
+
+<img width="100%" alt="Demo: set up AI" src="docs/images/setup_ai_en.gif" />
 
 ### 6. Connect your stores
 
-`Settings → Stores → Add Ziniao account`, fill in the account, pick
-the right Ziniao profile for each store, save. Skip the Ziniao bit
-and pick plain Chrome instead if you prefer.
+Click **+ New Store** in the sidebar, name the store, and set the
+browser backend to **Ziniao (Browser Backend)**: hit `+` to add your
+Ziniao account (company / username / password), pick the right Ziniao
+profile for the store, then **Create**. Skip the Ziniao bit and pick
+Chrome (Playwright) instead if you prefer.
 
-<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
+<img width="1152" height="1028" alt="New store form" src="docs/images/setup_store_en.png" />
+
+<img width="100%" alt="Demo: bind a store" src="docs/images/setup_store_en.gif" />
 
 ### 7. (Optional) Wire up email / chat bots
 
@@ -342,6 +376,8 @@ group chat? `Settings → Integrations`:
   synced into a calendar or Doc.
 
 Skipping is fine — come back after your first task.
+
+> Want Amazon ad work to run over the Ads API (steadier, batch-friendly, with history)? Optional — see [Amazon Ads API setup](docs/ads-api.en.md).
 
 ### 8. Create your first task
 
@@ -412,7 +448,7 @@ default).
 
 ### 5. Add your LLM key
 
-`Settings → AI Agent` → pick a provider (DeepSeek bills per token,
+`Settings → AI` → pick a provider (DeepSeek bills per token,
 Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
 work), paste your API key, save. Keys are encrypted at rest.
 
@@ -443,15 +479,19 @@ work), paste your API key, save. Keys are encrypted at rest.
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
 > ```
 
-<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+<img width="2048" height="1208" alt="Settings → AI" src="docs/images/setup_ai_en.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+<img width="1344" height="1800" alt="Create AI profile" src="docs/images/setup_profile_en.png" />
+
+<img width="100%" alt="Demo: set up AI" src="docs/images/setup_ai_en.gif" />
 
 ### 6. Connect your stores
 
-`Settings → Stores → Add Ziniao account`, fill in the account, pick
-the right Ziniao profile for each store, save. Skip the Ziniao bit
-and pick plain Chrome instead if you prefer.
+Click **+ New Store** in the sidebar, name the store, and set the
+browser backend to **Ziniao (Browser Backend)**: hit `+` to add your
+Ziniao account (company / username / password), pick the right Ziniao
+profile for the store, then **Create**. Skip the Ziniao bit and pick
+Chrome (Playwright) instead if you prefer.
 
 Ziniao runs on the Windows side, Vibe Seller runs inside WSL. Ziniao
 only runs one mode at a time, and Vibe Seller needs developer mode
@@ -459,13 +499,14 @@ only runs one mode at a time, and Vibe Seller needs developer mode
 restart Windows-side Ziniao itself, so a launcher does it from
 Windows:
 
-1. Download `ziniao_webdriver.bat` from
-   `Settings → Stores → Download launcher`.
+1. Once the Ziniao account is selected, a "Ziniao is not running or
+   not in WebDriver mode" banner appears — click **Download
+   ziniao_webdriver.bat** inside it.
 2. Double-click it on Windows.
 3. Back in WSL, hit **Refresh** on the Ziniao page in Vibe Seller —
    your accounts pop in automatically, no manual fields to fill.
 
-<img width="906" height="1251" alt="ziniao_wsl" src="docs/images/ziniao_wsl.png" />
+<img width="1520" height="1290" alt="Download ziniao_webdriver.bat" src="docs/images/setup_store_wsl_en.png" />
 
 ### 7. (Optional) Wire up email / chat bots
 
@@ -483,6 +524,8 @@ group chat? `Settings → Integrations`:
   synced into a calendar or Doc.
 
 Skipping is fine — come back after your first task.
+
+> Want Amazon ad work to run over the Ads API (steadier, batch-friendly, with history)? Optional — see [Amazon Ads API setup](docs/ads-api.en.md).
 
 ### 8. Create your first task
 
@@ -531,6 +574,7 @@ directly (hook up permissions in First run — no code):
 
 | Service | What it does |
 |---|---|
+| **Amazon Ads API** | Amazon ad tasks call the API directly instead of clicking through the seller console — in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](docs/ads-api.en.md) |
 | **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies |
 | **Group chat bots** (企业微信 / 钉钉 / 飞书 / Slack) | Push important events, cross-group notifications, forward buyer inquiries |
 | **TickTick / Dida365** | Auto-create todos (follow-ups, order tracking, periodic checks) |
@@ -642,12 +686,13 @@ side. Switching requires restarting Ziniao.
   handling on both platforms, nothing for you to do.
 - **Windows (WSL)**: WSL can't restart a Windows-side app across
   the VM boundary, so the Windows side runs a one-line `.bat`
-  launcher (downloadable from `Settings → Stores → Download
-  launcher`) that does the kill + relaunch. Double-click it once;
-  Vibe Seller picks the developer-mode session up via Refresh.
+  launcher (download it from the "Ziniao is not running" banner that
+  appears when binding a store) that does the kill + relaunch.
+  Double-click it once; Vibe Seller picks the developer-mode session
+  up via Refresh.
 
-**Credentials needed** — `Settings → Stores → Add Ziniao account`,
-three fields:
+**Credentials needed** — add a Ziniao account with the `+` button in
+the new-store form (backend "Ziniao"), three fields:
 
 | Field | What it is |
 |---|---|
@@ -678,8 +723,8 @@ telemetry path carries credentials out.
 
 Asking for the password is the necessary trade-off: developer-mode
 auth requires it, no OAuth / token flow exists on the Ziniao side
-today. If that's a deal-breaker, use plain Chrome instead
-(`Settings → Stores → Add Chrome store`). Contributors curious about
+today. If that's a deal-breaker, use plain Chrome instead (new-store
+form, backend "Chrome (Playwright)"). Contributors curious about
 the exact encryption implementation can check
 [`docs/dev-guide.md`](docs/dev-guide.md).
 

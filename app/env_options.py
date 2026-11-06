@@ -131,6 +131,13 @@ class Options(enum.Enum):
     # to the raw.githubusercontent copy of that file. How OFTEN it is
     # pulled is not an env var — it is the `presets` row of the central
     # sync scheduler (app/sync/jobs.py).
+    # Browser engine (app/browser/chromium_engine.py): at boot, install
+    # the Chromium the running Playwright needs if it's missing (an
+    # upgrade that bumped Playwright), and gate Chrome launches on it.
+    # tests/conftest.py turns it off so no test boot runs a Playwright
+    # subprocess or reaches a CDN.
+    ENSURE_BROWSER_ENGINE = ('VIBE_ENSURE_BROWSER_ENGINE', 'true')
+
     PROVIDER_PRESETS_URL = ('PROVIDER_PRESETS_URL', '')
 
     # Central sync scheduler (app/sync/scheduler.py) knobs. All three

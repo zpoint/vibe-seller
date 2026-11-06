@@ -22,6 +22,7 @@ import socket
 import aiohttp
 from playwright.async_api import async_playwright
 
+from app.browser import chromium_engine
 from app.browser.base import BrowserBackend, BrowserSessionInfo
 from app.browser.cdp_mux_proxy import CDPMuxProxy
 from app.browser.downloads import prepare_download_dir
@@ -143,6 +144,11 @@ class ChromeBackend(BrowserBackend):
 
         # Allocate a free port for Chrome's CDP debugging endpoint.
         debug_port = _free_port()
+
+        # The Chromium this Playwright pins may still be downloading (the
+        # first boot after an upgrade that bumped Playwright): fail fast
+        # with that, not Playwright's "Executable doesn't exist".
+        await chromium_engine.ensure_ready_for_launch()
 
         # Launch Chromium via Playwright — handles binary discovery,
         # platform-specific sandbox flags, and graceful shutdown.
