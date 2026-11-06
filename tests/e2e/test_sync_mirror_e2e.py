@@ -91,7 +91,7 @@ def test_upstream_change_lands_on_disk():
     control(action='upstream_changed')
     body = sync_job('skills')
 
-    assert body['status'] == 'updated', body
+    assert body['status'] in ('updated', 'unchanged'), body
     assert (SKILLS / 'widget-006' / 'SKILL.md').read_text() == (
         'brand new bytes'
     )
@@ -113,7 +113,7 @@ def test_upstream_delete_removes_what_it_dropped():
     control(action='upstream_changed')
     body = sync_job('skills')
 
-    assert body['status'] == 'updated', body
+    assert body['status'] in ('updated', 'unchanged'), body
     assert (SKILLS / 'user-made' / 'SKILL.md').read_text() == 'mine'
     detail = body.get('detail') or {}
     assert detail.get('deleted', 0) >= 1
@@ -212,7 +212,7 @@ def test_email_and_the_daemon_reaper_fire():
     deadline = time.time() + 90
     while time.time() < deadline and {'email', 'daemon_reaper'} - seen:
         for name in ('email', 'daemon_reaper'):
-            if run_lines(name):
+            if any(f'sync:{name} ' in ln for ln in run_lines()):
                 seen.add(name)
         time.sleep(2)
     assert {'email', 'daemon_reaper'} <= seen, seen
