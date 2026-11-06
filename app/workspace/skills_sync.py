@@ -29,6 +29,7 @@ import json
 import logging
 from pathlib import Path
 import shutil
+import threading
 
 import httpx
 
@@ -38,6 +39,7 @@ from app.models.event import Event
 from app.platform import venv_executable, venv_python
 from app.plugins import registered_skill_sources
 from app.sync import github as github_probe
+from app.workspace import skills_tree
 from app.workspace.manager import VIBE_SELLER_DIR
 from app.workspace.skill_mirror import (
     _COPY_IGNORE,
@@ -59,6 +61,11 @@ class SkillsSyncManager(SkillMirrorMixin):
     def __init__(self):
         self._dest_dir = VIBE_SELLER_DIR / '.claude' / 'skills'
         self._lock = asyncio.Lock()
+        # Serialise .sync_meta.json read-modify-write. The mirror runs
+        # in worker threads (``asyncio.to_thread``) while the loop may
+        # update the same file (gws flag, remote sync, dep installs) —
+        # without this a stale read overwrites a concurrent update.
+        self._meta_lock = threading.Lock()
         # Strong ref to the deferred boot-time dep install (see fetch).
         self._deps_task: asyncio.Task | None = None
 
@@ -165,6 +172,43 @@ class SkillsSyncManager(SkillMirrorMixin):
         self, srcs: list[Path], *, defer_deps: bool = False
     ) -> dict:
         """Inner fetch, called under lock."""
+        # The tree lock is the one contract for skills-tree mutation
+        # (and for the task-workspace copy) — see
+        # ``app.workspace.skills_tree``. Held only around the mirror;
+        # the dep install below touches the venv, not the tree.
+        async with skills_tree.hold():
+            replaced, skipped = await asyncio.to_thread(
+                self._sync_skill_dirs, srcs
+            )
+
+        # Auto-install skill Python deps into shared workspace venv.
+        # On the boot path this is deferred to a background task so
+        # serving (incl. /api/health) starts immediately; task
+        # launches join it via wait_deps_ready().
+        if defer_deps:
+            self._deps_task = asyncio.create_task(self._install_skill_deps())
+            self._deps_task.add_done_callback(self._log_deps_result)
+        else:
+            await self._install_skill_deps()
+
+        logger.info(
+            'Skills sync (local): %d replaced, %d unchanged',
+            replaced,
+            skipped,
+        )
+        return {
+            'synced': True,
+            'replaced': replaced,
+            'skipped': skipped,
+        }
+
+    def _sync_skill_dirs(self, srcs: list[Path]) -> tuple[int, int]:
+        """Mirror the source trees into the skills tree (blocking work).
+
+        Tree compares, copies, atomic swaps and deletions — grouped so
+        ``_fetch_locked`` can hand the whole mirror to one thread while
+        it keeps holding the lock. Returns ``(replaced, skipped)``.
+        """
         self._dest_dir.mkdir(parents=True, exist_ok=True)
         replaced = 0
         skipped = 0
@@ -249,27 +293,7 @@ class SkillsSyncManager(SkillMirrorMixin):
 
         # Track synced skills from source dirs (not dest contents)
         self._update_synced_skills(synced_names)
-
-        # Auto-install skill Python deps into shared workspace venv.
-        # On the boot path this is deferred to a background task so
-        # serving (incl. /api/health) starts immediately; task
-        # launches join it via wait_deps_ready().
-        if defer_deps:
-            self._deps_task = asyncio.create_task(self._install_skill_deps())
-            self._deps_task.add_done_callback(self._log_deps_result)
-        else:
-            await self._install_skill_deps()
-
-        logger.info(
-            'Skills sync (local): %d replaced, %d unchanged',
-            replaced,
-            skipped,
-        )
-        return {
-            'synced': True,
-            'replaced': replaced,
-            'skipped': skipped,
-        }
+        return replaced, skipped
 
     @staticmethod
     def _skill_unchanged(src_dir: Path, dest_dir: Path) -> bool:
@@ -335,10 +359,19 @@ class SkillsSyncManager(SkillMirrorMixin):
         return {}
 
     def _write_sync_meta(self, meta: dict) -> None:
-        """Write .sync_meta.json."""
+        """Write .sync_meta.json atomically (temp + rename)."""
         path = self._sync_meta_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(meta, indent=2))
+        tmp = path.with_name(path.name + '.tmp')
+        tmp.write_text(json.dumps(meta, indent=2))
+        tmp.replace(path)
+
+    def _mutate_sync_meta(self, mutate) -> None:
+        """Read-modify-write .sync_meta.json as one atomic step."""
+        with self._meta_lock:
+            meta = self._read_sync_meta()
+            mutate(meta)
+            self._write_sync_meta(meta)
 
     # ── Google Workspace bundle flag ────────────────────
 
@@ -348,12 +381,14 @@ class SkillsSyncManager(SkillMirrorMixin):
 
     def mark_gws_installed(self, installed: bool) -> None:
         """Record whether the gws umbrella is installed."""
-        meta = self._read_sync_meta()
-        if installed:
-            meta['gws_installed'] = True
-        else:
-            meta.pop('gws_installed', None)
-        self._write_sync_meta(meta)
+
+        def _set(meta: dict) -> None:
+            if installed:
+                meta['gws_installed'] = True
+            else:
+                meta.pop('gws_installed', None)
+
+        self._mutate_sync_meta(_set)
 
     def get_synced_skills(self) -> set[str]:
         """Return set of skill names synced by this manager."""
@@ -384,24 +419,30 @@ class SkillsSyncManager(SkillMirrorMixin):
         for name in dropped:
             _remove(self._dest_dir / name)
             logger.info('Dropped package skill %s (no longer shipped)', name)
-        meta = self._read_sync_meta()
-        meta['package_skills'] = sorted(now)
-        self._write_sync_meta(meta)
+
+        def _record(meta: dict) -> None:
+            meta['package_skills'] = sorted(now)
+
+        self._mutate_sync_meta(_record)
 
     def _forget_synced_skills(self, names: list[str]) -> None:
         """Drop skills sync removed from the inventory."""
-        meta = self._read_sync_meta()
-        remaining = set(meta.get('synced_skills') or []) - set(names)
-        meta['synced_skills'] = sorted(remaining)
-        self._write_sync_meta(meta)
+
+        def _forget(meta: dict) -> None:
+            remaining = set(meta.get('synced_skills') or []) - set(names)
+            meta['synced_skills'] = sorted(remaining)
+
+        self._mutate_sync_meta(_forget)
 
     def _update_synced_skills(self, names: list[str]) -> None:
         """Merge skill names into .sync_meta.json."""
-        meta = self._read_sync_meta()
-        existing = set(meta.get('synced_skills', []))
-        existing.update(names)
-        meta['synced_skills'] = sorted(existing)
-        self._write_sync_meta(meta)
+
+        def _merge(meta: dict) -> None:
+            existing = set(meta.get('synced_skills', []))
+            existing.update(names)
+            meta['synced_skills'] = sorted(existing)
+
+        self._mutate_sync_meta(_merge)
 
     # ── Remote sync ─────────────────────────────────────
 
@@ -506,8 +547,13 @@ class SkillsSyncManager(SkillMirrorMixin):
                     continue
                 downloads[rel_path] = file_resp.content
 
-            # 3. Put it on disk, atomically.
-            applied = self._apply_downloads(downloads, listed, failed)
+            # 3. Put it on disk, atomically. Tree walks + renames are
+            # blocking: one thread hop for the whole apply, under the
+            # skills-tree lock (see ``app.workspace.skills_tree``).
+            async with skills_tree.hold():
+                applied = await asyncio.to_thread(
+                    self._apply_downloads, downloads, listed, failed
+                )
             if applied.get('failed'):
                 # A listed file we could not fetch is not an upstream
                 # deletion: keep the tree, keep last_ok_at where it is,
@@ -582,9 +628,11 @@ class SkillsSyncManager(SkillMirrorMixin):
         if not py.exists():
             return
 
-        meta = self._read_sync_meta()
-        installed = meta.get('installed_deps', {})
-        changed = False
+        installed = self._read_sync_meta().get('installed_deps', {})
+        # Only the hashes THIS run computed. They are merged into a
+        # fresh read at the end, so the awaits below (pip runs) cannot
+        # make this function clobber a concurrent meta update.
+        updated: dict[str, str] = {}
 
         for skill_dir in self._dest_dir.iterdir():
             if not skill_dir.is_dir() or skill_dir.name.startswith('.'):
@@ -639,8 +687,7 @@ class SkillsSyncManager(SkillMirrorMixin):
                         stderr.decode()[:200] if stderr else '',
                     )
                     continue
-                installed[skill_dir.name] = content_hash
-                changed = True
+                updated[skill_dir.name] = content_hash
             except Exception as e:
                 logger.warning(
                     'Error installing deps for %s: %s',
@@ -648,9 +695,12 @@ class SkillsSyncManager(SkillMirrorMixin):
                     e,
                 )
 
-        if changed:
-            meta['installed_deps'] = installed
-            self._write_sync_meta(meta)
+        if updated:
+
+            def _merge(meta: dict) -> None:
+                meta.setdefault('installed_deps', {}).update(updated)
+
+            self._mutate_sync_meta(_merge)
 
     # ── System event logging ────────────────────────────
 

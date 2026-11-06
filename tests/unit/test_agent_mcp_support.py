@@ -4,6 +4,11 @@ A direct call to a FastAPI route function bypasses dependency
 injection: a parameter the route takes via ``Depends(...)`` or a
 param marker would silently receive the marker object. ``call_route``
 must refuse such a call instead.
+
+It must also mirror FastAPI's def/async split: ``async def`` routes
+run on the loop, plain ``def`` routes (the blocking-fs pattern) run
+in a thread — so an MCP adapter never freezes the event loop with
+work the web UI would have offloaded.
 """
 
 import inspect
@@ -28,34 +33,44 @@ async def _dummy_route(
     return (x, db, q, flag)
 
 
-def test_missing_marker_param_raises():
+def _dummy_sync_route(x: int, db=Depends(lambda: 'session')):
+    """A plain ``def`` route — FastAPI's blocking-work pattern."""
+    return (x, db)
+
+
+async def test_missing_marker_param_raises():
     """`db` supplied but `q` (a Query marker) is not → refuse."""
     with pytest.raises(RouteCallError, match="'q'"):
-        call_route(_dummy_route, x=1, db='sess')
+        await call_route(_dummy_route, x=1, db='sess')
 
 
-def test_missing_required_param_raises():
+async def test_missing_required_param_raises():
     """No default at all and not supplied → refuse."""
     with pytest.raises(RouteCallError, match="'x'"):
-        call_route(_dummy_route, db='sess', q=None)
+        await call_route(_dummy_route, db='sess', q=None)
 
 
-def test_all_markers_supplied_passes():
+async def test_all_markers_supplied_passes():
     """Every marker satisfied; plain defaults are the route's own."""
-    result = call_route(_dummy_route, x=1, db='sess', q='v')
-    assert result is not None  # the route's coroutine, awaited by the caller
+    result = await call_route(_dummy_route, x=1, db='sess', q='v')
+    assert result == (1, 'sess', 'v', True)
 
 
-def test_plain_default_may_be_omitted():
+async def test_plain_default_may_be_omitted():
     """`flag: bool = True` is not a marker — omitting it is fine."""
-    coro = call_route(_dummy_route, x=1, db='sess', q=None)
-    coro.close()
+    result = await call_route(_dummy_route, x=1, db='sess', q=None)
     # The route itself still sees its own default.
+    assert result == (1, 'sess', None, True)
     sig = inspect.signature(_dummy_route)
     assert sig.parameters['flag'].default is True
 
 
-def test_route_gaining_a_depends_is_caught():
+async def test_sync_route_is_awaitable_and_runs():
+    """A plain ``def`` route goes through the same seam."""
+    assert await call_route(_dummy_sync_route, x=2, db='sess') == (2, 'sess')
+
+
+async def test_route_gaining_a_depends_is_caught():
     """The regression the guard exists for: a route that worked
     yesterday gains a ``Depends`` parameter today."""
 
@@ -63,7 +78,7 @@ def test_route_gaining_a_depends_is_caught():
         return task_id
 
     # Before: the adapter's call was fine.
-    call_route(route_that_grew, task_id='t1').close()
+    assert await call_route(route_that_grew, task_id='t1') == 't1'
 
     async def route_that_grew_now(task_id: str, db=Depends(get_db)):
         return task_id
@@ -71,7 +86,7 @@ def test_route_gaining_a_depends_is_caught():
     # After: the same adapter call must fail loudly, not pass the
     # Depends marker object in as `db`.
     with pytest.raises(RouteCallError, match="'db'"):
-        call_route(route_that_grew_now, task_id='t1')
+        await call_route(route_that_grew_now, task_id='t1')
 
 
 async def _route_with_body(x: int, payload=Body(None)):
@@ -80,19 +95,19 @@ async def _route_with_body(x: int, payload=Body(None)):
     return (x, payload)
 
 
-def test_body_marker_is_caught():
+async def test_body_marker_is_caught():
     """The marker that does NOT inherit from Param."""
     with pytest.raises(RouteCallError, match="'payload'"):
-        call_route(_route_with_body, x=1)
+        await call_route(_route_with_body, x=1)
 
 
-def test_body_marker_is_caught_even_with_the_other_params_supplied():
+async def test_body_marker_is_caught_even_with_the_other_params_supplied():
     """`x` is supplied; the Body one is still refused."""
     with pytest.raises(RouteCallError, match="'payload'"):
-        call_route(_route_with_body, x=1)
+        await call_route(_route_with_body, x=1)
 
 
-def test_body_route_works_when_supplied():
+async def test_body_route_works_when_supplied():
     """Supplying the body explicitly is fine."""
-    coro = call_route(_route_with_body, x=1, payload={'a': 1})
-    coro.close()
+    result = await call_route(_route_with_body, x=1, payload={'a': 1})
+    assert result == (1, {'a': 1})

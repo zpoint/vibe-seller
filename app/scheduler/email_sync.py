@@ -67,8 +67,8 @@ async def maybe_seed_sync_state(account_id: str) -> None:
 
     Only runs if the per-account sync_state table is empty.
     """
-    init_email_db(account_id)
-    state = get_sync_state(account_id, 'INBOX')
+    await asyncio.to_thread(init_email_db, account_id)
+    state = await asyncio.to_thread(get_sync_state, account_id, 'INBOX')
     if state:
         return  # Already has sync state
 
@@ -97,7 +97,8 @@ async def maybe_seed_sync_state(account_id: str) -> None:
                 pass
 
     if oldest_wm:
-        update_sync_state(
+        await asyncio.to_thread(
+            update_sync_state,
             account_id,
             'INBOX',
             watermark_date=oldest_wm,

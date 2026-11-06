@@ -32,6 +32,7 @@ import re
 import shutil
 import tempfile
 
+from app.workspace import skills_tree
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -321,6 +322,52 @@ def _populate_staging(src_root: Path, staging: Path) -> None:
     (staging / 'SKILL.md').write_text(_UMBRELLA_BODY, encoding='utf-8')
 
 
+def _stage_and_swap(gen_path: Path, skills_dir: Path, gws_dir: Path) -> None:
+    """Stage the generated skills and swap them in (blocking).
+
+    Filesystem work — copy trees, rewrite in place, rmtree the old
+    install — grouped so the caller can hand it to one thread.
+
+    Step 2: build a staging dir as a sibling of the final gws/
+    (same filesystem → rename is atomic). Step 3: atomic swap.
+    """
+    staging = Path(tempfile.mkdtemp(dir=str(skills_dir), prefix='.tmp_gws_'))
+    backup = skills_dir / '.bak_gws'
+    backed_up = False
+    try:
+        # mkdtemp already created it; copytree needs the
+        # destination to not exist, so populate into
+        # subdirs that don't yet exist.
+        _populate_staging(gen_path, staging)
+
+        # Step 3: atomic swap. Remove stale backup from any prior
+        # interrupted install first.
+        if backup.exists():
+            shutil.rmtree(backup)
+        if gws_dir.exists():
+            gws_dir.rename(backup)
+            backed_up = True
+        staging.rename(gws_dir)
+        # Success — drop the backup.
+        if backup.exists():
+            shutil.rmtree(backup)
+        backed_up = False
+    except Exception:
+        # Rollback in reverse order: if we backed up the old
+        # install but the staging rename failed, restore backup
+        # so the system doesn't end up with neither gws/ nor a
+        # recoverable copy.
+        if backed_up and backup.exists() and not gws_dir.exists():
+            try:
+                backup.rename(gws_dir)
+            except Exception:
+                logger.exception('gws install: backup restore failed')
+        # Clean staging if still present
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+
 async def install_skills() -> dict:
     """Materialize ~/.vibe-seller/.claude/skills/gws/.
 
@@ -346,45 +393,15 @@ async def install_skills() -> dict:
         if rc != 0:
             raise RuntimeError(f'gws generate-skills failed: {err.strip()}')
 
-        # Step 2: build a staging dir as a sibling of the final gws/
-        # (same filesystem → rename is atomic).
-        staging = Path(
-            tempfile.mkdtemp(dir=str(skills_dir), prefix='.tmp_gws_')
-        )
-        backup = skills_dir / '.bak_gws'
-        backed_up = False
-        try:
-            # mkdtemp already created it; copytree needs the
-            # destination to not exist, so populate into
-            # subdirs that don't yet exist.
-            _populate_staging(Path(gen_tmp), staging)
-
-            # Step 3: atomic swap. Remove stale backup from any prior
-            # interrupted install first.
-            if backup.exists():
-                shutil.rmtree(backup)
-            if gws_dir.exists():
-                gws_dir.rename(backup)
-                backed_up = True
-            staging.rename(gws_dir)
-            # Success — drop the backup.
-            if backup.exists():
-                shutil.rmtree(backup)
-            backed_up = False
-        except Exception:
-            # Rollback in reverse order: if we backed up the old
-            # install but the staging rename failed, restore backup
-            # so the system doesn't end up with neither gws/ nor a
-            # recoverable copy.
-            if backed_up and backup.exists() and not gws_dir.exists():
-                try:
-                    backup.rename(gws_dir)
-                except Exception:
-                    logger.exception('gws install: backup restore failed')
-            # Clean staging if still present
-            if staging.exists():
-                shutil.rmtree(staging, ignore_errors=True)
-            raise
+        # Steps 2+3: stage the generated skills beside the destination
+        # and swap them in atomically. All blocking filesystem work, one
+        # thread hop, under the skills-tree lock — a task workspace
+        # copying the tree must never catch the swap mid-flight (see
+        # ``app.workspace.skills_tree``).
+        async with skills_tree.hold():
+            await asyncio.to_thread(
+                _stage_and_swap, Path(gen_tmp), skills_dir, gws_dir
+            )
 
     installed = sorted(p.name for p in gws_dir.iterdir() if p.is_dir())
     return {
@@ -398,7 +415,8 @@ async def uninstall_skills() -> dict:
     """Remove ~/.vibe-seller/.claude/skills/gws/. Idempotent."""
     gws_dir = _gws_dir()
     if gws_dir.exists():
-        shutil.rmtree(gws_dir)
+        async with skills_tree.hold():
+            await asyncio.to_thread(shutil.rmtree, gws_dir)
         return {'removed': True}
     return {'removed': False}
 

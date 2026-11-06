@@ -22,6 +22,7 @@ denominator derived from the numerator can never be wrong.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as _dt
 from pathlib import Path
 
@@ -102,7 +103,10 @@ async def check_deliverables(
     if not manifest:
         return None
 
-    report = verify_workspace(
+    # Reading the delivered spreadsheets (zip/xlsx parse) is blocking;
+    # hand it to a thread so a big export cannot stall the loop.
+    report = await asyncio.to_thread(
+        verify_workspace,
         task_root,
         manifest,
         today=today,

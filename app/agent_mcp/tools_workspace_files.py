@@ -14,6 +14,7 @@ knowledge tool; this one is the write-capable superset over the roots
 the UI may edit.
 """
 
+import asyncio
 from pathlib import Path
 import posixpath
 from urllib.parse import quote
@@ -74,6 +75,12 @@ _ACTIONS = (
     'knowledge_status',
     'knowledge_meta',
 )
+
+
+def _read_prefix(path: str, count: int) -> bytes:
+    """Read at most ``count`` bytes of ``path`` (blocking — a thread)."""
+    with open(path, 'rb') as fh:
+        return fh.read(count)
 
 
 def _validated_workspace_path(raw: object) -> str:
@@ -290,8 +297,9 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
             # cut mid–multi-byte-character must not fail an otherwise
             # decodable file, and the dropped tail is far past what
             # the trim shows anyway.
-            with open(raw.path, 'rb') as fh:
-                head = fh.read(_PREVIEW_BYTES + 16)
+            head = await asyncio.to_thread(
+                _read_prefix, raw.path, _PREVIEW_BYTES + 16
+            )
             text = decode_text(head[:-16])
             if text is None:
                 return file_result(

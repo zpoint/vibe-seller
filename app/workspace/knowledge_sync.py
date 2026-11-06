@@ -17,6 +17,7 @@ is no per-module cooldown file any more. Remote sync produces a system
 Event when new content is synced.
 """
 
+import asyncio
 import importlib.resources
 import logging
 import os
@@ -30,6 +31,7 @@ from app.config import AI_BOT_USER_ID, KNOWLEDGE_REPO_URL
 from app.database import async_session
 from app.models.event import Event
 from app.sync import github as github_probe
+from app.workspace.fs_walk import safe_stat, tolerant_rglob
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -81,7 +83,10 @@ class KnowledgeSyncManager:
                 'synced': False,
                 'reason': 'No knowledge/ in installed package',
             }
+        return await asyncio.to_thread(self._fetch_sync, src)
 
+    def _fetch_sync(self, src: Path) -> dict:
+        """Copy the local knowledge tree (blocking — runs in a thread)."""
         self._dest_dir.mkdir(parents=True, exist_ok=True)
         copied = 0
         skipped = 0
@@ -216,35 +221,14 @@ class KnowledgeSyncManager:
                     continue
                 downloads[rel_path] = file_resp.content
 
-            # 3. Mirror upstream. ``knowledge/project/`` is the synced
-            # subtree and nothing else is touched (the agent writes the
-            # knowledge root and stores/ itself): a file upstream
-            # dropped goes away here, so synced content cannot outlive
-            # what it was synced from.
-            self._dest_dir.mkdir(parents=True, exist_ok=True)
-            package = self._package_files()
-            desired = dict(package)
-            desired.update(downloads)
-            existing = self._existing_files()
-            # A listed file that failed to fetch is still upstream's:
-            # keep the local copy and delete nothing this run.
-            for rel in listed - set(downloads):
-                if rel not in package and rel in existing:
-                    desired[rel] = existing[rel].read_bytes()
-            doomed = (
-                []
-                if failed
-                else sorted(
-                    rel
-                    for rel in existing
-                    if rel not in listed and rel not in package
-                )
+            # 3. Mirror upstream — see ``_mirror_download``. Tree
+            # walks, atomic writes and deletes are blocking, so the
+            # whole mirror runs as one thread hop.
+            applied = await asyncio.to_thread(
+                self._mirror_download, downloads, listed, failed
             )
-            if doomed and len(doomed) * 2 > max(len(existing), 1):
-                err = (
-                    f'refusing mass delete ({len(doomed)} of '
-                    f'{len(existing)} knowledge files)'
-                )
+            if applied['error'] is not None:
+                err = applied['error']
                 logger.warning(err)
                 return {
                     'status': 'failed',
@@ -253,27 +237,8 @@ class KnowledgeSyncManager:
                     'skipped': 0,
                     'deleted': 0,
                 }
-
-            copied = 0
-            skipped = 0
-            for rel, content in sorted(desired.items()):
-                if rel in package and rel not in downloads:
-                    # The local fetch owns package files.
-                    skipped += 1
-                    continue
-                if self._install_file(self._dest_dir / rel, content):
-                    copied += 1
-                else:
-                    skipped += 1
-            for rel in doomed:
-                self._remove(self._dest_dir / rel)
-
-            logger.info(
-                'Knowledge sync (remote): %d copied, %d unchanged, %d deleted',
-                copied,
-                skipped,
-                len(doomed),
-            )
+            copied = applied['copied']
+            skipped = applied['skipped']
             if copied:
                 await self._log_sync_event(
                     'success',
@@ -293,7 +258,7 @@ class KnowledgeSyncManager:
                 'status': 'success',
                 'copied': copied,
                 'skipped': skipped,
-                'deleted': len(doomed),
+                'deleted': applied['deleted'],
             }
 
         except Exception as e:
@@ -342,6 +307,79 @@ class KnowledgeSyncManager:
                 continue
             out[f.relative_to(self._dest_dir).as_posix()] = f
         return out
+
+    def _mirror_download(
+        self,
+        downloads: dict[str, bytes],
+        listed: set[str],
+        failed: set[str],
+    ) -> dict:
+        """Make the knowledge tree match upstream (blocking; a thread).
+
+        ``knowledge/project/`` is the synced subtree and nothing else is
+        touched (the agent writes the knowledge root and stores/ itself):
+        a file upstream dropped goes away here, so synced content cannot
+        outlive what it was synced from.
+
+        Returns ``{'error', 'copied', 'skipped', 'deleted'}``; a non-None
+        ``error`` is the mass-deletion refusal and NOTHING was changed.
+        """
+        self._dest_dir.mkdir(parents=True, exist_ok=True)
+        package = self._package_files()
+        desired = dict(package)
+        desired.update(downloads)
+        existing = self._existing_files()
+        # A listed file that failed to fetch is still upstream's:
+        # keep the local copy and delete nothing this run.
+        for rel in listed - set(downloads):
+            if rel not in package and rel in existing:
+                desired[rel] = existing[rel].read_bytes()
+        doomed = (
+            []
+            if failed
+            else sorted(
+                rel
+                for rel in existing
+                if rel not in listed and rel not in package
+            )
+        )
+        if doomed and len(doomed) * 2 > max(len(existing), 1):
+            return {
+                'error': (
+                    f'refusing mass delete ({len(doomed)} of '
+                    f'{len(existing)} knowledge files)'
+                ),
+                'copied': 0,
+                'skipped': 0,
+                'deleted': 0,
+            }
+
+        copied = 0
+        skipped = 0
+        for rel, content in sorted(desired.items()):
+            if rel in package and rel not in downloads:
+                # The local fetch owns package files.
+                skipped += 1
+                continue
+            if self._install_file(self._dest_dir / rel, content):
+                copied += 1
+            else:
+                skipped += 1
+        for rel in doomed:
+            self._remove(self._dest_dir / rel)
+
+        logger.info(
+            'Knowledge sync (remote): %d copied, %d unchanged, %d deleted',
+            copied,
+            skipped,
+            len(doomed),
+        )
+        return {
+            'error': None,
+            'copied': copied,
+            'skipped': skipped,
+            'deleted': len(doomed),
+        }
 
     @staticmethod
     def _remove(path: Path) -> None:
@@ -418,11 +456,15 @@ class KnowledgeSyncManager:
 
     @staticmethod
     def _max_mtime(directory: Path, exclude: set[str] | None = None) -> float:
-        """Return max mtime of files in directory."""
+        """Return max mtime of files in directory.
+
+        A file that vanishes mid-walk (the knowledge mirror runs on a
+        worker thread) is skipped — this is a freshness probe.
+        """
         result = 0.0
         if not directory.is_dir():
             return result
-        for f in directory.rglob('*'):
+        for f in tolerant_rglob(directory):
             if not f.is_file() or f.name.startswith('.'):
                 continue
             if f == directory / 'CATALOG.md':
@@ -430,10 +472,9 @@ class KnowledgeSyncManager:
             rel_parts = f.relative_to(directory).parts
             if exclude and rel_parts and rel_parts[0] in exclude:
                 continue
-            try:
-                result = max(result, f.stat().st_mtime)
-            except OSError:
-                pass
+            stat = safe_stat(f)
+            if stat is not None:
+                result = max(result, stat.st_mtime)
         return result
 
     def catalog_needs_update(
@@ -447,23 +488,20 @@ class KnowledgeSyncManager:
         """
         knowledge_dir = VIBE_SELLER_DIR / 'knowledge'
         l2_cat = knowledge_dir / 'CATALOG.md'
+        l2_stat = safe_stat(l2_cat)
         l2_stale = (
-            not l2_cat.exists()
-            or self._max_mtime(knowledge_dir) > l2_cat.stat().st_mtime
+            l2_stat is None or self._max_mtime(knowledge_dir) > l2_stat.st_mtime
         )
 
         l3_stale = False
         if store_slug:
             store_dir = VIBE_SELLER_DIR / 'stores' / store_slug
             l3_cat = store_dir / 'CATALOG.md'
+            l3_stat = safe_stat(l3_cat)
             l3_stale = (
-                not l3_cat.exists()
-                or self._max_mtime(store_dir) > l3_cat.stat().st_mtime
-                or (
-                    l2_cat.exists()
-                    and l3_cat.exists()
-                    and l2_cat.stat().st_mtime > l3_cat.stat().st_mtime
-                )
+                l3_stat is None
+                or self._max_mtime(store_dir) > l3_stat.st_mtime
+                or (l2_stat is not None and l2_stat.st_mtime > l3_stat.st_mtime)
             )
 
         return l2_stale, l3_stale

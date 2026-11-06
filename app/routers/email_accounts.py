@@ -494,7 +494,7 @@ async def email_info_by_store(
 
     accounts = []
     for _link, acct in rows:
-        init_email_db(acct.id)
+        await asyncio.to_thread(init_email_db, acct.id)
         path = db_path_for_account(acct.id)
         accounts.append({
             'account_id': acct.id,
