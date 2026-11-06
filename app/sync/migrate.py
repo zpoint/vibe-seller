@@ -26,10 +26,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 
 from app.sync import state as sync_state
+from app.utils.json_file import update_json_file
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger('app.sync')
@@ -56,24 +56,6 @@ def _read_json(path: Path) -> dict | None:
     except (OSError, ValueError):
         return None
     return blob if isinstance(blob, dict) else None
-
-
-def _write_json_atomic(path: Path, payload: dict) -> None:
-    """Write ``payload`` so a concurrent reader never sees a torn file.
-
-    Tmp file beside the target + :func:`os.replace`. Raises ``OSError``
-    to the caller (who logs and moves on — the boot must not fail).
-    """
-    tmp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
-    try:
-        tmp.write_text(json.dumps(payload, indent=2), encoding='utf-8')
-        os.replace(tmp, path)
-    except OSError:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-        raise
 
 
 #: What the old writers put in ``status`` when the sync actually
@@ -144,22 +126,17 @@ async def migrate_skills_meta() -> bool:
     if meta is None:
         return False
     imported = await _import_row('skills', meta)
-    # Re-read AFTER the await: the DB import can yield long enough for
-    # a concurrent writer (the boot-time dep install, a remote sync) to
-    # change the file, and trimming the stale pre-await copy would
-    # throw those changes away (#204). Only the schedule keys go, from
-    # the fresh copy; everything else is inventory and stays.
-    fresh = _read_json(path)
-    if fresh is not None and any(key in fresh for key in _SKILLS_SCHEDULE_KEYS):
-        remaining = {
-            key: value
-            for key, value in fresh.items()
-            if key not in _SKILLS_SCHEDULE_KEYS
-        }
-        try:
-            _write_json_atomic(path, remaining)
-        except OSError:
-            logger.warning('Could not trim %s', path, exc_info=True)
+
+    def _trim(fresh: dict) -> None:
+        for key in _SKILLS_SCHEDULE_KEYS:
+            fresh.pop(key, None)
+
+    # Trims a FRESH read (the await can yield to concurrent writers,
+    # #204); a file with nothing schedule-shaped writes nothing.
+    try:
+        update_json_file(path, _trim)
+    except OSError:
+        logger.warning('Could not trim %s', path, exc_info=True)
     return imported
 
 
@@ -224,13 +201,18 @@ async def migrate_presets_cache() -> bool:
             detail=bookkeeping['detail'],
         )
         imported = True
-    # Rewrite the cache as catalog-only, whatever the row said.
-    catalog = {key: blob[key] for key in ('presets', 'models') if key in blob}
-    if catalog:
-        try:
-            _write_json_atomic(path, catalog)
-        except OSError:
-            logger.warning('Could not trim %s', path, exc_info=True)
+    # Rewrite the cache as catalog-only, whatever the row said (same
+    # fresh-read trim as the skills meta; a no-op writes nothing).
+
+    def _catalog_only(fresh: dict) -> None:
+        for key in list(fresh):
+            if key not in ('presets', 'models'):
+                del fresh[key]
+
+    try:
+        update_json_file(path, _catalog_only)
+    except OSError:
+        logger.warning('Could not trim %s', path, exc_info=True)
     return imported
 
 

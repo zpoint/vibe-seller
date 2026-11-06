@@ -26,12 +26,9 @@ import asyncio
 from collections.abc import Callable
 import hashlib
 import importlib.resources
-import json
 import logging
-import os
 from pathlib import Path
 import shutil
-import tempfile
 
 import httpx
 
@@ -41,6 +38,7 @@ from app.models.event import Event
 from app.platform import venv_executable, venv_python
 from app.plugins import registered_skill_sources
 from app.sync import github as github_probe
+from app.utils.json_file import read_json_object, update_json_file
 from app.workspace.manager import VIBE_SELLER_DIR
 from app.workspace.skill_mirror import (
     _COPY_IGNORE,
@@ -329,47 +327,21 @@ class SkillsSyncManager(SkillMirrorMixin):
 
     def _read_sync_meta(self) -> dict:
         """Read .sync_meta.json."""
-        path = self._sync_meta_path
-        if path.exists():
-            try:
-                return json.loads(path.read_text())
-            except Exception:
-                pass
-        return {}
+        return read_json_object(self._sync_meta_path)
 
     def _update_sync_meta(self, mutate: Callable[[dict], None]) -> None:
         """Read-modify-write .sync_meta.json in ONE synchronous step.
 
-        This is the ONLY write path, by design (#204): ``mutate`` is a
-        plain function — it cannot ``await`` — so no caller can hold
-        the dict across an ``await`` (a pip install, a DB write) and
-        write a stale copy back over concurrent changes. Mutations must
-        MERGE their keys into ``meta``, never replace sibling keys.
-
-        The write itself is atomic (tmp file in the same dir +
-        :func:`os.replace`), so a concurrent reader never sees a torn
-        file — a torn read parses as ``{}`` and the next writer would
-        wipe the inventory. The tmp name starts with a dot so the
-        skills dir's scanners (skill discovery, mirror diffing) ignore
-        it even if a crash leaves one behind.
+        Every write to this file goes through the shared
+        :func:`app.utils.json_file.update_json_file` — including the
+        boot migration's legacy-key trim — so this is the manager's
+        only write path (#204). The mutation runs as a plain function:
+        it cannot ``await``, so no caller can hold the dict across an
+        ``await`` (a pip install, a DB write) and write a stale copy
+        back over concurrent changes. Mutations must MERGE their keys
+        into ``meta``, never replace sibling keys.
         """
-        meta = self._read_sync_meta()
-        mutate(meta)
-        path = self._sync_meta_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(
-            dir=str(path.parent), prefix=f'.{path.name}.', suffix='.tmp'
-        )
-        try:
-            with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                json.dump(meta, f, indent=2)
-            os.replace(tmp, str(path))
-        except Exception:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        update_json_file(self._sync_meta_path, mutate)
 
     # ── Google Workspace bundle flag ────────────────────
 
