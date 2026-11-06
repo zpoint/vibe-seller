@@ -119,6 +119,9 @@ jobs:
             if ($LASTEXITCODE -eq 0) { throw "$n is still reachable — the block did not take" }
           }
           Write-Host "Blocked: $($names -join ', ')"
+          # The runner ends a pwsh step with the LAST native exit code —
+          # here the curl that was meant to fail.
+          exit 0
 
       - name: Silent-install the built package
         shell: pwsh
