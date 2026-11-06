@@ -132,6 +132,13 @@ class Options(enum.Enum):
     # seconds between fetches (default 48 h) and 0 disables the loop
     # — which is what tests/conftest.py sets, so nothing under tests/
     # ever reaches GitHub.
+    # Browser engine (app/browser/chromium_engine.py): at boot, install
+    # the Chromium the running Playwright needs if it's missing (an
+    # upgrade that bumped Playwright), and gate Chrome launches on it.
+    # tests/conftest.py turns it off so no test boot runs a Playwright
+    # subprocess or reaches a CDN.
+    ENSURE_BROWSER_ENGINE = ('VIBE_ENSURE_BROWSER_ENGINE', 'true')
+
     PROVIDER_PRESETS_URL = ('PROVIDER_PRESETS_URL', '')
     PROVIDER_PRESETS_SYNC_INTERVAL_S = (
         'PROVIDER_PRESETS_SYNC_INTERVAL_S',

@@ -119,6 +119,9 @@ else:
 # 48 h intervals after); tests that exercise the loop set the interval
 # explicitly. Same ``setdefault`` contract as telemetry above.
 os.environ.setdefault('PROVIDER_PRESETS_SYNC_INTERVAL_S', '0')
+# Same for the boot-time browser-engine check: it runs a Playwright
+# subprocess and may download Chromium. Its own tests enable it.
+os.environ.setdefault('VIBE_ENSURE_BROWSER_ENGINE', 'false')
 
 from collections.abc import AsyncGenerator  # noqa: E402
 from datetime import UTC, datetime  # noqa: E402

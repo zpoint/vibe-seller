@@ -4,11 +4,10 @@
 ; CPython (python-build-standalone), the app + deps as offline wheels,
 ; uv (fast installer), Git for Windows (git + bash + curl/perl for
 ; Claude Code's Bash tool and the browser-use wrapper),
-; and the Anthropic claude CLI. A system-tray launcher (tray.py, run via
-; the bundled pythonw.exe) starts the server on login and offers
-; Open / Restart / Quit. Browser engine is Playwright Chromium,
-; downloaded at install (needs network); driving the user's system
-; Chrome/Edge is a planned follow-up.
+; the Anthropic claude CLI, and the Playwright Chromium build the app's
+; chrome backend drives — so installing needs no network at all. A
+; system-tray launcher (tray.py, run via the bundled pythonw.exe) starts
+; the server on login and offers Open / Restart / Quit.
 ;
 ; The staging tree is assembled by build.ps1 on a Windows CI runner and
 ; passed in via:  ISCC /DStagingDir=<path>  /DAppVersion=<x.y.z>
@@ -20,6 +19,12 @@
 #endif
 #ifndef AppVersion
   #define AppVersion "0.0.0"
+#endif
+; Comma-separated ms-playwright subdirs bundled under {#StagingDir}\
+; ms-playwright (e.g. chromium-1243,ffmpeg-1011), passed by build.ps1.
+; Empty for a build without the browser bundle.
+#ifndef BrowserDirs
+  #define BrowserDirs ""
 #endif
 
 #define AppName "Vibe Seller"
@@ -101,6 +106,18 @@ Source: "{#StagingDir}\uv.exe";    DestDir: "{app}";         Flags: ignoreversio
 Source: "{#StagingDir}\tray.py";   DestDir: "{app}";         Flags: ignoreversion
 Source: "{#StagingDir}\dialogs.py"; DestDir: "{app}";        Flags: ignoreversion
 Source: "{#StagingDir}\vibe-seller.ico"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+#if DirExists(AddBackslash(StagingDir) + "ms-playwright")
+; Playwright Chromium (+ headless shell, ffmpeg, winldd), prebuilt by
+; build.ps1 for exactly the Playwright in this bundle. It lands in
+; Playwright's default per-user browser dir, where the app's Playwright
+; finds it with no env var — each dir carries the INSTALLATION_COMPLETE
+; marker, so the post-install `playwright install` has nothing to fetch.
+; The markers go in a SECOND entry so they land only after every file
+; they vouch for: an install killed midway must leave a dir Playwright
+; sees as incomplete (and re-fetches), never one that merely looks done.
+Source: "{#StagingDir}\ms-playwright\*"; DestDir: "{localappdata}\ms-playwright"; Excludes: "INSTALLATION_COMPLETE"; Flags: recursesubdirs createallsubdirs ignoreversion
+Source: "{#StagingDir}\ms-playwright\INSTALLATION_COMPLETE"; DestDir: "{localappdata}\ms-playwright"; Flags: recursesubdirs createallsubdirs ignoreversion
+#endif
 
 [Run]
 ; The runtime venv (uv venv + uv pip install) and browser engine are
@@ -170,23 +187,26 @@ begin
       mbCriticalError, MB_OK, IDOK);
 end;
 
-// Kill processes whose executable lives under the ACTUAL install dir
-// ({app}). The dir-selection page is enabled, so a user can install
-// somewhere other than ...\VibeSeller — matching a hard-coded
-// '\VibeSeller\' substring would then miss the processes, leaving
-// python/pythonw running and reintroducing the partial-.venv
-// uninstall/reinstall failure. NameClause (may be empty) is an extra
-// Where-Object predicate ending in ' -and '; on uninstall it restricts
-// the kill to python/pythonw so the uninstaller (unins000.exe, also
-// under {app}) is never killed.
-procedure KillAppProcesses(NameClause: String);
+function PsQuote(const S: String): String;
+var
+  Q: String;
+begin
+  // PowerShell single-quoted literal; a path like C:\Users\O'Brien\...
+  // must not end the string early.
+  Q := S;
+  StringChangeEx(Q, '''', '''''', True);
+  Result := '''' + Q + '''';
+end;
+
+// Stop every process matching PathClause (a PowerShell boolean over
+// $_.ExecutablePath). NameClause (may be empty) is an extra Where-Object
+// predicate ending in ' -and '.
+procedure KillProcessesWhere(PathClause, NameClause: String);
 var
   ResultCode: Integer;
   Filter: String;
 begin
-  // Match processes launched from the ACTUAL install dir ({app}).
-  Filter := '{ ' + NameClause + '$_.ExecutablePath -like ''' +
-    ExpandConstant('{app}') + '\*'' }';
+  Filter := '{ ' + NameClause + '(' + PathClause + ') }';
   // Kill AND WAIT until they are actually gone (or 30s elapse). A single
   // Stop-Process returns before the OS finishes tearing the process down
   // and releasing its file handles, so a plain kill races the subsequent
@@ -203,6 +223,87 @@ begin
     '-ErrorAction SilentlyContinue };' +
     'Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline)"',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+// Kill processes whose executable lives under the ACTUAL install dir
+// ({app}). The dir-selection page is enabled, so a user can install
+// somewhere other than ...\VibeSeller — matching a hard-coded
+// '\VibeSeller\' substring would then miss the processes, leaving
+// python/pythonw running and reintroducing the partial-.venv
+// uninstall/reinstall failure. On uninstall NameClause restricts the
+// kill to python/pythonw so the uninstaller (unins000.exe, also under
+// {app}) is never killed.
+procedure KillAppProcesses(NameClause: String);
+begin
+  KillProcessesWhere('$_.ExecutablePath -like ' +
+    PsQuote(ExpandConstant('{app}') + '\*'), NameClause);
+end;
+
+// Pops the next name off a comma-separated list (BrowserDirs).
+function BundledBrowserDir(var Rest: String): String;
+var
+  P: Integer;
+begin
+  P := Pos(',', Rest);
+  if P = 0 then begin
+    Result := Rest;
+    Rest := '';
+  end else begin
+    Result := Copy(Rest, 1, P - 1);
+    Delete(Rest, 1, P);
+  end;
+  Result := Trim(Result);
+end;
+
+procedure KillAppBrowsers;
+var
+  Rest, D, Clause, Pw: String;
+begin
+  // A Chromium the chrome backend launched outlives the server
+  // KillAppProcesses stops: `vibe-seller stop` TerminateProcess-es the
+  // server and Windows doesn't take children down with the parent. Two
+  // kinds have to go before we touch anything:
+  //
+  // 1. Ours, by OWNERSHIP, whatever revision it runs: any Playwright
+  //    Chromium whose command line uses Vibe Seller's store profiles
+  //    (--user-data-dir=...\browser_profiles\<slug>). Upgrades usually
+  //    bring a new Playwright and so a new revision dir, so an orphan
+  //    from the OLD revision would keep holding its store's profile —
+  //    and Chrome refuses a second instance on a held profile, so that
+  //    store could not launch again until a reboot.
+  // 2. Anything running FROM the revision dirs this build ships: it
+  //    locks files [Files] is about to overwrite or the uninstaller to
+  //    remove.
+  //
+  // Never all of ms-playwright, so other apps' browsers on other
+  // revisions are left alone.
+  Pw := ExpandConstant('{localappdata}\ms-playwright\');
+  Clause := '($_.ExecutablePath -like ' + PsQuote(Pw + '*') +
+    ' -and $_.CommandLine -like ''*\browser_profiles\*'')';
+  Rest := '{#BrowserDirs}';
+  while Rest <> '' do begin
+    D := BundledBrowserDir(Rest);
+    if D <> '' then
+      Clause := Clause + ' -or $_.ExecutablePath -like ' +
+        PsQuote(Pw + D + '\*');
+  end;
+  KillProcessesWhere(Clause, '');
+end;
+
+procedure RemoveBundledBrowsers;
+var
+  Rest, D: String;
+begin
+  // Inno removes the files it installed but leaves each dir behind once
+  // Playwright has written a runtime marker (DEPENDENCIES_VALIDATED)
+  // into it; drop the whole bundled revision dir on uninstall.
+  Rest := '{#BrowserDirs}';
+  while Rest <> '' do begin
+    D := BundledBrowserDir(Rest);
+    if D <> '' then
+      DelTree(ExpandConstant('{localappdata}\ms-playwright\') + D,
+        True, True, True);
+  end;
 end;
 
 function VenvIsReady: Boolean;
@@ -345,22 +446,25 @@ begin
           'Vibe Seller could not create its Python environment.'#13#10#13#10 +
           'Please fully quit Vibe Seller from the system tray, then run ' +
           'the installer again.');
-    // Browser engine for the chrome backend. Best-effort so a network
-    // blip doesn't abort the whole install — but NOT auto-fetched at
-    // runtime: the chrome backend drives Playwright's bundled Chromium,
-    // so if this download fails the app still starts and the UI works,
-    // yet chrome-backend browser tasks fail to launch until the engine
-    // is present (re-run the installer, or `playwright install chromium`
-    // in the venv). A follow-up switches to the user's installed
-    // Chrome/Edge, removing this step.
+    // Browser engine for the chrome backend. A bundled build has already
+    // laid the exact Chromium revision down via [Files], each dir with
+    // its INSTALLATION_COMPLETE marker, so this is an offline,
+    // sub-second no-op whose job is to register the install under
+    // ms-playwright\.links (without it, another Playwright's
+    // `playwright install` would garbage-collect our browsers as
+    // unreferenced) — and a safety net that downloads only if the
+    // bundle is somehow missing a piece. CI proves the no-download half
+    // with the Playwright CDN blocked (windows-installer.yml).
     //
-    // This runs on EVERY install, by design: each build ships the
-    // latest Playwright, and a new Playwright needs its own Chromium
-    // revision. With an unchanged Playwright `playwright install` is a
-    // sub-second no-op; after a bump it downloads ~250 MB. Say which,
-    // so an upgrade's download isn't labelled "first run only".
+    // An unbundled build (no browser dirs staged) still downloads here.
+    // Best-effort either way: if anything is still missing, the server
+    // installs it at startup (app/browser/chromium_engine.py) and Chrome
+    // launches report "still downloading" until it's done.
     NewVer := InstalledPlaywrightVersion;
-    if PrevPlaywrightVersion = '' then
+    if '{#BrowserDirs}' <> '' then
+      SetStatus('Setting up the bundled browser engine (Playwright ' +
+        NewVer + ')...')
+    else if PrevPlaywrightVersion = '' then
       SetStatus('Downloading browser engine (Playwright ' + NewVer +
         ')...')
     else if PrevPlaywrightVersion <> NewVer then
@@ -371,6 +475,7 @@ begin
         ')...');
     Exec(ExpandConstant('{app}\.venv\Scripts\playwright.exe'),
       'install chromium', '', SW_HIDE, ewWaitUntilTerminated, Rc);
+    Log('playwright install chromium exit code: ' + IntToStr(Rc));
   end;
 end;
 
@@ -391,6 +496,9 @@ begin
   Exec(ExpandConstant('{app}\.venv\Scripts\vibe-seller.exe'), 'stop',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   KillAppProcesses('');
+  // A store's Chromium outlives the killed server: it holds its store's
+  // profile and may lock bundled files [Files] is about to overwrite.
+  KillAppBrowsers;
   Result := '';
 end;
 
@@ -402,7 +510,13 @@ begin
   // that file survives uninstall, leaving a partial .venv that breaks the
   // next install's `uv venv`. Restrict to python/pythonw so we never kill
   // the uninstaller (unins000.exe also lives under {app}).
-  if CurUninstallStep = usUninstall then
+  if CurUninstallStep = usUninstall then begin
     KillAppProcesses('($_.Name -eq ''pythonw.exe'' -or ' +
       '$_.Name -eq ''python.exe'') -and ');
+    // Same for a store's Chromium (any revision) and anything running
+    // from the bundled browser dirs: they'd keep files locked past it.
+    KillAppBrowsers;
+  end;
+  if CurUninstallStep = usPostUninstall then
+    RemoveBundledBrowsers;
 end;

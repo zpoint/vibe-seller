@@ -15,6 +15,7 @@ from app.ai.claude_backend_manager import agent_manager
 from app.ai.provider_presets_sync import sync_loop as presets_sync_loop
 from app.ai.skill_gate_loader import preload_skill_gates
 from app.api_token_scope import ApiTokenScopeMiddleware
+from app.browser import chromium_engine
 from app.browser.daemon_reaper import start_reaper_loop
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
@@ -245,6 +246,12 @@ async def lifespan(app: FastAPI):
     # it). Background, never awaited: boot must not wait on GitHub,
     # and a down GitHub just leaves the bundled catalog in place.
     presets_sync_task = asyncio.create_task(presets_sync_loop())
+    # Install the Chromium the running Playwright needs if it's missing —
+    # an upgrade that bumped Playwright leaves Chrome stores without it,
+    # and only this (new) process can know. Background, never awaited;
+    # Chrome launches meanwhile fail fast with a clear "downloading"
+    # error. Off under tests (VIBE_ENSURE_BROWSER_ENGINE).
+    chromium_engine.start_background_check()
     # Start any plugin-registered background services (e.g. a customer
     # alerting/monitoring service). Core ships none, so this is a no-op
     # in an OSS-only install. A done-callback surfaces a crashing service
@@ -284,6 +291,8 @@ async def lifespan(app: FastAPI):
                 await t
             except asyncio.CancelledError:
                 pass
+    # Kills an in-flight `playwright install` child.
+    await chromium_engine.stop()
     await task_queue_scheduler.stop()
     stop_scheduler()
     # Reap running task agents so a graceful (SIGTERM) shutdown never

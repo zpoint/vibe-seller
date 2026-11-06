@@ -89,9 +89,11 @@ flowchart LR
 <details open markdown="1">
 <summary><b>🪟 Windows —— 原生安装包（推荐）</b></summary>
 
-无需 WSL，无需配置 Python。从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
+从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
 > 需要 **Windows 10 1809 / Windows Server 2019 或更高版本**（64 位）。内置的 Claude Code 在更旧的系统（如 Server 2016）上无法启动，安装程序会直接拒绝安装。
+>
+> 为了提高安装成功率，所有依赖（Python 运行环境、Claude Code、Git 和 Chrome 浏览器引擎）都已打包在安装包里，安装时不需要再联网下载任何依赖；因此安装包较大，约 650MB。
 
 或在 **PowerShell** 里：
 
@@ -104,16 +106,30 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 <details open markdown="1">
 <summary><b>🍎 macOS / 🐧 Linux</b></summary>
 
+安装：
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
 
-打开 <http://localhost:7777>。升级：`vibe-seller upgrade`（会一并升级它使用的 Claude Code）。卸载：`uv tool uninstall vibe-seller`。
+打开 <http://localhost:7777>。
 
-<sub>想抢先用每日构建（夜间版，`main` 有新提交才发，可能不稳定）：`curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`；Windows 用 `$env:VIBE_SELLER_CHANNEL='nightly'` 后再跑上面的 PowerShell 命令，或从 [nightly 发布](https://github.com/zpoint/vibe-seller/releases/tag/nightly) 下载安装包。夜间版只会收到更新的夜间版或正式版提示；正式版永远不会被提示升级到夜间版。回到正式版：`vibe-seller upgrade --stable`。</sub>
+> Chrome 浏览器引擎（Chromium，约 250 MB）会在安装时下载。
 
-<sub>环境要求（<code>install.sh</code> 自动处理）：Python 3.11+（经 <a href="https://docs.astral.sh/uv/"><code>uv</code></a>）、Node.js 22+。</sub>
+升级：
+
+```bash
+vibe-seller upgrade
+```
+
+会一并升级它使用的 Claude Code。
+
+卸载：
+
+```bash
+uv tool uninstall vibe-seller
+```
 
 </details>
 

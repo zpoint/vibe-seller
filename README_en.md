@@ -116,9 +116,11 @@ scratch.
 <details open>
 <summary><b>🪟 Windows — native installer (recommended)</b></summary>
 
-No WSL, no Python setup. Download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
+Download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
 
 > Requires **Windows 10 version 1809 / Windows Server 2019 or later** (64-bit). The bundled Claude Code cannot start on older systems (e.g. Server 2016), so the installer refuses to install there.
+>
+> To make installation more reliable, every dependency (the Python runtime, Claude Code, Git and the Chrome browser engine) is bundled in the installer, so nothing else is downloaded during setup. That makes the installer larger: about 650 MB.
 
 Or, in **PowerShell**:
 
@@ -131,16 +133,30 @@ irm https://raw.githubusercontent.com/zpoint/vibe-seller/main/installer/windows/
 <details open>
 <summary><b>🍎 macOS / 🐧 Linux</b></summary>
 
+Install:
+
 ```bash
 curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash
 vibe-seller start
 ```
 
-Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade` (also upgrades the Claude Code CLI it runs). Uninstall: `uv tool uninstall vibe-seller`.
+Open <http://localhost:7777>.
 
-<sub>Nightly builds (published only when `main` has new commits; may be unstable): `curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`. On Windows, set `$env:VIBE_SELLER_CHANNEL='nightly'` before the PowerShell one-liner, or download the installer from the [nightly release](https://github.com/zpoint/vibe-seller/releases/tag/nightly). A nightly install is offered newer nightlies or stable releases; a stable install is never offered a nightly. Back to stable: `vibe-seller upgrade --stable`.</sub>
+> The Chrome browser engine (Chromium, about 250 MB) is downloaded during install.
 
-<sub>Prerequisites (auto-handled by <code>install.sh</code>): Python 3.11+ via <a href="https://docs.astral.sh/uv/"><code>uv</code></a>, Node.js 22+.</sub>
+Upgrade:
+
+```bash
+vibe-seller upgrade
+```
+
+This also upgrades the Claude Code CLI it runs.
+
+Uninstall:
+
+```bash
+uv tool uninstall vibe-seller
+```
 
 </details>
 
