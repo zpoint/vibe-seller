@@ -154,7 +154,12 @@ class SkillMirrorMixin:
             out[f.relative_to(self._dest_dir).as_posix()] = f
         return out
 
-    def _apply_downloads(self, downloads: dict[str, bytes]) -> dict:
+    def _apply_downloads(
+        self,
+        downloads: dict[str, bytes],
+        listed: set[str],
+        failed: set[str],
+    ) -> dict:
         """Make the synced tree match upstream, atomically.
 
         MIRROR semantics: the desired content of every skill sync owns
@@ -180,35 +185,56 @@ class SkillMirrorMixin:
         self._dest_dir.mkdir(parents=True, exist_ok=True)
         package = self._package_files()
         existing = self._existing_files()
+        if failed:
+            # A listed file we could not fetch is NOT upstream-dropped:
+            # the transient 404/500 must not delete the local copy of a
+            # file upstream still ships. Nothing is deleted this run and
+            # the failed file keeps whatever is on disk.
+            logger.warning(
+                '%d listed file(s) failed to download; keeping the tree',
+                len(failed),
+            )
         # What each owned file should end up as. Manifest files are
         # remote's to write; package files are the LOCAL fetch's — remote
         # keeps whatever is on disk (and only materialises one that is
         # missing), so remote can delete what upstream dropped without
         # ever overwriting what the package ships.
         desired: dict[str, bytes] = {}
-        for rel in set(package) | set(downloads):
+        for rel in set(package) | listed:
             if rel in downloads:
                 desired[rel] = downloads[rel]
                 continue
+            if rel in package:
+                desired[rel] = package[rel]
+                continue
+            # Listed but not fetched (or fetched and failed): keep the
+            # local copy. It is upstream's file either way.
             have = existing.get(rel)
-            desired[rel] = have.read_bytes() if have else package[rel]
+            if have is not None:
+                desired[rel] = have.read_bytes()
         synced = self.get_synced_skills()
 
-        manifest_dirs = {
-            rel.split('/', 1)[0] for rel in downloads if '/' in rel
-        }
+        # A skill counts as upstream if the MANIFEST lists any file
+        # under it — regardless of whether that file downloaded.
+        manifest_dirs = {rel.split('/', 1)[0] for rel in listed if '/' in rel}
         upstream_dirs = {rel.split('/', 1)[0] for rel in desired if '/' in rel}
         owned_dirs = synced | upstream_dirs
 
         # ── what would go away ─────────────────────────────
-        doomed_dirs = sorted(d for d in synced if d not in upstream_dirs)
+        doomed_dirs = (
+            []
+            if failed
+            else sorted(d for d in synced if d not in upstream_dirs)
+        )
         doomed_files = [
             rel
             for rel in existing
-            if '/' in rel
+            if not failed
+            and '/' in rel
             and rel.split('/', 1)[0] in owned_dirs
             and rel.split('/', 1)[0] not in doomed_dirs
-            and rel not in desired
+            and rel not in listed
+            and rel not in package
         ]
         if self._guard_mass_delete(
             doomed_dirs=doomed_dirs,
@@ -320,6 +346,7 @@ class SkillMirrorMixin:
             'deleted': len(doomed_dirs) + len(doomed_files),
             'needs_restart': needs_restart,
             'refused': None,
+            'failed': len(failed),
         }
 
     def _guard_mass_delete(

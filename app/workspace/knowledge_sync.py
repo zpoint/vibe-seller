@@ -180,6 +180,8 @@ class KnowledgeSyncManager:
 
             # 2. Download into memory (all awaits end here).
             downloads: dict[str, bytes] = {}
+            listed = set(files)
+            failed: set[str] = set()
             local_skips = 0
             for rel_path in files:
                 # Path traversal validation (resolve follows symlinks)
@@ -202,6 +204,7 @@ class KnowledgeSyncManager:
                     file_resp = await client.get(url, timeout=15)
                 except Exception as e:
                     logger.warning('Error downloading %s: %s', rel_path, e)
+                    failed.add(rel_path)
                     continue
                 if file_resp.status_code != 200:
                     logger.warning(
@@ -209,6 +212,7 @@ class KnowledgeSyncManager:
                         rel_path,
                         file_resp.status_code,
                     )
+                    failed.add(rel_path)
                     continue
                 downloads[rel_path] = file_resp.content
 
@@ -222,7 +226,20 @@ class KnowledgeSyncManager:
             desired = dict(package)
             desired.update(downloads)
             existing = self._existing_files()
-            doomed = sorted(rel for rel in existing if rel not in desired)
+            # A listed file that failed to fetch is still upstream's:
+            # keep the local copy and delete nothing this run.
+            for rel in listed - set(downloads):
+                if rel not in package and rel in existing:
+                    desired[rel] = existing[rel].read_bytes()
+            doomed = (
+                []
+                if failed
+                else sorted(
+                    rel
+                    for rel in existing
+                    if rel not in listed and rel not in package
+                )
+            )
             if doomed and len(doomed) * 2 > max(len(existing), 1):
                 err = (
                     f'refusing mass delete ({len(doomed)} of '
@@ -262,6 +279,16 @@ class KnowledgeSyncManager:
                     'success',
                     f'Synced {copied} files from remote',
                 )
+            if failed:
+                err = f'{len(failed)} files failed to download'
+                logger.warning('Knowledge sync (remote): %s', err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': copied,
+                    'skipped': skipped,
+                    'deleted': 0,
+                }
             return {
                 'status': 'success',
                 'copied': copied,

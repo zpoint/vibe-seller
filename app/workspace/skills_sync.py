@@ -469,6 +469,8 @@ class SkillsSyncManager(SkillMirrorMixin):
 
             # 2. Download each file into memory. All awaits end here.
             downloads: dict[str, bytes] = {}
+            listed = set(files)
+            failed: set[str] = set()
             local_skips = 0
             for rel_path in files:
                 # Path traversal validation (resolve follows symlinks)
@@ -492,6 +494,7 @@ class SkillsSyncManager(SkillMirrorMixin):
                     file_resp = await client.get(url, timeout=15)
                 except Exception as e:
                     logger.warning('Error downloading %s: %s', rel_path, e)
+                    failed.add(rel_path)
                     continue
                 if file_resp.status_code != 200:
                     logger.warning(
@@ -499,11 +502,26 @@ class SkillsSyncManager(SkillMirrorMixin):
                         rel_path,
                         file_resp.status_code,
                     )
+                    failed.add(rel_path)
                     continue
                 downloads[rel_path] = file_resp.content
 
             # 3. Put it on disk, atomically.
-            applied = self._apply_downloads(downloads)
+            applied = self._apply_downloads(downloads, listed, failed)
+            if applied.get('failed'):
+                # A listed file we could not fetch is not an upstream
+                # deletion: keep the tree, keep last_ok_at where it is,
+                # and retry next cadence.
+                err = f'{applied["failed"]} files failed to download'
+                logger.warning('Skills sync (remote): %s', err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': applied['copied'],
+                    'skipped': applied['skipped'],
+                    'deleted': 0,
+                    'needs_restart': applied['needs_restart'],
+                }
             if applied.get('refused'):
                 err = str(applied['refused'])
                 logger.warning('Skills sync (remote): %s', err)

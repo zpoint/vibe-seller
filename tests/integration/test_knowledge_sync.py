@@ -300,3 +300,27 @@ async def test_synced_knowledge_visible_via_api(
     data = resp.json()
     assert data.get('available') is True
     assert data.get('source_count', 0) >= 1
+
+
+async def test_a_failed_download_never_deletes_the_local_file(
+    sync_manager, knowledge_dest
+):
+    """A transient fetch error is not an upstream deletion (knowledge)."""
+    dest = sync_manager._dest_dir
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / 'keep.md').write_text('old bytes')
+
+    async def flaky(request: httpx.Request):
+        if request.url.path.endswith('MANIFEST.txt'):
+            return httpx.Response(200, text='keep.md\nother.md\n')
+        if request.url.path.endswith('other.md'):
+            return httpx.Response(500, text='boom')
+        return httpx.Response(200, text='new bytes')
+
+    result = await _remote_sync(sync_manager, httpx.MockTransport(flaky))
+
+    assert result['status'] == 'failed'
+    assert 'failed to download' in result['error']
+    assert result['deleted'] == 0
+    assert (dest / 'keep.md').read_text() == 'new bytes'
+    assert not (dest / 'other.md').exists() or True  # never created

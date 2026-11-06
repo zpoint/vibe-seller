@@ -6,6 +6,7 @@ makes a truncated or hostile manifest unable to wipe a tree, and the
 restart precision (only a changed gate FILE needs one).
 """
 
+import httpx
 import pytest
 
 from app.sync import github as github_probe
@@ -242,3 +243,63 @@ async def test_removing_a_gated_skill_needs_a_restart(mgr, fake, monkeypatch):
     result = await sync_with(mgr, fake, monkeypatch)
     assert result['deleted'] == 1
     assert result['needs_restart'] is True
+
+
+async def test_a_failed_download_never_deletes_the_local_file(
+    mgr, fake, monkeypatch
+):
+    """A transient fetch error is not an upstream deletion.
+
+    The upstream set is what the MANIFEST LISTS, not what happened to
+    download: one 500 on one file must not delete the user's copy of a
+    file upstream still ships. Nothing is deleted, the failed file
+    keeps its bytes, and the run is a failure so ``last_ok_at`` does
+    not move and the job retries next cadence.
+    """
+    plant(mgr, 'widget-006/SKILL.md', 'old skill')
+    plant(mgr, 'widget-006/EXTRA.md', 'old extra')
+    mgr._update_synced_skills(['widget-006'])
+    manifest(fake, 'widget-006/SKILL.md', 'widget-006/EXTRA.md')
+
+    def flaky(request):
+        if request.url.path.endswith('EXTRA.md'):
+            return httpx.Response(500, text='boom')
+        return fake.handler(request)
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(flaky)
+    ) as client:
+        result = await mgr.do_remote_sync(client)
+
+    assert result['status'] == 'failed'
+    assert 'failed to download' in result['error']
+    assert result['deleted'] == 0
+    # the file that DID download landed ...
+    assert (mgr._dest_dir / 'widget-006' / 'SKILL.md').read_text() == (
+        'upstream:widget-006/SKILL.md'
+    )
+    # ... and the one that did not kept its local bytes.
+    assert (mgr._dest_dir / 'widget-006' / 'EXTRA.md').read_text() == (
+        'old extra'
+    )
+
+
+async def test_a_skill_known_only_by_a_failed_file_is_not_deleted(
+    mgr, fake, monkeypatch
+):
+    """Rule 3: a skill dir counts as upstream if the manifest lists any
+    file under it, regardless of download success."""
+    plant(mgr, 'widget-006/SKILL.md', 'old')
+    mgr._update_synced_skills(['widget-006'])
+    manifest(fake, 'widget-006/SKILL.md')
+
+    def flaky(request):
+        return httpx.Response(500, text='boom')
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(flaky)
+    ) as client:
+        result = await mgr.do_remote_sync(client)
+
+    assert result['status'] == 'failed'
+    assert (mgr._dest_dir / 'widget-006' / 'SKILL.md').read_text() == 'old'
