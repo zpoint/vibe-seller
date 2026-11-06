@@ -140,11 +140,9 @@ vibe-seller start
 
 Open <http://localhost:7777>. Upgrade: `vibe-seller upgrade` (also upgrades the Claude Code CLI it runs). Uninstall: `uv tool uninstall vibe-seller`.
 
+> The Chrome browser engine (Chromium, about 250 MB) is downloaded during install.
+
 <sub>Nightly builds (published only when `main` has new commits; may be unstable): `curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`. On Windows, set `$env:VIBE_SELLER_CHANNEL='nightly'` before the PowerShell one-liner, or download the installer from the [nightly release](https://github.com/zpoint/vibe-seller/releases/tag/nightly). A nightly install is offered newer nightlies or stable releases; a stable install is never offered a nightly. Back to stable: `vibe-seller upgrade --stable`.</sub>
-
-<sub>Prerequisites (auto-handled by <code>install.sh</code>): Python 3.11+ via <a href="https://docs.astral.sh/uv/"><code>uv</code></a>, Node.js 22+.</sub>
-
-<sub>The Chrome browser engine (Chromium, about 250 MB) is downloaded during install. Before downloading, <code>install.sh</code> measures the official source (cdn.playwright.dev) against a China mirror (npmmirror) and uses the faster one. It never picks a mirror that is missing a file, and if a mirror download fails it retries from the official source. To choose the source yourself, set <code>PLAYWRIGHT_DOWNLOAD_HOST</code> first; the speed test is then skipped. If an upgrade needs a newer Chromium, the server downloads it in the background on its next start, by the same rules; or run <code>vibe-seller install-browser</code> yourself.</sub>
 
 </details>
 

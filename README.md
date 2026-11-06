@@ -109,11 +109,9 @@ vibe-seller start
 
 打开 <http://localhost:7777>。升级：`vibe-seller upgrade`（会一并升级它使用的 Claude Code）。卸载：`uv tool uninstall vibe-seller`。
 
+> Chrome 浏览器引擎（Chromium，约 250 MB）会在安装时下载。
+
 <sub>想抢先用每日构建（夜间版，`main` 有新提交才发，可能不稳定）：`curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`；Windows 用 `$env:VIBE_SELLER_CHANNEL='nightly'` 后再跑上面的 PowerShell 命令，或从 [nightly 发布](https://github.com/zpoint/vibe-seller/releases/tag/nightly) 下载安装包。夜间版只会收到更新的夜间版或正式版提示；正式版永远不会被提示升级到夜间版。回到正式版：`vibe-seller upgrade --stable`。</sub>
-
-<sub>环境要求（<code>install.sh</code> 自动处理）：Python 3.11+（经 <a href="https://docs.astral.sh/uv/"><code>uv</code></a>）、Node.js 22+。</sub>
-
-<sub>Chrome 浏览器引擎（Chromium，约 250 MB）会在安装时下载。<code>install.sh</code> 下载前会先分别测一下官方源（cdn.playwright.dev）和国内镜像（npmmirror）的速度，用快的那个；镜像缺文件时不会选它，镜像下载失败也会自动改回官方源重试。如果想指定下载源，可以先设置 <code>PLAYWRIGHT_DOWNLOAD_HOST</code>，设置了就不再测速。升级后如果新版本需要新的 Chromium，服务启动时会按同样的规则在后台自动下载；也可以手动运行 <code>vibe-seller install-browser</code>。</sub>
 
 </details>
 
