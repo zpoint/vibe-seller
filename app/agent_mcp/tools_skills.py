@@ -17,8 +17,10 @@ from app.agent_mcp.support import (
     require,
     trim,
 )
-from app.routers import workspace as workspace_route
+from app.routers import sync as sync_route, workspace as workspace_route
 from app.schemas.workspace import SkillCreateRequest, SkillSaveRequest
+from app.sync import state as sync_state
+from app.sync.jobs import SKILLS_JOB
 
 _ACTIONS = ('list', 'get', 'create', 'update', 'delete', 'sync', 'sync_meta')
 
@@ -104,11 +106,11 @@ async def manage_skill(ctx: McpContext, args: dict) -> dict:
         return {'skills': skills}
 
     if action == 'sync':
-        return await call_route(workspace_route.sync_skills, _user=ctx.user)
+        # A manual sync is the scheduler's manual run (force: pressing
+        # Sync means "stop trusting what we have"), not a private path.
+        return await call_route(sync_route.run_sync, SKILLS_JOB, _user=ctx.user)
     if action == 'sync_meta':
-        return await call_route(
-            workspace_route.skills_sync_meta, _user=ctx.user
-        )
+        return await sync_state.get_dict(SKILLS_JOB) or {}
 
     if action == 'create':
         name = require(args, 'name')

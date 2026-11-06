@@ -10,10 +10,8 @@ Fetch → parse → validate → cache → serve:
 
 * **Fetch** ``raw.githubusercontent.com/.../app/ai/provider_presets.py``
   (``PROVIDER_PRESETS_URL`` overrides), capped at
-  :data:`MAX_BODY_BYTES` (enforced while streaming, not after), on a
-  background loop
-  (:func:`sync_loop`) whose interval comes from
-  ``PROVIDER_PRESETS_SYNC_INTERVAL_S`` (0 disables it).
+  :data:`MAX_BODY_BYTES` (enforced while streaming, not after), on the
+  central sync scheduler's ``presets`` job (app/sync/jobs.py).
 * **Parse** with :mod:`ast` + :func:`ast.literal_eval`, reading ONLY
   the top-level ``PROVIDER_PRESETS`` / ``PROVIDER_MODELS``
   assignments. The fetched file is data, never code: it is never
@@ -56,7 +54,6 @@ that already exists.
 """
 
 import ast
-import asyncio
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -578,16 +575,21 @@ async def _read_capped(resp: httpx.Response) -> bytes | None:
     return bytes(raw)
 
 
-async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
+async def _fetch_with(
+    client: httpx.AsyncClient, url: str, *, force: bool = False
+) -> dict:
     meta = _read_cache_meta()
     cached_etag = _sane_etag(meta.get('etag'))
     # A conditional GET only when the cached validator applies to
     # what is being served: the cache holds a sane etag, it IS what
     # the accessors serve, and it was fetched from THIS url. Anything
     # else gets a full body — that is what repairs a corrupt cache or
-    # retargets a changed source.
+    # retargets a changed source. ``force`` (a manual sync run) also
+    # takes the full body: the point of pressing the button is to stop
+    # trusting what we already have.
     conditional = (
-        cached_etag is not None
+        not force
+        and cached_etag is not None
         and _current_matches_cache
         and meta.get('source_url') == url
     )
@@ -606,7 +608,11 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
                 }
             # "Not modified" is the answer: nothing read, nothing
             # rewritten, cache mtime untouched.
-            return {'status': 'unchanged', 'sha256': meta.get('sha256')}
+            return {
+                'status': 'unchanged',
+                'sha256': meta.get('sha256'),
+                'etag': meta.get('etag'),
+            }
 
         if resp.status_code != 200:
             return {'status': 'failed', 'error': f'HTTP {resp.status_code}'}
@@ -636,9 +642,10 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
             return {
                 'status': 'unchanged',
                 'sha256': sha,
+                'etag': etag,
                 'meta_refreshed': True,
             }
-        return {'status': 'unchanged', 'sha256': sha}
+        return {'status': 'unchanged', 'sha256': sha, 'etag': etag}
 
     try:
         text = raw.decode('utf-8')
@@ -660,24 +667,29 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
     return {
         'status': 'updated',
         'sha256': sha,
+        'etag': etag,
         'presets': sorted(presets),
     }
 
 
-async def fetch_once(client: httpx.AsyncClient | None = None) -> dict:
+async def fetch_once(
+    client: httpx.AsyncClient | None = None, *, force: bool = False
+) -> dict:
     """One fetch → validate → cache → serve cycle.
 
-    Never raises: every failure keeps the currently served data and
-    is reported in the returned ``{'status': ...}`` dict (``updated``
-    / ``unchanged`` / ``rejected`` / ``failed``).
+    ``force`` skips the conditional GET (a manual sync run wants a
+    real body, not a 304). Never raises: every failure keeps the
+    currently served data and is reported in the returned
+    ``{'status': ...}`` dict (``updated`` / ``unchanged`` /
+    ``rejected`` / ``failed``).
     """
     url = _source_url()
     try:
         if client is not None:
-            result = await _fetch_with(client, url)
+            result = await _fetch_with(client, url, force=force)
         else:
             async with _client_factory() as own:
-                result = await _fetch_with(own, url)
+                result = await _fetch_with(own, url, force=force)
     except Exception as e:
         # A sync must never crash the caller or the loop.
         logger.warning('Provider presets sync failed: %s', e)
@@ -693,35 +705,8 @@ async def fetch_once(client: httpx.AsyncClient | None = None) -> dict:
     return result
 
 
-def _interval_s() -> float:
-    """Seconds between syncs; ``<= 0`` disables the loop entirely.
-
-    An unparseable value falls back to the option's 48 h default
-    (``get_float``) — a typo must not silently disable the sync.
-    """
-    return Options.PROVIDER_PRESETS_SYNC_INTERVAL_S.get_float()
-
-
-async def sync_loop() -> None:
-    """Fetch once at startup, then every configured interval.
-
-    Started from ``lifespan()`` as a background task so it never
-    blocks boot and is cancelled/awaited at shutdown like the rest.
-    Default interval is 48 h (``PROVIDER_PRESETS_SYNC_INTERVAL_S``);
-    ``0`` disables the loop — which is what the test suite sets, so
-    nothing under ``tests/`` ever reaches GitHub. The loop survives
-    any single fetch failure (``fetch_once`` never raises, and the
-    tick is wrapped anyway) and keeps ticking.
-    """
-    interval = _interval_s()
-    if interval <= 0:
-        logger.info('Provider presets sync disabled (interval %s)', interval)
-        return
-    logger.info('Provider presets sync every %.0fs', interval)
-    while True:
-        try:
-            await fetch_once()
-        except Exception:
-            # The loop must outlive any single tick.
-            logger.warning('Provider presets sync tick failed', exc_info=True)
-        await asyncio.sleep(interval)
+# The ``while True: fetch; sleep(48h)`` loop that used to live here is
+# gone. How often the catalog is pulled is no longer a per-module env
+# var: it is the ``presets`` job of the central sync scheduler
+# (app/sync/jobs.py), whose next run comes from the ``sync_state``
+# table.

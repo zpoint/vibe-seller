@@ -7,7 +7,6 @@ on load, and the background fetch loop (shrunk interval, mocked
 transport — no test here touches the network).
 """
 
-import asyncio
 import json
 from pathlib import Path
 
@@ -573,74 +572,6 @@ async def test_declared_oversize_length_rejects_before_reading():
     result = await fetch_with(handler)
     assert result['status'] == 'rejected'
     assert produced == []
-
-
-async def test_zero_interval_disables_the_loop(monkeypatch):
-    monkeypatch.setenv('PROVIDER_PRESETS_SYNC_INTERVAL_S', '0')
-    calls = []
-
-    def handler(request):
-        calls.append(request)
-        return ok_handler(request)
-
-    install_transport(monkeypatch, handler)
-    await asyncio.wait_for(sync.sync_loop(), timeout=5)
-    assert calls == []
-
-
-async def test_loop_ticks_repeatedly_and_applies_updates(monkeypatch):
-    monkeypatch.setenv('PROVIDER_PRESETS_SYNC_INTERVAL_S', '0.05')
-    calls = []
-
-    def handler(request):
-        calls.append(request)
-        # Every tick after the first serves a changed catalog.
-        name = 'Acme Two' if len(calls) > 1 else 'Acme One'
-        return httpx.Response(200, text=acme_source({'name': name}))
-
-    install_transport(monkeypatch, handler)
-    task = asyncio.create_task(sync.sync_loop())
-    await asyncio.sleep(0.4)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    assert len(calls) >= 2
-    assert sync.current_presets()['acme_test']['name'] == 'Acme Two'
-    blob = json.loads(cache_path().read_text())
-    assert blob['presets']['acme_test']['name'] == 'Acme Two'
-
-
-async def test_loop_survives_a_crashing_transport(monkeypatch):
-    monkeypatch.setenv('PROVIDER_PRESETS_SYNC_INTERVAL_S', '0.05')
-    calls = []
-
-    def handler(request):
-        calls.append(request)
-        if len(calls) == 1:
-            raise RuntimeError('transport exploded')
-        return ok_handler(request)
-
-    install_transport(monkeypatch, handler)
-    task = asyncio.create_task(sync.sync_loop())
-    await asyncio.sleep(0.4)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    assert len(calls) >= 2
-    assert 'acme_test' in sync.current_presets()
-
-
-async def test_loop_is_cancelled_cleanly_at_shutdown(monkeypatch):
-    monkeypatch.setenv('PROVIDER_PRESETS_SYNC_INTERVAL_S', '30')
-    install_transport(monkeypatch, ok_handler)
-    task = asyncio.create_task(sync.sync_loop())
-    await asyncio.sleep(0.1)  # let the first fetch land
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert task.done()
 
 
 # ── Conditional GET (ETag / If-None-Match) ──────────────────────

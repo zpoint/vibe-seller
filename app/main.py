@@ -9,10 +9,9 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import ads_skill, telemetry
+from app import telemetry
 from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
-from app.ai.provider_presets_sync import sync_loop as presets_sync_loop
 from app.ai.skill_gate_loader import preload_skill_gates
 from app.api_token_scope import ApiTokenScopeMiddleware
 from app.browser.daemon_reaper import start_reaper_loop
@@ -59,6 +58,7 @@ from app.routers.screenshots import router as screenshots_router
 from app.routers.secrets import router as secrets_router
 from app.routers.sse import router as sse_router
 from app.routers.stores import router as stores_router
+from app.routers.sync import router as sync_router
 from app.routers.system import router as system_router
 from app.routers.tasks import router as tasks_router
 from app.routers.tasks_ad_declaration import (
@@ -82,6 +82,9 @@ from app.scheduler.cron import (
 )
 from app.scheduler.email_sync import sync_all_email_accounts
 from app.scheduler.task_queue import task_queue_scheduler
+from app.sync import jobs as sync_jobs
+from app.sync.scheduler import sync_scheduler
+from app.sync.state import clear_restart_flags
 from app.telemetry_events import TelemetryEvent
 from app.uploads import UploadBodyLimitMiddleware
 from app.version import get_version
@@ -179,6 +182,11 @@ async def lifespan(app: FastAPI):
     # the background below; agent runs await it via their own
     # ensure_init() before launching, so nothing runs without it.
     await workspace_manager.ensure_init(create_venv=False)
+    # Drop half-built sync trees BEFORE anything copies the skills tree
+    # (skills_sync._staging_root): a sync interrupted by a crash must not
+    # leave a staging dir behind for the next task workspace to pick up.
+    skills_sync.sweep_staging()
+    knowledge_sync.sweep_staging()
     # Sync built-in knowledge + skills from package (local, no network).
     # Skill dep installs are deferred to a background task — cold pip
     # installs must not delay /api/health past CI/user boot windows.
@@ -189,6 +197,13 @@ async def lifespan(app: FastAPI):
     # code, so synced (possibly remote) Python can't inject into a running
     # server. See app/ai/skill_gate_loader.py.
     preload_skill_gates()
+    # THIS restart is the one that picked the gates up, so whatever a
+    # previous run flagged as "needs restart" has just been served.
+    await clear_restart_flags()
+    # Every periodic remote sync lives on one scheduler now
+    # (app/sync/jobs.py). Registered after the local sync above so the
+    # first remote tick cannot race the boot-time copy.
+    await sync_jobs.register_jobs(sync_scheduler)
     # Build the shared agent venv in the background (see above).
     venv_task = asyncio.create_task(workspace_manager.ensure_shared_venv())
     # One-shot: drop ignored runtime paths (the app DB above all) from the
@@ -233,18 +248,11 @@ async def lifespan(app: FastAPI):
     sync_task = asyncio.create_task(sync_all_email_accounts())
     # Start periodic daemon reaper (kills orphaned browser-use)
     reaper_task = asyncio.create_task(start_reaper_loop())
-    # Refresh the ads skill bundle if a service is bound. In the
-    # background and never awaited: the bundle the agent loads is
-    # already on disk, so a service that is briefly down must not slow
-    # boot or leave the deployment on an older bundle for ever waiting
-    # for somebody to press something.
-    ads_skill_task = asyncio.create_task(ads_skill.refresh_if_bound())
-    # Auto-sync the AI provider-preset catalog from the project's
-    # main (first fetch immediately, then every
-    # PROVIDER_PRESETS_SYNC_INTERVAL_S; 0 — what tests set — disables
-    # it). Background, never awaited: boot must not wait on GitHub,
-    # and a down GitHub just leaves the bundled catalog in place.
-    presets_sync_task = asyncio.create_task(presets_sync_loop())
+    # The ads skill bundle and the AI provider-preset catalog are kept
+    # fresh by their sync jobs (app/sync/jobs.py) instead of a boot
+    # task each: a job that has never run fires at once, and the ads
+    # skill also runs the moment it can matter (routers/ads.py triggers
+    # it when a store becomes authorized).
     # Start any plugin-registered background services (e.g. a customer
     # alerting/monitoring service). Core ships none, so this is a no-op
     # in an OSS-only install. A done-callback surfaces a crashing service
@@ -274,8 +282,6 @@ async def lifespan(app: FastAPI):
         reaper_task,
         venv_task,
         history_task,
-        ads_skill_task,
-        presets_sync_task,
         *service_tasks,
     ]:
         if not t.done():
@@ -286,6 +292,12 @@ async def lifespan(app: FastAPI):
                 pass
     await task_queue_scheduler.stop()
     stop_scheduler()
+    # In-flight sync runs are OUR asyncio tasks, not APScheduler's —
+    # shutdown(wait=False) leaves them running. Cancel + await them so
+    # a graceful stop never leaves a sync writing into a torn-down
+    # server (that is what surfaces as "Task was destroyed but it is
+    # pending!").
+    await sync_scheduler.drain()
     # Reap running task agents so a graceful (SIGTERM) shutdown never
     # orphans a `claude -p` subtree — an orphan keeps calling
     # `browser/start` on the next server and thrashes the shared Ziniao
@@ -332,6 +344,7 @@ app.include_router(ads_router)
 app.include_router(app_settings_router)
 app.include_router(users_router)
 app.include_router(stores_router)
+app.include_router(sync_router)
 app.include_router(tasks_router)
 app.include_router(tasks_conversation_router)
 app.include_router(tasks_ad_declaration_router)

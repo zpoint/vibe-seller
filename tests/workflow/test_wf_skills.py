@@ -3,29 +3,53 @@
 import pytest
 
 from app.models.app_settings import AppSettings
+from app.sync.scheduler import (
+    Cadence,
+    SyncJob,
+    SyncResult,
+    sync_scheduler,
+)
 
 pytestmark = pytest.mark.workflow
 
 
 class TestSkillsSync:
-    async def test_sync_endpoint(self, admin_client):
-        r = await admin_client.post('/api/workspace/skills/sync')
-        assert r.status_code == 200
-        data = r.json()
-        assert 'status' in data or 'synced' in data
+    """The skills sync is the scheduler's ``skills`` job now.
 
-    async def test_sync_meta_endpoint(self, admin_client):
-        r = await admin_client.get('/api/workspace/skills/sync-meta')
+    The old ``/api/workspace/skills/sync`` + ``/sync-meta`` endpoints
+    are gone; these exercise the replacement.
+    """
+
+    @pytest.fixture
+    async def skills_job(self):
+        async def run(ctx):
+            return SyncResult(status='updated', version='a' * 40)
+
+        sync_scheduler.reset()
+        await sync_scheduler.register(
+            SyncJob(name='skills', cadence=Cadence.DAILY, run=run)
+        )
+        yield
+        sync_scheduler.reset()
+
+    async def test_sync_endpoint(self, admin_client, skills_job):
+        r = await admin_client.post('/api/sync/skills/run')
         assert r.status_code == 200
+        assert r.json()['status'] == 'updated'
+
+    async def test_sync_meta_endpoint(self, admin_client, skills_job):
+        await admin_client.post('/api/sync/skills/run')
+        r = await admin_client.get('/api/sync/status')
+        assert r.status_code == 200
+        row = next(j for j in r.json()['jobs'] if j['name'] == 'skills')
+        assert row['version'] == 'a' * 40
 
 
 class TestSkillsAutoSyncSetting:
     """skills_auto_sync_enabled flag exposed via /api/settings.
 
-    The flag controls the 24h GitHub poll that runs before each
-    task (see app/workspace/skills_sync.py check_and_sync_remote);
-    manual sync via POST /api/workspace/skills/sync is intentionally
-    not gated and is covered by ``TestSkillsSync`` above.
+    The flag gates the scheduled ``skills`` sync job (and nothing
+    else); a manual run is an explicit user action and is not gated.
     """
 
     async def test_get_default_is_true(self, admin_client):

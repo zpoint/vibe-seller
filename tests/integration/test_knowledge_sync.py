@@ -1,7 +1,5 @@
 """Integration tests for knowledge sync: local package + remote fetch."""
 
-from datetime import UTC, datetime, timedelta
-import json
 import subprocess
 from unittest.mock import AsyncMock, patch
 
@@ -63,15 +61,22 @@ def _patched_client(transport):
     return factory
 
 
+async def _remote_sync(manager, transport=None):
+    """One remote sync over the mocked transport.
+
+    The remote tier takes its httpx client from the caller now (the sync
+    scheduler owns the client), so the tests hand it one directly.
+    """
+    client = _RealAsyncClient(transport=transport or _mock_transport())
+    async with client:
+        return await manager.do_remote_sync(client)
+
+
 @pytest.fixture
 def knowledge_dest(tmp_path, monkeypatch):
     """Redirect VIBE_SELLER_DIR to tmp_path for isolated sync."""
     monkeypatch.setattr(
         'app.workspace.knowledge_sync.VIBE_SELLER_DIR', tmp_path
-    )
-    monkeypatch.setattr(
-        'app.workspace.knowledge_sync._SYNC_META_PATH',
-        tmp_path / 'knowledge' / '.sync_meta.json',
     )
     return tmp_path
 
@@ -118,7 +123,7 @@ async def test_remote_fetch_with_mock(sync_manager, knowledge_dest):
         ),
         patch.object(sync_manager, '_get_local_source', return_value=None),
     ):
-        result = await sync_manager.fetch_remote()
+        result = await _remote_sync(sync_manager)
 
     assert result['status'] == 'success'
     assert result['copied'] == 2
@@ -156,7 +161,7 @@ async def test_remote_fetch_skips_files_present_in_local_package(
         ),
         patch.object(sync_manager, '_get_local_source', return_value=local_pkg),
     ):
-        result = await sync_manager.fetch_remote()
+        result = await _remote_sync(sync_manager)
 
     # Both files in the mock MANIFEST were skipped because local
     # owns them. ``copied`` is 0; ``skipped`` reflects the guard.
@@ -195,7 +200,7 @@ async def test_remote_fetch_current_branch(
     )
 
     with patch.object(sync_manager, '_get_local_source', return_value=None):
-        result = await sync_manager.fetch_remote()
+        result = await _remote_sync(sync_manager)
 
     if result['status'] == 'failed':
         pytest.skip(
@@ -218,109 +223,17 @@ async def test_remote_fetch_current_branch(
             assert local == resp.text
 
 
-@pytest.mark.asyncio
-async def test_sync_meta_persisted(sync_manager, knowledge_dest):
-    """After sync, .sync_meta.json has correct fields."""
-    with (
-        patch(
-            'app.workspace.knowledge_sync.httpx.AsyncClient',
-            _patched_client(_mock_transport()),
-        ),
-        # Local-precedence guard would skip the mocked manifest
-        # files if a real installed package shipped them — opt
-        # out so this test exercises the remote-write path.
-        patch.object(sync_manager, '_get_local_source', return_value=None),
-    ):
-        await sync_manager.fetch_remote()
-
-    meta = sync_manager.get_sync_meta()
-    assert meta.get('status') == 'success'
-    assert meta.get('last_sync_at') is not None
-    assert meta.get('copied') == 2
-    assert meta.get('last_commit') == _MOCK_COMMIT_SHA
-
-
-@pytest.mark.asyncio
-async def test_check_and_sync_skips_within_cooldown(
-    sync_manager, knowledge_dest
-):
-    """check_and_sync_remote skips if last sync was < 24h ago."""
-    sync_manager._write_sync_meta({
-        'last_sync_at': datetime.now(UTC).isoformat(),
-        'last_commit': _MOCK_COMMIT_SHA,
-        'status': 'success',
-    })
-
-    result = await sync_manager.check_and_sync_remote()
-    assert result is None  # Skipped
-
-
-@pytest.mark.asyncio
-async def test_check_and_sync_triggers_after_cooldown_with_diff(
-    sync_manager, knowledge_dest
-):
-    """check_and_sync_remote triggers when >24h and commit differs."""
-    sync_manager._write_sync_meta({
-        'last_sync_at': (datetime.now(UTC) - timedelta(hours=25)).isoformat(),
-        'last_commit': 'old-fake-commit-hash',
-        'status': 'success',
-    })
-
-    with patch(
-        'app.workspace.knowledge_sync.httpx.AsyncClient',
-        _patched_client(_mock_transport()),
-    ):
-        result = await sync_manager.check_and_sync_remote()
-
-    assert result is not None
-    assert result['status'] == 'success'
-    assert result['commit'] == _MOCK_COMMIT_SHA
-
-    meta = sync_manager.get_sync_meta()
-    assert meta['last_commit'] == _MOCK_COMMIT_SHA
-
-
-@pytest.mark.asyncio
-async def test_check_and_sync_skips_when_commit_matches(
-    sync_manager, knowledge_dest
-):
-    """check_and_sync_remote skips when commit hash matches."""
-    sync_manager._write_sync_meta({
-        'last_sync_at': (datetime.now(UTC) - timedelta(hours=25)).isoformat(),
-        'last_commit': _MOCK_COMMIT_SHA,
-        'status': 'success',
-    })
-
-    with patch(
-        'app.workspace.knowledge_sync.httpx.AsyncClient',
-        _patched_client(_mock_transport()),
-    ):
-        result = await sync_manager.check_and_sync_remote()
-
-    assert result is None  # Skipped because commit matches
-
-
-@pytest.mark.asyncio
 async def test_sync_failure_records_error(sync_manager, knowledge_dest):
-    """Failed remote sync stores error in meta."""
+    """A failed remote sync is reported, not raised — and writes nothing."""
 
     async def failing_handler(request: httpx.Request):
-        url = str(request.url)
-        if 'api.github.com' in url:
-            return httpx.Response(200, json=[{'sha': 'x'}])
         return httpx.Response(404)
 
-    with patch(
-        'app.workspace.knowledge_sync.httpx.AsyncClient',
-        _patched_client(httpx.MockTransport(failing_handler)),
-    ):
-        result = await sync_manager.fetch_remote()
-
+    result = await _remote_sync(
+        sync_manager, httpx.MockTransport(failing_handler)
+    )
     assert result['status'] == 'failed'
-
-    meta = sync_manager.get_sync_meta()
-    assert meta.get('status') == 'failed'
-    assert meta.get('error') is not None
+    assert 'MANIFEST' in result['error']
 
 
 @pytest.mark.asyncio
@@ -347,7 +260,7 @@ async def test_sync_creates_system_event_on_success(
         # remote-write path that emits the success Event.
         patch.object(sync_manager, '_get_local_source', return_value=None),
     ):
-        result = await sync_manager.fetch_remote()
+        result = await _remote_sync(sync_manager)
 
     assert result['status'] == 'success'
 
@@ -384,35 +297,3 @@ async def test_synced_knowledge_visible_via_api(
     data = resp.json()
     assert data.get('available') is True
     assert data.get('source_count', 0) >= 1
-
-
-@pytest.mark.asyncio
-async def test_sync_meta_api(
-    knowledge_dest,
-    monkeypatch,
-    authenticated_client,
-):
-    """GET /api/workspace/knowledge/sync-meta returns meta."""
-    mgr = KnowledgeSyncManager()
-    mgr._dest_dir = knowledge_dest / 'knowledge' / 'project'
-    monkeypatch.setattr('app.routers.workspace.knowledge_sync', mgr)
-    monkeypatch.setattr(
-        'app.workspace.knowledge_sync._SYNC_META_PATH',
-        knowledge_dest / 'knowledge' / '.sync_meta.json',
-    )
-
-    meta_path = knowledge_dest / 'knowledge' / '.sync_meta.json'
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
-    meta_path.write_text(
-        json.dumps({
-            'last_sync_at': '2026-03-12T03:00:00Z',
-            'status': 'success',
-            'copied': 2,
-        })
-    )
-
-    resp = await authenticated_client.get('/api/workspace/knowledge/sync-meta')
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data['status'] == 'success'
-    assert data['copied'] == 2

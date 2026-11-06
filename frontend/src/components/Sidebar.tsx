@@ -717,8 +717,8 @@ function WorkspaceSidebar(props: {
               <p className="text-[10px] text-red-500 leading-tight">{t('workspace.syncFailed', { error: p.wsSyncMeta.error as string })}</p>
             )}
             <p className="text-[10px] text-gray-400 leading-tight">
-              {p.wsSyncMeta.last_sync_at
-                ? t('workspace.lastSynced', { time: new Date(p.wsSyncMeta.last_sync_at as string).toLocaleString() })
+              {p.wsSyncMeta.last_ok_at
+                ? t('workspace.lastSynced', { time: new Date(p.wsSyncMeta.last_ok_at as string).toLocaleString() })
                 : t('workspace.neverSynced')}
             </p>
           </div>

@@ -16,7 +16,6 @@ from app.schemas.workspace import (
 from app.workspace.catalog_validation import reject_wrong_stubs
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
-from app.workspace.skills_sync import skills_sync
 
 router = APIRouter(prefix='/api/workspace', tags=['workspace'])
 
@@ -247,33 +246,12 @@ async def reset_file(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.post('/knowledge/sync')
-async def sync_knowledge(_user: User = Depends(get_current_user)):
-    """Fetch knowledge updates from remote GitHub."""
-    return await knowledge_sync.fetch_remote()
-
-
 @router.get('/knowledge/sync-status')
 async def knowledge_sync_status(_user: User = Depends(get_current_user)):
-    """Get knowledge sync status between project and workspace."""
+    """Compare the packaged knowledge tree with the workspace copy.
+
+    Content status, not schedule status: "is what is on disk what this
+    release ships?". WHEN a sync last ran, and what upstream version it
+    holds, is GET /api/sync/status.
+    """
     return knowledge_sync.get_sync_status()
-
-
-@router.get('/knowledge/sync-meta')
-async def knowledge_sync_meta(_user: User = Depends(get_current_user)):
-    """Get sync metadata (last sync time, commit, errors)."""
-    return knowledge_sync.get_sync_meta()
-
-
-@router.post('/skills/sync')
-async def sync_skills(_user: User = Depends(get_current_user)):
-    """Sync built-in skills to local workspace + fetch remote."""
-    result = await skills_sync.fetch()
-    remote = await skills_sync.fetch_remote()
-    return {**result, 'remote': remote}
-
-
-@router.get('/skills/sync-meta')
-async def skills_sync_meta(_user: User = Depends(get_current_user)):
-    """Get skills sync metadata."""
-    return skills_sync.get_sync_meta()

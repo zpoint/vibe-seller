@@ -6,10 +6,16 @@ Architecture:
     amazon-invoice/generate_invoice.py    amazon-invoice/  <- synced
     ...                                   user-skill/     <- user-created
 
-Three-tier sync (mirrors knowledge_sync.py):
-  1. Local package — importlib.resources (always after pip install)
-  2. Remote GitHub — fetch MANIFEST.txt + changed files
-  3. On-demand — triggered before each task if >24h and commit changed
+Two sync tiers (mirrors knowledge_sync.py):
+  1. Local package — importlib.resources, once at server boot
+  2. Remote GitHub — MANIFEST.txt + changed files, driven by the
+     central sync scheduler's ``skills`` job (app/sync/jobs.py)
+
+WHEN the remote tier runs is not decided here: that is the scheduler's
+``sync_state`` row (last_ok_at + cadence + jitter). This module only
+knows how to ask upstream what it has (:meth:`SkillsSyncManager.
+probe_remote`) and how to put it on disk without ever exposing a
+half-written skill (:meth:`SkillsSyncManager.do_remote_sync`).
 
 After sync, skill Python dependencies (requirements.txt) are
 auto-installed into the shared workspace venv (~/.vibe-seller/.venv/).
@@ -17,62 +23,41 @@ Skills do NOT have their own .venv — agents use ``python`` from PATH.
 """
 
 import asyncio
-from datetime import UTC, datetime
 import hashlib
 import importlib.resources
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
 import tempfile
 
 import httpx
 
-from app import ads_skill
 from app.config import AI_BOT_USER_ID, SKILLS_REPO_URL, SKILLS_SUBDIR
 from app.database import async_session
-from app.models.app_settings import AppSettings
 from app.models.event import Event
 from app.platform import venv_executable, venv_python
 from app.plugins import registered_skill_sources
+from app.sync import github as github_probe
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
 
-_COOLDOWN_SECONDS = 24 * 3600  # 24 hours
-# Key in AppSettings that gates the periodic GitHub poll. Missing
-# row → enabled (the auto-sync ships on by default; the user opts
-# out via Settings → General).
-_AUTO_SYNC_KEY = 'skills_auto_sync_enabled'
+# What the remote tier may never shadow: the installed package is the
+# authoritative content for the lifetime of that version.
+_PACKAGE_ONLY_SUFFIXES = ('__init__.py', 'MANIFEST.txt')
+_COPY_IGNORE = shutil.ignore_patterns('__pycache__', '__init__.py', '.venv')
 
 
-async def _auto_sync_enabled() -> bool:
-    """Read skills_auto_sync_enabled from AppSettings (default True).
-
-    Surfaced as a module-level helper so callers (the task-runner
-    pre-flight hook) can read the same source of truth the API
-    writes to. Any DB error degrades to enabled — better to sync
-    once on a transient failure than to silently stop pulling
-    upstream skill updates.
-    """
-    try:
-        async with async_session() as db:
-            row = await db.get(AppSettings, _AUTO_SYNC_KEY)
-            if row is None:
-                return True
-            return row.value == 'true'
-    except Exception:
-        logger.debug(
-            'Failed to read %s from AppSettings; defaulting to enabled',
-            _AUTO_SYNC_KEY,
-            exc_info=True,
-        )
-        return True
-
-
-async def _refresh_ads_skill() -> dict | None:
-    """The ads service's skill, if one is bound and its version moved."""
-    return await ads_skill.refresh_if_bound()
+def _remove(path: Path) -> None:
+    """Delete whatever ``path`` is, without following a symlink."""
+    if not path.exists() and not path.is_symlink():
+        return
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    else:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 class SkillsSyncManager:
@@ -113,6 +98,81 @@ class SkillsSyncManager:
                 await asyncio.shield(task)
             except Exception:
                 pass
+
+    # ── Staging (atomic tree updates) ───────────────────
+
+    @property
+    def _staging_root(self) -> Path:
+        """Where half-built skill dirs wait for their rename.
+
+        A SIBLING of the skills tree (``.claude/.sync-staging``), never
+        inside it: ``.claude/`` is copied wholesale into every task
+        workspace, so a leftover ``.tmp_*`` in the skills dir would be
+        copied along — and Claude Code would discover it as a second,
+        broken copy of the skill. Same filesystem as the destination,
+        so the swap is a plain rename.
+        """
+        return self._dest_dir.parent / '.sync-staging'
+
+    def _make_staging(self, prefix: str) -> Path:
+        """A unique empty staging dir beside the skills tree."""
+        root = self._staging_root
+        root.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(dir=str(root), prefix=prefix))
+
+    def sweep_staging(self) -> None:
+        """Drop half-built trees left by an interrupted sync.
+
+        Called at boot, before anything copies the skills tree. Also
+        clears the in-tree ``.tmp_*`` / ``.bak_*`` strays that releases
+        before this staging home used to leave in the skills dir.
+        """
+        shutil.rmtree(self._staging_root, ignore_errors=True)
+        if not self._dest_dir.is_dir():
+            return
+        for stale in self._dest_dir.glob('.tmp_*'):
+            _remove(stale)
+        for stale in self._dest_dir.glob('.bak_*'):
+            _remove(stale)
+
+    def _install_file(self, target: Path, content: bytes) -> bool:
+        """Atomically write one file into the live tree.
+
+        ``False`` when the file already holds these bytes. Staged
+        beside the tree and renamed in, so a reader never sees a
+        truncated file (and a crash cannot leave one).
+        """
+        if target.exists():
+            try:
+                if target.read_bytes() == content:
+                    return False
+            except OSError:
+                pass
+        staging = self._make_staging('file_')
+        tmp = staging / 'payload'
+        tmp.write_bytes(content)
+        os.replace(tmp, target)
+        _remove(staging)
+        return True
+
+    @staticmethod
+    def _swap_in(staging: Path, dest: Path) -> None:
+        """Rename ``staging`` over ``dest``.
+
+        Both are on the same filesystem and this runs inside ONE
+        synchronous block, so no reader can observe the intermediate
+        state. If the rename fails the previous tree is still intact.
+        """
+        _remove(dest)
+        staging.rename(dest)
+
+    @staticmethod
+    def _has_gates(skill_dir: Path) -> bool:
+        """Whether ``skill_dir`` ships gate code (``gates/*.py``)."""
+        gates = skill_dir / 'gates'
+        if not gates.is_dir():
+            return False
+        return any(gates.glob('*.py'))
 
     # ── Local package sync ──────────────────────────────
 
@@ -163,10 +223,11 @@ class SkillsSyncManager:
     async def fetch(self, *, defer_deps: bool = False) -> dict:
         """Sync built-in + plugin skill dirs to the workspace.
 
-        Each skill directory is replaced atomically:
-        copy source → temp dir (unique name), rename old → backup,
-        rename temp → dest, delete backup.  User-created skills
-        (no matching source dir) are left untouched.
+        Each skill directory is replaced atomically: build it in the
+        staging root beside the tree, then rename it into place. The
+        staging root is never inside ``.claude/`` — that whole tree is
+        copied into every task workspace. User-created skills (no
+        matching source dir) are left untouched.
 
         Serialized with an asyncio.Lock so concurrent task launches
         don't race.
@@ -199,13 +260,6 @@ class SkillsSyncManager:
         # skill from a later plugin source. Dedup on name, not path.
         seen_names: set[str] = set()
 
-        _ignore = shutil.ignore_patterns(
-            '__pycache__',
-            '__init__.py',
-            'MANIFEST.txt',
-            '.venv',
-        )
-
         for src in srcs:
             for src_skill in sorted(src.iterdir()):
                 if not src_skill.is_dir():
@@ -234,47 +288,21 @@ class SkillsSyncManager:
                     skipped += 1
                     continue
 
-                # Atomic replace: unique temp dir, swap via backup
-                tmp = Path(
-                    tempfile.mkdtemp(
-                        dir=str(self._dest_dir),
-                        prefix=f'.tmp_{src_skill.name}_',
-                    )
-                )
+                # Atomic replace: build beside the tree, rename in.
+                tmp = self._make_staging(f'{src_skill.name}_')
                 try:
                     # mkdtemp creates the dir; copy into it with
                     # dirs_exist_ok so it can populate the existing
                     # empty temp dir.
                     shutil.copytree(
-                        src_skill, tmp, ignore=_ignore, dirs_exist_ok=True
+                        src_skill,
+                        tmp,
+                        ignore=_COPY_IGNORE,
+                        dirs_exist_ok=True,
                     )
-                    backup = self._dest_dir / f'.bak_{src_skill.name}'
-                    if dest_skill.exists():
-                        # Guard against symlinks — unlink, don't rmtree
-                        if dest_skill.is_symlink() or dest_skill.is_file():
-                            dest_skill.unlink()
-                        else:
-                            # Safe rmtree: dest is a real directory
-                            shutil.rmtree(dest_skill)
-                    tmp.rename(dest_skill)
-                    # Cleanup backup from any prior interrupted sync
-                    if backup.exists():
-                        if backup.is_symlink():
-                            backup.unlink()
-                        elif backup.is_dir():
-                            shutil.rmtree(backup)
-                        else:
-                            backup.unlink()
+                    self._swap_in(tmp, dest_skill)
                 except Exception:
-                    # Rollback: if rename succeeded, dest is fine;
-                    # if not, restore from backup
-                    if tmp.exists():
-                        if tmp.is_symlink():
-                            tmp.unlink()
-                        elif tmp.is_dir():
-                            shutil.rmtree(tmp)
-                        else:
-                            tmp.unlink()
+                    _remove(tmp)
                     raise
                 replaced += 1
 
@@ -330,10 +358,7 @@ class SkillsSyncManager:
                 continue
             if src_file.name.startswith('.'):
                 continue
-            if src_file.name in (
-                '__init__.py',
-                'MANIFEST.txt',
-            ):
+            if src_file.name in _PACKAGE_ONLY_SUFFIXES:
                 continue
             if '__pycache__' in src_file.parts:
                 continue
@@ -360,15 +385,22 @@ class SkillsSyncManager:
                 return False
         return True
 
-    # ── Remote sync ─────────────────────────────────────
+    # ── Inventory (.sync_meta.json) ─────────────────────
+
+    # NOTE: this file holds INVENTORY only — which skill dirs this
+    # manager put on disk (``synced_skills``), whether the optional gws
+    # bundle is installed (``gws_installed``) and which requirements.txt
+    # hashes are already pip-installed (``installed_deps``). Schedule
+    # state (last sync, upstream commit, ...) lives in the ``sync_state``
+    # table; see app/sync/state.py.
 
     @property
     def _sync_meta_path(self) -> Path:
         # Derive from ``self._dest_dir`` so test fixtures that
         # override ``_dest_dir`` to a tmp dir also redirect the meta
-        # file. Using the module-level ``_SYNC_META_PATH`` makes the
-        # cooldown short-circuit leak between test runs on hosts
-        # where ``~/.vibe-seller`` persists (self-hosted CI).
+        # file. Using a module-level constant instead would leak
+        # inventory between test runs on hosts where ``~/.vibe-seller``
+        # persists (self-hosted CI).
         return self._dest_dir / '.sync_meta.json'
 
     def _read_sync_meta(self) -> dict:
@@ -388,7 +420,7 @@ class SkillsSyncManager:
         path.write_text(json.dumps(meta, indent=2))
 
     def get_sync_meta(self) -> dict:
-        """Return sync metadata for the API."""
+        """The inventory file, as-is (for tests and the MCP tool)."""
         return self._read_sync_meta()
 
     # ── Google Workspace bundle flag ────────────────────
@@ -418,141 +450,22 @@ class SkillsSyncManager:
         meta['synced_skills'] = sorted(existing)
         self._write_sync_meta(meta)
 
-    async def _fetch_remote_commit(
-        self, client: httpx.AsyncClient
-    ) -> str | None:
-        """Fetch latest commit hash for this line's skill tree on main."""
-        api_url = (
-            'https://api.github.com/repos/zpoint/vibe-seller'
-            f'/commits?path=app/{SKILLS_SUBDIR}&per_page=1&sha=main'
-        )
-        try:
-            resp = await client.get(
-                api_url,
-                headers={'Accept': 'application/vnd.github.v3+json'},
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                commits = resp.json()
-                if commits:
-                    return commits[0]['sha']
-        except Exception as e:
-            logger.debug('Failed to fetch remote commit: %s', e)
-        return None
+    # ── Remote sync ─────────────────────────────────────
 
-    async def check_and_sync_remote(self) -> dict | None:
-        """Check if remote sync is needed; sync if so.
+    async def probe_remote(
+        self, client: httpx.AsyncClient, etag: str | None = None
+    ) -> dict:
+        """Ask GitHub for the latest commit of this skill tree.
 
-        Conditions to trigger sync:
-          1. >24 hours since last remote sync
-          2. Auto-sync is enabled in AppSettings (default on)
-          3. Remote commit hash differs from last synced commit
-
-        Returns sync result dict if synced, None if skipped.
-
-        Check order matters: this runs before every task launch, so
-        the cheap file-based cooldown read is checked first. The
-        AppSettings lookup only runs when the cooldown has elapsed
-        (≈once per 24h per task path), keeping the hot path free of
-        DB round-trips. The gate still runs before any network call,
-        which is the invariant the toggle promises.
-
-        The gate lives here rather than at the call site so every
-        periodic trigger funnels through one check — the manual
-        ``fetch_remote()`` endpoint stays unaffected because clicking
-        Sync is an explicit user action that should override the
-        background-poll opt-out.
+        See :func:`app.sync.github.probe_commit`. ``etag`` is the
+        validator stored from the previous probe; a 304 answer is the
+        common case and costs nothing against the rate limit.
         """
-        meta = self._read_sync_meta()
-        last_sync = meta.get('last_sync_at')
-        if last_sync:
-            try:
-                last_dt = datetime.fromisoformat(last_sync)
-                elapsed = (datetime.now(UTC) - last_dt).total_seconds()
-                if elapsed < _COOLDOWN_SECONDS:
-                    return None  # Too soon
-            except Exception:
-                pass
+        return await github_probe.probe_commit(
+            client, f'app/{SKILLS_SUBDIR}', etag=etag
+        )
 
-        if not await _auto_sync_enabled():
-            return None
-
-        # The ads skill ships from the bound ads service, versioned there;
-        # it is checked on this same schedule, whatever GitHub answers.
-        await _refresh_ads_skill()
-
-        # Check remote commit
-        async with httpx.AsyncClient() as client:
-            remote_commit = await self._fetch_remote_commit(client)
-            if not remote_commit:
-                return None  # Can't reach GitHub
-
-            last_commit = meta.get('last_commit')
-            if last_commit == remote_commit:
-                return None  # No changes
-
-            # Commit differs & >24h → sync
-            result = await self._do_remote_sync(client)
-            result['commit'] = remote_commit
-
-            # Update meta
-            now = datetime.now(UTC).isoformat()
-            new_meta = {
-                'last_sync_at': now,
-                'last_commit': remote_commit,
-                'status': result.get('status', 'success'),
-                'error': result.get('error'),
-                'copied': result.get('copied', 0),
-                'skipped': result.get('skipped', 0),
-            }
-            self._write_sync_meta(new_meta)
-
-            # Log system event if files were actually synced
-            if result.get('status') == 'success':
-                await self._log_sync_event(
-                    'success',
-                    f'Synced {result.get("copied", 0)} skill files '
-                    f'from remote (commit {remote_commit[:8]})',
-                )
-
-            return result
-
-    async def fetch_remote(self) -> dict:
-        """Force remote sync regardless of cooldown."""
-        ads_skill = await _refresh_ads_skill()
-        meta = self._read_sync_meta()
-        async with httpx.AsyncClient() as client:
-            remote_commit = await self._fetch_remote_commit(client)
-            result = await self._do_remote_sync(client)
-            commit = remote_commit or meta.get('last_commit', '')
-            result['commit'] = commit
-            if ads_skill is not None:
-                result['ads_skill'] = ads_skill
-
-            now = datetime.now(UTC).isoformat()
-            new_meta = {
-                'last_sync_at': now,
-                'last_commit': commit,
-                'status': result.get('status', 'success'),
-                'error': result.get('error'),
-                'copied': result.get('copied', 0),
-                'skipped': result.get('skipped', 0),
-            }
-            self._write_sync_meta(new_meta)
-
-            if (
-                result.get('status') == 'success'
-                and result.get('copied', 0) > 0
-            ):
-                await self._log_sync_event(
-                    'success',
-                    f'Synced {result["copied"]} skill files from remote'
-                    f' (commit {commit[:8]})',
-                )
-
-            return result
-
-    async def _do_remote_sync(self, client: httpx.AsyncClient) -> dict:
+    async def do_remote_sync(self, client: httpx.AsyncClient) -> dict:
         """Download files from remote URL using MANIFEST.txt.
 
         Remote sync NEVER overwrites a file that exists in the local
@@ -567,6 +480,10 @@ class SkillsSyncManager:
         its local skills clobbered by the public-main version, which
         in CI manifested as the skill-prereq hook silently never
         seeing the new ``requires:`` frontmatter field.
+
+        Every network read happens before the first disk write (see
+        :meth:`_apply_downloads`) so the tree is never left
+        half-updated in front of a task launch's ``copytree``.
         """
         base_url = SKILLS_REPO_URL.rstrip('/')
         local_source = self._get_local_source()
@@ -590,10 +507,9 @@ class SkillsSyncManager:
                 if line.strip() and not line.startswith('#')
             ]
 
-            # 2. Download each file
-            self._dest_dir.mkdir(parents=True, exist_ok=True)
-            copied = 0
-            skipped = 0
+            # 2. Download each file into memory. All awaits end here.
+            downloads: dict[str, bytes] = {}
+            local_skips = 0
             for rel_path in files:
                 # Path traversal validation (resolve follows symlinks)
                 resolved = (self._dest_dir / rel_path).resolve()
@@ -608,41 +524,26 @@ class SkillsSyncManager:
                 # the installed package, the package version is
                 # authoritative — do not let remote overwrite it.
                 if local_source and (local_source / rel_path).is_file():
-                    skipped += 1
+                    local_skips += 1
                     continue
 
                 url = f'{base_url}/{rel_path}'
                 try:
                     file_resp = await client.get(url, timeout=15)
-                    if file_resp.status_code != 200:
-                        logger.warning(
-                            'Failed to fetch %s: HTTP %d',
-                            rel_path,
-                            file_resp.status_code,
-                        )
-                        continue
-
-                    dest_file = self._dest_dir / rel_path
-
-                    dest_file.parent.mkdir(parents=True, exist_ok=True)
-
-                    new_content = file_resp.content
-                    if dest_file.exists():
-                        try:
-                            if dest_file.read_bytes() == new_content:
-                                skipped += 1
-                                continue
-                        except Exception:
-                            pass
-
-                    dest_file.write_bytes(new_content)
-                    copied += 1
                 except Exception as e:
+                    logger.warning('Error downloading %s: %s', rel_path, e)
+                    continue
+                if file_resp.status_code != 200:
                     logger.warning(
-                        'Error downloading %s: %s',
+                        'Failed to fetch %s: HTTP %d',
                         rel_path,
-                        e,
+                        file_resp.status_code,
                     )
+                    continue
+                downloads[rel_path] = file_resp.content
+
+            # 3. Put it on disk, atomically.
+            applied = self._apply_downloads(downloads)
 
             # Track synced skill dirs from manifest (not dest)
             manifest_skill_dirs: set[str] = set()
@@ -655,29 +556,106 @@ class SkillsSyncManager:
             # Post-sync: install deps into shared venv
             await self._install_skill_deps()
 
+            applied['skipped'] += local_skips
             logger.info(
                 'Skills sync (remote): %d copied, %d unchanged',
-                copied,
-                skipped,
+                applied['copied'],
+                applied['skipped'],
             )
+            if applied['copied']:
+                await self._log_sync_event(
+                    'success',
+                    f'Synced {applied["copied"]} skill files from remote',
+                )
             return {
                 'status': 'success',
-                'copied': copied,
-                'skipped': skipped,
+                'copied': applied['copied'],
+                'skipped': applied['skipped'],
+                'needs_restart': applied['needs_restart'],
             }
 
         except Exception as e:
             err = f'Remote skills sync error: {e}'
             logger.warning(err)
-            now = datetime.now(UTC).isoformat()
-            self._write_sync_meta({
-                **self._read_sync_meta(),
-                'last_sync_at': now,
-                'status': 'failed',
-                'error': err,
-            })
             await self._log_sync_event('failed', err)
             return {'status': 'failed', 'error': err}
+
+    def _apply_downloads(self, downloads: dict[str, bytes]) -> dict:
+        """Put downloaded files on disk, one skill dir at a time.
+
+        ONE synchronous block: no await between the first write and the
+        last rename, so on a single event loop a task launch's
+        ``copytree`` of the skills tree can never interleave with it and
+        observe a half-written skill (the bug this replaced: per-file
+        writes spread across the download awaits). Each skill dir is
+        rebuilt in the staging root and renamed into place, so even a
+        crash leaves the previous tree whole rather than a mix of two.
+
+        Returns ``{'copied', 'skipped', 'needs_restart'}``.
+        """
+        self._dest_dir.mkdir(parents=True, exist_ok=True)
+        copied = 0
+        skipped = 0
+        needs_restart = False
+
+        # Group by top-level (skill) dir: ``skill/file`` → {skill: {...}}.
+        # A bare file in the manifest root lands under the empty key.
+        groups: dict[str, dict[str, bytes]] = {}
+        for rel_path, content in downloads.items():
+            top, sep, rest = rel_path.partition('/')
+            groups.setdefault(top if sep else '', {})[rest if sep else top] = (
+                content
+            )
+
+        for skill, files in sorted(groups.items()):
+            if not skill:
+                for rel_path, content in sorted(files.items()):
+                    if self._install_file(self._dest_dir / rel_path, content):
+                        copied += 1
+                    else:
+                        skipped += 1
+                continue
+
+            dest_skill = self._dest_dir / skill
+            staging = self._make_staging(f'{skill}_')
+            try:
+                if dest_skill.is_dir() and not dest_skill.is_symlink():
+                    shutil.copytree(
+                        dest_skill,
+                        staging,
+                        ignore=_COPY_IGNORE,
+                        dirs_exist_ok=True,
+                    )
+                changed = False
+                for rel, content in sorted(files.items()):
+                    target = staging / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists() and target.read_bytes() == content:
+                        skipped += 1
+                        continue
+                    target.write_bytes(content)
+                    copied += 1
+                    changed = True
+                if not changed:
+                    continue
+                self._swap_in(staging, dest_skill)
+                staging = None
+            finally:
+                if staging is not None:
+                    _remove(staging)
+
+            if self._has_gates(dest_skill):
+                # Gate code is loaded once per process (see
+                # app/ai/skill_gate_loader.py): a synced change to it
+                # only takes effect after a restart, and the status API
+                # says so.
+                needs_restart = True
+
+        return {
+            'copied': copied,
+            'skipped': skipped,
+            'needs_restart': needs_restart,
+        }
 
     # ── Skill dependency management ─────────────────────
 
