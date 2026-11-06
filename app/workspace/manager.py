@@ -210,10 +210,7 @@ class WorkspaceManager(SkillsMixin):
         return await asyncio.to_thread(self._list_tree_entries)
 
     def _list_tree_entries(self) -> list[dict]:
-        """Walk the workspace tree (blocking — runs in a thread).
-
-        Vanished paths are skipped — UI snapshot; see ``fs_walk``.
-        """
+        """Walk the workspace tree (blocking; vanished paths skipped)."""
         items = []
         for path in sorted(tolerant_rglob(self.root)):
             if (
@@ -601,23 +598,23 @@ class WorkspaceManager(SkillsMixin):
         ``PRESERVED_ON_CLEAN`` — see the constant.
         """
         await self.ensure_init()
-        # Hold the skills tree across the copy so a task workspace
-        # never catches a writer mid-swap (see skills_tree module).
+        task_dir = await asyncio.to_thread(
+            self._prepare_task_dirs, task_id, clean
+        )
+        # Only the .claude copy READS the shared skills tree — the lock
+        # covers exactly that (see app.workspace.skills_tree).
         async with skills_tree.hold():
-            return await asyncio.to_thread(
-                self._prepare_task_workspace_sync,
-                task_id,
-                clean,
-                exclude_skills,
+            await asyncio.to_thread(
+                self._copy_claude_tree, task_dir, exclude_skills
             )
+        await asyncio.to_thread(_make_skill_root, task_dir)
+        return task_dir
 
-    def _prepare_task_workspace_sync(
-        self,
-        task_id: str,
-        clean: bool,
-        exclude_skills: Collection[str],
-    ) -> Path:
-        """Scaffold the task dir (blocking — runs in a thread)."""
+    def _prepare_task_dirs(self, task_id: str, clean: bool) -> Path:
+        """Clean + scaffold the task dir and its shared links.
+
+        Touches no shared tree — deliberately outside the tree lock.
+        """
         task_dir = self.root / 'tasks' / task_id
         if clean and task_dir.exists():
             task_links.remove_task_workspace(
@@ -636,7 +633,13 @@ class WorkspaceManager(SkillsMixin):
             task_links._clear_workspace_link(link_path)
             if target.exists():
                 task_links._link_shared_into_task(link_path, target)
+        return task_dir
 
+    def _copy_claude_tree(
+        self, task_dir: Path, exclude_skills: Collection[str]
+    ) -> None:
+        """Copy the workspace ``.claude`` into the task dir (the one
+        skills-tree read — callers hold ``skills_tree`` for it)."""
         # .claude is copied (not symlinked) because Claude Code's
         # Glob doesn't follow symlinks when traversing ** patterns.
         # Exclude __pycache__ and stale .venv dirs (skills use the
@@ -667,9 +670,6 @@ class WorkspaceManager(SkillsMixin):
                 claude_dst,
                 ignore=_ignore,
             )
-
-        _make_skill_root(task_dir)
-        return task_dir
 
 
 def _make_skill_root(task_dir: Path) -> None:

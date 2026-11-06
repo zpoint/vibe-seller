@@ -128,7 +128,9 @@ description: {description}
                 'updated_at': datetime.now(UTC).isoformat(),
             }
             self._write_lockfile(lockfile)
-            await self._auto_commit(f'Create skill: {name}')
+        # Git runs outside the tree lock: it is slow, and every task
+        # launch waits on that lock for the .claude copy.
+        await self._auto_commit(f'Create skill: {name}')
         return str(skill_dir.relative_to(self.root))
 
     async def delete_skill(self, slug: str) -> None:
@@ -146,7 +148,7 @@ description: {description}
             lockfile = self._read_lockfile()
             lockfile['skills'].pop(slug, None)
             self._write_lockfile(lockfile)
-            await self._auto_commit(f'Delete skill: {slug}')
+        await self._auto_commit(f'Delete skill: {slug}')
 
     @staticmethod
     def _classify_skill(slug: str, synced: set[str], lockfile: dict) -> str:
@@ -261,9 +263,9 @@ description: {description}
             entry['updated_at'] = now
             lockfile['skills'][slug] = entry
             self._write_lockfile(lockfile)
-            await self._auto_commit(
-                f'{"Update" if existed else "Create"} skill: {slug}'
-            )
+        await self._auto_commit(
+            f'{"Update" if existed else "Create"} skill: {slug}'
+        )
         return {
             'slug': slug,
             'path': str(skill_dir.relative_to(self.root)),
