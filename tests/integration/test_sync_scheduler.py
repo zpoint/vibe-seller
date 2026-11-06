@@ -383,3 +383,30 @@ async def test_a_failed_legacy_run_leaves_the_job_overdue_and_refetches(
     result = await sched.trigger(sync_jobs.SKILLS_JOB, force=True)
     assert result.status == 'updated'
     assert (skills_mgr._dest_dir / 'widget-006' / 'SKILL.md').exists()
+
+
+async def test_email_and_reaper_jobs_run_through_the_scheduler(
+    clean_state, monkeypatch
+):
+    """M3: email polling and the daemon reaper left their own loops
+    behind — a tick of the one scheduler is what runs them now."""
+    calls = []
+
+    async def fake_sync_all():
+        calls.append('email')
+
+    async def fake_reap():
+        calls.append('reaper')
+        return 2
+
+    monkeypatch.setattr(sync_jobs, 'sync_all_email_accounts', fake_sync_all)
+    monkeypatch.setattr(sync_jobs, 'reap_orphaned_daemons', fake_reap)
+
+    sched = SyncScheduler(_NullAPS())
+    await sched.register_all(sync_jobs.core_jobs())
+    assert set(sched.jobs) >= {'email', 'daemon_reaper'}
+
+    await sched.trigger(sync_jobs.EMAIL_JOB, reason='tick')
+    result = await sched.trigger(sync_jobs.REAPER_JOB, reason='tick')
+    assert calls == ['email', 'reaper']
+    assert result.detail == {'reaped': 2}

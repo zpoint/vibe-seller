@@ -24,7 +24,9 @@ import httpx
 
 from app import ads_skill
 from app.ai import provider_presets_sync
+from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.plugins import registered_sync_jobs
+from app.scheduler.email_sync import sync_all_email_accounts
 from app.sync import state as sync_state
 from app.sync.scheduler import (
     Cadence,
@@ -171,6 +173,28 @@ async def _run_presets(ctx: SyncContext) -> SyncResult:
     )
 
 
+# ── email: one pass over the enabled accounts ──────────────────────
+
+
+async def _run_email(ctx: SyncContext) -> SyncResult:
+    """Poll every enabled email account.
+
+    Which accounts are enabled is the per-account flag the sync has
+    always read — that is a property of the account, not a toggle on
+    this job.
+    """
+    await sync_all_email_accounts()
+    return SyncResult(status=STATUS_UPDATED, detail={'accounts': 'all'})
+
+
+# ── daemon reaper: orphaned browser-use daemons ───────────────────
+
+
+async def _run_reaper(ctx: SyncContext) -> SyncResult:
+    killed = await reap_orphaned_daemons()
+    return SyncResult(status=STATUS_UPDATED, detail={'reaped': killed})
+
+
 # ── the list ───────────────────────────────────────────────────────
 
 
@@ -199,6 +223,16 @@ def core_jobs() -> list[SyncJob]:
             name=PRESETS_JOB,
             cadence=Cadence.BIDAILY,
             run=_run_presets,
+        ),
+        SyncJob(
+            name=EMAIL_JOB,
+            cadence=Cadence.FAST,
+            run=_run_email,
+        ),
+        SyncJob(
+            name=REAPER_JOB,
+            cadence=Cadence.FAST,
+            run=_run_reaper,
         ),
     ]
 

@@ -11,6 +11,8 @@ import logging
 
 import pytest
 
+import app.browser.daemon_reaper as reaper
+import app.scheduler.cron as cron
 from app.sync import jobs as sync_jobs, state as sync_state
 from app.sync.scheduler import (
     REASON_MANUAL,
@@ -125,6 +127,8 @@ async def test_plugin_sync_jobs_are_registered_alongside_core(
         'knowledge',
         'ads_skill',
         'presets',
+        'email',
+        'daemon_reaper',
         'plugin_thing',
     }
 
@@ -494,3 +498,23 @@ async def test_skip_reason_is_in_the_line(sched, state, caplog):
     ][0]
     assert 'status=skipped' in line
     assert 'skip=toggle off' in line
+
+
+# ── the migrated jobs ─────────────────────────────────────────────
+
+
+async def test_email_and_daemon_reaper_are_on_the_registry(aps, state):
+    """M3: both left their own loops behind for the one scheduler."""
+    sched = SyncScheduler(aps)
+    await sched.register_all(sync_jobs.core_jobs())
+    jobs = sched.jobs
+    assert jobs['email'].cadence is Cadence.FAST
+    assert jobs['daemon_reaper'].cadence is Cadence.FAST
+    assert jobs['email'].toggle_key is None  # per-account flag, not a toggle
+    assert jobs['daemon_reaper'].toggle_key is None
+
+
+async def test_nothing_registers_the_old_loops():
+    """The while-loop and the extra APS email job are gone."""
+    assert not hasattr(reaper, 'start_reaper_loop')
+    assert not hasattr(cron, '_register_email_sync')

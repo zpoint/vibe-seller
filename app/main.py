@@ -14,7 +14,6 @@ from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_gate_loader import preload_skill_gates
 from app.api_token_scope import ApiTokenScopeMiddleware
-from app.browser.daemon_reaper import start_reaper_loop
 from app.browser.manager import browser_manager
 from app.channels import wecom_channel as wecom_channel  # registers channel
 from app.config import (
@@ -80,11 +79,10 @@ from app.scheduler.cron import (
     start_scheduler,
     stop_scheduler,
 )
-from app.scheduler.email_sync import sync_all_email_accounts
 from app.scheduler.task_queue import task_queue_scheduler
 from app.sync import jobs as sync_jobs
 from app.sync.migrate import migrate_legacy_state
-from app.sync.scheduler import sync_scheduler
+from app.sync.scheduler import REASON_BOOT, sync_scheduler
 from app.sync.state import clear_restart_flags
 from app.telemetry_events import TelemetryEvent
 from app.uploads import UploadBodyLimitMiddleware
@@ -250,10 +248,13 @@ async def lifespan(app: FastAPI):
         props = {}
     # base_properties() (app_version, os, …) is merged in by send().
     telemetry.send(TelemetryEvent.APP_STARTED, props)
-    # Trigger initial email sync in background
-    sync_task = asyncio.create_task(sync_all_email_accounts())
-    # Start periodic daemon reaper (kills orphaned browser-use)
-    reaper_task = asyncio.create_task(start_reaper_loop())
+    # The daemon reaper runs on its sync job (every 5 min) and once at
+    # boot — the only run that gets reason=boot: orphans from a crashed
+    # server should not have to wait a cadence to be cleaned up.
+    try:
+        await sync_scheduler.trigger(sync_jobs.REAPER_JOB, reason=REASON_BOOT)
+    except Exception:
+        logger.warning('boot daemon reap failed', exc_info=True)
     # The ads skill bundle and the AI provider-preset catalog are kept
     # fresh by their sync jobs (app/sync/jobs.py) instead of a boot
     # task each: a job that has never run fires at once, and the ads
@@ -284,8 +285,6 @@ async def lifespan(app: FastAPI):
     yield
     # Cancel background tasks
     for t in [
-        sync_task,
-        reaper_task,
         venv_task,
         history_task,
         *service_tasks,
