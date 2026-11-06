@@ -36,6 +36,7 @@ from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
 from app.plugins import get_extension_context
+from app.release_channel import channel_of
 from app.rest_secret_guard import SecretGuardMiddleware
 from app.routers.ads import router as ads_router
 from app.routers.app_settings import router as app_settings_router
@@ -249,6 +250,10 @@ async def lifespan(app: FastAPI):
         props = {}
     # base_properties() (app_version, os, …) is merged in by send().
     telemetry.send(TelemetryEvent.APP_STARTED, props)
+    telemetry.set_person_properties({
+        'app_version': telemetry.APP_VERSION,
+        'release_channel': channel_of(telemetry.APP_VERSION),
+    })
     # The daemon reaper runs on its sync job (every 5 min) and once at
     # boot — the only run that gets reason=boot: orphans from a crashed
     # server should not have to wait a cadence to be cleaned up.

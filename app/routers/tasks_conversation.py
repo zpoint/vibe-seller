@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import vision
+from app import telemetry, vision
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.stop_gates import report_reviewer
@@ -50,6 +50,9 @@ from app.task_states import (
     TaskStatus,
     assert_transition,
 )
+from app.telemetry_events import TelemetryEvent
+from app.telemetry_tasks import send_message_submitted, send_plan_verdict
+from app.telemetry_via import current_via, note_answer_via
 from app.text_utils import sanitize_json
 from app.workspace.manager import (
     reset_task_runtime_state,
@@ -119,6 +122,13 @@ async def send_task_message(
     task = await db.get(Task, task_id)
     if not task:
         raise HTTPException(status_code=404, detail='Task not found')
+
+    # User-action telemetry (both surfaces land here): a message on a
+    # parked plan IS the reject verdict; anything else is a message.
+    if task.status == TaskStatus.PLANNED:
+        send_plan_verdict(task_id, approved=False)
+    else:
+        send_message_submitted(task_id)
 
     # A message on a task that already COMPLETED is a follow-up to
     # finished, reviewed work: the DoD reviewer stands down for it (see
@@ -548,6 +558,9 @@ async def answer_question(
     answers = body.get('answers', {})
     if not request_id:
         raise HTTPException(status_code=400, detail='request_id is required')
+    # The answer lands on the agent's own task later — hand the
+    # answering channel over by request_id (see app.telemetry_via).
+    note_answer_via(request_id)
 
     # Path 1: live session
     submitted = await agent_manager.submit_answer(task_id, request_id, answers)
@@ -655,6 +668,8 @@ async def retry_task(
     # branch uses ``task.started_at or now()``, preserving a stale value).
     task.started_at = None
     task.completed_at = None
+    task.paused_seconds = 0
+    task.paused_since = None
 
     # For plan-mode scheduled tasks, re-seed the frozen schedule
     # plan so retry skips re-planning — mirrors the cron fire path
@@ -688,8 +703,16 @@ async def retry_task(
             task.plan_version = sched.plan_version
             task.status = TaskStatus.PLANNED
 
+    task.retry_count = (task.retry_count or 0) + 1
     task.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
+    telemetry.send(
+        TelemetryEvent.TASK_RETRIED,
+        {
+            'task_id': task_id,
+            'via': current_via(),
+        },
+    )
     await event_bus.emit(
         'task_update',
         {

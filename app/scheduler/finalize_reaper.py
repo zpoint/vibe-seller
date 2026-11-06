@@ -49,6 +49,8 @@ from app.models.store import Store
 from app.models.task import Task
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_states import TaskStatus
+from app.telemetry_events import TaskSource
+from app.telemetry_tasks import send_task_created
 from app.workspace.manager import workspace_manager
 
 logger = logging.getLogger(__name__)
@@ -309,10 +311,12 @@ async def _fire_finalize(batch_id: str, sched: Schedule) -> None:
             status=TaskStatus.PENDING,
             plan_mode=False,
             skip_reflection=True,
+            source=TaskSource.SCHEDULE,
             ai_profile_id=await resolve_schedule_profile(sched, db),
         )
         db.add(finalize)
         await db.commit()
+        send_task_created(finalize)
 
     payload = {
         'schema': 'batch-results/v1',

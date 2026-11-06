@@ -29,6 +29,7 @@ from app.events.bus import event_bus
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.task_states import TaskStatus
+from app.telemetry_tasks import accumulate_run_usage
 from app.todos import valid_todos
 
 logger = logging.getLogger(__name__)
@@ -364,6 +365,7 @@ class _StreamMixin:
                     )
 
         elif etype == 'result':
+            await accumulate_run_usage(self.task_id, event)
             text = event.get('result', '')
             is_error = event.get('is_error', False)
             # ── Review-gate guard (project-wide) ───────────────
@@ -601,38 +603,6 @@ class _StreamMixin:
             await self._emit_message(
                 'agent_event',
                 json.dumps(event, ensure_ascii=False),
-            )
-
-    async def _persist_session_id(self, session_id: str):
-        """Write task.session_id from the init event.
-
-        Called only for fresh runs (no --resume): writes the brand-
-        new id Claude Code just minted. The alternative is waiting
-        for `_save_result` at end-of-stream, which doesn't run if
-        Claude Code stalls after emitting its final result event.
-        """
-        try:
-            async with async_session() as db:
-                task = await db.get(Task, self.task_id)
-                if task:
-                    task.session_id = session_id
-                    task.updated_at = datetime.now(UTC).isoformat()
-                    await db.commit()
-                    logger.info(
-                        'Persisted session_id=%s for task %s (early, on init)',
-                        session_id,
-                        self.task_id[:8],
-                    )
-                else:
-                    logger.warning(
-                        'Cannot persist session_id for %s: task not found',
-                        self.task_id[:8],
-                    )
-        except Exception:
-            logger.warning(
-                'Failed to persist session_id early for %s',
-                self.task_id[:8],
-                exc_info=True,
             )
 
     async def _save_design_plan(self, plan_text: str):

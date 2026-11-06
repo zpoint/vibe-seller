@@ -16,7 +16,7 @@
     "@tanstack/react-query": "^5.90.21",
     "@tanstack/react-router": "^1.163.2",
     "i18next": "^24.2.0",
-    "posthog-js": "^1.180.0",
+    "posthog-js": "1.445.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-i18next": "^15.4.0",
@@ -24,6 +24,10 @@
     "remark-gfm": "^4.0.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zustand": "^5.0.11"
+  },
+  "overrides": {
+    "@posthog/browser-common": "0.10.5",
+    "@posthog/types": "1.419.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

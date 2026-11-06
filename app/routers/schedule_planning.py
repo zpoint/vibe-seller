@@ -31,6 +31,8 @@ from app.models.user import User
 from app.plan_states import PlanStatus
 from app.task_launch import schedule_or_run
 from app.task_states import TaskStatus, can_transition
+from app.telemetry_events import TaskSource
+from app.telemetry_tasks import send_task_created
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +142,7 @@ async def spawn_planning_task(
         status=TaskStatus.PENDING,
         plan_mode=True,
         is_plan_only=True,
+        source=TaskSource.SCHEDULE,
         ai_profile_id=await resolve_schedule_profile(schedule, db),
     )
     db.add(task)
@@ -152,6 +155,7 @@ async def spawn_planning_task(
     schedule.updated_at = datetime.now(UTC).isoformat()
     await db.commit()
     await db.refresh(task)
+    send_task_created(task, user_id=current_user.id)
 
     # Launch — planning tasks are store-agnostic so they go through
     # the no-store direct-launch path.

@@ -1,7 +1,5 @@
 import { useTranslation } from 'react-i18next'
 import { saveLanguagePreference } from '../../i18n'
-import { sendEvent } from '../../lib/telemetry'
-import { FrontendEvent } from '../../lib/telemetryEvents'
 
 export function LanguageSwitcher() {
   const { i18n, t } = useTranslation()
@@ -9,7 +7,6 @@ export function LanguageSwitcher() {
 
   const toggleLanguage = () => {
     const newLang = currentLang === 'zh' ? 'en' : 'zh'
-    sendEvent(FrontendEvent.LANGUAGE_SWITCHED, { to_language: newLang })
     i18n.changeLanguage(newLang)
     saveLanguagePreference(newLang)
   }

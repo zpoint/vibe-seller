@@ -285,7 +285,10 @@ class TestMultipleResults:
         )
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Plan + multi-result', 'plan_mode': True},
+            json={
+                'title': 'Plan + multi-result',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id, target='planned')

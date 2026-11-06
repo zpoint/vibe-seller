@@ -18,6 +18,7 @@ from app.config import DEFAULT_USER_ID, JWT_SECRET
 from app.database import get_db
 from app.models.app_settings import AppSettings
 from app.models.user import User
+from app.telemetry_via import clear_via, set_via, via_for_request
 from app.workspace.actor import (
     actor_for,
     clear_request_actor,
@@ -139,6 +140,7 @@ async def get_current_user(
     successful return.
     """
     clear_request_actor()
+    clear_via()
     cookie_token = request.cookies.get(COOKIE_NAME, '')
     bearer_token = _bearer_token(request)
 
@@ -158,6 +160,7 @@ async def get_current_user(
         user = await _authenticate_api_token(db, api_token)
         request.state.auth_via = 'api_token'
         set_request_actor(actor_for(user, 'api_token'))
+        set_via(via_for_request(request.url.path, 'api_token'))
         return user
 
     # Cookie first, Authorization header as the fallback (used by
@@ -175,6 +178,7 @@ async def get_current_user(
                 via = 'session' if cookie_token else 'service'
                 request.state.auth_via = via
                 set_request_actor(actor_for(user, via))
+                set_via(via_for_request(request.url.path, via))
                 return user
         except jwt.PyJWTError:
             user = None
@@ -191,6 +195,7 @@ async def get_current_user(
         if user:
             request.state.auth_via = 'no_auth'
             set_request_actor(actor_for(user, 'no_auth'))
+            set_via(via_for_request(request.url.path, 'no_auth'))
             return user
 
     raise HTTPException(status_code=401, detail='Not authenticated')

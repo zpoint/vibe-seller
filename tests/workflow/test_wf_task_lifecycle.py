@@ -450,7 +450,10 @@ class TestPlanModeFollowupSkipPlan:
         # Phase 1: create plan-mode task
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Follow-up skip test', 'plan_mode': True},
+            json={
+                'title': 'Follow-up skip test',
+                'plan_mode': True,
+            },
         )
         task_id = r.json()['id']
 

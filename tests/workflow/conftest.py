@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 import re
 import shutil
-import time
 import uuid
 
 from httpx import ASGITransport, AsyncClient
@@ -36,6 +35,7 @@ from app.models.app_settings import AppSettings
 from app.models.base import Base
 from app.models.user import User
 from app.password import hash_password
+from tests.workflow.db_calls import db_calls, wait_db_idle
 from tests.workflow.fake_agent import FakeAgent
 
 # Save BEFORE any monkeypatching
@@ -63,6 +63,7 @@ ASYNC_SESSION_MODULES = [
     'app.workspace.knowledge_sync',
     'app.workspace.skills_sync',
     'app.scheduler.task_queue',
+    'app.scheduler.heartbeat',
     'app.browser.idle_sweep',
     'app.scheduler.cron',
     'app.scheduler.fanout',
@@ -82,29 +83,7 @@ ASYNC_SESSION_MODULES = [
 # ── Core DB ──────────────────────────────────────────
 
 
-class _DbCallTracker:
-    """Counts database calls in flight on the test engine.
-
-    The teardown must never cancel a task that is INSIDE a database
-    call. A cut-short aiosqlite call invalidates the shared
-    connection — and for this in-memory engine the database LIVES in
-    that connection (StaticPool, one connection). Measured: cancelling
-    a leaked writer mid-call left ``drop_all`` on a dead connection
-    ("Cannot operate on a closed database"), and awaiting the
-    cancelled task then deadlocked outright — the aiosqlite worker
-    thread was gone and the rollback future would never resolve.
-
-    So the drain reads this counter instead of guessing: while any
-    call is in flight it waits (real calls finish in microseconds);
-    only once every task is parked at a NON-DB await is a cancel
-    guaranteed to land outside a call.
-    """
-
-    def __init__(self) -> None:
-        self.in_flight = 0
-
-
-_db_calls = _DbCallTracker()
+_db_calls = db_calls
 
 
 class _TrackedAsyncSession(AsyncSession):
@@ -180,7 +159,7 @@ async def drain_background_tasks(deadline_seconds: float = 10.0) -> None:
 
     1. No call is IN FLIGHT. A cut-short call invalidates the shared
        connection and — the database living in it — the database
-       itself (see ``_DbCallTracker``).
+       itself (see ``tests/workflow/db_calls.py``).
     2. Nothing can touch the database afterwards. A pipeline parked
        on an event (the FakeAgent waiting for plan approval is the
        common case here) would wake later and write to a dropped
@@ -205,11 +184,7 @@ async def drain_background_tasks(deadline_seconds: float = 10.0) -> None:
     anyway — bounded beats stuck.
     """
     current = asyncio.current_task()
-    deadline = time.monotonic() + deadline_seconds
-    while _db_calls.in_flight:
-        if time.monotonic() >= deadline:
-            break
-        await real_sleep(0.002)
+    await wait_db_idle(deadline_seconds)
     pending = [
         t for t in asyncio.all_tasks() if t is not current and not t.done()
     ]

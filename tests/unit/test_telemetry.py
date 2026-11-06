@@ -43,6 +43,7 @@ def test_send_merges_base_properties_into_every_event(monkeypatch):
     )
     # base_properties keys must be present…
     assert props['app_version'] == telemetry.APP_VERSION
+    assert props['release_channel'] in ('stable', 'nightly', 'dev')
     assert 'os' in props
     assert 'python_version' in props
     assert 'is_docker' in props

@@ -22,6 +22,38 @@ logger = logging.getLogger(__name__)
 class _PersistMixin:
     """Deliverable persistence — the streaming-prose result fallback."""
 
+    async def _persist_session_id(self, session_id: str):
+        """Write task.session_id from the init event.
+
+        Called only for fresh runs (no --resume): writes the brand-
+        new id Claude Code just minted. The alternative is waiting
+        for `_save_result` at end-of-stream, which doesn't run if
+        Claude Code stalls after emitting its final result event.
+        """
+        try:
+            async with async_session() as db:
+                task = await db.get(Task, self.task_id)
+                if task:
+                    task.session_id = session_id
+                    task.updated_at = datetime.now(UTC).isoformat()
+                    await db.commit()
+                    logger.info(
+                        'Persisted session_id=%s for task %s (early, on init)',
+                        session_id,
+                        self.task_id[:8],
+                    )
+                else:
+                    logger.warning(
+                        'Cannot persist session_id for %s: task not found',
+                        self.task_id[:8],
+                    )
+        except Exception:
+            logger.warning(
+                'Failed to persist session_id early for %s',
+                self.task_id[:8],
+                exc_info=True,
+            )
+
     async def _settle_missing_plan(self):
         """Decide what a ``plan_then_execute`` run with no plan produced.
 

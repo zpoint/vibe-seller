@@ -70,7 +70,10 @@ class TestEarlyPersistOnInit:
         task.session_id to the DB immediately — before the process
         exits and before _save_result runs.
         """
-        with patch('app.ai.claude_backend_stream.async_session', _db):
+        with (
+            patch('app.ai.claude_backend_stream.async_session', _db),
+            patch('app.ai.claude_backend_persist.async_session', _db),
+        ):
             session = _make_session()
             assert session.session_id is None
 
@@ -92,7 +95,10 @@ class TestEarlyPersistOnInit:
         overwrite task.session_id — the root transcript id is what
         future follow-ups need to chain off.
         """
-        with patch('app.ai.claude_backend_stream.async_session', _db):
+        with (
+            patch('app.ai.claude_backend_stream.async_session', _db),
+            patch('app.ai.claude_backend_persist.async_session', _db),
+        ):
             # Seed DB with root session id
             async with _db() as db:
                 t = await db.get(Task, 'task-early-persist')
@@ -119,7 +125,10 @@ class TestEarlyPersistOnInit:
         also don't want surprise reads).
         """
         persist = AsyncMock()
-        with patch('app.ai.claude_backend_stream.async_session', _db):
+        with (
+            patch('app.ai.claude_backend_stream.async_session', _db),
+            patch('app.ai.claude_backend_persist.async_session', _db),
+        ):
             session = _make_session()
             with patch.object(session, '_persist_session_id', persist):
                 await session._handle_event({

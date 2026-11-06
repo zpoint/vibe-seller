@@ -90,7 +90,10 @@ class TestTaskCreatedEvent:
         try:
             r = await admin_client.post(
                 '/api/tasks',
-                json={'title': 'Storeless live', 'store_id': None},
+                json={
+                    'title': 'Storeless live',
+                    'store_id': None,
+                },
             )
             assert r.status_code == 200
             task_id = r.json()['id']

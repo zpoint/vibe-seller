@@ -185,7 +185,10 @@ class TestTaskContracts:
     async def test_task_create_shape(self, admin_client):
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Create shape', 'description': 'desc'},
+            json={
+                'title': 'Create shape',
+                'description': 'desc',
+            },
         )
         assert r.status_code == 200
         assert TASK_KEYS <= set(r.json().keys())

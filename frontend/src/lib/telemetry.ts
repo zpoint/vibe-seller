@@ -6,6 +6,7 @@ const INSTALL_ID_LS_KEY = 'vibe_seller.install_id'
 
 let _initialized = false
 let _enabled = false
+let _installId: string | null = null
 
 // ─── Path normalization ─────────────────────────────────────────
 
@@ -85,9 +86,14 @@ function extractIconLabel(el: ParsedElement): string {
   return ''
 }
 
-function extractLabel(el: ParsedElement): string {
+function isRealControl(el: ParsedElement): boolean {
+  const role = (el.attrs.attr__role || '').toLowerCase()
+  return INTERACTIVE_TAGS.has(el.tag_name) || CONTROL_ROLES.has(role)
+}
+
+function extractLabel(el: ParsedElement, allowText: boolean): string {
   return (
-    el.text ||
+    (allowText ? el.text : '') ||
     el.attrs.attr__title ||
     el.attrs.attr__aria_label ||
     el.attrs['attr__aria-label'] ||
@@ -105,12 +111,48 @@ function extractLabelFromChildren(
 ): string {
   for (let i = 0; i < interactiveIdx; i++) {
     const child = components[i]
-    const label = extractLabel(child)
+    const label = extractLabel(child, isRealControl(child))
     if (label) return label
     const iconLabel = extractIconLabel(child)
     if (iconLabel) return iconLabel
   }
   return ''
+}
+
+const CONTROL_ROLES = new Set(['button', 'link', 'tab', 'menuitem', 'option'])
+const MAX_LABEL_CHARS = 40
+const SENSITIVE_MARK = 'ph-sensitive'
+
+/** Strip rendered text from events whose element chain touches a
+ *  user-content element (class `ph-sensitive`). before_send runs it
+ *  on every event so titles, descriptions, chat, plans, results,
+ *  store names and file names are never recorded; the click itself
+ *  is kept. */
+interface SanitizableEvent {
+  properties?: Record<string, unknown> | null
+}
+
+export function sanitizeSensitiveText<T extends SanitizableEvent | null>(
+  event: T,
+): T {
+  try {
+    const props = event?.properties
+    if (!props) return event
+    const chain = props.$elements_chain
+    if (typeof chain === 'string' && chain.includes(SENSITIVE_MARK)) {
+      props.$elements_chain = chain
+        .split(';')
+        .map((entry: string) =>
+          entry.replace(/text="[^"]*"/g, 'text=""'),
+        )
+        .join(';')
+      if (typeof props.$el_text === 'string') props.$el_text = ''
+      if (typeof props.action_label === 'string') props.action_label = ''
+    }
+    return event
+  } catch {
+    return event
+  }
 }
 
 function enrichAutocaptureEvent(
@@ -127,17 +169,24 @@ function enrichAutocaptureEvent(
     .filter(Boolean) as ParsedElement[]
   if (components.length === 0) return event
 
-  // Pass 1: standard interactive tag (button, a, input, ...).
+  // Pass 1: standard interactive tag (button, a, input, ...). Free
+  // text is promoted only from real controls and only when short —
+  // long text is content, not a label.
   for (let i = 0; i < components.length; i++) {
     const el = components[i]
     if (INTERACTIVE_TAGS.has(el.tag_name)) {
       props!.action_element = el.tag_name
-      props!.action_label =
-        extractLabel(el) ||
+      const label =
+        extractLabel(el, true) ||
         (props!.$el_text as string) ||
         extractLabelFromChildren(components, i) ||
         ''
-      if (props!.action_label && props!.action_label !== props!.$el_text) {
+      props!.action_label =
+        label.length <= MAX_LABEL_CHARS ? label : ''
+      if (
+        props!.action_label &&
+        props!.action_label !== props!.$el_text
+      ) {
         props!.$el_text = props!.action_label
       }
       return event
@@ -149,23 +198,32 @@ function enrichAutocaptureEvent(
     const el = components[i]
     if (hasInteractivitySignal(el)) {
       props!.action_element = el.tag_name
-      props!.action_label =
-        extractLabel(el) ||
+      const label =
+        extractLabel(el, isRealControl(el)) ||
         (props!.$el_text as string) ||
         extractLabelFromChildren(components, i) ||
         ''
-      if (props!.action_label && props!.action_label !== props!.$el_text) {
+      props!.action_label =
+        label.length <= MAX_LABEL_CHARS ? label : ''
+      if (
+        props!.action_label &&
+        props!.action_label !== props!.$el_text
+      ) {
         props!.$el_text = props!.action_label
       }
       return event
     }
   }
 
-  // Pass 3: fall back to the click target itself.
+  // Pass 3: fall back to the click target itself — attributes only,
+  // never free text.
   const target = components[0]
   props!.action_element = target.tag_name
-  props!.action_label =
-    extractLabel(target) || (props!.$el_text as string) || ''
+  const fallback =
+    extractLabel(target, isRealControl(target)) ||
+    (props!.$el_text as string) ||
+    ''
+  props!.action_label = fallback.length <= MAX_LABEL_CHARS ? fallback : ''
   if (props!.action_label && props!.action_label !== props!.$el_text) {
     props!.$el_text = props!.action_label
   }
@@ -201,12 +259,16 @@ function ensureInstallId(serverInstallId: string | null): string {
   return fallback
 }
 
-export function initTelemetry(serverInstallId: string | null): void {
+export function initTelemetry(
+  serverInstallId: string | null,
+  superProps: Record<string, string> = {},
+): void {
   if (_initialized) return
   _initialized = true
   if (typeof window === 'undefined') return
   try {
     const distinctId = ensureInstallId(serverInstallId)
+    _installId = distinctId
     posthog.init(POSTHOG_PROJECT_KEY, {
       api_host: POSTHOG_HOST,
       autocapture: true,
@@ -216,6 +278,8 @@ export function initTelemetry(serverInstallId: string | null): void {
       // it, only the initial URL would ever be reported.
       capture_pageview: 'history_change',
       capture_pageleave: true,
+      capture_exceptions: true,
+
       persistence: 'localStorage',
       disable_session_recording: true,
       disable_external_dependency_loading: true,
@@ -233,9 +297,18 @@ export function initTelemetry(serverInstallId: string | null): void {
           if (props && typeof props.$pathname === 'string') {
             props.$pathname = normalizePath(props.$pathname)
           }
+          if (
+            props &&
+            typeof props.$prev_pageview_pathname === 'string'
+          ) {
+            props.$prev_pageview_pathname = normalizePath(
+              props.$prev_pageview_pathname,
+            )
+          }
           enrichAutocaptureEvent(
             event as unknown as Record<string, unknown>,
           )
+          sanitizeSensitiveText(event)
           return event
         } catch {
           return event
@@ -243,8 +316,35 @@ export function initTelemetry(serverInstallId: string | null): void {
       },
     })
     _enabled = true
+    if (Object.keys(superProps).length > 0) {
+      posthog.register(superProps)
+    }
   } catch {
     _enabled = false
+  }
+}
+
+/** Per-install seat pseudonym: sha256(install_id:user_id)[:12]. */
+export async function registerUserHash(userId: string): Promise<void> {
+  if (!_enabled || !_installId || !userId) return
+  try {
+    const data = new TextEncoder().encode(`${_installId}:${userId}`)
+    const digest = await crypto.subtle.digest('SHA-256', data)
+    const hex = Array.from(new Uint8Array(digest))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+    posthog.register({ user_hash: hex.slice(0, 12) })
+  } catch {
+    // ignore
+  }
+}
+
+export function unregisterUserHash(): void {
+  if (!_enabled) return
+  try {
+    posthog.unregister('user_hash')
+  } catch {
+    // ignore
   }
 }
 

@@ -33,6 +33,9 @@ class TestChannelOf:
             ('0.3.0rc1', 'stable'),  # unchanged: rc was always checked
             (NIGHTLY, 'nightly'),
             ('0.2.1.dev20261016', 'nightly'),  # date-only stamp
+            ('0.2.1.dev202610161800', 'nightly'),  # 12-digit stamp
+            ('0.2.1.dev31+g95d610d8d.d20261104', 'dev'),  # local seg
+            ('0.1.2.dev11', 'dev'),  # commit count below the cutoff
             ('0.2.1.dev3+gabc1234', 'dev'),  # setuptools-scm checkout
             ('0.2.1.dev3', 'dev'),  # commit count, not a timestamp
             ('0.0.1.dev42+gabc1234', 'dev'),  # PR installer build

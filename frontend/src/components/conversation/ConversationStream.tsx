@@ -338,6 +338,7 @@ export function ConversationStream({
                 plan={item.plan!}
                 allVersions={item.plan!.isCurrent ? allPlanVersions : undefined}
                 todoItems={todoItems}
+                taskId={task.id}
                 taskStatus={task.status}
                 planMode={task.plan_mode}
                 scheduleId={task.schedule_id}

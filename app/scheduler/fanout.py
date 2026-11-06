@@ -23,7 +23,6 @@ import uuid
 
 from sqlalchemy import select
 
-from app import telemetry
 from app.ai.profiles import resolve_schedule_profile
 from app.browser.manager import store_slug as _store_slug
 from app.config import DEFAULT_USER_ID
@@ -41,7 +40,9 @@ from app.prompts import (
 )
 from app.scheduler.task_queue import task_queue_scheduler
 from app.task_states import TaskStatus, assert_transition, can_transition
-from app.telemetry_events import TelemetryEvent
+from app.telemetry_events import TaskSource
+from app.telemetry_schedules import send_schedule_fired
+from app.telemetry_tasks import send_task_created
 from app.workspace.knowledge_sync import knowledge_sync
 
 logger = logging.getLogger(__name__)
@@ -180,14 +181,12 @@ async def run_fanout_job(
         result = await db.execute(select(Store).order_by(Store.created_at))
         stores = result.scalars().all()
 
-    telemetry.send(
-        TelemetryEvent.SCHEDULE_FIRED,
-        {
-            'schedule_type': schedule_type,
-            'phase_mode': phase_mode_value,
-            'fanout_target_count_bucket': telemetry.count_bucket(len(stores)),
-            'is_catalog': is_catalog,
-        },
+    send_schedule_fired(
+        schedule_id,
+        schedule_type=schedule_type,
+        phase_mode=phase_mode_value,
+        target_count=len(stores),
+        is_catalog=is_catalog,
     )
 
     if not stores:
@@ -249,6 +248,7 @@ async def run_fanout_job(
                     status=TaskStatus.PENDING,
                     plan_mode=plan_mode,
                     skip_reflection=skip_reflection,
+                    source=TaskSource.SCHEDULE,
                     ai_profile_id=resolved_profile,
                     batch_id=batch_id,
                 )
@@ -259,6 +259,7 @@ async def run_fanout_job(
                 db.add(task)
                 await db.commit()
                 await db.refresh(task)
+                send_task_created(task)
 
                 try:
                     await task_queue_scheduler.submit(task.id, store.id)
@@ -345,17 +346,15 @@ async def run_single_job(
         single_schedule_type = sched.schedule_type
         resolved_profile = await resolve_schedule_profile(sched, db)
 
-    telemetry.send(
-        TelemetryEvent.SCHEDULE_FIRED,
-        {
-            'schedule_type': single_schedule_type,
-            'phase_mode': 'single',
-            'fanout_target_count_bucket': telemetry.count_bucket(0),
-            'is_catalog': False,
-        },
-    )
-
     task_id = str(uuid.uuid4())
+
+    send_schedule_fired(
+        schedule_id,
+        task_id=task_id,
+        schedule_type=single_schedule_type,
+        phase_mode='single',
+        target_count=0,
+    )
 
     async with async_session() as db:
         # Cancel any prior WAITING single-task from this schedule
@@ -372,6 +371,7 @@ async def run_single_job(
             status=TaskStatus.PENDING,
             plan_mode=plan_mode,
             skip_reflection=skip_reflection,
+            source=TaskSource.SCHEDULE,
             ai_profile_id=resolved_profile,
         )
         if saved_plan:
@@ -380,6 +380,7 @@ async def run_single_job(
             task.status = TaskStatus.PLANNED
         db.add(task)
         await db.commit()
+        send_task_created(task)
 
     await event_bus.emit(
         'schedule_triggered',
@@ -443,6 +444,7 @@ async def _run_l2_phase(
             status=TaskStatus.PENDING,
             plan_mode=plan_mode,
             skip_reflection=skip_reflection,
+            source=TaskSource.SCHEDULE,
             ai_profile_id=ai_profile_id or 'default',
             batch_id=batch_id,
         )
@@ -451,6 +453,7 @@ async def _run_l2_phase(
             task.status = TaskStatus.PLANNED
         db.add(task)
         await db.commit()
+        send_task_created(task)
 
         await event_bus.emit(
             'schedule_triggered',
@@ -484,3 +487,36 @@ async def _run_l2_phase(
             f'status={l2_task.status if l2_task else "missing"}, '
             f'error={l2_task.error if l2_task else "task not found"}'
         )
+
+
+async def create_manual_trigger_task(schedule: Schedule, created_by, db):
+    """Create the child task for a manual trigger (POST
+    ``/api/schedules/{id}/trigger``).
+
+    The router's former inline block — ``_run_task_job``'s logic for
+    one store-bound child: construct with an explicit source, commit,
+    and report ``task_created`` the way every creation path does.
+    """
+    await _cancel_prior_waiting(db, schedule.id, schedule.store_id)
+    task = Task(
+        store_id=schedule.store_id,
+        schedule_id=schedule.id,
+        created_by=created_by,
+        title=schedule.title,
+        description=schedule.description or schedule.title,
+        platform=schedule.platform,
+        country=schedule.country,
+        status=TaskStatus.PENDING,
+        plan_mode=schedule.plan_mode,
+        source=TaskSource.SCHEDULE,
+        ai_profile_id=await resolve_schedule_profile(schedule, db),
+    )
+    if schedule.plan:
+        task.plan = schedule.plan
+        task.plan_version = schedule.plan_version
+        task.status = TaskStatus.PLANNED
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+    send_task_created(task, user_id=created_by)
+    return task

@@ -124,7 +124,10 @@ class TestUpdateImmutability:
         created = await self._make_schedule(admin_client)
         r = await admin_client.put(
             f'/api/schedules/{created["id"]}',
-            json={'title': 'Renamed', 'description': 'new desc'},
+            json={
+                'title': 'Renamed',
+                'description': 'new desc',
+            },
         )
         assert r.status_code == 200, r.text
         body = r.json()

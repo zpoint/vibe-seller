@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 import uuid
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, event
+from sqlalchemy.orm import Mapped, mapped_column, object_session
 
 from app.models.base import Base
 from app.text_utils import SafeText
@@ -110,6 +110,20 @@ class Task(Base):
     ai_profile_id: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default='default'
     )
+    # One of app.telemetry_events.TaskSource.
+    source: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Accumulated from stream-json result events.
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    num_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # User re-runs of this task.
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Parked-time accounting; active = duration - paused.
+    paused_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    paused_since: Mapped[str | None] = mapped_column(String, nullable=True)
     session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
@@ -117,3 +131,72 @@ class Task(Base):
     updated_at: Mapped[str] = mapped_column(
         String, default=lambda: datetime.now(UTC).isoformat()
     )
+
+
+# Parked-time clock
+
+PARKED_STATES = frozenset({'waiting', 'planned'})
+
+
+def _seconds_between(start_iso: str, end_iso: str) -> int:
+    try:
+        start = datetime.fromisoformat(start_iso)
+        end = datetime.fromisoformat(end_iso)
+    except (ValueError, TypeError):
+        return 0
+    return max(0, int((end - start).total_seconds()))
+
+
+def open_pause(task: 'Task', at_iso: str | None = None) -> None:
+    """Start the pause clock (idempotent)."""
+    if not task.paused_since:
+        task.paused_since = at_iso or datetime.now(UTC).isoformat()
+
+
+def close_pause(task: 'Task', at_iso: str | None = None) -> None:
+    """Fold the open pause into paused_seconds."""
+    if not task.paused_since:
+        return
+    end_iso = at_iso or datetime.now(UTC).isoformat()
+    task.paused_seconds = (task.paused_seconds or 0) + _seconds_between(
+        task.paused_since, end_iso
+    )
+    task.paused_since = None
+
+
+def paused_total(task: 'Task', at_iso: str | None = None) -> int:
+    """paused_seconds plus any open pause, as of `at_iso`."""
+    total = task.paused_seconds or 0
+    if task.paused_since:
+        total += _seconds_between(
+            task.paused_since, at_iso or datetime.now(UTC).isoformat()
+        )
+    return total
+
+
+TERMINAL_STATES = frozenset({'completed', 'failed'})
+
+
+@event.listens_for(Task.status, 'set')
+def _park_clock(target: 'Task', value, oldvalue, _initiator) -> None:
+    new = str(value) if value is not None else ''
+    old = str(oldvalue) if oldvalue is not None else ''
+    if new == old:
+        return
+    if new in PARKED_STATES:
+        open_pause(target)
+    elif old in PARKED_STATES:
+        close_pause(target)
+    if new == 'running' and old not in ('running', 'waiting'):
+        # A run began (a wake from WAITING is a resume, not a new
+        # run). Emitted after commit alongside the terminal events.
+        session = object_session(target)
+        if session is not None:
+            session.info.setdefault('start_transitions', set()).add(target.id)
+    if new in TERMINAL_STATES and old not in TERMINAL_STATES:
+        session = object_session(target)
+        if session is not None:
+            session.info.setdefault('terminal_transitions', {})[target.id] = (
+                old,
+                new,
+            )

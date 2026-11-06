@@ -96,7 +96,7 @@ export function AllStoresTaskList({
                 className="w-full text-left bg-white rounded-lg border border-gray-200 p-3 hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center justify-between">
-                  <span className="font-medium text-sm truncate">{task.title}</span>
+                  <span className="ph-sensitive font-medium text-sm truncate">{task.title}</span>
                   <StatusBadge status={task.status} />
                 </div>
                 <div className="text-xs text-gray-400 mt-1">{formatDate(task.created_at)}</div>

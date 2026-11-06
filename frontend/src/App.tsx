@@ -20,6 +20,7 @@ import { WorkspaceAssistantView } from './views/WorkspaceAssistantView'
 import { SettingsView, type SettingsTab } from './views/SettingsView'
 import { useSSE } from './hooks/useSSE'
 import { parseNav, settingsTabToSlug } from './lib/route'
+import { registerUserHash, unregisterUserHash } from './lib/telemetry'
 import { loadTaskById as loadTaskByIdHandler } from './handlers/loadTaskById'
 import { api, AUTH_EXPIRED_EVENT, uploadTaskAttachment } from './api'
 import { triggerSchedule as triggerScheduleHandler } from './handlers/triggerSchedule'
@@ -211,7 +212,7 @@ export default function App() {
         setAuthRequired(auth_required)
         return fetch('/api/auth/me', { credentials: 'include' })
           .then(r => { if (!r.ok) throw new Error(); return r.json() })
-          .then(u => { setCurrentUser(u); setAuthChecked(true); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false) })
+          .then(u => { setCurrentUser(u); setAuthChecked(true); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false) })
           .catch(() => {
             if (auth_required) { setCurrentUser(null); setAuthChecked(true) }
             else { setCurrentUser(null); setAuthChecked(true) }
@@ -524,10 +525,10 @@ export default function App() {
   const toggleSkillExpanded = (slug: string) => { setWsExpandedSkills(prev => { const next = new Set(prev); if (next.has(slug)) next.delete(slug); else next.add(slug); return next }) }
 
   // ─── Auth helpers ──────────────────────────────────
-  const handleLogin = async () => { setLoginError(''); try { const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' }); if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }; const u = await r.json(); setCurrentUser(u); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false); setLoginIdentifier(''); setLoginPassword('') } catch { setLoginError(t('auth.invalidCredentials')) } }
+  const handleLogin = async () => { setLoginError(''); try { const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identifier: loginIdentifier, password: loginPassword }), credentials: 'include' }); if (!r.ok) { setLoginError(t('auth.invalidCredentials')); return }; const u = await r.json(); setCurrentUser(u); void registerUserHash(u.id); if (u.default_profile_id) setSelectedProfileId(u.default_profile_id); setDebugMode(u.debug_mode ?? false); setLoginIdentifier(''); setLoginPassword('') } catch { setLoginError(t('auth.invalidCredentials')) } }
   // Reset session-scoped selection on logout so next login re-enters
   // the default-selection branch (else a stale selectedStore skips it).
-  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); setAppView('tasks') }
+  const handleLogout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); unregisterUserHash(); setCurrentUser(null); setSelectedStore(null); setShowAllTasks(true); setSelectedTask(null); setSelectedSchedule(null); setAppView('tasks') }
 
   // ─── Settings helpers ──────────────────────────────
   const createUser = async () => { if (!newUserForm.username.trim() || !newUserForm.password.trim()) return; try { await api.post('/api/users', { ...newUserForm, email: newUserForm.email.trim() || undefined }); setNewUserForm({ username: '', email: '', password: '', role: 'member' }); setShowAddUser(false); await loadUsers() } catch { /* ignore */ } }

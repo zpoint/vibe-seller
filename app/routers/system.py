@@ -80,6 +80,8 @@ async def system_info() -> dict:
         (e.g. ``0.1.5``); for a dev checkout setuptools_scm formats
         it as ``<base>.devN+g<short_sha>`` so the SHA is already
         embedded.
+      - ``release_channel``: 'stable' | 'nightly' | 'dev' derived
+        from the version string (app/release_channel.py).
       - ``commit``: short git SHA if the source tree is a git
         checkout, else None. Useful when ``version`` is the
         ``fallback_version`` ('0.0.0+dev') because setuptools_scm
@@ -91,6 +93,7 @@ async def system_info() -> dict:
     return {
         'platform': get_platform(),
         'version': APP_VERSION,
+        'release_channel': channel_of(APP_VERSION),
         'commit': _GIT_COMMIT_SHORT,
         'install_id': telemetry.stable_install_id(),
     }

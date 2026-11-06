@@ -17,6 +17,7 @@ Content-Type and cross-site rules.
 
 import json
 import logging
+import time
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -49,6 +50,11 @@ from app.auth import get_current_user
 from app.config import CORS_ORIGINS
 from app.database import get_db
 from app.models.user import User
+from app.telemetry_events import McpErrorCategory, McpToolOutcome
+from app.telemetry_mcp import (
+    send_mcp_session_started,
+    send_mcp_tool_called,
+)
 from app.version import get_version
 
 logger = logging.getLogger(__name__)
@@ -357,25 +363,57 @@ async def _call_tool(message: dict, ctx: McpContext) -> dict:
     definition = find_tool(name)
     if definition is None:
         return failure(request_id, METHOD_NOT_FOUND, f'Unknown tool: {name}')
-    arguments = params.get('arguments') or {}
-    if not isinstance(arguments, dict):
-        return failure(
-            request_id, INVALID_PARAMS, 'arguments must be an object'
-        )
-    problem = _argument_problem(definition, arguments)
-    if problem:
-        return failure(request_id, INVALID_PARAMS, problem)
+    # One ``mcp_tool_called`` per call of a KNOWN tool: the tool's
+    # name is a fixed enum; arguments, results and ids never leave.
+    outcome = McpToolOutcome.OK
+    error_category = None
+    started = time.monotonic()
     try:
-        result = await definition.handler(ctx, arguments)
-    except ToolError as exc:
-        return _tool_error(request_id, str(exc))
-    except HTTPException as exc:
-        return _tool_error(request_id, str(exc.detail))
-    except Exception:
-        logger.exception('MCP tool %r failed', name)
-        return _tool_error(
-            request_id, f'Tool {name} failed unexpectedly — see server logs'
-        )
+        arguments = params.get('arguments') or {}
+        if not isinstance(arguments, dict):
+            outcome = McpToolOutcome.ERROR
+            error_category = McpErrorCategory.INVALID_PARAMS
+            return failure(
+                request_id, INVALID_PARAMS, 'arguments must be an object'
+            )
+        problem = _argument_problem(definition, arguments)
+        if problem:
+            outcome = McpToolOutcome.ERROR
+            error_category = McpErrorCategory.INVALID_PARAMS
+            return failure(request_id, INVALID_PARAMS, problem)
+        try:
+            result = await definition.handler(ctx, arguments)
+        except ToolError as exc:
+            outcome = McpToolOutcome.ERROR
+            error_category = McpErrorCategory.TOOL_ERROR
+            return _tool_error(request_id, str(exc))
+        except HTTPException as exc:
+            if exc.status_code == 403:
+                outcome = McpToolOutcome.DENIED
+                error_category = McpErrorCategory.ROUTE_DENIED
+            else:
+                outcome = McpToolOutcome.ERROR
+                error_category = McpErrorCategory.ROUTE_ERROR
+            return _tool_error(request_id, str(exc.detail))
+        except Exception:
+            logger.exception('MCP tool %r failed', name)
+            outcome = McpToolOutcome.ERROR
+            error_category = McpErrorCategory.UNEXPECTED
+            return _tool_error(
+                request_id,
+                f'Tool {name} failed unexpectedly — see server logs',
+            )
+    finally:
+        try:
+            send_mcp_tool_called(
+                tool=definition.name,
+                outcome=outcome,
+                error_category=error_category,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                user_id=ctx.user.id if ctx.user else None,
+            )
+        except Exception:
+            pass
     # Redact ONCE, HERE: every tool result is masked by construction,
     # at the layer — the guarantee ``redact``'s docstring always
     # claimed but only per-tool calls provided. A tool that forgets
@@ -421,9 +459,14 @@ async def _dispatch(message: dict, ctx: McpContext) -> dict | None:
     if is_notification(message):
         return None
     if method == 'initialize':
-        return success(
-            message.get('id'), _initialize_result(message.get('params') or {})
+        params = message.get('params') or {}
+        result = _initialize_result(params)
+        client_info = params.get('clientInfo') or {}
+        send_mcp_session_started(
+            client_name=client_info.get('name'),
+            protocol_version=result['protocolVersion'],
         )
+        return success(message.get('id'), result)
     if method == 'ping':
         return success(message.get('id'), {})
     if method == 'tools/list':

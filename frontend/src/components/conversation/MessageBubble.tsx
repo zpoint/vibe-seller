@@ -40,7 +40,7 @@ export function MessageBubble({ role, content, onOpenVisionSetup }: MessageBubbl
     const { text, images } = parseUserContent(content)
     return (
       <div className="flex justify-end">
-        <div className="max-w-[80%] bg-gray-100 rounded-2xl rounded-br-md px-4 py-3 text-[16px] leading-relaxed text-gray-800">
+        <div className="ph-sensitive max-w-[80%] bg-gray-100 rounded-2xl rounded-br-md px-4 py-3 text-[16px] leading-relaxed text-gray-800">
           {text && <div className="whitespace-pre-wrap">{text}</div>}
           {images.length > 0 && (
             <div className={`flex flex-wrap gap-2 justify-end ${text ? 'mt-2' : ''}`}>
@@ -85,7 +85,7 @@ export function MessageBubble({ role, content, onOpenVisionSetup }: MessageBubbl
 
   return (
     <div className="min-w-0">
-      <div className={`text-gray-800 ${PROSE}`}>
+      <div className={`ph-sensitive text-gray-800 ${PROSE}`}>
         <Markdown remarkPlugins={[remarkGfm]} components={components}>{content}</Markdown>
       </div>
       {isStreaming && (

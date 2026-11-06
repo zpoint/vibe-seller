@@ -97,7 +97,8 @@ class TestSweepWithRealTasks:
             result='quick job done'
         )
         r = await admin_client.post(
-            '/api/tasks', json={'title': 'short run', 'store_id': store_a}
+            '/api/tasks',
+            json={'title': 'short run', 'store_id': store_a},
         )
         await wait_for_task(admin_client, r.json()['id'])
 
@@ -108,7 +109,8 @@ class TestSweepWithRealTasks:
             result='long job done', gate=gate
         )
         rb = await admin_client.post(
-            '/api/tasks', json={'title': 'long run', 'store_id': store_b}
+            '/api/tasks',
+            json={'title': 'long run', 'store_id': store_b},
         )
         long_task = rb.json()['id']
         await _wait_running(admin_client, long_task)
@@ -138,7 +140,11 @@ class TestSweepWithRealTasks:
             result='now waiting'
         )
         r = await admin_client.post(
-            '/api/tasks', json={'title': 'parks itself', 'store_id': store_id}
+            '/api/tasks',
+            json={
+                'title': 'parks itself',
+                'store_id': store_id,
+            },
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
@@ -165,7 +171,8 @@ class TestSweepWithRealTasks:
             result='eventually'
         )
         r = await admin_client.post(
-            '/api/tasks', json={'title': 'queued', 'store_id': store_id}
+            '/api/tasks',
+            json={'title': 'queued', 'store_id': store_id},
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)

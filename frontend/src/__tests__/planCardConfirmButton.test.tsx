@@ -36,6 +36,7 @@ function renderCard(props: {
       <PlanCard
         plan={plan()}
         todoItems={[]}
+        taskId="t-plan-test"
         taskStatus={props.taskStatus ?? 'planned'}
         planMode={props.planMode ?? true}
         scheduleId={props.scheduleId ?? null}

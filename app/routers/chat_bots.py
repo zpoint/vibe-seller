@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import telemetry
 from app.auth import get_current_user
 from app.config import DOWNLOADS_DIR
 from app.database import get_db
@@ -42,6 +43,7 @@ from app.schemas.chat_bot import (
     ChatBotTestRequest,
     ChatBotUpdate,
 )
+from app.telemetry_events import TelemetryEvent
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +249,10 @@ async def create_chat_bot(
     db.add(bot)
     await db.commit()
     await db.refresh(bot)
+    telemetry.send(
+        TelemetryEvent.CHAT_BOT_ADDED,
+        {'platform': bot.platform},
+    )
     return _response(bot)
 
 
@@ -345,8 +351,13 @@ async def delete_chat_bot(
     bot = await db.get(ChatBot, bot_id)
     if not bot:
         raise HTTPException(status_code=404, detail='Bot not found')
+    platform = bot.platform
     await db.delete(bot)
     await db.commit()
+    telemetry.send(
+        TelemetryEvent.CHAT_BOT_REMOVED,
+        {'platform': platform},
+    )
     return {'ok': True}
 
 

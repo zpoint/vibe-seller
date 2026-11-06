@@ -47,6 +47,7 @@ export async function sendChatMessage(deps: SendChatDeps): Promise<void> {
   deps.setChatInput('')
   deps.setAttachments([])
   sendEvent(FrontendEvent.TASK_MESSAGE_SUBMITTED, {
+    task_id: selectedTask.id,
     length_bucket: lengthBucket(content.length),
     task_status_at_send: selectedTask.status,
     is_first_message_for_task: !deps.conversationItems.some(c => c.type === 'user_message'),

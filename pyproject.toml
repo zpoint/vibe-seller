@@ -79,7 +79,7 @@ dependencies = [
     "packaging",
     "playwright",
     "psutil>=5.9.0",
-    "posthog>=4.0",
+    "posthog>=7.7.0,<8",
     # GFM-strict markdown parser. Used by the set_task_result gate to
     # detect malformed tables (header/separator/body column-count
     # mismatch) before the result reaches the frontend, where

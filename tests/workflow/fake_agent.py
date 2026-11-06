@@ -21,6 +21,7 @@ from app.models.task_message import TaskMessage
 from app.plan_states import PlanStatus
 from app.task_outcome import apply_outcome, resolve_outcome
 from app.task_states import TaskStatus
+from tests.workflow.db_calls import wait_db_idle
 
 # Real asyncio.sleep — never affected by fast_polling monkeypatch
 _real_sleep = asyncio.sleep
@@ -721,7 +722,12 @@ class FakeAgent(AIAgentBackend):
             await _real_sleep(scenario.exit_delay)
 
     async def stop(self, task_id: str) -> bool:
-        # Cancel the asyncio task if still running
+        # Cancel the asyncio task if still running. A real stop kills
+        # the CLI process; the server's own writes still finish. So
+        # the cancel must not land inside a database call (see
+        # tests/workflow/db_calls.py) — wait for the database to be
+        # idle, then cancel with no await in between.
+        await wait_db_idle()
         t = self._tasks.pop(task_id, None)
         if t and not t.done():
             t.cancel()

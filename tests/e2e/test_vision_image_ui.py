@@ -63,7 +63,10 @@ if not _cfg.get('fake'):
 
 
 def _create_task(client: httpx.Client, title: str) -> str:
-    r = client.post(f'{BASE_URL}/api/tasks', json={'title': title})
+    r = client.post(
+        f'{BASE_URL}/api/tasks',
+        json={'title': title},
+    )
     r.raise_for_status()
     return r.json()['id']
 

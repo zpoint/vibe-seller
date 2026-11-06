@@ -298,6 +298,7 @@ export function TasksView({
                       key={task.id}
                       onClick={() => {
                         sendEvent(FrontendEvent.TASK_OPENED, {
+                          task_id: task.id,
                           task_status: task.status,
                           is_planned: !!task.plan_mode,
                           has_error: !!task.error,
@@ -305,7 +306,7 @@ export function TasksView({
                         })
                         selectTask(task); setSelectedSchedule(null)
                       }}
-                      className={`w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedTask?.id === task.id && !selectedSchedule ? 'bg-indigo-50' : ''} ${task.status === 'waiting' ? 'border-l-3 border-l-amber-400' : ''}`}
+                      className={`ph-sensitive w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 ${selectedTask?.id === task.id && !selectedSchedule ? 'bg-indigo-50' : ''} ${task.status === 'waiting' ? 'border-l-3 border-l-amber-400' : ''}`}
                     >
                       <div className="font-medium text-sm truncate">{task.title}</div>
                       {task.description && <div className="text-xs text-gray-400 truncate">{task.description}</div>}

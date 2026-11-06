@@ -115,7 +115,8 @@ class TestBotCreatedTaskUsesAdminProfile:
         self, bot_client, override_async_session
     ):
         r = await bot_client.post(
-            '/api/tasks', json={'title': 'bot task', 'defer_start': True}
+            '/api/tasks',
+            json={'title': 'bot task', 'defer_start': True},
         )
         assert r.status_code in (200, 201), r.text
         async with override_async_session() as db:
@@ -150,7 +151,8 @@ class TestBotCreatedTaskUsesAdminProfile:
         async with override_async_session() as db:
             await _seed(db, admin_profile=DEFAULT_PROFILE_ID)
         r = await bot_client.post(
-            '/api/tasks', json={'title': 'no pref', 'defer_start': True}
+            '/api/tasks',
+            json={'title': 'no pref', 'defer_start': True},
         )
         assert r.status_code in (200, 201), r.text
         async with override_async_session() as db:
@@ -169,7 +171,8 @@ class TestHumanCreatedTaskUnaffected:
             owner.default_profile_id = 'creator-profile'
             await db.commit()
         r = await admin_client.post(
-            '/api/tasks', json={'title': 'human task', 'defer_start': True}
+            '/api/tasks',
+            json={'title': 'human task', 'defer_start': True},
         )
         assert r.status_code in (200, 201), r.text
         async with override_async_session() as db:

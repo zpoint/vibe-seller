@@ -9,6 +9,8 @@ These tests pin the guard at the encode boundary — the column type and
 ``sanitize_text`` — so no future writer has to remember it.
 """
 
+import enum
+
 import httpx
 import pytest
 from sqlalchemy import (
@@ -225,6 +227,10 @@ class TestAgentFacingRequestModels:
     def _probe_value(annotation, clean=False):
         """A value of the right shape, carrying a surrogate unless clean."""
         text = 'probe' if clean else f'probe {LONE}'
+        # Constrained fields (e.g. TaskCreate.source) need a legal
+        # value as scaffolding; the field under test still gets `text`.
+        if isinstance(annotation, type) and issubclass(annotation, enum.Enum):
+            return next(iter(annotation)).value
         origin = str(annotation)
         if 'list' in origin:
             return [text]

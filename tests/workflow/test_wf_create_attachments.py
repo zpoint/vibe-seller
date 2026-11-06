@@ -66,7 +66,11 @@ async def test_attachment_lands_in_agent_workspace(admin_client):
     store_id = await _store(admin_client)
     r = await admin_client.post(
         '/api/tasks',
-        json={'title': 'with image', 'store_id': store_id, 'defer_start': True},
+        json={
+            'title': 'with image',
+            'store_id': store_id,
+            'defer_start': True,
+        },
     )
     tid = r.json()['id']
     task_dir = _TASKS_DIR / tid
@@ -141,7 +145,11 @@ async def test_retry_keeps_uploaded_attachments(admin_client):
     store_id = await _store(admin_client)
     r = await admin_client.post(
         '/api/tasks',
-        json={'title': 'retry me', 'store_id': store_id, 'defer_start': True},
+        json={
+            'title': 'retry me',
+            'store_id': store_id,
+            'defer_start': True,
+        },
     )
     tid = r.json()['id']
     task_dir = _TASKS_DIR / tid
@@ -186,7 +194,11 @@ async def test_a_file_over_the_old_10mb_cap_now_uploads(admin_client):
     store_id = await _store(admin_client)
     r = await admin_client.post(
         '/api/tasks',
-        json={'title': 'big image', 'store_id': store_id, 'defer_start': True},
+        json={
+            'title': 'big image',
+            'store_id': store_id,
+            'defer_start': True,
+        },
     )
     tid = r.json()['id']
     task_dir = _TASKS_DIR / tid
@@ -213,7 +225,11 @@ async def test_an_upload_past_the_cap_is_refused_and_leaves_nothing(
     store_id = await _store(admin_client)
     r = await admin_client.post(
         '/api/tasks',
-        json={'title': 'too big', 'store_id': store_id, 'defer_start': True},
+        json={
+            'title': 'too big',
+            'store_id': store_id,
+            'defer_start': True,
+        },
     )
     tid = r.json()['id']
     task_dir = _TASKS_DIR / tid

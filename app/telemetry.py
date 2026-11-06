@@ -1,6 +1,7 @@
 """Anonymous PostHog telemetry. Opt out: VIBE_SELLER_TELEMETRY=0."""
 
 from datetime import datetime
+from hashlib import sha256
 from importlib.metadata import version
 import logging
 import os
@@ -11,6 +12,7 @@ import uuid
 from posthog import Posthog
 
 from app.config import DATA_DIR
+from app.release_channel import channel_of
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +170,7 @@ def runtime_os() -> str:
 def base_properties() -> dict:
     return {
         'app_version': APP_VERSION,
+        'release_channel': channel_of(APP_VERSION),
         'os': runtime_os(),
         'os_release': platform.release(),
         'python_version': f'{sys.version_info[0]}.{sys.version_info[1]}',
@@ -176,26 +179,37 @@ def base_properties() -> dict:
     }
 
 
-def set_app_locale(locale: str) -> None:
-    """Record the frontend UI locale on this install.
+def set_person_properties(properties: dict) -> None:
+    """Set person-level properties ($set) on this install."""
+    if _client is None or _install_id is None:
+        return
+    try:
+        _client.set(distinct_id=_install_id, properties=properties)
+    except Exception:
+        logger.debug('Telemetry $set failed', exc_info=True)
 
-    Called from the `POST /api/telemetry/locale` endpoint when the
-    frontend boots or the user toggles language. Updates the global
-    state (so the next ``base_properties()`` call carries it) and
-    pushes a PostHog ``identify`` so the locale becomes a person
-    property attached to every subsequent event.
-    """
+
+def user_hash(user_id: str | None) -> str | None:
+    """Per-install seat pseudonym: sha256(install_id:user_id)[:12]."""
+    if not user_id:
+        return None
+    stable = stable_install_id()
+    return sha256(f'{stable}:{user_id}'.encode()).hexdigest()[:12]
+
+
+def set_app_locale(locale: str) -> None:
+    """Record the frontend UI locale on this install."""
     global _app_locale
     _app_locale = locale or 'unknown'
     if _client is None or _install_id is None:
         return
     try:
-        _client.identify(
+        _client.set(
             distinct_id=_install_id,
             properties={'app_locale': _app_locale},
         )
     except Exception:
-        logger.debug('Telemetry identify failed', exc_info=True)
+        logger.debug('Telemetry $set failed', exc_info=True)
 
 
 def count_bucket(n: int) -> str:

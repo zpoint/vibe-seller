@@ -11,10 +11,12 @@ from fastapi.responses import HTMLResponse
 import httpx
 from pydantic import BaseModel
 
+from app import telemetry
 from app.auth import get_current_user
 from app.browser.manager import atomic_write_json, read_mcp_config
 from app.events_system.syncer import load_backend_config, save_backend_config
 from app.platform import safe_chmod, venv_python
+from app.telemetry_events import TelemetryEvent
 from app.utils.crypto import decrypt_password, encrypt_password
 from app.workspace.manager import VIBE_SELLER_DIR
 
@@ -230,6 +232,10 @@ async def setup_mcp(
             status_code=500,
             detail=str(e),
         ) from e
+    telemetry.send(
+        TelemetryEvent.DIDA365_MCP_SETUP,
+        {'already_installed': already_installed},
+    )
     return {
         'ok': True,
         'already_installed': already_installed,
@@ -384,6 +390,7 @@ async def oauth_callback(
         config['refresh_token_enc'] = encrypt_password(tokens['refresh_token'])
     config['expires_at'] = time.time() + tokens.get('expires_in', 3600)
     save_backend_config('dida365', config)
+    telemetry.send(TelemetryEvent.DIDA365_AUTHORIZED)
 
     # Register MCP server
     _register_ticktick_mcp(config)
