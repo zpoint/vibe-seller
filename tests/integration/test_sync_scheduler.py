@@ -17,9 +17,15 @@ import shutil
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import StaticPool
 
-from app.database import async_session, init_db
+from app.database import async_session
+from app.models.base import Base
 from app.models.sync_state import SyncState
 from app.scheduler.cron import scheduler as aps
 from app.sync import jobs as sync_jobs, migrate
@@ -54,14 +60,34 @@ class _NullAPS:
         self.last = kwargs
 
 
-@pytest_asyncio.fixture
-async def clean_state():
-    await init_db()
-    async with async_session() as db:
-        for row in (await db.execute(select(SyncState))).scalars():
-            await db.delete(row)
-        await db.commit()
-    yield
+@pytest_asyncio.fixture(autouse=True)
+async def clean_state(tmp_path, monkeypatch):
+    """One database PER TEST, and nothing shared between workers.
+
+    The suite-wide runtime home is one SQLite file per process, so under
+    xdist several workers race on ``create_all`` of it ("table
+    app_settings already exists"). The workflow fixtures isolate their
+    own engine per test; this file does the same and points the real
+    ``sync_state`` / ``migrate`` code at it. Yields the engine so a test
+    can run ``create_all`` again (the boot path does).
+    """
+    engine = create_async_engine(
+        f'sqlite+aiosqlite:///{tmp_path / "test.db"}',
+        connect_args={'check_same_thread': False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+    monkeypatch.setattr('app.database.async_session', sessions)
+    monkeypatch.setattr('app.sync.state.async_session', sessions)
+    monkeypatch.setattr(
+        'tests.integration.test_sync_scheduler.async_session', sessions
+    )
+    yield engine
+    await engine.dispose()
 
 
 @pytest.fixture
@@ -100,13 +126,14 @@ async def run_skills(manager, *, force: bool = False):
 # ── sync_state table ───────────────────────────────────────────────
 
 
-async def test_create_all_on_an_existing_database_is_idempotent():
-    await init_db()
-    async with async_session() as db:
-        await db.execute(SyncState.__table__.delete())
-        await db.commit()
-    await init_db()  # the boot path again — must not fail, must create
+async def test_create_all_on_an_existing_database_is_idempotent(
+    clean_state,
+):
+    """The boot path runs ``create_all`` every start; over a database
+    that already has the table it must be a no-op."""
     await record('skills', status='updated', version='a' * 40)
+    async with clean_state.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
         row = await db.get(SyncState, 'skills')
     assert row.version == 'a' * 40
