@@ -47,6 +47,11 @@ source .venv/bin/activate  # Activate venv first
 ./restart.sh [PORT]    # Restart on same port
 ```
 
+Test/demo/e2e servers on a side port: stop with
+`./stop.sh <port> --scoped` (default `stop.sh` also kills everything
+connected to the port — e.g. a local proxy relaying to it — and reaps
+every instance's agents machine-wide).
+
 ## Code Style
 
 Google Python style enforced via pre-commit + ruff:
