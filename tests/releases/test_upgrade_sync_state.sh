@@ -10,30 +10,38 @@
 #   3. install the CURRENT build over the SAME VIBE_HOME and boot it
 #   4. assert the migration happened, and that booting twice is a no-op
 #
+# The sandbox is created HERE and nowhere else, and only the sandbox is
+# ever deleted. In particular this script ignores an exported
+# ``VIBE_HOME`` — that is the app's own data-directory variable, and
+# reading it would boot an old release against somebody's real install
+# and then migrate over it. The one ``rm -rf`` is guarded by a marker
+# file this run wrote and by a path check.
+#
 # Usage: tests/releases/test_upgrade_sync_state.sh [previous-version]
 #   PREV_VERSION   default: latest stable on PyPI
-#   VIBE_HOME      default: $TMPDIR/vibe-upgrade-home
 #   PORT           default: 7813
 set -u
 
 PREV_VERSION=${1:-}
-PORT=${PORT:-7813}
-WORK=${WORKDIR:-$TMPDIR/vibe-upgrade-test}
-VH=${VIBE_HOME:-$WORK/home}
+PORT=${PORT:-7823}
 REPO=${REPO:-$(cd "$(dirname "$0")/../.." && pwd)}
 PY=$REPO/.venv/bin/python
 FAKE_PORT=${FAKE_PORT:-7814}
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
-# Stop ONLY the instance we started. On this machine `stop.sh` also
-# kills the user's port clients and reaps every task agent on the box
-# (other servers' agents included), so a script must never call it:
+# Stop ONLY the instance we started. ``stop.sh`` also stops port
+# clients and reaps every task agent, so a test must never call it:
 # SIGTERM the pid file the starter wrote, then wait for the exit.
 stop_instance() {
+  # Every pid file the sandbox knows about: the layout differs between
+  # releases (the shell starter writes .pids_<port> in the worktree, the
+  # installed CLI writes under $VIBE_HOME/pids/), and everything under
+  # OUR sandbox is ours to stop.
   local pid f
-  for f in "$REPO/.pids_$PORT" "$VH/pids/backend_$PORT.pid"; do
+  for f in "$REPO/.pids_$PORT" "$VH"/pids/*.pid(N) "$VH"/pids/*"$PORT"*(N); do
     [ -f "$f" ] || continue
     pid=$(cat "$f" 2>/dev/null)
+    echo "   stop: $f -> pid ${pid:-<none>}"
     if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null
       for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -45,8 +53,71 @@ stop_instance() {
   done
 }
 
-rm -rf "$WORK"
-mkdir -p "$WORK" "$VH"
+# ── sandbox: this run's, and nothing else's ──────────────────
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/vibe-upgrade-test.XXXXXX") \
+  || fail "could not create the sandbox"
+MARKER="$WORK/.owned-by-test_upgrade_sync_state"
+touch "$MARKER"
+VH="$WORK/home"
+mkdir -p "$VH"
+
+rm_work() {
+  # The ONLY deletion in this script, and only for our own sandbox.
+  case "$WORK" in
+    "${TMPDIR:-/tmp}"/vibe-upgrade-test.*) ;;
+    *)
+      echo "refusing to remove '$WORK': not this run's sandbox" >&2
+      return 1
+      ;;
+  esac
+  if [ ! -f "$MARKER" ]; then
+    echo "refusing to remove '$WORK': marker file missing" >&2
+    return 1
+  fi
+  rm -rf "$WORK"
+}
+
+port_free() {
+  ! curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/health" \
+    >/dev/null 2>&1
+}
+
+expect_port_free() {
+  # The whole test is meaningless if a previous instance still answers:
+  # the "upgrade" would then be measured against the OLD server's
+  # database (no sync_state table at all).
+  local i
+  for i in $(seq 1 20); do
+    port_free && return 0
+    sleep 1
+  done
+  echo "   pid files present:" >&2
+  ls -l "$VH"/pids "$REPO"/.pids_$PORT 2>&1 | sed 's/^/     /' >&2
+  fail "port $PORT is still serving after stop — aborting rather than \
+testing the wrong server"
+}
+
+wait_for_health() {
+  local i
+  for i in $(seq 1 60); do
+    curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/health" \
+      >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  fail "the server on port $PORT did not come up"
+}
+
+cleanup() {
+  stop_instance
+  rm_work
+}
+trap cleanup EXIT
+
+expect_port_free || true   # (fails fast below, before anything starts)
+if ! port_free; then
+  fail "port $PORT is already serving something that is not ours — \
+pick another port with PORT=<n>; refusing to test against it"
+fi
 
 echo "== 1. previous stable in its own venv"
 python3 -m venv "$WORK/old" >/dev/null
@@ -57,14 +128,12 @@ OLD_VERSION=$("$OLD/vibe-seller" --version 2>/dev/null | tail -1)
 echo "   previous: ${OLD_VERSION:-unknown}"
 
 echo "== 2. boot the old client on an isolated home"
-export VIBE_HOME=$VH
+export VIBE_HOME=$VH   # ours — never taken from the caller
 export VIBE_SYNC_DISABLED=1
 export VIBE_SYNC_JITTER=0
 "$OLD/vibe-seller" start --port $PORT >/dev/null 2>&1 &
 OLD_PID=$!
-sleep 20
-curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null \
-  || fail "the old client did not come up"
+wait_for_health
 # A store, so the upgrade has real state to keep.
 curl -fsS -X POST "http://127.0.0.1:$PORT/api/stores" \
   -H 'Content-Type: application/json' \
@@ -101,14 +170,18 @@ JSON
 stop_instance
 kill -TERM $OLD_PID 2>/dev/null
 sleep 2
+expect_port_free
 
 echo "== 3. the current build over the same home"
-"$PY" -m pip install -q -e "$REPO" || fail "could not install this build"
+expect_port_free
+# ``uv`` (not pip): the project venv is uv-managed and has no pip
+# module, and CI creates it with ``uv venv && uv sync``.
+UV_BIN=${UV:-$(command -v uv || echo "$REPO/.venv/bin/uv")}
+"$UV_BIN" pip install --python "$PY" -q -e "$REPO" \
+  || fail "could not install this build"
 export VIBE_SYNC_DISABLED=1
 "$REPO/start.sh" $PORT >/dev/null 2>&1
-sleep 15
-curl -fsS "http://127.0.0.1:$PORT/api/health" >/dev/null \
-  || fail "the new server did not come up"
+wait_for_health
 
 echo "== 4. the migration"
 "$PY" - <<PY
@@ -131,7 +204,9 @@ skills = json.load(open(os.path.join(
     home, '.claude', 'skills', '.sync_meta.json')))
 assert 'last_sync_at' not in skills, skills
 assert 'last_commit' not in skills, skills
-assert skills.get('synced_skills') == ['widget-006'], skills
+# The seed survives — and the boot's local sync MERGES the packaged
+# skills into this inventory list, so only membership is the contract.
+assert 'widget-006' in (skills.get('synced_skills') or []), skills
 assert skills.get('gws_installed') is True, skills
 assert not os.path.exists(os.path.join(home, 'knowledge', '.sync_meta.json'))
 
