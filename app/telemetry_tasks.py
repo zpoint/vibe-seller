@@ -30,16 +30,27 @@ from app.telemetry_via import (
 
 logger = logging.getLogger(__name__)
 
-_SKILL_PATH_RE = re.compile(r'\.claude/skills/([^/]+)/SKILL\.md$')
+_SKILL_FILE_RE = re.compile(r'(?:^|[/\s])skills/([^/\s]+)/SKILL\.md')
+_SKILL_NAME_RE = re.compile(r'[^\s/\\]{1,64}')
+
+
+def skill_names(tool: str, tool_input: dict) -> list[str]:
+    if tool == 'Skill':
+        found = [str(tool_input.get('skill') or '')]
+    elif tool == 'Read':
+        found = _SKILL_FILE_RE.findall(str(tool_input.get('file_path') or ''))
+    elif tool == 'Bash':
+        found = _SKILL_FILE_RE.findall(str(tool_input.get('command') or ''))
+    else:
+        return []
+    return [
+        n
+        for n in (f.strip() for f in found)
+        if _SKILL_NAME_RE.fullmatch(n) and not n.startswith('__')
+    ]
 
 
 async def _skills_used_in_task(db, task_id: str) -> list[str]:
-    """Derive which built-in skills the agent loaded.
-
-    Looks for ``Read`` tool-use rows whose ``file_path`` matches a
-    skill SKILL.md. Privacy-safe: skill names are our own internal
-    identifiers (e.g. ``amazon-ads``).
-    """
     try:
         result = await db.execute(
             select(TaskMessage.content).where(
@@ -56,16 +67,13 @@ async def _skills_used_in_task(db, task_id: str) -> list[str]:
             continue
         try:
             data = json.loads(content)
-            path = (
-                data.get('tool_input', {}).get('file_path')
-                or data.get('input', {}).get('file_path')
-                or ''
-            )
+            tool = data.get('tool') or data.get('tool_name') or ''
+            tool_input = data.get('input') or data.get('tool_input') or {}
+            if not isinstance(tool_input, dict):
+                continue
         except (ValueError, TypeError, AttributeError):
             continue
-        m = _SKILL_PATH_RE.search(path or '')
-        if m and not m.group(1).startswith('__'):
-            skills.add(m.group(1))
+        skills.update(skill_names(tool, tool_input))
     return sorted(skills)[:20]
 
 

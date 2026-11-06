@@ -26,7 +26,9 @@ from app.telemetry_tasks import (
     send_task_completed,
     send_task_created,
     send_task_failed,
+    skill_names,
 )
+from app.telemetry_via import unattributed
 
 pytestmark = pytest.mark.unit
 
@@ -258,8 +260,6 @@ async def test_scheduler_jobs_never_run_in_a_request_channel(task_env):
     fired tasks then report 'ui' instead of 'schedule'. The
     registration-time `unattributed` wrapper clears the channel; the
     task then falls back to its own source."""
-    from app.telemetry_via import unattributed
-
     _maker, _task, _calls = task_env
 
     class _Sched:
@@ -289,3 +289,32 @@ async def test_scheduler_jobs_never_run_in_a_request_channel(task_env):
     await asyncio.create_task(direct())
     assert seen['via'] == 'ui'
     telemetry_via.set_via(None)
+
+
+# ── skills_used reports every skill name, built-in or custom ──
+
+
+@pytest.mark.parametrize(
+    ('tool', 'tool_input', 'expected'),
+    [
+        ('Skill', {'skill': 'my-custom-skill'}, ['my-custom-skill']),
+        ('Skill', {'skill': '选品助手'}, ['选品助手']),
+        (
+            'Read',
+            {'file_path': '/w/.claude/skills/amazon-ads/SKILL.md'},
+            ['amazon-ads'],
+        ),
+        (
+            'Bash',
+            {'command': 'cat /w/.claude/skills/widget-tool/SKILL.md'},
+            ['widget-tool'],
+        ),
+        ('Read', {'file_path': '/w/.claude/skills/x/notes.md'}, []),
+        ('Write', {'file_path': '/w/.claude/skills/x/SKILL.md'}, []),
+        ('Skill', {'skill': '__internal'}, []),
+        ('Skill', {'skill': 'a b'}, []),
+        ('Skill', {'skill': 'x' * 65}, []),
+    ],
+)
+def test_skill_names(tool, tool_input, expected):
+    assert skill_names(tool, tool_input) == expected
