@@ -16,7 +16,8 @@ import pytest_asyncio
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app import telemetry
+from app import telemetry, telemetry_tasks
+from app.models import task as task_model
 from app.models.base import Base
 from app.models.schedule import Schedule
 from app.models.task import Task
@@ -346,9 +347,6 @@ class TestTerminalStructural:
 
     def test_hooks_registered(self):
         """Negative control: disabling the listeners must fail here."""
-        from app import telemetry_tasks
-        from app.models import task as task_model
-
         assert event.contains(Task.status, 'set', task_model._park_clock), (
             'Task.status set listener missing'
         )

@@ -774,7 +774,6 @@ class _HookMixin:
             'questions': questions,
         }
         self._answer_events[request_id] = asyncio.Event()
-        asked_at = await send_question_asked(self.task_id)
         await event_bus.emit(
             'task_questions',
             {
@@ -783,6 +782,7 @@ class _HookMixin:
                 'questions': questions,
             },
         )
+        asked_at = await send_question_asked(self.task_id)
         await self._answer_events[request_id].wait()
         await send_question_answered(self.task_id, asked_at, request_id)
         answers = self._answers.pop(request_id, {})
