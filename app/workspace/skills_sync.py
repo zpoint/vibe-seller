@@ -23,12 +23,15 @@ Skills do NOT have their own .venv — agents use ``python`` from PATH.
 """
 
 import asyncio
+from collections.abc import Callable
 import hashlib
 import importlib.resources
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
+import tempfile
 
 import httpx
 
@@ -334,11 +337,39 @@ class SkillsSyncManager(SkillMirrorMixin):
                 pass
         return {}
 
-    def _write_sync_meta(self, meta: dict) -> None:
-        """Write .sync_meta.json."""
+    def _update_sync_meta(self, mutate: Callable[[dict], None]) -> None:
+        """Read-modify-write .sync_meta.json in ONE synchronous step.
+
+        This is the ONLY write path, by design (#204): ``mutate`` is a
+        plain function — it cannot ``await`` — so no caller can hold
+        the dict across an ``await`` (a pip install, a DB write) and
+        write a stale copy back over concurrent changes. Mutations must
+        MERGE their keys into ``meta``, never replace sibling keys.
+
+        The write itself is atomic (tmp file in the same dir +
+        :func:`os.replace`), so a concurrent reader never sees a torn
+        file — a torn read parses as ``{}`` and the next writer would
+        wipe the inventory. The tmp name starts with a dot so the
+        skills dir's scanners (skill discovery, mirror diffing) ignore
+        it even if a crash leaves one behind.
+        """
+        meta = self._read_sync_meta()
+        mutate(meta)
         path = self._sync_meta_path
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(meta, indent=2))
+        fd, tmp = tempfile.mkstemp(
+            dir=str(path.parent), prefix=f'.{path.name}.', suffix='.tmp'
+        )
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(meta, f, indent=2)
+            os.replace(tmp, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
 
     # ── Google Workspace bundle flag ────────────────────
 
@@ -348,12 +379,14 @@ class SkillsSyncManager(SkillMirrorMixin):
 
     def mark_gws_installed(self, installed: bool) -> None:
         """Record whether the gws umbrella is installed."""
-        meta = self._read_sync_meta()
-        if installed:
-            meta['gws_installed'] = True
-        else:
-            meta.pop('gws_installed', None)
-        self._write_sync_meta(meta)
+
+        def _mark(meta: dict) -> None:
+            if installed:
+                meta['gws_installed'] = True
+            else:
+                meta.pop('gws_installed', None)
+
+        self._update_sync_meta(_mark)
 
     def get_synced_skills(self) -> set[str]:
         """Return set of skill names synced by this manager."""
@@ -365,8 +398,7 @@ class SkillsSyncManager(SkillMirrorMixin):
         Same mirror rule as the remote tier, same guard: a run that
         would delete most of the tree is refused and nothing changes.
         """
-        meta = self._read_sync_meta()
-        previous = set(meta.get('package_skills') or [])
+        previous = set(self._read_sync_meta().get('package_skills') or [])
         now = set(shipped)
         dropped = sorted(
             name
@@ -384,24 +416,30 @@ class SkillsSyncManager(SkillMirrorMixin):
         for name in dropped:
             _remove(self._dest_dir / name)
             logger.info('Dropped package skill %s (no longer shipped)', name)
-        meta = self._read_sync_meta()
-        meta['package_skills'] = sorted(now)
-        self._write_sync_meta(meta)
+
+        def _record(meta: dict) -> None:
+            meta['package_skills'] = sorted(now)
+
+        self._update_sync_meta(_record)
 
     def _forget_synced_skills(self, names: list[str]) -> None:
         """Drop skills sync removed from the inventory."""
-        meta = self._read_sync_meta()
-        remaining = set(meta.get('synced_skills') or []) - set(names)
-        meta['synced_skills'] = sorted(remaining)
-        self._write_sync_meta(meta)
+
+        def _drop(meta: dict) -> None:
+            remaining = set(meta.get('synced_skills') or []) - set(names)
+            meta['synced_skills'] = sorted(remaining)
+
+        self._update_sync_meta(_drop)
 
     def _update_synced_skills(self, names: list[str]) -> None:
         """Merge skill names into .sync_meta.json."""
-        meta = self._read_sync_meta()
-        existing = set(meta.get('synced_skills', []))
-        existing.update(names)
-        meta['synced_skills'] = sorted(existing)
-        self._write_sync_meta(meta)
+
+        def _merge(meta: dict) -> None:
+            existing = set(meta.get('synced_skills', []))
+            existing.update(names)
+            meta['synced_skills'] = sorted(existing)
+
+        self._update_sync_meta(_merge)
 
     # ── Remote sync ─────────────────────────────────────
 
@@ -576,15 +614,24 @@ class SkillsSyncManager(SkillMirrorMixin):
 
         Uses ``uv pip install`` which applies a file-based lock
         on the target venv, so concurrent calls are safe.
+
+        The initial ``installed_deps`` read is a SNAPSHOT for the skip
+        check only — it is never written back. The pip awaits below can
+        run for tens of seconds, and writing the snapshot afterwards
+        would clobber whatever concurrent writers recorded in the
+        meantime (#204). New hashes are collected locally and MERGED
+        into a fresh read (per skill key) via :meth:`_update_sync_meta`
+        at the end.
         """
         venv = VIBE_SELLER_DIR / '.venv'
         py = venv_python(venv)
         if not py.exists():
             return
 
-        meta = self._read_sync_meta()
-        installed = meta.get('installed_deps', {})
-        changed = False
+        installed = self._read_sync_meta().get('installed_deps', {})
+        if not isinstance(installed, dict):
+            installed = {}
+        new_hashes: dict[str, str] = {}
 
         for skill_dir in self._dest_dir.iterdir():
             if not skill_dir.is_dir() or skill_dir.name.startswith('.'):
@@ -639,8 +686,7 @@ class SkillsSyncManager(SkillMirrorMixin):
                         stderr.decode()[:200] if stderr else '',
                     )
                     continue
-                installed[skill_dir.name] = content_hash
-                changed = True
+                new_hashes[skill_dir.name] = content_hash
             except Exception as e:
                 logger.warning(
                     'Error installing deps for %s: %s',
@@ -648,9 +694,16 @@ class SkillsSyncManager(SkillMirrorMixin):
                     e,
                 )
 
-        if changed:
-            meta['installed_deps'] = installed
-            self._write_sync_meta(meta)
+        if new_hashes:
+
+            def _merge(meta: dict) -> None:
+                deps = meta.get('installed_deps')
+                if not isinstance(deps, dict):
+                    deps = {}
+                deps.update(new_hashes)
+                meta['installed_deps'] = deps
+
+            self._update_sync_meta(_merge)
 
     # ── System event logging ────────────────────────────
 

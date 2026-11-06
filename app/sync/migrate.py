@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from app.sync import state as sync_state
@@ -55,6 +56,24 @@ def _read_json(path: Path) -> dict | None:
     except (OSError, ValueError):
         return None
     return blob if isinstance(blob, dict) else None
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    """Write ``payload`` so a concurrent reader never sees a torn file.
+
+    Tmp file beside the target + :func:`os.replace`. Raises ``OSError``
+    to the caller (who logs and moves on — the boot must not fail).
+    """
+    tmp = path.with_name(f'.{path.name}.{os.getpid()}.tmp')
+    try:
+        tmp.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 #: What the old writers put in ``status`` when the sync actually
@@ -125,14 +144,20 @@ async def migrate_skills_meta() -> bool:
     if meta is None:
         return False
     imported = await _import_row('skills', meta)
-    if any(key in meta for key in _SKILLS_SCHEDULE_KEYS):
+    # Re-read AFTER the await: the DB import can yield long enough for
+    # a concurrent writer (the boot-time dep install, a remote sync) to
+    # change the file, and trimming the stale pre-await copy would
+    # throw those changes away (#204). Only the schedule keys go, from
+    # the fresh copy; everything else is inventory and stays.
+    fresh = _read_json(path)
+    if fresh is not None and any(key in fresh for key in _SKILLS_SCHEDULE_KEYS):
         remaining = {
             key: value
-            for key, value in meta.items()
+            for key, value in fresh.items()
             if key not in _SKILLS_SCHEDULE_KEYS
         }
         try:
-            path.write_text(json.dumps(remaining, indent=2), encoding='utf-8')
+            _write_json_atomic(path, remaining)
         except OSError:
             logger.warning('Could not trim %s', path, exc_info=True)
     return imported
@@ -203,9 +228,7 @@ async def migrate_presets_cache() -> bool:
     catalog = {key: blob[key] for key in ('presets', 'models') if key in blob}
     if catalog:
         try:
-            tmp = path.with_name(path.name + '.tmp')
-            tmp.write_text(json.dumps(catalog, indent=2), encoding='utf-8')
-            tmp.replace(path)
+            _write_json_atomic(path, catalog)
         except OSError:
             logger.warning('Could not trim %s', path, exc_info=True)
     return imported

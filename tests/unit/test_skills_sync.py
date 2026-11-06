@@ -482,9 +482,9 @@ async def test_install_skill_deps_skips_unchanged(sync_mgr, tmp_path):
 
     # Simulate already-installed state in meta (content md5 hash)
     content_hash = hashlib.md5(req.read_bytes()).hexdigest()
-    sync_mgr._write_sync_meta({
-        'installed_deps': {'test-skill': content_hash},
-    })
+    sync_mgr._update_sync_meta(
+        lambda m: m.update({'installed_deps': {'test-skill': content_hash}})
+    )
 
     venv = tmp_path / '.venv'
     venv.mkdir()
@@ -500,6 +500,145 @@ async def test_install_skill_deps_skips_unchanged(sync_mgr, tmp_path):
     ):
         await sync_mgr._install_skill_deps()
         mock_exec.assert_not_called()
+
+
+# ── concurrent meta writes during dep install (#204) ──
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_install_deps_does_not_clobber_concurrent_meta_writes(
+    sync_mgr, tmp_path
+):
+    """While pip runs, other writers touch .sync_meta.json — and the
+    dep install must not write its pre-pip snapshot over them (#204).
+
+    The install blocks on a fake subprocess gated by an Event; while it
+    is parked, a concurrent writer records a newly synced skill and the
+    legacy-key trim (the boot migration) drops ``last_sync_at``. When
+    the install finishes, ALL of that survives and the new dep hash
+    lands too.
+    """
+    skill = sync_mgr._dest_dir / 'test-skill'
+    skill.mkdir()
+    req = skill / 'requirements.txt'
+    req.write_text('reportlab==4.2.5\n')
+    content_hash = hashlib.md5(req.read_bytes()).hexdigest()
+
+    venv = tmp_path / '.venv'
+    venv.mkdir()
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
+
+    meta_path = sync_mgr._dest_dir / '.sync_meta.json'
+    # A legacy-shape file: schedule key (the migration will trim it)
+    # plus inventory.
+    meta_path.write_text(
+        json.dumps({'last_sync_at': '2026-11-01T00:00:00+00:00'})
+    )
+
+    started = asyncio.Event()
+    gate = asyncio.Event()
+
+    class FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            await gate.wait()
+            return (b'', b'')
+
+    async def fake_exec(*args, **kwargs):
+        started.set()
+        return FakeProc()
+
+    with (
+        patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
+        patch('asyncio.create_subprocess_exec', fake_exec),
+    ):
+        install = asyncio.create_task(sync_mgr._install_skill_deps())
+        # Parked: the initial meta snapshot is taken, pip 'runs'.
+        await asyncio.wait_for(started.wait(), timeout=5)
+
+        # Concurrent writers, exactly as at boot: a sync records a
+        # newly synced skill, and the legacy trim drops the schedule
+        # key from the file.
+        sync_mgr._update_synced_skills(['concurrent-skill'])
+        blob = json.loads(meta_path.read_text())
+        blob.pop('last_sync_at', None)
+        meta_path.write_text(json.dumps(blob))
+
+        gate.set()
+        await asyncio.wait_for(install, timeout=5)
+
+    meta = json.loads(meta_path.read_text())
+    assert 'last_sync_at' not in meta, 'trim was clobbered by the install'
+    assert 'concurrent-skill' in meta['synced_skills'], (
+        'concurrent inventory write was clobbered'
+    )
+    assert meta['installed_deps'] == {'test-skill': content_hash}
+    # The atomic write leaves no tmp strays in the skills dir.
+    assert not list(sync_mgr._dest_dir.glob('*.tmp'))
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_install_deps_merges_hashes_into_fresh_installed_deps(
+    sync_mgr, tmp_path
+):
+    """The new hash MERGES into whatever ``installed_deps`` the fresh
+    read holds — a sibling skill's hash recorded while our pip ran is
+    kept, not replaced."""
+    skill_a = sync_mgr._dest_dir / 'skill-a'
+    skill_a.mkdir()
+    req_a = skill_a / 'requirements.txt'
+    req_a.write_text('reportlab==4.2.5\n')
+    hash_a = hashlib.md5(req_a.read_bytes()).hexdigest()
+
+    venv = tmp_path / '.venv'
+    venv.mkdir()
+    venv_bin_dir(venv).mkdir()
+    venv_python(venv).write_text('fake')
+
+    meta_path = sync_mgr._dest_dir / '.sync_meta.json'
+    started, gate = asyncio.Event(), asyncio.Event()
+
+    class FakeProc:
+        returncode = 0
+
+        async def communicate(self):
+            await gate.wait()
+            return (b'', b'')
+
+    async def fake_exec(*args, **kwargs):
+        started.set()
+        return FakeProc()
+
+    with (
+        patch('app.workspace.skills_sync.VIBE_SELLER_DIR', tmp_path),
+        patch('asyncio.create_subprocess_exec', fake_exec),
+    ):
+        install = asyncio.create_task(sync_mgr._install_skill_deps())
+        await asyncio.wait_for(started.wait(), timeout=5)
+        # Another skill's dep landed while our pip ran.
+        meta_path.write_text(json.dumps({'installed_deps': {'skill-b': 'h2'}}))
+        gate.set()
+        await asyncio.wait_for(install, timeout=5)
+
+    meta = json.loads(meta_path.read_text())
+    assert meta['installed_deps'] == {'skill-a': hash_a, 'skill-b': 'h2'}
+
+
+@pytest.mark.unit
+def test_update_sync_meta_merges_and_leaves_no_tmp(sync_mgr):
+    """Successive mutations merge key-by-key (never replace siblings)
+    and the atomic write leaves a parseable file, no tmp strays."""
+    sync_mgr._update_sync_meta(lambda m: m.update({'a': 1}))
+    sync_mgr._update_sync_meta(lambda m: m.update({'b': 2}))
+    meta = json.loads(
+        (sync_mgr._dest_dir / '.sync_meta.json').read_text(encoding='utf-8')
+    )
+    assert meta == {'a': 1, 'b': 2}
+    assert not list(sync_mgr._dest_dir.glob('*.tmp'))
 
 
 # ── defer_deps (boot path) ─────────────────────────────
@@ -575,10 +714,12 @@ async def test_boot_sync_drops_a_skill_the_package_no_longer_ships(
     for name in ('still-shipped', 'dropped-001'):
         (dest / name).mkdir(parents=True)
         (dest / name / 'SKILL.md').write_text('v1')
-    sync_mgr._write_sync_meta({
-        'synced_skills': ['still-shipped', 'dropped-001'],
-        'package_skills': ['still-shipped', 'dropped-001'],
-    })
+    sync_mgr._update_sync_meta(
+        lambda m: m.update({
+            'synced_skills': ['still-shipped', 'dropped-001'],
+            'package_skills': ['still-shipped', 'dropped-001'],
+        })
+    )
 
     await sync_mgr.fetch()
 
@@ -599,10 +740,12 @@ async def test_boot_sync_refuses_to_drop_most_of_the_tree(
     for i in range(4):
         (dest / f'dropped-{i}').mkdir(parents=True)
         (dest / f'dropped-{i}' / 'SKILL.md').write_text('v1')
-    sync_mgr._write_sync_meta({
-        'synced_skills': [f'dropped-{i}' for i in range(4)],
-        'package_skills': [f'dropped-{i}' for i in range(4)],
-    })
+    sync_mgr._update_sync_meta(
+        lambda m: m.update({
+            'synced_skills': [f'dropped-{i}' for i in range(4)],
+            'package_skills': [f'dropped-{i}' for i in range(4)],
+        })
+    )
 
     await sync_mgr.fetch()
 
