@@ -228,6 +228,7 @@ class SkillMirrorMixin:
         needs_restart = False
 
         # Whole skills upstream dropped: rename away, then delete.
+        gated = {name for name in doomed_dirs if self._has_gate_files(name)}
         for name in doomed_dirs:
             doomed = self._dest_dir / name
             staging = self._make_staging(f'{name}_')
@@ -238,8 +239,8 @@ class SkillMirrorMixin:
                 logger.warning('could not stage %s for removal', name)
                 continue
             _remove(staging)
-            if self._has_gate_files(name):
-                needs_restart = True
+        if gated:
+            needs_restart = True
 
         # Skills the manifest names: rebuild from the upstream set only.
         # Package-only skills are NOT touched here — the boot-time local
@@ -311,6 +312,8 @@ class SkillMirrorMixin:
             if self._is_gate_path(rel):
                 needs_restart = True
 
+        if doomed_dirs:
+            self._forget_synced_skills(doomed_dirs)
         return {
             'copied': copied,
             'skipped': skipped,

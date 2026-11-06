@@ -388,6 +388,13 @@ class SkillsSyncManager(SkillMirrorMixin):
         meta['package_skills'] = sorted(now)
         self._write_sync_meta(meta)
 
+    def _forget_synced_skills(self, names: list[str]) -> None:
+        """Drop skills sync removed from the inventory."""
+        meta = self._read_sync_meta()
+        remaining = set(meta.get('synced_skills') or []) - set(names)
+        meta['synced_skills'] = sorted(remaining)
+        self._write_sync_meta(meta)
+
     def _update_synced_skills(self, names: list[str]) -> None:
         """Merge skill names into .sync_meta.json."""
         meta = self._read_sync_meta()
