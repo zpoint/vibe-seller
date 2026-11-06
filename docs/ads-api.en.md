@@ -35,13 +35,9 @@ One store (acme, AE marketplace), one report-only ad-optimization task, one mode
 | Report output | one 24 KB report | 103 KB report + PDF (full per-target / per-term tables) | richer |
 | Interruptions | none | 1 operator question (breakeven-ACOS) + 1 model-quota pause (36 min) | |
 
-| Where the time goes | Ads API path | Browser path |
-|---|---|---|
-| LLM thinking & generation | ■■■■■■■■■■■■■■■■■■ **96.3%** (10.6 min) | ■■■■■■■■■■■■■ **68.6%** (62.1 min) |
-| Tool execution | ▪ 2.3% (ads API calls 0.23 min) | ▪ **31.4%** (page opens/clicks 14.5% + page waits 16.5%) |
-| Remainder | 1.4% | <0.1% |
+![One ad-optimization task: where the time goes](images/ads_time_en.png)
 
-The browser path's tool time is almost entirely opening and waiting for pages; the API path's 21 calls took 13.8 seconds in total.
+The browser path loses time in two places: **28 minutes opening and waiting for pages**, against 13.8 seconds for all 21 API calls; and because it reads the console page by page, it takes 5.5× the turns, so **LLM time grows from 10.6 to 62.1 minutes** too.
 
 ## Prerequisites and binding (4 steps)
 
