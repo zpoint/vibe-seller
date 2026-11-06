@@ -79,9 +79,56 @@ def _playwright(*args: str) -> list[str]:
     return [sys.executable, '-m', 'playwright', *args]
 
 
+_PROXY_VARS = (
+    'https_proxy',
+    'HTTPS_PROXY',
+    'http_proxy',
+    'HTTP_PROXY',
+    'all_proxy',
+    'ALL_PROXY',
+)
+
+
+def proxy_env() -> dict[str, str]:
+    """Proxy vars to hand Playwright's downloader, beyond os.environ.
+
+    Playwright's downloader reads proxy ENV VARS only, never the OS
+    system proxy — which is all that Clash-style "system proxy" mode
+    sets (Windows Internet Settings, macOS network preferences). With
+    no proxy var exported, translate the system proxy into
+    HTTPS_PROXY/HTTP_PROXY so the download takes the path the user's
+    browser does; that ignored proxy is how the Windows installer's
+    download hung for an hour. Proxy vars the user exported win.
+    """
+    if any(os.environ.get(v) for v in _PROXY_VARS):
+        return {}
+    system = urllib.request.getproxies()  # env empty → OS settings
+    proxy = system.get('https') or system.get('http')
+    if not proxy:
+        return {}
+    if '://' not in proxy:
+        proxy = 'http://' + proxy
+    return {'HTTPS_PROXY': proxy, 'HTTP_PROXY': proxy}
+
+
+def _probe_opener() -> urllib.request.OpenerDirector:
+    """urllib opener on the SAME network path the download will take.
+
+    urllib on its own would fall back to the system proxy, while the
+    downloader honours env vars only: a probe could then rate a CDN
+    reachable and fast that the download can't reach.
+    """
+    extra = proxy_env()
+    if extra:
+        proxies = {'http': extra['HTTP_PROXY'], 'https': extra['HTTPS_PROXY']}
+    else:
+        proxies = urllib.request.getproxies_environment()
+    return urllib.request.build_opener(urllib.request.ProxyHandler(proxies))
+
+
 def _env(host: str | None) -> dict[str, str]:
-    """os.environ, with PLAYWRIGHT_DOWNLOAD_HOST set unless host is None."""
-    env = dict(os.environ)
+    """os.environ (+ system proxy), PLAYWRIGHT_DOWNLOAD_HOST unless None."""
+    env = {**os.environ, **proxy_env()}
     if host is not None:
         # Playwright treats an empty value as unset (its own CDN).
         env['PLAYWRIGHT_DOWNLOAD_HOST'] = host
@@ -140,7 +187,7 @@ def http_status(url: str) -> int:
     """HEAD status of ``url`` (redirects followed); 0 if unreachable."""
     req = urllib.request.Request(url, method='HEAD')
     try:
-        with urllib.request.urlopen(req, timeout=_PROBE_TIMEOUT_S) as resp:
+        with _probe_opener().open(req, timeout=_PROBE_TIMEOUT_S) as resp:
             return resp.status
     except urllib.error.HTTPError as e:
         return e.code
@@ -156,7 +203,7 @@ def download_speed(url: str) -> float:
     start = time.monotonic()
     got = 0
     try:
-        with urllib.request.urlopen(req, timeout=_PROBE_TIMEOUT_S) as resp:
+        with _probe_opener().open(req, timeout=_PROBE_TIMEOUT_S) as resp:
             if resp.status not in (200, 206):
                 return 0.0
             while (
@@ -204,7 +251,13 @@ def pick_download_host(report: Callable[[str], None] = logger.info) -> str:
     return best
 
 
-def install_foreground(report: Callable[[str], None] = print) -> int:
+def _say(msg: str) -> None:
+    # Flushed: Playwright's own output interleaves with ours on the
+    # same terminal, and a piped stdout would otherwise reorder them.
+    print(msg, flush=True)  # noqa: T201 — `install-browser` CLI output
+
+
+def install_foreground(report: Callable[[str], None] = _say) -> int:
     """Install what's missing, Playwright's progress on the terminal.
 
     For ``vibe-seller install-browser``. Returns 0 when nothing is

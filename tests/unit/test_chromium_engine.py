@@ -309,3 +309,68 @@ def test_failed_upgrade_does_not_install_browser(monkeypatch):
     calls = _record_runs(monkeypatch, [])
     assert cli._cmd_upgrade(None) == 1
     assert calls == []
+
+
+# -- proxies: the probe and the download take the same path --------------
+
+_NO_PROXY_ENV = (
+    'https_proxy',
+    'HTTPS_PROXY',
+    'http_proxy',
+    'HTTP_PROXY',
+    'all_proxy',
+    'ALL_PROXY',
+)
+
+
+def _clear_proxy_env(monkeypatch):
+    for v in _NO_PROXY_ENV:
+        monkeypatch.delenv(v, raising=False)
+
+
+@pytest.mark.unit
+def test_system_proxy_is_handed_to_the_downloader(monkeypatch):
+    """Clash 'system proxy' mode sets only the OS proxy, which
+    Playwright's downloader ignores — the field hang. It must get it as
+    HTTPS_PROXY, and the probe must use the same proxy."""
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setattr(
+        ce.urllib.request,
+        'getproxies',
+        lambda: {'https': '127.0.0.1:7890', 'http': '127.0.0.1:7890'},
+    )
+    env = ce._env(None)
+    assert env['HTTPS_PROXY'] == 'http://127.0.0.1:7890'
+    assert env['HTTP_PROXY'] == 'http://127.0.0.1:7890'
+    (handler,) = [
+        h
+        for h in ce._probe_opener().handlers
+        if isinstance(h, ce.urllib.request.ProxyHandler)
+    ]
+    assert handler.proxies['https'] == 'http://127.0.0.1:7890'
+
+
+@pytest.mark.unit
+def test_user_proxy_vars_win_over_the_system_proxy(monkeypatch):
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setenv('https_proxy', 'http://mine:3128')
+    monkeypatch.setattr(
+        ce.urllib.request, 'getproxies', lambda: {'https': 'sys:1'}
+    )
+    assert ce.proxy_env() == {}
+    assert 'HTTPS_PROXY' not in ce._env(None)
+
+
+@pytest.mark.unit
+def test_no_proxy_anywhere_probes_direct(monkeypatch):
+    """No env proxy and no system proxy: the probe must not fall back to
+    some other proxy source the downloader wouldn't use either."""
+    _clear_proxy_env(monkeypatch)
+    monkeypatch.setattr(ce.urllib.request, 'getproxies', lambda: {})
+    assert ce.proxy_env() == {}
+    (handler,) = [
+        h
+        for h in ce._probe_opener().handlers
+        if isinstance(h, ce.urllib.request.ProxyHandler)
+    ]
+    assert not {k: v for k, v in handler.proxies.items() if k != 'no'}

@@ -363,3 +363,26 @@ def test_pw_install_retries_official_when_mirror_install_fails(tmp_path):
         f'{_MIRROR}|install chromium',
         '|install chromium',
     ], calls
+
+
+@pytest.mark.unit
+def test_every_chromium_install_goes_through_the_source_picker():
+    """Both install paths (end-user and --dev) must call the helper; a
+    bare `playwright install` would skip the faster-source choice
+    silently, and every test above would still pass."""
+    text = INSTALL_SH.read_text()
+    helper_start = text.index('_install_playwright_chromium() {')
+    helper_end = text.index('\n}\n', helper_start)
+    outside = text[:helper_start] + text[helper_end:]
+    bare = [
+        line.strip()
+        for line in outside.splitlines()
+        if 'playwright"' in line
+        and ' install' in line
+        and '--dry-run' not in line
+        and not line.lstrip().startswith('#')
+    ]
+    assert not bare, f'bare playwright install outside the helper: {bare}'
+    assert outside.count('_install_playwright_chromium "$') == 2, (
+        'expected the end-user and --dev paths to call the helper'
+    )
