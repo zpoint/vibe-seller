@@ -144,7 +144,8 @@ async def _run_ads_skill(ctx: SyncContext) -> SyncResult:
         return SyncResult(
             status=STATUS_UPDATED,
             version=version or None,
-            detail={'files': len(outcome.get('files') or [])},
+            # sync_bundle reports a COUNT of files written.
+            detail={'files': int(outcome.get('files') or 0)},
         )
     return SyncResult(status=STATUS_UNCHANGED, version=version or None)
 

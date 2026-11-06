@@ -451,7 +451,27 @@ def test_concurrent_task_launches_do_not_poll_github():
 # ── 11. ads authorization fires the job immediately ───────────────
 
 
+def test_an_unbound_ads_service_skips_the_job_first():
+    """Before anything is authorized there is nothing to install."""
+    body = sync_job('ads_skill')
+    assert body['status'] == 'skipped', body
+    assert body.get('skip_reason') == 'precondition', body
+    assert not (SKILLS / 'amazon-ads-api').exists()
+
+
 def test_ads_authorization_runs_the_ads_skill_at_once():
+    """A store becoming authorized runs the job right away.
+
+    No skip here: if the fake ads service is not up, this FAILS —
+    a skipped row is not coverage.
+    """
+    ads_url = os.environ['VIBE_ADS_SERVICE_URL']
+    from tests.e2e import fake_ads_service
+
+    assert (
+        httpx.get(f'{ads_url}/skill/version', timeout=10).status_code == 200
+    ), f'fake ads service not reachable at {ads_url}'
+    version = fake_ads_service.VERSION
     before = len(run_lines('ads_skill'))
     token = os.environ.get('E2E_AUTH_TOKEN', '')
     with httpx.Client(timeout=60) as client:
@@ -467,18 +487,26 @@ def test_ads_authorization_runs_the_ads_skill_at_once():
             },
         )
         resp = client.post(f'{BASE_URL}/api/ads/stores/sync', json={})
-    if resp.status_code >= 300:
-        pytest.skip(f'ads service not configured here: {resp.status_code}')
-    if not any(
-        'configured'
-        in json.dumps(
-            httpx.get(f'{BASE_URL}/api/ads/config', timeout=10).json()
-        )
-        for _ in [0]
-    ):
-        pytest.skip('no ads service bound')
+    assert resp.status_code < 300, resp.text
+
+    # a NEW event-driven run, counted before/after — not "a line once"
     wait_for('ads_skill', before + 1, timeout=60)
-    assert any('reason=event' in ln for ln in run_lines('ads_skill'))
+    assert any('reason=event' in ln for ln in run_lines('ads_skill')), (
+        run_lines('ads_skill')[-3:]
+    )
+
+    # the bundle the service serves is on disk, with its bytes
+    bundle = SKILLS / 'amazon-ads-api' / 'SKILL.md'
+    assert bundle.exists(), sorted(p.name for p in SKILLS.iterdir())
+    served = httpx.get(f'{ads_url}/skill/bundle', timeout=10).json()['files'][
+        'SKILL.md'
+    ]
+    assert bundle.read_text() == served
+
+    # and the status row knows which version landed
+    row = job_row('ads_skill')
+    assert row['version'] == version, row
+    assert row['last_ok_at'] is not None, row
 
 
 # ── 12. the FAST jobs keep ticking ────────────────────────────────

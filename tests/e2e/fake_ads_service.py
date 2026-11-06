@@ -27,6 +27,8 @@ URL = f'http://127.0.0.1:{PORT}'
 
 #: A store whose name carries this is authorized; every other is not.
 AUTHORIZED_MARK = '-api-'
+#: The bundle version /skill/version reports.
+VERSION = 'e2e-1'
 MARKETPLACE = 'SA'
 
 #: The API store's 30-day spend. Deliberately unlike the console's 300.00.
@@ -125,7 +127,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 })
             return self._reply(200, {'stores': rows})
         if url.path == '/skill/version':
-            return self._reply(200, {'version': 'e2e-1'})
+            return self._reply(200, {'version': VERSION})
         if url.path == '/skill/bundle':
             return self._reply(200, {'files': {'SKILL.md': SKILL_MD}})
         if url.path == '/facts/rollup':
@@ -150,3 +152,12 @@ def serve() -> AdsService:
     server = AdsService(('127.0.0.1', PORT), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
+
+
+if __name__ == '__main__':  # standalone: the e2e runner starts this
+    import time
+
+    serve()
+    print(f'fake ads service on {URL}', flush=True)
+    while True:
+        time.sleep(60)
