@@ -31,16 +31,12 @@ from tests.fixtures.fake_github import FakeGitHub
 
 pytestmark = pytest.mark.e2e
 
-# Set by the module fixture (owned_stack) to THIS suite's own stack;
-# the fallbacks only exist so helper definitions read cleanly.
-BASE_URL = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7811')
-PORT = int(os.environ.get('E2E_PORT') or BASE_URL.rsplit(':', 1)[-1] or 7811)
-FAKE = os.environ.get('E2E_FAKE_GITHUB_URL', 'http://127.0.0.1:7812').rstrip(
-    '/'
-)
-VIBE_HOME = Path(
-    os.environ.get('E2E_VIBE_HOME') or os.environ.get('VIBE_HOME') or ''
-)
+# Set by the module fixture (owned_stack) to THIS suite's own stack —
+# this module never reads the shared harness's base URL or home.
+BASE_URL = ''
+PORT = 0
+FAKE = ''
+VIBE_HOME = Path()
 SKILLS = VIBE_HOME / '.claude' / 'skills'
 RUN_RE = re.compile(r'sync:\S+ reason=\S+ status=\S+')
 # While these rows run, nothing ticks on its own: every sync is one the

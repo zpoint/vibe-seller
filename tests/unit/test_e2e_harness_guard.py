@@ -11,7 +11,12 @@ active``. A test that needs restarts owns its server instead
    to reach for the server-control surface itself (``stop.sh``, the
    ``.pids_`` files, a ``'./start.sh'`` invocation). Prose that merely
    mentions how to start a server by hand is fine — control-surface
-   usage is not.
+   usage is not;
+3. a test that needs a NON-DEFAULT server env (the sync knobs) cannot
+   silently run against the shared server: a module may not read
+   ``E2E_BASE_URL`` while also requiring ``VIBE_SYNC_*`` — such a test
+   must own its server (``tests/e2e/own_server.py``) like the two sync
+   e2e modules do.
 """
 
 from pathlib import Path
@@ -47,4 +52,26 @@ def test_no_e2e_module_reaches_for_the_server_control_surface():
         'e2e modules must not start/stop servers themselves — use '
         'tests/e2e/own_server.py, which refuses the shared port:\n  '
         + '\n  '.join(offenders)
+    )
+
+
+def test_no_module_mixes_the_shared_base_url_with_server_sync_env():
+    """Non-default server env means a test must OWN its server.
+
+    The shared CI server runs with default sync cadences and the real
+    GitHub URLs; a test that needs ``VIBE_SYNC_*`` overrides (or the
+    fake-repo URLs) and still reads ``E2E_BASE_URL`` is silently
+    testing the wrong server. Both sync e2e modules own theirs.
+    """
+    offenders = []
+    for path in sorted(E2E_DIR.rglob('*.py')):
+        if path.name in OWNED_HELPERS or path.name == '__init__.py':
+            continue
+        text = path.read_text(encoding='utf-8')
+        if 'E2E_BASE_URL' in text and 'VIBE_SYNC_' in text:
+            offenders.append(str(path.relative_to(E2E_DIR)))
+    assert not offenders, (
+        'these modules configure server sync env but read the shared '
+        'E2E_BASE_URL — give them their own server via '
+        'tests/e2e/own_server.py:\n  ' + '\n  '.join(offenders)
     )
