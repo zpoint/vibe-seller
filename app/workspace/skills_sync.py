@@ -27,10 +27,8 @@ import hashlib
 import importlib.resources
 import json
 import logging
-import os
 from pathlib import Path
 import shutil
-import tempfile
 
 import httpx
 
@@ -41,26 +39,17 @@ from app.platform import venv_executable, venv_python
 from app.plugins import registered_skill_sources
 from app.sync import github as github_probe
 from app.workspace.manager import VIBE_SELLER_DIR
+from app.workspace.skill_mirror import (
+    _COPY_IGNORE,
+    _PACKAGE_ONLY_SUFFIXES,
+    SkillMirrorMixin,
+    _remove,
+)
 
 logger = logging.getLogger(__name__)
 
-# What the remote tier may never shadow: the installed package is the
-# authoritative content for the lifetime of that version.
-_PACKAGE_ONLY_SUFFIXES = ('__init__.py', 'MANIFEST.txt')
-_COPY_IGNORE = shutil.ignore_patterns('__pycache__', '__init__.py', '.venv')
 
-
-def _remove(path: Path) -> None:
-    """Delete whatever ``path`` is, without following a symlink."""
-    if not path.exists() and not path.is_symlink():
-        return
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-    else:
-        shutil.rmtree(path, ignore_errors=True)
-
-
-class SkillsSyncManager:
+class SkillsSyncManager(SkillMirrorMixin):
     """Syncs built-in skills to ~/.vibe-seller/.claude/skills/.
 
     Skills are direct children of the skills/ directory so that
@@ -100,81 +89,6 @@ class SkillsSyncManager:
                 pass
 
     # ── Staging (atomic tree updates) ───────────────────
-
-    @property
-    def _staging_root(self) -> Path:
-        """Where half-built skill dirs wait for their rename.
-
-        A SIBLING of the skills tree (``.claude/.sync-staging``), never
-        inside it: ``.claude/`` is copied wholesale into every task
-        workspace, so a leftover ``.tmp_*`` in the skills dir would be
-        copied along — and Claude Code would discover it as a second,
-        broken copy of the skill. Same filesystem as the destination,
-        so the swap is a plain rename.
-        """
-        return self._dest_dir.parent / '.sync-staging'
-
-    def _make_staging(self, prefix: str) -> Path:
-        """A unique empty staging dir beside the skills tree."""
-        root = self._staging_root
-        root.mkdir(parents=True, exist_ok=True)
-        return Path(tempfile.mkdtemp(dir=str(root), prefix=prefix))
-
-    def sweep_staging(self) -> None:
-        """Drop half-built trees left by an interrupted sync.
-
-        Called at boot, before anything copies the skills tree. Also
-        clears the in-tree ``.tmp_*`` / ``.bak_*`` strays that releases
-        before this staging home used to leave in the skills dir.
-        """
-        shutil.rmtree(self._staging_root, ignore_errors=True)
-        if not self._dest_dir.is_dir():
-            return
-        for stale in self._dest_dir.glob('.tmp_*'):
-            _remove(stale)
-        for stale in self._dest_dir.glob('.bak_*'):
-            _remove(stale)
-
-    def _install_file(self, target: Path, content: bytes) -> bool:
-        """Atomically write one file into the live tree.
-
-        ``False`` when the file already holds these bytes. Staged
-        beside the tree and renamed in, so a reader never sees a
-        truncated file (and a crash cannot leave one).
-        """
-        if target.exists():
-            try:
-                if target.read_bytes() == content:
-                    return False
-            except OSError:
-                pass
-        staging = self._make_staging('file_')
-        tmp = staging / 'payload'
-        tmp.write_bytes(content)
-        os.replace(tmp, target)
-        _remove(staging)
-        return True
-
-    @staticmethod
-    def _swap_in(staging: Path, dest: Path) -> None:
-        """Rename ``staging`` over ``dest``.
-
-        Both are on the same filesystem and this runs inside ONE
-        synchronous block, so no reader can observe the intermediate
-        state. If the rename fails the previous tree is still intact.
-        """
-        _remove(dest)
-        staging.rename(dest)
-
-    @staticmethod
-    def _has_gates(skill_dir: Path) -> bool:
-        """Whether ``skill_dir`` ships gate code (``gates/*.py``)."""
-        gates = skill_dir / 'gates'
-        if not gates.is_dir():
-            return False
-        return any(gates.glob('*.py'))
-
-    # ── Local package sync ──────────────────────────────
 
     def _get_local_source(self) -> Path | None:
         """Find bundled skills tree via importlib.resources.
@@ -326,6 +240,13 @@ class SkillsSyncManager:
                     '(renamed to browser-harness in the 0.13 migration)'
                 )
 
+        # Mirror the PACKAGE's set too: a release that drops a skill
+        # must drop it locally, without waiting for the remote job to
+        # notice. Scoped to skills the previous boot saw the package
+        # ship — a remote-only skill is never in that set and is left
+        # for the remote job to own.
+        self._reap_dropped_package_skills(synced_names)
+
         # Track synced skills from source dirs (not dest contents)
         self._update_synced_skills(synced_names)
 
@@ -438,6 +359,35 @@ class SkillsSyncManager:
         """Return set of skill names synced by this manager."""
         return set(self._read_sync_meta().get('synced_skills', []))
 
+    def _reap_dropped_package_skills(self, shipped: list[str]) -> None:
+        """Delete package skills the installed package no longer ships.
+
+        Same mirror rule as the remote tier, same guard: a run that
+        would delete most of the tree is refused and nothing changes.
+        """
+        meta = self._read_sync_meta()
+        previous = set(meta.get('package_skills') or [])
+        now = set(shipped)
+        dropped = sorted(
+            name
+            for name in previous - now
+            if name in self.get_synced_skills()
+            and (self._dest_dir / name).is_dir()
+        )
+        if dropped and len(dropped) * 2 > max(len(previous), 1):
+            logger.warning(
+                'refusing to drop %d of %d package skills',
+                len(dropped),
+                len(previous),
+            )
+            return
+        for name in dropped:
+            _remove(self._dest_dir / name)
+            logger.info('Dropped package skill %s (no longer shipped)', name)
+        meta = self._read_sync_meta()
+        meta['package_skills'] = sorted(now)
+        self._write_sync_meta(meta)
+
     def _update_synced_skills(self, names: list[str]) -> None:
         """Merge skill names into .sync_meta.json."""
         meta = self._read_sync_meta()
@@ -502,6 +452,13 @@ class SkillsSyncManager:
                 for line in resp.text.splitlines()
                 if line.strip() and not line.startswith('#')
             ]
+            if not files:
+                # An empty (or unparseable) manifest is not "upstream is
+                # empty" — it is a broken answer, and treating it as the
+                # former would delete the tree.
+                err = 'skills MANIFEST.txt is empty; refusing to delete'
+                logger.warning(err)
+                return {'status': 'failed', 'error': err, 'deleted': 0}
 
             # 2. Download each file into memory. All awaits end here.
             downloads: dict[str, bytes] = {}
@@ -540,6 +497,17 @@ class SkillsSyncManager:
 
             # 3. Put it on disk, atomically.
             applied = self._apply_downloads(downloads)
+            if applied.get('refused'):
+                err = str(applied['refused'])
+                logger.warning('Skills sync (remote): %s', err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': 0,
+                    'skipped': 0,
+                    'deleted': 0,
+                    'needs_restart': False,
+                }
 
             # Track synced skill dirs from manifest (not dest)
             manifest_skill_dirs: set[str] = set()
@@ -554,9 +522,10 @@ class SkillsSyncManager:
 
             applied['skipped'] += local_skips
             logger.info(
-                'Skills sync (remote): %d copied, %d unchanged',
+                'Skills sync (remote): %d copied, %d unchanged, %d deleted',
                 applied['copied'],
                 applied['skipped'],
+                applied['deleted'],
             )
             if applied['copied']:
                 await self._log_sync_event(
@@ -567,6 +536,7 @@ class SkillsSyncManager:
                 'status': 'success',
                 'copied': applied['copied'],
                 'skipped': applied['skipped'],
+                'deleted': applied['deleted'],
                 'needs_restart': applied['needs_restart'],
             }
 
@@ -575,85 +545,6 @@ class SkillsSyncManager:
             logger.warning(err)
             await self._log_sync_event('failed', err)
             return {'status': 'failed', 'error': err}
-
-    def _apply_downloads(self, downloads: dict[str, bytes]) -> dict:
-        """Put downloaded files on disk, one skill dir at a time.
-
-        ONE synchronous block: no await between the first write and the
-        last rename, so on a single event loop a task launch's
-        ``copytree`` of the skills tree can never interleave with it and
-        observe a half-written skill (the bug this replaced: per-file
-        writes spread across the download awaits). Each skill dir is
-        rebuilt in the staging root and renamed into place, so even a
-        crash leaves the previous tree whole rather than a mix of two.
-
-        Returns ``{'copied', 'skipped', 'needs_restart'}``.
-        """
-        self._dest_dir.mkdir(parents=True, exist_ok=True)
-        copied = 0
-        skipped = 0
-        needs_restart = False
-
-        # Group by top-level (skill) dir: ``skill/file`` → {skill: {...}}.
-        # A bare file in the manifest root lands under the empty key.
-        groups: dict[str, dict[str, bytes]] = {}
-        for rel_path, content in downloads.items():
-            top, sep, rest = rel_path.partition('/')
-            groups.setdefault(top if sep else '', {})[rest if sep else top] = (
-                content
-            )
-
-        for skill, files in sorted(groups.items()):
-            if not skill:
-                for rel_path, content in sorted(files.items()):
-                    if self._install_file(self._dest_dir / rel_path, content):
-                        copied += 1
-                    else:
-                        skipped += 1
-                continue
-
-            dest_skill = self._dest_dir / skill
-            staging = self._make_staging(f'{skill}_')
-            try:
-                if dest_skill.is_dir() and not dest_skill.is_symlink():
-                    shutil.copytree(
-                        dest_skill,
-                        staging,
-                        ignore=_COPY_IGNORE,
-                        dirs_exist_ok=True,
-                    )
-                changed = False
-                for rel, content in sorted(files.items()):
-                    target = staging / rel
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    if target.exists() and target.read_bytes() == content:
-                        skipped += 1
-                        continue
-                    target.write_bytes(content)
-                    copied += 1
-                    changed = True
-                if not changed:
-                    continue
-                self._swap_in(staging, dest_skill)
-                staging = None
-            finally:
-                if staging is not None:
-                    _remove(staging)
-
-            if self._has_gates(dest_skill):
-                # Gate code is loaded once per process (see
-                # app/ai/skill_gate_loader.py): a synced change to it
-                # only takes effect after a restart, and the status API
-                # says so.
-                needs_restart = True
-
-        return {
-            'copied': copied,
-            'skipped': skipped,
-            'needs_restart': needs_restart,
-        }
-
-    # ── Skill dependency management ─────────────────────
 
     async def _install_skill_deps(self) -> None:
         """Install skill requirements.txt into shared venv.

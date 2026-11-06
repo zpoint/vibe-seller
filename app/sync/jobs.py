@@ -106,6 +106,7 @@ async def _run_tree(ctx: SyncContext, name: str, manager) -> SyncResult:
         detail={
             'copied': copied,
             'skipped': int(outcome.get('skipped') or 0),
+            'deleted': int(outcome.get('deleted') or 0),
         },
     )
 

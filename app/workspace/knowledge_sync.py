@@ -167,6 +167,16 @@ class KnowledgeSyncManager:
                 for line in resp.text.splitlines()
                 if line.strip() and not line.startswith('#')
             ]
+            if not files:
+                err = 'MANIFEST.txt is empty; refusing to delete'
+                logger.warning(err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': 0,
+                    'skipped': 0,
+                    'deleted': 0,
+                }
 
             # 2. Download into memory (all awaits end here).
             downloads: dict[str, bytes] = {}
@@ -202,21 +212,50 @@ class KnowledgeSyncManager:
                     continue
                 downloads[rel_path] = file_resp.content
 
-            # 3. Put it on disk, atomically.
+            # 3. Mirror upstream. ``knowledge/project/`` is the synced
+            # subtree and nothing else is touched (the agent writes the
+            # knowledge root and stores/ itself): a file upstream
+            # dropped goes away here, so synced content cannot outlive
+            # what it was synced from.
             self._dest_dir.mkdir(parents=True, exist_ok=True)
+            package = self._package_files()
+            desired = dict(package)
+            desired.update(downloads)
+            existing = self._existing_files()
+            doomed = sorted(rel for rel in existing if rel not in desired)
+            if doomed and len(doomed) * 2 > max(len(existing), 1):
+                err = (
+                    f'refusing mass delete ({len(doomed)} of '
+                    f'{len(existing)} knowledge files)'
+                )
+                logger.warning(err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': 0,
+                    'skipped': 0,
+                    'deleted': 0,
+                }
+
             copied = 0
             skipped = 0
-            for rel_path, content in sorted(downloads.items()):
-                if self._install_file(self._dest_dir / rel_path, content):
+            for rel, content in sorted(desired.items()):
+                if rel in package and rel not in downloads:
+                    # The local fetch owns package files.
+                    skipped += 1
+                    continue
+                if self._install_file(self._dest_dir / rel, content):
                     copied += 1
                 else:
                     skipped += 1
+            for rel in doomed:
+                self._remove(self._dest_dir / rel)
 
-            skipped += local_skips
             logger.info(
-                'Knowledge sync (remote): %d copied, %d unchanged',
+                'Knowledge sync (remote): %d copied, %d unchanged, %d deleted',
                 copied,
                 skipped,
+                len(doomed),
             )
             if copied:
                 await self._log_sync_event(
@@ -227,6 +266,7 @@ class KnowledgeSyncManager:
                 'status': 'success',
                 'copied': copied,
                 'skipped': skipped,
+                'deleted': len(doomed),
             }
 
         except Exception as e:
@@ -245,6 +285,43 @@ class KnowledgeSyncManager:
     def sweep_staging(self) -> None:
         """Drop half-written files left by an interrupted sync."""
         shutil.rmtree(self._staging_root, ignore_errors=True)
+
+    def _package_files(self) -> dict[str, bytes]:
+        """Files the local package ships (the package stays authoritative)."""
+        src_dir = self._get_local_source()
+        out: dict[str, bytes] = {}
+        if not src_dir:
+            return out
+        manifest = self._read_manifest(src_dir)
+        rels = (
+            [src_dir / rel for rel in manifest]
+            if manifest is not None
+            else [f for f in src_dir.rglob('*') if f.is_file()]
+        )
+        for f in rels:
+            if not f.is_file() or f.name.startswith('.'):
+                continue
+            if '__pycache__' in f.parts:
+                continue
+            out[f.relative_to(src_dir).as_posix()] = f.read_bytes()
+        return out
+
+    def _existing_files(self) -> dict[str, Path]:
+        out: dict[str, Path] = {}
+        if not self._dest_dir.is_dir():
+            return out
+        for f in sorted(self._dest_dir.rglob('*')):
+            if not f.is_file() or f.name.startswith('.'):
+                continue
+            out[f.relative_to(self._dest_dir).as_posix()] = f
+        return out
+
+    @staticmethod
+    def _remove(path: Path) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
 
     def _install_file(self, target: Path, content: bytes) -> bool:
         """Atomically write one file; ``False`` when already identical."""

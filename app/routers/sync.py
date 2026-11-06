@@ -6,12 +6,16 @@ ran, what upstream version it holds, whether a synced change is
 waiting for a restart — and to make one run now.
 """
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.auth import get_current_user
 from app.models.user import User
 from app.sync import state as sync_state
 from app.sync.scheduler import REASON_MANUAL, sync_scheduler
+
+logger = logging.getLogger('app.sync')
 
 router = APIRouter(prefix='/api/sync', tags=['sync'])
 
@@ -72,7 +76,13 @@ async def run_sync(name: str, _user: User = Depends(get_current_user)):
             name, reason=REASON_MANUAL, force=True
         )
     except Exception as exc:  # noqa: BLE001 — reported, not raised
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        # The exception stays in the server log (the run's
+        # ``status=failed error=`` line); a caller gets a generic
+        # detail rather than whatever the traceback happened to say.
+        logger.warning('sync run %s failed', name, exc_info=True)
+        raise HTTPException(
+            status_code=500, detail='sync run failed; see server log'
+        ) from exc
     state = await sync_state.get_dict(name) or {}
     return {
         'name': name,

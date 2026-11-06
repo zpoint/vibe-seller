@@ -142,6 +142,10 @@ class Options(enum.Enum):
     SYNC_DISABLED = ('VIBE_SYNC_DISABLED', '')
     SYNC_CADENCE_OVERRIDE = ('VIBE_SYNC_CADENCE_OVERRIDE', '')
     SYNC_JITTER = ('VIBE_SYNC_JITTER', '')
+    # How long a task launch waits for an in-flight sync before
+    # proceeding on the tree it has (the applies are atomic, so waiting
+    # only buys freshness). 0 disables the wait entirely.
+    SYNC_READY_TIMEOUT_S = ('VIBE_SYNC_READY_TIMEOUT_S', '60')
 
     # GitHub API base for the skills/knowledge commit probe. Split out
     # from the raw-content URLs so a test (or a self-hosted mirror) can

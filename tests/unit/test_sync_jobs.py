@@ -156,7 +156,11 @@ async def test_a_moved_commit_is_downloaded(wired, fake, state, skills_mgr):
     result = await run_skills(SyncContext(SKILLS_JOB, 'tick'), skills_mgr)
     assert result.status == 'updated'
     assert result.version == fake.commit
-    assert result.detail == {'copied': 1, 'skipped': 0}
+    assert result.detail == {
+        'copied': 1,
+        'skipped': 0,
+        'deleted': 0,
+    }
     assert (skills_mgr._dest_dir / 'widget-006' / 'SKILL.md').read_text() == (
         '# widget\n'
     )

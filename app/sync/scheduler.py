@@ -360,12 +360,17 @@ class SyncScheduler:
         except Exception:  # noqa: BLE001 — not this caller's run
             pass
 
-    async def ready(self, names=None) -> None:
+    async def ready(self, names=None, timeout: float | None = None) -> None:
         """Wait for in-flight runs of ``names`` (default: all).
 
         Never starts anything: this is the join point a task launch
         uses so it doesn't copy a skills tree that is mid-sync. Failures
         are not raised here — the caller didn't ask for a run.
+
+        ``timeout`` bounds the wait: the applies are atomic, so waiting
+        only buys freshness, and a download that hangs (a slow GitHub, a
+        dead proxy) must not hold every task launch. On timeout we
+        proceed on the tree we have.
         """
         wanted = self.names() if names is None else list(names)
         pending = [
@@ -374,8 +379,17 @@ class SyncScheduler:
             if (task := self._inflight.get(name)) is not None
             and not task.done()
         ]
-        if pending:
+        if not pending:
+            return
+        if timeout is None:
             await asyncio.wait(pending)
+            return
+        _done, still = await asyncio.wait(pending, timeout=timeout)
+        if still:
+            logger.warning(
+                'sync ready timed out for %s; launching on the current tree',
+                ', '.join(sorted(wanted)),
+            )
 
     async def drain(self) -> None:
         """Cancel and await every in-flight run (lifespan shutdown).
