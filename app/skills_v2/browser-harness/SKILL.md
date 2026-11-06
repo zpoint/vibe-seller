@@ -138,12 +138,6 @@ cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
 drain_events()  # → and clear the buffered CDP events (see file upload, below)
 ```
 
-Also available: `wait_for_element(selector)`, `wait_for_network_idle()`, `wait(s)`,
-`type_text(text)`, `fill_input(selector, text)`, `press_key(key)`,
-`list_tabs()`, `current_tab()`, `switch_tab(target)`,
-`close_tab(target)`, `upload_file(selector, path)` (see "Uploading a
-file"), `goto_url(url)` (moves the *current* tab — prefer `new_tab`).
-
 - **`js()` returns serializable values only.** `js("document.title")` and
   `js("return 1+1")` work; but `js("document.querySelector(...)")` returns
   `None` (a DOM node can't serialize). Return **numbers, strings, or
@@ -437,13 +431,10 @@ The wrapper rejects these — do not use them:
 
 | Blocked | Why |
 |---------|-----|
-| `BU_NAME=…` (your own), `BU_AUTOSPAWN` | session is auto-injected per store/task |
-| `BU_CDP_URL` / `BU_CDP_WS`, `--cdp-url` / `--cdp-ws` | CDP endpoint is managed by the store proxy |
-| `--mcp`, `--connect`, `--profile` | not allowed inside tasks |
-| `--session <anything-but-{slug}-aux>` | session is auto-assigned per task |
-
-Also never call `start_remote_daemon` / `stop_remote_daemon` or the
-profile-sync helpers — tasks use the store's managed browser only.
+| `BU_NAME=…` (your own) | session is auto-injected per store/task |
+| `BU_CDP_URL` / `BU_CDP_WS` | CDP endpoint is managed by the store proxy |
+| `--mcp` | not allowed inside tasks |
+| local-profile / cloud daemon helpers (`start_remote_daemon`, profile sync) | tasks use the store's managed browser only |
 
 ## Tips
 
@@ -458,10 +449,7 @@ profile-sync helpers — tasks use the store's managed browser only.
 3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
    A title may carry a leading 🐴 (the harness marks the tab it drives) —
    strip it before comparing or reporting titles.
-4. **Never use the `bu` / `browser` / `browseruse` aliases.** Only bare
-   `browser-use` is the store wrapper; the aliases resolve to the raw
-   binary and can attach to the user's own Chrome.
-5. **Raw-string your `js()` when it contains backslashes** (regex like
+4. **Raw-string your `js()` when it contains backslashes** (regex like
    `/foo\/bar/`, `\d`, `\.`): `js(r"""…""")`. A plain triple-quoted string
    makes Python emit `SyntaxWarning: invalid escape sequence` and can
    corrupt the JS before it reaches the page.
