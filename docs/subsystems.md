@@ -266,6 +266,46 @@ Persistent per-account email storage with background sync and SMTP send capabili
 
 **Ziniao dual-browser**: Ziniao stores get dual-session support in their wrapper — a main session (`{slug}`, routed via CDP proxy to Ziniao) and an aux session (`{slug}-aux`, Chrome for non-seller-center URLs). The agent uses AI judgment to route: seller center → Ziniao session, everything else → Chrome aux session. Routing rules defined in `app/prompts/dual_browser.md`. Users can override via `stores/{slug}/browser-routing.md`.
 
+## Central sync scheduler (app/sync)
+
+Every periodic "ask the network / re-read the world" job runs through
+one object: skills, knowledge, the ads skill bundle, the provider-preset
+catalog (email and the browser daemon reaper are on their way in). It
+exists because the same question used to be answered four different
+ways — a cooldown file per module, a `while True: sleep()` loop, an extra
+APScheduler job, fire-and-forget tasks at boot and at every task launch —
+and two of those forgot to record a probe that found nothing, so after
+24 h every task launch re-polled GitHub.
+
+- **One registration list** — `app/sync/jobs.py`. Plugins add jobs
+  through `plugin_ctx.register_sync_job`.
+- **One state table** — `sync_state` (`last_run_at`, `last_ok_at`,
+  `version`, `etag`, `status`, `error`, `needs_restart`, `detail`).
+  `updated` AND `unchanged` move `last_ok_at`; `skipped`/`failed` do not.
+  A boot-time import (`app/sync/migrate.py`) brings an older install's
+  per-module bookkeeping across, and refuses to read a legacy FAILED run
+  as success — its commit never landed.
+- **Timing comes from the database**, not from process start:
+  `next = last_ok_at + cadence + a deterministic per-install offset`
+  (SHA-256 of the install id + job name, a 1 h window for DAILY and 2 h
+  for BIDAILY; `VIBE_SYNC_JITTER=0` for tests). A job that has never run
+  fires at once.
+- **One in-flight run per job**, shared by the scheduled tick, the
+  manual `trigger()` and `ready()`. A tick joins what is running; a
+  manual/forced call waits it out and gets one fresh run, which
+  concurrent callers share.
+- **One greppable line per run**:
+  `sync:<name> reason=<tick|manual|event|boot> status=<updated|unchanged|skipped|failed> ...`
+  — the e2e tests assert on these.
+- Remote writes are download-then-apply in ONE synchronous block, each
+  skill dir built in `.claude/.sync-staging` and renamed into place, so a
+  task workspace copy can never catch a half-written skill.
+
+API: `GET /api/sync/status`, `POST /api/sync/{name}/run`. The skills
+toggle (`skills_auto_sync_enabled`, Settings → General) gates the
+scheduled `skills` job only; knowledge and provider presets have no
+toggle.
+
 ## Provider-preset catalog sync
 
 The AI provider presets (Settings → AI) auto-sync from `main` every 48 h: fetch `app/ai/provider_presets.py` → literal-only `ast` parse (never executed) → per-preset validation (env-key allowlist, https-only base URL, `load_global_mcp` forced off; a rejected preset falls back to the bundled copy, which is also the floor for omitted ids) → sha256-keyed atomic cache → served cache-first, bundled on a miss. Presets only seed newly created profiles. Full design, env vars and trust model: [backend.md § Auto-synced preset catalog](backend.md#auto-synced-preset-catalog-aiprovider_presets_syncpy).

@@ -84,7 +84,7 @@ This is the design fix for "agent cherry-picked the catalog and skipped `noon-si
 - `knowledge_sync.fetch()`: Copies L1 from package to workspace (runs at startup). Only files listed in `app/knowledge/MANIFEST.txt` are synced; falls back to `rglob` if MANIFEST is missing. `__pycache__` is always excluded.
 - Remote sync: Fetches from `KNOWLEDGE_REPO_URL` (GitHub raw) when commit changes & >24h cooldown
 - Manual sync: `POST /api/workspace/knowledge/sync` (remote only — local sync happens at startup)
-- Sync metadata: `GET /api/workspace/knowledge/sync-meta`
+- Sync state: `GET /api/sync/status` (the `knowledge` job)
 - Files tracked via `MANIFEST.txt` in `app/knowledge/`
 - `get_structured()` filters `__pycache__` from knowledge listings (both project and local)
 
@@ -128,7 +128,7 @@ Reusable agent procedures with scripts, bundled in `app/skills/` and synced to `
 - **Dep auto-install**: skill `requirements.txt` deps are auto-installed into the shared workspace venv (`~/.vibe-seller/.venv/`) during sync
 - **Source tracking**: `get_structured()` returns `source: 'builtin' | 'imported' | 'custom'`. Synced skill names tracked in `.sync_meta.json`; imported skills tracked in `skills.lock.json`
 - **Reserved slugs**: names starting with `_` are rejected by `create_skill()`
-- **API**: `POST /api/workspace/skills/sync`, `GET /api/workspace/skills/sync-meta`, `POST /api/workspace/skill`
+- **API**: `POST /api/sync/skills/run`, `GET /api/sync/status`, `POST /api/workspace/skill`
 - **Frontend**: skills panel in Workspace sidebar with sync button, builtin badges, and skill creation form
 
 ### Ads skill routing

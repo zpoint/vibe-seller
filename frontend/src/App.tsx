@@ -358,7 +358,7 @@ export default function App() {
     try { setEmailAccounts(await api.get('/api/email-accounts')) } catch { setEmailAccounts([]) }
   }
   const loadWsStructured = async () => { setWsStructured(await api.get('/api/workspace/structured')) }
-  const loadSyncMeta = async () => { try { setWsSyncMeta(await api.get('/api/workspace/knowledge/sync-meta')) } catch { /* ignore */ } }
+  const loadSyncMeta = async () => { try { const s = await api.get('/api/sync/status') as { jobs?: Array<Record<string, unknown>>; needs_restart?: boolean }; setWsSyncMeta({ ...(s.jobs?.find(j => j.name === 'knowledge') ?? {}), needs_restart: s.needs_restart }) } catch { /* ignore */ } }
 
   // ─── Ziniao helpers ────────────────────────────────
   const createZiniaoAccount = async () => {

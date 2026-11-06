@@ -1,4 +1,3 @@
-import asyncio
 from datetime import UTC, datetime
 import json
 import logging
@@ -12,12 +11,15 @@ from app.ai.profiles import DEFAULT_PROFILE_ID
 from app.ai.review_redrive import reset_ledger
 from app.browser.manager import browser_manager, store_slug as _store_slug
 from app.database import async_session
+from app.env_options import Options
 from app.events.bus import event_bus
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
 from app.models.task import Task
 from app.routers.dida365_oauth import refresh_token_if_needed
+from app.sync import jobs as sync_jobs
+from app.sync.scheduler import sync_scheduler
 from app.task_finalize import (
     check_parent_after_run,
     finalize_terminal_state as _finalize_terminal_state,
@@ -40,7 +42,6 @@ from app.task_states import (
 from app.workspace.actor import clear_request_actor
 from app.workspace.knowledge_sync import knowledge_sync
 from app.workspace.manager import workspace_manager
-from app.workspace.skills_sync import skills_sync
 
 logger = logging.getLogger(__name__)
 
@@ -117,10 +118,18 @@ async def auto_run_task(task_id: str, store: Store | None):
             if store:
                 store_emails = await get_store_emails(db, store.id)
 
-        # 1. Check remote for updates (async, non-blocking).
-        # Local package sync runs once at startup (main.py lifespan).
-        asyncio.create_task(knowledge_sync.check_and_sync_remote())
-        asyncio.create_task(skills_sync.check_and_sync_remote())
+        # 1. Join any remote sync still in flight before reading the
+        # skills/knowledge trees. The central sync scheduler owns the
+        # polling now (app/sync/jobs.py) — a task launch neither
+        # triggers one nor waits for the network. Local package sync
+        # runs once at startup (main.py lifespan).
+        await sync_scheduler.ready(
+            (
+                sync_jobs.KNOWLEDGE_JOB,
+                sync_jobs.SKILLS_JOB,
+            ),
+            timeout=Options.SYNC_READY_TIMEOUT_S.get_float(),
+        )
 
         # 1c. Catalog sync: staleness check + rotation
         # Driven by the schedule's staleness_check flag.

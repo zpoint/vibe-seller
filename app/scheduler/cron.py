@@ -23,7 +23,6 @@ from app.models.schedule import Schedule
 from app.models.schedule_constants import PhaseMode
 from app.models.task import Task
 from app.plan_states import PlanStatus
-from app.scheduler.email_sync import sync_all_email_accounts
 from app.scheduler.fanout import (
     _cancel_prior_waiting,
     run_fanout_job,
@@ -61,7 +60,6 @@ def start_scheduler():
         logger.info('Scheduler started')
     # Register periodic waiting-task checker
     _register_waiting_checker()
-    _register_email_sync()
     _register_plan_reaper()
     _register_stall_reaper()
     _register_idle_browser_sweeper()
@@ -82,20 +80,6 @@ def _register_waiting_checker():
         coalesce=True,
     )
     logger.info('Waiting-task checker registered (every 15 min)')
-
-
-def _register_email_sync():
-    """Add an interval job that syncs email accounts."""
-    scheduler.add_job(
-        sync_all_email_accounts,
-        'interval',
-        minutes=5,
-        id='email_sync',
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True,
-    )
-    logger.info('Email sync job registered (every 5 min)')
 
 
 def _register_plan_reaper():

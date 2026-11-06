@@ -114,11 +114,12 @@ else:
         atexit.register(shutil.rmtree, _TEST_HOME, ignore_errors=True)
     os.environ['VIBE_HOME'] = _TEST_HOME
 
-# Disable the background provider-preset sync loop across the suite.
-# Left enabled it would fetch from GitHub on every test boot (and at
-# 48 h intervals after); tests that exercise the loop set the interval
-# explicitly. Same ``setdefault`` contract as telemetry above.
-os.environ.setdefault('PROVIDER_PRESETS_SYNC_INTERVAL_S', '0')
+# Arm NO sync timers across the suite (jobs still register, so a test
+# can trigger one). Left armed, every test that boots the app would poll
+# GitHub (and an ads service) on its own; e2e runs opt back in
+# explicitly, because their server is pointed at a fake GitHub.
+if not _E2E_RUN:
+    os.environ.setdefault('VIBE_SYNC_DISABLED', '1')
 # Same for the boot-time browser-engine check: it runs a Playwright
 # subprocess and may download Chromium. Its own tests enable it.
 os.environ.setdefault('VIBE_ENSURE_BROWSER_ENGINE', 'false')

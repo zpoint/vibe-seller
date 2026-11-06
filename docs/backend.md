@@ -18,7 +18,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `schemas/` | Pydantic request/response schemas |
 | `routers/` | FastAPI route handlers (API endpoints) |
 | `browser/` | Pluggable browser backends + session management |
-| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL` / `PROVIDER_PRESETS_SYNC_INTERVAL_S`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)) |
+| `ai/` | AI agent abstraction (Claude Code CLI backend); provider-preset catalog (`provider_presets.py`) and its auto-sync from `main` (`provider_presets_sync.py`, cache `~/.vibe-seller/cache/provider_presets.json`, env `PROVIDER_PRESETS_URL`; see [Auto-synced preset catalog](#auto-synced-preset-catalog-aiprovider_presets_syncpy)) |
 | `executor/` | Legacy browser task runner (deprecated — browser automation now via browser-use CLI) |
 | `events/` | SSE event bus for real-time streaming |
 | `events_system/` | Business event extraction + sync backends |
@@ -216,25 +216,29 @@ re-validation. `GET /api/profiles/presets`, the telemetry
 `profile_kind()` lookup and `model_sees_images()` all read it, so the
 Settings → AI picker shows the synced catalog the moment it lands.
 
-**Fetch path**: `lifespan()` starts `sync_loop()` — one fetch in the
-background at boot (never blocking `/api/health`), then every
-`PROVIDER_PRESETS_SYNC_INTERVAL_S` seconds. The fetch is a **conditional
+**Fetch path**: the `presets` job of the central sync scheduler
+(`app/sync/jobs.py`) — first run at boot, then every 48 h (the job's
+`sync_state` row computes the next run). The fetch is a **conditional
 GET**: the cached `ETag` goes back as `If-None-Match` (only while the
 cache is valid, is what the accessors serve, and was fetched from the
 current URL), and a `304` is an `unchanged` no-op — nothing read, cache
 mtime untouched. Servers without a usable `ETag` (mirrors,
 `http.server`) fall back to the body hash: a body whose sha256 matches
 the cache is not rewritten. Anything else is validated, written
-atomically (tmp + rename, `ETag` stored beside the sha256) and swapped
-in; a changed validator or source URL on an otherwise identical body
-refreshes just that metadata so the cheap path can resume. A `304` to a
+atomically (tmp + rename) and swapped in. The bookkeeping — body sha256,
+`ETag`, source URL — lives in the `presets` job's `sync_state` row; the
+cache file is catalog data and nothing else. A changed validator or
+source URL on an otherwise identical body refreshes just that metadata
+so the cheap path can resume. A `304` to a
 request that carried no `If-None-Match` proves nothing and is treated as
 a failure — the install keeps what it serves.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROVIDER_PRESETS_URL` | raw.githubusercontent copy of `app/ai/provider_presets.py` on `main` | Where the catalog is fetched from (a mirror or a local test server) |
-| `PROVIDER_PRESETS_SYNC_INTERVAL_S` | `172800` (48 h) | Seconds between fetches. `0` disables the loop — what `tests/conftest.py` sets so nothing under `tests/` reaches GitHub |
+| `VIBE_SYNC_DISABLED` | (unset) | `1` registers no sync jobs at all — what `tests/conftest.py` sets so nothing under `tests/` reaches GitHub |
+| `VIBE_SYNC_CADENCE_OVERRIDE` | (unset) | `name=seconds,...` — compress named sync jobs (tests) |
+| `VIBE_SYNC_JITTER` | `1` | Scales the per-install stagger; `0` zeroes it |
 
 **Remote content configures API endpoints, so it is treated as
 hostile.** Per preset: env keys are allowlisted (no `ANTHROPIC_AUTH_TOKEN`

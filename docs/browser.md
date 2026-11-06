@@ -313,7 +313,7 @@ accepted as known limitation.
 
 **Three-layer cleanup**:
 1. **Per-task** (`_cleanup_browser_daemons()` in `claude_backend.py`): kills task-specific daemons on agent **stop** (not start, to avoid race conditions with fast retries). Calls `kill_bh_daemons(lambda name: name.endswith(f'-{tid8}'))` — matching the pid-file `BU_NAME` for this task's id8 (legacy `pgrep` on `browser_use.skill_cli.daemon` argv kept for upgrade compat)
-2. **Periodic reaper** (`start_reaper_loop()` in `daemon_reaper.py`): background loop every 5 minutes, uses same orphan detection logic
+2. **Periodic reaper** (`daemon_reaper` job of the central sync scheduler, `daemon_reaper.py`): every 5 minutes and once at boot, same orphan detection logic
 3. **Server startup** (`cleanup_stale_sessions()` in `manager.py`): in-place-upgrade safety — warns if the installed browser-use is `< 0.13` (`warn_on_browser_use_version_mismatch()`), wipes stale auto-generated wrapper scripts (`_wipe_generated_wrappers()`, so a pre-upgrade 0.12-shaped wrapper is never invoked before the next task regenerates it), then calls `reap_orphaned_daemons()` to clean up daemons from the previous run (both 0.13 pid-file and legacy 0.12 argv) while preserving daemons for active tasks (e.g. WAITING tasks that survive restart)
 
 **Design Rationale**:

@@ -606,7 +606,13 @@ class WorkspaceManager(SkillsMixin):
 
         def _ignore(directory: str, contents: list[str]) -> set[str]:
             drop = {
-                name for name in contents if name in ('__pycache__', '.venv')
+                name
+                for name in contents
+                # '.sync-staging' is the skills sync's half-built tree
+                # (app/workspace/skills_sync.py): it must never travel
+                # into a task workspace, where Claude Code would find a
+                # second, partial copy of a skill.
+                if name in ('__pycache__', '.venv', '.sync-staging')
             }
             if omit and directory == skills_root:
                 drop |= {name for name in contents if name in omit}

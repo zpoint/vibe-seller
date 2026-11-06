@@ -151,6 +151,13 @@ BH_RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 BH_TMP_DIR = VIBE_SELLER_DIR / 'bh-tmp'
 BH_TMP_DIR.mkdir(parents=True, exist_ok=True)
 
+# GitHub API base for the skills/knowledge commit probe (the raw-content
+# URLs above are separate). Overridable so a test — or a mirror — can
+# point the probe somewhere else without changing what gets downloaded.
+GITHUB_API_BASE = (
+    Options.GITHUB_API_BASE.get().rstrip('/') or 'https://api.github.com'
+)
+
 # Knowledge sync
 KNOWLEDGE_REPO_URL = (
     Options.KNOWLEDGE_REPO_URL.get()

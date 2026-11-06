@@ -11,6 +11,7 @@ from app.models.schedule_state import ScheduleState
 from app.models.screenshot import Screenshot
 from app.models.store import Store
 from app.models.store_email_link import StoreEmailLink
+from app.models.sync_state import SyncState
 from app.models.task import Task
 from app.models.task_attachment import TaskAttachment
 from app.models.task_log import TaskLog
@@ -39,5 +40,6 @@ _all_models = [
     EventActivity,
     EmailAccount,
     StoreEmailLink,
+    SyncState,
     ChatBot,
 ]

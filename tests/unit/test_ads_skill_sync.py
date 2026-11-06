@@ -8,13 +8,11 @@ bundle only when it moved.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app import ads_client, ads_skill
 from app.models.app_settings import AppSettings
-from app.workspace.skills_sync import SkillsSyncManager
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -123,68 +121,11 @@ class TestRefreshIfBound:
 
         assert result['updated'] is False and 'down' in result['error']
 
-
-@pytest.fixture
-def sync_mgr(tmp_path):
-    mgr = SkillsSyncManager()
-    mgr._dest_dir = tmp_path / '.claude' / 'skills'
-    mgr._dest_dir.mkdir(parents=True)
-    return mgr
-
-
-def _patched(sync_mgr, *, enabled=True):
-    gate = patch(
-        'app.workspace.skills_sync._auto_sync_enabled',
-        new_callable=AsyncMock,
-        return_value=enabled,
-    )
-    commit = patch.object(
-        sync_mgr,
-        '_fetch_remote_commit',
-        new_callable=AsyncMock,
-        return_value=None,
-    )
-    ads = patch.object(ads_skill, 'refresh_if_bound', new_callable=AsyncMock)
-    return gate, commit, ads
-
-
-class TestTheSkillsSyncChecksTheAdsSkill:
-    async def test_before_a_task_even_when_github_is_unreachable(
-        self, sync_mgr
+    async def test_is_bound_and_authorized_mirrors_the_skill_guard(
+        self, service
     ):
-        gate, commit, ads = _patched(sync_mgr)
-        with gate, commit, ads as refresh:
-            await sync_mgr.check_and_sync_remote()
-        refresh.assert_awaited_once()
+        """The sync job's precondition asks the same question."""
+        assert await ads_skill.is_bound_and_authorized() is True
 
-    async def test_not_when_auto_sync_is_off(self, sync_mgr):
-        gate, commit, ads = _patched(sync_mgr, enabled=False)
-        with gate, commit, ads as refresh:
-            await sync_mgr.check_and_sync_remote()
-        refresh.assert_not_called()
-
-    async def test_not_inside_the_cooldown(self, sync_mgr):
-        sync_mgr._write_sync_meta({'last_sync_at': '2999-01-01T00:00:00+00:00'})
-        gate, commit, ads = _patched(sync_mgr)
-        with gate, commit, ads as refresh:
-            await sync_mgr.check_and_sync_remote()
-        refresh.assert_not_called()
-
-    async def test_the_sync_button_checks_it_and_says_what_happened(
-        self, sync_mgr
-    ):
-        gate, commit, ads = _patched(sync_mgr)
-        with (
-            gate,
-            commit,
-            ads as refresh,
-            patch.object(
-                sync_mgr,
-                '_do_remote_sync',
-                new_callable=AsyncMock,
-                return_value={'status': 'success', 'copied': 0},
-            ),
-        ):
-            refresh.return_value = {'updated': True, 'version': 'v2'}
-            result = await sync_mgr.fetch_remote()
-        assert result['ads_skill'] == {'updated': True, 'version': 'v2'}
+        service['authorized'] = False
+        assert await ads_skill.is_bound_and_authorized() is False

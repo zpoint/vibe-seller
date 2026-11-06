@@ -32,6 +32,8 @@ from app.database import get_db
 from app.models.store import Store
 from app.models.task import Task
 from app.models.user import User
+from app.sync import jobs as sync_jobs
+from app.sync.scheduler import REASON_EVENT, sync_scheduler
 from app.telemetry_events import TelemetryEvent
 
 logger = logging.getLogger(__name__)
@@ -70,9 +72,19 @@ async def sync_stores(
         if st.ads_authorized and not before.get(st.id):
             telemetry.send(TelemetryEvent.ADS_STORE_BOUND, {'store_id': st.id})
     if any(r.get('authorized') for r in rows):
-        # An authorized store wants the current skill now, not at the next
-        # boot: a button a person has to find is one they will forget.
-        await ads_skill.refresh(db)
+        # An authorized store wants the current skill now, not at the
+        # next scheduled run: a button a person has to find is one they
+        # will forget. The refresh itself is the ads_skill sync job —
+        # this is just its event trigger.
+        try:
+            await sync_scheduler.trigger(
+                sync_jobs.ADS_SKILL_JOB, reason=REASON_EVENT, force=True
+            )
+        except Exception:
+            logger.warning(
+                'ads skill refresh after authorization failed',
+                exc_info=True,
+            )
     return {'stores': rows}
 
 
