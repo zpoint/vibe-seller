@@ -144,12 +144,10 @@ class FakeGitHub:
         self.seen_headers.append(lower)
         if path == '/__control':
             # Out-of-process control plane for the e2e tests: they drive
-            # the fake the server is pointed at over HTTP.
-            import json as _json
-
-            # httpx canonicalises header names (X-Control); look it up
+            # the fake the server is pointed at over HTTP. httpx
+            # canonicalises header names (X-Control), so look it up
             # case-insensitively.
-            body = _json.loads(lower.get('x-control') or '{}')
+            body = json.loads(lower.get('x-control') or '{}')
             action = body.get('action')
             if action == 'upstream_changed':
                 self.upstream_changed(body.get('commit'))
