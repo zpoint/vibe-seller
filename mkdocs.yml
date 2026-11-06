@@ -126,6 +126,7 @@ nav:
       - Developer Guide: dev-guide.md
       - Windows + WSL2 Deployment: windows-setup.md
       - macOS Deployment: macos-setup.md
+      - Amazon Ads API: ads-api.md
   - Core:
       - Tasks: tasks.md
       - Workspace: workspace.md
