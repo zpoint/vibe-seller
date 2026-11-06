@@ -210,6 +210,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help='Leave the nightly channel: reinstall the latest stable release.',
     )
 
+    # install-browser ------------------------------------------------
+    subs.add_parser(
+        'install-browser',
+        help=(
+            'Install the Chromium this version drives for Chrome stores, '
+            'from the faster of the official CDN and a China mirror. The '
+            'server also does this by itself at startup.'
+        ),
+    )
+
     # reset-auth -----------------------------------------------------
     # Declared so it shows up in `vibe-seller --help`. The command is
     # intercepted in main() before argparse runs, because it brings its
@@ -504,10 +514,42 @@ def _upgrade_claude_cli() -> int:
     return rc
 
 
+def _cmd_install_browser(args: argparse.Namespace) -> int:
+    from app.browser import chromium_engine  # noqa: PLC0415
+
+    return chromium_engine.install_foreground()
+
+
+def _install_browser_after_upgrade() -> None:
+    """Fetch the Chromium the just-installed Playwright pins.
+
+    Runs in a FRESH interpreter so it is the new version's code and the
+    new Playwright doing it — this process still has the old ones loaded.
+    A target too old to know `install-browser` gets a plain `playwright
+    install`. Never fails the upgrade: the server retries at startup.
+    `-I` keeps the cwd off sys.path, so running this from inside a
+    source checkout can't import that checkout's `app` instead.
+    """
+    cmd = [sys.executable, '-I', '-m', 'app.cli', 'install-browser']
+    print(f'==> {" ".join(cmd)}')
+    rc = subprocess.run(cmd).returncode
+    if rc == 2:  # argparse: unknown command → a pre-install-browser build
+        cmd = [sys.executable, '-I', '-m', 'playwright', 'install', 'chromium']
+        print(f'==> {" ".join(cmd)}')
+        rc = subprocess.run(cmd).returncode
+    if rc != 0:
+        print(
+            'Chromium install failed — the server retries it at startup, '
+            'or run `vibe-seller install-browser`.',
+            file=sys.stderr,
+        )
+
+
 def _cmd_upgrade(args: argparse.Namespace) -> int:
     rc = _upgrade_package(args)
     if rc != 0:
         return rc
+    _install_browser_after_upgrade()
     return _upgrade_claude_cli()
 
 
@@ -608,6 +650,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_stop(args)
     if args.command == 'upgrade':
         return _cmd_upgrade(args)
+    if args.command == 'install-browser':
+        return _cmd_install_browser(args)
     return 1  # unreachable: subparsers.required = True
 
 
