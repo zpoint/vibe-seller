@@ -322,6 +322,13 @@ async def create_api_token(
     row, plaintext = await create_token_row(
         db, current_user.id, body.name, body.expires_in_days
     )
+    telemetry.send(
+        TelemetryEvent.API_TOKEN_CREATED,
+        {
+            'user_hash': telemetry.user_hash(current_user.id),
+            'role': current_user.role,
+        },
+    )
     return ApiTokenCreatedResponse(
         id=row.id,
         name=row.name,
@@ -359,4 +366,11 @@ async def revoke_api_token(
         raise HTTPException(status_code=404, detail='Token not found')
     row.revoked_at = datetime.now(UTC).isoformat()
     await db.commit()
+    telemetry.send(
+        TelemetryEvent.API_TOKEN_REVOKED,
+        {
+            'user_hash': telemetry.user_hash(current_user.id),
+            'role': current_user.role,
+        },
+    )
     return {'ok': True}

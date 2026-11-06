@@ -493,7 +493,7 @@
     "taskRetentionDays": "days",
     "taskRetentionDisabled": "disabled",
     "telemetryTitle": "Anonymous usage telemetry",
-    "telemetryDesc": "Send anonymous install + task counts to help improve the product. No business content (titles, products, screenshots, chat) is ever sent. See docs/telemetry.md.",
+    "telemetryDesc": "Send anonymous install + task counts to help improve the product. No business content (titles, products, screenshots, chat) is ever sent. Custom AI provider names and their hostnames are collected. See docs/telemetry.md.",
     "defaultScheduleTimezone": "Default Schedule Timezone",
     "defaultScheduleTimezoneDesc": "Used when creating new schedules without an explicit timezone",
     "connected": "Connected",

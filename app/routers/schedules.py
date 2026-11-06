@@ -14,7 +14,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.profiles import resolve_schedule_profile
 from app.auth import get_current_user
 from app.database import async_session, get_db
 from app.events.bus import event_bus
@@ -44,7 +43,7 @@ from app.scheduler.cron import (
     remove_schedule_job,
 )
 from app.scheduler.fanout import (
-    _cancel_prior_waiting,
+    create_manual_trigger_task,
     run_fanout_job,
     run_single_job,
 )
@@ -58,12 +57,6 @@ from app.schemas.schedule import (
 )
 from app.schemas.task import TaskResponse
 from app.task_states import TaskStatus, can_transition
-from app.telemetry_events import TaskSource
-from app.telemetry_schedules import (
-    send_schedule_created,
-    send_schedule_deleted,
-)
-from app.telemetry_tasks import send_task_created
 from app.utils.timezone import get_server_timezone
 
 logger = logging.getLogger(__name__)
@@ -334,7 +327,6 @@ async def create_schedule(
             schedule.plan_error = f'Failed to spawn planning task: {e}'
             await db.commit()
 
-    send_schedule_created(schedule)
     return await _enrich_response(schedule)
 
 
@@ -514,7 +506,6 @@ async def delete_schedule(
 
     remove_schedule_job(schedule.id)
     await abort_current_planning_task(schedule, db, 'Schedule deleted.')
-    send_schedule_deleted(schedule)
     await db.delete(schedule)
     await db.commit()
     # After the delete: stop the agent, fail the task in its own session.
@@ -712,29 +703,8 @@ async def trigger_schedule(
         )
         return {'ok': True, 'mode': response_shape}
 
-    # Create child task directly (same logic as _run_task_job)
-    await _cancel_prior_waiting(db, schedule.id, schedule.store_id)
-    task = Task(
-        store_id=schedule.store_id,
-        schedule_id=schedule.id,
-        created_by=current_user.id,
-        title=schedule.title,
-        description=schedule.description or schedule.title,
-        platform=schedule.platform,
-        country=schedule.country,
-        status=TaskStatus.PENDING,
-        plan_mode=schedule.plan_mode,
-        source=TaskSource.SCHEDULE,
-        ai_profile_id=await resolve_schedule_profile(schedule, db),
-    )
-    if schedule.plan:
-        task.plan = schedule.plan
-        task.plan_version = schedule.plan_version
-        task.status = TaskStatus.PLANNED
-    db.add(task)
-    await db.commit()
-    await db.refresh(task)
-    send_task_created(task, user_id=current_user.id)
+    # Create child task via the schedule service layer.
+    task = await create_manual_trigger_task(schedule, current_user.id, db)
 
     # Emit SSE event
     await event_bus.emit(

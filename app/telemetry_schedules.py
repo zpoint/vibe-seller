@@ -3,6 +3,7 @@
 from app import telemetry
 from app.models.schedule import Schedule
 from app.telemetry_events import TelemetryEvent
+from app.telemetry_via import current_via
 
 
 def cadence_kind(schedule_type: str) -> str:
@@ -18,12 +19,20 @@ def schedule_event_props(schedule: Schedule) -> dict:
         'is_store': schedule.store_id is not None,
         'plan_mode': bool(schedule.plan_mode),
         'cadence': cadence_kind(schedule.schedule_type),
+        'via': current_via(),
     }
 
 
 def send_schedule_created(schedule: Schedule) -> None:
     telemetry.send(
         TelemetryEvent.SCHEDULE_CREATED,
+        schedule_event_props(schedule),
+    )
+
+
+def send_schedule_updated(schedule: Schedule) -> None:
+    telemetry.send(
+        TelemetryEvent.SCHEDULE_UPDATED,
         schedule_event_props(schedule),
     )
 

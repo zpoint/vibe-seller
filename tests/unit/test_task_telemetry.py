@@ -2,6 +2,7 @@
 to capture calls (telemetry is disabled under pytest)."""
 
 import ast
+import asyncio
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -10,7 +11,7 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app import telemetry
+from app import telemetry, telemetry_via
 from app.models.base import Base
 from app.models.task import (
     Task,
@@ -21,6 +22,7 @@ from app.models.task import (
 from app.scheduler.heartbeat import heartbeat_trigger
 from app.telemetry_tasks import (
     accumulate_run_usage,
+    send_question_answered,
     send_task_completed,
     send_task_created,
     send_task_failed,
@@ -104,6 +106,32 @@ async def test_outcome_events_carry_task_id(task_env):
         assert by_name[name]['task_id'] == 't-telemetry-1', name
     assert by_name['task_created']['source'] == 'ui'
     assert by_name['task_failed']['source'] == 'ui'
+
+
+# ── Run-start event ──────────────────────────────────────────
+
+
+async def test_run_start_emits_task_started_once(task_env):
+    maker, _task, calls = task_env
+    async with maker() as db:
+        task = await db.get(Task, 't-telemetry-1')
+        task.status = 'running'
+        await db.commit()
+    await asyncio.sleep(0.05)
+    started = [p for e, p in calls if e == 'task_started']
+    assert len(started) == 1, calls
+    assert started[0]['task_id'] == 't-telemetry-1'
+    assert started[0]['source'] == 'ui'
+    assert started[0]['ai_profile_kind'] == 'default'
+    # A wake from WAITING is a resume (task_resumed), not a new run.
+    async with maker() as db:
+        task = await db.get(Task, 't-telemetry-1')
+        task.status = 'waiting'
+        task.status = 'running'
+        await db.commit()
+    await asyncio.sleep(0.05)
+    started = [p for e, p in calls if e == 'task_started']
+    assert len(started) == 1, calls
 
 
 # ── Stream-json result usage accumulates ────────────────────
@@ -204,3 +232,21 @@ def test_heartbeat_fires_at_most_once_per_day():
     # Daily — allow DST-sized slack, never a sub-daily repeat.
     gaps_h = [(b - a).total_seconds() / 3600 for a, b in zip(fires, fires[1:])]
     assert all(22 <= g <= 26 for g in gaps_h), gaps_h
+
+
+async def test_question_answered_carries_the_answering_via(task_env):
+    """§10: the answered event's `via` is the channel that answered —
+    handed over by request_id, because the agent's own task emits it
+    long after the answering request returned."""
+    _maker, _task, calls = task_env
+    telemetry_via.set_via(telemetry_via.MCP)
+    telemetry_via.note_answer_via('req-9')
+    telemetry_via.set_via(None)  # the agent's own context
+    await send_question_answered('t-telemetry-1', datetime.now(UTC), 'req-9')
+    props = dict(calls)['agent_question_answered']
+    assert props['via'] == 'mcp'
+    # A question answered with no handover reports 'other', never a
+    # stale channel.
+    await send_question_answered('t-telemetry-1', datetime.now(UTC), 'req-x')
+    props = dict(calls)['agent_question_answered']
+    assert props['via'] == 'other'

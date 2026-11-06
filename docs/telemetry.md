@@ -3,12 +3,21 @@
 vibe-seller sends anonymous, aggregate usage events to help maintainers
 understand adoption and reliability. **No business content is sent**:
 no task titles, store/product names, error message text, screenshots,
-chat content, AI profile names, email addresses, or credentials.
-Identification is by an anonymous UUID
+chat content, email addresses, or credentials. Identification is by
+an anonymous UUID
 (`~/.vibe-seller/data/install_id`), never by user or email. Seats on a
 multi-user install are counted with a one-way pseudonym
 (`sha256(install_id:user_id)`, truncated) — the raw user id never
 leaves the machine.
+
+**One deliberate exception: custom AI provider labels.** Preset
+providers are reported as a fixed enum (`deepseek`, `minimax`, …). For
+a provider the user configured themselves, the name they gave it and
+the HOSTNAME of its base URL are reported (e.g. `api.example.com`) so
+the maintainers can see which custom endpoints people actually use.
+The full base URL, its scheme, port, path, any key embedded in it, the
+model, and the API key are never sent; a bare IP or `localhost` is
+reported as `local`.
 
 ## Opt out
 

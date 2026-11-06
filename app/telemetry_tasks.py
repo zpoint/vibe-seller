@@ -12,12 +12,21 @@ import re
 from sqlalchemy import event, func, select
 from sqlalchemy.orm import Session as _SyncSession
 
-from app import telemetry
-from app.ai.profiles import profile_kind_for_id
+# Side effect: registers the Schedule ORM telemetry listeners.
+from app import (
+    telemetry,
+    telemetry_actions,  # noqa: F401
+)
+from app.ai.profiles import profile_kind_for_id, profile_telemetry
 from app.database import async_session
 from app.models.task import Task, close_pause, open_pause, paused_total
 from app.models.task_message import TaskMessage
 from app.telemetry_events import TaskSource, TelemetryEvent
+from app.telemetry_via import (
+    current_via,
+    take_answer_via,
+    via_for_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,19 +106,36 @@ def send_task_created(
     props = {
         'task_id': task.id,
         'source': task.source or TaskSource.OTHER,
+        'via': via_for_task(task),
         'user_hash': telemetry.user_hash(user_id),
         'is_store_task': task.store_id is not None,
         'plan_mode': bool(task.plan_mode),
         'schedule_id': task.schedule_id,
         'has_parent': task.parent_task_id is not None,
-        'ai_profile_kind': profile_kind_for_id(task.ai_profile_id),
         'description_length_bucket': telemetry.length_bucket(
             len(task.description or '')
         ),
+        **profile_telemetry(task.ai_profile_id),
     }
     if created_by_role is not None:
         props['created_by_role'] = created_by_role
     telemetry.send(TelemetryEvent.TASK_CREATED, props)
+
+
+def send_task_started(task: Task) -> None:
+    """Emit ``task_started`` — the task's run actually began."""
+    telemetry.send(
+        TelemetryEvent.TASK_STARTED,
+        {
+            'task_id': task.id,
+            'source': task.source or TaskSource.OTHER,
+            'is_store_task': task.store_id is not None,
+            'plan_mode': bool(task.plan_mode),
+            'is_scheduled': task.schedule_id is not None,
+            'has_parent': task.parent_task_id is not None,
+            **profile_telemetry(task.ai_profile_id),
+        },
+    )
 
 
 def _usage_props(task: Task) -> dict:
@@ -142,7 +168,7 @@ def _outcome_props(task: Task) -> dict:
         'is_store_task': task.store_id is not None,
         'was_planned': bool(task.plan_mode),
         'is_scheduled': task.schedule_id is not None,
-        'ai_profile_kind': profile_kind_for_id(task.ai_profile_id),
+        **profile_telemetry(task.ai_profile_id),
         'followup_count': 0,
         'retry_count': task.retry_count or 0,
         **_usage_props(task),
@@ -196,6 +222,8 @@ def send_task_cancelled(task: Task, *, status_at: str | None = None) -> None:
             'task_id': task.id,
             'status_at_cancel': status_at or task.status,
             'source': task.source or TaskSource.OTHER,
+            'via': via_for_task(task),
+            **profile_telemetry(task.ai_profile_id),
         },
     )
 
@@ -226,9 +254,12 @@ async def send_question_asked(task_id: str):
     return datetime.now(UTC)
 
 
-async def send_question_answered(task_id: str, asked_at) -> None:
+async def send_question_answered(
+    task_id: str, asked_at, request_id: str | None = None
+) -> None:
     """Close the question pause; ``answer_latency_seconds`` is the
-    time since ``asked_at``."""
+    time since ``asked_at``. ``via`` is the channel that ANSWERED —
+    handed over by request_id (the agent's own task emits this)."""
     latency = max(0, int((datetime.now(UTC) - asked_at).total_seconds()))
     await _pause_row(task_id, close_pause)
     telemetry.send(
@@ -236,7 +267,27 @@ async def send_question_answered(task_id: str, asked_at) -> None:
         {
             'task_id': task_id,
             'answer_latency_seconds': latency,
+            'via': take_answer_via(request_id) if request_id else current_via(),
         },
+    )
+
+
+def send_message_submitted(task_id: str) -> None:
+    """A user message sent to a task — both surfaces (the web UI and
+    the hosted MCP ``send_message``) land here."""
+    telemetry.send(
+        TelemetryEvent.TASK_MESSAGE_SUBMITTED,
+        {'task_id': task_id, 'via': current_via()},
+    )
+
+
+def send_plan_verdict(task_id: str, *, approved: bool) -> None:
+    """A human plan verdict — approval or requested changes."""
+    telemetry.send(
+        TelemetryEvent.PLAN_APPROVED
+        if approved
+        else TelemetryEvent.PLAN_CHANGES_REQUESTED,
+        {'task_id': task_id, 'via': current_via()},
     )
 
 
@@ -314,25 +365,40 @@ _pending_terminal_emits: set = set()
 @event.listens_for(_SyncSession, 'after_commit')
 def _emit_terminal_on_commit(sync_session) -> None:
     transitions = sync_session.info.pop('terminal_transitions', None)
-    if not transitions:
+    starts = sync_session.info.pop('start_transitions', None) or set()
+    if not transitions and not starts:
         return
-    for task_id, (from_status, to_status) in transitions.items():
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            logger.debug(
-                'terminal emit skipped (no running loop) for %s',
-                task_id,
-            )
-            continue
-        task = loop.create_task(_emit_terminal(task_id, from_status, to_status))
-        _pending_terminal_emits.add(task)
-        task.add_done_callback(_pending_terminal_emits.discard)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        logger.debug('task telemetry emit skipped (no running loop)')
+        return
+    for task_id in starts:
+        _spawn_emit(loop, _emit_started(task_id))
+    for task_id, (from_status, to_status) in (transitions or {}).items():
+        _spawn_emit(loop, _emit_terminal(task_id, from_status, to_status))
+
+
+def _spawn_emit(loop, coro) -> None:
+    task = loop.create_task(coro)
+    _pending_terminal_emits.add(task)
+    task.add_done_callback(_pending_terminal_emits.discard)
 
 
 @event.listens_for(_SyncSession, 'after_rollback')
 def _drop_terminal_on_rollback(sync_session) -> None:
     sync_session.info.pop('terminal_transitions', None)
+    sync_session.info.pop('start_transitions', None)
+
+
+async def _emit_started(task_id: str) -> None:
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+        if task is not None:
+            send_task_started(task)
+    except Exception:
+        pass
 
 
 async def _emit_terminal(task_id: str, from_status: str, to_status: str):

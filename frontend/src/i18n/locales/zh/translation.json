@@ -495,7 +495,7 @@
     "taskRetentionDays": "天",
     "taskRetentionDisabled": "已禁用",
     "telemetryTitle": "匿名使用数据上报",
-    "telemetryDesc": "发送匿名的安装与任务计数，帮助改进产品。不会上传任何业务内容（任务标题、商品、截图、对话）。详见 docs/telemetry.md。",
+    "telemetryDesc": "发送匿名的安装与任务计数，帮助改进产品。不会上传任何业务内容（任务标题、商品、截图、对话）。会收集自定义 AI 供应商的名称与主机名。详见 docs/telemetry.md。",
     "defaultScheduleTimezone": "默认定时任务时区",
     "defaultScheduleTimezoneDesc": "创建新定时任务时若未指定时区，则使用此时区",
     "connected": "已连接",

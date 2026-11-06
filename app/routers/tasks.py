@@ -68,7 +68,8 @@ from app.task_states import (
     assert_transition,
 )
 from app.telemetry_events import TaskSource, TelemetryEvent
-from app.telemetry_tasks import send_task_created
+from app.telemetry_tasks import send_plan_verdict, send_task_created
+from app.telemetry_via import current_via, source_of_via
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -163,7 +164,14 @@ async def create_task(
             detail='Sub-tasks must have a store_id',
         )
 
-    source = TaskSource.SUBTASK if data.parent_task_id else TaskSource.UI
+    # Provenance is derived from the via channel (who is calling —
+    # app.telemetry_via), never from a request field: a sub-task is
+    # always 'subtask', an MCP caller is 'mcp_external'.
+    source = (
+        TaskSource.SUBTASK
+        if data.parent_task_id
+        else source_of_via(current_via())
+    )
 
     # Resolve plan_mode
     plan_mode = data.plan_mode
@@ -512,6 +520,7 @@ async def execute_plan(
     actual_status = TaskStatus.RUNNING
     if store and task_queue_scheduler.is_running:
         actual_status = TaskStatus.QUEUED
+    send_plan_verdict(task_id, approved=True)
     return {
         'ok': True,
         'task_id': task_id,

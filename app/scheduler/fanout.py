@@ -487,3 +487,36 @@ async def _run_l2_phase(
             f'status={l2_task.status if l2_task else "missing"}, '
             f'error={l2_task.error if l2_task else "task not found"}'
         )
+
+
+async def create_manual_trigger_task(schedule: Schedule, created_by, db):
+    """Create the child task for a manual trigger (POST
+    ``/api/schedules/{id}/trigger``).
+
+    The router's former inline block — ``_run_task_job``'s logic for
+    one store-bound child: construct with an explicit source, commit,
+    and report ``task_created`` the way every creation path does.
+    """
+    await _cancel_prior_waiting(db, schedule.id, schedule.store_id)
+    task = Task(
+        store_id=schedule.store_id,
+        schedule_id=schedule.id,
+        created_by=created_by,
+        title=schedule.title,
+        description=schedule.description or schedule.title,
+        platform=schedule.platform,
+        country=schedule.country,
+        status=TaskStatus.PENDING,
+        plan_mode=schedule.plan_mode,
+        source=TaskSource.SCHEDULE,
+        ai_profile_id=await resolve_schedule_profile(schedule, db),
+    )
+    if schedule.plan:
+        task.plan = schedule.plan
+        task.plan_version = schedule.plan_version
+        task.status = TaskStatus.PLANNED
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+    send_task_created(task, user_id=created_by)
+    return task

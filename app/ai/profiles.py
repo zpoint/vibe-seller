@@ -1,7 +1,10 @@
 """AI Profile management for chat-level agent switching."""
 
+import copy
+from ipaddress import ip_address
 import json
 import os
+from urllib.parse import urlsplit
 
 from app.ai.provider_presets_sync import current_models, current_presets
 from app.config import AI_BOT_ROLE, DEFAULT_USER_ID
@@ -169,11 +172,17 @@ class ProfileManager:
 
     @staticmethod
     def load() -> dict:
-        """Load profiles from disk or create defaults."""
+        """Load profiles from disk or create defaults.
+
+        The fallback is a DEEP copy: a caller that mutates the loaded
+        dict (every write path does) must never reach the module's
+        default — otherwise a save-less mutation of the fallback
+        becomes a phantom profile on every later load.
+        """
         if PROFILES_PATH.exists():
             with open(PROFILES_PATH, 'r') as f:
                 return json.load(f)
-        return DEFAULT_PROFILES.copy()
+        return copy.deepcopy(DEFAULT_PROFILES)
 
     @staticmethod
     def save(profiles: dict) -> None:
@@ -308,6 +317,109 @@ def profile_kind_for_id(profile_id: str | None) -> str:
     if not profile_id or profile_id == DEFAULT_PROFILE_ID:
         return 'default'
     return profile_kind(ProfileManager.get_profile(profile_id))
+
+
+# A custom profile's display name is reported as typed (trimmed, capped
+# here) as an ATTRIBUTE next to the host — never as a grouping
+# dimension. The provider dimension is the API host (brief V4 §9). The
+# base URL itself is NEVER reported — only its hostname (see
+# ``profile_host``).
+CUSTOM_NAME_MAX_CHARS = 40
+
+# The host a profile with no base URL talks to: plain Claude.
+DEFAULT_PROFILE_HOST = 'api.anthropic.com'
+
+
+def custom_profile_name(profile: dict | None) -> str:
+    """The profile's display name, trimmed and capped."""
+    name = (profile or {}).get('name') or ''
+    return name.strip()[:CUSTOM_NAME_MAX_CHARS]
+
+
+def profile_host(profile: dict | None) -> str:
+    """Hostname of the profile's base URL — the privacy boundary and
+    the provider dimension (§9).
+
+    Scheme, userinfo, port, path and query are dropped, so a base URL
+    carrying its key in the userinfo or a query string reduces to the
+    bare host. A bare IP or localhost reports as ``local``; a profile
+    with no base URL reports ``api.anthropic.com``.
+    """
+    env = (profile or {}).get('env') or {}
+    raw = (env.get('ANTHROPIC_BASE_URL') or '').strip()
+    if not raw:
+        return DEFAULT_PROFILE_HOST
+    if '://' not in raw:
+        raw = '//' + raw
+    try:
+        host = (urlsplit(raw).hostname or '').strip().lower()
+    except ValueError:
+        return DEFAULT_PROFILE_HOST
+    if not host:
+        return DEFAULT_PROFILE_HOST
+    if host == 'localhost':
+        return 'local'
+    try:
+        ip_address(host)
+    except ValueError:
+        return host
+    return 'local'
+
+
+def custom_profile_labels(profile: dict | None) -> dict:
+    """The user-typed name for a custom profile, else {}.
+
+    The name is an attribute only (§9) — grouping is by
+    ``profile_host``.
+    """
+    if profile_kind(profile) != 'custom':
+        return {}
+    return {'ai_profile_custom_name': custom_profile_name(profile)}
+
+
+def provider_hosts() -> list[str]:
+    """Sorted distinct API hosts of every profile on this install."""
+    return sorted({profile_host(p) for p in ProfileManager.list_profiles()})
+
+
+def default_provider_hosts(default_profile_ids) -> list[str]:
+    """Sorted distinct API hosts of the users' default profiles."""
+    return sorted({
+        profile_host(ProfileManager.get_profile(pid))
+        for pid in default_profile_ids
+    })
+
+
+def custom_provider_entries() -> list[dict]:
+    """``[{name, host}]`` for every custom profile on this install —
+    the names column of the custom-hosts table."""
+    entries = []
+    for profile in ProfileManager.list_profiles():
+        if profile_kind(profile) != 'custom':
+            continue
+        entries.append({
+            'name': custom_profile_name(profile),
+            'host': profile_host(profile),
+        })
+    return sorted(entries, key=lambda e: (e['name'], e['host']))
+
+
+def profile_telemetry(profile_id: str | None) -> dict:
+    """Provider telemetry for one profile id: the host dimension
+    (every profile), the kind as a secondary label, and the
+    user-typed name when the kind is custom."""
+    kind = profile_kind_for_id(profile_id)
+    props = {
+        'ai_provider_host': profile_host(
+            ProfileManager.get_profile(profile_id)
+        ),
+        'ai_profile_kind': kind,
+    }
+    if kind == 'custom':
+        props.update(
+            custom_profile_labels(ProfileManager.get_profile(profile_id))
+        )
+    return props
 
 
 async def resolve_owner_profile(owner, db) -> str | None:

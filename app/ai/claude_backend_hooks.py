@@ -784,7 +784,7 @@ class _HookMixin:
             },
         )
         await self._answer_events[request_id].wait()
-        await send_question_answered(self.task_id, asked_at)
+        await send_question_answered(self.task_id, asked_at, request_id)
         answers = self._answers.pop(request_id, {})
         self._answer_events.pop(request_id, None)
         self._pending_questions.pop(request_id, None)

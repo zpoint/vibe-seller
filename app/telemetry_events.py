@@ -18,6 +18,7 @@ class TelemetryEvent:
     STORE_DELETED = 'store_deleted'
 
     TASK_CREATED = 'task_created'
+    TASK_STARTED = 'task_started'
     TASK_COMPLETED = 'task_completed'
     TASK_FAILED = 'task_failed'
     TASK_RESUMED = 'task_resumed'
@@ -27,7 +28,15 @@ class TelemetryEvent:
     AGENT_QUESTION_ASKED = 'agent_question_asked'
     AGENT_QUESTION_ANSWERED = 'agent_question_answered'
 
+    # User-action events (the plan/message/schedule verdicts mirror
+    # the frontend event names of the same actions; server rows carry
+    # `via`, frontend rows do not).
+    TASK_MESSAGE_SUBMITTED = 'task_message_submitted'
+    PLAN_APPROVED = 'plan_approved'
+    PLAN_CHANGES_REQUESTED = 'plan_changes_requested'
+
     SCHEDULE_CREATED = 'schedule_created'
+    SCHEDULE_UPDATED = 'schedule_updated'
     SCHEDULE_DELETED = 'schedule_deleted'
     SCHEDULE_FIRED = 'schedule_fired'
 
@@ -65,6 +74,11 @@ class TelemetryEvent:
     DIDA365_AUTHORIZED = 'dida365_authorized'
     DIDA365_MCP_SETUP = 'dida365_mcp_setup'
 
+    API_TOKEN_CREATED = 'api_token_created'
+    API_TOKEN_REVOKED = 'api_token_revoked'
+    MCP_SESSION_STARTED = 'mcp_session_started'
+    MCP_TOOL_CALLED = 'mcp_tool_called'
+
 
 class TaskSource(enum.StrEnum):
     """What launched a task; recorded on the row at creation."""
@@ -90,6 +104,39 @@ class BrowserFailureReason:
     WRONG_PORT = 'wrong_port'
     LAUNCH_FAILED = 'launch_failed'
     STARTUP_TIMEOUT = 'startup_timeout'
+
+
+class McpToolOutcome:
+    """Outcome of one ``mcp_tool_called``."""
+
+    OK = 'ok'
+    ERROR = 'error'
+    DENIED = 'denied'
+
+
+class McpErrorCategory:
+    """Bounded failure buckets for ``mcp_tool_called.error_category``."""
+
+    INVALID_PARAMS = 'invalid_params'
+    TOOL_ERROR = 'tool_error'
+    ROUTE_DENIED = 'route_denied'
+    ROUTE_ERROR = 'route_error'
+    UNEXPECTED = 'unexpected'
+
+
+class McpClientName:
+    """Known MCP client names; anything else buckets to ``other``."""
+
+    KNOWN = {'claude': 'claude-code', 'cursor': 'cursor', 'codex': 'codex'}
+    OTHER = 'other'
+
+    @classmethod
+    def bucket(cls, raw: str | None) -> str:
+        name = (raw or '').strip().lower()
+        for needle, bucket in cls.KNOWN.items():
+            if needle in name:
+                return bucket
+        return cls.OTHER
 
 
 class TaskFailurePhase:

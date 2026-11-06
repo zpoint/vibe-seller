@@ -63,6 +63,7 @@ ASYNC_SESSION_MODULES = [
     'app.workspace.knowledge_sync',
     'app.workspace.skills_sync',
     'app.scheduler.task_queue',
+    'app.scheduler.heartbeat',
     'app.browser.idle_sweep',
     'app.scheduler.cron',
     'app.scheduler.fanout',

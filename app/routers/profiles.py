@@ -12,7 +12,13 @@ from app.ai.external_config import (
     assert_profile_compatible,
 )
 from app.ai.profile_validation import validate_profile_env
-from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager, profile_kind
+from app.ai.profiles import (
+    DEFAULT_PROFILE_ID,
+    ProfileManager,
+    custom_profile_labels,
+    profile_host,
+    profile_kind,
+)
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.schedule import Schedule
@@ -50,8 +56,10 @@ async def create_profile(
             TelemetryEvent.AI_PROFILE_CREATED,
             {
                 'provider_kind': profile_kind(profile),
+                'ai_provider_host': profile_host(profile),
                 'is_first_profile': existing_count <= 1,
                 'has_global_mcp': bool(profile.get('load_global_mcp')),
+                **custom_profile_labels(profile),
             },
         )
         return profile

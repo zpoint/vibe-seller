@@ -187,6 +187,12 @@ def _park_clock(target: 'Task', value, oldvalue, _initiator) -> None:
         open_pause(target)
     elif old in PARKED_STATES:
         close_pause(target)
+    if new == 'running' and old not in ('running', 'waiting'):
+        # A run began (a wake from WAITING is a resume, not a new
+        # run). Emitted after commit alongside the terminal events.
+        session = object_session(target)
+        if session is not None:
+            session.info.setdefault('start_transitions', set()).add(target.id)
     if new in TERMINAL_STATES and old not in TERMINAL_STATES:
         session = object_session(target)
         if session is not None:
