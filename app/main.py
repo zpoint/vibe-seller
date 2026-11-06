@@ -83,6 +83,7 @@ from app.scheduler.cron import (
 from app.scheduler.email_sync import sync_all_email_accounts
 from app.scheduler.task_queue import task_queue_scheduler
 from app.sync import jobs as sync_jobs
+from app.sync.migrate import migrate_legacy_state
 from app.sync.scheduler import sync_scheduler
 from app.sync.state import clear_restart_flags
 from app.telemetry_events import TelemetryEvent
@@ -200,6 +201,11 @@ async def lifespan(app: FastAPI):
     # THIS restart is the one that picked the gates up, so whatever a
     # previous run flagged as "needs restart" has just been served.
     await clear_restart_flags()
+    # Bring any pre-scheduler bookkeeping across BEFORE the jobs are
+    # registered: the first run's timing is computed from the imported
+    # ``last_ok_at``, so importing later would make an upgraded install
+    # re-poll immediately. Idempotent — see app/sync/migrate.py.
+    await migrate_legacy_state()
     # Every periodic remote sync lives on one scheduler now
     # (app/sync/jobs.py). Registered after the local sync above so the
     # first remote tick cannot race the boot-time copy.

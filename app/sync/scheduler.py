@@ -203,6 +203,16 @@ def cadence_seconds(name: str, cadence: Cadence) -> float:
     return parse_cadence_overrides().get(name, float(cadence.value))
 
 
+def _is_strong(reason: str, force: bool) -> bool:
+    """Whether this caller needs work done rather than a join.
+
+    A scheduled tick is the clock talking; everything else — a user
+    pressing Sync, the ads authorization event, any ``force`` run —
+    asked for something to actually happen.
+    """
+    return reason != REASON_TICK or force
+
+
 def sync_disabled() -> bool:
     """``VIBE_SYNC_DISABLED=1`` registers nothing (tests never poll)."""
     return Options.SYNC_DISABLED.get_bool()
@@ -225,6 +235,9 @@ class SyncScheduler:
         self._inflight: dict[str, asyncio.Task] = {}
         self._tracked: set[asyncio.Task] = set()
         self._next: dict[str, datetime] = {}
+        # Whether the newest run for a job was started by a strong
+        # caller — the basis for "is this run good enough to join?".
+        self._strong: dict[str, bool] = {}
 
     @property
     def aps(self):
@@ -300,14 +313,43 @@ class SyncScheduler:
         reason: str = REASON_MANUAL,
         force: bool = False,
     ) -> SyncResult:
-        """Run ``name`` now, joining a run already in flight.
+        """Run ``name`` now.
+
+        A caller joins the run already in flight when that run will do
+        what it asked for: a scheduled tick joins anything, and a strong
+        request (``force``, or any reason but ``tick``) joins a run that
+        is itself strong. What it will NOT do is be served by a weaker
+        run — the in-flight one may be a probe that says "nothing
+        changed", or a skip, and a Sync button press asked for work.
+        That case waits the weak run out and takes one fresh run, which
+        concurrent strong callers share (so "press Sync while the tick
+        is running" is one extra sync, not one per press).
 
         Returns the run's result. A failure raises — the caller asked
         for this run and must hear about it (the scheduled tick, which
         nobody is waiting on, swallows it instead).
         """
-        task = self._share_or_start(self._require(name), reason, force)
-        return await task
+        job = self._require(name)
+        strong = _is_strong(reason, force)
+        previous = self._inflight.get(name)
+        if previous is not None and not previous.done():
+            if not strong or self._strong.get(name):
+                return await previous
+            await self._wait_out(previous)
+            current = self._inflight.get(name)
+            if current is not previous:
+                # A peer strong caller started the fresh run while we
+                # waited — that is the run we share.
+                return await current
+        return await self._share_or_start(job, reason, force)
+
+    @staticmethod
+    async def _wait_out(task: asyncio.Task) -> None:
+        """Wait for someone else's run without adopting its failure."""
+        try:
+            await task
+        except Exception:  # noqa: BLE001 — not this caller's run
+            pass
 
     async def ready(self, names=None) -> None:
         """Wait for in-flight runs of ``names`` (default: all).
@@ -365,6 +407,7 @@ class SyncScheduler:
             return task
         task = asyncio.create_task(self._execute(job, reason, force))
         self._inflight[job.name] = task
+        self._strong[job.name] = _is_strong(reason, force)
         self._tracked.add(task)
         task.add_done_callback(self._on_done)
         return task

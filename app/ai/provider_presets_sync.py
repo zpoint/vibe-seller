@@ -54,7 +54,6 @@ that already exists.
 """
 
 import ast
-from datetime import UTC, datetime
 import hashlib
 import json
 import logging
@@ -67,6 +66,7 @@ import httpx
 
 from app.ai.provider_presets import PROVIDER_MODELS, PROVIDER_PRESETS
 from app.env_options import Options
+from app.sync import state as sync_state
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -409,13 +409,26 @@ def _cache_path() -> Path:
     return VIBE_SELLER_DIR / 'cache' / 'provider_presets.json'
 
 
-def _read_cache_meta() -> dict:
-    """The cache file's bookkeeping fields, or ``{}``."""
+def _read_cache_blob() -> dict:
+    """The cache file's catalog fields, or ``{}``."""
     try:
         blob = json.loads(_cache_path().read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
     return blob if isinstance(blob, dict) else {}
+
+
+# The fetch bookkeeping (body sha256, response validator, source URL)
+# lives in the ``sync_state`` row of the ``presets`` job — beside every
+# other sync job's state — and NOT in the cache file, which is catalog
+# data and nothing else. Behind two module-level coroutines so a unit
+# test can substitute an in-memory store without a database.
+async def _load_bookkeeping() -> dict:
+    return await sync_state.load_bookkeeping('presets')
+
+
+async def _save_bookkeeping(**fields) -> dict:
+    return await sync_state.save_bookkeeping('presets', **fields)
 
 
 def _load_cache() -> tuple[dict, dict] | None:
@@ -425,7 +438,7 @@ def _load_cache() -> tuple[dict, dict] | None:
     hand-edited file is treated as a miss (bundled data wins), never
     as a source of endpoint config.
     """
-    blob = _read_cache_meta()
+    blob = _read_cache_blob()
     if not blob:
         return None
     try:
@@ -443,47 +456,17 @@ def _write_cache(
 ) -> None:
     """Persist the validated catalog atomically (tmp + rename).
 
-    ``etag`` is the response's validator (stored verbatim when sane),
-    which the next fetch sends back as ``If-None-Match``.
+    ``sha256`` / ``source_url`` / ``etag`` are bookkeeping and go to
+    ``sync_state``; the file keeps the catalog alone.
     """
     path = _cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        'sha256': sha256,
-        'fetched_at': datetime.now(UTC).isoformat(),
-        'source_url': source_url,
         'presets': presets,
         'models': models,
     }
-    if etag:
-        payload['etag'] = etag
     tmp = path.parent / f'{path.name}.tmp'
     tmp.write_text(json.dumps(payload, indent=2), encoding='utf-8')
-    os.replace(tmp, path)
-
-
-def _refresh_cached_meta(etag: str | None, source_url: str) -> None:
-    """Refresh ONLY the cache's fetch metadata; the catalog stays.
-
-    The one exception to "an identical body is a no-op": a changed
-    validator or source URL is worth persisting, or the next fetch
-    keeps paying for the same body (a stale ETag never gets a 304
-    again, a stale URL never gets a conditional GET at all).
-    """
-    path = _cache_path()
-    try:
-        blob = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        return
-    if not isinstance(blob, dict):
-        return
-    blob['source_url'] = source_url
-    if etag:
-        blob['etag'] = etag
-    else:
-        blob.pop('etag', None)
-    tmp = path.parent / f'{path.name}.tmp'
-    tmp.write_text(json.dumps(blob, indent=2), encoding='utf-8')
     os.replace(tmp, path)
 
 
@@ -578,7 +561,7 @@ async def _read_capped(resp: httpx.Response) -> bytes | None:
 async def _fetch_with(
     client: httpx.AsyncClient, url: str, *, force: bool = False
 ) -> dict:
-    meta = _read_cache_meta()
+    meta = await _load_bookkeeping()
     cached_etag = _sane_etag(meta.get('etag'))
     # A conditional GET only when the cached validator applies to
     # what is being served: the cache holds a sane etag, it IS what
@@ -638,7 +621,7 @@ async def _fetch_with(
         # Identical body, already served and cached: no rewrite —
         # except for fetch metadata drift (see _refresh_cached_meta).
         if etag != meta.get('etag') or url != meta.get('source_url'):
-            _refresh_cached_meta(etag, url)
+            await _save_bookkeeping(etag=etag or None, source_url=url)
             return {
                 'status': 'unchanged',
                 'sha256': sha,
@@ -658,6 +641,7 @@ async def _fetch_with(
         return {'status': 'rejected', 'error': str(e)}
 
     _write_cache(sha, url, presets, models, etag=etag)
+    await _save_bookkeeping(sha256=sha, etag=etag or None, source_url=url)
     _apply(presets, models)
     logger.info(
         'Provider presets updated from %s (%d presets)',

@@ -127,6 +127,42 @@ async def record(
         return to_dict(row)
 
 
+async def record_import(
+    job_name: str,
+    *,
+    last_ok_at: str | None = None,
+    last_run_at: str | None = None,
+    status: str | None = None,
+    error: str | None = None,
+    version: str | None = None,
+    etag: str | None = None,
+    detail: dict | None = None,
+) -> dict:
+    """Create a row from imported legacy bookkeeping.
+
+    Unlike :func:`record`, the timestamps are the ones the legacy file
+    carried — an upgraded install must not look like it synced a second
+    ago, or it would re-poll at once instead of at its old cadence.
+    Never overwrites an existing row.
+    """
+    async with async_session() as db:
+        existing = await db.get(SyncState, job_name)
+        if existing is not None:
+            return to_dict(existing)
+        row = SyncState(job_name=job_name, needs_restart=False)
+        row.last_ok_at = last_ok_at
+        row.last_run_at = last_run_at or last_ok_at
+        row.status = status
+        row.error = error
+        row.version = version
+        row.etag = etag or None
+        row.detail = json.dumps(detail) if detail else None
+        row.updated_at = _now()
+        db.add(row)
+        await db.commit()
+        return to_dict(row)
+
+
 async def clear_restart_flags() -> None:
     """Clear every ``needs_restart`` flag (boot, after gates preload)."""
     async with async_session() as db:

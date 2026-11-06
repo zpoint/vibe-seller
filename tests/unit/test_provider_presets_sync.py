@@ -107,6 +107,33 @@ def install_transport(monkeypatch, handler) -> None:
     )
 
 
+@pytest.fixture(autouse=True)
+def book(monkeypatch):
+    """In-memory fetch bookkeeping, standing in for ``sync_state``.
+
+    sha256 / etag / source_url live in the ``presets`` job's sync_state
+    row now, not in the cache file (which is catalog data only). Tests
+    seed and assert through this dict; the fixture keeps them
+    database-free.
+    """
+    store: dict = {}
+
+    async def load():
+        return dict(store)
+
+    async def save(**fields):
+        for key, value in fields.items():
+            if value is None:
+                store.pop(key, None)
+            else:
+                store[key] = value
+        return dict(store)
+
+    monkeypatch.setattr(sync, '_load_bookkeeping', load)
+    monkeypatch.setattr(sync, '_save_bookkeeping', save)
+    return store
+
+
 async def fetch_with(handler) -> dict:
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
@@ -464,14 +491,16 @@ async def test_source_url_default_and_override(monkeypatch):
     assert sync._source_url() == 'https://x.example/presets.py'
 
 
-async def test_fetch_applies_and_caches_a_new_preset():
+async def test_fetch_applies_and_caches_a_new_preset(book):
     result = await fetch_with(ok_handler)
     assert result['status'] == 'updated'
     assert 'acme_test' in sync.current_presets()
     blob = json.loads(cache_path().read_text())
     assert 'acme_test' in blob['presets']
-    assert blob['source_url'] == sync._source_url()
-    assert blob['sha256']
+    # The cache file is catalog only — bookkeeping is in sync_state.
+    assert set(blob) == {'presets', 'models'}
+    assert book['source_url'] == sync._source_url()
+    assert book['sha256']
 
 
 async def test_identical_body_is_a_noop():
@@ -595,14 +624,14 @@ def etag_handler(body: str, etag: str, captured: list):
     return handler
 
 
-async def test_conditional_get_after_an_update():
+async def test_conditional_get_after_an_update(book):
     """An update stores the ETag; the next fetch asks with it."""
     body = acme_source()
     first = []
     result = await fetch_with(etag_handler(body, 'W/"v1"', first))
     assert result['status'] == 'updated'
     assert first == [None]  # nothing cached yet -> unconditional
-    assert json.loads(cache_path().read_text())['etag'] == 'W/"v1"'
+    assert book['etag'] == 'W/"v1"'
 
     before = cache_path().stat()
     good = sync.current_presets()
@@ -633,12 +662,14 @@ async def test_no_etag_stored_means_no_conditional_header():
     assert result['status'] == 'unchanged'
 
 
-async def test_no_conditional_header_when_cache_is_not_served():
+async def test_no_conditional_header_when_cache_is_not_served(book):
     """A cache that failed re-validation must be repaired in full."""
-    blob = {
+    book.update({
         'sha256': '0' * 64,
         'etag': 'W/"stale"',
         'source_url': sync._source_url(),
+    })
+    blob = {
         'presets': {
             'acme_test': make_preset(
                 env={
@@ -662,7 +693,7 @@ async def test_no_conditional_header_when_cache_is_not_served():
     assert 'acme_test' in sync.current_presets()
 
 
-async def test_no_conditional_header_when_the_url_changed(monkeypatch):
+async def test_no_conditional_header_when_the_url_changed(monkeypatch, book):
     """The cached validator belongs to the URL that produced it."""
     await fetch_with(etag_handler(acme_source(), 'W/"v1"', []))
 
@@ -677,19 +708,17 @@ async def test_no_conditional_header_when_the_url_changed(monkeypatch):
     assert seen == [None]
     assert result['status'] == 'updated'
     assert sync.current_presets()['acme_test']['name'] == 'Mirror Acme'
-    assert json.loads(cache_path().read_text())['source_url'] == (
-        'https://mirror.example/presets.py'
-    )
+    assert book['source_url'] == 'https://mirror.example/presets.py'
 
 
 async def test_identical_body_from_a_new_url_refreshes_the_stored_url(
-    monkeypatch,
+    monkeypatch, book
 ):
     """Same bytes, new source: the metadata follows so conditional
     GETs can resume — the catalog itself is untouched."""
     body = acme_source()
     await fetch_with(etag_handler(body, 'W/"v1"', []))
-    before = json.loads(cache_path().read_text())
+    before = dict(book)
 
     monkeypatch.setenv(
         'PROVIDER_PRESETS_URL', 'https://mirror.example/presets.py'
@@ -698,9 +727,9 @@ async def test_identical_body_from_a_new_url_refreshes_the_stored_url(
 
     assert result['status'] == 'unchanged'
     assert result['meta_refreshed'] is True
-    after = json.loads(cache_path().read_text())
+    after = dict(book)
     assert after['source_url'] == 'https://mirror.example/presets.py'
-    for key in ('sha256', 'fetched_at', 'presets', 'models', 'etag'):
+    for key in ('sha256', 'etag'):
         assert after[key] == before[key], key
 
 
@@ -718,7 +747,7 @@ async def test_unsolicited_304_is_failure_and_keeps_data():
     assert cache_path().read_bytes() == cached_bytes
 
 
-async def test_new_etag_on_identical_body_updates_the_stored_etag():
+async def test_new_etag_on_identical_body_updates_the_stored_etag(book):
     """The one allowed write on an unchanged body: the validator.
 
     Without it a rotated ETag would leave every later fetch paying
@@ -726,20 +755,22 @@ async def test_new_etag_on_identical_body_updates_the_stored_etag():
     """
     body = acme_source()
     await fetch_with(etag_handler(body, 'W/"v1"', []))
-    before = json.loads(cache_path().read_text())
+    before = dict(book)
+    catalog_before = cache_path().read_bytes()
 
     result = await fetch_with(etag_handler(body, 'W/"v2"', []))
 
     assert result['status'] == 'unchanged'
     assert result['meta_refreshed'] is True
-    after = json.loads(cache_path().read_text())
+    after = dict(book)
     assert after['etag'] == 'W/"v2"'
     # Everything else is untouched — this was not a catalog update.
-    for key in ('sha256', 'fetched_at', 'source_url', 'presets', 'models'):
+    for key in ('sha256', 'source_url'):
         assert after[key] == before[key], key
+    assert cache_path().read_bytes() == catalog_before
 
 
-async def test_insane_etag_is_neither_stored_nor_sent():
+async def test_insane_etag_is_neither_stored_nor_sent(book):
     """A control-carrying/oversized ETag is treated as absent."""
     assert sync._sane_etag('W/"v1"\r\nX-Evil: 1') is None
     assert sync._sane_etag('e' * 500) is None
@@ -749,11 +780,11 @@ async def test_insane_etag_is_neither_stored_nor_sent():
     seen = []
     result = await fetch_with(etag_handler(acme_source(), 'e' * 500, seen))
     assert result['status'] == 'updated'
-    assert 'etag' not in json.loads(cache_path().read_text())
+    assert 'etag' not in book
 
     result = await fetch_with(etag_handler(acme_source(), 'e' * 500, seen))
     assert result['status'] == 'unchanged'
-    assert 'etag' not in json.loads(cache_path().read_text())
+    assert 'etag' not in book
     assert seen == [None, None]
 
 
@@ -777,31 +808,31 @@ def test_etag_grammar_follows_rfc_7232():
         assert sync._sane_etag(bad) is None, bad
 
 
-async def test_non_ascii_etag_is_neither_stored_nor_sent():
+async def test_non_ascii_etag_is_neither_stored_nor_sent(book):
     """The wedge this pins: httpx decodes a non-ASCII ETag off the
     wire fine, but ASCII-ENCODING it into the next If-None-Match
     raises — so storing one fails every later fetch forever."""
     seen = []
     result = await fetch_with(etag_handler(acme_source(), '"café"', seen))
     assert result['status'] == 'updated'
-    assert 'etag' not in json.loads(cache_path().read_text())
+    assert 'etag' not in book
 
     result = await fetch_with(etag_handler(acme_source(), '"café"', seen))
     assert result['status'] == 'unchanged'
     assert seen == [None, None]
 
 
-async def test_unquoted_etag_is_neither_stored_nor_sent():
+async def test_unquoted_etag_is_neither_stored_nor_sent(book):
     """Not an RFC 7232 entity-tag ⇒ no validator at all."""
     seen = []
     await fetch_with(etag_handler(acme_source(), 'abc123', seen))
     await fetch_with(etag_handler(acme_source(), 'abc123', seen))
 
-    assert 'etag' not in json.loads(cache_path().read_text())
+    assert 'etag' not in book
     assert seen == [None, None]
 
 
-async def test_bad_cached_etag_recovers_unconditionally():
+async def test_bad_cached_etag_recovers_unconditionally(book):
     """A cache already holding a bad validator must not wedge.
 
     The cache is valid AND served (so the conditional path would
@@ -812,11 +843,13 @@ async def test_bad_cached_etag_recovers_unconditionally():
     ETag.
     """
     body = acme_source()
+    book.update({
+        'sha256': '0' * 64,
+        'etag': '"café"',
+        'source_url': sync._source_url(),
+    })
     write_cache(
         json.dumps({
-            'sha256': '0' * 64,
-            'etag': '"café"',
-            'source_url': sync._source_url(),
             'presets': {'acme_test': make_preset()},
             'models': {'acme_test': make_models()},
         })
@@ -829,7 +862,7 @@ async def test_bad_cached_etag_recovers_unconditionally():
     result = await fetch_with(etag_handler(body, 'W/"good"', seen))
     assert seen == [None]
     assert result['status'] == 'updated'
-    assert json.loads(cache_path().read_text())['etag'] == 'W/"good"'
+    assert book['etag'] == 'W/"good"'
 
     result = await fetch_with(etag_handler(body, 'W/"good"', seen))
     assert seen == [None, 'W/"good"']

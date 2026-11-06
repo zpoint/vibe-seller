@@ -208,9 +208,9 @@ See `CLAUDE.md` for Claude Code conventions and workflows. See `DESIGN.md` for t
 | POST | `/api/dida365/configure` | Save project + MCP path |
 | DELETE | `/api/dida365/disconnect` | Disconnect integration |
 | POST | `/api/workspace/knowledge/sync` | Sync project knowledge (local + remote) |
-| GET | `/api/workspace/knowledge/sync-meta` | Get sync metadata |
+| GET | `/api/sync/status` | Every sync job's state |
 | POST | `/api/workspace/skills/sync` | Sync built-in skills (local + remote) |
-| GET | `/api/workspace/skills/sync-meta` | Get skills sync metadata |
+| POST | `/api/sync/{name}/run` | Run a sync job now |
 | GET | `/api/settings/google-workspace/status` | Google Workspace bundle prereqs + enabled flag |
 | POST | `/api/settings/google-workspace/enable` | Install the `gws` umbrella skill (admin) |
 | POST | `/api/settings/google-workspace/disable` | Remove the `gws` umbrella skill (admin) |

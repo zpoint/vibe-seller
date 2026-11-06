@@ -73,7 +73,8 @@ PY
 ## 2. Why old clients are the hard constraint (and how the sync works)
 
 Every installed client, before each task, runs
-`skills_sync.check_and_sync_remote()` (`task_runner_auto.py:121`). That:
+the `skills` job of the central sync scheduler (`app/sync/jobs.py`),
+which task launches merely wait for. That:
 
 1. Polls GitHub for the latest commit touching a **hardcoded path**:
    `…/commits?path=app/skills&sha=main` (`skills_sync.py:395`).

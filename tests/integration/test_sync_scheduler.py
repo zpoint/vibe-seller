@@ -10,6 +10,8 @@ network. These pin the two bugs the scheduler exists to kill:
   copy.
 """
 
+from datetime import UTC, datetime
+import json
 import shutil
 
 import httpx
@@ -20,9 +22,14 @@ from sqlalchemy import select
 from app.database import async_session, init_db
 from app.models.sync_state import SyncState
 from app.scheduler.cron import scheduler as aps
-from app.sync import jobs as sync_jobs
-from app.sync.scheduler import Cadence, SyncJob, SyncScheduler
-from app.sync.state import record
+from app.sync import jobs as sync_jobs, migrate
+from app.sync.scheduler import (
+    Cadence,
+    SyncJob,
+    SyncResult,
+    SyncScheduler,
+)
+from app.sync.state import STATUS_UNCHANGED, get_dict, record
 from app.workspace.manager import WorkspaceManager
 from app.workspace.skills_sync import SkillsSyncManager
 from tests.fixtures.fake_github import FakeGitHub
@@ -258,3 +265,121 @@ async def test_registered_jobs_are_bound_to_the_real_scheduler(
     finally:
         aps.shutdown(wait=False)
         sync_scheduler._jobs.clear()
+
+
+# ── legacy-state migration against the real table ─────────────────
+
+
+async def test_legacy_meta_imports_into_the_real_table(clean_state, tmp_path):
+    """The upgrade path: old file in, sync_state row out, file trimmed."""
+    home = tmp_path / 'home'
+    skills_meta = home / '.claude' / 'skills' / '.sync_meta.json'
+    skills_meta.parent.mkdir(parents=True)
+    skills_meta.write_text(
+        json.dumps({
+            'last_sync_at': '2026-11-01T02:03:04+00:00',
+            'last_commit': 'a' * 40,
+            'status': 'success',
+            'error': None,
+            'copied': 3,
+            'skipped': 7,
+            'synced_skills': ['widget-006'],
+            'gws_installed': True,
+        })
+    )
+    knowledge_meta = home / 'knowledge' / '.sync_meta.json'
+    knowledge_meta.parent.mkdir(parents=True)
+    knowledge_meta.write_text(
+        json.dumps({'last_sync_at': '2026-10-01T00:00:00+00:00'})
+    )
+
+    original = migrate.VIBE_SELLER_DIR
+    migrate.VIBE_SELLER_DIR = home
+    try:
+        done = await migrate.migrate_legacy_state()
+    finally:
+        migrate.VIBE_SELLER_DIR = original
+
+    assert done == {'skills': True, 'knowledge': True, 'presets': False}
+    async with async_session() as db:
+        skills = await db.get(SyncState, 'skills')
+        knowledge = await db.get(SyncState, 'knowledge')
+    assert skills.last_ok_at == '2026-11-01T02:03:04+00:00'
+    assert skills.version == 'a' * 40
+    assert knowledge.last_ok_at == '2026-10-01T00:00:00+00:00'
+    assert json.loads(skills_meta.read_text()) == {
+        'synced_skills': ['widget-006'],
+        'gws_installed': True,
+    }
+    assert not knowledge_meta.exists()
+
+    # The imported timestamp is what the next run is computed from —
+    # an upgraded install must not look freshly synced.
+    sched = SyncScheduler(_NullAPS())
+    await sched.register(
+        SyncJob(
+            name='knowledge',
+            cadence=Cadence.DAILY,
+            run=lambda c: _ok(),
+        )
+    )
+    # Anchored on the IMPORTED timestamp (2026-10-01 + one cadence),
+    # not on boot — and overdue, so it fires at once rather than a
+    # cadence from now.
+    next_run = sched._next['knowledge']
+    assert next_run.isoformat().startswith('2026-10-02')
+    assert next_run < datetime.now(UTC)
+
+
+async def _ok():
+    return SyncResult(status=STATUS_UNCHANGED)
+
+
+async def test_a_failed_legacy_run_leaves_the_job_overdue_and_refetches(
+    clean_state, tmp_path, fake, skills_mgr
+):
+    """A legacy FAILED run must not be imported as "up to date".
+
+    Its ``last_commit`` is a commit whose content never landed: taking
+    it as the stored version would make the next probe answer
+    "unchanged" for content we do not have, for ever.
+    """
+    home = tmp_path / 'home'
+    meta = home / '.claude' / 'skills' / '.sync_meta.json'
+    meta.parent.mkdir(parents=True)
+    meta.write_text(
+        json.dumps({
+            'last_sync_at': '2026-11-01T02:03:04+00:00',
+            'last_commit': fake.commit,
+            'status': 'failed',
+            'error': 'Remote skills sync error: boom',
+        })
+    )
+    original = migrate.VIBE_SELLER_DIR
+    migrate.VIBE_SELLER_DIR = home
+    try:
+        assert (await migrate.migrate_legacy_state())['skills'] is True
+    finally:
+        migrate.VIBE_SELLER_DIR = original
+
+    row = await get_dict(sync_jobs.SKILLS_JOB)
+    assert row['version'] is None
+    assert row['last_ok_at'] is None
+
+    # Registration computes the next run from last_ok_at — none, and
+    # no stale one — so the job is due at once.
+    sched = SyncScheduler(_NullAPS())
+    await sched.register(
+        SyncJob(
+            name=sync_jobs.SKILLS_JOB,
+            cadence=Cadence.DAILY,
+            run=lambda c: sync_jobs._run_tree(
+                c, sync_jobs.SKILLS_JOB, skills_mgr
+            ),
+        )
+    )
+    assert sched._next[sync_jobs.SKILLS_JOB] < datetime.now(UTC)
+
+    result = await sched.trigger(sync_jobs.SKILLS_JOB, force=True)
+    assert result.status == 'updated'
+    assert (skills_mgr._dest_dir / 'widget-006' / 'SKILL.md').exists()

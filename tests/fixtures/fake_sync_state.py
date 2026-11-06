@@ -105,6 +105,33 @@ class FakeState:
         row.updated_at = now
         return row.to_dict()
 
+    async def record_import(
+        self,
+        job_name: str,
+        *,
+        last_ok_at: str | None = None,
+        last_run_at: str | None = None,
+        status: str | None = None,
+        error: str | None = None,
+        version: str | None = None,
+        etag: str | None = None,
+        detail: dict | None = None,
+    ) -> dict:
+        if job_name in self.rows:
+            return self.rows[job_name].to_dict()
+        row = Row(
+            job_name=job_name,
+            last_ok_at=last_ok_at,
+            last_run_at=last_run_at or last_ok_at,
+            status=status,
+            error=error,
+            version=version,
+            etag=etag or None,
+            detail=json.dumps(detail) if detail else None,
+        )
+        self.rows[job_name] = row
+        return row.to_dict()
+
     async def clear_restart_flags(self) -> None:
         for row in self.rows.values():
             row.needs_restart = False
@@ -134,6 +161,7 @@ class FakeState:
             'get_dict',
             'get_all',
             'record',
+            'record_import',
             'clear_restart_flags',
             'load_bookkeeping',
             'save_bookkeeping',

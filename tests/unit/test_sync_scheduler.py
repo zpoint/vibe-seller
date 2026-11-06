@@ -236,12 +236,30 @@ async def test_a_run_that_did_not_move_last_ok_at_does_not_spin(
 # ── single-flight ──────────────────────────────────────────────────
 
 
-async def test_concurrent_triggers_share_one_run(sched, state):
+class SplitRecorder:
+    """Separates what a tick does from what a manual run does."""
+
+    def __init__(self, tick=None, manual=None):
+        self.tick = tick or Recorder(hang=True)
+        self.manual = manual or Recorder(
+            result=SyncResult(status='updated', version='c' * 40)
+        )
+
+    async def __call__(self, ctx: SyncContext) -> SyncResult:
+        if ctx.reason == REASON_TICK:
+            return await self.tick(ctx)
+        return await self.manual(ctx)
+
+
+async def test_concurrent_ticks_share_one_run(sched, state):
     rec = Recorder(hang=True)
     await sched.register(job('skills', run=rec))
-    task = asyncio.create_task(sched.trigger('skills'))
+    task = asyncio.create_task(sched.trigger('skills', reason=REASON_TICK))
     await rec.entered.wait()
-    others = [asyncio.create_task(sched.trigger('skills')) for _ in range(4)]
+    others = [
+        asyncio.create_task(sched.trigger('skills', reason=REASON_TICK))
+        for _ in range(4)
+    ]
     await asyncio.sleep(0)
     rec.release.set()
     results = [await task] + [await t for t in others]
@@ -249,12 +267,58 @@ async def test_concurrent_triggers_share_one_run(sched, state):
     assert all(r is results[0] for r in results)
 
 
+async def test_a_strong_trigger_waits_out_the_run_in_flight(sched, state):
+    """Manual/force wants work done, not whatever the tick is doing.
+
+    The in-flight run may be a probe that says "unchanged" or a skip —
+    a Sync button press must still produce a run of its own.
+    """
+    split = SplitRecorder(
+        tick=Recorder(result=SyncResult.skipped('toggle off'), hang=True),
+    )
+    await sched.register(job('skills', run=split))
+    ticking = asyncio.create_task(sched.trigger('skills', reason=REASON_TICK))
+    await split.tick.entered.wait()
+
+    manual = asyncio.create_task(sched.trigger('skills', reason=REASON_MANUAL))
+    await asyncio.sleep(0)
+    assert split.manual.calls == []  # still waiting the tick out
+    split.tick.release.set()
+    result = await manual
+
+    assert result.status == 'updated'
+    assert await ticking == SyncResult.skipped('toggle off')
+    assert len(split.tick.calls) == 1
+    assert len(split.manual.calls) == 1
+
+
+async def test_concurrent_strong_triggers_share_the_fresh_run(sched, state):
+    """Two Sync presses at once are one extra sync, not two."""
+    split = SplitRecorder(tick=Recorder(hang=True))
+    await sched.register(job('skills', run=split))
+    ticking = asyncio.create_task(sched.trigger('skills', reason=REASON_TICK))
+    await split.tick.entered.wait()
+
+    press = [
+        asyncio.create_task(sched.trigger('skills', reason=REASON_MANUAL))
+        for _ in range(4)
+    ]
+    await asyncio.sleep(0)
+    split.tick.release.set()
+    results = [await task for task in press]
+    await ticking
+
+    assert len(split.tick.calls) == 1
+    assert len(split.manual.calls) == 1
+    assert all(r is results[0] for r in results)
+
+
 async def test_a_failed_run_raises_for_every_awaiter(sched, state):
     rec = Recorder(error=RuntimeError('boom'), hang=True)
     await sched.register(job('skills', run=rec))
-    task = asyncio.create_task(sched.trigger('skills'))
+    task = asyncio.create_task(sched.trigger('skills', reason=REASON_TICK))
     await rec.entered.wait()
-    other = asyncio.create_task(sched.trigger('skills'))
+    other = asyncio.create_task(sched.trigger('skills', reason=REASON_TICK))
     await asyncio.sleep(0)
     rec.release.set()
     with pytest.raises(RuntimeError, match='boom'):

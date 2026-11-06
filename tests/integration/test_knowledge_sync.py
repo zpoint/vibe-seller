@@ -199,8 +199,11 @@ async def test_remote_fetch_current_branch(
         branch_url,
     )
 
+    # A REAL client here: this test is about what the current branch
+    # actually serves, so the mocked transport must not stand in.
     with patch.object(sync_manager, '_get_local_source', return_value=None):
-        result = await _remote_sync(sync_manager)
+        async with _RealAsyncClient() as client:
+            result = await sync_manager.do_remote_sync(client)
 
     if result['status'] == 'failed':
         pytest.skip(
