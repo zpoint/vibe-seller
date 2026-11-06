@@ -147,7 +147,9 @@ class FakeGitHub:
             # the fake the server is pointed at over HTTP.
             import json as _json
 
-            body = _json.loads(headers.get('x-control') or '{}')
+            # httpx canonicalises header names (X-Control); look it up
+            # case-insensitively.
+            body = _json.loads(lower.get('x-control') or '{}')
             action = body.get('action')
             if action == 'upstream_changed':
                 self.upstream_changed(body.get('commit'))
