@@ -22,12 +22,13 @@ a manual one, and a restart does not re-arm a job that is not due.
 
 import os
 from pathlib import Path
+import re
 import time
 
 import httpx
 import pytest
 
-from tests.fixtures.fake_github import FakeGitHub
+from tests.fixtures.fake_github import client_for
 
 pytestmark = pytest.mark.e2e
 
@@ -38,25 +39,45 @@ VIBE_HOME = Path(
 
 
 def log_path() -> Path:
-    logs = VIBE_HOME / 'logs'
-    candidates = sorted(logs.glob('backend_*.log'))
-    assert candidates, f'no server log under {logs}'
-    return candidates[-1]
+    """The server's own log file.
+
+    ``LOG_DIR`` defaults to the repo's ``logs/`` (not the runtime home),
+    so the runner passes the exact path; the fallbacks keep the test
+    working for anyone who starts the server by hand.
+    """
+    explicit = os.environ.get('E2E_SERVER_LOG')
+    if explicit:
+        path = Path(explicit)
+        assert path.is_file(), path
+        return path
+    for root in (VIBE_HOME / 'logs', Path('logs')):
+        candidates = sorted(root.glob('backend_*.log'))
+        if candidates:
+            return candidates[-1]
+    raise AssertionError('no server log found')
+
+
+#: One run line of ours — ``sync:<name> reason=… status=…``. Deliberately
+#: narrow: APScheduler logs its own "Removed job sync:skills" lines, and
+#: those are not runs.
+_RUN_RE = re.compile(r'sync:\S+ reason=\S+ status=\S+')
 
 
 def sync_lines(text: str, name: str | None = None) -> list[str]:
-    needle = f'sync:{name}' if name else 'sync:'
-    return [line for line in text.splitlines() if needle in line]
+    out = [line for line in text.splitlines() if _RUN_RE.search(line)]
+    if name:
+        out = [line for line in out if f'sync:{name} ' in line]
+    return out
 
 
 @pytest.fixture(scope='module')
-def fake() -> FakeGitHub:
+def fake():
     """A handle on the fake GitHub the server under test is pointed at.
 
     The fake runs OUT-OF-PROCESS (it has to — the server fetches from
     it over HTTP), so counts come back over ``/__counts``.
     """
-    return FakeGitHub.client_for(
+    return client_for(
         os.environ.get('E2E_FAKE_GITHUB_URL', 'http://127.0.0.1:7812')
     )
 
@@ -66,12 +87,52 @@ def api() -> str:
     return BASE_URL
 
 
-def status(client, token: str) -> dict:
-    resp = client.get(
-        f'{BASE_URL}/api/sync/status', cookies={'auth_token': token}
-    )
+def authed_client(token: str) -> httpx.Client:
+    client = httpx.Client(timeout=30)
+    if token:
+        client.cookies.set('auth_token', token)
+    return client
+
+
+def status(client) -> dict:
+    resp = client.get(f'{BASE_URL}/api/sync/status')
     assert resp.status_code == 200, resp.text
     return resp.json()
+
+
+@pytest.fixture(scope='module', autouse=True)
+def log_start() -> int:
+    """Where THIS run's log lines begin.
+
+    The server log accumulates across runs (and across servers), so
+    counting from the top would find yesterday's run lines and wait
+    for nothing.
+    """
+    path = log_path()
+    return path.stat().st_size
+
+
+def lines_since(offset: int, name: str | None = None) -> list[str]:
+    with log_path().open('rb') as fh:
+        fh.seek(offset)
+        text = fh.read().decode(errors='replace')
+    return sync_lines(text, name)
+
+
+def wait_for_runs(
+    name: str, count: int, timeout: float = 90.0, offset: int = 0
+) -> list[str]:
+    """Poll the server log until ``name`` has ``count`` run lines."""
+    deadline = time.time() + timeout
+    lines: list[str] = []
+    while time.time() < deadline:
+        lines = lines_since(offset, name)
+        if len(lines) >= count:
+            return lines
+        time.sleep(2)
+    raise AssertionError(
+        f'{name} produced {len(lines)} run line(s), wanted {count}'
+    )
 
 
 def test_boot_registers_every_job(fake):
@@ -88,33 +149,36 @@ def test_boot_registers_every_job(fake):
         assert f'sync job registered: {name}' in text, name
 
 
-def test_every_job_fires_within_its_compressed_cadence(fake):
-    text = log_path().read_text(errors='replace')
-    seen = {line.split()[0].split(':', 1)[1] for line in sync_lines(text)}
-    assert {'skills', 'knowledge', 'presets'} <= seen, seen
+def test_every_job_fires_within_its_compressed_cadence(fake, log_start):
+    """Each job leaves its own run line within the compressed cadence."""
+    for name in ('skills', 'knowledge', 'presets'):
+        wait_for_runs(name, 1, offset=log_start)
 
 
-def test_one_greppable_line_per_run(fake):
-    text = log_path().read_text(errors='replace')
-    for line in sync_lines(text):
+def test_one_greppable_line_per_run(fake, log_start):
+    for line in wait_for_runs('skills', 1, offset=log_start):
         assert 'reason=' in line, line
         assert 'status=' in line, line
         assert 'duration=' in line, line
 
 
-def test_upstream_unchanged_costs_one_request(fake):
-    """An unchanged upstream is still a successful run — and a 304."""
+def test_upstream_unchanged_costs_one_request(fake, log_start):
+    """From round 2 the fake answers 304 and nothing is downloaded.
+
+    The cheap path is the whole point of the stored validator: an
+    unchanged upstream must not cost a body — and a 304 does not count
+    against GitHub's rate limit.
+    """
     before = fake.counts()
-    time.sleep(25)  # one compressed DAILY tick
-    text = log_path().read_text(errors='replace')
-    assert any('status=unchanged' in line for line in sync_lines(text))
+    seen = len(sync_lines(log_path().read_text(errors='replace'), 'skills'))
+    lines = wait_for_runs('skills', seen + 1, timeout=120)
+    assert any('status=unchanged' in line for line in lines), lines
     after = fake.counts()
-    assert after['commits'] > before.get('commits', 0)
-    # The cheap path: a probe that found nothing downloads nothing.
-    assert after['files'] == before.get('files', 0)
+    assert after.get('not_modified', 0) >= 1, after
+    assert after['files'] == before.get('files', 0)  # no body fetched
 
 
-def test_manual_run_and_toggle(fake):
+def test_manual_run_and_toggle(fake, log_start):
     """A toggle-off job skips its tick but still obeys the Sync button."""
     token = os.environ.get('E2E_AUTH_TOKEN', '')
     with httpx.Client(timeout=30) as client:
@@ -146,9 +210,8 @@ def test_manual_run_and_toggle(fake):
 
 def test_status_exposes_the_last_run(fake):
     token = os.environ.get('E2E_AUTH_TOKEN', '')
-    with httpx.Client(timeout=30) as client:
-        client.cookies.set('auth_token', token)
-        body = status(client, token)
+    with authed_client(token) as client:
+        body = status(client)
     names = {job['name'] for job in body['jobs']}
     assert {'skills', 'knowledge', 'presets'} <= names
     for job in body['jobs']:

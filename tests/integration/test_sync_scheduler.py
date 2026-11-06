@@ -422,3 +422,44 @@ async def test_email_and_reaper_jobs_run_through_the_scheduler(
     result = await sched.trigger(sync_jobs.REAPER_JOB, reason='tick')
     assert calls == ['email', 'reaper']
     assert result.detail == {'reaped': 2}
+
+
+async def test_the_second_probe_is_conditional_and_costs_a_304(
+    clean_state, fake, skills_mgr
+):
+    """The rate-limit contract, through the real ``sync_state``.
+
+    Round one records the validator in the database; round two must
+    send it back as ``If-None-Match``, get a 304, download nothing and
+    still count as a successful run. This is what keeps an unchanged
+    upstream off GitHub's 60-req/h budget — pinned end to end (job →
+    DB → probe), not against the unit fixture's in-memory store.
+    """
+    # Round one: 200 with a validator, persisted.
+    first = await run_skills(skills_mgr)
+    assert first.status == 'updated'
+    async with async_session() as db:
+        row = await db.get(SyncState, sync_jobs.SKILLS_JOB)
+    assert row.etag == fake.etag, 'the validator never reached sync_state'
+    assert row.version == fake.commit
+
+    # Round two: conditional probe → 304 → nothing downloaded.
+    fake.seen_headers.clear()
+    fake.counts.clear()
+    second = await run_skills(skills_mgr)
+
+    assert second.status == 'unchanged'
+    assert fake.counts['not_modified'] == 1, (
+        f'no 304 — the probe went out unconditional: {fake.seen_headers}'
+    )
+    assert any(h.get('if-none-match') == row.etag for h in fake.seen_headers), (
+        fake.seen_headers
+    )
+    assert fake.counts['files'] == 0  # not one body fetched
+
+    # And a 304 is a SUCCESSFUL run: the clock advances (the old
+    # cooldown forgot exactly this, and every task launch re-polled).
+    async with async_session() as db:
+        row = await db.get(SyncState, sync_jobs.SKILLS_JOB)
+    assert row.last_ok_at is not None
+    assert row.status == 'unchanged'

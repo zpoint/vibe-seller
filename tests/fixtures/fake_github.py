@@ -38,6 +38,22 @@ REPO_PATH = '/repos/zpoint/vibe-seller/commits'
 _RAW_RE = re.compile(r'^/raw/(?P<key>.+)$')
 
 
+def _query_key(target: str) -> str:
+    """What this request is about: the ``path=`` of a commits probe.
+
+    Each probed repo path gets its own validator, like real GitHub —
+    a single shared one would let a skills 304 stand in for a
+    knowledge change and hide exactly the class of bug these tests
+    exist for.
+    """
+    _, _, query = target.partition('?')
+    for pair in query.split('&'):
+        name, _, value = pair.partition('=')
+        if name == 'path':
+            return value
+    return ''
+
+
 class _Reply:
     """One answer, shaped for both transports."""
 
@@ -79,6 +95,11 @@ class FakeGitHub:
         #: Headers of every request, in order — so a test can assert
         #: that a conditional request actually carried If-None-Match.
         self.seen_headers: list[dict[str, str]] = []
+        #: Validator per repo path: each URL gets its own ETag, exactly
+        #: like GitHub (a shared one would let a skills 304 stand in for
+        #: a knowledge change).
+        self.path_etags: dict[str, str] = {}
+        self.default_etag = etag
 
     # ── seeding ───────────────────────────────────────────────
 
@@ -97,6 +118,7 @@ class FakeGitHub:
         """Move upstream: a new commit, and a new validator for it."""
         self.commit = commit or ('b' * 40)
         self.etag = f'W/"{self.commit[:8]}"'
+        self.path_etags.clear()
         self.changed = True
         return self.commit
 
@@ -106,6 +128,10 @@ class FakeGitHub:
         self, method: str, path: str, headers: dict[str, str]
     ) -> _Reply:
         self.log.append(path)
+        key = _query_key(path)
+        # ``BaseHTTPRequestHandler`` hands over the request target
+        # INCLUDING its query string; httpx's ``url.path`` does not.
+        path = path.partition('?')[0]
         lower = {k.lower(): v for k, v in headers.items()}
         self.seen_headers.append(lower)
         if method != 'GET':
@@ -119,25 +145,39 @@ class FakeGitHub:
                     'counts': dict(self.counts),
                     'commit': self.commit,
                     'etag': self.etag,
+                    'path_etags': self.path_etags,
+                    'conditional': sum(
+                        1 for h in self.seen_headers if 'if-none-match' in h
+                    ),
+                    'seen_headers': self.seen_headers[-12:],
                 }).encode(),
             )
         if path.endswith(REPO_PATH):
-            return self._commits(lower)
+            return self._commits(lower, key)
         match = _RAW_RE.match(path)
         if match:
             return self._raw(match.group('key'))
         self.counts['other'] += 1
         return _Reply(404, b'not found')
 
-    def _commits(self, headers: dict[str, str]) -> _Reply:
+    def _commits(self, headers: dict[str, str], path_key: str) -> _Reply:
         self.counts['commits'] += 1
+        # Pin a validator per probed path (and report them in
+        # /__counts): each URL gets its own ETag, like real GitHub.
+        current = self.path_etags.setdefault(path_key, self.etag)
         if self.force_unsolicited_304:
+            self.counts['not_modified'] += 1
             return _Reply(304, headers={'etag': self.etag})
+        # 304 whenever the client's validator still describes what is
+        # being served — exactly like GitHub, which needs no "upstream
+        # moved" flag: ``upstream_changed()`` bumps the etag, and that
+        # mismatch is what forces a 200.
         conditional = headers.get('if-none-match')
-        if not self.changed and conditional and conditional == self.etag:
-            return _Reply(304, headers={'etag': self.etag})
+        if conditional and conditional == current:
+            self.counts['not_modified'] += 1
+            return _Reply(304, headers={'etag': current})
         body = json.dumps([{'sha': self.commit}]).encode()
-        return _Reply(200, body, headers={'etag': self.etag})
+        return _Reply(200, body, headers={'etag': current})
 
     def _raw(self, key: str) -> _Reply:
         self.counts['files'] += 1
@@ -212,6 +252,28 @@ class FakeGitHub:
             'SKILLS_REPO_URL': f'{base}/raw/app/skills_v2',
             'KNOWLEDGE_REPO_URL': f'{base}/raw/app/knowledge',
         }
+
+
+def client_for(base_url: str) -> FakeGitHubClient:
+    """Handle on a fake GitHub served from another process."""
+    return FakeGitHubClient(base_url)
+
+
+class FakeGitHubClient:
+    """A handle on a fake GitHub running in ANOTHER process.
+
+    The e2e server fetches from the fake over HTTP, so the fake cannot
+    live in the test process. What a test needs back is the request
+    counters — served over ``/__counts``.
+    """
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url.rstrip('/')
+
+    def counts(self) -> dict:
+        resp = httpx.get(f'{self.base_url}/__counts', timeout=10)
+        resp.raise_for_status()
+        return resp.json()['counts']
 
 
 @contextmanager

@@ -50,6 +50,9 @@ on:
   push:
     tags:
       - 'v*'
+  # Ad-hoc runs of the release gates (the upgrade tests) without
+  # tagging.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -58,6 +61,19 @@ jobs:
   windows-upgrade-test:
     name: Windows Upgrade Test (gate)
     uses: ./.github/workflows/windows-upgrade.yml
+
+  sync-upgrade-test:
+    name: Sync-state upgrade test (gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run the upgrade test
+        run: |
+          uv venv && uv sync --extra dev
+          ./tests/releases/test_upgrade_sync_state.sh
 
   build:
     name: Build wheels (canonical + testpypi-dev)
@@ -166,7 +182,7 @@ jobs:
 
   publish-testpypi:
     name: Publish to TestPyPI (dev-versioned)
-    needs: [build, windows-upgrade-test]
+    needs: [build, windows-upgrade-test, sync-upgrade-test]
     runs-on: ubuntu-latest
     environment:
       name: test-pypi
