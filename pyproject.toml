@@ -189,12 +189,14 @@ select = [
     "Q",    # flake8-quotes (single quote enforcement)
     "SIM",  # flake8-simplify
     "T20",  # flake8-print (no print() in production code)
+    "ASYNC",  # flake8-async (no blocking calls in async def)
     "PLC0415",  # import-outside-toplevel
     "PLC2701",  # import-private-name (no `from x import _foo` across modules)
 ]
 ignore = [
     # Disabled lint checks
     "E501",   # line too long - enforced by formatter
+    "ASYNC109",  # timeout-parameter style; not a blocking-I/O issue
     "N802",   # function name should be lowercase (allow camelCase like setUp)
     "N803",   # argument name should be lowercase
     "N806",   # variable in function should be lowercase

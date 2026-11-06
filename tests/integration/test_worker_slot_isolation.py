@@ -179,6 +179,24 @@ def _drive_blocking(wrapper: Path, task_id: str, url: str, *flags: str) -> str:
     return m.group(1)
 
 
+def _run_wrapper_probe(
+    wrapper: Path, task_id: str
+) -> subprocess.CompletedProcess:
+    """Invoke the wrapper's arg guard and capture its verdict.
+
+    Blocking, like :func:`_drive_blocking`: the caller hands it to a
+    thread so the proxy under test keeps serving.
+    """
+    return subprocess.run(
+        [str(wrapper), '--worker', '99'],
+        input='print("nope")\n',
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**os.environ, 'VIBE_TASK_ID': task_id},
+    )
+
+
 @pytest.mark.integration
 class TestWorkerSlotIsolationRealBrowser:
     async def test_three_concurrent_drivers_keep_their_own_tabs(
@@ -263,15 +281,7 @@ class TestWorkerSlotIsolationRealBrowser:
         proxy, wrapper = slot_env['proxy'], slot_env['wrapper']
         task_id = str(uuid.uuid4())
         proc = await asyncio.get_running_loop().run_in_executor(
-            None,
-            lambda: subprocess.run(
-                [str(wrapper), '--worker', '99'],
-                input='print("nope")\n',
-                capture_output=True,
-                text=True,
-                timeout=60,
-                env={**os.environ, 'VIBE_TASK_ID': task_id},
-            ),
+            None, _run_wrapper_probe, wrapper, task_id
         )
         assert proc.returncode == 1
         assert 'ERROR: --worker' in proc.stderr
