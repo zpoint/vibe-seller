@@ -19,19 +19,21 @@ import logging
 
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.claude_backend_utils import parse_wait_condition
+from app.ai.external_config import ExternalConfigOverrideError
 from app.ai.task_status_reconcile import should_park_qa_followup
 from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task import Task
 from app.task_outcome import OutcomeKind, apply_outcome, resolve_outcome
 from app.task_runner import (
+    check_parent_completion,
     has_incomplete_todos,
     mark_waiting_for_input,
     maybe_wait_for_children,
     park_waiting_for_pending_question,
     park_waiting_for_text_only_response,
 )
-from app.task_states import TaskStatus, assert_transition
+from app.task_states import TaskStatus, assert_transition, can_transition
 
 logger = logging.getLogger(__name__)
 
@@ -376,3 +378,55 @@ async def finalize_terminal_state(
             'task_update',
             {'task_id': task_id, 'status': TaskStatus.COMPLETED},
         )
+
+
+async def check_parent_after_run(task_id: str) -> None:
+    """Re-check a parent waiting on children after a child's run ends.
+
+    THE CONTRACT: ``reopen_parent_if_child_active`` reverts the parent
+    to WAITING every time a child becomes active again (follow-up,
+    retry, wake). The mirror side — re-completing the parent once the
+    child is terminal and all siblings are done — must therefore run
+    at the end of EVERY pipeline that owns a child's run, whoever owns
+    it: ``auto_run_task``, ``finalize_followup_session``, the planned
+    executor, the woken executor. Wiring it into only the auto-run
+    finally left the parent parked at WAITING forever after a child
+    follow-up turn (the follow-up finalize is a separate pipeline).
+    Errors are logged, never fatal — the terminal transition has
+    already happened.
+    """
+    try:
+        async with async_session() as db:
+            task = await db.get(Task, task_id)
+            if task:
+                await check_parent_completion(task, db)
+    except Exception:
+        logger.debug('Parent check after task %s: %s', task_id, exc_info=True)
+
+
+async def fail_task_external_config_override(
+    task_id: str, ext_err: ExternalConfigOverrideError
+) -> None:
+    """Persist a structured external-config failure on the task.
+
+    JSON detail in task.error + error_category='external_config_
+    override' so the frontend's ExternalConfigOverrideErrorCard renders
+    the localized template. Lives here because it is a terminal-status
+    writer — the same reason the other finalizers do.
+    """
+    async with async_session() as db_fail:
+        t = await db_fail.get(Task, task_id)
+        if t and can_transition(t.status, TaskStatus.FAILED):
+            t.status = TaskStatus.FAILED
+            t.error = json.dumps(ext_err.to_api_detail())
+            t.error_category = 'external_config_override'
+            t.completed_at = datetime.now(UTC).isoformat()
+            await db_fail.commit()
+            await event_bus.emit(
+                'task_update',
+                {
+                    'task_id': task_id,
+                    'status': TaskStatus.FAILED,
+                    'error': t.error,
+                },
+            )

@@ -387,7 +387,7 @@ class TestChatAttachments:
     ):
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Chat Attach Store')
         created = await admin_client.post(
@@ -428,7 +428,7 @@ class TestChatAttachments:
     ):
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'No Text Store')
         created = await admin_client.post(

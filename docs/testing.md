@@ -97,6 +97,13 @@ tests/
 - **New feature**: Add a workflow test that exercises the API round-trip.
 - **Bug fix**: Add a test that reproduces the bug first (fails), then fix (passes).
 - **Contract tests**: When changing API response schemas, update `test_contracts.py` key sets to match TypeScript interfaces.
+- **Workflow tests run in parallel in CI** (`pytest-xdist`, `-n auto --dist loadfile`), so each one must be xdist-safe.
+  - **What each worker has to itself:** its own SQLite database file per test and its own throwaway `VIBE_HOME`.
+  - **What a test must not do:** bind a fixed port, or write a fixed path outside `tmp_path`.
+  - **Tests that depend on each other's order:** `loadfile` keeps a file's tests on one worker, so put such tests in the same file.
+- **Waiting is an assertion.** `wait_for_task` raises when the status is not reached, so wait only for a state your scenario actually reaches.
+  - A no-store task is forced into plan mode and parks at `planned`.
+  - To wait for "finished, either way", pass `target=TERMINAL_STATUSES`.
 
 ## FakeAgent
 

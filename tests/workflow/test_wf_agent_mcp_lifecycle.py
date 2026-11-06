@@ -27,7 +27,7 @@ import pytest
 
 from app.models.task import Task
 from app.task_states import TaskStatus
-from tests.workflow.conftest import real_sleep, wait_for_task
+from tests.workflow.conftest import real_sleep
 from tests.workflow.fake_agent import FakeAgentScenario
 from tests.workflow.test_wf_agent_mcp import (
     MCP_PATH,
@@ -255,19 +255,16 @@ async def _task_in_state(client, fake, state, store_id, session_maker=None):
     raise AssertionError(f'unknown state: {state}')
 
 
-async def _settle(client, task_id: str, action: str | None = None) -> None:
+async def _settle(client, task_id: str) -> None:
     """Leave a task finished, with no writer still running behind it.
 
     ``send_message``, ``review_plan`` and ``retry_task`` start a run
     OFF the request path: the tool returns while the agent is still
-    going. Waiting that run out is what keeps its writes inside the
-    test; stopping it instead sends the pipeline down its revert path,
-    which writes after the test has returned.
+    going. The run is settled rather than left in flight, and
+    settle_task drains: it waits for the app's background work to
+    unwind (the shared drain in tests/workflow/conftest.py), which is
+    what keeps any revert-path write inside the test.
     """
-    if action in ('send_message', 'review_plan', 'retry_task'):
-        await wait_for_task(client, task_id, target='completed')
-    # settle_task drains: it waits for the app's background work to
-    # unwind (the shared drain in tests/workflow/conftest.py).
     await settle_task(client, task_id)
 
 
@@ -335,7 +332,7 @@ class TestLifecycleGuidance:
                         f'{envelope["content"][0]["text"]}'
                     )
                 finally:
-                    await _settle(admin_client, fresh, action)
+                    await _settle(admin_client, fresh)
 
             if 'wait_task' not in guidance['next_actions']:
                 # Where the table does NOT name wait_task, the long
@@ -549,7 +546,7 @@ class TestLifecycleGuidance:
         assert messaged['next_actions']
         # A follow-up runs off the request path — wait it out (see
         # _settle).
-        await _settle(admin_client, task_id, 'send_message')
+        await _settle(admin_client, task_id)
 
         # stop_task
         stopped, _ = await call_tool(
@@ -566,7 +563,7 @@ class TestLifecycleGuidance:
         assert retried['next_actions']
         # The retry launches the task off the request path — wait the
         # run out so nothing is still writing when the test returns.
-        await _settle(admin_client, task_id, 'retry_task')
+        await _settle(admin_client, task_id)
 
     async def test_answer_question_result_carries_the_guidance(
         self, admin_client, install_fake_agent

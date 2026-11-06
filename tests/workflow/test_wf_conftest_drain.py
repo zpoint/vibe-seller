@@ -18,7 +18,7 @@ import pytest
 from sqlalchemy import text
 
 from app.models.task import Task
-from tests.workflow.conftest import real_sleep
+from tests.workflow.conftest import drain_background_tasks, real_sleep
 
 pytestmark = pytest.mark.workflow
 
@@ -32,9 +32,9 @@ async def _background_writer(session_maker, task_id: str) -> None:
     """
     async with session_maker() as db:
         # A long query: the connection is BUSY inside the call when
-        # the teardown cancels this task — which is what invalidates
-        # it (SQLAlchemy discards a connection whose call was cut
-        # short) and closes the database under the fixture.
+        # the teardown gets to the writer — which is what a cancel
+        # would cut short (SQLAlchemy discards a connection whose
+        # call was cut short). The drain lets the call finish.
         await db.execute(
             text(
                 'WITH RECURSIVE c(x) AS ('
@@ -105,3 +105,42 @@ class TestFixtureDrain:
         task_id = r.json()['id']
         asyncio.create_task(_background_writer(override_async_session, task_id))
         await real_sleep(0.05)
+
+    async def test_the_drain_finishes_the_leaked_writers_writes(
+        self, admin_client, install_fake_agent, override_async_session
+    ):
+        """The drain lets in-flight work FINISH — it never cancels a
+        writer in the middle of a database call.
+
+        This is the drain's actual contract (see
+        ``drain_background_tasks``): the teardown's safety comes from
+        waiting for what is mid-write and only then stopping what is
+        parked. Asserted here, mid-test, because the teardown variant
+        can only be observed through a side channel — and a
+        per-test database file no longer dies when a call is cut
+        short, so "the teardown did not error" no longer tells the
+        two designs apart. The writer's write landing does.
+        """
+        r = await admin_client.post(
+            '/api/tasks',
+            json={
+                'title': 'Writer finished by the drain',
+                'description': 'x',
+                'defer_start': True,
+            },
+        )
+        assert r.status_code == 200, r.text
+        task_id = r.json()['id']
+        writer = asyncio.create_task(
+            _background_writer(override_async_session, task_id)
+        )
+        await real_sleep(0.05)
+        assert not writer.done()
+
+        await drain_background_tasks()
+
+        assert writer.done(), 'the drain cancelled the writer mid-work'
+        async with override_async_session() as db:
+            task = await db.get(Task, task_id)
+        assert task is not None
+        assert task.transcript_tail == 'written after the test returned'

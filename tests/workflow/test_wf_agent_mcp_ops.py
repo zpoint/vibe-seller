@@ -138,7 +138,7 @@ class TestManageStore:
         the FakeAgent like the lifecycle tests do."""
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         created = await admin_client.post(
             '/api/stores', json={'name': 'Busy Store'}

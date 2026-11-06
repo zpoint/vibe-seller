@@ -19,12 +19,12 @@ from app.models.store import Store
 from app.models.task import Task
 from app.routers.dida365_oauth import refresh_token_if_needed
 from app.task_finalize import (
+    check_parent_after_run,
     finalize_terminal_state as _finalize_terminal_state,
 )
 from app.task_runner import (
     TaskHeader,
     build_system_extra,
-    check_parent_completion,
     get_store_emails,
     maybe_inject_pending_answers,
     sync_store_metadata,
@@ -359,17 +359,7 @@ async def auto_run_task(task_id: str, store: Store | None):
                 )
         # If this task has a parent waiting on children, check
         # whether all siblings are now terminal.
-        try:
-            async with async_session() as db_parent:
-                task = await db_parent.get(Task, task_id)
-                if task:
-                    await check_parent_completion(task, db_parent)
-        except Exception:
-            logger.debug(
-                'Parent check after task %s: %s',
-                task_id,
-                exc_info=True,
-            )
+        await check_parent_after_run(task_id)
 
 
 async def finalize_followup_session(task_id: str, store: Store | None):
@@ -478,3 +468,7 @@ async def finalize_followup_session(task_id: str, store: Store | None):
                 'Failed to update task %s status after finalize error',
                 task_id,
             )
+    finally:
+        # A follow-up turn's end re-checks the parent just like
+        # auto_run_task's finally does — see check_parent_after_run.
+        await check_parent_after_run(task_id)

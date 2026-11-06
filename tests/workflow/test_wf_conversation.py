@@ -300,6 +300,7 @@ class TestRetryConversation:
     ):
         """W10: Stop during execution, then retry → COMPLETED."""
         install_fake_agent.default_scenario = FakeAgentScenario(
+            plan='## Plan\n1. Execute work',
             execute_delay=2.0,
         )
 
@@ -309,7 +310,11 @@ class TestRetryConversation:
         )
         task_id = r.json()['id']
 
-        # Wait for running, then stop
+        # The plan phase is not execution: approve the plan so the
+        # stop below lands DURING the execute delay, which is what
+        # W10 is about.
+        await wait_for_task(admin_client, task_id, target='planned')
+        await admin_client.post(f'/api/tasks/{task_id}/execute-plan')
         await wait_for_task(admin_client, task_id, target='running')
         await admin_client.post(f'/api/tasks/{task_id}/agent/stop')
         await wait_for_task(admin_client, task_id, target='failed')
@@ -532,7 +537,15 @@ class TestRetryConversation:
 
         r = await admin_client.post(
             '/api/tasks',
-            json={'title': 'Not-ready retry', 'plan_mode': True},
+            # defer_start: the state under test (a failed run of a
+            # schedule-owned task) is set up directly below, and a
+            # first run racing that write made the re-plan
+            # indistinguishable from the first plan.
+            json={
+                'title': 'Not-ready retry',
+                'plan_mode': True,
+                'defer_start': True,
+            },
         )
         task_id = r.json()['id']
         async with override_async_session() as db:
@@ -546,7 +559,12 @@ class TestRetryConversation:
         assert r2.status_code == 200
         assert r2.json()['status'] == 'pending'
 
-        data = await wait_for_task(admin_client, task_id, target='planned')
+        # The task carries a schedule_id, so its plan auto-approves
+        # (schedule-owned runs review via the frozen-plan flow) and
+        # the run goes straight through to COMPLETED with the
+        # regenerated plan still on the row. The CONTENT is what
+        # proves the stale schedule plan was not re-seeded.
+        data = await wait_for_task(admin_client, task_id, target='completed')
         assert data['plan'] == 'Regenerated plan'
 
     async def test_retry_non_plan_mode_schedule_does_not_reseed(
@@ -1126,9 +1144,11 @@ class TestProfileSwitchRetry:
             json={'id': 'retry-prof', 'name': 'RetryProf', 'env': {}},
         )
 
-        # Create and fail a task
+        # Create and fail a task. This is a STORE task — auto mode,
+        # which has no design phase, so the run must fail in the
+        # phase it actually runs (execute).
         install_fake_agent.default_scenario = FakeAgentScenario(
-            should_fail=True, fail_at_phase='design'
+            should_fail=True, fail_at_phase='execute'
         )
         r = await admin_client.post(
             '/api/tasks',
@@ -1164,8 +1184,10 @@ class TestProfileSwitchRetry:
         self, admin_client, install_fake_agent
     ):
         """Retry without body → original profile preserved."""
+        # Store task → auto mode: the run fails in execute, not design
+        # (see the profile-switch sibling).
         install_fake_agent.default_scenario = FakeAgentScenario(
-            should_fail=True, fail_at_phase='design'
+            should_fail=True, fail_at_phase='execute'
         )
         r = await admin_client.post(
             '/api/tasks',

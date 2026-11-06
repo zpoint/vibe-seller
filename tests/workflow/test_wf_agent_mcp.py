@@ -24,7 +24,11 @@ import pytest
 from app.agent_mcp.support import McpContext
 from app.agent_mcp.tools_tasks import wait_task
 from app.models.user import User
-from tests.workflow.conftest import drain_background_tasks, wait_for_task
+from tests.workflow.conftest import (
+    TERMINAL_STATUSES,
+    drain_background_tasks,
+    wait_for_task,
+)
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
@@ -117,8 +121,15 @@ async def settle_task(client, task_id):
             # without the app lifespan, so a queued task never runs).
             return status
         await client.post(f'/api/tasks/{task_id}/agent/stop')
-        await wait_for_task(client, task_id, target='failed', timeout=5.0)
-        return 'failed'
+        # The run can finish on its own between the status read above
+        # and the stop: the stop then finds nothing to stop and the
+        # task ends `completed`. Settling asks for a terminal state,
+        # not for the stop to have won that race.
+        return (
+            await wait_for_task(
+                client, task_id, target=TERMINAL_STATUSES, timeout=5.0
+            )
+        )['status']
     finally:
         # A run's pipeline keeps writing after the status flips — on
         # EVERY path out of here, including the ones where the task
@@ -525,7 +536,7 @@ class TestTaskLifecycle:
     ):
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Wait Store')
         r = await admin_client.post(
@@ -649,7 +660,7 @@ class TestTaskLifecycle:
 
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Msg Profile Store')
         data, _ = await call_tool(
@@ -678,7 +689,7 @@ class TestTaskLifecycle:
     ):
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Message Store')
         data, _ = await call_tool(
@@ -1222,7 +1233,7 @@ class TestDeleteTask:
         """The route's own rule: an active task must be stopped first."""
         gate = asyncio.Event()
         install_fake_agent.default_scenario = FakeAgentScenario(
-            execute_delay=5.0, result='later', gate=gate
+            result='later', gate=gate
         )
         store_id = await make_store(admin_client, 'Delete Running Store')
         data, _ = await call_tool(
