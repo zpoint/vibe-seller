@@ -1,0 +1,99 @@
+name: Sync Upgrade Test
+
+# Proves an install that predates the central sync scheduler (#200)
+# upgrades cleanly: tests/releases/test_upgrade_sync_state.sh installs
+# a PREVIOUS release from PyPI, boots it on an isolated VIBE_HOME with
+# the legacy per-module meta files, then boots THIS checkout over the
+# same home and asserts the bookkeeping migrated into sync_state —
+# and that a second boot is a no-op.
+#
+# Like windows-upgrade.yml it is a release gate: release.yml calls it
+# via workflow_call and publish-testpypi needs it. Unlike that one it
+# is cheap enough to also run on PRs touching the migration surface,
+# which is what keeps the gate honest — before #205 the job existed
+# only inside release.yml, had never run on CI, and would have failed
+# on the runner (zsh script, no uv installed) at the next release.
+#
+# The matrix covers the newest release of each older line: any old
+# install may upgrade directly, so "latest stable only" would leave
+# 0.1.x and 0.0.x paths untested between releases.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/sync/**'
+      - 'tests/releases/test_upgrade_sync_state.sh'
+      - '.github/workflows/sync-upgrade.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-upgrade-test:
+    name: upgrade from ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # No pin: whatever pip resolves at run time. On a release tag
+          # that is the previous stable — the upgrade the gate exists
+          # for.
+          - prev: ''
+            label: latest stable
+          - prev: '0.1.1'
+            label: 0.1.1 (latest 0.1.x)
+          - prev: '0.0.14'
+            label: 0.0.14 (latest 0.0.x)
+    env:
+      # Keep CI boots out of the product telemetry (same flag the e2e
+      # jobs in ci.yml set).
+      VIBE_SELLER_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      - name: Create virtual environment
+        run: uv venv
+
+      - name: Install dependencies
+        run: uv pip install -e ".[dev]"
+
+      # The script boots the current build via start.sh, which runs
+      # install.sh --check-only first — and that check hard-requires
+      # node >=22, pnpm, sqlite3 and lsof on PATH. ubuntu-latest ships
+      # node 22 and sqlite3 but not pnpm, and lsof is not guaranteed
+      # on the image either (the repo's own docker/Dockerfile apt-
+      # installs it). Provide both the same way ci.yml's jobs do.
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm (corepack)
+        run: |
+          corepack enable
+          corepack prepare pnpm@latest --activate
+
+      - name: Install lsof (start.sh dependency check)
+        run: sudo apt-get install -y lsof
+
+      - name: Run the upgrade test
+        env:
+          # Repo-controlled constants. An empty PREV passes an empty
+          # first argument, which the script treats as "no pin" —
+          # PREV_VERSION=${1:-} — so both matrix shapes share one line.
+          PREV: ${{ matrix.prev }}
+        run: bash tests/releases/test_upgrade_sync_state.sh "$PREV"
