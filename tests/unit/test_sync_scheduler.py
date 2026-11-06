@@ -525,3 +525,22 @@ async def test_nothing_registers_the_old_loops():
     """The while-loop and the extra APS email job are gone."""
     assert not hasattr(reaper, 'start_reaper_loop')
     assert not hasattr(cron, '_register_email_sync')
+
+
+async def test_ready_times_out_instead_of_holding_a_launch(sched, state):
+    """A hung download must not hold every task launch.
+
+    The applies are atomic, so waiting only buys freshness: after the
+    timeout the caller proceeds on the tree it has.
+    """
+    rec = Recorder(hang=True)
+    await sched.register(job('skills', run=rec))
+    running = asyncio.create_task(sched.trigger('skills'))
+    await rec.entered.wait()
+
+    await asyncio.wait_for(
+        sched.ready(['skills'], timeout=0.05), timeout=1
+    )  # returns; does not raise
+
+    rec.release.set()
+    await running

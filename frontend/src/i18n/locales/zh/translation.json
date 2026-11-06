@@ -351,7 +351,8 @@
     "uninstallSkill": "卸载",
     "noCustomSkills": "暂无自定义技能 — 创建一个或询问助手",
     "noImportedSkills": "暂无导入技能 — 让助手从URL安装",
-    "noBuiltinSkills": "尚未同步内置技能"
+    "noBuiltinSkills": "尚未同步内置技能",
+    "restartNeeded": "已同步的技能更新了门禁（gates）——重启 Vibe Seller 后生效。"
   },
   "settings": {
     "title": "设置",

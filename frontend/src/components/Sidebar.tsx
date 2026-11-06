@@ -711,6 +711,11 @@ function WorkspaceSidebar(props: {
           >&#8635;</button>
         </div>
         <p className="px-3 pb-1 text-[10px] text-gray-400 leading-tight">{t('workspace.projectKnowledgeHint')}</p>
+        {p.wsSyncMeta?.needs_restart ? (
+          <p className="px-3 pb-1 text-[10px] text-amber-600 leading-tight" data-testid="restart-needed">
+            {t('workspace.restartNeeded')}
+          </p>
+        ) : null}
         {p.wsSyncMeta && (
           <div className="px-3 pb-2">
             {p.wsSyncMeta.status === 'failed' && (
