@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # Upgrade test: an install that predates the central sync scheduler
 # must keep working — its per-module sync bookkeeping is imported into
 # sync_state, the legacy schedule keys are gone from disk, inventory
@@ -19,7 +19,13 @@
 #
 # Usage: tests/releases/test_upgrade_sync_state.sh [previous-version]
 #   PREV_VERSION   default: latest stable on PyPI
-#   PORT           default: 7813
+#   PORT           default: 7823
+#
+# Bash, not zsh (#205): the release gate runs this on ubuntu-latest,
+# where zsh is not installed. The port changed no logic — bash passes
+# an unmatched glob through literally (zsh aborts), so stop_instance
+# keeps its ``[ -f "$f" ] || continue`` guard and drops the zsh-only
+# ``(N)`` null-glob qualifiers.
 set -u
 
 PREV_VERSION=${1:-}
@@ -38,7 +44,9 @@ stop_instance() {
   # installed CLI writes under $VIBE_HOME/pids/), and everything under
   # OUR sandbox is ours to stop.
   local pid f
-  for f in "$REPO/.pids_$PORT" "$VH"/pids/*.pid(N) "$VH"/pids/*"$PORT"*(N); do
+  # Unmatched globs stay literal in bash, and the -f guard skips them
+  # (zsh needed ``(N)`` for the same effect).
+  for f in "$REPO/.pids_$PORT" "$VH"/pids/*.pid "$VH"/pids/*"$PORT"*; do
     [ -f "$f" ] || continue
     pid=$(cat "$f" 2>/dev/null)
     echo "   stop: $f -> pid ${pid:-<none>}"
@@ -78,8 +86,8 @@ rm_work() {
 }
 
 port_free() {
-  ! curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/health" \
-    >/dev/null 2>&1
+  ! curl -fsS --noproxy '*' --max-time 2 \
+    "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1
 }
 
 expect_port_free() {
@@ -99,9 +107,11 @@ testing the wrong server"
 
 wait_for_health() {
   local i
+  # --noproxy '*': a shell-level proxy (clash/VPN on 127.0.0.1) must
+  # not intercept the loopback probe — same trap start.sh documents.
   for i in $(seq 1 60); do
-    curl -fsS --max-time 2 "http://127.0.0.1:$PORT/api/health" \
-      >/dev/null 2>&1 && return 0
+    curl -fsS --noproxy '*' --max-time 2 \
+      "http://127.0.0.1:$PORT/api/health" >/dev/null 2>&1 && return 0
     sleep 1
   done
   fail "the server on port $PORT did not come up"
@@ -135,7 +145,7 @@ export VIBE_SYNC_JITTER=0
 OLD_PID=$!
 wait_for_health
 # A store, so the upgrade has real state to keep.
-curl -fsS -X POST "http://127.0.0.1:$PORT/api/stores" \
+curl -fsS --noproxy '*' -X POST "http://127.0.0.1:$PORT/api/stores" \
   -H 'Content-Type: application/json' \
   -d '{"name":"acme","platform":"amazon","countries":["US"],"browser_backend":"chrome"}' \
   >/dev/null || echo "   (store create not available on this version)"
@@ -175,7 +185,7 @@ expect_port_free
 echo "== 3. the current build over the same home"
 expect_port_free
 # ``uv`` (not pip): the project venv is uv-managed and has no pip
-# module, and CI creates it with ``uv venv && uv sync``.
+# module, and CI creates it with ``uv venv`` + ``uv pip install``.
 UV_BIN=${UV:-$(command -v uv || echo "$REPO/.venv/bin/uv")}
 "$UV_BIN" pip install --python "$PY" -q -e "$REPO" \
   || fail "could not install this build"
