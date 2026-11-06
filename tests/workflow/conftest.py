@@ -72,6 +72,10 @@ ASYNC_SESSION_MODULES = [
     'app.routers.workspace_assistant',
     'app.browser.daemon_reaper',
     'app.telemetry_tasks',
+    # The central sync scheduler's state table and the ads skill's
+    # AppSettings/Store reads must land in the test DB too.
+    'app.sync.state',
+    'app.ads_skill',
 ]
 
 
@@ -389,22 +393,8 @@ def mock_knowledge_sync(monkeypatch):
         async def fetch(self):
             return {'copied': 0, 'status': 'ok'}
 
-        async def fetch_remote(self):
-            return {'status': 'ok', 'fetched': 0}
-
-        async def check_and_sync_remote(self):
-            pass
-
         def get_sync_status(self):
             return {'synced': True, 'files': 0}
-
-        def get_sync_meta(self):
-            return {
-                'last_sync': None,
-                'commit': None,
-                'last_remote_sync': None,
-                'remote_commit': None,
-            }
 
         def catalog_needs_update(
             self, store_slug: str | None = None
@@ -433,6 +423,7 @@ def mock_knowledge_sync(monkeypatch):
     mock = _Mock()
     monkeypatch.setattr('app.task_runner_auto.knowledge_sync', mock)
     monkeypatch.setattr('app.routers.workspace.knowledge_sync', mock)
+    monkeypatch.setattr('app.sync.jobs.knowledge_sync', mock)
     return mock
 
 
@@ -445,23 +436,20 @@ def mock_skills_sync(monkeypatch):
         async def fetch(self):
             return {'copied': 0, 'status': 'ok'}
 
-        async def fetch_remote(self):
-            return {'status': 'ok', 'fetched': 0}
-
-        async def check_and_sync_remote(self):
-            pass
-
-        def get_sync_meta(self):
+        async def probe_remote(self, client, etag=None):
             return {
-                'last_sync': None,
-                'commit': None,
-                'last_remote_sync': None,
-                'remote_commit': None,
+                'ok': True,
+                'not_modified': False,
+                'commit': 'a' * 40,
+                'etag': 'W/"v1"',
+                'error': None,
             }
 
+        async def do_remote_sync(self, client):
+            return {'status': 'success', 'copied': 0, 'skipped': 0}
+
     mock = _Mock()
-    monkeypatch.setattr('app.routers.workspace.skills_sync', mock)
-    monkeypatch.setattr('app.task_runner_auto.skills_sync', mock)
+    monkeypatch.setattr('app.sync.jobs.skills_sync', mock)
     return mock
 
 

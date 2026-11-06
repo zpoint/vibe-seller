@@ -1,7 +1,8 @@
 """Periodic reaper for orphaned browser-use daemon processes.
 
-Runs every 5 minutes (and once on boot), compares running daemons
-against active tasks in the DB. Any daemon whose task ID is not in the
+Runs on the central sync scheduler's ``daemon_reaper`` job (every 5
+minutes, and once at boot), comparing running daemons against active
+tasks in the DB. Any daemon whose task ID is not in the
 active set is killed.
 
 browser-use 0.13 (browser_harness) spawns each daemon as
@@ -201,15 +202,3 @@ async def reap_orphaned_daemons() -> int:
             [(pid, tid) for pid, tid, _ in orphans],
         )
     return len(orphans)
-
-
-async def start_reaper_loop():
-    """Run the reaper in a background loop forever."""
-    while True:
-        try:
-            await asyncio.sleep(_INTERVAL_SECONDS)
-            await reap_orphaned_daemons()
-        except asyncio.CancelledError:
-            break
-        except Exception:
-            logger.warning('Daemon reaper error', exc_info=True)

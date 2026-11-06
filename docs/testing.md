@@ -63,6 +63,26 @@ E2E_VIBE_HOME=~/.vibe-seller-e2e E2E_BASE_URL=http://127.0.0.1:7799 \
   pytest --e2e tests/e2e
 ```
 
+## Sync scheduler knobs
+
+Nothing under `tests/` polls a network on its own. `tests/conftest.py`
+sets `VIBE_SYNC_DISABLED=1` for every non-e2e run, which **registers
+every sync job but arms no timer** — a manual
+`POST /api/sync/{name}/run`, `trigger()` or an event trigger runs the
+real code path, and `GET /api/sync/status` lists the jobs, but nothing
+ticks. Two more knobs exist for tests that want a schedule:
+
+| Variable | Meaning |
+|----------|---------|
+| `VIBE_SYNC_CADENCE_OVERRIDE` | `name=seconds,...` — compress named jobs (`skills=20,presets=30`) |
+| `VIBE_SYNC_JITTER` | `0` zeroes the deterministic per-install stagger, so a compressed cadence fires on the nose |
+
+e2e runs (`--e2e`) leave the knob alone, because their server is
+pointed at a fake GitHub (`tests/fixtures/fake_github.py`, started
+standalone and read back over `/__counts`). See
+`tests/e2e/test_sync_scheduler_e2e.py` and
+`tests/releases/test_upgrade_sync_state.sh`.
+
 ## Test Structure
 
 ```

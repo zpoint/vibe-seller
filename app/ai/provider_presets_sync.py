@@ -10,10 +10,8 @@ Fetch → parse → validate → cache → serve:
 
 * **Fetch** ``raw.githubusercontent.com/.../app/ai/provider_presets.py``
   (``PROVIDER_PRESETS_URL`` overrides), capped at
-  :data:`MAX_BODY_BYTES` (enforced while streaming, not after), on a
-  background loop
-  (:func:`sync_loop`) whose interval comes from
-  ``PROVIDER_PRESETS_SYNC_INTERVAL_S`` (0 disables it).
+  :data:`MAX_BODY_BYTES` (enforced while streaming, not after), on the
+  central sync scheduler's ``presets`` job (app/sync/jobs.py).
 * **Parse** with :mod:`ast` + :func:`ast.literal_eval`, reading ONLY
   the top-level ``PROVIDER_PRESETS`` / ``PROVIDER_MODELS``
   assignments. The fetched file is data, never code: it is never
@@ -56,8 +54,6 @@ that already exists.
 """
 
 import ast
-import asyncio
-from datetime import UTC, datetime
 import hashlib
 import json
 import logging
@@ -70,6 +66,7 @@ import httpx
 
 from app.ai.provider_presets import PROVIDER_MODELS, PROVIDER_PRESETS
 from app.env_options import Options
+from app.sync import state as sync_state
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -412,13 +409,26 @@ def _cache_path() -> Path:
     return VIBE_SELLER_DIR / 'cache' / 'provider_presets.json'
 
 
-def _read_cache_meta() -> dict:
-    """The cache file's bookkeeping fields, or ``{}``."""
+def _read_cache_blob() -> dict:
+    """The cache file's catalog fields, or ``{}``."""
     try:
         blob = json.loads(_cache_path().read_text(encoding='utf-8'))
     except (OSError, ValueError):
         return {}
     return blob if isinstance(blob, dict) else {}
+
+
+# The fetch bookkeeping (body sha256, response validator, source URL)
+# lives in the ``sync_state`` row of the ``presets`` job — beside every
+# other sync job's state — and NOT in the cache file, which is catalog
+# data and nothing else. Behind two module-level coroutines so a unit
+# test can substitute an in-memory store without a database.
+async def _load_bookkeeping() -> dict:
+    return await sync_state.load_bookkeeping('presets')
+
+
+async def _save_bookkeeping(**fields) -> dict:
+    return await sync_state.save_bookkeeping('presets', **fields)
 
 
 def _load_cache() -> tuple[dict, dict] | None:
@@ -428,7 +438,7 @@ def _load_cache() -> tuple[dict, dict] | None:
     hand-edited file is treated as a miss (bundled data wins), never
     as a source of endpoint config.
     """
-    blob = _read_cache_meta()
+    blob = _read_cache_blob()
     if not blob:
         return None
     try:
@@ -446,47 +456,17 @@ def _write_cache(
 ) -> None:
     """Persist the validated catalog atomically (tmp + rename).
 
-    ``etag`` is the response's validator (stored verbatim when sane),
-    which the next fetch sends back as ``If-None-Match``.
+    ``sha256`` / ``source_url`` / ``etag`` are bookkeeping and go to
+    ``sync_state``; the file keeps the catalog alone.
     """
     path = _cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        'sha256': sha256,
-        'fetched_at': datetime.now(UTC).isoformat(),
-        'source_url': source_url,
         'presets': presets,
         'models': models,
     }
-    if etag:
-        payload['etag'] = etag
     tmp = path.parent / f'{path.name}.tmp'
     tmp.write_text(json.dumps(payload, indent=2), encoding='utf-8')
-    os.replace(tmp, path)
-
-
-def _refresh_cached_meta(etag: str | None, source_url: str) -> None:
-    """Refresh ONLY the cache's fetch metadata; the catalog stays.
-
-    The one exception to "an identical body is a no-op": a changed
-    validator or source URL is worth persisting, or the next fetch
-    keeps paying for the same body (a stale ETag never gets a 304
-    again, a stale URL never gets a conditional GET at all).
-    """
-    path = _cache_path()
-    try:
-        blob = json.loads(path.read_text(encoding='utf-8'))
-    except (OSError, ValueError):
-        return
-    if not isinstance(blob, dict):
-        return
-    blob['source_url'] = source_url
-    if etag:
-        blob['etag'] = etag
-    else:
-        blob.pop('etag', None)
-    tmp = path.parent / f'{path.name}.tmp'
-    tmp.write_text(json.dumps(blob, indent=2), encoding='utf-8')
     os.replace(tmp, path)
 
 
@@ -578,16 +558,21 @@ async def _read_capped(resp: httpx.Response) -> bytes | None:
     return bytes(raw)
 
 
-async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
-    meta = _read_cache_meta()
+async def _fetch_with(
+    client: httpx.AsyncClient, url: str, *, force: bool = False
+) -> dict:
+    meta = await _load_bookkeeping()
     cached_etag = _sane_etag(meta.get('etag'))
     # A conditional GET only when the cached validator applies to
     # what is being served: the cache holds a sane etag, it IS what
     # the accessors serve, and it was fetched from THIS url. Anything
     # else gets a full body — that is what repairs a corrupt cache or
-    # retargets a changed source.
+    # retargets a changed source. ``force`` (a manual sync run) also
+    # takes the full body: the point of pressing the button is to stop
+    # trusting what we already have.
     conditional = (
-        cached_etag is not None
+        not force
+        and cached_etag is not None
         and _current_matches_cache
         and meta.get('source_url') == url
     )
@@ -606,7 +591,11 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
                 }
             # "Not modified" is the answer: nothing read, nothing
             # rewritten, cache mtime untouched.
-            return {'status': 'unchanged', 'sha256': meta.get('sha256')}
+            return {
+                'status': 'unchanged',
+                'sha256': meta.get('sha256'),
+                'etag': meta.get('etag'),
+            }
 
         if resp.status_code != 200:
             return {'status': 'failed', 'error': f'HTTP {resp.status_code}'}
@@ -632,13 +621,14 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
         # Identical body, already served and cached: no rewrite —
         # except for fetch metadata drift (see _refresh_cached_meta).
         if etag != meta.get('etag') or url != meta.get('source_url'):
-            _refresh_cached_meta(etag, url)
+            await _save_bookkeeping(etag=etag or None, source_url=url)
             return {
                 'status': 'unchanged',
                 'sha256': sha,
+                'etag': etag,
                 'meta_refreshed': True,
             }
-        return {'status': 'unchanged', 'sha256': sha}
+        return {'status': 'unchanged', 'sha256': sha, 'etag': etag}
 
     try:
         text = raw.decode('utf-8')
@@ -651,6 +641,7 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
         return {'status': 'rejected', 'error': str(e)}
 
     _write_cache(sha, url, presets, models, etag=etag)
+    await _save_bookkeeping(sha256=sha, etag=etag or None, source_url=url)
     _apply(presets, models)
     logger.info(
         'Provider presets updated from %s (%d presets)',
@@ -660,24 +651,29 @@ async def _fetch_with(client: httpx.AsyncClient, url: str) -> dict:
     return {
         'status': 'updated',
         'sha256': sha,
+        'etag': etag,
         'presets': sorted(presets),
     }
 
 
-async def fetch_once(client: httpx.AsyncClient | None = None) -> dict:
+async def fetch_once(
+    client: httpx.AsyncClient | None = None, *, force: bool = False
+) -> dict:
     """One fetch → validate → cache → serve cycle.
 
-    Never raises: every failure keeps the currently served data and
-    is reported in the returned ``{'status': ...}`` dict (``updated``
-    / ``unchanged`` / ``rejected`` / ``failed``).
+    ``force`` skips the conditional GET (a manual sync run wants a
+    real body, not a 304). Never raises: every failure keeps the
+    currently served data and is reported in the returned
+    ``{'status': ...}`` dict (``updated`` / ``unchanged`` /
+    ``rejected`` / ``failed``).
     """
     url = _source_url()
     try:
         if client is not None:
-            result = await _fetch_with(client, url)
+            result = await _fetch_with(client, url, force=force)
         else:
             async with _client_factory() as own:
-                result = await _fetch_with(own, url)
+                result = await _fetch_with(own, url, force=force)
     except Exception as e:
         # A sync must never crash the caller or the loop.
         logger.warning('Provider presets sync failed: %s', e)
@@ -693,35 +689,8 @@ async def fetch_once(client: httpx.AsyncClient | None = None) -> dict:
     return result
 
 
-def _interval_s() -> float:
-    """Seconds between syncs; ``<= 0`` disables the loop entirely.
-
-    An unparseable value falls back to the option's 48 h default
-    (``get_float``) — a typo must not silently disable the sync.
-    """
-    return Options.PROVIDER_PRESETS_SYNC_INTERVAL_S.get_float()
-
-
-async def sync_loop() -> None:
-    """Fetch once at startup, then every configured interval.
-
-    Started from ``lifespan()`` as a background task so it never
-    blocks boot and is cancelled/awaited at shutdown like the rest.
-    Default interval is 48 h (``PROVIDER_PRESETS_SYNC_INTERVAL_S``);
-    ``0`` disables the loop — which is what the test suite sets, so
-    nothing under ``tests/`` ever reaches GitHub. The loop survives
-    any single fetch failure (``fetch_once`` never raises, and the
-    tick is wrapped anyway) and keeps ticking.
-    """
-    interval = _interval_s()
-    if interval <= 0:
-        logger.info('Provider presets sync disabled (interval %s)', interval)
-        return
-    logger.info('Provider presets sync every %.0fs', interval)
-    while True:
-        try:
-            await fetch_once()
-        except Exception:
-            # The loop must outlive any single tick.
-            logger.warning('Provider presets sync tick failed', exc_info=True)
-        await asyncio.sleep(interval)
+# The ``while True: fetch; sleep(48h)`` loop that used to live here is
+# gone. How often the catalog is pulled is no longer a per-module env
+# var: it is the ``presets`` job of the central sync scheduler
+# (app/sync/jobs.py), whose next run comes from the ``sync_state``
+# table.

@@ -1,7 +1,6 @@
 """Unit tests for skills sync dependency installation."""
 
 import asyncio
-from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
@@ -9,9 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.models.app_settings import AppSettings
 from app.platform import venv_bin_dir, venv_executable, venv_python
-from app.workspace import skills_sync as ss
 from app.workspace.skills_sync import SkillsSyncManager
 
 
@@ -505,135 +502,6 @@ async def test_install_skill_deps_skips_unchanged(sync_mgr, tmp_path):
         mock_exec.assert_not_called()
 
 
-# ── Auto-sync gate ─────────────────────────────────────
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_check_and_sync_remote_skips_when_disabled(sync_mgr):
-    """``skills_auto_sync_enabled=false`` short-circuits the poll.
-
-    The gate must run BEFORE any network call so an opted-out user
-    never sees a request leave the box (and so a flaky upstream
-    can't keep retrying behind their back).
-    """
-    with (
-        patch(
-            'app.workspace.skills_sync._auto_sync_enabled',
-            new_callable=AsyncMock,
-        ) as gate,
-        patch.object(
-            sync_mgr, '_fetch_remote_commit', new_callable=AsyncMock
-        ) as fetch_commit,
-    ):
-        gate.return_value = False
-        result = await sync_mgr.check_and_sync_remote()
-
-    assert result is None
-    fetch_commit.assert_not_called()
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_check_and_sync_remote_runs_when_enabled(sync_mgr):
-    """When the gate is open we still hit the network path.
-
-    Pairs with the opt-out test above: confirms removing the gate
-    doesn't accidentally also kill the happy path. The remote-commit
-    fetch returning None makes the function early-exit cleanly,
-    which is enough to prove the gate was passed.
-    """
-    with (
-        patch(
-            'app.workspace.skills_sync._auto_sync_enabled',
-            new_callable=AsyncMock,
-        ) as gate,
-        patch.object(
-            sync_mgr, '_fetch_remote_commit', new_callable=AsyncMock
-        ) as fetch_commit,
-    ):
-        gate.return_value = True
-        fetch_commit.return_value = None  # Simulate unreachable GitHub
-        result = await sync_mgr.check_and_sync_remote()
-
-    assert result is None
-    fetch_commit.assert_called_once()
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_check_and_sync_remote_cooldown_short_circuits_before_gate(
-    sync_mgr,
-):
-    """Active 24h cooldown means we never read AppSettings.
-
-    Pins the perf-driven ordering: the cheap file-based cooldown
-    check has to run BEFORE the DB lookup so the hot path (every
-    task launch) doesn't pay a round-trip on every call.
-    """
-    meta_path = sync_mgr._dest_dir / '.sync_meta.json'
-    meta_path.write_text(
-        json.dumps({'last_sync_at': datetime.now(UTC).isoformat()})
-    )
-
-    with (
-        patch(
-            'app.workspace.skills_sync._auto_sync_enabled',
-            new_callable=AsyncMock,
-        ) as gate,
-        patch.object(
-            sync_mgr, '_fetch_remote_commit', new_callable=AsyncMock
-        ) as fetch_commit,
-    ):
-        result = await sync_mgr.check_and_sync_remote()
-
-    assert result is None
-    gate.assert_not_called()
-    fetch_commit.assert_not_called()
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_auto_sync_enabled_defaults_to_true():
-    """Missing AppSettings row → enabled (ships on by default)."""
-    fake_db = AsyncMock()
-    fake_db.get = AsyncMock(return_value=None)
-    fake_session = AsyncMock()
-    fake_session.__aenter__ = AsyncMock(return_value=fake_db)
-    fake_session.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(ss, 'async_session', return_value=fake_session):
-        assert await ss._auto_sync_enabled() is True
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_auto_sync_enabled_reads_false():
-    """Row with value='false' disables auto-sync."""
-    fake_db = AsyncMock()
-    fake_db.get = AsyncMock(
-        return_value=AppSettings(key='skills_auto_sync_enabled', value='false')
-    )
-    fake_session = AsyncMock()
-    fake_session.__aenter__ = AsyncMock(return_value=fake_db)
-    fake_session.__aexit__ = AsyncMock(return_value=None)
-
-    with patch.object(ss, 'async_session', return_value=fake_session):
-        assert await ss._auto_sync_enabled() is False
-
-
-@pytest.mark.unit
-@pytest.mark.asyncio
-async def test_auto_sync_enabled_defaults_true_on_db_error():
-    """DB failure → treat as enabled, never silently stop syncing."""
-
-    def _boom(*args, **kwargs):
-        raise RuntimeError('db blew up')
-
-    with patch.object(ss, 'async_session', side_effect=_boom):
-        assert await ss._auto_sync_enabled() is True
-
-
 # ── defer_deps (boot path) ─────────────────────────────
 
 
@@ -687,3 +555,56 @@ async def test_fetch_default_still_awaits_deps(sync_mgr, tmp_path, monkeypatch):
     monkeypatch.setattr(sync_mgr, '_install_skill_deps', install)
     await sync_mgr.fetch()
     install.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_boot_sync_drops_a_skill_the_package_no_longer_ships(
+    sync_mgr, tmp_path, monkeypatch
+):
+    """A release that drops a skill must drop it locally (rule 8).
+
+    Scoped to skills the previous boot saw the PACKAGE ship — a
+    remote-only skill is never in that set and stays the remote job's
+    to own. Same mass-delete guard as the remote tier.
+    """
+    src = tmp_path / 'source_skills'
+    (src / 'still-shipped').mkdir(parents=True)
+    (src / 'still-shipped' / 'SKILL.md').write_text('v2')
+    monkeypatch.setattr(type(sync_mgr), '_get_source_dirs', lambda self: [src])
+    dest = sync_mgr._dest_dir
+    for name in ('still-shipped', 'dropped-001'):
+        (dest / name).mkdir(parents=True)
+        (dest / name / 'SKILL.md').write_text('v1')
+    sync_mgr._write_sync_meta({
+        'synced_skills': ['still-shipped', 'dropped-001'],
+        'package_skills': ['still-shipped', 'dropped-001'],
+    })
+
+    await sync_mgr.fetch()
+
+    assert (dest / 'still-shipped').is_dir()
+    assert not (dest / 'dropped-001').exists()
+    assert sync_mgr._read_sync_meta()['package_skills'] == ['still-shipped']
+
+
+@pytest.mark.unit
+async def test_boot_sync_refuses_to_drop_most_of_the_tree(
+    sync_mgr, tmp_path, monkeypatch
+):
+    """The guard applies at boot too: an empty source must not wipe."""
+    src = tmp_path / 'source_skills'
+    src.mkdir()
+    monkeypatch.setattr(type(sync_mgr), '_get_source_dirs', lambda self: [src])
+    dest = sync_mgr._dest_dir
+    for i in range(4):
+        (dest / f'dropped-{i}').mkdir(parents=True)
+        (dest / f'dropped-{i}' / 'SKILL.md').write_text('v1')
+    sync_mgr._write_sync_meta({
+        'synced_skills': [f'dropped-{i}' for i in range(4)],
+        'package_skills': [f'dropped-{i}' for i in range(4)],
+    })
+
+    await sync_mgr.fetch()
+
+    for i in range(4):
+        assert (dest / f'dropped-{i}').exists()

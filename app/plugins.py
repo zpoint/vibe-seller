@@ -39,6 +39,10 @@ import enum
 import importlib.metadata
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.sync.scheduler import SyncJob
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +106,7 @@ class ExtensionContext:
         self._skill_sources: list[Path] = []
         self._prompt_fragments: dict[str, list[str]] = {}
         self._services: list[tuple[str, ServiceFactory]] = []
+        self._sync_jobs: list[SyncJob] = []
         self._routers: list[tuple[object, str]] = []
         self._frontend_bundles: list[tuple[str, FrontendHandler, bool]] = []
         self._review_markers: list[str] = []
@@ -150,6 +155,17 @@ class ExtensionContext:
         plugin needs zero core edits.
         """
         self._services.append((name, start))
+
+    def register_sync_job(self, job: SyncJob) -> None:
+        """Register a job with the central sync scheduler.
+
+        ``job`` is an ``app.sync.scheduler.SyncJob``. Registration is
+        declarative like everything else here: the scheduler picks the
+        job up at startup, on the same footing as core's own list
+        (``app.sync.jobs``), with the same single-flight, state row and
+        greppable logging. Duplicate names are refused at registration.
+        """
+        self._sync_jobs.append(job)
 
     def register_router(self, router: object, prefix: str = '') -> None:
         """Register a FastAPI ``APIRouter`` to mount on the app."""
@@ -205,6 +221,10 @@ class ExtensionContext:
     @property
     def services(self) -> list[tuple[str, ServiceFactory]]:
         return list(self._services)
+
+    @property
+    def sync_jobs(self) -> list[SyncJob]:
+        return list(self._sync_jobs)
 
     @property
     def routers(self) -> list[tuple[object, str]]:
@@ -359,6 +379,10 @@ def registered_browser_backends() -> dict[str, type]:
 
 def registered_skill_sources() -> list[Path]:
     return get_extension_context().skill_sources
+
+
+def registered_sync_jobs() -> list[SyncJob]:
+    return get_extension_context().sync_jobs
 
 
 def registered_review_markers() -> list[str]:

@@ -419,15 +419,21 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/workspace/knowledge/sync` | Fetch remote knowledge updates |
-| GET | `/api/workspace/knowledge/sync-meta` | Get sync metadata |
-| POST | `/api/workspace/skills/sync` | Sync built-in skills (local + remote) |
-| GET | `/api/workspace/skills/sync-meta` | Get skills sync metadata |
+| GET | `/api/workspace/knowledge/sync-status` | Compare the packaged knowledge tree with the workspace copy (content status — WHEN it synced is `GET /api/sync/status`) |
 | POST | `/api/workspace/skill` | Create a new user skill |
 | GET | `/api/workspace/structured` | Workspace grouped for the UI. One entry per store joining `stores/<slug>/` knowledge `files` with `store-data/<slug>/` run-data `data_files`/`data_path` (run-data sorted newest-first) |
 | GET | `/api/workspace/file` | Read a text file (`{path, content}`); decodes utf-8 with GB18030 fallback; 400 with a pointer to `/file/raw` for binary |
 | GET | `/api/workspace/file/raw` | Raw bytes with guessed content type. `Content-Disposition: inline` only for non-scriptable types (pdf, png/jpeg/gif/webp); everything else `attachment` (stored-XSS guard) |
 | GET | `/api/stores/{id}/bookmarks` | Read Chrome profile bookmarks |
+
+## `sync.py` — Central sync scheduler
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/sync/status` | Every registered sync job with its `sync_state` row (`last_run_at`, `last_ok_at`, `version`, `etag`, `status`, `error`, `needs_restart`, `detail`, `cadence`, `enabled`, `running`, `next_run_at`) plus a top-level `needs_restart` |
+| POST | `/api/sync/{name}/run` | Run one job now. Manual runs bypass the job's auto-sync toggle and force real work instead of an "unchanged" probe. 404 for an unregistered job |
+
+Replaces the per-module sync routes the workspace router used to carry. See [subsystems.md § Central sync scheduler](subsystems.md#central-sync-scheduler-appsync).
 
 ## `workspace_assistant.py` — Workspace AI Assistant
 

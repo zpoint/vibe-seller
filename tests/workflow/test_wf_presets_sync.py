@@ -110,4 +110,7 @@ class TestPresetsSync:
         assert blob['presets']['acme_test']['env']['ANTHROPIC_MODEL'] == (
             'acme-1'
         )
-        assert blob['sha256'] and blob['fetched_at'] and blob['source_url']
+        # The cache file is CATALOG ONLY now — the fetch bookkeeping
+        # (sha256, etag, source_url) lives in the `presets` job's
+        # sync_state row beside every other sync job's state.
+        assert set(blob) == {'presets', 'models'}

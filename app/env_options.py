@@ -128,10 +128,9 @@ class Options(enum.Enum):
     # Provider presets sync (app/ai/provider_presets_sync.py): pull
     # app/ai/provider_presets.py from the project's main so a running
     # install sees new providers without a release. The URL defaults
-    # to the raw.githubusercontent copy of that file; the interval is
-    # seconds between fetches (default 48 h) and 0 disables the loop
-    # — which is what tests/conftest.py sets, so nothing under tests/
-    # ever reaches GitHub.
+    # to the raw.githubusercontent copy of that file. How OFTEN it is
+    # pulled is not an env var — it is the `presets` row of the central
+    # sync scheduler (app/sync/jobs.py).
     # Browser engine (app/browser/chromium_engine.py): at boot, install
     # the Chromium the running Playwright needs if it's missing (an
     # upgrade that bumped Playwright), and gate Chrome launches on it.
@@ -140,10 +139,25 @@ class Options(enum.Enum):
     ENSURE_BROWSER_ENGINE = ('VIBE_ENSURE_BROWSER_ENGINE', 'true')
 
     PROVIDER_PRESETS_URL = ('PROVIDER_PRESETS_URL', '')
-    PROVIDER_PRESETS_SYNC_INTERVAL_S = (
-        'PROVIDER_PRESETS_SYNC_INTERVAL_S',
-        '172800',
-    )
+
+    # Central sync scheduler (app/sync/scheduler.py) knobs. All three
+    # exist for tests: DISABLED registers no job at all (so nothing
+    # under tests/ ever reaches GitHub), CADENCE_OVERRIDE compresses
+    # named jobs to seconds ('skills=20,presets=30'), and JITTER=0
+    # zeroes the deterministic per-install stagger so a compressed
+    # cadence fires on the nose.
+    SYNC_DISABLED = ('VIBE_SYNC_DISABLED', '')
+    SYNC_CADENCE_OVERRIDE = ('VIBE_SYNC_CADENCE_OVERRIDE', '')
+    SYNC_JITTER = ('VIBE_SYNC_JITTER', '')
+    # How long a task launch waits for an in-flight sync before
+    # proceeding on the tree it has (the applies are atomic, so waiting
+    # only buys freshness). 0 disables the wait entirely.
+    SYNC_READY_TIMEOUT_S = ('VIBE_SYNC_READY_TIMEOUT_S', '60')
+
+    # GitHub API base for the skills/knowledge commit probe. Split out
+    # from the raw-content URLs so a test (or a self-hosted mirror) can
+    # point the probe at a fake without touching what gets downloaded.
+    GITHUB_API_BASE = ('VIBE_GITHUB_API_BASE', 'https://api.github.com')
 
     def __init__(self, env_var: str, default: str) -> None:
         super().__init__()

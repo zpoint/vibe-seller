@@ -19,6 +19,13 @@ import json
 
 import pytest
 
+from app.sync.scheduler import (
+    Cadence,
+    SyncJob,
+    SyncResult,
+    sync_scheduler,
+)
+
 pytestmark = pytest.mark.workflow
 
 MCP_PATH = '/api/mcp'
@@ -43,6 +50,26 @@ async def call_tool(client, name, arguments=None):
     if result.get('isError'):
         return {'error': text}, result
     return (json.loads(text) if text else {}), result
+
+
+@pytest.fixture
+async def sync_jobs_ready():
+    """Sync jobs registered for the duration of one test.
+
+    The manual sync the MCP tools offer is the scheduler's manual run,
+    so the jobs have to exist for it to run at all.
+    """
+
+    async def run(ctx):
+        return SyncResult(status='updated', version='a' * 40)
+
+    sync_scheduler.reset()
+    for name in ('skills', 'knowledge'):
+        await sync_scheduler.register(
+            SyncJob(name=name, cadence=Cadence.DAILY, run=run)
+        )
+    yield
+    sync_scheduler.reset()
 
 
 class TestWorkspaceFile:
@@ -172,6 +199,7 @@ class TestWorkspaceFile:
         install_fake_agent,
         mock_workspace,
         mock_knowledge_sync,
+        sync_jobs_ready,
     ):
         structured, envelope = await call_tool(
             admin_client, 'workspace_file', {'action': 'structured'}
@@ -196,7 +224,8 @@ class TestWorkspaceFile:
         synced, _ = await call_tool(
             admin_client, 'workspace_file', {'action': 'knowledge_sync'}
         )
-        assert synced['status'] == 'ok'
+        assert synced['name'] == 'knowledge'
+        assert synced['status'] == 'updated'
 
         status, _ = await call_tool(
             admin_client, 'workspace_file', {'action': 'knowledge_status'}
@@ -206,7 +235,8 @@ class TestWorkspaceFile:
         meta, _ = await call_tool(
             admin_client, 'workspace_file', {'action': 'knowledge_meta'}
         )
-        assert 'last_sync' in meta
+        assert meta['name'] == 'knowledge'
+        assert meta['last_ok_at'] is not None
 
     async def test_paths_outside_the_editable_roots_are_refused(
         self, admin_client, install_fake_agent, mock_workspace
@@ -395,16 +425,18 @@ class TestManageSkill:
         assert 'skill_md' in envelope['content'][0]['text']
 
     async def test_sync_and_sync_meta(
-        self, admin_client, install_fake_agent, mock_skills_sync
+        self, admin_client, install_fake_agent, sync_jobs_ready
     ):
+        """sync runs the scheduler's manual job; sync_meta reads its state."""
         synced, envelope = await call_tool(
             admin_client, 'manage_skill', {'action': 'sync'}
         )
         assert envelope['isError'] is False, envelope
-        assert synced['status'] == 'ok'
-        assert 'remote' in synced
+        assert synced['name'] == 'skills'
+        assert synced['status'] == 'updated'
 
         meta, _ = await call_tool(
             admin_client, 'manage_skill', {'action': 'sync_meta'}
         )
-        assert 'last_sync' in meta
+        assert meta['name'] == 'skills'
+        assert meta['last_ok_at'] is not None

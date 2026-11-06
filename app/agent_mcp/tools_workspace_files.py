@@ -35,12 +35,14 @@ from app.agent_mcp.support import (
     trim,
 )
 from app.browser.wrapper import validate_store_slug
-from app.routers import workspace as workspace_route
+from app.routers import sync as sync_route, workspace as workspace_route
 from app.schemas.workspace import (
     FileResetRequest,
     FileWriteRequest,
     StoreProfileCreateRequest,
 )
+from app.sync import state as sync_state
+from app.sync.jobs import KNOWLEDGE_JOB
 
 # The roots the UI's workspace editor may touch — read_knowledge's
 # two read-only roots, plus the skills tree (the skills tools and the
@@ -256,15 +258,16 @@ async def workspace_file(ctx: McpContext, args: dict) -> dict:
         return result
 
     if action == 'knowledge_sync':
-        return await call_route(workspace_route.sync_knowledge, _user=ctx.user)
+        # Manual run of the central sync scheduler's knowledge job.
+        return await call_route(
+            sync_route.run_sync, KNOWLEDGE_JOB, _user=ctx.user
+        )
     if action == 'knowledge_status':
         return await call_route(
             workspace_route.knowledge_sync_status, _user=ctx.user
         )
     if action == 'knowledge_meta':
-        return await call_route(
-            workspace_route.knowledge_sync_meta, _user=ctx.user
-        )
+        return await sync_state.get_dict(KNOWLEDGE_JOB) or {}
 
     # Every remaining action is about ONE path.
     path = _validated_workspace_path(args.get('path'))

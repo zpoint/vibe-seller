@@ -349,7 +349,8 @@
     "uninstallSkill": "Uninstall",
     "noCustomSkills": "No custom skills yet — create one or ask the assistant",
     "noImportedSkills": "No imported skills yet — ask the assistant to install from a URL",
-    "noBuiltinSkills": "No built-in skills synced yet"
+    "noBuiltinSkills": "No built-in skills synced yet",
+    "restartNeeded": "A synced skill changed its gates — restart Vibe Seller to load them."
   },
   "settings": {
     "title": "Settings",

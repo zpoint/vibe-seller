@@ -7,32 +7,32 @@ Architecture:
                                           (root)    <- agent-generated
                                         stores/    <- per-store (local)
 
-Three-tier sync:
-  1. Local package — importlib.resources (always after pip install)
-  2. Remote GitHub — fetch MANIFEST.txt + changed files
-  3. On-demand — triggered before each task if >24h and commit changed
+Two sync tiers (mirrors skills_sync.py):
+  1. Local package — importlib.resources, once at server boot
+  2. Remote GitHub — MANIFEST.txt + changed files, driven by the
+     central sync scheduler's ``knowledge`` job (app/sync/jobs.py)
 
-Remote sync produces a system Event when new content is synced.
+WHEN the remote tier runs is the scheduler's ``sync_state`` row — there
+is no per-module cooldown file any more. Remote sync produces a system
+Event when new content is synced.
 """
 
-from datetime import UTC, datetime
 import importlib.resources
-import json
 import logging
+import os
 from pathlib import Path
 import shutil
+import uuid
 
 import httpx
 
 from app.config import AI_BOT_USER_ID, KNOWLEDGE_REPO_URL
 from app.database import async_session
 from app.models.event import Event
+from app.sync import github as github_probe
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
-
-_SYNC_META_PATH = VIBE_SELLER_DIR / 'knowledge' / '.sync_meta.json'
-_COOLDOWN_SECONDS = 24 * 3600  # 24 hours
 
 
 class KnowledgeSyncManager:
@@ -129,142 +129,28 @@ class KnowledgeSyncManager:
 
     # ── Remote sync ─────────────────────────────────────
 
-    def _read_sync_meta(self) -> dict:
-        """Read .sync_meta.json."""
-        if _SYNC_META_PATH.exists():
-            try:
-                return json.loads(_SYNC_META_PATH.read_text())
-            except Exception:
-                pass
-        return {}
+    async def probe_remote(
+        self, client: httpx.AsyncClient, etag: str | None = None
+    ) -> dict:
+        """Ask GitHub for the latest commit of ``app/knowledge``.
 
-    def _write_sync_meta(self, meta: dict) -> None:
-        """Write .sync_meta.json."""
-        _SYNC_META_PATH.parent.mkdir(parents=True, exist_ok=True)
-        _SYNC_META_PATH.write_text(json.dumps(meta, indent=2))
-
-    def get_sync_meta(self) -> dict:
-        """Return sync metadata for the API."""
-        return self._read_sync_meta()
-
-    async def _fetch_remote_commit(
-        self, client: httpx.AsyncClient
-    ) -> str | None:
-        """Fetch latest commit hash for app/knowledge/ on main."""
-        # GitHub API: get latest commit for a path
-        api_url = (
-            'https://api.github.com/repos/zpoint/vibe-seller'
-            '/commits?path=app/knowledge&per_page=1&sha=main'
-        )
-        try:
-            resp = await client.get(
-                api_url,
-                headers={'Accept': 'application/vnd.github.v3+json'},
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                commits = resp.json()
-                if commits:
-                    return commits[0]['sha']
-        except Exception as e:
-            logger.debug('Failed to fetch remote commit: %s', e)
-        return None
-
-    async def check_and_sync_remote(self) -> dict | None:
-        """Check if remote sync is needed; sync if so.
-
-        Conditions to trigger sync:
-          1. >24 hours since last remote sync
-          2. Remote commit hash differs from last synced commit
-
-        Returns sync result dict if synced, None if skipped.
+        See :func:`app.sync.github.probe_commit`.
         """
-        meta = self._read_sync_meta()
-        last_sync = meta.get('last_sync_at')
-        if last_sync:
-            try:
-                last_dt = datetime.fromisoformat(last_sync)
-                elapsed = (datetime.now(UTC) - last_dt).total_seconds()
-                if elapsed < _COOLDOWN_SECONDS:
-                    return None  # Too soon
-            except Exception:
-                pass
+        return await github_probe.probe_commit(
+            client, 'app/knowledge', etag=etag
+        )
 
-        # Check remote commit
-        async with httpx.AsyncClient() as client:
-            remote_commit = await self._fetch_remote_commit(client)
-            if not remote_commit:
-                return None  # Can't reach GitHub
-
-            last_commit = meta.get('last_commit')
-            if last_commit == remote_commit:
-                return None  # No changes
-
-            # Commit differs & >24h → sync
-            result = await self._do_remote_sync(client)
-            result['commit'] = remote_commit
-
-            # Update meta
-            now = datetime.now(UTC).isoformat()
-            new_meta = {
-                'last_sync_at': now,
-                'last_commit': remote_commit,
-                'status': result.get('status', 'success'),
-                'error': result.get('error'),
-                'copied': result.get('copied', 0),
-                'skipped': result.get('skipped', 0),
-            }
-            self._write_sync_meta(new_meta)
-
-            # Log system event if files were actually synced
-            if result.get('status') == 'success':
-                await self._log_sync_event(
-                    'success',
-                    f'Synced {result.get("copied", 0)} files '
-                    f'from remote (commit {remote_commit[:8]})',
-                )
-
-            return result
-
-    async def fetch_remote(self) -> dict:
-        """Force remote sync regardless of cooldown."""
-        meta = self._read_sync_meta()
-        async with httpx.AsyncClient() as client:
-            remote_commit = await self._fetch_remote_commit(client)
-            result = await self._do_remote_sync(client)
-            commit = remote_commit or meta.get('last_commit', '')
-            result['commit'] = commit
-
-            now = datetime.now(UTC).isoformat()
-            new_meta = {
-                'last_sync_at': now,
-                'last_commit': commit,
-                'status': result.get('status', 'success'),
-                'error': result.get('error'),
-                'copied': result.get('copied', 0),
-                'skipped': result.get('skipped', 0),
-            }
-            self._write_sync_meta(new_meta)
-
-            if (
-                result.get('status') == 'success'
-                and result.get('copied', 0) > 0
-            ):
-                await self._log_sync_event(
-                    'success',
-                    f'Synced {result["copied"]} files from remote'
-                    f' (commit {commit[:8]})',
-                )
-
-            return result
-
-    async def _do_remote_sync(self, client: httpx.AsyncClient) -> dict:
+    async def do_remote_sync(self, client: httpx.AsyncClient) -> dict:
         """Download files from remote URL using MANIFEST.txt.
 
         Local-package precedence: files that exist in the installed
         package are authoritative for the package version's lifetime.
         Remote sync only fills in files NOT present locally. See
-        ``skills_sync._do_remote_sync`` for the rationale.
+        ``skills_sync.do_remote_sync`` for the rationale.
+
+        Every network read happens before the first disk write; the
+        writes themselves are rename-atomic and run in one synchronous
+        block, so a reader never sees a half-written file.
         """
         base_url = KNOWLEDGE_REPO_URL.rstrip('/')
         local_source = self._get_local_source()
@@ -281,11 +167,22 @@ class KnowledgeSyncManager:
                 for line in resp.text.splitlines()
                 if line.strip() and not line.startswith('#')
             ]
+            if not files:
+                err = 'MANIFEST.txt is empty; refusing to delete'
+                logger.warning(err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': 0,
+                    'skipped': 0,
+                    'deleted': 0,
+                }
 
-            # 2. Download each file
-            self._dest_dir.mkdir(parents=True, exist_ok=True)
-            copied = 0
-            skipped = 0
+            # 2. Download into memory (all awaits end here).
+            downloads: dict[str, bytes] = {}
+            listed = set(files)
+            failed: set[str] = set()
+            local_skips = 0
             for rel_path in files:
                 # Path traversal validation (resolve follows symlinks)
                 resolved = (self._dest_dir / rel_path).resolve()
@@ -299,60 +196,175 @@ class KnowledgeSyncManager:
                 # Local-package precedence: skip files that exist
                 # in the installed package — local is authoritative.
                 if local_source and (local_source / rel_path).is_file():
-                    skipped += 1
+                    local_skips += 1
                     continue
 
                 url = f'{base_url}/{rel_path}'
                 try:
                     file_resp = await client.get(url, timeout=15)
-                    if file_resp.status_code != 200:
-                        logger.warning(
-                            'Failed to fetch %s: HTTP %d',
-                            rel_path,
-                            file_resp.status_code,
-                        )
-                        continue
-
-                    dest_file = self._dest_dir / rel_path
-                    dest_file.parent.mkdir(parents=True, exist_ok=True)
-
-                    new_content = file_resp.content
-                    if dest_file.exists():
-                        try:
-                            if dest_file.read_bytes() == new_content:
-                                skipped += 1
-                                continue
-                        except Exception:
-                            pass
-
-                    dest_file.write_bytes(new_content)
-                    copied += 1
                 except Exception as e:
                     logger.warning('Error downloading %s: %s', rel_path, e)
+                    failed.add(rel_path)
+                    continue
+                if file_resp.status_code != 200:
+                    logger.warning(
+                        'Failed to fetch %s: HTTP %d',
+                        rel_path,
+                        file_resp.status_code,
+                    )
+                    failed.add(rel_path)
+                    continue
+                downloads[rel_path] = file_resp.content
+
+            # 3. Mirror upstream. ``knowledge/project/`` is the synced
+            # subtree and nothing else is touched (the agent writes the
+            # knowledge root and stores/ itself): a file upstream
+            # dropped goes away here, so synced content cannot outlive
+            # what it was synced from.
+            self._dest_dir.mkdir(parents=True, exist_ok=True)
+            package = self._package_files()
+            desired = dict(package)
+            desired.update(downloads)
+            existing = self._existing_files()
+            # A listed file that failed to fetch is still upstream's:
+            # keep the local copy and delete nothing this run.
+            for rel in listed - set(downloads):
+                if rel not in package and rel in existing:
+                    desired[rel] = existing[rel].read_bytes()
+            doomed = (
+                []
+                if failed
+                else sorted(
+                    rel
+                    for rel in existing
+                    if rel not in listed and rel not in package
+                )
+            )
+            if doomed and len(doomed) * 2 > max(len(existing), 1):
+                err = (
+                    f'refusing mass delete ({len(doomed)} of '
+                    f'{len(existing)} knowledge files)'
+                )
+                logger.warning(err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': 0,
+                    'skipped': 0,
+                    'deleted': 0,
+                }
+
+            copied = 0
+            skipped = 0
+            for rel, content in sorted(desired.items()):
+                if rel in package and rel not in downloads:
+                    # The local fetch owns package files.
+                    skipped += 1
+                    continue
+                if self._install_file(self._dest_dir / rel, content):
+                    copied += 1
+                else:
+                    skipped += 1
+            for rel in doomed:
+                self._remove(self._dest_dir / rel)
 
             logger.info(
-                'Knowledge sync (remote): %d copied, %d unchanged',
+                'Knowledge sync (remote): %d copied, %d unchanged, %d deleted',
                 copied,
                 skipped,
+                len(doomed),
             )
+            if copied:
+                await self._log_sync_event(
+                    'success',
+                    f'Synced {copied} files from remote',
+                )
+            if failed:
+                err = f'{len(failed)} files failed to download'
+                logger.warning('Knowledge sync (remote): %s', err)
+                return {
+                    'status': 'failed',
+                    'error': err,
+                    'copied': copied,
+                    'skipped': skipped,
+                    'deleted': 0,
+                }
             return {
                 'status': 'success',
                 'copied': copied,
                 'skipped': skipped,
+                'deleted': len(doomed),
             }
 
         except Exception as e:
             err = f'Remote sync error: {e}'
             logger.warning(err)
-            now = datetime.now(UTC).isoformat()
-            self._write_sync_meta({
-                **self._read_sync_meta(),
-                'last_sync_at': now,
-                'status': 'failed',
-                'error': err,
-            })
             await self._log_sync_event('failed', err)
             return {'status': 'failed', 'error': err}
+
+    # ── Staging (atomic file writes) ────────────────────
+
+    @property
+    def _staging_root(self) -> Path:
+        """Where a file waits for its rename (a sibling, never in-tree)."""
+        return self._dest_dir.parent / '.sync-staging'
+
+    def sweep_staging(self) -> None:
+        """Drop half-written files left by an interrupted sync."""
+        shutil.rmtree(self._staging_root, ignore_errors=True)
+
+    def _package_files(self) -> dict[str, bytes]:
+        """Files the local package ships (the package stays authoritative)."""
+        src_dir = self._get_local_source()
+        out: dict[str, bytes] = {}
+        if not src_dir:
+            return out
+        manifest = self._read_manifest(src_dir)
+        rels = (
+            [src_dir / rel for rel in manifest]
+            if manifest is not None
+            else [f for f in src_dir.rglob('*') if f.is_file()]
+        )
+        for f in rels:
+            if not f.is_file() or f.name.startswith('.'):
+                continue
+            if '__pycache__' in f.parts:
+                continue
+            out[f.relative_to(src_dir).as_posix()] = f.read_bytes()
+        return out
+
+    def _existing_files(self) -> dict[str, Path]:
+        out: dict[str, Path] = {}
+        if not self._dest_dir.is_dir():
+            return out
+        for f in sorted(self._dest_dir.rglob('*')):
+            if not f.is_file() or f.name.startswith('.'):
+                continue
+            out[f.relative_to(self._dest_dir).as_posix()] = f
+        return out
+
+    @staticmethod
+    def _remove(path: Path) -> None:
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+
+    def _install_file(self, target: Path, content: bytes) -> bool:
+        """Atomically write one file; ``False`` when already identical."""
+        if target.exists():
+            try:
+                if target.read_bytes() == content:
+                    return False
+            except OSError:
+                pass
+        root = self._staging_root
+        root.mkdir(parents=True, exist_ok=True)
+        tmp = root / f'file-{uuid.uuid4().hex}'
+        tmp.write_bytes(content)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp, target)
+        return True
 
     # ── Sync status (legacy compat) ─────────────────────
 

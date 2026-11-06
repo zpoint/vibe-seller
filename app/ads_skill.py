@@ -188,6 +188,26 @@ async def _any_store_authorized(db) -> bool:
     return found.first() is not None
 
 
+async def is_bound_and_authorized() -> bool:
+    """Whether the skill applies here at all: bound service AND at
+    least one authorized store.
+
+    The sync scheduler's precondition for the ``ads_skill`` job — a
+    capability question (like ``refresh_if_bound``'s own guard), not a
+    user toggle, so a run is skipped without touching the service and
+    without moving the job's ``last_ok_at``.
+    """
+    try:
+        async with async_session() as db:
+            config = await ads_client.get_config(db)
+            if not config.get('configured'):
+                return False
+            return await _any_store_authorized(db)
+    except Exception as exc:
+        logger.warning('ads skill readiness check failed: %s', exc)
+        return False
+
+
 def remove() -> None:
     """Drop the skill. Used when the service is unbound."""
     shutil.rmtree(skill_dir(), ignore_errors=True)
