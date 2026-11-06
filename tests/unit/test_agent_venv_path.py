@@ -12,6 +12,7 @@ venv ``~/.vibe-seller/.venv`` (mirroring the workspace assistant).
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 
 import pytest
@@ -192,3 +193,99 @@ class TestBrowserUseGuardNeverFallsBackToLocalChrome:
         guard_bin = str(vibe_home / 'bin' / '_guard')
         # Wrapper must sit AHEAD of the guard (real wrapper wins).
         assert parts.index(str(store_bin)) < parts.index(guard_bin)
+
+    # The raw console scripts the browser-use / browser-harness packages
+    # drop into the venv bins. Each reaches the real binary, so `bu
+    # <<'PY'` would skip the wrapper AND the guard and attach to the
+    # user's own Chrome — the exact hole the guard exists for.
+    _ALIASES = (
+        'bu',
+        'browser',
+        'browseruse',
+        'browser-use-tui',
+        'browser-harness',
+        'browser-harness-mcp',
+    )
+
+    def test_alias_shims_resolve_to_guard_not_venv(self, tmp_path):
+        """Every alias name must resolve to the guard shim under the PATH
+        `apply_agent_venv_path` builds — never to the venv's real copy."""
+        vibe_home = tmp_path / 'vibe'
+        server_bin = _mkvenv(tmp_path / 'server' / '.venv')
+        for name in self._ALIASES + ('browser-use',):
+            script = server_bin / name
+            script.write_text('#!/usr/bin/env bash\nexit 0\n')
+            script.chmod(0o755)
+
+        env = {'PATH': str(server_bin)}
+        apply_agent_venv_path(
+            env, store_slug='ghost', vibe_home=vibe_home, server_bin=server_bin
+        )
+        guard_dir = vibe_home / 'bin' / '_guard'
+        for name in self._ALIASES:
+            resolved = shutil.which(name, path=env['PATH'])
+            assert resolved == str(guard_dir / name), name
+
+    def test_alias_shims_error_loudly(self, tmp_path):
+        vibe_home = tmp_path / 'vibe'
+        server_bin = _mkvenv(tmp_path / 'server' / '.venv')
+        env = {'PATH': str(server_bin)}
+        apply_agent_venv_path(
+            env, store_slug='ghost', vibe_home=vibe_home, server_bin=server_bin
+        )
+        for name in self._ALIASES:
+            shim = vibe_home / 'bin' / '_guard' / name
+            assert shim.is_file(), name
+            r = subprocess.run(
+                ['bash', str(shim)], capture_output=True, text=True
+            )
+            assert r.returncode != 0, name
+            assert 'browser-use' in r.stderr, name
+
+    def test_alias_shims_suffice_below_a_real_wrapper(self, tmp_path):
+        """The wrapper dir carries only `browser-use`: with it present,
+        aliases must fall through to the guard shims while `browser-use`
+        still resolves to the wrapper. No per-wrapper alias copies needed."""
+        vibe_home = tmp_path / 'vibe'
+        server_bin = _mkvenv(tmp_path / 'server' / '.venv')
+        for name in self._ALIASES + ('browser-use',):
+            script = server_bin / name
+            script.write_text('#!/usr/bin/env bash\nexit 0\n')
+            script.chmod(0o755)
+        store_bin = vibe_home / 'bin' / 'mystore'
+        store_bin.mkdir(parents=True)
+        wrapper = store_bin / 'browser-use'
+        wrapper.write_text('#!/usr/bin/env bash\nexit 0\n')
+        wrapper.chmod(0o755)
+
+        env = {'PATH': str(server_bin)}
+        apply_agent_venv_path(
+            env,
+            store_slug='mystore',
+            vibe_home=vibe_home,
+            server_bin=server_bin,
+        )
+        guard_dir = vibe_home / 'bin' / '_guard'
+        for name in self._ALIASES:
+            resolved = shutil.which(name, path=env['PATH'])
+            assert resolved == str(guard_dir / name), name
+        assert shutil.which('browser-use', path=env['PATH']) == str(wrapper)
+
+    def test_preexisting_guard_dir_gains_alias_shims(self, tmp_path):
+        """Header-checked idempotence: a guard dir written before the
+        alias shims existed (only `browser-use`) must pick them up."""
+        vibe_home = tmp_path / 'vibe'
+        guard_dir = vibe_home / 'bin' / '_guard'
+        guard_dir.mkdir(parents=True)
+        old = guard_dir / 'browser-use'
+        old.write_text('#!/usr/bin/env bash\nexit 0\n')
+        old.chmod(0o755)
+
+        apply_agent_venv_path(
+            {'PATH': '/usr/bin'},
+            store_slug='ghost',
+            vibe_home=vibe_home,
+            server_bin=_mkvenv(tmp_path / 'server' / '.venv'),
+        )
+        for name in self._ALIASES:
+            assert (guard_dir / name).is_file(), name

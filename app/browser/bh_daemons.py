@@ -16,6 +16,7 @@ docs/browser-use-0.13-migration.md.
 """
 
 from collections.abc import Callable, Iterator
+import json
 import logging
 from pathlib import Path
 
@@ -28,6 +29,31 @@ logger = logging.getLogger(__name__)
 # `python -m browser_harness.daemon` (0.13) and the legacy 0.12 daemon.
 NEW_DAEMON_PATTERN = 'browser_harness.daemon'
 LEGACY_DAEMON_PATTERN = 'browser_use.skill_cli.daemon'
+
+
+def parse_pid_record(text: str) -> int | None:
+    """PID from a ``bu-<BU_NAME>.pid`` record, or None if unparseable.
+
+    Accepts both shapes browser_harness writes: a plain int, and the
+    JSON ``{"pid": ..., "started": ...}`` record. Never guesses a pid:
+    only a real ``int`` or a string of ASCII digits counts, so a
+    ``bool``/``float`` payload can never parse as PID 0/1.
+    """
+    raw = text.strip()
+    try:
+        value = json.loads(raw)['pid']
+    except (json.JSONDecodeError, TypeError, KeyError):
+        try:
+            value = raw.split()[0]
+        except IndexError:
+            return None
+    # bool is an int subclass — exclude it, or ``{"pid": true}`` parses
+    # as PID 1 (init).
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return None
 
 
 def iter_pidfiles() -> Iterator[tuple[str, int | None, Path, Path]]:
@@ -43,8 +69,8 @@ def iter_pidfiles() -> Iterator[tuple[str, int | None, Path, Path]]:
         bu_name = pf.name[len('bu-') : -len('.pid')]
         sock = pf.with_suffix('.sock')
         try:
-            pid = int(pf.read_text().strip())
-        except (ValueError, OSError):
+            pid = parse_pid_record(pf.read_text())
+        except OSError:
             pid = None
         yield bu_name, pid, pf, sock
 

@@ -64,7 +64,7 @@ Singleton that orchestrates browser sessions across all stores:
 **Wrapper safety — the agent must never touch a local Chrome**: the agent's `PATH` prepends the store `bin/<slug>` dir, so bare `browser-use` resolves to the wrapper. Three layers keep it from ever falling through to the real `browser-use` binary (which would attach to the user's own Chrome):
 1. **Written before start** — `write_browser_use_wrapper()` runs *before* `backend.start()` in `_start_session_locked`, so a failed/stale launch still leaves a working wrapper (its auto-start block retries `browser/start` on the next call).
 2. **Version-aware boot wipe** — each wrapper embeds a monotonic `WRAPPER_FORMAT_VERSION`; `_wipe_generated_wrappers()` deletes only *older* wrappers and keeps current+newer, so a restart never leaves a wrapper-less window (and never nukes a newer version — rollback-safe). It **also reaps orphans**: a wrapper whose embedded `store_id` is no longer in the DB. Version alone never caught those, so a deleted store's wrapper lived forever holding a *frozen* `proxy_port` — and since ports are re-allocated from the base every boot, that number eventually lands on a live store. The orphan then finds the port already up, skips the start API (so its dead `store_id` never 404s) and points `BU_CDP_WS` at **another store's** browser: wrong account, wrong downloads dir — the same cross-store hole v3 closed for aux. A wrapper with no parseable store id (the store-less `_web`) is kept, so the check can never mass-reap.
-3. **Guard** — `apply_agent_venv_path` puts a guard `browser-use` (`bin/_guard`) on `PATH` below the wrapper but above the venvs; if the wrapper is somehow missing, bare `browser-use` hits the guard and **exits non-zero** instead of reaching the real binary.
+3. **Guard** — `apply_agent_venv_path` puts a guard `browser-use` (`bin/_guard`) on `PATH` below the wrapper but above the venvs; if the wrapper is somehow missing, bare `browser-use` hits the guard and **exits non-zero** instead of reaching the real binary. The guard also shims the raw console-script aliases (`bu`, `browser`, `browseruse`, `browser-use-tui`, `browser-harness`, `browser-harness-mcp`) — each reaches the real binary and would skip wrapper *and* guard, so they error and point at `browser-use` (the shims are extensionless bash scripts: same Windows caveat as the `browser-use` guard itself, no `.exe` interception).
 4. **Absolute `REAL_BU`, or no wrapper at all** — `app/browser/bu_binary.py` is the only producer of the path a wrapper forwards to, and it either returns an absolute path or raises `BrowserUseNotFound`. There is deliberately no bare-name fallback: since the agent's PATH puts the wrapper dir *first*, a wrapper forwarding to bare `browser-use` re-resolves to **itself**. That is what happened on native Windows, where the console shim is `browser-use.exe` with no extensionless sibling — the wrapper recursed until the guard rejected the inherited `BU_NAME`. Refusing to write the wrapper is safe precisely because of layer 3.
 
 See [docs/browser-use-0.13-migration.md § wrapper-format versioning](browser-use-0.13-migration.md) and [docs/ziniao-concurrency.md](ziniao-concurrency.md).
@@ -278,7 +278,15 @@ browser-use 0.13 (`browser_harness`) spawns each daemon as
 **PID FILE** — `<BH_RUNTIME_DIR>/bu-<BU_NAME>.pid` (+ `.sock`) — with the
 session name in the `BU_NAME` env var, **not** in argv. So the reaper
 reads identity from the pid files (portable; avoids macOS
-`psutil.environ()` `AccessDenied`). It runs every 5 minutes:
+`psutil.environ()` `AccessDenied`). The pid *record* has two shapes on
+live browser-use versions — a plain integer (what our wrapper-spawned
+daemons write: the wrapper always exports `BU_CDP_WS`, so upstream takes
+its non-local spawn branch) and the spawn-lock JSON
+`{"pid": N, "started": <fingerprint>}` (browser-use ≥ 0.13.9,
+local-Chrome spawn path, retained by the daemon) — and
+`parse_pid_record` (`bh_daemons.py`) accepts both. A reader that assumed
+the plain int treats the JSON as corrupt and unlinks a live daemon's
+files without killing it. It runs every 5 minutes:
 
 1. Enumerates `bu-*.pid` files under `BH_RUNTIME_DIR` (via
    `iter_pidfiles()` in `bh_daemons.py`), each keyed on
@@ -312,6 +320,28 @@ accepted as known limitation.
 Cleanup at `start()` was removed because it caused a race condition: if a task was retried quickly, the new session could start its daemon, then the cleanup from the new `start()` would kill the freshly-started daemon. Cleanup now only happens at `stop()` (guaranteed to kill the old daemon) and via the periodic reaper (for orphaned daemons when server restarts).
 
 **Note**: Live-process discovery goes through `find_processes_by_pattern` and killing through `kill_with_escalation` (`process_utils.py`), both `psutil`-backed for cross-platform support.
+
+## browser-use 0.13 version notes (audited 2026-11-05)
+
+The server pins `browser-use>=0.13.14` (`pyproject.toml`). The
+integration surface we depend on is unchanged from 0.13.3 through
+0.13.14: the `browser-use`/`bu`/`browser` console scripts, the heredoc
+code-eval CLI, `BU_NAME`/`BU_CDP_WS`/`BU_CDP_URL`/
+`BH_RUNTIME_DIR(_SHARED)`/`BH_TMP_DIR(_SHARED)`, daemon files
+`bu-<BU_NAME>.pid`/`.sock` under `BH_RUNTIME_DIR`, `--doctor`,
+`--reload`. What changed between those versions:
+
+| Version | Change | Affects us |
+|---|---|---|
+| 0.13.9 (browser-harness 0.1.12) | daemon pid records *can* be JSON (`{"pid", "started"}`) — the local-Chrome spawn path publishes it and the daemon retains it; our wrapper path (always `BU_CDP_WS`) still writes plain ints | yes — `parse_pid_record` accepts both shapes |
+| 0.13.9 | `-c`/`--code` become an explicit removal hint (exit 2) — they never executed code on any 0.13.x (0.13.3 already fell through to the harness USAGE); heredoc stdin works on every 0.13.x | skill mandates the heredoc form |
+| 0.13.9 | new helpers `activate_tab`, `start_recording`/`stop_recording`; `switch_tab` gains an `activate=` kwarg | optional; marked "(browser-use ≥ 0.13.9)" in the skill |
+| 0.13.14 | nothing in the harness layer — `browser-harness` 0.1.13 is byte-identical to 0.1.12 (changes are in browser-use's own agent/LLM/integration code) | no |
+
+The agent-facing skill (`app/skills_v2/browser-harness/SKILL.md`) stays
+valid across 0.13.3–0.13.14 — it syncs to clients on any of them, so
+version-specific helpers there carry an explicit minimum-version note.
+Full diff record: [browser-use-0.13-migration.md](browser-use-0.13-migration.md).
 
 ## Adding a New Backend
 

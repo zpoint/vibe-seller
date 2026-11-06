@@ -164,18 +164,54 @@ echo "the wrapper (re)starts the browser session on demand." >&2
 exit 1
 """
 
+# The raw console scripts the browser-use / browser-harness packages
+# drop into the venv bins — which the agent PATH also carries. Each one
+# reaches the real binary (same CLI or its MCP server), so `bu <<'PY'`
+# would skip the wrapper AND the guard and attach to the user's LOCAL
+# Chrome: the exact hole the guard exists for. The guard dir sits below
+# the store wrapper and above both venvs on PATH, so erroring shims here
+# intercept every alias while a real `browser-use` wrapper still wins.
+_GUARD_ALIAS_NAMES = (
+    'bu',
+    'browser',
+    'browseruse',
+    'browser-use-tui',
+    'browser-harness',
+    'browser-harness-mcp',
+)
+
+
+def _alias_guard(name: str) -> str:
+    return f"""#!/usr/bin/env bash
+{_GUARD_HEADER} — do not edit.
+echo "ERROR: '{name}' is a raw browser-use alias and is blocked here." >&2
+echo "Use 'browser-use' instead — that is the managed store wrapper;" >&2
+echo "the raw binary would attach to the user's own Chrome." >&2
+exit 1
+"""
+
 
 def _ensure_browser_use_guard(vibe_home: Path) -> Path | None:
-    """Write (idempotently) the guard ``browser-use`` and return its dir."""
+    """Write (idempotently) the guard ``browser-use`` and its alias shims.
+
+    Header-checked like the original single guard: a pre-existing guard
+    dir (no alias shims yet, or a foreign file) is brought up to date on
+    the next call. Returns the guard dir.
+    """
     try:
         guard_dir = vibe_home / 'bin' / '_guard'
-        guard = guard_dir / 'browser-use'
-        if not guard.is_file() or _GUARD_HEADER not in guard.read_text(
-            errors='replace'
-        ):
-            guard_dir.mkdir(parents=True, exist_ok=True)
-            guard.write_text(_BROWSER_USE_GUARD)
-            os.chmod(guard, 0o755)
+        guard_dir.mkdir(parents=True, exist_ok=True)
+        scripts = {'browser-use': _BROWSER_USE_GUARD}
+        scripts.update({
+            name: _alias_guard(name) for name in _GUARD_ALIAS_NAMES
+        })
+        for name, text in scripts.items():
+            path = guard_dir / name
+            if not path.is_file() or _GUARD_HEADER not in path.read_text(
+                errors='replace'
+            ):
+                path.write_text(text)
+                os.chmod(path, 0o755)
         return guard_dir
     except OSError as e:
         logger.warning('Could not write browser-use guard: %s', e)

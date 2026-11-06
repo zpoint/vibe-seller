@@ -45,8 +45,8 @@ print(page_info())
 PY
 ```
 
-The wrapper takes the heredoc form **only** — there is no `-c` flag
-(passing one just prints usage). Put every statement inside the heredoc.
+The wrapper takes the heredoc form only. Put every statement inside the
+heredoc.
 
 ## Prerequisites
 
@@ -135,13 +135,14 @@ ensure_real_tab()  # switch off a stale/internal (chrome://) tab
 js('<javascript>')  # run JS; returns the SERIALIZABLE result only
 cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
 # e.g. cdp('Page.navigate', url='...')
+drain_events()  # → and clear the buffered CDP events (see file upload, below)
 ```
 
 - **`js()` returns serializable values only.** `js("document.title")` and
   `js("return 1+1")` work; but `js("document.querySelector(...)")` returns
-  a useless `{}` (a DOM node can't serialize). Return **numbers, strings,
-  or plain objects/arrays** — e.g. an element's coordinates (below), not
-  the element itself. For an element *reference* (to set a file input) use
+  `None` (a DOM node can't serialize). Return **numbers, strings, or
+  plain objects/arrays** — e.g. an element's coordinates (below), not the
+  element itself. For an element *reference* (to set a file input) use
   `cdp('Runtime.evaluate', expression=..., returnByValue=False)` → `objectId`
   (note: `cdp()` params are **keyword args**, never a positional dict —
   see "Uploading a file").
@@ -250,9 +251,8 @@ Set an input's value with `js("document.querySelector('#q').value='kettle'")`
 (then click its search icon — some inputs need the click to fire events).
 
 Only the helpers above (plus Python builtins) are in scope — the heredoc
-runs as a plain Python script. **`time`, `json`, `re`, etc. are NOT
-pre-imported; `import` them yourself.** Bare `sleep 3` is a `SyntaxError`
-and `time.sleep(3)` without `import time` is a `NameError`. **Prefer
+runs as a plain Python script. **`import` every stdlib module you use
+(`time`, `json`, `re`, …).** Bare `sleep 3` is a `SyntaxError`. **Prefer
 `wait_for_load()` over sleeping** — reach for `import time; time.sleep(n)`
 only when you must wait on something `wait_for_load()` can't observe (e.g.
 an async in-page render after a click).
@@ -286,20 +286,36 @@ PY
 > **Windows-form** path (`C:\…\downloads\<slug>\file`, via `wslpath -w`) —
 > a `/mnt/c` or WSL path is unreadable by native Chrome.
 
-There is **no native upload helper**. Never coordinate-click the visible
-"Browse"/"Upload file" button expecting to then drive the OS file picker
-(you can't). Attach the file via CDP. **`cdp()` takes keyword args, NOT a
-params dict** — the signature is `cdp(method, session_id=None, **params)`,
-so a dict in the 2nd slot binds to `session_id` and the proxy rejects it
-with `-32600 "Message may have string 'sessionId' property"`. Always use
+Never coordinate-click the visible "Browse"/"Upload file" button
+expecting to then drive the OS file picker (you can't). Attach the file
+with the helpers below. **`cdp()` takes keyword args, NOT a params
+dict** — the signature is `cdp(method, session_id=None, **params)`, so a
+dict in the 2nd slot binds to `session_id` and the proxy rejects it with
+`-32600 "Message may have string 'sessionId' property"`. Always use
 keywords: `cdp('Runtime.evaluate', expression=..., returnByValue=False)`.
 
 There are **two kinds of file input** — pick the matching method:
 
-### Method 1 — a plain `<input type=file>` (set the node directly)
+### Method 1 — a plain `<input type=file>` (`upload_file`, or set the node)
 
-Works for a normal light-DOM input, or a simple open-shadow-DOM input
-whose node the component actually reads from. Get an objectId, set files:
+For an input a plain CSS selector can reach, the helper does the whole
+job:
+
+```bash
+browser-use <<'PY'
+upload_file("input[type=file]", "/abs/path/to/file.txt")   # ABSOLUTE path
+print('files.length:',
+      js("document.querySelector('input[type=file]').files.length"))  # MUST verify → 1
+PY
+```
+
+Its selector is a plain CSS selector: it cannot pierce a shadow root,
+and its `setFileInputFiles` call silently no-ops on an inert placeholder
+input (below) — so **always verify `files.length` right after**; if the
+selector matches nothing, `upload_file` raises. For an input inside an
+**open shadow root** (Amazon `kat-file-upload`) — or any input where
+`upload_file` left `files.length` at 0 — set the node directly via an
+objectId:
 
 ```bash
 browser-use <<'PY'
@@ -426,11 +442,14 @@ The wrapper rejects these — do not use them:
    `getBoundingClientRect` (see "Locate & click without vision") and act on
    the coords — this works with or without vision. A screenshot is an
    optional cross-check for vision models, never a prerequisite.
-2. **`new_tab(url)` is how you navigate — every time**, not `goto` (there
-   is no `page` object in the heredoc scope).
+2. **`new_tab(url)` is how you navigate — every time.** Not
+   `page.goto(url)` (there is no `page` object — that's a `NameError`),
+   and not `goto_url(url)`: it moves whatever tab is current, which after
+   a wedge/timeout may not be the one you think it is.
 3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
-4. **CLI aliases**: `bu` and `browser` also invoke the wrapper.
-5. **Raw-string your `js()` when it contains backslashes** (regex like
+   A title may carry a leading 🐴 (the harness marks the tab it drives) —
+   strip it before comparing or reporting titles.
+4. **Raw-string your `js()` when it contains backslashes** (regex like
    `/foo\/bar/`, `\d`, `\.`): `js(r"""…""")`. A plain triple-quoted string
    makes Python emit `SyntaxWarning: invalid escape sequence` and can
    corrupt the JS before it reaches the page.
