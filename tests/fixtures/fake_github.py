@@ -91,6 +91,9 @@ class FakeGitHub:
         #: "an unsolicited 304 is a failure, not a no-op".
         self.force_unsolicited_304 = False
         self.counts: Counter = Counter()
+        #: Substrings of request paths that answer 500 (e2e failure
+        #: injection).
+        self.failing: set[str] = set()
         self.log: list[str] = []
         #: Headers of every request, in order — so a test can assert
         #: that a conditional request actually carried If-None-Match.
@@ -128,12 +131,38 @@ class FakeGitHub:
         self, method: str, path: str, headers: dict[str, str]
     ) -> _Reply:
         self.log.append(path)
+        if any(part in path for part in self.failing) and not path.startswith(
+            '/__'
+        ):
+            self.counts['failed_files'] += 1
+            return _Reply(500, b'boom')
         key = _query_key(path)
         # ``BaseHTTPRequestHandler`` hands over the request target
         # INCLUDING its query string; httpx's ``url.path`` does not.
         path = path.partition('?')[0]
         lower = {k.lower(): v for k, v in headers.items()}
         self.seen_headers.append(lower)
+        if path == '/__control':
+            # Out-of-process control plane for the e2e tests: they drive
+            # the fake the server is pointed at over HTTP.
+            import json as _json
+
+            body = _json.loads(headers.get('x-control') or '{}')
+            action = body.get('action')
+            if action == 'upstream_changed':
+                self.upstream_changed(body.get('commit'))
+            elif action == 'set_manifest':
+                self.set_manifest('app/skills_v2', body.get('files', []))
+                self.add_tree('app/skills_v2', body.get('content', {}))
+            elif action == 'set_knowledge':
+                self.set_manifest('app/knowledge', body.get('files', []))
+                self.add_tree('app/knowledge', body.get('content', {}))
+            elif action == 'fail_path':
+                self.failing.add(body.get('path', ''))
+            elif action == 'clear_failures':
+                self.failing.clear()
+            return _Reply(200, b'{"ok": true}')
+
         if method != 'GET':
             self.counts['other'] += 1
             return _Reply(405, b'method not allowed')
@@ -212,6 +241,23 @@ class FakeGitHub:
         fake = self
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            def _handle(self):
+                reply = fake.dispatch(
+                    self.command, self.path, dict(self.headers)
+                )
+                self.send_response(reply.status)
+                for key, value in reply.headers.items():
+                    self.send_header(key, value)
+                self.send_header(
+                    'Content-Length',
+                    str(len(reply.body)),
+                )
+                self.end_headers()
+                self.wfile.write(reply.body)
+
+            def do_POST(self):  # noqa: N802 — stdlib naming
+                self._handle()
+
             def do_GET(self):  # noqa: N802 — stdlib naming
                 reply = fake.dispatch('GET', self.path, dict(self.headers))
                 self.send_response(reply.status)

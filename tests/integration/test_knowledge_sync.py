@@ -324,3 +324,68 @@ async def test_a_failed_download_never_deletes_the_local_file(
     assert result['deleted'] == 0
     assert (dest / 'keep.md').read_text() == 'new bytes'
     assert not (dest / 'other.md').exists() or True  # never created
+
+
+async def test_a_file_removed_upstream_goes_but_nothing_else(
+    sync_manager, knowledge_dest
+):
+    """knowledge/project/ mirrors upstream; the root and stores/ do not."""
+    dest = sync_manager._dest_dir
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / 'keep.md').write_text('keep')
+    (dest / 'gone.md').write_text('gone')
+    home = knowledge_dest
+    (home / 'knowledge' / 'root-note.md').write_text('agent-written')
+    (home / 'stores' / 'acme').mkdir(parents=True)
+    (home / 'stores' / 'acme' / 'STORE.md').write_text('store')
+
+    async def handler(request: httpx.Request):
+        if request.url.path.endswith('MANIFEST.txt'):
+            return httpx.Response(200, text='keep.md\n')
+        return httpx.Response(200, text='keep')
+
+    result = await _remote_sync(sync_manager, httpx.MockTransport(handler))
+
+    assert result['status'] == 'success'
+    assert result['deleted'] == 1
+    assert (dest / 'keep.md').exists()
+    assert not (dest / 'gone.md').exists()
+    assert (home / 'knowledge' / 'root-note.md').exists()
+    assert (home / 'stores' / 'acme' / 'STORE.md').exists()
+
+
+async def test_a_mass_delete_of_knowledge_is_refused(
+    sync_manager, knowledge_dest
+):
+    dest = sync_manager._dest_dir
+    dest.mkdir(parents=True, exist_ok=True)
+    for i in range(4):
+        (dest / f'file-{i}.md').write_text(f'content {i}')
+
+    async def handler(request: httpx.Request):
+        if request.url.path.endswith('MANIFEST.txt'):
+            return httpx.Response(200, text='file-0.md\n')
+        return httpx.Response(200, text='upstream')
+
+    result = await _remote_sync(sync_manager, httpx.MockTransport(handler))
+
+    assert result['status'] == 'failed'
+    assert 'mass delete' in result['error']
+    assert result['deleted'] == 0
+    for i in range(4):
+        assert (dest / f'file-{i}.md').exists()
+
+
+async def test_a_304_run_deletes_nothing(sync_manager, knowledge_dest):
+    """No manifest in hand means no verdict about what upstream has."""
+    dest = sync_manager._dest_dir
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / 'keep.md').write_text('keep')
+
+    async def handler(request: httpx.Request):
+        return httpx.Response(304)
+
+    result = await _remote_sync(sync_manager, httpx.MockTransport(handler))
+
+    assert result['status'] == 'failed'
+    assert (dest / 'keep.md').read_text() == 'keep'

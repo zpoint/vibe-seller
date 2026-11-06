@@ -555,3 +555,56 @@ async def test_fetch_default_still_awaits_deps(sync_mgr, tmp_path, monkeypatch):
     monkeypatch.setattr(sync_mgr, '_install_skill_deps', install)
     await sync_mgr.fetch()
     install.assert_awaited_once()
+
+
+@pytest.mark.unit
+async def test_boot_sync_drops_a_skill_the_package_no_longer_ships(
+    sync_mgr, tmp_path, monkeypatch
+):
+    """A release that drops a skill must drop it locally (rule 8).
+
+    Scoped to skills the previous boot saw the PACKAGE ship — a
+    remote-only skill is never in that set and stays the remote job's
+    to own. Same mass-delete guard as the remote tier.
+    """
+    src = tmp_path / 'source_skills'
+    (src / 'still-shipped').mkdir(parents=True)
+    (src / 'still-shipped' / 'SKILL.md').write_text('v2')
+    monkeypatch.setattr(type(sync_mgr), '_get_source_dirs', lambda self: [src])
+    dest = sync_mgr._dest_dir
+    for name in ('still-shipped', 'dropped-001'):
+        (dest / name).mkdir(parents=True)
+        (dest / name / 'SKILL.md').write_text('v1')
+    sync_mgr._write_sync_meta({
+        'synced_skills': ['still-shipped', 'dropped-001'],
+        'package_skills': ['still-shipped', 'dropped-001'],
+    })
+
+    await sync_mgr.fetch()
+
+    assert (dest / 'still-shipped').is_dir()
+    assert not (dest / 'dropped-001').exists()
+    assert sync_mgr._read_sync_meta()['package_skills'] == ['still-shipped']
+
+
+@pytest.mark.unit
+async def test_boot_sync_refuses_to_drop_most_of_the_tree(
+    sync_mgr, tmp_path, monkeypatch
+):
+    """The guard applies at boot too: an empty source must not wipe."""
+    src = tmp_path / 'source_skills'
+    src.mkdir()
+    monkeypatch.setattr(type(sync_mgr), '_get_source_dirs', lambda self: [src])
+    dest = sync_mgr._dest_dir
+    for i in range(4):
+        (dest / f'dropped-{i}').mkdir(parents=True)
+        (dest / f'dropped-{i}' / 'SKILL.md').write_text('v1')
+    sync_mgr._write_sync_meta({
+        'synced_skills': [f'dropped-{i}' for i in range(4)],
+        'package_skills': [f'dropped-{i}' for i in range(4)],
+    })
+
+    await sync_mgr.fetch()
+
+    for i in range(4):
+        assert (dest / f'dropped-{i}').exists()
