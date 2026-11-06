@@ -35,16 +35,25 @@ def parse_pid_record(text: str) -> int | None:
     """PID from a ``bu-<BU_NAME>.pid`` record, or None if unparseable.
 
     Accepts both shapes browser_harness writes: a plain int, and the
-    JSON ``{"pid": ..., "started": ...}`` record. Never guesses a pid.
+    JSON ``{"pid": ..., "started": ...}`` record. Never guesses a pid:
+    only a real ``int`` or a string of ASCII digits counts, so a
+    ``bool``/``float`` payload can never parse as PID 0/1.
     """
     raw = text.strip()
     try:
+        value = json.loads(raw)['pid']
+    except (json.JSONDecodeError, TypeError, KeyError):
         try:
-            return int(json.loads(raw)['pid'])
-        except (json.JSONDecodeError, TypeError, KeyError):
-            return int(raw.split()[0])
-    except (ValueError, IndexError):
-        return None
+            value = raw.split()[0]
+        except IndexError:
+            return None
+    # bool is an int subclass — exclude it, or ``{"pid": true}`` parses
+    # as PID 1 (init).
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.isascii() and value.isdigit():
+        return int(value)
+    return None
 
 
 def iter_pidfiles() -> Iterator[tuple[str, int | None, Path, Path]]:

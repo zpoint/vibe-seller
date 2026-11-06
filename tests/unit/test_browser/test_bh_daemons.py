@@ -39,7 +39,24 @@ class TestParsePidRecord:
         assert parse_pid_record('12345 Mon Jan 1') == 12345
 
     def test_garbage_yields_none_not_a_wrong_pid(self):
-        for text in ('', '   ', 'not-a-pid', '{"pid": "abc"}', '[]', '{}'):
+        for text in (
+            '',
+            '   ',
+            'not-a-pid',
+            '{"pid": "abc"}',
+            '[]',
+            '{}',
+            # bool/float payloads must never parse as PID 0/1
+            '{"pid": true}',
+            '{"pid": false}',
+            '{"pid": 1.9}',
+            '{"pid": 1.0}',
+            # int() accepts underscores and signs — a "str of digits" is
+            # exactly [0-9]+, nothing more.
+            '{"pid": "1_0"}',
+            '{"pid": "+12"}',
+            '{"pid": "-3"}',
+        ):
             assert parse_pid_record(text) is None, text
 
 
