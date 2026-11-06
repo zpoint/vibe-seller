@@ -28,7 +28,10 @@ from app.workspace.ignored_paths import (
     untrack_ignored,
 )
 from app.workspace.paths import WorkspacePaths
-from app.workspace.skills_manager import SkillsMixin
+from app.workspace.skills_manager import (
+    SkillsMixin,
+    parse_yaml_frontmatter,
+)
 from app.workspace.store_data_migrate import migrate_store_data
 from app.workspace.store_profile import scaffold_store_profile
 from app.workspace.structured_stores import collect_store_entries
@@ -290,19 +293,13 @@ class WorkspaceManager(SkillsMixin):
         await self._auto_commit(f'Delete {rel_path}')
 
     def _parse_yaml_frontmatter(self, text: str) -> dict:
-        """Parse YAML frontmatter from a markdown file (--- delimited)."""
-        if not text.startswith('---'):
-            return {}
-        end = text.find('---', 3)
-        if end == -1:
-            return {}
-        frontmatter = text[3:end].strip()
-        result = {}
-        for line in frontmatter.split('\n'):
-            if ':' in line:
-                key, _, value = line.partition(':')
-                result[key.strip()] = value.strip()
-        return result
+        """Parse YAML frontmatter from a markdown file (--- delimited).
+
+        Delegates to ``skills_manager.parse_yaml_frontmatter`` — one
+        parser for the workspace, so the skill import's slug rule and
+        the listings cannot drift apart.
+        """
+        return parse_yaml_frontmatter(text)
 
     async def get_structured(self) -> dict:
         """Return workspace organized by section for the UI."""

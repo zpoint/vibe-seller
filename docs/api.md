@@ -214,8 +214,24 @@ outside a request) keep the agent identity — the orchestrator entry
 points drop the caller's context (`reset_ledger`), so a task launched
 by a token never files the agent's edits under the token owner's
 name. `history` reports the author. `manage_skill` wraps the
-skills routes (list / get / create / update / delete / sync /
-sync_meta). `workspace_assistant` wraps the assistant routes; `send`
+skills routes (list / get / create / update / begin_upload / import /
+delete / sync / sync_meta). `import` installs a whole skill from
+another machine through a **presigned archive upload**: `begin_upload`
+returns a signed single-use `put_url` (plus a ready-to-run `curl`),
+the agent `PUT`s a `.tar.gz` / `.tar` / `.zip` of its skill directory
+to `PUT /api/skill-uploads/{upload_id}` from its own shell — the file
+bytes never pass through the agent's LLM — and `import(upload_id=…)`
+extracts the archive strictly and installs it (slug derived from the
+SKILL.md frontmatter `name`, `origin_url` records provenance).
+`import` replaces the skill directory wholesale, `update` merges, and
+replacing an existing user skill is refused without `overwrite: true` —
+see [workspace.md § Skills System](workspace.md#skills-system) for the
+write contract and
+[agents.md § Workspace, skills and the assistant](agents.md#workspace-skills-and-the-assistant)
+for the external-agent flow. Inline `files` / `files_bin` arguments
+remain for tiny text-only skills and edits only.
+`workspace_assistant` wraps the
+assistant routes; `send`
 also waits (bounded, default 45 s) for the reply on the same SSE
 events the UI reads, and `status` reports the last reply held in
 memory (assistant answers are not persisted to the DB).
@@ -420,7 +436,8 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/workspace/knowledge/sync-status` | Compare the packaged knowledge tree with the workspace copy (content status — WHEN it synced is `GET /api/sync/status`) |
-| POST | `/api/workspace/skill` | Create a new user skill |
+| POST | `/api/workspace/skill` | Create a new user skill (scaffold: `name`, `description`, `origin_url`) — full content goes through `PUT /api/workspace/skills/{slug}` |
+| PUT | `/api/workspace/skills/{slug}` | Create or extend a user-space skill in ONE call. Body `SkillSaveRequest`: `skill_md`, `files` (text, stored as UTF-8), `files_bin` (base64, stored byte-identical), `executables` (which files keep the executable bit), `origin_url` (provenance — the skill then lists as `imported`), `replace`, `overwrite`. `replace: true` swaps in the whole tree — files the call does not carry are deleted, a failure leaves the old skill untouched; the default merges. Replacing an EXISTING user skill is refused without `overwrite: true` (`a skill named X already exists (source=…)` — nothing written). Built-in slugs rejected. Paths/size caps enforced in `app/workspace/skills_manager.py` |
 | GET | `/api/workspace/structured` | Workspace grouped for the UI. One entry per store joining `stores/<slug>/` knowledge `files` with `store-data/<slug>/` run-data `data_files`/`data_path` (run-data sorted newest-first) |
 | GET | `/api/workspace/file` | Read a text file (`{path, content}`); decodes utf-8 with GB18030 fallback; 400 with a pointer to `/file/raw` for binary |
 | GET | `/api/workspace/file/raw` | Raw bytes with guessed content type. `Content-Disposition: inline` only for non-scriptable types (pdf, png/jpeg/gif/webp); everything else `attachment` (stored-XSS guard) |
@@ -434,6 +451,29 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | POST | `/api/sync/{name}/run` | Run one job now. Manual runs bypass the job's auto-sync toggle and force real work instead of an "unchanged" probe. 404 for an unregistered job |
 
 Replaces the per-module sync routes the workspace router used to carry. See [subsystems.md § Central sync scheduler](subsystems.md#central-sync-scheduler-appsync).
+
+## `skill_uploads.py` — Presigned skill-upload endpoint
+
+| Method | Path | Description |
+|--------|------|-------------|
+| PUT | `/api/skill-uploads/{upload_id}` | Stream a skill archive (`.tar.gz` / `.tar` / `.zip`) to a presigned upload. POST with `multipart/form-data` (one `file` field) is accepted too; the raw PUT is the documented default. |
+
+This is the raw-`PUT` half of `manage_skill`'s import flow (see
+[agents.md § Workspace, skills and the assistant](agents.md#workspace-skills-and-the-assistant)):
+`begin_upload` mints the URL, the agent's own shell streams the
+archive to it, `import(upload_id=…)` installs it. The result carries
+`put_path` alongside `put_url` so an agent behind a reverse proxy can
+`PUT` to its own MCP origin + `put_path`. Multipart uploads must
+declare `Content-Length` (411 otherwise) — Starlette spools file
+parts unbounded, so a chunked multipart body is never parsed. **No session and no
+API token** — the HMAC signature in the query string (binding upload
+id + user + expiry, ~10 min TTL, single use, claimed atomically
+before the body is read) IS the authorization, so a `vst_` token
+never has to appear in a shell command. The body is streamed to
+staging under the server data dir with the compressed size cap
+enforced inline (413 past it); bad/expired/reused signatures answer
+403, a wrong content-type or an unrecognised archive format (sniffed
+by magic bytes) answers 415. `app/skill_uploads.py` owns every rule.
 
 ## `workspace_assistant.py` — Workspace AI Assistant
 

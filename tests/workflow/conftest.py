@@ -1,6 +1,7 @@
 """Workflow test fixtures: real DB, fake agent, mocked browser/filesystem."""
 
 import asyncio
+import base64
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 import json
@@ -564,26 +565,72 @@ def mock_workspace(monkeypatch, tmp_path):
                 })
             return out
 
-        async def save_skill(self, slug, skill_md, files=None):
+        async def save_skill(
+            self,
+            slug,
+            skill_md,
+            files=None,
+            files_bin=None,
+            executables=None,
+            origin_url='',
+            replace=False,
+            overwrite=False,
+        ):
             if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug or ''):
                 raise ValueError(f'Invalid skill slug: {slug!r}')
             if slug in self._synced():
                 raise ValueError(f'{slug!r} is a built-in skill')
             d = self.root / '.claude' / 'skills' / slug
             existed = d.is_dir()
-            d.mkdir(parents=True, exist_ok=True)
-            (d / 'SKILL.md').write_text(skill_md)
+            if replace and existed and not overwrite:
+                raise ValueError(
+                    f'a skill named {slug} already exists '
+                    '(source=custom); confirm with the user, then '
+                    're-call with overwrite=true or choose another slug'
+                )
+            payloads = {}
             for rel, content in (files or {}).items():
+                payloads[rel] = content.encode()
+            for rel, content in (files_bin or {}).items():
+                if rel in payloads:
+                    raise ValueError(f'Skill file {rel!r} is both')
+                try:
+                    payloads[rel] = base64.b64decode(content, validate=True)
+                except Exception as exc:
+                    raise ValueError(
+                        f'Skill file {rel!r} is not valid base64'
+                    ) from exc
+            for rel in payloads:
                 pp = Path(rel)
                 if (
                     pp.is_absolute()
                     or not pp.parts
                     or '..' in pp.parts
-                    or pp.name == 'SKILL.md'
+                    or '\\' in rel
+                    or pp.name.lower() == 'skill.md'
                 ):
                     raise ValueError(f'Invalid skill file path: {rel!r}')
-                (d / pp).parent.mkdir(parents=True, exist_ok=True)
-                (d / pp).write_text(content)
+            for rel in executables or []:
+                if rel not in payloads:
+                    raise ValueError(f'executables names {rel!r}, not written')
+            if replace and existed:
+                shutil.rmtree(d)
+            d.mkdir(parents=True, exist_ok=True)
+            (d / 'SKILL.md').write_text(skill_md)
+            for rel, content in payloads.items():
+                dest = d / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(content)
+                if rel in set(executables or []):
+                    dest.chmod(0o755)
+            if origin_url:
+                lock = self.root / '.claude' / 'skills' / 'skills.lock.json'
+                data = json.loads(lock.read_text()) if lock.exists() else {}
+                data.setdefault('skills', {}).setdefault(slug, {})[
+                    'origin_url'
+                ] = origin_url
+                data['skills'][slug]['source'] = 'url'
+                lock.write_text(json.dumps(data))
             return {
                 'slug': slug,
                 'path': f'.claude/skills/{slug}',

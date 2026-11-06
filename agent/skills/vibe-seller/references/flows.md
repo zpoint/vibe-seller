@@ -261,3 +261,41 @@ Relay, do not re-author:
 When the task failed, say it failed and give the error. When the task is
 still running, say it is running and keep waiting — do not answer the
 user's question with an estimate.
+
+## Flow 8 — importing a skill the user has locally
+
+"I have a codex skill that adds an Amazon listing — find it and add it
+to vibe-seller." The skill lives on THIS machine; the server needs a
+copy its task agents can load. Import it as an ARCHIVE — the bytes go
+from your shell straight to the server and never pass through you.
+
+```
+manage_skill(action="begin_upload")        → {upload_id, put_url, curl}
+<run the returned curl in your shell>      → tar/zip the skill dir, PUT it
+manage_skill(action="import", upload_id=…, origin_url=…)
+manage_skill(action="get", slug=…)         → confirm what landed
+```
+
+- The `put_url` is signed, single-use and short-lived — the signature
+  is the authorization, so no API token belongs in the shell command.
+  A `PUT` body is the default; a `multipart/form-data` POST with one
+  `file` field works too.
+- Pack the skill directory itself: `SKILL.md` at its root (one
+  wrapping top-level folder is fine — the server strips one). Keep
+  scripts executable; the archive carries the bits. Formats: `.tar.gz`,
+  `.tar`, `.zip` (magic bytes decide).
+- `slug` is optional: the server derives it from the SKILL.md
+  frontmatter `name`, so do not invent one. Pass it only to place the
+  skill under a different name.
+- The install is ONE call — there is no create-then-update dance, and
+  a refused call (bad path, symlink in the archive, oversized file, a
+  built-in slug) leaves nothing behind. `import` REPLACES the skill
+  wholesale (stale files are deleted); `update` MERGES (files it does
+  not carry stay). If the user already has a skill under that slug,
+  the import is refused until they confirm and you re-call with
+  `overwrite: true` — never pass it unasked.
+- Inline `files` / `files_bin` are for tiny text-only edits only. Do
+  not push a real skill (or any binary) through tool arguments.
+- Afterwards report the `files` list back to the user. If the server
+  refused something, relay the reason and re-mint/re-try as needed —
+  never import a silently incomplete skill.

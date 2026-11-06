@@ -171,7 +171,7 @@ curl -sS http://127.0.0.1:7777/api/mcp \
 | `task_files` | The files a task produced: list, read (inline text or download URL + blob), ZIP URL. |
 | `read_knowledge` | Read the store's `knowledge/` and `stores/` files. Read-only. |
 | `workspace_file` | Read and edit the workspace the web UI edits: files, git history / version / reset, structured view, store profiles, knowledge sync. |
-| `manage_skill` | Manage the server's agent skills: list / get / create / update / delete / sync. |
+| `manage_skill` | Manage the server's agent skills: list / get / create / update / **begin_upload** / **import** / delete / sync. |
 | `workspace_assistant` | Drive the workspace assistant (organize knowledge): send (waits for the reply), status, stop. |
 | `list_schedules` | The schedules on this server, with their plan status and whether they can fire. |
 | `create_schedule` | Create a scheduled task (a prompt on a recurrence) — paused by default; pass `paused: false` to arm it at creation. |
@@ -300,8 +300,57 @@ the author, so "who changed this note" always has an answer.
 
 `manage_skill` manages the server's agent skills (the instructions
 its task agents load): list, read, create, update (full SKILL.md plus
-extra files), delete, and the built-in sync. Built-in skills are
-read-only (`source=builtin` in the listing).
+extra files), **import**, delete, and the built-in sync. Built-in
+skills are read-only (`source=builtin` in the listing).
+
+`import` is how a skill that lives on the agent's own machine (a
+codex skill in `~/.codex/skills/`, say) becomes a Vibe Seller skill —
+via a **presigned archive upload**, so the skill's bytes never pass
+through the agent's LLM (no token cost proportional to file size, no
+corruption risk on long base64, no size ceiling an LLM could not emit
+in the first place):
+
+1. `manage_skill(action=begin_upload)` returns `{upload_id, put_url,
+   expires_at, max_bytes, formats, curl}` — the `put_url` is
+   HMAC-signed, single-use and short-lived (~10 min); the signature
+   IS the authorization, so no API token ever appears in a shell
+   command.
+2. The agent runs the `curl` in its own shell: `tar czf` (or `zip`)
+   of the skill directory, raw `PUT` of the archive bytes
+   (`multipart/form-data` with one `file` field works too — it must
+   declare `Content-Length`; a chunked body is refused with 411). The
+   format is sniffed from magic bytes (`.tar.gz` / `.tar` / `.zip`)
+   and the size cap is enforced before or while the body is read.
+   The result also carries `put_path` (path + signed query): when the
+   `put_url` origin differs from the MCP URL the agent is configured
+   with (a reverse proxy), it `PUT`s to its own MCP origin +
+   `put_path` — the path is the contract, the origin is a hint.
+3. `manage_skill(action=import, upload_id=…)` extracts the archive
+   strictly and installs it through the same `save_skill` write path
+   every other save uses — one validation/install contract. Regular
+   files only (no symlinks, hardlinks, devices or FIFOs), safe
+   relative names, no duplicates, one common top-level directory
+   stripped, `SKILL.md` required at the resulting root (valid UTF-8),
+   executable bits taken from the archive, everything stored
+   byte-identical. The slug derives from the SKILL.md frontmatter
+   `name` when not given, and `origin_url` records provenance (the
+   skill then lists as `imported`).
+
+Inline `files` / `files_bin` / `executables` arguments remain for
+TINY text-only skills and edits (and the web UI's merge path);
+carrying a real skill — or any binary — through tool arguments is
+exactly what this flow replaces.
+
+`import` **replaces** the skill directory wholesale — the tree is
+staged and swapped in, so files the new version does not carry are
+deleted and a failure mid-write leaves the old skill untouched.
+Replacing a user skill that ALREADY exists under that slug is refused
+(`a skill named X already exists (source=…)` …) unless the call
+carries `overwrite: true` — a hand-made skill is never destroyed
+silently; the agent confirms with its user first and re-imports
+deliberately. `update` **merges**: it writes the files given and
+leaves the rest of the skill alone. Built-in skills are refused by
+both.
 
 `workspace_assistant` drives the per-user workspace assistant — a
 chat agent that organizes knowledge files. `send` waits (bounded) for

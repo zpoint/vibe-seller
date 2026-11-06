@@ -15,7 +15,9 @@ fixture the workspace REST tests use). What these pin:
   with the route's own guards (reserved names, built-in slugs).
 """
 
+import base64
 import json
+import os
 
 import pytest
 
@@ -29,6 +31,12 @@ from app.sync.scheduler import (
 pytestmark = pytest.mark.workflow
 
 MCP_PATH = '/api/mcp'
+
+# 1x1 PNG — a genuinely binary file (invalid UTF-8).
+PNG_B64 = (
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk'
+    'YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+)
 
 
 async def rpc(client, method, params=None, request_id=1):
@@ -440,3 +448,106 @@ class TestManageSkill:
         )
         assert meta['name'] == 'skills'
         assert meta['last_ok_at'] is not None
+
+    async def test_import_one_call_whole_skill(
+        self, admin_client, install_fake_agent, mock_workspace
+    ):
+        """The external-agent import: SKILL.md + text + binary +
+        exec bits in ONE call, slug derived from the frontmatter
+        name, files byte-identical on disk."""
+        png = base64.b64decode(PNG_B64)
+        imported, envelope = await call_tool(
+            admin_client,
+            'manage_skill',
+            {
+                'action': 'import',
+                'skill_md': (
+                    '---\nname: listing-add\ndescription: drafts\n---\n'
+                    '# listing-add\n'
+                ),
+                'files': {
+                    'references/n.md': '# n',
+                    'scripts/run.sh': '#!/bin/sh\n',
+                },
+                'files_bin': {'assets/template.png': PNG_B64},
+                'executables': ['scripts/run.sh'],
+                'origin_url': 'local skill dir',
+            },
+        )
+        assert envelope['isError'] is False, envelope
+        assert imported == {
+            'slug': 'listing-add',
+            'path': '.claude/skills/listing-add',
+            'action': 'created',
+        }
+        skill_dir = mock_workspace.root / '.claude' / 'skills' / 'listing-add'
+        assert (skill_dir / 'references' / 'n.md').read_text() == '# n'
+        assert (skill_dir / 'assets' / 'template.png').read_bytes() == png
+        assert os.stat(skill_dir / 'scripts' / 'run.sh').st_mode & 0o111, (
+            'executables must land with the executable bit'
+        )
+
+    async def test_import_refuses_traversal(
+        self, admin_client, install_fake_agent, mock_workspace
+    ):
+        _, envelope = await call_tool(
+            admin_client,
+            'manage_skill',
+            {
+                'action': 'import',
+                'skill_md': '---\nname: x\ndescription: d\n---\n',
+                'files_bin': {'../escape.png': PNG_B64},
+            },
+        )
+        assert envelope['isError'] is True
+        assert 'file path' in envelope['content'][0]['text'].lower()
+        assert not (
+            mock_workspace.root / '.claude' / 'skills' / 'x'
+        ).exists(), 'a refused import writes nothing'
+
+    async def test_import_over_an_existing_skill_needs_overwrite(
+        self, admin_client, install_fake_agent, mock_workspace
+    ):
+        """The wipe checkpoint: an import never destroys a skill the
+        user already has unless the caller says overwrite=true."""
+        first, envelope = await call_tool(
+            admin_client,
+            'manage_skill',
+            {
+                'action': 'import',
+                'skill_md': '---\nname: mine\ndescription: d\n---\n# v1\n',
+                'files': {'hand-made.md': 'work'},
+            },
+        )
+        assert envelope['isError'] is False, envelope
+
+        refused, ref_env = await call_tool(
+            admin_client,
+            'manage_skill',
+            {
+                'action': 'import',
+                'skill_md': '---\nname: mine\ndescription: d\n---\n# v2\n',
+                'files': {'new.md': 'y'},
+            },
+        )
+        assert ref_env['isError'] is True, refused
+        message = ref_env['content'][0]['text'].lower()
+        assert 'already exists' in message
+        assert 'overwrite=true' in message
+        skill_dir = mock_workspace.root / '.claude' / 'skills' / 'mine'
+        assert (skill_dir / 'hand-made.md').read_text() == 'work'
+        assert (skill_dir / 'SKILL.md').read_text().endswith('# v1\n')
+
+        allowed, ok_env = await call_tool(
+            admin_client,
+            'manage_skill',
+            {
+                'action': 'import',
+                'skill_md': '---\nname: mine\ndescription: d\n---\n# v2\n',
+                'files': {'new.md': 'y'},
+                'overwrite': True,
+            },
+        )
+        assert ok_env['isError'] is False, allowed
+        assert not (skill_dir / 'hand-made.md').exists()
+        assert (skill_dir / 'new.md').read_text() == 'y'
