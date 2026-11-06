@@ -182,3 +182,184 @@ def test_start_sh_derives_path_from_install_print_path():
     assert bootstrap_at < launch_at, (
         'start.sh must set PATH via --print-path *before* it runs uv'
     )
+
+
+# -- Playwright Chromium download source (official CDN vs mirror) ------
+#
+# install.sh measures cdn.playwright.dev against npmmirror before
+# `playwright install chromium` and uses the faster one. The invariant
+# that matters: a mirror is only ever picked when it carries EVERY file
+# this Playwright version will fetch — the mirror's path layout has
+# changed across Playwright versions (1.58 404s there, 1.63 doesn't),
+# and a half-matching mirror would fail mid-install. Fakes stand in for
+# `playwright` and `curl` so these run offline and deterministically.
+
+_MIRROR = 'https://cdn.npmmirror.com/binaries/playwright'
+
+_FAKE_PLAYWRIGHT = r"""#!/usr/bin/env bash
+echo "${PLAYWRIGHT_DOWNLOAD_HOST:-}|$*" >> "$FAKE_LOG"
+if [[ "$*" == *--dry-run* ]]; then
+  h=${PLAYWRIGHT_DOWNLOAD_HOST:-https://cdn.playwright.dev}
+  echo "  Download url:        $h/builds/cft/1/linux64/chrome-linux64.zip"
+  echo "  Download url:        $h/builds/ffmpeg/1/ffmpeg-linux.zip"
+  exit 0
+fi
+if [ -n "${FAKE_INSTALL_FAILS_FOR:-}" ] && \
+   [ "${PLAYWRIGHT_DOWNLOAD_HOST:-}" = "$FAKE_INSTALL_FAILS_FOR" ]; then
+  exit 1
+fi
+exit 0
+"""
+
+# HEAD (-sIL) prints a status code; a ranged GET prints "code speed".
+# FAKE_404 / FAKE_DOWN are URL substrings that 404 / don't answer.
+_FAKE_CURL = r"""#!/usr/bin/env bash
+echo "curl $*" >> "$FAKE_LOG"
+url="${@: -1}"
+code=200
+if [ -n "${FAKE_DOWN:-}" ] && [[ "$url" == *"$FAKE_DOWN"* ]]; then
+  code=000
+elif [ -n "${FAKE_404:-}" ] && [[ "$url" == *"$FAKE_404"* ]]; then
+  code=404
+fi
+for a in "$@"; do
+  if [ "$a" = -sIL ]; then printf '%s' "$code"; exit 0; fi
+done
+if [ "$code" = 000 ]; then printf '000 0'; exit 28; fi
+if [[ "$url" == *npmmirror* ]]; then speed=$FAKE_MIRROR_SPEED
+else speed=$FAKE_OFFICIAL_SPEED; fi
+printf '206 %s.000' "$speed"
+"""
+
+
+def _run_pw_source(tmp_path, call, **env):
+    """Source install.sh (without running main) and run `call`.
+
+    Returns (completed process, list of logged fake invocations).
+    """
+    fake_bin = tmp_path / 'fakebin'
+    fake_bin.mkdir(exist_ok=True)
+    for name, body in (('playwright', _FAKE_PLAYWRIGHT), ('curl', _FAKE_CURL)):
+        p = fake_bin / name
+        p.write_text(body)
+        p.chmod(0o755)
+    log = tmp_path / 'calls.log'
+    log.write_text('')
+    full_env = {
+        'PATH': f'{fake_bin}:/usr/bin:/bin',
+        'HOME': str(tmp_path),
+        'FAKE_LOG': str(log),
+        'PW': str(fake_bin / 'playwright'),
+        'VIBE_SELLER_INSTALL_SH_NO_MAIN': '1',
+        'FAKE_OFFICIAL_SPEED': '1000000',
+        'FAKE_MIRROR_SPEED': '1000000',
+        **env,
+    }
+    result = subprocess.run(
+        [
+            shutil.which('bash'),
+            '-c',
+            f'source "{INSTALL_SH}"; OS=macos; {call}',
+        ],
+        env=full_env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return result, log.read_text().splitlines()
+
+
+def _picked(tmp_path, **env):
+    result, _ = _run_pw_source(
+        tmp_path, 'echo "PICKED=[$(_pick_playwright_host "$PW")]"', **env
+    )
+    assert result.returncode == 0, result.stderr
+    line = [x for x in result.stdout.splitlines() if x.startswith('PICKED=')]
+    assert line, result.stdout
+    return line[-1][len('PICKED=[') : -1]
+
+
+@pytest.mark.unit
+def test_pw_source_picks_faster_mirror(tmp_path):
+    assert (
+        _picked(
+            tmp_path,
+            FAKE_OFFICIAL_SPEED='1000000',
+            FAKE_MIRROR_SPEED='9000000',
+        )
+        == _MIRROR
+    )
+
+
+@pytest.mark.unit
+def test_pw_source_keeps_official_when_it_is_faster(tmp_path):
+    assert (
+        _picked(
+            tmp_path,
+            FAKE_OFFICIAL_SPEED='9000000',
+            FAKE_MIRROR_SPEED='1000000',
+        )
+        == ''
+    )
+
+
+@pytest.mark.unit
+def test_pw_source_never_picks_a_mirror_missing_a_file(tmp_path):
+    """A faster mirror that 404s on ANY file must lose to the official CDN."""
+    assert (
+        _picked(
+            tmp_path,
+            FAKE_OFFICIAL_SPEED='1000000',
+            FAKE_MIRROR_SPEED='9000000',
+            FAKE_404='npmmirror.com/binaries/playwright/builds/ffmpeg',
+        )
+        == ''
+    )
+
+
+@pytest.mark.unit
+def test_pw_source_falls_back_to_mirror_when_official_unreachable(tmp_path):
+    assert (
+        _picked(
+            tmp_path,
+            FAKE_DOWN='cdn.playwright.dev',
+            FAKE_MIRROR_SPEED='500000',
+        )
+        == _MIRROR
+    )
+
+
+@pytest.mark.unit
+def test_pw_source_defaults_to_official_when_nothing_answers(tmp_path):
+    # '' lets Playwright use its own CDN fallbacks.
+    assert _picked(tmp_path, FAKE_DOWN='https://') == ''
+
+
+@pytest.mark.unit
+def test_pw_install_honors_user_download_host_without_probing(tmp_path):
+    result, calls = _run_pw_source(
+        tmp_path,
+        '_install_playwright_chromium "$PW"',
+        PLAYWRIGHT_DOWNLOAD_HOST='https://my-mirror.test',
+    )
+    assert result.returncode == 0, result.stderr
+    assert not [c for c in calls if c.startswith('curl ')], calls
+    assert calls == ['https://my-mirror.test|install chromium'], calls
+
+
+@pytest.mark.unit
+def test_pw_install_retries_official_when_mirror_install_fails(tmp_path):
+    """The probe may make an install faster, never break a working one."""
+    result, calls = _run_pw_source(
+        tmp_path,
+        '_install_playwright_chromium "$PW"',
+        FAKE_OFFICIAL_SPEED='1000000',
+        FAKE_MIRROR_SPEED='9000000',
+        FAKE_INSTALL_FAILS_FOR=_MIRROR,
+    )
+    assert result.returncode == 0, result.stderr
+    installs = [c for c in calls if '|install chromium' in c]
+    assert installs == [
+        f'{_MIRROR}|install chromium',
+        '|install chromium',
+    ], calls

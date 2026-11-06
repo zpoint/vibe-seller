@@ -5,8 +5,9 @@
 .DESCRIPTION
   Runs on a Windows runner (GitHub-hosted windows-latest). Produces
   staging\ (relocatable CPython, offline wheels, uv, Git for Windows,
-  claude CLI, tray.py) then invokes Inno Setup to build
-  VibeSeller-Setup.exe.
+  claude CLI, Playwright Chromium, tray.py) then invokes Inno Setup to
+  build VibeSeller-Setup.exe. Nothing the installer needs is fetched on
+  the user's machine.
 
   Nothing here builds on macOS — this is driven by
   .github/workflows/windows-installer.yml. See README.md.
@@ -171,7 +172,76 @@ function Get-ClaudeCli {
   Copy-Item $bin.FullName "$StagingDir\claude\claude.exe"
 }
 
-# -- 6. Tray app + compile installer ----------------------------------
+# -- 6. Chromium (Playwright's browser engine) ------------------------
+
+function Get-Chromium {
+  # Bundle the Chromium build the shipped Playwright expects, so the
+  # installer never downloads it on the user's machine. That download
+  # was the last network step of the install: Playwright fetches from
+  # cdn.playwright.dev, ignores the Windows system proxy, and runs
+  # hidden behind a wizard whose Cancel is disabled — on networks that
+  # can't reach the CDN (common in mainland China) users watched
+  # "Downloading browser engine" for an hour, and closing the wizard
+  # left every Chrome-backend store unable to launch.
+  #
+  # Installed by the Playwright from THIS build's wheel set, so the
+  # revision dirs (chromium-<rev>, ...) match what the installed app
+  # looks for by construction — and asserted below so a mismatch fails
+  # the build instead of silently falling back to a download.
+  Step "Bundling Playwright Chromium (via the wheel set's Playwright)"
+  $venv = "$env:TEMP\vs-pw-venv"
+  if (Test-Path $venv) { Remove-Item -Recurse -Force $venv }
+  python -m venv $venv
+  if ($LASTEXITCODE -ne 0) { throw "python -m venv failed ($LASTEXITCODE)" }
+  & "$venv\Scripts\python.exe" -m pip install --no-index `
+    --find-links "$StagingDir\wheels" playwright
+  if ($LASTEXITCODE -ne 0) {
+    throw "could not install playwright from the wheel set"
+  }
+  $pw = "$venv\Scripts\playwright.exe"
+  $dest = "$StagingDir\ms-playwright"
+  Reset-Dir $dest
+  $orig = $env:PLAYWRIGHT_BROWSERS_PATH
+  try {
+    $env:PLAYWRIGHT_BROWSERS_PATH = $dest
+    & $pw install chromium
+    if ($LASTEXITCODE -ne 0) {
+      throw "playwright install chromium failed ($LASTEXITCODE)"
+    }
+    $dry = & $pw install --dry-run chromium
+  } finally {
+    $env:PLAYWRIGHT_BROWSERS_PATH = $orig
+  }
+  # .links points at this throwaway venv — the installer's own
+  # `playwright install` registers the real one. DEPENDENCIES_VALIDATED
+  # records THIS runner's DLL check; the user's machine must run its own.
+  if (Test-Path "$dest\.links") { Remove-Item -Recurse -Force "$dest\.links" }
+  Get-ChildItem $dest -Recurse -Filter DEPENDENCIES_VALIDATED |
+    Remove-Item -Force
+  # Every location the shipped Playwright will look in must be complete
+  # (its INSTALLATION_COMPLETE marker is what makes it skip a download).
+  $locs = @($dry | Select-String 'Install location:\s+(.+)$' |
+    ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() } |
+    Sort-Object -Unique)
+  if ($locs.Count -eq 0) {
+    throw "playwright --dry-run listed no install locations"
+  }
+  foreach ($l in $locs) {
+    if (-not $l.StartsWith($dest, [StringComparison]::OrdinalIgnoreCase)) {
+      throw "browser location outside the bundle: $l"
+    }
+    if (-not (Test-Path (Join-Path $l 'INSTALLATION_COMPLETE'))) {
+      throw "bundled browser incomplete (no INSTALLATION_COMPLETE): $l"
+    }
+  }
+  if (-not (Get-ChildItem $dest -Recurse -Filter chrome.exe)) {
+    throw "no chrome.exe in the bundled browsers"
+  }
+  $script:BrowserDirs = ($locs | ForEach-Object { Split-Path $_ -Leaf }) -join ','
+  Step "Bundled browsers: $script:BrowserDirs"
+}
+
+# -- 7. Tray app + compile installer ----------------------------------
 
 function Get-ChineseLang {
   # Best-effort: fetch the (unofficial) Simplified Chinese wizard
@@ -205,9 +275,12 @@ function Invoke-Inno {
   if (-not (Test-Path $iscc)) {
     throw "Inno Setup not found at $iscc — install it on the runner first."
   }
+  # BrowserDirs names the bundled ms-playwright subdirs, so the installer
+  # can stop a Chromium still running from them before overwriting.
   & $iscc `
     "/DStagingDir=$StagingDir" `
     "/DAppVersion=$AppVersion" `
+    "/DBrowserDirs=$script:BrowserDirs" `
     "/O$OutputDir" `
     "$PSScriptRoot\vibe-seller.iss"
   if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
@@ -237,6 +310,7 @@ Get-Python
 Get-Uv
 Get-GitForWindows
 Get-ClaudeCli
+Get-Chromium
 Get-ChineseLang
 Copy-TrayAndIcon
 Invoke-Inno

@@ -665,6 +665,114 @@ install_claude() {
 }
 
 # ============================================================
+# Playwright Chromium — download from the faster source
+# ============================================================
+# `playwright install chromium` fetches ~250 MB from cdn.playwright.dev,
+# which is slow or unreachable from mainland China. npmmirror (Alibaba)
+# mirrors the same files and is usually far faster there; elsewhere the
+# official CDN tends to win. Measure both rather than guess from locale.
+PLAYWRIGHT_MIRROR_HOST="https://cdn.npmmirror.com/binaries/playwright"
+
+# The URLs `playwright install chromium` would fetch with
+# PLAYWRIGHT_DOWNLOAD_HOST=$2 ('' = official CDN), one per line.
+_pw_download_urls() {
+    PLAYWRIGHT_DOWNLOAD_HOST="$2" "$1" install --dry-run chromium \
+        2>/dev/null | awk '/Download url:/ {print $3}' | sort -u
+}
+
+# Bytes/sec fetching the first 4 MB of $1; 0 when it doesn't answer
+# 200/206 in time.
+_pw_probe_speed() {
+    local out code speed
+    out=$(curl -sL -r 0-4194303 -o /dev/null --connect-timeout 5 \
+        --max-time 10 -w '%{http_code} %{speed_download}' "$1" \
+        2>/dev/null) || true
+    code=${out%% *}
+    speed=${out##* }
+    speed=${speed%%.*}
+    case "$code" in
+        200|206) ;;
+        *) speed=0 ;;
+    esac
+    case "$speed" in
+        ''|*[!0-9]*) speed=0 ;;
+    esac
+    echo "$speed"
+}
+
+# Echo the PLAYWRIGHT_DOWNLOAD_HOST to use ('' = official CDN). A source
+# qualifies only if EVERY file this Playwright version would fetch is
+# there — the mirror's path layout has changed across Playwright
+# versions, and a half-matching mirror would fail mid-install — then
+# the faster qualifying source wins. Progress goes to stderr.
+_pick_playwright_host() {
+    local pw="$1" host label urls u code ok speed best="" best_speed=-1
+    for host in "" "$PLAYWRIGHT_MIRROR_HOST"; do
+        label=${host:-cdn.playwright.dev}
+        urls=$(_pw_download_urls "$pw" "$host") || urls=""
+        if [ -z "$urls" ]; then
+            _warn "  $label: could not list the files to download"
+            continue
+        fi
+        ok=1
+        for u in $urls; do
+            code=$(curl -sIL -o /dev/null --connect-timeout 5 \
+                --max-time 10 -w '%{http_code}' "$u" 2>/dev/null) \
+                || code=000
+            if [ "$code" != 200 ]; then
+                ok=0
+                break
+            fi
+        done
+        if [ "$ok" != 1 ]; then
+            _info "  $label: unavailable (HTTP $code for ${u##*/})" >&2
+            continue
+        fi
+        speed=$(_pw_probe_speed "$(echo "$urls" | grep -m1 '/chrome-' \
+            || echo "$urls" | head -n1)")
+        _info "  $label: $(awk -v s="$speed" \
+            'BEGIN { printf "%.1f", s / 1048576 }') MB/s" >&2
+        if [ "$speed" -gt "$best_speed" ]; then
+            best="$host"
+            best_speed="$speed"
+        fi
+    done
+    echo "$best"
+}
+
+# Install Playwright's Chromium (with its system libs on Linux) from the
+# faster source. A PLAYWRIGHT_DOWNLOAD_HOST the user already exported
+# wins, unprobed. If the mirror was picked but fails mid-install, retry
+# once from the official CDN — the probe may only make an install
+# faster, never break one that would have worked.
+_install_playwright_chromium() {
+    local pw="$1" host
+    local args=(install chromium)
+    if [[ "$OS" == "linux" ]]; then
+        args=(install --with-deps chromium)
+    fi
+    if [ -n "${PLAYWRIGHT_DOWNLOAD_HOST:-}" ]; then
+        _info "Downloading Chromium from $PLAYWRIGHT_DOWNLOAD_HOST" \
+            "(PLAYWRIGHT_DOWNLOAD_HOST)"
+        "$pw" "${args[@]}"
+        return
+    fi
+    _info "Checking which Chromium download source is faster..."
+    host=$(_pick_playwright_host "$pw")
+    if [ -z "$host" ]; then
+        _info "Downloading Chromium from cdn.playwright.dev"
+        "$pw" "${args[@]}"
+        return
+    fi
+    _info "Downloading Chromium from $host"
+    if PLAYWRIGHT_DOWNLOAD_HOST="$host" "$pw" "${args[@]}"; then
+        return 0
+    fi
+    _warn "Download from $host failed — retrying from cdn.playwright.dev"
+    "$pw" "${args[@]}"
+}
+
+# ============================================================
 # Default (end-user) install path
 # ============================================================
 # Pulls `vibe-seller` from PyPI via `uv tool install`. The wheel ships
@@ -819,11 +927,7 @@ print(max(ok, key=key) if ok else "")
         _error "Couldn't find $tool_dir/bin/playwright after install"
         exit 1
     fi
-    if [[ "$OS" == "linux" ]]; then
-        "$tool_dir/bin/playwright" install --with-deps chromium
-    else
-        "$tool_dir/bin/playwright" install chromium
-    fi
+    _install_playwright_chromium "$tool_dir/bin/playwright"
 
     echo ""
     _success "Vibe Seller installed!"
@@ -957,14 +1061,8 @@ main() {
         # ChromeBackend)
         if [ -f "$VENV_DIR/bin/playwright" ]; then
             _info "Installing Playwright browser binaries..."
-            if [[ "$OS" == "linux" ]]; then
-                "$VENV_DIR/bin/playwright" install \
-                    --with-deps chromium \
-                    || _warn "Playwright browser install failed"
-            else
-                "$VENV_DIR/bin/playwright" install chromium \
-                    || _warn "Playwright browser install failed"
-            fi
+            _install_playwright_chromium "$VENV_DIR/bin/playwright" \
+                || _warn "Playwright browser install failed"
             _success "Playwright browsers installed"
         fi
 
@@ -995,4 +1093,7 @@ main() {
     echo ""
 }
 
-main
+# Tests source this file for its functions without running the installer.
+if [[ "${VIBE_SELLER_INSTALL_SH_NO_MAIN:-}" != 1 ]]; then
+    main
+fi

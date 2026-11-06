@@ -87,6 +87,8 @@ flowchart LR
 
 无需 WSL，无需配置 Python。从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
+这是一个**完整的离线安装包**，Python 运行环境、Claude Code、Git（bash）和 Chrome 浏览器引擎（Chromium）都已经打包在里面。安装时不会再联网下载任何东西，在连不上海外 CDN 的网络里也能装好。
+
 > 需要 **Windows 10 1809 / Windows Server 2019 或更高版本**（64 位）。内置的 Claude Code 在更旧的系统（如 Server 2016）上无法启动，安装程序会直接拒绝安装。
 
 或在 **PowerShell** 里：
@@ -110,6 +112,8 @@ vibe-seller start
 <sub>想抢先用每日构建（夜间版，`main` 有新提交才发，可能不稳定）：`curl -sSL https://raw.githubusercontent.com/zpoint/vibe-seller/main/install.sh | bash -s -- --nightly`；Windows 用 `$env:VIBE_SELLER_CHANNEL='nightly'` 后再跑上面的 PowerShell 命令，或从 [nightly 发布](https://github.com/zpoint/vibe-seller/releases/tag/nightly) 下载安装包。夜间版只会收到更新的夜间版或正式版提示；正式版永远不会被提示升级到夜间版。回到正式版：`vibe-seller upgrade --stable`。</sub>
 
 <sub>环境要求（<code>install.sh</code> 自动处理）：Python 3.11+（经 <a href="https://docs.astral.sh/uv/"><code>uv</code></a>）、Node.js 22+。</sub>
+
+<sub>Chrome 浏览器引擎（Chromium，约 250 MB）会在安装时下载。<code>install.sh</code> 下载前会先分别测一下官方源（cdn.playwright.dev）和国内镜像（npmmirror）的速度，用快的那个；镜像缺文件时不会选它，镜像下载失败也会自动改回官方源重试。如果想指定下载源，可以先设置 <code>PLAYWRIGHT_DOWNLOAD_HOST</code>，设置了就不再测速。</sub>
 
 </details>
 
