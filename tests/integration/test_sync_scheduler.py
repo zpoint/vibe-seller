@@ -37,6 +37,18 @@ from tests.fixtures.fake_github import FakeGitHub
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(autouse=True)
+def _armed_schedule(monkeypatch):
+    """Arm the schedule unless a test says otherwise.
+
+    The suite-wide ``VIBE_SYNC_DISABLED`` disarms the timers so nothing
+    polls a network on its own; these tests are about the schedule and
+    the state table, so they run armed. (What the knob does is pinned
+    in tests/unit/test_sync_scheduler.py.)
+    """
+    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+
+
 class _NullAPS:
     def add_job(self, func, **kwargs):
         self.last = kwargs

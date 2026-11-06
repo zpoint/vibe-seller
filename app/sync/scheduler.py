@@ -213,9 +213,15 @@ def _is_strong(reason: str, force: bool) -> bool:
     return reason != REASON_TICK or force
 
 
-def sync_disabled() -> bool:
-    """``VIBE_SYNC_DISABLED=1`` registers nothing (tests never poll)."""
-    return Options.SYNC_DISABLED.get_bool()
+def timers_armed() -> bool:
+    """Whether scheduled runs exist at all.
+
+    ``VIBE_SYNC_DISABLED=1`` disarms the SCHEDULE, not the jobs: every
+    job is still registered and ``trigger()`` / ``POST /api/sync/{name}/run``
+    / an event trigger still run it — but nothing ticks on its own, so
+    nothing under tests/ reaches a network unless a test asks for it.
+    """
+    return not Options.SYNC_DISABLED.get_bool()
 
 
 # ── Scheduler ──────────────────────────────────────────────────────
@@ -287,13 +293,16 @@ class SyncScheduler:
             raise ValueError(f'duplicate sync job {job.name!r}')
         self._jobs[job.name] = job
         # Registration keeps an overdue anchor overdue: the job fires
-        # as soon as the scheduler runs ("overdue → run now").
+        # as soon as the scheduler runs ("overdue → run now"). With the
+        # schedule disarmed there is no timer at all — the job can only
+        # be run by hand.
         await self._schedule_next(job.name, clamp=False)
         logger.info(
-            'sync job registered: %s cadence=%.0fs toggle=%s',
+            'sync job registered: %s cadence=%.0fs toggle=%s armed=%s',
             job.name,
             cadence_seconds(job.name, job.cadence),
             job.toggle_key or '(none)',
+            timers_armed(),
         )
 
     async def register_all(self, jobs) -> None:
@@ -564,6 +573,11 @@ class SyncScheduler:
         fire at once.
         """
         job = self._require(name)
+        if not timers_armed():
+            # Disarmed (VIBE_SYNC_DISABLED): the job exists and runs on
+            # demand, it just never ticks by itself.
+            self._next.pop(name, None)
+            return
         next_run = await self._compute_next_run(name)
         if clamp and next_run <= datetime.now(UTC):
             next_run = datetime.now(UTC) + timedelta(

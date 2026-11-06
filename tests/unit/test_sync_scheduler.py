@@ -65,6 +65,16 @@ class Recorder:
         return self._result
 
 
+@pytest.fixture(autouse=True)
+def _armed_schedule(monkeypatch):
+    """Every test here is about the schedule — arm it by default.
+
+    The suite-wide ``VIBE_SYNC_DISABLED`` (which disarms the timers)
+    is what the disarm test exercises, explicitly.
+    """
+    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
+
+
 @pytest.fixture
 def state(monkeypatch):
     return FakeState().install(monkeypatch)
@@ -107,13 +117,6 @@ async def test_duplicate_job_name_is_refused(sched):
     await sched.register(job('skills'))
     with pytest.raises(ValueError, match='duplicate sync job'):
         await sched.register(job('skills'))
-
-
-async def test_vibe_sync_disabled_registers_nothing(monkeypatch, aps, state):
-    monkeypatch.setenv('VIBE_SYNC_DISABLED', '1')
-    registered = await sync_jobs.register_jobs(SyncScheduler(aps))
-    assert registered == []
-    assert aps.added == {}
 
 
 async def test_plugin_sync_jobs_are_registered_alongside_core(

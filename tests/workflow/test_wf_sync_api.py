@@ -9,6 +9,7 @@ import asyncio
 
 import pytest
 
+from app.sync import jobs as sync_jobs
 from app.sync.scheduler import (
     REASON_EVENT,
     REASON_MANUAL,
@@ -176,3 +177,39 @@ async def test_ads_authorization_triggers_the_skill_job(
     assert resp.status_code == 200
     assert [c.reason for c in ads.calls] == [REASON_EVENT]
     assert [c.force for c in ads.calls] == [True]
+
+
+async def test_manual_run_works_with_the_schedule_disarmed(admin_client, jobs):
+    """``VIBE_SYNC_DISABLED`` stops the clock, not the work.
+
+    The suite runs with it set, and the Sync button (and an event
+    trigger) must still run a job — only the periodic ticks are gone.
+    """
+    skills, _knowledge, _ads = jobs
+    resp = await admin_client.post('/api/sync/skills/run')
+    assert resp.status_code == 200
+    assert resp.json()['status'] == 'updated'
+    assert len(skills.calls) == 1
+
+
+async def test_disarmed_schedule_registers_every_job_but_no_timers(
+    admin_client,
+):
+    """Every job exists under the knob (status, manual runs, events) —
+    none of them is scheduled."""
+    sync_scheduler.reset()
+    await sync_jobs.register_jobs(sync_scheduler)
+    try:
+        body = (await admin_client.get('/api/sync/status')).json()
+        names = {row['name'] for row in body['jobs']}
+        assert {
+            'skills',
+            'knowledge',
+            'ads_skill',
+            'presets',
+            'email',
+            'daemon_reaper',
+        } <= names
+        assert all(row['next_run_at'] is None for row in body['jobs'])
+    finally:
+        sync_scheduler.reset()

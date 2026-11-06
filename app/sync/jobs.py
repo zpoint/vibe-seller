@@ -34,7 +34,6 @@ from app.sync.scheduler import (
     SyncJob,
     SyncResult,
     SyncScheduler,
-    sync_disabled,
 )
 from app.sync.state import STATUS_FAILED, STATUS_UNCHANGED, STATUS_UPDATED
 from app.workspace.knowledge_sync import knowledge_sync
@@ -240,13 +239,12 @@ def core_jobs() -> list[SyncJob]:
 async def register_jobs(scheduler: SyncScheduler) -> list[str]:
     """Register core + plugin jobs; returns the registered names.
 
-    ``VIBE_SYNC_DISABLED=1`` registers nothing — what the test suite
-    sets, so nothing under tests/ ever reaches GitHub or an ads
-    service on its own.
+    ``VIBE_SYNC_DISABLED=1`` disarms the SCHEDULE, not the jobs: they
+    are all registered (so a manual run, an event trigger and
+    ``GET /api/sync/status`` all work) but none of them ever ticks on
+    its own — which is what keeps tests/ away from GitHub and ads
+    services unless a test explicitly asks for a run.
     """
-    if sync_disabled():
-        logger.info('sync scheduler: no jobs registered (VIBE_SYNC_DISABLED)')
-        return []
     jobs = [*core_jobs(), *registered_sync_jobs()]
     await scheduler.register_all(jobs)
     logger.info('sync scheduler: registered %s', [j.name for j in jobs])
