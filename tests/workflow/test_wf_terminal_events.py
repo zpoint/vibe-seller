@@ -8,7 +8,6 @@ chokepoint as the parked-time accounting — so new terminal writers
 cannot miss it.
 """
 
-import asyncio
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -53,6 +52,7 @@ class TestTerminalEvents:
         )
         task_id = r.json()['id']
         data = await wait_for_task(admin_client, task_id)
+        await telemetry_tasks.drain_terminal_emits()
         assert data['status'] == 'completed'
         done = [p for e, p in calls if e == 'task_completed']
         assert len(done) == 1, f'expected one task_completed, got {calls}'
@@ -83,6 +83,7 @@ class TestTerminalEvents:
         )
         task_id = r.json()['id']
         data = await wait_for_task(admin_client, task_id, target='failed')
+        await telemetry_tasks.drain_terminal_emits()
         assert data['status'] == 'failed'
         failed = [p for e, p in calls if e == 'task_failed']
         assert len(failed) == 1, f'expected one task_failed, got {calls}'
@@ -111,9 +112,11 @@ class TestTerminalEvents:
         )
         task_id = r.json()['id']
         data = await wait_for_task(admin_client, task_id, target='planned')
+        await telemetry_tasks.drain_terminal_emits()
         assert data['status'] == 'planned'
         await admin_client.post(f'/api/tasks/{task_id}/execute-plan')
         data = await wait_for_task(admin_client, task_id)
+        await telemetry_tasks.drain_terminal_emits()
         assert data['status'] == 'completed'
         done = [p for e, p in calls if e == 'task_completed']
         assert len(done) == 1, f'expected one task_completed, got {calls}'
@@ -141,6 +144,7 @@ class TestTerminalEvents:
         )
         task_id = r.json()['id']
         await wait_for_task(admin_client, task_id)
+        await telemetry_tasks.drain_terminal_emits()
         before = len([1 for e, _ in calls if e == 'task_completed'])
         r = await admin_client.post(
             f'/api/tasks/{task_id}/messages',
@@ -148,6 +152,7 @@ class TestTerminalEvents:
         )
         assert r.status_code in (200, 201), r.text
         await wait_for_task(admin_client, task_id)
+        await telemetry_tasks.drain_terminal_emits()
         after = len([1 for e, _ in calls if e == 'task_completed'])
         assert after - before == 1, (
             f'follow-up run must emit exactly once, delta={after - before}'
@@ -187,6 +192,7 @@ class TestTerminalEvents:
                 break
         await admin_client.post(f'/api/tasks/{task_id}/agent/stop')
         await wait_for_task(admin_client, task_id, target='failed')
+        await telemetry_tasks.drain_terminal_emits()
         cancelled = [p for e, p in calls if e == 'task_cancelled']
         failed = [p for e, p in calls if e == 'task_failed']
         assert len(cancelled) == 1, f'want one task_cancelled: {calls}'
@@ -217,7 +223,7 @@ class TestTerminalEvents:
             db.add(t)
             await db.commit()
         await reap_stalled_running_tasks()
-        await asyncio.sleep(0.2)
+        await telemetry_tasks.drain_terminal_emits()
         failed = [p for e, p in calls if e == 'task_failed']
         assert len(failed) == 1, f'want one task_failed, got {calls}'
         assert failed[0]['task_id'] == 't-stall-1'
@@ -261,7 +267,7 @@ class TestTerminalEvents:
             )
             await db.commit()
         await reap_stuck_planning_tasks()
-        await asyncio.sleep(0.2)
+        await telemetry_tasks.drain_terminal_emits()
         failed = [p for e, p in calls if e == 'task_failed']
         assert len(failed) == 1, f'want one task_failed, got {calls}'
         assert failed[0]['task_id'] == 't-planreap-1'
@@ -304,7 +310,7 @@ class TestTerminalStructural:
             t = await db.get(Task, 't-term-1')
             t.status = TaskStatus.COMPLETED
             await db.rollback()
-        await asyncio.sleep(0.05)
+        await telemetry_tasks.drain_terminal_emits()
         assert [e for e, _ in calls if e.startswith('task_')] == [], calls
 
     async def test_commit_emits_once(self, term_env):
@@ -314,7 +320,7 @@ class TestTerminalStructural:
             t.status = TaskStatus.COMPLETED
             t.completed_at = datetime.now(UTC).isoformat()
             await db.commit()
-        await asyncio.sleep(0.1)
+        await telemetry_tasks.drain_terminal_emits()
         done = [p for e, p in calls if e == 'task_completed']
         assert len(done) == 1, calls
         assert done[0]['task_id'] == 't-term-1'
@@ -326,12 +332,12 @@ class TestTerminalStructural:
             t.status = TaskStatus.COMPLETED
             t.completed_at = datetime.now(UTC).isoformat()
             await db.commit()
-        await asyncio.sleep(0.1)
+        await telemetry_tasks.drain_terminal_emits()
         async with maker() as db:
             t = await db.get(Task, 't-term-1')
             t.status = TaskStatus.COMPLETED
             await db.commit()
-        await asyncio.sleep(0.1)
+        await telemetry_tasks.drain_terminal_emits()
         done = [p for e, p in calls if e == 'task_completed']
         assert len(done) == 1, f're-assignment must not re-emit: {calls}'
 
@@ -342,7 +348,7 @@ class TestTerminalStructural:
             t.status = TaskStatus.FAILED
             t.error_category = 'stopped_by_user'
             await db.commit()
-        await asyncio.sleep(0.1)
+        await telemetry_tasks.drain_terminal_emits()
         assert [e for e, _ in calls] == ['task_cancelled'], calls
 
     def test_hooks_registered(self):

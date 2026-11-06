@@ -387,6 +387,13 @@ def _emit_terminal_on_commit(sync_session) -> None:
         _spawn_emit(loop, _emit_terminal(task_id, from_status, to_status))
 
 
+async def drain_terminal_emits() -> None:
+    while _pending_terminal_emits:
+        await asyncio.gather(
+            *list(_pending_terminal_emits), return_exceptions=True
+        )
+
+
 def _spawn_emit(loop, coro) -> None:
     task = loop.create_task(coro)
     _pending_terminal_emits.add(task)
@@ -419,7 +426,7 @@ async def _emit_terminal(task_id: str, from_status: str, to_status: str):
             await send_task_completed(task)
             return
         if (task.error_category or '') == 'stopped_by_user':
-            await send_task_cancelled(task, status_at=from_status)
+            send_task_cancelled(task, status_at=from_status)
             return
         phase = terminal_failure_phase.get()
         if not phase:
