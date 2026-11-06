@@ -24,6 +24,10 @@
 
 <img width="3073" height="1360" alt="2_combined" src="docs/images/2_combined_zh.png" />
 
+🔥 *最新动态* 🔥
+
+- [2026 年 11 月] **亚马逊广告直连 Ads API**：同一个广告优化任务从 147 分钟缩短到 11 分钟，人工介入更少：[**详情**](docs/ads-api.md)
+
 
 
 
@@ -149,21 +153,25 @@ cd vibe-seller
 
 ### 2. 填 LLM Key
 
-`设置 → AI Agent` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
 
 > **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
 
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
-<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+<img width="2048" height="1176" alt="设置 → AI" src="docs/images/setup_ai_zh.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+<img width="1344" height="1768" alt="创建 AI 配置文件" src="docs/images/setup_profile_zh.png" />
+
+<img width="100%" alt="演示：配置 AI" src="docs/images/setup_ai_zh.gif" />
 
 ### 3. 绑定店铺
 
-`设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档案、保存。不用紫鸟可以选普通 Chrome。
+在首页侧栏点「**新建店铺**」，填店铺名称，浏览器后端选「**紫鸟（浏览器后端）**」：点「+」添加紫鸟账号（公司 / 用户名 / 密码），给店铺挑对应的紫鸟档案，点「**创建**」。不用紫鸟的话后端选「Chrome (Playwright)」。
 
-<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
+<img width="1152" height="1028" alt="新建店铺" src="docs/images/setup_store_zh.png" />
+
+<img width="100%" alt="演示：绑定店铺" src="docs/images/setup_store_zh.gif" />
 
 ### 4. 创建第一个任务
 
@@ -176,6 +184,8 @@ cd vibe-seller
 Agent 自己规划步骤、操作浏览器、最后给你一份结果报告。默认 Auto 模式，直接跑就行；任务详情底部可以切到 Plan 模式让它先把计划交给你审。
 
 > 还想接邮件 / 企业微信 / TickTick / Google Workspace？`设置 → 集成` 里随时都能配，不影响你先把第一个任务跑通。
+
+> 想让 Amazon 广告操作直连 API（更稳、支持批量和历史数据）？可选，见 [Amazon Ads API 绑定](docs/ads-api.md)。
 
 </details>
 
@@ -222,7 +232,7 @@ http://localhost:7777
 
 ### 5. 填 LLM Key
 
-`设置 → AI Agent` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
 
 > **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
 
@@ -238,15 +248,19 @@ http://localhost:7777
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
 > ```
 
-<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+<img width="2048" height="1176" alt="设置 → AI" src="docs/images/setup_ai_zh.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+<img width="1344" height="1768" alt="创建 AI 配置文件" src="docs/images/setup_profile_zh.png" />
+
+<img width="100%" alt="演示：配置 AI" src="docs/images/setup_ai_zh.gif" />
 
 ### 6. 绑定店铺
 
-`设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档案、保存。不用紫鸟可以选普通 Chrome。
+在首页侧栏点「**新建店铺**」，填店铺名称，浏览器后端选「**紫鸟（浏览器后端）**」：点「+」添加紫鸟账号（公司 / 用户名 / 密码），给店铺挑对应的紫鸟档案，点「**创建**」。不用紫鸟的话后端选「Chrome (Playwright)」。
 
-<img width="969" height="1350" alt="ziniao" src="docs/images/ziniao.png" />
+<img width="1152" height="1028" alt="新建店铺" src="docs/images/setup_store_zh.png" />
+
+<img width="100%" alt="演示：绑定店铺" src="docs/images/setup_store_zh.gif" />
 
 ### 7. （可选）配置邮件 / 企业微信
 
@@ -257,6 +271,8 @@ http://localhost:7777
 - **TickTick / Google Workspace**：要把结果同步到日程或文档的话，这里也能接。
 
 跳过没关系，先把第一个任务跑通再说。
+
+> 想让 Amazon 广告操作直连 API（更稳、支持批量和历史数据）？可选，见 [Amazon Ads API 绑定](docs/ads-api.md)。
 
 ### 8. 创建第一个任务
 
@@ -313,7 +329,7 @@ http://localhost:7777
 
 ### 5. 填 LLM Key
 
-`设置 → AI Agent` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
 
 > **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
 
@@ -329,21 +345,23 @@ http://localhost:7777
 > python3 -c "import json,pathlib;p=pathlib.Path.home()/'.claude'/'settings.json';d=json.loads(p.read_text());env=d.get('env') or {};[env.pop(k,None) for k in list(env) if k.startswith('ANTHROPIC_')];d['env']=env;p.write_text(json.dumps(d,indent=2))"
 > ```
 
-<img width="3783" height="1554" alt="llm_1" src="docs/images/llm_1.png" />
+<img width="2048" height="1176" alt="设置 → AI" src="docs/images/setup_ai_zh.png" />
 
-<img width="1082" height="1418" alt="llm_2" src="docs/images/llm_2.png" />
+<img width="1344" height="1768" alt="创建 AI 配置文件" src="docs/images/setup_profile_zh.png" />
+
+<img width="100%" alt="演示：配置 AI" src="docs/images/setup_ai_zh.gif" />
 
 ### 6. 绑定店铺
 
-`设置 → 店铺 → 添加紫鸟账号`，填好账号、给每个店铺挑对应紫鸟档案、保存。不用紫鸟可以选普通 Chrome。
+在首页侧栏点「**新建店铺**」，填店铺名称，浏览器后端选「**紫鸟（浏览器后端）**」：点「+」添加紫鸟账号（公司 / 用户名 / 密码），给店铺挑对应的紫鸟档案，点「**创建**」。不用紫鸟的话后端选「Chrome (Playwright)」。
 
 紫鸟装在 Windows 侧，Vibe Seller 跑在 WSL 里。紫鸟同一时间只能跑一种模式，Vibe Seller 需要开发者模式（也叫 WebDriver 模式，这个模式才会开 CDP）。WSL 这边没法直接重启 Windows 上的紫鸟，所以要在 Windows 侧用启动器：
 
-1. 从 `设置 → 店铺 → 下载启动器` 下载 `ziniao_webdriver.bat`。
+1. 选好紫鸟账号后会出现「紫鸟未运行或未处于 WebDriver 模式」的提示框，点里面的「**下载 ziniao_webdriver.bat**」。
 2. 在 Windows 上双击运行。
 3. 回到 WSL 里的 Vibe Seller，紫鸟页面点「**刷新**」按钮，账号自动出现，不用手填字段。
 
-<img width="906" height="1251" alt="ziniao_wsl" src="docs/images/ziniao_wsl.png" />
+<img width="1520" height="1258" alt="下载 ziniao_webdriver.bat" src="docs/images/setup_store_wsl_zh.png" />
 
 ### 7. （可选）配置邮件 / 企业微信
 
@@ -354,6 +372,8 @@ http://localhost:7777
 - **TickTick / Google Workspace**：要把结果同步到日程或文档的话，这里也能接。
 
 跳过没关系，先把第一个任务跑通再说。
+
+> 想让 Amazon 广告操作直连 API（更稳、支持批量和历史数据）？可选，见 [Amazon Ads API 绑定](docs/ads-api.md)。
 
 ### 8. 创建第一个任务
 
@@ -393,6 +413,7 @@ Vibe Seller 是个 **AI Agent 框架**，浏览器只是它的工具之一。Age
 
 | 服务 | 干啥 |
 |---|---|
+| **Amazon Ads API** | 亚马逊广告任务直连接口，不再靠浏览器点卖家后台——实测同一个广告任务从 147 分钟缩短到 11 分钟。[绑定步骤和实测对比](docs/ads-api.md) |
 | **邮件**（IMAP/SMTP） | 读你绑定的店铺邮箱，分类、转发、起草回复 |
 | **群机器人**（企业微信 / 钉钉 / 飞书 / Slack） | 推送重要事件、跨群通知、买家询盘转发 |
 | **滴答清单 / TickTick** | 自动建待办（追单、跟进、定期检查） |
@@ -466,9 +487,9 @@ Vibe Seller 本身免费开源，花钱的只有你自己的 LLM API Key——�
 两个模式共用同一个紫鸟进程，不能同时跑。切换模式 = 重启紫鸟：
 
 - **macOS / 原生 Windows**：Vibe Seller 自己来——打开店铺时它会先把普通模式的紫鸟杀掉，然后带 `--run_type=web_driver` 重新拉起，两个平台都一样自动接管，不用你操心。
-- **Windows（WSL）**：WSL 这边没法跨虚拟机边界重启 Windows 上的紫鸟，所以 Windows 侧需要跑一个一行的 `.bat` 启动器（从 `设置 → 店铺 → 下载启动器` 里下载）来完成杀掉 + 重启。双击跑一次就行，之后 Vibe Seller 通过「**刷新**」按钮就能识别到开发者模式的会话。
+- **Windows（WSL）**：WSL 这边没法跨虚拟机边界重启 Windows 上的紫鸟，所以 Windows 侧需要跑一个一行的 `.bat` 启动器（绑定店铺时紫鸟提示框里点「下载 ziniao_webdriver.bat」）来完成杀掉 + 重启。双击跑一次就行，之后 Vibe Seller 通过「**刷新**」按钮就能识别到开发者模式的会话。
 
-**需要的凭据**——在 `设置 → 店铺` 里加一个「紫鸟账号」，填三个字段：
+**需要的凭据**——新建店铺（浏览器后端选「紫鸟」）时点「+」加一个「紫鸟账号」，填三个字段：
 
 | 字段 | 是什么 |
 |---|---|
@@ -485,7 +506,7 @@ Vibe Seller 本身免费开源，花钱的只有你自己的 LLM API Key——�
 - **密码**：落盘前加密，密钥从你本地安装派生，任何 HTTP 接口都不会把密码返回给前端——只在 Vibe Seller 要调紫鸟 HTTP API 那一刻才在内存里解密。
 - **公司名称** 和 **用户名**：明文存储——这俩是身份标识，跟邮箱地址一个性质。
 
-让你填密码这件事是没办法的：紫鸟开发者模式的 HTTP API 走的就是账号密码，没有 OAuth / token 替代。不能接受就走普通 Chrome：`设置 → 店铺 → 添加 Chrome 店铺`。想看具体加密实现的可以翻 [`docs/dev-guide.md`](docs/dev-guide.md)。
+让你填密码这件事是没办法的：紫鸟开发者模式的 HTTP API 走的就是账号密码，没有 OAuth / token 替代。不能接受就走普通 Chrome：新建店铺时浏览器后端选「Chrome (Playwright)」。想看具体加密实现的可以翻 [`docs/dev-guide.md`](docs/dev-guide.md)。
 
 </details>
 
