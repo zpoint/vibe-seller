@@ -419,10 +419,6 @@ class SkillsSyncManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(meta, indent=2))
 
-    def get_sync_meta(self) -> dict:
-        """The inventory file, as-is (for tests and the MCP tool)."""
-        return self._read_sync_meta()
-
     # ── Google Workspace bundle flag ────────────────────
 
     def is_gws_installed(self) -> bool:

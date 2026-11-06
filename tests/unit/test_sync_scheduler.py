@@ -119,6 +119,7 @@ async def test_vibe_sync_disabled_registers_nothing(monkeypatch, aps, state):
 async def test_plugin_sync_jobs_are_registered_alongside_core(
     monkeypatch, aps, state
 ):
+    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
     plugin_job = job('plugin_thing', run=Recorder())
     monkeypatch.setattr(sync_jobs, 'registered_sync_jobs', lambda: [plugin_job])
     names = await sync_jobs.register_jobs(SyncScheduler(aps))
@@ -503,8 +504,11 @@ async def test_skip_reason_is_in_the_line(sched, state, caplog):
 # ── the migrated jobs ─────────────────────────────────────────────
 
 
-async def test_email_and_daemon_reaper_are_on_the_registry(aps, state):
+async def test_email_and_daemon_reaper_are_on_the_registry(
+    aps, state, monkeypatch
+):
     """M3: both left their own loops behind for the one scheduler."""
+    monkeypatch.delenv('VIBE_SYNC_DISABLED', raising=False)
     sched = SyncScheduler(aps)
     await sched.register_all(sync_jobs.core_jobs())
     jobs = sched.jobs

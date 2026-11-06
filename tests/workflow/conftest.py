@@ -393,9 +393,6 @@ def mock_knowledge_sync(monkeypatch):
         async def fetch(self):
             return {'copied': 0, 'status': 'ok'}
 
-        async def fetch_remote(self):
-            return {'status': 'ok', 'fetched': 0}
-
         def get_sync_status(self):
             return {'synced': True, 'files': 0}
 
@@ -450,9 +447,6 @@ def mock_skills_sync(monkeypatch):
 
         async def do_remote_sync(self, client):
             return {'status': 'success', 'copied': 0, 'skipped': 0}
-
-        def get_sync_meta(self):
-            return {'synced_skills': []}
 
     mock = _Mock()
     monkeypatch.setattr('app.sync.jobs.skills_sync', mock)

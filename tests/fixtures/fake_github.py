@@ -112,6 +112,15 @@ class FakeGitHub:
             self.counts['other'] += 1
             return _Reply(405, b'method not allowed')
 
+        if path == '/__counts':
+            return _Reply(
+                200,
+                json.dumps({
+                    'counts': dict(self.counts),
+                    'commit': self.commit,
+                    'etag': self.etag,
+                }).encode(),
+            )
         if path.endswith(REPO_PATH):
             return self._commits(lower)
         match = _RAW_RE.match(path)

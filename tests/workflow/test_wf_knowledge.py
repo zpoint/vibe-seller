@@ -1,8 +1,7 @@
 """Workflow tests for the knowledge sync job's API surface.
 
-Replaces the tests for the retired ``/api/workspace/knowledge/sync``
-and ``/sync-meta`` endpoints: the knowledge job is on the central sync
-scheduler now, and it has no toggle (an explicit product decision).
+Replaces the tests for the retired knowledge sync route
+endpoints: the knowledge job is on the central sync scheduler now, and it has no toggle (an explicit product decision).
 """
 
 import pytest

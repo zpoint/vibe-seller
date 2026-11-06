@@ -16,8 +16,7 @@ pytestmark = pytest.mark.workflow
 class TestSkillsSync:
     """The skills sync is the scheduler's ``skills`` job now.
 
-    The old ``/api/workspace/skills/sync`` + ``/sync-meta`` endpoints
-    are gone; these exercise the replacement.
+    The per-module skills sync endpoints are gone; these exercise the replacement.
     """
 
     @pytest.fixture

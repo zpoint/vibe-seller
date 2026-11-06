@@ -1,7 +1,7 @@
 """Sync status + manual runs for the central sync scheduler.
 
-Replaces the per-module ``/api/workspace/{skills,knowledge}/sync`` and
-``/sync-meta`` endpoints: one place to see when every sync job last
+Replaces the per-module sync endpoints the workspace routes used to
+carry: one place to see when every sync job last
 ran, what upstream version it holds, whether a synced change is
 waiting for a restart — and to make one run now.
 """

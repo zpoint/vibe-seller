@@ -433,8 +433,7 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | GET | `/api/sync/status` | Every registered sync job with its `sync_state` row (`last_run_at`, `last_ok_at`, `version`, `etag`, `status`, `error`, `needs_restart`, `detail`, `cadence`, `enabled`, `running`, `next_run_at`) plus a top-level `needs_restart` |
 | POST | `/api/sync/{name}/run` | Run one job now. Manual runs bypass the job's auto-sync toggle and force real work instead of an "unchanged" probe. 404 for an unregistered job |
 
-Replaces the retired `/api/workspace/{skills,knowledge}/sync` and
-`/sync-meta` endpoints. See [subsystems.md § Central sync scheduler](subsystems.md#central-sync-scheduler-appsync).
+Replaces the per-module sync routes the workspace router used to carry. See [subsystems.md § Central sync scheduler](subsystems.md#central-sync-scheduler-appsync).
 
 ## `workspace_assistant.py` — Workspace AI Assistant
 

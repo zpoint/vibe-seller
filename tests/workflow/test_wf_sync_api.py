@@ -2,8 +2,7 @@
 
 Covers what the web UI and the hosted MCP endpoint now call:
 ``GET /api/sync/status`` and ``POST /api/sync/{name}/run``, plus the
-retirement of the old ``/api/workspace/*/sync`` and ``/sync-meta``
-endpoints.
+retirement of the per-module sync endpoints.
 """
 
 import asyncio
