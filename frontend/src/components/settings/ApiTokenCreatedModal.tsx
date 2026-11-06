@@ -170,17 +170,8 @@ export function ApiTokenCreatedModal({ token, onClose }: Props) {
           id="codex"
           label={t('apiTokens.codex')}
           hint={t('apiTokens.codexHint')}
-          text={snippets.codexExport}
+          text={snippets.codex}
           copied={copied === 'codex'}
-          onCopy={copy}
-        />
-
-        <SnippetBlock
-          id="codex-toml"
-          label={t('apiTokens.codexToml')}
-          hint={t('apiTokens.codexTomlHint')}
-          text={snippets.codexToml}
-          copied={copied === 'codex-toml'}
           onCopy={copy}
         />
 
@@ -190,6 +181,15 @@ export function ApiTokenCreatedModal({ token, onClose }: Props) {
           hint={t('apiTokens.workbuddyHint')}
           text={snippets.workbuddy}
           copied={copied === 'workbuddy'}
+          onCopy={copy}
+        />
+
+        <SnippetBlock
+          id="qoder"
+          label={t('apiTokens.qoder')}
+          hint={t('apiTokens.qoderHint')}
+          text={snippets.qoder}
+          copied={copied === 'qoder'}
           onCopy={copy}
         />
 

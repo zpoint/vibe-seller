@@ -34,7 +34,7 @@ being produced.
 | Answer the task agent's questions | See the task's live browser session |
 | Approve or reject a plan before it runs | Speed up, batch, or parallelise one task's work |
 | Send follow-up messages to a running task | Write into the store yourself (the task agent does that) |
-| Read and edit the workspace knowledge the web UI edits; manage skills; drive the workspace assistant | Manage users or API tokens |
+| Read and edit the workspace knowledge the web UI edits; manage skills; drive the workspace assistant | Manage users or API keys |
 | Manage the Settings pages: stores, browsers, Ziniao accounts, AI profiles, app settings, email, chat bots, TickTick | Read back a secret (they are write-only) |
 
 The Settings-page tools (`manage_store`, `manage_ziniao_account`,

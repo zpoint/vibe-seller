@@ -10,33 +10,34 @@ every gate on the server (plan approval, ad-scope declarations, the
 completeness review) still applies. See
 [What the agent can and cannot do](#4-what-the-agent-can-and-cannot-do).
 
-## 1. Mint a token
+## 1. Mint an API key
 
-In the Vibe Seller web UI: **Settings → API tokens → Create token**.
+In the Vibe Seller web UI: **Settings → Integrations → API keys →
+Create API key**.
 
 Give it a name you will recognise later (e.g. `claude-code`), pick an
-expiry (30 / 90 / 365 days, or never), and copy the token. It is shown
-**once** — the server keeps only a hash. If you lose it, revoke it and
-mint another.
+expiry (never by default, or 30 / 90 / 365 days), and copy the API key.
+It is shown **once** — the server keeps only a hash. If you lose it,
+revoke it and mint another.
 
-The token starts with `vst_`. Treat it like a password:
+The key starts with `vst_`. Treat it like a password:
 
 - it acts as **you**, with your role, on every server it is used against;
 - it has no scopes — it can do what you can do;
 - revoke it from the same page when you are done, or when you suspect it
   leaked.
 
-A token has its owner's full role on everything except **user
+An API key has its owner's full role on everything except **user
 management and credentials**: the mutating `/api/users` routes,
 `/api/auth/me/password`, `POST /api/auth/tokens` (minting — a leaked
-token can never mint its own never-expiring replacement) and
+key can never mint its own never-expiring replacement) and
 `POST /api/auth/refresh` all answer 403 to a `vst_` credential, so
-revoking a token cuts everything it could have planted. Listing and
-revoking tokens stay open to it. Mint always from a signed-in browser
-session, and manage users from the web UI — so treat the token like
+revoking a key cuts everything it could have planted. Listing and
+revoking keys stay open to it. Mint always from a signed-in browser
+session, and manage users from the web UI — so treat the key like
 the password anyway: it can still create and run tasks.
 
-If the server runs with `auth_required` off, a token still works (and
+If the server runs with `auth_required` off, a key still works (and
 still gets revoked for real) — mint one anyway, so turning auth on later
 does not lock your agent out.
 
@@ -61,7 +62,7 @@ Claude Code asks for two values:
 | Option | What to enter |
 | --- | --- |
 | **Vibe Seller server URL** | The base URL, e.g. `http://127.0.0.1:7777` or `https://vibe.example.com`. No trailing slash, no `/api/mcp` suffix — the plugin appends `/api/mcp` itself. |
-| **API token** | The `vst_…` token you minted. Stored in the credential store, not in `settings.json`. |
+| **API key** | The `vst_…` key you minted. Stored in the credential store, not in `settings.json`. |
 
 The plugin lives in the `agent/` directory of this repo:
 [`agent/.claude-plugin/plugin.json`](https://github.com/zpoint/vibe-seller/blob/main/agent/.claude-plugin/plugin.json),
@@ -74,9 +75,13 @@ No plugin, just the server. The skill is then absent, so the agent has
 the tools but not the guidance on how to use them well.
 
 ```bash
-claude mcp add --transport http vibe-seller http://HOST:7777/api/mcp \
-  --header "Authorization: Bearer vst_YOUR_TOKEN"
+claude mcp add --scope user --transport http vibe-seller \
+  http://HOST:7777/api/mcp --header "Authorization: Bearer vst_YOUR_TOKEN"
 ```
+
+`--scope user` matters: without it the server registers for the current
+folder only, and Claude desktop's Code tab in other folders won't see
+it.
 
 ### Codex
 
@@ -85,15 +90,13 @@ claude mcp add --transport http vibe-seller http://HOST:7777/api/mcp \
 ```toml
 [mcp_servers.vibe-seller]
 url = "http://HOST:7777/api/mcp"
-bearer_token_env_var = "VIBE_SELLER_TOKEN"
+http_headers = { "Authorization" = "Bearer vst_YOUR_TOKEN" }
 ```
 
-Export the token before starting Codex — Codex reads it from the
-environment, so it never lands in the config file:
-
-```bash
-export VIBE_SELLER_TOKEN="vst_YOUR_TOKEN"
-```
+`http_headers` is Codex's static-header map for streamable-HTTP
+servers, sent on every request. Don't use `bearer_token_env_var` +
+`export VIBE_SELLER_TOKEN=…` here: the Codex desktop app does not
+inherit shell exports, so the token never reaches it.
 
 ### WorkBuddy
 
@@ -111,6 +114,9 @@ export VIBE_SELLER_TOKEN="vst_YOUR_TOKEN"
   }
 }
 ```
+
+After saving the file, enable/trust the server in WorkBuddy's MCP
+settings — and re-trust it after every edit of the file.
 
 > The WorkBuddy config shape comes from a third-party vendor document —
 > there is no official Tencent documentation for it. If your WorkBuddy
@@ -365,9 +371,9 @@ click/navigate/screenshot in the external toolset, on purpose.
 review plans, resolve image-confirm cards, send follow-ups, stop and
 retry, read a task's full log and output files, read and edit the
 workspace knowledge the UI edits, manage skills, drive the workspace
-assistant — and, acting as the token's owner, manage the Settings pages
+assistant — and, acting as the key's owner, manage the Settings pages
 (stores, browsers, Ziniao accounts, AI profiles, app settings, email
-accounts, chat bots, TickTick). Not users or API tokens.
+accounts, chat bots, TickTick). Not users or API keys.
 
 **Cannot**: drive a browser (click, navigate, screenshot) or write into
 your store directly — `browser` only starts a session for tasks to use.
@@ -387,7 +393,8 @@ server machine, and it is a developer tool, not an external-agent feature.
 ## 5. Troubleshooting
 
 **401 Unauthorized.** The token is wrong, revoked, expired, or belongs to
-a deactivated user. Check the token's status in Settings → API tokens. A
+a deactivated user. Check the key's status in Settings → Integrations →
+API keys. A
 revoked or expired `vst_` token is rejected even when the server runs
 with `auth_required` off — that is deliberate, so revoking really
 revokes.

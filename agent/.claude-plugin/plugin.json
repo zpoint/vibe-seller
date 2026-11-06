@@ -27,8 +27,8 @@
     },
     "token": {
       "type": "string",
-      "title": "API token",
-      "description": "Personal access token, minted in Vibe Seller under Settings -> API tokens. Sent as a Bearer token.",
+      "title": "API key",
+      "description": "Personal access token, minted in Vibe Seller under Settings -> Integrations -> API keys. Sent as a Bearer token.",
       "required": true,
       "sensitive": true
     }

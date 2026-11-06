@@ -1,12 +1,12 @@
 /**
  * Contract tests for the Settings tab shape after the redesign:
- *   - tabs: stores, general, aiAgent, email, account, apiTokens,
- *     integrations
+ *   - tabs: stores, general, aiAgent, email, account, integrations
  *   - tab_security renamed to tab_account (login settings + users)
  *   - tab_channels renamed to tab_email (email accounts)
  *   - new tab_general for cross-cutting defaults (task retention,
  *     concurrency, schedule defaults, telemetry, default plan mode)
- *   - new tab_apiTokens for personal access tokens (external agents)
+ *   - the API-tokens tab is retired: personal API keys live as the
+ *     first card inside Integrations (external agents need them)
  *   - eventSync tab still removed; its content lives in Integrations
  */
 import { describe, it, expect } from 'vitest'
@@ -42,7 +42,6 @@ describe('Settings tab redesign', () => {
       expect(s.tab_aiAgent).toBeTruthy()
       expect(s.tab_email).toBeTruthy()
       expect(s.tab_account).toBeTruthy()
-      expect(s.tab_apiTokens).toBeTruthy()
       expect(s.tab_integrations).toBeTruthy()
     })
 
@@ -53,7 +52,6 @@ describe('Settings tab redesign', () => {
       expect(s.tab_aiAgent).toBeTruthy()
       expect(s.tab_email).toBeTruthy()
       expect(s.tab_account).toBeTruthy()
-      expect(s.tab_apiTokens).toBeTruthy()
       expect(s.tab_integrations).toBeTruthy()
     })
 
@@ -62,6 +60,7 @@ describe('Settings tab redesign', () => {
       expect('tab_security' in s).toBe(false)
       expect('tab_channels' in s).toBe(false)
       expect('tab_eventSync' in s).toBe(false)
+      expect('tab_apiTokens' in s).toBe(false)
     })
 
     it('ZH: legacy keys are removed', () => {
@@ -69,6 +68,7 @@ describe('Settings tab redesign', () => {
       expect('tab_security' in s).toBe(false)
       expect('tab_channels' in s).toBe(false)
       expect('tab_eventSync' in s).toBe(false)
+      expect('tab_apiTokens' in s).toBe(false)
     })
   })
 
@@ -82,7 +82,7 @@ describe('Settings tab redesign', () => {
       expect(tabList).toMatch(/['"]general['"]/)
       expect(tabList).toMatch(/['"]account['"]/)
       expect(tabList).toMatch(/['"]email['"]/)
-      expect(tabList).toMatch(/['"]apiTokens['"]/)
+      expect(tabList).not.toMatch(/['"]apiTokens['"]/)
       expect(tabList).not.toMatch(/['"]security['"]/)
       expect(tabList).not.toMatch(/['"]channels['"]/)
       expect(tabList).not.toMatch(/['"]eventSync['"]/)
@@ -92,6 +92,14 @@ describe('Settings tab redesign', () => {
       expect(settingsSource).not.toMatch(/settingsTab\s*===\s*['"]eventSync['"]/)
       expect(settingsSource).not.toMatch(/settingsTab\s*===\s*['"]security['"]/)
       expect(settingsSource).not.toMatch(/settingsTab\s*===\s*['"]channels['"]/)
+      expect(settingsSource).not.toMatch(/settingsTab\s*===\s*['"]apiTokens['"]/)
+    })
+
+    it('IntegrationsPanel renders the API-key card first', () => {
+      const keys = integrationsPanelSource.indexOf('<ApiTokensPanel')
+      const ads = integrationsPanelSource.indexOf('<AmazonAdsPanel')
+      expect(keys, 'ApiTokensPanel not rendered').toBeGreaterThanOrEqual(0)
+      expect(ads, 'AmazonAdsPanel not rendered').toBeGreaterThan(keys)
     })
 
     it('IntegrationsPanel still renders Dida365Panel + chat bots', () => {

@@ -10,12 +10,19 @@
  * machine the agent runs on, so the address is editable and every
  * snippet is rebuilt from it.
  *
- * The shapes match the verified Claude Code / Codex / WorkBuddy MCP
- * config formats:
- *   - Claude Code: `claude mcp add --transport http <name> <url> --header …`
- *   - Codex:       `~/.codex/config.toml` → `[mcp_servers.<name>]`
- *                  with `bearer_token_env_var` pointing at an env var
+ * The shapes match the verified Claude Code / Codex / WorkBuddy /
+ * Qoder MCP config formats:
+ *   - Claude Code: `claude mcp add --scope user --transport http <name>
+ *                  <url> --header …` — `--scope user`, or the server
+ *                  registers for the current folder only
+ *   - Codex:       `~/.codex/config.toml` → `[mcp_servers.<name>]` with
+ *                  `http_headers` carrying the bearer — the Codex
+ *                  desktop app does not inherit shell exports, so a
+ *                  `bearer_token_env_var` token fails there
  *   - WorkBuddy:   `~/.workbuddy/mcp.json` → `mcpServers.<name>.headers`
+ *                  (then enable/trust it in WorkBuddy's MCP settings)
+ *   - Qoder:       `~/.qoder/settings.json` → `mcpServers.<name>` with
+ *                  `type: "http"`, `url` and `headers` (desktop app)
  */
 
 /** The MCP endpoint of the server this page was loaded from. */
@@ -54,12 +61,12 @@ export interface TokenSnippets {
   raw: string
   /** A `claude mcp add …` command. */
   claudeCode: string
-  /** A shell line exporting the token for Codex. */
-  codexExport: string
   /** The `~/.codex/config.toml` block. */
-  codexToml: string
+  codex: string
   /** The `~/.workbuddy/mcp.json` document. */
   workbuddy: string
+  /** The `~/.qoder/settings.json` `mcpServers` entry (Qoder desktop). */
+  qoder: string
 }
 
 /** Build every copy-paste config against *baseUrl* (the server
@@ -73,13 +80,25 @@ export const buildSnippets = (
   const url = `${root}/api/mcp`
   return {
     raw: token,
-    claudeCode: `claude mcp add --transport http vibe-seller ${url} --header "Authorization: Bearer ${token}"`,
-    codexExport: `export VIBE_SELLER_TOKEN=${token}`,
-    codexToml: `[mcp_servers.vibe-seller]\nurl = "${url}"\nbearer_token_env_var = "VIBE_SELLER_TOKEN"`,
+    claudeCode: `claude mcp add --scope user --transport http vibe-seller ${url} --header "Authorization: Bearer ${token}"`,
+    codex: `[mcp_servers.vibe-seller]\nurl = "${url}"\nhttp_headers = { "Authorization" = "Bearer ${token}" }`,
     workbuddy: JSON.stringify(
       {
         mcpServers: {
           'vibe-seller': {
+            url,
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        },
+      },
+      null,
+      2,
+    ),
+    qoder: JSON.stringify(
+      {
+        mcpServers: {
+          'vibe-seller': {
+            type: 'http',
             url,
             headers: { Authorization: `Bearer ${token}` },
           },
