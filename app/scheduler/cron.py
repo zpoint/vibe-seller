@@ -40,6 +40,7 @@ from app.task_states import TaskStatus
 from app.telemetry_events import TaskSource
 from app.telemetry_schedules import send_schedule_fired
 from app.telemetry_tasks import send_task_created
+from app.telemetry_via import unattributed
 from app.utils.timezone import get_server_timezone
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,7 @@ def _register_finalize_reaper():
     ``coalesce`` make it the single writer, so finalize fires once.
     """
     scheduler.add_job(
-        reap_finalized_batches,
+        unattributed(reap_finalized_batches),
         'interval',
         minutes=1,
         id='finalize_reaper',
@@ -545,7 +546,7 @@ def add_cron_job(
     )
 
     scheduler.add_job(
-        _run_task_job,
+        unattributed(_run_task_job),
         trigger=trigger,
         id=job_id,
         name=task_title,
@@ -621,7 +622,7 @@ def add_schedule_job(
         else:
             runner = run_fanout_job
         scheduler.add_job(
-            runner,
+            unattributed(runner),
             trigger=trigger,
             id=job_id,
             name=task_title,
@@ -638,7 +639,7 @@ def add_schedule_job(
         )
     else:
         scheduler.add_job(
-            _run_task_job,
+            unattributed(_run_task_job),
             trigger=trigger,
             id=job_id,
             name=task_title,

@@ -11,6 +11,8 @@ the channel that created it.
 """
 
 from contextvars import ContextVar
+import functools
+import inspect
 
 UI = 'ui'
 MCP = 'mcp'
@@ -84,6 +86,38 @@ _SOURCE_OF_VIA = {
 def source_of_via(via: str | None) -> str:
     """The TaskSource of one via channel."""
     return _SOURCE_OF_VIA.get(via or OTHER, 'other')
+
+
+def unattributed(fn):
+    """Wrap a scheduler-job callable so the job runs with no request
+    channel.
+
+    apscheduler schedules its callbacks through the event loop, which
+    snapshots the REGISTERING context — and schedule jobs are
+    registered from inside schedule create/update requests. Without
+    this wrapper every fire inherits the registering request's
+    channel and reports ``via='ui'`` instead of ``schedule``. Same
+    reasoning as ``clear_request_actor`` at the task-pipeline entry
+    points: a background run must not act with the caller's identity.
+    Applied at REGISTRATION (not inside the job) because the manual
+    trigger runs the same job functions from an in-request task and
+    SHOULD keep the request's channel.
+    """
+    if inspect.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def _async(*args, **kwargs):
+            clear_via()
+            return await fn(*args, **kwargs)
+
+        return _async
+
+    @functools.wraps(fn)
+    def _sync(*args, **kwargs):
+        clear_via()
+        return fn(*args, **kwargs)
+
+    return _sync
 
 
 # A question is ANSWERED over IPC on the agent's own task, long after

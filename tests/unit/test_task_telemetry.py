@@ -250,3 +250,42 @@ async def test_question_answered_carries_the_answering_via(task_env):
     await send_question_answered('t-telemetry-1', datetime.now(UTC), 'req-x')
     props = dict(calls)['agent_question_answered']
     assert props['via'] == 'other'
+
+
+async def test_scheduler_jobs_never_run_in_a_request_channel(task_env):
+    """Review V4-2: apscheduler snapshots the REGISTERING request's
+    context, so a job added inside a request inherits its `via` —
+    fired tasks then report 'ui' instead of 'schedule'. The
+    registration-time `unattributed` wrapper clears the channel; the
+    task then falls back to its own source."""
+    from app.telemetry_via import unattributed
+
+    _maker, _task, _calls = task_env
+
+    class _Sched:
+        schedule_id = 'sched-1'
+        parent_task_id = None
+        source = 'schedule'
+
+    telemetry_via.set_via(telemetry_via.UI)
+    seen = {}
+
+    @unattributed
+    async def job():
+        seen['via'] = telemetry_via.via_for_task(_Sched())
+
+    # The leak shape: the job runs in a task spawned from a context
+    # where a request's channel is set.
+    await asyncio.create_task(job())
+    assert seen['via'] == 'schedule'
+
+    # An unwrapped in-request call keeps the caller's channel (the
+    # manual-trigger path is deliberately NOT wrapped).
+    seen.clear()
+
+    async def direct():
+        seen['via'] = telemetry_via.via_for_task(_Sched())
+
+    await asyncio.create_task(direct())
+    assert seen['via'] == 'ui'
+    telemetry_via.set_via(None)
