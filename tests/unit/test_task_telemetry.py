@@ -255,7 +255,7 @@ async def test_question_answered_carries_the_answering_via(task_env):
 
 
 async def test_scheduler_jobs_never_run_in_a_request_channel(task_env):
-    """Review V4-2: apscheduler snapshots the REGISTERING request's
+    """apscheduler snapshots the REGISTERING request's
     context, so a job added inside a request inherits its `via` —
     fired tasks then report 'ui' instead of 'schedule'. The
     registration-time `unattributed` wrapper clears the channel; the

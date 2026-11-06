@@ -1,7 +1,6 @@
 """Custom-provider telemetry labels and the provider host dimension.
 
-The host reduction is the privacy boundary (brief V4 §6) AND the
-provider dimension (§9): a base URL carrying its key in the userinfo
+A base URL carrying its key in the userinfo
 or a query string, and a path, must reduce to the host alone. A bare
 IP or localhost reports as ``local``; a profile with no base URL
 reports ``api.anthropic.com``. The user-typed name is an attribute
@@ -60,7 +59,7 @@ def _custom(**env_overrides):
         ('http://localhost:8080/v1', 'local'),
         ('http://127.0.0.1:3000/v1', 'local'),
         ('http://[::1]:9000/v1', 'local'),
-        ('http://192.168.0.162/v1', 'local'),
+        ('http://192.168.1.10/v1', 'local'),
     ],
 )
 def test_host_reduces_to_hostname(url, expected):

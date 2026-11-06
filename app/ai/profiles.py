@@ -319,11 +319,8 @@ def profile_kind_for_id(profile_id: str | None) -> str:
     return profile_kind(ProfileManager.get_profile(profile_id))
 
 
-# A custom profile's display name is reported as typed (trimmed, capped
-# here) as an ATTRIBUTE next to the host — never as a grouping
-# dimension. The provider dimension is the API host (brief V4 §9). The
-# base URL itself is NEVER reported — only its hostname (see
-# ``profile_host``).
+# Custom profile names are reported as an attribute, capped; only the
+# base URL's hostname is reported (see ``profile_host``).
 CUSTOM_NAME_MAX_CHARS = 40
 
 # The host a profile with no base URL talks to: plain Claude.

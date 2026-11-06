@@ -118,7 +118,7 @@ class TestMcpTelemetry:
 
 
 class TestViaChannel:
-    """Brief V4 §10: task provenance and user-action `via` come from
+    """Task provenance and user-action `via` come from
     the authenticated principal and the request path, never from a
     client field."""
 
