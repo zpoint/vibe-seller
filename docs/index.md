@@ -91,9 +91,9 @@ flowchart LR
 
 无需 WSL，无需配置 Python。从 [最新 release](https://github.com/zpoint/vibe-seller/releases/latest) 下载 **`VibeSeller-Setup.exe`** 双击运行。
 
-这是一个**完整的离线安装包**，Python 运行环境、Claude Code、Git（bash）和 Chrome 浏览器引擎（Chromium）都已经打包在里面。安装时不会再联网下载任何东西，在连不上海外 CDN 的网络里也能装好。
-
 > 需要 **Windows 10 1809 / Windows Server 2019 或更高版本**（64 位）。内置的 Claude Code 在更旧的系统（如 Server 2016）上无法启动，安装程序会直接拒绝安装。
+>
+> 为了提高安装成功率，所有依赖（Python 运行环境、Claude Code、Git 和 Chrome 浏览器引擎）都已打包在安装包里，安装时不需要再联网下载任何依赖；因此安装包较大，约 650MB。
 
 或在 **PowerShell** 里：
 

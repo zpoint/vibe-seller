@@ -122,9 +122,9 @@ scratch.
 
 No WSL, no Python setup. Download **`VibeSeller-Setup.exe`** from the [latest release](https://github.com/zpoint/vibe-seller/releases/latest) and run it.
 
-It is a **complete offline installer**: the Python runtime, Claude Code, Git (bash) and the Chrome browser engine (Chromium) are all bundled. Installing downloads nothing, so it also works on networks that can't reach overseas CDNs.
-
 > Requires **Windows 10 version 1809 / Windows Server 2019 or later** (64-bit). The bundled Claude Code cannot start on older systems (e.g. Server 2016), so the installer refuses to install there.
+>
+> To make installation more reliable, every dependency (the Python runtime, Claude Code, Git and the Chrome browser engine) is bundled in the installer, so nothing else is downloaded during setup. That makes the installer larger: about 650 MB.
 
 Or, in **PowerShell**:
 
