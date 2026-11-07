@@ -25,9 +25,11 @@ continued is not a follow-up; it is reviewed as usual, starting at
 
 1. Finish your deliverable (the report / created listing / exported
    file / generated PDF — whatever your skill produces).
-2. Spawn the reviewer as a subagent (`subagent_type="general-purpose"`)
-   with the prompt below. **Fill every `{...}` yourself** — the subagent
-   does not share your PATH or context.
+2. Spawn the reviewer the stop gate's demand names — use the
+   `subagent_type` that demand specifies (do not invent one), with the
+   prompt below. **Fill every `{...}` yourself** — the subagent does
+   not share your PATH or context. When the gate hands you a MANIFEST,
+   pass it as the reviewer's input: it is the scope.
    Its completion notice arrives between your tool calls: keep working
    meanwhile, or wait in short steps (a `sleep` under 30s, then check
    again; `TaskOutput` with `block: true` if your tools include it).

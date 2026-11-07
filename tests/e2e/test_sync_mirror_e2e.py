@@ -220,6 +220,30 @@ def owned_stack(tmp_path_factory):
         os.environ['VIBE_ADS_SERVICE_URL'] = previous_ads
 
 
+def ensure_widget_landed(content: str) -> Path:
+    """Arrange ``widget-006/SKILL.md`` through the product path.
+
+    Every test establishes its OWN preconditions: ``--dist
+    worksteal`` splits a module's tests across workers, and each
+    worker's owned stack has its own home — a test that leans on an
+    earlier test's side effects fails on whichever worker did not run
+    it (observed: a FileNotFoundError for widget-006 on the worker
+    that never synced it). Same contract as the product: set the
+    manifest, move upstream, sync, assert it landed.
+    """
+    control(
+        action='set_manifest',
+        files=['widget-006/SKILL.md'],
+        content={'widget-006/SKILL.md': content},
+    )
+    control(action='upstream_changed')
+    body = sync_job('skills')
+    assert body['status'] in ('updated', 'unchanged'), body
+    target = SKILLS / 'widget-006' / 'SKILL.md'
+    assert target.read_text() == content, 'precondition did not land'
+    return target
+
+
 # ── 1. an upstream change lands ───────────────────────────────────
 
 
@@ -282,7 +306,7 @@ def test_upstream_delete_removes_what_it_dropped():
 
 def test_a_local_edit_survives_an_unchanged_upstream():
     """A TICK whose probe says "unchanged" must not touch the disk."""
-    target = SKILLS / 'widget-006' / 'SKILL.md'
+    target = ensure_widget_landed('brand new bytes')
     target.write_text('locally edited')
     restart_server(
         env={'VIBE_SYNC_CADENCE_OVERRIDE': 'skills=5', 'VIBE_SYNC_JITTER': '0'}
@@ -314,7 +338,12 @@ def test_a_local_edit_is_reverted_when_upstream_moves():
 
 
 def test_an_empty_manifest_deletes_nothing():
+    # Precondition (not an assertion change): on a FRESH owned home
+    # there may be zero skill dirs, and "nothing changed" would pass
+    # without proving the mass-delete guard.
+    ensure_widget_landed('guard needs something to protect')
     before = sorted(p.name for p in SKILLS.iterdir() if p.is_dir())
+    assert before, 'precondition: at least one skill dir must exist'
     control(action='set_manifest', files=[], content={})
     control(action='upstream_changed')
     body = sync_job('skills')
@@ -327,6 +356,7 @@ def test_an_empty_manifest_deletes_nothing():
 
 
 def test_a_failed_download_keeps_the_local_file():
+    ensure_widget_landed('upstream bytes')  # precondition only
     target = SKILLS / 'widget-006' / 'SKILL.md'
     target.write_text('keep these bytes')
     control(

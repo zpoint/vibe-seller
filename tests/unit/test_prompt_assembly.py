@@ -28,6 +28,8 @@ from app.models.store import Store
 from app.models.task import Task
 from app.prompts import (
     CATALOG_RESTRICTION_PROMPT_L2,
+    DESIGN_SYSTEM_PROMPT,
+    DESIGN_SYSTEM_PROMPT_AUTO,
 )
 from app.task_runner import (
     VISION_SETUP_BREADCRUMB,
@@ -888,3 +890,32 @@ class TestPlanOnlyBlock:
         assert (
             'Do NOT reference a specific store slug' not in bundle.system_extra
         )
+
+
+class TestSideDutiesNeverPrecedeTheDeliverable:
+    """The in-task prompt carries no maintenance duty.
+
+    Observed in CI: an agent mid-task "updated stores/<slug>/metadata.
+    json because the task said so", then a trivial task answered in
+    seconds ran 9 more minutes of metadata/knowledge maintenance
+    before ending — "done" was unbounded. The duty lives ONLY in
+    post-task reflection (the Stop hook); the in-task prompt says so.
+    """
+
+    async def test_store_context_carries_no_metadata_duty(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task,
+            store,
+            header=TaskHeader.AUTO,
+            store_emails=TEST_EMAILS,
+        )
+        text = bundle.system_extra
+        assert 'Update `stores/<slug>/metadata.json`' not in text
+        assert 'metadata.json' not in text or 'post-task cache' in text
+
+    async def test_design_system_forbids_mid_task_maintenance(self):
+        for prompt in (DESIGN_SYSTEM_PROMPT, DESIGN_SYSTEM_PROMPT_AUTO):
+            assert 'do NOT read or write `metadata.json`' in prompt
+            assert 'never run before your' in prompt

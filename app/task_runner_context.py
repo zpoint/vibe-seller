@@ -273,8 +273,8 @@ def build_store_context(
             ' task targets a known platform, load its skill for'
             ' URLs and flows. Only ask the user when no skill'
             ' covers the platform and no credentials are bound.'
-            ' Update `stores/<slug>/metadata.json` at the end of'
-            ' the task to record what you used.'
+            ' Do not write `metadata.json` yourself: it is a'
+            ' post-task cache maintained after the task ends.'
         )
 
     # Task-level platform/country selection

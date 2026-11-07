@@ -123,13 +123,34 @@ _ALWAYS_LOADED = sorted(
     for t in TOOLS
     if (t.get('_meta') or {}).get('anthropic/alwaysLoad') is True
 )
+
+
+def _stems_for(name: str, all_names: tuple[str, ...]) -> tuple[str, ...]:
+    """The query fragments that identify *name* as already loaded.
+
+    Its own suffix (plus a spaced spelling, so "declare ad task" is
+    recognised as well as "declare_ad_task") and the stem it shares
+    with each other loaded tool — the pair of finishing tools shares
+    ``set_task``, so a search for that half-word is refused with the
+    whole loaded set instead of coming back empty.
+    """
+    suffix = name.removeprefix('vibe_seller_')
+    stems = [suffix, suffix.replace('_', ' ')]
+    for other in all_names:
+        if other == name:
+            continue
+        shared = (
+            os.path.commonprefix([name, other])
+            .removeprefix('vibe_seller_')
+            .rstrip('_')
+        )
+        if shared:
+            stems.append(shared)
+    return tuple(dict.fromkeys(s for s in stems if s))
+
+
 _LOADED_STEMS: dict[str, tuple[str, ...]] = {
-    f'mcp__vibe-seller__{n}': (
-        n.removeprefix('vibe_seller_'),
-        os.path.commonprefix(_ALWAYS_LOADED)
-        .removeprefix('vibe_seller_')
-        .rstrip('_'),
-    )
+    f'mcp__vibe-seller__{n}': _stems_for(n, tuple(_ALWAYS_LOADED))
     for n in _ALWAYS_LOADED
 }
 _LOADED_STEMS['AskUserQuestion'] = ('askuser', 'ask_user')

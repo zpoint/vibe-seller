@@ -82,15 +82,20 @@ class TestHookWiring:
         assert getattr(s, '_error_category', None) != 'agent_loop'
 
 
-class TestFinishingToolsAlwaysLoaded:
-    """The tools that end a task are never deferred behind tool search.
+class TestFixedPointToolsAlwaysLoaded:
+    """The tools reached at a FIXED point of a task are never deferred.
 
     Twice in CI a model that had loaded only write_workspace_file meant
     "record the result" and called that instead, until the loop breaker
-    stopped a finished session.
+    stopped a finished session. The same failure class struck the ad
+    flow's start: a model ToolSearch-loaded the declaration tool five
+    times and never called it. A tool the task MUST reach — ending it
+    (result/error) or starting its ad work (declare, and its sanctioned
+    data tool) — cannot be one it has to search for first. The exact
+    set is pinned so the policy cannot silently shrink.
     """
 
-    def test_only_the_finishing_tools_are_pinned(self):
+    def test_the_fixed_point_tools_are_pinned(self):
         pinned = {
             t['name']
             for t in TOOLS
@@ -99,6 +104,8 @@ class TestFinishingToolsAlwaysLoaded:
         assert pinned == {
             'vibe_seller_set_task_result',
             'vibe_seller_set_task_error',
+            'vibe_seller_declare_ad_task',
+            'vibe_seller_ads_call',
         }
 
     def test_the_base_prompt_says_they_need_no_search(self):
@@ -141,7 +148,7 @@ class TestLoadedToolSearch:
         assert reason and '`AskUserQuestion` is already loaded' in reason
 
     @pytest.mark.parametrize(
-        'query', ['task', 'vibe_seller', 'ads_call', 'read email', 'question']
+        'query', ['task', 'vibe_seller', 'save_skill', 'read email', 'question']
     )
     def test_other_searches_pass(self, query):
         assert loaded_tool_search_deny('ToolSearch', {'query': query}) is None

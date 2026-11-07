@@ -559,7 +559,7 @@ class SyncScheduler:
         """
         job = self._jobs[name]
         row = await sync_state.get_row(name)
-        offset = offset_seconds(name, job.cadence)
+        offset = await asyncio.to_thread(offset_seconds, name, job.cadence)
         now = datetime.now(UTC)
         if row is not None and row.last_ok_at:
             try:

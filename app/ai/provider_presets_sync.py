@@ -54,6 +54,7 @@ that already exists.
 """
 
 import ast
+import asyncio
 import hashlib
 import json
 import logging
@@ -640,7 +641,7 @@ async def _fetch_with(
     except PresetsSourceError as e:
         return {'status': 'rejected', 'error': str(e)}
 
-    _write_cache(sha, url, presets, models, etag=etag)
+    await asyncio.to_thread(_write_cache, sha, url, presets, models, etag=etag)
     await _save_bookkeeping(sha256=sha, etag=etag or None, source_url=url)
     _apply(presets, models)
     logger.info(

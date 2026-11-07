@@ -77,11 +77,12 @@ round: that first verdict is final.
 # At end of Phase 3, immediately after writing AD_AUDIT_<date>.md
 # and all per-campaign TSVs:
 
-# 1. Spawn the reviewer ONCE. Use general-purpose subagent_type;
-#    the reviewer's job is fully specified by the prompt below.
+# 1. Spawn the reviewer ONCE, with the subagent_type the stop gate's
+#    demand names (the gate is the authority on the type and the
+#    brief); the reviewer's job is fully specified by the prompt below.
 Agent(
     description="Format-check the audit",
-    subagent_type="general-purpose",
+    subagent_type="<the type the gate's demand names>",
     prompt=REVIEWER_PROMPT.format(
         audit_path="./AD_AUDIT_<YYYY-MM-DD>.md",
         anchor_path="<.claude/skills>/amazon-ads/references/format-anchor.md",
@@ -124,7 +125,9 @@ not the interface.
 
 ## The REVIEWER_PROMPT (verbatim, agent must use this)
 
-Spawn with `subagent_type="general-purpose"`. **You (the writing agent)
+Spawn with the `subagent_type` the stop gate's demand names — the gate
+is the authority on the type and the input (when it hands you a
+MANIFEST, pass that as the reviewer's scope). **You (the writing agent)
 MUST fill in the concrete values before spawning** — the subagent does
 NOT share your PATH, so it cannot resolve a bare `browser-use` and must
 be handed the ABSOLUTE wrapper path:
@@ -314,9 +317,9 @@ and the user instructs the agent to **execute** the plan, the agent:
    verification.
 3. Updates the per-campaign TSV with the new bid / status /
    negative-keyword / harvested-keyword row.
-4. Spawns the `ads-execution-review` subagent (same
-   `subagent_type=general-purpose` — the role is defined by the
-   prompt).
+4. Spawns the `ads-execution-review` subagent (with the
+   `subagent_type` the stop gate's demand names — the role is
+   defined by the prompt).
 5. Reads the resulting `EXEC_REVIEW_<date>_iter<N>.md`.
 6. Fixes gaps on the live console (NOT in the audit Markdown — the
    audit's recommendations are frozen at this point).

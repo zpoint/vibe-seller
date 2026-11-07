@@ -225,7 +225,11 @@ class SkillsMixin:
             skill_dir.mkdir(parents=True, exist_ok=True)
             skill_md = skill_dir / 'SKILL.md'
             if content is not None:
-                skill_md.write_text(sanitize_text(content), encoding='utf-8')
+                await asyncio.to_thread(
+                    skill_md.write_text,
+                    sanitize_text(content),
+                    encoding='utf-8',
+                )
             else:
                 default = f"""---
 name: {name}
@@ -240,7 +244,9 @@ description: {description}
 
 <!-- Add skill instructions here -->
 """
-                skill_md.write_text(default, encoding='utf-8')
+                await asyncio.to_thread(
+                    skill_md.write_text, default, encoding='utf-8'
+                )
             lockfile = self._read_lockfile()
             lockfile['skills'][slug] = {
                 'source': 'url' if origin_url else 'local',

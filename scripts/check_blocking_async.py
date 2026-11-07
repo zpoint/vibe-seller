@@ -56,7 +56,10 @@ HINT = (
 
 # Blocking primitives, by full dotted name (resolved through import
 # aliases).  Cheap metadata ops (exists/mkdir/stat/read_text) are
-# deliberately left out: negligible cost, huge noise.
+# deliberately left out: negligible cost, huge noise.  Writes are the
+# other side of that line -- Path.write_text is caught through the
+# bulk-I/O special case in BlockingChecker.resolve (its size is the
+# caller's payload, not the tree's metadata).
 PRIMITIVES = frozenset({
     'subprocess.run',
     'subprocess.call',
@@ -442,12 +445,17 @@ class BlockingChecker:
             'rglob',
             'read_bytes',
             'write_bytes',
+            'write_text',
         ):
             # Bulk byte I/O: a multi-megabyte read/write freezes the
-            # loop as surely as a zip pack. Text helpers
-            # (read_text/write_text) and plain ``open`` stay out on
-            # the same noise policy as exists/mkdir/stat (they are
-            # every metadata read in the tree).
+            # loop as surely as a zip pack. ``write_text`` rides with
+            # them — a WRITE is never a cheap metadata op: it blocks
+            # on the disk for as long as the payload is big, and the
+            # payload is the caller's business (a whole system prompt,
+            # a settings file, a 1.5 MB skill archive). ``read_text``
+            # and plain ``open`` stay out on the metadata-noise policy
+            # with exists/mkdir/stat (every metadata read in the tree);
+            # a miss there is a microsecond, a miss here is a stall.
             return Target('prim', f'Path.{expr.attr}')
         if (
             isinstance(expr, ast.Attribute)

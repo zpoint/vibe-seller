@@ -141,12 +141,26 @@ def append_system_prompt(
     the inline form would bring back the cap this exists to remove.
     An empty prompt adds nothing.
     """
+    prompt_file = write_system_prompt_file(system_prompt, task_id, task_dir)
+    if prompt_file is not None:
+        cmd.extend(['--append-system-prompt-file', str(prompt_file)])
+
+
+def write_system_prompt_file(
+    system_prompt: str, task_id: str, task_dir: Path | None
+) -> Path | None:
+    """Write the system-prompt file; return its path (None when empty).
+
+    Split out of ``append_system_prompt`` so the write can ride the
+    ONE launch-artifact thread hop (:func:`build_launch_artifacts`)
+    while the cmd flag stays a pure extension of the caller's argv.
+    """
     if not system_prompt.strip():
-        return
+        return None
     prompt_file = system_prompt_file(task_id, task_dir)
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.write_text(system_prompt, encoding='utf-8')
-    cmd.extend(['--append-system-prompt-file', str(prompt_file)])
+    return prompt_file
 
 
 # A `browser-use` that always ERRORS — sits on the agent PATH just below

@@ -84,16 +84,16 @@ class WorkspaceManager(SkillsMixin):
         # Generate workspace CLAUDE.md (write-once)
         claude_md = self.root / 'CLAUDE.md'
         if not claude_md.exists():
-            claude_md.write_text(WORKSPACE_CLAUDE_MD)
+            await asyncio.to_thread(claude_md.write_text, WORKSPACE_CLAUDE_MD)
 
         # .gitignore is complete BEFORE the first commit: committing first
         # is how a pre-existing .gitignore without data/ put the app
         # database into the initial commit and then every task's commit.
         gitignore = self.root / '.gitignore'
         if not gitignore.exists():
-            gitignore.write_text(
-                '*.pyc\n__pycache__/\n.DS_Store\n.venv/\nconfig/\n'
-                '*.db-wal\n*.db-shm\n'
+            await asyncio.to_thread(
+                gitignore.write_text,
+                '*.pyc\n__pycache__/\n.DS_Store\n.venv/\nconfig/\n*.db-wal\n*.db-shm\n',
             )
         content = gitignore.read_text()
         # Whole lines, not substrings: 'r/' is inside '.cursor/'.
@@ -111,9 +111,8 @@ class WorkspaceManager(SkillsMixin):
         if '*.db-journal' not in present:
             additions.append('*.db-journal')
         if additions:
-            gitignore.write_text(
-                content.rstrip() + '\n' + '\n'.join(additions) + '\n'
-            )
+            data = content.rstrip() + '\n' + '\n'.join(additions) + '\n'
+            await asyncio.to_thread(gitignore.write_text, data)
 
         git_dir = self.root / '.git'
         if not git_dir.exists():
@@ -285,7 +284,9 @@ class WorkspaceManager(SkillsMixin):
         file_path = self._safe_path(rel_path)
         self._reject_l1_write(rel_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(sanitize_text(content), encoding='utf-8')
+        await asyncio.to_thread(
+            file_path.write_text, sanitize_text(content), encoding='utf-8'
+        )
         await self._auto_commit(f'Update {rel_path}')
 
     async def delete_file(self, rel_path: str) -> None:
@@ -451,7 +452,9 @@ class WorkspaceManager(SkillsMixin):
         also validates the slug — the layer that builds the path); the
         manager keeps the git commit and the public method name.
         """
-        store_dir = scaffold_store_profile(self.root, slug, name, backend)
+        store_dir = await asyncio.to_thread(
+            scaffold_store_profile, self.root, slug, name, backend
+        )
         await self._auto_commit(f'Create store profile: {name}')
         return str(store_dir.relative_to(self.root))
 
@@ -505,7 +508,7 @@ class WorkspaceManager(SkillsMixin):
         content = await self.file_at_commit(rel_path, commit_sha)
         file_path = self._safe_path(rel_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text(content, encoding='utf-8')
+        await asyncio.to_thread(file_path.write_text, content, encoding='utf-8')
         await self._auto_commit(f'Revert {rel_path} to {commit_sha[:12]}')
 
     def _safe_path(self, rel_path: str) -> Path:

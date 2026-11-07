@@ -33,7 +33,6 @@ from sqlalchemy import select
 from app.ai.agent_proxy import (
     drop_dead_proxy,
     launch_settings,
-    launch_settings_file,
 )
 from app.ai.claude_backend_hooks import _HookMixin
 from app.ai.claude_backend_persist import _PersistMixin
@@ -45,13 +44,13 @@ from app.ai.claude_backend_utils import (
     DRAIN_TIMEOUT,
     INTERRUPT_TIMEOUT,
     SIGNAL_TIMEOUT,
-    append_system_prompt,
-    apply_agent_venv_path,
+    apply_agent_venv_path as apply_agent_venv_path,  # re-export
     permission_mode_for_agent,
     resolve_claude_binary,
     sdk_initialize_request,
 )
 from app.ai.compaction import build_history_prompt, dump_history_file
+from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.auth import create_token
 from app.browser.bh_daemons import LEGACY_DAEMON_PATTERN, kill_bh_daemons
@@ -329,10 +328,6 @@ class AgentSession(
                     self.prompt[:2000],
                 )
 
-            append_system_prompt(
-                cmd, system_prompt, self.task_id, self.task_dir
-            )
-
         env = ProfileManager.get_env_for_profile(self.profile_id)
         # ONE --settings file per launch. It always carries the
         # backend-owned settings (the CLI's auto-mode classifier off —
@@ -342,12 +337,34 @@ class AgentSession(
         # A proxy that refuses connections fails every model call (#168).
         await drop_dead_proxy(env, self.task_id, settings, self._emit_message)
         if not mock_cli:
-            cmd.extend([
-                '--settings',
-                str(
-                    launch_settings_file(self.task_id, self.task_dir, settings)
-                ),
-            ])
+            # EVERY launch artifact — system-prompt file, --settings
+            # payload, --agents registration and the browser-use guard
+            # apply_agent_venv_path lays down — is written in ONE
+            # thread hop. start() is async; the event loop must never
+            # touch the disk (scripts/check_blocking_async.py). The
+            # argv extensions below are pure.
+            artifacts = await asyncio.to_thread(
+                build_launch_artifacts,
+                self.task_id,
+                self.task_dir,
+                system_prompt,
+                settings,
+                env=env,
+                store_slug=self.store_slug,
+            )
+            if artifacts['system_prompt'] is not None:
+                cmd.extend([
+                    '--append-system-prompt-file',
+                    str(artifacts['system_prompt']),
+                ])
+            cmd.extend(['--settings', str(artifacts['settings'])])
+            # Register the product-defined DoD reviewer as a real agent
+            # type: the stop gates demand
+            # ``subagent_type="ads-report-review"``, and before this
+            # registration that type existed only in the gate's text —
+            # the main agent improvised the reviewer's brief and its
+            # work was unbounded.
+            cmd.extend(['--agents', str(artifacts['agents'])])
         logger.info(
             'Starting agent for task %s (mode=%s, profile=%s, '
             'base_url=%s, model=%s)',
@@ -375,14 +392,6 @@ class AgentSession(
         env.setdefault('GIT_AUTHOR_EMAIL', 'agent@vibe-seller.local')
         env.setdefault('GIT_COMMITTER_NAME', 'Vibe Seller Agent')
         env.setdefault('GIT_COMMITTER_EMAIL', 'agent@vibe-seller.local')
-
-        # Wire the agent's PATH + VIRTUAL_ENV: store wrapper first, then
-        # the shared agent venv (python/pip), then the server venv. The
-        # agent's python/pip MUST be the shared venv — the server venv is
-        # built without pip on packaged installs, so `pip install` there
-        # fails and the agent falls back to a stray system Python. See
-        # apply_agent_venv_path.
-        apply_agent_venv_path(env, self.store_slug)
 
         # start_new_session=True puts claude and every descendant into
         # a fresh POSIX session/process group. We do not rely on this

@@ -31,6 +31,7 @@ from app.ai.catalog_guard import (  # noqa: F401
     is_catalog_path,
     should_mark_catalog_read,
 )
+from app.ai.reviewer_agent import EXEC_REVIEWER_NAME
 from app.ai.shell_patterns import COMMAND_PREFIX
 from app.ai.shipped_scripts import source_unless_shipped
 from app.ai.skill_review import skills_requiring_review
@@ -331,7 +332,10 @@ def _is_server_reviewed(audit_text: str) -> bool:
 
 
 def check_review_status(
-    task_dir, subagent_ran=None, review_writers=None
+    task_dir,
+    subagent_ran=None,
+    review_writers=None,
+    result_text: str | None = None,
 ) -> str | None:
     """Deny reason if the DoD reviewer hasn't returned ``ok`` (or
     ``incomplete`` at iter ≥ 5); else ``None``. Fires for ads skills AND
@@ -367,7 +371,11 @@ def check_review_status(
             # gaps) or had nothing to verify (quick lookup → signs off
             # fast).
             return report_reviewer.reviewer_verdict(
-                task_dir, subagent_ran, review_writers, skill_reviews
+                task_dir,
+                subagent_ran,
+                review_writers,
+                skill_reviews,
+                result_text,
             )
         return None  # Nothing bound that requires review.
 
@@ -398,7 +406,7 @@ def check_review_status(
 
     # Reviewer sign-off — shared with the set_task_result path.
     return report_reviewer.reviewer_verdict(
-        task_dir, subagent_ran, review_writers, skill_reviews
+        task_dir, subagent_ran, review_writers, skill_reviews, result_text
     )
 
 
@@ -448,8 +456,9 @@ def check_exec_review_status(task_dir, review_writers=None) -> str | None:
         return (
             'Execution reviewer never ran. After applying every '
             'Recommendation row from AD_AUDIT_*.md, spawn the '
-            '``ads-execution-review`` subagent (subagent_type='
-            '"general-purpose") per ``amazon-ads/references/'
+            f'``{EXEC_REVIEWER_NAME}`` subagent (Agent tool, '
+            f'subagent_type="{EXEC_REVIEWER_NAME}") per '
+            '``amazon-ads/references/'
             'reviewer-loop.md § Execution-review mode``, and write '
             'the result to ``EXEC_REVIEW_<YYYY-MM-DD>_iter1.md`` in '
             'this workspace. Re-run until Status: ok or until '

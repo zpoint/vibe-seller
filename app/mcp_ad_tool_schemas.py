@@ -18,9 +18,20 @@ skills still carry the longer version with worked examples; the line
 itself belongs at the call site.
 """
 
+# Per-tool ``_meta`` key read by the CLI: the tool's schema stays in
+# the prompt, never deferred behind tool search. The tools that must
+# be reached at a FIXED point of every task carry it — the ending
+# tools (mcp_tool_schemas) and, here, the ad flow's required-first
+# declaration and its sanctioned data tool. Observed in CI: a model
+# ToolSearch-loaded ``vibe_seller_declare_ad_task`` five times and
+# still never called it — the deferred dance broke the declaration
+# flow for the e2e profile's model.
+_ALWAYS_LOADED = {'_meta': {'anthropic/alwaysLoad': True}}
+
 AD_TOOLS = [
     {
         'name': 'vibe_seller_declare_ad_task',
+        **_ALWAYS_LOADED,
         'description': (
             'Advertising work only. BEFORE opening a browser or reading '
             'any ad data, declare what this phase of the task is for. '

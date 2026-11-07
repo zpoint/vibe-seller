@@ -286,9 +286,10 @@ def test_bulk_byte_io_behind_a_helper_is_flagged() -> None:
 
     A multi-megabyte read or write freezes the loop as surely as a zip
     pack — this is the gap that let a staging write land on the loop:
-    the checker saw only the tarfile call beside it. Text helpers
-    (read_text/write_text) and plain ``open`` stay out on the same
-    cheap-noise policy as exists/mkdir/stat.
+    the checker saw only the tarfile call beside it. ``write_text``
+    rides with them (see the launch-artifact test below); ``read_text``
+    and plain ``open`` stay out on the cheap-noise policy with
+    exists/mkdir/stat.
     """
     source = _src(
         """
@@ -306,3 +307,36 @@ def test_bulk_byte_io_behind_a_helper_is_flagged() -> None:
     assert len(violations) == 2
     assert 'Path.write_bytes' in violations[0].format()
     assert 'Path.read_bytes' in violations[1].format()
+
+
+def test_launch_artifact_write_behind_a_helper_is_flagged() -> None:
+    """Brief #14c's shape: an async start() builds its argv with a sync
+    helper that writes a launch artifact.
+
+    Missed while ``Path.write_text`` was not a primitive: the write hid
+    in a cross-module helper called inside ``str(...)`` in a
+    ``cmd.extend([...])`` list, so the checker never walked to it —
+    three launch artifacts reached the event loop that way.
+    """
+    helper = _src(
+        """
+        def write_launch_file(path):
+            path.write_text('payload')
+            return path
+        """
+    )
+    main = _src(
+        """
+        from app.helper import write_launch_file
+
+        async def start(cmd, path):
+            cmd.extend(['--settings', str(write_launch_file(path))])
+        """
+    )
+    violations = _check(**{'app.helper': helper, 'app.main': main})
+    assert len(violations) == 1
+    message = violations[0].format().splitlines()[0]
+    assert message == (
+        'app/main.py:4 async start() -> write_launch_file() -> '
+        'Path.write_text @app/helper.py:2'
+    )
