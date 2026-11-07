@@ -68,11 +68,14 @@ def _fake_server_script(dir_: Path) -> Path:
         'import socket, subprocess, sys, time\n'
         'port = int(sys.argv[1])\n'
         'child_file = sys.argv[2]\n'
+        # argv0 is faked, so sys.executable is unreliable in here (empty
+        # on Linux) — the parent hands over the real interpreter.
+        'python = sys.argv[3]\n'
         'srv = socket.socket()\n'
         'srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n'
         "srv.bind(('127.0.0.1', port))\n"
         'srv.listen(8)\n'
-        "child = subprocess.Popen([sys.executable, '-c',\n"
+        "child = subprocess.Popen([python, '-c',\n"
         "                          'import time; time.sleep(300)'])\n"
         "open(child_file, 'w').write(str(child.pid))\n"
         'time.sleep(300)\n'
@@ -84,7 +87,13 @@ def _spawn_uvicorn(script: Path, port: int, child_file: Path):
     """The project's server command line (argv0 faked) — what
     ``is_project_uvicorn`` matches on."""
     return subprocess.Popen(
-        ['uvicorn app.main:app', str(script), str(port), str(child_file)],
+        [
+            'uvicorn app.main:app',
+            str(script),
+            str(port),
+            str(child_file),
+            sys.executable,
+        ],
         executable=sys.executable,
         env=_child_env(),
     )
