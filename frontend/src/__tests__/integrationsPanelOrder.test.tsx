@@ -1,7 +1,8 @@
 /**
- * The Ads API section is pinned to the top of Settings → Integrations,
- * so it is the first thing an operator sees. It must also be a card
- * like the sections below it, not loose text on the page background.
+ * The API-key card is pinned to the top of Settings → Integrations —
+ * it is what MCP clients need — and the Ads API section stays the
+ * first integration below it. Both must be cards like the sections
+ * below, not loose text on the page background.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
@@ -16,7 +17,12 @@ const mockApi = vi.hoisted(() => ({
   del: vi.fn(),
   patch: vi.fn(),
 }))
-vi.mock('../api', () => ({ api: mockApi }))
+const mockApiTokens = vi.hoisted(() => ({
+  list: vi.fn(),
+  create: vi.fn(),
+  revoke: vi.fn(),
+}))
+vi.mock('../api', () => ({ api: mockApi, apiTokens: mockApiTokens }))
 
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
 
@@ -39,9 +45,17 @@ function googleWorkspaceCard(): HTMLElement {
   return card as HTMLElement
 }
 
+/** DOCUMENT_POSITION_FOLLOWING on `before` means `after` comes after
+ *  it in document order. */
+function expectBefore(before: HTMLElement, after: HTMLElement) {
+  expect(before.compareDocumentPosition(after) & Node.DOCUMENT_POSITION_FOLLOWING)
+    .toBeTruthy()
+}
+
 describe('IntegrationsPanel order', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockApiTokens.list.mockResolvedValue([])
     mockApi.get.mockImplementation((url: string) => {
       if (url === '/api/settings/google-workspace/status') {
         return Promise.resolve({
@@ -60,27 +74,23 @@ describe('IntegrationsPanel order', () => {
     })
   })
 
-  it('puts the ads card first, above Google Workspace', async () => {
+  it('puts the API-key card first, above the ads card', async () => {
     render(
       <I18nextProvider i18n={i18nTestInstance}>
         <IntegrationsPanel />
       </I18nextProvider>,
     )
 
+    const keysCard = await screen.findByTestId('api-keys-card')
     const adsCard = await screen.findByTestId('ads-card')
-    const gwsCard = googleWorkspaceCard()
+    expectBefore(keysCard, adsCard)
 
-    // DOCUMENT_POSITION_FOLLOWING on the ads card means the Google
-    // Workspace card comes after it in document order.
-    expect(adsCard.compareDocumentPosition(gwsCard) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy()
-
-    // ...and the ads card is the panel's very first child, so nothing
-    // else can sneak above it.
-    expect(adsCard.parentElement?.firstElementChild).toBe(adsCard)
+    // ...and the API-key card is the panel's very first child, so
+    // nothing else can sneak above it.
+    expect(keysCard.parentElement?.firstElementChild).toBe(keysCard)
   })
 
-  it('gives the ads card the same shell as the other integration cards', async () => {
+  it('keeps the ads card above Google Workspace', async () => {
     render(
       <I18nextProvider i18n={i18nTestInstance}>
         <IntegrationsPanel />
@@ -89,9 +99,23 @@ describe('IntegrationsPanel order', () => {
 
     const adsCard = await screen.findByTestId('ads-card')
     const gwsCard = googleWorkspaceCard()
-    for (const cls of ['bg-white', 'rounded-lg', 'border', 'border-gray-200', 'p-4']) {
-      expect(adsCard.className.split(' ')).toContain(cls)
-      expect(gwsCard.className.split(' ')).toContain(cls)
+    expectBefore(adsCard, gwsCard)
+  })
+
+  it('gives the keys and ads cards the same shell as the other integration cards', async () => {
+    render(
+      <I18nextProvider i18n={i18nTestInstance}>
+        <IntegrationsPanel />
+      </I18nextProvider>,
+    )
+
+    const keysCard = await screen.findByTestId('api-keys-card')
+    const adsCard = await screen.findByTestId('ads-card')
+    const gwsCard = googleWorkspaceCard()
+    for (const card of [keysCard, adsCard, gwsCard]) {
+      for (const cls of ['bg-white', 'rounded-lg', 'border', 'border-gray-200', 'p-4']) {
+        expect(card.className.split(' ')).toContain(cls)
+      }
     }
   })
 })

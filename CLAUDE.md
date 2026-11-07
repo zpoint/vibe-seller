@@ -24,7 +24,7 @@ Team collaboration platform for e-commerce store automation. Users create browse
 - System prompts in `app/prompts/*.md` — loaded once at import via `app/prompts/__init__.py`
 - Tasks auto-execute on creation in **auto mode** (default, `plan_mode=false`): `bypassPermissions`, PENDING → RUNNING → COMPLETED. Opt-in **plan mode** (`plan_mode=true`): agent plans in read-only mode, user reviews, then executes (PENDING → DESIGNING → PLANNED → RUNNING → COMPLETED). Toggle via Auto/Plan switch in task detail footer. Non-store tasks always use plan mode. Plan-mode schedules author the plan once at creation via an `is_plan_only=True` Task (user reviews, plan is frozen on `Schedule.plan`, `plan_status=ready`); each subsequent fire copies the frozen plan and skips planning. See `app/plan_states.py` + [docs/subsystems.md](docs/subsystems.md#plan-at-creation-lifecycle).
 - JWT cookie auth (httpOnly, 24h rolling expiry; service tokens are 7-day)
-- **External agents connect over `/api/mcp` with `vst_` API tokens** (minted in Settings → API tokens; the token acts as its owner, with that owner's role). **Never expose `app/mcp_server.py`** — that is the *in-task* stdio MCP (`--task-id`, tools like `set_task_result` / `declare_ad_task`); publishing it would let an outside agent forge task results and walk around the review gates. The external toolset is a separate, operator-level one: create and follow tasks, answer questions, review plans. See [docs/agents.md](docs/agents.md).
+- **External agents connect over `/api/mcp` with `vst_` API tokens** (minted in Settings → Integrations → API keys; the token acts as its owner, with that owner's role). **Never expose `app/mcp_server.py`** — that is the *in-task* stdio MCP (`--task-id`, tools like `set_task_result` / `declare_ad_task`); publishing it would let an outside agent forge task results and walk around the review gates. The external toolset is a separate, operator-level one: create and follow tasks, answer questions, review plans. See [docs/agents.md](docs/agents.md).
 - UUIDs for all primary keys
 - API routes prefixed with `/api/`
 - i18n translations in `frontend/src/i18n/locales/{en,zh}/`
@@ -46,6 +46,11 @@ source .venv/bin/activate  # Activate venv first
 ./stop.sh [PORT]       # Stop server
 ./restart.sh [PORT]    # Restart on same port
 ```
+
+Test/demo/e2e servers on a side port: stop with
+`./stop.sh <port> --scoped` (default `stop.sh` also kills everything
+connected to the port — e.g. a local proxy relaying to it — and reaps
+every instance's agents machine-wide).
 
 ## Code Style
 

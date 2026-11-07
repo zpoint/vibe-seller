@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { apiTokens } from '../../api'
 import type { ApiToken } from '../../types'
@@ -12,15 +12,15 @@ interface ApiTokensPanelProps {
 }
 
 /** Expiry choices, in days. `null` = never expires. The API's own
- *  default is 90 days; we send it explicitly so the page and the
- *  server cannot disagree. */
+ *  default is 90 days when the field is omitted, so the form always
+ *  sends it explicitly — and the form's default is "never". */
 const EXPIRY_CHOICES: { days: number | null; labelKey: string }[] = [
   { days: 30, labelKey: 'apiTokens.expiry30' },
   { days: 90, labelKey: 'apiTokens.expiry90' },
   { days: 365, labelKey: 'apiTokens.expiry365' },
   { days: null, labelKey: 'apiTokens.expiryNever' },
 ]
-const DEFAULT_EXPIRY_DAYS = 90
+const DEFAULT_EXPIRY_DAYS: number | null = null
 
 const formatDate = (iso: string | null, locale: string): string => {
   if (!iso) return ''
@@ -29,14 +29,15 @@ const formatDate = (iso: string | null, locale: string): string => {
   return d.toLocaleString(locale)
 }
 
-/** Settings → API tokens. Personal access tokens for external agents
- *  (Claude Code, Codex, WorkBuddy, …): each one is presented as a
- *  bearer token and acts as the user who minted it.
+/** Settings → Integrations → API keys. Personal access keys for
+ *  external agents (Claude Code, Codex, WorkBuddy, …): each one is
+ *  presented as a bearer token and acts as the user who minted it.
  *
- *  Self-contained (own fetch/save), mirroring the other settings
- *  panels. */
+ *  Self-contained (own fetch/save), rendered as the first card of the
+ *  Integrations tab — it is what MCP clients need. */
 export function ApiTokensPanel({ authRequired }: ApiTokensPanelProps) {
   const { t, i18n } = useTranslation()
+  const cardRef = useRef<HTMLDivElement>(null)
   const [tokens, setTokens] = useState<ApiToken[]>([])
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -64,6 +65,14 @@ export function ApiTokensPanel({ authRequired }: ApiTokensPanelProps) {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Old links to the retired API-tokens settings tab land here with
+  // #api-keys (see router.tsx) — bring the card into view for them.
+  useEffect(() => {
+    if (window.location.hash === '#api-keys') {
+      cardRef.current?.scrollIntoView()
+    }
+  }, [])
 
   const create = async () => {
     if (!name.trim() || creating) return
@@ -99,8 +108,13 @@ export function ApiTokensPanel({ authRequired }: ApiTokensPanelProps) {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+    <>
+      <div
+        ref={cardRef}
+        id="api-keys"
+        data-testid="api-keys-card"
+        className="bg-white rounded-lg border border-gray-200 p-4"
+      >
         <div className="flex items-center justify-between mb-1">
           <h3 className="font-semibold text-sm">{t('apiTokens.title')}</h3>
           <button
@@ -272,6 +286,6 @@ export function ApiTokensPanel({ authRequired }: ApiTokensPanelProps) {
           onClose={() => setFreshToken(null)}
         />
       )}
-    </div>
+    </>
   )
 }

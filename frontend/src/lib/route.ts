@@ -10,15 +10,15 @@ import type { AppView } from '../types'
 import type { SettingsTab } from '../views/SettingsView'
 
 // The settings URL slug is the human-friendly form; SettingsView's
-// internal id differs from it for the AI tab ('ai' ↔ 'aiAgent') and
-// the API-tokens tab ('api-tokens' ↔ 'apiTokens').
+// internal id differs from it for the AI tab ('ai' ↔ 'aiAgent'). The
+// retired API-tokens tab has no id any more — its old slug redirects
+// to Integrations, where the API-key card now lives.
 const SLUG_TO_TAB: Record<string, SettingsTab> = {
   ai: 'aiAgent',
-  'api-tokens': 'apiTokens',
+  'api-tokens': 'integrations',
 }
 const TAB_TO_SLUG: Partial<Record<SettingsTab, string>> = {
   aiAgent: 'ai',
-  apiTokens: 'api-tokens',
 }
 
 export function settingsTabToSlug(tab: SettingsTab): string {

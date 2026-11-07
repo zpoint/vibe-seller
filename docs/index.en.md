@@ -860,7 +860,7 @@ arguments.
 - [`docs/dev-guide.md`](dev-guide.md) — full feature reference,
   API, project structure, testing
 - [`docs/agents.md`](agents.md) — connect an external agent: the
-  Claude Code plugin, plus Codex and WorkBuddy MCP configs
+  Claude Code plugin, plus Codex, WorkBuddy and Qoder MCP configs
 - [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md) — architecture
 - [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) — subsystem deep-dives (browser, events,
   scheduling, workspace, etc.)

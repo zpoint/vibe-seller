@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api } from '../../api'
 import { ChatBotSection } from '../ChatBotSection'
+import { ApiTokensPanel } from './ApiTokensPanel'
 import { Dida365Panel } from './Dida365Panel'
 import { AmazonAdsPanel } from './AmazonAdsPanel'
 
@@ -27,7 +28,15 @@ interface GwsStatus {
   installed: boolean
 }
 
-export function IntegrationsPanel({ isAdmin = false }: { isAdmin?: boolean }) {
+export function IntegrationsPanel({
+  isAdmin = false,
+  authRequired = true,
+}: {
+  isAdmin?: boolean
+  /** Passed through to ApiTokensPanel — whether the server requires a
+   *  login (it says so instead of pretending keys are required). */
+  authRequired?: boolean
+}) {
   const { t } = useTranslation()
   const [status, setStatus] = useState<GwsStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -75,6 +84,9 @@ export function IntegrationsPanel({ isAdmin = false }: { isAdmin?: boolean }) {
 
   return (
     <div className="space-y-4">
+      {/* API keys come first: they are what MCP clients need before any
+          of the integrations below. */}
+      <ApiTokensPanel authRequired={authRequired} />
       <AmazonAdsPanel />
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h3 className="font-semibold mb-1">{t('integrations.gws.title')}</h3>

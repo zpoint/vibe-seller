@@ -79,6 +79,17 @@ const settingsIndexRoute = createRoute({
 const settingsTabRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: 'settings/$tab',
+  // The API-tokens tab was retired: its card moved into Integrations,
+  // so the old slug redirects there and anchors to the card.
+  beforeLoad: ({ params }) => {
+    if (params.tab === 'api-tokens') {
+      throw redirect({
+        to: '/settings/$tab',
+        params: { tab: 'integrations' },
+        hash: 'api-keys',
+      })
+    }
+  },
   component: () => null,
 })
 

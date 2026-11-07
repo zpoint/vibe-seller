@@ -7,7 +7,6 @@ import { StoresPanel } from '../components/settings/StoresPanel'
 import { EmailAccountsPanel } from '../components/settings/EmailAccountsPanel'
 import { IntegrationsPanel } from '../components/settings/IntegrationsPanel'
 import { VisionPanel } from '../components/settings/VisionPanel'
-import { ApiTokensPanel } from '../components/settings/ApiTokensPanel'
 import { ExternalConfigOverrideModal } from '../components/ExternalConfigOverrideModal'
 import {
   isExternalConfigOverrideDetail,
@@ -21,7 +20,6 @@ export type SettingsTab =
   | 'aiAgent'
   | 'email'
   | 'account'
-  | 'apiTokens'
   | 'integrations'
 
 interface SettingsViewProps {
@@ -76,7 +74,7 @@ export function SettingsView({
   loadUsers,
 }: SettingsViewProps) {
   const { t } = useTranslation()
-  const tabs: SettingsTab[] = ['stores', 'general', 'aiAgent', 'email', 'account', 'apiTokens', 'integrations']
+  const tabs: SettingsTab[] = ['stores', 'general', 'aiAgent', 'email', 'account', 'integrations']
   const [overrideError, setOverrideError] = useState<ExternalConfigOverrideDetail | null>(null)
 
   // Centralized handler — surfaces the cc-switch / external-config
@@ -147,8 +145,6 @@ export function SettingsView({
         />
       ) : settingsTab === 'email' ? (
         <EmailAccountsPanel emailAccounts={emailAccounts} loadEmailAccounts={loadEmailAccounts} stores={stores} isAdmin={currentUser?.role === 'admin'} />
-      ) : settingsTab === 'apiTokens' ? (
-        <ApiTokensPanel authRequired={authRequired} />
       ) : settingsTab === 'aiAgent' ? (
         <div className="space-y-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4">
@@ -289,7 +285,7 @@ export function SettingsView({
           <VisionPanel isAdmin={currentUser?.role === 'admin'} />
         </div>
       ) : settingsTab === 'integrations' ? (
-        <IntegrationsPanel isAdmin={currentUser?.role === 'admin'} />
+        <IntegrationsPanel isAdmin={currentUser?.role === 'admin'} authRequired={authRequired} />
       ) : null}
 
       {overrideError && (
