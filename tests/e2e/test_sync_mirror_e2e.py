@@ -1,13 +1,16 @@
 """E2E: the mirror semantics + the schedule, against a real server.
 
-Companion to ``test_sync_scheduler_e2e.py``. Same harness: the server
-on :7811 with an isolated home, the fake GitHub out-of-process and
-driven over its ``/__control`` plane.
+Companion to ``test_sync_scheduler_e2e.py`` — but this file OWNS its
+whole stack: its own fake GitHub, its own fake ads service and its own
+server (a dedicated free port + a dedicated temp ``VIBE_HOME``),
+started and stopped by the module fixture in ``tests/e2e/own_server.py``
+terms. It never touches the shared e2e server or the shared home.
 
-This file RESTARTS the server mid-suite — that is how it gets a chosen
-cadence, a chosen ``install_id`` and a chosen ``last_ok_at``. It stops
-only what it starts: ``kill -TERM`` on the pid file, never ``stop.sh``
-(that also stops port clients and reaps every task agent on the box).
+That ownership is the point: this suite RESTARTS its server mid-run —
+that is how it gets a chosen cadence, a chosen ``install_id`` and a
+chosen ``last_ok_at`` — and a restart of the SHARED server would fail
+every other worker's in-flight tasks. ``own_server`` refuses the
+shared port outright, so it cannot happen even by mistake.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -16,29 +19,33 @@ import json
 import os
 from pathlib import Path
 import re
-import signal
 import sqlite3
-import subprocess
 import time
 
 import httpx
 import pytest
 
+from tests.e2e import fake_ads_service
+from tests.e2e.own_server import OwnServer, pick_free_port
+from tests.fixtures.fake_github import FakeGitHub
+
 pytestmark = pytest.mark.e2e
 
-BASE_URL = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7811')
-PORT = int(os.environ.get('E2E_PORT') or BASE_URL.rsplit(':', 1)[-1] or 7811)
-FAKE = os.environ.get('E2E_FAKE_GITHUB_URL', 'http://127.0.0.1:7812').rstrip(
-    '/'
-)
-VIBE_HOME = Path(
-    os.environ.get('E2E_VIBE_HOME') or os.environ.get('VIBE_HOME') or ''
-)
+# Set by the module fixture (owned_stack) to THIS suite's own stack —
+# this module never reads the shared harness's base URL or home.
+BASE_URL = ''
+PORT = 0
+FAKE = ''
+VIBE_HOME = Path()
 SKILLS = VIBE_HOME / '.claude' / 'skills'
 RUN_RE = re.compile(r'sync:\S+ reason=\S+ status=\S+')
 # While these rows run, nothing ticks on its own: every sync is one the
 # test asked for, so `status == 'updated'` means THIS run wrote it.
 LONG = 'skills=3600,knowledge=3600,presets=3600,email=3600,daemon_reaper=3600'
+
+# The module's own server — created by owned_stack, used by
+# restart_server() and stopped by the fixture.
+_OWNED: OwnServer | None = None
 
 
 def control(**body) -> None:
@@ -112,34 +119,9 @@ def wait_health(timeout: float = 60) -> None:
 
 
 def restart_server(env: dict | None = None) -> None:
-    """Restart the server under test. NEVER plain ``stop.sh``."""
-    pidfile = Path(f'.pids_{PORT}')
-    if pidfile.exists():
-        pid = int(pidfile.read_text().strip() or 0)
-        if pid:
-            kids = subprocess.run(
-                ['pgrep', '-P', str(pid)], capture_output=True, text=True
-            ).stdout.split()
-            os.kill(pid, signal.SIGTERM)
-            for kid in kids:
-                try:
-                    os.kill(int(kid), signal.SIGTERM)
-                except (ProcessLookupError, ValueError):
-                    pass
-            for _ in range(30):
-                try:
-                    os.kill(pid, 0)
-                except ProcessLookupError:
-                    break
-                time.sleep(1)
-        pidfile.unlink(missing_ok=True)
-    subprocess.run(
-        ['./start.sh', str(PORT)],
-        env={**os.environ, **(env or {})},
-        check=False,
-        capture_output=True,
-    )
-    wait_health()
+    """Restart THIS suite's own server — never the shared one."""
+    assert _OWNED is not None, 'owned_stack fixture did not run'
+    _OWNED.start(env=env)
 
 
 def set_sync_state(job: str, *, last_ok_at: str) -> None:
@@ -168,11 +150,74 @@ def utcnow() -> str:
 
 
 @pytest.fixture(scope='module', autouse=True)
-def quiet_cadence():
-    restart_server(
+def owned_stack(tmp_path_factory):
+    """THIS suite's own fake GitHub, ads fake and server.
+
+    Everything the tests touch lives here: the fake GitHub serves on
+    its own port (``/__control``-driven), the ads fake answers on its
+    fixed port, and the server gets a free port + a temp ``VIBE_HOME``
+    seeded by the app's own init. The shared e2e server and home are
+    never read or written.
+    """
+    global _OWNED, BASE_URL, PORT, VIBE_HOME, SKILLS, FAKE
+
+    fake = FakeGitHub()
+    fake_url = fake.start().rstrip('/')
+    ads = None
+    try:
+        # Only a real 200 means "already served": a proxy in front of
+        # loopback answers 502 for a port nothing listens on.
+        running = (
+            httpx.get(
+                f'{fake_ads_service.URL}/skill/version', timeout=2
+            ).status_code
+            == 200
+        )
+    except httpx.HTTPError:
+        running = False
+    if not running:
+        try:
+            ads = fake_ads_service.serve()
+        except OSError:
+            ads = None  # another test's fake owns the fixed port now
+
+    home = tmp_path_factory.mktemp('sync-mirror-home')
+    server = OwnServer(
+        port=pick_free_port(),
+        home=home,
+        env={
+            **fake.urls(),
+            'VIBE_ADS_SERVICE_URL': fake_ads_service.URL,
+        },
+    )
+    _OWNED = server
+    BASE_URL = server.base_url
+    PORT = server.port
+    VIBE_HOME = server.home
+    SKILLS = server.home / '.claude' / 'skills'
+    FAKE = fake_url
+    previous_log = os.environ.get('E2E_SERVER_LOG')
+    previous_ads = os.environ.get('VIBE_ADS_SERVICE_URL')
+    os.environ['E2E_SERVER_LOG'] = str(server.log)
+    os.environ['VIBE_ADS_SERVICE_URL'] = fake_ads_service.URL
+
+    server.start(
         env={'VIBE_SYNC_CADENCE_OVERRIDE': LONG, 'VIBE_SYNC_JITTER': '0'}
     )
-    yield
+    yield server
+
+    server.stop()
+    fake.stop()
+    if ads is not None:
+        ads.shutdown()
+    if previous_log is None:
+        os.environ.pop('E2E_SERVER_LOG', None)
+    else:
+        os.environ['E2E_SERVER_LOG'] = previous_log
+    if previous_ads is None:
+        os.environ.pop('VIBE_ADS_SERVICE_URL', None)
+    else:
+        os.environ['VIBE_ADS_SERVICE_URL'] = previous_ads
 
 
 # ── 1. an upstream change lands ───────────────────────────────────

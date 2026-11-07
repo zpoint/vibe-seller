@@ -25,14 +25,12 @@ Requires: real ``claude`` CLI + LLM API key + running server.
 """
 
 import logging
-from pathlib import Path
 import re
 import time
 
 import httpx
 import pytest
 
-from app.config import BACKEND_PORT, VIBE_SELLER_DIR
 from tests.e2e.e2e_helpers import (
     PIPELINE_TIMEOUT,
     create_store,
@@ -40,6 +38,7 @@ from tests.e2e.e2e_helpers import (
     get_messages,
     login,
     poll_task_status,
+    server_log_candidates,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,24 +54,11 @@ NOON_SHARED_MARKER = 'https://login.noon.partners/en/'
 #   ... app.ai.claude_backend_hooks INFO Skill prereq: agent abc12345 \
 #       tried 'noon-ads' without "Skill 'noon-ads' requires 'noon-shared'..."
 #
-# Candidates the e2e test searches for the server log, in order:
-# - docker-runner convention (docker-entrypoint.sh symlinks here)
-# - public-repo start.sh (writes to ``$LOG_DIR/backend.log`` where
-#   LOG_DIR defaults to ``logs`` or the server home's ``logs/``)
-# - dev-repo start.sh (port-suffixed)
-#
-# Everything home-relative resolves through app.config: for an e2e run
-# the root conftest points the test process's home at the SERVER's
-# home (E2E_VIBE_HOME / VIBE_HOME), and BACKEND_PORT comes from
-# E2E_BASE_URL — so a log the pytest process itself writes can never
-# masquerade as the server's.
-HOOK_LOG_CANDIDATES = (
-    Path('logs/server_stdout.log'),
-    Path(f'logs/backend_{BACKEND_PORT}.log'),
-    Path('logs/backend.log'),
-    VIBE_SELLER_DIR / 'logs' / f'backend_{BACKEND_PORT}.log',
-    VIBE_SELLER_DIR / 'logs' / 'backend.log',
-)
+# The server's own log — every candidate for the one port the tests
+# talk to comes from the shared helper (the app's log is per-port and
+# lives wherever the SERVER's LOG_DIR points: the runtime home in CI,
+# the checkout for start.sh runs).
+HOOK_LOG_CANDIDATES = server_log_candidates()
 
 
 @pytest.fixture(scope='module')

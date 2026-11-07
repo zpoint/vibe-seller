@@ -133,11 +133,24 @@ async def save_skill(
 ):
     """Create or extend a user-space skill (upsert).
 
-    Built-in slugs are rejected by the manager (they are read-only).
+    One call writes the whole skill — SKILL.md, text ``files``,
+    base64 ``files_bin``, and the ``executables`` bit list.
+    ``replace=True`` installs the tree wholesale (import semantics)
+    and refuses to clobber an existing user skill without
+    ``overwrite=True``; the default merges, keeping files the call
+    does not carry. Built-in slugs are rejected by the manager (they
+    are read-only).
     """
     try:
         return await workspace_manager.save_skill(
-            slug, body.skill_md, body.files or None
+            slug,
+            body.skill_md,
+            body.files or None,
+            body.files_bin or None,
+            body.executables or None,
+            body.origin_url,
+            body.replace,
+            body.overwrite,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

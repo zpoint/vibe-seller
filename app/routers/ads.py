@@ -16,6 +16,7 @@ for anyone to point somewhere else.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
@@ -240,7 +241,12 @@ async def agent_call(
         payload.task_id, path, ads_path_guard.Outcome.ANSWERED
     )
     if isinstance(result, ads_client.AdsFile):
-        return {'result': _save_file(result, payload.task_id)}
+        # The file write (and its mkdir) is one thread hop.
+        return {
+            'result': await asyncio.to_thread(
+                _save_file, result, payload.task_id
+            )
+        }
     return {'result': result}
 
 

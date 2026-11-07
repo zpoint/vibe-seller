@@ -438,8 +438,17 @@ class BlockingChecker:
         fn: FuncInfo | None,
     ) -> Target | None:
         """Resolve a call/function expression to a scanned target."""
-        if isinstance(expr, ast.Attribute) and expr.attr == 'rglob':
-            return Target('prim', 'Path.rglob')
+        if isinstance(expr, ast.Attribute) and expr.attr in (
+            'rglob',
+            'read_bytes',
+            'write_bytes',
+        ):
+            # Bulk byte I/O: a multi-megabyte read/write freezes the
+            # loop as surely as a zip pack. Text helpers
+            # (read_text/write_text) and plain ``open`` stay out on
+            # the same noise policy as exists/mkdir/stat (they are
+            # every metadata read in the tree).
+            return Target('prim', f'Path.{expr.attr}')
         if (
             isinstance(expr, ast.Attribute)
             and isinstance(expr.value, ast.Call)

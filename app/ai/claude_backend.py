@@ -30,7 +30,11 @@ import uuid
 
 from sqlalchemy import select
 
-from app.ai.agent_proxy import drop_dead_proxy
+from app.ai.agent_proxy import (
+    drop_dead_proxy,
+    launch_settings,
+    launch_settings_file,
+)
 from app.ai.claude_backend_hooks import _HookMixin
 from app.ai.claude_backend_persist import _PersistMixin
 from app.ai.claude_backend_stream import _StreamMixin
@@ -38,16 +42,14 @@ from app.ai.claude_backend_subagents import _SubagentMixin
 from app.ai.claude_backend_turns import _TurnLifecycleMixin
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
-    AUTO_APPROVE_CALLBACK,
     DRAIN_TIMEOUT,
     INTERRUPT_TIMEOUT,
     SIGNAL_TIMEOUT,
-    STOP_REFLECTION_CALLBACK,
-    TOOL_APPROVAL_CALLBACK,
     append_system_prompt,
     apply_agent_venv_path,
     permission_mode_for_agent,
     resolve_claude_binary,
+    sdk_initialize_request,
 )
 from app.ai.compaction import build_history_prompt, dump_history_file
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
@@ -332,10 +334,20 @@ class AgentSession(
             )
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
+        # ONE --settings file per launch. It always carries the
+        # backend-owned settings (the CLI's auto-mode classifier off —
+        # claude_backend_hooks are the ONE permission authority) and
+        # gains the dead-proxy blanks when one is dropped.
+        settings = launch_settings()
         # A proxy that refuses connections fails every model call (#168).
-        await drop_dead_proxy(
-            cmd, env, self.task_id, self.task_dir, self._emit_message
-        )
+        await drop_dead_proxy(env, self.task_id, settings, self._emit_message)
+        if not mock_cli:
+            cmd.extend([
+                '--settings',
+                str(
+                    launch_settings_file(self.task_id, self.task_dir, settings)
+                ),
+            ])
         logger.info(
             'Starting agent for task %s (mode=%s, profile=%s, '
             'base_url=%s, model=%s)',
@@ -436,64 +448,15 @@ class AgentSession(
 
     async def _send_sdk_initialize(self):
         """Send SDK control request to configure hooks."""
-        # ExitPlanMode + AskUserQuestion → interactive approval
-        # (SDK evaluates matchers in order, first match wins)
-        hooks = {
-            'PreToolUse': [
-                {
-                    'matcher': '^(ExitPlanMode|AskUserQuestion)$',
-                    'hookCallbackIds': [TOOL_APPROVAL_CALLBACK],
-                },
-                {
-                    'matcher': ('^(?!ExitPlanMode$|AskUserQuestion$).*'),
-                    'hookCallbackIds': [AUTO_APPROVE_CALLBACK],
-                },
-            ],
-        }
-        if not self.skip_reflection:
-            hooks['Stop'] = [
-                {'hookCallbackIds': [STOP_REFLECTION_CALLBACK]},
-            ]
-        await self._send_stdin({
-            'type': 'control_request',
-            'request_id': str(uuid.uuid4()),
-            'request': {
-                'subtype': 'initialize',
-                'hooks': hooks,
-            },
-        })
+        await self._send_stdin(
+            sdk_initialize_request('plan_then_execute', self.skip_reflection)
+        )
 
     async def _send_sdk_initialize_auto(self):
-        """Send SDK hooks for auto mode.
-
-        AskUserQuestion → forwarded to CanUseTool for interactive
-        question handling.  All other tools → auto-approved with
-        circuit-breaker loop detection.  No ExitPlanMode hook.
-        """
-        hooks = {
-            'PreToolUse': [
-                {
-                    'matcher': '^AskUserQuestion$',
-                    'hookCallbackIds': [TOOL_APPROVAL_CALLBACK],
-                },
-                {
-                    'matcher': '^(?!AskUserQuestion$).*',
-                    'hookCallbackIds': [AUTO_APPROVE_CALLBACK],
-                },
-            ],
-        }
-        if not self.skip_reflection:
-            hooks['Stop'] = [
-                {'hookCallbackIds': [STOP_REFLECTION_CALLBACK]},
-            ]
-        await self._send_stdin({
-            'type': 'control_request',
-            'request_id': str(uuid.uuid4()),
-            'request': {
-                'subtype': 'initialize',
-                'hooks': hooks,
-            },
-        })
+        """Send SDK hooks for auto mode (see sdk_initialize_request)."""
+        await self._send_stdin(
+            sdk_initialize_request('auto', self.skip_reflection)
+        )
 
     async def _register_vibe_seller_mcp(self, ws_dir):
         """Register the vibe-seller MCP server in .mcp.json."""

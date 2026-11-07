@@ -279,3 +279,30 @@ def test_empty_blocking_ok_reason_is_rejected() -> None:
     assert len(violations) == 1
     assert 'time.sleep' in violations[0].format()
     assert checker.invalid_hatches == ['app/a.py:3']
+
+
+def test_bulk_byte_io_behind_a_helper_is_flagged() -> None:
+    """``Path.read_bytes`` / ``Path.write_bytes`` are bulk byte I/O.
+
+    A multi-megabyte read or write freezes the loop as surely as a zip
+    pack — this is the gap that let a staging write land on the loop:
+    the checker saw only the tarfile call beside it. Text helpers
+    (read_text/write_text) and plain ``open`` stay out on the same
+    cheap-noise policy as exists/mkdir/stat.
+    """
+    source = _src(
+        """
+        import pathlib
+
+        def _spill(path, blob):
+            pathlib.Path(path).write_bytes(blob)
+
+        async def run(path):
+            _spill(path, b'x')
+            pathlib.Path(path).read_bytes()
+        """
+    )
+    violations = _check(**{'app.a': source})
+    assert len(violations) == 2
+    assert 'Path.write_bytes' in violations[0].format()
+    assert 'Path.read_bytes' in violations[1].format()
