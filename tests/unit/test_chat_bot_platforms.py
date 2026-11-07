@@ -394,6 +394,75 @@ class TestWecomPayloads:
         assert 'invalid url' in msg
 
 
+class TestWecomFileSend:
+    """``send_file_webhook`` must post to the CONFIGURED webhook URL.
+
+    The upload and the send share the webhook credential: the endpoints
+    are derived from the stored URL's origin, never hard-coded to the
+    production host. A bot pointed anywhere else (the loopback e2e
+    stub, a future mirror) must see BOTH requests — rebuilding the
+    production URL from ``key=`` would post the webhook secret to a
+    host the user did not choose.
+    """
+
+    def _patch_client(self, monkeypatch, captured):
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            if 'upload_media' in request.url.path:
+                return httpx.Response(
+                    200,
+                    json={
+                        'errcode': 0,
+                        'errmsg': 'ok',
+                        'type': 'file',
+                        'media_id': 'MEDIA1',
+                        'created_at': '1700000000',
+                    },
+                )
+            return httpx.Response(200, json={'errcode': 0, 'errmsg': 'ok'})
+
+        transport = httpx.MockTransport(handler)
+        real = httpx.AsyncClient
+
+        def factory(*args, **kwargs):
+            return real(transport=transport, timeout=10)
+
+        monkeypatch.setattr('app.notifiers.wecom.httpx', httpx)
+        monkeypatch.setattr(httpx, 'AsyncClient', factory)
+
+    async def test_upload_and_send_use_configured_origin(
+        self, monkeypatch, tmp_path
+    ):
+        captured = []
+        self._patch_client(monkeypatch, captured)
+        f = tmp_path / 'report.txt'
+        f.write_text('hello file\n')
+        url = 'http://localhost:17892/cgi-bin/webhook/send?key=okkey'
+
+        ok, msg = await wecom.send_file_webhook(url, str(f))
+
+        assert (ok, msg) == (True, '')
+        assert len(captured) == 2
+        upload, send = captured
+        assert str(upload.url) == (
+            'http://localhost:17892/cgi-bin/webhook/upload_media'
+            '?key=okkey&type=file'
+        )
+        assert str(send.url) == url
+        body = send.read().decode()
+        assert json.loads(body) == {
+            'msgtype': 'file',
+            'file': {'media_id': 'MEDIA1'},
+        }
+
+    async def test_missing_key_is_refused(self):
+        ok, msg = await wecom.send_file_webhook(
+            'http://localhost:17892/cgi-bin/webhook/send', 'x'
+        )
+        assert ok is False
+        assert 'key=' in msg
+
+
 class TestDingtalkPayloads:
     async def test_text_shape(self, monkeypatch):
         captured = []
