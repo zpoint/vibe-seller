@@ -658,7 +658,7 @@ class TestSizePreCheck:
     """Oversized content must fail BEFORE any network call."""
 
     CASES = [
-        ('wecom', wecom.send_message, WECOM_URL, 4096, 'bytes'),
+        ('wecom', wecom.send_message, WECOM_URL, 2048, 'bytes'),
         ('dingtalk', dingtalk.send_message, DINGTALK_URL, 20000, 'bytes'),
         ('feishu', feishu.send_message, FEISHU_URL, 20000, 'bytes'),
         ('slack', slack.send_message, SLACK_URL, 40000, 'chars'),
@@ -691,6 +691,43 @@ class TestSizePreCheck:
             SLACK_URL, None, content, msgtype='markdown'
         )
         assert ok is False
+
+    async def test_wecom_text_cap_is_2048_bytes(self, monkeypatch):
+        """WeCom's TEXT cap is 2048 bytes (官方 消息推送配置说明,
+        文本类型 content "最长不超过2048个字节") — NOT the 4096 that
+        applies to markdown. A 3000-byte text must be refused locally,
+        with the real number in the message."""
+
+        def _boom(*a, **kw):
+            raise AssertionError('network must not be reached')
+
+        monkeypatch.setattr('app.notifiers.base.post', _boom)
+        ok, msg = await wecom.send_message(WECOM_URL, None, 'x' * 3000)
+        assert ok is False
+        assert '2048' in msg
+
+    async def test_wecom_markdown_cap_stays_4096(self, monkeypatch):
+        """markdown content is allowed up to 4096 bytes (官方: markdown
+        content "最长不超过4096个字节") — 3000 bytes must go through."""
+        captured = []
+        _patch_transport(
+            monkeypatch, _transport(_capture(captured, {'errcode': 0}))
+        )
+        ok, msg = await wecom.send_message(
+            WECOM_URL, None, 'x' * 3000, msgtype='markdown'
+        )
+        assert (ok, msg) == (True, '')
+        assert captured
+
+    async def test_wecom_text_over_cap_names_2048(self, monkeypatch):
+        def _boom(*a, **kw):
+            raise AssertionError('network must not be reached')
+
+        monkeypatch.setattr('app.notifiers.base.post', _boom)
+        ok, msg = await wecom.send_message(WECOM_URL, None, 'x' * 5000)
+        assert ok is False
+        assert '2048' in msg
+        assert '4096' not in msg
 
 
 class TestSizeUnitIsHonoured:
