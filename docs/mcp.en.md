@@ -4,111 +4,128 @@ description: Drive Vibe Seller from the AI tool you already use — MCP setup: c
 
 # MCP setup
 
-Vibe Seller can expose itself as an MCP service to **the AI tool you already
-use** — Claude, Codex, WorkBuddy, Qoder, anything that speaks MCP. Give it a
-URL and an API key, and from then on that tool can create tasks for you, follow
-their progress, answer the task agent's questions and review plans — the same
-things you'd click through in the web UI, but in conversation.
+Already live in Claude, Codex, WorkBuddy or Qoder? You can now drive Vibe Seller
+from those tools.
 
-The external agent works **through tasks**. It never drives a browser itself,
-so every gate on the server (plan approval, ad-scope declarations, the
-completeness review) still applies. For the developer-facing reference
-(protocol, 32 tools, curl examples) see
-[Connect an External Agent](agents.md).
+Once connected, just say something like "look at acme's ads from last week" in
+the chat. The tool creates the task in Vibe Seller, keeps an eye on it, and
+brings the summary back to you. Questions the task wants to ask you, and plans
+that need your nod, all happen in the same conversation — no more hopping
+between windows.
 
-> CLI users (Claude Code CLI, Codex CLI, …): see [Connect an External
-> Agent](agents.md). This page covers the desktop apps only.
+Any MCP-capable tool works; all you need is an API key.
+
+> **Safety**: an AI tool can only ask Vibe Seller to run tasks. It never touches
+> your browser and can never edit your store directly. Plan approval, the
+> ad-scope checks and the rest of the gates work exactly as they do in the web
+> UI.
+
+This page covers the desktop apps. If you use the command line (Claude Code
+CLI, Codex CLI, …) or want the technical details (the protocol, all 32 tools,
+curl examples), see [Connect an External Agent](agents.md).
 
 ## What you can ask
 
-Once connected, just talk to it:
+Once connected, just talk to it like a colleague:
 
 - "How many stores does vibe-seller have right now?"
-- "Look at the ad spend for acme over the past week and suggest improvements —
-  don't change anything yet."
+- "Look at acme's ad spend over the past week and suggest improvements — don't
+  change anything yet."
 - "What is that task doing at the moment? How far along is it?"
-- "Turn this week's inspection into a schedule that runs every Monday morning —
-  show me the plan first."
+- "Turn this week's inspection into a weekly Monday-morning run — show me the
+  plan first."
 
-The tool calls `list_stores`, `create_task`, `get_task` and friends for you;
-you never have to remember a tool name.
+You don't need to remember any commands — the tool figures out what to call.
 
 ## What it can and cannot do
 
 | | |
 |---|---|
-| ✅ Can | Create tasks (with attachments), follow them, answer questions, approve / reject plans, resolve image-confirm cards, send follow-ups, stop / retry / delete tasks, read a task's output files, read and edit the workspace knowledge, manage skills and schedules |
-| ❌ Cannot | Drive a browser (click, navigate, screenshot) or write into your store directly — store-facing work only ever happens inside a Vibe Seller task, behind the server's gates |
+| ✅ Can | Create tasks (with attachments), follow progress, answer the task's questions, approve or reject plans, confirm generated images, send follow-ups, stop / retry / delete tasks, read a task's output files, manage the knowledge base, skills and schedules |
+| ❌ Cannot | Drive the browser (click, open pages, take screenshots) or edit your store directly. Anything store-facing happens inside a Vibe Seller task and goes through every check. Routing through Vibe Seller keeps each store's data isolated and keeps the AI from going hands-on |
 
-Ad changes are still held to what the task itself declared, the completeness
-review still catches a report that skips marketplaces, and a report-only task
-still may not hand out change instructions. None of that is relaxed because
-the caller is an external agent.
+Ad tasks created from an AI tool follow the same rules as ones you create in
+the web UI: before any work starts the task must state exactly what it will
+check and change; a report that skips marketplaces gets sent back to finish the
+job; and a report-only task never touches your ads.
+
+> The screenshots and recordings below were made on macOS; the steps are the
+> same on Windows and Linux. Check each tool's download page for supported
+> systems.
+> On this page, `~` means your user folder — `C:\Users\<your-username>` on
+> Windows.
 
 ## First: create an API key
 
-In the web UI: **Settings → Integrations → API keys**. Give it a name you'll
-recognise later (e.g. `claude-desktop`), pick an expiry
-(30 / 90 / 365 days, or never), and **copy the key** — it is shown once, the
-server keeps only a hash. The dialog that pops up also hands you ready-to-paste
-configs for each client below.
+In the Vibe Seller web UI, open **Settings → Integrations → API key** and
+create one:
 
-- The key starts with `vst_`. **Treat it like a password**: it acts as you,
-  with your role.
-- Revoke it from the same card when you're done, or if you suspect it leaked.
-- If the server runs with login turned off, the key still works (and still
-  gets revoked for real) — create one anyway, so turning login on later
-  doesn't lock your tool out.
+1. Give it a name you'll recognise later, like `claude-desktop`;
+2. Pick an expiry: 30 days, 90 days, 365 days, or never;
+3. **Copy the key** right away. It is shown only once — close the dialog and
+   it's gone for good.
 
-## Claude desktop (Claude Code)
+![Creating an API key in Settings → Integrations](images/mcp_apikey_create_en.png)
+
+The dialog also hands you ready-to-paste configs for every tool below. Set the
+**server address** to one the tool can reach first — the configs update as you
+type:
+
+![The created-key dialog: the key and per-tool configs](images/mcp_apikey_created_en.png)
+
+A few things to keep in mind:
+
+- Keys start with `vst_`. **Treat one like a password**: a tool holding it acts
+  as you, with your permissions.
+- Revoke it in the same place whenever you like — if you're done with it or
+  suspect it leaked.
+- Create a key even if your Vibe Seller runs without login. Turn login on later
+  and the tool won't suddenly stop connecting.
+
+## Claude desktop
 
 ### Install
 
-Download the macOS app from [claude.com/download](https://claude.com/download)
-and install it.
+Download the build for your system from
+[claude.com/download](https://claude.com/download) and install it.
 
 ### Connect
 
-The dialog that hands you the API key also hands you a ready-to-paste
-command for Claude Code. Run it once in a terminal — the **Code tab of the
-Claude desktop app is Claude Code** and shares the same configuration, so it
-shows up in the app afterwards:
+The **Code tab** in the Claude desktop app is Claude Code, so one run of the
+command from the dialog in any terminal sets the app up too:
 
 ```bash
-claude mcp add --transport http vibe-seller http://HOST:7777/api/mcp \
-  --header "Authorization: Bearer vst_…"
+claude mcp add --scope user --transport http vibe-seller \
+  http://HOST:7777/api/mcp --header "Authorization: Bearer vst_…"
 ```
 
-> Add `--scope user` to that line: without it the command only registers the
-> server **for the current directory**, and Code sessions opened on another
-> folder won't see it.
+The dialog pre-fills the server address with the one your page was served from.
+If the tool runs on another machine, change it to an address that machine can
+reach.
 
-The server address in the dialog is editable (it is prefilled with the
-address the page was served from) — change it to one the machine running the
-tool can reach.
+For smoother runs, also install the `vibe-seller` **plugin** (see
+[agents.md](agents.md) for how). It ships instructions that teach the agent
+when to plan first, how to follow a task, how to answer its questions, and to
+only ever report results the task really produced — never invented ones.
 
-For a fuller setup, install the `vibe-seller` **plugin**
-(`claude plugin marketplace add` + `claude plugin install`, see
-[agents.md](agents.md)): the plugin additionally ships a skill that teaches
-the agent how to use the tools — when to plan first, how to follow a task,
-how to answer questions, how to review a plan, and why it must never
-fabricate a result.
-
-> If your server is **reachable from the internet**, the chat app can instead
-> use **Settings → Connectors → Add custom connector** with the server URL and
-> an `Authorization: Bearer vst_…` request header. That route is brokered from
-> Anthropic's cloud, so it cannot reach a `localhost` / LAN server — for a
-> local install, use the command above.
+> If your Vibe Seller is reachable from the public internet you can also
+> connect from Claude's chat page: **Settings → Connectors → Add custom
+> connector**, with the server address and an
+> `Authorization: Bearer vst_…` request header. That route is brokered through
+> Claude's cloud, which cannot reach a `localhost` or LAN address — for local
+> installs, use the command above.
 
 ### Verify
 
-Start a new Code session and ask "how many stores does vibe-seller have?", or
-open the plugin's tool list — seeing `list_stores`, `create_task` and the rest
-means it's connected.
+Open a new Code session and ask "how many stores does vibe-seller have?". If it
+answers with the store list — or you see tools like `list_stores` and
+`create_task` in the tool list — you're connected.
+
+![vibe-seller's tools in the Claude Code tab](images/mcp_claude_verify_en.png)
 
 ### Try it
 
-Try these in a session, in order:
+Send these one after another and watch it run an ad analysis for you:
 
 1. "How many stores are in vibe-seller right now?"
 2. "Look at acme's ad spend for the past week, give me some optimization
@@ -121,28 +138,14 @@ Try these in a session, in order:
 
 ### Install
 
-Download the macOS app from [chatgpt.com/codex](https://chatgpt.com/codex) or
-OpenAI's Codex page (Codex now ships inside the ChatGPT desktop app — pick
-Codex in the app). First launch asks you to sign in with a ChatGPT account.
+Download the desktop app from [chatgpt.com/codex](https://chatgpt.com/codex).
+Codex now ships inside the ChatGPT desktop app — install it and switch to
+Codex. First launch asks you to sign in with a ChatGPT account.
 
 ### Connect
 
-The Codex desktop app and the Codex CLI share `~/.codex/config.toml`. Paste
-the block from the dialog (with your own server address):
-
-```toml
-[mcp_servers.vibe-seller]
-url = "http://HOST:7777/api/mcp"
-bearer_token_env_var = "VIBE_SELLER_TOKEN"
-```
-
-⚠️ **A desktop app never sees your shell's `export`.** The
-`bearer_token_env_var` route reads an environment variable: it works after
-`export VIBE_SELLER_TOKEN=vst_…` in a terminal, but a Dock-launched app does
-not inherit that variable and the server will never connect. For the desktop
-app, either:
-
-- put the header in the config (recommended — no environment needed):
+The Codex desktop app and the Codex CLI share `~/.codex/config.toml`. Paste the
+block from the dialog into it:
 
 ```toml
 [mcp_servers.vibe-seller]
@@ -150,21 +153,28 @@ url = "http://HOST:7777/api/mcp"
 http_headers = { "Authorization" = "Bearer vst_…" }
 ```
 
-- or set the variable GUI-wide: `launchctl setenv VIBE_SELLER_TOKEN "vst_…"`
-  (then restart Codex).
+Save and restart Codex.
+
+> Put the key in the config itself — don't use `bearer_token_env_var`. A
+> desktop app launched from the Dock, Start menu or a desktop icon never sees
+> environment variables you exported in a terminal, and the server will never
+> connect.
 
 To run Codex on your own model instead of ChatGPT quota, add a
-`[model_providers.…]` block (any OpenAI-compatible / Responses-API provider)
+`[model_providers.…]` block (any OpenAI-compatible or Responses-API provider)
 to the same file and point `model_provider` at it.
 
 ### Verify
 
-Ask "how many stores does vibe-seller have?" in a Codex session, or check the
-tool count next to `vibe-seller` in the MCP Servers list.
+Ask "how many stores does vibe-seller have?" in Codex, or open
+**Settings → Plugins → MCPs** (searching "mcp" in Settings finds it too) and
+check that `vibe-seller` is switched on.
+
+![vibe-seller enabled in Codex's MCP list](images/mcp_codex_verify_en.png)
 
 ### Try it
 
-Try these in a session, in order:
+Send these one after another and watch it run an ad analysis for you:
 
 1. "How many stores are in vibe-seller right now?"
 2. "Look at acme's ad spend for the past week, give me some optimization
@@ -177,17 +187,18 @@ Try these in a session, in order:
 
 ### Install
 
-Download the macOS app from [workbuddy.cn](https://www.workbuddy.cn) (China
-edition) or [workbuddy.ai](https://www.workbuddy.ai) (international). First
-launch asks you to sign in.
+Download the build for your system from
+[workbuddy.cn](https://www.workbuddy.cn) (China edition) or
+[workbuddy.ai](https://www.workbuddy.ai) (international). First launch asks you
+to sign in.
 
 ### Connect
 
-The dialog hands you the WorkBuddy MCP JSON. Put it in either place:
+The dialog hands you a WorkBuddy-specific config. Use either way:
 
-- **File**: write the JSON as-is into `~/.workbuddy/mcp.json`;
-- **UI**: **Connectors (连接器) → Custom connectors → MCP Server Management →
-  + Add MCP**, paste the same JSON.
+- **Edit the file**: write the config as-is into `~/.workbuddy/mcp.json`;
+- **In the app**: **Connectors → Custom connectors → MCP Server Management →
+  + Add MCP**, and paste the same config.
 
 ```json
 {
@@ -202,20 +213,23 @@ The dialog hands you the WorkBuddy MCP JSON. Put it in either place:
 }
 ```
 
-The entry then appears in the list — but it will not connect until you click
-**Trust** and flip its switch on. Editing the file invalidates the trust, so
-re-trust after any change.
+![Pasting the config in WorkBuddy's Add MCP dialog](images/mcp_workbuddy_add_en.png)
+
+The entry then appears in the list. **You must also click "Trust" and flip its
+switch on** before it actually connects. Any later edit to the config file
+requires trusting it again.
 
 ### Verify
 
-MCP Server Management reads `vibe-seller • 32/32 tools enabled`; then ask "how
-many stores does vibe-seller have?" in a chat:
+MCP Server Management reads `vibe-seller · 32/32 tools enabled` — that means
+it's connected. Then try asking "how many stores does vibe-seller have?" in a
+chat:
 
 ![WorkBuddy connected](images/mcp_workbuddy_verify_en.png)
 
 ### Try it
 
-Try these in a session, in order:
+Send these one after another and watch it run an ad analysis for you:
 
 1. "How many stores are in vibe-seller right now?"
 2. "Look at acme's ad spend for the past week, give me some optimization
@@ -228,20 +242,21 @@ Try these in a session, in order:
 
 ### Install
 
-Download the macOS app from [qoder.com/download](https://qoder.com/download) —
-the China edition ships as **Qoder CN**. First launch asks you to sign in to a
-Qoder account (Google / GitHub / email sign-up).
+Download the build for your system from
+[qoder.com/download](https://qoder.com/download) — the China edition ships as
+**Qoder CN**. First launch asks you to sign in to a Qoder account (Google /
+GitHub / email sign-up).
 
 ### Connect
 
-**Extensions → Connectors → top-right "Add Connector"**, choose the Form or the
-JSON tab and paste the config the key dialog gives you (JSON form):
+Open **Extensions → Connectors**, click **Add Connector** at the top right,
+switch to the JSON tab and paste the config from the dialog:
 
 ```json
 {
   "mcpServers": {
     "vibe-seller": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "http://HOST:7777/api/mcp",
       "headers": {
         "Authorization": "Bearer vst_…"
@@ -251,24 +266,28 @@ JSON tab and paste the config the key dialog gives you (JSON form):
 }
 ```
 
-Confirm with "Preview import", then "Import". The config is saved in
-`mcpServers` within **`~/.qoder-cn/settings.json`** (the app's own dialog says
-so; the international Qoder / CLI uses `~/.qoder/settings.json` — the two
-editions differ).
+![Pasting the config in Qoder's Add Connector dialog](images/mcp_qoder_add_en.png)
 
-> Qoder often fires `create_task` with a title and no description — the server
-> accepts title-only calls, so you don't need to spell out a description in the
-> conversation.
+Click **Preview import** to confirm, then **Import** and you're done.
+
+![The Preview import confirmation](images/mcp_qoder_preview_en.png)
+
+If vibe-seller is already set up, the preview says it will be replaced —
+importing overwrites the old entry.
+
+The config is saved in `mcpServers` within `~/.qoder-cn/settings.json` (the
+international edition uses `~/.qoder/settings.json`). If you edit that file
+later, trust the connector again in Qoder.
 
 ### Verify
 
-**Settings → Extension management → Connectors** shows `vibe-seller • Ready •
-HTTP`; expand it for the tool list. Then ask "how many stores does vibe-seller
-have?" in a session.
+Under **Settings → Extension management → Connectors**, `vibe-seller · Ready ·
+HTTP` means it's connected; expand it for the full tool list. Then try asking
+"how many stores does vibe-seller have?" in a chat.
 
 ### Try it
 
-Try these in a session, in order:
+Send these one after another and watch it run an ad analysis for you:
 
 1. "How many stores are in vibe-seller right now?"
 2. "Look at acme's ad spend for the past week, give me some optimization
@@ -279,29 +298,38 @@ Try these in a session, in order:
 
 ## Troubleshooting
 
-**401 Unauthorized.** The key is wrong, revoked, or expired, or its owner is
-deactivated. Check the key's status under Settings → Integrations → API keys.
-A revoked or expired key is rejected even when the server runs with login off — that is
-deliberate, so revoking really revokes.
+**401 Unauthorized**
 
-**405 on /api/mcp.** The server answered "Method Not Allowed": the path hit the
-SPA's static-file fallback, so this server has no `/api/mcp` endpoint (too old)
-or the URL is wrong. The endpoint is `/api/mcp`, under `/api/`.
+The key is wrong, revoked, or expired, or its owner is deactivated. Check the
+key under **Settings → Integrations → API key**. A revoked or expired key is
+rejected even when the server runs with login off — revoking really revokes.
 
-**Connection refused / TLS errors.** Check host and port, and whether the tool's
-machine can reach the server at all. A server bound to `127.0.0.1` is only
-reachable from the same machine; put it behind a TLS reverse proxy for remote
-use.
+**405**
 
-**Tools are listed but every call fails.** The configured `url` usually already
-ended in `/api/mcp`, or had a trailing slash. Which value to fill differs per
-client — see each section's table above.
+The address is wrong, or your Vibe Seller is too old to have the MCP endpoint.
+Make sure the address ends in `/api/mcp`, and upgrade Vibe Seller if needed.
 
-**The agent answers without creating a task.** It answered from its own
-knowledge instead of running the task. The plugin's skill exists to stop that:
-never fabricate a result, report the task's own numbers and nothing else. Bare
-MCP (no plugin) is more prone to it.
+**Connection refused, or certificate (TLS) errors**
 
-**Will the key show up in a screenshot?** Config UIs usually mask it; scrub
-any visible `vst_…` before capturing. Docs and reports only ever use the
-`vst_…` placeholder.
+Check the address and port, and whether the tool's machine can reach Vibe
+Seller at all. A server bound to `127.0.0.1` is only reachable from the same
+machine; put an HTTPS reverse proxy in front for remote use.
+
+**Tools are listed but every call fails**
+
+Usually a wrong address. All the configs above want the address ending at
+`/api/mcp`; the only exception is the Claude **plugin**, which takes just the
+server root (e.g. `http://HOST:7777`) and appends `/api/mcp` itself. Also check
+for a stray trailing slash.
+
+**It answers without creating a task**
+
+It answered from its own knowledge instead of running anything. The Claude
+plugin helps a lot here — it requires the agent to report only what the task
+really produced. You can also say outright "use vibe-seller to create a task
+for this".
+
+**Will a screenshot leak the key?**
+
+Config UIs usually mask it, but scrub anything starting with `vst_` before
+sharing a screenshot.

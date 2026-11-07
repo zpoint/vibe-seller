@@ -102,6 +102,8 @@ claude mcp add --scope user --transport http vibe-seller \
 新开一个 Code 会话，问一句「vibe-seller 里有几个店铺」。它能答出店铺列表，
 或者工具列表里能看到 `list_stores`、`create_task`，就说明接好了。
 
+![Claude 的 Code 标签页里能看到 vibe-seller 的工具](images/mcp_claude_verify_zh.png)
+
 ### 试一试
 
 依次发这几句，看看它怎么帮你跑完一个广告分析：
@@ -142,8 +144,10 @@ http_headers = { "Authorization" = "Bearer vst_…" }
 
 ### 验证
 
-在 Codex 里问一句「vibe-seller 里有几个店铺」，或者到 MCP 服务器列表里看
-`vibe-seller` 有没有显示工具数。
+在 Codex 里问一句「vibe-seller 里有几个店铺」，或者打开 **Settings → Plugins →
+MCPs**（设置里搜 mcp 也能找到），看到 `vibe-seller` 已打开开关就说明接好了。
+
+![Codex 的 MCP 列表里已启用 vibe-seller](images/mcp_codex_verify_zh.png)
 
 ### 试一试
 
@@ -183,6 +187,8 @@ http_headers = { "Authorization" = "Bearer vst_…" }
   }
 }
 ```
+
+![WorkBuddy 的 Add MCP 里粘贴配置](images/mcp_workbuddy_add_zh.png)
 
 保存后列表里会出现 `vibe-seller`。**还要点一下「Trust」（信任）并打开开关**，
 它才会真正连上。以后每次改了配置文件，都需要重新点一次信任。
@@ -233,7 +239,13 @@ MCP Server Management 里显示 `vibe-seller · 32/32 tools enabled`，就说明
 }
 ```
 
+![Qoder 的 Add Connector 里粘贴配置](images/mcp_qoder_add_zh.png)
+
 点 **Preview import** 确认，再点 **Import** 就完成了。
+
+![Preview import 的确认界面](images/mcp_qoder_preview_zh.png)
+
+如果之前已经加过 vibe-seller，这里会显示「替换 1 个」，确认导入即可覆盖旧配置。
 
 配置会保存在 `~/.qoder-cn/settings.json`（国际版是 `~/.qoder/settings.json`）。
 如果之后直接改这个文件，改完要在 Qoder 里重新信任一次。
