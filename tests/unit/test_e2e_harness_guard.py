@@ -27,7 +27,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.e2e.own_server import assert_owned_port, shared_port
+from tests.e2e.own_server import OwnServer, assert_owned_port, shared_port
 
 pytestmark = pytest.mark.unit
 
@@ -241,3 +241,31 @@ def test_no_module_level_server_log_resolution():
         'resolve the server log inside the test that reads it, not at '
         'module level:\n  ' + '\n  '.join(offenders)
     )
+
+
+def test_own_server_log_is_a_fact_not_a_search():
+    """The owner of a server knows its log path before it starts.
+
+    ``OwnServer`` runs ``start.sh`` itself, so its log path is
+    deterministic from the moment it picks the port — reading
+    ``.log`` must never search (or raise) and must not touch the
+    filesystem. A searcher (``server_log_candidates``) is for the
+    SHARED server only, whose launch the test process cannot see.
+    """
+    before = set(Path.cwd().iterdir())
+    server = OwnServer(port=4242, home=Path('/tmp/unused'))
+    resolved = server.log
+    after = set(Path.cwd().iterdir())
+    assert before == after, 'reading .log must not touch the filesystem'
+    assert resolved == E2E_DIR.parents[1] / 'logs' / 'backend_4242.log'
+    assert resolved.name == 'backend_4242.log'
+
+
+def test_start_sh_still_forces_its_logs_dir():
+    """The launcher and the helper must not drift.
+
+    ``start_sh_log_path`` bakes in "start.sh exports LOG_DIR to the
+    repo's logs/"; if start.sh ever stops doing that, this fails.
+    """
+    text = (E2E_DIR.parents[1] / 'start.sh').read_text(encoding='utf-8')
+    assert 'LOG_DIR="$SCRIPT_DIR/logs"' in text

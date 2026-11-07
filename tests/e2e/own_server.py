@@ -20,7 +20,7 @@ import time
 
 import httpx
 
-from tests.e2e.e2e_helpers import SHARED_PORT, server_log_path
+from tests.e2e.e2e_helpers import SHARED_PORT, start_sh_log_path
 
 
 def shared_port() -> int:
@@ -64,15 +64,17 @@ class OwnServer:
 
     @property
     def log(self) -> Path:
-        """Where ``start.sh`` puts this server's APP log.
+        """Where THIS server's app log will be — a fact, not a search.
 
-        ``start.sh`` exports ``LOG_DIR`` to its own ``logs/`` before
-        launching uvicorn (the app logs to ``backend_<port>.log``
-        there), whatever ``VIBE_HOME`` says — so the log lives beside
-        the repo, not in the temp home. Same rule as every other log
-        reader: ``server_log_path`` for this server's base URL.
+        ``OwnServer`` runs ``start.sh`` itself, and ``start.sh``
+        forces ``LOG_DIR`` to the repo's ``logs/`` before launching
+        uvicorn — so the path is deterministic from the moment the
+        port is picked, and valid BEFORE ``start()`` (the fixture
+        needs it to point readers at the log the run is about to
+        create). Only a non-owner of a server searches for its log
+        (``e2e_helpers.server_log_candidates``).
         """
-        return server_log_path(self.base_url)
+        return start_sh_log_path(self.port)
 
     @property
     def _pidfile(self) -> Path:

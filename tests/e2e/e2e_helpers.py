@@ -43,6 +43,20 @@ BASE_URL = _base_url()
 SHARED_PORT = _port_of(BASE_URL)
 
 
+def start_sh_log_path(port: int) -> Path:
+    """Where ``start.sh`` writes the app log for *port*.
+
+    DETERMINISTIC: ``start.sh`` forces ``LOG_DIR`` to the repo's
+    ``logs/`` before launching uvicorn, and the app writes
+    ``backend_<port>.log`` there. Derived from THIS file's location,
+    not the process cwd. The owner of a server (OwnServer, which runs
+    ``start.sh`` itself) knows this path from the moment it picks the
+    port; only a non-owner searches (see ``server_log_candidates``).
+    """
+    repo_root = Path(__file__).resolve().parents[2]
+    return repo_root / 'logs' / f'backend_{port}.log'
+
+
 def server_log_candidates(base_url: str | None = None) -> tuple[Path, ...]:
     """Where the app log of the server we talk to can be — one port.
 
@@ -59,13 +73,13 @@ def server_log_candidates(base_url: str | None = None) -> tuple[Path, ...]:
 
     port = _port_of(base_url or BASE_URL)
     name = f'backend_{port}.log'
+    candidates = [
+        LOG_DIR / name,  # as the test process resolves it
+        VIBE_SELLER_DIR / 'logs' / name,  # `vibe-seller start` (CI)
+        start_sh_log_path(port),  # start.sh's own logs dir
+    ]
     seen: list[Path] = []
-    for directory in (
-        LOG_DIR,  # as the test process resolves it (start.sh exports it)
-        VIBE_SELLER_DIR / 'logs',  # what `vibe-seller start` uses (CI)
-        Path('logs'),  # the checkout, for start.sh runs without LOG_DIR
-    ):
-        candidate = directory / name
+    for candidate in candidates:
         if candidate not in seen:
             seen.append(candidate)
     return tuple(seen)
