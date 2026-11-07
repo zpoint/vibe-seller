@@ -20,13 +20,16 @@ import time
 
 import httpx
 
-from tests.e2e.e2e_helpers import server_log_path
+from tests.e2e.e2e_helpers import SHARED_PORT, server_log_path
 
 
 def shared_port() -> int:
-    """The port the shared e2e server runs on."""
-    base = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7811')
-    return int(os.environ.get('E2E_PORT') or base.rsplit(':', 1)[-1] or 7811)
+    """The port the shared e2e server runs on.
+
+    One definition, in ``e2e_helpers.SHARED_PORT`` — a second default
+    here is how a server ends up "owning" the wrong port.
+    """
+    return SHARED_PORT
 
 
 def assert_owned_port(port: int) -> int:

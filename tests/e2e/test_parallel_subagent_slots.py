@@ -39,7 +39,6 @@ from tests.e2e.mux_probe import assert_slots_isolated, parse
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
 
-SERVER_LOG = server_log_path()
 
 # JS-rendered pages, not static HTML. The first version of this test
 # served the code in the markup and the agent read it with `curl` —
@@ -150,8 +149,11 @@ class TestParallelSubagentSlots:
         self, api_client, chrome_store, site
     ):
         """Human intent in, isolated parallel browsing out."""
-        if not SERVER_LOG.exists():
-            pytest.skip(f'server log not readable at {SERVER_LOG}')
+        # Resolved HERE, not at import: a missing log must fail THIS
+        # test with the candidate list, never break collection.
+        server_log = server_log_path()
+        if not server_log.is_file():
+            pytest.skip(f'server log not readable at {server_log}')
         started = datetime.now()
 
         task = create_task(
@@ -184,7 +186,7 @@ class TestParallelSubagentSlots:
                 f'driver did not read its own page. Result: {text[:600]}'
             )
 
-        trace = parse(SERVER_LOG, since=started)
+        trace = parse(server_log, since=started)
         # Separate the two ways this can go wrong. No client AT ALL means
         # the agent never opened a browser (a broken premise — the pages
         # must be unreadable without one), which is a different bug from

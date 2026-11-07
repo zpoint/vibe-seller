@@ -9,27 +9,78 @@ import logging
 import os
 from pathlib import Path
 import time
+from urllib.parse import urlparse
 
 import httpx
 
-# Single source of truth for E2E constants
-BASE_URL = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7777')
+
+# ── The shared e2e server's address: ONE definition ────────────
+#
+# Everything derived from "which server are the tests talking to" —
+# its port, its log files, the port own_server must never touch —
+# computes from BASE_URL here. A second fallback default anywhere
+# sends one test to another server's log (observed: a reader looking
+# for backend_7811.log while the server wrote backend_7777.log).
+# E2E_PORT, where it still appears in run commands, feeds BASE_URL
+# rather than living as a side channel.
+def _base_url() -> str:
+    explicit = os.environ.get('E2E_BASE_URL')
+    if explicit:
+        return explicit
+    port = os.environ.get('E2E_PORT')
+    return f'http://127.0.0.1:{port}' if port else 'http://127.0.0.1:7777'
+
+
+def _port_of(url: str) -> int:
+    parsed = urlparse(url)
+    return parsed.port or (443 if parsed.scheme == 'https' else 80)
+
+
+BASE_URL = _base_url()
+#: The shared server's port — same value tests/conftest.py feeds to
+#: ``BACKEND_PORT`` (a URL without an explicit port means the scheme's
+#: default; the app's own default is 7777 when no URL is set at all).
+SHARED_PORT = _port_of(BASE_URL)
+
+
+def server_log_candidates(base_url: str | None = None) -> tuple[Path, ...]:
+    """Where the app log of the server we talk to can be — one port.
+
+    The app writes ``backend_<port>.log`` under the ``LOG_DIR`` its own
+    process runs with: ``vibe-seller start`` puts that in the runtime
+    home's ``logs/`` (CI), ``start.sh`` exports the checkout's
+    ``logs/``. The test process cannot see the server's env, so all
+    the real locations for THAT ONE port are candidates (LOG_DIR as
+    the test process resolves it, the runtime home, the checkout).
+    Every name is PER-PORT: the server this port names owns its log,
+    and no reader may assume a shared name.
+    """
+    from app.config import LOG_DIR, VIBE_SELLER_DIR
+
+    port = _port_of(base_url or BASE_URL)
+    name = f'backend_{port}.log'
+    seen: list[Path] = []
+    for directory in (
+        LOG_DIR,  # as the test process resolves it (start.sh exports it)
+        VIBE_SELLER_DIR / 'logs',  # what `vibe-seller start` uses (CI)
+        Path('logs'),  # the checkout, for start.sh runs without LOG_DIR
+    ):
+        candidate = directory / name
+        if candidate not in seen:
+            seen.append(candidate)
+    return tuple(seen)
 
 
 def server_log_path(base_url: str | None = None) -> Path:
-    """The APP log of the server the tests talk to.
-
-    ``app.main`` writes ``logs/backend_<port>.log`` (``LOG_DIR``
-    defaults to the checkout's ``logs/``) — that is where the app's
-    own lines land (mux connections, hook decisions). The shell's
-    stdout capture is a separate PER-PORT file
-    (``backend_stdout_<port>.log``): two servers started from one
-    checkout must never write or truncate the same log file, so no
-    reader may assume a shared name either.
-    """
-    base = base_url or os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7811')
-    port = int(os.environ.get('E2E_PORT') or base.rsplit(':', 1)[-1] or 7811)
-    return Path('logs') / f'backend_{port}.log'
+    """The app log of the server we talk to (first candidate that
+    exists)."""
+    candidates = server_log_candidates(base_url)
+    for path in candidates:
+        if path.is_file():
+            return path
+    raise AssertionError(
+        f'no server log found at any of {[str(p) for p in candidates]}'
+    )
 
 
 POLL_INTERVAL = 3  # seconds between status polls

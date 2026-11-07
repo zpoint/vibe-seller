@@ -19,6 +19,10 @@ active``. A test that needs restarts owns its server instead
    e2e modules do.
 """
 
+import ast
+from contextlib import contextmanager
+import importlib
+import os
 from pathlib import Path
 
 import pytest
@@ -29,6 +33,8 @@ pytestmark = pytest.mark.unit
 
 E2E_DIR = Path(__file__).resolve().parents[2] / 'tests' / 'e2e'
 OWNED_HELPERS = {'own_server.py'}
+# e2e_helpers.py IS the one definition of the shared address.
+ADDRESS_HOME = 'e2e_helpers.py'
 FORBIDDEN_TOKENS = ('stop.sh', '.pids_', "'./start.sh", '"./start.sh')
 
 
@@ -113,3 +119,125 @@ def test_start_sh_captures_stdout_per_port():
         if 'uvicorn app.main:app' in line and '>' in line:
             assert 'backend_stdout_${PORT}.log' in line, line
             assert 'backend.log' not in line, line
+
+
+@contextmanager
+def _helpers_under(env: dict):
+    """Evaluate the shared-address helpers under *env*; restore after."""
+    saved = {key: os.environ.get(key) for key in ('E2E_BASE_URL', 'E2E_PORT')}
+    for key in saved:
+        os.environ.pop(key, None)
+    os.environ.update(env)
+    try:
+        helpers = importlib.import_module('tests.e2e.e2e_helpers')
+        own = importlib.import_module('tests.e2e.own_server')
+        importlib.reload(helpers)
+        importlib.reload(own)
+        yield helpers, own
+    finally:
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        importlib.reload(importlib.import_module('tests.e2e.e2e_helpers'))
+        importlib.reload(importlib.import_module('tests.e2e.own_server'))
+
+
+def test_shared_address_defaults_agree():
+    """Unset the vars and EVERY derivation must say 7777.
+
+    The bug this pins: three fallbacks for one fact, two of them
+    wrong — a reader went looking for backend_7811.log while the
+    server wrote backend_7777.log. With a URL set, all of them must
+    follow it.
+    """
+    with _helpers_under({}) as (helpers, own):
+        assert helpers.SHARED_PORT == 7777
+        assert own.shared_port() == 7777
+        names = [p.name for p in helpers.server_log_candidates()]
+        assert names and all(name == 'backend_7777.log' for name in names), (
+            names
+        )
+    with _helpers_under({'E2E_BASE_URL': 'http://127.0.0.1:7899'}) as (
+        helpers,
+        own,
+    ):
+        assert helpers.SHARED_PORT == 7899
+        assert own.shared_port() == 7899
+        names = [p.name for p in helpers.server_log_candidates()]
+        assert names and all(name == 'backend_7899.log' for name in names), (
+            names
+        )
+
+
+def test_no_second_definition_of_the_shared_address():
+    """The shared server's address lives ONLY in e2e_helpers.
+
+    A fallback URL/port literal anywhere else is a second definition
+    waiting to disagree (doc-strings pointing at a command are fine —
+    nothing here matches those).
+    """
+    tokens = (
+        "os.environ.get('E2E_BASE_URL'",
+        'os.environ.get("E2E_BASE_URL"',
+        "os.environ.get('E2E_PORT'",
+        'os.environ.get("E2E_PORT"',
+        '127.0.0.1:7777',
+        '127.0.0.1:7811',
+        '7811',
+    )
+    offenders = []
+    for path in sorted(E2E_DIR.rglob('*.py')):
+        if path.name == ADDRESS_HOME or path.name == '__init__.py':
+            continue
+        text = path.read_text(encoding='utf-8')
+        for token in tokens:
+            if token in text:
+                offenders.append(f'{path.relative_to(E2E_DIR)}: {token}')
+    assert not offenders, (
+        'the shared server address is defined once, in '
+        'tests/e2e/e2e_helpers.py:\n  ' + '\n  '.join(offenders)
+    )
+
+
+def test_no_module_level_server_log_resolution():
+    """Resolve logs where they are READ, never at import.
+
+    ``server_log_path()`` raises when no log exists — fine inside one
+    test (it fails, with the candidate list), fatal at module scope
+    (it breaks COLLECTION of the whole module). Call it from a
+    function or not at all.
+    """
+
+    class ModuleLevelCalls(ast.NodeVisitor):
+        def __init__(self):
+            self.hits = 0
+
+        def visit_FunctionDef(self, node):
+            pass
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node):
+            pass
+
+        def visit_Call(self, node):
+            func = node.func
+            name = getattr(func, 'id', None) or getattr(func, 'attr', None)
+            if name == 'server_log_path':
+                self.hits += 1
+            self.generic_visit(node)
+
+    offenders = []
+    for path in sorted(E2E_DIR.rglob('*.py')):
+        if path.name == ADDRESS_HOME or path.name == '__init__.py':
+            continue
+        visitor = ModuleLevelCalls()
+        visitor.visit(ast.parse(path.read_text(encoding='utf-8')))
+        if visitor.hits:
+            offenders.append(str(path.relative_to(E2E_DIR)))
+    assert not offenders, (
+        'resolve the server log inside the test that reads it, not at '
+        'module level:\n  ' + '\n  '.join(offenders)
+    )
