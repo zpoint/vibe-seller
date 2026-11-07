@@ -927,7 +927,7 @@
     "workbuddy": "WorkBuddy",
     "workbuddyHint": "Add to ~/.workbuddy/mcp.json, then enable/trust it in MCP settings (re-trust after each edit):",
     "qoder": "Qoder",
-    "qoderHint": "Add to mcpServers in ~/.qoder/settings.json (re-trust after each edit):",
+    "qoderHint": "Add to mcpServers in ~/.qoder-cn/settings.json (Qoder CN) or ~/.qoder/settings.json (international), then re-trust after each edit:",
     "copy": "Copy",
     "copied": "Copied",
     "done": "Done"

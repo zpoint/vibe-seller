@@ -929,7 +929,7 @@
     "workbuddy": "WorkBuddy",
     "workbuddyHint": "加到 ~/.workbuddy/mcp.json；保存后在 MCP 设置里启用/信任（改动后需重新信任）：",
     "qoder": "Qoder",
-    "qoderHint": "加到 ~/.qoder/settings.json 的 mcpServers（改动后需重新信任）：",
+    "qoderHint": "加到 ~/.qoder-cn/settings.json（Qoder CN）或 ~/.qoder/settings.json（国际版）的 mcpServers，改动后需重新信任：",
     "copy": "复制",
     "copied": "已复制",
     "done": "完成"
