@@ -17,9 +17,12 @@ pytestmark = pytest.mark.unit
 
 
 async def _wait_for_key(d: dict, key: str) -> None:
-    """Poll until *key* appears in *d*."""
-    while key not in d:
+    """Poll until *key* appears in *d* (bounded — never hangs)."""
+    for _ in range(100):
+        if key in d:
+            return
         await asyncio.sleep(0.1)
+    raise AssertionError(f'{key!r} never appeared in the captured state')
 
 
 def _make_session(mode: str = 'plan_then_execute') -> AgentSession:

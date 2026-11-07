@@ -6,6 +6,7 @@ Split out of ``tools.py`` when that module passed the repo's 800-line
 limit. No tool is registered here.
 """
 
+import asyncio
 from dataclasses import dataclass
 import inspect
 import json
@@ -195,7 +196,7 @@ class RouteCallError(RuntimeError):
     """
 
 
-def call_route(fn, *args, **kwargs):
+async def call_route(fn, *args, **kwargs):
     """Call a FastAPI route handler with every marker param supplied.
 
     The adapters call route functions directly (that is the design: one
@@ -217,6 +218,12 @@ def call_route(fn, *args, **kwargs):
     ``Depends`` is not a ``Param`` and ``Body`` is neither (Form and
     File subclass Body). All three are checked, or a route that grows
     a body parameter would slip past.
+
+    A route may be ``async def`` or a plain ``def`` — FastAPI's
+    documented pattern for blocking filesystem work, where it runs the
+    handler in its threadpool. This seam mirrors that contract exactly:
+    a ``def`` route goes to a thread here too, so an MCP adapter never
+    freezes the event loop with work the web UI would have offloaded.
     """
     signature = inspect.signature(fn)
     try:
@@ -248,7 +255,12 @@ def call_route(fn, *args, **kwargs):
                 f'from FastAPI ({default!r}); the adapter must supply '
                 'an explicit value'
             )
-    return fn(*args, **kwargs)
+    if inspect.iscoroutinefunction(fn):
+        return await fn(*args, **kwargs)
+    result = await asyncio.to_thread(fn, *args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
 
 
 async def pending_question_for(ctx: McpContext, task) -> dict | None:
