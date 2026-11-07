@@ -265,6 +265,8 @@ MCP Server Management 里显示 `vibe-seller · 32/32 tools enabled`，就说明
 3. 「这个任务现在在干什么，到哪一步了？」
 4. 「好，继续跟进，跑完了给我总结。」
 
+![演示：在 Qoder 里指挥 Vibe Seller（等待过程已加速）](images/mcp_qoder_demo_zh.gif)
+
 ## 常见问题
 
 **提示 401 Unauthorized**
