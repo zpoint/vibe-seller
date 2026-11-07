@@ -39,6 +39,7 @@ from app.platform import venv_executable, venv_python
 from app.plugins import registered_skill_sources
 from app.sync import github as github_probe
 from app.utils.json_file import read_json_object, update_json_file
+from app.workspace import skills_tree
 from app.workspace.manager import VIBE_SELLER_DIR
 from app.workspace.skill_mirror import (
     _COPY_IGNORE,
@@ -166,6 +167,43 @@ class SkillsSyncManager(SkillMirrorMixin):
         self, srcs: list[Path], *, defer_deps: bool = False
     ) -> dict:
         """Inner fetch, called under lock."""
+        # The tree lock is the one contract for skills-tree mutation
+        # (and for the task-workspace copy) — see
+        # ``app.workspace.skills_tree``. Held only around the mirror;
+        # the dep install below touches the venv, not the tree.
+        async with skills_tree.hold():
+            replaced, skipped = await asyncio.to_thread(
+                self._sync_skill_dirs, srcs
+            )
+
+        # Auto-install skill Python deps into shared workspace venv.
+        # On the boot path this is deferred to a background task so
+        # serving (incl. /api/health) starts immediately; task
+        # launches join it via wait_deps_ready().
+        if defer_deps:
+            self._deps_task = asyncio.create_task(self._install_skill_deps())
+            self._deps_task.add_done_callback(self._log_deps_result)
+        else:
+            await self._install_skill_deps()
+
+        logger.info(
+            'Skills sync (local): %d replaced, %d unchanged',
+            replaced,
+            skipped,
+        )
+        return {
+            'synced': True,
+            'replaced': replaced,
+            'skipped': skipped,
+        }
+
+    def _sync_skill_dirs(self, srcs: list[Path]) -> tuple[int, int]:
+        """Mirror the source trees into the skills tree (blocking work).
+
+        Tree compares, copies, atomic swaps and deletions — grouped so
+        ``_fetch_locked`` can hand the whole mirror to one thread while
+        it keeps holding the lock. Returns ``(replaced, skipped)``.
+        """
         self._dest_dir.mkdir(parents=True, exist_ok=True)
         replaced = 0
         skipped = 0
@@ -250,27 +288,7 @@ class SkillsSyncManager(SkillMirrorMixin):
 
         # Track synced skills from source dirs (not dest contents)
         self._update_synced_skills(synced_names)
-
-        # Auto-install skill Python deps into shared workspace venv.
-        # On the boot path this is deferred to a background task so
-        # serving (incl. /api/health) starts immediately; task
-        # launches join it via wait_deps_ready().
-        if defer_deps:
-            self._deps_task = asyncio.create_task(self._install_skill_deps())
-            self._deps_task.add_done_callback(self._log_deps_result)
-        else:
-            await self._install_skill_deps()
-
-        logger.info(
-            'Skills sync (local): %d replaced, %d unchanged',
-            replaced,
-            skipped,
-        )
-        return {
-            'synced': True,
-            'replaced': replaced,
-            'skipped': skipped,
-        }
+        return replaced, skipped
 
     @staticmethod
     def _skill_unchanged(src_dir: Path, dest_dir: Path) -> bool:
@@ -330,7 +348,7 @@ class SkillsSyncManager(SkillMirrorMixin):
         return read_json_object(self._sync_meta_path)
 
     def _update_sync_meta(self, mutate: Callable[[dict], None]) -> None:
-        """Read-modify-write .sync_meta.json in ONE synchronous step.
+        """Read-modify-write .sync_meta.json, serialised across threads.
 
         Every write to this file goes through the shared
         :func:`app.utils.json_file.update_json_file` — including the
@@ -339,7 +357,10 @@ class SkillsSyncManager(SkillMirrorMixin):
         it cannot ``await``, so no caller can hold the dict across an
         ``await`` (a pip install, a DB write) and write a stale copy
         back over concurrent changes. Mutations must MERGE their keys
-        into ``meta``, never replace sibling keys.
+        into ``meta``, never replace sibling keys. ``update_json_file``
+        holds a lock over the whole read-modify-write, so writers on
+        worker threads (the skills mirror) and on the event loop
+        cannot interleave.
         """
         update_json_file(self._sync_meta_path, mutate)
 
@@ -516,8 +537,13 @@ class SkillsSyncManager(SkillMirrorMixin):
                     continue
                 downloads[rel_path] = file_resp.content
 
-            # 3. Put it on disk, atomically.
-            applied = self._apply_downloads(downloads, listed, failed)
+            # 3. Put it on disk, atomically. Tree walks + renames are
+            # blocking: one thread hop for the whole apply, under the
+            # skills-tree lock (see ``app.workspace.skills_tree``).
+            async with skills_tree.hold():
+                applied = await asyncio.to_thread(
+                    self._apply_downloads, downloads, listed, failed
+                )
             if applied.get('failed'):
                 # A listed file we could not fetch is not an upstream
                 # deletion: keep the tree, keep last_ok_at where it is,

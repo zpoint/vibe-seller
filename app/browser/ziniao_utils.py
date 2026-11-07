@@ -108,7 +108,9 @@ async def send_http(
 
     If host is not specified, uses the cached ziniao_host().
     """
-    target_host = host if host is not None else ziniao_host()
+    target_host = (
+        host if host is not None else await asyncio.to_thread(ziniao_host)
+    )
     try:
         # Disable proxy — Ziniao is always local/LAN.
         async with httpx.AsyncClient(
@@ -134,7 +136,7 @@ async def try_connect_ziniao(
     """
     if not is_wsl():
         # Non-WSL: use standard host resolution
-        host = ziniao_host()
+        host = await asyncio.to_thread(ziniao_host)
         result = await send_http(port, data, timeout=timeout, host=host)
         return result, host
 
@@ -145,7 +147,7 @@ async def try_connect_ziniao(
         return result, LOCALHOST
 
     # Fall back to gateway IP (NAT mode)
-    gateway = ziniao_host()
+    gateway = await asyncio.to_thread(ziniao_host)
     logger.debug(
         '%s failed, trying gateway IP %s (NAT mode)', LOCALHOST, gateway
     )
@@ -168,7 +170,7 @@ async def graceful_exit_ziniao(socket_port: int, user_info: dict) -> bool:
         logger.debug('Ziniao graceful exit call failed: %s', e)
     for _ in range(16):
         await asyncio.sleep(0.5)
-        if not is_ziniao_process_running():
+        if not await asyncio.to_thread(is_ziniao_process_running):
             return True
     return False
 
@@ -460,12 +462,12 @@ async def get_ziniao_status(
         return {'status': 'api_error'}
 
     # API unreachable — check if process is running
-    if is_ziniao_process_running():
+    if await asyncio.to_thread(is_ziniao_process_running):
         return {'status': 'running_normal'}
 
     # Not running — check if installed (Mac only)
     if IS_MAC:
-        if is_ziniao_installed_mac():
+        if await asyncio.to_thread(is_ziniao_installed_mac):
             return {'status': 'not_running'}
         return {'status': 'not_installed'}
 
@@ -519,6 +521,17 @@ def force_kill_ziniao() -> None:
         raise RuntimeError(f'Failed to kill Ziniao: {e}') from e
 
 
+def _launch_ziniao(client_path: str, socket_port: int) -> None:
+    """Build the launch command and spawn the Ziniao client.
+
+    ``build_launch_cmd`` may shell out to resolve the Windows client
+    path, and creating a process is blocking: both run in the calling
+    thread via ``asyncio.to_thread``.
+    """
+    cmd = build_launch_cmd(client_path, socket_port)
+    subprocess.Popen(cmd, env=browser_launch_env())
+
+
 async def kill_and_relaunch_ziniao(
     socket_port: int,
     client_path: str,
@@ -548,12 +561,12 @@ async def kill_and_relaunch_ziniao(
             logger.info('Killing Ziniao for WebDriver relaunch...')
         else:
             logger.info('Killing Ziniao (manual relaunch required)...')
-        force_kill_ziniao()
+        await asyncio.to_thread(force_kill_ziniao)
 
     # Poll for process termination (up to 10 seconds)
     for i in range(20):
         await asyncio.sleep(0.5)
-        if not is_ziniao_process_running():
+        if not await asyncio.to_thread(is_ziniao_process_running):
             logger.info('Ziniao terminated after %.1fs', (i + 1) * 0.5)
             break
     else:
@@ -574,8 +587,7 @@ async def kill_and_relaunch_ziniao(
         socket_port,
     )
     try:
-        cmd = build_launch_cmd(client_path, socket_port)
-        subprocess.Popen(cmd, env=browser_launch_env())
+        await asyncio.to_thread(_launch_ziniao, client_path, socket_port)
     except Exception as e:
         raise RuntimeError(f'Failed to relaunch Ziniao: {e}')
 
@@ -679,7 +691,7 @@ async def ensure_ziniao_running(
 
     # API unreachable — WSL cannot auto-launch, guide user
     if is_wsl():
-        if is_ziniao_process_running():
+        if await asyncio.to_thread(is_ziniao_process_running):
             _fire_failed(BrowserFailureReason.WSL_WRONG_PORT, 1)
             raise RuntimeError(
                 'Ziniao is running on Windows but not '
@@ -700,7 +712,7 @@ async def ensure_ziniao_running(
         )
 
     # Check if Ziniao process exists but API unreachable
-    if is_ziniao_process_running():
+    if await asyncio.to_thread(is_ziniao_process_running):
         if IS_MAC or IS_WINDOWS:
             # Server-launched platforms: surface normal mode so the UI
             # offers a Force Restart (kill + relaunch in WebDriver).
@@ -724,8 +736,7 @@ async def ensure_ziniao_running(
         socket_port,
     )
     try:
-        cmd = build_launch_cmd(client_path, socket_port)
-        subprocess.Popen(cmd, env=browser_launch_env())
+        await asyncio.to_thread(_launch_ziniao, client_path, socket_port)
     except Exception as e:
         _fire_failed(BrowserFailureReason.LAUNCH_FAILED, 1)
         raise RuntimeError(f'Failed to launch Ziniao client: {e}')

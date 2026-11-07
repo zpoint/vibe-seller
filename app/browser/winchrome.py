@@ -198,6 +198,16 @@ def _ensure_download_link(
     std_dir.symlink_to(wsl_target)
 
 
+def _prepare_win_download_dir(store_slug: str, dl_win: str) -> None:
+    """Archive prior downloads and link the standard dir (blocking).
+
+    ``_win_to_wsl`` shells out and ``archive_previous`` moves files, so
+    the whole preparation runs as one thread hop from the caller.
+    """
+    dl_wsl = archive_previous(pathlib.Path(_win_to_wsl(dl_win)))
+    _ensure_download_link(DOWNLOADS_DIR / store_slug, dl_wsl)
+
+
 async def _wait_for_cdp(
     port: int, timeout: float = _CDP_STARTUP_TIMEOUT
 ) -> None:
@@ -253,13 +263,19 @@ class WinChromeBackend(BrowserBackend):
             )
 
         # Create the Task Scheduler task if it doesn't exist yet.
-        if not _task_exists(task_name):
+        if not await asyncio.to_thread(_task_exists, task_name):
             logger.info(
                 'Creating Task Scheduler task %s (port=%d)',
                 task_name,
                 debug_port,
             )
-            _create_chrome_task(task_name, chrome_path, debug_port, profile_dir)
+            await asyncio.to_thread(
+                _create_chrome_task,
+                task_name,
+                chrome_path,
+                debug_port,
+                profile_dir,
+            )
 
         # Launch Chrome if not already running.
         if not _chrome_running_on_port(debug_port):
@@ -268,7 +284,7 @@ class WinChromeBackend(BrowserBackend):
                 debug_port,
                 task_name,
             )
-            _start_chrome_task(task_name)
+            await asyncio.to_thread(_start_chrome_task, task_name)
             await _wait_for_cdp(debug_port)
         else:
             logger.info('Chrome already running on port %d', debug_port)
@@ -279,8 +295,7 @@ class WinChromeBackend(BrowserBackend):
         # the agent reads via the standard ~/.vibe-seller/downloads/<slug>
         # path, symlinked to the Windows-backed dir.
         dl_win = rf'{_DOWNLOADS_BASE_WIN}\{store_slug}'
-        dl_wsl = archive_previous(pathlib.Path(_win_to_wsl(dl_win)))
-        _ensure_download_link(DOWNLOADS_DIR / store_slug, dl_wsl)
+        await asyncio.to_thread(_prepare_win_download_dir, store_slug, dl_win)
 
         # Wrap with CDPMuxProxy so multiple tasks share one Chrome. The mux
         # hands `download_dir` straight to CDP, so it must be the Windows

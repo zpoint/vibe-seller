@@ -4,6 +4,7 @@ Supports the simplest bot type: post a JSON payload to the webhook URL.
 Reference: https://developer.work.weixin.qq.com/document/path/91770
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -121,12 +122,16 @@ async def send_file_webhook(
 
     try:
         async with httpx.AsyncClient(timeout=UPLOAD_TIMEOUT) as client:
-            with open(p, 'rb') as fh:
-                # Field name MUST be `media`; filename MUST be present.
-                up = await client.post(
-                    upload_url,
-                    files={'media': (filename, fh, 'application/octet-stream')},
-                )
+            # Read the body off-loop: a multipart file object is read
+            # by the transport on the event loop, chunk by chunk.
+            payload = await asyncio.to_thread(p.read_bytes)
+            # Field name MUST be `media`; filename MUST be present.
+            up = await client.post(
+                upload_url,
+                files={
+                    'media': (filename, payload, 'application/octet-stream')
+                },
+            )
             up.raise_for_status()
             up_data = up.json()
             if up_data.get('errcode') != 0:

@@ -10,6 +10,7 @@ Covers the skills lockfile helpers, plain create/delete, and the
 user-triggered save-skill upsert (``list_skills`` / ``save_skill``).
 """
 
+import asyncio
 from datetime import UTC, datetime
 import json
 import logging
@@ -20,6 +21,7 @@ import shutil
 import tempfile
 
 from app.text_utils import sanitize_text
+from app.workspace import skills_tree
 
 logger = logging.getLogger(__name__)
 
@@ -97,12 +99,13 @@ class SkillsMixin:
             )
         slug = re.sub(r'[^a-z0-9-]', '-', name.lower()).strip('-')
         skill_dir = self.root / '.claude' / 'skills' / slug
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_md = skill_dir / 'SKILL.md'
-        if content is not None:
-            skill_md.write_text(sanitize_text(content), encoding='utf-8')
-        else:
-            default = f"""---
+        async with skills_tree.hold():
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_md = skill_dir / 'SKILL.md'
+            if content is not None:
+                skill_md.write_text(sanitize_text(content), encoding='utf-8')
+            else:
+                default = f"""---
 name: {name}
 description: {description}
 ---
@@ -115,16 +118,18 @@ description: {description}
 
 <!-- Add skill instructions here -->
 """
-            skill_md.write_text(default, encoding='utf-8')
-        lockfile = self._read_lockfile()
-        lockfile['skills'][slug] = {
-            'source': 'url' if origin_url else 'local',
-            'name': name,
-            'origin_url': origin_url,
-            'created_at': datetime.now(UTC).isoformat(),
-            'updated_at': datetime.now(UTC).isoformat(),
-        }
-        self._write_lockfile(lockfile)
+                skill_md.write_text(default, encoding='utf-8')
+            lockfile = self._read_lockfile()
+            lockfile['skills'][slug] = {
+                'source': 'url' if origin_url else 'local',
+                'name': name,
+                'origin_url': origin_url,
+                'created_at': datetime.now(UTC).isoformat(),
+                'updated_at': datetime.now(UTC).isoformat(),
+            }
+            self._write_lockfile(lockfile)
+        # Git runs outside the tree lock: it is slow, and every task
+        # launch waits on that lock for the .claude copy.
         await self._auto_commit(f'Create skill: {name}')
         return str(skill_dir.relative_to(self.root))
 
@@ -138,10 +143,11 @@ description: {description}
         skill_dir = self.root / '.claude' / 'skills' / slug
         if not skill_dir.is_dir():
             raise FileNotFoundError(f'Skill not found: {slug}')
-        shutil.rmtree(skill_dir)
-        lockfile = self._read_lockfile()
-        lockfile['skills'].pop(slug, None)
-        self._write_lockfile(lockfile)
+        async with skills_tree.hold():
+            await asyncio.to_thread(shutil.rmtree, skill_dir)
+            lockfile = self._read_lockfile()
+            lockfile['skills'].pop(slug, None)
+            self._write_lockfile(lockfile)
         await self._auto_commit(f'Delete skill: {slug}')
 
     @staticmethod
@@ -227,35 +233,36 @@ description: {description}
             )
         skill_dir = skills_dir / slug
         existed = skill_dir.is_dir()
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        # Agent-authored text — sanitize at the encode. See
-        # ``app.text_utils``.
-        (skill_dir / 'SKILL.md').write_text(
-            sanitize_text(skill_md), encoding='utf-8'
-        )
-        for rel, content in (files or {}).items():
-            p = Path(rel)
-            if (
-                p.is_absolute()
-                or not p.parts
-                or any(part == '..' for part in p.parts)
-                or p.name == 'SKILL.md'
-            ):
-                raise ValueError(f'Invalid skill file path: {rel!r}')
-            dest = skill_dir / p
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(sanitize_text(content), encoding='utf-8')
-        lockfile = self._read_lockfile()
-        now = datetime.now(UTC).isoformat()
-        fm = self._parse_yaml_frontmatter(skill_md)
-        entry = lockfile['skills'].get(slug, {})
-        entry.setdefault('source', 'local')
-        entry.setdefault('origin_url', '')
-        entry.setdefault('created_at', now)
-        entry['name'] = fm.get('name') or entry.get('name') or slug
-        entry['updated_at'] = now
-        lockfile['skills'][slug] = entry
-        self._write_lockfile(lockfile)
+        async with skills_tree.hold():
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            # Agent-authored text — sanitize at the encode. See
+            # ``app.text_utils``.
+            (skill_dir / 'SKILL.md').write_text(
+                sanitize_text(skill_md), encoding='utf-8'
+            )
+            for rel, content in (files or {}).items():
+                p = Path(rel)
+                if (
+                    p.is_absolute()
+                    or not p.parts
+                    or any(part == '..' for part in p.parts)
+                    or p.name == 'SKILL.md'
+                ):
+                    raise ValueError(f'Invalid skill file path: {rel!r}')
+                dest = skill_dir / p
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(sanitize_text(content), encoding='utf-8')
+            lockfile = self._read_lockfile()
+            now = datetime.now(UTC).isoformat()
+            fm = self._parse_yaml_frontmatter(skill_md)
+            entry = lockfile['skills'].get(slug, {})
+            entry.setdefault('source', 'local')
+            entry.setdefault('origin_url', '')
+            entry.setdefault('created_at', now)
+            entry['name'] = fm.get('name') or entry.get('name') or slug
+            entry['updated_at'] = now
+            lockfile['skills'][slug] = entry
+            self._write_lockfile(lockfile)
         await self._auto_commit(
             f'{"Update" if existed else "Create"} skill: {slug}'
         )

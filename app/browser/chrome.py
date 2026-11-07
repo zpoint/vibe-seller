@@ -225,7 +225,7 @@ class ChromeBackend(BrowserBackend):
         # Stable per-store download directory, emptied of the previous
         # session's files so "the newest match" and "the only match" are
         # the same file. See app/browser/downloads.py.
-        dl_dir = prepare_download_dir(store_slug)
+        dl_dir = await asyncio.to_thread(prepare_download_dir, store_slug)
 
         # Start CDPMuxProxy: listens on proxy_port, connects
         # upstream to Chrome's debug_port.  Same as Ziniao flow.

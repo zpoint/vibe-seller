@@ -122,7 +122,7 @@ async def unbind_store(
     if not any(s.ads_authorized for s in await _all_stores(db)):
         # The skill is for authorized stores only; with none left it
         # would only be routed away from every task.
-        ads_skill.remove()
+        await ads_skill.remove()
     return body
 
 

@@ -199,38 +199,17 @@ async def update_store(
         new_slug = _store_slug(data.name, store.id)
 
         if old_slug != new_slug:
-            # Rename store knowledge dir
-            old_store_dir = workspace_manager.root / 'stores' / old_slug
-            new_store_dir = workspace_manager.root / 'stores' / new_slug
-            if old_store_dir.exists():
-                new_store_dir.parent.mkdir(parents=True, exist_ok=True)
-                old_store_dir.rename(new_store_dir)
-                # Find-replace old name → new name in .md files
-                _replace_name_in_md_files(new_store_dir, store.name, data.name)
-
-            # Rename browser profile dir (Chrome only)
-            if store.browser_backend == 'chrome':
-                old_profile = VIBE_SELLER_DIR / 'browser_profiles' / old_slug
-                new_profile = VIBE_SELLER_DIR / 'browser_profiles' / new_slug
-                if old_profile.exists():
-                    new_profile.parent.mkdir(parents=True, exist_ok=True)
-                    old_profile.rename(new_profile)
-
-            # Rename aux Chrome profile dir (Ziniao only)
-            if store.browser_backend == 'ziniao':
-                old_aux = (
-                    VIBE_SELLER_DIR / 'browser_profiles' / f'{old_slug}-aux'
-                )
-                new_aux = (
-                    VIBE_SELLER_DIR / 'browser_profiles' / f'{new_slug}-aux'
-                )
-                if old_aux.exists():
-                    new_aux.parent.mkdir(parents=True, exist_ok=True)
-                    old_aux.rename(new_aux)
-
-            # Remove old wrapper (re-add on next session start)
-            browser_manager.remove_browser_entry(
-                store.name, store.browser_backend, store.id
+            # Scalars only into the thread — an ORM attribute read off
+            # the loop could trigger a lazy load on a session that is
+            # not thread-safe.
+            await asyncio.to_thread(
+                _rename_store_dirs,
+                store.browser_backend,
+                store.id,
+                old_slug,
+                new_slug,
+                store.name,
+                data.name,
             )
 
         store.name = data.name
@@ -526,6 +505,50 @@ def _to_response(store: Store) -> dict:
         'created_at': store.created_at,
         'updated_at': store.updated_at,
     }
+
+
+def _rename_store_dirs(
+    backend: str,
+    store_id: str,
+    old_slug: str,
+    new_slug: str,
+    old_name: str,
+    new_name: str,
+) -> None:
+    """Move a renamed store's on-disk dirs and rewrite .md references.
+
+    Pure filesystem work (dir renames, a tree walk, wrapper removal),
+    grouped into one sync helper so the route can hand it to a thread
+    with a single ``asyncio.to_thread`` hop. Takes plain scalars —
+    never the ORM instance.
+    """
+    # Rename store knowledge dir
+    old_store_dir = workspace_manager.root / 'stores' / old_slug
+    new_store_dir = workspace_manager.root / 'stores' / new_slug
+    if old_store_dir.exists():
+        new_store_dir.parent.mkdir(parents=True, exist_ok=True)
+        old_store_dir.rename(new_store_dir)
+        # Find-replace old name → new name in .md files
+        _replace_name_in_md_files(new_store_dir, old_name, new_name)
+
+    # Rename browser profile dir (Chrome only)
+    if backend == 'chrome':
+        old_profile = VIBE_SELLER_DIR / 'browser_profiles' / old_slug
+        new_profile = VIBE_SELLER_DIR / 'browser_profiles' / new_slug
+        if old_profile.exists():
+            new_profile.parent.mkdir(parents=True, exist_ok=True)
+            old_profile.rename(new_profile)
+
+    # Rename aux Chrome profile dir (Ziniao only)
+    if backend == 'ziniao':
+        old_aux = VIBE_SELLER_DIR / 'browser_profiles' / f'{old_slug}-aux'
+        new_aux = VIBE_SELLER_DIR / 'browser_profiles' / f'{new_slug}-aux'
+        if old_aux.exists():
+            new_aux.parent.mkdir(parents=True, exist_ok=True)
+            old_aux.rename(new_aux)
+
+    # Remove old wrapper (re-add on next session start)
+    browser_manager.remove_browser_entry(old_name, backend, store_id)
 
 
 def _replace_name_in_md_files(directory, old_name: str, new_name: str):

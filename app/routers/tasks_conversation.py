@@ -154,7 +154,9 @@ async def send_task_message(
     #   agent_content   — delivered to the agent; absolute paths it Reads
     #                     directly (images are vision input).
     attachments = (
-        promote_staged_attachments(task_id, attachment_ids)
+        await asyncio.to_thread(
+            promote_staged_attachments, task_id, attachment_ids
+        )
         if attachment_ids
         else []
     )
@@ -643,7 +645,7 @@ async def retry_task(
     # Retry = a truly fresh start: wipe on-disk runtime state (workspace +
     # Claude Code's per-task Task/todo store + project transcripts) so a
     # prior run's todos/refs can't leak into the new session. See helper.
-    reset_task_runtime_state(task_id)
+    await asyncio.to_thread(reset_task_runtime_state, task_id)
     # A retry starts the task over: its first run is reviewed again.
     report_reviewer.clear_followup(task_id)
 

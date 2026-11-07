@@ -20,6 +20,7 @@ hiccup must not stop a store that was working an hour ago.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 import shutil
@@ -31,6 +32,7 @@ from app import ads_client
 from app.database import async_session
 from app.models.app_settings import AppSettings
 from app.models.store import Store
+from app.workspace import skills_tree
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger(__name__)
@@ -62,7 +64,12 @@ async def sync_bundle(session, *, force: bool = False) -> dict:
 
     bundle = await ads_client.call(session, '/skill/bundle')
     files = (bundle or {}).get('files') or {}
-    written, dropped = _install(files)
+    # Unpacking writes files and swaps directories: blocking work for
+    # one thread, under the skills-tree lock — the task-workspace copy
+    # must never catch the swap mid-flight (see
+    # ``app.workspace.skills_tree``).
+    async with skills_tree.hold():
+        written, dropped = await asyncio.to_thread(_install, files)
 
     if row is None:
         session.add(AppSettings(key=VERSION_KEY, value=version))
@@ -208,6 +215,7 @@ async def is_bound_and_authorized() -> bool:
         return False
 
 
-def remove() -> None:
+async def remove() -> None:
     """Drop the skill. Used when the service is unbound."""
-    shutil.rmtree(skill_dir(), ignore_errors=True)
+    async with skills_tree.hold():
+        await asyncio.to_thread(shutil.rmtree, skill_dir(), ignore_errors=True)

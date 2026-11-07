@@ -416,11 +416,16 @@ def _walk_task_files(task_dir: Path):
 
 
 @router.get('/{task_id}/files')
-async def list_task_files(
+def list_task_files(
     task_id: str,
     _user: User = Depends(get_current_user),
 ):
-    """List agent-generated files in the task workspace."""
+    """List agent-generated files in the task workspace.
+
+    A plain ``def`` route: the work is a directory walk, which FastAPI
+    runs in the threadpool instead of blocking the event loop (every
+    SSE stream with it).
+    """
     task_dir = _validate_task_id(task_id)
     if not task_dir.is_dir():
         return []
@@ -444,11 +449,16 @@ async def list_task_files(
 
 
 @router.get('/{task_id}/files-zip')
-async def download_task_files_zip(
+def download_task_files_zip(
     task_id: str,
     _user: User = Depends(get_current_user),
 ):
-    """Download all task files as a single ZIP archive."""
+    """Download all task files as a single ZIP archive.
+
+    A plain ``def`` route: zipping the workspace is blocking I/O, run
+    in the threadpool so the event loop keeps serving while a large
+    task workspace is packed.
+    """
     task_dir = _validate_task_id(task_id)
     if not task_dir.is_dir():
         raise HTTPException(status_code=404, detail='Task directory not found')
@@ -621,7 +631,7 @@ async def stage_task_file(
     reject_disallowed_type(file)
     base = _staging_task_dir(task_id)
     base.mkdir(parents=True, exist_ok=True)
-    _sweep_stale_staging(base)
+    await asyncio.to_thread(_sweep_stale_staging, base)
     staged_id = uuid.uuid4().hex
     item = base / staged_id
     item.mkdir()
@@ -631,7 +641,7 @@ async def stage_task_file(
     except BaseException:
         # A refused upload must not leave an empty staging dir behind
         # for _sweep_stale_staging to trip over later.
-        shutil.rmtree(item, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, item, ignore_errors=True)
         raise
     return StagedAttachment(
         id=staged_id,
@@ -660,12 +670,16 @@ async def get_staged_file(
 
 
 @router.delete('/{task_id}/staged/{staged_id}')
-async def delete_staged_file(
+def delete_staged_file(
     task_id: str,
     staged_id: str,
     _user: User = Depends(get_current_user),
 ):
-    """Discard a staged attachment (the send-bar chip's ✕ button)."""
+    """Discard a staged attachment (the send-bar chip's ✕ button).
+
+    A plain ``def`` route: one directory removal, run in the
+    threadpool.
+    """
     shutil.rmtree(_staging_item_dir(task_id, staged_id), ignore_errors=True)
     return {'ok': True}
 
