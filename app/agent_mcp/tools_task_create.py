@@ -12,7 +12,6 @@ from app.agent_mcp.support import (
     call_route,
     derive_title,
     guidance_for,
-    require,
 )
 from app.models.task import Task
 from app.routers import attachments as attachments_route, tasks as tasks_route
@@ -23,7 +22,8 @@ from app.schemas.task import TaskCreate
     'create_task',
     'Create a task and start it. The task runs the same way it would '
     'if a person created it in the UI: the description is the '
-    'instruction to the agent, and the agent may ask questions, '
+    'instruction to the agent (and when only a title is given, the '
+    'title is the instruction), and the agent may ask questions, '
     'produce a plan, or both. Omit profile_id to use the account '
     "owner's default AI profile.\n\n"
     "TO PLAN OR NOT: omit plan_mode to use the owner's default "
@@ -36,18 +36,22 @@ from app.schemas.task import TaskCreate
     schema(
         {
             'description': {
-                'type': 'string',
+                'type': ['string', 'null'],
                 'description': (
                     'What the agent should do — the task instruction. '
                     'Write it as if to a colleague: no mechanics, no '
-                    'tool names.'
+                    'tool names. Either this or title is required; '
+                    'when omitted, the title is used as the '
+                    'instruction.'
                 ),
             },
             'title': {
                 'type': ['string', 'null'],
                 'description': (
-                    'A short label for the task list. Optional — one is '
-                    'derived from the description when omitted.'
+                    'A short label for the task list. Either this or '
+                    'description is required: with no description the '
+                    'title doubles as the instruction, and with no '
+                    'title one is derived from the description.'
                 ),
             },
             'store_id': {
@@ -101,12 +105,27 @@ from app.schemas.task import TaskCreate
                 },
             },
         },
-        required=['description'],
     ),
 )
 async def create_task(ctx: McpContext, args: dict) -> dict:
-    description = require(args, 'description')
-    title = args.get('title') or derive_title(description)
+    # A task needs SOME human intent text — but clients legitimately
+    # send it as a title only (a request like "check last week's ads"
+    # is a complete task on its own). description falls back to the
+    # title; the title falls back to a description-derived label.
+    raw_description = args.get('description')
+    raw_title = args.get('title')
+    description = (
+        raw_description.strip() if isinstance(raw_description, str) else ''
+    )
+    title = raw_title.strip() if isinstance(raw_title, str) else ''
+    if not description and not title:
+        raise ToolError(
+            'create_task needs a task instruction: pass description '
+            '(what the agent should do) or title, at least one '
+            'non-blank'
+        )
+    description = description or title
+    title = title or derive_title(description)
     raw_attachments = args.get('attachments') or []
     if not isinstance(raw_attachments, list):
         raise ToolError('attachments must be an array')

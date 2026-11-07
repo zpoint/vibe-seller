@@ -124,9 +124,9 @@ one). The task starts on its own — you do not need to "run" it.
 
 | Name | Type | Notes |
 | --- | --- | --- |
-| `description` | string | Required. What to do, for which store, over which period, and what "done" looks like. This is the task agent's only instruction. |
+| `description` | string | What to do, for which store, over which period, and what "done" looks like. This is the task agent's only instruction. Either `description` or `title` is required; when it is omitted, the title is used as the instruction. |
 | `store_id` | string | Optional. Omit for a general task with no store. |
-| `title` | string | Optional. A short label for the task list. |
+| `title` | string | A short label for the task list. Either `description` or `title` is required: with no description the title doubles as the instruction, with no title one is derived from the description. |
 | `plan_mode` | bool | Optional. `false` runs straight through; `true` plans first and waits for `review_plan`. **Omit it and the owner's default applies, exactly like the web UI** — and the result echoes the resolved `plan_mode`, so you know which path you are on. See "Choosing plan mode" in SKILL.md. |
 | `profile_id` | string | Optional. Which AI profile runs the task. Omit to use the user's default profile. |
 | `platform` | string | Optional. Marketplace platform code, for the concurrency rules that keep one browser session per platform. |

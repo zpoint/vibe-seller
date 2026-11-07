@@ -239,11 +239,11 @@ class TestHandshake:
         r = await rpc(
             admin_client,
             'tools/call',
-            {'name': 'create_task', 'arguments': {'title': 'no description'}},
+            {'name': 'get_task', 'arguments': {}},
         )
         body = r.json()
         assert body['error']['code'] == -32602
-        assert 'description' in body['error']['message']
+        assert 'task_id' in body['error']['message']
 
     async def test_malformed_body_is_rejected(
         self, admin_client, install_fake_agent
@@ -530,6 +530,58 @@ class TestTaskLifecycle:
             admin_client, 'get_task', {'task_id': task_id}
         )
         assert detail['result'] == 'Task completed successfully'
+
+    async def test_title_only_creates_a_task_with_the_title_as_instruction(
+        self, admin_client, install_fake_agent
+    ):
+        """A title-only call is legitimate: a request like "check last
+        week's ads" is a complete task on its own. Real clients
+        (Qoder CN) send exactly this shape."""
+        store_id = await make_store(admin_client, 'Title Only Store')
+        data, _ = await call_tool(
+            admin_client,
+            'create_task',
+            {
+                'title': "Check last week's ads for widget-006",
+                'store_id': store_id,
+            },
+        )
+        task_id = data['task_id']
+        detail = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert detail['description'] == "Check last week's ads for widget-006"
+        assert detail['title'] == "Check last week's ads for widget-006"
+        await settle_task(admin_client, task_id)
+
+    async def test_description_only_derives_the_title(
+        self, admin_client, install_fake_agent
+    ):
+        store_id = await make_store(admin_client, 'Description Only Store')
+        data, _ = await call_tool(
+            admin_client,
+            'create_task',
+            {
+                'description': 'Summarise the storefront\nand its notes',
+                'store_id': store_id,
+            },
+        )
+        task_id = data['task_id']
+        detail = (await admin_client.get(f'/api/tasks/{task_id}')).json()
+        assert detail['title'] == 'Summarise the storefront'
+        assert detail['description'] == (
+            'Summarise the storefront\nand its notes'
+        )
+        await settle_task(admin_client, task_id)
+
+    async def test_no_instruction_at_all_names_both_fields(
+        self, admin_client, install_fake_agent
+    ):
+        """Title-only is legal; instruction-less is not — and the
+        refusal names BOTH fields so the caller can fix the call."""
+        for args in ({}, {'title': '  ', 'description': ''}):
+            data, result = await call_tool(admin_client, 'create_task', args)
+            assert result.get('isError') is True
+            assert 'description' in data['error']
+            assert 'title' in data['error']
 
     async def test_wait_task_times_out_without_a_change(
         self, admin_client, install_fake_agent

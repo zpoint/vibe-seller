@@ -165,7 +165,7 @@ curl -sS http://127.0.0.1:7777/api/mcp \
 | `get_task` | One task in full: status, plan, result, error, pending question, recent steps. |
 | `get_task_log` | The debug log: the full step log (paginated) plus the conversation. |
 | `wait_task` | Block until the task moves, asks something, offers a plan, or finishes (~45 s, capped near 120 s). |
-| `create_task` | Start a task: description, optional store, optional plan mode, optional AI profile, optional attachments (base64, ≤ 10 MB each). |
+| `create_task` | Start a task: description or title, optional store, optional plan mode, optional AI profile, optional attachments (base64, ≤ 10 MB each). |
 | `get_pending_questions` | The question the task agent is asking, if any. |
 | `answer_question` | Your answer to that question, keyed by the full question text. |
 | `review_plan` | Approve a plan, or reject it with feedback so the agent re-plans. |
