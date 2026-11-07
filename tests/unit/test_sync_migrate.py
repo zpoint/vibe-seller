@@ -6,6 +6,7 @@ re-polling the world at once, and nothing on disk is destroyed that a
 downgraded client still reads.
 """
 
+import asyncio
 import json
 
 import pytest
@@ -96,6 +97,47 @@ async def test_reimport_is_idempotent(home, state):
     write(path, LEGACY_SKILLS_META)  # an old file comes back somehow
     assert (await migrate.migrate_legacy_state())['skills'] is False
     assert (await state.get_dict('skills')) == first
+
+
+async def test_the_trim_uses_a_fresh_read_after_the_await(
+    home, state, monkeypatch
+):
+    """#204: the trim re-reads the file after the DB-import await. A
+    concurrent writer (the boot-time dep install recording a new dep
+    hash) must survive the trim — only the schedule keys go."""
+    path = home / '.claude' / 'skills' / '.sync_meta.json'
+    write(path, LEGACY_SKILLS_META)
+
+    entered, gate = asyncio.Event(), asyncio.Event()
+    real_import = migrate._import_row
+
+    async def gated_import(job_name: str, meta: dict) -> bool:
+        entered.set()
+        await gate.wait()
+        return await real_import(job_name, meta)
+
+    monkeypatch.setattr(migrate, '_import_row', gated_import)
+
+    task = asyncio.create_task(migrate.migrate_skills_meta())
+    await asyncio.wait_for(entered.wait(), timeout=5)
+
+    # The dep install lands a new hash while the import is parked.
+    blob = json.loads(path.read_text(encoding='utf-8'))
+    blob['installed_deps'] = {'widget-006': 'newhash'}
+    path.write_text(json.dumps(blob), encoding='utf-8')
+
+    gate.set()
+    assert await asyncio.wait_for(task, timeout=5) is True
+
+    remaining = json.loads(path.read_text(encoding='utf-8'))
+    assert set(remaining) == {
+        'synced_skills',
+        'gws_installed',
+        'installed_deps',
+    }
+    assert remaining['installed_deps'] == {'widget-006': 'newhash'}, (
+        'the concurrent dep write was clobbered by the trim'
+    )
 
 
 async def test_an_existing_row_is_never_overwritten(home, state):
