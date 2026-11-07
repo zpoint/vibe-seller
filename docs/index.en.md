@@ -579,10 +579,10 @@ directly (hook up permissions in First run — no code):
 | Service | What it does |
 |---|---|
 | **Amazon Ads API** | Amazon ad tasks call the API directly instead of clicking through the seller console — in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](ads-api.en.md) |
-| **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies |
-| **Group chat bots** (企业微信 / 钉钉 / 飞书 / Slack) | Push important events, cross-group notifications, forward buyer inquiries |
-| **TickTick / Dida365** | Auto-create todos (follow-ups, order tracking, periodic checks) |
-| **Google Workspace** | Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit |
+| **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies. Works with Gmail, QQ Mail, 163 and more. [Setup guide](email.en.md) |
+| **Group chat bots** (WeCom / DingTalk / Feishu / Slack) | Have the AI post results, reports and reminders straight into a group from a task; WeCom bots can send files too. [Setup guide](chat-bots.en.md) |
+| **TickTick / Dida365** | Auto-create todos (follow-ups, order tracking, periodic checks). [Setup guide](ticktick.en.md) |
+| **Google Workspace** | Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit. [Setup guide](google-workspace.en.md) |
 
 A single task can mix browser + service calls. e.g. *"Find all
 slow-moving SKUs across stores"* → browser pulls inventory →
