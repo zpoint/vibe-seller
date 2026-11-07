@@ -18,6 +18,7 @@ from app.ai.agent_proxy import (
     launch_settings,
 )
 from app.ai.claude_backend import AgentSession
+from app.ai.launch_artifacts import build_launch_artifacts
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
 from app.env_options import Options
 from app.events.bus import event_bus
@@ -259,6 +260,7 @@ class WorkspaceAgentSession(AgentSession):
         # grows with the account, and the Windows command line is
         # capped (see build_launch_artifacts).
         artifacts = await asyncio.to_thread(
+            build_launch_artifacts,
             self.task_id,
             None,
             self.system_prompt_extra or '',
