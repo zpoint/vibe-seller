@@ -7,14 +7,21 @@ name: Release
 #                         end-to-end. Gates publish-testpypi — nothing
 #                         is published anywhere, not even TestPyPI, if
 #                         the Windows upgrade path is broken.
+#   1b. sync-upgrade-test   Calls sync-upgrade.yml (reusable). Proves an
+#                         install from before the central sync scheduler
+#                         (#200) upgrades cleanly: legacy per-module sync
+#                         bookkeeping is imported into sync_state and a
+#                         second boot changes nothing. Also gates
+#                         publish-testpypi.
 #   2. build              Produces TWO wheels in the same checkout:
 #                         - dist-pypi/      canonical (version from tag)
 #                         - dist-testpypi/  dev-versioned (`<tag>.devYYYYMMDDHHMMSS`)
 #                         so the TestPyPI verification stage can iterate
 #                         across runs without colliding with previous
 #                         uploads (PyPI/TestPyPI versions are immutable).
-#   3. publish-testpypi   Publish the dev-versioned wheel. Needs both
-#                         `build` and `windows-upgrade-test`.
+#   3. publish-testpypi   Publish the dev-versioned wheel. Needs
+#                         `build` and both upgrade gates
+#                         (`windows-upgrade-test`, `sync-upgrade-test`).
 #   4. verify-testpypi    Fresh runner: install via `install.sh --test-pypi
 #                         --version <dev>`, start server, run
 #                         `tests/releases/verify_install.sh <dev>` — asserts
@@ -64,16 +71,11 @@ jobs:
 
   sync-upgrade-test:
     name: Sync-state upgrade test (gate)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Run the upgrade test
-        run: |
-          uv venv && uv sync --extra dev
-          ./tests/releases/test_upgrade_sync_state.sh
+    # Reusable workflow (sync-upgrade.yml): the same job also runs on
+    # PRs touching app/sync/** so the gate is exercised outside a
+    # release — before #205 it never had, and would have failed on the
+    # runner (zsh script, no uv) at the next release tag.
+    uses: ./.github/workflows/sync-upgrade.yml
 
   build:
     name: Build wheels (canonical + testpypi-dev)
