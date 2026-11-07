@@ -26,6 +26,7 @@
 
 🔥 *News* 🔥
 
+- [Nov 2026] **MCP setup**: drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: [**details**](docs/mcp.en.md)
 - [Nov 2026] **Amazon ads over the Ads API**: the same ad-optimization task went from 147 minutes to 11, with less need to step in: [**details**](docs/ads-api.en.md)
 
 
@@ -574,6 +575,7 @@ directly (hook up permissions in First run — no code):
 
 | Service | What it does |
 |---|---|
+| **MCP** | Drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: create tasks, follow them, answer questions, review plans. [Setup guide](docs/mcp.en.md) |
 | **Amazon Ads API** | Amazon ad tasks call the API directly instead of clicking through the seller console — in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](docs/ads-api.en.md) |
 | **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies |
 | **Group chat bots** (企业微信 / 钉钉 / 飞书 / Slack) | Push important events, cross-group notifications, forward buyer inquiries |
