@@ -13,7 +13,11 @@ import logging
 import os
 import sys
 
-from app.ai.agent_proxy import drop_dead_proxy
+from app.ai.agent_proxy import (
+    drop_dead_proxy,
+    launch_settings,
+    launch_settings_file,
+)
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import append_system_prompt
 from app.ai.profiles import DEFAULT_PROFILE_ID, ProfileManager
@@ -251,8 +255,16 @@ class WorkspaceAgentSession(AgentSession):
         )
 
         env = ProfileManager.get_env_for_profile(self.profile_id)
+        # ONE --settings file per launch (auto-mode classifier off, see
+        # app.ai.agent_proxy.launch_settings), dead-proxy blanks merged
+        # into the same payload.
+        settings = launch_settings()
         # A proxy that refuses connections fails every model call (#168).
-        await drop_dead_proxy(cmd, env, self.task_id, None, self._emit_message)
+        await drop_dead_proxy(env, self.task_id, settings, self._emit_message)
+        cmd.extend([
+            '--settings',
+            str(launch_settings_file(self.task_id, None, settings)),
+        ])
         venv_bin = venv_bin_dir(VIBE_SELLER_DIR / '.venv')
         if venv_bin.is_dir():
             prepend_to_path(env, venv_bin)

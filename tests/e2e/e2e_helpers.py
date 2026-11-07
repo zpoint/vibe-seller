@@ -7,12 +7,31 @@ question-answering code that was copy-pasted across 5+ files.
 
 import logging
 import os
+from pathlib import Path
 import time
 
 import httpx
 
 # Single source of truth for E2E constants
 BASE_URL = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7777')
+
+
+def server_log_path(base_url: str | None = None) -> Path:
+    """The APP log of the server the tests talk to.
+
+    ``app.main`` writes ``logs/backend_<port>.log`` (``LOG_DIR``
+    defaults to the checkout's ``logs/``) — that is where the app's
+    own lines land (mux connections, hook decisions). The shell's
+    stdout capture is a separate PER-PORT file
+    (``backend_stdout_<port>.log``): two servers started from one
+    checkout must never write or truncate the same log file, so no
+    reader may assume a shared name either.
+    """
+    base = base_url or os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7811')
+    port = int(os.environ.get('E2E_PORT') or base.rsplit(':', 1)[-1] or 7811)
+    return Path('logs') / f'backend_{port}.log'
+
+
 POLL_INTERVAL = 3  # seconds between status polls
 PIPELINE_TIMEOUT = 600  # max seconds for entire pipeline (Kimi can take 8+ min)
 

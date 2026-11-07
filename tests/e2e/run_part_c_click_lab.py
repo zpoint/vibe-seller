@@ -58,9 +58,10 @@ BASE = os.environ.get('E2E_BASE_URL', 'http://127.0.0.1:7777')
 # The SERVER's home (see tests/conftest.py: E2E_VIBE_HOME / VIBE_HOME
 # resolve the test process's app.config onto the server's home).
 from app.config import DATABASE_URL, VIBE_SELLER_DIR  # noqa: E402
+from tests.e2e.e2e_helpers import server_log_path  # noqa: E402
 
 DB = Path(DATABASE_URL.split('///', 1)[1])
-LOG = Path('logs/backend.log')
+LOG = server_log_path()
 PAGES = (1, 2, 3)
 
 

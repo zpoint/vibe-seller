@@ -107,9 +107,9 @@ or scripting):
 
 ```bash
 # as root inside the distro
-useradd -m -s /bin/bash -G sudo zpoint
-echo 'zpoint ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/zpoint
-printf '[user]\ndefault=zpoint\n' > /etc/wsl.conf   # then `wsl --shutdown`
+useradd -m -s /bin/bash -G sudo devuser
+echo 'devuser ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/devuser
+printf '[user]\ndefault=devuser\n' > /etc/wsl.conf   # then `wsl --shutdown`
 ```
 
 > **Security note — `NOPASSWD:ALL` is optional.** It's a convenience for an
@@ -156,7 +156,7 @@ Enable **systemd** (`/etc/wsl.conf` inside the distro):
 [boot]
 systemd=true
 [user]
-default=zpoint
+default=devuser
 ```
 
 ---
@@ -330,29 +330,29 @@ After=network.target
 
 [Service]
 Type=simple
-User=zpoint
-WorkingDirectory=/home/zpoint/codes/vibe-seller
-Environment="PATH=/home/zpoint/.local/bin:/home/zpoint/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/bin/bash /home/zpoint/start-server.sh
+User=devuser
+WorkingDirectory=/home/<user>/codes/vibe-seller
+Environment="PATH=/home/<user>/.local/bin:/home/<user>/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/bin/bash /home/<user>/start-server.sh
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=180
-StandardOutput=append:/home/zpoint/vibe-seller.log
-StandardError=append:/home/zpoint/vibe-seller.log
+StandardOutput=append:/home/<user>/vibe-seller.log
+StandardError=append:/home/<user>/vibe-seller.log
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-`/home/zpoint/start-server.sh` — exec uvicorn directly so systemd tracks
+`/home/<user>/start-server.sh` — exec uvicorn directly so systemd tracks
 the real process:
 
 ```bash
 #!/bin/bash
 export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-cd /home/zpoint/codes/vibe-seller
+cd /home/<user>/codes/vibe-seller
 mkdir -p logs
-exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 7777 >> logs/backend.log 2>&1
+exec .venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 7777 >> logs/backend_stdout_7777.log 2>&1
 ```
 
 > **`Type` gotcha:** do NOT use `start.sh` with `Type=simple` directly —

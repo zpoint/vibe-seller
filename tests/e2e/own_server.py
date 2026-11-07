@@ -20,6 +20,8 @@ import time
 
 import httpx
 
+from tests.e2e.e2e_helpers import server_log_path
+
 
 def shared_port() -> int:
     """The port the shared e2e server runs on."""
@@ -59,14 +61,15 @@ class OwnServer:
 
     @property
     def log(self) -> Path:
-        """Where ``start.sh`` puts this server's log.
+        """Where ``start.sh`` puts this server's APP log.
 
         ``start.sh`` exports ``LOG_DIR`` to its own ``logs/`` before
         launching uvicorn (the app logs to ``backend_<port>.log``
         there), whatever ``VIBE_HOME`` says — so the log lives beside
-        the repo, not in the temp home.
+        the repo, not in the temp home. Same rule as every other log
+        reader: ``server_log_path`` for this server's base URL.
         """
-        return Path('logs') / f'backend_{self.port}.log'
+        return server_log_path(self.base_url)
 
     @property
     def _pidfile(self) -> Path:

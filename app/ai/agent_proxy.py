@@ -151,34 +151,71 @@ def override_file(task_id: str, task_dir: Path | None) -> Path:
     return system_prompt_file(task_id, task_dir).with_suffix('.proxy.json')
 
 
+def launch_settings() -> dict:
+    """The backend-owned settings EVERY agent launch carries.
+
+    The backend's hooks (``claude_backend_hooks``) are the ONE
+    permission authority for agent sessions. Claude Code's own
+    auto-mode classifier is a second authority we do not control: with
+    any non-Anthropic provider it cannot produce a verdict in plan
+    mode, and the CLI stops the session after a handful of tool calls
+    (``auto_mode_stop_no_check_in_session``) — planning dies mid-run.
+    ``disableAutoMode`` turns that classifier off in the current CLI;
+    ``useAutoModeDuringPlan`` does the same for the older binary.
+
+    A FRESH dict every call: callers merge per-launch extras (the dead
+    proxy blanks below) into it and must never share one.
+    """
+    return {
+        'disableAutoMode': 'disable',
+        'useAutoModeDuringPlan': False,
+    }
+
+
+def launch_settings_file(
+    task_id: str, task_dir: Path | None, settings: dict
+) -> Path:
+    """Write the launch's ONE ``--settings`` payload; return its path.
+
+    One file per launch, one ``--settings`` flag: the CLI is handed no
+    competing overrides (which of two ``--settings`` it honours is not
+    something this backend should ever depend on).
+    """
+    path = override_file(task_id, task_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(settings), encoding='utf-8')
+    return path
+
+
 async def drop_dead_proxy(
-    cmd: list[str],
     env: dict[str, str],
     task_id: str,
-    task_dir: Path | None,
+    settings: dict,
     notify: Callable[[str, str], Awaitable[None]] | None = None,
 ) -> AgentProxy | None:
-    """Strip a refusing proxy from the agent's spawn (*cmd* and *env*).
+    """Strip a refusing proxy from the agent's spawn (*env*).
 
     Returns the proxy that was dropped, or None when there was none or
     it accepts connections. *notify* (role, text) tells the task.
+
+    The dropped proxy's keys are blanked in *settings* — the launch's
+    ONE ``--settings`` payload (see :func:`launch_settings`) — as well
+    as popped from the env: that file outranks every settings file
+    claude loads (user, project, local), so no lower-ranked key can
+    step in as the next dead proxy. The CALLER writes the file and
+    passes a single ``--settings``; this function never touches *cmd*,
+    so no launch can end up with two competing settings flags.
     """
     proxy = resolve_agent_proxy(env)
     if proxy is None or not await proxy_refuses(proxy.url):
         return None
     # Go fully direct: drop every proxy key from the env, and blank them
-    # in a --settings file that outranks every settings file claude
-    # loads (user, project, local) — so no lower-ranked key, from any
-    # file, can step in as the next dead proxy.
+    # in the launch settings.
     for key in _PROXY_KEYS:
         env.pop(key, None)
-    path = override_file(task_id, task_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps({'env': dict.fromkeys(_PROXY_KEYS, '')}),
-        encoding='utf-8',
-    )
-    cmd.extend(['--settings', str(path)])
+    merged = settings.setdefault('env', {})
+    for key in _PROXY_KEYS:
+        merged[key] = ''
     notice = dead_proxy_notice(proxy)
     logger.warning('%s', notice)
     if notify is not None:

@@ -75,3 +75,41 @@ def test_no_module_mixes_the_shared_base_url_with_server_sync_env():
         'E2E_BASE_URL — give them their own server via '
         'tests/e2e/own_server.py:\n  ' + '\n  '.join(offenders)
     )
+
+
+def test_no_e2e_module_hardcodes_the_shared_log_name():
+    """A server's log belongs to that server.
+
+    ``start.sh`` used to truncate ONE shared ``logs/backend.log`` for
+    every server started from the checkout, and a log-reading test
+    then parsed a clobbered file. Logs are per-port now (the app's
+    ``backend_<port>.log`` via ``server_log_path()``, and the shell's
+    ``backend_stdout_<port>.log``); no test may name the old shared
+    file.
+    """
+    offenders = []
+    for path in sorted(E2E_DIR.rglob('*.py')):
+        if 'backend.log' in path.read_text(encoding='utf-8'):
+            offenders.append(str(path.relative_to(E2E_DIR)))
+    assert not offenders, (
+        'e2e modules must read the log of the server they talk to via '
+        'tests/e2e/e2e_helpers.server_log_path(), never a shared '
+        'backend.log:\n  ' + '\n  '.join(offenders)
+    )
+
+
+def test_start_sh_captures_stdout_per_port():
+    """The shell redirect must be port-scoped too.
+
+    uvicorn's stdout/stderr goes wherever start.sh points it; with a
+    shared name every ``./start.sh <other port>`` truncated the first
+    server's capture mid-run.
+    """
+    text = (E2E_DIR.parents[1] / 'start.sh').read_text(encoding='utf-8')
+    assert 'backend_stdout_${PORT}.log' in text, (
+        'start.sh must capture stdout to a per-port file'
+    )
+    for line in text.splitlines():
+        if 'uvicorn app.main:app' in line and '>' in line:
+            assert 'backend_stdout_${PORT}.log' in line, line
+            assert 'backend.log' not in line, line

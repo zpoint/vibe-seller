@@ -32,13 +32,14 @@ from tests.e2e.e2e_helpers import (
     create_store,
     create_task,
     poll_task_status,
+    server_log_path,
 )
 from tests.e2e.mux_probe import assert_slots_isolated, parse
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e]
 
-SERVER_LOG = Path('logs/backend.log')
+SERVER_LOG = server_log_path()
 
 # JS-rendered pages, not static HTML. The first version of this test
 # served the code in the markup and the agent read it with `curl` —

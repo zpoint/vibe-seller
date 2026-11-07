@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import uuid
 
 from sqlalchemy import func, select
 
@@ -305,6 +306,51 @@ DRAIN_TIMEOUT = 2  # for _task to finish after force-kill
 
 # Hook callback IDs for control protocol
 TOOL_APPROVAL_CALLBACK = 'tool_approval'
+
+
+def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
+    """The SDK ``initialize`` control request registering this launch's
+    hooks.
+
+    One builder for both hook sets (the CLI evaluates matchers in
+    order, first match wins):
+
+    * ``plan_then_execute`` — ExitPlanMode + AskUserQuestion go to
+      interactive approval (``tool_approval``); everything else is
+      auto-approved.
+    * ``auto`` / ``execute`` — AskUserQuestion goes to the interactive
+      path; everything else is auto-approved with the circuit breaker
+      (no ExitPlanMode hook).
+
+    ``skip_reflection`` drops the Stop hook (the reflection pass).
+    """
+    if mode == 'plan_then_execute':
+        interactive = '^(ExitPlanMode|AskUserQuestion)$'
+        everything_else = '^(?!ExitPlanMode$|AskUserQuestion$).*'
+    else:
+        interactive = '^AskUserQuestion$'
+        everything_else = '^(?!AskUserQuestion$).*'
+    hooks = {
+        'PreToolUse': [
+            {
+                'matcher': interactive,
+                'hookCallbackIds': [TOOL_APPROVAL_CALLBACK],
+            },
+            {
+                'matcher': everything_else,
+                'hookCallbackIds': [AUTO_APPROVE_CALLBACK],
+            },
+        ],
+    }
+    if not skip_reflection:
+        hooks['Stop'] = [{'hookCallbackIds': [STOP_REFLECTION_CALLBACK]}]
+    return {
+        'type': 'control_request',
+        'request_id': str(uuid.uuid4()),
+        'request': {'subtype': 'initialize', 'hooks': hooks},
+    }
+
+
 AUTO_APPROVE_CALLBACK = 'auto_approve'
 STOP_REFLECTION_CALLBACK = 'stop_reflection'
 
