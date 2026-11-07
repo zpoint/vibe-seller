@@ -9,9 +9,15 @@ backend; the frontend renders one entry per store with no combining.
 
 from pathlib import Path
 
+from app.workspace.fs_walk import safe_stat, tolerant_rglob
+
 
 def _collect_store_tree(root: Path, base_dir: Path) -> list[dict]:
-    """One entry per <slug> dir under base_dir, files rglob'd."""
+    """One entry per <slug> dir under base_dir, files rglob'd.
+
+    A path that vanishes mid-walk (a store rename on another thread)
+    is skipped — this is a UI snapshot, not a transaction.
+    """
     entries = []
     if not base_dir.is_dir():
         return entries
@@ -19,10 +25,12 @@ def _collect_store_tree(root: Path, base_dir: Path) -> list[dict]:
         if not store_path.is_dir() or store_path.name.startswith('.'):
             continue
         files = []
-        for f in sorted(store_path.rglob('*')):
+        for f in sorted(tolerant_rglob(store_path)):
             if f.is_file() and '.git' not in f.parts:
                 rel = f.relative_to(root)
-                stat = f.stat()
+                stat = safe_stat(f)
+                if stat is None:
+                    continue
                 files.append({
                     'path': str(rel),
                     'name': f.name,

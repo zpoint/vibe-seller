@@ -17,6 +17,7 @@ event, and return the saved path to the agent.
 
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import json
 import logging
@@ -303,7 +304,8 @@ async def generate_task_image(
     if out_path.exists():
         stem = out_path.stem
         out_path = out_dir / f'{stem}-{request_id[:6]}.png'
-    out_path.write_bytes(png)
+    # The png write is one thread hop — never on the loop.
+    await asyncio.to_thread(out_path.write_bytes, png)
 
     rel_path = f'{_GEN_SUBDIR}/{out_path.name}'
     file_url = f'/api/tasks/{task_id}/files/{rel_path}'

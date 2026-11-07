@@ -184,7 +184,8 @@ class TestDaemonReaper:
         override_async_session,
     ):
         """Daemons without --cdp-url (e.g. aux sessions) are skipped."""
-        proc = subprocess.Popen(
+        proc = await asyncio.to_thread(
+            subprocess.Popen,
             [
                 sys.executable,
                 '-c',

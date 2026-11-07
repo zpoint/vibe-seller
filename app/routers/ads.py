@@ -16,6 +16,7 @@ for anyone to point somewhere else.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
@@ -122,7 +123,7 @@ async def unbind_store(
     if not any(s.ads_authorized for s in await _all_stores(db)):
         # The skill is for authorized stores only; with none left it
         # would only be routed away from every task.
-        ads_skill.remove()
+        await ads_skill.remove()
     return body
 
 
@@ -240,7 +241,12 @@ async def agent_call(
         payload.task_id, path, ads_path_guard.Outcome.ANSWERED
     )
     if isinstance(result, ads_client.AdsFile):
-        return {'result': _save_file(result, payload.task_id)}
+        # The file write (and its mkdir) is one thread hop.
+        return {
+            'result': await asyncio.to_thread(
+                _save_file, result, payload.task_id
+            )
+        }
     return {'result': result}
 
 

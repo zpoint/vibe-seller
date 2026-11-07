@@ -12,6 +12,7 @@ archive side adds ``app.skill_uploads`` (signing, staging, strict
 extraction) on top of the ONE install path.
 """
 
+import asyncio
 import base64
 import re
 
@@ -36,6 +37,7 @@ from app.skill_uploads import (
 )
 from app.sync import state as sync_state
 from app.sync.jobs import SKILLS_JOB
+from app.workspace import skills_tree
 from app.workspace.skills_manager import derive_skill_slug
 
 _ACTIONS = (
@@ -139,48 +141,71 @@ def _import_slug(args: dict, skill_md: str) -> str:
 
 
 async def _import_upload(ctx: McpContext, args: dict, upload_id: str) -> dict:
-    """Import the staged archive: extract, install through save_skill.
+    """Import the staged archive: extract and install as ONE hop.
 
-    Extraction is strict (``app.skill_uploads``) and the install goes
-    through the SAME ``save_skill`` route the inline path uses — one
-    validation/install contract for every source. The upload is
-    consumed only after the install succeeded, so a refused install
-    can be retried without re-uploading.
+    The archive is read from staging and the tree is swapped into
+    ``.claude/skills`` — one logical operation — so both run in ONE
+    thread hop inside the skills-tree lock (the shape
+    ``app/ads_skill.py`` uses for its bundle install). The install
+    rules live in one place (``manager.save_skill_blocking``), shared
+    with the inline save path; nothing here blocks the event loop.
+    The upload is consumed only after the install succeeded, so a
+    refused install can be retried without re-uploading.
     """
     if args.get('files') or args.get('files_bin'):
         raise ToolError(
             'upload_id imports the staged archive — do not also '
             'send files / files_bin'
         )
-    try:
-        record = staged_record(upload_id, str(ctx.user.id))
-        extracted = extract_archive(archive_path(upload_id), record['format'])
-    except UploadError as exc:
-        raise ToolError(exc.message) from exc
-    except ValueError as exc:
-        raise ToolError(f'Archive refused: {exc}') from exc
+    manager = workspace_route.workspace_manager
+    async with skills_tree.hold():
+        try:
+            result, existed = await asyncio.to_thread(
+                _extract_and_install_blocking,
+                manager,
+                upload_id,
+                str(ctx.user.id),
+                args,
+            )
+        except UploadError as exc:
+            raise ToolError(exc.message) from exc
+        except ValueError as exc:
+            raise ToolError(f'Archive refused: {exc}') from exc
+    await manager._auto_commit(
+        f'{"Update" if existed else "Create"} skill: {result["slug"]}'
+    )
+    return result
+
+
+def _extract_and_install_blocking(
+    manager, upload_id: str, user_id: str, args: dict
+) -> tuple[dict, bool]:
+    """Sync target: staging reads, strict extraction, shared install.
+
+    Everything the archive import touches on disk happens here, in
+    the caller's single thread hop — the record read, the strict
+    extraction, the install core and the upload consumption.
+    """
+    record = staged_record(upload_id, user_id)
+    extracted = extract_archive(archive_path(upload_id), record['format'])
     slug = _import_slug(args, extracted.skill_md)
-    result = await call_route(
-        workspace_route.save_skill,
+    result, existed = manager.save_skill_blocking(
         slug,
-        SkillSaveRequest(
-            skill_md=extracted.skill_md,
-            files_bin={
-                rel: base64.b64encode(data).decode('ascii')
-                for rel, data in extracted.files.items()
-            },
-            executables=sorted(extracted.executables),
-            origin_url=args.get('origin_url') or '',
-            replace=True,
-            overwrite=bool(args.get('overwrite')),
-        ),
-        _user=ctx.user,
+        extracted.skill_md,
+        files_bin={
+            rel: base64.b64encode(data).decode('ascii')
+            for rel, data in extracted.files.items()
+        },
+        executables=sorted(extracted.executables),
+        origin_url=args.get('origin_url') or '',
+        replace=True,
+        overwrite=bool(args.get('overwrite')),
     )
     consume_upload(upload_id)
     # macOS packaging junk is skipped at extraction — say so, never
     # silently hand back a different tree than the one packed.
     result['ignored'] = extracted.ignored
-    return result
+    return result, existed
 
 
 @tool(
@@ -330,7 +355,11 @@ async def manage_skill(ctx: McpContext, args: dict) -> dict:
         return result
 
     if action == 'begin_upload':
-        return create_upload(str(ctx.user.id), _public_base_url(ctx.request))
+        # Minting runs its sweep and state writes in one thread hop;
+        # the loop only assembles the response.
+        return await asyncio.to_thread(
+            create_upload, str(ctx.user.id), _public_base_url(ctx.request)
+        )
 
     if action == 'import':
         upload_id = args.get('upload_id')

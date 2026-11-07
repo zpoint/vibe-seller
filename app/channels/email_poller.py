@@ -76,7 +76,7 @@ async def sync_account_emails(
         _sync_locks[account_id] = asyncio.Lock()
 
     async with _sync_locks[account_id]:
-        init_email_db(account_id)
+        await asyncio.to_thread(init_email_db, account_id)
 
         def _sync() -> int:
             return _sync_account(account, password)

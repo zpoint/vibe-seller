@@ -408,7 +408,8 @@ class BrowserManager:
                 # CDP alive — just re-write wrapper
                 token = create_token(AI_BOT_USER_ID, 'ai_bot')
                 headless = await self._read_headless_setting(db)
-                write_browser_use_wrapper(
+                await asyncio.to_thread(
+                    write_browser_use_wrapper,
                     store.name,
                     store.browser_backend,
                     proxy_port,
@@ -480,7 +481,8 @@ class BrowserManager:
         # binary → the user's local Chrome. See docs/browser.md § Wrapper
         # safety.
         token = create_token(AI_BOT_USER_ID, 'ai_bot')
-        write_browser_use_wrapper(
+        await asyncio.to_thread(
+            write_browser_use_wrapper,
             store.name,
             store.browser_backend,
             proxy_port,
@@ -571,7 +573,9 @@ class BrowserManager:
             self._active_ziniao_account_id = None
 
         # Remove browser-use wrapper
-        remove_browser_use_wrapper(store.name, store.id)
+        await asyncio.to_thread(
+            remove_browser_use_wrapper, store.name, store.id
+        )
 
         result = await db.execute(
             select(BrowserSession).where(BrowserSession.store_id == store.id)
@@ -612,7 +616,8 @@ class BrowserManager:
             token = create_token(AI_BOT_USER_ID, 'ai_bot')
             headless = await self._read_headless_setting(db)
 
-            write_browser_use_wrapper(
+            await asyncio.to_thread(
+                write_browser_use_wrapper,
                 store.name,
                 store.browser_backend,
                 proxy_port,

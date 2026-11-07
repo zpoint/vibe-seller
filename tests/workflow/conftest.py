@@ -576,6 +576,30 @@ def mock_workspace(monkeypatch, tmp_path):
             replace=False,
             overwrite=False,
         ):
+            result, _existed = self.save_skill_blocking(
+                slug,
+                skill_md,
+                files,
+                files_bin,
+                executables,
+                origin_url,
+                replace,
+                overwrite,
+            )
+            return result
+
+        def save_skill_blocking(
+            self,
+            slug,
+            skill_md,
+            files=None,
+            files_bin=None,
+            executables=None,
+            origin_url='',
+            replace=False,
+            overwrite=False,
+        ):
+            """Sync twin of the real manager's install core."""
             if not re.fullmatch(r'[a-z0-9][a-z0-9-]*', slug or ''):
                 raise ValueError(f'Invalid skill slug: {slug!r}')
             if slug in self._synced():
@@ -631,11 +655,12 @@ def mock_workspace(monkeypatch, tmp_path):
                 ] = origin_url
                 data['skills'][slug]['source'] = 'url'
                 lock.write_text(json.dumps(data))
-            return {
+            result = {
                 'slug': slug,
                 'path': f'.claude/skills/{slug}',
                 'action': 'updated' if existed else 'created',
             }
+            return result, existed
 
         async def create_store_profile(
             self,

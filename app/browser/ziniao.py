@@ -207,7 +207,11 @@ class ZiniaoBackend(BrowserBackend):
                 )
             # Resolve the host where Ziniao's CDP is listening: 127.0.0.1
             # in mirrored mode, else the gateway IP (NAT mode).
-            target_host = LOCALHOST if host_used == LOCALHOST else ziniao_host()
+            target_host = (
+                LOCALHOST
+                if host_used == LOCALHOST
+                else await asyncio.to_thread(ziniao_host)
+            )
             logger.info(
                 'Ziniao browser started, CDP port: %s (host %s)',
                 cdp_port,
@@ -268,7 +272,7 @@ class ZiniaoBackend(BrowserBackend):
         # CLI invocation saves files to the same place (instead of
         # each creating a random /tmp/browser-use-downloads-*/ dir).
         slug = browser_config.get('store_slug', 'default')
-        dl_dir = prepare_download_dir(slug)
+        dl_dir = await asyncio.to_thread(prepare_download_dir, slug)
 
         # Start multi-client CDP proxy: listens on 127.0.0.1:proxy_port,
         # connects upstream (WebSocket) to target_host:cdp_port.
@@ -307,7 +311,9 @@ class ZiniaoBackend(BrowserBackend):
                 if not new_port:
                     return None
                 new_host = (
-                    LOCALHOST if host_used == LOCALHOST else ziniao_host()
+                    LOCALHOST
+                    if host_used == LOCALHOST
+                    else await asyncio.to_thread(ziniao_host)
                 )
                 if not await self._cdp_port_reachable(new_host, int(new_port)):
                     return None

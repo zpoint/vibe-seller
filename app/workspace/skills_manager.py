@@ -38,6 +38,7 @@ held to the same rules:
   destruction of someone's hand-made skill.
 """
 
+import asyncio
 import base64
 import binascii
 from datetime import UTC, datetime
@@ -50,6 +51,8 @@ import shutil
 import tempfile
 
 from app.text_utils import sanitize_text
+from app.utils.json_file import update_json_file
+from app.workspace import skills_tree
 
 logger = logging.getLogger(__name__)
 
@@ -218,12 +221,13 @@ class SkillsMixin:
             )
         slug = skill_slug(name)
         skill_dir = self.root / '.claude' / 'skills' / slug
-        skill_dir.mkdir(parents=True, exist_ok=True)
-        skill_md = skill_dir / 'SKILL.md'
-        if content is not None:
-            skill_md.write_text(sanitize_text(content), encoding='utf-8')
-        else:
-            default = f"""---
+        async with skills_tree.hold():
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            skill_md = skill_dir / 'SKILL.md'
+            if content is not None:
+                skill_md.write_text(sanitize_text(content), encoding='utf-8')
+            else:
+                default = f"""---
 name: {name}
 description: {description}
 ---
@@ -236,16 +240,18 @@ description: {description}
 
 <!-- Add skill instructions here -->
 """
-            skill_md.write_text(default, encoding='utf-8')
-        lockfile = self._read_lockfile()
-        lockfile['skills'][slug] = {
-            'source': 'url' if origin_url else 'local',
-            'name': name,
-            'origin_url': origin_url,
-            'created_at': datetime.now(UTC).isoformat(),
-            'updated_at': datetime.now(UTC).isoformat(),
-        }
-        self._write_lockfile(lockfile)
+                skill_md.write_text(default, encoding='utf-8')
+            lockfile = self._read_lockfile()
+            lockfile['skills'][slug] = {
+                'source': 'url' if origin_url else 'local',
+                'name': name,
+                'origin_url': origin_url,
+                'created_at': datetime.now(UTC).isoformat(),
+                'updated_at': datetime.now(UTC).isoformat(),
+            }
+            self._write_lockfile(lockfile)
+        # Git runs outside the tree lock: it is slow, and every task
+        # launch waits on that lock for the .claude copy.
         await self._auto_commit(f'Create skill: {name}')
         return str(skill_dir.relative_to(self.root))
 
@@ -259,10 +265,11 @@ description: {description}
         skill_dir = self.root / '.claude' / 'skills' / slug
         if not skill_dir.is_dir():
             raise FileNotFoundError(f'Skill not found: {slug}')
-        shutil.rmtree(skill_dir)
-        lockfile = self._read_lockfile()
-        lockfile['skills'].pop(slug, None)
-        self._write_lockfile(lockfile)
+        async with skills_tree.hold():
+            await asyncio.to_thread(shutil.rmtree, skill_dir)
+            lockfile = self._read_lockfile()
+            lockfile['skills'].pop(slug, None)
+            self._write_lockfile(lockfile)
         await self._auto_commit(f'Delete skill: {slug}')
 
     @staticmethod
@@ -450,6 +457,59 @@ description: {description}
                 'read-only). Create a new user-space skill with a '
                 'different slug instead — it may reference the built-in.'
             )
+        # ONE thread hop for the whole filesystem operation, inside
+        # the skills-tree lock — the shape app/ads_skill.py uses for
+        # its bundle install: a sync helper does every bit of disk
+        # work (validation that touches disk, the staged swap or the
+        # merge writes, the lockfile update) and the async wrapper
+        # only awaits it. The install rules live in ONE place,
+        # ``save_skill_blocking`` — the archive import hosts the same
+        # core in its own hop.
+        async with skills_tree.hold():
+            result, existed = await asyncio.to_thread(
+                self.save_skill_blocking,
+                slug,
+                skill_md,
+                files,
+                files_bin,
+                executables,
+                origin_url,
+                replace,
+                overwrite,
+            )
+        await self._auto_commit(
+            f'{"Update" if existed else "Create"} skill: {slug}'
+        )
+        return result
+
+    def save_skill_blocking(
+        self,
+        slug: str,
+        skill_md: str,
+        files: dict | None = None,
+        files_bin: dict | None = None,
+        executables: list | None = None,
+        origin_url: str = '',
+        replace: bool = False,
+        overwrite: bool = False,
+    ) -> tuple[dict, bool]:
+        """The synchronous install core of :meth:`save_skill`.
+
+        Every rule of the write contract lives here — built-in
+        refusal, the overwrite gate, payload validation, the staged
+        swap (``replace``) or the merge writes, and the lockfile
+        entry. Hosted in a thread (never on the event loop) by the
+        async ``save_skill`` and by the archive import, so both
+        sources share one install path. Returns ``(result, existed)``.
+        """
+        skills_dir = self.root / '.claude' / 'skills'
+        synced = self._read_synced_skills(skills_dir)
+        if slug in synced:
+            raise ValueError(
+                f'{slug!r} is a built-in skill (maintainer-owned, '
+                'read-only). Create a new user-space skill with a '
+                'different slug instead — it may reference the built-in.'
+            )
         skill_dir = skills_dir / slug
         existed = skill_dir.is_symlink() or skill_dir.exists()
         if replace and existed and not overwrite:
@@ -468,28 +528,30 @@ description: {description}
             self._write_skill_tree(
                 skill_dir, skill_md, payloads, exec_set, guard=True
             )
-        lockfile = self._read_lockfile()
         now = datetime.now(UTC).isoformat()
         fm = parse_yaml_frontmatter(skill_md)
-        entry = lockfile['skills'].get(slug, {})
-        entry.setdefault('source', 'local')
-        entry.setdefault('origin_url', '')
-        entry.setdefault('created_at', now)
-        if origin_url:
-            entry['origin_url'] = origin_url
-            entry['source'] = 'url'
-        entry['name'] = fm.get('name') or entry.get('name') or slug
-        entry['updated_at'] = now
-        lockfile['skills'][slug] = entry
-        self._write_lockfile(lockfile)
-        await self._auto_commit(
-            f'{"Update" if existed else "Create"} skill: {slug}'
-        )
-        return {
+
+        def _merge_entry(data: dict) -> None:
+            data.setdefault('version', 1)
+            skills = data.setdefault('skills', {})
+            entry = skills.get(slug, {})
+            entry.setdefault('source', 'local')
+            entry.setdefault('origin_url', '')
+            entry.setdefault('created_at', now)
+            if origin_url:
+                entry['origin_url'] = origin_url
+                entry['source'] = 'url'
+            entry['name'] = fm.get('name') or entry.get('name') or slug
+            entry['updated_at'] = now
+            skills[slug] = entry
+
+        update_json_file(self._lockfile_path, _merge_entry)
+        result = {
             'slug': slug,
             'path': str(skill_dir.relative_to(self.root)),
             'action': 'updated' if existed else 'created',
         }
+        return result, existed
 
     @staticmethod
     def _write_skill_tree(

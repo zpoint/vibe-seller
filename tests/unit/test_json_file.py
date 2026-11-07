@@ -2,6 +2,7 @@
 
 import json
 import os
+import threading
 
 import pytest
 
@@ -67,3 +68,32 @@ def test_failed_write_keeps_original_and_cleans_tmp(tmp_path, monkeypatch):
 
     assert json.loads(path.read_text(encoding='utf-8')) == {'a': 1}
     assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_concurrent_writers_on_threads_lose_no_keys(tmp_path):
+    """N threads each add a distinct key — every one must survive.
+
+    The skills mirror mutates .sync_meta.json from worker threads
+    (``asyncio.to_thread``) while other writers run on the event loop.
+    A read-modify-write that is merely "synchronous" still interleaves
+    ACROSS threads: two writers read the same snapshot and the second
+    one back over the first. ``update_json_file`` serialises the whole
+    step so no key is lost.
+    """
+    path = tmp_path / 'meta.json'
+    count = 32
+    barrier = threading.Barrier(count)
+
+    def writer(i: int) -> None:
+        barrier.wait()
+        update_json_file(path, lambda m: m.update({f'k{i}': i}))
+
+    threads = [threading.Thread(target=writer, args=(i,)) for i in range(count)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert json.loads(path.read_text(encoding='utf-8')) == {
+        f'k{i}': i for i in range(count)
+    }

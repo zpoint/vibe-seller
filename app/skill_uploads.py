@@ -33,6 +33,7 @@ Contracts held here, in one place:
   is purely in-memory: a rejected archive never touches the workspace.
 """
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import hashlib
@@ -300,8 +301,14 @@ async def stage_stream(upload_id: str, chunks, content_type: str) -> dict:
     an oversize upload is never fully written down. The upload is
     CLAIMED atomically before the first byte (see :func:`_claim`), so
     a concurrent second PUT is refused instead of racing.
+
+    One clear shape for the disk work: every file operation — the
+    claim, the open, each chunk write, the sniff, the record save —
+    is handed to a thread (``asyncio.to_thread``). The event loop
+    only counts bytes and enforces the cap, so a multi-megabyte
+    upload never blocks the server's other requests.
     """
-    record = _load_record(upload_id)
+    record = await asyncio.to_thread(_load_record, upload_id)
     if record is None:
         raise UploadError(404, 'Unknown upload')
     if record.get('status') != 'pending':
@@ -314,12 +321,11 @@ async def stage_stream(upload_id: str, chunks, content_type: str) -> dict:
             'Content-Type must be one of: '
             + ', '.join(sorted(ACCEPTED_CONTENT_TYPES)),
         )
-    dest = _archive_path(upload_id)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    _claim(upload_id)
+    dest = await asyncio.to_thread(_prepare_staging, upload_id)
     total = 0
     try:
-        with open(dest, 'wb') as out:
+        out = await asyncio.to_thread(open, dest, 'wb')
+        try:
             async for chunk in chunks:
                 total += len(chunk)
                 if total > MAX_ARCHIVE_UPLOAD_BYTES:
@@ -328,8 +334,10 @@ async def stage_stream(upload_id: str, chunks, content_type: str) -> dict:
                         'Archive exceeds the '
                         f'{MAX_ARCHIVE_UPLOAD_BYTES} byte upload limit',
                     )
-                out.write(chunk)
-        fmt = sniff_format(dest)
+                await asyncio.to_thread(out.write, chunk)
+        finally:
+            await asyncio.to_thread(out.close)
+        fmt = await asyncio.to_thread(sniff_format, dest)
         if fmt is None:
             raise UploadError(
                 415,
@@ -337,18 +345,30 @@ async def stage_stream(upload_id: str, chunks, content_type: str) -> dict:
                 '.zip (magic bytes decide, not the file name)',
             )
         record.update({'status': 'staged', 'size': total, 'format': fmt})
-        _save_record(record)
+        await asyncio.to_thread(_save_record, record)
     except Exception:
-        dest.unlink(missing_ok=True)
+        await asyncio.to_thread(_discard_staging, dest)
         raise
     finally:
-        _release_claim(upload_id)
+        await asyncio.to_thread(_release_claim, upload_id)
     return {
         'upload_id': upload_id,
         'size': total,
         'format': fmt,
         'status': 'staged',
     }
+
+
+def _prepare_staging(upload_id: str) -> Path:
+    """Claim the upload and return its staging path (sync target)."""
+    dest = _archive_path(upload_id)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _claim(upload_id)
+    return dest
+
+
+def _discard_staging(dest: Path) -> None:
+    dest.unlink(missing_ok=True)
 
 
 def staged_record(upload_id: str, user_id: str) -> dict:

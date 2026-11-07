@@ -106,10 +106,11 @@ def _good_entries():
 
 
 async def _stage(path, upload_id, content_type='application/gzip'):
+    data = await asyncio.to_thread(path.read_bytes)
+
     async def chunks():
-        with open(path, 'rb') as handle:
-            while chunk := handle.read(64 * 1024):
-                yield chunk
+        for i in range(0, len(data), 64 * 1024):
+            yield data[i : i + 64 * 1024]
 
     return await stage_stream(upload_id, chunks(), content_type)
 
@@ -532,11 +533,12 @@ class TestUploadIdHardening:
         upload_id = minted['upload_id']
         path = _archive(tmp_path, _good_entries())
 
+        data = await asyncio.to_thread(path.read_bytes)
+
         async def slow_chunks():
-            with open(path, 'rb') as handle:
-                while chunk := handle.read(16 * 1024):
-                    await asyncio.sleep(0)
-                    yield chunk
+            for i in range(0, len(data), 16 * 1024):
+                await asyncio.sleep(0)
+                yield data[i : i + 16 * 1024]
 
         async def attempt():
             try:

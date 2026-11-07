@@ -16,6 +16,8 @@ with 413 when that length passes the ceiling
 (``app/skill_uploads`` owns the rules).
 """
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request
 
 from app import skill_uploads
@@ -65,7 +67,10 @@ async def put_skill_archive(upload_id: str, request: Request):
     in the same staging handler and both are size-bounded.
     """
     try:
-        check_upload_request(
+        # The signature check reads the upload's state file — one
+        # thread hop, before any body byte is read.
+        await asyncio.to_thread(
+            check_upload_request,
             upload_id,
             request.query_params.get('uid'),
             int(request.query_params.get('exp') or 0),

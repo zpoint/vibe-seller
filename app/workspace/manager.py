@@ -19,8 +19,9 @@ import git as gitlib
 from app.config import VIBE_SELLER_DIR
 from app.platform import agent_venv_python
 from app.text_utils import sanitize_text
-from app.workspace import task_links, venv_bootstrap
+from app.workspace import skills_tree, task_links, venv_bootstrap
 from app.workspace.actor import current_actor
+from app.workspace.fs_walk import safe_stat, tolerant_rglob
 from app.workspace.ignored_paths import (
     RUNTIME_DIRS,
     git_env as ignored_git_env,
@@ -78,7 +79,7 @@ class WorkspaceManager(SkillsMixin):
         # Per-store RUN DATA lives outside stores/ (never surfaces as
         # knowledge, still git-tracked). First boot after a layout bump
         # relocates old artifacts → store-data/<YYYY-MM>/; then O(1).
-        migrate_store_data(self.root)
+        await asyncio.to_thread(migrate_store_data, self.root)
 
         # Generate workspace CLAUDE.md (write-once)
         claude_md = self.root / 'CLAUDE.md'
@@ -169,7 +170,7 @@ class WorkspaceManager(SkillsMixin):
                 except (FileNotFoundError, FileExistsError):
                     pass  # concurrent caller handled it
                 try:
-                    shutil.rmtree(broken)
+                    await asyncio.to_thread(shutil.rmtree, broken)
                 except Exception:
                     logger.warning(
                         'Failed to remove broken venv: %s',
@@ -209,8 +210,12 @@ class WorkspaceManager(SkillsMixin):
     async def list_tree(self) -> list[dict]:
         """Return a flat list of all files in the workspace."""
         await self.ensure_init()
+        return await asyncio.to_thread(self._list_tree_entries)
+
+    def _list_tree_entries(self) -> list[dict]:
+        """Walk the workspace tree (blocking; vanished paths skipped)."""
         items = []
-        for path in sorted(self.root.rglob('*')):
+        for path in sorted(tolerant_rglob(self.root)):
             if (
                 '.git' in path.parts
                 or '.venv' in path.parts
@@ -218,13 +223,16 @@ class WorkspaceManager(SkillsMixin):
             ):
                 continue
             rel = path.relative_to(self.root)
+            stat = safe_stat(path)
+            if stat is None:
+                continue
             items.append({
                 # Always '/'-separated: callers (the UI tree, the MCP
                 # read_knowledge filters) match on POSIX prefixes, and
                 # str() would give 'knowledge\\x.md' on native Windows.
                 'path': rel.as_posix(),
                 'is_dir': path.is_dir(),
-                'size': path.stat().st_size if path.is_file() else 0,
+                'size': stat.st_size if path.is_file() else 0,
             })
         return items
 
@@ -287,7 +295,7 @@ class WorkspaceManager(SkillsMixin):
         if file_path.is_file():
             file_path.unlink()
         elif file_path.is_dir():
-            shutil.rmtree(file_path)
+            await asyncio.to_thread(shutil.rmtree, file_path)
         else:
             raise FileNotFoundError(f'Not found: {rel_path}')
         await self._auto_commit(f'Delete {rel_path}')
@@ -304,7 +312,10 @@ class WorkspaceManager(SkillsMixin):
     async def get_structured(self) -> dict:
         """Return workspace organized by section for the UI."""
         await self.ensure_init()
+        return await asyncio.to_thread(self._structured_snapshot)
 
+    def _structured_snapshot(self) -> dict:
+        """Build the tree snapshot (blocking — runs in a thread)."""
         knowledge_dir = self.root / 'knowledge'
         skills_dir = self.root / '.claude' / 'skills'
 
@@ -317,7 +328,7 @@ class WorkspaceManager(SkillsMixin):
             def _collect_skill(skill_path, source, origin_url=''):
                 files = []
                 description = ''
-                for f in sorted(skill_path.rglob('*')):
+                for f in sorted(tolerant_rglob(skill_path)):
                     if f.is_file() and '.git' not in f.parts:
                         if '.venv' in f.parts:
                             continue
@@ -325,11 +336,14 @@ class WorkspaceManager(SkillsMixin):
                             continue
                         if f.suffix == '.pyc':
                             continue
+                        stat = safe_stat(f)
+                        if stat is None:
+                            continue
                         rel = f.relative_to(self.root)
                         files.append({
                             'path': str(rel),
                             'name': f.name,
-                            'size': f.stat().st_size,
+                            'size': stat.st_size,
                         })
                         if f.name == 'SKILL.md':
                             try:
@@ -380,16 +394,19 @@ class WorkspaceManager(SkillsMixin):
         project_knowledge = []
         local_knowledge = []
         if knowledge_dir.is_dir():
-            for f in sorted(knowledge_dir.rglob('*')):
+            for f in sorted(tolerant_rglob(knowledge_dir)):
                 if not f.is_file():
                     continue
                 if '.git' in f.parts or '__pycache__' in f.parts:
+                    continue
+                stat = safe_stat(f)
+                if stat is None:
                     continue
                 rel = f.relative_to(self.root)
                 entry = {
                     'path': str(rel),
                     'name': f.name,
-                    'size': f.stat().st_size,
+                    'size': stat.st_size,
                 }
                 if project_knowledge_dir.is_dir() and f.is_relative_to(
                     project_knowledge_dir
@@ -402,10 +419,13 @@ class WorkspaceManager(SkillsMixin):
         root_files = []
         for f in sorted(self.root.iterdir()):
             if f.is_file() and f.name != '.DS_Store':
+                stat = safe_stat(f)
+                if stat is None:
+                    continue
                 root_files.append({
                     'path': f.name,
                     'name': f.name,
-                    'size': f.stat().st_size,
+                    'size': stat.st_size,
                 })
 
         return {
@@ -575,6 +595,23 @@ class WorkspaceManager(SkillsMixin):
         ``PRESERVED_ON_CLEAN`` — see the constant.
         """
         await self.ensure_init()
+        task_dir = await asyncio.to_thread(
+            self._prepare_task_dirs, task_id, clean
+        )
+        # Only the .claude copy READS the shared skills tree — the lock
+        # covers exactly that (see app.workspace.skills_tree).
+        async with skills_tree.hold():
+            await asyncio.to_thread(
+                self._copy_claude_tree, task_dir, exclude_skills
+            )
+        await asyncio.to_thread(_make_skill_root, task_dir)
+        return task_dir
+
+    def _prepare_task_dirs(self, task_id: str, clean: bool) -> Path:
+        """Clean + scaffold the task dir and its shared links.
+
+        Touches no shared tree — deliberately outside the tree lock.
+        """
         task_dir = self.root / 'tasks' / task_id
         if clean and task_dir.exists():
             task_links.remove_task_workspace(
@@ -593,7 +630,13 @@ class WorkspaceManager(SkillsMixin):
             task_links._clear_workspace_link(link_path)
             if target.exists():
                 task_links._link_shared_into_task(link_path, target)
+        return task_dir
 
+    def _copy_claude_tree(
+        self, task_dir: Path, exclude_skills: Collection[str]
+    ) -> None:
+        """Copy the workspace ``.claude`` into the task dir (the one
+        skills-tree read — callers hold ``skills_tree`` for it)."""
         # .claude is copied (not symlinked) because Claude Code's
         # Glob doesn't follow symlinks when traversing ** patterns.
         # Exclude __pycache__ and stale .venv dirs (skills use the
@@ -624,9 +667,6 @@ class WorkspaceManager(SkillsMixin):
                 claude_dst,
                 ignore=_ignore,
             )
-
-        _make_skill_root(task_dir)
-        return task_dir
 
 
 def _make_skill_root(task_dir: Path) -> None:
