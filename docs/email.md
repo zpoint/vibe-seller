@@ -51,12 +51,13 @@ description: 邮件接入：在 Vibe Seller 里添加邮箱，让 AI 读信、�
    IMAP / SMTP 服务器就会**自动识别**填好（`imap.163.com`、`smtp.163.com`）；
 2. 「密码/授权码」粘贴上一步拿到的 16 位授权码；
 3. 点 **测试连接**。看到「连接成功」再点 **保存**。
-   授权码填错或服务没开时，红框里会直接显示服务商的真实报错，
-   对照修正后再测：
-
-![测试连接失败时显示真实报错](images/email_testfail_zh.png)
 
 ![添加邮箱：服务器自动识别](images/email_addform_zh.png)
+
+授权码填错或服务没开时，红框里会直接显示服务商的真实报错，
+对照修正后再测：
+
+![测试连接失败时显示真实报错](images/email_testfail_zh.png)
 
 保存后邮箱出现在列表里，点 **关联到店铺** 把它挂到店铺上——
 只有关联之后，该店铺的任务里 AI 才读得到这个邮箱的邮件。
@@ -170,12 +171,9 @@ OAuth2 授权，而 Vibe Seller 的接入方式是授权码/密码。用 Outlook
 修正好再点「测试连接」，具体原因会直接显示在红框里。
 </details>
 
-<details markdown="1"><summary><b>提示 "Email account already exists"？</b></summary>
+<details markdown="1"><summary><b>提示「这个邮箱已经添加过了」？</b></summary>
 
-![保存失败的原因也显示在红框里](images/email_save_zh.png)
-
-这个邮箱已经添加过了。回列表里找到它即可；想换授权码，
-先删除旧的再重新添加。
+回列表里找到这个邮箱即可；想换授权码，先删除旧的再重新添加。
 </details>
 
 <details markdown="1"><summary><b>QQ 邮箱只能收到最近 30 天的邮件？</b></summary>

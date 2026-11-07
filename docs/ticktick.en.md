@@ -63,6 +63,10 @@ developer portal of the version you actually use.
 
 ![TickTick setup wizard in Vibe Seller](images/ticktick_wizard_en.png)
 
+The redirect address in the screenshot is **your own Vibe Seller
+address** (generated from the address you open the app at) — copy it
+straight from the page.
+
 !!! note "Pop-up blocked?"
     The authorization page opens as a pop-up. If your browser blocks
     it, click the pop-up blocker icon in the address bar, choose

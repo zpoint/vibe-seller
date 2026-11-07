@@ -58,13 +58,14 @@ Click **+ Add Email**:
    (`imap.163.com`, `smtp.163.com`);
 2. Paste the 16-character authorization code into "Password/App Key";
 3. Click **Test Connection**. Once it says "Connection successful",
-   click **Save**. If the code is wrong or the service is off, the
-   provider's real error appears in the red box — fix it and test
-   again:
-
-![A failed test shows the provider's real error](images/email_testfail_en.png)
+   click **Save**.
 
 ![Adding a mailbox — servers auto-detected](images/email_addform_en.png)
+
+If the code is wrong or the service is off, the provider's real error
+appears in the red box — fix it and test again:
+
+![A failed test shows the provider's real error](images/email_testfail_en.png)
 
 The mailbox now appears in the list. Click **Link to Store** to attach
 it to a store — only linked mailboxes are visible to the AI in that
@@ -195,11 +196,9 @@ The mail server rejected the sign-in. Almost always one of:
 Fix it and test again — the exact reason is shown in the red box.
 </details>
 
-<details markdown="1"><summary><b>It says "Email account already exists"?</b></summary>
+<details markdown="1"><summary><b>It says "This mailbox is already added"?</b></summary>
 
-![A failed save shows the reason too](images/email_save_en.png)
-
-That mailbox is already in the list. To rotate the authorization code,
+The mailbox is already in the list. To rotate the authorization code,
 delete the old entry first, then add it again with the new code.
 </details>
 
