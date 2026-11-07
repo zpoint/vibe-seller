@@ -29,6 +29,7 @@ import logging
 from pathlib import Path
 
 from app.sync import state as sync_state
+from app.utils.json_file import update_json_file
 from app.workspace.manager import VIBE_SELLER_DIR
 
 logger = logging.getLogger('app.sync')
@@ -125,16 +126,17 @@ async def migrate_skills_meta() -> bool:
     if meta is None:
         return False
     imported = await _import_row('skills', meta)
-    if any(key in meta for key in _SKILLS_SCHEDULE_KEYS):
-        remaining = {
-            key: value
-            for key, value in meta.items()
-            if key not in _SKILLS_SCHEDULE_KEYS
-        }
-        try:
-            path.write_text(json.dumps(remaining, indent=2), encoding='utf-8')
-        except OSError:
-            logger.warning('Could not trim %s', path, exc_info=True)
+
+    def _trim(fresh: dict) -> None:
+        for key in _SKILLS_SCHEDULE_KEYS:
+            fresh.pop(key, None)
+
+    # Trims a FRESH read (the await can yield to concurrent writers,
+    # #204); a file with nothing schedule-shaped writes nothing.
+    try:
+        update_json_file(path, _trim)
+    except OSError:
+        logger.warning('Could not trim %s', path, exc_info=True)
     return imported
 
 
@@ -199,15 +201,18 @@ async def migrate_presets_cache() -> bool:
             detail=bookkeeping['detail'],
         )
         imported = True
-    # Rewrite the cache as catalog-only, whatever the row said.
-    catalog = {key: blob[key] for key in ('presets', 'models') if key in blob}
-    if catalog:
-        try:
-            tmp = path.with_name(path.name + '.tmp')
-            tmp.write_text(json.dumps(catalog, indent=2), encoding='utf-8')
-            tmp.replace(path)
-        except OSError:
-            logger.warning('Could not trim %s', path, exc_info=True)
+    # Rewrite the cache as catalog-only, whatever the row said (same
+    # fresh-read trim as the skills meta; a no-op writes nothing).
+
+    def _catalog_only(fresh: dict) -> None:
+        for key in list(fresh):
+            if key not in ('presets', 'models'):
+                del fresh[key]
+
+    try:
+        update_json_file(path, _catalog_only)
+    except OSError:
+        logger.warning('Could not trim %s', path, exc_info=True)
     return imported
 
 
