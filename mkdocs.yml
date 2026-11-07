@@ -71,6 +71,9 @@ plugins:
             Home: 首页
             Getting Started: 入门
             Core: 核心
+            Integrations: 接入
+            Email: 邮件
+            TickTick / Dida365: 滴答清单 / TickTick
             Browser Automation: 浏览器自动化
             Reference: 参考
             Developer Guide: 开发者指南
@@ -132,6 +135,10 @@ nav:
       - Workspace: workspace.md
       - Subsystems: subsystems.md
       - Events: events.md
+  - Integrations:
+      - Email: email.md
+      - TickTick / Dida365: ticktick.md
+      - Google Workspace: google-workspace.md
   - Browser Automation:
       - Browser Management: browser.md
       - Ziniao Concurrency: ziniao-concurrency.md
