@@ -815,6 +815,8 @@
     "noEmails": "未配置邮箱账户",
     "testSuccess": "连接成功",
     "testFailed": "连接失败",
+    "errorExists": "这个邮箱已经添加过了",
+    "errorAutoDiscover": "无法自动识别 IMAP 服务器，请手动填写服务器地址",
     "linkedStores": "关联店铺",
     "linkToStore": "关联到店铺",
     "selectStore": "选择店铺",

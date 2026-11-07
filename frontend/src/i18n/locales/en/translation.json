@@ -813,6 +813,8 @@
     "noEmails": "No email accounts configured",
     "testSuccess": "Connection successful",
     "testFailed": "Connection failed",
+    "errorExists": "This mailbox is already added",
+    "errorAutoDiscover": "Could not auto-detect the IMAP server — please fill it in manually",
     "linkedStores": "Linked Stores",
     "linkToStore": "Link to Store",
     "selectStore": "Select Store",

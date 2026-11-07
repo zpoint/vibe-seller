@@ -6,12 +6,16 @@
  * failures carry a ``detail`` string. Both must reach the user: a
  * bare "Connection failed" leaves them guessing between a wrong
  * authorization code and a mistyped server.
+ *
+ * The save failures come back as fixed English strings; the known
+ * ones are mapped to i18n keys so the zh UI never shows raw English.
  */
-import { describe, it, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { I18nextProvider, initReactI18next } from 'react-i18next'
 import i18n from 'i18next'
 import enTranslation from '../i18n/locales/en/translation.json'
+import zhTranslation from '../i18n/locales/zh/translation.json'
 
 const mockApi = vi.hoisted(() => ({
   get: vi.fn(),
@@ -24,17 +28,23 @@ vi.mock('../api', () => ({ api: mockApi }))
 
 import { EmailAccountsPanel } from '../components/settings/EmailAccountsPanel'
 
-const i18nTestInstance = i18n.createInstance()
-i18nTestInstance.use(initReactI18next).init({
-  resources: { en: { translation: enTranslation } },
-  lng: 'en',
-  fallbackLng: 'en',
-  interpolation: { escapeValue: false },
-})
+function makeInstance(lng: 'en' | 'zh') {
+  const inst = i18n.createInstance()
+  inst.use(initReactI18next).init({
+    resources: {
+      en: { translation: enTranslation },
+      zh: { translation: zhTranslation },
+    },
+    lng,
+    fallbackLng: 'en',
+    interpolation: { escapeValue: false },
+  })
+  return inst
+}
 
-function renderPanel() {
+function renderPanel(lng: 'en' | 'zh' = 'en') {
   return render(
-    <I18nextProvider i18n={i18nTestInstance}>
+    <I18nextProvider i18n={makeInstance(lng)}>
       <EmailAccountsPanel
         emailAccounts={[]}
         loadEmailAccounts={vi.fn()}
@@ -45,9 +55,16 @@ function renderPanel() {
   )
 }
 
-async function openAddForm() {
-  renderPanel()
-  fireEvent.click(screen.getByText('+ Add Email'))
+const ADD_LABEL = { en: '+ Add Email', zh: '+ 添加邮箱' }
+const SAVE_LABEL = { en: 'Save', zh: '保存' }
+const PASSWORD_PLACEHOLDER = {
+  en: 'Password/App Key',
+  zh: '密码/授权码',
+}
+
+async function openAddForm(lng: 'en' | 'zh' = 'en') {
+  renderPanel(lng)
+  fireEvent.click(screen.getByText(ADD_LABEL[lng]))
   fireEvent.change(screen.getByPlaceholderText('user@example.com'), {
     target: { value: 'demo@example.com' },
   })
@@ -55,7 +72,7 @@ async function openAddForm() {
     target: { value: 'imap.example.com' },
   })
   fireEvent.change(
-    screen.getAllByPlaceholderText('Password/App Key')[0],
+    screen.getAllByPlaceholderText(PASSWORD_PLACEHOLDER[lng])[0],
     { target: { value: 'abcd efgh ijkl mnop' } },
   )
 }
@@ -85,8 +102,21 @@ describe('EmailAccountsPanel failure reasons', () => {
     fireEvent.click(screen.getByText('Save'))
     await waitFor(() =>
       screen.getByText((content) =>
-        content.includes('Email account already exists'),
+        content.includes('already added'),
       ),
     )
+  })
+
+  it('localizes known save errors instead of raw English (zh UI)', async () => {
+    mockApi.post.mockRejectedValue(new Error('Email account already exists'))
+    await openAddForm('zh')
+    fireEvent.click(screen.getByText(SAVE_LABEL.zh))
+    await waitFor(() => screen.getByText('这个邮箱已经添加过了'))
+    // The raw API string must not leak into the zh UI.
+    expect(
+      screen.queryByText((content) =>
+        content.includes('Email account already exists'),
+      ),
+    ).toBeNull()
   })
 })

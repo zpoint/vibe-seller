@@ -17,6 +17,15 @@ interface EmailAccountsPanelProps {
   isAdmin?: boolean
 }
 
+// Fixed error strings from POST /api/email-accounts → i18n keys, so
+// the zh UI doesn't surface raw English. Anything unmapped (provider
+// IMAP errors, etc.) is shown verbatim.
+const KNOWN_ERROR_KEYS: Record<string, string> = {
+  'Email account already exists': 'email.errorExists',
+  'Could not auto-discover IMAP settings. Please provide imap_host manually.':
+    'email.errorAutoDiscover',
+}
+
 export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, isAdmin = false }: EmailAccountsPanelProps) {
   const { t } = useTranslation()
   const [showAddEmail, setShowAddEmail] = useState(false)
@@ -132,7 +141,9 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
       setTestMessage('')
       loadEmailAccounts()
     } catch (e) {
-      setFormError(e instanceof Error ? e.message : String(e))
+      const raw = e instanceof Error ? e.message : String(e)
+      const key = KNOWN_ERROR_KEYS[raw]
+      setFormError(key ? t(key) : raw)
     }
     setSaving(false)
   }
