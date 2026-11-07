@@ -19,7 +19,7 @@ Claude Code then asks for two values:
 | Option | What to enter |
 | --- | --- |
 | **Vibe Seller server URL** | The server's base URL, e.g. `http://127.0.0.1:7777` or `https://vibe.example.com`. No trailing slash, no `/api/mcp` suffix. |
-| **API token** | A personal access token minted in the server's **Settings → API tokens**. |
+| **API key** | A personal access token minted in the server's **Settings → Integrations → API keys**. |
 
 The token is stored in the platform's credential store (it is marked
 `sensitive`), not in `settings.json`.

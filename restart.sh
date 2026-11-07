@@ -4,15 +4,22 @@
 # Usage: ./restart.sh           # restart on port 7777 (default)
 #        ./restart.sh 7780     # restart on port 7780
 #        ./restart.sh --dev    # dev mode (DEBUG logs + AGENT_DEBUG)
+#        ./restart.sh 7780 --scoped   # test/dev servers: stop only
+#                              # that server + its own children (see
+#                              # stop.sh --scoped), never clients of
+#                              # the port or other instances' agents
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Parse args: extract port (skip flags)
 PORT=""
 EXTRA_ARGS=()
+STOP_FLAGS=()
 for arg in "$@"; do
     if [ "$arg" = "--dev" ]; then
         EXTRA_ARGS+=("$arg")
+    elif [ "$arg" = "--scoped" ]; then
+        STOP_FLAGS+=("$arg")
     elif [ -z "$PORT" ]; then
         PORT="$arg"
     fi
@@ -42,7 +49,7 @@ fi
 echo "======================================"
 echo "Step 1: Stopping server..."
 echo "======================================"
-"$SCRIPT_DIR/stop.sh" "$PORT"
+"$SCRIPT_DIR/stop.sh" "$PORT" "${STOP_FLAGS[@]}"
 echo ""
 
 # Start the server

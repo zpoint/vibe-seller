@@ -79,7 +79,7 @@ describe('ApiTokensPanel', () => {
     expect(await screen.findByTestId('api-tokens-auth-off-note')).toBeTruthy()
   })
 
-  it('mints with the default 90-day expiry', async () => {
+  it('mints with a never-expiring default', async () => {
     renderPanel()
     fireEvent.click(await screen.findByTestId('api-tokens-create'))
     fireEvent.change(screen.getByTestId('api-tokens-name'), {
@@ -87,22 +87,22 @@ describe('ApiTokensPanel', () => {
     })
     fireEvent.click(screen.getByTestId('api-tokens-submit'))
     await waitFor(() =>
-      expect(mockApi.apiTokens.create).toHaveBeenCalledWith('laptop', 90),
+      expect(mockApi.apiTokens.create).toHaveBeenCalledWith('laptop', null),
     )
   })
 
-  it('sends a null expiry for "never"', async () => {
+  it('sends the picked expiry in days', async () => {
     renderPanel()
     fireEvent.click(await screen.findByTestId('api-tokens-create'))
     fireEvent.change(screen.getByTestId('api-tokens-name'), {
       target: { value: 'laptop' },
     })
     fireEvent.change(screen.getByTestId('api-tokens-expiry'), {
-      target: { value: 'never' },
+      target: { value: '90' },
     })
     fireEvent.click(screen.getByTestId('api-tokens-submit'))
     await waitFor(() =>
-      expect(mockApi.apiTokens.create).toHaveBeenCalledWith('laptop', null),
+      expect(mockApi.apiTokens.create).toHaveBeenCalledWith('laptop', 90),
     )
   })
 
@@ -126,18 +126,19 @@ describe('ApiTokensPanel', () => {
     expect(raw.textContent).toBe('vst_secret')
 
     const claude = screen.getByTestId('api-token-snippet-claude-code')
-    expect(claude.textContent).toContain('claude mcp add --transport http')
+    expect(claude.textContent).toContain(
+      'claude mcp add --scope user --transport http',
+    )
     expect(claude.textContent).toContain('/api/mcp')
     expect(claude.textContent).toContain('Authorization: Bearer vst_secret')
 
     const codex = screen.getByTestId('api-token-snippet-codex')
-    expect(codex.textContent).toContain('export VIBE_SELLER_TOKEN=vst_secret')
-
-    const codexToml = screen.getByTestId('api-token-snippet-codex-toml')
-    expect(codexToml.textContent).toContain('[mcp_servers.vibe-seller]')
-    expect(codexToml.textContent).toContain(
-      'bearer_token_env_var = "VIBE_SELLER_TOKEN"',
+    expect(codex.textContent).toContain('[mcp_servers.vibe-seller]')
+    expect(codex.textContent).toContain(
+      'http_headers = { "Authorization" = "Bearer vst_secret" }',
     )
+    expect(codex.textContent).not.toContain('export')
+    expect(codex.textContent).not.toContain('bearer_token_env_var')
 
     const workbuddy = screen.getByTestId('api-token-snippet-workbuddy')
     const parsed = JSON.parse(workbuddy.textContent || '{}')
@@ -145,6 +146,14 @@ describe('ApiTokensPanel', () => {
       'Bearer vst_secret',
     )
     expect(parsed.mcpServers['vibe-seller'].url).toContain('/api/mcp')
+
+    const qoder = screen.getByTestId('api-token-snippet-qoder')
+    const qoderParsed = JSON.parse(qoder.textContent || '{}')
+    expect(qoderParsed.mcpServers['vibe-seller'].type).toBe('http')
+    expect(qoderParsed.mcpServers['vibe-seller'].headers.Authorization).toBe(
+      'Bearer vst_secret',
+    )
+    expect(qoderParsed.mcpServers['vibe-seller'].url).toContain('/api/mcp')
   })
 
   it('drops the plaintext when the dialog is closed', async () => {
@@ -245,8 +254,8 @@ describe('ApiTokensPanel — editable server address', () => {
     const claude = screen.getByTestId('api-token-snippet-claude-code')
     expect(claude.textContent).toContain('http://192.168.1.50:7777/api/mcp')
     expect(claude.textContent).not.toContain('localhost')
-    const toml = screen.getByTestId('api-token-snippet-codex-toml')
-    expect(toml.textContent).toContain('http://192.168.1.50:7777/api/mcp')
+    const codex = screen.getByTestId('api-token-snippet-codex')
+    expect(codex.textContent).toContain('http://192.168.1.50:7777/api/mcp')
   })
 
   it('warns for a loopback address and clears when edited away', async () => {

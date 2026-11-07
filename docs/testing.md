@@ -63,6 +63,19 @@ E2E_VIBE_HOME=~/.vibe-seller-e2e E2E_BASE_URL=http://127.0.0.1:7799 \
   pytest --e2e tests/e2e
 ```
 
+## Stopping a test server
+
+Stop a test/demo/e2e server on a side port with
+**`./stop.sh <port> --scoped`** (also `./restart.sh <port> --scoped`).
+Scoped stops only the server that listens on that port and its own
+child processes. The default `./stop.sh <port>` is deliberately
+broader — it also kills anything merely *connected* to the port (a
+local proxy relaying to it holds a socket there) and reaps every
+instance's leftover task agents machine-wide — which is right for
+cleaning up a crashed production server and wrong for a throwaway one
+next to other people's work. `tests/unit/test_stop_sh.py` pins the
+scoped contract.
+
 ## Sync scheduler knobs
 
 Nothing under `tests/` polls a network on its own. `tests/conftest.py`

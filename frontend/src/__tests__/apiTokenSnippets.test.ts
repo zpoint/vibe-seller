@@ -17,23 +17,36 @@ describe('buildSnippets', () => {
   it('points every URL-bearing snippet at the given address', () => {
     const s = buildSnippets(TOKEN, 'http://192.168.1.50:7777')
     const url = 'http://192.168.1.50:7777/api/mcp'
-    expect(s.claudeCode).toContain(url)
+    expect(s.claudeCode).toContain(
+      `claude mcp add --scope user --transport http vibe-seller ${url}`,
+    )
     expect(s.claudeCode).toContain(`Authorization: Bearer ${TOKEN}`)
-    expect(s.codexToml).toContain(`url = "${url}"`)
-    expect(s.codexToml).toContain(
-      'bearer_token_env_var = "VIBE_SELLER_TOKEN"',
+    expect(s.codex).toContain(`url = "${url}"`)
+    expect(s.codex).toContain(
+      `http_headers = { "Authorization" = "Bearer ${TOKEN}" }`,
     )
     const workbuddy = JSON.parse(s.workbuddy)
     expect(workbuddy.mcpServers['vibe-seller'].url).toBe(url)
     expect(workbuddy.mcpServers['vibe-seller'].headers.Authorization).toBe(
       `Bearer ${TOKEN}`,
     )
+    const qoder = JSON.parse(s.qoder)
+    expect(qoder.mcpServers['vibe-seller']).toEqual({
+      type: 'http',
+      url,
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    })
   })
 
-  it('carries the token verbatim in the raw and export snippets', () => {
+  it('carries the token verbatim, with no shell-export step', () => {
     const s = buildSnippets(TOKEN, 'http://192.168.1.50:7777')
     expect(s.raw).toBe(TOKEN)
-    expect(s.codexExport).toBe(`export VIBE_SELLER_TOKEN=${TOKEN}`)
+    // The export + bearer_token_env_var shape is gone: the Codex
+    // desktop app does not inherit shell exports, so the token
+    // travels in http_headers instead.
+    expect(s.codex).toContain(TOKEN)
+    expect(s.codex).not.toContain('export')
+    expect(s.codex).not.toContain('bearer_token_env_var')
   })
 
   it('accepts an address with a trailing slash without doubling the path', () => {

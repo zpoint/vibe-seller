@@ -8,7 +8,7 @@
 | [frontend.md](frontend.md) | React components, views, i18n, SSE |
 | [backend.md](backend.md) | FastAPI modules, models, schemas, config |
 | [api.md](api.md) | All API routes |
-| [agents.md](agents.md) | Connecting an external agent (MCP endpoint, API tokens) |
+| [agents.md](agents.md) | Connecting an external agent (MCP endpoint, API keys) |
 | [testing.md](testing.md) | Test tiers, fixtures, running tests |
 | [browser.md](browser.md) | Browser backends, Ziniao, WSL, CDP proxy |
 | [events.md](events.md) | SSE event bus, event types, business events |

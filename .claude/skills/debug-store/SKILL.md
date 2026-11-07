@@ -200,8 +200,9 @@ that acts as the user who minted it, with that user's role.
 
 ### Option A — an API token (`vst_…`) in `VIBE_SELLER_TOKEN`
 
-The normal path: the human mints a token in **Settings → API tokens**
-(the UI shows the plaintext once) and exports it:
+The normal path: the human mints an API key in **Settings →
+Integrations → API keys** (the UI shows the plaintext once) and
+exports it:
 
 ```bash
 export VIBE_SELLER_TOKEN='vst_…'      # pasted by the human
