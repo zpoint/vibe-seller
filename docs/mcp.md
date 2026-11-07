@@ -4,93 +4,107 @@ description: 在你已经在用的 AI 工具里直接指挥 Vibe Seller——MCP
 
 # MCP 接入
 
-Vibe Seller 可以作为 MCP 服务暴露给你**已经在用的 AI 工具**：Claude、Codex、
-WorkBuddy、Qoder，任何支持 MCP 的工具都行。给它一个地址和一把 API Key，这个
-工具就能替你创建任务、跟进进度、回答任务的提问、审批计划——就像你在网页上
-点按钮一样，只不过换成了对话。
+平时习惯用 Claude、Codex、WorkBuddy 或 Qoder 处理工作？现在可以直接在这些
+AI 工具里指挥 Vibe Seller 了。
 
-外部 Agent 全程**通过任务干活**，它不直接操作浏览器，所以服务端的所有闸门
-（计划审批、广告范围声明、完整性审查）都照常生效。开发者视角的完整参考
-（协议、32 个工具、curl 示例）见 [Connect an External Agent](agents.md)。
+接好之后，在对话框里说一句「帮我看看 acme 上周的广告」，它就会去 Vibe Seller
+里建好任务、盯着进度，跑完把结论带回给你。任务中途有问题要问你、有计划要你
+点头，也都在这段对话里搞定，不用再来回切换网页。
 
-> 命令行用户（Claude Code CLI、Codex CLI 等）见 [Connect an
-> External Agent](agents.md)，本文只讲桌面端。
+只要是支持 MCP 的 AI 工具都能接，准备好一个 API Key 就行。
 
-## 能问什么
+> **安全方面不用担心**：AI 工具只能通过“建任务”让 Vibe Seller 干活，碰不到
+> 你的浏览器，也没法直接改店铺。计划审批、广告改动范围检查这些把关，和你在
+> 网页上操作时完全一样。
 
-接入后，你可以在对话里直接说人话：
+本文只介绍桌面端怎么接。用命令行（Claude Code CLI、Codex CLI 等），或者想看
+技术细节（协议、全部 32 个工具、curl 示例）的，请看
+[Connect an External Agent](agents.md)。
+
+## 可以这样用
+
+接好之后，像给同事交代工作一样说就行：
 
 - 「现在 vibe-seller 里有几个店铺？」
 - 「帮我看看 acme 过去一周的广告花费，给点优化建议，先别改任何东西。」
 - 「这个任务现在在干什么，到哪一步了？」
 - 「把这周的巡检安排成每周一早上跑，写完计划先给我看。」
 
-工具会自己去调 `list_stores`、`create_task`、`get_task` 这些接口，
-你不用记任何工具名。
+不用记任何命令，AI 工具会自己判断该做什么。
 
 ## 能做什么、不能做什么
 
 | | |
 |---|---|
-| ✅ 能 | 创建任务（可带附件）、跟进任务、回答任务的提问、审批 / 打回计划、处理图像确认卡、发跟进消息、停止 / 重试 / 删除任务、读任务产出的文件、读写工作区知识、管理技能和排程 |
-| ❌ 不能 | 直接操作浏览器（点击、导航、截图）、直接改你的店铺——店铺层面的操作只发生在 Vibe Seller 内部的任务里，受服务端闸门约束 |
+| ✅ 能做 | 建任务（可以带附件）、查看进度、回答任务的提问、通过或打回计划、确认生成的图片、给任务补充要求、停止 / 重试 / 删除任务、查看任务产出的文件、管理知识库、技能和定时任务 |
+| ❌ 不能做 | 直接操作浏览器（点击、打开网页、截图），也不能直接改你的店铺。店铺上的操作都在 Vibe Seller 的任务里完成，照样要过所有检查。通过 Vibe Seller 来操作，能确保各店铺的数据互相隔离，也降低了让 AI 直接动手的风险 |
 
-任务在执行中的广告改动范围由任务自己声明，声明之后的完整性审查照常拦截
-漏掉的站点；报告型任务不给改动建议之外的指令。这些规则不因为外部 Agent
-接入而放松。
+从 AI 工具里建的广告任务，和在网页上建的一样守规矩：开工前先说清楚要查哪些、
+改哪些，漏查的站点会被拦下来补齐；只要报告的任务，不会动你的广告。
 
-## 第一步：拿一个 API Key
+> 下文的截图和录屏都在 macOS 上完成，Windows、Linux 上的步骤也一样；各工具支持
+> 哪些系统，以官网下载页为准。
+> 文中的 `~` 指你的用户目录，Windows 上就是 `C:\Users\<你的用户名>`。
 
-网页端 **设置 → 集成 → API Key** 卡片，创建一个。起个你以后认得出的名字（比如 `claude-desktop`），选一个有效期（30 / 90 /
-365 天或永不过期），创建后**复制这个 Key**——它只显示这一次，服务端只存
-哈希。
+## 第一步：创建 API Key
 
-- Key 以 `vst_` 开头，**当密码对待**：它以你的身份、按你的权限干活；
-- 用完或者怀疑泄露，就在同一张卡片里撤销；
-- 就算服务端关了登录验证，Key 一样生效、一样可撤销——照样建一个，
-  免得以后打开验证把工具锁在门外。
+打开 Vibe Seller 网页，进入 **设置 → 集成 → API Key**，点创建：
 
-## Claude 桌面版（Claude Code）
+1. 起一个好认的名字，比如 `claude-desktop`，以后一眼就知道是给谁用的；
+2. 选有效期：30 天、90 天、365 天或永不过期；
+3. 创建后马上**复制 Key**。它只显示这一次，关掉弹窗就再也看不到了。
+
+![在 设置 → 集成 里新建 API Key](images/mcp_apikey_create_zh.png)
+
+弹窗里还会给出下面每个工具现成的配置，复制粘贴就能用。先把「服务器地址」
+改成 AI 工具能访问到的地址，下面的配置会跟着自动更新：
+
+![创建成功的弹窗：Key 和各工具的配置](images/mcp_apikey_created_zh.png)
+
+使用时请注意：
+
+- Key 以 `vst_` 开头，**请像密码一样保管**。拿到它的工具能以你的身份、按你的
+  权限操作 Vibe Seller；
+- 不用了或者担心泄露，随时在同一个地方撤销；
+- 即使你的 Vibe Seller 没开登录验证，也建议照样创建一个。以后开了验证，
+  工具也不会突然连不上。
+
+## Claude 桌面版
 
 ### 安装
 
-到 [claude.com/download](https://claude.com/download) 下载 macOS 版安装即可。
+到 [claude.com/download](https://claude.com/download) 下载对应系统的版本，装好即可。
 
 ### 接入
 
-建完 API Key 的弹窗里直接给了 Claude Code 的可粘贴命令，在终端跑一次即可
-（桌面版的 **Code 标签页就是 Claude Code**，共用同一份配置，所以跑完
-桌面版里就有）：
+Claude 桌面版的 **Code 标签页**用的就是 Claude Code，所以只要在终端里跑一次
+弹窗给的命令，桌面版就能用上：
 
 ```bash
-claude mcp add --transport http vibe-seller http://HOST:7777/api/mcp \
-  --header "Authorization: Bearer vst_…"
+claude mcp add --scope user --transport http vibe-seller \
+  http://HOST:7777/api/mcp --header "Authorization: Bearer vst_…"
 ```
 
-> 建议补一个 `--scope user`：不加的话这条命令只在**当前目录**生效，
-> Code 标签页换个文件夹就看不到服务器了。
+弹窗里的服务器地址默认填的是你当前打开网页的地址。如果 AI 工具装在另一台
+电脑上，记得改成那台电脑能访问到的地址。
 
-弹窗里的服务器地址可以改（预填的是网页所在的地址）；工具跑在别的机器上时，
-把它改成那台机器能访问到的地址。
+想让 AI 用得更顺手，可以再装上 `vibe-seller` **插件**（安装方法见
+[agents.md](agents.md)）。插件里带了一份使用说明，教 AI 什么时候先出计划、
+怎么跟进任务、怎么回答任务的提问，以及只汇报任务真实跑出来的结果，绝不编造。
 
-更进一步可以装 `vibe-seller` **插件**（`claude plugin marketplace add` +
-`claude plugin install`，见 [agents.md](agents.md)）：插件额外带一个技能，
-教会 Agent 怎么用这些工具（什么时候用计划模式、怎么跟进任务、怎么答题、
-怎么审计划、为什么绝不能编造结果）。
-
-> 服务器**公网可达**时，聊天页也可以在 **设置 → 连接器（Connectors）→
-> 添加自定义连接器**里填服务器地址 + 请求头 `Authorization: Bearer vst_…`。
-> 注意这条路由 Claude 的云端代发请求，`localhost` / 内网地址的服务器连不上
-> ——本地部署请走上面的命令。
+> 如果你的 Vibe Seller 能从公网访问，也可以在 Claude 的聊天页里接入：
+> **设置 → 连接器（Connectors）→ 添加自定义连接器**，填上服务器地址和请求头
+> `Authorization: Bearer vst_…`。这种方式由 Claude 的云端去连你的服务器，
+> 所以 `localhost` 或公司内网地址连不上，本地部署请用上面的命令。
 
 ### 验证
 
-新建一个 Code 会话，问一句「vibe-seller 里有几个店铺」，或者直接看插件的
-工具列表——能看到 `list_stores`、`create_task` 等工具就通了。
+新开一个 Code 会话，问一句「vibe-seller 里有几个店铺」。它能答出店铺列表，
+或者工具列表里能看到 `list_stores`、`create_task`，就说明接好了。
 
 ### 试一试
 
-在会话里依次试这几句：
+依次发这几句，看看它怎么帮你跑完一个广告分析：
 
 1. 「现在 vibe-seller 里有几个店铺？」
 2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
@@ -102,26 +116,14 @@ claude mcp add --transport http vibe-seller http://HOST:7777/api/mcp \
 
 ### 安装
 
-到 [chatgpt.com/codex](https://chatgpt.com/codex) 或 OpenAI 的 Codex 页面
-下载 macOS 桌面应用（Codex 已并入 ChatGPT 桌面应用，安装后在应用里选
-Codex）。首次启动需要登录 ChatGPT 账号。
+到 [chatgpt.com/codex](https://chatgpt.com/codex) 下载对应系统的桌面应用。Codex
+已经并入 ChatGPT 桌面应用，装好后在应用里切到 Codex 即可。第一次打开需要
+登录 ChatGPT 账号。
 
 ### 接入
 
-Codex 桌面版和 Codex CLI 共用 `~/.codex/config.toml`。把弹窗给的这段贴进去
-（`http://HOST:7777/api/mcp` 换成你的服务器）：
-
-```toml
-[mcp_servers.vibe-seller]
-url = "http://HOST:7777/api/mcp"
-bearer_token_env_var = "VIBE_SELLER_TOKEN"
-```
-
-⚠️ **桌面版看不到终端里的 `export`**：`bearer_token_env_var` 走的是环境变量，
-命令行里 `export VIBE_SELLER_TOKEN=vst_…` 后能用，但 Dock 启动的桌面应用
-读不到这个变量，服务器会一直连不上。桌面版请二选一：
-
-- 在配置里直接写请求头（推荐，不依赖环境变量）：
+Codex 桌面版的配置文件是 `~/.codex/config.toml`（和 Codex 命令行共用）。把弹窗
+给的这段贴进去：
 
 ```toml
 [mcp_servers.vibe-seller]
@@ -129,21 +131,23 @@ url = "http://HOST:7777/api/mcp"
 http_headers = { "Authorization" = "Bearer vst_…" }
 ```
 
-- 或者把变量设到 GUI 环境：`launchctl setenv VIBE_SELLER_TOKEN "vst_…"`
-  （然后重启 Codex）。
+保存后重启 Codex。
 
-想让 Codex 用你自己的模型（而不是 ChatGPT 额度），同一个配置文件里加一个
-`[model_providers.…]`（OpenAI 兼容 / Responses 接口的服务商都行），
-`model_provider` 指过去即可。
+> 请把 Key 直接写在配置里，不要用 `bearer_token_env_var` 读环境变量：从桌面图标、
+> 程序坞或开始菜单打开的桌面应用，读不到你在终端里设置的环境变量，会一直连不上。
+
+想让 Codex 用你自己的模型、不占 ChatGPT 额度，可以在同一个文件里加一个
+`[model_providers.…]`（支持 OpenAI 兼容接口或 Responses 接口的服务商都行），
+再把 `model_provider` 指向它。
 
 ### 验证
 
-在 Codex 会话里问「vibe-seller 里有几个店铺」，或者看 MCP Servers 列表里
-`vibe-seller` 的工具数。
+在 Codex 里问一句「vibe-seller 里有几个店铺」，或者到 MCP 服务器列表里看
+`vibe-seller` 有没有显示工具数。
 
 ### 试一试
 
-在会话里依次试这几句：
+依次发这几句，看看它怎么帮你跑完一个广告分析：
 
 1. 「现在 vibe-seller 里有几个店铺？」
 2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
@@ -156,15 +160,16 @@ http_headers = { "Authorization" = "Bearer vst_…" }
 ### 安装
 
 到 [workbuddy.cn](https://www.workbuddy.cn)（国内版）或
-[workbuddy.ai](https://www.workbuddy.ai)（国际版）下载 macOS 版。首次启动需要登录。
+[workbuddy.ai](https://www.workbuddy.ai)（国际版）下载对应系统的版本。第一次打开
+需要登录。
 
 ### 接入
 
-弹窗里给了 WorkBuddy 的 MCP 配置 JSON，两个地方二选一：
+弹窗里有 WorkBuddy 专用的配置，下面两种方式任选一种：
 
-- **文件**：把 JSON 原样写进 `~/.workbuddy/mcp.json`；
-- **界面**：**连接器 → 自定义连接器（Custom connectors）→ MCP Server Management →
-  + Add MCP**，粘贴同一段 JSON。
+- **改文件**：把配置原样写进 `~/.workbuddy/mcp.json`；
+- **在界面里加**：**连接器 → 自定义连接器 → MCP Server Management → + Add MCP**，
+  粘贴同一段配置。
 
 ```json
 {
@@ -179,19 +184,19 @@ http_headers = { "Authorization" = "Bearer vst_…" }
 }
 ```
 
-保存后列表里会出现 `vibe-seller`，但它**必须先点「Trust」（信任）并打开开关**才会
-连上——文件改过之后信任会失效，要重新点一次。
+保存后列表里会出现 `vibe-seller`。**还要点一下「Trust」（信任）并打开开关**，
+它才会真正连上。以后每次改了配置文件，都需要重新点一次信任。
 
 ### 验证
 
-MCP Server Management 里 `vibe-seller · 32/32 tools enabled` 即为接入成功；对话里问
-一句「vibe-seller 里有几个店铺」：
+MCP Server Management 里显示 `vibe-seller · 32/32 tools enabled`，就说明接好了。
+再到对话里问一句「vibe-seller 里有几个店铺」试试：
 
 ![WorkBuddy 接入成功](images/mcp_workbuddy_verify_zh.png)
 
 ### 试一试
 
-在会话里依次试这几句：
+依次发这几句，看看它怎么帮你跑完一个广告分析：
 
 1. 「现在 vibe-seller 里有几个店铺？」
 2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
@@ -199,25 +204,26 @@ MCP Server Management 里 `vibe-seller · 32/32 tools enabled` 即为接入成�
 3. 「这个任务现在在干什么，到哪一步了？」
 4. 「好，继续跟进，跑完了给我总结。」
 
-![演示：用 WorkBuddy 驱动 Vibe Seller](images/mcp_workbuddy_demo_zh.gif)
+![演示：在 WorkBuddy 里指挥 Vibe Seller](images/mcp_workbuddy_demo_zh.gif)
 
 ## Qoder（阿里）
 
 ### 安装
 
-到 [qoder.com/download](https://qoder.com/download) 下载 macOS 版（中国版应用名
-**Qoder CN**）。首次启动需要登录 Qoder 账号（Google / GitHub / 邮箱注册）。
+到 [qoder.com/download](https://qoder.com/download) 下载对应系统的版本（国内版的应用名
+是 **Qoder CN**）。第一次打开需要登录 Qoder 账号，可以用 Google、GitHub 或
+邮箱注册。
 
 ### 接入
 
-**扩展（Extensions）→ 连接器（Connectors）→ 右上角「Add Connector」**，选 Form 或
-JSON 标签页，粘贴弹窗给的配置（JSON 形态如下）：
+进入 **扩展（Extensions）→ 连接器（Connectors）**，点右上角 **Add Connector**，
+切到 JSON 标签页，粘贴弹窗给的配置：
 
 ```json
 {
   "mcpServers": {
     "vibe-seller": {
-      "type": "streamable-http",
+      "type": "http",
       "url": "http://HOST:7777/api/mcp",
       "headers": {
         "Authorization": "Bearer vst_…"
@@ -227,21 +233,19 @@ JSON 标签页，粘贴弹窗给的配置（JSON 形态如下）：
 }
 ```
 
-「Preview import」确认后点「Import」即可。配置保存在 **`~/.qoder-cn/settings.json`**
-的 `mcpServers` 里（应用自己的弹窗就是这么写的；Qoder 国际版 / CLI 用的是
-`~/.qoder/settings.json`，两版路径不同）。
+点 **Preview import** 确认，再点 **Import** 就完成了。
 
-> Qoder 触发建任务时常常只带标题、不带描述——服务端的 `create_task` 已支持
-> 仅标题调用，不用在对话里刻意补描述。
+配置会保存在 `~/.qoder-cn/settings.json`（国际版是 `~/.qoder/settings.json`）。
+如果之后直接改这个文件，改完要在 Qoder 里重新信任一次。
 
 ### 验证
 
-**设置 → 扩展管理（Extension management）→ 连接器** 里看到 `vibe-seller · Ready ·
-HTTP` 就通了；展开能看到全部工具。然后对话里问一句「vibe-seller 里有几个店铺」。
+到 **设置 → 扩展管理 → 连接器** 里，看到 `vibe-seller · Ready · HTTP` 就说明接好了，
+展开还能看到全部工具。再到对话里问一句「vibe-seller 里有几个店铺」试试。
 
 ### 试一试
 
-在会话里依次试这几句：
+依次发这几句，看看它怎么帮你跑完一个广告分析：
 
 1. 「现在 vibe-seller 里有几个店铺？」
 2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
@@ -251,27 +255,35 @@ HTTP` 就通了；展开能看到全部工具。然后对话里问一句「vibe-
 
 ## 常见问题
 
-**401 Unauthorized**
-API Key 不对、已撤销或已过期，或者属于被停用的用户。到 设置 → 集成 →
-API Key 确认状态。撤销或过期的 Key 即使在关掉登录验证的服务器上也会被拒
-——这是故意的，撤销就要真的失效。
+**提示 401 Unauthorized**
 
-**405 on /api/mcp**
-服务器答的是「Method Not Allowed」：路径落到了网页静态文件兜底上，说明
-这台服务器还没有 `/api/mcp`（版本太旧）或者地址填错了。端点是 `/api/mcp`。
+Key 填错了、已经撤销或过期，也可能是这个 Key 的主人账号被停用了。到
+**设置 → 集成 → API Key** 里看一下 Key 的状态。撤销或过期的 Key 一律不能用，
+哪怕服务器没开登录验证也一样，撤销了就是真的作废了。
 
-**连接被拒 / TLS 报错**
-检查主机和端口，以及工具所在机器能不能访问到服务器。绑在 `127.0.0.1` 的
-服务器只有本机能连；远程使用请套一层 HTTPS 反向代理。
+**提示 405**
 
-**工具列表有了，但每次调用都失败**
-配置里的 `url` 一般结尾多了 `/api/mcp` 或者斜杠。这里要填的是**根地址**
-（Claude 插件）——不同客户端要求不一样，见上面各节的表格。
+说明地址不对，或者你的 Vibe Seller 版本太旧，还没有 MCP 接口。确认地址以
+`/api/mcp` 结尾，必要时升级 Vibe Seller。
 
-**Agent 回答了，但没有建任务**
-它用自己的知识回答了，没真正跑任务。插件里的技能专门防这个：绝不编造
-结果，只报任务自己的数字。没装插件（裸连 MCP）时更容易出现。
+**连不上，或者报证书（TLS）错误**
 
-**API Key 会不会被截图看到？**
-配置界面里 Key 一般显示为掩码；截图前把 `vst_` 字样遮掉即可。报告和
-文档里永远只用 `vst_…` 占位符。
+先检查地址和端口，再确认 AI 工具所在的电脑能访问到 Vibe Seller。如果 Vibe Seller
+只监听 `127.0.0.1`，就只有本机能连；要从别的电脑使用，建议在前面加一层
+HTTPS 反向代理。
+
+**能看到工具，但一用就报错**
+
+多半是地址写错了。上面各工具的配置里，地址都要写到 `/api/mcp` 为止；只有
+Claude **插件**例外，它只要服务器根地址（比如 `http://HOST:7777`），会自己补上
+`/api/mcp`。另外检查一下结尾有没有多余的斜杠。
+
+**AI 回答了，但没有真的去建任务**
+
+说明它凭自己的知识直接回答了，没有让 Vibe Seller 去跑。装上 Claude 插件能
+明显改善，插件会要求它只汇报任务真实跑出来的结果。也可以在对话里明确说
+「用 vibe-seller 建个任务查一下」。
+
+**截图分享时会不会泄露 Key？**
+
+配置界面里的 Key 一般会打码显示。分享截图前，记得把 `vst_` 开头的内容遮住。
