@@ -307,12 +307,18 @@ def pytest_collection_modifyitems(config, items):
     if not run_windows:
         items[:] = [i for i in items if 'windows' not in i.keywords]
 
-    # Long-budget tests spread evenly through the collection so
-    # worksteal's contiguous initial split gives each worker at most
-    # one and they all start at t=0 (see tests/collection_order.py —
-    # the brief-15 scheduling fix; two adjacent longs once sat in one
-    # worker's queue and cost the step its timeout).
-    items[:] = long_budget_order(items)
+    # Long-budget tests lead their worker's queue (worksteal's
+    # contiguous split gives each worker at most one) AND land on
+    # distinct provider keys when the map allows — two heavy
+    # generations sharing one key queue at the provider (CI 201i).
+    # See tests/collection_order.py.
+    workers = getattr(config.option, 'numprocesses', None) or 1
+    providers = [
+        p for p in os.environ.get('E2E_PROVIDER_MAP', '').split(',') if p
+    ]
+    items[:] = long_budget_order(
+        items, providers[:workers] if providers else None
+    )
 
 
 # Test database URL - in-memory SQLite for fast tests

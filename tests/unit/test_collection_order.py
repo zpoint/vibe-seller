@@ -98,3 +98,49 @@ def test_short_tests_keep_their_relative_order():
 def test_an_unmarked_collection_is_untouched():
     items = [_FakeItem(f's{i}') for i in range(5)]
     assert long_budget_order(items) == items
+
+
+def test_heavy_tests_land_on_distinct_provider_workers():
+    """CI 201i's collision: two heavy generations on workers that
+    share one provider key queue at the provider (the wide task's
+    turns measured 2x the gaps of the same test solo). The map's
+    distinct keys get the longs."""
+    providers = ['provider-a', 'provider-a', 'provider-a', 'provider-b']
+    items = long_budget_order(_raw_suite(), providers)
+    chunks = _worksteal_initial_chunks(items, 4)
+    long_chunks = [
+        w
+        for w, chunk in enumerate(chunks)
+        if any(declares_long_budget(items[i]) for i in chunk)
+    ]
+    assert len(long_chunks) == 2
+    assert len({providers[w] for w in long_chunks}) == 2, long_chunks
+    # and the stranding property still holds
+    for chunk in chunks:
+        assert len([i for i in chunk if declares_long_budget(items[i])]) <= 1
+
+
+def test_the_plain_spread_collides_on_a_three_same_key_map():
+    """Negative control — the 201i shape. Without the provider map the
+    even spread lands both longs on same-key workers."""
+    providers = ['provider-a', 'provider-a', 'provider-a', 'provider-b']
+    items = long_budget_order(_raw_suite())
+    chunks = _worksteal_initial_chunks(items, 4)
+    long_chunks = [
+        w
+        for w, chunk in enumerate(chunks)
+        if any(declares_long_budget(items[i]) for i in chunk)
+    ]
+    assert {providers[w] for w in long_chunks} == {'provider-a'}
+
+
+def test_more_longs_than_distinct_keys_falls_back_to_the_spread():
+    providers = ['provider-a', 'provider-a']
+    raw = [_FakeItem(f'long-{i}', long_budget=True) for i in range(3)] + [
+        _FakeItem(f's{i}') for i in range(9)
+    ]
+    items = long_budget_order(raw, providers)
+    chunks = _worksteal_initial_chunks(items, 2)
+    for chunk in chunks:
+        assert len([i for i in chunk if declares_long_budget(items[i])]) <= 2
+    assert sum(declares_long_budget(i) for i in items) == 3

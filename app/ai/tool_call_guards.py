@@ -13,6 +13,7 @@ import os
 from urllib.parse import urlsplit
 
 from app.ads_client import SERVICE_URL
+from app.ai.ad_scope_access import refusal as ad_scope_refusal
 from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.reflection_guard import reflection_deny
 from app.ai.source_guard import source_access_deny
@@ -176,6 +177,28 @@ def loaded_tool_search_deny(tool_name: str, tool_input) -> str | None:
     )
 
 
+def ad_scope_access_deny(
+    session, tool_name: str, tool_input: dict
+) -> str | None:
+    """A browser-use command may not open an out-of-scope campaign.
+
+    The declared scope was enforced only on the report; at ACCESS time
+    nothing stopped a narrowed turn from reading the excluded campaign
+    (CI 201i: an "OTHER ROUTES PROBE" fetched ``/campaign/A7654321``
+    under ``campaigns: [A1234567]``). Only browser-use commands are
+    the product's ad surface here — an id in ordinary shell text is
+    never a target. The chain runs in a thread hop (the hook handler
+    awaits it via ``asyncio.to_thread``) because the scope check reads
+    the declaration file.
+    """
+    if tool_name != 'Bash':
+        return None
+    command = (tool_input or {}).get('command', '')
+    if 'browser-use' not in command:
+        return None
+    return ad_scope_refusal(getattr(session, 'task_id', None), command)
+
+
 def tool_call_deny(session, hook_input: dict) -> str | None:
     """First refusal for this PreToolUse call, else ``None``.
 
@@ -190,6 +213,7 @@ def tool_call_deny(session, hook_input: dict) -> str | None:
         or source_access_deny(tool_name, tool_input)
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
+        or ad_scope_access_deny(session, tool_name, tool_input)
         or reflection_deny(session, tool_name, tool_input)
         or loaded_tool_search_deny(tool_name, tool_input)
     )
