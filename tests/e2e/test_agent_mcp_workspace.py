@@ -25,6 +25,7 @@ import uuid
 
 import pytest
 
+from app.agent_mcp.support import MAX_WAIT_SECONDS
 from tests.e2e.conftest import BASE_URL
 from tests.e2e.test_agent_mcp import McpClient
 
@@ -292,7 +293,9 @@ class TestWorkspaceAssistant:
             'workspace_assistant',
             action='send',
             message='Tidy the knowledge notes.',
-            wait_seconds=60,
+            # The longest wait the tool allows; the mock reply lands
+            # well inside it.
+            wait_seconds=MAX_WAIT_SECONDS,
         )
         assert sent['ok'], sent['text']
         data = sent['data']
