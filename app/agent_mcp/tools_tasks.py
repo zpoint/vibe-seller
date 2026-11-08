@@ -182,7 +182,8 @@ async def get_task(ctx: McpContext, args: dict) -> dict:
                 'minimum': 1,
                 'maximum': MAX_WAIT_SECONDS,
                 'description': (
-                    'How long to wait, in seconds (default 45, max 120).'
+                    'How long to wait, in seconds (default '
+                    f'{DEFAULT_WAIT_SECONDS}, max {MAX_WAIT_SECONDS}).'
                 ),
             },
         },
