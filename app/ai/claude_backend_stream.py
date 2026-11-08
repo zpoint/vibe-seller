@@ -157,12 +157,7 @@ class _StreamMixin:
             await self._close_stdin('stdout_eof', emit=False)
             return_code = await self._wait_process_exit_after_close()
 
-            if return_code != 0:
-                self._is_error_result = True
-                await self._emit_message(
-                    'system',
-                    f'Agent exited with code {return_code}',
-                )
+            await self._apply_exit_code(return_code)
 
             # The LAST accepted result's error state is the turn's:
             # an intermediate error a later turn recovered from must

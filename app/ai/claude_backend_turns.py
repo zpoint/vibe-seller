@@ -85,6 +85,7 @@ class _TurnLifecycleMixin(_ReviewGateMixin):
         self._init_review_gate_state()
         self._turn_result_seen: bool = False
         self._last_result_is_error: bool = False
+        self._escalation_reaped: bool = False
         self._had_async_spawns: bool = False
         self._last_activity_at: float = time.monotonic()
         self._stdin_closed_at: float | None = None
@@ -151,6 +152,7 @@ class _TurnLifecycleMixin(_ReviewGateMixin):
                     self.task_id[:8],
                     now - self._stdin_closed_at,
                 )
+                self._escalation_reaped = True
                 await self._force_kill()
             return
         idle = now - self._last_activity_at
@@ -212,8 +214,52 @@ class _TurnLifecycleMixin(_ReviewGateMixin):
                 self.task_id[:8],
                 _POST_CLOSE_KILL_GRACE_S,
             )
+            self._escalation_reaped = True
             await self._force_kill()
             return await proc.wait()
+
+    def _reap_counts_as_error(self, return_code: int) -> bool:
+        """Did this exit earn the task an error?
+
+        The result branch's invariant — "the LAST accepted result's
+        error state is the turn's" — extends to the process: a signal
+        WE sent to reap a CLI that stalled after a clean final result
+        and our own stdin close is lifecycle cleanup, not a task error
+        (Brief #15b: 030d928e delivered its result and must end
+        COMPLETED, not FAILED with rc=-9). A reap that found NO
+        accepted result — or an error as the last one — still fails the
+        task, and so does any non-zero rc the process produced on its
+        own.
+        """
+        if return_code == 0:
+            return False
+        return not (
+            self._escalation_reaped
+            and self._turn_result_seen
+            and not self._last_result_is_error
+        )
+
+    async def _apply_exit_code(self, return_code: int) -> None:
+        """Fold the process's exit into the turn's error state.
+
+        ONE rule for every exit path — the task stream loop and the
+        workspace assistant's loop both call this, so a reap can never
+        be an error in one and cleanup in the other.
+        """
+        if return_code == 0:
+            return
+        if self._reap_counts_as_error(return_code):
+            self._is_error_result = True
+            await self._emit_message(
+                'system',
+                f'Agent exited with code {return_code}',
+            )
+        else:
+            await self._emit_message(
+                'system',
+                f'Agent process reaped (rc={return_code}) after its '
+                'final result — post-close cleanup, not a task error',
+            )
 
     async def _close_stdin(self, reason: str, emit: bool = True):
         """Close the CLI's stdin — the turn terminator. Idempotent.

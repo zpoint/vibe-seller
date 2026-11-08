@@ -157,11 +157,7 @@ class WorkspaceAgentSession(AgentSession):
             await self._close_stdin('stdout_eof', emit=False)
             return_code = await self._wait_process_exit_after_close()
 
-            if return_code != 0:
-                await self._emit_message(
-                    'system',
-                    f'Agent exited with code {return_code}',
-                )
+            await self._apply_exit_code(return_code)
 
             await event_bus.emit(
                 'ws_assistant_done',
