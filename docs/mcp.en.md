@@ -298,6 +298,8 @@ Send these one after another and watch it run an ad analysis for you:
 3. "What is this task doing right now, which step is it on?"
 4. "OK, follow it through and summarize when it's done."
 
+![Demo: driving Vibe Seller from Qoder — waits sped up](images/mcp_qoder_demo_en.gif)
+
 ## Troubleshooting
 
 **401 Unauthorized**
