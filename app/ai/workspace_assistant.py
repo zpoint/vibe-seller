@@ -149,14 +149,13 @@ class WorkspaceAgentSession(AgentSession):
                 else:
                     await self._handle_event(event)
 
-            # stdout closed — close stdin
-            if self._proc and self._proc.stdin:
-                try:
-                    self._proc.stdin.close()
-                except Exception:
-                    pass
-
-            return_code = await self._proc.wait() if self._proc else -1
+            # stdout closed — close stdin through the shared path and
+            # wait BOUNDED: a CLI stalling after its final result must
+            # be escalated, not awaited forever (same contract as
+            # AgentSession's stream loop — see
+            # _wait_process_exit_after_close).
+            await self._close_stdin('stdout_eof', emit=False)
+            return_code = await self._wait_process_exit_after_close()
 
             if return_code != 0:
                 await self._emit_message(

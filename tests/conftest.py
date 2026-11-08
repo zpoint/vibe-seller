@@ -9,6 +9,8 @@ import shutil
 import sys
 import tempfile
 
+from tests.collection_order import long_budget_order
+
 # Disable telemetry across the entire test suite. Set BEFORE any
 # `app.*` import so app.telemetry never opens a PostHog client when
 # the FastAPI lifespan runs under tests. Without this, every workflow
@@ -304,6 +306,13 @@ def pytest_collection_modifyitems(config, items):
     run_windows = config.getoption('--windows') or os.name == 'nt'
     if not run_windows:
         items[:] = [i for i in items if 'windows' not in i.keywords]
+
+    # Long-budget tests spread evenly through the collection so
+    # worksteal's contiguous initial split gives each worker at most
+    # one and they all start at t=0 (see tests/collection_order.py —
+    # the brief-15 scheduling fix; two adjacent longs once sat in one
+    # worker's queue and cost the step its timeout).
+    items[:] = long_budget_order(items)
 
 
 # Test database URL - in-memory SQLite for fast tests

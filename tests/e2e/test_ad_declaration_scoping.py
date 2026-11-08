@@ -138,6 +138,7 @@ SELLER_FACTS = (
 
 @pytest.mark.e2e
 class TestScopeSurvivesAFollowUp:
+    @pytest.mark.long_budget
     def test_a_narrow_follow_up_reviews_only_what_was_asked(
         self, api_client, ads_console
     ):
@@ -316,6 +317,7 @@ class TestScopeSurvivesAFollowUp:
 class TestAnUnscopedRequestStaysWide:
     """The protection must not cost us the whole-store audit."""
 
+    @pytest.mark.long_budget
     def test_reviewing_everything_looks_at_everything(
         self, api_client, ads_console
     ):

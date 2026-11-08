@@ -48,6 +48,7 @@ means "close at the result event" (exact legacy behavior) and is the
 rollout default until the flip PR.
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -180,6 +181,39 @@ class _TurnLifecycleMixin(_ReviewGateMixin):
             )
             return
         await self._close_stdin(f'quiescent_{int(idle)}s')
+
+    async def _wait_process_exit_after_close(self) -> int:
+        """Wait for the process to exit — BOUNDED by the same contract
+        the watchdog enforces: stdin closed + grace elapsed + still
+        alive = force kill.
+
+        The watchdog's post-close escalation only runs while the stream
+        loop is still ticking. Once stdout hits EOF the loop is gone, so
+        an unbounded ``_proc.wait()`` there was the one place the
+        contract was not enforced: a CLI that stalls after its final
+        result (the documented GLM wedge) held the task RUNNING with no
+        rc, no terminal status, forever (CI: 030d928e sat in silence
+        6.5 min until the step was killed, while the identical
+        2c6ff324 — whose CLI exited — completed in 8s). The fix is the
+        design, not a bigger timeout: the SAME grace the watchdog uses,
+        then the SAME escalation.
+        """
+        proc = self._proc
+        if proc is None:
+            return -1
+        try:
+            return await asyncio.wait_for(
+                proc.wait(), timeout=_POST_CLOSE_KILL_GRACE_S
+            )
+        except TimeoutError:
+            logger.warning(
+                'Process for %s still alive %.0fs after stdin close '
+                '— escalating signals',
+                self.task_id[:8],
+                _POST_CLOSE_KILL_GRACE_S,
+            )
+            await self._force_kill()
+            return await proc.wait()
 
     async def _close_stdin(self, reason: str, emit: bool = True):
         """Close the CLI's stdin — the turn terminator. Idempotent.
