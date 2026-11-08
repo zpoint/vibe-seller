@@ -315,7 +315,7 @@ user's `default_profile_id` — so replaying what a person would click runs
 the same model. Pass `profile_id` explicitly to choose another.
 
 `list_tasks` returns at most 50 tasks by default (`limit`, max 200).
-`wait_task` long-polls (default 45 s, max 120 s) and ends early when the
+`wait_task` long-polls (default 45 s, max 50 s — under the 60 s per-call timeout of Qoder and Codex) and ends early when the
 client disconnects. Its `reason` is exactly one of `question` (the agent
 asked something — `answer_question`), `needs_operator` (a plan is ready
 — `review_plan`; or an image confirm card is showing, distinguished by

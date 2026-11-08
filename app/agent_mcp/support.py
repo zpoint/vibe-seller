@@ -39,9 +39,17 @@ MAX_SUMMARY_CHARS = 300
 # straight into an agent's context.
 DEFAULT_LIST_LIMIT = 50
 MAX_LIST_LIMIT = 200
-# wait_task: default and ceiling, in seconds.
+# The shortest per-call timeout a common MCP client enforces: Qoder
+# fails any tool call at 60 s, and so does Codex by default
+# (`tool_timeout_sec`). A tool that can still be running at that point
+# reaches the operator as a failed call, not as an answer.
+CLIENT_TOOL_CALL_TIMEOUT_SECONDS = 60
+# Long-poll tools (wait_task, workspace_assistant's wait): default and
+# ceiling, in seconds. The ceiling must leave headroom under the client
+# timeout above for the final poll and the response; at 120 every
+# long wait from Qoder failed at 60 s.
 DEFAULT_WAIT_SECONDS = 45
-MAX_WAIT_SECONDS = 120
+MAX_WAIT_SECONDS = 50
 WAIT_POLL_SECONDS = 1.0
 
 TERMINAL_STATUSES = {TaskStatus.COMPLETED, TaskStatus.FAILED}

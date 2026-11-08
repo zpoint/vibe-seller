@@ -71,12 +71,17 @@ plugins:
             Home: 首页
             Getting Started: 入门
             Core: 核心
+            Integrations: 接入
+            Email: 邮件
+            TickTick / Dida365: 滴答清单 / TickTick
             Browser Automation: 浏览器自动化
             Reference: 参考
             Developer Guide: 开发者指南
             Windows + WSL2 Deployment: Windows + WSL2 部署
             macOS Deployment: macOS 部署
             Amazon Ads API: 广告 API 绑定
+            Chat Bots: 群机器人
+            MCP Setup: MCP 接入
             Tasks: 任务
             Workspace: 工作区
             Subsystems: 子系统
@@ -127,11 +132,17 @@ nav:
       - Windows + WSL2 Deployment: windows-setup.md
       - macOS Deployment: macos-setup.md
       - Amazon Ads API: ads-api.md
+      - Chat Bots: chat-bots.md
+      - MCP Setup: mcp.md
   - Core:
       - Tasks: tasks.md
       - Workspace: workspace.md
       - Subsystems: subsystems.md
       - Events: events.md
+  - Integrations:
+      - Email: email.md
+      - TickTick / Dida365: ticktick.md
+      - Google Workspace: google-workspace.md
   - Browser Automation:
       - Browser Management: browser.md
       - Ziniao Concurrency: ziniao-concurrency.md

@@ -82,6 +82,11 @@ PLATFORMS: dict[str, Platform] = {
         supports_file=True,
         max_message=4096,
         limit_unit='bytes',
+        # 消息推送配置说明: text content ≤ 2048 bytes, markdown
+        # content ≤ 4096. One number for both would let an oversized
+        # text through the pre-check and hand the user WeCom's own
+        # rejection instead of ours.
+        limits={'text': 2048},
         doc_url=('https://developer.work.weixin.qq.com/document/path/91770'),
     ),
     'dingtalk': Platform(

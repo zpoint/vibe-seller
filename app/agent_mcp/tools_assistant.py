@@ -20,7 +20,9 @@ import time
 
 from app.agent_mcp.registry import schema, tool
 from app.agent_mcp.support import (
+    DEFAULT_WAIT_SECONDS,
     MAX_TEXT_CHARS,
+    MAX_WAIT_SECONDS,
     McpContext,
     ToolError,
     call_route,
@@ -30,12 +32,6 @@ from app.agent_mcp.support import (
 from app.events.bus import event_bus
 from app.routers import workspace_assistant as assistant_route
 from app.routers.workspace_assistant import MessageRequest
-
-# Bounded wait for the assistant's reply, mirroring wait_task's
-# budget: a tool call must return, and the reply can be picked up
-# later with action=status.
-DEFAULT_WAIT_SECONDS = 45
-MAX_WAIT_SECONDS = 120
 
 # The roles worth relaying. ``delta`` is the streaming prefix of an
 # assistant message (the full message follows), ``tool_use`` and

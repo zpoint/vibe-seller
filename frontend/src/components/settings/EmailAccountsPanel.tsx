@@ -17,12 +17,26 @@ interface EmailAccountsPanelProps {
   isAdmin?: boolean
 }
 
+// Fixed error strings from POST /api/email-accounts → i18n keys, so
+// the zh UI doesn't surface raw English. Anything unmapped (provider
+// IMAP errors, etc.) is shown verbatim.
+const KNOWN_ERROR_KEYS: Record<string, string> = {
+  'Email account already exists': 'email.errorExists',
+  'Could not auto-discover IMAP settings. Please provide imap_host manually.':
+    'email.errorAutoDiscover',
+}
+
 export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, isAdmin = false }: EmailAccountsPanelProps) {
   const { t } = useTranslation()
   const [showAddEmail, setShowAddEmail] = useState(false)
   const [emailForm, setEmailForm] = useState({ email: '', imap_host: '', imap_port: 993, password: '', smtp_host: '', smtp_port: 465, smtp_use_tls: false })
   const [autoDetected, setAutoDetected] = useState(false)
   const [testResult, setTestResult] = useState<'success' | 'failed' | null>(null)
+  // Provider/server failure reason (empty when not failed). The API
+  // returns it; the user needs it to tell a wrong authorization code
+  // from a mistyped server.
+  const [testMessage, setTestMessage] = useState('')
+  const [formError, setFormError] = useState('')
   const [testing, setTesting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [linksMap, setLinksMap] = useState<Record<string, StoreLink[]>>({})
@@ -95,15 +109,17 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
 
   const testConnection = async () => {
     if (!emailForm.email || !emailForm.imap_host || !emailForm.password) return
-    setTesting(true); setTestResult(null)
+    setTesting(true); setTestResult(null); setTestMessage('')
     try {
       const res = await api.post('/api/email-accounts/test', {
         email: emailForm.email, imap_host: emailForm.imap_host,
         imap_port: emailForm.imap_port, password: emailForm.password,
       })
       setTestResult(res.ok ? 'success' : 'failed')
-    } catch {
+      if (!res.ok) setTestMessage(res.message || '')
+    } catch (e) {
       setTestResult('failed')
+      setTestMessage(e instanceof Error ? e.message : String(e))
     }
     setTesting(false)
   }
@@ -111,6 +127,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
   const saveAccount = async () => {
     if (!emailForm.email || !emailForm.imap_host || !emailForm.password || saving) return
     setSaving(true)
+    setFormError('')
     try {
       await api.post('/api/email-accounts', {
         email: emailForm.email, imap_host: emailForm.imap_host,
@@ -121,8 +138,13 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
       })
       setEmailForm({ email: '', imap_host: '', imap_port: 993, password: '', smtp_host: '', smtp_port: 465, smtp_use_tls: false })
       setShowAddEmail(false); setAutoDetected(false); setTestResult(null)
+      setTestMessage('')
       loadEmailAccounts()
-    } catch { /* ignore */ }
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e)
+      const key = KNOWN_ERROR_KEYS[raw]
+      setFormError(key ? t(key) : raw)
+    }
     setSaving(false)
   }
 
@@ -141,7 +163,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold">{t('email.accounts')}</h3>
         <button
-          onClick={() => setShowAddEmail(!showAddEmail)}
+          onClick={() => { setShowAddEmail(!showAddEmail); setFormError('') }}
           className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
         >
           + {t('email.addAccount')}
@@ -220,6 +242,14 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
           {testResult && (
             <div className={`text-xs px-3 py-2 rounded ${testResult === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
               {testResult === 'success' ? t('email.testSuccess') : t('email.testFailed')}
+              {testResult === 'failed' && testMessage && (
+                <p className="mt-1 font-mono break-all">{testMessage}</p>
+              )}
+            </div>
+          )}
+          {formError && (
+            <div className="text-xs px-3 py-2 rounded bg-red-50 text-red-700 break-all">
+              {formError}
             </div>
           )}
           <div className="flex gap-2">
@@ -238,7 +268,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
               {saving ? t('common.loading') : t('common.save')}
             </button>
             <button
-              onClick={() => { setShowAddEmail(false); setTestResult(null) }}
+              onClick={() => { setShowAddEmail(false); setTestResult(null); setTestMessage(''); setFormError('') }}
               className="px-3 py-1.5 bg-gray-200 rounded text-sm"
             >
               {t('common.cancel')}
