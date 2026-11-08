@@ -33,11 +33,12 @@ p50 across the recorded CI runs is >= 240s. As of CI 201j + the
 pre-#200 baseline that is nine tests: the two ad-scoping ones (602s,
 530s), ads-mixed-fanout (552s), skill-save-reuse (547s),
 followup-review-scoping (382s), session-reuse (296s), llm-responds
-(289s), two-browser-tasks (277s, self-skips but burns the setup) and
-conversation-lifecycle E4 (268s). Simulated on 201j's own durations,
-marking only the ad pair left a 2270s (37.8-min) static chunk — the
-observed timeout — while marking all nine balances the chunks to
-1662s (27.7 min) against the 1920s step.
+(289s), two-browser-tasks (277s) and conversation-lifecycle E4
+(268s). The simulation lives in ``tests/schedule_sim.py`` (run it to
+reproduce these): with all nine marked and LPT placement the p50
+critical path is 1907s (31.8 min) inside the 1920s step, and the
+MAX-duration path is 2112s (35.2 min) — over the step, which is input
+for the budget decision, not something the ordering can hide.
 
 ``xdist``'s initial split (for the pins' simulation)::
 
@@ -53,6 +54,15 @@ LONG_BUDGET_MARKER = 'long_budget'
 def declares_long_budget(item) -> bool:
     """Does this item carry the ``long_budget`` marker?"""
     return LONG_BUDGET_MARKER in item.keywords
+
+
+def declared_budget(item) -> float:
+    """The measured p50 seconds the marker carries (0 when bare)."""
+    getter = getattr(item, 'get_closest_marker', None)
+    if getter is None:
+        return 0.0
+    marker = getter(LONG_BUDGET_MARKER)
+    return float(marker.args[0]) if marker and marker.args else 0.0
 
 
 def chunk_starts(total: int, workers: int) -> list[int]:
@@ -83,8 +93,14 @@ def long_budget_order(items, providers=None, workers=4):
     longs = [it for it in items if declares_long_budget(it)]
     if not longs:
         return items
+    # Longest-processing-time first: the heaviest candidates claim the
+    # first chunks, so the chunk that ends up with the most work carries
+    # the least extra (the marker's measured seconds decide the order —
+    # placement from measured durations, not guesses).
+    longs.sort(key=declared_budget, reverse=True)
     total = len(items)
-    slots = _slots(total, len(longs), workers, providers)
+    budgets = [declared_budget(it) for it in longs]
+    slots = _slots(total, len(longs), workers, providers, budgets)
     out: list = [None] * total
     for slot, item in zip(slots, longs):
         out[slot] = item
@@ -95,7 +111,13 @@ def long_budget_order(items, providers=None, workers=4):
     return out
 
 
-def _slots(total: int, count: int, workers: int, providers) -> list[int]:
+def _slots(
+    total: int,
+    count: int,
+    workers: int,
+    providers,
+    budgets: list[float],
+) -> list[int]:
     """Slot per long: chunk heads first (provider-distinct), then each
     assigned chunk's early region."""
     workers = max(1, workers)
@@ -116,12 +138,23 @@ def _slots(total: int, count: int, workers: int, providers) -> list[int]:
         ]
         order = fresh + [i for i in range(workers) if i not in fresh]
     per_chunk: dict[int, int] = {c: 0 for c in range(workers)}
+    load: dict[int, float] = {c: 0.0 for c in range(workers)}
+    assigned: list[int] = []
     for k in range(count):
-        per_chunk[order[k % workers]] += 1
+        # LPT: the longest remaining candidate goes to the chunk with
+        # the least accumulated budget — but the first visits prefer a
+        # fresh provider key (two heavy generations must not share one
+        # key when the map can separate them).
+        if k < len(order):
+            chunk = order[k]
+        else:
+            chunk = min(load, key=lambda c: (load[c], per_chunk[c], c))
+        assigned.append(chunk)
+        per_chunk[chunk] += 1
+        load[chunk] += budgets[k]
     within: dict[int, int] = {c: 0 for c in range(workers)}
     slots: list[int] = []
-    for k in range(count):
-        chunk = order[k % workers]
+    for chunk in assigned:
         j = within[chunk]
         within[chunk] += 1
         m = per_chunk[chunk]

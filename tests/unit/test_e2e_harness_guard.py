@@ -317,3 +317,48 @@ def test_start_sh_still_forces_its_logs_dir():
     """
     text = (E2E_DIR.parents[1] / 'start.sh').read_text(encoding='utf-8')
     assert 'LOG_DIR="$SCRIPT_DIR/logs"' in text
+
+
+def test_no_skip_on_a_missing_server_log():
+    """A missing server log must FAIL an assertion, never skip it.
+
+    The bug this guards (Brief #17b): ``test_two_browser_tasks_
+    both_complete`` reported SKIPPED after ~5 minutes of real work in
+    every CI run — its helper did ``if not log_path.exists():
+    pytest.skip(...)`` against a name no CI server writes, so its core
+    concurrency assertion never ran once. The helpers now resolve the
+    server's own log through ``e2e_helpers.server_log_path()`` (which
+    raises when absent). Any ``if not <x>.exists(): pytest.skip`` in an
+    e2e module is that pattern returning — forbid it.
+    """
+    root = Path(__file__).resolve().parents[1] / 'e2e'
+    bad = []
+    for path in sorted(root.glob('*.py')):
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.If):
+                    continue
+                has_not = any(
+                    isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.Not)
+                    for n in ast.walk(node.test)
+                )
+                has_exists = any(
+                    isinstance(n, ast.Attribute) and n.attr == 'exists'
+                    for n in ast.walk(node.test)
+                )
+                if not (has_not and has_exists):
+                    continue
+                for sub in ast.walk(node):
+                    if (
+                        isinstance(sub, ast.Call)
+                        and isinstance(sub.func, ast.Attribute)
+                        and sub.func.attr == 'skip'
+                    ):
+                        bad.append(f'{path.name}:{sub.lineno}')
+    assert not bad, (
+        'a missing file (a server log in particular) must FAIL, not '
+        f'skip: {bad}'
+    )

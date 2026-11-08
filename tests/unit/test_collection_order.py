@@ -20,9 +20,15 @@ from tests.collection_order import (
 
 
 class _FakeItem:
-    def __init__(self, name, *, long_budget=False):
+    def __init__(self, name, *, long_budget=False, budget=0):
         self.name = name
         self.keywords = {'long_budget': True} if long_budget else {}
+        self._budget = budget
+
+    def get_closest_marker(self, marker):
+        if marker == 'long_budget' and self._budget:
+            return type('M', (), {'args': (self._budget,)})()
+        return None
 
     def __repr__(self):
         return self.name
@@ -152,7 +158,11 @@ def test_the_real_suite_shape_nine_candidates_on_four_workers():
     candidates are spread through the collection — none sits in a
     worker's tail behind a queue of shorts (the 201j failure: the
     547s skill test started at minute 22)."""
-    raw = [_FakeItem(f'long-{i}', long_budget=True) for i in range(9)]
+    budgets = [602, 552, 547, 530, 382, 296, 289, 277, 268]
+    raw = [
+        _FakeItem(f'long-{i}', long_budget=True, budget=b)
+        for i, b in enumerate(budgets)
+    ]
     raw += [_FakeItem(f's{i}') for i in range(62)]
     items = long_budget_order(raw, ['pa', 'pa', 'pa', 'pb'])
     chunks = _worksteal_initial_chunks(items, 4)
