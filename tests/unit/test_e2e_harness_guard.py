@@ -171,30 +171,78 @@ def test_shared_address_defaults_agree():
         )
 
 
+_ADDRESS_TOKENS = (
+    "os.environ.get('E2E_BASE_URL'",
+    'os.environ.get("E2E_BASE_URL"',
+    "os.environ.get('E2E_PORT'",
+    'os.environ.get("E2E_PORT"',
+    '127.0.0.1:7777',
+    '127.0.0.1:7811',
+    '7811',
+)
+
+
+def _without_docstrings(text: str) -> str:
+    """*text* with every docstring's lines blanked out.
+
+    Docstrings document usage (``VIBE_MCP_URL=http://127.0.0.1:7777``
+    as an example of what an operator may pass); they define nothing a
+    test reads, so the address guard must not count them.
+    """
+    lines = text.splitlines()
+    doc_owners = (
+        ast.Module,
+        ast.ClassDef,
+        ast.FunctionDef,
+        ast.AsyncFunctionDef,
+    )
+    for node in ast.walk(ast.parse(text)):
+        if not isinstance(node, doc_owners) or not node.body:
+            continue
+        first = node.body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            for i in range(first.lineno - 1, first.end_lineno):
+                lines[i] = ''
+    return '\n'.join(lines)
+
+
+def _address_offenders(text: str) -> list:
+    code = _without_docstrings(text)
+    return [token for token in _ADDRESS_TOKENS if token in code]
+
+
+def test_address_guard_counts_code_not_docstrings():
+    """The guard's own contract, pinned both ways."""
+    docstring_only = (
+        '"""Usage: VIBE_MCP_URL=http://127.0.0.1:7777/api/mcp"""\n'
+        'import os\n'
+        "URL = os.environ.get('VIBE_MCP_URL', '')\n"
+    )
+    assert _address_offenders(docstring_only) == []
+    fallback_in_code = '"""A module."""\nBASE = \'http://127.0.0.1:7777\'\n'
+    assert _address_offenders(fallback_in_code) == ['127.0.0.1:7777']
+    env_fallback = "import os\nPORT = os.environ.get('E2E_PORT', '7777')\n"
+    assert _address_offenders(env_fallback) == ["os.environ.get('E2E_PORT'"]
+
+
 def test_no_second_definition_of_the_shared_address():
     """The shared server's address lives ONLY in e2e_helpers.
 
     A fallback URL/port literal anywhere else is a second definition
-    waiting to disagree (doc-strings pointing at a command are fine —
-    nothing here matches those).
+    waiting to disagree. Docstrings that show an example command are
+    not definitions and are not scanned (``_without_docstrings``).
     """
-    tokens = (
-        "os.environ.get('E2E_BASE_URL'",
-        'os.environ.get("E2E_BASE_URL"',
-        "os.environ.get('E2E_PORT'",
-        'os.environ.get("E2E_PORT"',
-        '127.0.0.1:7777',
-        '127.0.0.1:7811',
-        '7811',
-    )
     offenders = []
     for path in sorted(E2E_DIR.rglob('*.py')):
         if path.name == ADDRESS_HOME or path.name == '__init__.py':
             continue
         text = path.read_text(encoding='utf-8')
-        for token in tokens:
-            if token in text:
-                offenders.append(f'{path.relative_to(E2E_DIR)}: {token}')
+        for token in _address_offenders(text):
+            offenders.append(f'{path.relative_to(E2E_DIR)}: {token}')
     assert not offenders, (
         'the shared server address is defined once, in '
         'tests/e2e/e2e_helpers.py:\n  ' + '\n  '.join(offenders)
