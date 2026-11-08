@@ -99,6 +99,7 @@ class TestE1PlanExecute:
 
 
 class TestE4AskUserQuestion:
+    @pytest.mark.long_budget(268)  # measured p50 over CI 201j + baseline
     def test_question_answer_completes(self, api_client, test_store):
         """E4: Self-contained prompt → agent may ask question
         (auto-answered) → complete. No external file deps."""

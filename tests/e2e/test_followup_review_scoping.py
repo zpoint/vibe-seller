@@ -167,6 +167,7 @@ def _followup(client, task_id, content, marker):
 # that slug, so no sibling's skills — and no skill a sibling's reflection
 # minted — is ever touched from here.
 class TestFollowUpReviewScoping:
+    @pytest.mark.long_budget(382)  # measured p50 over CI 201j + baseline
     def test_first_turn_reviewed_followups_not(self, api_client, review_skill):
         tag = int(time.time())
         store = create_store(api_client, f'e2e-followup-{tag}')

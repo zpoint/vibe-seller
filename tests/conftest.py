@@ -317,7 +317,7 @@ def pytest_collection_modifyitems(config, items):
         p for p in os.environ.get('E2E_PROVIDER_MAP', '').split(',') if p
     ]
     items[:] = long_budget_order(
-        items, providers[:workers] if providers else None
+        items, providers[:workers] if providers else None, workers=workers
     )
 
 

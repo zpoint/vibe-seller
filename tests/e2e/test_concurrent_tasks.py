@@ -181,6 +181,7 @@ def _assert_no_daemon_conflict(result: dict):
 class TestConcurrentSamePlatformCountry:
     """Same store, same platform, same country → concurrent."""
 
+    @pytest.mark.long_budget(277)  # measured p50 over CI 201j + baseline
     def test_two_browser_tasks_both_complete(
         self, api_client, chrome_store_us_amazon, slow_site
     ):

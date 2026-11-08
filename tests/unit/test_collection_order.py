@@ -139,8 +139,32 @@ def test_more_longs_than_distinct_keys_falls_back_to_the_spread():
     raw = [_FakeItem(f'long-{i}', long_budget=True) for i in range(3)] + [
         _FakeItem(f's{i}') for i in range(9)
     ]
-    items = long_budget_order(raw, providers)
+    items = long_budget_order(raw, providers, workers=2)
     chunks = _worksteal_initial_chunks(items, 2)
     for chunk in chunks:
         assert len([i for i in chunk if declares_long_budget(items[i])]) <= 2
     assert sum(declares_long_budget(i) for i in items) == 3
+
+
+def test_the_real_suite_shape_nine_candidates_on_four_workers():
+    """The 201j shape: nine measured candidates (p50 >= 240s) on four
+    workers. Every chunk holds its share (ceil(L/W) = 3) and the
+    candidates are spread through the collection — none sits in a
+    worker's tail behind a queue of shorts (the 201j failure: the
+    547s skill test started at minute 22)."""
+    raw = [_FakeItem(f'long-{i}', long_budget=True) for i in range(9)]
+    raw += [_FakeItem(f's{i}') for i in range(62)]
+    items = long_budget_order(raw, ['pa', 'pa', 'pa', 'pb'])
+    chunks = _worksteal_initial_chunks(items, 4)
+    per_chunk = [
+        [items[i] for i in chunk if declares_long_budget(items[i])]
+        for chunk in chunks
+    ]
+    assert all(len(longs) <= 3 for longs in per_chunk), [
+        len(longs) for longs in per_chunk
+    ]
+    assert sum(len(longs) for longs in per_chunk) == 9
+    # every chunk's LAST third holds no candidate — nothing is buried
+    for chunk in chunks:
+        tail = chunk[len(chunk) * 2 // 3 :]
+        assert not any(declares_long_budget(items[i]) for i in tail), chunk

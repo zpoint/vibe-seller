@@ -26,7 +26,18 @@ the provider. The rule this module implements:
   ones fall back to the even spread.
 
 Tests declare the budget with the ``long_budget`` marker — metadata
-only; no test body, prompt or assertion changes.
+only; no test body, prompt or assertion changes. The criterion for
+marking is MEASURED wall time, not guesswork: a test carries the
+marker (with its measured p50 seconds as the marker argument) when its
+p50 across the recorded CI runs is >= 240s. As of CI 201j + the
+pre-#200 baseline that is nine tests: the two ad-scoping ones (602s,
+530s), ads-mixed-fanout (552s), skill-save-reuse (547s),
+followup-review-scoping (382s), session-reuse (296s), llm-responds
+(289s), two-browser-tasks (277s, self-skips but burns the setup) and
+conversation-lifecycle E4 (268s). Simulated on 201j's own durations,
+marking only the ad pair left a 2270s (37.8-min) static chunk — the
+observed timeout — while marking all nine balances the chunks to
+1662s (27.7 min) against the 1920s step.
 
 ``xdist``'s initial split (for the pins' simulation)::
 
@@ -57,19 +68,23 @@ def chunk_starts(total: int, workers: int) -> list[int]:
     return starts
 
 
-def long_budget_order(items, providers=None):
-    """Return *items* reordered per the two rules above.
+def long_budget_order(items, providers=None, workers=4):
+    """Return *items* reordered per the rules above.
 
     *providers* is the per-worker provider-key list (the
-    ``E2E_PROVIDER_MAP`` order); ``None`` falls back to the plain even
-    spread. Non-long items keep their relative order everywhere.
+    ``E2E_PROVIDER_MAP`` order) and *workers* the split width — the
+    placement is chunk-aware: candidates are assigned to worker chunks
+    (distinct provider keys first), then placed at the START of each
+    chunk and through its early region — never in a tail, where a
+    candidate would sit behind a queue of shorts and begin minutes
+    late (the 201j failure). Non-long items keep their relative order.
     """
     items = list(items)
     longs = [it for it in items if declares_long_budget(it)]
     if not longs:
         return items
     total = len(items)
-    slots = _slots(total, len(longs), providers)
+    slots = _slots(total, len(longs), workers, providers)
     out: list = [None] * total
     for slot, item in zip(slots, longs):
         out[slot] = item
@@ -80,23 +95,37 @@ def long_budget_order(items, providers=None):
     return out
 
 
-def _slots(total: int, count: int, providers) -> list[int]:
-    """Slot per long: chunk starts with fresh provider keys first."""
-    slots: list[int] = []
+def _slots(total: int, count: int, workers: int, providers) -> list[int]:
+    """Slot per long: chunk heads first (provider-distinct), then each
+    assigned chunk's early region."""
+    workers = max(1, workers)
+    starts = chunk_starts(total, workers)
+    bounds = starts[1:] + [total]
+    # Chunk visit order: a fresh provider key first (so two heavy
+    # generations never share one key when the map can separate them).
+    order = list(range(workers))
     if providers:
-        starts = chunk_starts(total, len(providers))
+        providers = list(providers)[:workers] + [
+            f'__unmapped{i}' for i in range(max(0, workers - len(providers)))
+        ]
         seen: set = set()
-        for key, start in zip(providers, starts):
-            if key in seen:
-                continue
-            seen.add(key)
-            slots.append(start)
-            if len(slots) == count:
-                return slots
-    # Even spread for the remainder (and the no-map fallback).
-    for k in range(len(slots), count):
-        slot = k * total // count
-        while slot in slots:
-            slot += 1
-        slots.append(slot % total)
+        fresh = [
+            i
+            for i in order
+            if providers[i] not in seen and not seen.add(providers[i])
+        ]
+        order = fresh + [i for i in range(workers) if i not in fresh]
+    per_chunk: dict[int, int] = {c: 0 for c in range(workers)}
+    for k in range(count):
+        per_chunk[order[k % workers]] += 1
+    within: dict[int, int] = {c: 0 for c in range(workers)}
+    slots: list[int] = []
+    for k in range(count):
+        chunk = order[k % workers]
+        j = within[chunk]
+        within[chunk] += 1
+        m = per_chunk[chunk]
+        size = bounds[chunk] - starts[chunk]
+        region = max(m, 2 * size // 3)  # early two-thirds of the chunk
+        slots.append(starts[chunk] + (j * region) // m)
     return slots
