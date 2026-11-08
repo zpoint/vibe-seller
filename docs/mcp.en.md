@@ -95,8 +95,9 @@ The **Code tab** in the Claude desktop app is Claude Code, so one run of the
 command from the dialog in any terminal sets the app up too:
 
 ```bash
+# Connects to this machine; if Vibe Seller runs elsewhere, use its address instead of localhost
 claude mcp add --scope user --transport http vibe-seller \
-  http://HOST:7777/api/mcp --header "Authorization: Bearer vst_…"
+  http://localhost:7777/api/mcp --header "Authorization: Bearer vst_…"
 ```
 
 The dialog pre-fills the server address with the one your page was served from.
@@ -149,7 +150,8 @@ block from the dialog into it:
 
 ```toml
 [mcp_servers.vibe-seller]
-url = "http://HOST:7777/api/mcp"
+# Connects to this machine; if Vibe Seller runs elsewhere, use its address instead of localhost
+url = "http://localhost:7777/api/mcp"
 http_headers = { "Authorization" = "Bearer vst_…" }
 ```
 
@@ -204,7 +206,7 @@ The dialog hands you a WorkBuddy-specific config. Use either way:
 {
   "mcpServers": {
     "vibe-seller": {
-      "url": "http://HOST:7777/api/mcp",
+      "url": "http://localhost:7777/api/mcp",
       "headers": {
         "Authorization": "Bearer vst_…"
       }
@@ -212,6 +214,9 @@ The dialog hands you a WorkBuddy-specific config. Use either way:
   }
 }
 ```
+
+This connects to this machine; if Vibe Seller runs on another one, replace
+`localhost` with that machine's address.
 
 ![Pasting the config in WorkBuddy's Add MCP dialog](images/mcp_workbuddy_add_en.png)
 
@@ -259,7 +264,7 @@ switch to the JSON tab and paste the config from the dialog:
   "mcpServers": {
     "vibe-seller": {
       "type": "http",
-      "url": "http://HOST:7777/api/mcp",
+      "url": "http://localhost:7777/api/mcp",
       "headers": {
         "Authorization": "Bearer vst_…"
       }
@@ -267,6 +272,9 @@ switch to the JSON tab and paste the config from the dialog:
   }
 }
 ```
+
+This connects to this machine; if Vibe Seller runs on another one, replace
+`localhost` with that machine's address.
 
 ![Pasting the config in Qoder's Add Connector dialog](images/mcp_qoder_add_en.png)
 
@@ -323,7 +331,7 @@ machine; put an HTTPS reverse proxy in front for remote use.
 
 Usually a wrong address. All the configs above want the address ending at
 `/api/mcp`; the only exception is the Claude **plugin**, which takes just the
-server root (e.g. `http://HOST:7777`) and appends `/api/mcp` itself. Also check
+server root (e.g. `http://localhost:7777`) and appends `/api/mcp` itself. Also check
 for a stray trailing slash.
 
 **It answers without creating a task**

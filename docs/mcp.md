@@ -81,8 +81,9 @@ Claude 桌面版的 **Code 标签页**用的就是 Claude Code，所以只要在
 弹窗给的命令，桌面版就能用上：
 
 ```bash
+# 默认连本机；Vibe Seller 在另一台电脑上时，把 localhost 换成那台电脑的地址
 claude mcp add --scope user --transport http vibe-seller \
-  http://HOST:7777/api/mcp --header "Authorization: Bearer vst_…"
+  http://localhost:7777/api/mcp --header "Authorization: Bearer vst_…"
 ```
 
 弹窗里的服务器地址默认填的是你当前打开网页的地址。如果 AI 工具装在另一台
@@ -129,7 +130,8 @@ Codex 桌面版的配置文件是 `~/.codex/config.toml`（和 Codex 命令行�
 
 ```toml
 [mcp_servers.vibe-seller]
-url = "http://HOST:7777/api/mcp"
+# 默认连本机；Vibe Seller 在另一台电脑上时，把 localhost 换成那台电脑的地址
+url = "http://localhost:7777/api/mcp"
 http_headers = { "Authorization" = "Bearer vst_…" }
 ```
 
@@ -179,7 +181,7 @@ MCPs**（设置里搜 mcp 也能找到），看到 `vibe-seller` 已打开开关
 {
   "mcpServers": {
     "vibe-seller": {
-      "url": "http://HOST:7777/api/mcp",
+      "url": "http://localhost:7777/api/mcp",
       "headers": {
         "Authorization": "Bearer vst_…"
       }
@@ -187,6 +189,8 @@ MCPs**（设置里搜 mcp 也能找到），看到 `vibe-seller` 已打开开关
   }
 }
 ```
+
+默认连本机；Vibe Seller 在另一台电脑上时，把 `localhost` 换成那台电脑的地址。
 
 ![WorkBuddy 的 Add MCP 里粘贴配置](images/mcp_workbuddy_add_zh.png)
 
@@ -230,7 +234,7 @@ MCP Server Management 里显示 `vibe-seller · 32/32 tools enabled`，就说明
   "mcpServers": {
     "vibe-seller": {
       "type": "http",
-      "url": "http://HOST:7777/api/mcp",
+      "url": "http://localhost:7777/api/mcp",
       "headers": {
         "Authorization": "Bearer vst_…"
       }
@@ -238,6 +242,8 @@ MCP Server Management 里显示 `vibe-seller · 32/32 tools enabled`，就说明
   }
 }
 ```
+
+默认连本机；Vibe Seller 在另一台电脑上时，把 `localhost` 换成那台电脑的地址。
 
 ![Qoder 的 Add Connector 里粘贴配置](images/mcp_qoder_add_zh.png)
 
@@ -289,7 +295,7 @@ HTTPS 反向代理。
 **能看到工具，但一用就报错**
 
 多半是地址写错了。上面各工具的配置里，地址都要写到 `/api/mcp` 为止；只有
-Claude **插件**例外，它只要服务器根地址（比如 `http://HOST:7777`），会自己补上
+Claude **插件**例外，它只要服务器根地址（比如 `http://localhost:7777`），会自己补上
 `/api/mcp`。另外检查一下结尾有没有多余的斜杠。
 
 **AI 回答了，但没有真的去建任务**
