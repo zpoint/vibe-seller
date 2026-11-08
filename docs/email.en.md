@@ -146,7 +146,7 @@ the 16-character app password (no spaces), **Test Connection**, save,
 link to a store. Servers auto-detect to `imap.gmail.com` /
 `smtp.gmail.com`.
 
-## Outlook / Hotmail: not supported {#outlook-hotmail}
+## Outlook / Hotmail: not supported
 
 **Outlook.com, Hotmail and Live mailboxes cannot be connected.**
 Microsoft retired password sign-in (Basic Authentication) in September
@@ -235,6 +235,6 @@ itself is untouched.
 <details markdown="1"><summary><b>Does Outlook / Hotmail work?</b></summary>
 
 Not at the moment — see
-[Outlook / Hotmail](#outlook-hotmail). Microsoft requires OAuth2 now
+[Outlook / Hotmail](#outlook--hotmail-not-supported). Microsoft requires OAuth2 now
 that password sign-in is gone.
 </details>

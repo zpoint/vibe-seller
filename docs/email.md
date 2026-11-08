@@ -17,7 +17,7 @@ description: 邮件接入：在 Vibe Seller 里添加邮箱，让 AI 读信、�
 - 一个你常用的邮箱（163 / 126 / yeah.net、QQ 邮箱、Gmail 都支持）；
 - 该邮箱的**授权码**（或 Gmail 的应用专用密码）——各邮箱一节有图文步骤；
 - Outlook / Hotmail 邮箱**暂不支持**，原因见
-  [常见问题](#faq)。
+  [常见问题](#常见问题)。
 
 ## 网易邮箱（163 / 126 / yeah.net）
 
@@ -27,7 +27,7 @@ description: 邮件接入：在 Vibe Seller 里添加邮箱，让 AI 读信、�
 ### 第一步：获取客户端授权码
 
 1. 登录[网页版邮箱](https://email.163.com/)（126 登录
-   [126.com](https://email.126.com/），yeah.net 同理），点击上方
+   [126.com](https://email.126.com/)，yeah.net 同理），点击上方
    **设置 → POP/SMTP/IMAP**；
 2. 在客户端协议界面，把 **IMAP/SMTP 服务**开启（推荐开 IMAP，
    它和网页版完全同步）；
@@ -126,7 +126,7 @@ Gmail 用的不是登录密码，而是**应用专用密码**（App Password）�
 密码栏粘贴 16 位应用专用密码（去掉空格），**测试连接**通过后保存、
 关联店铺。服务器自动识别为 `imap.gmail.com`、`smtp.gmail.com`。
 
-## Outlook / Hotmail：暂不支持 {#outlook-hotmail}
+## Outlook / Hotmail：暂不支持
 
 **Outlook.com、Hotmail、Live 邮箱目前无法接入。** 微软从 2024 年 9 月
 起全面停用了密码登录（Basic Authentication），这类邮箱必须走
@@ -158,7 +158,7 @@ OAuth2 授权，而 Vibe Seller 的接入方式是授权码/密码。用 Outlook
 本机的数据库里，任务里的 AI 通过受控的工具读写，不会把邮件内容
 发到别处。
 
-## 常见问题 {#faq}
+## 常见问题
 
 <details markdown="1"><summary><b>「测试连接」失败，提示 "LOGIN Login error or password error"？</b></summary>
 
@@ -207,6 +207,6 @@ QQ 邮箱默认只给第三方客户端最近 30 天的邮件。在邮箱网页�
 <details markdown="1"><summary><b>Outlook / Hotmail 能用吗？</b></summary>
 
 目前不支持，详见上面的
-[Outlook / Hotmail 一节](#outlook-hotmail)。
+[Outlook / Hotmail 一节](#outlook--hotmail暂不支持)。
 微软已停用密码登录，接入需要 OAuth2 支持。
 </details>
