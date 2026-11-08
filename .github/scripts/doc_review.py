@@ -265,6 +265,16 @@ def get_pr_diff(repo: str, pr_number: str, token: str) -> str:
     return response.text
 
 
+# Output budget for the review call. The reviewer model (GLM) thinks
+# before answering and its thinking is billed against max_tokens, so
+# the budget must cover thinking AND the JSON answer. At 4096 a
+# docs-heavy PR spent ~3.9k tokens on thinking alone and the answer was
+# cut off ("no text block (stop_reason=max_tokens)") on every large PR.
+# Measured on a 1k-line docs PR: ~3.6k tokens total, so 16k leaves ~4x
+# headroom.
+OUTPUT_TOKEN_BUDGET = 16384
+
+
 def call_llm_api(
     client: Anthropic, model: str, diff: str, existing_docs: str
 ) -> dict:
@@ -281,7 +291,7 @@ def call_llm_api(
 
     message = client.messages.create(
         model=model,
-        max_tokens=4096,
+        max_tokens=OUTPUT_TOKEN_BUDGET,
         messages=[
             {
                 'role': 'user',
@@ -305,6 +315,12 @@ def call_llm_api(
         for block in message.content
         if getattr(block, 'type', None) == 'text'
     )
+    if getattr(message, 'stop_reason', None) == 'max_tokens':
+        raise RuntimeError(
+            f'LLM hit the {OUTPUT_TOKEN_BUDGET}-token output budget before '
+            'finishing its answer (thinking counts against it) — raise '
+            'OUTPUT_TOKEN_BUDGET rather than retrying at the same budget'
+        )
     if not response_text.strip():
         raise RuntimeError(
             'LLM returned no text block '
