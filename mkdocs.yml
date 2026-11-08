@@ -81,6 +81,7 @@ plugins:
             macOS Deployment: macOS 部署
             Amazon Ads API: 广告 API 绑定
             Chat Bots: 群机器人
+            MCP Setup: MCP 接入
             Tasks: 任务
             Workspace: 工作区
             Subsystems: 子系统
@@ -132,6 +133,7 @@ nav:
       - macOS Deployment: macos-setup.md
       - Amazon Ads API: ads-api.md
       - Chat Bots: chat-bots.md
+      - MCP Setup: mcp.md
   - Core:
       - Tasks: tasks.md
       - Workspace: workspace.md

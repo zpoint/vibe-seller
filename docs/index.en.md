@@ -30,6 +30,7 @@ description: AI automation framework for cross-border sellers — locally deploy
 
 🔥 *News* 🔥
 
+- [Nov 2026] **MCP setup**: drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: [**details**](mcp.en.md)
 - [Nov 2026] **Amazon ads over the Ads API**: the same ad-optimization task went from 147 minutes to 11, with less need to step in: [**details**](ads-api.en.md)
 
 
@@ -578,6 +579,7 @@ directly (hook up permissions in First run — no code):
 
 | Service | What it does |
 |---|---|
+| **MCP** | Drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: create tasks, follow them, answer questions, review plans. [Setup guide](mcp.en.md) |
 | **Amazon Ads API** | Amazon ad tasks call the API directly instead of clicking through the seller console — in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](ads-api.en.md) |
 | **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies. Works with Gmail, QQ Mail, 163 and more. [Setup guide](email.en.md) |
 | **Group chat bots** (WeCom / DingTalk / Feishu / Slack) | Have the AI post results, reports and reminders straight into a group from a task; WeCom bots can send files too. [Setup guide](chat-bots.en.md) |
