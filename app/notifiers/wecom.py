@@ -113,11 +113,12 @@ async def send_file_webhook(
         mb = size / 1024 / 1024
         return False, f'File too large for WeCom: {mb:.1f} MB > 20 MB.'
 
-    upload_url = (
-        'https://qyapi.weixin.qq.com/cgi-bin/webhook/upload_media'
-        f'?key={key}&type=file'
-    )
-    send_url = f'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key={key}'
+    # Both endpoints live on the SAME origin as the configured webhook
+    # URL. Deriving them from the bare key instead would rebuild the
+    # production host and post the webhook secret somewhere the user
+    # did not choose (and would bypass the loopback test stub).
+    origin = '{0.scheme}://{0.netloc}'.format(urlsplit(webhook_url))
+    upload_url = f'{origin}/cgi-bin/webhook/upload_media?key={key}&type=file'
     filename = p.name
 
     try:
@@ -145,7 +146,7 @@ async def send_file_webhook(
                 return False, 'Upload succeeded but returned no media_id.'
 
             resp = await client.post(
-                send_url,
+                webhook_url,
                 json={'msgtype': 'file', 'file': {'media_id': media_id}},
                 headers={'Content-Type': 'application/json'},
             )

@@ -394,6 +394,75 @@ class TestWecomPayloads:
         assert 'invalid url' in msg
 
 
+class TestWecomFileSend:
+    """``send_file_webhook`` must post to the CONFIGURED webhook URL.
+
+    The upload and the send share the webhook credential: the endpoints
+    are derived from the stored URL's origin, never hard-coded to the
+    production host. A bot pointed anywhere else (the loopback e2e
+    stub, a future mirror) must see BOTH requests — rebuilding the
+    production URL from ``key=`` would post the webhook secret to a
+    host the user did not choose.
+    """
+
+    def _patch_client(self, monkeypatch, captured):
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            if 'upload_media' in request.url.path:
+                return httpx.Response(
+                    200,
+                    json={
+                        'errcode': 0,
+                        'errmsg': 'ok',
+                        'type': 'file',
+                        'media_id': 'MEDIA1',
+                        'created_at': '1700000000',
+                    },
+                )
+            return httpx.Response(200, json={'errcode': 0, 'errmsg': 'ok'})
+
+        transport = httpx.MockTransport(handler)
+        real = httpx.AsyncClient
+
+        def factory(*args, **kwargs):
+            return real(transport=transport, timeout=10)
+
+        monkeypatch.setattr('app.notifiers.wecom.httpx', httpx)
+        monkeypatch.setattr(httpx, 'AsyncClient', factory)
+
+    async def test_upload_and_send_use_configured_origin(
+        self, monkeypatch, tmp_path
+    ):
+        captured = []
+        self._patch_client(monkeypatch, captured)
+        f = tmp_path / 'report.txt'
+        f.write_text('hello file\n')
+        url = 'http://localhost:17892/cgi-bin/webhook/send?key=okkey'
+
+        ok, msg = await wecom.send_file_webhook(url, str(f))
+
+        assert (ok, msg) == (True, '')
+        assert len(captured) == 2
+        upload, send = captured
+        assert str(upload.url) == (
+            'http://localhost:17892/cgi-bin/webhook/upload_media'
+            '?key=okkey&type=file'
+        )
+        assert str(send.url) == url
+        body = send.read().decode()
+        assert json.loads(body) == {
+            'msgtype': 'file',
+            'file': {'media_id': 'MEDIA1'},
+        }
+
+    async def test_missing_key_is_refused(self):
+        ok, msg = await wecom.send_file_webhook(
+            'http://localhost:17892/cgi-bin/webhook/send', 'x'
+        )
+        assert ok is False
+        assert 'key=' in msg
+
+
 class TestDingtalkPayloads:
     async def test_text_shape(self, monkeypatch):
         captured = []
@@ -658,7 +727,7 @@ class TestSizePreCheck:
     """Oversized content must fail BEFORE any network call."""
 
     CASES = [
-        ('wecom', wecom.send_message, WECOM_URL, 4096, 'bytes'),
+        ('wecom', wecom.send_message, WECOM_URL, 2048, 'bytes'),
         ('dingtalk', dingtalk.send_message, DINGTALK_URL, 20000, 'bytes'),
         ('feishu', feishu.send_message, FEISHU_URL, 20000, 'bytes'),
         ('slack', slack.send_message, SLACK_URL, 40000, 'chars'),
@@ -691,6 +760,43 @@ class TestSizePreCheck:
             SLACK_URL, None, content, msgtype='markdown'
         )
         assert ok is False
+
+    async def test_wecom_text_cap_is_2048_bytes(self, monkeypatch):
+        """WeCom's TEXT cap is 2048 bytes (官方 消息推送配置说明,
+        文本类型 content "最长不超过2048个字节") — NOT the 4096 that
+        applies to markdown. A 3000-byte text must be refused locally,
+        with the real number in the message."""
+
+        def _boom(*a, **kw):
+            raise AssertionError('network must not be reached')
+
+        monkeypatch.setattr('app.notifiers.base.post', _boom)
+        ok, msg = await wecom.send_message(WECOM_URL, None, 'x' * 3000)
+        assert ok is False
+        assert '2048' in msg
+
+    async def test_wecom_markdown_cap_stays_4096(self, monkeypatch):
+        """markdown content is allowed up to 4096 bytes (官方: markdown
+        content "最长不超过4096个字节") — 3000 bytes must go through."""
+        captured = []
+        _patch_transport(
+            monkeypatch, _transport(_capture(captured, {'errcode': 0}))
+        )
+        ok, msg = await wecom.send_message(
+            WECOM_URL, None, 'x' * 3000, msgtype='markdown'
+        )
+        assert (ok, msg) == (True, '')
+        assert captured
+
+    async def test_wecom_text_over_cap_names_2048(self, monkeypatch):
+        def _boom(*a, **kw):
+            raise AssertionError('network must not be reached')
+
+        monkeypatch.setattr('app.notifiers.base.post', _boom)
+        ok, msg = await wecom.send_message(WECOM_URL, None, 'x' * 5000)
+        assert ok is False
+        assert '2048' in msg
+        assert '4096' not in msg
 
 
 class TestSizeUnitIsHonoured:
