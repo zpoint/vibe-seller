@@ -235,7 +235,7 @@ Persistent per-account email storage with background sync and SMTP send capabili
 - **Background sync**: `app/scheduler/email_sync.py` syncs all accounts every 5 minutes (concurrent with semaphore to limit load). Replaces the old channel-based polling
 - **Auto-discovery**: `app/channels/email_discovery.py` provides both IMAP and SMTP auto-discovery for top providers (163, Gmail, QQ, Outlook, Yahoo), with heuristic fallback
 - **SMTP send**: `app/email/sender.py` — send emails via SMTP through any configured account. Exposed via `POST /api/email-accounts/{id}/send`
-- **Agent access**: Agents query emails via `sqlite3` CLI against the local DB files. Store context (`_build_store_context`) injects DB paths and schema info. MCP tools `vibe_seller_email_info` (DB paths + schema) and `vibe_seller_send_email` (send via SMTP) replace the old `vibe_seller_poll_emails`
+- **Agent access**: Agents query emails via `sqlite3` CLI against the local DB files. Store context (`_build_store_context`) injects DB paths and schema info. MCP tools `vibe_seller_email_info` (DB paths + schema) and `vibe_seller_send_email` (send via SMTP — only from accounts with `allow_send` on, enforced in `app/email/sender.py`) replace the old `vibe_seller_poll_emails`
 - **Waiting task checker**: Queries the local SQLite DB for keyword matches instead of live IMAP polling
 
 ## Chrome Persistent Profiles & Bookmarks

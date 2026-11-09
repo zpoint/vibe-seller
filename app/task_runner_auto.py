@@ -25,6 +25,7 @@ from app.task_finalize import (
     finalize_terminal_state as _finalize_terminal_state,
 )
 from app.task_runner import (
+    Mailbox,
     TaskHeader,
     build_system_extra,
     get_store_emails,
@@ -112,7 +113,7 @@ async def auto_run_task(task_id: str, store: Store | None):
         # 0. Write MCP config (no browser start — agent does that lazily).
         # Store tasks get their per-store wrapper; no-store tasks get the
         # store-less "web" wrapper. Also query linked email addresses.
-        store_emails: list[str] = []
+        store_emails: list[Mailbox] = []
         async with async_session() as db:
             await browser_manager.write_task_browser_config(store, db)
             if store:

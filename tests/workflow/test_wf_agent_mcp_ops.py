@@ -883,6 +883,54 @@ class TestManageEmailAccount:
         # never carries it.
         assert 'mail-pass-1234' not in json.dumps(data)
 
+    async def test_send_refused_without_permission(self, admin_client):
+        """The external toolset hits the same gate: refused, as an MCP
+        tool error the agent can read, before any SMTP connection."""
+        account_id = await self._create(admin_client)
+        with (
+            mock.patch('smtplib.SMTP_SSL') as ssl_cls,
+            mock.patch('smtplib.SMTP') as plain_cls,
+        ):
+            _, envelope = await call_tool(
+                admin_client,
+                'manage_email_account',
+                {
+                    'action': 'send',
+                    'account_id': account_id,
+                    'to': 'buyer@example.com',
+                    'subject': 'Order shipped',
+                    'body': 'It is on the way.',
+                },
+            )
+        assert envelope['isError'] is True
+        text = envelope['content'][0]['text']
+        assert 'turned off' in text
+        assert 'Settings → Email' in text
+        ssl_cls.assert_not_called()
+        plain_cls.assert_not_called()
+
+    async def test_update_cannot_grant_send_permission(self, admin_client):
+        """``allow_send`` is not an editable field of the tool: the
+        user grants it in the web UI, not the agent."""
+        account_id = await self._create(admin_client)
+        r = await rpc(
+            admin_client,
+            'tools/call',
+            {
+                'name': 'manage_email_account',
+                'arguments': {
+                    'action': 'update',
+                    'account_id': account_id,
+                    'allow_send': True,
+                },
+            },
+        )
+        assert 'allow_send' in r.json()['error']['message']
+        listed, _ = await call_tool(
+            admin_client, 'manage_email_account', {'action': 'list'}
+        )
+        assert listed['accounts'][0]['allow_send'] is False
+
     async def test_send_requires_subject(self, admin_client):
         _, envelope = await call_tool(
             admin_client,

@@ -11,11 +11,9 @@ from app import vision
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session
 from app.events.bus import event_bus
-from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
 from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
-from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.plugins import registered_prompt_fragments
 from app.prompts import (
@@ -30,11 +28,13 @@ from app.prompts import (
 )
 from app.question_answers import expand_free_text_answers
 from app.task_runner_context import (
+    Mailbox,
     ads_store_note,
     build_all_stores_context,
     build_store_context,
     build_system_context,
     detect_language_hint,
+    get_store_emails,
     ticktick_context,
 )
 from app.task_states import TaskStatus, assert_transition
@@ -117,7 +117,7 @@ async def build_system_extra(
     store: 'Store | None',
     *,
     header: TaskHeader = TaskHeader.AUTO,
-    store_emails: list[str] | None = None,
+    store_emails: list[Mailbox] | None = None,
     extra_context: str = '',
     schedule: 'Schedule | None' = None,
 ) -> PromptBundle:
@@ -176,7 +176,7 @@ async def build_system_extra(
         parts.append(
             build_store_context(
                 store,
-                email_addresses=emails,
+                mailboxes=emails,
                 task_platform=task.platform,
                 task_country=task.country,
             )
@@ -361,22 +361,6 @@ async def build_system_extra(
 
 
 # ── Shared helpers ──────────────────────────────────────────
-
-
-async def get_store_emails(
-    db: AsyncSession,
-    store_id: str,
-) -> list[str]:
-    """Get email addresses linked to a store."""
-    result = await db.execute(
-        select(EmailAccount.email)
-        .join(
-            StoreEmailLink,
-            StoreEmailLink.email_account_id == EmailAccount.id,
-        )
-        .where(StoreEmailLink.store_id == store_id)
-    )
-    return [row[0] for row in result.all()]
 
 
 def has_incomplete_todos(task: Task) -> bool:

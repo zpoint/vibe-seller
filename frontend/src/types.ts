@@ -270,6 +270,8 @@ export interface EmailAccount {
   smtp_host: string | null
   smtp_port: number | null
   smtp_use_tls: boolean
+  /** Agents may send from this mailbox. Off by default. */
+  allow_send: boolean
   created_at: string
   updated_at: string
 }

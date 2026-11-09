@@ -97,7 +97,7 @@ SQLAlchemy 2.0 ORM models. All extend `Base` from `app/database.py`.
 | `EventActivity` | `event_activities` | Activity timeline entries per event |
 | `Schedule` | `schedules` | Recurring task schedules (daily/weekly/monthly, store-specific or all-stores) |
 | `ScheduleState` | `schedule_state` | Agent-managed cross-run cursor per schedule (`schedule_id`, `key`) → `value`. Lets one scheduled run persist a watermark (e.g. last processed email date) for the next run to resume from. |
-| `EmailAccount` | `email_accounts` | Email accounts with Fernet-encrypted IMAP passwords |
+| `EmailAccount` | `email_accounts` | Email accounts with Fernet-encrypted IMAP passwords; `allow_send` (default false) gates agent sends — enforced in `app/email/sender.py` |
 | `StoreEmailLink` | `store_email_links` | Many-to-many store↔email with watermark tracking |
 | `AIProfile` | `ai_profiles` | AI agent configuration profiles |
 

@@ -1,8 +1,16 @@
 """Workflow tests for the email system (CRUD, SMTP, info)."""
 
+import json
+import sqlite3
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import (
+    create_async_engine as sqlalchemy_create_async_engine,
+)
+
+from app.database import _ensure_added_columns  # noqa: PLC2701
+from app.models.base import Base
 
 pytestmark = pytest.mark.workflow
 
@@ -197,10 +205,11 @@ class TestSendEndpoint:
         )
         acct_id = er.json()['id']
 
-        # Clear SMTP via update
+        # Clear SMTP via update (and allow sending, so the request gets
+        # past the permission gate to the missing-host check)
         await admin_client.put(
             f'/api/email-accounts/{acct_id}',
-            json={'smtp_host': ''},
+            json={'smtp_host': '', 'allow_send': True},
         )
 
         # The send should fail with 502
@@ -214,6 +223,260 @@ class TestSendEndpoint:
             },
         )
         assert r.status_code == 502
+
+
+SEND_BODY = {'to': 'buyer@example.com', 'subject': 'Hi', 'body': 'Hello'}
+
+
+@pytest.fixture
+def smtp_spy():
+    """Both SMTP classes the sender can open, patched; nothing real."""
+    with (
+        patch('smtplib.SMTP_SSL') as ssl_cls,
+        patch('smtplib.SMTP') as plain_cls,
+    ):
+        yield ssl_cls, plain_cls
+
+
+def _smtp_untouched(spy) -> bool:
+    ssl_cls, plain_cls = spy
+    return not ssl_cls.called and not plain_cls.called
+
+
+async def _create_account(client, email='shop@example.com') -> dict:
+    r = await client.post(
+        '/api/email-accounts',
+        json={
+            'email': email,
+            'password': 'pw',
+            'imap_host': 'imap.example.com',
+            'smtp_host': 'smtp.example.com',
+            'smtp_port': 465,
+            'smtp_use_tls': False,
+        },
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+class TestSendPermission:
+    """``allow_send`` is off by default and refuses before any SMTP."""
+
+    async def test_default_off_on_create_and_list(self, admin_client):
+        acct = await _create_account(admin_client)
+        assert acct['allow_send'] is False
+        listed = (await admin_client.get('/api/email-accounts')).json()
+        assert [a['allow_send'] for a in listed] == [False]
+
+    async def test_create_cannot_turn_it_on(self, admin_client):
+        """The create body has no such field: a new mailbox is always
+        read/draft-only until the user flips the switch."""
+        r = await admin_client.post(
+            '/api/email-accounts',
+            json={
+                'email': 'eager@example.com',
+                'password': 'pw',
+                'imap_host': 'imap.example.com',
+                'allow_send': True,
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()['allow_send'] is False
+
+    async def test_send_refused_403_without_smtp(self, admin_client, smtp_spy):
+        acct = await _create_account(admin_client)
+        r = await admin_client.post(
+            f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
+        )
+        assert r.status_code == 403
+        detail = r.json()['detail']
+        assert 'shop@example.com' in detail
+        assert 'turned off' in detail
+        assert 'Settings → Email' in detail
+        assert 'draft' in detail
+        assert _smtp_untouched(smtp_spy)
+
+    async def test_toggle_round_trip_and_send(self, admin_client, smtp_spy):
+        acct = await _create_account(admin_client)
+        on = await admin_client.put(
+            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
+        )
+        assert on.status_code == 200
+        assert on.json()['allow_send'] is True
+        listed = (await admin_client.get('/api/email-accounts')).json()
+        assert listed[0]['allow_send'] is True
+
+        r = await admin_client.post(
+            f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()['ok'] is True
+        ssl_cls, _ = smtp_spy
+        ssl_cls.return_value.sendmail.assert_called_once()
+
+        # Off again → refused again, no new SMTP connection.
+        ssl_cls.reset_mock()
+        off = await admin_client.put(
+            f'/api/email-accounts/{acct["id"]}', json={'allow_send': False}
+        )
+        assert off.json()['allow_send'] is False
+        r = await admin_client.post(
+            f'/api/email-accounts/{acct["id"]}/send', json=SEND_BODY
+        )
+        assert r.status_code == 403
+        assert _smtp_untouched(smtp_spy)
+
+    async def test_unrelated_update_keeps_permission(self, admin_client):
+        acct = await _create_account(admin_client)
+        await admin_client.put(
+            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
+        )
+        r = await admin_client.put(
+            f'/api/email-accounts/{acct["id"]}',
+            json={'smtp_port': 587},
+        )
+        assert r.json()['allow_send'] is True
+
+    async def test_member_may_toggle(self, member_client):
+        """Same role rule as every other email-account edit (any signed
+        in user) — the permission adds no new role tier."""
+        acct = await _create_account(member_client)
+        r = await member_client.put(
+            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
+        )
+        assert r.status_code == 200
+        assert r.json()['allow_send'] is True
+
+    async def test_api_token_cannot_change_permission(
+        self, admin_client, unauthed_client
+    ):
+        """An external agent (vst_ token) must not open its own gate."""
+        acct = await _create_account(admin_client)
+        minted = await admin_client.post(
+            '/api/auth/tokens', json={'name': 'agent'}
+        )
+        headers = {'Authorization': f'Bearer {minted.json()["token"]}'}
+        r = await unauthed_client.put(
+            f'/api/email-accounts/{acct["id"]}',
+            json={'allow_send': True},
+            headers=headers,
+        )
+        assert r.status_code == 403
+        assert 'API token' in r.json()['detail']
+        listed = (await admin_client.get('/api/email-accounts')).json()
+        assert listed[0]['allow_send'] is False
+        # Other edits by the token still work.
+        r = await unauthed_client.put(
+            f'/api/email-accounts/{acct["id"]}',
+            json={'smtp_port': 587},
+            headers=headers,
+        )
+        assert r.status_code == 200
+
+    async def test_info_by_store_reports_permission(self, admin_client):
+        store = (
+            await admin_client.post('/api/stores', json={'name': 'Mail Store'})
+        ).json()
+        acct = await _create_account(admin_client)
+        await admin_client.post(
+            f'/api/stores/{store["id"]}/emails',
+            json={'email_account_id': acct['id']},
+        )
+        info = (
+            await admin_client.get(
+                f'/api/email-accounts/info-by-store/{store["id"]}'
+            )
+        ).json()
+        assert info['accounts'][0]['allow_send'] is False
+
+
+class TestInTaskSendTool:
+    """The in-task stdio MCP tool ``vibe_seller_send_email`` (what a
+    task agent calls) — routed through the real app via ``call_api``."""
+
+    @pytest.fixture
+    def routed_call_api(self, admin_client, monkeypatch):
+        async def _call_api(method, path, body=None, timeout=60):
+            resp = await admin_client.request(method, path, json=body)
+            return resp.json()
+
+        monkeypatch.setattr('app.mcp_server.call_api', _call_api)
+
+    async def _send(self):
+        from app.mcp_server import handle_tool_call  # noqa: PLC0415
+
+        return json.loads(
+            await handle_tool_call(
+                'vibe_seller_send_email',
+                {
+                    'account_email': 'shop@example.com',
+                    'to': 'buyer@example.com',
+                    'subject': 'Order update',
+                    'body': 'It shipped.',
+                },
+            )
+        )
+
+    async def test_refused_when_off(
+        self, admin_client, routed_call_api, smtp_spy
+    ):
+        await _create_account(admin_client)
+        result = await self._send()
+        assert 'turned off' in result['detail']
+        assert 'draft' in result['detail']
+        assert _smtp_untouched(smtp_spy)
+
+    async def test_sends_when_on(self, admin_client, routed_call_api, smtp_spy):
+        acct = await _create_account(admin_client)
+        await admin_client.put(
+            f'/api/email-accounts/{acct["id"]}', json={'allow_send': True}
+        )
+        result = await self._send()
+        assert result['ok'] is True
+        smtp_spy[0].return_value.sendmail.assert_called_once()
+
+
+class TestAllowSendMigration:
+    """A DB from before ``allow_send`` upgrades in place, every
+    existing mailbox starting OFF (default deny)."""
+
+    async def test_existing_rows_upgrade_to_false(self, tmp_path):
+        db_path = tmp_path / 'legacy.db'
+        engine = sqlalchemy_create_async_engine(
+            f'sqlite+aiosqlite:///{db_path}'
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        await engine.dispose()
+
+        raw = sqlite3.connect(db_path)
+        raw.execute('ALTER TABLE email_accounts DROP COLUMN allow_send')
+        raw.execute(
+            'INSERT INTO email_accounts (id, email, encrypted_password,'
+            ' imap_host, imap_port, use_ssl, smtp_use_tls, created_by,'
+            " created_at, updated_at) VALUES ('legacy-1',"
+            " 'shop@example.com', 'x', 'imap.example.com', 993, 1, 1,"
+            " 'u1', 't1', 't1')"
+        )
+        raw.commit()
+        raw.close()
+
+        engine = sqlalchemy_create_async_engine(
+            f'sqlite+aiosqlite:///{db_path}'
+        )
+        async with engine.begin() as conn:
+            await conn.run_sync(_ensure_added_columns)
+            # Idempotent: a second boot is a no-op.
+            await conn.run_sync(_ensure_added_columns)
+        await engine.dispose()
+
+        check = sqlite3.connect(db_path)
+        row = check.execute(
+            'SELECT allow_send FROM email_accounts WHERE id=?',
+            ('legacy-1',),
+        ).fetchone()
+        check.close()
+        assert row[0] == 0
 
 
 class TestSyncNow:

@@ -404,18 +404,30 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/email-accounts` | List email accounts |
-| POST | `/api/email-accounts` | Create email account (password encrypted) |
+| POST | `/api/email-accounts` | Create email account (password encrypted; `allow_send` always starts `false`) |
+| PUT | `/api/email-accounts/{id}` | Update email account, incl. `allow_send` (403 if an API token tries to change `allow_send`) |
 | GET | `/api/email-accounts/discover` | Auto-discover IMAP settings |
 | GET | `/api/email-accounts/discover-smtp` | Auto-discover SMTP settings |
 | POST | `/api/email-accounts/{id}/test` | Test IMAP connection |
 | POST | `/api/email-accounts/{id}/test-smtp` | Test SMTP connection |
-| POST | `/api/email-accounts/{id}/send` | Send email via SMTP |
+| POST | `/api/email-accounts/{id}/send` | Send email via SMTP. **403** when the account's `allow_send` is off — refused before any SMTP connection, with a message telling the agent to draft instead |
 | DELETE | `/api/email-accounts/{id}` | Delete email account |
 | GET | `/api/email-accounts/info-by-store/{store_id}` | DB paths + schema for agent MCP tools |
 | GET | `/api/stores/{id}/emails` | List linked emails for store |
 | POST | `/api/stores/{id}/emails` | Link email account to store |
 | DELETE | `/api/stores/{id}/emails/{link_id}` | Unlink email from store |
 | POST | `/api/stores/{id}/emails/poll` | Poll emails (deprecated, use background sync) |
+
+**Send permission (`allow_send`).** Every email account carries a
+boolean `allow_send`, default `false` (also for accounts that predate
+it — `_ensure_added_columns` adds the column as `NOT NULL DEFAULT 0`).
+The gate is `ensure_send_allowed` in `app/email/sender.py`, called by
+`send_email` and again by the socket-opening `_do_send`, so every send
+path — this route, the in-task `vibe_seller_send_email` MCP tool (which
+POSTs here), and the external `/api/mcp` `manage_email_account(send)`
+(which calls this route in-process) — is refused the same way, and a
+future caller of the sender is too. The user flips it per mailbox in
+Settings → Email; an API token cannot change it.
 
 ## `profiles.py` — AI Agent Profiles
 

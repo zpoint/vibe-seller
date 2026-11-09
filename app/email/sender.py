@@ -2,6 +2,14 @@
 
 Sends emails via SMTP and records them in the per-account
 SQLite DB so they are immediately visible to agents.
+
+THE INVARIANT: no email leaves a mailbox whose owner has not turned on
+``EmailAccount.allow_send``. The check lives HERE, in the module that
+opens the SMTP connection, not in the routes that call it: every send
+path (the REST endpoint, the in-task MCP tool that POSTs to it, the
+external ``/api/mcp`` toolset that calls the route in-process) funnels
+through ``send_email``, so a caller added later is refused without
+having to remember to check.
 """
 
 import asyncio
@@ -19,6 +27,40 @@ from app.models.email_account import EmailAccount
 
 logger = logging.getLogger(__name__)
 
+# Where the user turns sending on. Kept next to the gate so the refusal
+# can never point at a place the UI no longer has.
+SEND_PERMISSION_LOCATION = (
+    'Settings → Email, switch "Let the AI send email from this '
+    'mailbox" on that mailbox'
+)
+
+
+class SendNotAllowedError(Exception):
+    """The mailbox's owner has not allowed sending from it.
+
+    The message is written for the agent that attempted the send: what
+    happened, what the user can do, and what the agent can still do.
+    """
+
+    def __init__(self, email: str):
+        self.email = email
+        super().__init__(
+            f'Sending from {email} is turned off, so nothing was sent. '
+            'Do not retry. Tell the user they can enable it in '
+            f'{SEND_PERMISSION_LOCATION}. You can still draft the email '
+            'and show it to the user.'
+        )
+
+
+def ensure_send_allowed(account: EmailAccount) -> None:
+    """Raise :class:`SendNotAllowedError` unless sending is enabled.
+
+    Compared with ``is True`` so an unset or unknown value is a
+    refusal: default deny.
+    """
+    if account.allow_send is not True:
+        raise SendNotAllowedError(account.email)
+
 
 async def send_email(
     account: EmailAccount,
@@ -33,7 +75,12 @@ async def send_email(
 
     Returns ``{'ok': True, 'message_id': ...}`` on success,
     ``{'ok': False, 'error': ...}`` on failure.
+
+    Raises:
+        SendNotAllowedError: the account's ``allow_send`` is off. Raised
+            before any SMTP connection is opened.
     """
+    ensure_send_allowed(account)
     recipients = [to] if isinstance(to, str) else list(to)
 
     def _send_sync() -> dict:
@@ -60,6 +107,9 @@ def _do_send(
     attachments: list[str] | None,
 ) -> dict:
     """Synchronous SMTP send."""
+    # Re-checked here: this is the function that opens the socket, so
+    # a future caller that reaches it directly is still refused.
+    ensure_send_allowed(account)
     smtp_host = account.smtp_host
     smtp_port = account.smtp_port or 465
     use_tls = account.smtp_use_tls

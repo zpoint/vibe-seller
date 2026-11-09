@@ -6,7 +6,8 @@ description: Email integration — connect a mailbox in Vibe Seller so AI can re
 
 Connect your customer-service mailbox to Vibe Seller and the AI can pull
 up the inbox while running a task, sort messages the way you want, and
-draft and send replies — no more copying and pasting between windows.
+draft replies — and, once you allow it for a mailbox, send them too. No
+more copying and pasting between windows.
 
 Everything runs over standard IMAP / SMTP. **You never type your email
 password** — 163 and QQ Mail use an *authorization code*, Gmail uses an
@@ -169,6 +170,31 @@ Three quick checks:
 3. Create a task asking "what's the latest mail in this mailbox?" —
    if the AI reports recent subjects and senders, you are done.
 
+## Let the AI send email
+
+A newly added mailbox **cannot send** by default: the AI can read,
+sort and draft, but an actual send is refused by the server. To let the
+AI send from a mailbox, turn it on **per mailbox**:
+
+1. Go to **Settings → Email** and find the mailbox in the list;
+2. Turn on the **"Let the AI send email from this mailbox"** switch on
+   its card (blue means on);
+3. Each mailbox is separate: turning it on for mailbox A leaves
+   mailbox B read/draft-only.
+
+![The "Let the AI send email from this mailbox" switch on a mailbox card](images/email_allow_send_en.png)
+
+**Verify**: create a task asking the AI to "send a test email from this
+mailbox to me" (give it another inbox of yours). With the switch on, the
+mail arrives within a few minutes; with it off, the AI tells you sending
+from that mailbox is turned off and shows you the draft instead.
+
+You can switch it off at any time and it takes effect immediately. The
+rule is enforced on the server, not left to the AI: a mailbox without
+the permission cannot send, whatever the task says. Only you can change
+the switch, in the web UI — an external AI client using an API key
+cannot.
+
 ## What the AI can do with it
 
 - **Read mail**: search the inbox by subject / sender / time, read
@@ -176,8 +202,12 @@ Three quick checks:
   5 minutes, and a task can trigger an immediate sync;
 - **Sort and summarise**: group messages by your rules, extract the
   key points, turn threads into tables or lists;
-- **Send mail**: draft replies and send them as instructed — asking
-  "show me before sending" in the task keeps you in the loop.
+- **Send mail**: only from mailboxes whose "Let the AI send email from
+  this mailbox" switch is on (off by default — see
+  [Let the AI send email](#let-the-ai-send-email)). While it is off,
+  the AI shows you the drafted email so you can send it yourself or
+  turn the switch on and ask again. Asking "show me before sending" in
+  the task keeps you in the loop.
 
 Mail stays inside your own deployment: the mailbox password is stored
 encrypted, messages sync into a local database, and the AI accesses
@@ -223,6 +253,18 @@ Mail syncs automatically every 5 minutes — wait a moment or ask the
 task to "sync now" and check again. Also make sure the mailbox is
 **linked to the store**: unlinked mailboxes are invisible to that
 store's tasks.
+</details>
+
+<details markdown="1"><summary><b>The AI says it can't send email?</b></summary>
+
+If the AI replies that sending from a mailbox is turned off, that
+mailbox's send permission is still off — every new mailbox starts that
+way. Go to **Settings → Email**, turn on **"Let the AI send email from
+this mailbox"** on that mailbox's card, and ask the task to send again.
+
+If the switch is on and sending still fails, check two things: the card
+shows an SMTP server (with "No SMTP" it cannot send), and the
+authorization code / app password is still valid (sending uses it too).
 </details>
 
 <details markdown="1"><summary><b>How do I rotate the code or remove a mailbox?</b></summary>

@@ -396,12 +396,8 @@ async def design_task(
             detail=f'Cannot design task in status {task.status}',
         )
 
-    store = None
-    store_emails: list[str] = []
-    if task.store_id:
-        store = await db.get(Store, task.store_id)
-        if store:
-            store_emails = await get_store_emails(db, store.id)
+    store = await db.get(Store, task.store_id) if task.store_id else None
+    store_emails = await get_store_emails(db, store.id) if store else []
 
     bundle = await build_system_extra(
         task,

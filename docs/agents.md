@@ -434,7 +434,9 @@ same REST route the web UI calls, so:
   `socket_port` to 16851; an email create auto-discovers IMAP when no
   host is given.
 - Some actions do real things to the world: `manage_email_account(send)`
-  sends a real email, `manage_chat_bot(send|test)` posts to the group,
+  sends a real email (only from a mailbox whose `allow_send` the user
+  turned on in Settings → Email — otherwise it is refused, and a token
+  cannot turn it on), `manage_chat_bot(send|test)` posts to the group,
   `manage_profile(validate)` spends one tiny real model call,
   `browser(start_store, force=true)` relaunches the Ziniao client. The
   tool descriptions say so; treat them like the buttons they mirror.

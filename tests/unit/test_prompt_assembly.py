@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import StaticPool
 
 from app.models.base import Base
+from app.models.email_account import EmailAccount
 from app.models.schedule import Schedule
 from app.models.schedule_constants import (
     SYSTEM_CATALOG_SYNC_ID,
@@ -25,6 +26,7 @@ from app.models.schedule_constants import (
     StalenessCheck,
 )
 from app.models.store import Store
+from app.models.store_email_link import StoreEmailLink
 from app.models.task import Task
 from app.prompts import (
     CATALOG_RESTRICTION_PROMPT_L2,
@@ -33,6 +35,7 @@ from app.prompts import (
 )
 from app.task_runner import (
     VISION_SETUP_BREADCRUMB,
+    Mailbox,
     PromptBundle,
     TaskHeader,
     build_system_extra,
@@ -42,7 +45,10 @@ pytestmark = pytest.mark.unit
 
 # ── Fixtures ─────────────────────────────────────────────────
 
-TEST_EMAILS = ['seller@example.com', 'support@test.com']
+TEST_EMAILS = [
+    Mailbox('seller@example.com', allow_send=True),
+    Mailbox('support@example.com', allow_send=False),
+]
 
 
 @pytest_asyncio.fixture
@@ -379,6 +385,97 @@ class TestAutoStoreTask:
             store_emails=TEST_EMAILS,
         )
         assert 'wait-condition' in bundle.system_extra
+
+
+class TestEmailSendPolicy:
+    """The prompt names which mailboxes may send — advisory only (the
+    gate is server-side), so the agent doesn't waste a refused call."""
+
+    @pytest.mark.asyncio
+    async def test_store_task_names_sendable_and_read_only(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task, store, header=TaskHeader.AUTO, store_emails=TEST_EMAILS
+        )
+        body = bundle.system_extra
+        assert 'Sending is allowed from: seller@example.com.' in body
+        assert (
+            'Read/draft only (sending turned off by the user): '
+            'support@example.com.'
+        ) in body
+        assert 'Settings → Email' in body
+
+    @pytest.mark.asyncio
+    async def test_store_task_all_blocked(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task,
+            store,
+            header=TaskHeader.AUTO,
+            store_emails=[Mailbox('seller@example.com')],
+        )
+        body = bundle.system_extra
+        assert 'Sending is allowed from' not in body
+        assert 'Read/draft only' in body
+
+    @pytest.mark.asyncio
+    async def test_store_mailboxes_read_from_db(
+        self, _patch_async_session, task, store
+    ):
+        """No ``store_emails`` passed → the builder reads the links,
+        WITH their permission, from the DB."""
+        async with _patch_async_session() as db:
+            db.add(store)
+            db.add_all([
+                EmailAccount(
+                    id='ea-1',
+                    email='seller@example.com',
+                    encrypted_password='x',
+                    imap_host='imap.example.com',
+                    allow_send=True,
+                    created_by='user-1',
+                ),
+                EmailAccount(
+                    id='ea-2',
+                    email='support@example.com',
+                    encrypted_password='x',
+                    imap_host='imap.example.com',
+                    created_by='user-1',
+                ),
+            ])
+            db.add_all([
+                StoreEmailLink(store_id=store.id, email_account_id='ea-1'),
+                StoreEmailLink(store_id=store.id, email_account_id='ea-2'),
+            ])
+            await db.commit()
+        bundle = await build_system_extra(task, store, header=TaskHeader.AUTO)
+        body = bundle.system_extra
+        assert 'Sending is allowed from: seller@example.com.' in body
+        assert 'turned off by the user): support@example.com.' in body
+
+    @pytest.mark.asyncio
+    async def test_no_store_task_lists_policy(
+        self, _patch_async_session, no_store_task
+    ):
+        async with _patch_async_session() as db:
+            db.add(
+                EmailAccount(
+                    id='ea-3',
+                    email='shop@example.com',
+                    encrypted_password='x',
+                    imap_host='imap.example.com',
+                    created_by='user-1',
+                )
+            )
+            await db.commit()
+        bundle = await build_system_extra(
+            no_store_task, None, header=TaskHeader.AUTO
+        )
+        body = bundle.system_extra
+        assert 'shop@example.com (not linked to any store)' in body
+        assert 'turned off by the user): shop@example.com.' in body
 
 
 class TestAutoNoStoreTask:

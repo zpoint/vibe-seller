@@ -821,7 +821,9 @@
     "noStoresLinked": "Not linked to any store",
     "smtpHost": "SMTP Server",
     "smtpPort": "SMTP Port",
-    "noSmtp": "No SMTP"
+    "noSmtp": "No SMTP",
+    "allowSend": "Let the AI send email from this mailbox",
+    "allowSendHint": "Off by default. While off, the AI can still read mail and draft replies for you, but any attempt to send is refused."
   },
   "language": {
     "title": "Language",

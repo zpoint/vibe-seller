@@ -21,6 +21,7 @@ class EmailAccountUpdate(BaseModel):
     smtp_host: str | None = None
     smtp_port: int | None = None
     smtp_use_tls: bool | None = None
+    allow_send: bool | None = None
 
 
 class EmailAccountResponse(BaseModel):
@@ -34,6 +35,7 @@ class EmailAccountResponse(BaseModel):
     smtp_host: str | None = None
     smtp_port: int | None = None
     smtp_use_tls: bool = True
+    allow_send: bool = False
     created_at: str
     updated_at: str
     # Never expose password

@@ -23,6 +23,13 @@ class EmailAccount(Base):
     smtp_host: Mapped[str | None] = mapped_column(String, nullable=True)
     smtp_port: Mapped[int | None] = mapped_column(Integer, nullable=True)
     smtp_use_tls: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Whether agents may SEND from this mailbox. Off by default — also
+    # for rows that predate the column (app/database.py); the user turns
+    # it on per mailbox in Settings → Email. Enforced in
+    # app/email/sender.py, the one function that opens SMTP.
+    allow_send: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default='0'
+    )
     created_by: Mapped[str] = mapped_column(
         String, ForeignKey('users.id'), nullable=False
     )
