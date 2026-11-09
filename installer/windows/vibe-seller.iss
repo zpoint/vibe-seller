@@ -137,6 +137,11 @@ Filename: "{#AppExeTray}"; Parameters: """{app}\tray.py"" --open"; \
   Flags: nowait postinstall skipifsilent; \
   Check: VenvIsReady
 
+; A SILENT upgrade has no finish page, so the step above never runs. Its
+; relaunch lives in [Code] (RelaunchTrayAfterSilentUpgrade), NOT here: a
+; plain [Run] entry can run before CurStepChanged(ssPostInstall) builds
+; the venv, so it would find no pythonw.exe and skip — CI proved it.
+
 [Icons]
 ; Clickable shortcuts (Start Menu + optional desktop) launch with
 ; --open so double-clicking starts the server AND opens the browser.
@@ -321,6 +326,9 @@ var
   // PrepareToInstall before [InstallDelete] removes .venv. Empty on a
   // fresh install (or when the old venv was broken).
   PrevPlaywrightVersion: String;
+  // Whether a Vibe Seller server or tray was running when this install
+  // started (PrepareToInstall stops them). Decides the silent relaunch.
+  AppWasRunning: Boolean;
 
 function InstalledPlaywrightVersion: String;
 var
@@ -430,6 +438,29 @@ begin
   Result := (Rc = 0) and VenvIsReady;
 end;
 
+// A silent upgrade has no finish page ("Open now"), so the server that
+// PrepareToInstall stopped would stay down until the next login. Bring
+// back exactly what was running: the tray, which starts the server (no
+// --open: an unattended upgrade must not pop a browser). Called last in
+// ssPostInstall, i.e. only after the venv was rebuilt AND verified.
+procedure RelaunchTrayAfterSilentUpgrade;
+var
+  Rc: Integer;
+begin
+  if not (WizardSilent and AppWasRunning and VenvIsReady) then begin
+    Log('No tray relaunch (silent=' + IntToStr(Ord(WizardSilent)) +
+      ', was running=' + IntToStr(Ord(AppWasRunning)) + ', venv ready=' +
+      IntToStr(Ord(VenvIsReady)) + ')');
+    exit;
+  end;
+  if Exec(ExpandConstant('{#AppExeTray}'),
+      '"' + ExpandConstant('{app}\tray.py') + '"',
+      ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, Rc) then
+    Log('Relaunched the tray after a silent upgrade')
+  else
+    Log('Tray relaunch failed: ' + SysErrorMessage(Rc));
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Rc: Integer;
@@ -476,7 +507,24 @@ begin
     Exec(ExpandConstant('{app}\.venv\Scripts\playwright.exe'),
       'install chromium', '', SW_HIDE, ewWaitUntilTerminated, Rc);
     Log('playwright install chromium exit code: ' + IntToStr(Rc));
+    RelaunchTrayAfterSilentUpgrade;
   end;
+end;
+
+// True when a python/pythonw from the install dir is running: the
+// server (uvicorn) or the tray. Exit code carries the answer.
+function AppProcessRunning: Boolean;
+var
+  ResultCode: Integer;
+begin
+  Result := Exec('powershell.exe',
+    '-NoProfile -ExecutionPolicy Bypass -Command "' +
+    'if (@(Get-CimInstance Win32_Process | Where-Object { ' +
+    '($_.Name -eq ''python.exe'' -or $_.Name -eq ''pythonw.exe'') ' +
+    '-and $_.ExecutablePath -like ' +
+    PsQuote(ExpandConstant('{app}') + '\*') +
+    ' }).Count -gt 0) { exit 0 } else { exit 1 }"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
@@ -493,6 +541,7 @@ begin
   // Record the outgoing Playwright version first — [InstallDelete]
   // wipes .venv right after this returns.
   PrevPlaywrightVersion := InstalledPlaywrightVersion;
+  AppWasRunning := AppProcessRunning;
   Exec(ExpandConstant('{app}\.venv\Scripts\vibe-seller.exe'), 'stop',
     '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   KillAppProcesses('');

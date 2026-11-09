@@ -354,24 +354,16 @@ class ClaudeCodeBackend(AIAgentBackend):
         await session.stop()
         return True
 
-    async def stop_all(self) -> int:
-        """Stop every running task agent (used on server shutdown).
+    def _live_sessions(self) -> list:
+        """``(task_id, session)`` for every agent a shutdown would kill.
 
-        Each session's ``stop()`` killpg's the whole ``claude -p`` subtree
-        (MCP server, skill_cli.daemon, browser-use), so this prevents
-        agents being orphaned across a restart — orphans keep calling
-        ``browser/start`` on the next server and thrash the shared Ziniao
-        client. Best-effort: a failure on one session never blocks the
-        others or shutdown.
+        Includes sessions whose turn terminator already fired but whose
+        PROCESS is still alive (the post-close grace window, or a
+        provider stalling between result and exit) — ``running`` means
+        "input-capable", not "process alive", and skipping those would
+        orphan a live claude subtree across a restart.
         """
-        # Include sessions whose turn terminator already fired but
-        # whose PROCESS is still alive (the post-close grace window, or
-        # a provider stalling between result and exit) — ``running``
-        # means "input-capable", not "process alive", and skipping
-        # those here would orphan a live claude subtree across the
-        # restart. ``stop()`` handles the closed-stdin case itself
-        # (interrupt write no-ops, signal escalation still runs).
-        running = [
+        return [
             (tid, s)
             for tid, s in list(self._sessions.items())
             if s
@@ -380,6 +372,27 @@ class ClaudeCodeBackend(AIAgentBackend):
                 or (s._proc is not None and s._proc.returncode is None)
             )
         ]
+
+    def live_agent_count(self) -> int:
+        """How many agents a restart right now would kill.
+
+        The same set ``stop_all`` stops, so "is it safe to restart?" and
+        "what does a restart kill?" can never disagree.
+        """
+        return len(self._live_sessions())
+
+    async def stop_all(self) -> int:
+        """Stop every running task agent (used on server shutdown).
+
+        Each session's ``stop()`` killpg's the whole ``claude -p`` subtree
+        (MCP server, skill_cli.daemon, browser-use), so this prevents
+        agents being orphaned across a restart — orphans keep calling
+        ``browser/start`` on the next server and thrash the shared Ziniao
+        client. Best-effort: a failure on one session never blocks the
+        others or shutdown. ``stop()`` handles the closed-stdin case
+        itself (interrupt write no-ops, signal escalation still runs).
+        """
+        running = self._live_sessions()
         if not running:
             return 0
         logger.info(

@@ -546,11 +546,128 @@ def _install_browser_after_upgrade() -> None:
 
 
 def _cmd_upgrade(args: argparse.Namespace) -> int:
+    before = _resolve_version()
     rc = _upgrade_package(args)
     if rc != 0:
         return rc
     _install_browser_after_upgrade()
-    return _upgrade_claude_cli()
+    rc = _upgrade_claude_cli()
+    # The running server restarts ITSELF onto the new install
+    # (app/upgrade_restart.py); this only waits for it and says what
+    # happened, so the upgrade doesn't look finished while the old code
+    # is still serving.
+    return _await_servers_upgraded(before) or rc
+
+
+#: How long `vibe-seller upgrade` waits for a server to come back on the
+#: new version. The server checks every 10 s and boots in seconds.
+_UPGRADE_WAIT_SECONDS = 120.0
+#: After a server reports it is draining (`pending_version`), how long to
+#: keep waiting before concluding its tasks will outlast the command.
+_DRAIN_WAIT_SECONDS = 30.0
+
+
+def _probe_version(port: int) -> dict | None:
+    """``/api/version`` of the server on *port*, or None if none answers."""
+    # No proxy: a shell-level proxy must not intercept loopback.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(
+            f'http://127.0.0.1:{port}/api/version', timeout=3
+        ) as resp:
+            body = json.loads(resp.read().decode())
+    except (OSError, ValueError):
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _server_ports() -> list[int]:
+    """Ports of the servers `vibe-seller start` launched (pid files).
+
+    Only for reporting: every server restarts itself onto the upgrade
+    (app/upgrade_restart.py), including ones run under launchd/systemd
+    or start.sh, which keep no pid file here.
+    """
+    ports = []
+    for f in sorted(_pid_dir().glob('backend_*.pid')):
+        with suppress(ValueError):
+            port = int(f.stem.removeprefix('backend_'))
+            if _read_pid(port) is not None:
+                ports.append(port)
+    return ports
+
+
+def _await_servers_upgraded(before: str) -> int:
+    """Wait for running servers to come back on the new version.
+
+    Returns 1 if a server that can restart itself never picked the
+    upgrade up — the one outcome where the upgrade did not take effect.
+    """
+    servers = [p for p in _server_ports() if _probe_version(p) is not None]
+    if not servers:
+        return 0
+    target = _new_cli_version()
+    if target is None or target == before:
+        return 0
+    rc = 0
+    for port in servers:
+        rc = max(rc, _await_one(port, target))
+    return rc
+
+
+def _await_one(port: int, target: str) -> int:
+    restart = (
+        f'vibe-seller stop --port {port} && vibe-seller start --port {port}'
+    )
+    deadline = time.monotonic() + _UPGRADE_WAIT_SECONDS
+    draining_since = None
+    print(f'==> waiting for the server on port {port} to restart onto {target}')
+    while time.monotonic() < deadline:
+        body = _probe_version(port)
+        if body is not None:
+            if body.get('version') == target:
+                print(f'Server on port {port} is now running {target}.')
+                return 0
+            if 'pending_version' not in body:
+                # A server from before self-restart existed: this one
+                # time it needs a hand.
+                print(
+                    f'The server on port {port} runs {body.get("version")}, '
+                    f'which cannot restart itself. Restart it once to load '
+                    f'{target}:\n  {restart}'
+                )
+                return 0
+            if body.get('pending_version') == target:
+                draining_since = draining_since or time.monotonic()
+                if time.monotonic() - draining_since > _DRAIN_WAIT_SECONDS:
+                    print(
+                        f'The server on port {port} is finishing its running '
+                        f'tasks; it restarts onto {target} by itself when '
+                        f'they are done. No new tasks start meanwhile.'
+                    )
+                    return 0
+        time.sleep(2)
+    print(
+        f'The server on port {port} did not pick up {target}. Restart it:'
+        f'\n  {restart}',
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _new_cli_version() -> str | None:
+    """The version now installed on disk (not the one loaded here)."""
+    try:
+        out = subprocess.run(
+            [sys.executable, '-I', '-m', 'app.cli', '--version'],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    words = out.stdout.split()
+    return words[-1] if out.returncode == 0 and words else None
 
 
 def _upgrade_package(args: argparse.Namespace) -> int:

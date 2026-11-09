@@ -188,3 +188,81 @@ class TestUpgradeClaudeCli:
         )
         assert rc == 0
         assert cmds == [['uv', 'tool', 'upgrade', 'vibe-seller']]
+
+
+class TestUpgradeWaitsForTheServer:
+    """`vibe-seller upgrade` does not finish while the old code serves:
+    it waits for each server it started to come back on the new version
+    (the server restarts itself — app/upgrade_restart.py)."""
+
+    PORT = 7899
+
+    @pytest.fixture(autouse=True)
+    def _home(self, tmp_path, monkeypatch):
+        monkeypatch.setenv('VIBE_HOME', str(tmp_path))
+        (tmp_path / 'pids').mkdir()
+        (tmp_path / 'pids' / f'backend_{self.PORT}.pid').write_text('4242')
+        monkeypatch.setattr(cli, '_pid_alive', lambda p: p == 4242)
+        monkeypatch.setattr(cli, '_new_cli_version', lambda: '2.0.0')
+        monkeypatch.setattr(cli.time, 'sleep', lambda _s: None)
+        # A fake clock: each probe advances it, so the waits are bounded.
+        clock = iter(range(0, 100_000, 1))
+        monkeypatch.setattr(cli.time, 'monotonic', lambda: next(clock))
+
+    def _serve(self, monkeypatch, *bodies):
+        """Probe answers in order; the last one repeats."""
+        seq = list(bodies)
+        monkeypatch.setattr(
+            cli,
+            '_probe_version',
+            lambda _port: seq.pop(0) if len(seq) > 1 else seq[0],
+        )
+
+    def test_returns_once_the_server_runs_the_new_version(
+        self, monkeypatch, capsys
+    ):
+        self._serve(
+            monkeypatch,
+            {'version': '1.0.0', 'pending_version': None},
+            {'version': '1.0.0', 'pending_version': '2.0.0'},
+            None,  # mid-restart: nothing answering
+            {'version': '2.0.0', 'pending_version': None},
+        )
+        assert cli._await_servers_upgraded('1.0.0') == 0
+        assert 'now running 2.0.0' in capsys.readouterr().out
+
+    def test_a_server_that_never_picks_it_up_fails_the_upgrade(
+        self, monkeypatch, capsys
+    ):
+        self._serve(monkeypatch, {'version': '1.0.0', 'pending_version': None})
+        assert cli._await_servers_upgraded('1.0.0') == 1
+        assert f'vibe-seller stop --port {self.PORT}' in capsys.readouterr().err
+
+    def test_draining_for_running_tasks_is_reported_not_failed(
+        self, monkeypatch, capsys
+    ):
+        self._serve(
+            monkeypatch, {'version': '1.0.0', 'pending_version': '2.0.0'}
+        )
+        assert cli._await_servers_upgraded('1.0.0') == 0
+        assert 'restarts onto 2.0.0 by itself' in capsys.readouterr().out
+
+    def test_a_server_too_old_to_restart_itself_gets_the_command(
+        self, monkeypatch, capsys
+    ):
+        self._serve(monkeypatch, {'version': '1.0.0'})
+        assert cli._await_servers_upgraded('1.0.0') == 0
+        assert f'vibe-seller stop --port {self.PORT}' in capsys.readouterr().out
+
+    def test_nothing_to_wait_for_when_the_version_did_not_change(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(cli, '_new_cli_version', lambda: '1.0.0')
+        self._serve(monkeypatch, {'version': '1.0.0', 'pending_version': None})
+        assert cli._await_servers_upgraded('1.0.0') == 0
+
+    def test_no_running_server_runs_nothing(self, tmp_path, monkeypatch):
+        (tmp_path / 'pids' / f'backend_{self.PORT}.pid').unlink()
+        with patch.object(cli.subprocess, 'run') as run:
+            assert cli._await_servers_upgraded('1.0.0') == 0
+        run.assert_not_called()

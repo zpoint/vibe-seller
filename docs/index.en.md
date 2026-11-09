@@ -155,7 +155,7 @@ Upgrade:
 vibe-seller upgrade
 ```
 
-This also upgrades the Claude Code CLI it runs.
+This also upgrades the Claude Code CLI it runs. The running server restarts onto the new version by itself; if tasks are running, it first lets them finish (starting no new ones), then restarts.
 
 Uninstall:
 

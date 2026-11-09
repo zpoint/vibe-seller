@@ -1,0 +1,71 @@
+name: CLI Upgrade Restart Test
+
+# Proves `vibe-seller upgrade` leaves the running server on the NEW
+# version: tests/releases/test_cli_upgrade_restart.sh builds this
+# checkout as two versions, `uv tool install`s the older one (the
+# install.sh layout), starts it, runs the real `vibe-seller upgrade`,
+# and asserts the server booted again and serves the new version — with
+# no manual start in between (the server restarts itself:
+# app/upgrade_restart.py).
+#
+# A release gate (release.yml calls it via workflow_call), and also run
+# on PRs touching the upgrade/restart surface. macOS and Linux because
+# both ship through `vibe-seller upgrade`; native Windows upgrades via
+# the installer and is covered by windows-upgrade.yml.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/cli.py'
+      - 'app/upgrade_restart.py'
+      - 'app/main.py'
+      - 'app/scheduler/task_queue.py'
+      - 'app/version.py'
+      - 'app/platform.py'
+      - 'tests/releases/test_cli_upgrade_restart.sh'
+      - '.github/workflows/cli-upgrade.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cli-upgrade-restart:
+    name: upgrade restarts the server (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      VIBE_SELLER_TELEMETRY: '0'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # setuptools-scm needs history to build; the test pins the
+          # versions it builds, but the build backend still runs scm.
+          fetch-depth: 0
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install Python 3.11
+        run: uv python install 3.11
+
+      # `vibe-seller upgrade` also moves the project-local Claude Code
+      # CLI with npm — the real upgrade, run in full.
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Install lsof
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y lsof
+
+      - name: Run the upgrade-restart test
+        run: bash tests/releases/test_cli_upgrade_restart.sh

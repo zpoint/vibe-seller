@@ -480,6 +480,10 @@ class TestVersionContracts:
         body = r.json()
         assert 'version' in body
         assert isinstance(body['version'], str) and body['version']
+        # `vibe-seller upgrade` reads it to tell "restarting once tasks
+        # finish" apart from "never picked the upgrade up".
+        assert 'pending_version' in body
+        assert body['pending_version'] is None
 
     async def test_health_includes_version(self, admin_client):
         r = await admin_client.get('/api/health')

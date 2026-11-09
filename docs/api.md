@@ -731,4 +731,5 @@ See [vision.md](vision.md) for the confirm-gate flow and SSE events
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Liveness probe (`{"status": "ok"}`) |
+| GET | `/api/version` | `{ version, pending_version }`. `version` is the code this process loaded (fixed per process — never the metadata installed since). `pending_version` is the newer install the server is draining to restart onto, else `null`; see [subsystems.md § Upgrade restart](subsystems.md#upgrade-restart). |
 | GET | `/api/plugins` | List active plugins' frontend bundles for the dashboard loader: `[{js_extension_path, requires_early_init}]`. Returns `[]` in an OSS-only install (no frontend plugins). See [backend.md § Plugin Framework](backend.md#plugin-framework). |

@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app import telemetry
+from app import telemetry, upgrade_restart
 from app.agent_mcp import router as agent_mcp_router
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.skill_gate_loader import preload_skill_gates
@@ -296,11 +296,16 @@ async def lifespan(app: FastAPI):
         svc_task = asyncio.create_task(factory())
         svc_task.add_done_callback(_log_service_done(svc_name))
         service_tasks.append(svc_task)
+    # Restart onto an upgraded install once idle (app/upgrade_restart.py).
+    upgrade_task = asyncio.create_task(
+        upgrade_restart.watch(task_queue_scheduler, agent_manager)
+    )
     yield
     # Cancel background tasks
     for t in [
         venv_task,
         history_task,
+        upgrade_task,
         *service_tasks,
     ]:
         if not t.done():
@@ -329,6 +334,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning('stop_all during shutdown failed: %s', e)
     telemetry.shutdown()
+    # Last: a shutdown requested by the upgrade watcher comes back as the
+    # new version (same PID, argv, env). A no-op for any other shutdown.
+    upgrade_restart.reexec_if_requested()
 
 
 app = FastAPI(title='Vibe Seller', version=get_version(), lifespan=lifespan)
@@ -410,8 +418,14 @@ async def health():
 async def version():
     """The running server's version — used by the UI footer and the
     Windows updater (to tell whether a newer release is available, and
-    to confirm an upgrade actually took effect)."""
-    return {'version': get_version()}
+    to confirm an upgrade actually took effect).
+
+    ``pending_version`` is set while the server waits for running task
+    agents to finish before restarting onto a newer install."""
+    return {
+        'version': get_version(),
+        'pending_version': upgrade_restart.pending_version(),
+    }
 
 
 # Plugin wiring: mount any plugin-registered backend routers + frontend
