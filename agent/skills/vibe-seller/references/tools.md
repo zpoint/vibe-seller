@@ -500,8 +500,10 @@ images. What the task's file browser shows in the web UI.
 `modified_at`). For `read`: a text file up to 256 KB comes back inline
 (`encoding: "text"`); anything else answers with an absolute `url`
 (plus a base64 `blob` for binaries up to 5 MB) — download it from
-there with the same credentials. For `zip_url`: a `url` that serves
-everything as one ZIP.
+there with the same credentials. An image is also returned as an
+**image content block** (`shown_as_image: true`) so you can look at
+it — over ~3.5 MB as a downscaled JPEG preview; the `url` keeps the
+original. For `zip_url`: a `url` that serves everything as one ZIP.
 
 Paths are relative to the task workspace; `..`, absolute paths and
 backslashes are refused.
@@ -521,12 +523,22 @@ the card is resolved.
 | `action` | string | Required. `get`, `confirm` or `cancel`. |
 | `request_id` | string | Optional. From `get`. Omit to use the card the task holds now. |
 | `prompt` | string | Optional, `confirm` only. An edited prompt — your user may change what was proposed. |
-| `model` | string | Optional, `confirm` only. An edited model id (one of the card's models). |
+| `model` | string | Optional, `confirm` only. A model id from the card's `models`. An unknown id is an error naming the valid ones; a retired id (e.g. `gpt-image-2-2k`) maps to its successor and the reply says so in `notes`. |
+| `add_references` | string[] | Optional, `confirm` only. Extra reference images: paths of files already in the task (see `task_files` list) or `http(s)` URLs. |
+| `reference_uploads` | object[] | Optional, `confirm` only. Images from your side, each `{filename, mime_type, content_base64}` (images only, 10 MB each) — saved through the card's own upload route. |
 
 **Returns.** For `get`: `pending` plus the card (`request_id`,
-`prompt`, `model`, the model `models` catalog, `reference_images`,
-`output_name`, `kind`). For `confirm`/`cancel`: `ok` — the decision
-was delivered; follow the task with `wait_task`.
+`prompt`, `model`, the `models` catalog with each tier's `usd` /
+`cny` price, `reference_images`, `output_name`, `kind`) and
+`references`: each reference, with `shown: N` when it is attached as
+the N-th **image content block** of the reply (task files — look at
+them), or `url` for a remote one (never fetched by the server). For
+`confirm`/`cancel`: `ok` — the decision was delivered (plus the
+confirmed `model` and any `added_references`); follow the task with
+`wait_task`. To answer in words instead of confirming ("make it
+brighter"), `send_message` retires the card and the agent replies.
+The finished image lands in `generated_images/` — `task_files`
+`read` shows it as an image.
 
 **A card is a checkpoint**: show the proposal to your user and confirm
 with their go-ahead (or theirs edits), unless they already told you to
