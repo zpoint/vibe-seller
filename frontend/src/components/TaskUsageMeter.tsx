@@ -73,7 +73,7 @@ export function TaskUsageMeter({ usage }: { usage: TaskUsage }) {
       >
         {pct != null && (
           <span className="w-12 h-1.5 rounded-full bg-gray-200 overflow-hidden" aria-hidden>
-            <span className={`block h-full ${barColor}`} style={{ width: `${pct}%` }} />
+            <span className={`block h-full ${barColor}`} style={{ width: `${Math.max(pct, 4)}%` }} />
           </span>
         )}
         <span data-testid="task-usage-context">

@@ -39,7 +39,7 @@ SKIP_PLAN = SCENARIO.get('skip_plan', False)
 DELAY = SCENARIO.get('delay', 0.05)
 # The model the mock's API calls report. A Claude id on the default
 # profile is priced from the bundled models.dev snapshot (anthropic).
-MODEL = SCENARIO.get('model', 'claude-sonnet-4-5')
+MODEL = SCENARIO.get('model', 'claude-opus-5-5')
 
 
 def emit(event: dict):

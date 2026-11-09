@@ -12,7 +12,9 @@ export function formatTokens(n: number): string {
 }
 
 export function formatCost(usd: number): string {
-  if (usd > 0 && usd < 0.01) return '<$0.01'
+  // Sub-cent runs are common on cheap providers: two significant
+  // digits ($0.0068) say how cheap, where "<$0.01" hides it.
+  if (usd > 0 && usd < 0.01) return `$${usd.toPrecision(2)}`
   return `$${usd < 100 ? usd.toFixed(2) : Math.round(usd)}`
 }
 

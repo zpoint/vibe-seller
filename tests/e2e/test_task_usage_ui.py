@@ -2,7 +2,8 @@
 
 The mock CLI (tests/e2e/mock_cli.py) reports per-call usage exactly as
 the real CLI's partial messages do (message_start / message_delta, plus
-an assistant event per block repeating the id), on ``claude-sonnet-4-5``
+an assistant event per block repeating the id), on ``claude-opus-5-5``
+(a 1M-context model)
 — priced from the bundled models.dev snapshot on the default profile.
 
 Pins, end to end through the real backend:
@@ -38,9 +39,10 @@ if not MOCK_CLI:
 
 pytestmark = [pytest.mark.e2e]
 
-# claude-sonnet-4-5 on models.dev: $3 in / $15 out / $0.30 cache read /
-# $3.75 cache write per 1M tokens.
-RATES = (3.0, 15.0, 0.3, 3.75)
+# claude-opus-5-5 on models.dev: $4 in / $20 out / $0.20 cache read /
+# $5 cache write per 1M tokens; 1M context window.
+RATES = (4.0, 20.0, 0.2, 5.0)
+WINDOW = 1_000_000
 # What one mock call reports (mock_cli._usage / _end_call).
 CALL_INPUT, CALL_CACHE_WRITE, CALL_OUTPUT = 800, 2_000, 250
 
@@ -100,9 +102,9 @@ def test_usage_is_metered_once_per_call_and_priced(api):
     assert done['cache_write_tokens'] == calls * CALL_CACHE_WRITE
     assert done['output_tokens'] == calls * CALL_OUTPUT
     assert done['cost_basis'] == 'catalog'
-    assert done['usage_model'] == 'claude-sonnet-4-5'
+    assert done['usage_model'] == 'claude-opus-5-5'
     assert done['cost_usd'] == pytest.approx(_expected_cost(done), rel=1e-6)
-    assert done['context_window'] == 200_000
+    assert done['context_window'] == WINDOW
     assert 0 < done['context_tokens'] < done['context_window']
     assert done['cost_usd'] > planned['cost_usd'] > 0
 
@@ -120,7 +122,7 @@ def test_chip_renders_and_updates_live(api, authenticated_page):
     expect(chip).to_be_visible(timeout=15_000)
     pct = round(planned['context_tokens'] / planned['context_window'] * 100)
     expect(page.get_by_test_id('task-usage-context')).to_have_text(
-        re.compile(rf'^{pct}% · .+ / 200k$')
+        re.compile(rf'^{pct}% · .+ / 1M$')
     )
     cost = page.get_by_test_id('task-usage-cost')
     expect(cost).to_have_text(f'· ≈${planned["cost_usd"]:.2f}')
@@ -139,5 +141,5 @@ def test_chip_renders_and_updates_live(api, authenticated_page):
 
     chip.click()
     details = page.get_by_test_id('task-usage-details')
-    expect(details).to_contain_text('claude-sonnet-4-5')
+    expect(details).to_contain_text('claude-opus-5-5')
     expect(details).to_contain_text('models.dev')

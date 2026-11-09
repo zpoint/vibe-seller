@@ -55,7 +55,8 @@ describe('usage formatting', () => {
 
   it.each([
     [0, '$0.00'],
-    [0.004, '<$0.01'],
+    [0.004, '$0.0040'],
+    [0.00684, '$0.0068'],
     [1.2345, '$1.23'],
     [250.4, '$250'],
   ])('formatCost(%f) = %s', (n, out) => {
@@ -80,6 +81,11 @@ describe('TaskUsageMeter', () => {
     renderMeter(METERED)
     expect(screen.getByTestId('task-usage-context')).toHaveTextContent('45% · 452k / 1M')
     expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('≈$1.23')
+  })
+
+  it('shows a sub-cent cost instead of hiding it', () => {
+    renderMeter({ ...METERED, cost_usd: 0.00684 })
+    expect(screen.getByTestId('task-usage-cost')).toHaveTextContent('≈$0.0068')
   })
 
   it('says "included" for a plan run instead of a $0 cost', () => {
