@@ -209,14 +209,20 @@ the wizard, or open <http://localhost:7777> yourself.
 ### 2. Add your LLM key
 
 `Settings → AI` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen / MiMo
+all work), paste your API key, save. Keys are encrypted at rest.
 
 > **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
 > the path of least resistance — sign up, top up $2–3,
 > pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> MiniMax, GLM, Qwen and MiMo also offer pay-as-you-go; for heavy
+> use, each sells a Token Plan / Coding Plan (a plan key needs the
+> matching "Plan" preset). Kimi needs a membership that includes
+> Kimi Code.
+>
+> **Not sure where to get a key?** See [Get an API Key](docs/llm-keys.en.md)
+> — where to sign up, where to click, and which preset to pick, for
+> every provider.
 
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
@@ -313,14 +319,20 @@ default).
 ### 5. Add your LLM key
 
 `Settings → AI` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen / MiMo
+all work), paste your API key, save. Keys are encrypted at rest.
 
 > **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
 > the path of least resistance — sign up, top up $2–3,
 > pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> MiniMax, GLM, Qwen and MiMo also offer pay-as-you-go; for heavy
+> use, each sells a Token Plan / Coding Plan (a plan key needs the
+> matching "Plan" preset). Kimi needs a membership that includes
+> Kimi Code.
+>
+> **Not sure where to get a key?** See [Get an API Key](docs/llm-keys.en.md)
+> — where to sign up, where to click, and which preset to pick, for
+> every provider.
 
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
@@ -450,14 +462,20 @@ default).
 ### 5. Add your LLM key
 
 `Settings → AI` → pick a provider (DeepSeek bills per token,
-Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen all
-work), paste your API key, save. Keys are encrypted at rest.
+Claude has the highest ceiling, Kimi / MiniMax / GLM / Qwen / MiMo
+all work), paste your API key, save. Keys are encrypted at rest.
 
 > **No key yet?** [DeepSeek](https://platform.deepseek.com/) is
 > the path of least resistance — sign up, top up $2–3,
 > pay-as-you-go per token (cost per task scales with task size).
-> The other providers usually sell prepaid monthly token packs;
-> pick a plan that fits your usage.
+> MiniMax, GLM, Qwen and MiMo also offer pay-as-you-go; for heavy
+> use, each sells a Token Plan / Coding Plan (a plan key needs the
+> matching "Plan" preset). Kimi needs a membership that includes
+> Kimi Code.
+>
+> **Not sure where to get a key?** See [Get an API Key](docs/llm-keys.en.md)
+> — where to sign up, where to click, and which preset to pick, for
+> every provider.
 
 > Already signed in to Anthropic via Claude Code on this machine?
 > Vibe Seller reuses that session — skip this step.
