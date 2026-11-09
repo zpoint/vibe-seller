@@ -12,6 +12,7 @@ from app.email.sender import (
     ensure_send_allowed,
     send_email,
 )
+from app.models.email_account import EmailAccount
 
 pytestmark = pytest.mark.unit
 
@@ -184,13 +185,12 @@ class TestSendPermission:
 
     @pytest.mark.parametrize(
         'value',
-        # False is the column default; None and a bare MagicMock stand
-        # for "unset / not a real bool" — all must refuse (default deny).
-        [False, None, 'unset'],
+        # The user's explicit off — as a bool and as SQLite stores it.
+        [False, 0],
     )
     @pytest.mark.asyncio
     async def test_refused_before_any_smtp(self, mock_account, value):
-        mock_account.allow_send = MagicMock() if value == 'unset' else value
+        mock_account.allow_send = value
         with (
             patch('smtplib.SMTP_SSL') as ssl_cls,
             patch('smtplib.SMTP') as plain_cls,
@@ -240,5 +240,39 @@ class TestSendPermission:
             == []
         )
 
-    def test_allowed_is_a_no_op(self, mock_account):
-        ensure_send_allowed(mock_account)  # allow_send=True: no raise
+    @pytest.mark.parametrize(
+        'value',
+        # True, SQLite's 1, and None: "never decided" means the default,
+        # and the default is on (column NOT NULL DEFAULT 1).
+        [True, 1, None],
+    )
+    def test_on_or_undecided_is_allowed(self, mock_account, value):
+        mock_account.allow_send = value
+        ensure_send_allowed(mock_account)  # no raise
+
+    @pytest.mark.asyncio
+    async def test_unflushed_new_account_sends(self):
+        """A brand-new ORM object (allow_send still None until flush)
+        follows the column default: on."""
+        account = EmailAccount(
+            id='new-1',
+            email='shop@example.com',
+            encrypted_password='x',
+            imap_host='imap.example.com',
+            smtp_host='smtp.example.com',
+            smtp_port=465,
+            smtp_use_tls=False,
+            created_by='u1',
+        )
+        assert account.allow_send is None
+        init_email_db(account.id)
+        with patch('smtplib.SMTP_SSL') as ssl_cls:
+            result = await send_email(
+                account=account,
+                password='pw',
+                to='buyer@example.com',
+                subject='Hi',
+                body='x',
+            )
+        assert result['ok'] is True
+        ssl_cls.return_value.sendmail.assert_called_once()

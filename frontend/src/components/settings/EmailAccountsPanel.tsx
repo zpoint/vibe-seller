@@ -148,7 +148,7 @@ export function EmailAccountsPanel({ emailAccounts, loadEmailAccounts, stores, i
     setSaving(false)
   }
 
-  // Per-mailbox send permission. Off by default; the server refuses any
+  // Per-mailbox send permission. On by default; the server refuses any
   // agent send from a mailbox where this is off (app/email/sender.py).
   const [sendSaving, setSendSaving] = useState<Record<string, boolean>>({})
   const [sendError, setSendError] = useState<Record<string, string>>({})

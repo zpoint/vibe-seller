@@ -883,10 +883,16 @@ class TestManageEmailAccount:
         # never carries it.
         assert 'mail-pass-1234' not in json.dumps(data)
 
-    async def test_send_refused_without_permission(self, admin_client):
-        """The external toolset hits the same gate: refused, as an MCP
-        tool error the agent can read, before any SMTP connection."""
+    async def test_send_refused_when_turned_off(self, admin_client):
+        """The external toolset hits the same gate: once the user turns
+        sending off (web UI), refused as an MCP tool error the agent
+        can read, before any SMTP connection."""
         account_id = await self._create(admin_client)
+        off = await admin_client.put(
+            f'/api/email-accounts/{account_id}/send-permission',
+            json={'allow_send': False},
+        )
+        assert off.status_code == 200, off.text
         with (
             mock.patch('smtplib.SMTP_SSL') as ssl_cls,
             mock.patch('smtplib.SMTP') as plain_cls,
@@ -904,15 +910,19 @@ class TestManageEmailAccount:
             )
         assert envelope['isError'] is True
         text = envelope['content'][0]['text']
-        assert 'turned off' in text
+        assert 'turned sending off' in text
         assert 'Settings → Email' in text
         ssl_cls.assert_not_called()
         plain_cls.assert_not_called()
 
-    async def test_update_cannot_grant_send_permission(self, admin_client):
+    async def test_update_cannot_change_send_permission(self, admin_client):
         """``allow_send`` is not an editable field of the tool: the
-        user grants it in the web UI, not the agent."""
+        user sets it in the web UI, not the agent."""
         account_id = await self._create(admin_client)
+        await admin_client.put(
+            f'/api/email-accounts/{account_id}/send-permission',
+            json={'allow_send': False},
+        )
         r = await rpc(
             admin_client,
             'tools/call',

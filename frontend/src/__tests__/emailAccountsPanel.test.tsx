@@ -130,7 +130,8 @@ const ACCOUNT = {
   smtp_host: 'smtp.example.com',
   smtp_port: 465,
   smtp_use_tls: false,
-  allow_send: false,
+  // What the API returns for a new mailbox: sending on by default.
+  allow_send: true,
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
 }
@@ -156,46 +157,47 @@ describe('EmailAccountsPanel send permission switch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockApi.get.mockResolvedValue([])
-    mockApi.put.mockResolvedValue({ ...ACCOUNT, allow_send: true })
+    mockApi.put.mockResolvedValue({ ...ACCOUNT, allow_send: false })
   })
 
-  it('renders off by default with label and hint', () => {
+  it('renders on by default with label and hint', () => {
     renderWithAccount(ACCOUNT)
     const sw = screen.getByRole('switch', {
       name: 'Let the AI send email from this mailbox',
     })
-    expect(sw.getAttribute('aria-checked')).toBe('false')
-    screen.getByText((c) => c.startsWith('Off by default'))
+    expect(sw.getAttribute('aria-checked')).toBe('true')
+    screen.getByText((c) => c.startsWith('On by default'))
   })
 
-  it('renders the zh label', () => {
+  it('renders the zh label and hint', () => {
     renderWithAccount(ACCOUNT, 'zh')
     screen.getByRole('switch', { name: '允许 AI 用这个邮箱发邮件' })
+    screen.getByText((c) => c.startsWith('默认开启'))
   })
 
-  it('turning it on PUTs allow_send=true and reloads', async () => {
+  it('turning it off PUTs allow_send=false and reloads', async () => {
     const reload = vi.fn()
     renderWithAccount(ACCOUNT, 'en', reload)
     fireEvent.click(screen.getByRole('switch'))
     await waitFor(() =>
       expect(mockApi.put).toHaveBeenCalledWith(
         '/api/email-accounts/acct-1/send-permission',
-        { allow_send: true },
+        { allow_send: false },
       ),
     )
     // Once on mount, once after the save.
     await waitFor(() => expect(reload).toHaveBeenCalledTimes(2))
   })
 
-  it('turning it off PUTs allow_send=false', async () => {
-    renderWithAccount({ ...ACCOUNT, allow_send: true })
+  it('turning it back on PUTs allow_send=true', async () => {
+    renderWithAccount({ ...ACCOUNT, allow_send: false })
     const sw = screen.getByRole('switch')
-    expect(sw.getAttribute('aria-checked')).toBe('true')
+    expect(sw.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(sw)
     await waitFor(() =>
       expect(mockApi.put).toHaveBeenCalledWith(
         '/api/email-accounts/acct-1/send-permission',
-        { allow_send: false },
+        { allow_send: true },
       ),
     )
   })

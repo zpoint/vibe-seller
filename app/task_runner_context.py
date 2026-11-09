@@ -62,7 +62,7 @@ class Mailbox(NamedTuple):
     """A linked email account as the prompt sees it."""
 
     email: str
-    allow_send: bool = False
+    allow_send: bool = True
 
 
 def send_policy_note(mailboxes: Sequence[Mailbox]) -> str:
@@ -81,8 +81,8 @@ def send_policy_note(mailboxes: Sequence[Mailbox]) -> str:
         + ', '.join(blocked)
         + '. Do not call vibe_seller_send_email for these — it is '
         'refused. Draft the email and show it to the user instead, and '
-        'tell them sending can be enabled per mailbox in Settings → '
-        'Email.'
+        'tell them they can turn sending back on for that mailbox in '
+        'Settings → Email.'
     )
     if sendable:
         note = 'Sending is allowed from: ' + ', '.join(sendable) + '. ' + note

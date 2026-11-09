@@ -414,11 +414,25 @@ class TestEmailSendPolicy:
             task,
             store,
             header=TaskHeader.AUTO,
-            store_emails=[Mailbox('seller@example.com')],
+            store_emails=[Mailbox('seller@example.com', allow_send=False)],
         )
         body = bundle.system_extra
         assert 'Sending is allowed from' not in body
         assert 'Read/draft only' in body
+
+    @pytest.mark.asyncio
+    async def test_store_task_default_all_sendable(
+        self, _patch_async_session, task, store
+    ):
+        bundle = await build_system_extra(
+            task,
+            store,
+            header=TaskHeader.AUTO,
+            store_emails=[Mailbox('seller@example.com')],
+        )
+        body = bundle.system_extra
+        assert 'Sending is allowed from: seller@example.com.' in body
+        assert 'Read/draft only' not in body
 
     @pytest.mark.asyncio
     async def test_store_mailboxes_read_from_db(
@@ -434,7 +448,6 @@ class TestEmailSendPolicy:
                     email='seller@example.com',
                     encrypted_password='x',
                     imap_host='imap.example.com',
-                    allow_send=True,
                     created_by='user-1',
                 ),
                 EmailAccount(
@@ -442,6 +455,7 @@ class TestEmailSendPolicy:
                     email='support@example.com',
                     encrypted_password='x',
                     imap_host='imap.example.com',
+                    allow_send=False,
                     created_by='user-1',
                 ),
             ])
@@ -466,6 +480,16 @@ class TestEmailSendPolicy:
                     email='shop@example.com',
                     encrypted_password='x',
                     imap_host='imap.example.com',
+                    allow_send=False,
+                    created_by='user-1',
+                )
+            )
+            db.add(
+                EmailAccount(
+                    id='ea-4',
+                    email='sales@example.com',
+                    encrypted_password='x',
+                    imap_host='imap.example.com',
                     created_by='user-1',
                 )
             )
@@ -475,6 +499,7 @@ class TestEmailSendPolicy:
         )
         body = bundle.system_extra
         assert 'shop@example.com (not linked to any store)' in body
+        assert 'Sending is allowed from: sales@example.com.' in body
         assert 'turned off by the user): shop@example.com.' in body
 
 

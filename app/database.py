@@ -91,10 +91,11 @@ def _ensure_added_columns(conn) -> None:
         ('tasks', 'retry_count', 'INTEGER NOT NULL DEFAULT 0'),
         ('tasks', 'paused_seconds', 'INTEGER NOT NULL DEFAULT 0'),
         ('tasks', 'paused_since', 'TEXT'),
-        # Per-mailbox send permission. Mailboxes that predate it start
-        # OFF (owner's call: default deny); the user opts each one in
-        # under Settings → Email. Enforced in app/email/sender.py.
-        ('email_accounts', 'allow_send', 'BOOLEAN NOT NULL DEFAULT 0'),
+        # Per-mailbox send permission. Mailboxes that predate it come out
+        # ON, so upgrading changes nothing; the user turns sending off
+        # per mailbox under Settings → Email. Enforced in
+        # app/email/sender.py.
+        ('email_accounts', 'allow_send', 'BOOLEAN NOT NULL DEFAULT 1'),
     ]
     for table, column, sqltype in added:
         cols = {

@@ -63,7 +63,7 @@ class EmailAccountResponse(BaseModel):
     smtp_host: str | None = None
     smtp_port: int | None = None
     smtp_use_tls: bool = True
-    allow_send: bool = False
+    allow_send: bool = True
     created_at: str
     updated_at: str
     # Never expose password

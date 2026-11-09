@@ -6,8 +6,9 @@ description: Email integration — connect a mailbox in Vibe Seller so AI can re
 
 Connect your customer-service mailbox to Vibe Seller and the AI can pull
 up the inbox while running a task, sort messages the way you want, and
-draft replies — and, once you allow it for a mailbox, send them too. No
-more copying and pasting between windows.
+draft and send replies — no more copying and pasting between windows.
+If you don't want the AI sending from a mailbox, turn sending off for
+that mailbox.
 
 Everything runs over standard IMAP / SMTP. **You never type your email
 password** — 163 and QQ Mail use an *authorization code*, Gmail uses an
@@ -170,28 +171,30 @@ Three quick checks:
 3. Create a task asking "what's the latest mail in this mailbox?" —
    if the AI reports recent subjects and senders, you are done.
 
-## Let the AI send email
+## Turn off AI sending
 
-A newly added mailbox **cannot send** by default: the AI can read,
-sort and draft, but an actual send is refused by the server. To let the
-AI send from a mailbox, turn it on **per mailbox**:
+Every mailbox **can send** by default: the AI can read, sort, draft and
+send. If you don't want the AI sending from a mailbox (say, read and
+draft only), turn it off **per mailbox**:
 
 1. Go to **Settings → Email** and find the mailbox in the list;
-2. Turn on the **"Let the AI send email from this mailbox"** switch on
-   its card (blue means on);
-3. Each mailbox is separate: turning it on for mailbox A leaves
-   mailbox B read/draft-only.
+2. Turn off the **"Let the AI send email from this mailbox"** switch on
+   its card (grey means off);
+3. Each mailbox is separate: turning it off for mailbox A leaves
+   mailbox B sending as usual.
 
-![The "Let the AI send email from this mailbox" switch on a mailbox card](images/email_allow_send_en.png)
+To allow sending again, turn the same switch back on.
+
+![The "Let the AI send email from this mailbox" switch: off for the top mailbox, on for the bottom one](images/email_allow_send_en.png)
 
 **Verify**: create a task asking the AI to "send a test email from this
 mailbox to me" (give it another inbox of yours). With the switch on, the
 mail arrives within a few minutes; with it off, the AI tells you sending
-from that mailbox is turned off and shows you the draft instead.
+from that mailbox has been turned off and shows you the draft instead.
 
-You can switch it off at any time and it takes effect immediately. The
-rule is enforced on the server, not left to the AI: a mailbox without
-the permission cannot send, whatever the task says.
+Changes take effect immediately. The rule is enforced on the server, not
+left to the AI: a mailbox with sending turned off cannot send, whatever
+the task says.
 
 Only you can change the switch, signed in to the web UI: neither the AI
 inside a task nor an external AI client using an API key can. **This
@@ -208,11 +211,12 @@ matters to you.
   5 minutes, and a task can trigger an immediate sync;
 - **Sort and summarise**: group messages by your rules, extract the
   key points, turn threads into tables or lists;
-- **Send mail**: only from mailboxes whose "Let the AI send email from
-  this mailbox" switch is on (off by default — see
-  [Let the AI send email](#let-the-ai-send-email)). While it is off,
-  the AI shows you the drafted email so you can send it yourself or
-  turn the switch on and ask again. Asking "show me before sending" in
+- **Send mail**: draft replies and send them as instructed. Each
+  mailbox's "Let the AI send email from this mailbox" switch is on by
+  default and you can turn it off per mailbox (see
+  [Turn off AI sending](#turn-off-ai-sending)). While it is off, the AI
+  shows you the drafted email so you can send it yourself or turn the
+  switch back on and ask again. Asking "show me before sending" in
   the task keeps you in the loop.
 
 Mail stays inside your own deployment: the mailbox password is stored
@@ -263,10 +267,11 @@ store's tasks.
 
 <details markdown="1"><summary><b>The AI says it can't send email?</b></summary>
 
-If the AI replies that sending from a mailbox is turned off, that
-mailbox's send permission is still off — every new mailbox starts that
-way. Go to **Settings → Email**, turn on **"Let the AI send email from
-this mailbox"** on that mailbox's card, and ask the task to send again.
+If the AI replies that sending from a mailbox has been turned off, that
+mailbox's **"Let the AI send email from this mailbox"** switch was
+turned off (mailboxes start with it on, so someone switched it off in
+Settings). Go to **Settings → Email**, turn it back on on that mailbox's
+card, and ask the task to send again.
 
 If the switch is on and sending still fails, check two things: the card
 shows an SMTP server (with "No SMTP" it cannot send), and the

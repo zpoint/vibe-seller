@@ -3,8 +3,10 @@
 Sends emails via SMTP and records them in the per-account
 SQLite DB so they are immediately visible to agents.
 
-THE INVARIANT: no email leaves a mailbox whose owner has not turned on
-``EmailAccount.allow_send``. The check lives HERE, in the module that
+THE INVARIANT: no email leaves a mailbox whose owner has turned
+``EmailAccount.allow_send`` off. Sending is on by default (the owner's
+call: on by default changes nothing for existing users; off would); the
+user turns it off per mailbox. The check lives HERE, in the module that
 opens the SMTP connection, not in the routes that call it: every send
 path (the REST endpoint, the in-task MCP tool that POSTs to it, the
 external ``/api/mcp`` toolset that calls the route in-process) funnels
@@ -27,8 +29,8 @@ from app.models.email_account import EmailAccount
 
 logger = logging.getLogger(__name__)
 
-# Where the user turns sending on. Kept next to the gate so the refusal
-# can never point at a place the UI no longer has.
+# Where the user turns sending back on. Kept next to the gate so the
+# refusal can never point at a place the UI no longer has.
 SEND_PERMISSION_LOCATION = (
     'Settings → Email, switch "Let the AI send email from this '
     'mailbox" on that mailbox'
@@ -36,7 +38,7 @@ SEND_PERMISSION_LOCATION = (
 
 
 class SendNotAllowedError(Exception):
-    """The mailbox's owner has not allowed sending from it.
+    """The user has turned sending off for this mailbox.
 
     The message is written for the agent that attempted the send: what
     happened, what the user can do, and what the agent can still do.
@@ -45,20 +47,26 @@ class SendNotAllowedError(Exception):
     def __init__(self, email: str):
         self.email = email
         super().__init__(
-            f'Sending from {email} is turned off, so nothing was sent. '
-            'Do not retry. Tell the user they can enable it in '
+            f'The user has turned sending off for {email}, so nothing was '
+            'sent. Do not retry. Tell the user they can turn it back on in '
             f'{SEND_PERMISSION_LOCATION}. You can still draft the email '
             'and show it to the user.'
         )
 
 
 def ensure_send_allowed(account: EmailAccount) -> None:
-    """Raise :class:`SendNotAllowedError` unless sending is enabled.
+    """Raise :class:`SendNotAllowedError` if the user turned sending off.
 
-    Compared with ``is True`` so an unset or unknown value is a
-    refusal: default deny.
+    Only an explicit off (``False``, or a falsy stored value such as
+    ``0``) refuses. ``None`` — "never decided" — is allowed, because it
+    can only mean the default and the default is on: the column is
+    ``NOT NULL DEFAULT 1``, so a stored row is never NULL, and ``None``
+    appears only on an object that has not been flushed yet, whose
+    column default is likewise on. The refusal must track the user's
+    decision, and the only way to record "off" is the user switching it
+    off (``PUT …/send-permission``, interactive-only).
     """
-    if account.allow_send is not True:
+    if account.allow_send is not None and not account.allow_send:
         raise SendNotAllowedError(account.email)
 
 

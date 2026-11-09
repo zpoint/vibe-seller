@@ -17,13 +17,14 @@ mailbox or recipient is hardcoded; neither is ever written to a file.
 
 Two legs, in order, against the same mailbox:
 
-1. ``allow_send`` OFF → a task asking the agent to send a short test
-   email. Asserts no ``vibe_seller_send_email`` call returned ok, any
-   call that was made came back with the permission refusal, and the
-   task's result tells the user sending is turned off.
-2. ``allow_send`` ON → a task to send an email whose subject carries a
-   unique token. Asserts the tool call carried the token and returned
-   ``ok: true`` (one real email lands in ``VIBE_E2E_EMAIL_TO``).
+1. ``allow_send`` ON (the default) → a task to send an email whose
+   subject carries a unique token. Asserts the tool call carried the
+   token and returned ``ok: true`` (one real email lands in
+   ``VIBE_E2E_EMAIL_TO``).
+2. The user turns ``allow_send`` OFF → a task asking the agent to send
+   a short test email. Asserts no ``vibe_seller_send_email`` call
+   returned ok, any call that was made came back with the permission
+   refusal, and the task's result tells the user sending is turned off.
 
 The mailbox's original ``allow_send`` is restored afterwards.
 
@@ -54,7 +55,7 @@ pytestmark = [pytest.mark.e2e]
 
 SEND_TOOL = 'vibe_seller_send_email'
 # The refusal text the server returns (app/email/sender.py).
-REFUSAL_MARKER = 'turned off'
+REFUSAL_MARKER = 'turned sending off'
 # How a task result may tell the user sending is off — any language
 # the agent answers in.
 REPORT_MARKERS = (
@@ -179,35 +180,14 @@ def _returned_ok(text: str) -> bool:
         return '"ok": true' in text or '"ok":true' in text
 
 
-def test_send_refused_then_allowed(api_client: httpx.Client, mailbox):
+def test_send_by_default_then_refused_when_off(
+    api_client: httpx.Client, mailbox
+):
     nonce = uuid.uuid4().hex[:8]
 
-    # ── Leg 1: permission OFF ───────────────────────────────────
-    _set_allow_send(api_client, mailbox['id'], False)
-    refused_subject = f'Vibe Seller refused-send check {nonce}'
-    final = _run_task(
-        api_client,
-        f'Send a test email ({nonce})',
-        f'Please send a short test email from {mailbox["email"]} to '
-        f'{mailbox["to"]} with the subject "{refused_subject}" and a '
-        'one-line body saying this is a test. Then tell me whether it '
-        'was sent.',
-    )
-    assert final['status'] == 'completed', (
-        f'leg 1 ended {final["status"]}: {(final.get("error") or "")[:300]}'
-    )
-    calls = _send_calls(api_client, final['id'])
-    assert not any(_returned_ok(text) for _, text in calls), (
-        'a send succeeded while allow_send was off'
-    )
-    for _, text in calls:
-        assert REFUSAL_MARKER in text, f'unexpected send result: {text[:200]}'
-    report = (final.get('result') or '').lower()
-    assert any(marker in report for marker in REPORT_MARKERS), (
-        f'the task did not tell the user sending is off: {report[:300]}'
-    )
-
-    # ── Leg 2: permission ON ────────────────────────────────────
+    # ── Leg 1: the default — sending ON ─────────────────────────
+    # Set explicitly in case this server's mailbox was turned off
+    # earlier; the fixture restores whatever it was.
     _set_allow_send(api_client, mailbox['id'], True)
     token = f'vibe-e2e-{nonce}'
     final = _run_task(
@@ -218,7 +198,7 @@ def test_send_refused_then_allowed(api_client: httpx.Client, mailbox):
         f'{token}" and a one-line body saying this is a test.',
     )
     assert final['status'] == 'completed', (
-        f'leg 2 ended {final["status"]}: {(final.get("error") or "")[:300]}'
+        f'leg 1 ended {final["status"]}: {(final.get("error") or "")[:300]}'
     )
     calls = _send_calls(api_client, final['id'])
     sent = [
@@ -231,3 +211,28 @@ def test_send_refused_then_allowed(api_client: httpx.Client, mailbox):
         text[:200] for _, text in calls
     )
     print(f'\n[email-send-e2e] sent; look for subject token {token}')
+
+    # ── Leg 2: the user turns sending OFF ───────────────────────
+    _set_allow_send(api_client, mailbox['id'], False)
+    refused_subject = f'Vibe Seller refused-send check {nonce}'
+    final = _run_task(
+        api_client,
+        f'Send a test email ({nonce})',
+        f'Please send a short test email from {mailbox["email"]} to '
+        f'{mailbox["to"]} with the subject "{refused_subject}" and a '
+        'one-line body saying this is a test. Then tell me whether it '
+        'was sent.',
+    )
+    assert final['status'] == 'completed', (
+        f'leg 2 ended {final["status"]}: {(final.get("error") or "")[:300]}'
+    )
+    calls = _send_calls(api_client, final['id'])
+    assert not any(_returned_ok(text) for _, text in calls), (
+        'a send succeeded while allow_send was off'
+    )
+    for _, text in calls:
+        assert REFUSAL_MARKER in text, f'unexpected send result: {text[:200]}'
+    report = (final.get('result') or '').lower()
+    assert any(marker in report for marker in REPORT_MARKERS), (
+        f'the task did not tell the user sending is off: {report[:300]}'
+    )

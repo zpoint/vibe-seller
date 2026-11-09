@@ -404,7 +404,7 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/email-accounts` | List email accounts |
-| POST | `/api/email-accounts` | Create email account (password encrypted; `allow_send` always starts `false` — a body naming it is a 422) |
+| POST | `/api/email-accounts` | Create email account (password encrypted; `allow_send` always starts `true` — a body naming it is a 422) |
 | PUT | `/api/email-accounts/{id}` | Update email account (not `allow_send` — a body naming it is a 422 pointing at the route below) |
 | PUT | `/api/email-accounts/{id}/send-permission` | `{allow_send: bool}` — **interactive-only**: any machine credential gets 403 (see below) |
 | GET | `/api/email-accounts/discover` | Auto-discover IMAP settings |
@@ -420,8 +420,10 @@ On create, if the request body omits `timezone` (or sends `null`), the router re
 | POST | `/api/stores/{id}/emails/poll` | Poll emails (deprecated, use background sync) |
 
 **Send permission (`allow_send`).** Every email account carries a
-boolean `allow_send`, default `false` (also for accounts that predate
-it — `_ensure_added_columns` adds the column as `NOT NULL DEFAULT 0`).
+boolean `allow_send`, default `true` (also for accounts that predate
+it — `_ensure_added_columns` adds the column as `NOT NULL DEFAULT 1`,
+so upgrading changes nothing). The user can turn it off per mailbox;
+only an explicit off refuses (`None`, never stored, means the default).
 The gate is `ensure_send_allowed` in `app/email/sender.py`, called by
 `send_email` and again by the socket-opening `_do_send`, so every send
 path — this route, the in-task `vibe_seller_send_email` MCP tool (which
