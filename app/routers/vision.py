@@ -179,7 +179,12 @@ async def generate_task_image(
     prompt = (body.get('prompt') or '').strip()
     if not prompt:
         raise HTTPException(status_code=400, detail='prompt is required')
-    model = vision.resolve_model_id(body.get('model'))
+    # A fresh proposal may only name a selectable model; the model of a
+    # job still in flight for this task (a 504 resume) is kept.
+    inflight = _INFLIGHT.get(task_id)
+    model = vision.resolve_proposal_id(
+        body.get('model'), keep=inflight[1] if inflight else None
+    )
     reference_images = body.get('reference_images') or []
     output_name = _safe_name(body.get('output_name') or 'image.png')
     kind = body.get('kind') or ''  # optional label e.g. "main"/"infographic"
@@ -198,7 +203,7 @@ async def generate_task_image(
     card = {
         'prompt': prompt,
         'model': model,
-        'models': vision.catalog_public(),
+        'models': vision.catalog_public(include=model),
         'reference_images': reference_images,
         'output_name': output_name,
         'kind': kind,

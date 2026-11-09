@@ -304,11 +304,13 @@ through the UI, or any HTTP file path the agent can reach.
 `task_files(action=list)` names the outputs of a run; `action=read`
 returns a text file (≤ 256 KB) inline, and anything else as an
 **absolute download URL** on the server — a `vst_` bearer works on it
-— plus a base64 `blob` for binaries up to 5 MB. An **image** is also
-returned as an MCP `image` content block, so the client (and the model
-driving it) can look at a generated picture, not only fetch it; one
-over ~3.5 MB is shown as a downscaled JPEG preview while the URL keeps
-the original. `action=zip_url` hands back the everything-in-one-ZIP
+— plus a base64 `blob` for binaries up to 5 MB. An **image** is instead
+returned as an MCP `image` content block (no blob — the block carries
+the bytes), so the client (and the model driving it) can look at a
+generated picture, not only fetch it; one over ~3.5 MB is shown as a
+downscaled JPEG preview while the URL keeps the original. Images in
+one reply share an ~8 MB budget: past it, a card's further references
+are listed rather than shown. `action=zip_url` hands back the everything-in-one-ZIP
 URL the web UI's download button uses.
 
 ### The image confirm gate

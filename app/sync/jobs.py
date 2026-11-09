@@ -22,7 +22,7 @@ import logging
 
 import httpx
 
-from app import ads_skill, vision, vision_catalog
+from app import ads_skill, vision, vision_catalog_sync
 from app.ai import provider_presets_sync
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.plugins import registered_sync_jobs
@@ -190,7 +190,9 @@ async def _run_vision(ctx: SyncContext) -> SyncResult:
     if not api_key:
         return SyncResult.skipped('precondition')
     async with _client_factory() as client:
-        steps = await vision_catalog.sync_once(api_key, client, force=ctx.force)
+        steps = await vision_catalog_sync.sync_once(
+            api_key, client, force=ctx.force
+        )
     statuses = {name: step.get('status') for name, step in steps.items()}
     detail: dict = dict(statuses)
     for name, step in steps.items():

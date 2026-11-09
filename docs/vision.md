@@ -51,7 +51,8 @@ difference is the **reference-image input**: field name and cardinality
 
 ### Kept current by the `vision_catalog` sync job
 
-`app/vision_catalog.py` serves the catalog and refreshes it on the
+`app/vision_catalog.py` serves the catalog (validation + served state;
+the network steps live in `app/vision_catalog_sync.py`) and refreshes it on the
 central sync scheduler (`vision_catalog`, daily) — **only on an install
 with a kie.ai key** (and never in `VISION_FAKE` mode): without a key no
 image can be generated, so there is nothing to refresh. Saving a key in

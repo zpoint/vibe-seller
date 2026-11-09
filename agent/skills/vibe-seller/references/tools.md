@@ -500,10 +500,10 @@ images. What the task's file browser shows in the web UI.
 `modified_at`). For `read`: a text file up to 256 KB comes back inline
 (`encoding: "text"`); anything else answers with an absolute `url`
 (plus a base64 `blob` for binaries up to 5 MB) — download it from
-there with the same credentials. An image is also returned as an
-**image content block** (`shown_as_image: true`) so you can look at
-it — over ~3.5 MB as a downscaled JPEG preview; the `url` keeps the
-original. For `zip_url`: a `url` that serves everything as one ZIP.
+there with the same credentials. An image is instead returned as an
+**image content block** (`shown_as_image: true`, no `blob`) so you can
+look at it — over ~3.5 MB as a downscaled JPEG preview; the `url`
+keeps the original. For `zip_url`: a `url` that serves everything as one ZIP.
 
 Paths are relative to the task workspace; `..`, absolute paths and
 backslashes are refused.
@@ -532,7 +532,9 @@ the card is resolved.
 `cny` price, `reference_images`, `output_name`, `kind`) and
 `references`: each reference, with `shown: N` when it is attached as
 the N-th **image content block** of the reply (task files — look at
-them), or `url` for a remote one (never fetched by the server). For
+them), `url` for a remote one (never fetched by the server), or
+`not_shown` once the reply's image budget is spent (read it with
+`task_files`). A card takes at most 14 references in total. For
 `confirm`/`cancel`: `ok` — the decision was delivered (plus the
 confirmed `model` and any `added_references`); follow the task with
 `wait_task`. To answer in words instead of confirming ("make it

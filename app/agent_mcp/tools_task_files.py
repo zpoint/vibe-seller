@@ -12,12 +12,15 @@ contract they follow is documented there. Three tools:
   image-generation proposal is parked on.
 """
 
+import asyncio
 import os
 from urllib.parse import quote
 
 from app import vision_catalog
 from app.agent_mcp.files import (
     IMAGES_KEY,
+    MAX_IMAGE_BLOCK_BYTES,
+    MAX_REPLY_IMAGE_BYTES,
     absolute_url,
     as_upload_file,
     decode_uploads,
@@ -204,7 +207,10 @@ async def task_files(ctx: McpContext, args: dict) -> dict:
             path,
             _user=ctx.user,
         )
-        return file_result(
+        # File reads and an image preview's Pillow decode block: keep
+        # them off the event loop (SSE streams share it).
+        return await asyncio.to_thread(
+            file_result,
             ctx,
             path=path,
             abs_path=response.path,
@@ -292,15 +298,27 @@ def _show_references(task_id: str, refs: list) -> tuple[list, list]:
 
     Workspace files are SHOWN; a remote URL is listed, never fetched by
     the server (that would be an SSRF hop) — the client can open it.
+    All blocks share :data:`MAX_REPLY_IMAGE_BYTES`: the client forwards
+    this reply to its model, whose request has a ceiling, so once the
+    budget runs low images shrink to previews and then are only listed.
+    Blocking (file I/O, Pillow) — run it in a thread.
     """
     entries, images = [], []
+    budget = MAX_REPLY_IMAGE_BYTES
     for ref in (refs or [])[:MAX_CARD_REFERENCES]:
         entry = {'ref': ref}
         local = _task_ref_path(task_id, ref)
-        block = image_block(local) if local is not None else None
+        block = None
+        if local is not None:
+            block = image_block(
+                local, max_bytes=min(MAX_IMAGE_BLOCK_BYTES, budget)
+            )
         if block is not None:
+            budget -= len(block['data']) * 3 // 4
             images.append(block)
             entry['shown'] = len(images)  # 1-based image number
+        elif local is not None:
+            entry['not_shown'] = 'over the reply image budget; use task_files'
         elif isinstance(ref, str) and ref.startswith(('http://', 'https://')):
             entry['url'] = ref
         entries.append(entry)
@@ -327,12 +345,32 @@ def _confirm_model(card: dict, requested: str) -> tuple[str, str | None]:
     )
 
 
-async def _collect_references(ctx: McpContext, task_id: str, args: dict):
+async def _collect_references(
+    ctx: McpContext, task_id: str, args: dict, existing: int
+):
     """References the operator adds on confirm, as the card's own
     "add reference" does: workspace paths, URLs, or uploaded images
-    (saved through the SAME upload route the card posts to)."""
+    (saved through the SAME upload route the card posts to).
+
+    Everything is validated — count included, against the card's
+    ``existing`` references — BEFORE an upload is written, so a refused
+    call leaves no orphan files behind."""
+    paths = args.get('add_references') or []
+    uploads = decode_uploads(args.get('reference_uploads') or [])
+    total = existing + len(paths) + len(uploads)
+    if total > MAX_CARD_REFERENCES:
+        raise ToolError(
+            f'A card takes at most {MAX_CARD_REFERENCES} reference images '
+            f'in total; this one has {existing} and you added '
+            f'{len(paths) + len(uploads)}.'
+        )
+    for filename, mime_type, _ in uploads:
+        if not mime_type.startswith('image/'):
+            raise ToolError(
+                f'reference_uploads: {filename} is {mime_type}, not an image'
+            )
     added: list[str] = []
-    for raw in args.get('add_references') or []:
+    for raw in paths:
         if not isinstance(raw, str) or not raw.strip():
             raise ToolError('add_references entries must be strings')
         ref = raw.strip()
@@ -346,25 +384,14 @@ async def _collect_references(ctx: McpContext, task_id: str, args: dict):
                 'list them with task_files(action=list)'
             )
         added.append(ref)
-    uploads = args.get('reference_uploads')
-    if uploads:
-        for filename, mime_type, data in decode_uploads(uploads):
-            if not mime_type.startswith('image/'):
-                raise ToolError(
-                    f'reference_uploads: {filename} is {mime_type}, '
-                    'not an image'
-                )
-            saved = await call_route(
-                vision_route.upload_reference,
-                task_id,
-                as_upload_file(filename, mime_type, data),
-                current_user=ctx.user,
-            )
-            added.append(saved['path'])
-    if len(added) > MAX_CARD_REFERENCES:
-        raise ToolError(
-            f'At most {MAX_CARD_REFERENCES} added references per card'
+    for filename, mime_type, data in uploads:
+        saved = await call_route(
+            vision_route.upload_reference,
+            task_id,
+            as_upload_file(filename, mime_type, data),
+            current_user=ctx.user,
         )
+        added.append(saved['path'])
     return added
 
 
@@ -461,8 +488,8 @@ async def image_request(ctx: McpContext, args: dict) -> dict:
                     'working; wait_task reports one the moment it appears.'
                 ),
             }
-        entries, images = _show_references(
-            task_id, pending.get('reference_images') or []
+        entries, images = await asyncio.to_thread(
+            _show_references, task_id, pending.get('reference_images') or []
         )
         out = {'task_id': task_id, 'pending': True, **pending}
         out['references'] = entries
@@ -497,7 +524,9 @@ async def image_request(ctx: McpContext, args: dict) -> dict:
             body['model'], note = _confirm_model(pending, args['model'].strip())
             if note:
                 notes.append(note)
-        added = await _collect_references(ctx, task_id, args)
+        added = await _collect_references(
+            ctx, task_id, args, len(pending.get('reference_images') or [])
+        )
         if added:
             body['added_references'] = added
     await call_route(

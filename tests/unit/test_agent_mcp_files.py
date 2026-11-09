@@ -44,17 +44,20 @@ class TestFileResult:
         assert 'url' not in out
 
     def test_binary_is_url_and_blob(self, tmp_path):
-        f = tmp_path / 'image.png'
-        f.write_bytes(b'\x89PNG\r\n\x1a\nbinary body')
+        # A non-image binary: an image is SHOWN instead (TestImageBlock).
+        f = tmp_path / 'export.xlsx'
+        f.write_bytes(b'PK\x03\x04binary body')
         out = mcp_files.file_result(
             _Ctx(),
-            path='uploads/image.png',
+            path='uploads/export.xlsx',
             abs_path=f,
-            mime_type='image/png',
-            download_path='/api/tasks/t/files/uploads/image.png',
+            mime_type='application/vnd.ms-excel',
+            download_path='/api/tasks/t/files/uploads/export.xlsx',
         )
         assert out['encoding'] == 'url'
-        assert out['url'] == ('http://test/api/tasks/t/files/uploads/image.png')
+        assert out['url'] == (
+            'http://test/api/tasks/t/files/uploads/export.xlsx'
+        )
         assert base64.b64decode(out['blob']) == f.read_bytes()
 
     def test_gb18030_never_turns_a_binary_into_text(self, tmp_path):
@@ -206,9 +209,16 @@ class TestImageBlock:
 
     def test_a_large_image_is_shown_as_a_preview(self, tmp_path, monkeypatch):
         Image = pytest.importorskip('PIL.Image')
+        from PIL import ImageFilter  # noqa: PLC0415
+
         f = tmp_path / 'big.png'
-        Image.new('RGB', (3000, 2000), (20, 90, 200)).save(f)
-        monkeypatch.setattr(mcp_files, 'MAX_IMAGE_BLOCK_BYTES', 1000)
+        # Photo-like: a lossless PNG of ~1.4 MB whose 1568 px JPEG
+        # preview is ~0.1 MB — over the raw limit, under it as a preview.
+        Image.effect_noise((3000, 2000), 40).filter(
+            ImageFilter.GaussianBlur(4)
+        ).convert('RGB').save(f)
+        monkeypatch.setattr(mcp_files, 'MAX_IMAGE_BLOCK_BYTES', 500_000)
+        assert f.stat().st_size > 500_000
         block = mcp_files.image_block(f)
         assert block['mime_type'] == 'image/jpeg'
         import io  # noqa: PLC0415
@@ -229,3 +239,25 @@ class TestImageBlock:
         assert out['shown_as_image'] is True
         assert out[mcp_files.IMAGES_KEY][0]['mime_type'] == 'image/png'
         assert out['url'].endswith('generated_images/image.png')
+        # The image block IS the bytes — no second copy as a JSON blob.
+        assert 'blob' not in out
+
+    def test_only_the_head_is_read_to_rule_out_an_image(
+        self, tmp_path, monkeypatch
+    ):
+        f = tmp_path / 'big.zip'
+        f.write_bytes(b'PK\x03\x04' + b'\x00' * 4096)
+        monkeypatch.setattr(
+            mcp_files.Path,
+            'read_bytes',
+            lambda self: pytest.fail('read the whole file'),
+        )
+        assert mcp_files.image_block(f) is None
+
+    def test_a_budget_too_small_for_any_preview_shows_nothing(self, tmp_path):
+        pytest.importorskip('PIL.Image')
+        from PIL import Image  # noqa: PLC0415
+
+        f = tmp_path / 'big.png'
+        Image.effect_noise((1200, 1200), 100).convert('RGB').save(f)
+        assert mcp_files.image_block(f, max_bytes=100) is None

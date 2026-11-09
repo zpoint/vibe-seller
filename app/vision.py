@@ -99,17 +99,45 @@ def resolve_model_id(model_id: str | None) -> str:
     return default_model()
 
 
+def resolve_proposal_id(model_id: str | None, keep: str | None = None) -> str:
+    """The model a NEW confirm card proposes.
+
+    Only a selectable (visible) model may be proposed: the card lists
+    and prices visible models, and kie.ai rejects a delisted slug. The
+    one exception is ``keep`` — the model of a job already in flight
+    for this task (a 504 resume), which must stay that model or the
+    billed job is orphaned and paid for twice.
+    """
+    ids = model_ids()
+    if model_id in ids:
+        return model_id
+    if model_id and model_id == keep and is_known_model(model_id):
+        return model_id
+    successor = vision_catalog.retired_successor(model_id or '')
+    if successor in ids:
+        return successor
+    return ids[0]
+
+
 def get_model(model_id: str | None) -> ImageModel:
     """Resolve a model id to its ``ImageModel`` (see resolve_model_id)."""
     wanted = resolve_model_id(model_id)
     return next(m for m in vision_catalog.all_models() if m.id == wanted)
 
 
-def catalog_public() -> list[dict]:
+def catalog_public(include: str | None = None) -> list[dict]:
     """The catalog as the frontend/agent see it: id, provider, label, and
     a per-image price hint in both USD and (fixed-rate) CNY. Never the
-    kie.ai slug — that stays server-side."""
+    kie.ai slug — that stays server-side.
+
+    ``include`` adds one hidden model (a resumed job's) so the card can
+    still show the model it proposes, with its price.
+    """
     models = image_models()
+    if include and include not in {m.id for m in models}:
+        models = models + [
+            m for m in vision_catalog.all_models() if m.id == include
+        ]
     return [
         {
             'id': m.id,

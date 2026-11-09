@@ -19,7 +19,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app import vision, vision_catalog as vc, vision_models
+from app import (
+    vision,
+    vision_catalog as vc,
+    vision_catalog_sync as vcs,
+    vision_models,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -174,7 +179,7 @@ async def test_a_non_object_models_body_fails_cleanly():
     transport = httpx.MockTransport(lambda r: httpx.Response(200, json=[1]))
     async with httpx.AsyncClient(transport=transport) as c:
         with pytest.raises(ValueError, match='unexpected models body'):
-            await vc.fetch_available_slugs(c, 'k')
+            await vcs.fetch_available_slugs(c, 'k')
 
 
 def test_retired_map_only_points_at_served_models():
@@ -226,6 +231,14 @@ def _model(mid='m', key='acme', terms=(), usd=0.05):
 def test_record_key_prefers_the_model_query():
     assert vc.record_key('https://kie.ai/x?model=a%2Fb') == 'a/b'
     assert vc.record_key('https://kie.ai/nano-banana-pro') == 'nano-banana-pro'
+
+
+def test_trailing_punctuation_does_not_break_a_term():
+    rows = [_row('acme, image-to-image, 4K.', 0.07, 'https://kie.ai/acme')]
+    assert vc.match_prices([_model(terms=['4k'])], rows) == {'m': 0.07}
+    # …while an inner dot still belongs to the token ('2.5').
+    rows = [_row('acme 2.5 image', 0.05, 'https://kie.ai/acme')]
+    assert vc.match_prices([_model(terms=['2.5'])], rows) == {'m': 0.05}
 
 
 def test_terms_are_word_sequences_not_substrings():
@@ -300,7 +313,12 @@ def test_a_model_added_after_the_availability_check_is_visible():
     vc._commit(hidden=frozenset({'ideogram/v3-remix'}))
     new = family(id='acme-image', slug='acme/image-edit')
     raw = [*vision_models.IMAGE_FAMILIES, new]
-    vc._commit(raw_families=raw, raw_retired={}, catalog_sha='s1')
+    vc._commit(
+        raw_families=raw,
+        raw_retired={},
+        catalog_sha='s1',
+        fetched_under=vc.bundled_fingerprint(),
+    )
     ids = vision.model_ids()
     assert 'acme-image-2k' in ids
     assert not any(i.startswith('ideogram') for i in ids)
@@ -315,12 +333,41 @@ def test_an_upgrade_re_judges_the_cached_catalog(monkeypatch):
         raw_families=[*vision_models.IMAGE_FAMILIES, new],
         raw_retired={},
         catalog_sha='s1',
+        fetched_under=vc.bundled_fingerprint(),
     )
     assert 'acme-image-2k' not in vision.model_ids()
     # "Upgrade": the next release knows the field. Restart = reload.
     monkeypatch.setattr(vc, 'REF_FIELDS', vc.REF_FIELDS | {'ref_imgs'})
     vc.reset()
     assert 'acme-image-2k' in vision.model_ids()
+
+
+def test_a_body_cached_by_an_older_release_is_not_served():
+    """An upgrade ships a newer bundled catalog. A main body cached by the
+    previous release (and stuck there — main 404s, say) must not keep
+    overriding it: new models would never appear and the new release's
+    retired ids would fall to the default."""
+    stale = [family(id='old-only', slug='old/model')]
+    vc._commit(
+        raw_families=stale,
+        raw_retired={},
+        catalog_sha='s1',
+        fetched_under='an-older-release',
+    )
+    vc.reset()
+    ids = vision.model_ids()
+    assert not any(i.startswith('old-only') for i in ids)
+    assert ids == [m.id for m in bundled_models()]
+
+
+async def test_the_same_body_is_re_adopted_after_an_upgrade():
+    fake = FakeKie()
+    await run(fake)
+    # Simulate "cached by an older release": same sha, other fingerprint.
+    vc._commit(fetched_under='an-older-release')
+    out = await run(fake)
+    assert out['catalog']['status'] in ('updated', 'unchanged')
+    assert vc._current().fetched_under == vc.bundled_fingerprint()
 
 
 def test_a_price_matched_under_old_terms_stops_applying():
@@ -360,9 +407,9 @@ class FakeKie:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
-        if url == vc.DEFAULT_CATALOG_URL:
+        if url == vcs.DEFAULT_CATALOG_URL:
             return httpx.Response(self.catalog_status, text=self.catalog)
-        if url == vc.PRICING_URL:
+        if url == vcs.PRICING_URL:
             if self.pricing_status != 200:
                 return httpx.Response(self.pricing_status)
             page = json.loads(request.content)['pageNum']
@@ -375,7 +422,7 @@ class FakeKie:
                     'data': {'records': rows, 'total': len(self.pricing)},
                 },
             )
-        if url == vc.MODELS_URL:
+        if url == vcs.MODELS_URL:
             self.auth_seen.append(request.headers.get('authorization'))
             models = [{'model': s} for s in self.slugs]
             return httpx.Response(
@@ -390,7 +437,7 @@ class FakeKie:
 
 async def run(fake: FakeKie, **kw) -> dict:
     async with httpx.AsyncClient(transport=httpx.MockTransport(fake)) as c:
-        return await vc.sync_once('kie-key', c, **kw)
+        return await vcs.sync_once('kie-key', c, **kw)
 
 
 async def test_full_sync_serves_and_persists(monkeypatch):

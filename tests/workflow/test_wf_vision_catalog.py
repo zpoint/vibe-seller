@@ -14,7 +14,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from app import vision, vision_catalog as vc, vision_models
+from app import (
+    vision,
+    vision_catalog as vc,
+    vision_catalog_sync as vcs,
+    vision_models,
+)
 from app.sync import jobs as sync_jobs
 from app.sync.scheduler import sync_scheduler
 
@@ -39,12 +44,12 @@ class FakeNet:
     def __call__(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
         self.requests.append(url)
-        if url == vc.DEFAULT_CATALOG_URL:
+        if url == vcs.DEFAULT_CATALOG_URL:
             return httpx.Response(
                 200,
                 text=Path(vision_models.__file__).read_text(encoding='utf-8'),
             )
-        if url == vc.PRICING_URL:
+        if url == vcs.PRICING_URL:
             rows = [
                 dict(r, usdPrice='0.07')
                 if r['modelDescription'] == 'Black Forest Labs flux-2 pro, '
@@ -56,7 +61,7 @@ class FakeNet:
                 200,
                 json={'data': {'records': rows, 'total': len(rows)}},
             )
-        if url == vc.MODELS_URL:
+        if url == vcs.MODELS_URL:
             models = [{'model': s} for s in self.slugs]
             return httpx.Response(
                 200,

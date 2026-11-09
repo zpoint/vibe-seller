@@ -140,11 +140,11 @@ def test_confirm_card_edit_and_inline_image(authenticated_page):
         # User edits the prompt and switches the model+tier. The model
         # picker is a left→right cascade (custom popover, not a <select>):
         # click the trigger, pick the provider column, then the model
-        # option (data-model-id is a model-tier id like "nano-banana-2-2k").
+        # option (data-model-id is a model-tier id like "nano-banana-2-1-2k").
         prompt_box.fill('主图：白色棉袜，纯白背景，产品占85%')
         page.locator('[data-testid="image-model-select"]').click()
         page.locator('[data-testid="image-provider-Google"]').click()
-        page.locator('[data-model-id="nano-banana-2-2k"]').click()
+        page.locator('[data-model-id="nano-banana-2-1-2k"]').click()
         page.locator('[data-testid="image-confirm-btn"]').click()
 
         # The generated image renders inline.
@@ -157,6 +157,6 @@ def test_confirm_card_edit_and_inline_image(authenticated_page):
         assert result.get('body', {}).get('status') == 'ok'
         # The user's edits won.
         assert result['body']['prompt'] == '主图：白色棉袜，纯白背景，产品占85%'
-        assert result['body']['model'] == 'nano-banana-2-2k'
+        assert result['body']['model'] == 'nano-banana-2-1-2k'
     finally:
         api.close()

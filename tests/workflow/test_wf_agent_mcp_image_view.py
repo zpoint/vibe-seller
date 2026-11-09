@@ -281,3 +281,114 @@ async def test_the_generated_image_is_shown(admin_client, card):
         },
     )
     assert images_of(env)[0]['mimeType'] == 'image/webp'
+
+
+async def test_too_many_references_are_refused_before_any_upload(
+    admin_client, card
+):
+    """The count is checked first — a refused call leaves no orphan
+    uploads in the task — and it includes the card's own references."""
+    tid, task_dir, gen = await card(reference_images=['refs/bottle.png'] * 13)
+    before = sorted(p.name for p in task_dir.rglob('*') if p.is_file())
+    upload = {
+        'filename': 'extra.png',
+        'mime_type': 'image/png',
+        'content_base64': base64.b64encode(PNG_1PX).decode(),
+    }
+    _, env = await call_tool(
+        admin_client,
+        'image_request',
+        {
+            'task_id': tid,
+            'action': 'confirm',
+            'reference_uploads': [upload, upload],
+        },
+    )
+    assert env['isError'] is True
+    assert 'at most 14' in env['content'][0]['text']
+    after = sorted(p.name for p in task_dir.rglob('*') if p.is_file())
+    assert after == before
+    await call_tool(
+        admin_client, 'image_request', {'task_id': tid, 'action': 'cancel'}
+    )
+    await asyncio.wait_for(gen, 10)
+
+
+async def test_reference_images_share_one_reply_budget(
+    admin_client, card, monkeypatch
+):
+    """A client forwards the reply to its model; once the per-reply
+    image budget is spent, references are listed, not shown."""
+    from app.agent_mcp import tools_task_files  # noqa: PLC0415
+
+    monkeypatch.setattr(
+        tools_task_files, 'MAX_REPLY_IMAGE_BYTES', len(PNG_1PX) + 10
+    )
+    tid, _, gen = await card(reference_images=['refs/bottle.png'] * 3)
+    got, env = await call_tool(
+        admin_client, 'image_request', {'task_id': tid, 'action': 'get'}
+    )
+    assert len(images_of(env)) == 1
+    assert got['references'][0]['shown'] == 1
+    assert all('not_shown' in r for r in got['references'][1:])
+    await call_tool(
+        admin_client, 'image_request', {'task_id': tid, 'action': 'cancel'}
+    )
+    await asyncio.wait_for(gen, 10)
+
+
+async def test_a_fresh_proposal_never_names_a_hidden_model(
+    admin_client, card, tmp_path, monkeypatch
+):
+    """A task's tool enum can predate the sync that hid a model. A NEW
+    card must not propose it (the card lists and prices visible models
+    only, and kie.ai would reject the slug) — but a 504 resume of a job
+    already in flight keeps its model, and the card still lists it."""
+    from app import vision_catalog as vc  # noqa: PLC0415
+    from app.routers import vision as vision_router  # noqa: PLC0415
+
+    monkeypatch.setattr(vc, '_cache_path', lambda: tmp_path / 'vc.json')
+    vc.reset()
+    try:
+        vc._commit(hidden=frozenset({'flux-3/klein-edit-image'}))
+        tid, _, gen = await card(model='flux-3-klein-2k')
+        got, _ = await call_tool(
+            admin_client, 'image_request', {'task_id': tid, 'action': 'get'}
+        )
+        assert got['model'] == vision.default_model()
+        assert 'flux-3-klein-2k' not in {m['id'] for m in got['models']}
+        await call_tool(
+            admin_client, 'image_request', {'task_id': tid, 'action': 'cancel'}
+        )
+        await asyncio.wait_for(gen, 10)
+
+        tid2 = str(uuid.uuid4())
+        vision_router._INFLIGHT[tid2] = ('kie-job-1', 'flux-3-klein-2k')
+        try:
+            queue = event_bus.subscribe()
+            gen2 = asyncio.create_task(
+                admin_client.post(
+                    f'/api/tasks/{tid2}/image/generate',
+                    json={'prompt': 'resume', 'model': 'flux-3-klein-2k'},
+                )
+            )
+            await _wait_card(queue)
+            event_bus.unsubscribe(queue)
+            got2, _ = await call_tool(
+                admin_client,
+                'image_request',
+                {'task_id': tid2, 'action': 'get'},
+            )
+            assert got2['model'] == 'flux-3-klein-2k'
+            assert 'flux-3-klein-2k' in {m['id'] for m in got2['models']}
+            await call_tool(
+                admin_client,
+                'image_request',
+                {'task_id': tid2, 'action': 'cancel'},
+            )
+            await asyncio.wait_for(gen2, 10)
+        finally:
+            vision_router._INFLIGHT.pop(tid2, None)
+            shutil.rmtree(_TASKS_DIR / tid2, ignore_errors=True)
+    finally:
+        vc.reset()

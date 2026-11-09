@@ -34,6 +34,7 @@ its bundled copy; a body with no valid family is rejected.
 from __future__ import annotations
 
 import ast
+import contextlib
 import dataclasses
 import hashlib
 import json
@@ -42,29 +43,14 @@ import math
 import os
 from pathlib import Path
 import re
+import tempfile
 from urllib.parse import parse_qs, urlsplit
-
-import httpx
 
 from app import vision_models
 from app.config import VIBE_SELLER_DIR
-from app.env_options import Options
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CATALOG_URL = (
-    'https://raw.githubusercontent.com/zpoint/vibe-seller/main'
-    '/app/vision_models.py'
-)
-PRICING_URL = 'https://api.kie.ai/client/v1/model-pricing/page'
-MODELS_URL = 'https://api.kie.ai/api/v1/models'
-
-HTTP_TIMEOUT_S = 20.0
-MAX_CATALOG_BYTES = 256 * 1024
-# The pricing API caps pageSize at 100; ~640 rows today. The page cap
-# bounds a misbehaving ``total``.
-_PRICING_PAGE_SIZE = 100
-_PRICING_MAX_PAGES = 20
 
 _MAX_FAMILIES = 30
 _MAX_TIERS = 6
@@ -93,8 +79,6 @@ REF_FIELDS = frozenset({'image_input', 'image_urls', 'input_urls', 'image_url'})
 #: ``input`` params a catalog entry may never set statically: the prompt
 #: and the references are the user's, filled per request.
 _RESERVED_PARAMS = REF_FIELDS | {'prompt', 'callback_url', 'callbackurl'}
-
-_client_factory = httpx.AsyncClient
 
 
 @dataclasses.dataclass(frozen=True)
@@ -368,7 +352,10 @@ def flatten(families: list[dict]) -> list[ImageModel]:
 
 
 def _tokens(text: str) -> list[str]:
-    return _TOKEN_RE.findall(text.lower())
+    # '.' stays inside a token ('2.5', '1.0s') but not at its edges, so
+    # 'image to image, 4K.' still yields '4k'.
+    out = (t.strip('.') for t in _TOKEN_RE.findall(text.lower()))
+    return [t for t in out if t]
 
 
 def _has_run(tokens: list[str], run: list[str]) -> bool:
@@ -471,6 +458,11 @@ class _State:
     raw_families: list | None = None
     raw_retired: dict | None = None
     catalog_sha: str | None = None
+    #: :func:`bundled_fingerprint` of the release that fetched the raw
+    #: body. A different one means an upgrade since: its bundled catalog
+    #: is newer than that body, so the body is not served until main is
+    #: fetched again (a body stuck on 404 must not outlive releases).
+    fetched_under: str | None = None
     #: model id -> (live usd, price_ref it was matched under)
     prices: dict = dataclasses.field(default_factory=dict)
     #: kie slugs kie.ai did NOT list on the last good check. A deny-list,
@@ -486,8 +478,17 @@ class _Served:
     visible: list  # minus hidden slugs; never empty
 
 
+def bundled_fingerprint() -> str:
+    """Identity of THIS release's bundled catalog."""
+    blob = repr((vision_models.IMAGE_FAMILIES, vision_models.RETIRED_MODEL_IDS))
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
 def _resolved(state: _State) -> tuple[list, dict]:
-    if state.raw_families is not None:
+    if (
+        state.raw_families is not None
+        and state.fetched_under == bundled_fingerprint()
+    ):
         try:
             return resolve_catalog(state.raw_families, state.raw_retired)
         except CatalogSourceError:
@@ -533,6 +534,9 @@ def _load_cache() -> _State:
             raw_families=cat.get('families'),
             raw_retired=cat.get('retired'),
             catalog_sha=cat['sha256'],
+            fetched_under=cat.get('fetched_under')
+            if isinstance(cat.get('fetched_under'), str)
+            else None,
         )
     prices = blob.get('prices')
     if isinstance(prices, dict):
@@ -561,15 +565,25 @@ def _write_cache(state: _State) -> None:
             'sha256': state.catalog_sha,
             'families': state.raw_families,
             'retired': state.raw_retired,
+            'fetched_under': state.fetched_under,
         }
         if state.catalog_sha
         else None,
         'prices': {k: list(v) for k, v in state.prices.items()},
         'hidden': sorted(state.hidden),
     }
-    tmp = path.parent / f'{path.name}.tmp'
-    tmp.write_text(json.dumps(blob, indent=2), encoding='utf-8')
-    os.replace(tmp, path)
+    # A unique tmp per write: two servers sharing this home (main + a
+    # demo port) may sync at once, and a shared tmp name made one
+    # rename fail.
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
+            json.dump(blob, fh, indent=2)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
 
 
 def _current() -> _State:
@@ -587,11 +601,13 @@ def _served_now() -> _Served:
 
 
 def _commit(**changes) -> None:
-    """Swap in a new state (and its derived view) and persist it."""
+    """Persist a new state, then serve it — in that order, so a failed
+    write leaves memory and disk agreeing on the old state."""
     global _state, _served
-    _state = dataclasses.replace(_current(), **changes)
-    _served = _derive(_state)
-    _write_cache(_state)
+    new = dataclasses.replace(_current(), **changes)
+    _write_cache(new)
+    _state = new
+    _served = _derive(new)
 
 
 def reset() -> None:
@@ -617,181 +633,3 @@ def current_models() -> list[ImageModel]:
 
 def retired_successor(model_id: str) -> str | None:
     return _served_now().retired.get(model_id)
-
-
-# ── Fetch steps ──────────────────────────────────────────────────
-
-
-def _catalog_url() -> str:
-    return Options.VISION_CATALOG_URL.get().strip() or DEFAULT_CATALOG_URL
-
-
-async def _fetch_catalog(client: httpx.AsyncClient, force: bool) -> dict:
-    url = _catalog_url()
-    async with client.stream('GET', url, timeout=HTTP_TIMEOUT_S) as resp:
-        if resp.status_code != 200:
-            return {'status': 'failed', 'error': f'HTTP {resp.status_code}'}
-        chunks, size = [], 0
-        async for chunk in resp.aiter_bytes():
-            size += len(chunk)
-            if size > MAX_CATALOG_BYTES:
-                return {'status': 'rejected', 'error': 'body too large'}
-            chunks.append(chunk)
-    raw = b''.join(chunks)
-    sha = hashlib.sha256(raw).hexdigest()
-    # Same body as cached: nothing to do. Safe across upgrades because
-    # the cache keeps the RAW body, which every load re-validates.
-    if sha == _current().catalog_sha and not force:
-        return {'status': 'unchanged'}
-    try:
-        raw_families, raw_retired = parse_catalog_source(raw.decode('utf-8'))
-        fams, _ = resolve_catalog(raw_families, raw_retired)
-    except (CatalogSourceError, UnicodeDecodeError) as e:
-        return {'status': 'rejected', 'error': str(e)}
-    before = _served_now()
-    _commit(
-        raw_families=raw_families,
-        raw_retired=raw_retired if isinstance(raw_retired, dict) else {},
-        catalog_sha=sha,
-    )
-    after = _served_now()
-    changed = (before.families, before.retired) != (
-        after.families,
-        after.retired,
-    )
-    return {
-        'status': 'updated' if changed else 'unchanged',
-        'families': len(fams),
-    }
-
-
-async def fetch_pricing_records(client: httpx.AsyncClient) -> list[dict]:
-    """Every row of kie.ai's public pricing table (paged)."""
-    records: list[dict] = []
-    for page in range(1, _PRICING_MAX_PAGES + 1):
-        resp = await client.post(
-            PRICING_URL,
-            json={'pageNum': page, 'pageSize': _PRICING_PAGE_SIZE},
-            timeout=HTTP_TIMEOUT_S,
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        data = body.get('data') if isinstance(body, dict) else None
-        if not isinstance(data, dict) or not isinstance(
-            data.get('records'), list
-        ):
-            raise ValueError(f'unexpected pricing body: {str(body)[:200]}')
-        records.extend(data['records'])
-        total = data.get('total')
-        if not data['records'] or not isinstance(total, int):
-            break
-        if len(records) >= total:
-            break
-    return records
-
-
-async def _fetch_prices(client: httpx.AsyncClient) -> dict:
-    records = await fetch_pricing_records(client)
-    # Match against the catalog's own prices, not the live ones already
-    # served: the drift check must compare a fresh row to the price a
-    # maintainer verified, or one bad row would ratchet the anchor.
-    catalog = flatten(_served_now().families)
-    matched = match_prices(catalog, records)
-    if not matched:
-        return {'status': 'failed', 'error': 'no price matched'}
-    # Replace, don't merge: a tier that no longer matches falls back to
-    # its catalog price rather than keeping last week's live one.
-    prices = {
-        m.id: (matched[m.id], price_ref(m)) for m in catalog if m.id in matched
-    }
-    changed = prices != _current().prices
-    _commit(prices=prices)
-    return {
-        'status': 'updated' if changed else 'unchanged',
-        'priced': len(prices),
-        'models': len(catalog),
-    }
-
-
-async def fetch_available_slugs(
-    client: httpx.AsyncClient, api_key: str
-) -> set[str]:
-    resp = await client.get(
-        MODELS_URL,
-        headers={'Authorization': f'Bearer {api_key}'},
-        timeout=HTTP_TIMEOUT_S,
-    )
-    resp.raise_for_status()
-    body = resp.json()
-    if not isinstance(body, dict):
-        raise ValueError(f'unexpected models body: {str(body)[:200]}')
-    data = body.get('data')
-    models = data.get('models') if isinstance(data, dict) else None
-    if body.get('code') != 200 or not isinstance(models, list) or not models:
-        raise ValueError(f'unexpected models body: {str(body)[:200]}')
-    # A partial page would hide models that are merely on page two.
-    if isinstance(data.get('total'), int) and data['total'] != len(models):
-        raise ValueError(
-            f'models list incomplete ({len(models)} of {data["total"]})'
-        )
-    return {
-        m['model']
-        for m in models
-        if isinstance(m, dict) and isinstance(m.get('model'), str)
-    }
-
-
-async def _fetch_available(client: httpx.AsyncClient, api_key: str) -> dict:
-    slugs = await fetch_available_slugs(client, api_key)
-    ours = {m.slug for m in _served_now().models}
-    missing = ours - slugs
-    if missing == ours:
-        # Every one of our models gone at once is an API change, not a
-        # mass delisting. Keep serving what we have.
-        return {'status': 'failed', 'error': 'none of our slugs listed'}
-    hidden = frozenset(missing)
-    changed = hidden != _current().hidden
-    _commit(hidden=hidden)
-    if missing:
-        logger.warning(
-            'vision catalog: kie.ai no longer lists %s', sorted(missing)
-        )
-    return {
-        'status': 'updated' if changed else 'unchanged',
-        'hidden': len(missing),
-    }
-
-
-async def sync_once(
-    api_key: str,
-    client: httpx.AsyncClient | None = None,
-    *,
-    force: bool = False,
-) -> dict:
-    """Catalog → prices → availability, each failing soft.
-
-    Order matters: prices and availability are computed against the
-    catalog the first step just installed. Never raises; each step's
-    outcome is reported under its name.
-    """
-    steps = (
-        ('catalog', lambda c: _fetch_catalog(c, force)),
-        ('prices', _fetch_prices),
-        ('available', lambda c: _fetch_available(c, api_key)),
-    )
-    out: dict[str, dict] = {}
-
-    async def _run(c: httpx.AsyncClient) -> None:
-        for name, step in steps:
-            try:
-                out[name] = await step(c)
-            except Exception as e:  # noqa: BLE001 — a step must fail soft
-                logger.warning('vision catalog %s step failed: %s', name, e)
-                out[name] = {'status': 'failed', 'error': str(e)[:300]}
-
-    if client is not None:
-        await _run(client)
-    else:
-        async with _client_factory() as own:
-            await _run(own)
-    return out
