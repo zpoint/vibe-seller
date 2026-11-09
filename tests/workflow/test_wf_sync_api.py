@@ -180,10 +180,11 @@ async def test_ads_authorization_triggers_the_skill_job(
 
 
 async def test_manual_run_works_with_the_schedule_disarmed(admin_client, jobs):
-    """``VIBE_SYNC_DISABLED`` stops the clock, not the work.
+    """A switched-off source stops the clock, not the work.
 
-    The suite runs with it set, and the Sync button (and an event
-    trigger) must still run a job — only the periodic ticks are gone.
+    The suite runs with both outside sources off, and the Sync button
+    (and an event trigger) must still run a job — only the periodic
+    ticks are gone.
     """
     skills, _knowledge, _ads = jobs
     resp = await admin_client.post('/api/sync/skills/run')
@@ -192,24 +193,38 @@ async def test_manual_run_works_with_the_schedule_disarmed(admin_client, jobs):
     assert len(skills.calls) == 1
 
 
-async def test_disarmed_schedule_registers_every_job_but_no_timers(
+async def test_switched_off_sources_keep_every_job_but_only_their_timers(
     admin_client,
 ):
-    """Every job exists under the knob (status, manual runs, events) —
-    none of them is scheduled."""
+    """Every job exists with the outside sources off (status, manual
+    runs, events). Jobs reaching GitHub main or another host get no
+    timer; mail polling and the daemon reaper still do — they have no
+    switch."""
     sync_scheduler.reset()
     await sync_jobs.register_jobs(sync_scheduler)
     try:
         body = (await admin_client.get('/api/sync/status')).json()
-        names = {row['name'] for row in body['jobs']}
+        timers = {row['name']: row['next_run_at'] for row in body['jobs']}
         assert {
             'skills',
             'knowledge',
             'ads_skill',
             'presets',
+            'vision_catalog',
+            'model_pricing',
             'email',
             'daemon_reaper',
-        } <= names
-        assert all(row['next_run_at'] is None for row in body['jobs'])
+        } <= set(timers)
+        assert timers['email'] is not None
+        assert timers['daemon_reaper'] is not None
+        for name in (
+            'skills',
+            'knowledge',
+            'presets',
+            'vision_catalog',
+            'model_pricing',
+            'ads_skill',
+        ):
+            assert timers[name] is None, name
     finally:
         sync_scheduler.reset()

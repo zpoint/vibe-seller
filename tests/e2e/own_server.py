@@ -50,6 +50,12 @@ def pick_free_port() -> int:
         return sock.getsockname()[1]
 
 
+#: For the e2e that test the sync jobs themselves: their server reads a
+#: fake GitHub and fake services, so the outside sources are on even when
+#: the surrounding run (CI) turns them off for every other server.
+SYNC_SWITCHES_ON = {'VIBE_GITHUB_MAIN_SYNC': 'on', 'VIBE_EXTERNAL_SYNC': 'on'}
+
+
 class OwnServer:
     """One test-owned server: its own port, its own home, its own pid."""
 

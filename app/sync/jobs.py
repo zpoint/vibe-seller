@@ -29,6 +29,8 @@ from app.plugins import registered_sync_jobs
 from app.scheduler.email_sync import sync_all_email_accounts
 from app.sync import state as sync_state
 from app.sync.scheduler import (
+    SOURCE_EXTERNAL,
+    SOURCE_GITHUB_MAIN,
     Cadence,
     SyncContext,
     SyncJob,
@@ -271,11 +273,13 @@ def core_jobs() -> list[SyncJob]:
             cadence=Cadence.DAILY,
             run=_run_skills,
             toggle_key=SKILLS_TOGGLE_KEY,
+            sources=frozenset({SOURCE_GITHUB_MAIN}),
         ),
         SyncJob(
             name=KNOWLEDGE_JOB,
             cadence=Cadence.DAILY,
             run=_run_knowledge,
+            sources=frozenset({SOURCE_GITHUB_MAIN}),
         ),
         SyncJob(
             name=ADS_SKILL_JOB,
@@ -283,22 +287,26 @@ def core_jobs() -> list[SyncJob]:
             run=_run_ads_skill,
             when=_ads_ready,
             depends_on=(SKILLS_JOB,),
+            sources=frozenset({SOURCE_EXTERNAL}),
         ),
         SyncJob(
             name=PRESETS_JOB,
             cadence=Cadence.BIDAILY,
             run=_run_presets,
+            sources=frozenset({SOURCE_GITHUB_MAIN}),
         ),
         SyncJob(
             name=VISION_JOB,
             cadence=Cadence.DAILY,
             run=_run_vision,
             when=_vision_ready,
+            sources=frozenset({SOURCE_GITHUB_MAIN, SOURCE_EXTERNAL}),
         ),
         SyncJob(
             name=PRICING_JOB,
             cadence=Cadence.DAILY,
             run=_run_pricing,
+            sources=frozenset({SOURCE_EXTERNAL}),
         ),
         SyncJob(
             name=EMAIL_JOB,
@@ -316,11 +324,9 @@ def core_jobs() -> list[SyncJob]:
 async def register_jobs(scheduler: SyncScheduler) -> list[str]:
     """Register core + plugin jobs; returns the registered names.
 
-    ``VIBE_SYNC_DISABLED=1`` disarms the SCHEDULE, not the jobs: they
-    are all registered (so a manual run, an event trigger and
-    ``GET /api/sync/status`` all work) but none of them ever ticks on
-    its own — which is what keeps tests/ away from GitHub and ads
-    services unless a test explicitly asks for a run.
+    Every job is registered, so a manual run, an event trigger and
+    ``GET /api/sync/status`` always work. A switched-off source only
+    keeps its jobs from ticking (see ``scheduler.timers_armed``).
     """
     jobs = [*core_jobs(), *registered_sync_jobs()]
     await scheduler.register_all(jobs)

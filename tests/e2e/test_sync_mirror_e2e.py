@@ -26,7 +26,7 @@ import httpx
 import pytest
 
 from tests.e2e import fake_ads_service
-from tests.e2e.own_server import OwnServer, pick_free_port
+from tests.e2e.own_server import SYNC_SWITCHES_ON, OwnServer, pick_free_port
 from tests.fixtures.fake_github import FakeGitHub
 
 pytestmark = pytest.mark.e2e
@@ -187,6 +187,7 @@ def owned_stack(tmp_path_factory):
         home=home,
         env={
             **fake.urls(),
+            **SYNC_SWITCHES_ON,
             'VIBE_ADS_SERVICE_URL': fake_ads_service.URL,
         },
     )

@@ -139,7 +139,8 @@ echo "   previous: ${OLD_VERSION:-unknown}"
 
 echo "== 2. boot the old client on an isolated home"
 export VIBE_HOME=$VH   # ours — never taken from the caller
-export VIBE_SYNC_DISABLED=1
+export VIBE_SYNC_DISABLED=1   # what a pre-0.2.x client reads
+export VIBE_GITHUB_MAIN_SYNC=off
 export VIBE_SYNC_JITTER=0
 "$OLD/vibe-seller" start --port $PORT >/dev/null 2>&1 &
 OLD_PID=$!
@@ -189,7 +190,7 @@ expect_port_free
 UV_BIN=${UV:-$(command -v uv || echo "$REPO/.venv/bin/uv")}
 "$UV_BIN" pip install --python "$PY" -q -e "$REPO" \
   || fail "could not install this build"
-export VIBE_SYNC_DISABLED=1
+export VIBE_GITHUB_MAIN_SYNC=off
 "$REPO/start.sh" $PORT >/dev/null 2>&1
 wait_for_health
 

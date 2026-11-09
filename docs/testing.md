@@ -78,12 +78,17 @@ scoped contract.
 
 ## Sync scheduler knobs
 
-Nothing under `tests/` polls a network on its own. `tests/conftest.py`
-sets `VIBE_SYNC_DISABLED=1` for every non-e2e run, which **registers
-every sync job but arms no timer** — a manual
+Nothing under `tests/` polls an outside host on its own.
+`tests/conftest.py` sets `VIBE_GITHUB_MAIN_SYNC=off` and
+`VIBE_EXTERNAL_SYNC=off` for every non-e2e run, and CI sets both on its
+e2e servers: the jobs that pull from GitHub `main` (skills, knowledge,
+provider presets, vision catalog) or call another host (model pricing,
+the ads service, kie.ai) stay **registered with no timer** — a manual
 `POST /api/sync/{name}/run`, `trigger()` or an event trigger runs the
-real code path, and `GET /api/sync/status` lists the jobs, but nothing
-ticks. Two more knobs exist for tests that want a schedule:
+real code path. Mail polling and the daemon reaper have no switch and
+tick everywhere. The e2e that test the sync jobs start their own server
+with both switches on (`own_server.SYNC_SWITCHES_ON`), against a fake
+GitHub. Two more knobs exist for tests that want a schedule:
 
 | Variable | Meaning |
 |----------|---------|

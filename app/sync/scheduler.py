@@ -111,6 +111,22 @@ class SyncResult:
         return cls(status=STATUS_FAILED, error=error)
 
 
+#: Content pulled from the project's public GitHub ``main``.
+SOURCE_GITHUB_MAIN = 'github_main'
+#: Any other host outside this machine (models.dev, kie.ai, the ads
+#: service).
+SOURCE_EXTERNAL = 'external'
+
+#: Which switch stops which source. ``VIBE_GITHUB_MAIN_SYNC=off`` is for
+#: a dev checkout, a branch or CI, whose tree is ahead of ``main``;
+#: ``VIBE_EXTERNAL_SYNC=off`` is for CI tests, which make no outside
+#: calls except in the e2e that tests them.
+_SWITCHES = {
+    SOURCE_GITHUB_MAIN: Options.GITHUB_MAIN_SYNC,
+    SOURCE_EXTERNAL: Options.EXTERNAL_SYNC,
+}
+
+
 @dataclass(frozen=True)
 class SyncJob:
     """One registered job."""
@@ -126,6 +142,10 @@ class SyncJob:
     when: Callable[[], Awaitable[bool]] | None = None
     #: Jobs whose in-flight run this one joins before starting.
     depends_on: tuple[str, ...] = ()
+    #: Where the job reaches out to (``SOURCE_*``). Only these can be
+    #: switched off; a job with none (mail, the daemon reaper) always
+    #: ticks.
+    sources: frozenset[str] = frozenset()
 
 
 # ── Test knobs: cadence override + jitter ──────────────────────────
@@ -214,15 +234,19 @@ def _is_strong(reason: str, force: bool) -> bool:
     return reason != REASON_TICK or force
 
 
-def timers_armed() -> bool:
-    """Whether scheduled runs exist at all.
+def _switched_off(option) -> bool:
+    return option.get().strip().lower() in ('off', '0', 'false')
 
-    ``VIBE_SYNC_DISABLED=1`` disarms the SCHEDULE, not the jobs: every
-    job is still registered and ``trigger()`` / ``POST /api/sync/{name}/run``
-    / an event trigger still run it — but nothing ticks on its own, so
-    nothing under tests/ reaches a network unless a test asks for it.
+
+def timers_armed(job: SyncJob) -> bool:
+    """Whether ``job`` ticks on its own schedule.
+
+    A job that reaches a switched-off source stays registered and still
+    runs on demand (a manual run, an event) — it just does not tick. A
+    job with no outside source (mail, the daemon reaper) always ticks:
+    there is no switch for the product's own work.
     """
-    return not Options.SYNC_DISABLED.get_bool()
+    return not any(_switched_off(_SWITCHES[s]) for s in job.sources)
 
 
 # ── Scheduler ──────────────────────────────────────────────────────
@@ -294,16 +318,15 @@ class SyncScheduler:
             raise ValueError(f'duplicate sync job {job.name!r}')
         self._jobs[job.name] = job
         # Registration keeps an overdue anchor overdue: the job fires
-        # as soon as the scheduler runs ("overdue → run now"). With the
-        # schedule disarmed there is no timer at all — the job can only
-        # be run by hand.
+        # as soon as the scheduler runs ("overdue → run now"). A job whose
+        # source is switched off has no timer — it runs only on demand.
         await self._schedule_next(job.name, clamp=False)
         logger.info(
             'sync job registered: %s cadence=%.0fs toggle=%s armed=%s',
             job.name,
             cadence_seconds(job.name, job.cadence),
             job.toggle_key or '(none)',
-            timers_armed(),
+            timers_armed(job),
         )
 
     async def register_all(self, jobs) -> None:
@@ -311,7 +334,17 @@ class SyncScheduler:
             await self.register(job)
 
     def reset(self) -> None:
-        """Forget every registration (tests swap jobs in and out)."""
+        """Forget every registration (tests swap jobs in and out),
+        timers included: a timer left behind would fire for a job this
+        scheduler no longer knows."""
+        # Every copy: a scheduler that has not started keeps pending jobs
+        # in a list, where one id can appear more than once.
+        for aps_job in self.aps.get_jobs():
+            if aps_job.id.startswith(self._job_id('')):
+                try:
+                    aps_job.remove()
+                except Exception:  # noqa: BLE001 — already fired
+                    pass
         self._jobs.clear()
         self._next.clear()
 
@@ -588,12 +621,16 @@ class SyncScheduler:
         fire at once.
         """
         job = self._require(name)
-        if not timers_armed():
-            # Disarmed (VIBE_SYNC_DISABLED): the job exists and runs on
+        if not timers_armed(job):
+            # Its source is switched off: the job exists and runs on
             # demand, it just never ticks by itself.
             self._next.pop(name, None)
             return
         next_run = await self._compute_next_run(name)
+        if self._jobs.get(name) is not job:
+            # Unregistered (or replaced) while we read the anchor: arming
+            # now would leave a timer for a job nobody owns.
+            return
         if clamp and next_run <= datetime.now(UTC):
             next_run = datetime.now(UTC) + timedelta(
                 seconds=cadence_seconds(name, job.cadence)

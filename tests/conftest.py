@@ -116,12 +116,14 @@ else:
         atexit.register(shutil.rmtree, _TEST_HOME, ignore_errors=True)
     os.environ['VIBE_HOME'] = _TEST_HOME
 
-# Arm NO sync timers across the suite (jobs still register, so a test
-# can trigger one). Left armed, every test that boots the app would poll
-# GitHub (and an ads service) on its own; e2e runs opt back in
-# explicitly, because their server is pointed at a fake GitHub.
+# No scheduled outside calls across the suite (the jobs still register,
+# so a test can trigger one): nothing from GitHub main — the tree under
+# test is this checkout — and nothing from any other host. Mail polling
+# and the daemon reaper have no switch and run as in production. e2e
+# runs configure their own server.
 if not _E2E_RUN:
-    os.environ.setdefault('VIBE_SYNC_DISABLED', '1')
+    os.environ.setdefault('VIBE_GITHUB_MAIN_SYNC', 'off')
+    os.environ.setdefault('VIBE_EXTERNAL_SYNC', 'off')
 # Same for the boot-time browser-engine check: it runs a Playwright
 # subprocess and may download Chromium. Its own tests enable it.
 os.environ.setdefault('VIBE_ENSURE_BROWSER_ENGINE', 'false')

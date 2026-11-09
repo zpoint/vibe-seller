@@ -39,6 +39,7 @@ from app.events.bus import event_bus
 from app.models.task_message import TaskMessage
 from app.models.user import User
 from app.sync import jobs as sync_jobs
+from app.sync.jobs import VISION_JOB
 from app.sync.scheduler import REASON_EVENT, sync_scheduler, timers_armed
 from app.telemetry_events import TelemetryEvent
 from app.text_utils import sanitize_json
@@ -133,12 +134,13 @@ async def put_vision_config(
     vision.save_vision_config(body.get('kie_api_key', ''))
     key = vision.get_kie_api_key()
     telemetry.send(TelemetryEvent.VISION_KEY_SAVED, {'key_set': bool(key)})
-    if key and timers_armed():
+    catalog_job = sync_scheduler.jobs.get(VISION_JOB)
+    if key and catalog_job and timers_armed(catalog_job):
         # The scheduled run skips while no key is set and re-arms a day
         # out, so a freshly activated install would wait that long for
         # live prices. Run it now, in the background: the save must not
-        # wait on kie.ai. Gated like the schedule itself, so a server
-        # with sync disarmed (tests) never reaches the network.
+        # wait on kie.ai. Gated like the schedule itself: a server that
+        # does not pull from GitHub main does not start this pull either.
         task = asyncio.create_task(_refresh_catalog())
         _BACKGROUND.add(task)
         task.add_done_callback(_BACKGROUND.discard)

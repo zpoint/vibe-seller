@@ -145,6 +145,17 @@ Ask in this order, every time:
    If not, add them. Tests are the second line of defence, not the
    fix itself.
 
+**Establish the design intent before calling it a bug.** A behaviour
+that is right in production can look broken in a dev checkout, a
+feature branch or CI — the environments where local code is AHEAD of
+what production assumes (public `main`, a released package). Example:
+the remote skill sync adds `main`'s files to the local tree; that IS the
+update mechanism for an installed release, and only "wrong" on a branch
+that deleted a file `main` still has. The fix there is an explicit
+environment switch for that environment (point the content source at
+the branch, or turn remote content pulls off), never a change to the
+product semantics. Ask "what is this for in production?" first.
+
 If the natural fix touches a file the current task didn't, fix it
 anyway. The goal is "this bug class can't recur," not "this PR is
 green." See [.claude/skills/debug-ci/SKILL.md § Fix from design,

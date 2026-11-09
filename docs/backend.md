@@ -248,7 +248,8 @@ a failure — the install keeps what it serves.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROVIDER_PRESETS_URL` | raw.githubusercontent copy of `app/ai/provider_presets.py` on `main` | Where the catalog is fetched from (a mirror or a local test server) |
-| `VIBE_SYNC_DISABLED` | (unset) | `1` registers no sync jobs at all — what `tests/conftest.py` sets so nothing under `tests/` reaches GitHub |
+| `VIBE_GITHUB_MAIN_SYNC` | `on` | `off` stops the scheduled pulls from the project's GitHub `main` (skills, knowledge, presets, vision catalog) — for a dev checkout, a branch or CI, whose tree is ahead of `main` |
+| `VIBE_EXTERNAL_SYNC` | `on` | `off` stops scheduled calls to other outside hosts (model pricing, the ads service, kie.ai) — for CI tests. Mail polling and the daemon reaper have no switch |
 | `VIBE_SYNC_CADENCE_OVERRIDE` | (unset) | `name=seconds,...` — compress named sync jobs (tests) |
 | `VIBE_SYNC_JITTER` | `1` | Scales the per-install stagger; `0` zeroes it |
 
