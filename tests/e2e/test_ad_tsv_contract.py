@@ -94,10 +94,11 @@ def test_audit_then_apply_exactly_what_was_approved(api_client, console):
     # ── 1. Audit: everything enumerated, nothing changed ────────────
     task = create_task(
         api_client,
-        'Audit our ad campaigns and tell me what to change',
+        'Audit our Amazon ad campaigns and tell me what to change',
         store_id=store['id'],
         description=(
-            f'Our ad console is at {console.base}. Look at every campaign '
+            f'Our Amazon Ads console for the US store is at {console.base} '
+            '(a mirror of the real one). Look at every campaign '
             'and its keywords and tell me which bids you would change. '
             f'Do not change anything yet. {SELLER_FACTS}'
         ),
@@ -141,10 +142,11 @@ def test_a_stated_standard_is_recorded_and_honoured(api_client, console):
     store = create_store(api_client, f'e2e-adrule-{int(time.time())}')
     task = create_task(
         api_client,
-        'Lower the gizmo mini bid',
+        'Lower the gizmo mini bid in our Amazon ads',
         store_id=store['id'],
         description=(
-            f'Our ad console is at {console.base}. Our standard: a keyword is '
+            f'Our Amazon Ads console for the US store is at {console.base} '
+            '(a mirror of the real one). Our standard: a keyword is '
             'only protected from bid cuts when its ACOS is under 20%. '
             'Please remember that for the future. With that in mind, '
             'propose lowering the "gizmo mini" bid to 1.10 — just the '
