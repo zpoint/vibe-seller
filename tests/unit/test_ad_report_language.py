@@ -26,7 +26,6 @@ from app.ai.stop_gates import (
     ad_completeness_campaign_blocks as blocks,
     ad_explicit_actions,
     ad_scale_winners,
-    result_language,
 )
 from app.ai.stop_gates.ad_completeness_rules import count_drill_tables
 from app.ai.stop_gates.ad_declaration_checks import actionable_rows
@@ -481,97 +480,6 @@ class TestDrillTableRecognition:
             + '| Total | | | | 40 | 80.00 | 4 | 400.00 | | 5.00 | | Keep |\n'
         )
         assert blocks._layer_row_count(block, searchterm=False) == 0
-
-
-EN_TITLE = 'Review acme ads for the last 30 days'
-ZH_TITLE = '复盘 acme 最近 30 天的广告'
-
-_EN_PROSE = (
-    '# Ad Optimization Recommendations\n\n'
-    'This review covers the last thirty days of sponsored products spend '
-    'across the store, and the actions below follow the bid rules.\n\n'
-)
-
-
-@pytest.mark.unit
-class TestLanguageGate:
-    def test_chinese_verbs_in_an_english_action_column_are_flagged(self):
-        report = _EN_PROSE + EN_TGT_HEAD + _tgt('暂停 + 否定关键词（精准）')
-        deny = result_language.check(report, EN_TITLE, None)
-        assert deny is not None
-        assert deny.gate == 'result_language'
-        assert '暂停' in deny.reason
-        assert 'Raise to' in deny.reason  # tells the agent the spellings
-
-    def test_chinese_inside_the_recommendation_cell_after_an_english_verb(
-        self,
-    ):
-        report = (
-            _EN_PROSE
-            + EN_TGT_HEAD
-            + _tgt('Raise to 0.35 (+16.7%，≤ 25% 单次上限)')
-        )
-        assert result_language.check(report, EN_TITLE, None) is not None
-
-    def test_chinese_column_headers_in_an_english_report_are_flagged(self):
-        report = _EN_PROSE + ZH_TGT_HEAD + _tgt('Pause')
-        assert result_language.check(report, EN_TITLE, None) is not None
-
-    def test_our_chinese_terms_in_english_prose_are_flagged(self):
-        report = (
-            _EN_PROSE
-            + 'The bid is held at the 地板 0.79 because actual CPC is 0.714 '
-            'and the rule exempts the step cap here.\n\n'
-            + EN_TGT_HEAD
-            + _tgt('Keep')
-        )
-        assert result_language.check(report, EN_TITLE, None) is not None
-
-    def test_a_clean_english_report_passes(self):
-        report = (
-            _EN_PROSE
-            + EN_TGT_HEAD
-            + _tgt('Raise to 2.40 (ROAS 5>3.33 winner rule)')
-            + _tgt('Pause')
-        )
-        assert result_language.check(report, EN_TITLE, None) is None
-
-    def test_quoted_platform_text_is_exempt(self):
-        report = (
-            _EN_PROSE
-            + EN_TGT_HEAD
-            + _tgt('Keep — console shows "已暂停" for the sibling target')
-        )
-        assert result_language.check(report, EN_TITLE, None) is None
-
-    def test_chinese_search_terms_in_data_cells_are_exempt(self):
-        report = (
-            _EN_PROSE
-            + EN_ST_HEAD.replace('---', '---')
-            + (
-                '| 手机壳 | grp | widget-006 | Broad | 5 | 12.00 | 0 | 0.00 '
-                '| 0.00 | Negative keyword (exact) |\n'
-            )
-        )
-        assert result_language.check(report, EN_TITLE, None) is None
-
-    def test_a_non_ad_english_result_may_discuss_chinese_text(self):
-        text = (
-            'The page labels the button 暂停 and the summary reads 建议 on '
-            'the settings screen, which I translated for you in the notes '
-            'below so you can follow the steps without reading Chinese.\n'
-        )
-        assert result_language.check(text, EN_TITLE, None) is None
-
-    def test_a_chinese_report_with_english_ui_labels_still_passes(self):
-        report = (
-            '# 广告优化建议\n\n本次复盘覆盖最近三十天的广告花费，下面的动作'
-            '均按出价规则给出，控制台显示 Delivering 的目标保持不动。\n\n'
-            + ZH_TGT_HEAD
-            + _tgt('提高至 2.40（ROAS 5>3.33 加投赢家规则）')
-            + _tgt('维持（控制台状态 Delivering）')
-        )
-        assert result_language.check(report, ZH_TITLE, None) is None
 
 
 @pytest.mark.unit

@@ -21,18 +21,16 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.stop_gates import (
+    AD_SKILLS,
     SOFT_GATE_MAX_DENIALS,
-    markdown_format as md_format_gate,
     record_attempt,
-    report_reviewer,
-    result_language as language_gate,
+    recorded_skills,
 )
 from app.config import VIBE_SELLER_DIR
 from app.deliverables.gate import check_deliverables
 from app.models.task import Task
 from app.routers.tasks_files import (
     looks_like_result_path,
-    recorded_skills,
     resolve_audit_deliverable,
     resolve_workspace_result_path,
 )
@@ -149,9 +147,7 @@ async def resolve_submitted_result(
             ),
         )
 
-    if resolved_content is None and (
-        recorded_skills(task_id) & report_reviewer.AD_SKILLS
-    ):
+    if resolved_content is None and (recorded_skills(task_id) & AD_SKILLS):
         deliverable = resolve_audit_deliverable(task_root, raw)
         if deliverable is not None:
             try:
@@ -189,22 +185,12 @@ async def apply_soft_gates(
     trap the agent in a loop it has no way to exit. Run here rather than
     from the Stop hook because some agent backends never emit Stop.
     """
-    # Deliverable check first: "you are missing three files" is more
-    # actionable than "your table is malformed", and a run that has to
-    # go back for a file will rewrite the prose anyway.
     denials = []
     deliverable_deny = await check_deliverables(
         db, task, (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
     )
     if deliverable_deny:
         denials.append(deliverable_deny)
-    for gate_module, gate_args in (
-        (md_format_gate, (final_result,)),
-        (language_gate, (final_result, task.title, task.description)),
-    ):
-        deny = gate_module.check(*gate_args)
-        if deny:
-            denials.append(deny)
 
     for deny in denials:
         attempt = record_attempt(task_id, deny.gate)

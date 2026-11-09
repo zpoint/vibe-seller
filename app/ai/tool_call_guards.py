@@ -9,14 +9,11 @@ or a tool
 search for a tool that is already loaded.
 """
 
-import os
 from urllib.parse import urlsplit
 
 from app.ads_client import SERVICE_URL
-from app.ai.ad_scope_access import refusal as ad_scope_refusal
 from app.ai.mcp_args_guard import missing_args_deny
 from app.ai.source_guard import source_access_deny
-from app.mcp_tool_schemas import TOOLS
 
 # Tools that DO the task. While planning, the agent decides what to do;
 # these run when the plan executes. Observed in CI: a fanout planner
@@ -108,96 +105,6 @@ def subagent_finish_deny(session, tool_name: str, tool_use_id) -> str | None:
     return None
 
 
-# Tools that are always loaded, each with the query stems that mean
-# "looking for it". ToolSearch lists only DEFERRED tools, so a search
-# for one of these always comes back empty -- and a model reads empty as
-# "missing". In CI one searched six times for the set_task_result it
-# already had; another searched `ask.*question|AskUser`, concluded
-# AskUserQuestion "doesn't exist in this runtime", asked in prose, and
-# parked its task in WAITING (then wrote that falsehood into the notes).
-#
-# Built-ins are matched only by distinctive stems: "read" or "write"
-# would catch searches meant for deferred tools (`read email`).
-_ALWAYS_LOADED = sorted(
-    t['name']
-    for t in TOOLS
-    if (t.get('_meta') or {}).get('anthropic/alwaysLoad') is True
-)
-
-
-def _stems_for(name: str, all_names: tuple[str, ...]) -> tuple[str, ...]:
-    """The query fragments that identify *name* as already loaded.
-
-    Its own suffix (plus a spaced spelling, so "declare ad task" is
-    recognised as well as "declare_ad_task") and the stem it shares
-    with each other loaded tool — the pair of finishing tools shares
-    ``set_task``, so a search for that half-word is refused with the
-    whole loaded set instead of coming back empty.
-    """
-    suffix = name.removeprefix('vibe_seller_')
-    stems = [suffix, suffix.replace('_', ' ')]
-    for other in all_names:
-        if other == name:
-            continue
-        shared = (
-            os.path.commonprefix([name, other])
-            .removeprefix('vibe_seller_')
-            .rstrip('_')
-        )
-        if shared:
-            stems.append(shared)
-    return tuple(dict.fromkeys(s for s in stems if s))
-
-
-_LOADED_STEMS: dict[str, tuple[str, ...]] = {
-    f'mcp__vibe-seller__{n}': _stems_for(n, tuple(_ALWAYS_LOADED))
-    for n in _ALWAYS_LOADED
-}
-_LOADED_STEMS['AskUserQuestion'] = ('askuser', 'ask_user')
-
-
-def loaded_tool_search_deny(tool_name: str, tool_input) -> str | None:
-    """Refuse a ToolSearch for a tool that is already loaded."""
-    if tool_name != 'ToolSearch' or not isinstance(tool_input, dict):
-        return None
-    query = str(tool_input.get('query', '')).lower()
-    hits = [
-        name
-        for name, stems in _LOADED_STEMS.items()
-        if any(stem and stem in query for stem in stems)
-    ]
-    if not hits:
-        return None
-    names = ', '.join(f'`{n}`' for n in hits)
-    verb = 'is' if len(hits) == 1 else 'are'
-    return (
-        f'Blocked: {names} {verb} already loaded; tool search lists only '
-        'tools that are not, so it will never show it. Call it directly.'
-    )
-
-
-def ad_scope_access_deny(
-    session, tool_name: str, tool_input: dict
-) -> str | None:
-    """A browser-use command may not open an out-of-scope campaign.
-
-    The declared scope was enforced only on the report; at ACCESS time
-    nothing stopped a narrowed turn from reading the excluded campaign
-    (CI 201i: an "OTHER ROUTES PROBE" fetched ``/campaign/A7654321``
-    under ``campaigns: [A1234567]``). Only browser-use commands are
-    the product's ad surface here — an id in ordinary shell text is
-    never a target. The chain runs in a thread hop (the hook handler
-    awaits it via ``asyncio.to_thread``) because the scope check reads
-    the declaration file.
-    """
-    if tool_name != 'Bash':
-        return None
-    command = (tool_input or {}).get('command', '')
-    if 'browser-use' not in command:
-        return None
-    return ad_scope_refusal(getattr(session, 'task_id', None), command)
-
-
 def tool_call_deny(session, hook_input: dict) -> str | None:
     """First refusal for this PreToolUse call, else ``None``.
 
@@ -212,6 +119,4 @@ def tool_call_deny(session, hook_input: dict) -> str | None:
         or source_access_deny(tool_name, tool_input)
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
-        or ad_scope_access_deny(session, tool_name, tool_input)
-        or loaded_tool_search_deny(tool_name, tool_input)
     )

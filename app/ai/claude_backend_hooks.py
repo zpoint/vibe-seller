@@ -12,13 +12,8 @@ import logging
 
 from app import ads_routing
 from app.ai.background_wait import long_sleep_deny
-from app.ai.bash_safety import (
-    check_catalog_first_tool_args,
-    check_report_overwrite,
-    check_skill_file_write,
-    first_bash_deny,
-    should_mark_catalog_read,
-)
+from app.ai.bash_safety import check_skill_file_write, first_bash_deny
+from app.ai.catalog_read import should_mark_catalog_read
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     AUTO_APPROVE_CALLBACK,
@@ -197,43 +192,6 @@ class _HookMixin:
                     )
                     await self._deny_pre_tool_use(request_id, deny_reason)
                     return
-            # Catalog-first guard for the Glob/Grep built-in tools.
-            # Same intent as the Bash branch above: agents denied at
-            # the Bash layer pivot to Glob/Grep on the same trees
-            # unless we close that escape hatch too.
-            if inner_name in ('Glob', 'Grep'):
-                deny_reason = check_catalog_first_tool_args(
-                    inner_input, self._catalog_read
-                )
-                if deny_reason:
-                    logger.info(
-                        'Catalog-first: agent %s tried %s(%r) before reading catalog',
-                        self.task_id[:8],
-                        inner_name,
-                        {
-                            k: v
-                            for k, v in inner_input.items()
-                            if k in ('path', 'pattern')
-                        },
-                    )
-                    await self._deny_pre_tool_use(request_id, deny_reason)
-                    return
-            # Catalog-read tracker: flip the catalog-first guard off
-            # once the agent issues a Read against any CATALOG.md —
-            # existence on disk deliberately doesn't matter. See
-            # ``bash_safety.should_mark_catalog_read`` for the
-            # design rationale (fresh stores with no L3 catalog yet
-            # were stuck in a deny loop, breaking DeepSeek thinking
-            # mode in particular).
-            # Report-overwrite guard: Write may not replace an
-            # existing AD_AUDIT report (Edit-only; see bash_safety).
-            deny_reason = check_report_overwrite(
-                inner_name, inner_input, self.task_dir
-            )
-            if deny_reason:
-                logger.warning('Report-overwrite guard: %s', self.task_id[:8])
-                await self._deny_pre_tool_use(request_id, deny_reason)
-                return
             # Skill-file guard: built-in Write/Edit against
             # .claude/skills/** only mutates the throwaway per-task copy
             # and silently fails to persist — force vibe_seller_save_skill.
@@ -299,33 +257,17 @@ class _HookMixin:
                 self._error_category = 'agent_loop'
                 asyncio.create_task(self.stop())
                 return
-            # Skill prerequisite enforcement: when a skill declares
-            # ``requires: [X]`` in its frontmatter, the agent must
-            # have loaded X first this session. Same shape as
-            # Claude Code's Read-before-Write rule — a deny with a
-            # clear retry message turns a prose contract into a
-            # mechanism. See parse_skill_requires for the format.
+            # A skill that declares ``requires: [X]`` gets a hint to load
+            # X too when it has not been loaded yet — advice, not a deny.
             if inner_name == 'Skill':
                 skill_name = inner_input.get('skill', '')
-                deny = self._check_skill_prereqs(skill_name)
-                if deny:
-                    logger.info(
-                        'Skill prereq: agent %s tried %r without %s',
-                        self.task_id[:8],
-                        skill_name,
-                        deny,
+                prereq_hint = self._check_skill_prereqs(skill_name)
+                if prereq_hint:
+                    read_hint = (
+                        f'{read_hint}\n{prereq_hint}'
+                        if read_hint
+                        else prereq_hint
                     )
-                    await self._send_hook_response(
-                        request_id,
-                        {
-                            'hookSpecificOutput': {
-                                'hookEventName': 'PreToolUse',
-                                'permissionDecision': 'deny',
-                                'permissionDecisionReason': deny,
-                            },
-                        },
-                    )
-                    return
                 # Only track skills we actually ship (a SKILL.md
                 # exists in workspace/global skills): otherwise
                 # ``Skill('<arbitrary-name>')`` would "satisfy" a
@@ -355,13 +297,9 @@ class _HookMixin:
             # still open. Claude Code sends stop_hook_active=true on the
             # stop that follows a block, so each check fires once.
             if not tool_input.get('stop_hook_active'):
-                if await self._deny_stop_if_tasklist_open(request_id):
-                    return
                 if await self._deny_stop_if_async_agents_running(request_id):
                     return
-                if await self._deny_stop_if_review_unsatisfied(request_id):
-                    return
-                if await self._deny_stop_if_exec_review_unsatisfied(request_id):
+                if await self._deny_stop_if_upload_unverified(request_id):
                     return
             await self._send_hook_response(request_id, {'decision': 'approve'})
         elif callback_id == 'tool_approval':

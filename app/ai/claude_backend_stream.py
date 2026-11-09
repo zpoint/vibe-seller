@@ -11,16 +11,15 @@ import json
 import logging
 import time
 
-from app.ai.claude_backend_review_gate import REDRIVE_INSTRUCTION
+from app.ai.claude_backend_review_gate import (
+    REDRIVE_INSTRUCTION,
+    open_work_banner,
+)
 from app.ai.claude_backend_utils import (
     AGENT_DEBUG,
     get_next_seq,
 )
-from app.ai.stop_gates.report_reviewer import (
-    partial_banner,
-    review_files_written,
-    rollover_reviews,
-)
+from app.ai.stop_gates.listing_upload_gate import rollover_upload_markers
 from app.ai.stream_event_trace import trace_stream_event
 from app.ai.task_status_reconcile import reconcile_streaming_run_status
 from app.database import async_session
@@ -293,47 +292,16 @@ class _StreamMixin:
                     # Subagent-originated events carry the id of the
                     # Agent/Task tool_use that spawned them; the main
                     # agent's own events have it null. This is the
-                    # authorship signal for review verdicts and the
                     # spawn-tracking key for async agents.
                     parent_id = event.get('parent_tool_use_id')
                     if parent_id and block.get('id'):
                         self._subagent_tool_use_ids.add(block['id'])
-                    # A DoD/review verdict only counts when a real reviewer
-                    # SUBAGENT produced it. The main agent can't fabricate
-                    # this tool_use it never made, so flag a review-ish
-                    # Agent/Task spawn; the Stop gate rejects a self-written
-                    # verdict when this stayed False.
-                    if tool_name in ('Agent', 'Task'):
-                        if not parent_id:
-                            # Track main-agent spawns so the launch ack
-                            # (tool_result) can flag async agents.
-                            _bid = block.get('id')
-                            if _bid:
-                                self._agent_spawn_ids.add(_bid)
-                        _blob = json.dumps(
-                            tool_input, ensure_ascii=False
-                        ).lower()
-                        if any(
-                            k in _blob
-                            for k in ('review', 'verif', 'dod', 'audit')
-                        ):
-                            self._review_subagent_ran = True
-                    # Review-verdict authorship: record WHO wrote each
-                    # review-named .md this turn — by Write/Edit or a
-                    # shell redirect. A file last written by the main
-                    # agent can never satisfy the review gates (see
-                    # report_reviewer.reviewer_verdict).
-                    written = review_files_written(tool_name, tool_input)
-                    for _base in written:
-                        self._review_file_writers[_base] = (
-                            'subagent' if parent_id else 'main'
-                        )
-                    # A reviewer's verdict IS its deliverable: once it
-                    # writes one, it no longer holds the turn open. In CI
-                    # a reviewer wrote `Status: ok`, then browsed on for
-                    # 12 minutes while the accepted task could not end.
-                    if written and parent_id:
-                        self._release_async({parent_id})
+                    if tool_name in ('Agent', 'Task') and not parent_id:
+                        # Track main-agent spawns so the launch ack
+                        # (tool_result) can flag async agents.
+                        _bid = block.get('id')
+                        if _bid:
+                            self._agent_spawn_ids.add(_bid)
                     todos = (
                         valid_todos(tool_input.get('todos'))
                         if tool_name == 'TodoWrite'
@@ -363,21 +331,13 @@ class _StreamMixin:
             await accumulate_run_usage(self.task_id, event)
             text = event.get('result', '')
             is_error = event.get('is_error', False)
-            # ── Review-gate guard (project-wide) ───────────────
-            # A `result` while a server-mandated review gate is still
-            # unsatisfied is NOT the end of the turn. The DoD/exec
-            # review loop runs AFTER the deliverable — it spawns a
-            # reviewer subagent and fixes the deliverable in place, and
-            # every one of those tool calls needs the approval channel.
-            # If we close stdin here (below), those approvals get
-            # dropped and the CLI default-denies them, so the review is
-            # abandoned and a placeholder result ships as "completed".
-            # Instead: keep the channel open and re-drive the agent with
-            # the gate's own deny reason (the same one the Stop hook
-            # uses), so it actually satisfies the gate on a LIVE channel.
-            # The bound, the budget and the fail-open decision live in
-            # `_ReviewGateMixin` — four call sites need the same answer
-            # and used to work it out separately.
+            # ── Open-work guard ─────────────────────────────────
+            # A `result` while this turn's own work is still open (async
+            # subagents running, an uploaded listing batch without a
+            # verdict) is NOT the end of the turn: closing stdin here
+            # would drop the approvals that work still needs. Re-drive
+            # the agent on the live channel instead, within the budget
+            # `_ReviewGateMixin` owns.
             if self._executing and not is_error:
                 self._note_review_turn_end()
                 # A turn whose model response stopped with NO stop reason,
@@ -420,7 +380,7 @@ class _StreamMixin:
                             'budget': self._review_budget_note(),
                         }),
                     )
-                    text = partial_banner() + (text or '')
+                    text = open_work_banner(gate_reason) + (text or '')
             if event.get('subtype') == 'success' and not is_error:
                 self._agent_success = True
             # A result message is the "turn ended" signal downstream
@@ -545,13 +505,10 @@ class _StreamMixin:
                 first = self.session_id is None
                 self.session_id = sid
                 if first and event.get('subtype') == 'init':
-                    # New execution turn: move the prior turn's review
-                    # verdicts aside so THIS turn is reviewed on a clean
-                    # slate (a follow-up can't inherit an earlier turn's
-                    # verdict/iter count). Once per session — guarded by
-                    # `first` so a stray later init can't wipe reviews
-                    # written during this turn. See rollover_reviews.
-                    rollover_reviews(self.task_dir)
+                    # New execution turn: move the prior turn's upload
+                    # markers aside so this turn's upload gate is armed
+                    # only by its own uploads. Once per session.
+                    rollover_upload_markers(self.task_dir)
                 # Persist task.session_id at the init event, not only
                 # at end-of-stream. `--resume X` keeps the session id
                 # as X (Claude Code does NOT mint a new id unless

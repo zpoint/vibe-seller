@@ -2,8 +2,7 @@
 
 ``async def`` start() methods must not touch the disk on the event
 loop (``scripts/check_blocking_async.py``). The system-prompt file,
-the ``--settings`` payload, the ``--agents`` registration and the
-browser-use guard are all ``mkdir`` + ``write_text`` work, so they
+the ``--settings`` payload and the browser-use guard are all ``mkdir`` + ``write_text`` work, so they
 are built here — in ONE sync body the caller awaits through
 ``asyncio.to_thread`` — and the argv flags are extended from the
 returned paths (pure). A leaf module: agent_proxy and
@@ -17,7 +16,6 @@ from app.ai.claude_backend_utils import (
     apply_agent_venv_path,
     write_system_prompt_file,
 )
-from app.ai.reviewer_agent import write_agents_file
 
 
 def build_launch_artifacts(
@@ -28,7 +26,6 @@ def build_launch_artifacts(
     *,
     env: dict | None = None,
     store_slug: str | None = None,
-    agents: bool = True,
 ) -> dict:
     """Write EVERY launch artifact in ONE thread hop.
 
@@ -39,10 +36,8 @@ def build_launch_artifacts(
     ``asyncio.to_thread`` and then extends its argv with the returned
     paths — argv extension is pure, the disk work is here.
 
-    *settings* of ``None`` skips the ``--settings`` payload; ``agents
-    = False`` skips the ``--agents`` registration (the workspace
-    assistant has no reviewer subagents); *env* of ``None`` skips the
-    venv/PATH wiring.
+    *settings* of ``None`` skips the ``--settings`` payload; *env* of
+    ``None`` skips the venv/PATH wiring.
     """
     prompt_path = write_system_prompt_file(system_prompt, task_id, task_dir)
     settings_path = (
@@ -50,11 +45,9 @@ def build_launch_artifacts(
         if settings is not None
         else None
     )
-    agents_path = write_agents_file(task_id, task_dir) if agents else None
     if env is not None:
         apply_agent_venv_path(env, store_slug)
     return {
         'system_prompt': prompt_path,
         'settings': settings_path,
-        'agents': agents_path,
     }

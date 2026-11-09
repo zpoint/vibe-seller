@@ -342,7 +342,7 @@ class AgentSession(
         await drop_dead_proxy(env, self.task_id, settings, self._emit_message)
         if not mock_cli:
             # EVERY launch artifact — system-prompt file, --settings
-            # payload, --agents registration and the browser-use guard
+            # payload and the browser-use guard
             # apply_agent_venv_path lays down — is written in ONE
             # thread hop. start() is async; the event loop must never
             # touch the disk (scripts/check_blocking_async.py). The
@@ -362,13 +362,6 @@ class AgentSession(
                     str(artifacts['system_prompt']),
                 ])
             cmd.extend(['--settings', str(artifacts['settings'])])
-            # Register the product-defined DoD reviewer as a real agent
-            # type: the stop gates demand
-            # ``subagent_type="ads-report-review"``, and before this
-            # registration that type existed only in the gate's text —
-            # the main agent improvised the reviewer's brief and its
-            # work was unbounded.
-            cmd.extend(['--agents', str(artifacts['agents'])])
         logger.info(
             'Starting agent for task %s (mode=%s, profile=%s, '
             'base_url=%s, model=%s)',

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime, timedelta
 import json
 import logging
@@ -7,7 +8,6 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.bash_safety import check_exec_review_status
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import (
     DEFAULT_PROFILE_ID,
@@ -23,7 +23,7 @@ from app.ai.stop_gates import (
     resolve_skill_gates,
     take_review_round,
 )
-from app.ai.stop_gates.report_reviewer import clear_followup
+from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
@@ -40,10 +40,7 @@ from app.routers.task_submission import (
     resolve_submitted_result,
     retain_submission as _retain_submission,
 )
-from app.routers.tasks_files import (
-    apply_report_reviewer_gate,
-    resolve_store_rules,
-)
+from app.routers.tasks_files import resolve_store_rules
 from app.scheduler.task_queue import task_queue_scheduler
 from app.schemas.task import TaskCreate, TaskResponse, TaskStepResponse
 from app.schemas.user import TaskModeToggle
@@ -272,7 +269,6 @@ async def delete_task(
     reset_attempts(task_id)
     reset_ledger(task_id)
     clear_skill_bindings(task_id)
-    clear_followup(task_id)
     return {'ok': True}
 
 
@@ -592,13 +588,6 @@ async def set_task_result(
 
     task_root = (VIBE_SELLER_DIR / 'tasks' / task_id).resolve()
 
-    # Phase-4 execution review gate (no-op unless ``EXECUTION_LOG.md``
-    # exists). The audit-report reviewer runs below (completeness floor +
-    # apply_report_reviewer_gate), not here.
-    deny = check_exec_review_status(task_root)
-    if deny:
-        raise HTTPException(status_code=400, detail=deny)
-
     # File-pointer mode: if `body.result` points at a file inside this
     # task's workspace, read the file and use its contents (see
     # ``resolve_workspace_result_path`` for the path-resolution
@@ -617,6 +606,13 @@ async def set_task_result(
     # still set only once every gate accepts.
     declared = declared_gaps(body)
     await _retain_submission(db, task, final_result)
+
+    # A listing batch this turn uploaded to the live account must have a
+    # clean verdict before the task may finish (no-op without uploads).
+    # Hard: refused on every submit until the verdict is clean.
+    deny = await asyncio.to_thread(check_upload_verdicts, task_root)
+    if deny:
+        await _refuse(db, task, deny, declared)
 
     await apply_soft_gates(db, task, task_id, final_result, declared)
 
@@ -674,11 +670,9 @@ async def set_task_result(
         # lines in one run read byte-identical while the underlying gaps
         # went 14 → 8 → 7, which is worse than silence: it looks like a
         # run repeating itself when it is converging. Say "failing open"
-        # rather than "accepting": the reviewer gate runs next and may
-        # still refuse, so the result is not accepted here.
         logger.warning(
-            'Gate %s stalled for task %s — failing open with %d unmet gap(s) '
-            '(reviewer may still refuse). Gaps: %s',
+            'Gate %s stalled for task %s — failing open with %d unmet gap(s). '
+            'Gaps: %s',
             gate_name,
             task_id,
             len(deny.gaps or ()),
@@ -688,13 +682,6 @@ async def set_task_result(
         # Failed open on a stall: the result ships, but the unmet gaps
         # ride along as caveats instead of vanishing into a log line.
         stalled_gaps.extend(deny.gaps or (deny.reason,))
-
-    # Active reviewer sign-off (see apply_report_reviewer_gate).
-    deny_reason, final_result = apply_report_reviewer_gate(
-        task_id, task_root, final_result
-    )
-    if deny_reason:
-        await _refuse(db, task, deny_reason, declared)
 
     # Recovery: a valid result supersedes an earlier agent-reported
     # error this turn (error → recovered → result must not ship as

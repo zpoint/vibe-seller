@@ -1,10 +1,4 @@
-"""Generic, deterministic gates that run at ``set_task_result``.
-
-These are task-agnostic — every task's declared result is validated
-the same way. The ad-tuning reviewer gates in ``bash_safety.py``
-remain for the audit-specific structure checks; these gates target
-problems that span every task (malformed markdown tables, prose in
-the wrong language).
+"""Deterministic gates that run at ``set_task_result``.
 
 Each gate returns either ``None`` (pass / not applicable) or a
 ``GateDeny`` carrying a structured reason the agent will see when
@@ -108,6 +102,9 @@ def reset_attempts(task_id: str) -> None:
         _attempts.pop(key, None)
 
 
+# The ad skills whose deliverable is an audit report file.
+AD_SKILLS = frozenset({'amazon-ads', 'noon-ads', 'qianniu-ads'})
+
 # Cap: after this many denials per gate per task, the gate becomes a
 # pass-through (the agent gets a warning, but the task finishes). The
 # user explicitly asked for "let agent fix once but not mandatory" —
@@ -115,9 +112,9 @@ def reset_attempts(task_id: str) -> None:
 SOFT_GATE_MAX_DENIALS = 1
 
 # How many times an ads task's result is reviewed before it is accepted:
-# one refusal per skill-declared gate, one reviewer pass, one execution
-# review. The fix is asked for once and not demanded again — a review
-# that loops for 14 or 41 rounds costs more than the gaps it finds, and
+# one refusal per skill-declared gate. The fix is asked for once and not
+# demanded again — a review that loops for 14 or 41 rounds costs more
+# than the gaps it finds, and
 # whatever stays unmet ships as caveats on the result rather than
 # vanishing. Only the browser skill declares review; a store worked over
 # the ads API is reviewed zero times (its skill declares no gates).
@@ -212,13 +209,10 @@ def clear_skill_bindings(task_id: str) -> None:
 
 # ── Skill-declared gate registry ────────────────────────────────────
 #
-# Generic gates (markdown_format, result_language) run for EVERY task.
 # Domain gates run only when a skill the session loaded DECLARES them
 # in its SKILL.md frontmatter (``gates: [ad_completeness_review]``).
 # This keeps ``set_task_result`` free of task-type special cases: a
-# listing skill, an email skill, etc. each bring their own reviewers,
-# and a task that loaded no gate-declaring skill gets only the
-# generic checks. Names below are the public contract skills use.
+# task that loaded no gate-declaring skill gets none. Names below are the public contract skills use.
 
 
 def get_registered_gates() -> dict[str, object]:

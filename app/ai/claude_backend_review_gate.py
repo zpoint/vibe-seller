@@ -29,12 +29,9 @@ from __future__ import annotations
 
 import logging
 
-from app.ai.claude_backend_utils import (
-    REVIEW_REDRIVE_MAX,
-    check_exec_review_status_for_stop,
-    check_review_status_for_stop,
-)
+from app.ai.claude_backend_utils import REVIEW_REDRIVE_MAX
 from app.ai.review_redrive import ledger_for
+from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
 from app.env_options import Options
 
 logger = logging.getLogger(__name__)
@@ -44,7 +41,7 @@ logger = logging.getLogger(__name__)
 # cannot finish" as "this task failed" will mark the WHOLE task FAILED
 # over a caveat, throwing away a deliverable that was merely unreviewed.
 REDRIVE_INSTRUCTION = (
-    'You cannot finish yet — a required review gate is not satisfied. '
+    'You cannot finish yet — work this turn started is still open. '
     'Do NOT just re-answer; act on this and then finish. If you '
     'genuinely cannot satisfy it, finish normally and state the '
     'remaining caveats IN YOUR RESULT — never call '
@@ -52,6 +49,12 @@ REDRIVE_INSTRUCTION = (
     'channel marks the whole task FAILED and is only for a task with no '
     'usable deliverable):\n\n'
 )
+
+
+def open_work_banner(reason: str) -> str:
+    """Prefix for a result that ended with its open work unresolved."""
+    first = (reason or '').strip().splitlines()[0] if reason else ''
+    return '> ⚠️ **Ended with open work.** ' + first[:300] + '\n\n'
 
 
 class _ReviewGateMixin:
@@ -87,21 +90,16 @@ class _ReviewGateMixin:
         return self._review_redrive_clock.turns
 
     def _review_gate_deny_reason(self) -> str | None:
-        """Why the review/exec gates say this turn may not end yet.
+        """Why this turn may not end yet: a listing batch it uploaded to
+        the live account has no clean verdict (``listing_upload_gate``).
 
         Deliberately does NOT include pending async subagents: the result
         branch adds that (a turn cannot end under live work), while the
-        watchdog tracks it separately as its own close-blocker. Folding
-        them together here would make one of those two wrong.
+        watchdog tracks it separately as its own close-blocker.
         """
-        return check_review_status_for_stop(
-            self.task_dir,
-            subagent_ran=getattr(self, '_review_subagent_ran', False),
-            review_writers=getattr(self, '_review_file_writers', None),
-        ) or check_exec_review_status_for_stop(
-            self.task_dir,
-            review_writers=getattr(self, '_review_file_writers', None),
-        )
+        if self.task_dir is None:
+            return None
+        return check_upload_verdicts(self.task_dir)
 
     def _review_redrive_exhausted(self) -> bool:
         """Has the gate spent everything it is allowed to spend?

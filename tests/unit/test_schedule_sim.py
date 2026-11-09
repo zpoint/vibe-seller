@@ -40,9 +40,7 @@ MEASURED: dict[str, tuple[int, int]] = {
     'test_create_then_extend': (0, 547),
     'test_different_platforms_run_concurrently': (0, 70),
     'test_different_stores_fully_independent': (0, 2),
-    'test_direct_load_denied_then_succeeds_after_prereq': (166, 59),
     'test_each_store_reads_its_ads_its_own_way': (608, 496),
-    'test_first_turn_reviewed_followups_not': (511, 254),
     'test_full_pipeline_completes': (0, 4),
     'test_llm_follows_instructions': (13, 0),
     'test_llm_responds': (0, 289),
@@ -71,7 +69,6 @@ RECORDED_MARKERS = {
     'test_reviewing_everything_looks_at_everything',
     'test_each_store_reads_its_ads_its_own_way',
     'test_create_then_extend',
-    'test_first_turn_reviewed_followups_not',
     'test_cookie_persists_across_tasks_same_store',
     'test_llm_responds',
     'test_two_browser_tasks_both_complete',
@@ -202,8 +199,8 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     """The scheduling claim, pinned.
 
     The docstring/report figures are produced by THIS calculation on
-    the recorded suite at the ci.yml width (6 workers): p50 path 1362s
-    (22.7 min) and max-duration path 1546s (25.8 min). Both must fit the CI e2e
+    the recorded suite at the ci.yml width (6 workers): p50 path 1234s
+    (20.6 min) and max-duration path 1405s (23.4 min). Both must fit the CI e2e
     step budget, read from ci.yml (40 min since the old 32 min was
     shown too tight by the 4-worker figures 1907s/2112s). A collection
     that differs in shape (platform filters) shifts the absolute
@@ -219,5 +216,5 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     assert max(worst) <= step, (
         f'the worst-case path no longer fits {step}s: {worst}'
     )
-    if _e2e_workers() == 6 and p50 == [1362, 1134, 1087, 1352, 932, 936]:
-        assert worst == [1546, 1269, 1046, 1209, 841, 921], worst
+    if _e2e_workers() == 6 and p50 == [1234, 976, 1060, 1126, 890, 924]:
+        assert worst == [1405, 934, 921, 947, 842, 768], worst

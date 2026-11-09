@@ -70,11 +70,7 @@ class TestCloseGuards:
         s = self._closable(_session())
         with (
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value=None,
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -100,11 +96,12 @@ class TestCloseGuards:
         s._async_agents['toolu_1'] = 'agent-1'
         assert s._turn_close_blocked() == 'async_work_running'
 
-    def test_unsatisfied_review_gate_blocks(self):
+    def test_unverified_upload_blocks(self):
         s = self._closable(_session())
+        s.task_dir = '/tmp/fake-task'  # upload markers live in the task dir
         with patch(
-            'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-            return_value='Reviewer never ran.',
+            'app.ai.claude_backend_review_gate.check_upload_verdicts',
+            return_value='Batch 100000000001 has no parse-feedback verdict.',
         ):
             assert s._turn_close_blocked() == 'review_gate_unsatisfied'
 
@@ -113,13 +110,14 @@ class TestCloseGuards:
         # the gate stands down so an unsatisfiable gate can't wedge
         # the process forever.
         s = self._closable(_session())
+        s.task_dir = '/tmp/fake-task'
         # Spend the budget the way the gate does — the tally lives on
         # the turn's ledger, so there is nothing to assign here.
         for _ in range(REVIEW_REDRIVE_MAX):
             s._note_review_redrive()
         with patch(
-            'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-            return_value='Reviewer never ran.',
+            'app.ai.claude_backend_review_gate.check_upload_verdicts',
+            return_value='Batch 100000000001 has no parse-feedback verdict.',
         ):
             assert s._turn_close_blocked() is None
 
@@ -127,8 +125,8 @@ class TestCloseGuards:
         """The ten-minute gap, pinned.
 
         The result branch fails open on a COMPOSITE — pending async
-        subagents OR an unsatisfied review gate — and ships the
-        UNVERIFIED banner. This chain then went on blocking the close on
+        subagents OR other open work (an unverified upload) — and ships
+        the open-work banner. This chain then went on blocking the close on
         one half of that same composite, so a run that had failed open
         at 08:45:35 holding a valid 530-char result did not reach a
         terminal status until the 600s hard-idle backstop fired at
@@ -166,11 +164,7 @@ class TestWatchdogTick:
         with (
             patch.object(s, '_emit_message', _emit),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value=None,
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value=None,
             ),
         ):

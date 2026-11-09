@@ -13,21 +13,21 @@ recorded unconditionally; the refusal only annotates it. See
 """
 
 import asyncio
+import json
 
 import pytest
 
+from app.config import VIBE_SELLER_DIR
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
 pytestmark = pytest.mark.workflow
 
-# Trips ``markdown_format`` — a body row with the wrong column count.
-# SOFT_GATE_MAX_DENIALS is 1, so the FIRST submit is refused.
-MALFORMED = (
+PARTIAL = (
     'Audit report, 95% complete.\n\n'
     '| Campaign | Spend | ROAS |\n'
     '|---|---|---|\n'
-    '| widget-006 | 10 |\n'
+    '| widget-006 | 10 | 4.2 |\n'
 )
 CLEAN = (
     'Audit report, complete.\n\n'
@@ -35,6 +35,20 @@ CLEAN = (
     '|---|---|---|\n'
     '| widget-006 | 10 | 4.2 |\n'
 )
+
+
+def _arm_upload_gate(task_id: str) -> None:
+    """A listing template was fetched and no batch verdict exists: the
+    upload gate refuses every submit until the marker is resolved."""
+    d = VIBE_SELLER_DIR / 'tasks' / task_id
+    d.mkdir(parents=True, exist_ok=True)
+    (d / 'UPLOAD_PENDING.json').write_text(
+        json.dumps({'template': 'WIDGETS.xlsm'}), encoding='utf-8'
+    )
+
+
+def _disarm_upload_gate(task_id: str) -> None:
+    (VIBE_SELLER_DIR / 'tasks' / task_id / 'UPLOAD_PENDING.json').unlink()
 
 
 async def _running_task(admin_client, install_fake_agent, name):
@@ -67,8 +81,9 @@ class TestRefusalKeepsTheSubmission:
         task_id, gate = await _running_task(
             admin_client, install_fake_agent, 'Retain Store'
         )
+        _arm_upload_gate(task_id)
         r = await admin_client.post(
-            f'/api/tasks/{task_id}/result', json={'result': MALFORMED}
+            f'/api/tasks/{task_id}/result', json={'result': PARTIAL}
         )
         assert r.status_code == 400
 
@@ -76,7 +91,7 @@ class TestRefusalKeepsTheSubmission:
         # The refusal stands — no accepted deliverable…
         assert not data.get('result')
         # …but what the agent submitted is still here.
-        assert data['submitted_result'] == MALFORMED
+        assert data['submitted_result'] == PARTIAL
         assert data['submission_count'] == 1
         assert data['review_gaps']
 
@@ -96,14 +111,15 @@ class TestRefusalKeepsTheSubmission:
         task_id, gate = await _running_task(
             admin_client, install_fake_agent, 'Regression Store'
         )
+        _arm_upload_gate(task_id)
         r = await admin_client.post(
-            f'/api/tasks/{task_id}/result', json={'result': MALFORMED}
+            f'/api/tasks/{task_id}/result', json={'result': PARTIAL}
         )
         assert r.status_code == 400
 
         r2 = await admin_client.post(
             f'/api/tasks/{task_id}/error',
-            json={'error': 'reviewer kept refusing the format'},
+            json={'error': 'upload verdict never came back'},
         )
         assert r2.status_code == 200
 
@@ -116,7 +132,7 @@ class TestRefusalKeepsTheSubmission:
         # The narration must NOT be the deliverable.
         assert 'streamed narration' not in final['result']
         # Both the gate's gap and the agent's own account ride along.
-        assert 'reviewer kept refusing the format' in final['result']
+        assert 'upload verdict never came back' in final['result']
 
     async def test_accepted_submission_clears_the_gaps(
         self, admin_client, install_fake_agent
@@ -124,12 +140,14 @@ class TestRefusalKeepsTheSubmission:
         task_id, gate = await _running_task(
             admin_client, install_fake_agent, 'Accept Store'
         )
+        _arm_upload_gate(task_id)
         assert (
             await admin_client.post(
-                f'/api/tasks/{task_id}/result', json={'result': MALFORMED}
+                f'/api/tasks/{task_id}/result', json={'result': PARTIAL}
             )
         ).status_code == 400
 
+        _disarm_upload_gate(task_id)
         r = await admin_client.post(
             f'/api/tasks/{task_id}/result', json={'result': CLEAN}
         )
@@ -183,9 +201,10 @@ class TestIncompleteExit:
         task_id, gate = await _running_task(
             admin_client, install_fake_agent, 'No Bypass Store'
         )
+        _arm_upload_gate(task_id)
         r = await admin_client.post(
             f'/api/tasks/{task_id}/result',
-            json={'result': MALFORMED, 'incomplete': ['let me out']},
+            json={'result': PARTIAL, 'incomplete': ['let me out']},
         )
         assert r.status_code == 400
 

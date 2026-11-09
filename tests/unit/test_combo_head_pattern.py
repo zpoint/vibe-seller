@@ -24,7 +24,6 @@ import re
 from openpyxl import Workbook
 import pytest
 
-from app.ai import bash_safety
 from app.ai.stop_gates import ad_completeness_review as acr, ad_rollup, ad_scope
 from app.routers import tasks_files
 
@@ -79,13 +78,10 @@ class TestComboHeadPattern:
             ad_rollup._COMBO_HEAD_RE.pattern,
         ):
             assert ad_scope.COMBO_HEAD_PATTERN in pat, pat
-        # The H2-anchored variants (bash_safety / tasks_files) build on the
-        # same string.
-        for pat in (
-            bash_safety._SERVER_REVIEWED_RE.pattern,
-            tasks_files._AUDIT_SECTION_RE.pattern,
-        ):
-            assert ad_scope.COMBO_HEAD_PATTERN in pat, pat
+        # The H2-anchored variant (tasks_files) builds on the same string.
+        assert (
+            ad_scope.COMBO_HEAD_PATTERN in tasks_files._AUDIT_SECTION_RE.pattern
+        )
 
     def test_no_hardcoded_country_list_survives(self):
         """The literal allowlist must be gone, not merely supplemented."""

@@ -1,43 +1,23 @@
-"""Guard state that describes the TASK must outlive the session.
+"""Hook state that describes the TASK must outlive the session.
 
-A task is a sequence of turns now, and a gate refusal restarts the
-session mid-turn as well. Two PreToolUse guards track facts that belong
-to the task, not to the process running it:
-
-* the catalog-first guard, once the agent has read the store manifest;
-* the skill-prereq check, once a required skill is loaded.
-
-Both lived only on the session object, so every follow-up and every
-redrive re-armed them. Observed live on a two-turn ad task: the agent
-read ``stores/<slug>/CATALOG.md`` as its fourth action, and in the second
-turn was denied five times for searching ``stores/`` — with the message
-"Read the catalog first". It was trying to read the ad-change TSVs it
-needed in order to satisfy a cooldown gate that was refusing its report.
-The same restart re-triggered a skill-prereq error for a skill already
-loaded earlier in the same task.
-
-Neither denial was satisfiable from the agent's side, which is the shape
-of failure worth pinning: a guard the agent cannot clear is worse than
-no guard.
+A task is a sequence of turns, and a redrive restarts the session
+mid-turn as well. The PreToolUse hook tracks two task facts — the
+catalog has been read (handed to plugin gates as ``catalog_read``) and
+which skills are loaded (the ``requires:`` hint keys off it). Both
+lived only on the session object, so every follow-up re-armed them:
+observed live, a second turn was refused for a catalog it had read and
+re-told to load a skill it already had.
 """
 
 import pytest
 
-from app.ai.bash_safety import check_catalog_first, is_catalog_path
+from app.ai.catalog_read import is_catalog_path
 
 pytestmark = pytest.mark.unit
 
 
-class TestTheGuardIsSatisfiableAtAll:
-    """Reading the catalog must actually clear the guard."""
-
-    CMD = 'ls stores/acme/ads/amazon/SA/'
-
-    def test_it_blocks_before_the_catalog_is_read(self):
-        assert check_catalog_first(self.CMD, catalog_read=False)
-
-    def test_it_clears_once_the_catalog_is_read(self):
-        assert check_catalog_first(self.CMD, catalog_read=True) is None
+class TestCatalogReadIsRecognised:
+    """Reading the catalog through the task workspace counts."""
 
     def test_the_workspace_copy_of_the_catalog_counts(self):
         # The agent reads it through its own workspace, so the absolute

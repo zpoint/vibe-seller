@@ -19,13 +19,8 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.background import BackgroundTask
 
-from app.ai.claude_backend_manager import agent_manager
-from app.ai.skill_review import skills_requiring_review
 from app.ai.stop_gates import (
     ad_scope,
-    record_attempt,
-    recorded_skills,
-    report_reviewer,
 )
 from app.ai.stop_gates.ad_rules import resolve_rules
 from app.auth import get_current_user
@@ -45,56 +40,6 @@ router = APIRouter(prefix='/api/tasks', tags=['tasks'])
 logger = logging.getLogger(__name__)
 
 _TASKS_DIR = VIBE_SELLER_DIR / 'tasks'
-
-
-def apply_report_reviewer_gate(task_id, task_root, final_result):
-    """Reviewer sign-off for review-declaring skills at ``set_task_result``.
-
-    The live session's per-file verdict-authorship map (who wrote each
-    review file this turn) is read from ``agent_manager``; an accepting
-    verdict then counts only when the reviewer subagent itself wrote
-    the file.
-
-    The active reviewer is enforced here (not only in the Stop hook) so a
-    backend that finishes via this endpoint can't complete with the
-    reviewer never spawned. Fires when the task bound EITHER an ads skill
-    OR any skill declaring a ``review:`` block in its SKILL.md (Phase 2:
-    listing / reports / invoice / fbn / review-collect). The reviewer
-    itself decides whether there was real work to verify or nothing to
-    review (it signs off fast on a lookup); the server never pre-judges.
-
-    Returns ``(deny_reason, final_result)``. A non-None ``deny_reason``
-    means the caller should 400. On a bounded stall the reviewer fails
-    open: ``deny_reason`` is None but ``final_result`` is banner-marked
-    UNVERIFIED — never a silent "done".
-    """
-    skills = recorded_skills(task_id)
-    skill_reviews = skills_requiring_review(skills, task_root)
-    needs_review = bool(skills & report_reviewer.AD_SKILLS) or bool(
-        skill_reviews
-    )
-    if not needs_review:
-        return None, final_result
-    session = agent_manager.get_session(task_id)
-    deny = report_reviewer.reviewer_verdict(
-        task_root,
-        review_writers=getattr(session, '_review_file_writers', None),
-        skill_reviews=skill_reviews,
-        result_text=final_result,
-    )
-    if not deny:
-        return None, final_result
-    attempt = record_attempt(task_id, 'ads_report_reviewer')
-    if attempt <= report_reviewer.REVIEWER_STALL_CAP:
-        return deny, final_result
-    logger.warning(
-        'Reviewer stalled for task %s after %d denials — accepting result '
-        'as UNVERIFIED. Last reason: %s',
-        task_id,
-        attempt,
-        deny[:200],
-    )
-    return None, report_reviewer.partial_banner() + final_result
 
 
 _SKIP_NAMES = {'.claude', '.mcp.json', 'CLAUDE.md'}

@@ -348,10 +348,11 @@ class TestHandleEventResultTurns:
 
 
 class TestReviewGateRedrive:
-    """A result while a review gate is unsatisfied must NOT end the turn:
-    keep the control channel open and re-drive the agent instead of
-    closing stdin (which would silently deny the reviewer subagent's
-    tool calls). See app/ai/claude_backend_stream result branch."""
+    """A result while the turn's own work is still open (here: a listing
+    batch uploaded without a clean verdict) must NOT end the turn: keep
+    the control channel open and re-drive the agent instead of closing
+    stdin (which would silently deny the tool calls that finish it). See
+    app/ai/claude_backend_stream result branch."""
 
     async def test_unsatisfied_gate_redrives_instead_of_emitting(self):
         session = _make_session('auto')
@@ -369,13 +370,8 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value='Reviewer never ran. Spawn the DoD reviewer.',
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
-                return_value=None,
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                return_value='Batch 100000000001 has no parse-feedback verdict.',
             ),
         ):
             await session._handle_event({
@@ -388,7 +384,7 @@ class TestReviewGateRedrive:
         assert session._result_text == ''
         # The agent was re-driven with the gate's deny reason.
         assert len(sent) == 1
-        assert 'Reviewer never ran' in sent[0]
+        assert 'no parse-feedback verdict' in sent[0]
         assert session._review_redrive_count == 1
         # A structured re-drive marker was emitted (not the result card).
         assert any(r == 'agent_event' for r, _ in emitted)
@@ -409,13 +405,8 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value='still gaps',
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
-                return_value=None,
             ),
         ):
             await session._handle_event({
@@ -424,8 +415,7 @@ class TestReviewGateRedrive:
             })
 
         # Bound hit → the turn still ends (no wedge), but the result is
-        # banner-marked UNVERIFIED so an unreviewed deliverable is never
-        # mistaken for a reviewed one.
+        # banner-marked so open work is never mistaken for finished work.
         roles = [r for r, _ in emitted]
         assert roles == ['agent_event', 'result']
         # The fail-open is on the record. It was diagnosed once from a
@@ -434,7 +424,7 @@ class TestReviewGateRedrive:
         assert 'review_gate_failed_open' in emitted[0][1]
         content = emitted[1][1]
         assert content.endswith('Final answer')
-        assert 'Unverified result' in content
+        assert 'Ended with open work' in content and 'still gaps' in content
         assert session._turn_result_seen is True
         # …and the turn is now TERMINAL. See
         # test_failed_open_turn_stops_waiting_on_async_work.
@@ -469,13 +459,8 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value='still gaps',
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
-                return_value=None,
             ),
         ):
             await session._handle_event({
@@ -488,7 +473,7 @@ class TestReviewGateRedrive:
         )
         assert sent == [], 'no further re-drive was issued'
         assert session._review_gate_failed_open is True
-        assert 'Unverified result' in emitted[-1][1]
+        assert 'Ended with open work' in emitted[-1][1]
 
     async def test_satisfied_gate_ends_turn_normally(self):
         """Gate satisfied (helpers return None) → result finalizes."""
@@ -502,12 +487,7 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value=None,
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -520,11 +500,11 @@ class TestReviewGateRedrive:
         assert session._turn_result_seen is True
         assert session._review_redrive_count == 0
 
-    # ── The core regression: the control channel must stay OPEN while a
-    # review gate is unsatisfied. This is the exact invariant the
-    # production bug violated — a `result` closed stdin, so the DoD
-    # reviewer subagent's tool calls (and the in-place fixes) lost their
-    # approval channel and the CLI default-denied all of them. Neither
+    # ── The core regression: the control channel must stay OPEN while
+    # the turn's work is open. This is the exact invariant the
+    # production bug violated — a `result` closed stdin, so the remaining
+    # tool calls (and the in-place fixes) lost their approval channel
+    # and the CLI default-denied all of them. Neither
     # the workflow tests (FakeAgent replaces AgentSession, never touches
     # stdin) nor any e2e test covered this surface. These two pins do.
 
@@ -542,13 +522,8 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _noop),
             patch.object(session, 'send_user_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value='Reviewer never ran — spawn the DoD reviewer.',
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
-                return_value=None,
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                return_value='Batch 100000000001 has no parse-feedback verdict.',
             ),
         ):
             await session._handle_event({
@@ -579,12 +554,7 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value=None,
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -677,12 +647,7 @@ class TestAsyncAgentTurnHold:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value=None,
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -709,12 +674,7 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value=None,
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -742,12 +702,7 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_review_status_for_stop',
-                return_value=None,
-            ),
-            patch(
-                'app.ai.claude_backend_review_gate'
-                '.check_exec_review_status_for_stop',
+                'app.ai.claude_backend_review_gate.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -828,12 +783,11 @@ class TestAsyncAgentTurnHold:
         assert session._async_agents == {}
 
 
-class TestReviewFileAuthorshipTracking:
-    """The stream attributes each review-file Write/Edit to 'subagent'
-    or 'main' via the event's parent_tool_use_id — the signal the gates
-    use to reject a self-written accepting verdict."""
+class TestSubagentWritesKeepTheHold:
+    """A running async subagent's own file writes never release its hold
+    on the turn — only its completion notification does."""
 
-    def _write_event(self, parent, path='REVIEW_2026-07-20_iter1.md'):
+    def _write_event(self, parent, path):
         return {
             'type': 'assistant',
             'parent_tool_use_id': parent,
@@ -849,140 +803,7 @@ class TestReviewFileAuthorshipTracking:
             },
         }
 
-    async def test_main_write_recorded_as_main(self):
-        session = _make_session('auto')
-
-        async def _noop(*a, **k):
-            pass
-
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(self._write_event(None))
-        assert session._review_file_writers == {
-            'REVIEW_2026-07-20_iter1.md': 'main'
-        }
-
-    async def test_subagent_write_recorded_as_subagent(self):
-        session = _make_session('auto')
-
-        async def _noop(*a, **k):
-            pass
-
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(self._write_event('toolu_parent9'))
-        assert session._review_file_writers == {
-            'REVIEW_2026-07-20_iter1.md': 'subagent'
-        }
-
-    async def test_main_overwrite_after_subagent_downgrades(self):
-        # Last writer wins: a main-agent rewrite of the reviewer's file
-        # must not keep the 'subagent' attribution.
-        session = _make_session('auto')
-
-        async def _noop(*a, **k):
-            pass
-
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(self._write_event('toolu_parent9'))
-            await session._handle_event(self._write_event(None))
-        assert session._review_file_writers == {
-            'REVIEW_2026-07-20_iter1.md': 'main'
-        }
-
-    async def test_non_review_files_not_tracked(self):
-        session = _make_session('auto')
-
-        async def _noop(*a, **k):
-            pass
-
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(
-                self._write_event(None, path='PREVIEW.md')
-            )
-            await session._handle_event(
-                self._write_event(None, path='notes.txt')
-            )
-        assert session._review_file_writers == {}
-
-    async def test_exec_review_tracked_too(self):
-        session = _make_session('auto')
-
-        async def _noop(*a, **k):
-            pass
-
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(
-                self._write_event(None, path='EXEC_REVIEW_2026-07-20_iter1.md')
-            )
-        assert session._review_file_writers == {
-            'EXEC_REVIEW_2026-07-20_iter1.md': 'main'
-        }
-
-    def _bash_event(self, parent, command):
-        return {
-            'type': 'assistant',
-            'parent_tool_use_id': parent,
-            'message': {
-                'content': [
-                    {
-                        'type': 'tool_use',
-                        'id': 'toolu_b1',
-                        'name': 'Bash',
-                        'input': {'command': command},
-                    }
-                ]
-            },
-        }
-
-    async def test_subagent_heredoc_write_recorded_as_subagent(self):
-        """Observed in CI: the reviewer wrote its verdict with
-        ``cat > REVIEW_….md <<'EOF'``. Not crediting it made the gate
-        refuse a genuine verdict and the agent re-spawn reviewers."""
-        session = _make_session('auto')
-
-        async def _noop(*a, **k):
-            pass
-
-        cmd = "cat > /ws/REVIEW_2026-07-20_iter1.md <<'EOF'\nStatus: ok\nEOF"
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(self._bash_event('toolu_p9', cmd))
-        assert session._review_file_writers == {
-            'REVIEW_2026-07-20_iter1.md': 'subagent'
-        }
-
-    async def test_reading_a_verdict_does_not_credit_the_reader(self):
-        """A subagent that only READS a main-written verdict must not
-        launder it into a reviewer-written one."""
-        session = _make_session('auto')
-
-        async def _noop(*a, **k):
-            pass
-
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(self._write_event(None))
-            await session._handle_event(
-                self._bash_event(
-                    'toolu_p9', 'cat /ws/REVIEW_2026-07-20_iter1.md | head'
-                )
-            )
-        assert session._review_file_writers == {
-            'REVIEW_2026-07-20_iter1.md': 'main'
-        }
-
-    async def test_reviewer_verdict_releases_its_hold_on_the_turn(self):
-        """A reviewer that has written its verdict no longer holds the
-        turn open. Observed in CI: a reviewer wrote `Status: ok`, then
-        browsed on for 12 minutes while an accepted task could not end."""
-        session = _make_session('auto')
-        session._async_agents = {'toolu_spawn1': 'agent-r', 'toolu_other': ''}
-
-        async def _noop(*a, **k):
-            pass
-
-        with patch.object(session, '_emit_message', _noop):
-            await session._handle_event(self._write_event('toolu_spawn1'))
-        assert session._async_agents == {'toolu_other': ''}
-
-    async def test_non_verdict_write_keeps_the_hold(self):
+    async def test_writes_keep_the_hold(self):
         session = _make_session('auto')
         session._async_agents = {'toolu_spawn1': 'agent-r'}
 
@@ -991,9 +812,12 @@ class TestReviewFileAuthorshipTracking:
 
         with patch.object(session, '_emit_message', _noop):
             await session._handle_event(
-                self._write_event('toolu_spawn1', path='notes.md')
+                self._write_event('toolu_spawn1', 'notes.md')
             )
-            await session._handle_event(self._write_event(None))  # main
+            await session._handle_event(
+                self._write_event('toolu_spawn1', 'REVIEW_2026-07-20_iter1.md')
+            )
+            await session._handle_event(self._write_event(None, 'out.md'))
         assert session._async_agents == {'toolu_spawn1': 'agent-r'}
 
 

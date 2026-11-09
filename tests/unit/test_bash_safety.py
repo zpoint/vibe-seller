@@ -6,21 +6,14 @@ fanout sub-task killed bash subprocesses in two sibling tasks (a real
 incident).
 """
 
-from pathlib import Path
-
 import pytest
 
 from app.ai.bash_safety import (
-    check_catalog_first,
-    check_catalog_first_tool_args,
     check_dangerous_kill,
-    check_report_overwrite,
-    check_report_script_write,
     check_skill_file_write,
     first_bash_deny,
-    is_catalog_path,
-    should_mark_catalog_read,
 )
+from app.ai.catalog_read import is_catalog_path, should_mark_catalog_read
 from app.ai.image_guards import (
     check_generated_image_write,
     check_local_image_edit,
@@ -120,66 +113,6 @@ class TestEdgeCases:
         assert check_dangerous_kill(cmd) is not None
 
 
-class TestCatalogFirstGuard:
-    """Block filesystem search of knowledge/ or stores/ until the
-    agent reads any CATALOG.md.
-
-    The pattern is the same as Claude Code's Read-before-Write rule:
-    one deny + clear retry hint educates the model in-context, and
-    once the catalog has been read the guard turns off for the
-    remainder of the session.
-    """
-
-    def test_find_on_stores_before_catalog_is_denied(self):
-        cmd = 'find /home/runner/.vibe-seller/stores/abc/ -name "*"'
-        deny = check_catalog_first(cmd, catalog_read=False)
-        assert deny is not None
-        assert 'catalog' in deny.lower()
-
-    def test_ls_on_knowledge_before_catalog_is_denied(self):
-        cmd = 'ls -la ~/.vibe-seller/knowledge/'
-        assert check_catalog_first(cmd, catalog_read=False) is not None
-
-    def test_grep_on_stores_workspace_relative_is_denied(self):
-        # Workspace-relative path (no leading /) is the common form
-        # an agent will use inside the task cwd.
-        cmd = 'grep -r SECRET stores/myslug/'
-        assert check_catalog_first(cmd, catalog_read=False) is not None
-
-    def test_after_catalog_read_the_guard_is_off(self):
-        cmd = 'find /home/runner/.vibe-seller/stores/abc/ -name "*"'
-        assert check_catalog_first(cmd, catalog_read=True) is None
-
-    def test_search_outside_catalog_tree_is_allowed(self):
-        # Searching /tmp or arbitrary files has nothing to do with
-        # the catalog contract — must not be blocked.
-        assert check_catalog_first('ls /tmp/', catalog_read=False) is None
-        assert (
-            check_catalog_first('grep pattern file.txt', catalog_read=False)
-            is None
-        )
-
-    def test_non_search_command_against_stores_is_allowed(self):
-        # Reading a single file by `cat` isn't a directory search.
-        # The guard only fires on find/ls/grep/rg/fd/tree.
-        assert (
-            check_catalog_first(
-                'cat stores/myslug/notes.md', catalog_read=False
-            )
-            is None
-        )
-
-    def test_quoted_search_keyword_in_echo_is_allowed(self):
-        # ``ls`` inside a quoted string isn't in command position;
-        # false-positive guard.
-        assert (
-            check_catalog_first('echo "ls stores"', catalog_read=False) is None
-        )
-
-    def test_empty_command_is_allowed(self):
-        assert check_catalog_first('', catalog_read=False) is None
-
-
 class TestIsCatalogPath:
     """Identifies any-level CATALOG.md path so the hook can flip
     the catalog-first guard off once the agent reads one."""
@@ -207,74 +140,6 @@ class TestIsCatalogPath:
 
     def test_empty_path_is_not_a_catalog(self):
         assert not is_catalog_path('')
-
-
-class TestCatalogFirstToolArgs:
-    """Same catalog-first contract, applied to the Claude Code
-    built-in Glob/Grep tools. Without this guard, an agent denied
-    at the Bash layer pivots to Glob/Grep on the same trees and
-    gets the broad sweep through a different tool.
-    """
-
-    def test_glob_pattern_on_stores_is_denied(self):
-        inp = {'pattern': 'stores/cat-store-x-1234/**/*'}
-        assert check_catalog_first_tool_args(inp, False) is not None
-
-    def test_glob_pattern_on_knowledge_is_denied(self):
-        inp = {'pattern': 'knowledge/**/*.md'}
-        assert check_catalog_first_tool_args(inp, False) is not None
-
-    def test_grep_path_on_stores_is_denied(self):
-        inp = {'pattern': 'SECRET', 'path': 'stores/myslug'}
-        assert check_catalog_first_tool_args(inp, False) is not None
-
-    def test_after_catalog_read_glob_is_allowed(self):
-        inp = {'pattern': 'stores/x/**/*'}
-        assert check_catalog_first_tool_args(inp, True) is None
-
-    def test_glob_outside_catalog_tree_is_allowed(self):
-        inp = {'pattern': 'src/**/*.py'}
-        assert check_catalog_first_tool_args(inp, False) is None
-
-    def test_glob_with_no_path_or_pattern_is_allowed(self):
-        # Defensive — if the tool input is missing the relevant
-        # fields entirely, we don't fire (lets unrelated tool calls
-        # with the same callback path through).
-        assert check_catalog_first_tool_args({}, False) is None
-
-    def test_glob_exact_catalog_path_is_allowed(self):
-        # Regression for the catalog-sync deadlock: the L2/L3
-        # catalog-generation agents legitimately do
-        # ``Glob(pattern='knowledge/project/CATALOG.md')`` to check
-        # the L1 catalog exists before reading it. An exact path
-        # with no wildcards isn't a broad sweep — must pass.
-        assert (
-            check_catalog_first_tool_args(
-                {'pattern': 'knowledge/project/CATALOG.md'}, False
-            )
-            is None
-        )
-        assert (
-            check_catalog_first_tool_args(
-                {'pattern': 'stores/myslug/CATALOG.md'}, False
-            )
-            is None
-        )
-
-    def test_glob_wildcard_on_stores_still_denied(self):
-        # Wildcard form is still a sweep — keep blocking.
-        assert (
-            check_catalog_first_tool_args(
-                {'pattern': 'stores/myslug/*.md'}, False
-            )
-            is not None
-        )
-        assert (
-            check_catalog_first_tool_args(
-                {'pattern': 'stores/?slug/CATALOG.md'}, False
-            )
-            is not None
-        )
 
 
 class TestShouldMarkCatalogRead:
@@ -325,9 +190,8 @@ class TestShouldMarkCatalogRead:
             'find stores/x -name "CATALOG.md" -print -exec cat {} \\;',
         ],
     )
-    def test_a_shell_read_of_the_catalog_flips_and_passes(self, command):
+    def test_a_shell_read_of_the_catalog_flips(self, command):
         assert should_mark_catalog_read('Bash', {'command': command})
-        assert check_catalog_first(command, catalog_read=False) is None
 
     @pytest.mark.parametrize(
         'command',
@@ -337,197 +201,12 @@ class TestShouldMarkCatalogRead:
             'ls stores/x/',
         ],
     )
-    def test_a_search_that_does_not_read_it_still_waits(self, command):
+    def test_a_search_that_does_not_read_it_does_not_flip(self, command):
         assert not should_mark_catalog_read('Bash', {'command': command})
-        assert check_catalog_first(command, catalog_read=False)
 
     def test_empty_input_does_not_flip(self):
         assert not should_mark_catalog_read('Read', {})
         assert not should_mark_catalog_read('Read', {'file_path': ''})
-
-
-class TestReportScriptGuard:
-    """The AD_AUDIT report is hand-authored via Edit. Twice an agent
-    under turn pressure script-regenerated the whole report from
-    TSVs, wiping sessions of hand analysis — the prose prohibition
-    didn't hold, so the contract is enforced here."""
-
-    def test_python_script_that_writes_report_blocked(self, tmp_path):
-        script = tmp_path / 'build_report.py'
-        script.write_text(
-            'OUTPUT = "AD_AUDIT_2026-06-10.md"\nopen(OUTPUT, "w").write(body)\n'
-        )
-        deny = check_report_script_write('python3 build_report.py', tmp_path)
-        assert deny is not None and 'Edit' in deny
-
-    def test_renamed_script_still_blocked(self, tmp_path):
-        # Guard reads script content, so renaming doesn't evade it.
-        script = tmp_path / 'helper.py'
-        script.write_text("p = 'AD_AUDIT_x.md'\nPath(p).write_text(data)\n")
-        assert check_report_script_write('python3 helper.py', tmp_path)
-
-    def test_readonly_analysis_script_allowed(self, tmp_path):
-        script = tmp_path / 'analyze.py'
-        script.write_text(
-            "text = open('AD_AUDIT_2026-06-10.md').read()\nprint(len(text))\n"
-        )
-        assert check_report_script_write('python3 analyze.py', tmp_path) is None
-
-    def test_the_skills_own_pdf_renderer_runs(self, tmp_path):
-        # Observed in CI: the skill says to render the PDF with its own
-        # script, which names the report and writes a file — refused,
-        # the agent spent two turns probing the guard.
-        self._install_renderer(tmp_path)
-        cmd = (
-            'python3 .claude/skills/amazon-ads/scripts/md_to_pdf.py '
-            './AD_AUDIT_2026-10-08.md'
-        )
-        assert check_report_script_write(cmd, tmp_path) is None
-
-    def test_an_edited_copy_of_a_skill_script_is_judged(self, tmp_path):
-        script = self._install_renderer(tmp_path)
-        script.write_text(
-            script.read_text() + "\nopen('AD_AUDIT_x.md', 'w').write('')\n"
-        )
-        cmd = 'python3 .claude/skills/amazon-ads/scripts/md_to_pdf.py x'
-        assert check_report_script_write(cmd, tmp_path) is not None
-
-    @staticmethod
-    def _install_renderer(task_dir):
-        shipped = (
-            Path(__file__).parents[2]
-            / 'app/skills_v2/amazon-ads/scripts/md_to_pdf.py'
-        )
-        script = task_dir / '.claude/skills/amazon-ads/scripts/md_to_pdf.py'
-        script.parent.mkdir(parents=True)
-        script.write_bytes(shipped.read_bytes())
-        return script
-
-    def test_inline_python_write_blocked(self):
-        cmd = "python3 -c \"open('AD_AUDIT_2026-06-10.md', 'w').write(x)\""
-        assert check_report_script_write(cmd) is not None
-
-    def test_redirect_onto_report_blocked(self):
-        assert check_report_script_write(
-            'cat /tmp/built.md > AD_AUDIT_2026-06-10.md'
-        )
-        assert check_report_script_write(
-            'echo "| row |" >> ./AD_AUDIT_2026-06-10.md'
-        )
-
-    def test_redirect_from_report_allowed(self):
-        # Reading the report into a pipe/file is fine.
-        assert (
-            check_report_script_write(
-                'grep 对账 AD_AUDIT_2026-06-10.md > /tmp/recon.txt'
-            )
-            is None
-        )
-
-    def test_cp_onto_report_blocked_but_previous_restore_allowed(self):
-        assert check_report_script_write(
-            'cp /tmp/generated.md AD_AUDIT_2026-06-10.md'
-        )
-        assert (
-            check_report_script_write(
-                'cp AD_AUDIT_PREVIOUS.md AD_AUDIT_2026-06-10.md'
-            )
-            is None
-        )
-
-    def test_sed_in_place_fix_allowed(self):
-        # Targeted in-place batch fixes are tolerated by design.
-        assert (
-            check_report_script_write(
-                "sed -i '' 's/维持或提高/提高出价/' AD_AUDIT_2026-06-10.md"
-            )
-            is None
-        )
-
-    def test_unrelated_commands_allowed(self, tmp_path):
-        assert check_report_script_write('ls -la', tmp_path) is None
-        assert check_report_script_write('', None) is None
-        assert check_report_script_write('python3 missing.py', tmp_path) is None
-
-
-class TestReportOverwriteGuard:
-    """Write may not replace an existing AD_AUDIT report — the
-    Write-tool hop around the report-script guard (script builds a
-    'corrected' file in /tmp, agent Write-dumps it over the report)
-    replaced 334KB of revisions with a stale 298KB base live."""
-
-    def test_write_over_existing_report_denied(self, tmp_path):
-        f = tmp_path / 'AD_AUDIT_2026-06-10.md'
-        f.write_text('# report')
-        deny = check_report_overwrite('Write', {'file_path': str(f)}, tmp_path)
-        assert deny is not None and 'Edit' in deny
-
-    def test_write_creates_new_report_allowed(self, tmp_path):
-        # Scaffold creation: no file yet → Write is the right tool.
-        assert (
-            check_report_overwrite(
-                'Write',
-                {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-12.md')},
-                tmp_path,
-            )
-            is None
-        )
-
-    def test_relative_path_resolved_against_task_dir(self, tmp_path):
-        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('x')
-        assert check_report_overwrite(
-            'Write', {'file_path': 'AD_AUDIT_2026-06-10.md'}, tmp_path
-        )
-
-    def test_other_tools_and_files_ignored(self, tmp_path):
-        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('x')
-        assert (
-            check_report_overwrite(
-                'Edit',
-                {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-10.md')},
-                tmp_path,
-            )
-            is None
-        )
-        assert (
-            check_report_overwrite(
-                'Write', {'file_path': str(tmp_path / 'notes.md')}, tmp_path
-            )
-            is None
-        )
-
-
-class TestReportForkGuard:
-    """One canonical report per task dir: with AD_AUDIT_A.md present,
-    creating AD_AUDIT_B.md is the fork workaround (observed live:
-    overwrite denied → agent created AD_AUDIT_<today>.md seeded from
-    a stale temp and burned a session fixing the zombie)."""
-
-    def test_fork_to_new_dated_report_denied(self, tmp_path):
-        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('# r')
-        deny = check_report_overwrite(
-            'Write',
-            {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-12.md')},
-            tmp_path,
-        )
-        assert deny is not None and 'AD_AUDIT_2026-06-10.md' in deny
-
-    def test_first_report_scaffold_still_allowed(self, tmp_path):
-        assert (
-            check_report_overwrite(
-                'Write',
-                {'file_path': str(tmp_path / 'AD_AUDIT_2026-06-12.md')},
-                tmp_path,
-            )
-            is None
-        )
-
-    def test_fork_via_relative_path_denied(self, tmp_path):
-        (tmp_path / 'AD_AUDIT_2026-06-10.md').write_text('# r')
-        deny = check_report_overwrite(
-            'Write', {'file_path': 'AD_AUDIT_2026-06-12.md'}, tmp_path
-        )
-        assert deny is not None
 
 
 class TestSkillFileWriteGuard:

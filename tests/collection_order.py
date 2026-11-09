@@ -30,15 +30,15 @@ only; no test body, prompt or assertion changes. The criterion for
 marking is MEASURED wall time, not guesswork: a test carries the
 marker (with its measured p50 seconds as the marker argument) when its
 p50 across the recorded CI runs is >= 240s. As of CI 201j + the
-pre-#200 baseline that is nine tests: the two ad-scoping ones (602s,
+pre-#200 baseline that is eight tests: the two ad-scoping ones (602s,
 530s), ads-mixed-fanout (552s), skill-save-reuse (547s),
-followup-review-scoping (382s), session-reuse (296s), llm-responds
-(289s), two-browser-tasks (277s) and conversation-lifecycle E4
-(268s). The simulation lives in ``tests/unit/test_schedule_sim.py``
+session-reuse (296s), llm-responds (289s), two-browser-tasks (277s)
+and conversation-lifecycle E4 (268s); followup-review-scoping left
+with the reviewer it tested. The simulation lives in ``tests/unit/test_schedule_sim.py``
 (run it to reproduce these — it reads the width, the provider map and
-the step budget from ci.yml): with all nine marked and LPT placement
-at the 6-worker width, the p50 critical path is 1362s (22.7 min) and
-the MAX-duration path 1546s (25.8 min), both inside the 2400s
+the step budget from ci.yml): with all eight marked and LPT placement
+at the 6-worker width, the p50 critical path is 1234s (20.6 min) and
+the MAX-duration path 1405s (23.4 min), both inside the 2400s
 (40-min) step. At the old 4-worker width the same calculation gave
 1907s/2112s against a 1920s step — the numbers that showed 32 min too
 tight and moved the budget.

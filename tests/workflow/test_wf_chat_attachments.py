@@ -18,7 +18,6 @@ import uuid
 
 import pytest
 
-from app.ai.stop_gates.report_reviewer import FOLLOWUP_NOTE
 from app.workspace.manager import VIBE_SELLER_DIR
 from tests.workflow.conftest import wait_for_task
 
@@ -222,8 +221,8 @@ class TestPromoteOnSend:
         assert r.status_code == 200
         assert r.json()['attachments'] == []
         msg = install_fake_agent.get_calls(task_id=tid, action='send_message')
-        # Completed task → follow-up turn: the no-review note rides along.
-        assert msg[0].message == 'hi' + FOLLOWUP_NOTE
+        # Delivered verbatim: no review note rides along any more.
+        assert msg[0].message == 'hi'
 
     async def test_empty_message_without_attachments_rejected(
         self, admin_client, install_fake_agent

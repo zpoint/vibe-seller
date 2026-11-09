@@ -269,21 +269,6 @@ def _isolate_presets_sync(tmp_path_factory, monkeypatch):
     presets_sync.reset()
 
 
-@pytest.fixture(autouse=True)
-def _isolate_followup_dir(tmp_path_factory, monkeypatch):
-    """Keep follow-up markers out of the developer's real data dir.
-
-    Any test that posts a message to a COMPLETED task marks it a
-    follow-up (``report_reviewer.mark_followup``); unisolated, every run
-    left one file per test task under ``~/.vibe-seller/data/``.
-    """
-    d = tmp_path_factory.mktemp('vs_followups')
-    monkeypatch.setattr(
-        'app.ai.stop_gates.report_reviewer.FOLLOWUP_DIR', d, raising=False
-    )
-    return d
-
-
 def pytest_addoption(parser):
     parser.addoption(
         '--e2e',

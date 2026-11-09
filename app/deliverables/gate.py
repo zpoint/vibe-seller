@@ -1,9 +1,8 @@
 """Refuse a report-download result that under-delivered.
 
-Called directly from ``set_task_result`` (the same shape as
-``check_exec_review_status``) rather than registered as a skill-declared
-stop gate, because deciding what a run owed needs the store row and the
-calendar — a DB session and a date, neither of which the sync gate
+Called directly from ``set_task_result`` rather than registered as a
+skill-declared stop gate, because deciding what a run owed needs the
+store row and the calendar — a DB session and a date, neither of which the sync gate
 contract carries.
 
 Scope is deliberately narrow, and narrow in the fail-safe direction: the

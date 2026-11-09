@@ -260,7 +260,6 @@ class WorkspaceAgentSession(AgentSession):
             None,
             self.system_prompt_extra or '',
             settings,
-            agents=False,
         )
         if artifacts['system_prompt'] is not None:
             cmd.extend([

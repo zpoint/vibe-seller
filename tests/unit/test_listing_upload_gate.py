@@ -9,8 +9,10 @@ import json
 
 import pytest
 
-from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
-from app.ai.stop_gates.report_reviewer import rollover_reviews
+from app.ai.stop_gates.listing_upload_gate import (
+    check_upload_verdicts,
+    rollover_upload_markers,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -83,10 +85,10 @@ class TestUploadVerdictGate:
 
     def test_rollover_moves_markers_and_verdicts(self, tmp_path):
         # A new turn must not be gated (or satisfied) by a prior
-        # turn's batches — rollover moves them aside with the reviews.
+        # turn's batches — rollover moves them aside.
         batch = _marker(tmp_path)
         _verdict(tmp_path, batch, non_image=0)
-        rollover_reviews(tmp_path)
+        rollover_upload_markers(tmp_path)
         assert check_upload_verdicts(tmp_path) is None
         assert not list(tmp_path.glob('UPLOAD_BATCH_*.json'))
         moved = list(tmp_path.glob('.prev_turns/turn_*/UPLOAD_BATCH_*'))
@@ -144,7 +146,7 @@ class TestPendingMarkerArming:
         # marker (it would demand a verdict for an upload that turn
         # never made).
         _pending(tmp_path)
-        rollover_reviews(tmp_path)
+        rollover_upload_markers(tmp_path)
         assert check_upload_verdicts(tmp_path) is None
         assert not list(tmp_path.glob('UPLOAD_PENDING*.json'))
         assert list(tmp_path.glob('.prev_turns/turn_*/UPLOAD_PENDING*'))
