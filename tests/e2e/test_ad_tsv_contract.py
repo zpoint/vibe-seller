@@ -58,6 +58,20 @@ def console():
     server.server_close()
 
 
+def _amazon_store(api_client, prefix: str) -> dict:
+    """An Amazon US store, as a seller sets one up in Settings.
+
+    The console is a local stand-in with no marketplace branding, so the
+    store's own record is what tells the agent these are Amazon ads —
+    the way a real store's configured platform does.
+    """
+    return create_store(
+        api_client,
+        f'{prefix}-{int(time.time())}',
+        platform_countries={'amazon': ['US']},
+    )
+
+
 def _task_dir(task_id: str):
     return VIBE_SELLER_DIR / 'tasks' / task_id
 
@@ -89,16 +103,15 @@ def _rows(task_id: str, name: str, columns) -> list[dict]:
 
 
 def test_audit_then_apply_exactly_what_was_approved(api_client, console):
-    store = create_store(api_client, f'e2e-adtsv-{int(time.time())}')
+    store = _amazon_store(api_client, 'e2e-adtsv')
 
     # ── 1. Audit: everything enumerated, nothing changed ────────────
     task = create_task(
         api_client,
-        'Audit our Amazon ad campaigns and tell me what to change',
+        'Audit our ad campaigns and tell me what to change',
         store_id=store['id'],
         description=(
-            f'Our Amazon Ads console for the US store is at {console.base} '
-            '(a mirror of the real one). Look at every campaign '
+            f'Our ad console is at {console.base}. Look at every campaign '
             'and its keywords and tell me which bids you would change. '
             f'Do not change anything yet. {SELLER_FACTS}'
         ),
@@ -139,14 +152,13 @@ def test_audit_then_apply_exactly_what_was_approved(api_client, console):
 
 
 def test_a_stated_standard_is_recorded_and_honoured(api_client, console):
-    store = create_store(api_client, f'e2e-adrule-{int(time.time())}')
+    store = _amazon_store(api_client, 'e2e-adrule')
     task = create_task(
         api_client,
-        'Lower the gizmo mini bid in our Amazon ads',
+        'Lower the gizmo mini bid',
         store_id=store['id'],
         description=(
-            f'Our Amazon Ads console for the US store is at {console.base} '
-            '(a mirror of the real one). Our standard: a keyword is '
+            f'Our ad console is at {console.base}. Our standard: a keyword is '
             'only protected from bid cuts when its ACOS is under 20%. '
             'Please remember that for the future. With that in mind, '
             'propose lowering the "gizmo mini" bid to 1.10 — just the '
