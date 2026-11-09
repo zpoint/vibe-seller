@@ -202,8 +202,8 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     """The scheduling claim, pinned.
 
     The docstring/report figures are produced by THIS calculation on
-    the recorded suite at the ci.yml width: p50 path 1089s (18.1 min)
-    and max-duration path 1256s (20.9 min). Both must fit the CI e2e
+    the recorded suite at the ci.yml width (6 workers): p50 path 1362s
+    (22.7 min) and max-duration path 1546s (25.8 min). Both must fit the CI e2e
     step budget, read from ci.yml (40 min since the old 32 min was
     shown too tight by the 4-worker figures 1907s/2112s). A collection
     that differs in shape (platform filters) shifts the absolute
@@ -219,14 +219,5 @@ def test_the_scheduled_critical_path_matches_the_documented_numbers():
     assert max(worst) <= step, (
         f'the worst-case path no longer fits {step}s: {worst}'
     )
-    if _e2e_workers() == 8 and p50 == [
-        1089,
-        1078,
-        1039,
-        898,
-        856,
-        532,
-        461,
-        852,
-    ]:
-        assert worst == [1256, 1167, 1102, 863, 834, 483, 311, 816], worst
+    if _e2e_workers() == 6 and p50 == [1362, 1134, 1087, 1352, 932, 936]:
+        assert worst == [1546, 1269, 1046, 1209, 841, 921], worst
