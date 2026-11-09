@@ -274,7 +274,7 @@ See [docs/backend.md § Turn Lifecycle](backend.md#turn-lifecycle-process-per-tu
 for the full model and configuration. Task-level summary:
 
 - **What starts a turn**: task creation / plan approval (first turn of
-  the process), a gate redrive, a `<task-notification>` continuation
+  the process), an open-work redrive, a `<task-notification>` continuation
   (an async subagent OR background shell command finished and the main
   agent resumes), or a follow-up message injected into the live process.
 - **What ends a turn**: an accepted result event (gates pass, no async

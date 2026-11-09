@@ -21,8 +21,8 @@ must exist, and the latest one must be clean. If no upload happened
 after all, the agent removes the pending marker (explicitly, visibly)
 instead of the gate silently not existing.
 
-This makes report freshness structural instead of prompted: a reviewer
-can no longer pass the turn by reading a stale report from a prior
+This makes report freshness structural instead of prompted: the turn
+can no longer pass on a stale report from a prior
 turn or another marketplace — the verdict is keyed to the batch id the
 upload actually produced this turn. Markers/verdicts are moved aside
 at turn start (``rollover_upload_markers``),

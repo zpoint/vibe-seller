@@ -11,7 +11,7 @@ import json
 import logging
 import time
 
-from app.ai.claude_backend_review_gate import (
+from app.ai.claude_backend_turn_hold import (
     REDRIVE_INSTRUCTION,
     open_work_banner,
 )
@@ -337,9 +337,9 @@ class _StreamMixin:
             # verdict) is NOT the end of the turn: closing stdin here
             # would drop the approvals that work still needs. Re-drive
             # the agent on the live channel instead, within the budget
-            # `_ReviewGateMixin` owns.
+            # `_TurnHoldMixin` owns.
             if self._executing and not is_error:
-                self._note_review_turn_end()
+                self._note_hold_turn_end()
                 # A turn whose model response stopped with NO stop reason,
                 # no text and no action is a stream that ended early, not
                 # an answer. Observed in CI: "save this as a skill" got a
@@ -353,40 +353,40 @@ class _StreamMixin:
                     self._empty_turn_continued = True
                     await self.send_user_message(EMPTY_TURN_CONTINUE)
                     return
-                gate_reason = (
+                hold_reason = (
                     self._async_agents_pending_reason()
-                    or self._review_gate_deny_reason()
+                    or self._open_work_reason()
                 )
-                if gate_reason and not self._review_redrive_exhausted():
-                    self._note_review_redrive()
+                if hold_reason and not self._hold_exhausted():
+                    self._note_hold_redrive()
                     await self._emit_message(
                         'agent_event',
                         json.dumps({
-                            'event': 'review_gate_redrive',
-                            'iter': self._review_redrive_count,
+                            'event': 'open_work_redrive',
+                            'iter': self._hold_redrive_count,
                         }),
                     )
                     await self.send_user_message(
-                        REDRIVE_INSTRUCTION + gate_reason
+                        REDRIVE_INSTRUCTION + hold_reason
                     )
                     return
-                if gate_reason:
-                    self._note_review_gate_failed_open()
+                if hold_reason:
+                    self._note_hold_failed_open()
                     await self._emit_message(
                         'agent_event',
                         json.dumps({
-                            'event': 'review_gate_failed_open',
-                            'iter': self._review_redrive_count,
-                            'budget': self._review_budget_note(),
+                            'event': 'open_work_failed_open',
+                            'iter': self._hold_redrive_count,
+                            'budget': self._hold_budget_note(),
                         }),
                     )
-                    text = open_work_banner(gate_reason) + (text or '')
+                    text = open_work_banner(hold_reason) + (text or '')
             if event.get('subtype') == 'success' and not is_error:
                 self._agent_success = True
             # A result message is the "turn ended" signal downstream
             # consumers (UI, the e2e test poll, the follow-up agent
             # loop) depend on — and a process now hosts MANY turns
-            # (initial turn, gate redrives, task-notification
+            # (initial turn, hold redrives, task-notification
             # continuations, injected follow-ups). Every ACCEPTED
             # execute-phase result is a turn boundary and gets its own
             # ``result`` card; ``_result_text`` tracks the LAST one

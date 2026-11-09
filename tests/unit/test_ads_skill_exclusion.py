@@ -62,7 +62,7 @@ class TestAuthorizedStore:
         'path',
         [
             f'{SHARED}/amazon-ads/SKILL.md',
-            f'{SHARED}/amazon-ads/references/reviewer-loop.md',
+            f'{SHARED}/amazon-ads/references/data-contract.md',
         ],
     )
     def test_reading_its_files_from_the_shared_copy_is_refused(self, path):

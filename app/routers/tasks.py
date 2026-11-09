@@ -14,7 +14,6 @@ from app.ai.profiles import (
     DEFAULT_PROFILE_ID,
     resolve_owner_profile,
 )
-from app.ai.review_redrive import reset_ledger
 from app.ai.stop_gates import (
     CONTRADICTION_MAX_DENIALS,
     clear_skill_bindings,
@@ -26,6 +25,7 @@ from app.ai.stop_gates import (
 )
 from app.ai.stop_gates.ad_changes import freeze_approved_changes
 from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
+from app.ai.turn_hold_budget import reset_ledger
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
@@ -266,7 +266,7 @@ async def delete_task(
         await delete_task_record(db, task_id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    # Drop the gate-attempt counters, the review gate's re-drive
+    # Drop the gate-attempt counters, the turn hold's re-drive
     # ledger, and the durable skill→gate binding file with the task
     # (bounded server state).
     reset_attempts(task_id)
@@ -620,7 +620,7 @@ async def set_task_result(
     await apply_soft_gates(db, task, task_id, final_result, declared)
 
     # Skill-declared domain gates: the session's loaded skills name WHICH
-    # reviewers apply (``gates: [...]`` in SKILL.md → get_registered_gates).
+    # gates apply (``gates: [...]`` in SKILL.md → get_registered_gates).
     # A session that loaded no gate-declaring skill gets only the generics.
     rules = await resolve_store_rules(db, task.store_id)
     loaded, workspace = agent_manager.loaded_skills_and_workspace(task_id)
@@ -716,7 +716,7 @@ async def set_task_result(
     await db.commit()
 
     # Result persisted — drop the per-task gate-attempt counters, the
-    # review gate's re-drive ledger, and any gate-owned progress state
+    # turn hold's re-drive ledger, and any gate-owned progress state
     # so a long-running server doesn't accumulate stale entries (and a
     # later retry starts fresh).
     reset_attempts(task_id)

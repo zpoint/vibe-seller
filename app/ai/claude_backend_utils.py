@@ -583,7 +583,7 @@ async def validate_fanout_plan_text(task_id: str, plan_text: str) -> str | None:
 # Attempts are the cheap half of the bound and say nothing about cost —
 # five of these at 100-150s/turn is 500-750s, more clock than a caller
 # gives a whole run. The wall-clock half lives in
-# ``app/ai/review_redrive.py``; ``AgentSession._review_redrive_exhausted``
+# ``app/ai/turn_hold_budget.py``; ``AgentSession._hold_exhausted``
 # is the ONE predicate that reads both. Do not compare against this
 # constant directly — that is how the four fail-open sites drifted apart.
-REVIEW_REDRIVE_MAX = 5
+TURN_HOLD_MAX = 5

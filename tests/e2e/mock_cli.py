@@ -238,8 +238,8 @@ def emit_async_spawn():
                     'id': _SPAWN_ID,
                     'name': 'Agent',
                     'input': {
-                        'description': 'Review the deliverable',
-                        'prompt': 'Independently review the output file.',
+                        'description': 'Check the deliverable',
+                        'prompt': 'Independently check the output file.',
                     },
                 }
             ],
@@ -255,7 +255,7 @@ def emit_async_spawn():
                     'tool_use_id': _SPAWN_ID,
                     'content': (
                         'Async agent launched successfully. (internal '
-                        'metadata)\nagentId: mock-reviewer-1'
+                        'metadata)\nagentId: mock-subagent-1'
                     ),
                 }
             ],
@@ -272,7 +272,7 @@ def emit_subagent_activity_and_notification():
         'message': {
             'role': 'assistant',
             'content': [
-                {'type': 'text', 'text': 'Reviewing the deliverable...'}
+                {'type': 'text', 'text': 'Checking the deliverable...'}
             ],
         },
     })
@@ -283,7 +283,7 @@ def emit_subagent_activity_and_notification():
         'message': {
             'role': 'assistant',
             'content': [
-                {'type': 'text', 'text': 'Review passed: no gaps found.'}
+                {'type': 'text', 'text': 'Check passed: no gaps found.'}
             ],
         },
     })
@@ -298,7 +298,7 @@ def emit_subagent_activity_and_notification():
                     'text': (
                         '<task-notification tool-use-id="'
                         + _SPAWN_ID
-                        + '" status="completed">reviewer finished'
+                        + '" status="completed">subagent finished'
                         '</task-notification>'
                     ),
                 }
@@ -309,7 +309,7 @@ def emit_subagent_activity_and_notification():
 
 def wait_for_user_message(timeout: float = 30.0) -> str:
     """Read the next stream-json ``user`` message from stdin (e.g. a
-    review-gate redrive) and return its text; '' on timeout."""
+    turn-hold redrive) and return its text; '' on timeout."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if select.select([sys.stdin], [], [], 0.1)[0]:
@@ -336,16 +336,16 @@ def wait_for_user_message(timeout: float = 30.0) -> str:
 
 
 def run_async_subagent():
-    """Well-behaved async flow: wait for the reviewer's notification
+    """Well-behaved async flow: wait for the subagent's notification
     BEFORE the final result — no redrive should fire."""
     emit_system()
     time.sleep(DELAY)
-    emit_thinking('Producing the deliverable, then a background review.')
+    emit_thinking('Producing the deliverable, then a background check.')
     emit_async_spawn()
     time.sleep(DELAY)
     emit_subagent_activity_and_notification()
     time.sleep(DELAY)
-    final = f'{RESULT} (reviewer confirmed: no gaps)'
+    final = f'{RESULT} (subagent confirmed: no gaps)'
     emit_text(final)
     emit_result(final)
 
@@ -353,12 +353,12 @@ def run_async_subagent():
 def run_premature_result():
     """Backstop flow: result emitted while the subagent still runs.
     The backend must REDRIVE (not end the turn); on the redrive
-    message the mock completes the review and finishes properly."""
+    message the mock completes the subagent's work and finishes properly."""
     emit_system()
     time.sleep(DELAY)
     emit_async_spawn()
     time.sleep(DELAY)
-    emit_result('premature: reviewer still running in the background')
+    emit_result('premature: subagent still running in the background')
     # The backend's redrive arrives as a user message on stdin.
     redrive = wait_for_user_message(timeout=60.0)
     if 'subagent' not in redrive:
@@ -367,7 +367,7 @@ def run_premature_result():
         return
     emit_subagent_activity_and_notification()
     time.sleep(DELAY)
-    final = f'{RESULT} (finished after the redrive + review)'
+    final = f'{RESULT} (finished after the redrive + subagent)'
     emit_text(final)
     emit_result(final)
 

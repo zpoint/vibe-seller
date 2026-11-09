@@ -20,7 +20,7 @@ from app.ai.claude_backend_utils import AUTO_APPROVE_CALLBACK
 pytestmark = pytest.mark.unit
 
 APP = sg.PROTECTED_DIRS[0]
-GATE = APP / 'ai' / 'stop_gates' / 'report_reviewer.py'
+GATE = APP / 'ai' / 'stop_gates' / 'ad_changes.py'
 
 
 class TestSourceAccessDeny:
@@ -49,7 +49,7 @@ class TestSourceAccessDeny:
     @pytest.mark.parametrize(
         ('tool', 'tool_input'),
         [
-            ('Read', {'file_path': '/tmp/task/REVIEW_x_iter1.md'}),
+            ('Read', {'file_path': '/tmp/task/report_x.md'}),
             ('Read', {'file_path': 'stores/acme/notes.md'}),  # relative
             ('Bash', {'command': 'ls ~/.vibe-seller/tasks'}),
             ('Bash', {'command': f'ls {APP}le'}),  # a sibling, not app/

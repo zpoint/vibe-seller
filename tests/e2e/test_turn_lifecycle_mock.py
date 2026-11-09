@@ -7,11 +7,11 @@ in the task description (see mock_cli.py):
 - ``[[MOCK_ASYNC_SUBAGENT]]`` — a well-behaved run: async subagent
   spawned, its events stream through the parent, the mock WAITS for
   the ``<task-notification>`` before its final result. Must complete
-  with NO ``review_gate_redrive`` — the notification loop, not the
+  with NO ``open_work_redrive`` — the notification loop, not the
   redrive backstop, carries it.
 - ``[[MOCK_PREMATURE_RESULT]]`` — the backstop: a result emitted while
   the subagent still runs must be intercepted (redrive), then the
-  completed review + final result finish the task; the final text is
+  completed subagent work + final result finish the task; the final text is
   the deliverable (last-wins).
 - ``[[MOCK_LINGER_WAIT]]`` — the mock emits its result and stays alive
   until stdin EOF, exactly like the real CLI: the quiescence watchdog
@@ -78,7 +78,7 @@ class TestAsyncSubagentFlow:
             store_id=store_id,
             description=(
                 '[[MOCK_ASYNC_SUBAGENT]] produce the deliverable and have '
-                'a background reviewer verify it.'
+                'a background subagent verify it.'
             ),
         )
         data = poll_task_status(
@@ -89,23 +89,23 @@ class TestAsyncSubagentFlow:
             timeout=TASK_TIMEOUT,
         )
         assert data['status'] == 'completed'
-        assert 'reviewer confirmed' in (data.get('result') or '')
+        assert 'subagent confirmed' in (data.get('result') or '')
 
         msgs = get_messages(api, task['id'])
         # The subagent's activity streamed through the parent (its
         # assistant events are re-emitted as normal messages)...
         assert any(
             m.get('role') == 'assistant'
-            and 'Review passed: no gaps' in str(m.get('content'))
+            and 'Check passed: no gaps' in str(m.get('content'))
             for m in msgs
         )
         # ...the notification arrived...
         assert _events(msgs, 'task-notification')
         # ...and the redrive backstop was NEVER needed.
-        assert not _events(msgs, 'review_gate_redrive')
+        assert not _events(msgs, 'open_work_redrive')
         results = [m for m in msgs if m.get('role') == 'result']
         assert len(results) == 1
-        assert 'reviewer confirmed' in results[0]['content']
+        assert 'subagent confirmed' in results[0]['content']
 
 
 class TestPrematureResultBackstop:
@@ -115,7 +115,7 @@ class TestPrematureResultBackstop:
             'premature result turn test',
             store_id=store_id,
             description=(
-                '[[MOCK_PREMATURE_RESULT]] stop early while the reviewer '
+                '[[MOCK_PREMATURE_RESULT]] stop early while the subagent '
                 'is still running.'
             ),
         )
@@ -130,8 +130,8 @@ class TestPrematureResultBackstop:
 
         msgs = get_messages(api, task['id'])
         # The premature result was intercepted by the redrive...
-        assert _events(msgs, 'review_gate_redrive')
-        # ...so it never became a result card; only the post-review
+        assert _events(msgs, 'open_work_redrive')
+        # ...so it never became a result card; only the post-subagent
         # final result did (last-wins deliverable).
         results = [m for m in msgs if m.get('role') == 'result']
         assert len(results) == 1

@@ -140,7 +140,7 @@ class _PersistMixin:
                     task.transcript_tail = result_text
                     # Re-resolve now that the prose has landed, so the
                     # result card appears as soon as the turn ends
-                    # rather than after reflection. Same single rule the
+                    # rather than at some later step. Same single rule the
                     # finalizer applies, and idempotent — prose only
                     # becomes the deliverable when nothing better
                     # exists, so an accepted result or a retained

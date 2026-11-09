@@ -28,7 +28,7 @@ But the pages must not CLAIM to be an Amazon console. A later cut
 labelled them "Sponsored Products · Amazon US marketplace", and agents
 read that as a cue: one said "the console identifies as Sponsored
 Products / Amazon US, so let me load the amazon-ads skill", and a "just
-tell me the numbers" lookup became a full audit with a reviewer — 15 to
+tell me the numbers" lookup became a full audit — 15 to
 25 minutes on the CI models. These tests are about SCOPE (did the agent
 stay on the asked-for campaign), and the request never asks for an Amazon
 audit, so the fixture must not invite one.

@@ -1,8 +1,8 @@
 """Skill-declared exit gates: the SKILL.md frontmatter names WHICH
-reviewers apply to that skill's outputs (``gates: [...]``), resolved
+gates apply to that skill's outputs (``gates: [...]``), resolved
 through ``stop_gates.get_registered_gates`` at ``set_task_result``.
 Tasks that loaded no gate-declaring skill get only the generic gates
-— ad reviewers must never fire for a listing/email task again."""
+— ad gates must never fire for a listing/email task again."""
 
 import asyncio
 from pathlib import Path

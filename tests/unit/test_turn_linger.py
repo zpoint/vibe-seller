@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.ai.claude_backend import AgentSession
-from app.ai.claude_backend_utils import REVIEW_REDRIVE_MAX
+from app.ai.claude_backend_utils import TURN_HOLD_MAX
 from app.env_options import Options
 
 pytestmark = pytest.mark.unit
@@ -70,7 +70,7 @@ class TestCloseGuards:
         s = self._closable(_session())
         with (
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -100,23 +100,23 @@ class TestCloseGuards:
         s = self._closable(_session())
         s.task_dir = '/tmp/fake-task'  # upload markers live in the task dir
         with patch(
-            'app.ai.claude_backend_review_gate.check_upload_verdicts',
+            'app.ai.claude_backend_turn_hold.check_upload_verdicts',
             return_value='Batch 100000000001 has no parse-feedback verdict.',
         ):
-            assert s._turn_close_blocked() == 'review_gate_unsatisfied'
+            assert s._turn_close_blocked() == 'open_work'
 
-    def test_gate_fails_open_past_redrive_budget(self, monkeypatch):
+    def test_hold_fails_open_past_redrive_budget(self, monkeypatch):
         # Same fail-open bound as the result branch: past the budget
-        # the gate stands down so an unsatisfiable gate can't wedge
+        # the hold stands down so unsatisfiable open work cannot wedge
         # the process forever.
         s = self._closable(_session())
         s.task_dir = '/tmp/fake-task'
-        # Spend the budget the way the gate does — the tally lives on
+        # Spend the budget the way the hold does — the tally lives on
         # the turn's ledger, so there is nothing to assign here.
-        for _ in range(REVIEW_REDRIVE_MAX):
-            s._note_review_redrive()
+        for _ in range(TURN_HOLD_MAX):
+            s._note_hold_redrive()
         with patch(
-            'app.ai.claude_backend_review_gate.check_upload_verdicts',
+            'app.ai.claude_backend_turn_hold.check_upload_verdicts',
             return_value='Batch 100000000001 has no parse-feedback verdict.',
         ):
             assert s._turn_close_blocked() is None
@@ -132,20 +132,20 @@ class TestCloseGuards:
         terminal status until the 600s hard-idle backstop fired at
         08:55:36. The caller had already given up.
 
-        Once the gate has failed open, nothing it stopped waiting for
+        Once the hold has failed open, nothing it stopped waiting for
         may keep the turn alive.
         """
         s = self._closable(_session())
         s._async_agents['toolu_1'] = 'agent-1'
         assert s._turn_close_blocked() == 'async_work_running'
-        s._review_gate_failed_open = True
+        s._hold_failed_open = True
         assert s._turn_close_blocked() is None
 
     def test_a_failed_open_turn_still_waits_for_the_operator(self):
-        # Fail-open abandons the GATE's holds, not a human's. An
+        # Fail-open abandons the hold's own blockers, not a human's. An
         # AskUserQuestion can legitimately sit for hours.
         s = self._closable(_session())
-        s._review_gate_failed_open = True
+        s._hold_failed_open = True
         s._pending_questions['req'] = {'q': 'which sku?'}
         assert s._turn_close_blocked() == 'ask_user_question_pending'
 
@@ -164,7 +164,7 @@ class TestWatchdogTick:
         with (
             patch.object(s, '_emit_message', _emit),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value=None,
             ),
         ):

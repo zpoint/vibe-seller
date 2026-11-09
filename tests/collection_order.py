@@ -33,8 +33,8 @@ p50 across the recorded CI runs is >= 240s. As of CI 201j + the
 pre-#200 baseline that is eight tests: the two ad-scoping ones (602s,
 530s), ads-mixed-fanout (552s), skill-save-reuse (547s),
 session-reuse (296s), llm-responds (289s), two-browser-tasks (277s)
-and conversation-lifecycle E4 (268s); followup-review-scoping left
-with the reviewer it tested. The simulation lives in ``tests/unit/test_schedule_sim.py``
+and conversation-lifecycle E4 (268s); followup-review-scoping was deleted
+together with the loop it tested. The simulation lives in ``tests/unit/test_schedule_sim.py``
 (run it to reproduce these — it reads the width, the provider map and
 the step budget from ci.yml): with all eight marked and LPT placement
 at the 6-worker width, the p50 critical path is 1234s (20.6 min) and

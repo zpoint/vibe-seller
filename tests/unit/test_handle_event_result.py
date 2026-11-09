@@ -14,10 +14,10 @@ import pytest
 from app.ai.claude_backend import AgentSession
 from app.ai.claude_backend_utils import (
     AUTO_APPROVE_CALLBACK,
-    REVIEW_REDRIVE_MAX,
+    TURN_HOLD_MAX,
 )
-from app.ai.review_redrive import RedriveClock
 from app.ai.stop_gates import record_skill_load
+from app.ai.turn_hold_budget import RedriveClock
 
 pytestmark = pytest.mark.unit
 
@@ -351,9 +351,9 @@ class TestHandleEventResultTurns:
 class TestAQuestionAboutAnAdTaskEndsTheTurn:
     """Observed in production: on a failed ad-audit task the user asked
     "where are the report files stored?"; the agent answered in 11 s and
-    the result was then held by an unsatisfied DoD review gate, which
+    the result was then held by unsatisfied open work, which
     re-drove the agent back into six more minutes of ad work. With no
-    reviewer gate, an answered question ends the turn — an audit report
+    open work, an answered question ends the turn — an audit report
     and a bound ad skill on disk are not open work."""
 
     async def test_answer_is_the_result_and_nothing_is_redriven(self, tmp_path):
@@ -385,14 +385,14 @@ class TestAQuestionAboutAnAdTaskEndsTheTurn:
         assert ('result', 'The report is at store-data/acme/ads/...') in emitted
 
 
-class TestReviewGateRedrive:
+class TestTurnHoldRedrive:
     """A result while the turn's own work is still open (here: a listing
     batch uploaded without a clean verdict) must NOT end the turn: keep
     the control channel open and re-drive the agent instead of closing
     stdin (which would silently deny the tool calls that finish it). See
     app/ai/claude_backend_stream result branch."""
 
-    async def test_unsatisfied_gate_redrives_instead_of_emitting(self):
+    async def test_unsatisfied_hold_redrives_instead_of_emitting(self):
         session = _make_session('auto')
         session.task_dir = '/tmp/fake-task'
         emitted: list[tuple[str, str]] = []
@@ -408,13 +408,13 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value='Batch 100000000001 has no parse-feedback verdict.',
             ),
         ):
             await session._handle_event({
                 'type': 'result',
-                'result': 'placeholder — reviewer running in background',
+                'result': 'placeholder — subagent running in background',
             })
 
         # The placeholder result was NOT finalized as the turn's result.
@@ -423,18 +423,18 @@ class TestReviewGateRedrive:
         # The agent was re-driven with the gate's deny reason.
         assert len(sent) == 1
         assert 'no parse-feedback verdict' in sent[0]
-        assert session._review_redrive_count == 1
+        assert session._hold_redrive_count == 1
         # A structured re-drive marker was emitted (not the result card).
         assert any(r == 'agent_event' for r, _ in emitted)
         assert not any(r == 'result' for r, _ in emitted)
 
     async def test_redrive_is_bounded(self):
-        """After REVIEW_REDRIVE_MAX re-drives, the turn is allowed to end
-        so an unsatisfiable gate can't wedge the session forever."""
+        """After TURN_HOLD_MAX re-drives, the turn is allowed to end
+        so unsatisfiable open work cannot wedge the session forever."""
         session = _make_session('auto')
         session.task_dir = '/tmp/fake-task'
-        for _ in range(REVIEW_REDRIVE_MAX):
-            session._note_review_redrive()
+        for _ in range(TURN_HOLD_MAX):
+            session._note_hold_redrive()
         emitted: list[tuple[str, str]] = []
 
         async def _mock_emit(role, content):
@@ -443,7 +443,7 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value='still gaps',
             ),
         ):
@@ -459,14 +459,14 @@ class TestReviewGateRedrive:
         # The fail-open is on the record. It was diagnosed once from a
         # single log line; a transcript event is what makes the next
         # post-mortem possible without server logs.
-        assert 'review_gate_failed_open' in emitted[0][1]
+        assert 'open_work_failed_open' in emitted[0][1]
         content = emitted[1][1]
         assert content.endswith('Final answer')
         assert 'Ended with open work' in content and 'still gaps' in content
         assert session._turn_result_seen is True
         # …and the turn is now TERMINAL. See
         # test_failed_open_turn_stops_waiting_on_async_work.
-        assert session._review_gate_failed_open is True
+        assert session._hold_failed_open is True
 
     async def test_the_clock_can_exhaust_the_budget_before_the_attempts(self):
         """A gate may run out of TIME with attempts to spare.
@@ -481,8 +481,8 @@ class TestReviewGateRedrive:
         session = _make_session('auto')
         session.task_dir = '/tmp/fake-task'
         clock = _FakeClock()
-        session._review_redrive_clock = RedriveClock(300, now=clock)
-        session._review_redrive_clock.note_redrive()
+        session._hold_clock = RedriveClock(300, now=clock)
+        session._hold_clock.note_redrive()
         clock.advance(290)
         emitted: list[tuple[str, str]] = []
         sent: list[str] = []
@@ -497,7 +497,7 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value='still gaps',
             ),
         ):
@@ -506,11 +506,11 @@ class TestReviewGateRedrive:
                 'result': 'Final answer',
             })
 
-        assert session._review_redrive_count < REVIEW_REDRIVE_MAX, (
+        assert session._hold_redrive_count < TURN_HOLD_MAX, (
             'attempts were NOT the binding constraint — that is the point'
         )
         assert sent == [], 'no further re-drive was issued'
-        assert session._review_gate_failed_open is True
+        assert session._hold_failed_open is True
         assert 'Ended with open work' in emitted[-1][1]
 
     async def test_satisfied_gate_ends_turn_normally(self):
@@ -525,7 +525,7 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _mock_emit),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -536,7 +536,7 @@ class TestReviewGateRedrive:
 
         assert emitted == [('result', 'Verified answer')]
         assert session._turn_result_seen is True
-        assert session._review_redrive_count == 0
+        assert session._hold_redrive_count == 0
 
     # ── The core regression: the control channel must stay OPEN while
     # the turn's work is open. This is the exact invariant the
@@ -560,7 +560,7 @@ class TestReviewGateRedrive:
             patch.object(session, '_emit_message', _noop),
             patch.object(session, 'send_user_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value='Batch 100000000001 has no parse-feedback verdict.',
             ),
         ):
@@ -592,7 +592,7 @@ class TestReviewGateRedrive:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -606,8 +606,8 @@ class TestReviewGateRedrive:
 
 
 class TestResultTextIsTheAnswer:
-    """With no post-task reflection turn, the result event's own text is
-    the user-facing answer — nothing replaces or suppresses it."""
+    """With nothing after the turn rewriting it, the result event's own
+    text is the user-facing answer — nothing replaces or suppresses it."""
 
     async def test_result_text_passes_through(self):
         session = _make_session('execute')
@@ -630,7 +630,7 @@ class TestAsyncAgentTurnHold:
     """A `result` while async subagents launched this turn are still
     running must NOT end the turn — the CLI emits its result as soon as
     the MAIN agent stops, and closing stdin then default-denies every
-    remaining subagent tool call (observed live: a DoD reviewer died
+    remaining subagent tool call (observed live: a background subagent died
     mid-verification while the shipped result claimed it was 'running
     in the background')."""
 
@@ -646,7 +646,7 @@ class TestAsyncAgentTurnHold:
                             'type': 'tool_use',
                             'id': 'toolu_spawn1',
                             'name': 'Agent',
-                            'input': {'prompt': 'DoD review the upload'},
+                            'input': {'prompt': 'Review the upload'},
                         }
                     ]
                 },
@@ -685,7 +685,7 @@ class TestAsyncAgentTurnHold:
             patch.object(session, '_emit_message', _mock_emit),
             patch.object(session, 'send_user_message', _mock_send),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -693,12 +693,12 @@ class TestAsyncAgentTurnHold:
                 await session._handle_event(ev)
             await session._handle_event({
                 'type': 'result',
-                'result': 'reviewer is running in the background',
+                'result': 'subagent is running in the background',
             })
 
         assert session._turn_result_seen is False
         assert len(sent) == 1 and 'still running' in sent[0]
-        assert session._review_redrive_count == 1
+        assert session._hold_redrive_count == 1
 
     async def test_sync_spawn_does_not_hold_turn(self):
         # A sync Task tool blocks the main agent; its tool_result is the
@@ -712,7 +712,7 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -740,7 +740,7 @@ class TestAsyncAgentTurnHold:
         with (
             patch.object(session, '_emit_message', _noop),
             patch(
-                'app.ai.claude_backend_review_gate.check_upload_verdicts',
+                'app.ai.claude_backend_turn_hold.check_upload_verdicts',
                 return_value=None,
             ),
         ):
@@ -853,7 +853,7 @@ class TestSubagentWritesKeepTheHold:
                 self._write_event('toolu_spawn1', 'notes.md')
             )
             await session._handle_event(
-                self._write_event('toolu_spawn1', 'REVIEW_2026-07-20_iter1.md')
+                self._write_event('toolu_spawn1', 'report_iter1.md')
             )
             await session._handle_event(self._write_event(None, 'out.md'))
         assert session._async_agents == {'toolu_spawn1': 'agent-r'}
@@ -912,7 +912,7 @@ class TestEmptyUnterminatedTurn:
 
 
 class TestSubagentCannotFinishTheTask:
-    """Observed in CI: a reviewer subagent called set_task_result with
+    """Observed in CI: a background subagent called set_task_result with
     its own verdict text as the task's result."""
 
     async def test_a_subagent_set_task_result_is_refused(self):

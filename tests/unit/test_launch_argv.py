@@ -95,7 +95,7 @@ def test_the_task_launch_argv_names_the_hops_files(tmp_path, monkeypatch):
 
     ((cmd, _kw),) = captured
     _assert_common_argv(cmd, 'SYS PROMPT')
-    # No product-defined reviewer agent types are registered any more.
+    # No product-defined agent types are registered.
     assert '--agents' not in cmd
 
 

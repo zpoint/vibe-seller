@@ -15,7 +15,7 @@ pixel audit in Python, judged the model's background "off-white"
 (254,254,253) and the product too large, and rebuilt the deliverable
 locally with rembg + Pillow — writing over the tool's PNG at the SAME
 path. The user's card still said ``model: gpt-image-2-2k`` while showing
-a locally composited image, and the task's reflection wrote "prefer
+a locally composited image, and the task wrote "prefer
 rembg over vibe_seller_generate_image" into store knowledge, which would
 have made every later image task do the same thing.
 

@@ -279,7 +279,7 @@ def verify_workspace(
 
         # Short of what it owes. Whether that is "upstream has not posted
         # the month" or "this is wrong" is the distinction a size check
-        # cannot make and a reviewer cannot make by eye.
+        # cannot make and a human cannot make by eye.
         if not due:
             statuses[entry.relpath] = DeliverableStatus.PENDING
             pending.append(

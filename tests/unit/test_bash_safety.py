@@ -115,7 +115,7 @@ class TestEdgeCases:
 
 class TestIsCatalogPath:
     """Identifies any-level CATALOG.md path so the hook can flip
-    the catalog-first guard off once the agent reads one."""
+    the catalog-read state once the agent reads one."""
 
     def test_l1_catalog(self):
         assert is_catalog_path(

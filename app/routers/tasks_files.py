@@ -155,7 +155,7 @@ async def resolve_store_rules(db, store_id: str | None) -> dict | None:
 
     Defaults from ``ad_rules.DEFAULT_RULES`` overlaid with any override
     lines found in ``stores/<slug>/notes.md`` (e.g. ``scale_roas: 6``).
-    Used by ``set_task_result`` so the completeness reviewer and the
+    Used by ``set_task_result`` so the completeness gate and the
     folded-in bid-rule gates honor per-store tuning.
     """
     if not store_id:
@@ -189,11 +189,11 @@ def resolve_audit_deliverable(task_root: Path, submitted: str) -> Path | None:
     report runs to tens of KB. When the agent instead submits a chat
     SUMMARY of that file, every content gate downstream grades the
     summary, and the summary is not the report: it has no combo sections,
-    so the completeness reviewer reports every combo as never started.
+    so the completeness gate reports every combo as never started.
 
     Observed live: a complete 20/20 Amazon SA report (82 KB, real
-    per-keyword tables, 20 reconciliation lines — it PASSES the reviewer
-    when the reviewer is handed the file) was denied 24 times because the
+    per-keyword tables, 20 reconciliation lines — it PASSES the gates
+    when the file is what they grade) was denied 24 times because the
     agent submitted a 694-character summary. The run stalled, failed
     open, and stored the summary as its deliverable while the report sat
     unread in the workspace. Grading narration also cuts the other way:

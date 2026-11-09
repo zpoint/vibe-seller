@@ -7,7 +7,7 @@ topic summary otherwise (see ``app/prompts/__init__.py`` CATALOG_DESC_L2/
 L3). On a weak model that *empty-vs-substantive* judgment is unreliable:
 it intermittently stubs a file that has a clear topic, which hides where
 the content lives and forces a catalog reader to grep instead of
-navigating straight to the file (the observed catalog-first e2e flake —
+navigating straight to the file (the observed e2e flake —
 the find-secret agent read CATALOG.md, found the secret file stubbed as
 ``Empty/stub``, and wandered/grepped to locate it).
 

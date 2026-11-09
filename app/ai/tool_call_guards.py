@@ -89,7 +89,7 @@ _FINISHING = frozenset({
 def subagent_finish_deny(session, tool_name: str, tool_use_id) -> str | None:
     """A subagent may not submit or fail the task it was spawned to help.
 
-    Observed in CI: a reviewer subagent called set_task_result with its
+    Observed in CI: a background subagent called set_task_result with its
     own "Status: ok …" text as the task's result. The stream records
     which tool_use ids a subagent made (their events carry a parent id).
     """

@@ -44,8 +44,8 @@ _BG_LAUNCH_RE = re.compile(
 # (``<task_id>X</task_id> … <status>completed</status>``) or TaskStop
 # ("Task X is not running (status: completed)"). Either is as final as a
 # <task-notification>, and sometimes it is the only completion there is:
-# an agent that polls its reviewer with TaskOutput consumes the result,
-# and no notification reached the stream for it.
+# an agent that polls a background subagent with TaskOutput consumes the
+# result, and no notification reached the stream for it.
 _DONE_STATES = r'(?:completed|failed|killed|cancelled|canceled|stopped|error)'
 _TASK_OUTPUT_DONE_RE = re.compile(
     r'<task_id>\s*([A-Za-z0-9_-]+)\s*</task_id>.*?<status>\s*'
@@ -116,7 +116,7 @@ class _SubagentMixin:
           ``<task-notification …>`` user message (older CLIs echoed it;
           attribute OR element id form); or the CLI's own TaskOutput /
           TaskStop tool_result. The last is not optional: an agent that
-          polled its reviewer with TaskOutput got
+          polled a background subagent with TaskOutput got
           ``<status>completed</status>`` and nothing else reached the
           stream. A user-message notification carrying no id we can match
           clears the whole set (fail open — never wedge a turn on a format
@@ -128,9 +128,10 @@ class _SubagentMixin:
             # ``<task-notification>`` message it feeds the model (zero of
             # them across whole CI runs), so an entry held until that
             # message arrives is held forever. Every turn that launched a
-            # reviewer then read as "still running" at its result, burnt
-            # all five gate re-drives, and shipped UNVERIFIED with the
-            # last re-drive's one-liner ("Done.") as its card. A finished
+            # subagent then read as "still running" at its result, burnt
+            # all five hold re-drives, and shipped with the open-work
+            # banner and the last re-drive's one-liner ("Done.") as its
+            # card. A finished
             # task is not running: release it here. If the CLI still runs
             # a turn to deliver the notice, that turn's result is just a
             # later card (last-wins, see claude_backend_turns).
@@ -234,11 +235,11 @@ class _SubagentMixin:
         Bounded like every turn hold: past the re-drive
         budget the hook stands down so a lost completion notification
         can never wedge the turn (the result then ships banner-marked
-        by the stream path). ``_review_redrive_exhausted`` is that bound
+        by the stream path). ``_hold_exhausted`` is that bound
         — attempts AND wall clock, one predicate shared with the result
         branch and the quiescence watchdog.
         """
-        if self._review_redrive_exhausted():
+        if self._hold_exhausted():
             return False
         deny = self._async_agents_pending_reason()
         if not deny:
@@ -259,9 +260,9 @@ class _SubagentMixin:
 
         Same fail-open bound as the async-agent hold.
         """
-        if self._review_redrive_exhausted():
+        if self._hold_exhausted():
             return False
-        deny = self._review_gate_deny_reason()
+        deny = self._open_work_reason()
         if not deny:
             return False
         logger.info('Stop denied %s — upload unverified', self.task_id[:8])

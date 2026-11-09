@@ -378,7 +378,7 @@ branch).
 
 **Never** while a question is pending or plan approval is parked.
 
-**A process hosts many turns** (gate redrives, `<task-notification>`
+**A process hosts many turns** (open-work redrives, `<task-notification>`
 continuations, injected follow-ups): every accepted execute-phase
 result event is a turn boundary that emits its own `role='result'`
 card, and the LAST non-empty one is the deliverable (`task.result`;

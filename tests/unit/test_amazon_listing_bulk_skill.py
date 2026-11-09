@@ -2560,7 +2560,7 @@ def test_applied_with_other_errors_is_not_a_failure(
 
     Amazon counts only CLEAN rows as "successful". A row "applied, but
     contain other error(s)" is live. An earlier version of this check
-    read 1/4 as "3 did NOT land ... not done" and sent a reviewer after
+    read 1/4 as "3 did NOT land ... not done" and chased
     a failure that was not there.
     """
     monkeypatch.chdir(tmp_path)

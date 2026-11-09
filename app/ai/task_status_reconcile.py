@@ -54,7 +54,7 @@ def qa_followup_needs_input(session) -> bool:
 
     Structural, NOT a content heuristic: ``_asked_user_question`` (a
     question was asked this session) AND NOT ``_tool_use_since_answer``
-    (no real, non-reflection tool ran after the last answer). A
+    (no real tool ran after the last answer). A
     single-turn task that never asked completes normally, and FakeAgent
     sessions lack these attrs (getattr default False), so workflow
     finalizer tests are unaffected.

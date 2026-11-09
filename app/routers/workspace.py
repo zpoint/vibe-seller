@@ -91,8 +91,8 @@ async def write_file(
     try:
         # Enforce the catalog stub contract at the write boundary: a
         # CATALOG.md that marks a substantive file "Empty/stub" is
-        # rejected so the sync agent must summarize it (catalog-first
-        # navigation depends on real summaries). See catalog_validation.
+        # rejected so the sync agent must summarize it (navigation
+        # depends on real summaries). See catalog_validation.
         if path.endswith('CATALOG.md'):
             reject_wrong_stubs(body.content, workspace_manager.resolve_file)
         await workspace_manager.write_file(path, body.content)

@@ -1,7 +1,7 @@
 """The set_task_error / set_task_result verdict contract.
 
 ``set_task_error`` means UNRECOVERABLE failure. Observed live: an
-agent under review-gate pressure produced a complete deliverable, then
+agent under turn-hold pressure produced a complete deliverable, then
 called ``set_task_error`` with a "remaining caveats" note to be
 allowed to end — and the non-empty ``task.error`` flipped a task with
 a valid 100KB-class result to FAILED, hiding the deliverable behind a

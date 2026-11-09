@@ -1,9 +1,9 @@
 """Submission and verdict — the two halves of ``set_task_result``.
 
-A reviewer gate refuses by raising, and the raise used to happen before
+A result gate refuses by raising, and the raise used to happen before
 ``task.result`` was assigned, so a refusal DESTROYED the submission: N
 refusals left the run holding nothing and the end-of-turn fallback had
-only chat prose to offer. What the agent submitted and what the review
+only chat prose to offer. What the agent submitted and what the gates
 said about it are separate facts, recorded separately here, and only a
 submission that clears every gate becomes ``accepted_result``.
 

@@ -1,27 +1,27 @@
-"""How much of the clock a review gate may spend before it fails open.
+"""How much of the clock a turn hold may spend before it fails open.
 
-The gate's terminal behaviour was always "fail open with an UNVERIFIED
+The hold's terminal behaviour was always "fail open with the open-work
 banner" — the design question is only what reaches it. The first version
 counted **attempts**: five re-drives, each a full agent turn. Nothing in
 that number refers to time, and a turn is not a fixed cost. Observed at
 100-150s/turn, five re-drives alone are 500-750s, which is more than the
-whole budget the caller allows a run. So the gate could legitimately
+whole budget the caller allows a run. So the hold could legitimately
 spend every second a task had and the caller would kill a run that was
 already holding a finished, valid deliverable — the fail-open path
 reached by running out of clock instead of by decision.
 
 This class adds the missing denominator. It starts at the FIRST re-drive
-(a task that never trips a gate never starts a clock), and it refuses
+(a task that never trips a hold never starts a clock), and it refuses
 the next re-drive when the remaining budget cannot fit one — using the
 longest re-drive turn observed **on this session** as the estimate,
 because that is the only honest prediction of what the next one costs.
 Failing open then is the same designed outcome, just reached
 deliberately and with time left for the caller to record it.
 
-**The budget is gate-relative, not run-relative.** The server does not
+**The budget is hold-relative, not run-relative.** The server does not
 know what deadline its caller (an e2e poll, a scheduler, a person
 watching) is willing to wait — so bounding "the whole run" here would be
-inventing a number. Bounding what the GATE may add on top of the work is
+inventing a number. Bounding what the HOLD may add on top of the work is
 something this layer genuinely knows, and it is what was unbounded.
 
 Wall clock via ``time.monotonic`` so a system clock step cannot extend
@@ -37,7 +37,7 @@ from app.workspace.actor import clear_request_actor
 
 
 class RedriveClock:
-    """Wall-clock budget for one session's review-gate re-drives.
+    """Wall-clock budget for one session's turn-hold re-drives.
 
     Not thread-safe and does not need to be: every caller runs on the
     session's own event loop.
@@ -51,7 +51,7 @@ class RedriveClock:
         self._budget_s = float(budget_s)
         self._now = now
         # None until the first re-drive — a session that never trips a
-        # gate must never be on a clock.
+        # hold must never be on a clock.
         self._deadline: float | None = None
         self._turn_started_at: float | None = None
         self._longest_turn_s: float = 0.0
@@ -92,7 +92,7 @@ class RedriveClock:
         """A re-driven turn came back — record what it cost.
 
         Idempotent and safe to call when no re-drive is outstanding (a
-        gate can be satisfied on the very first result), so the caller
+        hold can be satisfied on the very first result), so the caller
         does not have to track whether it is mid-re-drive.
         """
         if self._turn_started_at is None:
@@ -122,8 +122,8 @@ class RedriveClock:
     def describe(self) -> str:
         """One clause for the fail-open log line and the transcript.
 
-        Says which bound actually decided, because "the gate gave up" and
-        "the gate ran out of clock" want different follow-ups from
+        Says which bound actually decided, because "the hold gave up" and
+        "the hold ran out of clock" want different follow-ups from
         whoever reads the log next.
         """
         if not self.enabled:
@@ -132,7 +132,7 @@ class RedriveClock:
             return 'no re-drive was ever issued, so no clock started'
         return (
             f'{self._turns} re-drives sent, {self.remaining_s():.0f}s left of '
-            f'a {self._budget_s:.0f}s gate budget, and the longest re-driven '
+            f'a {self._budget_s:.0f}s hold budget, and the longest re-driven '
             f'turn took {self._longest_turn_s:.0f}s'
         )
 
@@ -140,19 +140,19 @@ class RedriveClock:
 # ── Turn-scoped ledger ────────────────────────────────────────────────
 #
 # A RedriveClock bounds ONE session. That was enough while a turn was
-# one session, and it is not: the gate's own re-drives each spawn a
+# one session, and it is not: the hold's own re-drives each spawn a
 # session, and when the agent wanders into a degenerate tool loop the
 # circuit breaker kills the session and the turn is picked back up in a
-# fresh one. A fresh session built fresh gate state, so the bound reset
+# fresh one. A fresh session built fresh hold state, so the bound reset
 # — observed in CI as a turn that spent 5/5 re-drives with "225s left of
-# a 300s gate budget", got broken by the circuit breaker, and came back
-# announcing "1/5, 300s left of a 300s gate budget". The gate was bounded
+# a 300s hold budget", got broken by the circuit breaker, and came back
+# announcing "1/5, 300s left of a 300s hold budget". The hold was bounded
 # at every point and the turn was bounded nowhere; the caller's deadline
 # was what finally stopped it.
 #
 # So the ledger is keyed by TASK and outlives the session. This is not
 # the run-relative budget the module docstring above rejects — it is the
-# same gate-relative budget, simply not refunded by a respawn the gate
+# same hold-relative budget, simply not refunded by a respawn the hold
 # itself provoked. A genuinely new turn resets it (see reset_ledger and
 # its orchestrator call sites); a respawn within one turn inherits the
 # spend, which is the whole point.
@@ -177,7 +177,7 @@ def ledger_for(task_id: str, budget_s: float) -> RedriveClock:
 
 
 def reset_ledger(task_id: str) -> None:
-    """Start this task's gate budget over — a NEW turn is beginning.
+    """Start this task's hold budget over — a NEW turn is beginning.
 
     Called from the orchestrator entry points (``auto_run_task``,
     ``execute_planned_task``, ``execute_woken_task``,

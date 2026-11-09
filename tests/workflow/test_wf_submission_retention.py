@@ -1,6 +1,6 @@
 """A refused submission survives its refusal.
 
-Reviewer gates refuse by raising, and the raise used to happen BEFORE
+Result gates refuse by raising, and the raise used to happen BEFORE
 ``task.result`` was assigned — so a refusal destroyed the submission.
 Two live runs submitted 41 and 14 times, every one refused, and both
 ended holding nothing; the end-of-turn fallback then filed the agent's

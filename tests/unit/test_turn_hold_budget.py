@@ -1,24 +1,24 @@
-"""The review gate may not spend the caller's whole clock.
+"""The turn hold may not spend the caller's whole clock.
 
 The bug these pin: the re-drive budget was counted in ATTEMPTS. Five
 attempts sounds bounded until you price them — a re-drive is a full agent
 turn, one was measured at 150s, and five of those outlast any deadline a
 caller holds a run open for. A task died holding a finished 530-char
-result because the gate had been allowed to spend the entire budget
+result because the hold had been allowed to spend the entire budget
 before the work was judged.
 
-Fail-open with the UNVERIFIED banner was always the designed terminal
+Fail-open with the open-work banner was always the designed terminal
 behaviour. These tests are about REACHING it deliberately, with time left
 over, instead of by running out of clock.
 """
 
 import pytest
 
-from app.ai.claude_backend_review_gate import (
-    _ReviewGateMixin,  # noqa: PLC2701 — the unit under test
+from app.ai.claude_backend_turn_hold import (
+    _TurnHoldMixin,  # noqa: PLC2701 — the unit under test
 )
-from app.ai.claude_backend_utils import REVIEW_REDRIVE_MAX
-from app.ai.review_redrive import (
+from app.ai.claude_backend_utils import TURN_HOLD_MAX
+from app.ai.turn_hold_budget import (
     RedriveClock,
     _ledgers,  # noqa: PLC2701
     ledger_for,
@@ -47,7 +47,7 @@ def _budget(seconds=300.0):
     return RedriveClock(seconds, now=clock), clock
 
 
-class TestTheClockStartsOnlyWhenAGateBites:
+class TestTheClockStartsOnlyWhenAHoldBites:
     def test_a_session_that_never_redrives_is_never_on_a_clock(self):
         b, clock = _budget()
         clock.advance(10_000)
@@ -106,10 +106,10 @@ class TestAnotherTurnMustFitInWhatIsLeft:
         clock.advance(20)
         assert b.out_of_time(), '135s left does not fit a 140s turn'
 
-    def test_the_gate_stops_inside_the_budget_not_past_it(self):
+    def test_the_hold_stops_inside_the_budget_not_past_it(self):
         # The regression, priced. Five attempts at 150s/turn is 750s of
         # an agent's clock spent AFTER the deliverable exists; the run
-        # that died had 600s in total. Bounded by time, the gate gives
+        # that died had 600s in total. Bounded by time, the hold gives
         # up at 150s with the whole rest of the budget unspent — which
         # is the difference between failing open and being killed.
         redrives = 0
@@ -139,14 +139,14 @@ class TestDisabling:
 
     def test_describe_says_which_bound_is_in_force(self):
         # Whoever reads the fail-open log next needs to know whether the
-        # gate gave up or ran out of clock — they are different bugs.
+        # hold gave up or ran out of clock — they are different bugs.
         b, clock = _budget(300)
         assert 'no clock started' in b.describe()
         b.note_redrive()
         clock.advance(150)
         b.note_turn_end()
         text = b.describe()
-        assert '300s gate budget' in text
+        assert '300s hold budget' in text
         assert '150s' in text
         off, _ = _budget(0)
         assert 'disabled' in off.describe()
@@ -158,14 +158,14 @@ class TestTheBudgetBelongsToTheTurnNotTheSession:
     The bound above is real per session, and a turn is not one session:
     each re-drive spawns a session, and when the agent falls into a
     degenerate tool loop the circuit breaker kills the session and the
-    turn is picked back up in a fresh one. Building fresh gate state per
-    session refunded the budget on exactly the respawn the gate had
-    provoked — so the gate was bounded at every point and the turn was
+    turn is picked back up in a fresh one. Building fresh hold state per
+    session refunded the budget on exactly the respawn the hold had
+    provoked — so the hold was bounded at every point and the turn was
     bounded nowhere.
 
     Seen in CI: a follow-up spent 5/5 re-drives down to "225s left of a
-    300s gate budget", the breaker fired, and the next session announced
-    "1/5, 300s left of a 300s gate budget". It was still looping 15
+    300s hold budget", the breaker fired, and the next session announced
+    "1/5, 300s left of a 300s hold budget". It was still looping 15
     minutes later when the caller's 600s deadline had long passed.
     """
 
@@ -236,12 +236,12 @@ class TestTheBudgetBelongsToTheTurnNotTheSession:
 
 
 class TestASessionPicksUpTheTurnsBudget:
-    """The session-level pin: ``_init_review_gate_state`` must not
+    """The session-level pin: ``_init_turn_hold_state`` must not
     hand a respawn a clean slate.
 
     This is the regression the CI failure was. The old implementation
     built ``RedriveClock(...)`` fresh here and zeroed a session-local
-    ``_review_redrive_count``, so every session for a turn started at
+    ``_hold_redrive_count``, so every session for a turn started at
     0/5 with the full wall clock — the refund that made the loop
     unbounded.
     """
@@ -252,47 +252,47 @@ class TestASessionPicksUpTheTurnsBudget:
     teardown_method = setup_method
 
     def _session(self):
-        class _S(_ReviewGateMixin):
+        class _S(_TurnHoldMixin):
             task_id = 'task-session'
 
         s = _S()
-        s._init_review_gate_state()
+        s._init_turn_hold_state()
         return s
 
     def test_a_respawned_session_is_already_out_of_attempts(self):
         first = self._session()
-        for _ in range(REVIEW_REDRIVE_MAX):
-            first._note_review_redrive()
-            first._note_review_turn_end()
-        assert first._review_redrive_exhausted()
+        for _ in range(TURN_HOLD_MAX):
+            first._note_hold_redrive()
+            first._note_hold_turn_end()
+        assert first._hold_exhausted()
 
         # Circuit breaker kills that session; the turn continues in a
         # new one. It must NOT be allowed another full budget.
         second = self._session()
-        assert second._review_redrive_count == REVIEW_REDRIVE_MAX
-        assert second._review_redrive_exhausted(), (
+        assert second._hold_redrive_count == TURN_HOLD_MAX
+        assert second._hold_exhausted(), (
             'a respawn got a fresh budget — the turn is unbounded again'
         )
 
     def test_a_new_turn_gives_the_next_session_a_full_budget(self):
         first = self._session()
-        for _ in range(REVIEW_REDRIVE_MAX):
-            first._note_review_redrive()
-            first._note_review_turn_end()
-        assert first._review_redrive_exhausted()
+        for _ in range(TURN_HOLD_MAX):
+            first._note_hold_redrive()
+            first._note_hold_turn_end()
+        assert first._hold_exhausted()
 
         reset_ledger('task-session')  # an orchestrator entry
         fresh = self._session()
-        assert fresh._review_redrive_count == 0
-        assert not fresh._review_redrive_exhausted()
+        assert fresh._hold_redrive_count == 0
+        assert not fresh._hold_exhausted()
 
     def test_failed_open_is_still_per_session(self):
         # It records what THIS session already shipped, so it must not
         # ride the ledger into the next one.
         first = self._session()
-        first._note_review_gate_failed_open()
-        assert first._review_gate_failed_open
-        assert not self._session()._review_gate_failed_open
+        first._note_hold_failed_open()
+        assert first._hold_failed_open
+        assert not self._session()._hold_failed_open
 
 
 class TestTheLedgerIsBounded:
@@ -301,8 +301,8 @@ class TestTheLedgerIsBounded:
     Review catch on #140: the first version reset only at turn ENTRY,
     which cannot bound the dict — a task that runs one turn and never
     runs again leaves its entry behind for the life of the process, and
-    ``_init_review_gate_state`` allocates one for EVERY session whether
-    or not a gate ever bites. The terminal points drop it too, which is
+    ``_init_turn_hold_state`` allocates one for EVERY session whether
+    or not a hold ever bites. The terminal points drop it too, which is
     what ``stop_gates.reset_attempts`` has always done and what this was
     supposed to be modelled on.
     """
@@ -314,7 +314,7 @@ class TestTheLedgerIsBounded:
 
     def test_a_turn_that_never_redrives_still_gets_collected(self):
         # Allocation is unconditional: a session asks for its budget
-        # before it knows whether a gate will bite.
+        # before it knows whether a hold will bite.
         ledger_for('task-bounded', 300.0)
         assert 'task-bounded' in _ledgers
 

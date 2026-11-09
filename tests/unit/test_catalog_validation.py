@@ -1,6 +1,6 @@
 """Unit tests for the deterministic catalog-stub contract.
 
-Pins the bug that made the catalog-first e2e flake: the sync agent
+Pins the bug that made the catalog-navigation e2e flake: the sync agent
 stubbing a file that actually has a describable topic, so a catalog
 reader can't navigate to it and falls back to grep.
 """
@@ -31,10 +31,10 @@ class TestIsNearEmpty:
         assert is_near_empty('# Notes\n\nTODO\n') is True
 
     def test_describable_paragraph_is_substantive(self):
-        # The catalog-first fixture file — must NOT be near-empty.
+        # The catalog fixture file — must NOT be near-empty.
         content = (
             '# Catalog Verification\n\n'
-            'This knowledge file exists to verify the catalog-first '
+            'This knowledge file exists to verify the catalog '
             'lookup flow end to end. Its topic is the verification '
             'secret that a catalog-driven task should return.\n\n'
             'SECRET: VERIFY-CATALOG-XYZ-d6152e339dd8\n'

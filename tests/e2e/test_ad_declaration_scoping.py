@@ -189,7 +189,7 @@ class TestScopeSurvivesAFollowUp:
         # The answer-off-the-page path still finishes in about a minute.
         # The budget is for the honest job, not for a gate: the review
         # gate's re-drives are bounded by wall clock at the source
-        # (``app/ai/review_redrive.py``), and a follow-up on a completed
+        # (``app/ai/turn_hold_budget.py``), and a follow-up on a completed
         # task is not reviewed at all.
         second = poll_task_status(
             api_client,
@@ -360,13 +360,13 @@ class TestAnUnscopedRequestStaysWide:
         # the shared pipeline budget.
         #
         # This override used to be doing a second, illegitimate job:
-        # absorbing an UNBOUNDED review gate. The gate's re-drive budget
+        # absorbing an UNBOUNDED turn hold. The hold's re-drive budget
         # was counted in attempts (5), each a full agent turn, so at
         # 100-150s/turn it could spend 500-750s on its own and push any
         # run past any deadline — the scoped test below hit the same
         # cliff once, which is how the real cause was found. That is
-        # fixed at the source (``app/ai/review_redrive.py`` bounds the
-        # gate by wall clock), so what is left here is only the honest
+        # fixed at the source (``app/ai/turn_hold_budget.py`` bounds the
+        # hold by wall clock), so what is left here is only the honest
         # statement that drilling every campaign takes longer than
         # drilling one. If this needs doubling AGAIN, do not: something
         # has become unbounded, and the budget is the place to look.

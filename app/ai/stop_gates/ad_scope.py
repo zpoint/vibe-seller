@@ -86,7 +86,7 @@ def write_declared_targets(
     The server already knows the answer (``Store.platform_countries`` —
     user-configured in Settings, and a monotonic union of what past tasks
     observed, so it never shrinks). Writing it into the workspace at task
-    start makes it BOTH halves of the contract: the reviewer checks the
+    start makes it BOTH halves of the contract: the gates check the
     scope against it, and the agent can read it to see what it owes
     instead of inferring the list from "reference only" prompt context.
 
@@ -96,8 +96,8 @@ def write_declared_targets(
     assert emptiness for a marketplace that recently had campaigns (see
     :func:`prior_campaign_tsvs`).
 
-    ``slug`` is recorded so the reviewer can find this store's own audit
-    history without globbing ``stores/*`` and borrowing another store's.
+    ``slug`` is recorded so the audit can find this store's own history
+    without globbing ``stores/*`` and borrowing another store's.
 
     Best-effort: an unwritable workspace degrades to the previous
     behaviour (agent-chosen combo set) rather than blocking the task.

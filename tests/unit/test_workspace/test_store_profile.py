@@ -1,9 +1,9 @@
 """Tests for ``WorkspaceManager.create_store_profile``.
 
 The single load-bearing assertion: a freshly-scaffolded store has an
-L3 ``CATALOG.md`` on disk from turn 1, so the agent's catalog-first
-contract is satisfiable without depending on the scheduled L3 sync
-having already run. See ``app/ai/bash_safety.py``
+L3 ``CATALOG.md`` on disk from turn 1, so the agent's catalog Read is
+satisfiable without depending on the scheduled L3 sync having already
+run. See ``app/ai/bash_safety.py``
 ``should_mark_catalog_read`` for the matching read-side contract.
 """
 
@@ -39,7 +39,7 @@ async def test_creates_catalog_md_stub(ws: WorkspaceManager, tmp_path: Path):
     catalog = tmp_path / 'stores' / 'fresh-store' / 'CATALOG.md'
     assert catalog.is_file(), (
         "Fresh store must seed an L3 CATALOG.md so the agent's "
-        'catalog-first Read on turn 1 succeeds.'
+        'catalog Read on turn 1 succeeds.'
     )
     content = catalog.read_text()
     # Catalog-shaped Markdown so the hook's path predicate matches

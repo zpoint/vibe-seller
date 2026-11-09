@@ -127,7 +127,7 @@ class TestErrorHandling:
             _Row(
                 submitted_result='# Report (95%)',
                 review_gaps='["gap one", "gap two"]',
-                error='reviewer kept refusing the format',
+                error='gate kept refusing the format',
                 error_category='agent_reported',
             )
         )
@@ -135,7 +135,7 @@ class TestErrorHandling:
         assert out.caveats == (
             'gap one',
             'gap two',
-            'reviewer kept refusing the format',
+            'gate kept refusing the format',
         )
 
     def test_agent_error_with_only_prose_still_fails(self):

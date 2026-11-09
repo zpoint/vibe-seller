@@ -79,7 +79,7 @@ def _skill_md(client, slug):
 # Ownership is attributed by TASK, not by content: the workspace skill
 # namespace is global and shared across parallel workers, so a raw
 # namespace delta can contain a sibling's skill or one minted by any
-# agent's reflection. The server records every skill write an agent
+# agent. The server records every skill write an agent
 # makes as a ``tool_use`` message on ITS task with the full input, so
 # "written by one of this test's tasks" is a recorded fact. See
 # test_skill_save_reuse.py for the helper's contract.

@@ -343,7 +343,7 @@ class TestCatalogSystem:
             KNOWLEDGE_DIR / l2_file,
             (
                 '# Catalog Verification\n\n'
-                'This knowledge file exists to verify the catalog-first '
+                'This knowledge file exists to verify the catalog '
                 'lookup flow end to end. Its topic is the verification '
                 'secret that a catalog-driven task should return.\n\n'
                 f'SECRET: {secret}\n'

@@ -330,7 +330,8 @@ async def send_task_message(
     # plan-feedback routes above. FAILED counts ONLY with ``started_at is
     # None`` — a plan-mode task that failed BEFORE plan approval died in
     # planning, so a follow-up must resume PLANNING (else it fell through
-    # to auto and ran a review-first task unreviewed under bypass). A
+    # to auto and executed a plan-mode task whose plan nobody ever
+    # reviewed, under bypass). A
     # COMPLETED task with no ``started_at`` (plan-skip: result without
     # ExitPlanMode) stays auto — its work is done, per the plan-skip
     # contract.
@@ -709,11 +710,11 @@ async def retry_task(
     # If this child was retried, revert parent to WAITING
     await reopen_parent_if_child_active(task, db)
     # Retry is a DESTRUCTIVE fresh restart, so WIPE the per-task
-    # workspace (best-effort). Leftover run data — above all the review
-    # dumps under tasks/<id>/reviews/ — must not survive into the new
-    # run: a prior run's files let the agent "resume" stale data or bless
-    # them via a DoD-reviewer subagent instead of re-collecting, which is
-    # exactly the freshness hole this closes. Incremental resume that
+    # workspace (best-effort). Leftover run data — above all a prior
+    # run's collected captures — must not survive into the new run: a
+    # prior run's files let the agent "resume" stale data instead of
+    # re-collecting, which is exactly the freshness hole this closes.
+    # Incremental resume that
     # WANTS to keep banked progress (ad-audit reports/TSVs) goes through
     # Continue (POST /messages), which never wipes — see
     # test_wf_continue_vs_retry.
