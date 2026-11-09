@@ -156,7 +156,11 @@ RESULT_EVENT = {
 }
 
 
-async def test_result_usage_accumulates_across_runs(task_env):
+async def test_result_adds_turns_but_never_its_cumulative_cost(task_env):
+    """``result`` totals are process-cumulative (a second turn in the
+    same process re-reports the first), so a result contributes only
+    its turn count. Tokens and cost are metered per API call — see
+    tests/unit/test_task_usage.py."""
     maker, _task, _calls = task_env
     await accumulate_run_usage('t-telemetry-1', RESULT_EVENT)
     await accumulate_run_usage('t-telemetry-1', RESULT_EVENT)
@@ -164,10 +168,10 @@ async def test_result_usage_accumulates_across_runs(task_env):
     await accumulate_run_usage('t-telemetry-1', {'type': 'result'})
     async with maker() as db:
         task = await db.get(Task, 't-telemetry-1')
-        assert task.cost_usd == pytest.approx(0.5)
-        assert task.input_tokens == 2400
-        assert task.output_tokens == 600
         assert task.num_turns == 8
+        assert task.cost_usd is None
+        assert task.input_tokens is None
+        assert task.output_tokens is None
 
 
 # ── Parked-time clock / active_seconds ──────────────────────

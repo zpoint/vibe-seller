@@ -950,5 +950,21 @@
     "revealFailed": "读取已保存的密钥失败",
     "copyFailed": "复制失败，请手动选择复制",
     "maskedHint": "已保存的密钥仅显示掩码；输入框不做修改则保持原值。"
+  },
+  "usage": {
+    "context": "上下文",
+    "contextOf": "{{used}} / {{window}}",
+    "title": "用量",
+    "model": "模型",
+    "contextUsed": "已用上下文",
+    "input": "输入",
+    "cacheRead": "缓存读取",
+    "cacheWrite": "缓存写入",
+    "output": "输出",
+    "turns": "轮数",
+    "cost": "费用",
+    "included": "套餐内",
+    "unpriced": "暂无该模型价格",
+    "estimateNote": "按 models.dev 公开价格估算"
   }
 }

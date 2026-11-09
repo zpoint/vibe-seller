@@ -27,7 +27,7 @@ export interface Store {
   platform_countries: Record<string, string[]>;
   created_at: string; updated_at: string;
 }
-export interface Task {
+export interface Task extends TaskUsage {
   id: string; store_id: string | null; parent_task_id?: string | null; title: string; description: string | null;
   status: string; plan: string | null; plan_history: string | null; result: string | null; todos: string | null;
   // Last submission, kept even when a reviewer gate refused it, plus that
@@ -41,6 +41,27 @@ export interface Task {
   created_by_name: string | null;
   created_at: string; started_at: string | null; completed_at: string | null;
 }
+/** Live usage meter (app/task_usage.py) — on the task row and pushed
+ *  during a run as the `task_usage` SSE event, with these names. */
+export interface TaskUsage {
+  cost_usd?: number | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  cache_read_tokens?: number | null
+  cache_write_tokens?: number | null
+  context_tokens?: number | null
+  context_window?: number | null
+  usage_model?: string | null
+  /** catalog = priced from the provider's rates · included = plan /
+   *  free model · unpriced = model not in the catalog. */
+  cost_basis?: 'catalog' | 'included' | 'unpriced' | null
+  num_turns?: number | null
+}
+export const TASK_USAGE_FIELDS = [
+  'cost_usd', 'input_tokens', 'output_tokens', 'cache_read_tokens',
+  'cache_write_tokens', 'context_tokens', 'context_window', 'usage_model',
+  'cost_basis', 'num_turns',
+] as const satisfies readonly (keyof TaskUsage)[]
 export interface TaskStep {
   id: string; task_id: string; step_index: number; name: string;
   action_type: string; status: string; screenshot_id: string | null; error: string | null;

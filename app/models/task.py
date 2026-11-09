@@ -112,10 +112,27 @@ class Task(Base):
     )
     # One of app.telemetry_events.TaskSource.
     source: Mapped[str | None] = mapped_column(String, nullable=True)
-    # Accumulated from stream-json result events.
+    # Usage totals across every run, metered per API call
+    # (app/ai/usage_meter.py). cost_usd is priced from the run's own
+    # provider rates (app/ai/model_pricing.py); cost_basis says how
+    # (catalog / included / unpriced). input_tokens excludes the cache
+    # buckets, as the API reports it.
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_read_tokens: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    cache_write_tokens: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    # Main agent's context after its latest call, and that model's
+    # window — the "context used" bar.
+    context_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    usage_model: Mapped[str | None] = mapped_column(String, nullable=True)
+    cost_basis: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Agent turns, from stream-json result events.
     num_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # User re-runs of this task.
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

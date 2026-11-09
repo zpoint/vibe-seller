@@ -244,6 +244,7 @@ jobs:
           MOCK_CLI: tests/e2e/mock_cli.py
         run: >
           uv run pytest tests/e2e/test_conversation_ui.py
+          tests/e2e/test_task_usage_ui.py
           tests/e2e/test_turn_lifecycle_mock.py
           tests/e2e/test_agent_mcp.py
           tests/e2e/test_agent_mcp_schedules.py

@@ -138,6 +138,13 @@ PLAINTEXT_FIELDS = frozenset({
     # section), not a credential. Without this entry the name pattern
     # would mask it out of the presets and the profile lists.
     'CLAUDE_CODE_MAX_CONTEXT_TOKENS',
+    # TaskResponse usage meter (app/task_usage.py): integer token
+    # COUNTS from the model API, not credentials.
+    'input_tokens',
+    'output_tokens',
+    'cache_read_tokens',
+    'cache_write_tokens',
+    'context_tokens',
 })
 
 

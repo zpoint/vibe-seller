@@ -142,6 +142,9 @@ class Options(enum.Enum):
     # Where the vision_catalog sync reads app/vision_models.py from
     # (default: main on GitHub). See app/vision_catalog.py.
     VISION_CATALOG_URL = ('VISION_CATALOG_URL', '')
+    # Where the model_pricing sync reads the models.dev catalog from
+    # (default: https://models.dev/api.json). See app/ai/model_pricing.py.
+    MODEL_PRICING_URL = ('MODEL_PRICING_URL', '')
 
     # Central sync scheduler (app/sync/scheduler.py) knobs. All three
     # exist for tests: DISABLED registers no job at all (so nothing

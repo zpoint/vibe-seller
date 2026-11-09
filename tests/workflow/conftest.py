@@ -74,6 +74,7 @@ ASYNC_SESSION_MODULES = [
     'app.routers.workspace_assistant',
     'app.browser.daemon_reaper',
     'app.telemetry_tasks',
+    'app.task_usage',
     # The central sync scheduler's state table and the ads skill's
     # AppSettings/Store reads must land in the test DB too.
     'app.sync.state',

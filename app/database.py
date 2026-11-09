@@ -88,6 +88,13 @@ def _ensure_added_columns(conn) -> None:
         ('tasks', 'input_tokens', 'INTEGER'),
         ('tasks', 'output_tokens', 'INTEGER'),
         ('tasks', 'num_turns', 'INTEGER'),
+        # Live usage meter (app/ai/usage_meter.py).
+        ('tasks', 'cache_read_tokens', 'INTEGER'),
+        ('tasks', 'cache_write_tokens', 'INTEGER'),
+        ('tasks', 'context_tokens', 'INTEGER'),
+        ('tasks', 'context_window', 'INTEGER'),
+        ('tasks', 'usage_model', 'TEXT'),
+        ('tasks', 'cost_basis', 'TEXT'),
         ('tasks', 'retry_count', 'INTEGER NOT NULL DEFAULT 0'),
         ('tasks', 'paused_seconds', 'INTEGER NOT NULL DEFAULT 0'),
         ('tasks', 'paused_since', 'TEXT'),

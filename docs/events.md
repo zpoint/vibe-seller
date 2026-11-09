@@ -38,6 +38,7 @@ Each subscriber gets its own `asyncio.Queue`. Events are JSON-serialized with `t
 | `task_log` | `task_id`, `log_type`, `content`, `timestamp_ms` | `runner.py` |
 | `task_message` | `task_id`, `role`, `content` | `claude_backend.py` |
 | `task_todos` | `task_id`, `todos[]` | `claude_backend.py` |
+| `task_usage` | `task_id`, `cost_usd`, `input_tokens`, `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `context_tokens`, `context_window`, `usage_model`, `cost_basis`, `num_turns` | `task_usage.py` (one per API-call update; `cost_basis` semantics: [backend.md](backend.md#model-pricing--usage-meter-aimodel_pricingpy)) |
 | `task_questions` | `task_id`, `request_id`, `questions[]` | `claude_backend.py` |
 | `task_question_interrupted` | `task_id`, `request_id` | `claude_backend_manager.py` |
 | `image_request` | `task_id`, `request_id`, `prompt`, `model`, `models[]`, `reference_images[]`, `output_name`, `kind` | `routers/vision.py` |

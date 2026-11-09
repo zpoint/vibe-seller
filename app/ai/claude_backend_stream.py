@@ -29,6 +29,7 @@ from app.events.bus import event_bus
 from app.models.task import Task
 from app.models.task_message import TaskMessage
 from app.task_states import TaskStatus
+from app.task_usage import meter_event
 from app.telemetry_tasks import accumulate_run_usage
 from app.todos import valid_todos
 
@@ -256,6 +257,10 @@ class _StreamMixin:
                 self.task_id[:8],
                 json.dumps(event, ensure_ascii=False)[:2000],
             )
+
+        await meter_event(
+            self.task_id, self._usage_meter, self._usage_provider, event
+        )
 
         if etype in ('user', 'system'):
             self._track_async_agents(event)

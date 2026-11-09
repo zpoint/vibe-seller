@@ -132,6 +132,7 @@ async def test_plugin_sync_jobs_are_registered_alongside_core(
         'ads_skill',
         'presets',
         'vision_catalog',
+        'model_pricing',
         'email',
         'daemon_reaper',
         'plugin_thing',

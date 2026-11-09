@@ -301,7 +301,11 @@ def profile_kind(profile: dict | None) -> str:
     """
     if not profile:
         return 'default'
-    env = profile.get('env') or {}
+    return preset_id_for_env(profile.get('env') or {})
+
+
+def preset_id_for_env(env: dict) -> str:
+    """The preset id whose base URL ``env`` uses, else default/custom."""
     base_url = (env.get('ANTHROPIC_BASE_URL') or '').strip()
     if not base_url:
         return 'default'
