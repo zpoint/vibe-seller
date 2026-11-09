@@ -824,8 +824,8 @@
     "smtpHost": "SMTP服务器",
     "smtpPort": "SMTP端口",
     "noSmtp": "未配置SMTP",
-    "allowSend": "允许 AI 用这个邮箱发邮件",
-    "allowSendHint": "默认开启。关闭后 AI 仍可读邮件、帮你起草回复，但发送会被拒绝。"
+    "allowSend": "发邮件权限",
+    "allowSendHint": "默认开启。关闭后 AI 仍可读邮件、帮你起草回复，但不能发送邮件。"
   },
   "language": {
     "title": "语言",

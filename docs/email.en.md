@@ -7,8 +7,8 @@ description: Email integration — connect a mailbox in Vibe Seller so AI can re
 Connect your customer-service mailbox to Vibe Seller and the AI can pull
 up the inbox while running a task, sort messages the way you want, and
 draft and send replies — no more copying and pasting between windows.
-If you don't want the AI sending from a mailbox, turn sending off for
-that mailbox.
+If you don't want the AI sending from a mailbox, turn off that
+mailbox's email sending permission.
 
 Everything runs over standard IMAP / SMTP. **You never type your email
 password** — 163 and QQ Mail use an *authorization code*, Gmail uses an
@@ -171,21 +171,21 @@ Three quick checks:
 3. Create a task asking "what's the latest mail in this mailbox?" —
    if the AI reports recent subjects and senders, you are done.
 
-## Turn off AI sending
+## Turn off the email sending permission
 
 Every mailbox **can send** by default: the AI can read, sort, draft and
 send. If you don't want the AI sending from a mailbox (say, read and
-draft only), turn it off **per mailbox**:
+draft only), turn off its email sending permission **per mailbox**:
 
 1. Go to **Settings → Email** and find the mailbox in the list;
-2. Turn off the **"Let the AI send email from this mailbox"** switch on
-   its card (grey means off);
+2. Turn off the **"Email sending permission"** switch on its card
+   (grey means off);
 3. Each mailbox is separate: turning it off for mailbox A leaves
    mailbox B sending as usual.
 
 To allow sending again, turn the same switch back on.
 
-![The "Let the AI send email from this mailbox" switch: off for the top mailbox, on for the bottom one](images/email_allow_send_en.png)
+![The "Email sending permission" switch: off for the top mailbox, on for the bottom one](images/email_allow_send_en.png)
 
 **Verify**: create a task asking the AI to "send a test email from this
 mailbox to me" (give it another inbox of yours). With the switch on, the
@@ -212,9 +212,10 @@ matters to you.
 - **Sort and summarise**: group messages by your rules, extract the
   key points, turn threads into tables or lists;
 - **Send mail**: draft replies and send them as instructed. Each
-  mailbox's "Let the AI send email from this mailbox" switch is on by
-  default and you can turn it off per mailbox (see
-  [Turn off AI sending](#turn-off-ai-sending)). While it is off, the AI
+  mailbox's "Email sending permission" switch is on by default and you
+  can turn it off per mailbox (see
+  [Turn off the email sending permission](#turn-off-the-email-sending-permission)).
+  While it is off, the AI
   shows you the drafted email so you can send it yourself or turn the
   switch back on and ask again. Asking "show me before sending" in
   the task keeps you in the loop.
@@ -268,8 +269,7 @@ store's tasks.
 <details markdown="1"><summary><b>The AI says it can't send email?</b></summary>
 
 If the AI replies that sending from a mailbox has been turned off, that
-mailbox's **"Let the AI send email from this mailbox"** switch was
-turned off (mailboxes start with it on, so someone switched it off in
+mailbox's **"Email sending permission"** switch was turned off (mailboxes start with it on, so someone switched it off in
 Settings). Go to **Settings → Email**, turn it back on on that mailbox's
 card, and ask the task to send again.
 

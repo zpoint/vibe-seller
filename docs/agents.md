@@ -434,8 +434,9 @@ same REST route the web UI calls, so:
   `socket_port` to 16851; an email create auto-discovers IMAP when no
   host is given.
 - Some actions do real things to the world: `manage_email_account(send)`
-  sends a real email (refused from a mailbox whose `allow_send` the user
-  turned off in Settings → Email — it is on by default; the switch is
+  sends a real email (refused from a mailbox whose `allow_send` — the
+  "Email sending permission" switch in Settings → Email — the user
+  turned off; it is on by default; the switch is
   interactive-only, so no token or agent credential can change it),
   `manage_chat_bot(send|test)` posts to the group,
   `manage_profile(validate)` spends one tiny real model call,

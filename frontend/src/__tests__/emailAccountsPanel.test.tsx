@@ -163,7 +163,7 @@ describe('EmailAccountsPanel send permission switch', () => {
   it('renders on by default with label and hint', () => {
     renderWithAccount(ACCOUNT)
     const sw = screen.getByRole('switch', {
-      name: 'Let the AI send email from this mailbox',
+      name: 'Email sending permission',
     })
     expect(sw.getAttribute('aria-checked')).toBe('true')
     screen.getByText((c) => c.startsWith('On by default'))
@@ -171,7 +171,7 @@ describe('EmailAccountsPanel send permission switch', () => {
 
   it('renders the zh label and hint', () => {
     renderWithAccount(ACCOUNT, 'zh')
-    screen.getByRole('switch', { name: '允许 AI 用这个邮箱发邮件' })
+    screen.getByRole('switch', { name: '发邮件权限' })
     screen.getByText((c) => c.startsWith('默认开启'))
   })
 

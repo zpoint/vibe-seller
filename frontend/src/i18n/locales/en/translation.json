@@ -822,8 +822,8 @@
     "smtpHost": "SMTP Server",
     "smtpPort": "SMTP Port",
     "noSmtp": "No SMTP",
-    "allowSend": "Let the AI send email from this mailbox",
-    "allowSendHint": "On by default. When off, the AI can still read mail and draft replies for you, but any attempt to send is refused."
+    "allowSend": "Email sending permission",
+    "allowSendHint": "On by default. When off, the AI can still read mail and draft replies, but can't send."
   },
   "language": {
     "title": "Language",

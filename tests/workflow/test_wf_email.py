@@ -341,7 +341,7 @@ class TestSendPermission:
         detail = r.json()['detail']
         assert 'shop@example.com' in detail
         assert 'turned sending off' in detail
-        assert 'Settings → Email' in detail
+        assert 'Settings → Email, "Email sending permission" switch' in detail
         assert 'draft' in detail
         assert _smtp_untouched(smtp_spy)
 

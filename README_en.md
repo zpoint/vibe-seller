@@ -586,7 +586,7 @@ directly (hook up permissions in First run — no code):
 |---|---|
 | **MCP** | Drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder, Hermes Agent, Pi: create tasks, follow them, answer questions, review plans. [Setup guide](docs/mcp.en.md) |
 | **Amazon Ads API** | Amazon ad tasks call the API directly instead of clicking through the seller console — in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](docs/ads-api.en.md) |
-| **Email** (IMAP/SMTP) | Read and send email (AI sending can be turned off per mailbox): read your linked store mailboxes, sort and summarize, draft and send replies. Works with 163 / QQ / Gmail and more. [Setup guide](docs/email.en.md) |
+| **Email** (IMAP/SMTP) | Read and send email (email sending permission can be turned off per mailbox): read your linked store mailboxes, sort and summarize, draft and send replies. Works with 163 / QQ / Gmail and more. [Setup guide](docs/email.en.md) |
 | **Group chat bots** (WeCom / DingTalk / Feishu / Slack) | Have the AI post results, reports and reminders straight into a group from a task; WeCom bots can send files too. [Setup guide](docs/chat-bots.en.md) |
 | **TickTick / Dida365** | Auto-create todos (follow-ups, order tracking, periodic checks). [Setup guide](docs/ticktick.en.md) |
 | **Google Workspace** | Gmail, Drive, Docs, Sheets, Slides, Calendar — read, write, edit. [Setup guide](docs/google-workspace.en.md) |

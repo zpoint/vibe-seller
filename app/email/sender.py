@@ -32,8 +32,7 @@ logger = logging.getLogger(__name__)
 # Where the user turns sending back on. Kept next to the gate so the
 # refusal can never point at a place the UI no longer has.
 SEND_PERMISSION_LOCATION = (
-    'Settings → Email, switch "Let the AI send email from this '
-    'mailbox" on that mailbox'
+    'Settings → Email, "Email sending permission" switch on that mailbox'
 )
 
 

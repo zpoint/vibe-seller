@@ -431,7 +431,8 @@ POSTs here), and the external `/api/mcp` `manage_email_account(send)`
 (which calls this route in-process) — is refused the same way, and a
 future caller of the sender is too.
 
-The user flips it per mailbox in Settings → Email, through
+The user flips it per mailbox with the "Email sending permission"
+(「发邮件权限」) switch in Settings → Email, through
 `PUT …/send-permission`. That route is in `INTERACTIVE_ONLY_ROUTES`
 (`app/interactive_only.py`), whose middleware refuses — by how the
 credential is presented — any `Authorization` header (a `vst_` token or

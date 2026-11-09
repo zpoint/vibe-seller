@@ -211,6 +211,7 @@ class TestMiddleware:
         body = json.loads(out[1]['body'])
         assert 'Only the user can change this' in body['detail']
         assert 'Settings → Email' in body['detail']
+        assert '"Email sending permission"' in body['detail']
 
     @pytest.mark.parametrize(
         'headers',

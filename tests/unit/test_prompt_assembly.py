@@ -405,6 +405,7 @@ class TestEmailSendPolicy:
             'support@example.com.'
         ) in body
         assert 'Settings → Email' in body
+        assert '"Email sending permission"' in body
 
     @pytest.mark.asyncio
     async def test_store_task_all_blocked(

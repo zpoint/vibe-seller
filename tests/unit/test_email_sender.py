@@ -208,6 +208,7 @@ class TestSendPermission:
         message = str(exc_info.value)
         assert 'sender@example.com' in message
         assert 'Settings → Email' in message
+        assert '"Email sending permission"' in message
         assert 'draft' in message
 
     def test_sync_sender_refuses_too(self, mock_account):

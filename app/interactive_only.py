@@ -73,7 +73,7 @@ INTERACTIVE_ONLY_ROUTES: tuple[InteractiveOnlyRoute, ...] = (
     InteractiveOnlyRoute(
         {'PUT'},
         '/api/email-accounts/{account_id}/send-permission',
-        'Settings → Email, "Let the AI send email from this mailbox"',
+        'Settings → Email, "Email sending permission" switch on that mailbox',
     ),
 )
 

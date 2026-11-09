@@ -81,8 +81,8 @@ def send_policy_note(mailboxes: Sequence[Mailbox]) -> str:
         + ', '.join(blocked)
         + '. Do not call vibe_seller_send_email for these — it is '
         'refused. Draft the email and show it to the user instead, and '
-        'tell them they can turn sending back on for that mailbox in '
-        'Settings → Email.'
+        'tell them they can turn it back on with that mailbox\'s "Email '
+        'sending permission" switch in Settings → Email.'
     )
     if sendable:
         note = 'Sending is allowed from: ' + ', '.join(sendable) + '. ' + note
