@@ -53,3 +53,8 @@ repos:
         entry: scripts/check_line_limit.sh
         language: system
         files: ^(app/.*\.py|frontend/src/.*\.(ts|tsx))$
+        # The provider catalog is data, not a code module, and cannot be
+        # split: the presets sync (app/ai/provider_presets_sync.py) on every
+        # released client fetches this ONE file from main and requires both
+        # PROVIDER_PRESETS and PROVIDER_MODELS literals in it.
+        exclude: ^app/ai/provider_presets\.py$
