@@ -502,8 +502,9 @@ images. What the task's file browser shows in the web UI.
 (plus a base64 `blob` for binaries up to 5 MB) — download it from
 there with the same credentials. An image is instead returned as an
 **image content block** (`shown_as_image: true`, no `blob`) so you can
-look at it — over ~3.5 MB as a downscaled JPEG preview; the `url`
-keeps the original. For `zip_url`: a `url` that serves everything as one ZIP.
+look at it. Over ~3.5 MB it is a downscaled JPEG preview
+(`shown_as_preview: true`) and the original comes as the `blob` when
+under 5 MB; the `url` always serves the original. For `zip_url`: a `url` that serves everything as one ZIP.
 
 Paths are relative to the task workspace; `..`, absolute paths and
 backslashes are refused.

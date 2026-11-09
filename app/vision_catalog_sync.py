@@ -15,15 +15,15 @@ import httpx
 from app.env_options import Options
 from app.vision_catalog import (
     CatalogSourceError,
-    _commit,
-    _current,
-    _served_now,
     bundled_fingerprint,
+    commit,
+    current_state,
     flatten,
     match_prices,
     parse_catalog_source,
     price_ref,
     resolve_catalog,
+    served,
 )
 
 logger = logging.getLogger(__name__)
@@ -68,8 +68,8 @@ async def _fetch_catalog(client: httpx.AsyncClient, force: bool) -> dict:
     # Same body, fetched under this same release: nothing to do. (After
     # an upgrade the fingerprint differs, so the body is re-adopted.)
     if (
-        sha == _current().catalog_sha
-        and _current().fetched_under == bundled_fingerprint()
+        sha == current_state().catalog_sha
+        and current_state().fetched_under == bundled_fingerprint()
         and not force
     ):
         return {'status': 'unchanged'}
@@ -78,14 +78,14 @@ async def _fetch_catalog(client: httpx.AsyncClient, force: bool) -> dict:
         fams, _ = resolve_catalog(raw_families, raw_retired)
     except (CatalogSourceError, UnicodeDecodeError) as e:
         return {'status': 'rejected', 'error': str(e)}
-    before = _served_now()
-    _commit(
+    before = served()
+    commit(
         raw_families=raw_families,
         raw_retired=raw_retired if isinstance(raw_retired, dict) else {},
         catalog_sha=sha,
         fetched_under=bundled_fingerprint(),
     )
-    after = _served_now()
+    after = served()
     changed = (before.families, before.retired) != (
         after.families,
         after.retired,
@@ -126,7 +126,7 @@ async def _fetch_prices(client: httpx.AsyncClient) -> dict:
     # Match against the catalog's own prices, not the live ones already
     # served: the drift check must compare a fresh row to the price a
     # maintainer verified, or one bad row would ratchet the anchor.
-    catalog = flatten(_served_now().families)
+    catalog = flatten(served().families)
     matched = match_prices(catalog, records)
     if not matched:
         return {'status': 'failed', 'error': 'no price matched'}
@@ -135,8 +135,8 @@ async def _fetch_prices(client: httpx.AsyncClient) -> dict:
     prices = {
         m.id: (matched[m.id], price_ref(m)) for m in catalog if m.id in matched
     }
-    changed = prices != _current().prices
-    _commit(prices=prices)
+    changed = prices != current_state().prices
+    commit(prices=prices)
     return {
         'status': 'updated' if changed else 'unchanged',
         'priced': len(prices),
@@ -174,15 +174,15 @@ async def fetch_available_slugs(
 
 async def _fetch_available(client: httpx.AsyncClient, api_key: str) -> dict:
     slugs = await fetch_available_slugs(client, api_key)
-    ours = {m.slug for m in _served_now().models}
+    ours = {m.slug for m in served().models}
     missing = ours - slugs
     if missing == ours:
         # Every one of our models gone at once is an API change, not a
         # mass delisting. Keep serving what we have.
         return {'status': 'failed', 'error': 'none of our slugs listed'}
     hidden = frozenset(missing)
-    changed = hidden != _current().hidden
-    _commit(hidden=hidden)
+    changed = hidden != current_state().hidden
+    commit(hidden=hidden)
     if missing:
         logger.warning(
             'vision catalog: kie.ai no longer lists %s', sorted(missing)

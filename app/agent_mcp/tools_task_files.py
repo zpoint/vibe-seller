@@ -166,8 +166,10 @@ async def get_task_log(ctx: McpContext, args: dict) -> dict:
 @tool(
     'task_files',
     'The files a task produced in its workspace. action=list names '
-    'them; action=read returns one (text inline, anything else as a '
-    'download URL — small binaries also ride along as base64); '
+    'them; action=read returns one (text inline; an image is SHOWN as '
+    'an image content block — a large one as a downscaled preview, '
+    'with the original as base64 when it fits; other binaries as a '
+    'download URL plus base64 when small); '
     'action=zip_url returns a URL that downloads everything as one '
     'ZIP (a vst_ bearer works on it).',
     schema(
@@ -274,8 +276,11 @@ def compact_image_card(card: dict) -> dict:
 
 
 # A confirm card may carry this many references; more is a mistake,
-# and every one shown costs an image block in the reply.
-MAX_CARD_REFERENCES = 14
+# and every one shown costs an image block in the reply. The route
+# enforces the same cap (``vision.MAX_CARD_REFERENCES``).
+MAX_CARD_REFERENCES = vision_route.MAX_CARD_REFERENCES
+# Below this much budget left, a further image is not even attempted.
+MIN_SHOWN_IMAGE_BYTES = 32 * 1024
 
 
 def _task_ref_path(task_id: str, ref: str):
@@ -308,19 +313,27 @@ def _show_references(task_id: str, refs: list) -> tuple[list, list]:
     for ref in (refs or [])[:MAX_CARD_REFERENCES]:
         entry = {'ref': ref}
         local = _task_ref_path(task_id, ref)
-        block = None
-        if local is not None:
+        if local is None:
+            if isinstance(ref, str) and ref.startswith(('http://', 'https://')):
+                entry['url'] = ref
+            else:
+                entry['not_shown'] = 'not a file in this task'
+        elif budget < MIN_SHOWN_IMAGE_BYTES:
+            # Spent: don't open (let alone decode) what can't be shown.
+            entry['not_shown'] = 'reply image budget spent; use task_files'
+        else:
             block = image_block(
                 local, max_bytes=min(MAX_IMAGE_BLOCK_BYTES, budget)
             )
-        if block is not None:
-            budget -= len(block['data']) * 3 // 4
-            images.append(block)
-            entry['shown'] = len(images)  # 1-based image number
-        elif local is not None:
-            entry['not_shown'] = 'over the reply image budget; use task_files'
-        elif isinstance(ref, str) and ref.startswith(('http://', 'https://')):
-            entry['url'] = ref
+            if block is not None:
+                budget -= len(block['data']) * 3 // 4
+                images.append({k: block[k] for k in ('data', 'mime_type')})
+                entry['shown'] = len(images)  # 1-based image number
+            else:
+                entry['not_shown'] = (
+                    'not a viewable image here (type, size or decoding)'
+                    '; task_files can still download it'
+                )
         entries.append(entry)
     return entries, images
 
@@ -353,8 +366,9 @@ async def _collect_references(
     (saved through the SAME upload route the card posts to).
 
     Everything is validated — count included, against the card's
-    ``existing`` references — BEFORE an upload is written, so a refused
-    call leaves no orphan files behind."""
+    ``existing`` references — BEFORE an upload is written. Returns
+    ``(added references, paths this call uploaded)``; the uploads are
+    removed again if a later upload or the confirm itself fails."""
     paths = args.get('add_references') or []
     uploads = decode_uploads(args.get('reference_uploads') or [])
     total = existing + len(paths) + len(uploads)
@@ -370,6 +384,7 @@ async def _collect_references(
                 f'reference_uploads: {filename} is {mime_type}, not an image'
             )
     added: list[str] = []
+    uploaded: list[str] = []
     for raw in paths:
         if not isinstance(raw, str) or not raw.strip():
             raise ToolError('add_references entries must be strings')
@@ -384,15 +399,28 @@ async def _collect_references(
                 'list them with task_files(action=list)'
             )
         added.append(ref)
-    for filename, mime_type, data in uploads:
-        saved = await call_route(
-            vision_route.upload_reference,
-            task_id,
-            as_upload_file(filename, mime_type, data),
-            current_user=ctx.user,
-        )
-        added.append(saved['path'])
-    return added
+    try:
+        for filename, mime_type, data in uploads:
+            saved = await call_route(
+                vision_route.upload_reference,
+                task_id,
+                as_upload_file(filename, mime_type, data),
+                current_user=ctx.user,
+            )
+            added.append(saved['path'])
+            uploaded.append(saved['path'])
+    except BaseException:
+        _remove_uploads(task_id, uploaded)
+        raise
+    return added, uploaded
+
+
+def _remove_uploads(task_id: str, paths: list[str]) -> None:
+    """Delete uploads this call wrote, when the call did not land."""
+    for rel in paths:
+        local = _task_ref_path(task_id, rel)
+        if local is not None:
+            local.unlink(missing_ok=True)
 
 
 @tool(
@@ -524,17 +552,25 @@ async def image_request(ctx: McpContext, args: dict) -> dict:
             body['model'], note = _confirm_model(pending, args['model'].strip())
             if note:
                 notes.append(note)
-        added = await _collect_references(
+        added, uploaded = await _collect_references(
             ctx, task_id, args, len(pending.get('reference_images') or [])
         )
         if added:
             body['added_references'] = added
-    await call_route(
-        vision_route.confirm_task_image,
-        task_id,
-        body,
-        current_user=ctx.user,
-    )
+    else:
+        uploaded = []
+    try:
+        await call_route(
+            vision_route.confirm_task_image,
+            task_id,
+            body,
+            current_user=ctx.user,
+        )
+    except BaseException:
+        # The card was superseded/resolved meanwhile: nothing will ever
+        # read what this call uploaded.
+        _remove_uploads(task_id, uploaded)
+        raise
     out = {
         'task_id': task_id,
         'ok': True,

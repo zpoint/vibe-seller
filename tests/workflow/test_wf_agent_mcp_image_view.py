@@ -324,6 +324,7 @@ async def test_reference_images_share_one_reply_budget(
     monkeypatch.setattr(
         tools_task_files, 'MAX_REPLY_IMAGE_BYTES', len(PNG_1PX) + 10
     )
+    monkeypatch.setattr(tools_task_files, 'MIN_SHOWN_IMAGE_BYTES', 1)
     tid, _, gen = await card(reference_images=['refs/bottle.png'] * 3)
     got, env = await call_tool(
         admin_client, 'image_request', {'task_id': tid, 'action': 'get'}
@@ -350,7 +351,7 @@ async def test_a_fresh_proposal_never_names_a_hidden_model(
     monkeypatch.setattr(vc, '_cache_path', lambda: tmp_path / 'vc.json')
     vc.reset()
     try:
-        vc._commit(hidden=frozenset({'flux-3/klein-edit-image'}))
+        vc.commit(hidden=frozenset({'flux-3/klein-edit-image'}))
         tid, _, gen = await card(model='flux-3-klein-2k')
         got, _ = await call_tool(
             admin_client, 'image_request', {'task_id': tid, 'action': 'get'}
@@ -392,3 +393,88 @@ async def test_a_fresh_proposal_never_names_a_hidden_model(
             shutil.rmtree(_TASKS_DIR / tid2, ignore_errors=True)
     finally:
         vc.reset()
+
+
+async def test_a_non_image_reference_says_so_not_budget(admin_client, card):
+    tid, task_dir, gen = await card(reference_images=['refs/notes.txt'])
+    (task_dir / 'refs' / 'notes.txt').write_text('not a picture')
+    got, env = await call_tool(
+        admin_client, 'image_request', {'task_id': tid, 'action': 'get'}
+    )
+    assert images_of(env) == []
+    assert 'not a viewable image' in got['references'][0]['not_shown']
+    await call_tool(
+        admin_client, 'image_request', {'task_id': tid, 'action': 'cancel'}
+    )
+    await asyncio.wait_for(gen, 10)
+
+
+async def test_uploads_are_removed_when_the_confirm_does_not_land(
+    admin_client, card, monkeypatch
+):
+    """The card is resolved between get and confirm (another operator,
+    the web UI): what this call uploaded would never be read."""
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    from app.routers import vision as vision_router  # noqa: PLC0415
+
+    tid, task_dir, gen = await card()
+
+    async def gone(*a, **k):
+        raise HTTPException(status_code=404, detail='No pending image request')
+
+    monkeypatch.setattr(vision_router, 'confirm_task_image', gone)
+    before = sorted(p.name for p in task_dir.rglob('*') if p.is_file())
+    _, env = await call_tool(
+        admin_client,
+        'image_request',
+        {
+            'task_id': tid,
+            'action': 'confirm',
+            'reference_uploads': [
+                {
+                    'filename': 'late.png',
+                    'mime_type': 'image/png',
+                    'content_base64': base64.b64encode(PNG_1PX).decode(),
+                }
+            ],
+        },
+    )
+    assert env['isError'] is True
+    after = sorted(p.name for p in task_dir.rglob('*') if p.is_file())
+    assert after == before
+    monkeypatch.undo()
+    await call_tool(
+        admin_client, 'image_request', {'task_id': tid, 'action': 'cancel'}
+    )
+    await asyncio.wait_for(gen, 10)
+
+
+async def test_the_http_confirm_route_enforces_the_card_contract(
+    admin_client, card
+):
+    """The web card and raw HTTP get the same guarantees as MCP: only a
+    model the card offered, and at most 14 references in total."""
+    tid, _, gen = await card(reference_images=['refs/bottle.png'] * 10)
+    pending = (await admin_client.get(f'/api/tasks/{tid}/image/pending')).json()
+    rid = pending['request_id']
+    r = await admin_client.post(
+        f'/api/tasks/{tid}/image/confirm',
+        json={'request_id': rid, 'action': 'confirm', 'model': 'nope'},
+    )
+    assert r.status_code == 400 and 'not on this card' in r.text
+    r = await admin_client.post(
+        f'/api/tasks/{tid}/image/confirm',
+        json={
+            'request_id': rid,
+            'action': 'confirm',
+            'added_references': ['refs/bottle.png'] * 5,
+        },
+    )
+    assert r.status_code == 400 and 'At most 14' in r.text
+    r = await admin_client.post(
+        f'/api/tasks/{tid}/image/confirm',
+        json={'request_id': rid, 'action': 'cancel'},
+    )
+    assert r.status_code == 200
+    await asyncio.wait_for(gen, 10)

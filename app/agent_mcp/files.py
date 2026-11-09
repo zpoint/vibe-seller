@@ -226,15 +226,18 @@ def file_result(
     payload['encoding'] = 'url'
     payload['url'] = absolute_url(ctx, download_path)
     # An image is SHOWN (an MCP image block), so the operator — or the
-    # model driving it — can look at the result, not just fetch it. The
-    # image block then IS the bytes: repeating them as a base64 blob in
-    # the JSON text would double the reply (and feed the client model
-    # megabytes of base64 tokens), so a shown image carries no blob.
-    preview = image_block(abs_path)
-    if preview is not None:
-        payload[IMAGES_KEY] = [preview]
+    # model driving it — can look at the result, not just fetch it. When
+    # the block carries the ORIGINAL bytes, repeating them as a base64
+    # blob would double the reply (and feed the client model megabytes
+    # of base64 tokens), so it carries no blob. A downscaled preview is
+    # not the file: then the original still rides along as the blob.
+    shown = image_block(abs_path)
+    if shown is not None:
+        payload[IMAGES_KEY] = [shown]
         payload['shown_as_image'] = True
-        return payload
+        if not shown.get('preview'):
+            return payload
+        payload['shown_as_preview'] = True
     if size <= MAX_BLOB_BYTES:
         data = abs_path.read_bytes()
         payload['blob'] = base64.b64encode(data).decode('ascii')
@@ -288,6 +291,7 @@ def image_block(abs_path, max_bytes: int | None = None) -> dict | None:
         return {
             'data': base64.b64encode(path.read_bytes()).decode('ascii'),
             'mime_type': mime,
+            'preview': False,
         }
     if size > MAX_PREVIEW_SOURCE_BYTES:
         return None
@@ -306,6 +310,7 @@ def image_block(abs_path, max_bytes: int | None = None) -> dict | None:
     return {
         'data': base64.b64encode(buf.getvalue()).decode('ascii'),
         'mime_type': 'image/jpeg',
+        'preview': True,
     }
 
 

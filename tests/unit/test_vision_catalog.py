@@ -278,7 +278,7 @@ def _live(model_id: str, usd: float) -> dict:
 
 
 def test_live_price_is_what_the_card_shows():
-    vc._commit(prices=_live('nano-banana-pro-2k', 0.08))
+    vc.commit(prices=_live('nano-banana-pro-2k', 0.08))
     card = {m['id']: m for m in vision.catalog_public()}
     assert card['nano-banana-pro-2k']['usd'] == 0.08
     assert card['nano-banana-pro-2k']['cny'] == round(0.08 * vision.USD_CNY, 2)
@@ -290,7 +290,7 @@ def test_live_price_is_what_the_card_shows():
 
 
 def test_delisted_models_are_hidden_but_never_swapped():
-    vc._commit(hidden=frozenset({'nano-banana-pro'}))
+    vc.commit(hidden=frozenset({'nano-banana-pro'}))
     ids = vision.model_ids()
     assert not any(i.startswith('nano-banana-pro') for i in ids)
     # The default moves to the first visible model…
@@ -303,17 +303,17 @@ def test_delisted_models_are_hidden_but_never_swapped():
 
 
 def test_availability_never_empties_the_card():
-    vc._commit(hidden=frozenset(m.slug for m in bundled_models()))
+    vc.commit(hidden=frozenset(m.slug for m in bundled_models()))
     assert len(vision.model_ids()) == len(bundled_models())
 
 
 def test_a_model_added_after_the_availability_check_is_visible():
     """Availability is a deny-list: a family main adds later (or a
     release bundles) shows up without waiting for the next good check."""
-    vc._commit(hidden=frozenset({'ideogram/v3-remix'}))
+    vc.commit(hidden=frozenset({'ideogram/v3-remix'}))
     new = family(id='acme-image', slug='acme/image-edit')
     raw = [*vision_models.IMAGE_FAMILIES, new]
-    vc._commit(
+    vc.commit(
         raw_families=raw,
         raw_retired={},
         catalog_sha='s1',
@@ -329,7 +329,7 @@ def test_an_upgrade_re_judges_the_cached_catalog(monkeypatch):
     must come back after an upgrade that accepts it, without waiting for
     main's file to change (its sha short-circuits every later sync)."""
     new = family(id='acme-image', slug='acme/image-edit', ref_field='ref_imgs')
-    vc._commit(
+    vc.commit(
         raw_families=[*vision_models.IMAGE_FAMILIES, new],
         raw_retired={},
         catalog_sha='s1',
@@ -348,7 +348,7 @@ def test_a_body_cached_by_an_older_release_is_not_served():
     overriding it: new models would never appear and the new release's
     retired ids would fall to the default."""
     stale = [family(id='old-only', slug='old/model')]
-    vc._commit(
+    vc.commit(
         raw_families=stale,
         raw_retired={},
         catalog_sha='s1',
@@ -364,28 +364,28 @@ async def test_the_same_body_is_re_adopted_after_an_upgrade():
     fake = FakeKie()
     await run(fake)
     # Simulate "cached by an older release": same sha, other fingerprint.
-    vc._commit(fetched_under='an-older-release')
+    vc.commit(fetched_under='an-older-release')
     out = await run(fake)
     assert out['catalog']['status'] in ('updated', 'unchanged')
-    assert vc._current().fetched_under == vc.bundled_fingerprint()
+    assert vc.current_state().fetched_under == vc.bundled_fingerprint()
 
 
 def test_a_price_matched_under_old_terms_stops_applying():
     """main fixes a tier's price_terms: the live price found by the old
     terms must not keep overriding the newly curated price."""
-    vc._commit(prices={'nano-banana-pro-2k': (0.5, 'nano-banana-pro|old')})
+    vc.commit(prices={'nano-banana-pro-2k': (0.5, 'nano-banana-pro|old')})
     assert vision.get_model('nano-banana-pro-2k').usd == 0.09
 
 
 async def test_a_tier_that_stops_matching_drops_its_live_price():
     fake = FakeKie()
     await run(fake)
-    vc._commit(
-        prices={**vc._current().prices, **_live('flux-3-klein-1k', 0.01)}
+    vc.commit(
+        prices={**vc.current_state().prices, **_live('flux-3-klein-1k', 0.01)}
     )
     fake.pricing = [r for r in PRICING if 'Klein' not in r['modelDescription']]
     await run(fake)
-    assert 'flux-3-klein-1k' not in vc._current().prices
+    assert 'flux-3-klein-1k' not in vc.current_state().prices
     assert vision.get_model('flux-3-klein-1k').usd == 0.008  # catalog
 
 
@@ -529,3 +529,17 @@ def test_corrupt_cache_serves_bundled(tmp_path):
     vc.reset()
     assert vision.model_ids() == [m.id for m in bundled_models()]
     assert vision.get_model('nano-banana-pro-2k').usd == 0.09
+
+
+def test_a_sync_takes_effect_even_when_the_cache_cannot_be_written(
+    monkeypatch,
+):
+    """A read-only or full home must not keep a delisted model on the
+    card: memory is served first, the failed write is only logged."""
+
+    def unwritable(_state):
+        raise OSError('read-only file system')
+
+    monkeypatch.setattr(vc, '_write_cache', unwritable)
+    vc.commit(hidden=frozenset({'nano-banana-pro'}))
+    assert not any(i.startswith('nano-banana-pro') for i in vision.model_ids())

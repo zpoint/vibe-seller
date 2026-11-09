@@ -87,6 +87,12 @@ def _safe_name(name: str) -> str:
 
 # ─────────────────────────── config ───────────────────────────
 
+# A card's references (the agent's plus any added on confirm) are capped
+# here, where every confirm path (web card, MCP, raw HTTP) passes: the
+# models take a bounded number of input images and fail AFTER the user
+# confirmed when sent more.
+MAX_CARD_REFERENCES = 14
+
 # Strong refs to fire-and-forget tasks (asyncio keeps only weak ones).
 _BACKGROUND: set[asyncio.Task] = set()
 
@@ -405,6 +411,29 @@ async def confirm_task_image(
         'model': body.get('model'),
         'added_references': body.get('added_references') or [],
     }
+    if action == 'confirm':
+        card = vision.get_pending_request(task_id) or {}
+        if card.get('request_id') == request_id:
+            # The card's own list is the contract: an id it never
+            # offered is a forged or stale request, refused rather than
+            # silently swapped for the agent's proposal.
+            offered = {m.get('id') for m in card.get('models') or []}
+            if payload['model'] and payload['model'] not in offered:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f'Model {payload["model"]!r} is not on this card',
+                )
+            total = len(card.get('reference_images') or []) + len(
+                payload['added_references']
+            )
+            if total > MAX_CARD_REFERENCES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f'At most {MAX_CARD_REFERENCES} reference images '
+                        f'per card (got {total})'
+                    ),
+                )
     if not vision.resolve_confirm(request_id, payload):
         raise HTTPException(
             status_code=404,

@@ -308,9 +308,13 @@ returns a text file (≤ 256 KB) inline, and anything else as an
 returned as an MCP `image` content block (no blob — the block carries
 the bytes), so the client (and the model driving it) can look at a
 generated picture, not only fetch it; one over ~3.5 MB is shown as a
-downscaled JPEG preview while the URL keeps the original. Images in
+downscaled JPEG preview (`shown_as_preview`), and then the original
+still rides along as the `blob` when under 5 MB — the URL always has
+it. Images in
 one reply share an ~8 MB budget: past it, a card's further references
-are listed rather than shown. `action=zip_url` hands back the everything-in-one-ZIP
+are listed rather than shown. The confirm route itself enforces the
+card's contract for every client (web card, MCP, raw HTTP): only a
+model the card offered, and at most 14 references in total. `action=zip_url` hands back the everything-in-one-ZIP
 URL the web UI's download button uses.
 
 ### The image confirm gate

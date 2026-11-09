@@ -34,20 +34,19 @@ its bundled copy; a body with no valid family is rejected.
 from __future__ import annotations
 
 import ast
-import contextlib
 import dataclasses
+import functools
 import hashlib
 import json
 import logging
 import math
-import os
 from pathlib import Path
 import re
-import tempfile
 from urllib.parse import parse_qs, urlsplit
 
 from app import vision_models
 from app.config import VIBE_SELLER_DIR
+from app.utils.json_file import update_json_file
 
 logger = logging.getLogger(__name__)
 
@@ -478,8 +477,9 @@ class _Served:
     visible: list  # minus hidden slugs; never empty
 
 
+@functools.cache
 def bundled_fingerprint() -> str:
-    """Identity of THIS release's bundled catalog."""
+    """Identity of THIS release's bundled catalog (constant per process)."""
     blob = repr((vision_models.IMAGE_FAMILIES, vision_models.RETIRED_MODEL_IDS))
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
@@ -558,8 +558,6 @@ def _load_cache() -> _State:
 
 
 def _write_cache(state: _State) -> None:
-    path = _cache_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
     blob = {
         'catalog': {
             'sha256': state.catalog_sha,
@@ -572,42 +570,48 @@ def _write_cache(state: _State) -> None:
         'prices': {k: list(v) for k, v in state.prices.items()},
         'hidden': sorted(state.hidden),
     }
-    # A unique tmp per write: two servers sharing this home (main + a
-    # demo port) may sync at once, and a shared tmp name made one
-    # rename fail.
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f'.{path.name}.')
-    try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as fh:
-            json.dump(blob, fh, indent=2)
-        os.replace(tmp, path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            os.unlink(tmp)
-        raise
+
+    def _replace(current: dict) -> None:
+        current.clear()
+        current.update(blob)
+
+    # The shared atomic writer: a unique dot-prefixed tmp per write (two
+    # servers sharing this home may sync at once), serialised across
+    # threads, removed on failure.
+    update_json_file(_cache_path(), _replace)
 
 
-def _current() -> _State:
+def current_state() -> _State:
     global _state
     if _state is None:
         _state = _load_cache()
     return _state
 
 
-def _served_now() -> _Served:
+def served() -> _Served:
     global _served
     if _served is None:
-        _served = _derive(_current())
+        _served = _derive(current_state())
     return _served
 
 
-def _commit(**changes) -> None:
-    """Persist a new state, then serve it — in that order, so a failed
-    write leaves memory and disk agreeing on the old state."""
+def commit(**changes) -> None:
+    """Serve a new state, then persist it.
+
+    Serving comes first on purpose: what a sync learned (a delisted
+    model, a new price) must take effect even when the cache cannot be
+    written (read-only or full home). A failed write is logged and the
+    next successful commit catches the file up; until then a restart
+    falls back to the previous cache or the bundled catalog.
+    """
     global _state, _served
-    new = dataclasses.replace(_current(), **changes)
-    _write_cache(new)
+    new = dataclasses.replace(current_state(), **changes)
     _state = new
     _served = _derive(new)
+    try:
+        _write_cache(new)
+    except OSError:
+        logger.warning('vision catalog: cache not written', exc_info=True)
 
 
 def reset() -> None:
@@ -621,15 +625,15 @@ def all_models() -> list[ImageModel]:
     """Every catalog tier with its served price, hidden ones included —
     the lookup set for an id someone already chose (a confirmed card, a
     timed-out job being resumed), which must never silently change."""
-    return _served_now().models
+    return served().models
 
 
 def current_models() -> list[ImageModel]:
     """The selectable tiers: catalog order, live prices, minus models
     kie.ai no longer lists. Never empty — if availability would hide
     everything, the availability data is what's wrong."""
-    return _served_now().visible
+    return served().visible
 
 
 def retired_successor(model_id: str) -> str | None:
-    return _served_now().retired.get(model_id)
+    return served().retired.get(model_id)

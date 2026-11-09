@@ -261,3 +261,29 @@ class TestImageBlock:
         f = tmp_path / 'big.png'
         Image.effect_noise((1200, 1200), 100).convert('RGB').save(f)
         assert mcp_files.image_block(f, max_bytes=100) is None
+
+
+class TestPreviewKeepsTheOriginal:
+    def test_a_preview_is_shown_and_the_original_still_downloads(
+        self, tmp_path, monkeypatch
+    ):
+        """A downscaled JPEG is not the file: a client saving the
+        deliverable from the reply must still get the original bytes."""
+        Image = pytest.importorskip('PIL.Image')
+        from PIL import ImageFilter  # noqa: PLC0415
+
+        f = tmp_path / 'big.png'
+        Image.effect_noise((3000, 2000), 40).filter(
+            ImageFilter.GaussianBlur(4)
+        ).convert('RGB').save(f)
+        monkeypatch.setattr(mcp_files, 'MAX_IMAGE_BLOCK_BYTES', 500_000)
+        out = mcp_files.file_result(
+            _Ctx(),
+            path='generated_images/big.png',
+            abs_path=f,
+            mime_type='image/png',
+            download_path='/api/tasks/t/files/generated_images/big.png',
+        )
+        assert out['shown_as_preview'] is True
+        assert out[mcp_files.IMAGES_KEY][0]['mime_type'] == 'image/jpeg'
+        assert base64.b64decode(out['blob']) == f.read_bytes()
