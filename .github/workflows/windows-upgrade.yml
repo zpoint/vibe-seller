@@ -168,6 +168,11 @@ jobs:
             $_.ExecutablePath.StartsWith($install, [System.StringComparison]::OrdinalIgnoreCase) })) {
             throw "precondition failed: no venv pythonw holding the lock"
           }
+          # The server answering on 7777 before the upgrade: the upgrade
+          # must replace this process, not just the files under it.
+          $oldPid = (Get-NetTCPConnection -LocalPort 7777 -State Listen `
+            -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
+          if (-not $oldPid) { throw "precondition failed: no server listening on 7777" }
           # Upgrade in place WITHOUT stopping the server/tray first.
           $p = Start-Process -FilePath $exe -Wait -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
@@ -181,21 +186,20 @@ jobs:
               throw "empty/broken venv after hot upgrade: missing $f"
             }
           }
-          # Leave a healthy server running for the e2e step that follows.
-          $env:PATH = "$install\.venv\Scripts;$install;$install\claude;" +
-                      "$install\git\cmd;$install\git\bin;" +
-                      "$install\git\usr\bin;$install\git\mingw64\bin;$env:PATH"
-          $env:CLAUDE_CODE_GIT_BASH_PATH = "$install\git\bin\bash.exe"
-          $env:VIBE_SELLER_BUNDLED_PYTHON = "$install\python\python.exe"
-          & "$install\.venv\Scripts\vibe-seller.exe" start --port 7777
+          # The upgrade itself must bring the server back: a silent upgrade
+          # has no finish page, and it stopped a running server. No manual
+          # `vibe-seller start` here — that is what used to hide the gap.
           $ok = $false
-          for ($i = 0; $i -lt 60; $i++) {
+          for ($i = 0; $i -lt 90; $i++) {
             try {
-              if ((Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version -eq '0.0.2') { $ok = $true; break }
+              $newPid = (Get-NetTCPConnection -LocalPort 7777 -State Listen `
+                -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
+              $v = (Invoke-RestMethod http://127.0.0.1:7777/api/version -TimeoutSec 3).version
+              if ($v -eq '0.0.2' -and $newPid -and $newPid -ne $oldPid) { $ok = $true; break }
             } catch { }
             Start-Sleep 2
           }
-          if (-not $ok) { throw "server not healthy at 0.0.2 after hot upgrade" }
+          if (-not $ok) { throw "silent upgrade did not restart the server (old pid $oldPid)" }
           Write-Host "OK: hot in-place upgrade (tray running) rebuilt the venv"
 
       - name: Basic e2e on the UPGRADED build (health + store/profile API)
