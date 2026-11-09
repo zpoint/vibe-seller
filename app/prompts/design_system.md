@@ -138,7 +138,9 @@ through `vibe_seller_write_workspace_file` — the deliverable never
 waits on this:
 
 - When what you see contradicts a note you read, rewrite that line in
-  place. Leave one current answer, not the old line plus a correction.
+  place so it states only the current fact. Leave out the old value,
+  "was stale" remarks and verification dates: a later reader skims for
+  the answer, and a wrong value still in the file is one it may pick up.
 - When you learn something a different task would need on its first
   try (a page path, a UI quirk, a gotcha behind a failed attempt, a
   business rule the user stated), add it to the existing file on that
