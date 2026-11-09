@@ -1,18 +1,15 @@
-"""Single source of truth for ad-audit bid-rule thresholds.
+"""Ad-rule thresholds: defaults, overridden by the store's own notes.
 
-Both bid-rule gates (``ad_bid_floor``, ``ad_scale_winners``) and the
-completeness reviewer resolve their threshold through here instead of
-hardcoding it, so each number lives in ONE place (``DEFAULT_RULES``).
+Every number here is a default target, not a law. A store owner — or
+the agent, when the user states a different standard — overrides one by
+writing a line in ``stores/<slug>/notes.md`` (case-insensitive, ``:`` or
+``=``)::
 
-A per-store ``stores/<slug>/notes.md`` may override a default, letting a
-store owner tune the rules without code changes. Write a line anywhere
-in that file (case-insensitive, ``:`` or ``=``):
+    acos_no_lower: 25
+    cpc_floor_multiplier: 1.0
 
-    scale_roas: 6        # ROAS strictly above this → raise or justify
-    acos_no_lower: 28    # ACOS % below this → never lower the bid
-
-``set_task_result`` reads the task's store notes and passes the resolved
-dict to the gates; ``resolve_rules`` itself is pure (takes the notes
+``set_task_result`` reads the task's store notes and passes the
+resolved dict to the gates; ``resolve_rules`` is pure (takes the notes
 text) so it stays trivially testable.
 """
 
@@ -79,35 +76,22 @@ DEFAULT_RULES: dict[str, float] = {
     # Cadence genuinely varies by seller — some tune hourly, some
     # monthly — so this is overridable per store like every other rule.
     'change_cooldown_days': 7.0,
+    # A new bid may not drop to/below the row's actual CPC times this:
+    # below the price it already clears, the auction stops serving it.
+    'cpc_floor_multiplier': 1.1,
+    # Gross margin % assumed when the store has not recorded one; the
+    # report says it used the default.
+    'margin': 25.0,
 }
 
-# Per-store override patterns — matched anywhere in notes.md.
+# Per-store override patterns — ``key: value`` anywhere in notes.md;
+# an underscore in the key may also be written as a space.
 _OVERRIDE_RES: dict[str, re.Pattern[str]] = {
-    'acos_no_lower': re.compile(
-        r'acos[_ ]?no[_ ]?lower\s*[:=]\s*(\d+(?:\.\d+)?)', re.IGNORECASE
-    ),
-    'scale_roas': re.compile(
-        r'scale[_ ]?roas\s*[:=]\s*(\d+(?:\.\d+)?)', re.IGNORECASE
-    ),
-    'reconcile_tolerance': re.compile(
-        r'reconcile[_ ]?tolerance\s*[:=]\s*(\d+(?:\.\d+)?)', re.IGNORECASE
-    ),
-    'noon_reconcile_floor': re.compile(
-        r'noon[_ ]?reconcile[_ ]?floor\s*[:=]\s*(\d+(?:\.\d+)?)',
+    key: re.compile(
+        key.replace('_', '[_ ]?') + r'\s*[:=]\s*(\d+(?:\.\d+)?)',
         re.IGNORECASE,
-    ),
-    'negate_waste_spend': re.compile(
-        r'negate[_ ]?waste[_ ]?spend\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
-    ),
-    'negate_waste_clicks': re.compile(
-        r'negate[_ ]?waste[_ ]?clicks\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
-    ),
-    'change_cooldown_days': re.compile(
-        r'change[_ ]?cooldown[_ ]?days\s*[:=]\s*(\d+(?:\.\d+)?)',
-        re.IGNORECASE,
-    ),
+    )
+    for key in DEFAULT_RULES
 }
 
 

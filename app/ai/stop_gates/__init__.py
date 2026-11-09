@@ -120,12 +120,13 @@ SOFT_GATE_MAX_DENIALS = 1
 # the ads API is reviewed zero times (its skill declares no gates).
 AD_REVIEW_ROUNDS = 1
 
-# A contradiction is refused as often as any other review finding, once.
-# It is always resolvable in one edit — fix the figures, or declare the
-# campaign untrustworthy. Past the cap the result is accepted but
-# banner-marked, so the failure mode is "impossible to miss", never
-# "impossible to pass".
-CONTRADICTION_MAX_DENIALS = AD_REVIEW_ROUNDS
+# A contradiction — a figure that cannot be true, or a change that breaks
+# a store rule or the approval — is refused on every submit up to this
+# cap: unlike a coverage gap it touches money, and it is always resolvable
+# (fix the figures, or revert the change and correct the log). Past the
+# cap the result is accepted but banner-marked, so the failure mode is
+# "impossible to miss", never "impossible to pass".
+CONTRADICTION_MAX_DENIALS = 3
 
 
 def contradiction_banner(contradictions) -> str:

@@ -1,0 +1,215 @@
+"""ad_changes: proposed and executed changes obey store rules + approval.
+
+Every case writes the real TSV contract into a task dir and calls the
+gate the way set_task_result does. One test per rule, each with the
+passing and the failing side.
+"""
+
+from datetime import UTC, datetime, timedelta
+import uuid
+
+import pytest
+
+from app.ai.stop_gates import ad_changes
+from app.ai.stop_gates.ad_rules import resolve_rules
+from tests.unit.ad_fixtures import AdTask, change
+
+pytestmark = pytest.mark.unit
+
+
+@pytest.fixture
+def task(monkeypatch):
+    t = AdTask(f'chg-{uuid.uuid4().hex[:8]}', monkeypatch, None)
+    t.declare('audit')
+    return t
+
+
+def _gaps(task, rules=None):
+    deny = ad_changes.check('', task.id, rules)
+    return list(deny.contradictions) if deny else []
+
+
+def test_no_files_no_opinion(task):
+    assert ad_changes.check('', task.id) is None
+
+
+def test_a_clean_proposal_passes(task):
+    task.changes([change(), change(target='gadget', action='hold')])
+    assert _gaps(task) == []
+
+
+@pytest.mark.parametrize(
+    'row,expect',
+    [
+        (
+            change(action='lower', acos='20', target_bid='0.90'),
+            'under 30% ACOS',
+        ),
+        (
+            change(action='lower', acos='', roas='5', target_bid='0.90'),
+            'under 30% ACOS',
+        ),
+        (
+            change(action='raise', cpc='1.00', target_bid='1.05'),
+            'below CPC 1 x 1.1',
+        ),
+        (change(action='hold', roas='8', reason=''), 'needs a reason'),
+        (change(action='bump'), 'use one of'),
+        (change(action='raise', target_bid=''), 'without a target_bid'),
+    ],
+)
+def test_owner_rules_refuse(task, row, expect):
+    task.changes([row])
+    gaps = _gaps(task)
+    assert any(expect in g for g in gaps), gaps
+
+
+@pytest.mark.parametrize(
+    'row',
+    [
+        change(action='lower', acos='45', target_bid='0.95'),
+        change(action='raise', cpc='1.00', target_bid='1.10'),
+        change(action='hold', roas='8', reason='budget capped'),
+        change(action='pause', acos='', roas='', cpc=''),
+    ],
+)
+def test_owner_rules_allow(task, row):
+    task.changes([row])
+    assert _gaps(task) == []
+
+
+def test_store_notes_override_the_defaults(task):
+    """The thresholds are defaults: a store's notes.md wins."""
+    task.changes([
+        change(action='lower', acos='25', cpc='1.00', target_bid='1.02'),
+    ])
+    assert _gaps(task)  # defaults: ACOS 25 < 30, and 1.02 < 1.10
+    rules = resolve_rules('acos_no_lower: 20\ncpc_floor_multiplier: 1.0')
+    assert _gaps(task, rules) == []
+
+
+def test_cooldown_holds_a_recently_changed_target(task):
+    recent = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    task.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.00',
+                'applied_action': 'raise',
+                'applied_at': recent,
+            }
+        ],
+        [],
+    )
+    task.changes([change()])
+    assert any('cooldown' in g for g in _gaps(task))
+    assert _gaps(task, resolve_rules('change_cooldown_days: 1')) == []
+    task.changes([change(action='hold', reason='changed 2 days ago')])
+    assert _gaps(task) == []
+
+
+def test_investigate_may_not_propose(task):
+    task.declare('investigate')
+    task.changes([change(action='hold', reason='fine')])
+    assert _gaps(task) == []
+    task.changes([change()])
+    assert any('investigate' in g for g in _gaps(task))
+
+
+def test_unreadable_changes_file_is_reported(task):
+    (task.dir / 'CHANGES.tsv').write_text('a|b|c\n1|2|3\n')
+    assert any('not tab-separated' in g for g in _gaps(task))
+
+
+# ── execution vs the frozen approval ────────────────────────────────
+
+
+def _approve(task, rows):
+    task.changes(rows)
+    assert ad_changes.freeze_approved_changes(task.id) is not None
+
+
+def _done(**kw):
+    row = {
+        'campaign_id': 'A1234567',
+        'ad_group': 'g1',
+        'target': 'widget',
+        'match_type': 'exact',
+        'action': 'raise',
+        'from_bid': '1.00',
+        'to_bid': '1.20',
+        'applied_at': '2026-01-01T00:00:00+00:00',
+    }
+    row.update({k: str(v) for k, v in kw.items()})
+    return row
+
+
+def test_execution_matching_the_approval_passes(task):
+    _approve(task, [change()])
+    task.execution([_done()])
+    assert _gaps(task) == []
+
+
+@pytest.mark.parametrize(
+    'executed,expect',
+    [
+        (_done(to_bid='11.3'), 'approved 1.20'),  # the 10x overspend
+        (_done(target='gadget'), 'not in the approved'),  # off-list row
+        (_done(action='pause'), 'not in the approved'),  # over-pause
+        (_done(action='negate', target='free'), 'not in the approved'),
+    ],
+)
+def test_execution_diverging_from_the_approval_is_refused(
+    task, executed, expect
+):
+    _approve(task, [change()])
+    task.execution([executed])
+    assert any(expect in g for g in _gaps(task)), _gaps(task)
+
+
+def test_editing_changes_during_execution_does_not_move_the_approval(task):
+    _approve(task, [change(target_bid='1.20')])
+    task.changes([change(target_bid='11.3')])  # rewritten mid-execution
+    task.execution([_done(to_bid='11.3')])
+    assert any('approved 1.20' in g for g in _gaps(task))
+
+
+def test_execution_without_any_approval_is_refused(task):
+    task.execution([_done()])
+    assert any('no approved' in g for g in _gaps(task))
+
+
+def test_per_campaign_record_must_agree_with_the_log(task):
+    _approve(task, [change()])
+    task.execution([_done()])
+    task.drill(
+        'A1234567',
+        [
+            {
+                'ad_group': 'g1',
+                'target': 'widget',
+                'match_type': 'exact',
+                'bid': '1.20',
+                'applied_action': 'pause',
+            }
+        ],
+        [],
+    )
+    assert any('records applied_action' in g for g in _gaps(task))
+
+
+def test_approval_is_inherited_by_an_execution_child(task, monkeypatch):
+    _approve(task, [change()])
+    child = AdTask(f'{task.id}-exec', monkeypatch, None)
+    monkeypatch.setattr(
+        ad_changes,
+        'parent_task_id',
+        lambda t: task.id if t == child.id else None,
+    )
+    child.execution([_done()])
+    assert ad_changes.check('', child.id) is None
+    child.execution([_done(to_bid='2.00')])
+    assert ad_changes.check('', child.id) is not None

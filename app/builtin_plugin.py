@@ -16,13 +16,7 @@ from __future__ import annotations
 
 from app.ai.bash_safety import check_bid_value_shape, check_dangerous_kill
 from app.ai.image_guards import check_local_image_edit
-from app.ai.stop_gates import (
-    ad_change_cooldown,
-    ad_completeness_review,
-    ad_execution_fidelity,
-    ad_negation_allowlist,
-    ad_writeback_backing,
-)
+from app.ai.stop_gates import ad_changes, ad_coverage
 from app.browser.chrome import ChromeBackend
 from app.browser.winchrome import WinChromeBackend
 from app.browser.ziniao import ZiniaoBackend
@@ -52,11 +46,8 @@ class BuiltinPlugin(Plugin):
         # into amazon-ads/gates/). The review-collect gates now ship in
         # review-collect/gates/ and are discovered + loaded once by the
         # skill-gate loader at startup, so they are NOT registered here.
-        ctx.register_gate('ad_change_cooldown', ad_change_cooldown)
-        ctx.register_gate('ad_completeness_review', ad_completeness_review)
-        ctx.register_gate('ad_negation_allowlist', ad_negation_allowlist)
-        ctx.register_gate('ad_writeback_backing', ad_writeback_backing)
-        ctx.register_gate('ad_execution_fidelity', ad_execution_fidelity)
+        ctx.register_gate('ad_changes', ad_changes)
+        ctx.register_gate('ad_coverage', ad_coverage)
 
     @staticmethod
     def _install_pretool_gates(ctx: ExtensionContext) -> None:

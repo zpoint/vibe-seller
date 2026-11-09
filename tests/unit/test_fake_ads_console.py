@@ -24,6 +24,8 @@ the page constants so it covers what the handler actually serves.
 
 import re
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -31,6 +33,7 @@ import pytest
 from tests.e2e.fake_ads_console import (
     CAMPAIGN_A,
     CAMPAIGN_B,
+    CAMPAIGN_C,
     CAMPAIGN_DATA,
     serve,
 )
@@ -160,3 +163,76 @@ def test_mark_at_starts_a_window_at_a_moment(console):
     ) as r:
         assert r.status == 200
     assert console.fetched_campaign(CAMPAIGN_B, since=console.mark_at(moment))
+
+
+def _post(console, path: str, **form) -> int:
+    data = urllib.parse.urlencode(form).encode()
+    try:
+        with urllib.request.urlopen(console.base + path, data=data) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+
+
+@pytest.fixture
+def fresh():
+    server = serve()
+    yield server
+    server.shutdown()
+
+
+def test_the_edit_form_changes_live_state_and_is_logged(fresh):
+    console = fresh
+    assert (
+        _post(
+            console,
+            f'/campaign/{CAMPAIGN_A}/keyword',
+            keyword='widget red',
+            action='bid',
+            bid='1.30',
+        )
+        == 200
+    )
+    assert console.bids[(CAMPAIGN_A, 'widget red')] == '1.30'
+    assert console.writes == [
+        {
+            'campaign_id': CAMPAIGN_A,
+            'keyword': 'widget red',
+            'action': 'bid',
+            'from': '1.50',
+            'to': '1.30',
+        }
+    ]
+    assert '1.30' in _cells(console, f'/campaign/{CAMPAIGN_A}')
+
+
+def test_an_unknown_keyword_is_refused_and_not_logged(fresh):
+    console = fresh
+    assert (
+        _post(
+            console,
+            f'/campaign/{CAMPAIGN_A}/keyword',
+            keyword='nope',
+            action='bid',
+            bid='9',
+        )
+        == 400
+    )
+    assert console.writes == []
+
+
+def test_the_third_campaign_only_appears_after_load_more():
+    paged = serve(paged=True)
+    try:
+        first = (
+            urllib.request.urlopen(paged.base + '/campaigns').read().decode()
+        )
+        assert CAMPAIGN_C not in first and 'Load more' in first
+        second = (
+            urllib.request.urlopen(paged.base + '/campaigns?page=2')
+            .read()
+            .decode()
+        )
+        assert CAMPAIGN_C in second
+    finally:
+        paged.shutdown()

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.ad_declaration import declared_kind
 from app.ai.claude_backend_manager import agent_manager
 from app.ai.profiles import (
     DEFAULT_PROFILE_ID,
@@ -23,11 +24,13 @@ from app.ai.stop_gates import (
     resolve_skill_gates,
     take_review_round,
 )
+from app.ai.stop_gates.ad_changes import freeze_approved_changes
 from app.ai.stop_gates.listing_upload_gate import check_upload_verdicts
 from app.auth import get_current_user
 from app.browser.manager import store_slug as _store_slug
 from app.database import async_session, get_db
 from app.events.bus import event_bus
+from app.models.ad_declaration import KIND_AUDIT
 from app.models.store import Store
 from app.models.task import Task
 from app.models.task_step import TaskStep
@@ -694,6 +697,10 @@ async def set_task_result(
 
     # ACCEPTED — top of the precedence order.
     task.accepted_result = final_result
+    # An accepted audit's CHANGES.tsv is the list the user approves:
+    # freeze it where the agent cannot edit it, for execution to match.
+    if declared_kind(task_id) == KIND_AUDIT:
+        await asyncio.to_thread(freeze_approved_changes, task_id)
     task.submitted_result = final_result
     # A gate that failed open still had unmet items; keep them so the
     # outcome carries its caveats. Otherwise the verdict is clean.

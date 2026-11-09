@@ -20,11 +20,7 @@ import pathlib
 import pytest
 
 from app.ai import ad_declaration as ad
-from app.ai.stop_gates import (
-    ad_completeness_review as acr,
-    ad_declaration_checks as adc,
-    ad_scope,
-)
+from app.ai.stop_gates import ad_scope
 
 pytestmark = pytest.mark.unit
 
@@ -40,25 +36,10 @@ def _setup(monkeypatch, tmp_path, task_id, *, declare=None, targets=None):
         ad_scope.write_declared_targets(tdir, targets, slug='acme')
     if declare is not None:
         ad.write_declaration_file(task_id, declare[0], declare[1])
-    acr.reset_progress(task_id)
     return tdir
 
 
-def _gaps(text, task_id):
-    deny = acr.check(text, task_id=task_id, track=False)
-    return list(deny.gaps) if deny else []
-
-
 # A minimal report section: one marketplace, one campaign, drilled.
-def _section(platform='noon', country='AE', campaign='C0000001'):
-    return (
-        f'## {platform} {country}\n\n'
-        '**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
-        f'### {campaign} | acme widget 001 manual | Manual\n\n'
-        '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
-        '| widget red | 1.00 | 9 | 提高至 1.20（ROAS 9>5 加投赢家规则） |\n'
-        '该活动类型无搜索词报告（SD）。\n'
-    )
 
 
 _STORE = [
@@ -107,121 +88,6 @@ class TestWhatAPhaseOwes:
         assert ad.is_whole_store({})
         assert ad.is_whole_store({'campaigns': ['A1234567']})
         assert not ad.is_whole_store(_AE_ONLY)
-
-
-class TestTheIncidentCannotRecur:
-    """The create-one-campaign task is no longer told it owes five markets."""
-
-    def test_create_phase_is_not_asked_for_other_marketplaces(
-        self, monkeypatch, tmp_path
-    ):
-        _setup(
-            monkeypatch,
-            tmp_path,
-            't-create',
-            declare=('create', _AE_ONLY),
-            targets={'amazon': ['AE', 'AU', 'SA'], 'noon': ['AE', 'SA']},
-        )
-        gaps = _gaps(_section(), 't-create')
-        assert not any('根本没进 AUDIT_SCOPE.json' in g for g in gaps), gaps
-
-    def test_scoped_audit_is_not_asked_for_other_marketplaces(
-        self, monkeypatch, tmp_path
-    ):
-        # "Audit just this one campaign" is an AUDIT — it owes coverage
-        # of exactly that campaign.
-        # It still must not be inflated into a whole-store sweep.
-        _setup(
-            monkeypatch,
-            tmp_path,
-            't-scoped',
-            declare=('audit', _AE_ONLY),
-            targets={'amazon': ['AE', 'AU', 'SA'], 'noon': ['AE', 'SA']},
-        )
-        gaps = _gaps(_section(), 't-scoped')
-        # It DOES owe the market it named — a scoped audit still has to
-        # enumerate that market authoritatively. What it must never be
-        # asked for is the four markets nobody mentioned.
-        for other in ('amazon AE', 'amazon AU', 'amazon SA', 'noon SA'):
-            assert not any(
-                '根本没进 AUDIT_SCOPE.json' in g and other in g for g in gaps
-            ), f'asked for {other}, which this phase never declared: {gaps}'
-
-    def test_whole_store_audit_still_owes_every_marketplace(
-        self, monkeypatch, tmp_path
-    ):
-        # The protection the incident fix must not cost us: an unqualified
-        # "audit the ads" still cannot quietly cover one market.
-        _setup(
-            monkeypatch,
-            tmp_path,
-            't-whole',
-            declare=('audit', {}),
-            targets={'amazon': ['AE'], 'noon': ['AE', 'SA']},
-        )
-        gaps = _gaps(_section(), 't-whole')
-        assert any('noon SA' in g for g in gaps), gaps
-        assert any('amazon AE' in g for g in gaps), gaps
-
-
-class TestDeclarationIsAPrecondition:
-    def test_reporting_without_declaring_is_a_gap(self, monkeypatch, tmp_path):
-        _setup(monkeypatch, tmp_path, 't-undeclared', declare=None)
-        gaps = _gaps(_section(), 't-undeclared')
-        assert any('没有声明任务范围' in g for g in gaps), gaps
-
-    def test_a_result_claiming_no_marketplaces_needs_no_declaration(
-        self, monkeypatch, tmp_path
-    ):
-        # An execution summary or a plain answer has no combo section.
-        # Demanding a declaration of it would deny work that never
-        # claimed to audit anything.
-        _setup(monkeypatch, tmp_path, 't-prose', declare=None)
-        assert (
-            _gaps('Amazon SA 广告优化执行完毕，12 项已应用。', 't-prose') == []
-        )
-
-    def test_no_task_means_no_declaration_check(self):
-        # Called with no task at all (a direct probe), there is nothing
-        # that COULD have declared. Denying here would be denying the
-        # absence of a task, not the absence of intent.
-        assert adc.declaration_gaps([''], None) == []
-        deny = acr.check(_section(), task_id=None, track=False)
-        assert deny is None or not any(
-            '没有声明任务范围' in g for g in deny.gaps
-        )
-
-
-class TestOutputMustAgreeWithTheDeclaration:
-    """The old heuristic survives — demoted from decider to auditor."""
-
-    def test_reporting_outside_the_declared_scope_is_a_gap(
-        self, monkeypatch, tmp_path
-    ):
-        _setup(monkeypatch, tmp_path, 't-drift', declare=('audit', _AE_ONLY))
-        gaps = _gaps(_section() + '\n' + _section('amazon', 'SA'), 't-drift')
-        assert any('范围外的市场' in g and 'amazon SA' in g for g in gaps), gaps
-
-    def test_declaring_create_then_auditing_everything_is_a_gap(
-        self, monkeypatch, tmp_path
-    ):
-        # The false-declaration escape hatch: claim `create` to dodge
-        # coverage, then produce a sprawling audit anyway.
-        _setup(monkeypatch, tmp_path, 't-liar', declare=('create', _AE_ONLY))
-        gaps = _gaps(_section() + '\n' + _section('amazon', 'AU'), 't-liar')
-        assert any('范围外的市场' in g for g in gaps), gaps
-
-    def test_in_scope_reporting_raises_nothing(self, monkeypatch, tmp_path):
-        _setup(monkeypatch, tmp_path, 't-ok', declare=('audit', _AE_ONLY))
-        gaps = _gaps(_section(), 't-ok')
-        assert not any('范围外的市场' in g for g in gaps), gaps
-
-    def test_whole_store_scope_puts_everything_in_scope(
-        self, monkeypatch, tmp_path
-    ):
-        _setup(monkeypatch, tmp_path, 't-any', declare=('audit', {}))
-        gaps = _gaps(_section() + '\n' + _section('amazon', 'SA'), 't-any')
-        assert not any('范围外的市场' in g for g in gaps), gaps
 
 
 class TestScopePredicates:
@@ -333,7 +199,7 @@ class TestTheInTurnRatchet:
 class TestEverySkillThatIsGatedTeachesTheDeclaration:
     """A fail-closed gate needs the skill to teach the way through it.
 
-    The gate refuses an ad report that never declared. If a skill binds
+    The coverage gate flags audit data that was never declared. If a skill binds
     that gate but never tells the agent to call the tool, every task
     under it is denied with no documented remedy — a trap rather than a
     guard rail. So the two facts are pinned together.
@@ -345,21 +211,21 @@ class TestEverySkillThatIsGatedTeachesTheDeclaration:
         out = []
         for skill in sorted(self._SKILLS.glob('*/SKILL.md')):
             head = skill.read_text(encoding='utf-8')[:2000]
-            if 'ad_completeness_review' in head:
+            if 'ad_coverage' in head:
                 out.append(skill)
         return out
 
     def test_there_are_gated_ad_skills_to_check(self):
         # Guard against this whole class passing vacuously if the gate is
         # renamed or the frontmatter key moves.
-        assert self._gated(), 'no skill binds ad_completeness_review'
+        assert self._gated(), 'no skill binds ad_coverage'
 
     def test_each_one_tells_the_agent_to_declare_first(self):
         for skill in self._gated():
             body = skill.read_text(encoding='utf-8')
             assert 'vibe_seller_declare_ad_task' in body, (
-                f'{skill} binds the completeness gate, which refuses an '
-                'undeclared report, but never tells the agent to declare'
+                f'{skill} binds the coverage gate, which flags undeclared '
+                'audit data, but never tells the agent to declare'
             )
 
     def test_each_one_warns_that_omitting_combos_means_everything(self):
@@ -373,189 +239,8 @@ class TestEverySkillThatIsGatedTeachesTheDeclaration:
             )
 
 
-class TestCoverageIsOwedOnlyByAnAuditDeclaration:
-    """The declaration — not the report's headings — decides coverage.
-
-    Observed in CI: "how much did we spend? just tell me the numbers",
-    declared `investigate`, answered with a correct `## amazon US`
-    figures table. The completeness gate demanded the audit-only
-    ``**进度**: drilled D/A`` line for that heading, refused the answer,
-    and the agent's only way out was to upgrade to `audit` and drill
-    every campaign — a one-minute question ran past its 10-minute budget.
-    A heading is layout; only an `audit` declaration owes coverage.
-    """
-
-    _FIGURES = (
-        '## amazon US\n\n'
-        '| Metric | Value |\n|---|---|\n'
-        '| Spend | $300.00 |\n| Revenue | $1,200.00 |\n| ROAS | 4.00x |\n'
-    )
-
-    @pytest.mark.parametrize('kind', ['investigate', 'create', 'execute'])
-    def test_a_non_audit_answer_with_a_marketplace_heading_passes(
-        self, monkeypatch, tmp_path, kind
-    ):
-        _setup(
-            monkeypatch,
-            tmp_path,
-            f't-{kind}-fig',
-            declare=(kind, {}),
-            targets={'amazon': ['US']},
-        )
-        assert _gaps(self._FIGURES, f't-{kind}-fig') == []
-
-    def test_an_audit_with_the_same_report_still_owes_coverage(
-        self, monkeypatch, tmp_path
-    ):
-        _setup(
-            monkeypatch,
-            tmp_path,
-            't-aud-fig',
-            declare=('audit', {}),
-            targets={'amazon': ['US']},
-        )
-        gaps = _gaps(self._FIGURES, 't-aud-fig')
-        assert any('进度' in g for g in gaps), gaps
-
-
-class TestInvestigateMayNotHandOutDecisions:
-    """Reading is reading. Recommending is an audit, and owes coverage.
-
-    Sharpening the investigate/audit line in the skill — a question about
-    figures is `investigate` — opens exactly one hole if left unguarded:
-    declare `investigate`, owe no marketplace coverage,
-    and hand the user a table of bid changes that faced no audit
-    obligation at all.
-    """
-
-    def test_investigate_with_bid_changes_is_a_gap(self, monkeypatch, tmp_path):
-        _setup(monkeypatch, tmp_path, 't-inv', declare=('investigate', {}))
-        report = _section().replace(
-            '提高至 1.20（ROAS 9>5 加投赢家规则）', '下调至 0.60（ROAS 偏低）'
-        )
-        gaps = _gaps(report, 't-inv')
-        assert any('investigate' in g and '可执行建议' in g for g in gaps), gaps
-
-    def test_investigate_that_only_reports_figures_passes(
-        self, monkeypatch, tmp_path
-    ):
-        # The legitimate shape: answer the question, propose nothing.
-        _setup(monkeypatch, tmp_path, 't-inv-ok', declare=('investigate', {}))
-        report = (
-            '## amazon AE\n\n'
-            '**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
-            '### A1234567 | acme widget 001 manual | Manual\n\n'
-            '| 关键词 | 出价 | 点击 | 花费 | 订单 | ROAS |\n'
-            '|---|---|---|---|---|---|\n'
-            '| widget red | 1.00 | 40 | 80.00 | 4 | 5.00 |\n'
-        )
-        gaps = _gaps(report, 't-inv-ok')
-        assert not any('可执行建议' in g for g in gaps), gaps
-
-    def test_an_audit_may_of_course_recommend(self, monkeypatch, tmp_path):
-        # The guard must not fire on the kind whose whole job is deciding.
-        _setup(monkeypatch, tmp_path, 't-aud-ok', declare=('audit', {}))
-        gaps = _gaps(_section(), 't-aud-ok')
-        assert not any('可执行建议' in g for g in gaps), gaps
-
-    def test_prose_observations_are_not_decisions(self, monkeypatch, tmp_path):
-        # Noting that something looks off is an observation; a TABLE ROW
-        # carrying 下调至 1.80 is a decision someone will act on.
-        _setup(
-            monkeypatch, tmp_path, 't-inv-prose', declare=('investigate', {})
-        )
-        report = (
-            '## amazon AE\n\n'
-            '**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
-            'ROAS 偏低，值得下轮复核时看看要不要下调出价。\n'
-        )
-        assert not any('可执行建议' in g for g in _gaps(report, 't-inv-prose'))
-
-    def test_decisions_without_marketplace_headings_still_count(
-        self, monkeypatch, tmp_path
-    ):
-        """The hole this whole check used to sit in.
-
-        The guard ran only after ``reported_combos`` found at least one
-        ``## <platform> <CC>`` section — a condition about markdown
-        layout, not about whether decisions were handed out. A report
-        written against a console on some other host, or one that simply
-        did not use per-marketplace headings, escaped entirely.
-
-        Observed in CI: a bid review declared `investigate`, delivered
-        its bid changes, and raised no gap.
-        """
-        _setup(monkeypatch, tmp_path, 't-inv-flat', declare=('investigate', {}))
-        report = (
-            '关键词出价复核结果：\n\n'
-            '| 活动 | 关键词 | 当前出价 | 建议 |\n|---|---|---|---|\n'
-            '| A1234567 | widget red | 1.00 | 下调至 0.60（ROAS 偏低） |\n'
-        )
-        assert '##' not in report, 'the point is that there are no sections'
-        gaps = _gaps(report, 't-inv-flat')
-        assert any('investigate' in g and '可执行建议' in g for g in gaps), gaps
-
-    def test_an_english_report_is_read_as_well(self, monkeypatch, tmp_path):
-        """The report follows the user's language, so the check must too.
-
-        A request written in English is held to an English report by the
-        language gate; with the action words recognised only in Chinese,
-        "Lower bid to 0.60" counted as no decision at all and an
-        `investigate` phase could hand out a full set of bid changes.
-        """
-        _setup(monkeypatch, tmp_path, 't-inv-en', declare=('investigate', {}))
-        report = (
-            'Keyword bid review:\n\n'
-            '| Campaign | Keyword | Bid | Recommendation |\n|---|---|---|---|\n'
-            '| A1234567 | widget red | 1.00 | Lower bid to 0.60 (low ROAS) |\n'
-            '| A1234567 | widget blue | 0.80 | Pause |\n'
-        )
-        gaps = _gaps(report, 't-inv-en')
-        assert any('investigate' in g and '2 行' in g for g in gaps), gaps
-
-    def test_an_english_figures_only_report_passes(self, monkeypatch, tmp_path):
-        """A status column is not a decision: "Paused" describes, "Pause"
-        recommends."""
-        _setup(
-            monkeypatch, tmp_path, 't-inv-en-ok', declare=('investigate', {})
-        )
-        report = (
-            '| Campaign | Status | Spend | ROAS |\n|---|---|---|---|\n'
-            '| A1234567 | Live | 200.00 | 3.00 |\n'
-            '| A7654321 | Paused | 100.00 | 6.00 |\n'
-        )
-        assert not any('可执行建议' in g for g in _gaps(report, 't-inv-en-ok'))
-
-    def test_the_gap_names_the_legal_correction(self, monkeypatch, tmp_path):
-        # A refusal with no way through is a refusal that gets satisfied
-        # by deleting the recommendations — which is the opposite of what
-        # the person asked for. The gap has to say "re-declare as audit".
-        _setup(monkeypatch, tmp_path, 't-inv-fix', declare=('investigate', {}))
-        report = _section().replace(
-            '提高至 1.20（ROAS 9>5 加投赢家规则）', '下调至 0.60（ROAS 偏低）'
-        )
-        gap = next(g for g in _gaps(report, 't-inv-fix') if '可执行建议' in g)
-        assert 'vibe_seller_declare_ad_task' in gap
-        assert 'audit' in gap
-
-    def test_an_undeclared_flat_report_is_still_not_demanded_a_declaration(
-        self, monkeypatch, tmp_path
-    ):
-        # The fail-safe direction stays exactly as documented in
-        # CLAUDE.md: a report claiming no marketplace coverage is never
-        # required to have declared. Moving the investigate check out
-        # from behind that condition must not drag this with it —
-        # inferring a declaration from a report is the forbidden
-        # heuristic wearing a new hat.
-        _setup(monkeypatch, tmp_path, 't-flat-none', declare=None)
-        report = '| 活动 | 建议 |\n|---|---|\n| A1234567 | 下调至 0.60 |\n'
-        assert not any(
-            '没有声明任务范围' in g for g in _gaps(report, 't-flat-none')
-        )
-
-
 class TestTheDocsAgreeWithTheObligationRule:
-    """The reviewer believes the docs, so the docs must match the code.
+    """The agent believes the docs, so the docs must match the code.
 
     `owed_combos` was changed so a phase owes the combos it DECLARED —
     but the skill references still said the obligation was fixed by
@@ -609,96 +294,6 @@ class TestTheDocsAgreeWithTheObligationRule:
             )
 
 
-class TestAScopedAuditIsNotAShrinkingMarket:
-    """Naming your campaigns is not under-enumerating the marketplace.
-
-    The shrink check challenges an `active_ids` count below half the
-    campaigns the store has historical TSVs for — it caught a real
-    under-enumeration (12 campaigns declared as 4 because a script
-    silently skipped unreadable TSVs). But it compared against the whole
-    market's history with no idea the phase had DECLARED a subset.
-
-    Observed live: "just the widget-006 family on Amazon SA" is a
-    handful of campaigns in a market with 22 historical TSVs, so a
-    correct scope
-    read as a collapse and the agent was told to re-enumerate a market
-    nobody asked about.
-    """
-
-    _REPORT_ROWS = (
-        '### 600000000001 | acme kettle manual | Manual\n\n'
-        '| 关键词 | 出价 | ROAS | 建议 |\n|---|---|---|---|\n'
-        '| widget red | 1 | 9 | 提高至 1.2（ROAS 9>5 加投赢家规则） |\n'
-        '该活动类型无搜索词报告（SD）。\n'
-    )
-
-    def _setup_history(self, monkeypatch, tmp_path, task_id, *, declare):
-        tdir = _setup(
-            monkeypatch,
-            tmp_path,
-            task_id,
-            declare=declare,
-            targets={'amazon': ['SA']},
-        )
-        # The shrink check only runs once a combo has an authoritative
-        # active-id list to compare against.
-        (tdir / 'AUDIT_SCOPE.json').write_text(
-            json.dumps({
-                'combos': [
-                    {
-                        'platform': 'amazon',
-                        'country': 'SA',
-                        'active_ids': ['600000000001'],
-                        'total_active': 1,
-                        'total_active_source': 'chip:Live 1',
-                    }
-                ]
-            }),
-            encoding='utf-8',
-        )
-        # A market with a long history: 22 campaigns ever audited.
-        # prior_campaign_tsvs reads the legacy `stores/` tree only —
-        # see the note in the module docstring about the two trees.
-        d = tmp_path / 'stores' / 'acme' / 'ads' / 'amazon' / 'sa'
-        d.mkdir(parents=True, exist_ok=True)
-        for i in range(22):
-            (d / f'{600000000000 + i}.tsv').write_text('x', encoding='utf-8')
-        return tmp_path
-
-    def test_naming_campaigns_silences_the_shrink_challenge(
-        self, monkeypatch, tmp_path
-    ):
-        scope = {
-            'combos': [{'platform': 'amazon', 'country': 'SA'}],
-            'campaigns': ['600000000001'],
-        }
-        self._setup_history(
-            monkeypatch, tmp_path, 't-scoped-shrink', declare=('audit', scope)
-        )
-        gaps = _gaps(
-            '## amazon SA\n\n**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
-            + self._REPORT_ROWS,
-            't-scoped-shrink',
-        )
-        assert not any('不到历史的一半' in g for g in gaps), gaps
-
-    def test_a_whole_market_audit_is_still_challenged(
-        self, monkeypatch, tmp_path
-    ):
-        # The protection this must not cost us: no campaign list means
-        # the whole market, and one active out of 22 is worth querying.
-        scope = {'combos': [{'platform': 'amazon', 'country': 'SA'}]}
-        self._setup_history(
-            monkeypatch, tmp_path, 't-wide-shrink', declare=('audit', scope)
-        )
-        gaps = _gaps(
-            '## amazon SA\n\n**进度**: drilled 1/1 active (1 total, 1 page)\n\n'
-            + self._REPORT_ROWS,
-            't-wide-shrink',
-        )
-        assert any('不到历史的一半' in g for g in gaps), gaps
-
-
 class TestADeclaredTaskAlwaysHasAMenu:
     """The skill says "declare, then read ``AUDIT_TARGETS.json``"; a store
     with no configured marketplace used to get no file. In CI audits on
@@ -715,12 +310,13 @@ class TestADeclaredTaskAlwaysHasAMenu:
         assert ad_scope.load_declared_targets('t-empty') == []
 
     def test_declaring_keeps_the_server_menu(self, monkeypatch, tmp_path):
-        _setup(monkeypatch, tmp_path, 't-menu', targets={'noon': ['AE']})
+        tdir = _setup(monkeypatch, tmp_path, 't-menu', targets={'noon': ['AE']})
         ad.write_declaration_file('t-menu', 'audit', {})
         assert ad_scope.load_declared_targets('t-menu') == [
             {'platform': 'noon', 'country': 'AE'}
         ]
-        assert ad_scope.declared_slug('t-menu') == 'acme'
+        data = json.loads((tdir / 'AUDIT_TARGETS.json').read_text())
+        assert data['slug'] == 'acme'
 
     def test_task_start_hands_no_menu_to_an_unconfigured_store(self, tmp_path):
         """A store task that never declares (a lookup, a listing edit)

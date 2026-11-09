@@ -40,6 +40,7 @@ from __future__ import annotations
 import http.server
 import threading
 import time
+import urllib.parse
 
 # Two campaigns. The tests ask about WIDGET-006 only; SPROCKET-009 is the
 # control that must never appear in a scoped review.
@@ -113,6 +114,20 @@ SEARCH_TERM_HEADERS = (
 )
 
 
+def _edit_form(cid: str) -> str:
+    """One form to change a keyword's bid or pause it — the write path."""
+    return f"""<h2>Edit keyword</h2>
+<form id="edit-keyword" method="post" action="/campaign/{cid}/keyword">
+  <label>Keyword <input name="keyword"></label>
+  <label>New bid <input name="bid"></label>
+  <label>Action <select name="action">
+    <option value="bid">Set bid</option>
+    <option value="pause">Pause</option>
+  </select></label>
+  <button type="submit">Apply</button>
+</form>"""
+
+
 def _campaign_page(
     cid: str, name: str, keywords: list[tuple], search_terms: list[tuple]
 ) -> str:
@@ -126,6 +141,7 @@ days</p>
 {_table('keywords', KEYWORD_HEADERS, keywords)}
 <h2>Search terms</h2>
 {_table('search-terms', SEARCH_TERM_HEADERS, search_terms)}
+{_edit_form(cid)}
 </body></html>
 """
 
@@ -172,6 +188,42 @@ CAMPAIGN_DATA = {
     ),
 }
 
+# A third campaign only reachable through "Load more" (``serve(paged=True)``):
+# a list read without paging misses it, the way noon's lazy list did.
+CAMPAIGN_C = 'A2468024'
+CAMPAIGN_C_NAME = 'gizmo-012 auto'
+# ``gizmo mini`` sits at ACOS 25%: the default rule (no lowering under
+# 30%) holds its bid, a store standard of 20% lets it be lowered.
+CAMPAIGN_C_DATA = (
+    CAMPAIGN_C_NAME,
+    [
+        ('gizmo', 'Broad', '0.80', 50, '30.00', 3, '90.00', '3.00'),
+        ('gizmo mini', 'Exact', '1.20', 25, '25.00', 4, '100.00', '4.00'),
+    ],
+    [
+        ('gizmo case', 'gizmo', 50, '30.00', 3, '90.00'),
+        ('mini gizmo', 'gizmo mini', 25, '25.00', 4, '100.00'),
+    ],
+)
+_CAMPAIGNS_PAGED = _CAMPAIGNS.replace(
+    'Live 2 / Paused 0 / All 2', 'Live 3 / Paused 0 / All 3'
+).replace(
+    '</table>', '</table>\n<p><a href="/campaigns?page=2">Load more</a></p>'
+)
+_CAMPAIGNS_PAGE_2 = f"""<!doctype html><html><head><title>Campaigns</title></head>
+<body>
+<h1>Campaigns (page 2)</h1>
+<p>USD &middot; last 30 days</p>
+<table id="campaigns" border="1">
+  <tr><th>Campaign ID</th><th>Name</th><th>Spend</th><th>Revenue</th>
+      <th>Orders</th><th>ROAS</th></tr>
+  <tr><td>{CAMPAIGN_C}</td><td><a href="/campaign/{CAMPAIGN_C}">
+      {CAMPAIGN_C_NAME}</a></td>
+      <td>55.00</td><td>190.00</td><td>7</td><td>3.45</td></tr>
+</table>
+</body></html>
+"""
+
 _PAGES = {
     '/': _DASHBOARD,
     '/index.html': _DASHBOARD,
@@ -196,11 +248,56 @@ class ConsoleServer(http.server.HTTPServer):
     the serving thread, assertions on the test's), hence the lock.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, paged: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.hits: list[str] = []
         self.times: list[float] = []
         self._lock = threading.Lock()
+        self.paged = paged
+        self.data = dict(CAMPAIGN_DATA)
+        if paged:
+            self.data[CAMPAIGN_C] = CAMPAIGN_C_DATA
+        # Live state the write form changes: (campaign, keyword) -> bid,
+        # or 'paused'. ``writes`` is every change applied, in order — the
+        # ground truth an execution test compares the agent's log with.
+        self.bids = {
+            (cid, kw[0]): kw[2]
+            for cid, (_n, kws, _t) in self.data.items()
+            for kw in kws
+        }
+        self.writes: list[dict] = []
+
+    def page(self, path: str) -> str | None:
+        if path == '/campaigns':
+            return _CAMPAIGNS_PAGED if self.paged else _CAMPAIGNS
+        if path == '/campaigns?page=2':
+            return _CAMPAIGNS_PAGE_2 if self.paged else None
+        if path.startswith('/campaign/') and path[10:] in self.data:
+            cid = path[10:]
+            name, kws, terms = self.data[cid]
+            with self._lock:
+                live = [
+                    (kw[0], kw[1], self.bids[(cid, kw[0])], *kw[3:])
+                    for kw in kws
+                ]
+            return _campaign_page(cid, name, live, terms)
+        return _PAGES.get(path)
+
+    def apply(self, cid: str, keyword: str, action: str, bid: str) -> bool:
+        key = (cid, keyword.strip())
+        with self._lock:
+            if key not in self.bids:
+                return False
+            value = 'paused' if action == 'pause' else bid.strip()
+            self.writes.append({
+                'campaign_id': cid,
+                'keyword': key[1],
+                'action': action,
+                'from': self.bids[key],
+                'to': value,
+            })
+            self.bids[key] = value
+            return True
 
     @property
     def base(self) -> str:
@@ -250,10 +347,33 @@ class ConsoleServer(http.server.HTTPServer):
 class _Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (stdlib interface)
         self.server.record(self.path)
-        page = _PAGES.get(self.path.rstrip('/') or '/')
+        page = self.server.page(self.path.rstrip('/') or '/')
         if page is None:
             self.send_error(404)
             return
+        self._html(page)
+
+    def do_POST(self):  # noqa: N802 (stdlib interface)
+        self.server.record(f'POST {self.path}')
+        parts = self.path.strip('/').split('/')
+        length = int(self.headers.get('Content-Length') or 0)
+        form = urllib.parse.parse_qs(self.rfile.read(length).decode())
+        field = lambda k: (form.get(k) or [''])[0]  # noqa: E731
+        ok = (
+            len(parts) == 3
+            and parts[0] == 'campaign'
+            and parts[2] == 'keyword'
+            and self.server.apply(
+                parts[1], field('keyword'), field('action'), field('bid')
+            )
+        )
+        if not ok:
+            self.send_error(400, 'unknown campaign or keyword')
+            return
+        page = self.server.page(f'/campaign/{parts[1]}')
+        self._html(page.replace('<h2>Keywords', '<p>Saved.</p>\n<h2>Keywords'))
+
+    def _html(self, page: str) -> None:
         payload = page.encode()
         self.send_response(200)
         self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -265,8 +385,11 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         pass  # keep CI output readable
 
 
-def serve() -> ConsoleServer:
-    """Start the console on a free port."""
-    server = ConsoleServer(('127.0.0.1', 0), _Handler)
+def serve(paged: bool = False) -> ConsoleServer:
+    """Start the console on a free port.
+
+    ``paged`` adds a third campaign reachable only via "Load more".
+    """
+    server = ConsoleServer(('127.0.0.1', 0), _Handler, paged=paged)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

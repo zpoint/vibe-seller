@@ -113,11 +113,7 @@ def test_builtin_registers_core_gates():
     # Ad-audit gates are still core-registered. The review-collect gates
     # moved into review-collect/gates/ (skill-bundled, discovered by the
     # skill-gate loader), so they are intentionally NOT in the registry.
-    for name in (
-        'ad_completeness_review',
-        'ad_negation_allowlist',
-        'ad_execution_fidelity',
-    ):
+    for name in ('ad_changes', 'ad_coverage'):
         assert name in gates, name
         assert callable(gates[name].check)
     assert 'review_completeness_review' not in gates
@@ -161,7 +157,7 @@ def test_fake_plugin_adds_gate_backend_service(install_fake_plugin):
     ctx = install_fake_plugin(_FakeEntryPoint('fake', FakePlugin))
     # Builtin contributions survive alongside the fake plugin's.
     assert 'fake_gate' in ctx.gates
-    assert 'ad_completeness_review' in ctx.gates
+    assert 'ad_coverage' in ctx.gates
     assert ctx.browser_backends['fakebackend'] is _FakeBackend
     assert [n for n, _ in ctx.services] == ['fake_service']
     assert any(str(p) == '/tmp/fake-skills' for p in ctx.skill_sources)
