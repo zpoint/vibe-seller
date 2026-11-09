@@ -1,7 +1,7 @@
 # Connect an external agent
 
 Vibe Seller can expose itself to **any external AI agent** — Claude Code,
-Codex, Tencent WorkBuddy, anything that speaks MCP over HTTP. The agent
+Codex, Tencent WorkBuddy, Hermes Agent, Pi, anything that speaks MCP over HTTP. The agent
 gets a URL and a token, and from then on it can create tasks against your
 stores, follow them, answer the task agent's questions and review plans.
 
@@ -122,6 +122,37 @@ settings — and re-trust it after every edit of the file.
 > there is no official Tencent documentation for it. If your WorkBuddy
 > build wants a `"type": "http"` key alongside `url` (as Claude Code does),
 > add it.
+
+### Hermes Agent
+
+`~/.hermes/config.yaml` (merge into an existing `mcp_servers:` key if
+there is one):
+
+```yaml
+mcp_servers:
+  vibe-seller:
+    url: "http://HOST:7777/api/mcp"
+    headers:
+      Authorization: "Bearer vst_YOUR_TOKEN"
+```
+
+Run `/reload-mcp` in a session, then check with
+`hermes mcp test vibe-seller`. (`hermes mcp add --auth header` prompts
+for the token interactively, so the YAML block is the scriptable route.)
+
+### Pi
+
+Pi has MCP built in:
+
+```bash
+pi mcp add vibe-seller --url http://HOST:7777/api/mcp \
+  --header "Authorization=Bearer vst_YOUR_TOKEN"
+pi mcp list   # → vibe-seller: connected, 32 tools
+```
+
+`--header` takes `KEY=VALUE`. The entry lands in `~/.pi/agent/mcp.json`.
+Pi exposes MCP tools through its codemode script tool by default, so
+calls appear as codemode runs rather than as individual tool names.
 
 ### Any other MCP client
 

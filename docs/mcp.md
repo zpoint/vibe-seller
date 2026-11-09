@@ -1,11 +1,11 @@
 ---
-description: 在你已经在用的 AI 工具里直接指挥 Vibe Seller——MCP 接入：建 API Key、Claude / Codex / WorkBuddy / Qoder 桌面端接入、验证和试用。
+description: 在你已经在用的 AI 工具里直接指挥 Vibe Seller——MCP 接入：建 API Key、Claude / Codex / WorkBuddy / Qoder 桌面端和 Hermes Agent / Pi 接入、验证和试用。
 ---
 
 # MCP 接入
 
-平时习惯用 Claude、Codex、WorkBuddy 或 Qoder 处理工作？现在可以直接在这些
-AI 工具里指挥 Vibe Seller 了。
+平时习惯用 Claude、Codex、WorkBuddy、Qoder、Hermes Agent 或 Pi 处理工作？
+现在可以直接在这些 AI 工具里指挥 Vibe Seller 了。
 
 接好之后，在对话框里说一句「帮我看看 acme 上周的广告」，它就会去 Vibe Seller
 里建好任务、盯着进度，跑完把结论带回给你。任务中途有问题要问你、有计划要你
@@ -17,7 +17,8 @@ AI 工具里指挥 Vibe Seller 了。
 > 你的浏览器，也没法直接改店铺。计划审批、广告改动范围检查这些把关，和你在
 > 网页上操作时完全一样。
 
-本文只介绍桌面端怎么接。用命令行（Claude Code CLI、Codex CLI 等），或者想看
+本文介绍四个桌面端，以及 Hermes Agent、Pi 这两个终端里的 Agent 怎么接。用其他
+命令行工具（Claude Code CLI、Codex CLI 等），或者想看
 技术细节（协议、全部 32 个工具、curl 示例）的，请看
 [Connect an External Agent](agents.md)。
 
@@ -272,6 +273,89 @@ MCP Server Management 里显示 `vibe-seller · 32/32 tools enabled`，就说明
 4. 「好，继续跟进，跑完了给我总结。」
 
 ![演示：在 Qoder 里指挥 Vibe Seller（等待过程已加速）](images/mcp_qoder_demo_zh.gif)
+
+## Hermes Agent（Nous Research）
+
+### 安装
+
+按 [Hermes Agent 官方安装说明](https://hermes-agent.nousresearch.com/docs/getting-started/installation)
+装好，macOS、Linux、Windows 都支持。
+
+### 接入
+
+Hermes 的 MCP 配置在 `~/.hermes/config.yaml` 的 `mcp_servers` 下。把弹窗给的
+这段加进去：
+
+```yaml
+mcp_servers:
+  vibe-seller:
+    # 默认连本机；Vibe Seller 在另一台电脑上时，把 localhost 换成那台电脑的地址
+    url: "http://localhost:7777/api/mcp"
+    headers:
+      Authorization: "Bearer vst_…"
+```
+
+文件里已经有 `mcp_servers:` 的话，只把 `vibe-seller:` 这一段放到它下面，
+不要再写一个 `mcp_servers:`。保存后在 Hermes 的会话里执行 `/reload-mcp`，
+或者重开 Hermes。
+
+### 验证
+
+在终端里执行 `hermes mcp test vibe-seller`，看到 `✓ Connected` 和
+`Tools discovered: 32` 就说明接好了。再到对话里问一句「vibe-seller 里有几个
+店铺」试试。
+
+### 试一试
+
+依次发这几句，看看它怎么帮你跑完一个广告分析：
+
+1. 「现在 vibe-seller 里有几个店铺？」
+2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
+   不用问我，先别改任何东西。」
+3. 「这个任务现在在干什么，到哪一步了？」
+4. 「好，继续跟进，跑完了给我总结。」
+
+## Pi
+
+### 安装
+
+按 [pi.dev](https://pi.dev) 的说明安装：
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+```
+
+Pi 自带 MCP 支持，不用另装扩展。
+
+### 接入
+
+在终端里执行弹窗给的这条命令：
+
+```bash
+# 默认连本机；Vibe Seller 在另一台电脑上时，把 localhost 换成那台电脑的地址
+pi mcp add vibe-seller --url http://localhost:7777/api/mcp --header "Authorization=Bearer vst_…"
+```
+
+它会写进 `~/.pi/agent/mcp.json`。注意 `--header` 用的是 `名称=值` 的写法，
+不是 `名称: 值`。已经开着的 Pi 会话里执行一次 `/reload` 就能用上。
+
+### 验证
+
+在终端里执行 `pi mcp list`，看到 `vibe-seller: connected, 32 tools` 就说明
+接好了。再到对话里问一句「vibe-seller 里有几个店铺」试试。
+
+Pi 默认让模型写一小段脚本来调用这些工具（Pi 叫它 codemode），所以对话里看到
+的是脚本调用，而不是一个个工具名，这是正常的。
+
+### 试一试
+
+依次发这几句，看看它怎么帮你跑完一个广告分析：
+
+1. 「现在 vibe-seller 里有几个店铺？」
+2. 「帮我看看 acme 过去一周的广告花费，给点优化建议，按常见标准来就行，
+   不用问我，先别改任何东西。」
+3. 「这个任务现在在干什么，到哪一步了？」
+4. 「好，继续跟进，跑完了给我总结。」
 
 ## 常见问题
 

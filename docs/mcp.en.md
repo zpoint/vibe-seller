@@ -1,11 +1,11 @@
 ---
-description: Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect the Claude / Codex / WorkBuddy / Qoder desktop apps, verify, try it.
+description: Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect the Claude / Codex / WorkBuddy / Qoder desktop apps or Hermes Agent / Pi, verify, try it.
 ---
 
 # MCP setup
 
-Already live in Claude, Codex, WorkBuddy or Qoder? You can now drive Vibe Seller
-from those tools.
+Already live in Claude, Codex, WorkBuddy, Qoder, Hermes Agent or Pi? You can now
+drive Vibe Seller from those tools.
 
 Once connected, just say something like "look at acme's ads from last week" in
 the chat. The tool creates the task in Vibe Seller, keeps an eye on it, and
@@ -20,8 +20,9 @@ Any MCP-capable tool works; all you need is an API key.
 > ad-scope checks and the rest of the gates work exactly as they do in the web
 > UI.
 
-This page covers the desktop apps. If you use the command line (Claude Code
-CLI, Codex CLI, …) or want the technical details (the protocol, all 32 tools,
+This page covers the four desktop apps plus two terminal agents, Hermes Agent
+and Pi. If you use another command-line tool (Claude Code CLI, Codex CLI, …) or
+want the technical details (the protocol, all 32 tools,
 curl examples), see [Connect an External Agent](agents.md).
 
 ## What you can ask
@@ -307,6 +308,93 @@ Send these one after another and watch it run an ad analysis for you:
 4. "OK, follow it through and summarize when it's done."
 
 ![Demo: driving Vibe Seller from Qoder — waits sped up](images/mcp_qoder_demo_en.gif)
+
+## Hermes Agent (Nous Research)
+
+### Install
+
+Follow the
+[official Hermes Agent install guide](https://hermes-agent.nousresearch.com/docs/getting-started/installation)
+— it supports macOS, Linux and Windows.
+
+### Connect
+
+Hermes reads MCP servers from `mcp_servers` in `~/.hermes/config.yaml`. Add the
+block from the dialog:
+
+```yaml
+mcp_servers:
+  vibe-seller:
+    # Connects to this machine; if Vibe Seller runs elsewhere, use its address instead of localhost
+    url: "http://localhost:7777/api/mcp"
+    headers:
+      Authorization: "Bearer vst_…"
+```
+
+If the file already has an `mcp_servers:` key, put just the `vibe-seller:`
+entry under it — don't add a second `mcp_servers:`. Save, then run
+`/reload-mcp` in a Hermes session, or restart Hermes.
+
+### Verify
+
+Run `hermes mcp test vibe-seller` in a terminal. `✓ Connected` and
+`Tools discovered: 32` mean you're connected. Then ask "how many stores does
+vibe-seller have?" in a chat.
+
+### Try it
+
+Send these one after another and watch it run an ad analysis for you:
+
+1. "How many stores are in vibe-seller right now?"
+2. "Look at acme's ad spend for the past week, give me some optimization
+   suggestions — use common-sense defaults, don't ask me — and don't change
+   anything yet."
+3. "What is this task doing right now, which step is it on?"
+4. "OK, follow it through and summarize when it's done."
+
+## Pi
+
+### Install
+
+Install it as described on [pi.dev](https://pi.dev):
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+```
+
+MCP support is built in — no extension needed.
+
+### Connect
+
+Run the command from the dialog in a terminal:
+
+```bash
+# Connects to this machine; if Vibe Seller runs elsewhere, use its address instead of localhost
+pi mcp add vibe-seller --url http://localhost:7777/api/mcp --header "Authorization=Bearer vst_…"
+```
+
+It writes `~/.pi/agent/mcp.json`. Note that `--header` takes `Name=value`, not
+`Name: value`. In a Pi session that is already open, run `/reload` once.
+
+### Verify
+
+Run `pi mcp list` in a terminal. `vibe-seller: connected, 32 tools` means
+you're connected. Then ask "how many stores does vibe-seller have?" in a chat.
+
+By default Pi has the model call these tools from a short script (Pi calls this
+codemode), so the chat shows a script call rather than individual tool names.
+That's expected.
+
+### Try it
+
+Send these one after another and watch it run an ad analysis for you:
+
+1. "How many stores are in vibe-seller right now?"
+2. "Look at acme's ad spend for the past week, give me some optimization
+   suggestions — use common-sense defaults, don't ask me — and don't change
+   anything yet."
+3. "What is this task doing right now, which step is it on?"
+4. "OK, follow it through and summarize when it's done."
 
 ## Troubleshooting
 

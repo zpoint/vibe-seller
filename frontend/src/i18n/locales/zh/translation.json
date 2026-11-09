@@ -932,6 +932,10 @@
     "workbuddyHint": "加到 ~/.workbuddy/mcp.json；保存后在 MCP 设置里启用/信任（改动后需重新信任）：",
     "qoder": "Qoder",
     "qoderHint": "加到 ~/.qoder-cn/settings.json（Qoder CN）或 ~/.qoder/settings.json（国际版）的 mcpServers，改动后需重新信任：",
+    "hermes": "Hermes Agent",
+    "hermesHint": "加到 ~/.hermes/config.yaml（已有 mcp_servers 的话，只把 vibe-seller 这一项放到它下面），然后在会话里执行 /reload-mcp：",
+    "pi": "Pi",
+    "piHint": "在终端里执行，再用 pi mcp list 检查连接：",
     "copy": "复制",
     "copied": "已复制",
     "done": "完成"

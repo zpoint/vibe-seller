@@ -23,6 +23,12 @@
  *                  (then enable/trust it in WorkBuddy's MCP settings)
  *   - Qoder:       `~/.qoder/settings.json` → `mcpServers.<name>` with
  *                  `type: "http"`, `url` and `headers` (desktop app)
+ *   - Hermes:      `~/.hermes/config.yaml` → `mcp_servers.<name>` with
+ *                  `url` and `headers`. Its `hermes mcp add --auth
+ *                  header` prompts for the token, so it can't be a
+ *                  one-line paste; the YAML block can
+ *   - Pi:          `pi mcp add <name> --url <url> --header KEY=VALUE`
+ *                  (built-in MCP; writes `~/.pi/agent/mcp.json`)
  */
 
 /** The MCP endpoint of the server this page was loaded from. */
@@ -67,6 +73,10 @@ export interface TokenSnippets {
   workbuddy: string
   /** The `~/.qoder/settings.json` `mcpServers` entry (Qoder desktop). */
   qoder: string
+  /** The `~/.hermes/config.yaml` `mcp_servers` block. */
+  hermes: string
+  /** A `pi mcp add …` command. */
+  pi: string
 }
 
 /** Build every copy-paste config against *baseUrl* (the server
@@ -107,5 +117,13 @@ export const buildSnippets = (
       null,
       2,
     ),
+    hermes: [
+      'mcp_servers:',
+      '  vibe-seller:',
+      `    url: "${url}"`,
+      '    headers:',
+      `      Authorization: "Bearer ${token}"`,
+    ].join('\n'),
+    pi: `pi mcp add vibe-seller --url ${url} --header "Authorization=Bearer ${token}"`,
   }
 }

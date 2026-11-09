@@ -930,6 +930,10 @@
     "workbuddyHint": "Add to ~/.workbuddy/mcp.json, then enable/trust it in MCP settings (re-trust after each edit):",
     "qoder": "Qoder",
     "qoderHint": "Add to mcpServers in ~/.qoder-cn/settings.json (Qoder CN) or ~/.qoder/settings.json (international), then re-trust after each edit:",
+    "hermes": "Hermes Agent",
+    "hermesHint": "Add to ~/.hermes/config.yaml (if it already has mcp_servers, put just the vibe-seller entry under it), then run /reload-mcp in a session:",
+    "pi": "Pi",
+    "piHint": "Run this in a terminal, then check the connection with pi mcp list:",
     "copy": "Copy",
     "copied": "Copied",
     "done": "Done"
