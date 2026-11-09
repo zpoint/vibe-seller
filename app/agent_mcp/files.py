@@ -26,6 +26,7 @@ home shared by ``tools_task_files.py`` and ``tools_workspace_files.py``.
 import base64
 import binascii
 import io
+import logging
 from pathlib import Path
 import posixpath
 
@@ -34,6 +35,26 @@ from starlette.datastructures import Headers
 
 from app.agent_mcp.support import McpContext, ToolError
 from app.uploads import ALLOWED_UPLOAD_TYPES
+
+logger = logging.getLogger(__name__)
+
+#: Key a tool result uses to hand the dispatcher pictures to SHOW; they
+#: leave as MCP ``image`` content blocks, not as JSON (router.py).
+IMAGES_KEY = '_images'
+#: Image types MCP clients render.
+IMAGE_MIME_TYPES = frozenset({
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+})
+# An image block is base64 in the JSON-RPC reply. Clients cap one image
+# around 5 MB ENCODED (Claude's API limit), so the raw ceiling is ~3/4
+# of that; anything larger is downscaled for viewing — the download URL
+# still serves the original.
+MAX_IMAGE_BLOCK_BYTES = 3_500_000
+# Longest edge of a downscaled preview: what vision models see anyway.
+PREVIEW_MAX_EDGE = 1568
 
 # Rule 4 ceilings, one definition each.
 # Text at or under this size is returned inline.
@@ -197,6 +218,12 @@ def file_result(
     # small binary also rides along as a blob.
     payload['encoding'] = 'url'
     payload['url'] = absolute_url(ctx, download_path)
+    # An image is also SHOWN (an MCP image block), so the operator — or
+    # the model driving it — can look at the result, not just fetch it.
+    preview = image_block(abs_path)
+    if preview is not None:
+        payload[IMAGES_KEY] = [preview]
+        payload['shown_as_image'] = True
     if size <= MAX_BLOB_BYTES:
         data = abs_path.read_bytes()
         payload['blob'] = base64.b64encode(data).decode('ascii')
@@ -206,6 +233,56 @@ def file_result(
             'in-tool limit — download it from the URL instead.'
         )
     return payload
+
+
+def sniff_image_type(data: bytes) -> str | None:
+    """The real image type from magic bytes (kie.ai returns WEBP or
+    JPEG under a ``.png`` name — the extension is not evidence)."""
+    if data.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'image/png'
+    if data.startswith(b'\xff\xd8\xff'):
+        return 'image/jpeg'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    return None
+
+
+def image_block(abs_path) -> dict | None:
+    """An MCP image for ``abs_path``, or None when it is not a viewable
+    image (or too big to show and Pillow is unavailable to shrink it).
+
+    Small images go as-is; a large one is downscaled to a JPEG preview of
+    at most :data:`PREVIEW_MAX_EDGE` px — enough to judge the picture,
+    while the download URL keeps the full-resolution file.
+    """
+    try:
+        data = Path(abs_path).read_bytes()
+    except OSError:
+        return None
+    mime = sniff_image_type(data)
+    if mime is None:
+        return None
+    if len(data) <= MAX_IMAGE_BLOCK_BYTES:
+        return {
+            'data': base64.b64encode(data).decode('ascii'),
+            'mime_type': mime,
+        }
+    try:
+        from PIL import Image  # noqa: PLC0415 — optional dependency
+
+        img = Image.open(io.BytesIO(data))
+        img.thumbnail((PREVIEW_MAX_EDGE, PREVIEW_MAX_EDGE))
+        buf = io.BytesIO()
+        img.convert('RGB').save(buf, format='JPEG', quality=85)
+    except Exception:  # noqa: BLE001 — no Pillow / undecodable: no preview
+        logger.info('no preview for %s', abs_path, exc_info=True)
+        return None
+    return {
+        'data': base64.b64encode(buf.getvalue()).decode('ascii'),
+        'mime_type': 'image/jpeg',
+    }
 
 
 def decode_upload(raw: object, *, what: str = 'attachment') -> tuple:

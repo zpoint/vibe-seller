@@ -176,3 +176,56 @@ class TestAsUploadFile:
         assert upload.filename == 'x.png'
         assert upload.content_type == 'image/png'
         assert asyncio.run(upload.read()) == b'data'
+
+
+class TestImageBlock:
+    """What the MCP SHOWS for an image file (an ``image`` content block)."""
+
+    @pytest.mark.parametrize(
+        'head,mime',
+        [
+            (b'\x89PNG\r\n\x1a\n', 'image/png'),
+            (b'\xff\xd8\xff\xe0', 'image/jpeg'),
+            (b'GIF89a', 'image/gif'),
+            (b'RIFF\x00\x00\x00\x00WEBPVP8 ', 'image/webp'),
+        ],
+    )
+    def test_type_comes_from_the_bytes_not_the_name(self, tmp_path, head, mime):
+        # kie.ai returns WEBP/JPEG saved as .png — trust the magic bytes.
+        f = tmp_path / 'out.png'
+        f.write_bytes(head + b'\x00' * 32)
+        block = mcp_files.image_block(f)
+        assert block['mime_type'] == mime
+        assert base64.b64decode(block['data']) == f.read_bytes()
+
+    def test_non_images_are_not_shown(self, tmp_path):
+        f = tmp_path / 'report.pdf'
+        f.write_bytes(b'%PDF-1.4 not a picture')
+        assert mcp_files.image_block(f) is None
+        assert mcp_files.image_block(tmp_path / 'missing.png') is None
+
+    def test_a_large_image_is_shown_as_a_preview(self, tmp_path, monkeypatch):
+        Image = pytest.importorskip('PIL.Image')
+        f = tmp_path / 'big.png'
+        Image.new('RGB', (3000, 2000), (20, 90, 200)).save(f)
+        monkeypatch.setattr(mcp_files, 'MAX_IMAGE_BLOCK_BYTES', 1000)
+        block = mcp_files.image_block(f)
+        assert block['mime_type'] == 'image/jpeg'
+        import io  # noqa: PLC0415
+
+        preview = Image.open(io.BytesIO(base64.b64decode(block['data'])))
+        assert max(preview.size) == mcp_files.PREVIEW_MAX_EDGE
+
+    def test_file_result_shows_an_image_and_keeps_the_download(self, tmp_path):
+        f = tmp_path / 'image.png'
+        f.write_bytes(b'\x89PNG\r\n\x1a\nbinary body')
+        out = mcp_files.file_result(
+            _Ctx(),
+            path='generated_images/image.png',
+            abs_path=f,
+            mime_type='image/png',
+            download_path='/api/tasks/t/files/generated_images/image.png',
+        )
+        assert out['shown_as_image'] is True
+        assert out[mcp_files.IMAGES_KEY][0]['mime_type'] == 'image/png'
+        assert out['url'].endswith('generated_images/image.png')

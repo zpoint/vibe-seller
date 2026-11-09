@@ -279,11 +279,16 @@ main image, a banner) — the generation is GATED on a human decision.
 `pending.kind=image_confirm` while the task itself stays `running`:
 
 1. `image_request(action=get)` — the card: the proposed `prompt`, the
-   `model`, the model catalog.
-2. Show it to your user. They may edit the prompt or pick another
-   model.
-3. `image_request(action=confirm, prompt?, model?)` with their
-   go-ahead (or their edits), or `action=cancel` to refuse.
+   `model`, every model with its per-image price, and the reference
+   images themselves (returned as images — look at them).
+2. Show it to your user. They may edit the prompt, pick another model
+   (use an id from the card), or add reference images.
+3. `image_request(action=confirm, prompt?, model?, add_references?,
+   reference_uploads?)` with their go-ahead (or their edits), or
+   `action=cancel` to refuse.
+4. When the task finishes, `task_files(action=read)` on the file in
+   `generated_images/` SHOWS the image — look at it and show it to your
+   user; `zip_url` downloads everything.
 
 Confirming generates (and may bill) the image; cancelling is free and
 safe — nothing was generated. A follow-up `send_message` instead of
