@@ -1,5 +1,5 @@
 ---
-description: Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect Claude / Codex (desktop and CLI), WorkBuddy, Qoder, Hermes Agent or Pi, verify, try it.
+description: 'Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect Claude / Codex (desktop and CLI), WorkBuddy, Qoder, Hermes Agent or Pi, verify, try it.'
 ---
 
 # MCP setup
