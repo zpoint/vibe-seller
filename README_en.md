@@ -575,7 +575,7 @@ directly (hook up permissions in First run — no code):
 
 | Service | What it does |
 |---|---|
-| **MCP** | Drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder: create tasks, follow them, answer questions, review plans. [Setup guide](docs/mcp.en.md) |
+| **MCP** | Drive Vibe Seller from the AI tool you already use — Claude, Codex, WorkBuddy, Qoder, Hermes Agent, Pi: create tasks, follow them, answer questions, review plans. [Setup guide](docs/mcp.en.md) |
 | **Amazon Ads API** | Amazon ad tasks call the API directly instead of clicking through the seller console — in our test the same ad task went from 147 minutes to 11. [Setup and measured comparison](docs/ads-api.en.md) |
 | **Email** (IMAP/SMTP) | Read your bound store inboxes, classify, forward, draft replies. Works with Gmail, QQ Mail, 163 and more. [Setup guide](docs/email.en.md) |
 | **Group chat bots** (WeCom / DingTalk / Feishu / Slack) | Have the AI post results, reports and reminders straight into a group from a task; WeCom bots can send files too. [Setup guide](docs/chat-bots.en.md) |
@@ -858,7 +858,7 @@ arguments.
 - [`docs/dev-guide.md`](docs/dev-guide.md) — full feature reference,
   API, project structure, testing
 - [`docs/agents.md`](docs/agents.md) — connect an external agent: the
-  Claude Code plugin, plus Codex, WorkBuddy and Qoder MCP configs
+  Claude Code plugin, plus Codex, WorkBuddy, Qoder, Hermes Agent and Pi MCP configs
 - [`DESIGN.md`](https://github.com/zpoint/vibe-seller/blob/main/DESIGN.md) — architecture
 - [`docs/`](https://github.com/zpoint/vibe-seller/tree/main/docs) — subsystem deep-dives (browser, events,
   scheduling, workspace, etc.)

@@ -36,6 +36,21 @@ describe('buildSnippets', () => {
       url,
       headers: { Authorization: `Bearer ${TOKEN}` },
     })
+    // The exact block `hermes mcp test` connected with: Hermes takes the
+    // entry under mcp_servers in ~/.hermes/config.yaml.
+    expect(s.hermes).toBe(
+      [
+        'mcp_servers:',
+        '  vibe-seller:',
+        `    url: "${url}"`,
+        '    headers:',
+        `      Authorization: "Bearer ${TOKEN}"`,
+      ].join('\n'),
+    )
+    // Pi's --header takes KEY=VALUE, not the "Key: value" curl form.
+    expect(s.pi).toBe(
+      `pi mcp add vibe-seller --url ${url} --header "Authorization=Bearer ${TOKEN}"`,
+    )
   })
 
   it('carries the token verbatim, with no shell-export step', () => {

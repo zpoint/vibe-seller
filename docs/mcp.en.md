@@ -1,11 +1,11 @@
 ---
-description: Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect the Claude / Codex / WorkBuddy / Qoder desktop apps, verify, try it.
+description: Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect Claude / Codex (desktop and CLI), WorkBuddy, Qoder, Hermes Agent or Pi, verify, try it.
 ---
 
 # MCP setup
 
-Already live in Claude, Codex, WorkBuddy or Qoder? You can now drive Vibe Seller
-from those tools.
+Already live in Claude, Codex, WorkBuddy, Qoder, Hermes Agent or Pi? You can now
+drive Vibe Seller from those tools.
 
 Once connected, just say something like "look at acme's ads from last week" in
 the chat. The tool creates the task in Vibe Seller, keeps an eye on it, and
@@ -20,9 +20,22 @@ Any MCP-capable tool works; all you need is an API key.
 > ad-scope checks and the rest of the gates work exactly as they do in the web
 > UI.
 
-This page covers the desktop apps. If you use the command line (Claude Code
-CLI, Codex CLI, …) or want the technical details (the protocol, all 32 tools,
+This page covers those six tools. Claude and Codex each share one config
+between the desktop app and the command line, so one setup covers both. If you
+use another MCP-capable tool, or want the technical details (the protocol, all 32 tools,
 curl examples), see [Connect an External Agent](agents.md).
+
+**Contents**
+
+- [First: create an API key](#first-create-an-api-key) (every tool needs this step)
+- Then connect your tool:
+    - [Claude (desktop and Claude Code)](#claude-desktop-and-claude-code)
+    - [Codex (desktop and CLI)](#codex-desktop-and-cli)
+    - [WorkBuddy (Tencent)](#workbuddy-tencent)
+    - [Qoder (Alibaba)](#qoder-alibaba)
+    - [Hermes Agent (Nous Research)](#hermes-agent-nous-research)
+    - [Pi](#pi)
+- [Troubleshooting](#troubleshooting)
 
 ## What you can ask
 
@@ -82,17 +95,20 @@ A few things to keep in mind:
 - Create a key even if your Vibe Seller runs without login. Turn login on later
   and the tool won't suddenly stop connecting.
 
-## Claude desktop
+## Claude (desktop and Claude Code)
 
 ### Install
 
 Download the build for your system from
-[claude.com/download](https://claude.com/download) and install it.
+[claude.com/download](https://claude.com/download) and install it. If you only
+work in a terminal, Claude Code alone is enough
+(`npm install -g @anthropic-ai/claude-code`).
 
 ### Connect
 
-The **Code tab** in the Claude desktop app is Claude Code, so one run of the
-command from the dialog in any terminal sets the app up too:
+The **Code tab** in the Claude desktop app is Claude Code, and both read the
+same config. One run of the command from the dialog in a terminal sets up the
+app and the CLI together:
 
 ```bash
 # Connects to this machine; if Vibe Seller runs elsewhere, use its address instead of localhost
@@ -120,7 +136,8 @@ only ever report results the task really produced — never invented ones.
 
 Open a new Code session and ask "how many stores does vibe-seller have?". If it
 answers with the store list — or you see tools like `list_stores` and
-`create_task` in the tool list — you're connected.
+`create_task` in the tool list — you're connected. From a terminal,
+`claude mcp list` should show `vibe-seller` with `✓ Connected`.
 
 ![vibe-seller's tools in the Claude Code tab](images/mcp_claude_verify_en.png)
 
@@ -135,18 +152,19 @@ Send these one after another and watch it run an ad analysis for you:
 3. "What is this task doing right now, which step is it on?"
 4. "OK, follow it through and summarize when it's done."
 
-## Codex desktop
+## Codex (desktop and CLI)
 
 ### Install
 
 Download the desktop app from [chatgpt.com/codex](https://chatgpt.com/codex).
 Codex now ships inside the ChatGPT desktop app — install it and switch to
-Codex. First launch asks you to sign in with a ChatGPT account.
+Codex. First launch asks you to sign in with a ChatGPT account. If you only work in a
+terminal, the Codex CLI alone is enough (`npm install -g @openai/codex`).
 
 ### Connect
 
-The Codex desktop app and the Codex CLI share `~/.codex/config.toml`. Paste the
-block from the dialog into it:
+The Codex desktop app and the Codex CLI share `~/.codex/config.toml`, so one
+setup covers both. Paste the block from the dialog into it:
 
 ```toml
 [mcp_servers.vibe-seller]
@@ -155,7 +173,7 @@ url = "http://localhost:7777/api/mcp"
 http_headers = { "Authorization" = "Bearer vst_…" }
 ```
 
-Save and restart Codex.
+Save and restart Codex (for the CLI, just start a new `codex` session).
 
 > Put the key in the config itself — don't use `bearer_token_env_var`. A
 > desktop app launched from the Dock, Start menu or a desktop icon never sees
@@ -170,7 +188,8 @@ to the same file and point `model_provider` at it.
 
 Ask "how many stores does vibe-seller have?" in Codex, or open
 **Settings → Plugins → MCPs** (searching "mcp" in Settings finds it too) and
-check that `vibe-seller` is switched on.
+check that `vibe-seller` is switched on. From a terminal, `codex mcp list`
+should list `vibe-seller`.
 
 ![vibe-seller enabled in Codex's MCP list](images/mcp_codex_verify_en.png)
 
@@ -307,6 +326,93 @@ Send these one after another and watch it run an ad analysis for you:
 4. "OK, follow it through and summarize when it's done."
 
 ![Demo: driving Vibe Seller from Qoder — waits sped up](images/mcp_qoder_demo_en.gif)
+
+## Hermes Agent (Nous Research)
+
+### Install
+
+Follow the
+[official Hermes Agent install guide](https://hermes-agent.nousresearch.com/docs/getting-started/installation)
+— it supports macOS, Linux and Windows.
+
+### Connect
+
+Hermes reads MCP servers from `mcp_servers` in `~/.hermes/config.yaml`. Add the
+block from the dialog:
+
+```yaml
+mcp_servers:
+  vibe-seller:
+    # Connects to this machine; if Vibe Seller runs elsewhere, use its address instead of localhost
+    url: "http://localhost:7777/api/mcp"
+    headers:
+      Authorization: "Bearer vst_…"
+```
+
+If the file already has an `mcp_servers:` key, put just the `vibe-seller:`
+entry under it — don't add a second `mcp_servers:`. Save, then run
+`/reload-mcp` in a Hermes session, or restart Hermes.
+
+### Verify
+
+Run `hermes mcp test vibe-seller` in a terminal. `✓ Connected` and
+`Tools discovered: 32` mean you're connected. Then ask "how many stores does
+vibe-seller have?" in a chat.
+
+### Try it
+
+Send these one after another and watch it run an ad analysis for you:
+
+1. "How many stores are in vibe-seller right now?"
+2. "Look at acme's ad spend for the past week, give me some optimization
+   suggestions — use common-sense defaults, don't ask me — and don't change
+   anything yet."
+3. "What is this task doing right now, which step is it on?"
+4. "OK, follow it through and summarize when it's done."
+
+## Pi
+
+### Install
+
+Install it as described on the [Pi website](https://pi.dev):
+
+```bash
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+```
+
+MCP support is built in — no extension needed.
+
+### Connect
+
+Run the command from the dialog in a terminal:
+
+```bash
+# Connects to this machine; if Vibe Seller runs elsewhere, use its address instead of localhost
+pi mcp add vibe-seller --url http://localhost:7777/api/mcp --header "Authorization=Bearer vst_…"
+```
+
+It writes `~/.pi/agent/mcp.json`. Note that `--header` takes `Name=value`, not
+`Name: value`. In a Pi session that is already open, run `/reload` once.
+
+### Verify
+
+Run `pi mcp list` in a terminal. `vibe-seller: connected, 32 tools` means
+you're connected. Then ask "how many stores does vibe-seller have?" in a chat.
+
+By default Pi has the model call these tools from a short script (Pi calls this
+codemode), so the chat shows a script call rather than individual tool names.
+That's expected.
+
+### Try it
+
+Send these one after another and watch it run an ad analysis for you:
+
+1. "How many stores are in vibe-seller right now?"
+2. "Look at acme's ad spend for the past week, give me some optimization
+   suggestions — use common-sense defaults, don't ask me — and don't change
+   anything yet."
+3. "What is this task doing right now, which step is it on?"
+4. "OK, follow it through and summarize when it's done."
 
 ## Troubleshooting
 
