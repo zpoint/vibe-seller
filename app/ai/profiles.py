@@ -132,6 +132,20 @@ def ensure_stream_liveness_env(env: dict) -> dict:
     return env
 
 
+def disable_auto_memory(env: dict) -> dict:
+    """Turn off Claude Code's own auto-memory in a spawn env.
+
+    What an agent learns belongs in the workspace knowledge tree
+    (``knowledge/``, ``stores/``), which every task reads through its
+    catalog. Claude Code's auto-memory is a second store keyed by the
+    session's cwd: per-task directories made it write-only, and the
+    workspace assistant's shared one drifted from the knowledge tree.
+    Forced, not ``setdefault`` -- a profile cannot turn it back on.
+    """
+    env['CLAUDE_CODE_DISABLE_AUTO_MEMORY'] = '1'
+    return env
+
+
 DEFAULT_PROFILES = {
     'profiles': {
         DEFAULT_PROFILE_ID: {
@@ -257,14 +271,12 @@ class ProfileManager:
         the CLI will actually run with.
         """
         profile = ProfileManager.get_profile(profile_id)
-        if not profile:
-            return ensure_stream_liveness_env(
-                ensure_bounded_api_timeout(os.environ.copy())
-            )
-
         env = os.environ.copy()
-        env.update(profile.get('env', {}))
-        return ensure_stream_liveness_env(ensure_bounded_api_timeout(env))
+        if profile:
+            env.update(profile.get('env', {}))
+        return disable_auto_memory(
+            ensure_stream_liveness_env(ensure_bounded_api_timeout(env))
+        )
 
     @staticmethod
     def get_load_global_mcp(profile_id: str) -> bool:
