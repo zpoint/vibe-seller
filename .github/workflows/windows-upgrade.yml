@@ -174,9 +174,13 @@ jobs:
             -ErrorAction SilentlyContinue | Select-Object -First 1).OwningProcess
           if (-not $oldPid) { throw "precondition failed: no server listening on 7777" }
           # Upgrade in place WITHOUT stopping the server/tray first.
+          $setupLog = Join-Path $env:RUNNER_TEMP 'hot-upgrade-setup.log'
           $p = Start-Process -FilePath $exe -Wait -PassThru `
-            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+            -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',"/LOG=$setupLog"
           if ($p.ExitCode -ne 0) { throw "hot upgrade exited $($p.ExitCode)" }
+          # The installer's own account of the relaunch decision.
+          Select-String -Path $setupLog -Pattern 'relaunch' -SimpleMatch |
+            ForEach-Object { Write-Host "setup: $($_.Line)" }
           # The invariant that was violated in production: a real venv
           # (not an empty .venv) must exist after the upgrade.
           foreach ($f in @('.venv\pyvenv.cfg','.venv\Scripts\pythonw.exe',
@@ -199,7 +203,11 @@ jobs:
             } catch { }
             Start-Sleep 2
           }
-          if (-not $ok) { throw "silent upgrade did not restart the server (old pid $oldPid)" }
+          if (-not $ok) {
+            Get-ChildItem "$env:LOCALAPPDATA\vibe-seller\logs" -Filter '*.log' -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "== $($_.Name)"; Get-Content $_.FullName -Tail 20 }
+            throw "silent upgrade did not restart the server (old pid $oldPid)"
+          }
           Write-Host "OK: hot in-place upgrade (tray running) rebuilt the venv"
 
       - name: Basic e2e on the UPGRADED build (health + store/profile API)
