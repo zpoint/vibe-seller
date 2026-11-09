@@ -174,9 +174,9 @@ cd vibe-seller
 
 ### 2. 填 LLM Key
 
-`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（[DeepSeek](llm-keys.md#deepseek) 支持按 token 付费、[Claude](llm-keys.md#claude) 上限高、[Kimi](llm-keys.md#kimi)/[MiniMax](llm-keys.md#minimax)/[GLM](llm-keys.md#智谱-glm)/[通义](llm-keys.md#通义千问阿里云百炼)/[MiMo](llm-keys.md#小米-mimo) 都行），粘 API Key 保存。Key 本地加密存储。
 
-> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
+> **没有 Key？** 最省事的是 [DeepSeek](llm-keys.md#deepseek)——官网注册、充 15–20 块就能跑，按 token 付费，单次任务消耗看任务大小。其他几家既能按量付费，也卖月度套餐（用量大更划算）。每家去哪拿 Key、该选哪个预设，看 [获取 API Key](llm-keys.md)。
 
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
@@ -253,9 +253,9 @@ http://localhost:7777
 
 ### 5. 填 LLM Key
 
-`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（[DeepSeek](llm-keys.md#deepseek) 支持按 token 付费、[Claude](llm-keys.md#claude) 上限高、[Kimi](llm-keys.md#kimi)/[MiniMax](llm-keys.md#minimax)/[GLM](llm-keys.md#智谱-glm)/[通义](llm-keys.md#通义千问阿里云百炼)/[MiMo](llm-keys.md#小米-mimo) 都行），粘 API Key 保存。Key 本地加密存储。
 
-> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
+> **没有 Key？** 最省事的是 [DeepSeek](llm-keys.md#deepseek)——官网注册、充 15–20 块就能跑，按 token 付费，单次任务消耗看任务大小。其他几家既能按量付费，也卖月度套餐（用量大更划算）。每家去哪拿 Key、该选哪个预设，看 [获取 API Key](llm-keys.md)。
 
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
@@ -350,9 +350,9 @@ http://localhost:7777
 
 ### 5. 填 LLM Key
 
-`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（[DeepSeek](llm-keys.md#deepseek) 支持按 token 付费、[Claude](llm-keys.md#claude) 上限高、[Kimi](llm-keys.md#kimi)/[MiniMax](llm-keys.md#minimax)/[GLM](llm-keys.md#智谱-glm)/[通义](llm-keys.md#通义千问阿里云百炼)/[MiMo](llm-keys.md#小米-mimo) 都行），粘 API Key 保存。Key 本地加密存储。
 
-> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。其他家通常需要预付月卡 token 包，按自己习惯买对应 plan 即可。
+> **没有 Key？** 最省事的是 [DeepSeek](llm-keys.md#deepseek)——官网注册、充 15–20 块就能跑，按 token 付费，单次任务消耗看任务大小。其他几家既能按量付费，也卖月度套餐（用量大更划算）。每家去哪拿 Key、该选哪个预设，看 [获取 API Key](llm-keys.md)。
 
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 

@@ -19,10 +19,22 @@ PROVIDER_PRESETS = {
     # does not distinguish a small/fast tier, so every model slot uses
     # the same id. Note the endpoint domain moved from api.kimi.com to
     # api.kimi.ai.
+    #
+    # Host check (2026-11-09): the English Kimi Code doc names
+    # https://api.kimi.ai/coding/, the Chinese one still names
+    # https://api.kimi.com/coding/; the two regions' docs disagree and
+    # neither names the other host. Both hosts answer an unauthenticated
+    # /v1/messages with 401 (alive). It is one product, one console and
+    # one key, so this stays a single variant on the host the preset has
+    # always used — existing profiles and telemetry's base-URL match keep
+    # working unchanged.
     # https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html
+    # https://www.kimi.com/code/docs/third-party-tools/claude-code.html
     'kimi': {
         'name': 'Kimi',
-        'description': 'Kimi K3.1 Pro (1M context) via Moonshot',
+        'group': 'Kimi',
+        'variant': 'Kimi Code (membership)',
+        'description': 'Kimi K3.1 Pro (1M context) via Kimi Code membership',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.kimi.ai/coding/',
@@ -40,6 +52,62 @@ PROVIDER_PRESETS = {
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1048576',
         },
     },
+    # Kimi API open platform (pay-as-you-go), a different product from
+    # Kimi Code: keys from platform.kimi.com (China) / platform.kimi.ai
+    # (international), each bound to its own host — api.moonshot.cn and
+    # api.moonshot.ai respectively, as each region's Claude Code guide
+    # names. Model ids carry the ``kimi-`` prefix (kimi-k3), unlike the
+    # Kimi Code short ids above.
+    #
+    # The guides map HAIKU to kimi-k2.7-code, which is thinking-only
+    # (400 "only type=enabled is allowed" when thinking is off). Claude
+    # Code's haiku-tier calls (background summaries etc.) don't
+    # guarantee thinking, so HAIKU uses kimi-k3[1m] like every other
+    # slot — the guide's own default model, thinking optional.
+    # https://platform.kimi.com/docs/guide/claude-code-kimi
+    # https://platform.kimi.ai/docs/guide/claude-code-kimi
+    'kimi_paygo': {
+        'name': 'Kimi (Pay-as-you-go, China)',
+        'group': 'Kimi',
+        'variant': 'Pay-as-you-go (China)',
+        'description': 'Kimi K3 (1M context) via the Kimi API open platform',
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': 'https://api.moonshot.cn/anthropic',
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_FABLE_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'kimi-k3[1m]',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'kimi-k3[1m]',
+            'CLAUDE_CODE_EFFORT_LEVEL': 'max',
+            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
+        },
+    },
+    'kimi_paygo_intl': {
+        'name': 'Kimi (Pay-as-you-go, International)',
+        'group': 'Kimi',
+        'variant': 'Pay-as-you-go (International)',
+        'description': (
+            'Kimi K3 (1M context) via the Kimi API platform (platform.kimi.ai)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': 'https://api.moonshot.ai/anthropic',
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_FABLE_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'kimi-k3[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'kimi-k3[1m]',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'kimi-k3[1m]',
+            'CLAUDE_CODE_EFFORT_LEVEL': 'max',
+            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '1000000',
+        },
+    },
     # MiniMax M3.1-Flash per MiniMax's Claude Code doc (all tier slots
     # use the 1M-context id; thinking is always on and tuned via
     # ``effort``). MiniMax recommends a 512K auto-compact window and
@@ -47,14 +115,41 @@ PROVIDER_PRESETS = {
     # must use api.minimax.cn (live-verified 2026-10-29), international
     # keys api.minimax.io — the legacy api.minimaxi.com still serves
     # both regions but is no longer what the docs name.
+    # The same host serves both pay-as-you-go keys and M Plan
+    # subscription keys (the key decides the billing), so payment path
+    # needs no variant; region does.
     # https://platform.minimaxi.com/docs/token-plan/claude-code
-    # https://platform.minimax.io/docs/token-plan/claude-code
     'minimax': {
-        'name': 'MiniMax',
-        'description': 'MiniMax M3.1 Flash (1M context)',
+        'name': 'MiniMax (China)',
+        'group': 'MiniMax',
+        'variant': 'China',
+        'description': 'MiniMax M3.1 Flash (1M context), China (minimax.cn)',
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': 'https://api.minimax.cn/anthropic',
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'MiniMax-M3.1-Flash[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'MiniMax-M3.1-Flash[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'MiniMax-M3.1-Flash[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'MiniMax-M3.1-Flash[1m]',
+            'CLAUDE_CODE_AUTO_COMPACT_WINDOW': '524288',
+            'CLAUDE_CODE_EFFORT_LEVEL': 'max',
+        },
+    },
+    # International accounts (platform.minimax.io): identical config on
+    # api.minimax.io, per the international Claude Code doc.
+    # https://platform.minimax.io/docs/token-plan/claude-code
+    'minimax_intl': {
+        'name': 'MiniMax (International)',
+        'group': 'MiniMax',
+        'variant': 'International',
+        'description': (
+            'MiniMax M3.1 Flash (1M context), international (minimax.io)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': 'https://api.minimax.io/anthropic',
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
             'ANTHROPIC_MODEL': 'MiniMax-M3.1-Flash[1m]',
@@ -169,23 +264,26 @@ PROVIDER_PRESETS = {
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
-    # International (Singapore) pay-as-you-go uses a per-workspace MaaS
-    # host — the user must replace {WorkspaceId} in the Base URL with
-    # their real Workspace ID (the placeholder deliberately fails the
-    # save-time probe until they do). Same models as the China tier.
+    # International (Singapore) pay-as-you-go. The doc's quick start
+    # shows a per-workspace host ({WorkspaceId}.ap-southeast-1.maas...),
+    # which forced users to hand-edit the Base URL; its access-method
+    # table (401 troubleshooting) names the shared host below for a
+    # Model Studio pay-as-you-go key — the international twin of the
+    # China preset's dashscope.aliyuncs.com — so the preset uses that and
+    # needs no editing. Same models as the China tier.
+    # https://www.alibabacloud.com/help/en/model-studio/claude-code
     'qwen_intl': {
         'name': 'Qwen (Pay-as-you-go, International)',
         'group': 'Alibaba Cloud',
         'variant': 'Pay-as-you-go (International)',
         'description': (
             'Qwen3.7-Max via Alibaba Cloud Model Studio, pay-as-you-go '
-            '(Singapore). Replace {WorkspaceId} in the Base URL.'
+            '(Singapore)'
         ),
         'load_global_mcp': False,
         'env': {
             'ANTHROPIC_BASE_URL': (
-                'https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com'
-                '/apps/anthropic'
+                'https://dashscope-intl.aliyuncs.com/apps/anthropic'
             ),
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
@@ -200,9 +298,9 @@ PROVIDER_PRESETS = {
         },
     },
     'qwen_coding': {
-        'name': 'Qwen (Coding Plan)',
+        'name': 'Qwen (Coding Plan, China)',
         'group': 'Alibaba Cloud',
-        'variant': 'Coding Plan',
+        'variant': 'Coding Plan (China)',
         'description': (
             'Qwen3.7-Plus via Alibaba Cloud Bailian Coding Plan '
             '(monthly subscription)'
@@ -222,6 +320,33 @@ PROVIDER_PRESETS = {
             'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
         },
     },
+    # International (Singapore) Coding Plan: its own host and its own
+    # Coding Plan key from the ap-southeast-1 console; same model block
+    # as the China plan per the international doc.
+    # https://www.alibabacloud.com/help/en/model-studio/claude-code
+    'qwen_coding_intl': {
+        'name': 'Qwen (Coding Plan, International)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Coding Plan (International)',
+        'description': (
+            'Qwen3.7-Plus via Alibaba Cloud Model Studio Coding Plan '
+            '(Singapore)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://coding-intl.dashscope.aliyuncs.com/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.7-plus',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'qwen3.7-plus',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '1000000',
+        },
+    },
     # Token Plan (个人版 and 团队版 share this config; they differ only by
     # which sk- key you use) on a distinct MaaS base URL. Alibaba's
     # current recommendation routes the main + subagent slots through
@@ -230,9 +355,9 @@ PROVIDER_PRESETS = {
     # GA). The ~960K context budget is set explicitly per the doc.
     # https://help.aliyun.com/zh/model-studio/claude-code
     'qwen_token': {
-        'name': 'Qwen (Token Plan)',
+        'name': 'Qwen (Token Plan, China)',
         'group': 'Alibaba Cloud',
-        'variant': 'Token Plan',
+        'variant': 'Token Plan (China)',
         'description': (
             'Qwen3.8-Max via Alibaba Cloud Bailian Token Plan (个人版 / 团队版)'
         ),
@@ -240,6 +365,32 @@ PROVIDER_PRESETS = {
         'env': {
             'ANTHROPIC_BASE_URL': (
                 'https://token-plan.cn-beijing.maas.aliyuncs.com/apps/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'auto',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'qwen3.6-flash',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'qwen3.8-flash',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'qwen3.8-max',
+            'CLAUDE_CODE_SUBAGENT_MODEL': 'auto',
+            'CLAUDE_CODE_MAX_CONTEXT_TOKENS': '983616',
+        },
+    },
+    # International (Singapore) Token Plan: same model block as China on
+    # the ap-southeast-1 Token Plan host, per the international doc.
+    # https://www.alibabacloud.com/help/en/model-studio/claude-code
+    'qwen_token_intl': {
+        'name': 'Qwen (Token Plan, International)',
+        'group': 'Alibaba Cloud',
+        'variant': 'Token Plan (International)',
+        'description': (
+            'Qwen3.8-Max via Alibaba Cloud Model Studio Token Plan (Singapore)'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://token-plan.ap-southeast-1.maas.aliyuncs.com'
+                '/apps/anthropic'
             ),
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
@@ -284,10 +435,10 @@ PROVIDER_PRESETS = {
             'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-pro[1m]',
         },
     },
-    # Token Plan (subscription) on the China cluster. Singapore is
-    # ``token-plan-sgp`` and Europe ``token-plan-ams`` — same paths,
-    # different host — so a user on another cluster edits the Base URL
-    # (a top-level, visible field) to their cluster's host.
+    # Token Plan (subscription), one preset per documented cluster: China
+    # ``token-plan-cn``, Singapore ``token-plan-sgp``, Europe
+    # ``token-plan-ams`` — same paths and models, different host. The
+    # Token Plan console page shows which cluster an account is on.
     # https://mimo.mi.com/docs/tokenplan/Token%20Plan/quick-access
     'mimo_token': {
         'name': 'MiMo (Token Plan)',
@@ -301,6 +452,48 @@ PROVIDER_PRESETS = {
         'env': {
             'ANTHROPIC_BASE_URL': (
                 'https://token-plan-cn.xiaomimimo.com/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-pro[1m]',
+        },
+    },
+    'mimo_token_sgp': {
+        'name': 'MiMo (Token Plan, Singapore)',
+        'group': 'MiMo',
+        'variant': 'Token Plan (Singapore cluster)',
+        'description': (
+            'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan, '
+            'Singapore cluster'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://token-plan-sgp.xiaomimimo.com/anthropic'
+            ),
+            'API_TIMEOUT_MS': '3000000',
+            'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
+            'ANTHROPIC_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_SONNET_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_OPUS_MODEL': 'mimo-v2.6-pro[1m]',
+            'ANTHROPIC_DEFAULT_HAIKU_MODEL': 'mimo-v2.6-pro[1m]',
+        },
+    },
+    'mimo_token_ams': {
+        'name': 'MiMo (Token Plan, Europe)',
+        'group': 'MiMo',
+        'variant': 'Token Plan (Europe cluster)',
+        'description': (
+            'MiMo V2.6 Pro (1M context) via Xiaomi MiMo Token Plan, '
+            'Europe cluster'
+        ),
+        'load_global_mcp': False,
+        'env': {
+            'ANTHROPIC_BASE_URL': (
+                'https://token-plan-ams.xiaomimimo.com/anthropic'
             ),
             'API_TIMEOUT_MS': '3000000',
             'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
@@ -695,6 +888,161 @@ PROVIDER_MODELS = {
     ],
     # The Token Plan serves the same catalog as pay-as-you-go.
     'mimo_token': [
+        {
+            'id': 'mimo-v2.6-pro[1m]',
+            'label': 'V2.6 Pro (1M context, flagship)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-flash[1m]',
+            'label': 'V2.6 Flash (1M, cheap)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-pro-ultraspeed[1m]',
+            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    # Regional / payment-path twins below: each serves the same catalog
+    # as the preset it mirrors (only the host differs), so the entries
+    # and their vision labels are copies of that preset's list. They
+    # are literal copies rather than references because the presets
+    # sync parses this file with ast.literal_eval.
+    #
+    # Kimi API open platform: ``kimi-`` prefixed ids. Vision is
+    # DOC-verified from Moonshot's vision guide (kimi-k3.1-pro / kimi-k3
+    # listed as natively multimodal), not live-probed — no key here.
+    # kimi-k2.7-code is left out: it is thinking-only and 400s when
+    # Claude Code sends a request with thinking off.
+    'kimi_paygo': [
+        {
+            'id': 'kimi-k3[1m]',
+            'label': 'K3 (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro',
+            'label': 'K3.1 Pro',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro-highspeed',
+            'label': 'K3.1 Pro Highspeed',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    'kimi_paygo_intl': [
+        {
+            'id': 'kimi-k3[1m]',
+            'label': 'K3 (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro',
+            'label': 'K3.1 Pro',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'kimi-k3.1-pro-highspeed',
+            'label': 'K3.1 Pro Highspeed',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    # Same models as api.minimax.cn (vision live-verified there).
+    'minimax_intl': [
+        {
+            'id': 'MiniMax-M3.1-Flash[1m]',
+            'label': 'M3.1 Flash (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'MiniMax-M3.1-Flash',
+            'label': 'M3.1 Flash',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'MiniMax-M3[1m]',
+            'label': 'M3 (1M context)',
+            'context': '1M',
+            'vision': True,
+        },
+        {'id': 'MiniMax-M3', 'label': 'M3', 'context': '1M', 'vision': True},
+    ],
+    'qwen_coding_intl': [
+        {
+            'id': 'qwen3.7-plus',
+            'label': 'Qwen3.7-Plus (vision)',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    'qwen_token_intl': [
+        {
+            'id': 'auto',
+            'label': 'Auto (provider-routed)',
+        },
+        {
+            'id': 'qwen3.8-max',
+            'label': 'Qwen3.8-Max (flagship)',
+            'context': '1M',
+        },
+        {
+            'id': 'qwen3.8-flash',
+            'label': 'Qwen3.8-Flash (fast)',
+            'context': '1M',
+        },
+        {
+            'id': 'qwen3.7-max',
+            'label': 'Qwen3.7-Max',
+            'context': '1M',
+            'vision': False,
+        },
+        {
+            'id': 'qwen3.7-plus',
+            'label': 'Qwen3.7-Plus (vision)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'qwen3.6-flash',
+            'label': 'Qwen3.6-Flash (fast, vision)',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    'mimo_token_sgp': [
+        {
+            'id': 'mimo-v2.6-pro[1m]',
+            'label': 'V2.6 Pro (1M context, flagship)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-flash[1m]',
+            'label': 'V2.6 Flash (1M, cheap)',
+            'context': '1M',
+            'vision': True,
+        },
+        {
+            'id': 'mimo-v2.6-pro-ultraspeed[1m]',
+            'label': 'V2.6 Pro Ultraspeed (1M, fastest)',
+            'context': '1M',
+            'vision': True,
+        },
+    ],
+    'mimo_token_ams': [
         {
             'id': 'mimo-v2.6-pro[1m]',
             'label': 'V2.6 Pro (1M context, flagship)',
