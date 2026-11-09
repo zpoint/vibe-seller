@@ -170,11 +170,9 @@ cd vibe-seller
 
 ### 2. 填 LLM Key
 
-`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义/MiMo 都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（[DeepSeek](docs/llm-keys.md#deepseek) 支持按 token 付费、[Claude](docs/llm-keys.md#claude) 上限高、[Kimi](docs/llm-keys.md#kimi)/[MiniMax](docs/llm-keys.md#minimax)/[GLM](docs/llm-keys.md#智谱-glm)/[通义](docs/llm-keys.md#通义千问阿里云百炼)/[MiMo](docs/llm-keys.md#小米-mimo) 都行），粘 API Key 保存。Key 本地加密存储。
 
-> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。MiniMax、GLM、通义、MiMo 也都能按量付费，用量大可以改买各家的 Token Plan / Coding Plan 套餐（套餐 Key 要选带「Plan」的预设）；Kimi 需要开通含 Kimi Code 的会员。
->
-> **不知道去哪拿 Key？** 看 [获取 API Key](docs/llm-keys.md)——每家在哪注册、点哪里创建 Key、选哪个预设，一步步写清楚了。
+> **没有 Key？** 最省事的是 [DeepSeek](docs/llm-keys.md#deepseek)——官网注册、充 15–20 块就能跑，按 token 付费，单次任务消耗看任务大小。其他几家既能按量付费，也卖月度套餐（用量大更划算）。每家去哪拿 Key、该选哪个预设，看 [获取 API Key](docs/llm-keys.md)。
 
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
@@ -251,11 +249,9 @@ http://localhost:7777
 
 ### 5. 填 LLM Key
 
-`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义/MiMo 都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（[DeepSeek](docs/llm-keys.md#deepseek) 支持按 token 付费、[Claude](docs/llm-keys.md#claude) 上限高、[Kimi](docs/llm-keys.md#kimi)/[MiniMax](docs/llm-keys.md#minimax)/[GLM](docs/llm-keys.md#智谱-glm)/[通义](docs/llm-keys.md#通义千问阿里云百炼)/[MiMo](docs/llm-keys.md#小米-mimo) 都行），粘 API Key 保存。Key 本地加密存储。
 
-> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。MiniMax、GLM、通义、MiMo 也都能按量付费，用量大可以改买各家的 Token Plan / Coding Plan 套餐（套餐 Key 要选带「Plan」的预设）；Kimi 需要开通含 Kimi Code 的会员。
->
-> **不知道去哪拿 Key？** 看 [获取 API Key](docs/llm-keys.md)——每家在哪注册、点哪里创建 Key、选哪个预设，一步步写清楚了。
+> **没有 Key？** 最省事的是 [DeepSeek](docs/llm-keys.md#deepseek)——官网注册、充 15–20 块就能跑，按 token 付费，单次任务消耗看任务大小。其他几家既能按量付费，也卖月度套餐（用量大更划算）。每家去哪拿 Key、该选哪个预设，看 [获取 API Key](docs/llm-keys.md)。
 
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 
@@ -350,11 +346,9 @@ http://localhost:7777
 
 ### 5. 填 LLM Key
 
-`设置 → AI` → 选一个供应商（DeepSeek 支持按 token 付费、Claude 上限高、Kimi/MiniMax/GLM/通义/MiMo 都行），粘 API Key 保存。Key 本地加密存储。
+`设置 → AI` → 选一个供应商（[DeepSeek](docs/llm-keys.md#deepseek) 支持按 token 付费、[Claude](docs/llm-keys.md#claude) 上限高、[Kimi](docs/llm-keys.md#kimi)/[MiniMax](docs/llm-keys.md#minimax)/[GLM](docs/llm-keys.md#智谱-glm)/[通义](docs/llm-keys.md#通义千问阿里云百炼)/[MiMo](docs/llm-keys.md#小米-mimo) 都行），粘 API Key 保存。Key 本地加密存储。
 
-> **没有 Key？** 最省事的是 [DeepSeek](https://platform.deepseek.com/)——官网注册、充 15–20 块就能跑，按 token 付费（pay-as-you-go），单次任务消耗看任务大小。MiniMax、GLM、通义、MiMo 也都能按量付费，用量大可以改买各家的 Token Plan / Coding Plan 套餐（套餐 Key 要选带「Plan」的预设）；Kimi 需要开通含 Kimi Code 的会员。
->
-> **不知道去哪拿 Key？** 看 [获取 API Key](docs/llm-keys.md)——每家在哪注册、点哪里创建 Key、选哪个预设，一步步写清楚了。
+> **没有 Key？** 最省事的是 [DeepSeek](docs/llm-keys.md#deepseek)——官网注册、充 15–20 块就能跑，按 token 付费，单次任务消耗看任务大小。其他几家既能按量付费，也卖月度套餐（用量大更划算）。每家去哪拿 Key、该选哪个预设，看 [获取 API Key](docs/llm-keys.md)。
 
 > 这台机器上的 Claude Code 已经登过 Anthropic 订阅？Vibe Seller 会直接复用那个会话，跳过这一步。
 

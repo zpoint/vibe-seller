@@ -21,6 +21,20 @@ this? Start with "Which provider?" below.
 > sites); button names are given in Chinese with an English gloss so you can
 > match them. International sites have the same steps in English.
 
+**Contents**
+
+- [Which provider?](#which-provider)
+- [The general flow](#the-general-flow)
+- Getting a key, provider by provider:
+    - [DeepSeek](#deepseek)
+    - [Kimi](#kimi)
+    - [MiniMax](#minimax)
+    - [Zhipu GLM](#zhipu-glm)
+    - [Qwen (Alibaba Cloud Model Studio)](#qwen-alibaba-cloud-model-studio)
+    - [Xiaomi MiMo](#xiaomi-mimo)
+    - [Claude](#claude)
+- [FAQ](#faq)
+
 ## Which provider?
 
 | Your situation | Suggestion |
@@ -28,24 +42,18 @@ this? Start with "Which provider?" below.
 | First time, just want to try it | **DeepSeek**: sign up, top up $2–3, pay per use, no monthly fee |
 | Claude Code on this machine is already signed in to a Claude subscription | **No key needed** — reuse it, see [Claude](#claude) |
 | Running every day, heavy usage, want it cheaper | Buy a **plan** (Token Plan / Coding Plan / M Plan) from one provider |
-| Your account is outside mainland China | GLM, Qwen, MiniMax and MiMo all have international versions — pick the "International" preset or edit the Base URL |
+| Your account is outside mainland China | GLM, Qwen, MiniMax and MiMo all have international versions — pick the "International" preset or edit the endpoint |
 
 ### Pay-as-you-go vs. a plan
 
-- **Pay-as-you-go**: top up first, then each call is deducted by usage (billed
-  per token — a token is a small chunk of the text the model reads or writes).
-  Good while you are starting out or usage is uneven.
-- **Plan** (Token Plan / Coding Plan / M Plan, etc.): a fixed monthly fee for a
-  usage quota; when it runs out you wait for the next cycle or upgrade. Cheaper
-  per unit at high volume.
-- **A plan key and a pay-as-you-go key are different keys**, and most providers
-  don't let you swap one for the other. Some (Qwen, MiMo) also use a different
-  endpoint, so Vibe Seller has separate presets for them: **a plan key needs the
-  preset with "Plan" in its name**, or the connection test fails.
-- Plans come with usage terms — for example, only inside officially supported
-  coding tools, or no unattended automation. Vibe Seller runs on Claude Code, but
-  scheduled tasks are unattended calls, so **read the provider's terms before
-  buying a plan**; if unsure, start with pay-as-you-go.
+- **Pay-as-you-go**: top up, then pay for the tokens (the text the model reads
+  and writes) you actually use.
+- **Plan** (Token Plan / Coding Plan / M Plan, etc.): a fixed monthly price for
+  a quota, usually capped by both a rolling 5-hour window and a weekly limit;
+  cheaper per token if you use a lot.
+- **A plan key and a pay-as-you-go key are different keys**, from different
+  pages in the console, and they are not interchangeable. Where Vibe Seller has
+  a preset with "Plan" in its name, a plan key needs that preset.
 
 ## The general flow
 
@@ -82,18 +90,21 @@ Which preset goes with which key:
 | Provider | Pay-as-you-go key → pick | Plan key → pick |
 |---|---|---|
 | DeepSeek | `DeepSeek` | (no plan) |
-| Kimi | (not supported by this preset) | `Kimi` (a Kimi Code key from a Kimi membership) |
-| MiniMax | `MiniMax` | `MiniMax` (same preset; the key decides billing) |
-| Zhipu GLM (China) | `GLM › China` | `GLM › China` (same preset; the key decides billing) |
-| Z.AI (GLM international) | `GLM › International` | `GLM › International` |
-| Qwen (China) | `Alibaba Cloud › Pay-as-you-go (China)` | `Coding Plan` or `Token Plan` — **whichever you bought** |
-| Qwen (international) | `Alibaba Cloud › Pay-as-you-go (International)` | see [Qwen](#qwen-alibaba-cloud-model-studio) |
+| Kimi | `Kimi`, then change endpoint and model — see [Kimi](#kimi) | `Kimi` (a Kimi Code key from a Kimi membership) |
+| MiniMax | `MiniMax` | `MiniMax` — same preset; paste the key that matches how you pay |
+| Zhipu GLM (China) | `GLM › China` | `GLM › China` — same preset; paste the matching key |
+| Z.AI (GLM international) | `GLM › International` | `GLM › International` — same |
+| Qwen (China) | `Alibaba Cloud › Pay-as-you-go (China)` | `Alibaba Cloud › Coding Plan` or `Token Plan` — **whichever you bought** |
+| Qwen (international) | `Alibaba Cloud › Pay-as-you-go (International)` | same, plus an endpoint change — see [Qwen](#qwen-alibaba-cloud-model-studio) |
 | Xiaomi MiMo | `MiMo › Pay-as-you-go` | `MiMo › Token Plan (China cluster)` |
 | Claude | the built-in `Claude` profile | the built-in `Claude` profile |
 
 ## DeepSeek
 
-**Good for**: a first try for a few dollars. Pay-as-you-go only, no monthly fee.
+**Pay-as-you-go only — DeepSeek has no plan.** Good for a first try for a few
+dollars.
+
+**Pay-as-you-go:**
 
 1. Open the [DeepSeek Platform](https://platform.deepseek.com/), sign up and log
    in. If it asks for identity verification, follow the prompts.
@@ -120,47 +131,74 @@ Official docs: [Claude Code integration](https://api-docs.deepseek.com/quick_sta
 
 ## Kimi
 
-**Good for**: people who already have a Kimi membership. Vibe Seller's Kimi
-preset uses the **Kimi Code** endpoint, so your membership must include Kimi Code.
+Kimi has both, but **the two keys come from two different platforms** and use
+different endpoints.
+
+**Plan (Kimi Code, part of a Kimi membership):**
 
 1. Get a membership on the [Kimi membership page](https://www.kimi.com/membership/pricing).
    **Not every tier includes Kimi Code** — check the page before buying.
 2. Open the [Kimi Code Console](https://www.kimi.com/code/console), click
-   **Create API Key**, enter a name, confirm.
-3. **Copy it immediately** — once the dialog closes, the full key can't be shown
-   again.
-4. In Vibe Seller pick the **Kimi** preset, paste the key, create.
+   **Create API Key**, enter a name, confirm, and **copy it immediately** — once
+   the dialog closes, the full key can't be shown again.
+3. In Vibe Seller pick the **Kimi** preset, paste the key, create. The Kimi
+   preset points at Kimi Code out of the box.
 
-**Pitfall**: the official docs only cover keys from the **Kimi Code Console**.
-They don't say whether a pay-as-you-go key from the Kimi open platform works here,
-so use a Kimi Code Console key.
-Official docs: [Use in Claude Code](https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html).
+**Pay-as-you-go (Kimi API Platform):**
+
+1. Sign up on the [Kimi API Platform](https://platform.kimi.ai/), top up, and
+   create and copy a key on the [API Keys](https://platform.kimi.ai/console/api-keys)
+   page (China accounts: [platform.kimi.com](https://platform.kimi.com/console/api-keys)).
+2. In Vibe Seller pick the **Kimi** preset, paste the key, then change two
+   fields:
+    - set `ANTHROPIC_BASE_URL` to `https://api.moonshot.ai/anthropic`
+      (China accounts: `https://api.moonshot.cn/anthropic`);
+    - set **Model** to `kimi-k3[1m]` (the platform's model name, which differs
+      from Kimi Code's): select the old value and paste over it.
+3. Expand **Advanced environment variables** and check that
+   `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`,
+   `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_FABLE_MODEL` and
+   `CLAUDE_CODE_SUBAGENT_MODEL` also read `kimi-k3[1m]`. If you cleared the
+   Model field and then typed, these rows end up empty — fill them in by hand.
+4. Click **Create**; once the connection test passes you're done.
+
+**Pitfall**: a platform key won't work on the Kimi Code endpoint, and a Kimi
+Code key won't work on the platform endpoint — on a 401, first check that key
+and endpoint come from the same platform.
+Official docs: [Kimi Code in Claude Code](https://www.kimi.com/code/docs/en/third-party-tools/claude-code.html),
+[Kimi API Platform in Claude Code](https://platform.kimi.ai/docs/guide/claude-code-kimi).
 
 ## MiniMax
 
-**Good for**: people who want either pay-as-you-go or a plan. MiniMax's plan is
-called **M Plan** (formerly Token Plan). Both kinds of key use the **same Vibe
-Seller preset**; the key you paste decides which balance is charged.
+MiniMax has both; its plan is called **M Plan** (formerly Token Plan). **The two
+keys live on different console pages and are not interchangeable.** In Vibe
+Seller both go into the same **MiniMax** preset — the key you paste decides how
+you're billed. China accounts sign up on the [MiniMax Open Platform](https://platform.minimax.cn/).
 
-China accounts sign up on the [MiniMax Open Platform](https://platform.minimax.cn/),
-then pick one:
+**Pay-as-you-go:**
 
-- **Pay-as-you-go**: top up under **费用管理 → 账户钱包** (Billing → Wallet —
-  [balance page](https://platform.minimax.cn/user-center/payment/balance)), then
-  go to **API 管理 → API Key** ([API Key page](https://platform.minimax.cn/user-center/basic-information/interface-key))
-  and click **创建 API Key** (Create API Key) in the top right.
+1. Top up under **费用管理 → 账户钱包** (Billing → Wallet —
+   [balance page](https://platform.minimax.cn/user-center/payment/balance)).
+2. Go to **API 管理 → API Key** ([API Key page](https://platform.minimax.cn/user-center/basic-information/interface-key)),
+   click **创建 API Key** (Create API Key) in the top right, and copy it.
 
     ![MiniMax API Key page with "Create API Key" in the top right](images/minimax_interface_key_zh.png)
 
-- **M Plan**: choose a tier and pay on the [plan details page](https://platform.minimax.cn/console/plan),
-  then open **个人订阅 → 套餐管理** (Subscription → Plan management); the
-  **订阅 Key** (Subscription Key) at the bottom is the key to use. The page
-  itself notes that a Subscription Key and a pay-as-you-go key are not
-  interchangeable.
+3. In Vibe Seller pick the **MiniMax** preset, paste, create.
+
+**Plan (M Plan):**
+
+1. Choose a tier and pay on the [plan details page](https://platform.minimax.cn/console/plan).
+2. Open **个人订阅 → 套餐管理** (Subscription → Plan management). The
+   **订阅 Key** (Subscription Key) at the bottom is your plan key: one per
+   account, shown masked; use the copy icon to copy it, and **重置 Key** (Reset
+   Key) if it ever leaks. The page itself says a Subscription Key and a
+   pay-as-you-go API key are not interchangeable.
 
     ![MiniMax plan management page showing the Subscription Key](images/minimax_plan_key_zh.png)
 
-Then pick the **MiniMax** preset in Vibe Seller, paste, create.
+3. In Vibe Seller pick the same **MiniMax** preset, paste the Subscription Key,
+   create.
 
 **International accounts**: sign up at [platform.minimax.io](https://platform.minimax.io/);
 the menus are `API Keys > Create new secret key` (pay-as-you-go) and
@@ -168,102 +206,96 @@ the menus are `API Keys > Create new secret key` (pay-as-you-go) and
 endpoint: after picking the MiniMax preset, change the `ANTHROPIC_BASE_URL`
 field to `https://api.minimax.io/anthropic` before you click Create.
 
-**Pitfalls**:
-
-- A Subscription Key only draws on plan quota and a pay-as-you-go key only on
-  your balance; they're not interchangeable.
-- MiniMax says M Plan is meant for individual developers' interactive use and
-  **recommends pay-as-you-go for production**.
-
 Official docs: [Prerequisites](https://platform.minimax.io/docs/guides/quickstart-preparation),
 [M Plan FAQ](https://platform.minimax.io/docs/m-plan/faq),
 [Claude Code setup (China)](https://platform.minimax.cn/docs/token-plan/claude-code).
 
 ## Zhipu GLM
 
-**Good for**: China users pick the **Zhipu BigModel platform** (preset
-`GLM › China`); users outside China pick **Z.AI** (preset `GLM › International`).
-Both have pay-as-you-go and a GLM Coding Plan.
+China users use the **Zhipu BigModel platform** (preset `GLM › China`); users
+outside China use **Z.AI** (preset `GLM › International`). Both have
+pay-as-you-go and a GLM Coding Plan. **The two keys come from different pages
+and aren't interchangeable**; in Vibe Seller both go into the same preset, and
+the key you paste decides what it bills against.
 
-> **Since October 16, 2026**, Zhipu / Z.AI manage "standard API keys"
-> (pay-as-you-go / usage bundles) and "Coding Plan keys" separately: **the type
-> of a new key decides what it bills against**. Using a standard key while you
-> have a plan does not use plan quota — it charges your balance. Older keys keep
-> working and were classified automatically.
+> Since October 16, 2026, Zhipu / Z.AI manage "standard API keys"
+> (pay-as-you-go / usage bundles) and "Coding Plan keys" separately. Older keys
+> keep working and were classified automatically.
 
 ### China: Zhipu BigModel
 
-1. Open [Zhipu BigModel](https://open.bigmodel.cn) and click "Register/Login" in
-   the top right. Real-name verification isn't required to call the API, but
-   Zhipu recommends [doing it](https://open.bigmodel.cn/usercenter/auth).
-2. Pick one:
-    - **Pay-as-you-go**: top up, then on the
-      [standard API key page](https://bigmodel.cn/usercenter/proj-mgmt/apikeys)
-      click **新建API Key** (New API Key) in the top right. The notice at the
-      top of that page says the same thing: keys created there are for the
-      standard API only and don't use plan quota.
+Click "Register/Login" in the top right of [Zhipu BigModel](https://open.bigmodel.cn).
+Real-name verification isn't required to call the API, but Zhipu recommends
+[doing it](https://open.bigmodel.cn/usercenter/auth).
 
-        ![BigModel standard API key page with "New API Key" in the top right](images/glm_bigmodel_apikeys_zh.png)
+**Pay-as-you-go:** top up, then on the [standard API key page](https://bigmodel.cn/usercenter/proj-mgmt/apikeys)
+click **新建API Key** (New API Key) in the top right. The notice at the top of
+that page says keys created there are for the standard (pay-as-you-go) API only.
 
-    - **GLM Coding Plan**: buy it with **立即订阅** (Subscribe now) under
-      **Coding Plan → 套餐概览** (Plan Overview); after subscribing, create a
-      key under **Personal Coding Plan → Plan Overview** (team members: **Team
-      Coding Plan → My Plan**).
+![BigModel standard API key page with "New API Key" in the top right](images/glm_bigmodel_apikeys_zh.png)
 
-        ![BigModel Coding Plan overview with the "Subscribe now" button](images/glm_bigmodel_codingplan_zh.png)
+**Plan (GLM Coding Plan):** buy it with **立即订阅** (Subscribe now) under
+**Coding Plan → 套餐概览** (Plan Overview); after subscribing, create a key under
+**Personal Coding Plan → Plan Overview** (team members: **Team Coding Plan → My
+Plan**).
 
-3. In Vibe Seller click **GLM ›**, then **China**, paste, create.
+![BigModel Coding Plan overview with the "Subscribe now" button](images/glm_bigmodel_codingplan_zh.png)
+
+Either key: in Vibe Seller click **GLM ›**, then **China**, paste, create.
 
 ### International: Z.AI
 
-1. Open the [Z.AI Open Platform](https://z.ai/model-api), register or log in.
-2. Pick one:
-    - **Pay-as-you-go**: create a key under **Standard API Key** on the
-      [API Keys](https://z.ai/manage-apikey/apikey-list) page.
-    - **GLM Coding Plan**: subscribe on the [plan page](https://z.ai/subscribe),
-      then create a key under **Personal Coding Plan** on the
-      [API Keys](https://z.ai/manage-apikey/apikey-list) page (team plan:
-      [Team Coding Plan → My Plan](https://z.ai/manage-apikey/coding-plan/team/my-plan)).
-3. In Vibe Seller click **GLM ›**, then **International**, paste, create.
+Register or log in on the [Z.AI Open Platform](https://z.ai/model-api).
 
-**Pitfall**: GLM Coding Plan is officially **limited to supported tools**
-(Claude Code is on the list) — read the terms before buying.
+**Pay-as-you-go:** create a key under **Standard API Key** on the
+[API Keys](https://z.ai/manage-apikey/apikey-list) page.
+
+**Plan (GLM Coding Plan):** subscribe on the [plan page](https://z.ai/subscribe),
+then create a key under **Personal Coding Plan** on the
+[API Keys](https://z.ai/manage-apikey/apikey-list) page (team plan:
+[Team Coding Plan → My Plan](https://z.ai/manage-apikey/coding-plan/team/my-plan)).
+
+Either key: in Vibe Seller click **GLM ›**, then **International**, paste, create.
+
 Official docs: [Z.AI API Key Management Guide](https://docs.z.ai/devpack/notice/api-key-management),
 [Z.AI Quick Start](https://docs.z.ai/devpack/quick-start),
 [BigModel key classification (zh)](https://docs.bigmodel.cn/cn/coding-plan/notice/api-key-management).
 
 ## Qwen (Alibaba Cloud Model Studio)
 
-**Good for**: people who already have an Alibaba Cloud account. Model Studio
-(Bailian) has **four** ways in, and **each key only works with its own
-endpoint**, so clicking **Alibaba Cloud ›** in Vibe Seller shows four options:
+Model Studio (Bailian) has pay-as-you-go and two plans (Coding Plan, Token
+Plan). **Each kind of key has its own page and its own endpoint, and they must
+match**, so clicking **Alibaba Cloud ›** in Vibe Seller shows four options.
 
-| What you bought | Key looks like | Where to get it | Pick in Vibe Seller |
-|---|---|---|---|
-| Pay-as-you-go (China / Beijing) | starts with `sk-` | [Bailian console → API Key](https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key) | `Pay-as-you-go (China)` |
-| Pay-as-you-go (International / Singapore) | starts with `sk-` | the API Key page of the international [Model Studio console](https://modelstudio.console.alibabacloud.com/) | `Pay-as-you-go (International)` |
-| Coding Plan | starts with `sk-sp-` | [Coding Plan page](https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan) | `Coding Plan` |
-| Token Plan (personal / team) | see console | "Create or view API Key" on the [Token Plan personal page](https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal); for teams an admin assigns a seat in [member management](https://bailian.console.aliyun.com/cn-beijing/subscription/uac-admin/organization/members/list) | `Token Plan` |
+**Pay-as-you-go:**
 
-**Creating a pay-as-you-go key** (China):
-
-1. Open the API Key page in the Bailian console and **pick the right region in
-   the top bar first** (e.g. 华北2（北京）, North China 2 (Beijing) — keys don't
-   work across regions).
+1. Open [Bailian console → API Key](https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key)
+   and **pick the right region in the top bar first** (e.g. 华北2（北京）,
+   North China 2 (Beijing) — keys don't work across regions).
 2. In the 按量付费 (pay-as-you-go) section click **创建API-KEY** (Create
    API key), leave owner account and workspace at their defaults, set
    permissions to **All**, click **OK**.
 
     ![Bailian API Key page: region picker at the top, "Create API key" in the pay-as-you-go section](images/qwen_bailian_apikey_zh.png)
 
-3. **Copy or download it now** — new keys are shown in full only once.
+3. **Copy or download it now** — new keys are shown in full only once. The key
+   starts with `sk-`.
 4. In Vibe Seller click **Alibaba Cloud ›**, pick **Pay-as-you-go (China)**,
-   paste, create.
+   paste, create. International (Singapore) accounts create the key on the API
+   Key page of the international [Model Studio console](https://modelstudio.console.alibabacloud.com/),
+   pick **Pay-as-you-go (International)**, and replace `{WorkspaceId}` in the
+   endpoint with their own Workspace ID (you can't save until you do; to find
+   it, follow the [official regions page](https://www.alibabacloud.com/help/en/model-studio/regions)).
 
-**Token Plan** is bought from **TokenPlan** in Bailian's top navigation
+**Plan (Coding Plan):** buy it on the [Coding Plan page](https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan);
+the dedicated key (starting with `sk-sp-`) is on the same page. In Vibe Seller
+pick **Alibaba Cloud › Coding Plan**.
+
+**Plan (Token Plan):** buy it from **TokenPlan** in Bailian's top navigation
 (personal or team edition). After buying, use "Create or view API Key" on the
-[Token Plan personal page](https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal)
-and pick **Alibaba Cloud › Token Plan** in Vibe Seller.
+[Token Plan personal page](https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal);
+for teams an admin assigns a seat in [member management](https://bailian.console.aliyun.com/cn-beijing/subscription/uac-admin/organization/members/list).
+In Vibe Seller pick **Alibaba Cloud › Token Plan**.
 
 ![Bailian Token Plan purchase page (personal / team edition)](images/qwen_tokenplan_zh.png)
 
@@ -272,19 +304,11 @@ and pick **Alibaba Cloud › Token Plan** in Vibe Seller.
 - **`401 invalid_api_key` almost always means the key and preset don't match**
   — e.g. a Coding Plan `sk-sp-` key on a pay-as-you-go preset. Create the
   profile again with the matching option.
-- The **international pay-as-you-go** preset's Base URL contains a
-  `{WorkspaceId}` placeholder; you can't save until you replace it with your own
-  Workspace ID (the field is highlighted). To find it, follow the
-  [official regions page](https://www.alibabacloud.com/help/en/model-studio/regions).
 - The Coding Plan and Token Plan presets use the **China** endpoints. If you
   bought the plan on the international site, set the `ANTHROPIC_BASE_URL`
-  field to the international endpoint from the
-  official docs (Coding Plan: `https://coding-intl.dashscope.aliyuncs.com/apps/anthropic`;
-  Token Plan: `https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`).
-- The terms say **Coding Plan is only for interactive use inside coding tools**
-  — automated scripts and non-interactive batch calls are prohibited and may get
-  the key banned. Vibe Seller's scheduled tasks are unattended calls; for
-  long-term use, prefer pay-as-you-go, or read the Token Plan terms first.
+  field to the international endpoint from the official docs (Coding Plan:
+  `https://coding-intl.dashscope.aliyuncs.com/apps/anthropic`; Token Plan:
+  `https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`).
 
 Official docs: [Get an API key (zh)](https://help.aliyun.com/zh/model-studio/get-api-key),
 [Claude Code (international)](https://www.alibabacloud.com/help/en/model-studio/claude-code),
@@ -293,32 +317,37 @@ Official docs: [Get an API key (zh)](https://help.aliyun.com/zh/model-studio/get
 
 ## Xiaomi MiMo
 
-**Good for**: people with a Xiaomi account. Both pay-as-you-go and a Token Plan
-are available; **the keys are not interchangeable**.
+MiMo has both. **The two keys aren't interchangeable and use different
+endpoints**, so Vibe Seller has two presets. Log in to the
+[MiMo API Platform](https://platform.xiaomimimo.com/) with a Xiaomi account (you
+can register from the login page). **Users in mainland China must complete
+real-name verification** (personal or business) before topping up or buying a
+plan.
 
-1. Log in to the [MiMo API Platform](https://platform.xiaomimimo.com/) with a
-   Xiaomi account (you can register from the login page). **Users in mainland
-   China must complete real-name verification** (personal or business) before
-   topping up or buying a plan.
-2. Pick one:
-    - **Pay-as-you-go**: top up under **账户余额** (Account Balance —
-      [balance page](https://platform.xiaomimimo.com/#/console/balance);
-      overseas: Apple Pay, Google Pay, cards), then under **API Keys**
-      ([API Keys page](https://platform.xiaomimimo.com/#/console/api-keys))
-      click **新建 API Key** (New API Key) in the top right — the key starts
-      with `sk-`. In Vibe Seller pick **MiMo › Pay-as-you-go**.
+**Pay-as-you-go:**
 
-        ![MiMo console API Keys page with "New API Key" in the top right](images/mimo_apikeys_zh.png)
+1. Top up under **账户余额** (Account Balance — [balance page](https://platform.xiaomimimo.com/#/console/balance);
+   overseas: Apple Pay, Google Pay, cards).
+2. Under **API Keys** ([API Keys page](https://platform.xiaomimimo.com/#/console/api-keys))
+   click **新建 API Key** (New API Key) in the top right — the key starts with
+   `sk-`.
 
-    - **Token Plan**: under **Token Plan** in the left menu, choose the
-      personal or team edition and a tier, and click 立即订阅 (Subscribe now).
-      Then get your dedicated key on the [Token Plan management page](https://platform.xiaomimimo.com/#/console/plan-manage)
-      (`tp-` for individual, `ttp-` for team; team plans need a seat assigned
-      first). In Vibe Seller pick **MiMo › Token Plan (China cluster)**.
+    ![MiMo console API Keys page with "New API Key" in the top right](images/mimo_apikeys_zh.png)
 
-        ![MiMo console Token Plan subscription page](images/mimo_tokenplan_zh.png)
+3. In Vibe Seller pick **MiMo › Pay-as-you-go**, paste, create.
 
-3. Paste, create.
+**Plan (Token Plan):**
+
+1. Under **Token Plan** in the left menu, choose the personal or team edition
+   and a tier, and click 立即订阅 (Subscribe now). Account balance can't pay for
+   a Token Plan; it's bought separately.
+
+    ![MiMo console Token Plan subscription page](images/mimo_tokenplan_zh.png)
+
+2. Get your dedicated key on the [Token Plan management page](https://platform.xiaomimimo.com/#/console/plan-manage)
+   (`tp-` for individual, `ttp-` for team; team plans need a seat assigned
+   first).
+3. In Vibe Seller pick **MiMo › Token Plan (China cluster)**, paste, create.
 
 **Pitfalls**:
 
@@ -326,10 +355,10 @@ are available; **the keys are not interchangeable**.
   the matching preset.
 - The Token Plan has China, Singapore and Europe clusters. The preset defaults
   to China; if the Base URL on your Token Plan page doesn't start with
-  `token-plan-cn`, set the `ANTHROPIC_BASE_URL` field to the one shown there. Overseas accounts get their own
-  endpoints for pay-as-you-go too — use what the console shows.
-- Account balance can't pay for a Token Plan; it's bought separately. Calls
-  between 00:00 and 08:00 Beijing time use quota at 0.8×.
+  `token-plan-cn`, set the `ANTHROPIC_BASE_URL` field to the one shown there.
+  Overseas accounts get their own endpoints for pay-as-you-go too — use what the
+  console shows.
+- Token Plan calls between 00:00 and 08:00 Beijing time use quota at 0.8×.
 
 Official docs: [First API call](https://mimo.mi.com/docs/quick-start/summary/first-api-call),
 [Token Plan quick access](https://mimo.mi.com/docs/tokenplan/Token%20Plan/quick-access),
@@ -337,34 +366,29 @@ Official docs: [First API call](https://mimo.mi.com/docs/quick-start/summary/fir
 
 ## Claude
 
-Claude has the highest ceiling. Both ways to use it need **no key pasted into
-Vibe Seller**.
+Claude has the highest ceiling. Either way, you **sign in to Claude Code on this
+machine** and Vibe Seller's built-in **Claude** profile ("System default
+environment") uses that sign-in — **no key is pasted into Vibe Seller**.
 
-### Reuse Claude Code already signed in on this machine (recommended)
+**Pay-as-you-go (Claude Console):** sign up on the [Claude Console](https://platform.claude.com/)
+and add credit under [Billing](https://platform.claude.com/settings/billing)
+(keys live on the [API keys](https://platform.claude.com/settings/keys) page).
+The simplest route is to choose the Console account at step 2 below; Claude Code
+handles the key for you.
 
-Vibe Seller runs on Claude Code. Once Claude Code on this machine is signed in,
-Vibe Seller's built-in **Claude** profile ("System default environment") uses
-that sign-in.
+**Plan (Claude Pro / Max subscription):** subscribe on the [pricing page](https://claude.com/pricing),
+then sign in with your claude.ai account at step 2 below.
+
+Signing in:
 
 1. Install Claude Code following the [official setup guide](https://code.claude.com/docs/en/setup).
-2. Run `claude` in a terminal; a browser login page opens. You can sign in with:
-    - a **Claude Pro / Max subscription** — your claude.ai account
-      ([pricing](https://claude.com/pricing));
-    - a **Claude Console account** (billed by API usage) — choose the Console
-      account at login.
+2. Run `claude` in a terminal; a browser login page opens. Choose the claude.ai
+   account or the Console account, depending on how you pay.
 3. When the terminal shows `Login successful`, you're done.
 4. Back in Vibe Seller, `Settings → AI`: if the "Claude" row has no
    **★ Default** mark, click **Set as Default**.
 
 ![Settings → AI: the built-in Claude profile marked "★ Default"](images/vibeseller_claude_default_en.png)
-
-### An Anthropic Console API key
-
-Sign up on the [Claude Console](https://platform.claude.com/), add credit under
-[Billing](https://platform.claude.com/settings/billing), and create keys on the
-[API keys](https://platform.claude.com/settings/keys) page. The simplest way to
-use Console billing is still step 2 above: sign in to Claude Code with the
-Console account.
 
 **Pitfalls**:
 
@@ -390,10 +414,10 @@ provider's console, **create a new one**, and copy it this time.
 <details markdown="1">
 <summary><b>I accidentally shared my key / pasted it in a group chat</b></summary>
 
-Immediately **delete (or disable) that key** in the provider's console and create
-a new one. Then in Vibe Seller `Settings → AI`, find the profile using it, click
-**Edit**, paste the new key into **API Key**, and click **Save**. A leaked key lets
-anyone spend your money — don't wait.
+Immediately **delete (or disable / reset) that key** in the provider's console
+and create a new one. Then in Vibe Seller `Settings → AI`, find the profile
+using it, click **Edit**, paste the new key into **API Key**, and click **Save**.
+A leaked key lets anyone spend your money — don't wait.
 
 </details>
 
@@ -413,9 +437,9 @@ Check in this order:
 <summary><b>Insufficient balance (402) / quota exhausted (429)</b></summary>
 
 - **Insufficient balance**: the pay-as-you-go account is empty — top up.
-- **429**: too many requests, or **your plan quota is used up**. Plan quota
-  comes back when the cycle resets, or upgrade; if it's urgent, create a profile
-  for another provider in Vibe Seller to cover in the meantime.
+- **429**: too many requests, or **your plan quota is used up** (the 5-hour or
+  weekly cap). Wait for it to come back, or upgrade; if it's urgent, create a
+  profile for another provider in Vibe Seller to cover in the meantime.
 
 </details>
 

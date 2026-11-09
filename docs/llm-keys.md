@@ -14,6 +14,20 @@ Vibe Seller 本身免费，干活的 AI 模型要用你自己的 **API Key**—�
 > 各家控制台改版很勤快。本文按 **2026 年 11 月** 各家官方文档整理，
 > 每一节都附了官方链接；界面和文中对不上时，以官方页面为准。
 
+**目录**
+
+- [先选哪家](#先选哪家)
+- [通用流程](#通用流程)
+- 各家怎么拿 Key：
+    - [DeepSeek](#deepseek)
+    - [Kimi](#kimi)
+    - [MiniMax](#minimax)
+    - [智谱 GLM](#智谱-glm)
+    - [通义千问（阿里云百炼）](#通义千问阿里云百炼)
+    - [小米 MiMo](#小米-mimo)
+    - [Claude](#claude)
+- [常见问题](#常见问题)
+
 ## 先选哪家
 
 | 你的情况 | 建议 |
@@ -21,20 +35,16 @@ Vibe Seller 本身免费，干活的 AI 模型要用你自己的 **API Key**—�
 | 第一次用，想先试试 | **DeepSeek**：注册、充 15–20 块就能跑，按用量扣钱，没有月费 |
 | 这台电脑上的 Claude Code 已经登录了 Claude 订阅 | **不用拿 Key**，直接复用，见 [Claude](#claude) |
 | 天天在跑、用量大，想省钱 | 买一家的**套餐**（Token Plan / Coding Plan / M Plan），见下面各家 |
-| 公司或账号在海外 | GLM、通义、MiniMax、MiMo 都有国际版，选对应的「International」预设或改 Base URL |
+| 公司或账号在海外 | GLM、通义、MiniMax、MiMo 都有国际版，选对应的「International」预设或改连接地址 |
 
-### 按量付费 vs 套餐，有什么区别？
+### 按量付费 vs 套餐
 
-- **按量付费（Pay-as-you-go）**：先充值，用多少扣多少（按 token 计费，token
-  就是模型读写的文字量）。适合刚开始、用量不稳定的时候。
-- **套餐（Token Plan / Coding Plan / M Plan 等）**：按月付固定的钱，换一份额度，
-  用完要等下个周期或升级。用量大时单价更低。
-- **套餐的 Key 和按量的 Key 是两种不同的 Key**，大多数家不能混用。有几家
-  （通义、MiMo）连接地址也不一样，所以 Vibe Seller 给它们分了不同的预设：
-  **套餐 Key 一定要选带「Plan」的预设**，否则测试连接会失败。
-- 套餐一般都有使用条款，比如只能在官方支持的编程工具里用、不允许无人值守的
-  自动化调用。Vibe Seller 底层跑的是 Claude Code，但定时任务属于无人值守调用，
-  **买套餐前请先读清楚该家的条款**；拿不准就先用按量付费。
+- **按量付费**：先充值，按实际用掉的 token（模型读写的文字量）扣钱。
+- **套餐**（Token Plan / Coding Plan / M Plan 等）：每月固定价格换一份额度，
+  通常同时有「滚动 5 小时」和「每周」两道用量上限；用得多的话折算下来每个
+  token 更便宜。
+- **套餐 Key 和按量 Key 是两把不同的 Key**，在控制台的不同页面拿，不能混用。
+  Vibe Seller 里有带「Plan」字样预设的，套餐 Key 要选那个。
 
 ## 通用流程
 
@@ -60,23 +70,25 @@ GLM、Alibaba Cloud、MiMo 点开后会多出一排子选项，例如 Alibaba Cl
 
 ![点开 Alibaba Cloud 后的四个子选项](images/vibeseller_preset_variants_zh.png)
 
-预设按钮和 Key 的对应关系一览：
+哪种 Key 选哪个预设，一览：
 
 | 供应商 | 按量付费的 Key → 选 | 套餐的 Key → 选 |
 |---|---|---|
-| DeepSeek | `DeepSeek` | （无套餐） |
-| Kimi | （本预设不支持按量） | `Kimi`（Kimi 会员的 Kimi Code Key） |
-| MiniMax | `MiniMax` | `MiniMax`（同一个预设，Key 决定计费） |
-| 智谱 GLM（国内） | `GLM › China` | `GLM › China`（同一个预设，Key 决定计费） |
-| Z.AI（GLM 国际） | `GLM › International` | `GLM › International` |
-| 通义千问（国内） | `Alibaba Cloud › Pay-as-you-go (China)` | `Coding Plan` 或 `Token Plan`，**按你买的那种选** |
-| 通义千问（国际） | `Alibaba Cloud › Pay-as-you-go (International)` | 见[通义千问](#通义千问阿里云百炼) |
+| DeepSeek | `DeepSeek` | （没有套餐） |
+| Kimi | `Kimi`，再改连接地址和模型，见 [Kimi](#kimi) | `Kimi`（Kimi 会员的 Kimi Code Key） |
+| MiniMax | `MiniMax` | `MiniMax`——同一个预设，按你的付费方式粘对应的 Key |
+| 智谱 GLM（国内） | `GLM › China` | `GLM › China`——同一个预设，按付费方式粘对应的 Key |
+| Z.AI（GLM 国际） | `GLM › International` | `GLM › International`——同上 |
+| 通义千问（国内） | `Alibaba Cloud › Pay-as-you-go (China)` | `Alibaba Cloud › Coding Plan` 或 `Token Plan`，**按你买的那种选** |
+| 通义千问（国际） | `Alibaba Cloud › Pay-as-you-go (International)` | 同上，再改连接地址，见[通义千问](#通义千问阿里云百炼) |
 | 小米 MiMo | `MiMo › Pay-as-you-go` | `MiMo › Token Plan (China cluster)` |
 | Claude | 内置的 `Claude` 配置 | 内置的 `Claude` 配置 |
 
 ## DeepSeek
 
-**适合**：第一次用、想先花十几块钱试试。只有按量付费，没有月费。
+**只有按量付费，没有套餐。** 适合第一次用、想先花十几块钱试试。
+
+**按量付费：**
 
 1. 打开 [DeepSeek 开放平台](https://platform.deepseek.com/)，注册并登录。
    页面如果要求实名认证，按提示完成。
@@ -103,51 +115,69 @@ GLM、Alibaba Cloud、MiMo 点开后会多出一排子选项，例如 Alibaba Cl
 
 ## Kimi
 
-**适合**：已经是 Kimi 会员的用户。Vibe Seller 的 Kimi 预设走的是 **Kimi Code**
-接口，需要会员里包含 Kimi Code 权益。
+Kimi 两种都有，但 **Key 在两个不同的平台**，连接地址也不同。
+
+**套餐（Kimi 会员的 Kimi Code 权益）：**
 
 1. 在 [Kimi 会员页](https://www.kimi.com/membership/pricing) 开通会员。
    **不是每个档位都含 Kimi Code 权益**，购买前看清页面说明。
 2. 打开 [Kimi Code 控制台](https://www.kimi.com/code/console)，点
-   **新建 API Key**，输入一个名字，确认。
-3. **立刻复制**——关掉弹窗后就看不到完整的 Key 了。
-4. Vibe Seller 里选预设 **Kimi**，粘贴 Key，创建。
+   **新建 API Key**，输入名字确认，**立刻复制**——关掉弹窗后就看不到完整的 Key 了。
+3. Vibe Seller 里选预设 **Kimi**，粘贴 Key，创建。Kimi 预设默认连的就是 Kimi Code。
 
-**常见坑**：官方文档只说明了用 **Kimi Code 控制台** 生成的 Key；Kimi 开放平台
-（按量付费那个）的 Key 能不能用在这里，官方没有说明，请用 Kimi Code 控制台的 Key。
-官方说明：[在 Claude Code 中使用](https://www.kimi.com/code/docs/third-party-tools/claude-code.html)。
+**按量付费（Kimi API 开放平台）：**
+
+1. 在 [Kimi API 开放平台](https://platform.kimi.com/) 注册登录并充值，到
+   [API Keys](https://platform.kimi.com/console/api-keys) 页面创建并复制 Key
+   （海外账号用 [platform.kimi.ai](https://platform.kimi.ai/console/api-keys)）。
+2. Vibe Seller 里选预设 **Kimi**，粘贴 Key，然后改两处：
+    - `ANTHROPIC_BASE_URL` 一栏改成 `https://api.moonshot.cn/anthropic`
+      （海外账号：`https://api.moonshot.ai/anthropic`）；
+    - **模型** 一栏改成 `kimi-k3[1m]`（开放平台的模型名，和 Kimi Code 的不一样）：
+      全选原来的内容，直接粘贴覆盖。
+3. 展开 **高级环境变量**，确认 `ANTHROPIC_DEFAULT_OPUS_MODEL`、
+   `ANTHROPIC_DEFAULT_SONNET_MODEL`、`ANTHROPIC_DEFAULT_HAIKU_MODEL`、
+   `ANTHROPIC_DEFAULT_FABLE_MODEL`、`CLAUDE_CODE_SUBAGENT_MODEL` 这几行也都变成了
+   `kimi-k3[1m]`。如果模型一栏是先删空再打字的，这几行会变成空的，要手动填上。
+4. 点 **创建**，测试连接通过就好了。
+
+**常见坑**：开放平台的 Key 不能连 Kimi Code 地址，Kimi Code 的 Key 也不能连开放平台
+地址——401 时先检查 Key 和连接地址是不是同一个平台的。
+官方说明：[Kimi Code 在 Claude Code 中使用](https://www.kimi.com/code/docs/third-party-tools/claude-code.html)、
+[开放平台快速开始](https://platform.kimi.com/docs/get-api-key)、
+[开放平台在 Claude Code 中使用 Kimi](https://platform.kimi.com/docs/guide/claude-code-kimi)。
 
 ## MiniMax
 
-**适合**：按量和套餐都想要的人。MiniMax 的套餐叫 **M Plan**（老用户可能还记得
-它以前叫 Token Plan）。两种 Key 用的是**同一个 Vibe Seller 预设**，用哪种 Key
-就扣哪边的钱。
+MiniMax 两种都有，套餐叫 **M Plan**（以前叫 Token Plan）。**两把 Key 在控制台的
+不同页面，不可互换**；Vibe Seller 里都用同一个 **MiniMax** 预设，粘哪把 Key 就按
+哪种方式计费。国内账号在 [MiniMax 开放平台](https://platform.minimax.cn/) 注册登录。
 
-国内账号在 [MiniMax 开放平台](https://platform.minimax.cn/) 注册登录，然后二选一：
+**按量付费：**
 
-- **按量付费**：在左侧 **费用管理 → 账户钱包** 充值（[余额页](https://platform.minimax.cn/user-center/payment/balance)），
-  再到 **API 管理 → API Key**（[API Key 页](https://platform.minimax.cn/user-center/basic-information/interface-key)），
-  点右上角 **创建 API Key**。
+1. 左侧 **费用管理 → 账户钱包** 充值（[余额页](https://platform.minimax.cn/user-center/payment/balance)）。
+2. 左侧 **API 管理 → API Key**（[API Key 页](https://platform.minimax.cn/user-center/basic-information/interface-key)），
+   点右上角 **创建 API Key**，复制。
 
     ![MiniMax API Key 页，右上角「创建 API Key」](images/minimax_interface_key_zh.png)
 
-- **M Plan 套餐**：在 [套餐详情](https://platform.minimax.cn/console/plan) 选档位
-  付款，付完到左侧 **个人订阅 → 套餐管理**，页面下方的 **订阅 Key** 就是要用的 Key。
-  页面上也写着：订阅 Key 与按量付费 API Key 不可互换。
+3. Vibe Seller 里选预设 **MiniMax**，粘贴，创建。
+
+**套餐（M Plan）：**
+
+1. 在 [套餐详情](https://platform.minimax.cn/console/plan) 选档位付款。
+2. 左侧 **个人订阅 → 套餐管理**，页面下方的 **订阅 Key** 就是套餐 Key：每个账号
+   一把，默认打码显示，点右边的复制图标复制；泄露了点 **重置 Key** 换一把。
+   页面上也写着：**订阅 Key 与按量付费 API Key 不可互换**。
 
     ![MiniMax 套餐管理页里的订阅 Key](images/minimax_plan_key_zh.png)
 
-然后在 Vibe Seller 里选预设 **MiniMax**，粘贴 Key，创建。
+3. Vibe Seller 里同样选预设 **MiniMax**，粘贴订阅 Key，创建。
 
 **国际账号**：在 [platform.minimax.io](https://platform.minimax.io/) 注册，菜单是
 `API Keys > Create new secret key`（按量）和 `Billing > M Plan`（套餐）。国际账号的
 Key 只能连国际地址：选完 MiniMax 预设后，把 `ANTHROPIC_BASE_URL` 一栏改成
 `https://api.minimax.io/anthropic` 再创建。
-
-**常见坑**：
-
-- 订阅 Key 只用套餐额度，按量 Key 只扣余额，两者不能混用。
-- 官方说明 M Plan 面向个人开发者的交互式使用，**生产环境建议用按量付费**。
 
 官方说明：[前置准备](https://platform.minimax.cn/docs/guides/quickstart-preparation)、
 [开通 M Plan](https://platform.minimaxi.com/docs/m-plan/quickstart)、
@@ -156,46 +186,43 @@ Key 只能连国际地址：选完 MiniMax 预设后，把 `ANTHROPIC_BASE_URL` 
 
 ## 智谱 GLM
 
-**适合**：国内用户选 **智谱开放平台**（预设 `GLM › China`），海外用户选
-**Z.AI**（预设 `GLM › International`）。两边都有按量付费和 GLM Coding Plan 套餐。
+国内用户用 **智谱开放平台**（预设 `GLM › China`），海外用户用 **Z.AI**（预设
+`GLM › International`）。两边都有按量付费和 GLM Coding Plan 套餐，**两种 Key 在
+不同页面、互不通用**；Vibe Seller 里按量和套餐用同一个预设，粘哪把 Key 就扣哪边。
 
-> **2026 年 10 月 16 日起**，智谱 / Z.AI 把「标准 API Key」（按量 / 资源包）和
-> 「Coding Plan 套餐 Key」分开管理了：**新建的 Key 是哪种，就扣哪边的钱**。
-> 已订阅套餐却拿标准 Key 来用，不会用套餐额度，而是扣账户余额。
-> 之前建的老 Key 不用换，系统已自动归类。
+> 2026 年 10 月 16 日起，智谱 / Z.AI 把「标准 API Key」（按量 / 资源包）和
+> 「Coding Plan 套餐 Key」分开管理。之前建的老 Key 不用换，系统已自动归类。
 
 ### 国内：智谱开放平台
 
-1. 打开 [智谱开放平台](https://open.bigmodel.cn)，右上角「注册/登录」。调 API
-   不强制实名，但官方建议做 [实名认证](https://open.bigmodel.cn/usercenter/auth)。
-2. 二选一：
-    - **按量付费**：充值后，在 [标准 API Key 页面](https://bigmodel.cn/usercenter/proj-mgmt/apikeys)
-      点右上角 **新建API Key**。页面顶部的提示也说明了：这里新建的 Key 只能用于
-      标准 API（按量），不能用套餐额度。
+在 [智谱开放平台](https://open.bigmodel.cn) 右上角「注册/登录」。调 API 不强制
+实名，但官方建议做 [实名认证](https://open.bigmodel.cn/usercenter/auth)。
 
-        ![智谱「标准 API key」页，右上角「新建API Key」](images/glm_bigmodel_apikeys_zh.png)
+**按量付费：** 充值后，到 [标准 API Key 页面](https://bigmodel.cn/usercenter/proj-mgmt/apikeys)
+点右上角 **新建API Key**。页面顶部的提示也写明：这里新建的 Key 只能用于标准 API（按量）。
 
-    - **GLM Coding Plan**：在 **Coding Plan → 套餐概览** 点 **立即订阅** 买套餐；
-      订阅后在 **个人编程套餐 → 套餐概览** 新建 Key（团队版成员在
-      **团队编程套餐 → 我的套餐**）。
+![智谱「标准 API key」页，右上角「新建API Key」](images/glm_bigmodel_apikeys_zh.png)
 
-        ![智谱 Coding Plan「套餐概览」页，未订阅时显示「立即订阅」](images/glm_bigmodel_codingplan_zh.png)
+**套餐（GLM Coding Plan）：** 在 **Coding Plan → 套餐概览** 点 **立即订阅** 买套餐；
+订阅后在 **个人编程套餐 → 套餐概览** 新建 Key（团队版成员在 **团队编程套餐 → 我的套餐**）。
 
-3. Vibe Seller 里点 **GLM ›**，再选 **China**，粘贴 Key，创建。
+![智谱 Coding Plan「套餐概览」页，未订阅时显示「立即订阅」](images/glm_bigmodel_codingplan_zh.png)
+
+两种 Key 都是：Vibe Seller 里点 **GLM ›**，再选 **China**，粘贴，创建。
 
 ### 海外：Z.AI
 
-1. 打开 [Z.AI 开放平台](https://z.ai/model-api) 注册登录。
-2. 二选一：
-    - **按量付费**：在 [API Keys](https://z.ai/manage-apikey/apikey-list) 页的
-      **Standard API Key** 下创建。
-    - **GLM Coding Plan**：在 [订阅页](https://z.ai/subscribe) 买套餐后，在
-      [API Keys](https://z.ai/manage-apikey/apikey-list) 页的 **Personal Coding Plan**
-      下创建（团队版在 [Team Coding Plan → My Plan](https://z.ai/manage-apikey/coding-plan/team/my-plan)）。
-3. Vibe Seller 里点 **GLM ›**，再选 **International**，粘贴 Key，创建。
+在 [Z.AI 开放平台](https://z.ai/model-api) 注册登录。
 
-**常见坑**：官方注明 GLM Coding Plan **仅限在官方支持的工具中使用**（Claude Code
-在支持列表里），购买前请读条款。
+**按量付费：** 在 [API Keys](https://z.ai/manage-apikey/apikey-list) 页的
+**Standard API Key** 下创建。
+
+**套餐（GLM Coding Plan）：** 在 [订阅页](https://z.ai/subscribe) 买套餐后，在
+[API Keys](https://z.ai/manage-apikey/apikey-list) 页的 **Personal Coding Plan** 下创建
+（团队版在 [Team Coding Plan → My Plan](https://z.ai/manage-apikey/coding-plan/team/my-plan)）。
+
+两种 Key 都是：Vibe Seller 里点 **GLM ›**，再选 **International**，粘贴，创建。
+
 官方说明：[API Key 分类管理说明](https://docs.bigmodel.cn/cn/coding-plan/notice/api-key-management)、
 [Coding Plan 快速开始](https://docs.bigmodel.cn/cn/coding-plan/quick-start)、
 [Z.AI API Key Management Guide](https://docs.z.ai/devpack/notice/api-key-management)、
@@ -203,31 +230,32 @@ Key 只能连国际地址：选完 MiniMax 预设后，把 `ANTHROPIC_BASE_URL` 
 
 ## 通义千问（阿里云百炼）
 
-**适合**：已经有阿里云账号的用户。百炼有**四种**接入方式，**Key 和连接地址必须
-配套**，所以 Vibe Seller 里点 **Alibaba Cloud ›** 后有四个子选项：
+百炼有按量付费和两种套餐（Coding Plan、Token Plan）。**每种 Key 都有自己的页面和
+连接地址，必须配套**，所以 Vibe Seller 里点 **Alibaba Cloud ›** 后有四个子选项。
 
-| 你买的是 | Key 的样子 | 在哪拿 | Vibe Seller 选 |
-|---|---|---|---|
-| 按量付费（国内 / 北京） | `sk-` 开头 | [百炼控制台 → API Key](https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key) | `Pay-as-you-go (China)` |
-| 按量付费（国际 / 新加坡） | `sk-` 开头 | 国际站 [Model Studio](https://modelstudio.console.alibabacloud.com/) 的 API Key 页 | `Pay-as-you-go (International)` |
-| Coding Plan | `sk-sp-` 开头 | [Coding Plan 页](https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan) | `Coding Plan` |
-| Token Plan（个人版 / 团队版） | 见控制台 | [Token Plan 个人版页](https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal) 点「创建或查看 API Key」；团队版由管理员在 [成员管理](https://bailian.console.aliyun.com/cn-beijing/subscription/uac-admin/organization/members/list)「分配坐席并获取 API Key」 | `Token Plan` |
+**按量付费：**
 
-**按量付费 Key 的创建步骤**（国内）：
-
-1. 打开百炼控制台的 API Key 页，**先在顶部选对地域**（比如「华北2（北京）」，
-   Key 不能跨地域用）。
+1. 打开 [百炼控制台 → API Key](https://bailian.console.aliyun.com/cn-beijing/model/settings/api-key)，
+   **先在顶部选对地域**（比如「华北2（北京）」，Key 不能跨地域用）。
 2. 在「按量付费」一栏点 **创建API-KEY**，「归属账号」「归属业务空间」保持默认，
    「权限」选 **全部**，点 **确定**。
 
     ![百炼 API Key 页：顶部地域选择，「按量付费」一栏的「创建API-KEY」](images/qwen_bailian_apikey_zh.png)
 
-3. **立刻复制或下载**——新版 Key 只在创建成功时完整显示一次。
+3. **立刻复制或下载**——新版 Key 只在创建成功时完整显示一次。Key 是 `sk-` 开头。
 4. Vibe Seller 里点 **Alibaba Cloud ›**，选 **Pay-as-you-go (China)**，粘贴，创建。
+   国际站（新加坡）账号在国际站 [Model Studio](https://modelstudio.console.alibabacloud.com/)
+   的 API Key 页创建，选 **Pay-as-you-go (International)**，并把连接地址里的
+   `{WorkspaceId}` 换成你自己的 Workspace ID（不换没法保存，界面会标红；在哪看请按
+   [官方地域说明](https://www.alibabacloud.com/help/en/model-studio/regions)）。
 
-**Token Plan** 在百炼顶部导航的 **TokenPlan** 购买（分个人版 / 团队版），买好后到
-[Token Plan 个人版页](https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal)
-「创建或查看 API Key」，Vibe Seller 里选 **Alibaba Cloud › Token Plan**。
+**套餐（Coding Plan）：** 在 [Coding Plan 页](https://bailian.console.aliyun.com/cn-beijing/subscription/coding-plan)
+购买，同一页拿专属 Key（`sk-sp-` 开头）。Vibe Seller 选 **Alibaba Cloud › Coding Plan**。
+
+**套餐（Token Plan）：** 在百炼顶部导航的 **TokenPlan** 购买（分个人版 / 团队版），
+买好后到 [Token Plan 个人版页](https://bailian.console.aliyun.com/cn-beijing/subscription/token-plan/personal)
+「创建或查看 API Key」；团队版由管理员在 [成员管理](https://bailian.console.aliyun.com/cn-beijing/subscription/uac-admin/organization/members/list)
+「分配坐席并获取 API Key」。Vibe Seller 选 **Alibaba Cloud › Token Plan**。
 
 ![百炼 Token Plan 购买页（个人版 / 团队版）](images/qwen_tokenplan_zh.png)
 
@@ -235,16 +263,10 @@ Key 只能连国际地址：选完 MiniMax 预设后，把 `ANTHROPIC_BASE_URL` 
 
 - **报 `401 invalid_api_key` 基本都是 Key 和预设没配对**，比如拿 Coding Plan 的
   `sk-sp-` Key 选了按量的预设。换成对应的子选项重新创建即可。
-- **国际按量**预设的 Base URL 里有个占位符 `{WorkspaceId}`，不替换成你自己的
-  Workspace ID 就没法保存（界面会标红提示）。Workspace ID 在哪看请按
-  [官方地域说明](https://www.alibabacloud.com/help/en/model-studio/regions) 查找。
 - 预设里 Coding Plan / Token Plan 用的是**国内**地址。买的是国际站套餐的话，
   把 `ANTHROPIC_BASE_URL` 一栏改成官方文档给的国际地址
   （Coding Plan：`https://coding-intl.dashscope.aliyuncs.com/apps/anthropic`；
   Token Plan：`https://token-plan.ap-southeast-1.maas.aliyuncs.com/apps/anthropic`）。
-- 官方条款写明 **Coding Plan 仅限在编程工具中交互使用**，禁止自动化脚本、
-  非交互式批量调用，违规可能被封 Key。Vibe Seller 的定时任务属于无人值守调用，
-  长期用建议选按量付费，或先读清 Token Plan 的条款。
 
 官方说明：[获取 API Key](https://help.aliyun.com/zh/model-studio/get-api-key)、
 [Claude Code 接入（含四种方式对照）](https://help.aliyun.com/zh/model-studio/claude-code)、
@@ -253,35 +275,39 @@ Key 只能连国际地址：选完 MiniMax 预设后，把 `ANTHROPIC_BASE_URL` 
 
 ## 小米 MiMo
 
-**适合**：有小米账号的用户。按量付费和 Token Plan 两种都有，**Key 不通用**。
+MiMo 两种都有，**两把 Key 不通用、连接地址也不同**，所以 Vibe Seller 里分了两个预设。
+先用小米账号登录 [MiMo 开放平台](https://platform.xiaomimimo.com/)（没有账号可以在
+登录页注册）。**国内用户充值或买套餐前必须完成实名认证**（个人或企业都行）。
 
-1. 用小米账号登录 [MiMo 开放平台](https://platform.xiaomimimo.com/)（没有账号可以
-   在登录页注册）。**国内用户充值或买套餐前必须完成实名认证**（个人或企业都行）。
-2. 二选一：
-    - **按量付费**：在左侧 **账户余额**（[余额页](https://platform.xiaomimimo.com/#/console/balance)）
-      充值（支持微信、支付宝、小米支付），再到左侧 **API Keys**
-      （[API Keys 页](https://platform.xiaomimimo.com/#/console/api-keys)）点右上角
-      **新建 API Key**，格式是 `sk-` 开头。Vibe Seller 选 **MiMo › Pay-as-you-go**。
+**按量付费：**
 
-        ![MiMo 控制台 API Keys 页，右上角「新建 API Key」](images/mimo_apikeys_zh.png)
+1. 左侧 **账户余额**（[余额页](https://platform.xiaomimimo.com/#/console/balance)）
+   充值，支持微信、支付宝、小米支付。
+2. 左侧 **API Keys**（[API Keys 页](https://platform.xiaomimimo.com/#/console/api-keys)）
+   点右上角 **新建 API Key**，Key 是 `sk-` 开头。
 
-    - **Token Plan**：在左侧 **Token Plan** 选个人版 / 团队版和套餐，点「立即订阅」；
-      订阅后到 [Token Plan 管理页](https://platform.xiaomimimo.com/#/console/plan-manage)
-      拿专属 Key（个人版 `tp-` 开头，团队版 `ttp-` 开头；团队版要先分配席位）。
-      Vibe Seller 选 **MiMo › Token Plan (China cluster)**。
+    ![MiMo 控制台 API Keys 页，右上角「新建 API Key」](images/mimo_apikeys_zh.png)
 
-        ![MiMo 控制台 Token Plan 订阅页](images/mimo_tokenplan_zh.png)
+3. Vibe Seller 选 **MiMo › Pay-as-you-go**，粘贴，创建。
 
-3. 粘贴 Key，创建。
+**套餐（Token Plan）：**
+
+1. 左侧 **Token Plan**，选个人版 / 团队版和套餐，点「立即订阅」。Token Plan 不能用
+   账户余额抵扣，要单独购买。
+
+    ![MiMo 控制台 Token Plan 订阅页](images/mimo_tokenplan_zh.png)
+
+2. 订阅后到 [Token Plan 管理页](https://platform.xiaomimimo.com/#/console/plan-manage)
+   拿专属 Key（个人版 `tp-` 开头，团队版 `ttp-` 开头；团队版要先分配席位）。
+3. Vibe Seller 选 **MiMo › Token Plan (China cluster)**，粘贴，创建。
 
 **常见坑**：
 
 - `sk-` 的按量 Key 和 `tp-`/`ttp-` 的套餐 Key 不能混用，预设要选对。
 - Token Plan 有国内、新加坡、欧洲三个集群。预设默认是国内集群；如果 Token Plan
   页面显示的 Base URL 不是 `token-plan-cn` 开头，把 `ANTHROPIC_BASE_URL` 一栏
-  改成页面上显示的那个。海外账号的按量 Key 也一样，以控制台
-  显示的地址为准。
-- Token Plan 余额不能抵扣，需要单独购买；北京时间 0–8 点调用按 0.8 倍扣额度。
+  改成页面上显示的那个。海外账号的按量 Key 也一样，以控制台显示的地址为准。
+- Token Plan 北京时间 0–8 点调用按 0.8 倍扣额度。
 
 官方说明：[首次调用 API](https://mimo.mi.com/docs/quick-start/summary/first-api-call)、
 [Token Plan 快速接入](https://mimo.mi.com/docs/tokenplan/Token%20Plan/quick-access)、
@@ -289,29 +315,28 @@ Key 只能连国际地址：选完 MiniMax 预设后，把 `ANTHROPIC_BASE_URL` 
 
 ## Claude
 
-Claude 能力上限最高，有两种用法，都**不需要在 Vibe Seller 里粘 Key**。
+Claude 能力上限最高。两种方式都是**先让这台电脑上的 Claude Code 登录**，Vibe Seller
+内置的 **Claude** 配置（「系统默认环境」）直接用这个登录，**不需要在 Vibe Seller 里
+粘 Key**。
 
-### 复用这台电脑上已登录的 Claude Code（推荐）
+**按量付费（Claude Console）：** 在 [Claude Console](https://platform.claude.com/)
+注册，到 [Billing](https://platform.claude.com/settings/billing) 充值（Key 在
+[API keys](https://platform.claude.com/settings/keys) 页）。最省事的用法是下面第 2 步
+登录时选 Console 账号，Claude Code 会自己处理 Key。
 
-Vibe Seller 底层就是 Claude Code。只要这台电脑上的 Claude Code 已经登录，
-Vibe Seller 内置的 **Claude** 配置（「系统默认环境」）就直接用这个登录。
+**套餐（Claude Pro / Max 订阅）：** 在 [订阅页](https://claude.com/pricing) 订阅，
+下面第 2 步用 claude.ai 账号登录。
+
+登录步骤：
 
 1. 按 [官方安装文档](https://code.claude.com/docs/en/setup) 装好 Claude Code。
-2. 在终端运行 `claude`，浏览器会弹出登录页。可以用：
-    - **Claude Pro / Max 订阅**：用 claude.ai 账号登录（[订阅页](https://claude.com/pricing)）；
-    - **Claude Console 账号**（按 API 用量付费）：登录时选 Console 账号。
+2. 在终端运行 `claude`，浏览器会弹出登录页，按你的付费方式选 claude.ai 账号或
+   Console 账号。
 3. 终端显示 `Login successful` 就好了。
 4. 回到 Vibe Seller：`设置 → AI`，「Claude」那一行如果没有 **★ 默认** 标记，
    点 **设为默认**。
 
 ![设置 → AI：内置的 Claude 配置带「★ 默认」标记](images/vibeseller_claude_default_zh.png)
-
-### Anthropic Console 的 API Key
-
-在 [Claude Console](https://platform.claude.com/) 注册，到
-[Billing](https://platform.claude.com/settings/billing) 充值，在
-[API keys](https://platform.claude.com/settings/keys) 页创建 Key。最省事的用法仍是
-上面第 2 步用 Console 账号登录 Claude Code。
 
 **常见坑**：
 
@@ -337,7 +362,7 @@ Vibe Seller 内置的 **Claude** 配置（「系统默认环境」）就直接�
 <details markdown="1">
 <summary><b>Key 不小心发给别人 / 贴到群里了怎么办？</b></summary>
 
-立刻到供应商控制台**删除（或禁用）这个 Key**，再新建一个。然后在 Vibe Seller
+立刻到供应商控制台**删除（或禁用、重置）这个 Key**，再新建一个。然后在 Vibe Seller
 `设置 → AI` 里，找到用这个 Key 的配置，点 **编辑**，把新 Key 粘进
 **API 密钥**，点 **保存**。Key 泄露了别人就能花你的钱，不要犹豫。
 
@@ -359,8 +384,8 @@ Vibe Seller 内置的 **Claude** 配置（「系统默认环境」）就直接�
 <summary><b>报余额不足（402）/ 配额用完（429）</b></summary>
 
 - **余额不足**：按量付费账户没钱了，去充值页充值。
-- **429**：请求太快，或者**套餐额度用完了**。套餐额度要等周期重置，或者升级
-  套餐；急用的话可以在 Vibe Seller 里新建一个其他家的配置先顶上。
+- **429**：请求太快，或者**套餐额度用完了**（5 小时或每周上限）。等额度恢复，或者
+  升级套餐；急用的话可以在 Vibe Seller 里新建一个其他家的配置先顶上。
 
 </details>
 
