@@ -139,6 +139,59 @@ and the reveal endpoint below.
 
 `TaskResponse` also carries the usage meter's totals across every run: `cost_usd`, `input_tokens` (uncached), `output_tokens`, `cache_read_tokens`, `cache_write_tokens`, `num_turns`, plus the main agent's latest `context_tokens` / `context_window` / `usage_model`, and `cost_basis` (`catalog` = priced from the provider's per-token rates, `included` = plan / free model, `unpriced` = tokens only). The same fields stream live as the `task_usage` SSE event. See [subsystems.md § Task usage meter](subsystems.md#task-usage-meter--price-catalog-model_pricing).
 
+### `POST /api/tasks/{task_id}/result` — what `set_task_result` checks
+
+The submission is retained first (`submitted_result`), so a refusal (400)
+annotates it rather than discarding it. Then, in order:
+
+1. **Listing upload verdict** (`app/ai/stop_gates/listing_upload_gate.py`,
+   hard). A listing batch this turn uploaded to the live account must have
+   a clean `BATCH_<id>_VERDICT.json`; refused on every submit until it
+   does. The same check holds the turn open (Stop hook and quiescence
+   watchdog), so the agent cannot end the turn instead.
+2. **Report deliverables** (`app/deliverables/gate.py`, soft —
+   `SOFT_GATE_MAX_DENIALS` = 1 refusal, then accepted): a report-download
+   run delivered every report the calendar says it owed.
+3. **Skill-declared gates** — only those named in the `gates:` frontmatter
+   of a skill the task loaded (bindings persist per task under
+   `data/gate_bindings/`). The ad skills (`amazon-ads`, `noon-ads`)
+   declare `ad_changes` and `ad_coverage`.
+
+**Ad gates read fixed-header TSVs, never the report prose.** The audit
+writes `CAMPAIGNS.tsv` and `CHANGES.tsv` in the task dir and per-campaign
+`<campaign_id>.tsv` / `.searchterms.tsv` under
+`store-data/<slug>/ads/<platform>/<country>/`; execution writes
+`EXECUTION_LOG.tsv` (parsed by `app/ai/stop_gates/ad_tables.py`). The
+column contract the agent follows is
+`app/skills_v2/amazon-ads/references/data-contract.md` (`noon-ads`
+ships a byte-identical copy) — that file is the
+source of truth; do not restate it.
+
+- `ad_changes` (money — every finding is a contradiction, refused up to
+  `CONTRADICTION_MAX_DENIALS` = 3, then the result ships with a warning
+  banner): `CHANGES.tsv` obeys the store rules (`ad_rules.py` —
+  `acos_no_lower`, `cpc_floor_multiplier`, `scale_roas`,
+  `change_cooldown_days`, …; each default is overridable by a
+  `key: value` line in `stores/<slug>/notes.md`); an `investigate` phase
+  proposes nothing; every `EXECUTION_LOG.tsv` row matches an approved
+  change (bid within 0.01) and the per-campaign `applied_*` columns agree.
+- **Approval freeze**: when an `audit` result is accepted, its
+  `CHANGES.tsv` is copied to `data/approved_changes/<task_id>.tsv`, out of
+  the agent's reach. Execution is checked against that copy (this task's
+  or its nearest ancestor's), so editing `CHANGES.tsv` mid-execution
+  changes nothing.
+- `ad_coverage` (soft — one refusal, then unmet items ship as caveats in
+  `review_gaps`): only an `audit` declaration owes coverage
+  (`ad_declaration.owed_combos`) — every owed marketplace has rows in
+  `CAMPAIGNS.tsv`, campaign counts are plausible against recent history
+  (`ad_scope.prior_campaign_tsvs`), live campaigns are drilled with both
+  files, search terms reconcile with targeting spend, and the TSVs are
+  fresh. Spend that cannot be true (search terms above targeting) is a
+  contradiction, handled like `ad_changes`.
+
+`vibe_seller_ads_call` (Ads API) is separately scope-checked against the
+declaration by `ads_call_refusal` (`app/ai/ad_scope_access.py`).
+
 ## `agent_mcp/` — Hosted MCP endpoint (external agents)
 
 Serves the Model Context Protocol so an external agent (Claude Code,

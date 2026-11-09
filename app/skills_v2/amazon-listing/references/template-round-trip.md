@@ -1,8 +1,16 @@
 # Listing template round trip — download → inspect → fill → upload → feedback
 
-> **Load this for any listing CRUD.** The flat-file template is
-> category-specific: the column set and valid values differ per product
-> type, so `inspect` a fresh template before filling it.
+The flat-file template is category-specific: the column set and valid
+values differ per product type, so `inspect` a fresh template before
+filling it. `$S` / `$PY` are defined in SKILL.md § "The scripts".
+
+Contents:
+- 0. The template geometry (two dialects)
+- 1. Download the template (manual path; `bh_download_template.py` does it for you)
+- 2. Inspect
+- 3. The spec (parent + children), parent vs child, the operation column
+- 4. Upload the `.txt` + read the processing report
+- First-upload gotchas
 
 ## 0. The template geometry (two dialects — auto-detected)
 
@@ -50,7 +58,7 @@ dialect** — never key on a fixed row number or the localised label row.
 
 > **`fill` clears the prefilled example/instruction rows for you.** The
 > unified template ships an example SKU + a "do not delete this row"
-> instruction in the data area. **Do NOT hand-roll the upload file** — a
+> instruction in the data area. **Produce the upload file with `fill`, not by hand** — a
 > hand-rolled file that appends your SKUs *after* those rows uploads the
 > example + instruction as if they were real SKUs — only the parent then
 > creates, and the junk rows and the children fail. `fill` deletes
@@ -71,19 +79,18 @@ Seller Central → **Catalogue → Add Products via Upload**
 (`sellercentral.amazon.<tld>/listing/upload` → `/product-search/bulk`).
 Open **Spreadsheet → Download Blank Template → Download Product
 Spreadsheet**, search the product type (e.g. "charger" → **Select**
-the matching type), choose the language, then **just make sure your TARGET
-marketplace's checkbox is ticked** (it usually is by default) and
-**Generate Spreadsheet**. The file lands in `~/.vibe-seller/downloads/<slug>/`
+the matching type), choose the language, make sure the TARGET
+marketplace's checkbox is ticked, and **Generate Spreadsheet**.
+`bh_download_template.py` (SKILL.md, helper step 1) does all of this and
+reads the tick back; the steps below are for when it can't. The file lands in `~/.vibe-seller/downloads/<slug>/`
 (a macro-enabled `.xlsm`).
 
-> **Do NOT try to uncheck the other marketplaces.** A bundled
-> multi-marketplace template (e.g. SA + AE) is perfectly fine — `fill`
-> routes the offer AND the quantity to your target marketplace's block
-> (see the per-marketplace offer/stock rule below), so extra marketplaces
-> in the template are harmless. Fighting the store `kat-checkbox`es wastes
-> the run: their state doesn't reliably toggle via `click_at_xy`/JS, and
-> the whole point (single-marketplace) buys you nothing. Leave them as-is
-> and Generate.
+> **Leave the other marketplaces' checkboxes as they are.** A bundled
+> multi-marketplace template (e.g. SA + AE) works — `fill` routes the
+> offer and quantity to the target's block — and the `kat-checkbox`
+> state doesn't reliably toggle via clicks or JS, so unticking costs
+> time and buys nothing. Only the target's tick matters (it stamps the
+> template's region).
 >
 > **Coordinate gotcha after a viewport resize:** if you used
 > `Emulation.setDeviceMetricsOverride` (below-fold recipe) to reach the
@@ -102,21 +109,20 @@ marketplace's checkbox is ticked** (it usually is by default) and
 > `getBoundingClientRect` centre, poll the downloads dir for the new
 > `.xlsm`, then `cdp("Emulation.clearDeviceMetricsOverride")`.
 
-> **Getting TO the product-type search (verified 2026-07, NGS beta).**
+> **Getting TO the product-type search (NGS layout).**
 > On `/product-search/bulk` a right-side **"Choose a template"** panel
 > opens; click the **Download Product Spreadsheet** button under **"List
 > products that are not currently in Amazon's catalog"** (that's the
-> create-new-ASIN card — NOT "Get Listing Loader", which is for existing
+> create-new-ASIN card, not "Get Listing Loader", which is for existing
 > ASINs). It opens the **Download Product Spreadsheet** panel at
 > `/product-search/bulk/generate/add-product` (language dropdown +
 > product-type search + store checkboxes + Generate). Locate the button by
 > its label text via the DOM and `click_at_xy` it.
 >
 > **Product-Type search — it's a PLAIN `<input>` + a separate search-icon
-> button, NOT a shadow-dropdown.** Setting `value` or dispatching
-> input/change does NOT open a suggestion list (there is none); you must
-> TYPE into it and click the magnifying-glass button beside it. Verified
-> recipe:
+> button, not a shadow-dropdown.** Setting `value` or dispatching
+> input/change does not open a suggestion list (there is none); you must
+> TYPE into it and click the magnifying-glass button beside it:
 >
 > ```bash
 > browser-use <<'PY'
@@ -137,8 +143,8 @@ marketplace's checkbox is ticked** (it usually is by default) and
 > PY
 > ```
 > After **Select**, the right column shows "Product Type Selected: <type>".
-> Then tick the store(s) (the account's home marketplace may be force-
-> checked; ensure the marketplace you're listing on is ticked), and click
+> Then make sure the target store is ticked (the account's home
+> marketplace may be force-checked; that's fine), and click
 > **Generate Spreadsheet** — which is below the fold, so use the CDP
 > viewport-resize recipe above. A fresh `.xlsm` lands in the downloads dir
 > within ~30s. (`cdp("Input.insertText", ...)` needs the element focused
@@ -211,7 +217,7 @@ fields.
 > `marketplace` (the country you are listing on, matching the
 > seller-central domain — `amazon.sa` → `"SA"`).** `fill` routes the
 > price into `purchasable_offer[marketplace_id=<that marketplace>]` for
-> you. Do NOT hand-pick a `purchasable_offer[marketplace_id=…]` column:
+> you. Don't hand-pick a `purchasable_offer[marketplace_id=…]` column:
 > a multi-marketplace template marks a *different* marketplace's block
 > Required (the account's home marketplace), and a price in the wrong
 > block creates an **ASIN with no live offer** — the listing sits in
@@ -240,7 +246,7 @@ fields.
 > it errors `relationship_type = null` and never creates), so you don't
 > hand-write it. **A brand-new variation family often needs two passes:**
 > the parent creates first; the children attach on a re-upload. The feed
-> "N/N successful" count is NOT liveness — always confirm on **Manage
+> "N/N successful" count is not liveness — confirm on **Manage
 > Inventory** that the parent shows **Variations (N)** and each child has
 > a real ASIN. Read the processing report by opening **Check Upload
 > Status**, screenshotting to find your batch's **Download Processing
@@ -264,7 +270,7 @@ fields.
 a Parent row, and suppresses battery/hazmat required-field warnings when
 the row declares no batteries.
 
-> **Children are NOT minimal — fill each child's full required set.**
+> **Children are not minimal — fill each child's full required set.**
 > Minimal children (only `parent_sku` + colour + offer) get rejected:
 > Amazon requires `item_name`, `target_gender`,
 > `age_range_description`, `apparel_size_system`, and the compound
@@ -290,8 +296,8 @@ partialupdate: re-submit the child with the new `parent_sku` /
 `variation_theme`.
 
 ```bash
-# Write under the store DOWNLOADS dir, NOT /tmp — the browser must read
-# the .txt to upload it, and Ziniao's Chrome can't read /tmp (§4).
+# Write under the store downloads dir: the browser must read
+# the .txt to upload it, and Ziniao's Chrome can't read /tmp.
 $PY $S/listing_bulk.py fill TEMPLATE.xlsm --spec SPEC.json \
     --out ~/.vibe-seller/downloads/<slug>/out.xlsm
 ```
@@ -304,59 +310,46 @@ reject on.
 
 ## 4. Upload the `.txt` + read the processing report
 
-**Upload the `.txt` `fill` wrote, NOT the `.xlsm`** (an openpyxl-saved
-`.xlsm` is rejected 90502 FATAL). Drive the `kat-file-upload` widget with
-the file-chooser recipe in `browser-harness` § "Uploading a file" — which
-is also where the "keep the file in the downloads dir, not `/tmp`" rule
-lives.
+Upload the `.txt` that `fill` wrote, not the `.xlsm` (an openpyxl-saved
+`.xlsm` is rejected 90502 FATAL), from `~/.vibe-seller/downloads/<slug>/`
+so the browser can read it. Use `bh_upload_flatfile.py` (SKILL.md, helper
+step 2): it stages the file through the file-chooser intercept, clicks
+Submit twice, and records the batch. If you have to upload by hand, the
+widget's visible input is a decoy — use the browser-harness skill's
+"Uploading a file", Method 2.
+
+**Submit is two clicks:** the first fires `introspect-feed` (file-type
+detection → green "Product Spreadsheet File (Automatically detected)");
+the second posts the feed (the URL gains `reference_id=`). Confirm staging
+by Submit becoming enabled or the detected banner; the widget's "File
+upload was unsuccessful" shadow text and a red "network error" toast are
+stale. If `click_at_xy` on **Submit products** doesn't register (it sits
+low on the page), a JS `.click()` on that `kat-button` works.
+
+Then fetch this batch's report and verdict it, from the task workspace
+root:
 
 ```bash
-browser-use <<'PY'
-import os, time
-F = os.path.expanduser('~/.vibe-seller/downloads/<slug>/out.txt')  # browser-readable
-cdp('Page.enable'); cdp('Page.setInterceptFileChooserDialog', enabled=True); drain_events()
-box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
-            var r=b.getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)};""")
-click_at_xy(box['x'], box['y'])
-bnid=None
-for _ in range(8):
-    time.sleep(0.5)
-    for e in drain_events():
-        if 'fileChooserOpened' in str(e.get('method','')): bnid=e['params']['backendNodeId']
-    if bnid: break
-cdp('DOM.setFileInputFiles', backendNodeId=bnid, files=[F])
-cdp('Page.setInterceptFileChooserDialog', enabled=False)
-PY
+SC_HOST=sellercentral.amazon.<tld> BATCH_ID=<id> \
+DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \
+browser-use < $S/bh_fetch_report.py
+$PY $S/listing_bulk.py parse-feedback <report__batch<id>> --batch-id <id>
 ```
 
-**Submit is two clicks:** the 1st fires `introspect-feed` (file-type
-detection → green "Product Spreadsheet File (Automatically detected)"); the
-2nd posts the feed (URL gains `reference_id=`). Confirm staging by
-Submit-enabled / the detected banner — the widget's "File upload was
-unsuccessful" shadow text and any red "network error" toast are stale and
-lie. If `click_at_xy` on **Submit products** doesn't register (the button
-sits low on the page), fire it with a JS `.click()` on the `kat-button`
-instead. Then read the report (downloaded to the same dir):
+The status page lists many past batches; `bh_fetch_report.py` picks the
+row for your batch id and tags the download with it, so you never parse a
+stale or other-marketplace report.
 
-```bash
-$PY $S/listing_bulk.py parse-feedback ~/.vibe-seller/downloads/<slug>/REPORT.xlsm
-```
+> **"Parent live, children N/A" (e.g. `1/8`) is a content rejection of the
+> children**, not a browser problem (the file uploaded fine). Read the
+> per-child reasons and fix those fields; a brand-new family often needs a
+> second pass (parent first, children on re-upload).
 
-> **"Parent live, children N/A" (e.g. `1/8`) = a CONTENT rejection of the
-> children, not a browser bug** (the file uploaded fine). `parse-feedback`
-> the Processing Summary for the per-child reason and fix those fields; a
-> brand-new family often needs a second pass (parent first, children on
-> re-upload). Don't thrash the upload widget.
-
-> **The status page lists many past batches — download the report from
-> the row whose filename matches THIS upload**, or you'll parse a stale
-> report (confirm the report's `timestamp=` in row 1 is recent).
-
-**Done = the family is in inventory, not "0 errors".** Verify on Manage
-Inventory with `bh_listing_status.py` (SKILL.md, helper step 4): each
-SKU has an ASIN and the parent row carries the family's parent ASIN. The feed
-count under-reports — records with errors still create stubs, and later
-re-uploads can complete them.
+**Done = the family is in inventory, not "0 errors".** Verify with
+`bh_listing_status.py` (SKILL.md, helper step 4): each SKU has its ASIN and
+the parent row carries the family's parent ASIN. The feed count
+under-reports — records with errors still create stubs, and later
+re-uploads can complete them. See `verification.md`.
 
 ### First-upload gotchas (priors, not a checklist)
 
@@ -387,7 +380,7 @@ re-uploads can complete them.
   view.** Fill one offer block —
   `purchasable_offer[marketplace_id=<MKT>]#1.our_price#1.schedule#1.value_with_tax`
   (`our_price` is the only price column that matters) + a bare `quantity`
-  for stock. **Stock is per-marketplace but NOT bracketed** — each
+  for stock. **Stock is per-marketplace but not bracketed** — each
   `fulfillment_availability#N` group is tied by *position* to one
   marketplace's offer block, so don't hand-pick `#1`; use bare `quantity`
   and `fill` routes it to the group adjacent to the target offer. The feed

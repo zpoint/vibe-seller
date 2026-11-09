@@ -7,14 +7,23 @@ real buyers don't type. This playbook avoids that trap by sizing
 every candidate in noon's own keyword tool (Step 1) and validating
 intent against noon's actual storefront (Steps 2–4).
 
-**Never ship a keyword you have not sized.** Every keyword you hand
-back must carry its `searches/month` bucket. A plausible-sounding
-term with no volume costs the same to add as a good one and quietly
-caps the campaign's reach.
+**Size every keyword you hand back.** Each one carries its
+`searches/month` bucket: a plausible-sounding term with no volume costs
+the same to add as a good one and quietly caps the campaign's reach.
 
-Pair with `ads-creation.md` (how to feed the resulting list into
-the create form) and `../SKILL.md § 6` (how to harvest from existing
+Pair with `ads-creation.md` (choosing settings), `campaign-editor.md`
+(entering the list) and `../SKILL.md` § 6 (harvesting from existing
 campaigns' Customer Queries).
+
+- [Principle: buyer language ≠ seller language](#principle-buyer-language--seller-language)
+- [Step 1 — noon's keyword-volume tool](#step-1--noons-own-keyword-volume-tool-do-this-first)
+- [Step 2 — Storefront autocomplete (English)](#step-2--storefront-autocomplete-english)
+- [Step 3 — Storefront autocomplete (local language)](#step-3--storefront-autocomplete-local-language)
+- [Step 4 — Peer-listing reading](#step-4--peer-listing-reading)
+- [Step 5 — Cross-check against your existing campaigns](#step-5--cross-check-against-your-existing-campaigns)
+- [Step 6 — Build the negative list](#step-6--build-the-negative-list-in-parallel)
+- [Step 7 — Match-type assignment](#step-7--match-type-assignment)
+- [Output: campaign-ready list](#output-campaign-ready-list)
 
 ## Principle: buyer language ≠ seller language
 
@@ -33,13 +42,12 @@ storefront search before adding a keyword.
 ## Step 1 — noon's own keyword-volume tool (do this FIRST)
 
 **The Ad Manager ships a keyword tool with search-volume estimates.**
-Earlier revisions of this playbook sent you straight to storefront
-autocomplete; that is now Step 2. Autocomplete tells you a term
-*exists*, this tells you **how big it is** — and it is the only way to
-satisfy "don't add a keyword you haven't sized".
+Autocomplete (Step 2) tells you a term exists; this tells you how big
+it is.
 
-Open any campaign in the editor (`…&mode=edit`, `noon-ads` § 9 — a
-read-only pass, do NOT Save) and use the **`Search for keywords`** box
+Open any campaign in the editor (`…&mode=edit`,
+`campaign-editor.md` § The editor as a read-only research tool — leave
+without saving) and use the **`Search for keywords`** box
 under Manual Targeting Settings. One seed term returns ~100 related
 keywords, each with:
 
@@ -81,7 +89,8 @@ Three rules that fall out of this data:
    head terms routinely differ by two orders of magnitude between two
    countries that share a language, because the dialect differs. The
    same seed can return `1000-5000` in one and `< 10` in its
-   neighbour. Never copy a sized list across countries; re-run it.
+   neighbour, so re-run the sizing per country rather than copying a
+   list.
 3. **Word order is significant.** noon matches literally and does not
    normalise word order, so `<noun> <modifier>` and
    `<modifier> <noun>` are different keywords, and they can land in
@@ -90,7 +99,7 @@ Three rules that fall out of this data:
    bucket is larger.
 
 Cross-check the result against the **SOI** column on the campaign's
-Targets tab (`noon-ads` § 4). `searches/month` sizes the market; SOI
+Targets tab (`../SKILL.md` § 4). `searches/month` sizes the market; SOI
 says how much of it you are winning. A big bucket with a low SOI is a
 bid/relevance problem, not a keyword gap — adding more keywords will
 not fix it.

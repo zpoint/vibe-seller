@@ -24,7 +24,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `events/` | SSE event bus for real-time streaming |
 | `events_system/` | Business event extraction + sync backends |
 | `channels/` | Message channel integrations (WeCom self-built app) |
-| `agent_mcp/` | The hosted MCP endpoint (`POST /api/mcp`, 32 tools): JSON-RPC dispatch, tool registry, lifecycle/status guidance, and one thin adapter module per tool family — every adapter calls the REST route handlers via `call_route`, never the DB directly. See [api.md § Hosted MCP endpoint](api.md#hosted-mcp-endpoint) and [agents.md](agents.md). |
+| `agent_mcp/` | The hosted MCP endpoint (`POST /api/mcp`, 32 tools): JSON-RPC dispatch, tool registry, lifecycle/status guidance, and one thin adapter module per tool family — every adapter calls the REST route handlers via `call_route`, never the DB directly. See [api.md § Hosted MCP endpoint](api.md#agent_mcp--hosted-mcp-endpoint-external-agents) and [agents.md](agents.md). |
 | `notifiers/` | Chat bot webhook senders (WeCom / DingTalk / Feishu / Slack) — `base.py` holds the `PLATFORMS` registry + `detect_platform` (platform is derived from the URL host, never client-supplied); one module per platform; never echoes the webhook URL in errors |
 | `scheduler/` | Task scheduling (cron, fan-out, concurrent per-store queue) |
 | `workspace/` | Workspace management (~/.vibe-seller/) |
@@ -35,7 +35,7 @@ Python FastAPI backend serving the REST API, managing browser sessions, and exec
 | `builtin_plugin.py` | The OSS "builtin plugin" — registers every core contribution through the plugin API. |
 | `utils/` | Shared utilities (crypto, etc.) |
 | `api_tokens.py` | Personal API tokens (`vst_…`): generation, SHA-256 hashing, expiry/revocation rules. Rows live in `api_tokens`; the plaintext is returned exactly once, at mint. |
-| `api_token_secrets.py` | The REST side of the write-only-secret contract for API-token callers: one ASGI middleware that masks secret-classified fields in JSON responses and restores masked echoes on write routes (`RESTORE_RULES`). See [api.md § API tokens](api.md#api-tokens-personal-access-tokens). |
+| `api_token_secrets.py` | The REST side of the write-only-secret contract for API-token callers: one ASGI middleware that masks secret-classified fields in JSON responses and restores masked echoes on write routes (`RESTORE_RULES`). See [api.md § API tokens](api.md#personal-api-tokens). |
 | `interactive_only.py` | Routes only a person at the web UI may call (today: `PUT /api/email-accounts/{id}/send-permission`). `INTERACTIVE_ONLY_ROUTES` + `InteractiveOnlyMiddleware`, registered in `main.py` next to the API-token scope middleware, refuse every machine credential (any `Authorization` header, a `vst_` cookie, the `ai_bot` cookie JWT). Agent-proof only while login is on. See [api.md § Email accounts](api.md). |
 | `uploads.py` | One definition of what may be uploaded and how big: MIME allow-list, extensions, `MAX_UPLOAD_SIZE` (100MB), the streaming `save_upload()` writer, and `UploadBodyLimitMiddleware`. Every multipart route imports from here — the limit used to live in four places and had already drifted. See [Upload limits](api.md#upload-limits). |
 | `text_utils.py` | Surrogate-safe text: `SafeStr` (request fields), `SafeText` (DB columns), `sanitize_text` (file writes). Agent text can carry a lone surrogate that no UTF-8 encode accepts — see [Lone surrogates](#lone-surrogates-in-agent-text). |
@@ -134,7 +134,7 @@ Two layers, because there are two ways in:
 | Layer | Covers |
 |---|---|
 | `sanitize_json` in `mcp_server.call_api` | The agent's actual ingress. `httpx` serializes `json=` with `ensure_ascii=False` and then encodes UTF-8, so a surrogate raises **inside the MCP process** and no request is ever made — the server-side guards below would never see it |
-| `SafeStr` on request fields | Everything a request touches — including consumers that are *not* writes: the result gates hand the text to a language detector (a Rust extension) that encodes to UTF-8, so a submission crashed **before** any persistence. Also covers clients that are not our MCP server (the UI, curl) |
+| `SafeStr` on request fields | Everything a request touches — including consumers that are *not* writes (anything that encodes the text to UTF-8 before persistence would otherwise crash the submission). Also covers clients that are not our MCP server (the UI, curl) |
 | `SafeText` on DB columns | Text that never passed through a request body — the stream reader persisting `task_messages`, plan text, internally assembled prose |
 
 File writes are sanitized inside the managers that own them
@@ -363,8 +363,8 @@ branch).
 
 **When stdin may close (soft linger)** — ALL of:
 - an accepted result exists for the current turn (`_turn_result_seen`),
-- the review/exec gates pass (same composite + fail-open budget as the
-  result branch),
+- no listing batch uploaded this turn lacks a verdict (`listing_upload_gate`,
+  same check + fail-open budget as the result branch),
 - no tracked async work is pending — **async subagents (Agent tool) OR
   background shell commands** (Bash/PowerShell auto-backgrounded past the
   blocking budget or `run_in_background`). Both register in `_async_agents`

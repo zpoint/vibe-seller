@@ -1,5 +1,12 @@
 # Writing listing copy: facts → category → competitors → copy → review
 
+Contents:
+- 1. Read every word the supplier gave you → a fact sheet
+- 2. Name the product the way the marketplace does
+- 3. Look at the competitors before writing a word
+- 4. Write the copy from the fact sheet only
+- 5. Review before anything is uploaded
+
 > **Load this before writing or rewriting ANY title / bullets /
 > description / search terms** — a new listing, a relist on another
 > marketplace, a copy refresh, Amazon or noon — whatever the material is:
@@ -26,7 +33,7 @@ things the page never said. Every step below closes one of those gaps.
   downloaded yourself (1688), run `ocr_1688.py` and also Read the images;
   OCR misses text set on photos.
 - Write the facts to `store-data/<slug>/listing-copy/<family>.facts.md`
-  (family = the SKU stem, e.g. `CHG-011`), one line per fact with the
+  (family = the SKU stem, e.g. `WIDGET-011`), one line per fact with the
   tile it came from. Cover: what the supplier calls the product (their
   headline, often in English on the image), the product type and form,
   materials and their percentages, rated specs (power, capacity,
@@ -84,8 +91,8 @@ own live listings on the same storefront (search the brand; prefer the
 same or a nearby category, and the ones with reviews) and copy their
 *form*: the title pattern, the bullet header shape (`【Feature, Benefit】` in two parts is common),
 and the bullet length. A family that reads shorter or plainer than its
-siblings looks unfinished next to them — one review sent back bullets of
-120–200 chars beside the store's 180–250. Their *facts* are theirs; only
+siblings looks unfinished next to them (e.g. 120–200-char bullets beside
+the store's 180–250). Their *facts* are theirs; only
 the form carries over.
 
 - **Title** (≤ 200 chars incl. a child's `, M` / `, XXL` suffix): who it

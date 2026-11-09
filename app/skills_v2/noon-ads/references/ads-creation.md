@@ -1,9 +1,22 @@
 # Noon Ads — Create Campaign Playbook
 
-For new manual-targeting Product Ads on noon Ad Manager. Pair with
-`../SKILL.md § 8` for the click-by-click form mechanics; this file
-is the *thinking* — when to choose what, and the gotchas that
-aren't obvious from the form.
+For new Product Ads on noon Ad Manager. The click-by-click form
+mechanics are in [`campaign-editor.md`](campaign-editor.md); this file is
+the thinking — what to choose and why.
+
+- [When to use which targeting type](#when-to-use-which-targeting-type)
+- [Bidding strategy choice](#bidding-strategy-choice)
+- [Per-keyword bid](#per-keyword-bid-heuristic-for-first-launch)
+- [Match type](#match-type-choose-per-keyword-not-per-campaign)
+- [Negative keywords](#negative-keywords-scoping)
+- [Top-of-Search bid boost](#top-of-search-bid-boost)
+- [Budget](#budget-campaign-budget-vs-shared-budget)
+- [Campaign naming convention](#campaign-naming-convention)
+- [After launch — verification cadence](#after-launch--verification-cadence)
+
+Creating campaigns is a `create` phase: declare it with
+`vibe_seller_declare_ad_task` before touching the console
+(`../SKILL.md` § 0).
 
 ## When to use which targeting type
 
@@ -17,9 +30,9 @@ aren't obvious from the form.
 ## Bidding strategy choice
 
 Three options, but practically:
-- **Fixed** — choose this for Manual Targeting. Predictable;
-  per-keyword bids honored as-is. Best for diagnosis because you
-  can read keyword performance without dynamic-bid noise.
+- **Fixed** — the choice for Manual Targeting. Per-keyword bids are
+  used as-is, so keyword performance reads without dynamic-bid noise,
+  which is what diagnosis needs.
 - **Dynamic Bid (Down Only)** — safer with Auto. noon throttles
   bids on low-conversion impressions. Use when you want Auto but
   are bid-shy.
@@ -32,19 +45,18 @@ Three options, but practically:
 The form pre-fills each target with noon's suggested bid, and offers
 a low/high suggested range.
 
-**Do not treat noon's suggested range as the ceiling.** Campaigns
-observed winning meaningful impression share in this codebase sit at
-or ABOVE the top of the suggested range, and campaigns pinned to the
-top of the range still show single-digit SOI. The suggestion is a
-floor-ish hint, not a calibrated target.
+**noon's suggested range is a hint, not a ceiling.** Campaigns that win
+meaningful impression share tend to sit at or above the top of the
+range, and campaigns pinned to the top of it can still show
+single-digit SOI.
 
 **Prefer the store's own history over any rule of thumb.** Before
 picking a number, read what already works on this account:
 
 ```bash
-# click-weighted bid distribution from prior Customer-Queries exports
-#   stores/<slug>/ads/noon/<cc>/*.searchterms.tsv  → target_bid, clicks
-# report P25 / P50 / P75 and the realised eCPC, then start at ~P75
+# click-weighted bid distribution from earlier audits' targeting files
+#   store-data/<slug>/ads/noon/<cc>/*.tsv (not *.searchterms.tsv)  → bid, clicks, spend
+# report P25 / P50 / P75 and the realised CPC (spend / clicks), then start at ~P75
 ```
 
 That gives an empirically-supported opening bid instead of a guess.
@@ -52,24 +64,13 @@ Absent any history, start at the high end of noon's range and treat
 the first 3 days as calibration.
 
 **Then verify with SOI, not with ROAS.** Three days in, the question
-is "did impression share move?" (`../SKILL.md § 4`). ROAS at that
+is "did impression share move?" (`../SKILL.md` § 4). ROAS at that
 point is noise on a low-volume site. If SOI did not move, decide
 between bid and relevance using
 `ads-tuning.md § Head terms vs modified terms` **before** raising
 again — bidding into a relevance wall just burns budget.
 
-Set the per-target bids by native-setting every narrow
-`input[type=number]` (`step=0.01`) in the targeting block — scroll
-that block into view first, or the inputs are not yet in the DOM and
-the write silently no-ops. Read the values back to confirm. This is
-the path verified live 2026-08-10.
-
-> A bulk path (`Manual Upload` tab → Add Keywords → Select All →
-> **Apply Bids to Targets** → **Set Custom bid**) is documented from
-> an earlier build, along with a quirk where that field's `step="1"`
-> made `1.00` render as `10`/`100` (type the integer form instead).
-> **Not re-verified in the current build** — if you use it, confirm
-> the resulting per-target bids before launching.
+Setting the bids: `campaign-editor.md` § Create: step 2 — the form.
 
 ## Match type: choose per keyword, not per campaign
 
@@ -117,13 +118,9 @@ list. Otherwise, harvest them from Customer Queries post-launch
 for the top-of-search placement only; PDP and category placements use
 the base bid.
 
-**Default to `0%`.** An earlier revision of this file recommended
-`150–250%` as the "typical starting point" for a new manual campaign
-and `400–900%` for a proven listing. That was not grounded in
-observed results, and the campaigns in this codebase with the
-strongest ROAS in their category run **`Top of Search 0%`** with
-ordinary per-keyword bids. Check the account's own winners
-(campaign detail header shows `Top of Search N%`) before assuming a
+**Default to `0%`.** The strongest-ROAS campaigns observed run `Top of
+Search 0%` with ordinary per-keyword bids. Check the account's own
+winners (the detail page shows `Top of Search N%`) before assuming a
 boost is needed.
 
 | Setting | When |
@@ -149,27 +146,11 @@ only after the campaign is proven and you want portfolio-level
 allocation.
 
 Maximum daily budget: the minimum is the marketplace floor (read it
-from the form — do NOT hardcode a currency). For a diagnostic manual
+from the form rather than assuming a currency). For a diagnostic manual
 campaign, a small budget of ~30–50/day in the marketplace currency
 validates keyword performance
 within a week. Higher budgets just mean you waste money faster
 if the diagnosis was wrong.
-
-## Launching
-
-**Prefer launching directly from the create form** — fill everything,
-then click **Launch Campaign** at the bottom. Verified live
-2026-08-10 across four consecutive campaigns; the header flips to
-`Edit - <name> | Product Ad | Live` on success. You do not need to
-save a draft first.
-
-> **The button is below the fold.** On a completed form it lands well
-> past the bottom of a standard viewport, and `click_at_xy` on its
-> reported coordinates silently hits nothing — the form just sits
-> there, which is easy to misread as a validation failure (there is
-> no error banner, because nothing was submitted).
-> `scrollIntoView({block: "center"})` first, re-read the rect, then
-> click. Same applies to the keyword `Exact`/`Phrase` add buttons.
 
 ## Campaign naming convention
 
@@ -180,9 +161,9 @@ Use the same scheme across stores so dashboards stay sortable:
 ```
 
 Synthesized examples:
-- `STORE-101 Manual US - agent`
-- `STORE-102 Auto UK - agent`
-- `STORE-103-mix Manual US - agent` (mixed-variant SKU)
+- `widget-006 Manual SA - agent`
+- `widget-007 Auto AE - agent`
+- `widget-008-mix Manual SA - agent` (mixed-variant SKU)
 
 The trailing `- agent` flag distinguishes agent-created campaigns
 from human-created ones in the campaigns list. Keep the country
@@ -196,7 +177,7 @@ against confusion when one user manages multiple country projects.
 | 30 min after launch | Status = Live (not Draft, not Pending Review). If Pending Review > 1 hour, check the policy notice (some restricted categories require manual review). |
 | Day 1 | Views > 0 across most keywords. Zero-view keywords on day 1 = bid likely below auction floor. |
 | Day 3 | Per-keyword CTR. < 1% over ≥10 Views = creative/match issue, not bid issue. |
-| Day 7 | First Orders. Apply funnel diagnosis (`ads-tuning.md`) before any bid changes. |
+| Day 7 | First Orders. Read the funnel (`ads-tuning.md` § Report shape on noon) before any bid change. |
 | Day 14 | First reliable ROAS read. Anything earlier is statistical noise on a low-volume site. |
 
 Don't tune in the first 7 days unless something is *obviously*

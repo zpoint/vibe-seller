@@ -1,65 +1,57 @@
-# Review-collect QUICKREF — the whole procedure on one page
+# Review-collect procedure
 
-Follow top to bottom. Load a heavy reference **only when a step says
-to**. The contract for the finished dataset is
-[`output-spec.md`](output-spec.md) — read that first, then run this.
+- [Step 0 — scope](#step-0--scope)
+- [Step 1 — enumerate the product universe](#step-1--enumerate-the-product-universe)
+- [Step 2 — collect each product](#step-2--collect-each-product)
+- [Step 3 — parallelise](#step-3--parallelise)
+- [Step 4 — set the result and fill gaps](#step-4--set-the-result-and-fill-gaps)
 
-## Loop shape (important)
-
-You do NOT have to collect everything in one pass. Do your best, call
-`vibe_seller_set_task_result("./REVIEW_COLLECT_<date>.md")`, and the
-server's completeness reviewer replies with a short **"what's still
-missing"** list. Fix the top gaps, write the files, call set_task_result
-again. Repeat — the dataset converges. Missing is acceptable each round;
-only *progress* matters.
+The finished dataset's contract is [`output-spec.md`](output-spec.md).
+Browser mechanics (heredoc helpers, `--worker N`) are in the
+`browser-harness` skill.
 
 ## Step 0 — scope
 
-Read `stores/<slug>/metadata.json` → `platforms.{amazon,noon}`. Collect
-every `(platform, country)` it lists (e.g. amazon <cc1>/<cc2> + noon <cc1>/<cc2>; or
-just amazon MX for an MX-only store) unless the task narrows it. Note the
-`<slug>` — every output path uses it.
+Read `stores/<slug>/metadata.json` → `platforms.{amazon,noon}` and
+collect every `(platform, country)` listed unless the task narrows it.
 
-## Step 1 — enumerate the product universe (per platform, country)
+## Step 1 — enumerate the product universe
 
-Completeness is the #1 thing the reviewer checks. Get the FULL product
-set per combo BEFORE collecting reviews, and write it into the manifest's
-`expected`.
+Get the full product set per combo before collecting any reviews, and
+write it as the manifest's `expected` — completeness is measured against
+it.
 
-- **Amazon**: pull the **All Listings Report** (load
-  `../amazon-reports/SKILL.md` for the hamburger-menu report nav +
-  download flow). Parse it for every ASIN sold in that country. That ASIN
-  set is `expected` for `(amazon, <country>)`.
-- **noon**: open the noon **Seller Center catalog** (load
-  `../noon-listing/SKILL.md`) and union every product id across all
-  catalog pages (paginated — page to the end). That id set is `expected`
-  for `(noon, <country>)`. **In this same pass, capture each product's
-  `seller_sku` (partner SKU) and build the full noon-id → `seller_sku`
-  map up front** — do NOT defer it to per-product later. The `seller_sku`
-  lives ONLY in the Seller Center catalog: it is **not** on the public
-  product page, and it is **not** the page's LD+JSON `sku` (that value is
-  the noon product id / NSKU, not the seller SKU). Grabbing every
-  product's `seller_sku` here — while you're already paging the catalog —
-  is what lets each noon file carry it on the first submit; a noon file
-  without `seller_sku` fails the gate and forces a wasted converge round.
+- **Amazon:** download the All Listings Report for each country (load
+  the `amazon-reports` skill for the report and download flow). Every ASIN
+  sold in that country is `expected` for `(amazon, <country>)`.
+- **noon:** page through the Seller Center catalog to the end (load the
+  `noon-listing` skill) and take every product id. In the same pass build
+  the full product id → `seller_sku` map: the partner SKU lives only in
+  Seller Center — it is not on the public product page, and the page's
+  LD+JSON `sku` is the noon product id, not the seller SKU. Collecting it
+  now means every noon file carries it on the first submit.
 
-Write `reviews/_MANIFEST.json` now with each combo's `expected` filled
-and `collected: []`. Use the built-in **Write** tool — the `reviews/`
-dir is task-local (inside your working dir), NOT the shared workspace,
-so do **not** use `vibe_seller_write_workspace_file` for review files.
+Write `reviews/_MANIFEST.json` with each combo's `expected` filled and
+`collected: []` (built-in Write tool; `reviews/` is task-local).
 
-## Step 2 — collect each product's reviews, newest-first, to the end
+## Step 2 — collect each product
 
-Process products **in the `expected` set you enumerated**. For each, open
-its reviews page **sorted by date (newest first)** and page through ALL
-history, then write one `<product_id>.json` (the `reviews/v1` shape) and
-add the id to that combo's `collected`.
+For each product in `expected`: open its reviews sorted newest-first, page
+through all history, write `<product_id>.json`, then add the id to that
+combo's `collected`. Write each file before moving to the next product —
+after context compaction the files on disk are the only reliable record.
 
-**Amazon** (`product_id` = ASIN):
-1. Open the reviews page (newest first) in the store's default browser —
-   the Ziniao browser is already signed in, so storefront pages load
-   without a separate login. The overall rating + rating count are on
-   this page header. (TLD map: `../amazon-shared/SKILL.md` §1.)
+Every value comes from a page opened in the browser this run. Don't copy
+review JSON from anywhere else on disk (`store-data/`, a backup, another
+store, an old manifest), and don't stamp a fresh `collected_at` on data
+you didn't read live. A product you can't read this run is a named gap
+with no file.
+
+### Amazon (`product_id` = ASIN)
+
+1. **Open the reviews page** in the store's default (Ziniao) session,
+   which is normally already signed in:
+
    ```bash
    browser-use <<'PY'
    new_tab("https://www.amazon.<tld>/product-reviews/<asin>/?sortBy=recent")
@@ -67,184 +59,124 @@ add the id to that combo's `collected`.
    print(page_info())
    PY
    ```
-   **If it redirects to sign-in (`/ap/signin`)** — the default (Ziniao)
-   session is normally already signed in; if it isn't, complete the
-   sign-in (`../amazon-shared/SKILL.md` §2 login loop). If no account is
-   pre-filled, **STOP and ask the operator via `AskUserQuestion`** for
-   the account (email + password) — never bake credentials into this
-   skill, and never loop. Sign in with whatever the operator provides,
-   then reload the reviews page. Do **NOT** silently fall back to a
-   degraded page and leave the product uncollected: if you truly cannot
-   sign in, record the ASIN as a NAMED gap (still uncollected in the
-   manifest), never a stale file.
 
-   **Read the rating summary by these selectors only** — they are the
-   product's own widget. Never a page-wide `i.a-icon-star` / `.a-icon-alt`
-   lookup: on a product with no ratings that returns a *review row's*
-   star (observed: unrated products yield `5.0`).
+   If it lands on `/ap/signin`, complete sign-in as the `amazon-shared`
+   skill describes (Ziniao autofills the account; don't ask the user for
+   a password), then reload. If sign-in can't be completed, record the
+   ASIN as a gap and say so in the result rather than collecting from a
+   degraded page.
+
+2. **Read the rating summary from these selectors only** — they are the
+   product's own widget. A page-wide `i.a-icon-star` / `.a-icon-alt`
+   lookup returns a review row's star on an unrated product (typically
+   `5.0`).
+
    ```bash
    browser-use <<'PY'
-   print(js("""
+   print(js(r"""
      var pick = function (s) { var e = document.querySelector(s); return e ? (e.getAttribute('title') || e.textContent).trim() : null; };
-     var pct = function (r) { var a = r.querySelector('[aria-label]'); var m = a && a.getAttribute('aria-label').match(/(\\d+)\\s*(%|percent)/); return m ? Number(m[1]) : null; };
-     var rows = Array.from(document.querySelectorAll('#histogramTable li'));  // 5 rows, 5 star first
-     return JSON.stringify({
-       title:  pick('#productTitle'),                                        // dp/ page rendered
-       rating: pick('[data-hook=rating-out-of-text]') || pick('#acrPopover'),       // "1 out of 5" / "1.0 out of 5 stars"
-       count:  pick('[data-hook=total-review-count]') || pick('#acrCustomerReviewText'),  // "1 global rating" / "(1)"
+     var pct = function (r) { var a = r.querySelector('[aria-label]'); var m = a && a.getAttribute('aria-label').match(/(\d+)\s*(%|percent)/); return m ? Number(m[1]) : null; };
+     var rows = Array.from(document.querySelectorAll('#histogramTable li'));  // 5 rows, 5-star first
+     return {
+       title:  pick('#productTitle'),
+       rating: pick('[data-hook=rating-out-of-text]') || pick('#acrPopover'),               // "4.1 out of 5"
+       count:  pick('[data-hook=total-review-count]') || pick('#acrCustomerReviewText'),   // "200 global ratings"
        histogram: rows.length === 5 ? {5: pct(rows[0]), 4: pct(rows[1]), 3: pct(rows[2]), 2: pct(rows[3]), 1: pct(rows[4])} : null,
-     });
+     };
    """))
    PY
    ```
-   Parse the leading number of `rating` and `count`, and write
-   `histogram` as **`rating_histogram`** — percent of ratings per star,
-   keys `"5"`…`"1"` (e.g. `{"5": 84, "4": 0, "3": 12, "2": 0, "1": 4}`).
-   It is how a consumer learns that a review it stored earlier has since
-   been removed (a 0% star on a small count has no rating left), so copy
-   it exactly as the page shows it. **Rating, count and histogram all
-   absent is not yet a zero** — an empty or half-loaded reviews page keeps
-   its URL and reads exactly the same. Confirm on the product page before
-   declaring anything: open `https://www.amazon.<tld>/dp/<asin>`, and
-   require **both** `#productTitle` present **and**
-   `document.querySelector('input#ASIN').value` equal to the ASIN you
-   asked for (a dp/ link can land on a sibling variant). Then re-read the
-   three widgets above on that page. Only when that page passes both
-   checks and still has no rating, count or histogram is it a product
-   with no ratings: write `rating: 0`, `rating_count: 0`,
-   `no_ratings: true`. Anything else (no title, a different ASIN, block
-   page, sign-in, timeout) is a NAMED gap — write no file. A rating with
-   no count, or a count with no rating, means the read failed: re-open
-   and retry.
-2. Extract each review block via `js("return …")` returning JSON:
-   stars, date, title, body, verified flag, variant, and the review id
-   (`data-hook="review"` carries an `id`; fall back to a stable hash of
-   `author|date|title`). Page via the **Next page** control
-   (`js("document.querySelector('li.a-last a')?.click()")`) until there
-   is no next page; bump `review_pages_fetched`.
+
+   Parse the leading number of `rating` and `count`, and copy `histogram`
+   exactly as `rating_histogram` (a 0% star on a small count is how a
+   consumer learns a stored review was removed).
+
+   - Rating and count must come together; one without the other means
+     the read failed — re-open and retry.
+   - **All three absent is not yet a zero** — a half-loaded reviews page
+     reads the same. Open `https://www.amazon.<tld>/dp/<asin>` and require
+     both `#productTitle` present and
+     `document.querySelector('input#ASIN').value` equal to the requested
+     ASIN (a dp link can land on a sibling variant). Re-read the widgets
+     there. Only if that page passes and still has no rating summary
+     write `rating: 0, rating_count: 0, no_ratings: true`. Anything else
+     (no title, another ASIN, block page, sign-in, timeout) is a gap.
+
+3. **Extract the review blocks** and page to the end. The "Next page"
+   control is a link: read its href and `new_tab` it, rather than
+   clicking.
+
    ```bash
    browser-use <<'PY'
-   print(js("""
-     return JSON.stringify(Array.from(document.querySelectorAll('[data-hook=review]')).map(function(r){
-       return {
-         id:     r.id,
-         stars:  r.querySelector('[data-hook=review-star-rating] .a-icon-alt')?.textContent.trim(),
-         date:   r.querySelector('[data-hook=review-date]')?.textContent.trim(),
-         title:  r.querySelector('[data-hook=review-title]')?.textContent.trim(),
-         body:   r.querySelector('[data-hook=review-body]')?.textContent.trim(),
-       };
-     }));
-   """))
+   rows = js("""
+     return Array.from(document.querySelectorAll('[data-hook=review]')).map(function(r){
+       var q = function(s){ var e = r.querySelector(s); return e ? e.textContent.trim() : null; };
+       return {id: r.id, stars: q('[data-hook=review-star-rating] .a-icon-alt'),
+               date: q('[data-hook=review-date]'), title: q('[data-hook=review-title]'),
+               body: q('[data-hook=review-body]')};
+     });
+   """)
+   nxt = js("var a=document.querySelector('li.a-last a'); return a ? a.href : null;")
+   print(len(rows), nxt)
    PY
    ```
-3. Also sweep `&filterByStar=one_star,two_star` so the low-star set is
-   fully captured even if the recent-sort tail is long.
-4. A non-English marketplace (e.g. local-language storefronts such as
-   Arabic- or Spanish-language sites): the DOM structure is identical —
-   extract by element structure (star aria-value, the dated review node),
-   NOT by matching English text labels.
 
-**noon** (`product_id` = noon product id):
-1. Open the product page. **Read the overall rating + rating count from
-   this page's header and record them as `rating`/`rating_count`** — the
-   value on the page you opened, never copied from a sibling variant,
-   another country, or a previous run. A page that rendered with no
-   rating at all is `rating: 0`, `rating_count: 0`, `no_ratings: true`,
-   exactly as on Amazon. Then scroll to the reviews
-   section, switch the sort to newest/by-date (verify the exact control on
-   the live page — it has moved between noon redesigns), and page/scroll
-   through all reviews.
-2. Extract the same fields. Record `review_pages_fetched` (or scroll
-   batches). Load `../noon-shared/SKILL.md` if the page structure is
-   unfamiliar.
-3. **Emit noon's own identity — `seller_sku`, not an Amazon ASIN.** Write
-   the noon **`seller_sku`** (the seller/partner SKU of THIS noon listing;
-   each colour / size variant has its own) as a top-level field. That is
-   noon's native id and the rating is keyed on it. Do **not** resolve the
-   product to an Amazon ASIN, and never let two noon products share one
-   identity — each variant is its own product with its own rating. (This
-   skill is platform-agnostic; relating noon to Amazon is a private
-   consumer's job, not yours.)
+   Use the review's `id` attribute, or a stable hash of
+   `author|date|title` when there is none. One page per invocation keeps
+   each call well inside the wrapper's 120 s budget; count pages into
+   `review_pages_fetched`.
 
-Then use the built-in **Write** tool to write
-`reviews/<platform>/<country>/<product_id>.json` (task-local, NOT
-`vibe_seller_write_workspace_file`) and append the id to the combo's
-`collected` in `reviews/_MANIFEST.json`. **Write the file before moving
-to the next product** (survives context compaction — a written file is
-the durable record; an in-memory list is not).
+4. Also sweep `&filterByStar=one_star,two_star` so the low-star set is
+   complete even when the recent-sorted tail is long.
 
-### Idempotent re-runs
+5. Non-English storefronts (Arabic, Spanish, …) have the same structure;
+   extract by element (star aria values, dated review nodes), not by
+   English labels.
 
-Full history every run. Your task-local `reviews/` dir starts **empty**
-every run (retry wipes the workspace), so there is nothing to "resume" —
-you collect the full set fresh each time. Within a run, re-writing a
-product you already did this run just refreshes it — never an error.
+### noon (`product_id` = noon product id)
 
-**Freshness is earned, not stamped. Collect LIVE — never copy.** Every
-product's `rating`/`reviews` MUST come from opening its page in the
-browser THIS run. Do **NOT** read, copy, `cp`, or script pre-existing
-review JSON from anywhere else on disk (e.g. `store-data/…/reviews`, a
-backup, another store, a `_MANIFEST` that claims "already collected")
-into your `reviews/` dir, and do **NOT** write a file with a
-freshly-stamped `collected_at` whose rating/reviews you did not read off
-the live page this run. A file's existence proves it was written this
-run; it does **not** prove the data is real — copying stale content with
-a new timestamp is the exact failure this design forbids. If a page
-genuinely can't be read this run, report that product as a NAMED gap;
-never fabricate or copy a file for it.
+1. Open the product page and read the overall rating and rating count
+   from its header — this page, this run. A page that rendered with no
+   rating is `rating: 0, rating_count: 0, no_ratings: true`, as on
+   Amazon.
+2. Scroll to the reviews section, switch the sort to newest/by date
+   (find the control on the live page; it moves between redesigns), and
+   page or scroll through every review. `rating_count` is "N Ratings";
+   the `reviews` array holds the "M reviews" with text. If M > 0 and you
+   extracted none, the review cards are there — read them by structure
+   (Arabic included) and retry.
+3. Write the file with that variant's `seller_sku` from Step 1. Load the
+   `noon-shared` skill if the page structure is unfamiliar.
 
-## Step 3 — parallelize (carefully)
+## Step 3 — parallelise
 
-Open **N browser windows concurrently** to collect N products at once.
+To collect several products at once, run subagents that each drive the
+browser with their own slot, `browser-use --worker N` (you assign the
+numbers; see `browser-harness` § Parallel subagents). Give each worker a
+disjoint list of products and have it write the product files itself;
+you update the manifest.
 
-- Start the concurrency cap at **2**, confirm browser-use drives both
-  windows without wedging, then raise toward ~4–6 only if stable. Anti-bot
-  rate-limiting at the platform is the real ceiling — back off (lower the
-  cap, add a short pause between products) the moment you see CAPTCHAs,
-  throttle pages, or empty extracts.
-- **Self-heal**: a window can wedge on a stale tab. If a `js()` read
-  returns empty or a page hangs, re-navigate that product's URL with a
-  fresh `new_tab(...)` + `wait_for_load()` and retry; don't abandon the
-  product — a missing file is a named gap.
-- This is the new, riskier part vs the sequential ad-audit. The vertical
-  slice (one store, one ASIN, then 2-window) validates it before scaling.
+Start with 2 workers and raise toward 4–6 only while it stays stable.
+The platform's anti-bot limits are the real ceiling: at the first
+CAPTCHA, throttle page or run of empty extracts, lower the count and add
+a pause between products. If a worker's tab wedges (empty `js()` reads,
+a hanging page), re-open the product with a fresh `new_tab(...)` and
+retry rather than dropping it.
 
-## Step 4 — submit + converge (the server IS the reviewer)
+## Step 4 — set the result and fill gaps
 
-Call `vibe_seller_set_task_result("./REVIEW_COLLECT_<date>.md")` every
-handful of products. The server's completeness reviewer replies with
-exactly which combos are under-collected (`collected < expected`, with
-the missing ids) and which product files are missing/malformed.
+Write `./REVIEW_COLLECT_<date>.md` and call
+`vibe_seller_set_task_result("./REVIEW_COLLECT_<date>.md")`. The server
+checks the files against the manifest and, if anything is short, replies
+with the under-collected combos (with missing ids) and malformed files.
 
-**Converge — don't restart:**
+- Keep the existing files and manifest; open only the products listed,
+  write them, add them to `collected`, and set the result again.
+- Don't rebuild the dataset from memory — the files on disk are the
+  record.
+- The gap is almost always quantity (`collected < expected`), which only
+  collecting more products closes; editing the cover doesn't.
 
-- The written JSON files and `_MANIFEST.json` persist. Keep them. Each
-  round, open ONLY the not-yet-collected products, write their JSON, add
-  their ids to `collected`, and re-submit.
-- Never regenerate the dataset from memory — after compaction your memory
-  of earlier products is incomplete. The on-disk files are the durable
-  record; build on them.
-- A round that adds nothing new several times in a row stalls the gate
-  (it then accepts the partial). Don't burn rounds on the MD cover — the
-  gap that blocks you is almost always *quantity* (collected < expected),
-  which only collecting more products fixes.
-
-## Step 5 — cursor (light, non-gating)
-
-After converging, write `last_review_collect_date` (today's ISO date) to
-`schedule_state` via `vibe_seller_set_schedule_state`. This is for
-cross-run reporting only — it does NOT skip any product next run (full
-history every run; the per-product JSON is the dedup store). Use this one
-canonical key — do not invent variants.
-
-## Reference index (load on demand only)
-
-- `output-spec.md` — the `reviews/v1` data contract (read first).
-- `../amazon-shared/SKILL.md` — TLD map, login/OTP, navigation.
-- `../amazon-reports/SKILL.md` — All Listings Report nav + download.
-- `../noon-shared/SKILL.md` / `../noon-listing/SKILL.md` — noon login,
-  page structure, catalog enumeration.
-- `../browser-harness/SKILL.md` — the heredoc interface: `new_tab`,
-  `wait_for_load`, `page_info`, `js`, `fill_input`, `type_text`,
-  `press_key`, `click_at_xy`, `capture_screenshot`; extraction via
-  `js("return …")` returning JSON.
+When done, write today's ISO date to `last_review_collect_date` with
+`vibe_seller_set_schedule_state`. It is for cross-run reporting only and
+skips nothing next run.

@@ -234,7 +234,7 @@ def safe_float(value) -> float:
 def resolve_country(data: dict) -> str:
     """Return the 2-letter country code from input data.
 
-    The agent MUST provide 'country'.  Currency is a fallback only.
+    'country' is required; currency is a fallback only.
     """
     country = data.get('country', '').upper()
     if country and country in COUNTRY_TAX:

@@ -1,4 +1,4 @@
-"""Convergence reviewer for ``review-collect`` runs.
+"""Convergence check for ``review-collect`` runs.
 
 Runs at ``set_task_result``. Walks the run's on-disk output (via
 ``app.ai.review_manifest``) and returns a structured "what's still
@@ -7,8 +7,7 @@ combos still short of their enumerated universe and the per-product JSON
 files that are missing or malformed; the agent collects more and
 re-submits; the diff shrinks. Partial is accepted every round.
 
-Mirrors ``ad_completeness_review``'s stall design — fail-open is keyed on
-STALL, not a round count. A round counts toward the stall budget only
+Fail-open is keyed on STALL, not a round count. A round counts toward the stall budget only
 when neither the collected-OK total nor the report text moved; an agent
 still pulling pages makes progress every round and is never cut off,
 while one re-submitting an unchanged report ``STALL_CAP`` times is
@@ -16,7 +15,7 @@ genuinely wedged and gets the partial accepted. Because the enumerated
 universe is finite, a progressing agent reaches ``total_ok ==
 total_expected`` and the gate returns None on its own.
 
-Contract: ``app/skills/review-collect/references/output-spec.md``.
+Contract: ``app/skills_v2/review-collect/references/output-spec.md``.
 """
 
 from __future__ import annotations
@@ -26,8 +25,7 @@ from app.ai.stop_gates import GateDeny
 
 GATE_NAME = 'review_completeness_review'
 
-# PROGRESS MEANS THE GAP LIST GOT SHORTER — see the same re-keying in
-# ``app/ai/stop_gates/ad_completeness_review.py``. Resetting the budget
+# PROGRESS MEANS THE GAP LIST GOT SHORTER. Resetting the budget
 # on a report-text delta made the fail-open unreachable for any gap
 # fixed by editing prose rather than by collecting more: rewriting the
 # report moves thousands of characters while closing nothing.

@@ -1,99 +1,70 @@
 ---
 name: amazon-invoice
-description: Generate tax invoices from Amazon Seller Central order data using browser extraction and PDF generation
+description: Generates tax invoice PDFs for Amazon orders by reading the order detail page in Seller Central and rendering it with a bundled ReportLab script. Use when the user asks for an invoice for one or more Amazon order IDs.
 requires: [amazon-shared]
-review:
-  criteria: |
-    - A non-empty PDF exists for EVERY requested order, with correct
-      structure: invoice number, seller + buyer blocks, a line-item
-      table, and subtotal / tax / total that match the source order
-      (tax computed per the order's country rule).
-  evidence:
-    - "invoice_*.pdf"
-  verify_by: |
-    Open each invoice_<order_id>.pdf, confirm it is non-zero and that the
-    line items + totals match the source order data (not placeholder or
-    zeroed values). One PDF per requested order — no order skipped.
 ---
 
 # Amazon Invoice Generator
 
-> **PREREQUISITE:** Read `../amazon-shared/SKILL.md` for marketplace
-> TLD map, the Ziniao login challenge-loop (password / OTP /
-> hosted-passkey), and version-aware navigation (New Seller Central vs
-> classic; prefer the direct Tax Document Library URL over the menu)
-> before running this generator.
+Load the `amazon-shared` skill first with the Skill tool — it has the
+marketplace host map, the Ziniao sign-in challenge loop and the
+navigation rules.
 
-Generate professional tax invoices for Amazon orders by extracting data from Seller Central and producing PDF invoices via ReportLab.
+For each requested order: read the order detail page, pass the raw
+values to `generate_invoice.py`, and get one PDF per order in the task
+directory.
 
-## Prerequisites
+## Done when
 
-1. **Python deps are pre-installed** — the shared workspace venv already has `reportlab`. Just use `python` (it's on your PATH). If you get an import error, run: `uv pip install -r .claude/skills/amazon-invoice/requirements.txt`
+- A non-empty `invoice_<order_id>.pdf` exists in the task directory for
+  every requested order (or the order is reported as not found).
+- Each PDF has the invoice number, seller and buyer blocks, a line-item
+  table, and subtotal / tax / total that match the source order — not
+  placeholder or zeroed values.
 
-2. **Resolve seller info** (company name, VAT/RFC numbers) — optional, try in order:
-   1. **Store knowledge** — check the store profile directory (shown in your system context, e.g. `stores/<store-slug>/`) for `seller-info.md` or `notes.md` containing seller entity name and VAT numbers.
-   2. **Order detail page** — Amazon Seller Central may show your seller/business info on the order page.
-   3. **Ask the user** — if neither source has the info, ask once. If the user provides it, **save it** to the store directory's `seller-info.md` (e.g. `stores/<store-slug>/seller-info.md`) so future tasks can find it.
-   4. **Proceed without** — the invoice script handles missing seller fields gracefully (omits the seller section). Do not block invoice generation over missing seller details.
+## Setup
 
-**IMPORTANT**: Stay in your current working directory. Do NOT `cd` into the skill directory or any global path. Use relative paths for scripts and output.
+- `reportlab` is pre-installed in the workspace venv; just run `python`.
+  On an import error: `uv pip install -r .claude/skills/amazon-invoice/requirements.txt`.
+- Stay in the task directory and use relative paths — the PDFs are task
+  deliverables and belong there. If the user wants copies kept across
+  runs, put them under `store-data/<slug>/invoices/<YYYY-MM>/`.
 
-## Determining the Country
+## Seller info (optional)
 
-You **always know the country** before generating an invoice. Get it from:
+Look for the seller's legal name and VAT/TRN/RFC numbers in this order:
 
-1. **Store metadata** — the `platform_countries` field in your store context tells you which countries this store operates in (e.g., `amazon: US, UK`). If the task targets a specific country, use `task_country`.
-2. **Current Seller Central session** — you know which country/marketplace you are browsing because you selected it (Seller Central lets you toggle between countries within the same session).
+1. `stores/<slug>/seller-info.md` or `notes.md`.
+2. The order detail page, if it shows them.
+3. Ask the user once through `AskUserQuestion`. If they answer, save it
+   to `stores/<slug>/seller-info.md` with `vibe_seller_write_workspace_file`
+   (the built-in Write tool can't write through the `stores/` symlink).
 
-The `country` field (2-letter ISO code) is **required** in the JSON you pass to the script. The script uses it to look up the correct tax rate and tax rules.
+If none of these has it, proceed without — the script omits the seller
+block. Missing seller details never block an invoice.
 
-### Supported Countries & Default Tax Rates
+## Country
 
-The script has built-in tax rules for all Amazon marketplace countries:
-
-| Country | Code | Tax | Rate | Prices on Order Page |
-|---------|------|-----|------|---------------------|
-| Saudi Arabia | SA | VAT | 15% | Include tax |
-| UAE | AE | VAT | 5% | Include tax |
-| Egypt | EG | VAT | 14% | Include tax |
-| South Africa | ZA | VAT | 15% | Include tax |
-| Turkey | TR | KDV | 20% | Include tax |
-| UK | UK/GB | VAT | 20% | Include tax |
-| Germany | DE | MwSt | 19% | Include tax |
-| France | FR | TVA | 20% | Include tax |
-| Italy | IT | IVA | 22% | Include tax |
-| Spain | ES | IVA | 21% | Include tax |
-| Netherlands | NL | BTW | 21% | Include tax |
-| Poland | PL | VAT | 23% | Include tax |
-| Sweden | SE | Moms | 25% | Include tax |
-| Belgium | BE | BTW | 21% | Include tax |
-| Ireland | IE | VAT | 23% | Include tax |
-| Japan | JP | CT | 10% | Include tax |
-| India | IN | GST | 18% | Include tax |
-| Singapore | SG | GST | 9% | Include tax |
-| Australia | AU | GST | 10% | Include tax |
-| US | US | — | 0% | No tax |
-| Canada | CA | GST | 5% | Exclude tax |
-| Mexico | MX | IVA | 16% | Exclude tax |
-| Brazil | BR | ICMS | 17% | Include tax |
-
-**"Include tax"** means the prices shown on the order detail page already contain tax. The script back-calculates: `tax = gross × rate / (1 + rate)`.
-
-**"Exclude tax"** means prices are pre-tax. The script adds tax on top: `tax = subtotal × rate`.
+The JSON needs a `country` code (2-letter; `UK` or `GB` both work); the
+script uses it to pick the tax rate and whether page prices include tax.
+Take it from `task_country` or the store's `platform_countries`, and make
+sure Seller Central is on that marketplace before reading the order (UK
+and the EU marketplaces share `sellercentral-europe.amazon.com`; switch
+marketplace as `amazon-shared` describes). The per-country rules are in
+[references/tax-rates.md](references/tax-rates.md).
 
 ## Workflow
 
-For each order ID provided:
+### 1. Open the order
 
-### Step 1: Navigate to Order Detail
+Navigate by direct URL: `<seller-central-base>/orders-v3/order/<orderId>`
+(base from `knowledge/common/amazon-sites.md`). If that doesn't resolve,
+fall back to Manage Orders (`/orders-v3`) and search by order ID.
 
-Go to Seller Central → Orders → Manage Orders → search by Order ID → click into the order detail page.
+### 2. Extract the order data
 
-Make sure you are on the correct country/marketplace within Seller Central before extracting data.
-
-### Step 2: Extract Order Data
-
-From the order detail page, extract the data into this JSON structure. Pass **raw strings** exactly as shown on the page (e.g., `"USD 1,234.56"`) — the script parses them automatically.
+Read the values from the DOM and pass **raw strings** as shown on the
+page (e.g. `"USD 1,234.56"`) — the script parses them.
 
 ```json
 {
@@ -131,59 +102,45 @@ From the order detail page, extract the data into this JSON structure. Pass **ra
 }
 ```
 
-**Required fields**: `country`, `invoice_number`, `items` (with at least `description` and `amount` per item).
+Required: `country`, `invoice_number`, and `items` (each with at least
+`description` and `amount`). Everything else is optional. The PDF has a
+3-column item table (Item, Quantity, Amount), so `amount` is the
+**line total** (quantity × unit price) as shown on the page.
 
-All other fields are optional — the script derives what's missing.
+### 3. Let the script do the arithmetic
 
-**Note on items**: The PDF shows a simplified 3-column table (Item, Quantity, Amount). The `amount` field should be the **total line item amount** (quantity × unit price) as shown on the order page.
+`generate_invoice.py` parses currency strings, looks up the country's tax
+rule, and:
 
-### Step 3: Let the Script Handle Calculations
+- uses the page's explicit subtotal + tax + total when they are all
+  present **and there is no refund**;
+- with a refund, recomputes from components
+  (`items + shipping − promotion − refund`), because Amazon shows the
+  subtotal before the refund and the total after it, so the page values
+  disagree;
+- otherwise derives tax from the item totals using the country's rate
+  (inclusive: `tax = gross × rate / (1 + rate)`; exclusive:
+  `tax = subtotal × rate`).
 
-**You do NOT need to calculate tax yourself.** The `generate_invoice.py` script:
+Don't compute tax yourself; pass what you see.
 
-1. **Parses currency strings** — `"USD 1,234.56"` → `1234.56`
-2. **Looks up tax rules by country code** — the `country` field you provide
-3. **Prioritizes page values** — if the order page shows explicit subtotal + tax + total **and no refund is present**, the script uses those instead of calculating
-4. **Handles refunds** — if a refund is provided, the script always recomputes from components (`items + shipping − promotion − refund`) because Amazon's order page shows subtotal **before** refund and total **after** refund, so those page values are mutually inconsistent when a refund exists. The derived gross matches the Item total line the customer actually paid.
-5. **Falls back to country rules** — if page values are incomplete, calculates tax from item totals using the country's rate and inclusive/exclusive model
-
-Just extract what you see on the page and pass it through. For each item, provide the **total line amount** (as shown on the order page) rather than unit price.
-
-### Step 4: Add Seller Info (if available)
-
-If seller info was resolved in the Prerequisites step, populate:
-- `seller_entity`: company legal name
-- `seller_vat`: VAT number for the relevant country
-- `seller_rfc`: RFC for Mexico
-
-If no seller info was found, omit these fields — the script handles missing seller data gracefully.
-
-### Step 5: Generate PDF
+### 4. Generate the PDF
 
 ```bash
 echo '<json_string>' | python .claude/skills/amazon-invoice/generate_invoice.py \
-  --output ./invoice_{order_id}.pdf
+  --output ./invoice_<order_id>.pdf
 ```
 
-The script outputs the file path to stdout. Output goes to the current working directory (the task workspace).
+The script prints the output path; it exits with an error if `country`
+is missing.
 
-### Step 6: Save Discovered Information
+### 5. Report
 
-If you found seller entity details (company name, VAT/TRN numbers) during this task that are NOT already saved in the store's knowledge directory:
-- Save them to `stores/<store-slug>/seller-info.md` using the Write tool
-- This persists across tasks so you won't need to look it up again
+Report each generated file path; for a batch, summarise all invoices and
+list any order that was skipped and why.
 
-### Step 7: Report Result
+## Batch mode
 
-After generating, report the file path to the user. If multiple orders were requested, summarize all generated invoices.
-
-## Batch Mode
-
-If the user provides multiple order IDs (comma-separated, space-separated, or one per line), loop steps 1-6 for each order ID. Generate separate PDFs for each order.
-
-## Error Handling
-
-- If an order ID is not found in Seller Central, skip it and report the error
-- If Seller Central requires login, wait for auto-fill (Ziniao) or ask the user
-- If seller info is missing, skip it — the script handles missing fields gracefully
-- The script exits with an error if `country` is missing — always provide it
+For multiple order IDs (comma-, space- or line-separated), repeat steps
+1–4 per order, one PDF each. An order ID that Seller Central can't find
+is skipped and reported, not fatal to the batch.

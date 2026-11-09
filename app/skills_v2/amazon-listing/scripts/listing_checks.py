@@ -218,7 +218,7 @@ def apply_shortfall(rows, n_err, comment_errs=None):
     "applied, but contain other error(s)" -- a missing main image, a
     warning -- is live. Watched it print "3 did NOT land ... not done" on
     an AE batch whose three children were all applied and resolvable on
-    the storefront, and send a reviewer chasing a failure that was not
+    the storefront, sending the agent after a failure that was not
     there. The per-SKU `::submission_status` is the authoritative line;
     the count is only advisory when no status is present.
     """

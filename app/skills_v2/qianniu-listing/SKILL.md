@@ -1,19 +1,19 @@
 ---
 name: qianniu-listing
-description: "Taobao/Tmall 千牛 listing (商品) CRUD via the Excel bulk round trip — 商品管理 → 更多批量操作 → excel商品批量导出 (export) → edit the workbook → excel商品批量编辑 / 批量导入 (import). One round trip creates/edits many 商品 at once (price, stock, title, attributes). Load before any browser-use action that lists, edits, prices, restocks, or bulk-updates 商品 on a 千牛 store. Prefer this bulk flow over per-item clicking; the single-item 发布商品 wizard is the fallback. Requires qianniu-shared for login + navigation."
+description: "Taobao/Tmall 千牛 listing (商品) create/edit via the Excel bulk round trip: 商品管理 → 更多批量操作 → excel商品批量导出 (export) → edit the workbook → excel商品批量编辑 / 批量导入 (import), changing price, stock, title or attributes for many 商品 at once; the single-item 发布商品 wizard is the fallback. Use before any browser-use action that lists, edits, prices, restocks or bulk-updates 商品 on a 千牛 store. Builds on qianniu-shared for login and navigation."
 allowed-tools: Bash(browser-use:*)
 requires: [qianniu-shared]
 ---
 
 # Qianniu (Taobao/Tmall) — Listing CRUD (Excel bulk round trip)
 
-> **PREREQUISITE:** `../qianniu-shared/SKILL.md` (chrome login is a HUMAN
-> step; the popup-close rule; page map; per-store download dir; GB18030 CSV;
-> the 0.13 heredoc CLI + `cdp()`-not-in-`js()` gotcha).
+Load the `qianniu-shared` skill first (Skill tool): it covers the human
+login, the account check, the popup-close rule, the page map and the
+download dir.
 
 千牛 **商品管理** has a first-class **Excel bulk** surface — the batch
 equivalent of the per-item 发布/编辑 wizard, and the default for touching
-more than one 商品. Entry point (verified live 2026-07-03): 商品管理
+more than one 商品. Entry point: 商品管理
 (`https://myseller.taobao.com/home.htm/SellManage/on_sale`) → **更多批量操作** →
 
 | Menu item | Purpose |
@@ -25,9 +25,9 @@ more than one 商品. Entry point (verified live 2026-07-03): 商品管理
 
 ## Work it like a human: export → inspect → edit → import → verify
 
-The workbook's exact columns are **category-specific and change over time** —
-do NOT hardcode them. Run the loop a human runs (same philosophy as
-`amazon-listing`):
+The workbook's columns are category-specific and change over time, so
+read them from each export rather than hardcoding them. Run the loop a
+human runs:
 
 1. **Export a fresh workbook** (`excel商品批量导出`) for the target 商品. It
    lands in `~/.vibe-seller/downloads/<slug>/`.
@@ -37,22 +37,27 @@ do NOT hardcode them. Run the loop a human runs (same philosophy as
 3. **`fill`** — set values **by header name** for the rows you're changing
    (`listing_bulk.py fill … --spec spec.json --out out.xlsx`). Touch only the
    columns you mean to change; leave the rest as exported.
-4. **Import** the edited workbook (`批量导入`) — **a WRITE; only after the user
-   has reviewed the diff.** Then read the import result.
+4. **Import** the edited workbook (`批量导入`) — a write to the live store,
+   so only after the user has reviewed the diff. Upload it from
+   `~/.vibe-seller/downloads/<slug>/` (the browser can't read `/tmp`; see
+   `browser-harness` § Uploading). Then read the import result.
 5. **Verify on the source of truth, not the submit toast:** re-open 商品管理
    (or the 商品 detail) and confirm the change landed. Import results also
    surface a per-row success/failure list — read it and fix exactly the rows/
    fields it flags, then re-import (self-correct loop).
 
-> **Read-only vs write.** Export + inspect + verify are reads. **Import
-> (`批量导入`) is a write** — surface the intended change for the user to
-> review before uploading; never auto-import.
+Export, inspect and verify are reads. Import (`批量导入`) changes the live
+store: show the user the intended change and get a go-ahead before
+uploading.
 
 ## The script
 
+Run from the task workspace (`python3` there is the agent venv, which has
+openpyxl):
+
 ```bash
-S=<skills>/qianniu-listing/scripts
-PY=<project-venv>/bin/python3     # needs openpyxl
+S=.claude/skills/qianniu-listing/scripts
+python3 $S/listing_bulk.py inspect "$HOME/.vibe-seller/downloads/<slug>/<export>.xlsx"
 ```
 
 - **`listing_bulk.py`** — header-keyed Excel round-trip helper (locale-robust:
@@ -66,7 +71,7 @@ PY=<project-venv>/bin/python3     # needs openpyxl
     per-row 成功/失败 + the failure reason (the self-correct signal).
 
 `SPEC.json` shape (values keyed by the workbook's **own** header names, from
-`inspect`; use realistic placeholders — never a real 商品ID/SKU/brand):
+`inspect`):
 
 ```json
 {
@@ -80,13 +85,12 @@ PY=<project-venv>/bin/python3     # needs openpyxl
 ## Single-item fallback
 
 For a one-off change with no bulk column, use the UI: 商品管理 → the row's
-编辑, or 发布商品 for a new 商品 (a multi-step wizard). Drive it with the 0.13
-CLI (`click_at_xy` after a screenshot; `js(...)` to read state) per
-`qianniu-shared`. Still a **write** → user review first.
+编辑, or 发布商品 for a new 商品 (a multi-step wizard). Locate controls and
+read state from the DOM (`js(...)` + `click_at_xy`, per `browser-harness`);
+a screenshot is fine to confirm the wizard step you're on. It is still a
+write, so get the user's review first.
 
 ## What this skill is NOT
 
 - Not ads — that's `qianniu-ads` (万相台无界).
-- Not 生意参谋 (sycm) retail reports — a separate concern (no skill ships for
-  it yet).
-- Never auto-imports or publishes; the human reviews every write.
+- Not 生意参谋 (sycm) retail reports.

@@ -3,8 +3,8 @@
 
 The generated template is REGION-STAMPED by the store checkboxes (they
 default to the account's home marketplace), so this drives the whole
-generator flow with the TARGET store ticked and the other leaf stores
-unticked. Run through the STORE WRAPPER:
+generator flow with the TARGET store ticked (other ticked stores are
+left alone). Run through the STORE WRAPPER:
 
   SC_HOST=sellercentral.amazon.ae PRODUCT_TYPE=kettle \
   STORE_LABEL=Amazon.ae DOWNLOADS_DIR=~/.vibe-seller/downloads/<slug> \

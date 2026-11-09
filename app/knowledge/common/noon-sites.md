@@ -61,20 +61,23 @@ https://noon-catalog.noon.partners/en/{page}?project=PRJ{project_id}
 
 ### FBN
 
-Country code is part of the path (not query):
+Country code is part of the path (not query). The inbound pages (My
+ASN & Storage, Create ASN) live on their own host,
+`fbn-inbound.noon.partners`; the old `fbn.noon.partners/en-{cc}/asn`
+path no longer loads. The rest of FBN stays on `fbn.noon.partners`:
 
 ```
-https://fbn.noon.partners/en-{cc}/{page}?project=PRJ{project_id}
+https://<host>/en-{cc}/{page}?project=PRJ{project_id}
 ```
 
-| Page | Path |
-|------|------|
-| My ASN & Storage | `/asn` |
-| Create ASN | `/asn/createasn` (with `&type=catalog&step=1` after continue) |
-| My Inventory | `/inventory` |
-| My Returns | `/returns` |
-| FBN Fees | `/fees` |
-| Reports | `/fbnreports` |
+| Page | Host | Path |
+|------|------|------|
+| My ASN & Storage | `fbn-inbound.noon.partners` | `/` (the `en-{cc}` root) |
+| Create ASN | `fbn-inbound.noon.partners` | `/asn/create` |
+| My Inventory | `fbn.noon.partners` | `/inventory` |
+| My Returns (RTV) | `fbn.noon.partners` | `/rtv/requests` |
+| FBN Fees | `fbn.noon.partners` | `/fees` |
+| Reports | `fbn.noon.partners` | `/fbnreports` |
 
 ### Sales & Reports
 
@@ -128,36 +131,21 @@ and an account picker.
 
 ## Country Switching
 
-### Sales Reports — "My Stores" Dropdown
+Two mechanisms, and the URL does not always say which one is in force
+(the `noon-shared` skill § 2 has the flag-reading recipe):
 
-The sales page at `reports.noon.partners` uses a **"My Stores"
-dropdown** at the bottom-left of the page to switch countries. It
-shows one flag icon per marketplace the account operates in. Clicking
-another store switches all data to that country.
+- **Country in the path** (`/en-{cc}/` — Ad Manager, FBN): navigate
+  with the target code in the path and you are in that country. The
+  project ID stays the same.
+- **Sidebar store switcher** (the `/en/` portals — My Catalog, Imports,
+  Exports, Sales, Transaction View, Vantage): the URL is identical for
+  every country, so read the flag on the page before trusting any data.
+  The Sales page's "My Stores" control and Transaction View's flag /
+  "Contracts" dropdown show this same scope — they are not filters (the
+  Sales "Destination" column, for one, only shows where orders shipped).
 
-This is NOT the "Destination" filter in the toolbar — the Destination
-column in the table just shows where orders shipped. The actual data
-scope is controlled by the store selector.
-
-### FBN
-
-Change the path prefix from one marketplace code to another (e.g.
-`en-{cc}`) and reload. The project ID stays the same.
-
-### Ad Manager
-
-Change the path prefix from one marketplace code to another (`en-{cc}`).
-The Ad Manager also
-has a country selector at the bottom-left of its left nav.
-
-### Payments / Transaction View
-
-The transaction view page shows a country flag icon (`img alt={cc}`) next to the page title. The
-"Contracts" dropdown shows contracts per country (e.g. "Noon {CC}").
-
-### Store Dashboard
-
-Change the URL suffix from one marketplace code to another (`-N{CC}`).
+The Store Dashboard embeds the country in its path suffix (`-N{CC}`),
+like the path-scoped portals.
 
 ## Login Flow — OTP via Email MCP, User Only as Fallback
 
@@ -206,8 +194,8 @@ for m in re.findall(r'>\s*(\d{6})\s*<', sys.stdin.read()):
 "
 ```
 
-Type the extracted code into the OTP field via browser-use (see the
-browser-use skill for exact commands). Click Continue → dismiss "Set
+Type the extracted code into the OTP field via the browser skill (see
+it for exact commands). Click Continue → dismiss "Set
 up a passkey" with Maybe Later.
 
 ### Case B — Ask the user
@@ -254,7 +242,7 @@ inspect the page — so they can't be clicked by index.
    coordinate click below it — offset y+~50px per sub-item, x+offset
    for indent — to hit the desired sub-item.
 
-See the browser-use skill for the exact commands to open elements,
+See the browser skill for the exact commands to open elements,
 read a bounding box, and coordinate-click.
 
 Prefer **direct URL navigation** whenever possible (see URL Patterns
@@ -272,10 +260,10 @@ noon.com Seller Center
 │   ├── Imports              /imports
 │   └── Exports              /exports
 ├── Fulfilled by noon        fbn.noon.partners/en-{cc}/
-│   ├── My ASN & Storage     /asn
-│   ├── Create ASN           /asn/createasn
+│   ├── My ASN & Storage     fbn-inbound.noon.partners/en-{cc}/
+│   ├── Create ASN           fbn-inbound.noon.partners/en-{cc}/asn/create
 │   ├── My Inventory         /inventory
-│   ├── My Returns           /returns
+│   ├── My Returns (RTV)     /rtv/requests
 │   ├── FBN Fees             /fees
 │   └── Reports              /fbnreports
 ├── Sales & Reports          reports.noon.partners/en/sales/
@@ -297,4 +285,5 @@ noon.com Seller Center
 └── Support/Help             [sidebar only, no direct URL]
 ```
 
-Always append `?project=PRJ{project_id}` to all URLs.
+All post-login URLs take `?project=PRJ{project_id}` — the login and
+welcome pages are the only exceptions (see the top of this file).

@@ -5,6 +5,15 @@ as an ad problem**. Bid changes can't fix a bad image. Negatives can't
 fix bad reviews. Before reaching for a tool, locate the leak in the
 funnel.
 
+- [The funnel](#the-funnel)
+- [Layer-by-layer diagnostic](#layer-by-layer-diagnostic) —
+  Impressions, CTR, CVR
+- [How to compute layer medians](#how-to-compute-layer-medians)
+- [When ALL layers look healthy but ACOS is still high](#when-all-layers-look-healthy-but-acos-is-still-high)
+- [When ALL layers look healthy AND ACOS is at target](#when-all-layers-look-healthy-and-acos-is-at-target)
+- [Self-stabilized campaign — judge by active-only](#self-stabilized-campaign--judge-by-active-only-not-campaign-level)
+- [Pitfalls](#pitfalls)
+
 ## The funnel
 
 ```
@@ -99,8 +108,8 @@ bid trims, search-term harvesting, and placement modifiers are
 appropriate. The funnel is healthy; the ad is just paying too much
 per conversion.
 
-Apply Phase 3 of the main skill (search terms, targeting, bid
-adjustments, settings).
+Apply the per-campaign reading in `tuning-workflow.md` (search terms,
+targeting, bid adjustments, settings).
 
 ## When ALL layers look healthy AND ACOS is at target
 
@@ -117,7 +126,7 @@ campaign that has already been pruned (by prior tuning or by Amazon's
 own auction signals). The campaign-level top-tile ROAS / ACOS shown
 in the UI is computed over the **entire window's history** —
 including the spend / sales of rows that are now paused. That
-top-tile number does NOT reflect the current state of the campaign.
+top-tile number does not reflect the current state of the campaign.
 
 **Diagnostic rule**:
 - If `paused_row_count / total_row_count ≥ 0.5` (≥ 50% of keyword
@@ -134,23 +143,21 @@ top-tile number does NOT reflect the current state of the campaign.
   bleeding") must be made off `active_roas`, not the top-tile.
 
 **Worked example — why this matters**: Campaign with 13 keyword
-rows; 11 are Paused (carrying old spend USD 125, old sales USD
-60, ROAS 0.48 — these dragged the historical campaign-level ROAS
-to 0.89). The 2 active rows have spend USD 3.50, sales USD 53.99,
-1 order, active_roas = 15.43. The campaign top-tile shows ROAS
-0.89 — alarming if read at face value. But the active-only ROAS
-is 15.43 — far above target. **Diagnosis**: the campaign is
+rows; 11 are Paused (carrying old spend USD 200, old sales USD
+50, ROAS 0.25 — these dragged the historical campaign-level ROAS
+to 0.54). The 2 active rows have spend USD 4, sales USD 60,
+1 order, active_roas = 15. The campaign top-tile shows ROAS
+0.54 — alarming if read at face value. But the active-only ROAS
+is 15 — far above target. **Diagnosis**: the campaign is
 self-stabilized, the paused rows did the bleeding, and the
 remaining active rows are profitable. **Action**: leave alone,
-or only address the active rows individually. Do NOT recommend
-pausing the campaign on the basis of the 0.89 number — that
-would destroy a 15.43-ROAS source.
+or only address the active rows individually. Don't recommend
+pausing the campaign on the basis of the 0.54 number — that
+would destroy a 15-ROAS source.
 
-This rule composes with the row-level PROTECT rules in
-`tuning-thresholds.md § Row-level PROTECT`: in a
-self-stabilized campaign, the surviving active rows are
-implicitly PROTECT-tagged unless they have themselves turned
-negative within the window.
+Judge the surviving rows on their own data, with the usual rules
+(`tuning-recommendation-format.md` — they are often PROTECT on
+efficiency); don't let the paused rows' history condemn them.
 
 ## Pitfalls
 

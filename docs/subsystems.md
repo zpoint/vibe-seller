@@ -163,13 +163,13 @@ handled by `waiting.py`'s 30-day timeout, not this reaper.
 | `auto_approve_plan` narrowing | `app/task_runner_auto.py` |
 | Prompt block for plan-only tasks | `app/task_runner.py:build_system_extra` |
 
-## Skill Prerequisite Enforcement
+## Skill Prerequisite Hints
 
-Skills can declare `requires: [<prereq-skill-name>]` in their YAML frontmatter. The PreToolUse hook enforces the order: a `Skill(<dependent>)` call is denied until `<prereq>` has been loaded in the same session — same mechanism shape as Claude Code's built-in Read-before-Write rule.
+Skills can declare `requires: [<prereq-skill-name>]` in their YAML frontmatter. It is a hint, not a gate: when `Skill(<dependent>)` is called before `<prereq>` was loaded in the session, the PreToolUse hook allows the call and attaches `additionalContext` telling the agent to load the prerequisite with the Skill tool too.
 
 ### Why
 
-Several skills are layered: e.g. `noon-ads` needs `noon-shared`'s login flow and URL map before any ad work makes sense. A prose `> **PREREQUISITE:** Read ../noon-shared/SKILL.md` line in the dependent's SKILL.md is the *spec*, but non-Claude models (and Claude under load) sometimes skip it and run with a partial context. The hook turns that prose into a mechanism.
+Several skills are layered: e.g. `noon-ads` needs `noon-shared`'s login flow and URL map before any ad work makes sense. The frontmatter names the layering once; the hint reminds an agent that skipped the prerequisite, without blocking the skill it asked for.
 
 Each e-commerce platform ships as one such family: `amazon-shared` + `amazon-{ads,listing}`, `noon-shared` + `noon-{ads,…}`, and — for Taobao/Tmall — `qianniu-shared` + `qianniu-{listing,ads}`. Qianniu differs from the Amazon/Noon (Ziniao) families in its browser layer: it runs on the **chrome** backend with a **human-in-the-loop login** (QR scan or slider-captcha + SMS — no auto-captcha), a wrong-account hard gate, and a promo/公告 popup-close loop; its exports are GB18030-encoded CSV. All writes (Excel `批量导入`, ad-plan changes) are surfaced for human review, never auto-executed.
 
@@ -194,18 +194,15 @@ Claude Code → control_request hook_callback (PreToolUse, tool_name="Skill")
         ↓
 _handle_hook_callback (claude_backend_hooks.py)
         ↓
-_check_skill_prereqs("noon-ads"):
+check_skill_prereqs("noon-ads")  (claude_backend_utils.py):
    • find_skill_md(workspace, "noon-ads") → task_dir/.claude/skills/noon-ads/SKILL.md
    • parse_skill_requires() → ["noon-shared"]
-   • missing = [r for r in requires if r not in self._loaded_skills]
+   • missing = [r for r in requires if r not in loaded_skills]
         ↓
-missing? → control_response {permissionDecision: "deny",
-                             permissionDecisionReason: "Skill 'noon-ads' requires 'noon-shared'
-                                                        to be loaded first. Call ..."}
-not missing? → allow, then self._loaded_skills.add("noon-ads")
+allow, with additionalContext "Skill 'noon-ads' builds on noon-shared; load it
+with the Skill tool too." when anything is missing; then
+self._loaded_skills.add("noon-ads")
 ```
-
-The deny lands back at Claude Code as an `is_error: true` tool_result, which the agent reads and reacts to in the same turn — typically by calling `Skill(noon-shared)` next, then retrying `Skill(noon-ads)`.
 
 ### One load path: the Skill tool
 
@@ -213,7 +210,7 @@ A skill is loaded — added to `_loaded_skills`, durably bound via `record_skill
 
 ### Per-session state
 
-`self._loaded_skills: set[str]` lives on `AgentSession`. It resets when the session resets (e.g. a fresh restart of a failed task) — which is correct, because the restarted agent's context window doesn't have the prior skill body. The hook then re-enforces the order against the fresh session.
+`self._loaded_skills: set[str]` lives on `AgentSession`. It resets when the session resets (e.g. a fresh restart of a failed task) — which is correct, because the restarted agent's context window doesn't have the prior skill body. The hint then fires again against the fresh session.
 
 ### Key files
 
@@ -221,9 +218,9 @@ A skill is loaded — added to `_loaded_skills`, durably bound via `record_skill
 |---|---|
 | Frontmatter `requires:` parser | `app/ai/claude_backend_utils.py:parse_skill_requires` |
 | SKILL.md path resolver (task workspace → global fallback) | `app/ai/claude_backend_utils.py:find_skill_md` |
-| Hook deny path | `app/ai/claude_backend_hooks.py:_check_skill_prereqs` |
+| Hint builder | `app/ai/claude_backend_utils.py:check_skill_prereqs` (called from `claude_backend_hooks.py:_check_skill_prereqs`) |
 | Per-session loaded set | `app/ai/claude_backend.py:AgentSession._loaded_skills` |
-| E2E proof of full deny → retry → load cycle | `tests/e2e/test_skill_prereq_hook.py` |
+| E2E: the hint leads the agent to load the prerequisite | `tests/e2e/test_skill_prereq_hook.py` |
 
 ## Email System
 
@@ -409,32 +406,41 @@ Each Ziniao store gets a stable CDP multiplexing proxy (`app/browser/cdp_mux_pro
 
 A legacy TCP relay (`CDPTcpProxy` in `cdp_proxy.py`) is kept as fallback for single-client scenarios.
 
-## Soft Stop-Gates
+## Result Gates (`set_task_result`)
 
-When the agent calls `vibe_seller_set_task_result`, the resolved result text runs through a small chain of **soft gates** before the task is allowed to settle. Each gate is a function that returns either `None` (allow) or a `GateDeny` with a short, agent-readable `reason` and a `gate` identifier. Code lives under `app/ai/stop_gates/`; the dispatch is in `app/routers/tasks.py::set_task_result`.
+When the agent calls `vibe_seller_set_task_result`, the server retains the
+submission and then runs a short chain of checks before accepting it
+(`app/routers/tasks.py::set_task_result`, code under `app/ai/stop_gates/`).
+Each check returns `None` or a `GateDeny` (`reason` for the agent, plus
+structured `gaps` / `contradictions`). A refusal is a 400 the agent reads
+and acts on. The full order is in
+[api.md § what `set_task_result` checks](api.md#post-apitaskstask_idresult--what-set_task_result-checks).
 
-### Why soft, not hard
+Only checks that protect money or data remain; nothing grades the report's
+prose, format or language.
 
-Gates can be wrong, the model can be stubborn, and trapping the agent forever in a deny loop wastes tokens. Each gate is allowed at most `SOFT_GATE_MAX_DENIALS` denials per task (the agent sees the deny reason and can retry); past the cap the result is allowed through with the original text and a `logger.warning(...)`. Deny counts are tracked in-memory by task id (`record_attempt` in `app/ai/stop_gates/__init__.py`); the current cap value lives there alongside the rationale.
+| Check | Strength | Concern |
+|---|---|---|
+| `listing_upload_gate.py` | Hard (every submit) | A listing batch uploaded to the live account this turn has a clean verdict. Also holds the turn open via the Stop hook. |
+| Deliverables (`app/deliverables/gate.py`) | Soft (`SOFT_GATE_MAX_DENIALS` = 1) | A report-download run delivered every report the calendar says it owed (only engages when the workspace holds `reports_*` folders). |
+| `ad_changes.py` | Contradiction (up to `CONTRADICTION_MAX_DENIALS` = 3, then banner) | `CHANGES.tsv` obeys store rules (`ad_rules.py`, overridable per store via `key: value` lines in `stores/<slug>/notes.md`); `investigate` proposes nothing; `EXECUTION_LOG.tsv` matches the frozen approval in `data/approved_changes/`. |
+| `ad_coverage.py` | Soft once, then caveats (`review_gaps`); impossible spend is a contradiction | An `audit` covered every owed marketplace (`ad_declaration.owed_combos`), drilled live campaigns, reconciled search terms with targeting, with fresh TSVs. |
+
+The ad checks read fixed-header TSVs (`app/ai/stop_gates/ad_tables.py`),
+not the report; the agent-facing contract is
+`app/skills_v2/amazon-ads/references/data-contract.md` (`noon-ads` ships
+a byte-identical copy). When an `audit`
+result is accepted, its `CHANGES.tsv` is frozen to
+`data/approved_changes/<task_id>.tsv`, and execution phases are checked
+against that copy, so the approved list cannot be edited mid-execution.
 
 ### Why at the MCP tool call, not the Stop hook
 
-Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there.
-
-### Bundled gates
-
-| Module | Concern | Body of the check |
-|---|---|---|
-| `app/ai/stop_gates/markdown_format.py` | Final result is well-formed Markdown — no leftover XML-style closing tags, no truncated fences | Regex scan on the resolved text |
-| `app/ai/stop_gates/result_language.py` | Reply language matches the user's task language (the agent shouldn't answer a Chinese task in English) | Character-set heuristic over the prompt + result, with carve-outs for technical identifiers |
+Some backends (notably DeepSeek under certain compaction conditions) never emit a `Stop` event, so a Stop-hook-only gate would be silently skipped. `set_task_result` is the one tool every successful task path calls, so the gate fires there. The Stop hook (every session) only refuses to end a turn while async subagents are still running or an uploaded listing batch lacks a verdict.
 
 ### Adding a gate
 
-1. Drop a module under `app/ai/stop_gates/` exporting a `check(text, …) -> GateDeny | None` callable. Free to take extra inputs (e.g. `result_language.check` also takes the task title + description).
-2. Wire it into the dispatch loop in `set_task_result` (`for gate_module, gate_args in (…)`).
-3. Add a unit test under `tests/unit/test_stop_gates.py`.
-
-The dispatch loop deliberately runs gates in declaration order and short-circuits on the first deny — so put cheaper / more important gates first.
+Domain gates run only when a loaded skill names them in its `gates:` frontmatter. Either ship the module in the skill's own `gates/` directory (discovered by `app/ai/skill_gate_loader.py` at startup), or register it from a plugin with `ctx.register_gate(name, module)`. The module exposes `check(final_result, task_id=None, rules=None) -> GateDeny | None`. Add a unit test alongside.
 
 ## Plugin Architecture
 
@@ -460,13 +466,13 @@ routes; the lifespan starts/stops background services.
 
 | Contribution | Registry method | Read by |
 |---|---|---|
-| Stop-gate (`set_task_result` reviewer) | `register_gate` | `stop_gates.get_registered_gates` → `resolve_skill_gates` (see [Soft Stop-Gates](#soft-stop-gates)) |
+| Result gate (`set_task_result`) | `register_gate` | `stop_gates.get_registered_gates` → `resolve_skill_gates` (see [Result Gates](#result-gates-set_task_result)) |
 | PreToolUse Bash guard | `register_pretool_gate` | `bash_safety.first_bash_deny` |
 | Browser backend | `register_browser_backend` | `BrowserManager._get_backend` |
 | Skill directory | `register_skill_source` | `skills_sync` (core `app/skills` is always first; first-source-wins on a name collision so a plugin can't shadow a core skill) |
 | System-prompt fragment | `register_prompt_fragment` | prompt assembly (forward-looking) |
 | Background service | `register_service` | lifespan (started as a task, cancelled on shutdown) |
-| Server-reviewed audit marker | `register_review_marker` | `bash_safety.check_review_status` (a plugin with its own server-side completeness gate suppresses core's legacy REVIEW-file Stop gate for its audits — no double-gating) |
+| (retained no-op) | `register_review_marker` | nothing — kept so plugins built against it still load |
 | Backend router / frontend JS bundle | `register_router` / `register_frontend_bundle` | `main._wire_plugins` + `GET /api/plugins` |
 
 ### OSS builtin vs plugins

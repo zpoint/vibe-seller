@@ -1,13 +1,13 @@
 """Hard structural backstop for ``review-collect`` at ``set_task_result``.
 
 Where ``review_completeness_review`` is the soft converge-over-rounds
-reviewer, this is the final binary check: if ANY enumerated product is
+check, this is the final binary check: if ANY enumerated product is
 missing or its JSON malformed, deny the result so the ALC sync never
 reads a half-finished run (the sync walks these files and upserts the
 production DB — a partial run would silently drop ratings/reviews).
 
 Soft fail-open after ``STALL_CAP`` denials so a parser/filesystem edge
-case can never trap a task forever — the completeness reviewer is the
+case can never trap a task forever — the completeness check is the
 exhaustive coverage check; this is the cheap "don't ship a broken dump"
 guard that makes a malformed per-product file impossible to publish
 silently.

@@ -1,332 +1,185 @@
 # Tuning toolbox — the levers
 
-Every recommendation the skill makes is one of **9 standard levers**
-(detailed below as Lever 1–9) plus **2 advanced levers disabled by
-default** (Lever 10–11). Use this catalog to pick the right lever
-for the right diagnosis.
+Every recommendation uses one of nine standard levers (1–9) or, when the
+user opts in, one of two advanced ones (10–11). This page says what each
+lever touches, where it lives in the UI, and when it fits. The rules
+that bound a lever — PROTECT, the bid floor and step cap, scale winners,
+cooldown, search-term actions — are in
+[`tuning-recommendation-format.md`](tuning-recommendation-format.md);
+cutoffs in [`tuning-thresholds.md`](tuning-thresholds.md). Refer to
+levers by these numbers from other files.
 
-When cross-referencing levers from other skill files, **use the
-detailed Lever IDs (1–11) below** — never the preference-tier
-ordinals from the next section.
+- [Scope: surgical to blanket](#scope-surgical-to-blanket)
+- [Cut waste: 1–4](#cut-waste)
+- [Manage bids: 5–7](#manage-bids)
+- [Grow what works: 8](#grow-what-works)
+- [Budget: 9](#budget)
+- [Advanced, off by default: 10–11](#advanced-off-by-default)
+- [Combination patterns](#combination-patterns)
 
-## Lever scope (surgical → blanket)
-
-The levers below are listed by their **scope of effect** — from
-the most surgical (changes one search term) to the most blanket
-(changes the whole campaign or pauses it). The agent picks based
-on the diagnosis; this catalog just exposes how broad each lever
-reaches and which other levers carry similar surgical power.
+## Scope: surgical to blanket
 
 | Scope | Levers | What it touches |
 |---|---|---|
-| Search-term level | 1 (negative kw), 4 (negative ASIN) | One query; surrounding keywords unaffected |
-| Single keyword | 2 (pause), 3 (lower bid), 5 (raise bid) | One keyword in one ad group |
-| Single search-term harvest | 8 (harvest to exact + back-negate) | Adds a new keyword + sets one negative |
-| Placement modifier (+ only) | 6 | Biases bidding toward one placement |
-| Ad-group bid (whole group) | (generalisation of 3 / 5) | All keywords in the group at once |
-| Daily budget | 9 | Whole campaign's spend cap |
-| Campaign bidding strategy | 7 | All bids in the campaign re-flexed by Amazon's engine |
-| Pause / archive | (no separate Lever ID) | Whole campaign |
+| One query | 1 (negative keyword), 4 (negative ASIN) | that query; other keywords unaffected |
+| One target | 2 (pause), 3 (lower bid), 5 (raise bid) | one keyword or target in one ad group |
+| One query promoted | 8 (harvest to exact + negate in source) | adds a keyword, adds a negative |
+| One placement | 6 (placement modifier, increase-only) | biases bidding toward a placement |
+| Whole ad group | default bid (3 / 5 generalised) | every target in the group |
+| Whole campaign | 9 (budget), 7 (bidding strategy), pause / archive | everything in the campaign |
 
-Surgical levers are more reversible (one row, one click to undo).
-Blanket levers ripple through the whole campaign. A campaign-level
-bidding-strategy change isn't *wrong* — it's just blanket, and
-blanket changes are harder to attribute when the next read shows
-metrics moved.
+Reach for the most surgical lever that resolves the diagnosis. Surgical
+changes are reversible with one click and easy to attribute; blanket
+ones ripple through the campaign, so when metrics move next week nobody
+can say which change did it.
 
-## Cut-waste levers
+## Cut waste
 
 ### 1. Negative exact / negative phrase keyword
 
-- **What**: a search term flagged as a customer query the campaign
-  shouldn't appear for again.
-- **Where**: Search terms tab → row → Add as ⌄ → `Add as negative
-  exact` or `Add as negative phrase`. Or campaign-level Negative
-  targeting tab → Negative keywords sub-tab → Add.
-- **When**: search_term_cost ≥ 1.5 × AOV with 0 orders (waste
-  threshold). OR a pattern of irrelevant terms sharing a word
-  ("free", "kids", competitor brand) → negate the word as phrase.
-- **Direction**: add (creates a new exclusion rule).
-- **Match types**: exact, phrase. **No negative-broad on Amazon SP.**
-- **Pitfall**: aggressive negatives can suppress relevant variants;
-  always check what other search terms might match the negative
-  before adding.
+- **What**: stop the campaign showing for a customer query.
+- **Where**: Search terms tab → row → Add as ⌄ → `Add as negative exact`
+  / `Add as negative phrase`; or Negative targeting → Negative keywords →
+  Add. Many at once: `ads_bulk.py negate` ([`bulk-operations.md`](bulk-operations.md)).
+- **When**: the term passes the waste cutoff with 0 orders across all its
+  rows; or several irrelevant terms share a word → phrase-negate the word.
+- **Match types**: exact, phrase. Amazon SP has no negative broad.
+- **Watch for**: a negative also blocks relevant variants — check which
+  other terms it would match before adding.
 
-### 2. Disable / pause keyword
+### 2. Pause a keyword / target
 
-- **What**: pause an existing keyword target so Amazon stops bidding
-  on it.
-- **Where**: Targeting tab → row → Active toggle (blue=on, gray=off).
-- **When**: keyword has 14+ days of data, ROAS < 1, no order signal,
-  and not protected.
-- **Direction**: state change (active → paused). Reversible.
-- **Pitfall**: lots of paused keywords clutter the campaign; archive
-  them periodically.
+- **Where**: Targeting tab → row → Active toggle (blue on, grey off).
+- **When**: about 14 days of data, losing money, no order signal, not
+  PROTECT; or a trim is impossible because the floor is at or above the
+  current bid.
+- Reversible. Many paused keywords clutter a campaign; archive them now
+  and then.
 
-### 3. Lower per-keyword bid
+### 3. Lower a target's bid
 
-- **What**: reduce the bid Amazon places for a specific keyword.
-- **Where**: Targeting tab → row → bid cell (kat-numberinput) → type
-  new value → Save.
-- **When**: per-keyword ROAS < target_roas, but the keyword still
-  produces some orders (worth keeping at lower bid).
-- **Direction**: decrease, in steps. Single-step max is **−25%**
-  per `format-anchor.md § Bid-change rule` (the canonical 25% cap,
-  no tiers). Step bids across multiple audits to reach a target.
-- **Single-step delta cap — HARD RULE**: `|proposed_bid − current_bid|
-  / current_bid ≤ 0.25`. Bid changes are not "set to a target"; they
-  are **stepped over multiple sessions** so you can observe traffic
-  before the next step. A USD 3.00 → USD 0.80 jump (−73%) is a bid
-  *collapse*, not a trim — even when Amazon's suggested midpoint is
-  USD 0.60. **Never use Amazon's suggested bid as the proposed value
-  in one step if the current bid is more than 1.33× the suggested
-  upper.** Instead: propose `max(current × 0.75, suggested_upper)`
-  for the first step, then re-audit after 7d before stepping further.
-- **Actual-CPC floor — HARD RULE**: if the keyword has captured
-  clicks in the analysis window, compute `actual_cpc = spend / clicks`.
-  Proposed bid must satisfy `proposed_bid ≥ actual_cpc × 0.7`. Below
-  that floor, impressions typically collapse to zero (Amazon's
-  auction won't clear you), and the orders attached to that
-  keyword vanish along with the spend. The "Amazon suggested bid"
-  is a recommendation for new keywords with no history; **observed
-  CPC always overrides it** for keywords that already cleared the
-  auction at a higher price.
-- **Workhorse guardrail — HARD RULE**: if the keyword carries
-  `≥ 50%` of campaign orders, cap delta at `−15%` (overrides the
-  general 25% cap) and pause is forbidden. Mirrors
-  `format-anchor.md § PROTECT — two simple cases`.
-- **Range**: positive currency, ≥ the marketplace minimum bid (the
-  exact floor depends on the marketplace currency — do NOT hardcode a
-  currency; read it from the campaign).
-- **Pitfall**: Amazon's auto-bid (rule-based, dynamic strategies)
-  may revise the bid back up after you set it; verify by reading
-  back the cell after a few minutes.
-- **Worked example — the "bid cliff" you must avoid**: keyword
-  `wireless mouse` Broad, current bid USD 3.00, clicks 200, spend
-  USD 500.00, orders 30 (80% of campaign orders), ROAS 2.40,
-  Amazon suggested 0.45–0.75. Actual CPC = 500.00 / 200 = USD
-  2.50. Wrong proposal: USD 0.80 (−73%, below actual CPC, kills
-  the workhorse). Correct first step: USD 2.55 (−15% Soft trim;
-  workhorse + ≥ 50% order share triggers the order-share
-  guardrail; still well above actual CPC USD 2.50). Re-audit
-  after 7d; if traffic holds and ROAS improves, step again.
-
-- **Worked example — promote to Pause when clamped (Lever 2 fallback)**:
-  keyword `usb-c cable` Broad, current bid USD 2.00,
-  clicks 30, spend USD 98.10, orders 1, ROAS 0.38, ACOS 265%,
-  Amazon suggested 0.61–1.01. Actual CPC = 98.10 / 30 = USD 3.27
-  (higher than the bid — Amazon's dynamic bidding is paying a
-  premium). Floors:
-    floor          = 3.27 × 0.7 = USD 2.29
-    step_cap_floor = 2.00 × 0.5 = USD 1.00
-    proposed       = max(2.29, 1.00) = USD 2.29
-  But `proposed (2.29) ≥ current (2.00)` → **no room to trim**.
-  Per `tuning-recommendation-format.md § Bid-trim cell` step 4,
-  promote to `Pause` (Lever 2) — a single-order workhorse-less
-  row at ACOS 265% is a bleeder by any reasonable definition,
-  even if it has 1 order rather than 0. Cell text:
-  `**Pause** — 265% ACOS, 30 clicks / 1 order; bid trim has no
-  safe headroom (floor USD 2.29 ≥ current USD 2.00)`.
+- **Where**: Targeting tab → row → bid cell (`kat-numberinput`) → type →
+  Save. Many at once: `ads_bulk.py bid-update`.
+- **When**: the row converts but at ACOS ≥ `acos_no_lower`; worth keeping
+  at a lower bid.
+- **Bounds**: floor and step cap per
+  `tuning-recommendation-format.md` § Bid floor and step cap; at least
+  the marketplace minimum bid (read it from the campaign — it depends on
+  the currency).
+- **Watch for**: rule-based and dynamic bidding can move the bid back;
+  read the cell again after a few minutes.
 
 ### 4. Negative ASIN / product target
 
-- **What**: prevent the ad from showing on a specific competitor's
-  product detail page.
-- **Where**: campaign Negative targeting → Negative products tab →
-  Add negative product → ASIN list.
-- **When**: Product-pages placement has high spend with low CTR /
-  CVR, suggesting the ad is being placed on irrelevant PDPs.
-  Identify which ASINs from the search-terms report (rows starting
-  `B0...` in the Customer search term column).
-- **Direction**: add.
-- **Pitfall**: blocking too many ASINs reduces reach significantly;
-  start with a handful of obvious mismatches.
+- **Where**: Negative targeting → Negative products → Add → ASIN list.
+- **When**: the Product pages placement spends with low CTR or CVR —
+  the ad is showing on unrelated detail pages. Find the ASINs in the
+  search terms (rows that are `B0…`).
+- **Watch for**: blocking many ASINs cuts reach; start with the obvious
+  mismatches.
 
-## Bid-management levers
+## Manage bids
 
-### 5. Raise per-keyword bid (offensive)
+### 5. Raise a target's bid
 
-- **What**: increase bid on a winning keyword to capture more impressions.
-- **Where**: same UI as lower bid (Targeting tab → bid cell).
-- **When**: per-keyword ROAS > target_roas × 1.5, AND impression
-  share is below ~50% (Amazon shows `Top-of-search impression share`
-  in default columns). Indicates the keyword is winning but not
-  showing enough.
-- **Direction**: increase, in steps. Single-step max is **+25%**
-  per `format-anchor.md § Bid-change rule`. To reach a 2× target
-  on a proven winner, step across multiple audits (each ≤+25%) —
-  no aggressive single jumps.
+- **Where**: same cell as lever 3.
+- **When**: a scale winner (`tuning-recommendation-format.md` § Scale
+  winners), especially with low top-of-search impression share — it wins
+  when it shows but doesn't show enough.
+- **Bounds**: step cap per session; step across audits to go further.
 
 ### 6. Placement bid modifier (Top of search / Rest of search / Product pages)
 
-- **What**: bump bid for a specific placement type when that
-  placement converts well.
-- **Where**: Campaign → Bid adjustments tab → click % cell → enter
-  value → Save.
-- **Range**: **0% to +900%, INCREASE-only**. Negative not allowed —
-  Amazon's UI rejects it. Source: Amazon's own popup text "Choose a
-  percentage between 0 and 900%".
-- **When**: a placement (e.g. Top of search) shows ROAS ≥ target_roas
-  AND CTR much higher than other placements, AND Amazon shows a
-  `Recommended: X%` bump — apply the recommended or up to 2× the
-  recommended.
-- **Cannot do**: cannot use this lever to suppress a bad placement.
-  For that, use lever #1, #3, #4, or change bidding strategy (#7).
+- **Where**: Campaign → Bid adjustments → % cell → value → Save.
+- **Range**: 0% to +900%, increase-only (Amazon's own popup: "Choose a
+  percentage between 0 and 900%"). It cannot suppress a placement — for
+  that use levers 1, 3, 4 or 7.
+- **When**: a placement converts at or above target ROAS with clearly
+  higher CTR than the others, and Amazon shows a `Recommended: X%` bump —
+  apply up to about twice the recommendation.
 
-### 7. Bidding strategy change
+### 7. Bidding strategy
 
-- **What**: change how Amazon's bid engine handles auto-adjustments.
-- **Where**: Campaign settings → Campaign bidding strategy section.
-- **Options** (radio):
-  - **Fixed bids** — Amazon never adjusts; you typed it, that's it.
-  - **Dynamic bids - down only** — Amazon lowers in real time when
-    conversion looks unlikely. Conservative default.
-  - **Dynamic bids - up and down** — Amazon raises *or* lowers up
-    to ±100% based on real-time conversion likelihood. Aggressive.
-  - **Rule-based bidding** — pursue a target ROAS; Amazon adjusts
-    bids to hit it. Best when you have a clear ROAS goal AND enough
-    conversion data for the rule to learn.
-- **When to switch**:
-  - Rule-based ROAS not being hit (actual ROAS < target ROAS) →
-    lower the rule target OR switch to Dynamic - down only (more
-    honest with thin data).
-  - Dynamic - down only on a proven winner → consider Up and down.
-  - Fixed on a high-variance campaign → consider Dynamic to flex.
-- **Direction**: mode change.
+- **Where**: Campaign settings → Campaign bidding strategy.
+- **Options**: Fixed bids; Dynamic bids – down only (Amazon lowers when a
+  conversion looks unlikely; conservative); Dynamic bids – up and down
+  (up to ±100%; aggressive); Rule-based (pursues a target ROAS; needs
+  enough conversion data to learn).
+- **When to switch**: rule-based missing its target → lower the target or
+  switch to down-only; down-only on a proven winner → consider up and
+  down; fixed on a volatile campaign → consider dynamic. Don't open with
+  a strategy change when a target-level lever fixes the problem.
 
-## Grow-what-works levers
+## Grow what works
 
-### 8. Search term harvest → exact
+### 8. Harvest a search term to exact
 
-- **What**: take a search term that converted (in broad/phrase/auto
-  match), promote to **exact match** with a controlled bid, AND add
-  the same term as **negative exact** in the source ad group to
-  prevent cannibalization.
-- **Where (manual campaigns)**: Search terms tab → row with
-  order(s) → Add as ⌄ → `Add as keyword` → select Exact match only.
-  This adds to the **same ad group**.
-- **Where (auto campaigns)**: Auto ad groups cannot have keyword
-  targets. Harvesting from auto campaigns requires finding or
-  creating a dedicated **harvest ad group** in a manual campaign.
-  The ad group is named `<campaign-name-slug>-harvest-kw`
-  — create it if it doesn't exist, reuse it if it does. Full
-  workflow in `mechanics.md` § 8f (auto→manual harvest workflow).
-- **When**: search_term_orders ≥ 1 AND ROAS ≥ target_roas × 1.5.
-- **Direction**: add (positive keyword, exact).
-- **Step 2 (negative back)**: For manual campaigns: same row →
-  Add as ⌄ → `Add as negative exact`. For auto→manual harvest:
-  add the term as negative exact at the **campaign level** (not
-  the auto ad group). **Critical** — without this, the new
-  exact-match keyword bids against your own auto targeting on the
-  same query.
-- **Pitfall**: the new exact-match starts cold (no Amazon historical
-  data on it as exact); set bid at suggested-bid midpoint, not at
-  the broad-match bid that produced the order.
+- **What**: promote a converting term to its own exact keyword, and add
+  it as a negative exact in the source so the two don't bid against each
+  other. When to do it at all: `tuning-recommendation-format.md`
+  § Search-term actions.
+- **Manual campaigns**: Search terms → row → Add as ⌄ → `Add as keyword`
+  → Exact only (adds to the same ad group); then the same row → `Add as
+  negative exact`.
+- **Auto campaigns**: auto ad groups can't hold keywords. Add the keyword
+  to a harvest ad group in a manual campaign for the same SKU (name it
+  `<campaign-name-slug>-harvest-kw`; reuse it if it exists), and add the
+  negative exact at the auto campaign's campaign level. Click path:
+  `mechanics-edit.md` §6.
+- **Bid**: the new exact keyword starts cold; begin near the term's CPC ×
+  1.1–1.25 or the suggested midpoint, not the broad bid that found it.
+- Before adding, run the harvest preflight in
+  [`execution.md`](execution.md) § Harvest preflight.
 
-## Budget lever
+## Budget
 
-### 9. Daily budget change
+### 9. Daily budget
 
-- **What**: raise or lower the campaign's daily spend cap.
-- **Where**: Campaign settings → Budget input → kat-numberinput →
-  Save.
-- **When to RAISE**:
-  - Status = `Out of budget` (Amazon's signal that the campaign hit
-    its budget cap recently).
-  - Campaign ROAS ≥ target_roas (i.e. campaign is profitable).
-  - **AND tune-before-scale rule has been satisfied**: the campaign
-    has gone through a Phase 3 deep-dive and ACOS is at or below target.
-  - Suggested raise: budget changes are not bound by the 25% bid
-    cap (different lever). Follow Amazon's `Recommended` value if
-    visible; else +30% as a conservative default. Budget is
-    scoped per-campaign and reversible; bid changes need stepping.
-- **When to LOWER**:
-  - Wasteful campaign you don't want to pause but don't want to feed
-    either; lower budget reduces exposure but doesn't fix the ACOS.
-  - Generally prefer fixing the campaign (negatives, bid trims) over
-    starving it.
-- **Range**: positive currency, marketplace-specific minimum (the
-  floor depends on the marketplace currency — do NOT hardcode a
-  currency; read it from the campaign).
-- **Pitfall**: Amazon allows up to ~25% overspend on a single day,
-  averaged across the month. So `daily_actual ≈ 1.0-1.25 × budget`
-  is normal; "actual = exactly budget" doesn't mean throttled.
+- **Where**: Campaign settings → Budget (`kat-numberinput`) → Save.
+- **Raise when**: status shows `Out of budget`, the campaign is
+  profitable, and its targets have already been tuned (ACOS at target) —
+  tune before you scale. Use Amazon's `Recommended` value if shown, else
+  about +30%. The bid step cap doesn't apply to budgets.
+- **Lower when**: you want to limit a campaign's exposure without pausing
+  it — it reduces spend but doesn't fix ACOS; fixing the targets is
+  usually better.
+- **Note**: daily spend of 1.0–1.25 × budget is normal (Amazon balances
+  overspend over the month); spend equal to budget doesn't by itself
+  mean throttled.
 
-## Advanced levers (disabled by default — enable if user opts in)
+## Advanced, off by default
 
-### 10. Dayparting / scheduling (off by default)
+### 10. Dayparting / schedule rules
 
-- **What**: per-hour or per-day bid modulation.
-- **Where**: Campaign settings → Schedule rules.
-- **Why off by default**: most stores benefit more from straightforward
-  search-term and bid tuning before time-of-day matters; dayparting
-  adds complexity that's hard to evaluate.
-- **When to enable**: user explicitly asks ("our orders cluster
-  around specific hours of the day", "weekend lift on certain
-  SKUs"), and the store has enough data to see the pattern
-  (≥ 30 days, ≥ 50 orders).
+Campaign settings → Schedule rules. Use only when the user asks and the
+store has the data to see an hourly or weekday pattern (≥ 30 days,
+≥ 50 orders); bid and search-term tuning usually matters more and
+dayparting is hard to evaluate.
 
-### 11. Structural splits (rarely automated)
+### 11. Structural splits
 
-- **What**: split a high-spend keyword into its own campaign for budget
-  control or A/B testing.
-- **Why rarely automated**: structural changes are easier for the human
-  to make in the UI directly; the skill recommends but does not auto-
-  execute splits.
+Moving a high-spend keyword into its own campaign for budget control or
+testing. Recommend it; the user usually does it faster in the UI.
 
-## Combination patterns (recipes)
+## Combination patterns
 
-### "Throttled but inefficient" pattern
+**Throttled but inefficient** (Out of budget, ACOS above target): levers
+1 + 8 on the search terms, then 3 on the poor rows; wait 7–14 days;
+re-measure. Raise the budget (9) only once ACOS is at target.
 
-Symptoms: Status = Out of budget, ACOS > target.
+**Placement imbalance** (one placement carries the orders, another
+wastes spend): modifiers can't suppress, so: Dynamic down-only (7) if on
+fixed bids; negative ASINs (4) for product-page waste; negatives (1) on
+the queries that route to Rest of search; a positive modifier (6) on the
+placement that converts.
 
-Recipe:
-1. Lever 1 + 8 — search-term audit, negate losers, harvest winners.
-2. Lever 3 — per-keyword bid trim on rows with ROAS < target.
-3. Wait 7-14 days.
-4. Re-measure ACOS.
-5. If ACOS now ≤ target AND still Out of budget → Lever 9 (raise
-   budget by Amazon's recommended).
-6. If ACOS still > target → repeat steps 1-3, do NOT raise budget yet.
+**Funnel broken** (CTR or CVR well below the store median): not an ad
+problem. Tell the user it is the listing (image, title, A+, price,
+reviews) and that lowering bids only reduces spend. Pausing while the
+listing is fixed is a fair interim step; a bid trim presented as the fix
+is not.
 
-### "Placement imbalance" pattern
-
-Symptoms: aggregate ACOS > target, but per-placement breakdown shows
-one placement carrying most orders and another wasting spend.
-
-Recipe:
-1. **Cannot use placement modifier to suppress.** Modifier is +%-only.
-2. Lever 7 — switch to Dynamic - down only if currently Fixed.
-3. Lever 4 — for Product-pages waste specifically, add negative-ASINs
-   for irrelevant competitor PDPs.
-4. Lever 1 — for Rest-of-search waste, add negatives on the wasteful
-   search terms (which usually trigger Rest-of-search placements).
-5. Lever 6 — for the well-converting placement, ADD a positive
-   modifier (e.g. Top of search +25%) to bias more bid budget there.
-
-### "Funnel-broken" pattern
-
-Symptoms: low CTR or low CVR vs store medians.
-
-Recipe:
-1. **Stop**. This is not an ad-tuning case. Surface to the user:
-   "Campaign X has CTR 0.14% vs store median 1.8%. This is a listing
-   image / title problem, not an ad bid problem. Lowering bids will
-   reduce spend but won't fix the underlying issue."
-2. Recommend fix the listing first (image, title, A+ content, price,
-   reviews) — not an ad-side change.
-3. As an interim, can pause the campaign to stop bleeding while
-   listing is fixed; do not bid-trim and pretend that's tuning.
-
-### "Winner needing fuel" pattern
-
-Symptoms: ROAS ≥ target × 1.5, low impression share, healthy CTR.
-
-Recipe:
-1. Lever 5 — raise per-keyword bid on the winning keywords (+25%
-   max per session per `format-anchor.md § Bid-change rule`).
-2. Lever 6 — placement modifier on the placement(s) where the winner
-   is converting.
-3. Lever 9 — raise budget if currently constrained.
-4. Lever 8 — harvest any related search terms into more exact-match
-   variants to lock in the win.
+**Winner needing fuel** (a scale winner — ROAS > `scale_roas` — with
+low impression share and healthy CTR): raise bids (5), add a modifier
+on the converting placement (6), raise the budget if constrained (9),
+harvest related converting terms (8).

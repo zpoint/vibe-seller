@@ -262,6 +262,13 @@ respect a boundary?" tests, and the split it makes is the point:
   that visit in the log for the scoped test to trip over — only when
   xdist happens to land them on the same worker.
 
+The same split drives the other real-agent suites:
+`test_ad_tsv_contract.py` checks an audit and its execution against the
+fake console's write log, the TSVs and the frozen approval
+(`data/approved_changes/`), and `test_knowledge_upkeep.py` checks that a
+stale store note is rewritten in place and that a task which learned
+nothing leaves knowledge untouched.
+
 ### `api_client` Fixture (conftest.py)
 
 Module-scoped fixture providing an authenticated httpx client with a **background SSE listener** that auto-answers any `AskUserQuestion` from any task. Prevents tests from hanging when LLM agents ask unexpected questions during planning or execution.

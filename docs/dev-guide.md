@@ -21,7 +21,7 @@ For the user-facing landing page, see [`../README.md`](../README.md).
 
 - **Store Management**: Configure e-commerce stores with pluggable browser backends (Chrome, Ziniao, custom CDP)
 - **Task Execution**: Create tasks that auto-plan and auto-execute via AI agent — no manual buttons needed
-- **AI Agent**: Pluggable AI agent backend (Claude Code CLI for MVP) with workspace memory and knowledge
+- **AI Agent**: Pluggable AI agent backend (Claude Code CLI for MVP); agents keep what they learn in the shared `knowledge/` + `stores/` trees (Claude Code auto-memory is off)
 - **Knowledge System**: Two-layer knowledge — project-level (synced from repo) + local (agent-generated)
 - **Task Integration**: TickTick/Dida365 via OAuth — AI agent gets MCP tools for task management
 - **Skills System**: Reusable agent procedures with per-skill venvs, synced from repo with user config preservation

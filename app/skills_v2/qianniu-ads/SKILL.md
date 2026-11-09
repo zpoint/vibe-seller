@@ -7,14 +7,15 @@ requires: [qianniu-shared]
 
 # Qianniu (Taobao/Tmall) Ads — 万相台无界 catalog
 
-> **PREREQUISITE:** `../qianniu-shared/SKILL.md` — 万相台 is reached by **SSO
-> from the 千牛 session** (no second login); the popup-close rule and the 0.13
-> heredoc CLI apply.
+Load the `qianniu-shared` skill first (Skill tool): 万相台 is reached
+by **SSO from the 千牛 session** (no second login); the popup-close rule
+and the 0.13 heredoc CLI apply.
 
-This is a **catalog**: procedure + report shape live in the references. The
-loop is — pull the performance data, find the 计划 worth scaling and the
-products bleeding money, and **recommend** the change; **the human applies
-it**. **Analysis is read-only; this skill never auto-executes a 计划 change.**
+This is a catalog; the procedure lives in the references. The loop: pull
+the performance data, find the 计划 worth scaling and the products bleeding
+money, and recommend the change. The human applies it — analysis is
+read-only, because a 计划 write spends the store's money and only the user
+can approve that.
 
 ## Bulk-first: analyze from 报表 exports, not the UI
 
@@ -28,8 +29,8 @@ itself warns 「页面数据仅供参考，历史推广数据以报表数据为�
 3. Read the **live plan list** (`references/mechanics.md`) only for *current
    state* (状态 / 每日预算 / 出价 / target) that the report doesn't carry.
 
-The plan-list DOM scrape in `mechanics.md` is the **fallback** for state the
-report lacks — not the primary data path.
+The plan-list DOM scrape in `mechanics.md` is the fallback for state the
+report lacks, not the primary data path.
 
 ## References — load what the task needs
 
@@ -40,23 +41,27 @@ report lacks — not the primary data path.
 ## Decision thresholds are per-store, not here
 
 What counts as "scale" (加投) or "cut" (删除) — ROI floors, spend caps,
-lookback — is **store-specific** and lives in `stores/<slug>/ads-rules.md`
-(same pattern as `amazon-ads`). This skill carries **mechanics only**; read
-the store's rules for the numbers. Do not bake thresholds into the skill.
+lookback — is store-specific and lives in `stores/<slug>/ads-rules.md`.
+This skill carries mechanics only; read the store's rules for the numbers.
+If the file is missing, say which thresholds you assumed in the report.
 
-## Safety rails ⚠️
+## Safety rails
 
-- **Analysis/audit phases are read-only.** Toggling a 计划, editing 每日预算,
-  changing 出价, deleting a product — all **writes**. Surface them as a
-  recommendation for the user to review; **never auto-execute.**
-- Never click a promo CTA (开通/升级/领取/报名…) — see `qianniu-shared § 4`.
-- Save exports/captures to `/tmp/<task>/`; never `knowledge/` or `stores/`.
+- **Never apply a change the user has not approved.** Toggling a 计划,
+  editing 每日预算, changing 出价, deleting a product are all writes;
+  surface each as a recommendation for the user to review.
+- Don't click promo CTAs (开通/升级/领取/报名…) — they can sign the store
+  up for paid programs; see `qianniu-shared § 4`.
+- Keep exports and captures in the downloads folder or your task directory (CWD), not
+  under `knowledge/` or `stores/` (those hold reusable knowledge, not
+  per-run business data).
 
 ## Default analysis window
 
 Last 30 days unless the user specifies otherwise. Set the 万相台 date selector
-(今日 / 昨日 / 过去 7 天 / 过去 15 天 / 自定义) to match **before** reading the
-plan table, and export the 报表 for the same window.
+(今日 / 昨日 / 过去 7 天 / 过去 15 天 / 自定义) to match before reading the
+plan table — the per-plan metrics follow it — and export the 报表 for the
+same window.
 
 ## What this skill is NOT
 

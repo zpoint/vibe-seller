@@ -51,7 +51,7 @@ def task_workspace():
     VIBE_HOME (else ~/.vibe-seller) / tasks / VIBE_TASK_ID. None outside a
     task. Gate artifacts are resolved against THIS, never against the
     caller's $PWD: an agent that worked from a scratch dir once scattered
-    a whole run's markers and review into /tmp, where no gate looks.
+    a whole run's markers into /tmp, where the completion check never looks.
     """
     tid = os.environ.get('VIBE_TASK_ID')
     if not tid:

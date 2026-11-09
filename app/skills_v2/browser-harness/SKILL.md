@@ -1,188 +1,194 @@
 ---
 name: browser-harness
-description: "MUST load BEFORE running any browser-use command. This is the only bridge between the agent and the browser — browser-use 0.13 has NO subcommands (open/click/state are gone); you drive the browser by piping Python helper code via a heredoc. Contains the helper API, wrapper rules, session management, and store-task restrictions. Without this skill, browser commands will fail."
+description: "Drives the browser through browser-use 0.13, which has no subcommands (no open/click/state): you pipe Python helper code to `browser-use` in a heredoc. Covers the helper API, the per-store wrapper and its sessions, parallel workers, file uploads, and reading pages without vision. Load it before the first browser-use command in any task."
 allowed-tools: Bash(browser-use:*)
 ---
 
-<!-- VIBE-SELLER CUSTOMIZATIONS: adapted from the upstream 0.13 skill
-     (browser_use/skills/browser-use/SKILL.md in the wheel). If re-syncing
-     from upstream, re-apply: (1) the Store/No-store task banners, (2) the
-     wrapper env-injection contract (BU_NAME/BU_CDP_WS auto-injected, agent
-     overrides blocked), (3) removal of cloud/remote-daemon and local-profile
-     sections we don't use, (4) the "js() does NOT parse JSON" bullet,
-     (5) the "a screenshot is not a data source" rule.
-     See docs/browser-use-0.13-migration.md. -->
+<!-- Adapted from the upstream 0.13 skill in the browser_use wheel; see
+     docs/browser-use-0.13-migration.md before re-syncing. -->
 
-> **browser-use 0.13 changed everything.** There are **no subcommands**. You
-> no longer run `browser-use open <url>`. Instead you pipe Python helper code
-> to `browser-use` via a heredoc; helpers are pre-imported and a background
-> daemon is attached automatically.
+# Browser automation with browser-use (0.13, heredoc interface)
 
-> **Store Tasks:** `browser-use` is a per-store wrapper script that
-> auto-injects `BU_NAME` (the store session) and `BU_CDP_WS` (the store's CDP
-> proxy). You **cannot** set `BU_NAME`, `BU_CDP_URL`, `BU_CDP_WS`, or `--mcp`
-> yourself — the wrapper blocks them. Use the default session for the store's
-> seller center, or `--session <slug>-aux` for non-seller-center sites (the
-> wrapper maps this to the aux session; no other `--session` value is
-> allowed).
->
-> **No-store (orchestrator) Tasks:** `browser-use` is the store-less `web`
-> wrapper (`bin/_web`). Use it only for neutral public web work (search,
-> tracking/logistics, research) — NEVER for a store's seller center or to log
-> into store/platform accounts (create a store sub-task for those).
-
-# Browser Automation with browser-use (0.13, heredoc interface)
-
-Drive the browser by piping Python to `browser-use`. Helpers are
-pre-imported; the harness calls `ensure_daemon()` before running your code, so
-the browser attaches automatically to the store's CDP endpoint.
+browser-use 0.13 has **no subcommands** — `browser-use open <url>` is gone.
+You pipe Python to `browser-use`; the helpers below are pre-imported and the
+harness attaches a daemon to the store's browser before your code runs.
 
 ```bash
 browser-use <<'PY'
-new_tab("https://example.com")   # first navigation is new_tab(), NOT goto
+new_tab("https://example.com")
 wait_for_load()
 print(page_info())
 PY
 ```
 
-The wrapper takes the heredoc form only. Put every statement inside the
-heredoc.
+The wrapper takes the heredoc form only, so every statement goes inside it.
+`browser-use --doctor` checks installation and CDP connectivity.
 
-## Prerequisites
+## The wrapper is the only way in
 
-```bash
-browser-use --doctor    # verify installation / CDP connectivity
-```
+- **Store tasks:** `browser-use` on your PATH is a per-store wrapper that
+  injects the store session (`BU_NAME`) and the store's CDP proxy
+  (`BU_CDP_WS`). It is what keeps you on the store's own browser, account
+  and IP — and off the user's local Chrome. So call plain `browser-use`
+  and never set `BU_NAME`, `BU_CDP_URL`, `BU_CDP_WS`, `VIBE_TASK_ID` or
+  `--mcp` yourself; the wrapper rejects them, as it rejects local-profile
+  and cloud-daemon helpers (`start_remote_daemon`, profile sync).
+- **Seller-center work runs in the default session only.** For
+  non-seller-center sites on the same store (tracking pages, supplier
+  sites) use `--session <slug>-aux`; no other `--session` value is
+  accepted. Logging into a seller center from the wrong browser or IP
+  trips platform security on the store's account.
+- **No-store (orchestrator) tasks:** `browser-use` is the store-less `web`
+  wrapper. Use it for neutral public web work (search, tracking,
+  research). For a store's seller center or any store/platform login,
+  create a store sub-task instead.
 
-## Budget every invocation: the wrapper kills it at 120 s
+## Budget each invocation: the wrapper kills it at 120 s
 
-The store wrapper runs the real `browser-use` under a **120-second
-alarm**, and a timeout is treated as evidence the *browser* is wedged:
-the wrapper bumps a strike counter, force-`--reload`s the daemon, and on
-the **second consecutive** timeout prints `UNRECOVERABLE`, exits 75, and
-tells you to stop retrying and report a gap. Any other outcome — even an
-ordinary Python error — resets the counter.
-
-**A slow-but-healthy call is indistinguishable from a wedged browser.**
-So a legitimately long heredoc does not merely get cut off: two of them
-in a row will convince the wrapper (and then you) that a perfectly good
-browser is dead, and the honest-reporting rule then makes you abandon
-real work. Keep each invocation comfortably under the limit:
+The wrapper runs each call under a 120-second alarm and treats a timeout as
+a wedged browser: it force-reloads the daemon, and on the **second
+consecutive** timeout prints `UNRECOVERABLE` and exits 75 — at that point
+stop retrying and report the gap. Any other outcome, even a Python error,
+resets the count. Because a slow-but-healthy call looks the same as a
+wedged browser, keep every call well under the limit:
 
 - **One unit of work per invocation** — one page, one SKU, one export.
-  Drive the loop from the **shell**, not inside the heredoc, and append
-  results to a file under `/tmp/<task>/` so progress survives.
-- **Count your polls.** A render-wait of `range(15)` with `sleep(3)` is
-  45 s on its own; two of those plus navigation overruns 120 s.
-- If you genuinely need a long single operation (a slow export), poll it
-  across **separate** invocations rather than sleeping inside one.
+  Drive loops from the shell and append results to a file in the task
+  CWD so progress survives a timeout.
+- **Count your polls.** `range(15)` × `sleep(3)` is already 45 s.
+- **Poll long operations across separate invocations** (slow exports)
+  rather than sleeping inside one.
+- The idle browser session is recycled after about 8 minutes, so between
+  invocations wait at most ~7 minutes (30–60 s polls are better).
 
-A timeout also leaves the tab mid-operation, so re-read state at the
-start of the next invocation instead of assuming where you left off.
+A timeout leaves the tab mid-operation: re-read the page at the start of the
+next call instead of assuming where you left off.
 
-## Core Workflow
+## Core workflow
 
-1. **Navigate**: `new_tab(url)` — for the first page **and every later
-   navigation**. There is **no `page` object** in the heredoc scope, so
-   `page.goto(url)` raises `NameError`; use `new_tab(url)` (or click a link)
-   to move around.
-2. **Understand state — via the DOM (PREFERRED, no vision needed):**
-   `page_info()` for page-level facts (url/title/size), and **`js(...)` to
-   read the DOM** — text content AND every element's on-screen coordinates
-   via `getBoundingClientRect` (see "Locate & click without vision"). This
-   is the primary way to drive the browser; a non-vision model completes
-   the whole flow this way.
-3. **See the layout (OPTIONAL — vision models only):**
-   `capture_screenshot()` returns a PNG path (`~/.vibe-seller/bh-tmp/<session>/shot.png`,
-   overwritten each call); `print()` it and **Read that PNG** to view it.
-   It is a Python helper — call it **inside** the `browser-use <<'PY'`
-   heredoc; typed as a shell command it is a bash parse error, and an
-   `ls` of the dir then shows an older picture, not this page.
-   Use it only to disambiguate a crowded layout — never *depend* on it. If
-   your model can't view images, skip screenshots entirely and use step 2.
+1. **Navigate with `new_tab(url)`** — for the first page and every later
+   one. There is no `page` object (`page.goto` is a `NameError`), and
+   `goto_url(url)` moves whichever tab is current, which after a timeout
+   may not be the one you think.
+2. **Read state from the DOM:** `page_info()` for url/title/size, `js(...)`
+   for text, values and element coordinates (`getBoundingClientRect`).
+3. **Interact:** click with `click_at_xy(x, y)` at coordinates read in
+   step 2; type into inputs with `fill_input(selector, text)`. Re-read the
+   DOM afterwards to confirm the change took.
+4. **After navigation:** `wait_for_load()`; for single-page apps that
+   render after `readyState` is complete, `wait_for_element(selector)`.
+   If the tab is stale or internal, `ensure_real_tab()`.
 
-   **A screenshot is not a data source.** Never take a value you will act
-   on or report — an ID, a number, a row, a column that exists, a count —
-   from an image. Read it from the DOM with `js(...)`. A screenshot
-   answers "where is it on screen", nothing else.
+## Screenshots: DOM for data, pictures for confirmation
 
-   This is not caution about edge cases; it is the observed default. On
-   a page holding exactly two rows, models on two different providers
-   each described a table that did not exist — invented columns
-   (`ACOS`, `CPC`, `Bid`), invented campaigns, invented statuses — then
-   spent a dozen turns hunting for the data they had "seen", and one
-   named a nonexistent campaign in its final report to the user. Nothing
-   was wrong with the PNG. **When the DOM and the picture disagree, the
-   DOM is right and the picture is a hallucination** — do not go looking
-   for the difference, and never reconcile by trusting the image.
-4. **Interact**: get an element's centre coords from step 2, then
-   `click_at_xy(x, y)`; set input values with `js(...)`. Re-read with
-   `page_info()` / `js(...)` after to confirm.
-5. **After navigation**: `wait_for_load()`; if the tab is stale/internal,
-   `ensure_real_tab()`.
+`capture_screenshot()` saves a PNG (default
+`~/.vibe-seller/bh-tmp/<session>/shot.png`, overwritten each call) and
+returns its path; call it **inside** the heredoc, print the path, then Read
+the PNG. A screenshot is good for confirming what the page looks like —
+that a dialog opened, a file was staged, a layout is what you expect — and
+for steps that are only visual (a canvas calendar, an OTP/passkey overlay).
+
+**A screenshot is not a data source.** Every value you act on or report —
+an ID, a number, a row, whether a column exists, a count — comes from the
+DOM via `js(...)`. Models reading screenshots of sparse tables reliably
+invent plausible rows and columns; when the picture and the DOM disagree,
+the DOM is right.
+
+Without vision, skip screenshots: everything in this skill works from the
+DOM. If a step in another skill can only be done by looking and you
+cannot view images, ask the user with `AskUserQuestion`.
 
 ## Helper API
 
-Helpers are pre-imported into the heredoc namespace:
+Pre-imported in the heredoc namespace:
 
 ```python
-new_tab(url)  # open a new tab and navigate (use for EVERY navigation)
-page_info()  # structured summary of the current page
-capture_screenshot()  # → PNG path (~/.vibe-seller/bh-tmp/<session>/shot.png); LAYOUT only, never data
-click_at_xy(x, y)  # click at pixel coordinates
-wait_for_load()  # wait for navigation/network to settle
-ensure_real_tab()  # switch off a stale/internal (chrome://) tab
-js('<javascript>')  # run JS; returns the SERIALIZABLE result only
-cdp('Domain.method', **params)  # raw CDP — params are KEYWORDS, not a dict
-# e.g. cdp('Page.navigate', url='...')
-drain_events()  # → and clear the buffered CDP events (see file upload, below)
+# navigation & tabs
+new_tab(url="about:blank")        # open a tab and navigate — use for every navigation
+goto_url(url)                     # navigate the CURRENT tab (prefer new_tab)
+page_info()                       # {url,title,w,h,sx,sy,pw,ph}; or {dialog:{...}} if a native dialog is open
+list_tabs(include_chrome=True)    # page targets
+current_tab()                     # {targetId,url,title}
+switch_tab(target, activate=False)  # attach to a tab (id or dict) without showing it
+activate_tab(target)              # make a tab the visible one
+close_tab(target=None)            # close a tab (default: current)
+ensure_real_tab()                 # move off a chrome:// / stale tab
+iframe_target(url_substr)         # targetId of an iframe → js(expr, target_id=...)
+
+# waiting
+wait(seconds=1.0)
+wait_for_load(timeout=15.0)       # document.readyState == 'complete'
+wait_for_element(selector, timeout=10.0, visible=False)  # SPA renders
+wait_for_network_idle(timeout=10.0, idle_ms=500)         # after submits/XHR
+
+# reading
+js(expression, target_id=None)    # run JS; returns the SERIALIZABLE result
+capture_screenshot(path=None, full=False, max_dim=None)  # → PNG path (confirmation only)
+
+# input (trusted CDP events)
+click_at_xy(x, y, button="left", clicks=1)
+fill_input(selector, text, clear_first=True, timeout=0.0)  # React/Vue-controlled inputs
+type_text(text)                   # insert text at the focus (no key events)
+press_key(key, modifiers=0)       # "Enter", "Tab", "ArrowDown", "a"; mods 1=Alt 2=Ctrl 4=Meta 8=Shift
+dispatch_key(selector, key="Enter", event="keypress")  # synthetic key event on an element
+scroll(x, y, dy=-300, dx=0)       # mouse-wheel at a point
+upload_file(selector, path)       # set a plain <input type=file> (see Uploading)
+
+# low level
+cdp(method, session_id=None, **params)  # raw CDP; params are KEYWORDS
+drain_events()                    # return and clear buffered CDP events
+http_get(url, headers=None, timeout=20.0)  # plain HTTP from the agent, no browser cookies
 ```
 
-- **`js()` returns serializable values only.** `js("document.title")` and
-  `js("return 1+1")` work; but `js("document.querySelector(...)")` returns
-  `None` (a DOM node can't serialize). Return **numbers, strings, or
-  plain objects/arrays** — e.g. an element's coordinates (below), not the
-  element itself. For an element *reference* (to set a file input) use
-  `cdp('Runtime.evaluate', expression=..., returnByValue=False)` → `objectId`
-  (note: `cdp()` params are **keyword args**, never a positional dict —
-  see "Uploading a file").
-- **`js()` does NOT parse JSON — so do not `JSON.stringify` your result.**
-  The value comes straight from CDP `returnByValue`, so the JS type maps
-  to the Python type: `return [{a:1}]` gives you a **list of dicts**
-  already, while `return JSON.stringify([{a:1}])` gives you a **`str`**
-  that you must then `json.loads` yourself. Both directions bite:
-  stringifying and *not* parsing makes `for row in data` iterate
-  **characters**; not stringifying and *then* parsing raises
-  `TypeError: the JSON object must be str, bytes or bytearray, not list`.
-  Return the object directly and use it as-is. If you inherit code whose
-  shape you can't be sure of, normalise once rather than guessing:
+Notes:
+
+- **Inputs:** `fill_input` focuses, clears, types real keys and fires
+  `input`/`change`, so framework-controlled fields (most seller centers)
+  register the value and their Submit buttons enable. Assigning
+  `.value` from `js(...)` or `type_text` bypasses those listeners and
+  usually leaves the form thinking the field is empty; use it only on
+  plain inputs you have confirmed react to it.
+- **`http_get` does not use the store's browser** — no login cookies, and
+  it goes out from the agent's own IP. Use it for public pages and APIs,
+  never for seller-center data.
+- **`js()` returns serializable values only.** Return numbers, strings, or
+  plain objects/arrays — `document.querySelector(...)` comes back `None`
+  because a DOM node can't serialize. For an element reference (file
+  inputs) use `cdp('Runtime.evaluate', expression=..., returnByValue=False)`
+  and take `objectId`.
+- **`js()` does not parse JSON**, so don't `JSON.stringify` your result:
+  `return [{a:1}]` arrives as a list of dicts, while a stringified result
+  arrives as a `str` you'd have to `json.loads`. If you inherit code of
+  uncertain shape, normalise once:
 
   ```python
-  import json          # stdlib modules: import them, don't rely on the namespace
-
+  import json
   def jsjson(expr):
       d = js(expr)
       return json.loads(d) if isinstance(d, str) else d
   ```
 
-  Only the **helpers** above are guaranteed pre-imported. `json`, `time` and
-  friends do happen to be reachable in the heredoc namespace today (they leak
-  in through the harness's own `import *`), but that is an implementation
-  detail of the wheel, not a contract — one `__all__` upstream and it stops.
-  Import the stdlib you use.
+- **`cdp()` takes keyword params.** `cdp(method, session_id=None, **params)`
+  — a dict in the second slot binds to `session_id` and the proxy rejects it
+  with `-32600 "Message may have string 'sessionId' property"`.
+- **Import the stdlib you use** (`time`, `json`, `re`). Only the helpers are
+  guaranteed in scope; other names that happen to leak in are not a
+  contract. Bare `sleep 3` inside the heredoc is a `SyntaxError`. Prefer
+  `wait_for_load()` / `wait_for_element()` over `time.sleep`.
+- **Raw-string JS that contains backslashes** (`js(r"""…""")`) — regexes
+  like `\d` otherwise trigger `SyntaxWarning` and can corrupt the JS.
+- Titles may carry a leading 🐴 (the harness marks the tab it drives);
+  strip it before comparing or reporting.
 
-## Locate & click an element WITHOUT vision (the preferred path)
+## Locate and click without vision
 
-You do not need to see the page. Read the DOM and compute click
-coordinates from `getBoundingClientRect`, then `click_at_xy`. This drives
-any page — buttons, links, shadow-DOM `kat-*` components — with no
-screenshot:
+Read the element's box from the DOM and click its centre. This drives any
+page, including shadow-DOM `kat-*` components:
 
 ```bash
 browser-use <<'PY'
-# one element by selector → its centre coords + text (None if not found):
 box = js("""
-  var el = document.querySelector('button.submit');   // any CSS selector
+  var el = document.querySelector('button.submit');
   if(!el) return null;
   var r = el.getBoundingClientRect();
   return {text:(el.innerText||el.value||'').slice(0,40),
@@ -191,7 +197,7 @@ box = js("""
 print("target:", box)
 if box: click_at_xy(box["x"], box["y"])
 
-# OR enumerate all clickables to find the right one by its text:
+# or list every clickable and pick by text:
 els = js("""
   return [].slice.call(document.querySelectorAll('a,button,input,[role=button],kat-button'))
     .map(function(el){var r=el.getBoundingClientRect();
@@ -199,33 +205,30 @@ els = js("""
               x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};})
     .filter(function(e){return e.x>0 && e.y>0;});
 """)
-print(els)          # pick the one whose text matches, then click_at_xy(it.x, it.y)
+print(els)
 PY
 ```
 
-**A plain `<a href>` is a navigation, not a click.** Read the href and
-`new_tab(href)`. Clicking one means landing inside the *anchor's* own
-rect, and an anchor is usually a small target inside a much larger
-parent: the centre of the table row or cell holding it is typically not
-on the anchor at all, so `click_at_xy` hits dead space and silently does
-nothing — no error, no navigation, and `page_info()` still shows the old
-page. Reserve clicking for controls that have no href (buttons, `kat-*`,
-JS handlers).
+- **A plain `<a href>` is a navigation, not a click.** Read the href and
+  `new_tab(href)`. An anchor is often a small target inside a larger row,
+  so the row's centre misses it and the click silently does nothing.
+  Click only controls without an href (buttons, `kat-*`, JS handlers).
+- **Shadow roots:** pierce them in the selector,
+  `document.querySelector('kat-file-upload').shadowRoot.querySelector('input')`.
+- **A JS `.click()` is untrusted** and many `kat-*` controls ignore it; use
+  `click_at_xy`.
 
-### A control BELOW the fold that won't scroll into view
+### A control below the fold that won't scroll into view
 
-Some pages (e.g. Amazon's "Generate Spreadsheet" popover) put the button
-you need **below the viewport**, inside a `kat-popover`/panel that
-`scrollTo`/`scrollIntoView` can't bring up — the window is short (e.g.
-839px tall) and `click_at_xy` can't hit an off-screen y. Don't fight the
-scroll: **grow the layout viewport with CDP so the whole panel fits**,
-then click the (now on-screen) coordinate, then restore:
+Some panels (e.g. Amazon's "Generate Spreadsheet" popover) sit below a
+short viewport and ignore `scrollIntoView`, and `click_at_xy` can't hit an
+off-screen y. Grow the viewport, click, then restore:
 
 ```bash
 browser-use <<'PY'
 import time
 cdp("Emulation.setDeviceMetricsOverride",
-    width=1920, height=2400, deviceScaleFactor=1, mobile=False)  # tall viewport
+    width=1920, height=2400, deviceScaleFactor=1, mobile=False)
 time.sleep(1)
 box = js("""
   var els=document.querySelectorAll('kat-button,button,[role=button]');
@@ -234,129 +237,70 @@ box = js("""
       return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};}}
   return null;
 """)
-if box: click_at_xy(box["x"], box["y"])   # trusted click, now on-screen
+if box: click_at_xy(box["x"], box["y"])
 time.sleep(3)
-cdp("Emulation.clearDeviceMetricsOverride")   # restore the real viewport
+cdp("Emulation.clearDeviceMetricsOverride")
 PY
 ```
 
-(Verified: the override raises `window.innerHeight` to the set value, so a
-below-fold button becomes reachable; `clearDeviceMetricsOverride` undoes
-it. A plain JS `.click()` still no-ops on `kat-*` — you need the trusted
-`click_at_xy`.)
+## Uploading a file to `<input type=file>`
 
-For an element inside an **open shadow root** (Amazon `kat-*`), pierce it
-in the selector: `document.querySelector('kat-file-upload').shadowRoot.querySelector('input')`.
-Set an input's value with `js("document.querySelector('#q').value='kettle'")`
-(then click its search icon — some inputs need the click to fire events).
+**Stage the file in the store's downloads dir,
+`~/.vibe-seller/downloads/<slug>/`, and pass its absolute path.** The
+browser process reads the file, not you: macOS Ziniao's Chrome is sandboxed
+and can't read `/tmp`, and on the winchrome backend (WSL
+agent → native Windows Chrome) pass the Windows form of the path
+(`wslpath -w`). A path the browser can't read fails silently —
+`files.length` stays 0 and Submit never enables.
 
-Only the helpers above (plus Python builtins) are in scope — the heredoc
-runs as a plain Python script. **`import` every stdlib module you use
-(`time`, `json`, `re`, …).** Bare `sleep 3` is a `SyntaxError`. **Prefer
-`wait_for_load()` over sleeping** — reach for `import time; time.sleep(n)`
-only when you must wait on something `wait_for_load()` can't observe (e.g.
-an async in-page render after a click).
+You can't drive the OS file picker, so never click "Browse" expecting one.
+There are two kinds of file input:
 
-Multiple statements run in one heredoc (this replaces `&&` chaining):
+### Method 1 — a plain input (`upload_file`, or set the node)
 
 ```bash
 browser-use <<'PY'
-new_tab("https://example.com/login")
-wait_for_load()
-js("document.querySelector('#email').value = 'user@example.com'")
-js("document.querySelector('#password').value = 'secret'")
-click_at_xy(640, 480)
-wait_for_load()
-print(page_info())
+upload_file("input[type=file]", "/abs/path/to/file.txt")
+print('files.length:', js("document.querySelector('input[type=file]').files.length"))
 PY
 ```
 
-## Uploading a file to a web `<input type=file>`
-
-> **The file must be in a path the BROWSER PROCESS can read, passed in
-> that process's path form — NOT `/tmp`.** `setFileInputFiles` reads the
-> file in the browser, not the agent. Put it in the store's downloads dir
-> (`~/.vibe-seller/downloads/<slug>/`) — the one location guaranteed
-> readable on every backend. Otherwise it **silently no-ops**:
-> `files.length` stays 0, Submit never enables, no error. Per backend:
-> macOS Ziniao's Chrome is sandboxed and can't read `/tmp` (so a `/tmp`
-> file fails — this was the whole "the widget won't accept my file"
-> bug, not the widget); native-Windows Chrome has no such sandbox but the
-> winchrome case (WSL agent → native Windows Chrome) must pass the
-> **Windows-form** path (`C:\…\downloads\<slug>\file`, via `wslpath -w`) —
-> a `/mnt/c` or WSL path is unreadable by native Chrome.
-
-Never coordinate-click the visible "Browse"/"Upload file" button
-expecting to then drive the OS file picker (you can't). Attach the file
-with the helpers below. **`cdp()` takes keyword args, NOT a params
-dict** — the signature is `cdp(method, session_id=None, **params)`, so a
-dict in the 2nd slot binds to `session_id` and the proxy rejects it with
-`-32600 "Message may have string 'sessionId' property"`. Always use
-keywords: `cdp('Runtime.evaluate', expression=..., returnByValue=False)`.
-
-There are **two kinds of file input** — pick the matching method:
-
-### Method 1 — a plain `<input type=file>` (`upload_file`, or set the node)
-
-For an input a plain CSS selector can reach, the helper does the whole
-job:
+`upload_file` takes a plain CSS selector (it can't pierce a shadow root) and
+raises if nothing matches. For an input inside an open shadow root, set the
+node through an objectId:
 
 ```bash
 browser-use <<'PY'
-upload_file("input[type=file]", "/abs/path/to/file.txt")   # ABSOLUTE path
-print('files.length:',
-      js("document.querySelector('input[type=file]').files.length"))  # MUST verify → 1
+sel = "document.querySelector('host').shadowRoot.querySelector('input[type=file]')"
+oid = cdp('Runtime.evaluate', expression=sel, returnByValue=False)['result']['objectId']
+cdp('DOM.setFileInputFiles', objectId=oid, files=['/abs/path/to/file.txt'])
+print('files.length:', js(sel + ".files.length"))
 PY
 ```
 
-Its selector is a plain CSS selector: it cannot pierce a shadow root,
-and its `setFileInputFiles` call silently no-ops on an inert placeholder
-input (below) — so **always verify `files.length` right after**; if the
-selector matches nothing, `upload_file` raises. For an input inside an
-**open shadow root** (Amazon `kat-file-upload`) — or any input where
-`upload_file` left `files.length` at 0 — set the node directly via an
-objectId:
+Check `files.length` is 1 afterwards. If it stays 0 although the call
+succeeded, you set an **inert placeholder** the component never reads
+(Amazon `kat-file-upload`'s `input#kat-file-attachment` is one) — use
+Method 2.
 
-```bash
-browser-use <<'PY'
-sel = "document.querySelector('input[type=file]')"
-# shadow-DOM variant: "document.querySelector('host').shadowRoot.querySelector('input[type=file]')"
-obj = cdp('Runtime.evaluate', expression=sel, returnByValue=False)  # kwargs!
-oid = obj['result']['objectId']
-cdp('DOM.setFileInputFiles', objectId=oid, files=['/abs/path/to/file.txt'])  # ABSOLUTE path
-print('files.length:', js(sel + ".files.length"))   # MUST verify → 1, not 0
-PY
-```
+### Method 2 — a component-managed widget (intercept the file chooser)
 
-**Always verify `files.length` right after.** If it stays **0** while the
-call returned success, the node you set is an **inert placeholder** the
-component doesn't read from (common with design-system upload widgets like
-Amazon's `kat-file-upload`, whose `input#kat-file-attachment` is a decoy).
-`setFileInputFiles` silently no-ops on it — objectId, `backendNodeId`, and
-`getDocument(pierce=True)` all give 0. Switch to Method 2.
-
-### Method 2 — a component-managed widget (file-chooser interception)
-
-For widgets that open the file picker via a button and create the *real*
-input on demand (Amazon `kat-file-upload`, most React uploaders). Suppress
-the OS dialog, do a **trusted** click on the widget's button, and take the
-`backendNodeId` Chrome hands you in `Page.fileChooserOpened`:
+Widgets that create the real input on demand (Amazon `kat-file-upload`,
+most React uploaders): suppress the OS dialog, make a **trusted** click on
+the widget's button, and attach to the `backendNodeId` Chrome reports:
 
 ```bash
 browser-use <<'PY'
 import time
 cdp('Page.enable')
-cdp('Page.setInterceptFileChooserDialog', enabled=True)   # OS dialog suppressed
-drain_events()                                            # clear the buffer
-# TRUSTED click on the visible upload button. click_at_xy is a CDP Input
-# event (trusted) — a JS .click() is UNtrusted and the browser will NOT
-# open a chooser for it (this is why setting the placeholder input fails).
+cdp('Page.setInterceptFileChooserDialog', enabled=True)
+drain_events()
 box = js("""var b=document.querySelector('kat-file-upload').shadowRoot.querySelector('#select-file');
             var r=b.getBoundingClientRect();
             return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};""")
-click_at_xy(box['x'], box['y'])
+click_at_xy(box['x'], box['y'])        # trusted; a JS .click() opens no chooser
 bnid = None
-for _ in range(8):                     # poll for the event (~4s)
+for _ in range(8):
     time.sleep(0.5)
     for e in drain_events():
         if 'fileChooserOpened' in str(e.get('method', '')):
@@ -368,95 +312,49 @@ print('attached to backendNodeId', bnid)
 PY
 ```
 
-The widget then reads and stages the file itself — the visible field shows
-the filename and (for Amazon) a green "File Type … (Automatically
-detected)". **Don't trust the shadow-root `textContent`** to confirm — it
-carries hidden error-state strings ("File upload was unsuccessful") even on
-success; confirm with a `capture_screenshot()` + Read, or by the Submit
-button becoming enabled. Then `click_at_xy` the page's own **Submit** and
+The widget then stages the file (Amazon shows the filename and "File Type …
+(Automatically detected)"). Confirm by the Submit button becoming enabled,
+or visually with a screenshot. The shadow root's `textContent` is not a
+reliable signal — it carries hidden error strings ("File upload was
+unsuccessful") even on success. Then `click_at_xy` the page's Submit and
 `wait_for_load()`.
 
-## Sessions
+## Parallel subagents: `--worker N`
 
-- **Default (seller center):** just run `browser-use <<'PY' … PY`. The wrapper
-  injects `BU_NAME=<slug>` and the CDP proxy for the store.
-- **Aux (non-seller-center browsing on the same store):**
-  ```bash
-  browser-use --session <slug>-aux <<'PY'
-  new_tab("https://tracking.example.com")
-  print(page_info())
-  PY
-  ```
-  The wrapper accepts `--session <slug>-aux` **only** and maps it to the aux
-  session; any other `--session` value is rejected.
-- **Parallel subagents:** `browser-use --worker N` (N = 1, 2, 3).
+Subagents inherit your environment, so a subagent's `browser-use` lands on
+**your** daemon and **your** tab.
 
-### `--worker N` — a second browser driver at the same time
-
-Subagents inherit your environment, so by default a subagent's
-`browser-use` call lands on **your** daemon and drives **your** tab.
-
-- Running a subagent and **waiting** for it: change nothing. It sees the
-  page you left, and the calls serialise.
-- Running subagents **concurrently** (with each other, or with your own
-  browsing): each concurrent driver needs its own slot, or they interleave
-  on one tab and quietly return each other's pages.
+- If you start a subagent and wait for it, change nothing — it sees the
+  page you left and the calls take turns.
+- If drivers run **concurrently** (subagents with each other or with you),
+  give each its own slot, or they interleave on one tab and return each
+  other's pages:
 
 ```bash
-# in the subagent's prompt, hand it a slot number, then it runs:
 browser-use --worker 2 <<'PY'
 new_tab("https://example.com/report")
 print(page_info())
 PY
 ```
 
-That gives the subagent its own daemon and its own tab on the **same
-logged-in browser** — no second login, same cookies, same downloads dir.
+A slot is its own daemon and tab on the **same logged-in browser** — same
+cookies, same downloads dir, no second login.
 
-Rules:
-
-- **The parent assigns the numbers.** Only you know how many subagents
-  you're launching. Never let a subagent pick its own, and never reuse a
-  number while its subagent is still running.
-- `--worker` and `--session` are mutually exclusive; a slot is a slot on
-  the main store browser, not on `-aux`.
-- Out-of-range or non-numeric slots are rejected by the wrapper.
-- Tabs are per-slot, downloads are **not** — every slot writes to the same
-  `~/.vibe-seller/downloads/<slug>/`, so have parallel workers report
-  filenames rather than assume the newest file is theirs.
-
-## Blocked in store / web tasks
-
-The wrapper rejects these — do not use them:
-
-| Blocked | Why |
-|---------|-----|
-| `BU_NAME=…` (your own) | session is auto-injected per store/task |
-| `BU_CDP_URL` / `BU_CDP_WS` | CDP endpoint is managed by the store proxy |
-| `--mcp` | not allowed inside tasks |
-| local-profile / cloud daemon helpers (`start_remote_daemon`, profile sync) | tasks use the store's managed browser only |
-
-## Tips
-
-1. **DOM first, not screenshots.** Locate targets with `js(...)` +
-   `getBoundingClientRect` (see "Locate & click without vision") and act on
-   the coords — this works with or without vision. A screenshot is an
-   optional cross-check for vision models, never a prerequisite.
-2. **`new_tab(url)` is how you navigate — every time.** Not
-   `page.goto(url)` (there is no `page` object — that's a `NameError`),
-   and not `goto_url(url)`: it moves whatever tab is current, which after
-   a wedge/timeout may not be the one you think it is.
-3. Prefer `page_info()` / `js(...)` over screenshots for text extraction.
-   A title may carry a leading 🐴 (the harness marks the tab it drives) —
-   strip it before comparing or reporting titles.
-4. **Raw-string your `js()` when it contains backslashes** (regex like
-   `/foo\/bar/`, `\d`, `\.`): `js(r"""…""")`. A plain triple-quoted string
-   makes Python emit `SyntaxWarning: invalid escape sequence` and can
-   corrupt the JS before it reaches the page.
+- The parent assigns slot numbers (1, 2, 3) because only it knows how many
+  subagents it is launching; don't reuse a number while its subagent runs.
+- `--worker` and `--session` are mutually exclusive; slots live on the main
+  store browser, not on `-aux`. Out-of-range or non-numeric slots are
+  rejected.
+- Downloads are shared across slots (`~/.vibe-seller/downloads/<slug>/`),
+  so have workers report the filenames they downloaded rather than assume
+  the newest file is theirs.
 
 ## Troubleshooting
 
-- **Daemon can't connect?** `browser-use --doctor`.
-- **Element not where expected?** re-`capture_screenshot()` after
-  `wait_for_load()`; scroll with `js("window.scrollBy(0, 600)")`.
-- **Stale/internal tab?** `ensure_real_tab()`.
+- **Daemon can't connect:** `browser-use --doctor`.
+- **Element not where expected:** `wait_for_load()` / `wait_for_element()`
+  and re-read its box; scroll with `scroll(x, y, dy=600)` or
+  `js("window.scrollBy(0, 600)")`.
+- **`page_info()` returns `{dialog: …}`:** a native alert/confirm is open
+  and the page's JS is frozen until it is handled.
+- **Stale or internal tab:** `ensure_real_tab()`.

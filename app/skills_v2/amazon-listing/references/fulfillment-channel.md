@@ -1,5 +1,13 @@
 # Fulfillment channel: FBM (`DEFAULT`) vs FBA, and switching a listing to FBA only
 
+Contents:
+- What the channels mean
+- How it gets there
+- Detect
+- Fix via SP-API (verified live)
+- Fix via Seller Central (confirm each control on the page)
+- Afterwards
+
 A listing's offer carries one `fulfillment_availability` entry **per
 channel**, and an FBA seller can end up with an FBM offer they never
 asked for. This page is how to spot one, and how to remove it.
@@ -116,7 +124,7 @@ place.
   change can be put back exactly.
 - **Patch one SKU, verify it, then do the rest.**
 
-## Fix via Seller Central (not yet verified live; confirm on the page)
+## Fix via Seller Central (confirm each control on the page)
 
 Manage Inventory → the SKU → **Edit** → *Offer* tab → set the merchant
 **Quantity** to 0, or change *Fulfillment channel* to "Amazon will ship

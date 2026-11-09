@@ -1,210 +1,156 @@
 ---
 name: noon-ads
-description: "Noon Ad Manager — campaigns (Auto / Manual / Brand), tuning audits, keyword research, negatives, Vantage analytics. Covers Targets / Customer Queries / Export Data flows. Load for any noon ads work — review, audit, tune, create. References under references/ for the tuning playbook (ads-tuning.md), creation guide (ads-creation.md), and keyword research (ads-keyword-research.md)."
+description: "Noon Ad Manager — campaigns (Auto / Manual / Brand), tuning audits, keyword research, negatives, Vantage analytics. Covers Targets / Customer Queries / Export Data flows. Load for any noon ads work — review, audit, tune, create. References under references/ for the tuning playbook (ads-tuning.md), applying approved changes (applying-changes.md), exports (exports.md), the campaign editor (campaign-editor.md), creation guide (ads-creation.md), and keyword research (ads-keyword-research.md)."
 requires: [noon-shared]
-gates: [ad_completeness_review, ad_negation_allowlist, ad_execution_fidelity]
+gates: [ad_changes, ad_coverage]
 ---
 
 # Noon — Ad Manager
 
-> **PREREQUISITE:** Read `../noon-shared/SKILL.md` for login, page
-> structure, and common patterns.
+Load the `noon-shared` skill first (Skill tool): login, project id,
+page structure and the shared UI patterns all live there.
 
-## 0. FIRST — declare what this task is for
+## 0. Declare what the task is for
 
-**Before any browser action, call `vibe_seller_declare_ad_task`.** This is
-a precondition, not a courtesy: a report with no declaration behind it is
-refused.
-
-What follows from the declaration cannot be changed afterwards: how much
-the completeness gate asks of you. Read it off what the person actually
-asked for, not off what you expect to find once you look.
+Before any browser action, call `vibe_seller_declare_ad_task`. The
+declaration decides what the run owes, so read it off what the person
+asked for, not off what you expect to find:
 
 | They asked for | `kind` | `scope` |
 |---|---|---|
 | "审计一下广告" / "review our ads" | `audit` | omit `combos` — whole store |
-| "复核 widget-006 在 amazon 的广告" | `audit` | that platform+country, those campaign ids |
+| "复核 widget-006 在 noon AE 的广告" | `audit` | that platform+country, those campaign ids |
 | "把这三个词的出价降下来" | `audit` | those campaigns |
 | "帮 widget-006 建关键词广告" | `create` | the market you are creating in |
 | "执行刚才确认的调整" | `execute` | the campaigns being changed |
-| "我们 SA 的 ACOS 大概多少" | `investigate` | the market asked about |
+| "我们 AE 的 ROAS 大概多少" | `investigate` | the market asked about |
 
-**Numbers or changes?** That is the line between `investigate` and
-`audit`, and it matters more than the table above. If the answer the
-person wants is a FIGURE — what did we spend, what is our ROAS, how did
-last month go — that is `investigate`, however many markets it spans:
-you are reading, not proposing. If they want to know what to CHANGE, or
-asked "is this right?", that is `audit`.
-Observed live: a plain "how much did we spend on ads this month, and
-what came back?" was declared a whole-store `audit`, which put five
-marketplaces of drill work behind a question that wanted four numbers. And the other way round, observed in
-CI: "review the keyword bids on <campaign>" was declared `investigate`,
-so the bid recommendations it produced contradicted its own declaration.
+- **Figures or changes?** A question whose answer is a number (spend,
+  ROAS, how last month went) is `investigate`, however many markets it
+  spans: read the figures, answer with `vibe_seller_set_task_result`,
+  done — no drill, no TSVs, and no proposals. A request about what to
+  change, or "is this right?", is `audit`. There is no `edit` kind: a
+  request to change specific bids is an `audit` scoped to those campaigns,
+  so the user still approves the change before it is applied.
+- **The scope trap: omitting `combos` means every marketplace the store
+  sells on.** Omit it only for a genuinely store-wide request.
+- **A product, not a campaign?** Declare the market first, enumerate,
+  find the campaigns carrying that SKU, then declare again with the same
+  kind and markets plus `campaigns: [...]`. Inside a turn a declaration
+  may only narrow, or move `investigate` → `audit` at the same or a
+  narrower scope (it adds the coverage you owe). Anything wider needs a
+  new message from the user; if you think the scope is wrong, say so in
+  the result.
+- **A new user message that changes the work is a new phase** — declare
+  again (`create` → "now review them" is `audit`; "apply 2a, 3b" is
+  `execute`). Don't drop a recommendation the person asked for just to
+  fit a declaration.
 
-**If you got it wrong, correct it upward.** If you declared
-`investigate` and the work turned out to produce decisions — a table
-telling someone to raise, cut, pause or negate — call
-`vibe_seller_declare_ad_task` again with `kind: "audit"` and the same
-scope, or a narrower one. That is the ONLY kind change allowed inside a
-turn, and it is allowed because it only ever makes you owe more: the
-coverage obligation appears. Going the
-other way (`audit` → `investigate`), adding a marketplace, or widening
-the campaign list are all still refused, and still need a new message
-from the user. Do not instead delete your recommendations to fit the
-declaration — the person asked what to change.
+## What an audit produces
 
-**There is no `edit` kind.** A request to change specific bids is an
-`audit` whose scope names those campaigns — the user still reviews the
-change before it is applied, and the scope is what makes it small.
+The server checks an ad task from fixed-header TSVs, not from the
+report's prose. The files, their columns, where they go and the store
+rules on `CHANGES.tsv` are defined once in
+[`references/data-contract.md`](references/data-contract.md); the
+procedure is
+[`../amazon-ads/references/audit-quickref.md`](../amazon-ads/references/audit-quickref.md)
+and the human report is
+[`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md).
+Both are shared with Amazon. What is different on noon:
 
-**The scope trap:** omitting `combos` means EVERY marketplace this store
-sells on, and you will be held to all of them. Omit it only when the
-request really is store-wide. A store selling on five marketplaces has
-been asked for all five because a one-product task left the field out.
+- **Countries.** `./AUDIT_TARGETS.json` (written by the server) lists
+  every marketplace the store is configured for; you owe the ones you
+  declared. A declared country with no campaigns still gets its
+  `CAMPAIGNS.tsv` row with a `note`.
+- **`CAMPAIGNS.tsv` comes from the scrolled list** (§ 2), with the
+  `All N` chip as the count to reach. `state` is the console's status
+  word in lower case (`live`, `paused`, `out of budget`). Drill `Live`
+  and `Out of budget` campaigns — both are spending.
+- **`ad_group` is the SKU.** noon has no ad groups; its export groups by
+  `SKU`. Don't invent one.
+- **`source_target` is `—`.** noon's `Queries` sheet carries only
+  campaign, SKU and query, so a query cannot be attributed to a target.
+- **Both layers come from one per-campaign Export** (§ 6), so the
+  search-term spend reconciles with the targeting spend by construction
+  (`noon_reconcile_floor` in the data contract). A low ratio means the
+  capture is incomplete — usually the 15-row tab was read instead of the
+  Export.
+- **ROAS is noon's headline metric** (no ACOS column on the console);
+  compute `acos = spend / sales × 100` for the TSVs.
 
-**If the request names a product, not a campaign** ("widget-006 的广告"),
-declare the MARKET now and the campaigns later. You cannot know campaign
-ids before you have looked, and declaring a market with no campaign list
-means **every campaign in it** — which is how a one-product request turns
-into an audit owing a whole marketplace.
+Tuning judgement for noon (drill priority, SOI, head vs modified terms,
+category targets) is in [`references/ads-tuning.md`](references/ads-tuning.md).
 
-So: declare `{kind, combos, products}` first, enumerate the campaign list,
-find the campaigns carrying that SKU family, then call the tool AGAIN with
-the same kind and the same combos plus `campaigns: [...]`. That second
-call is a **narrowing refinement** and is accepted within the same turn.
-
-**Refining may only ever remove reach.** Same kind, same marketplaces, and
-a campaign list going from "all of them" to a named subset. You cannot add
-a marketplace, change the kind, or widen the campaign list — a wider scope
-needs a new message from the user. If a gate asks for something outside
-your scope, say so in your result and let the user redirect you; do not
-try to re-declare around it.
-
-**When the user sends a NEW message that changes what you are doing,
-declare again.** That is a new phase, and it is the only way a
-declaration changes. Two cases you will hit often:
-
-- "现在把刚创建的广告复核一下" after a `create` phase → declare `audit`,
-  and its scope may name the campaigns you created earlier in this same
-  task.
-- The user replies with which of the suggested changes to make → declare
-  `execute`, scoped to the campaigns they named.
-
----
-
-Mechanics for noon Ad Manager. The actual *thinking* — when to
-create / tune / kill a campaign, how to research keywords — lives
-in the three reference files (see § 11).
+## 1. Ad Manager layout
 
 **URL**: `https://admanager.noon.partners/en-{cc}/home?mpCode=noon&project=PRJ{project_id}`
 
-Left nav is an **icon rail** (not a text `ul[role=menu]`): **Campaigns**,
-**Budget**, **Billing**, **Vantage**, **Access Management**, **Settings**
-— the labels render as `role=menuitem` spans, so match by text, not by
+The Ad Manager is per country: the `/en-{cc}/` segment selects it.
+
+The left nav is an icon rail — **Campaigns**, **Budget**, **Billing**,
+**Vantage**, **Access Management**, **Settings** — whose labels render as
+`role=menuitem` spans, so match them by text rather than by
 `ul[role=menu] a`.
 
-> ⚠️ **The Ad Manager was redesigned (verified live 2026-07-21).** The
-> `/home` landing is now an **Overview** dashboard (KPI panels +
-> promos), NOT the campaign list. The "Ad Manager" card carries three
-> tabs — **Overview | Performance | Campaigns** — and the campaign list
-> lives under the **Campaigns** tab at `…/home?…&tab=campaigns`. A page
-> that also shows a **Sale Event Optimizer** widget (event budget/bid
-> boosts) and a **Recommendations** panel is the current build. See § 2
-> for how to enumerate the list — the old paginator is gone.
+`/home` opens an **Overview** dashboard (KPI panels, promos, a **Sale
+Event Optimizer** widget and a **Recommendations** panel), not the
+campaign list. The Ad Manager card has three tabs — **Overview |
+Performance | Campaigns** — and the list lives under
+`…/home?…&tab=campaigns`.
 
-## 1. Campaigns Overview Metrics
+Overview KPI cards:
 
-Overview-tab KPI cards:
+| Metric | Meaning |
+|---|---|
+| ROAS | Revenue / Spends |
+| Revenue | Ad-attributed revenue |
+| Spends | Ad spend |
+| eCPC | Effective cost per click |
+| CTR | Clicks / Views |
+| Orders, Clicks, Views, ATC | Ad-attributed orders, clicks, impressions, add-to-cart |
+| CvR | Conversion rate (campaign detail only) |
 
-| Metric | Formula / Notes |
-|--------|-----------------|
-| ROAS | Return on Ad Spend = Revenue / Spends |
-| Revenue | Total ad-attributed revenue |
-| Spends | Total ad spend |
-| eCPC | Effective Cost Per Click |
-| CTR | Click-Through Rate = Clicks / Views |
-| Orders | Ad-attributed orders |
-| Clicks | Total clicks on ads |
-| Views | Total ad impressions |
-| ATC | Add To Cart count |
-| CvR | Conversion Rate (shown on campaign detail) |
+A time-series chart below toggles any of these.
 
-A time-series performance chart below lets you toggle any metric.
+## 2. Campaign list
 
-## 2. Campaign List — Filters, True Totals, Full Enumeration
+Filters above the list on the **Campaigns** tab:
 
-Open the **Campaigns** tab (`…/home?…&tab=campaigns`). Filters above
-the list:
-
-- **Search** box (by campaign name)
-- **Date range** (default `Last 30 days`)
+- **Search** (campaign name), **Date range** (default `Last 30 days`)
 - **Ad Type**: `All types` / `Product` / `Brand` / `Display`
 - **Targeting**: `All targeting` / `Auto` / `Manual`
-- **Status count control** (segmented): `Live N` · `Paused N` · `All N`
-  + a `More status filter` dropdown. The counts are the **true totals**
-  for the current filter — read them directly; there is no page math.
-- **Export campaigns** (top-right of the list) — a list-level bulk
-  export (distinct from the per-tab Export Data in § 7).
+- **Status chips**: `Live N` · `Paused N` · `All N`, plus `More status
+  filter`. The numbers are the true totals for the current filter.
+- **Export campaigns** (top-right) — the list-level workbook
+  ([`references/exports.md`](references/exports.md)).
 
-Columns (horizontally scrollable): Campaign, Status, Budget, Revenue,
-ROAS, Ad Spend, eCPC, Orders, Views, Clicks, ATC, … Actions.
+Columns scroll horizontally: Campaign, Status, Budget, Revenue, ROAS,
+Ad Spend, eCPC, Orders, Views, Clicks, ATC, …, Actions.
 
-### Enumerate EVERY campaign — the paginator is gone
+### Enumerate every campaign
 
-The Ant-Design pager (`li.ant-pagination-item-N`, "15 items per page")
-**no longer exists**. The list is now a **lazy-loaded, inner-scroll
-table**: only ~15–20 rows render on first paint, and **`window.scroll`
-does nothing** — you must scroll the list's own container until every
-row loads. Skipping this silently under-counts: an unscrolled read that
-sees the first ~20 rows can miss more than half the Live campaigns when
-the `Live N` chip is much larger, which then fails the completeness
-gate.
+The list is a lazy-loaded table inside its own scroll container: about
+15–20 rows render on first paint and `window.scroll` does nothing. A
+read without scrolling the container can miss more than half of the
+campaigns, and nothing on the page tells you so — only the chip count
+does. Enumerate live each time; a leftover `Campaign_*.csv` or
+`Export campaigns` file in the downloads folder holds whatever rows were
+loaded when it was written.
 
-> ⚠️ **Enumerate LIVE from the scrolled list — never from a pre-existing
-> or downloaded export file.** A leftover `Campaign_*.csv` /
-> `Export campaigns` file in `~/.vibe-seller/downloads/` (from a
-> prior run, or a first-paint export before you scrolled) captures only
-> the rows that were loaded when it was written — typically the first
-> ~20. Drilling that file makes the audit look done at `20/20` while the
-> account has far more Live campaigns. (Live failure this fixes: an agent
-> reused a 20-row export and reported noon SA `20/20` when the `Live`
-> chip showed **45**.) **Any campaign set whose count is below the
-> `Live N` chip is stale — re-enumerate by scrolling (below); and if you
-> do use `Export campaigns`, first scroll the list fully, then verify
-> the file's row count equals the chip before trusting it.**
+Per country:
 
-**What you owe is what you DECLARED.** `./AUDIT_TARGETS.json` lists every
-country the store is configured for — the MENU, written by the server
-from Settings. Your `vibe_seller_declare_ad_task` call turns part of it
-into an obligation: the countries you declared each need their own
-`AUDIT_SCOPE.json` combo entry (step 4) AND their own `## noon <CC>`
-report section; declaring no combos at all (a whole-store audit) means
-you owe every country in the file. Do NOT expand past your declaration
-because the menu is longer — reporting on a market nobody asked about is
-an out-of-scope gap. An empty menu (`"combos": []`) means the store has
-no country configured: audit the one country the console shows, and
-never edit store metadata to build a menu. A country with
-genuinely no Live campaigns is still written down — an entry with
-`"active_ids": []` and `"total_active": 0`, plus a section saying so;
-可以为空，但不能不写。Omitting a declared combo is a `[基线]` gap that
-blocks submission.
-
-Phase 1 (Discover) MUST, per country:
-
-1. **Read the true total** from the status chips — the `Live N` / `All N`
-   numbers are your completeness target. The chip *label* (`Live` today)
-   is English on the noon partner console, but rely on the **number** and
-   the **`/campaign/details/` links** — both language-neutral — so this
-   works whatever the seller-market locale; don't key on the label word:
+1. **Read the chip totals.** Rely on the number and on the
+   `/campaign/details/` links, both language-neutral, rather than on the
+   chip label:
    ```bash
    browser-use <<'PY'
    print(js("return JSON.stringify([...document.querySelectorAll('*')].filter(e=>e.children.length<=2 && /^(Live|Paused|All)\\s*\\d+$/i.test(e.textContent.replace(/\\s+/g,' ').trim())).map(e=>e.textContent.replace(/\\s+/g,' ').trim()))"))
    PY
    ```
-2. **Scroll the list container to the bottom** (match its class by the
-   `CampaignListRevamp_` prefix — the hashed suffix changes per build;
-   fall back to any inner `overflow-y:auto` scroller taller than its
-   viewport). Repeat until the campaign-link count stops growing:
+2. **Scroll the list's container to the bottom** until the link count
+   stops growing. Its class starts with `CampaignListRevamp_` (the hashed
+   suffix changes per build); the snippet scrolls every inner
+   `overflow-y:auto` scroller taller than its viewport:
    ```bash
    browser-use <<'PY'
    for _ in range(12):
@@ -213,52 +159,38 @@ Phase 1 (Discover) MUST, per country:
    print("links:", js('return document.querySelectorAll("a[href*=\\"/campaign/details/\\"]").length'))
    PY
    ```
-3. **Extract IDs** with the still-valid `a[href*="/campaign/details/"]`
-   read (§ 3) and de-dupe. Only when the distinct count matches the chip
-   total (e.g. `Live N`) is the manifest complete. Re-run this whole
-   loop **after every country switch** (`/en-{cc}/`).
-4. **Persist the scope — required for audits.** Append this combo to
-   `./AUDIT_SCOPE.json` at the task root, with the de-duped ids **and**
-   the `Live N` chip number:
-   ```json
-   {"combos": [
-     {"platform": "noon", "country": "AE",
-      "total_active": 45,
-      "total_active_source": "chip:Live 45",
-      "active_ids": ["C_DEMO0001", "C_DEMO0002"]}
-   ]}
-   ```
-   The server requires `total_active == len(active_ids)`, and rejects the
-   scope when they disagree. That is deliberate: the chip is rendered by
-   the server and does **not** depend on how far you scrolled, so a
-   half-scrolled list (20 ids, chip 45) is caught as stale instead of
-   being accepted as a complete `20/20` audit. If they disagree, keep
-   scrolling — don't "fix" it by editing the number down. Every id you
-   list must then get its own `### <id> | … ` drill block in the report.
-   Full field reference: `amazon-ads/references/audit-quickref.md` Step 1.
+3. **Extract ids** (§ 3) and de-duplicate. The list is complete when the
+   distinct count equals the chip for the status filter you used (`All N`
+   for `CAMPAIGNS.tsv`). If it is short, keep scrolling — never adjust
+   the number down to match.
+4. Re-run the loop after every country switch.
 
-   **`total_active_source` is required, and for noon it is the chip
-   reading** — `"chip:Live N"`, the number you read in step 1. Without
-   it the combo is a `[基线]` gap. Reason: `total_active ==
-   len(active_ids)` only proves the two numbers agree, not that either
-   was *observed* — trivially true when both come from the same parse
-   (observed live: a run declared a 12-campaign marketplace as `4/4`
-   because its script silently dropped files it couldn't read, and every
-   check passed). The chip form isn't verifiable from disk the way
-   Amazon's `"bulk:<file>.xlsx"` is, but writing the reading down turns
-   an invented total from an omission into a claim the reviewer can check
-   against the live page. Read the chip; don't back-fill it from the id
-   count.
+### An "empty" Ad Manager that contradicts the store profile
 
-## 3. Campaign Detail Page
+The Ad Manager sometimes renders a transient *"No data available /
+Showing 0 items per page"* for a country that has live campaigns.
+`stores/<slug>/metadata.json` (`platform_countries.noon`) and
+`stores/<slug>/notes.md` are the durable record. When a listed country
+shows zero campaigns:
+
+1. Open a fresh navigation to the same URL (`new_tab(url)` +
+   `wait_for_load()`, not a refresh).
+2. Clear the Status and Ad Type filters.
+3. Open `…/home?…&tab=campaigns` directly and scroll the container.
+4. Only if all three still show zero with a fresh "Last Updated" stamp,
+   record the country as empty — with the contradiction in the
+   `CAMPAIGNS.tsv` `note` and in the result so the user can resolve it.
+
+Dropping a country that has live campaigns is a far worse outcome than
+the minute this check costs.
+
+## 3. Campaign detail page
 
 **URL**: `admanager.noon.partners/en-{cc}/campaign/details/{campaign_id}?mpCode=noon&project=PRJ{project_id}`
 
-Campaign ID format: `C_{alphanumeric}` (10 alphanumerics after the
-underscore, e.g. `C_XXXXXXXXXX`).
+Campaign ids look like `C_` plus 10 alphanumerics (`C_DEMO0001`). They
+live in `<a href>` attributes, not visible text:
 
-**Campaign ID extraction** from the campaigns list (IDs are in
-`<a href>` attributes, not visible text):
 ```bash
 browser-use <<'PY'
 print(js("""
@@ -273,74 +205,36 @@ print(js("""
 PY
 ```
 
-> ⚠️ **The link extraction above only returns the rows currently
-> rendered.** The list lazy-loads on inner scroll, so a raw read
-> captures ~15–20 of what may be many more. **Enumerate the full set
-> via the § 2 procedure** (read the `Live N` / `All N` chip totals, then
-> scroll the list container until the distinct link count matches).
-> Treat a single unscrolled read as a spot-check, never the full set —
-> under-counting here fails the completeness gate.
+This returns only the rows currently rendered — run it after the § 2
+scroll.
 
-**Campaign names can be misleading.** Verify actual products via
-the **Products tab** — do not trust the campaign name. A campaign
-named "mouse004 Auto" may target keyboard SKUs, not a mouse.
+**Navigate by id, not name.** Names in a report often differ from the
+live name; the `C_` id does not. Names can also mislead about the
+product: check the **Products** tab for what a campaign really
+advertises.
 
-The page header carries the campaign name (with its own **pencil**
-button that edits the name), the ad-type tag (`Product Ad` / `Brand
-Ad`), the **status badge** (`Live` / `Paused` / …), and
-*Last updated*. Below it, a **Campaign Settings** strip with two
-labelled buttons — **Pause** (or Resume) and **Duplicate** — followed
-by the settings cards:
+Page header: campaign name (with its own pencil), ad-type tag (`Product
+Ad` / `Brand Ad`), status badge, *Last updated*. Below it a **Campaign
+Settings** strip with **Pause** (or Resume) and **Duplicate**, then the
+setting cards:
 
 `DURATION` · `PRODUCTS` · `TARGETING & BIDDING` · `TOP OF SEARCH BID`
 (Top of Search N% / Product Detail Page N%) · `NEGATIVE TARGETING` ·
 `DAILY BUDGET`
 
-Each card is its own editor: the card's **title button** or the
-**pencil** beside it opens that setting's modal (the NEGATIVE
-TARGETING card opens the negatives editor — § 9). The same page in
-full-editor form is still reachable by URL
-(`…/campaign/v2?…&campaignCode={id}&mode=edit`). The **Campaign
-Performance** card below carries its own date-range control and
-**Export** button.
+Each card's title button or pencil opens that setting's modal. The full
+editor is at `…/campaign/v2?…&campaignCode={id}&mode=edit`
+([`references/campaign-editor.md`](references/campaign-editor.md)). The
+**Campaign Performance** card has its own date range and **Export**.
 
-`target_filter` query param on the Targets tab switches the view:
-`target_filter=all` (positive keywords, default) vs
-`target_filter=negative` (negative keywords).
+Sub-tabs: **Products** (per-SKU metrics) · **Placements** · **Targets**
+(keywords, match types, bids) · **Customer Queries** (search terms) ·
+**Day on Day Trends**.
 
-**Brand Ads have different CTR/ROAS norms.** Brand Video ads measure
-view-through differently — never compare CTR directly to Product Ads.
-A `brand video` CTR of 0.23% is not "weak" vs product ad peers at
-1.7–6.7%. Compare Brand Ads only against other Brand Ads, or against
-the brand ad's own historical ROAS.
+The sub-tabs have no stable selector. Scroll the tab bar into view
+(~800 px on a standard page, ~1500 px on brand-video pages, where the
+player pushes it down) and click by label:
 
-**Brand Ad "Creative" row.** The Products tab may show a "Creative"
-row (logo/video element) that accumulates clicks with zero attributed
-orders — noon can't attribute conversions to the creative. If
-Creative spend > 20% of campaign budget, flag it; calculate ROAS
-both with and without the Creative row for true product performance.
-
-KPI cards (same 10 metrics as overview, scoped to this campaign).
-
-Performance chart with metric toggles: ROAS, Revenue, Spends, eCPC,
-CTR, CvR, Orders, Clicks, Views, ATC.
-
-**5 Sub-tabs on campaign detail:**
-
-| Tab | Purpose |
-|-----|---------|
-| Products | SKUs in this campaign with per-SKU metrics |
-| Placements | Ad placement performance |
-| **Targets** | **Keywords** with match types and bids |
-| Customer Queries | Actual customer search terms |
-| Day on Day Trends | Daily time series |
-
-**Sub-tab access patterns.** The 4 sub-tabs have no stable selector
-between page loads; click them by visible label via `js()`. Scroll
-the tab bar into view first — `js("window.scrollBy(0, 800)")` for a
-standard page, and ~1500px (roughly 2×) for **brand video pages**
-because the embedded video player pushes the sub-tabs further down.
-Then click a tab by its text:
 ```bash
 browser-use <<'PY'
 js("window.scrollBy(0, 800)")
@@ -348,23 +242,28 @@ js("Array.from(document.querySelectorAll('[role=tab],a,button')).find(e=>/^Produ
 PY
 ```
 
-**"No SKUs Found" on Products tab.** If a campaign is Live and
-spending but Products shows "No SKUs found", the linked SKUs were
-deleted or delisted. The Auto system continues to spend but cannot
-attribute revenue. Check if some variants show "View Issues" vs
-"Buy Box Won" — even one broken variant can tank campaign ROAS.
+Things to check on this page:
 
-## 4. Targets Tab — Keywords & Bidding
+- **Brand Ads have their own norms.** Brand-video CTR is measured
+  differently; compare Brand Ads only with other Brand Ads or with their
+  own history.
+- **A Brand Ad "Creative" row** collects clicks with no attributable
+  orders. If it carries more than ~20% of the campaign's spend, flag it
+  and show ROAS with and without it.
+- **"No SKUs found" on a Live, spending campaign** means the linked SKUs
+  were deleted or delisted: the campaign spends without attributable
+  revenue. Also check for variants showing "View Issues" instead of
+  "Buy Box Won" — one broken variant can sink a campaign's ROAS.
 
-**Goal**: capture every row, including the 0-view tail (typos,
-sub-floor bids, idle keywords).
+## 4. Targets tab
 
-**Default to scroll+eval.** For typical Manual campaigns
-(15–30 keywords) the DOM accumulates all rows on initial render;
-a single `eval` walking `document.querySelectorAll('table tr')`
-returns the full table. Verified live 2026-05-05: campaigns
-with 24–25 keywords returned every row on first eval, no
-scrolling needed.
+Verify activation by URL — it contains `tab=target` (plus
+`&target_filter=all`; `target_filter=negative` shows negatives).
+`aria-selected` lags after the click.
+
+The targeting table is small (auto: 2–4 group rows such as `auto
+keyword` / `auto category`; manual: 10–30 targets) and renders all rows
+on first paint, so a DOM read is complete:
 
 ```bash
 browser-use <<'PY'
@@ -372,800 +271,167 @@ print(js('return JSON.stringify(Array.from(document.querySelectorAll("table tr")
 PY
 ```
 
-If the captured count looks small (<10 rows on a 14d+ campaign
-that should have 15+), scroll the inner table container
-(`js("window.scrollBy(0, 600)")`) and re-run — the DOM may still be
-virtualizing on a slow render.
+If the count looks short, scroll the table and read again. Its rows sum
+to the campaign's Ad Spend — that is how you know you have them all.
+Keep paused targets that spent in the window: their spend is still in
+the campaign total.
 
-**On the TARGETS tab, scroll+eval is fine** — the targeting table is
-small (auto campaigns have 2–4 groups; manual ones 10–30 keywords) and
-its rows sum to the campaign's own Ad Spend exactly, which is how you
-know you got them all. Verified live: 5 spending rows summing to 120.00
-against a campaign Ad Spend of 120.00, and 2 auto groups summing to
-300.00 against 300.00. **Include PAUSED targets that still have spend in
-the window** — an agent that filtered to Live only reported 115.00 and
-lost a paused 5.00 row, which then broke its reconciliation.
-
-**But do NOT carry that habit onto Customer Queries** — that tab is
-capped at top-15 with no pagination, so scroll+eval structurally cannot
-complete it. Use its `Export` button; see § 6. (An earlier revision of
-this skill declared Export Data broadly "unreliable in this environment"
-after one Targets-tab attempt that produced no file within 10 s. On
-Customer Queries it works and is the only complete source — verified
-twice, ~15–25 s. Wait ~20 s and diff the downloads directory rather than
-concluding failure at 10 s.)
-
-**Tab-activation gotcha.** After clicking the Targets tab (via the
-`js()` by-text pattern above), verify by URL — read
-`js("return location.href")` and confirm it includes **`tab=target`**
-(singular; the current build also appends `&target_filter=all`). The
-`aria-selected` state can lag for a second after click and isn't a
-reliable activation signal.
-
-**Columns** (verified live 2026-08-10) — read them positionally, the
-header row extracts with two blank spacer cells:
+Columns, read positionally (the header extracts with two blank spacer
+cells):
 
 ```
 Targets | Status | Bid | (blank) | Revenue | ROAS | Spends | eCPC |
 Orders | Views | Clicks | ATC | CTR | CVR | SOI | (blank) | Actions
 ```
 
-There is **no `Recommended Bid` column, no `Verticals`, and no
-combined `Engagement` column** in the current build — an earlier
-revision of this skill listed all three, plus a "strip the trailing
-`Apply`" workaround for a cell that no longer exists. Don't look for
-them.
+The **Target** cell carries the match type inline — `<keyword> Keyword
+Exact Match`, `<keyword> Keyword Phrase Match`, `<path> Category Match`
+— and truncates long keywords (`usb c fast charg...`). Split off the
+match type; for full keyword text read the editor's selected-target
+list ([`references/campaign-editor.md`](references/campaign-editor.md)).
 
-The **Target cell carries the match type inline**: it extracts as
-`<keyword> Keyword Exact Match`, `<keyword> Keyword Phrase Match`, or
-`<path> Category Match`. Split it off before using the keyword text —
-and note the **keyword is truncated** in this cell when long
-(`usb c fast charg...`). To recover full keyword text, read the
-campaign **editor** (§ 9), whose selected-target list is untruncated.
+### SOI — how much of the available reach you win
 
-### SOI — the column that tells you what you are LEAVING on the table
-
-`SOI` is **Share of Impressions**: the fraction of the available
-impressions for that target which your ad actually won.
-
-**The cell renders as a PERCENT** (`12.5%`), so convert before dividing
-— dividing by the displayed number is wrong by 100×:
+`SOI` (Share of Impressions) is the fraction of available impressions
+for that target your ad won. It renders as a percent, so convert first:
 
 ```
-available impression pool ≈ views ÷ (SOI_percent / 100)
-
-# illustrative: views 400, SOI 2.0%  →  400 / 0.02  = 20,000
-#               views 400, SOI 2.0   →  400 / 2     =    200   ← WRONG
+available pool ≈ views ÷ (SOI_percent / 100)
+# views 400, SOI 2.0%  →  400 / 0.02 = 20,000
 ```
 
-This is the single most useful number on the page and has no
-equivalent in `searches/month` (§ 9): `searches/month` sizes the
-*market*, SOI tells you **how much of it you are winning**, already
-net of bid, relevance and competition. A target sitting on a large
-`searches/month` bucket with a 1% SOI is not a keyword problem — it is
-a bid-or-relevance problem, and adding more keywords will not fix it.
+`searches/month` sizes the market; SOI says how much of it you win, net
+of bid, relevance and competition. Sum views and pools across a campaign
+for a capture rate, and read it next to daily-budget utilisation (spend
+÷ budget × days): capture low + budget unspent → bid or relevance
+problem; capture high + budget unspent → the keywords are small. To tell
+bid from relevance, see
+[`references/ads-tuning.md`](references/ads-tuning.md) § Head terms vs
+modified terms.
 
-Compute it per target and sum across the campaign to get a single
-**capture rate** — total views ÷ total available pool. A starved manual
-campaign can sit in the low single digits, meaning most of the reach it
-already owns is unclaimed *before* any new keyword is added.
+## 5. Changing a bid
 
-Cross-check it against **daily-budget utilisation** (actual spend ÷
-budget × days). When both land in the same low band they corroborate
-each other, and together they separate **"no reach"** (capture low,
-budget unspent → bid/relevance) from **"no demand"** (capture high,
-budget unspent → the keywords are simply small). Report both; either
-one alone is ambiguous.
+The bid is not editable in the row. The row's **Edit Bid** button opens:
 
-**Diagnosing a low SOI — bid vs relevance.** Raising the bid only
-helps when the platform already considers the listing a valid answer
-for that query. Compare the SOI of head terms against modified terms
-(`<category>` vs `<category> <audience>`) on the SAME campaign: if the
-modified terms hold a healthy SOI while the bare head term sits near
-zero at a comparable bid, the auction is telling you the listing is
-not relevant for the broad query, and bidding up burns money for
-impressions that will not convert. See
-`references/ads-tuning.md § Head terms vs modified terms`.
+- on a manual campaign's keyword/category row, **`BidUpdateModal`** — one
+  number input whose placeholder is the current bid, and an **Update**
+  button that stays disabled until the value changes;
+- on an auto campaign's `auto keyword` / `auto category` row, the
+  campaign's **Targeting & BIDDING** modal — the **Bid Amount** box
+  (`placeholder="Enter Bid Amount"`), strategy radios, Cancel / Update.
 
-Per-keyword actions:
-- **Bid input**: edit target bid directly (`step=0.01`)
-- **Status toggle**: enable/disable the keyword
+Typing over the old value can concatenate (`1.30` → `11.3`), so clear
+with the native setter, read back, set, read back, then Update and
+re-read the row. The full protocol, pauses and negatives are in
+[`references/applying-changes.md`](references/applying-changes.md).
+There is no "apply suggested bid" shortcut; noon's suggested range is
+visible in the editor and is a hint, not a target.
 
-## 5. Change Target / Keyword Price
+## 6. Customer Queries tab — use its Export
 
-The bid is **not editable in the row**. Each Targets-tab row (and the
-bid figure itself) has an **Edit Bid** button that opens a modal
-editor:
+The tab renders a fixed top-15 with no paginator or load-more, so a DOM
+read cannot be complete however long you scroll. Its **`Export`** button
+works (the file lands in ~15–25 s) and returns the full set. On two
+measured campaigns the 15-row tab showed 0.27 and 0.79 of the targeting
+spend; the Export matched it exactly.
 
-- a **manual** campaign's keyword / category row opens
-  **`BidUpdateModal`** — one number input whose **placeholder is the
-  current bid**, and an **Update** button that stays disabled until
-  the value changes;
-- an **auto** campaign's `auto keyword` / `auto category` rows open
-  the campaign's **Targeting & BIDDING** settings modal
-  (`CampaignSettingsEditModal`) — the **Bid Amount** box
-  (`placeholder="Enter Bid Amount"`), bidding-strategy radios, and
-  Cancel / Update.
+1. Open the campaign, click **Customer Queries** (URL gains
+   `tab=customerQuery`).
+2. List the downloads folder, then click the button whose text is exactly
+   `Export`.
+3. Wait for `campaigns-export-<ts>-<id>.xlsx` to appear in
+   `~/.vibe-seller/downloads/<slug>/`; diff the listing rather than
+   guessing. Give it ~60 s before concluding anything.
+4. Rename it per campaign right away — the list-level export shares the
+   filename pattern, and the next export overwrites it.
+5. Read it with openpyxl. Row 1 of each data sheet is a colour banner,
+   row 2 the header. It is scoped to this campaign and holds both layers:
+   - `Queries` — `Campaign ID`, `Campaign Name`, `SKU`, `Query`, `Views`,
+     `Clicks`, `Orders`, `ATC`, `Spends`, `Revenue`, `CTR`, `ROAS`;
+   - `Targets` — Target Value, Target Type, Bid, Spends, …;
+   - also `Campaigns`, `SKUs`, `Negative Keywords`, `Placement`,
+     `Read me` (row 2 states the date range).
 
-Fill the input with the native setter + `input` event, **read the
-value back and confirm it is exactly the target number**, press
-Update, wait for the modal to close, then **re-read the row's bid**
-(the figure in the row's `editWrapper` button) — it must equal the
-target. A naive typed-over value can concatenate (`1.30` → `11.3`):
-clear-then-set, verify before Update. Full protocol:
-`references/ads-tuning.md § Applying changes`.
+On screen the tab is scoped to the product highlighted in the Products
+tab; the Export covers the campaign, and its `SKU` column lets you check
+every advertised SKU is present. For Auto campaigns this is where most
+actionable items live (brand negates, wrong-category waste, harvest
+candidates) — give it the time you'd give a Manual campaign's Targets.
 
-There is no "Apply the suggested bid" shortcut on this tab in the
-current build — the Recommended Bid column it belonged to is gone
-(§ 4). Type the bid you want. noon's suggested range is still visible
-per target inside the campaign **editor** (§ 9), but treat it as a hint,
-not a target (`references/ads-creation.md § Per-keyword bid`).
+A DOM read of the tab is still fine for a quick look at the top queries.
+The first read after the click may return only a header row; read again
+~2 s later.
 
-## 6. Customer Queries Tab
+## 7. Exports
 
-> ### ⚠️ USE **Export**, NOT the table. The tab shows only the top 15.
->
-> The Customer Queries tab renders a **fixed top-15** and has **no
-> paginator, no load-more and no rows-per-page control** — verified live:
-> the row count stays at 15 across repeated inner-container scrolling of
-> every scrollable element on the page. Scroll+eval therefore CANNOT get
-> the full query set here, no matter how patiently you scroll.
->
-> **The `Export` button on this tab does work** (verified twice, file
-> landed in ~15–25 s) and returns the complete set. An earlier revision
-> of this skill said "Export Data is unreliable in this environment";
-> that was wrong, and following it is what produced years of truncated
-> captures. Measured on two live campaigns:
->
-> | campaign | targeting spend | via 15-row tab | via Export |
-> |---|---|---|---|
-> | Auto | 300.00 | 80.00 (0.265, 15 rows) | **300.00 (1.000, ~10k rows)** |
-> | Manual | 120.00 | 95.00 (0.786, 15 rows) | **120.00 (1.000, 404 rows)** |
->
-> So noon does **not** "attribute only part of spend to queries" — that
-> belief was an artifact of reading the tab. With the export the two
-> layers agree EXACTLY, and the server now holds noon to the same
-> reconciliation floor as Amazon (85%). A low ratio means your capture is
-> incomplete, not that noon is being noon.
->
-> **How to use it:**
-> 1. Open the campaign detail, click the **Customer Queries** tab.
-> 2. Click **`Export`** (a plain button; match on its exact text).
-> 3. Wait for `~/.vibe-seller/downloads/<slug>/` to gain
->    **`campaigns-export-<ts>-<id>.xlsx`** — the same bulk-update
->    workbook the list-level *Export campaigns* produces (§ 7.2), just
->    scoped to this campaign. Snapshot the directory listing BEFORE
->    clicking so you can diff, rather than guessing.
-> 4. **Rename it immediately, per campaign** — the filename pattern is
->    shared with the list-level export, so the next export (this
->    campaign or another) OVERWRITES it.
-> 5. Read it with openpyxl. It is scoped to the campaign you were on and
->    contains BOTH layers, so read them from this ONE file and the
->    reconciliation holds by construction:
->    - **`Queries`** — the full query set (`Campaign ID`, `Campaign
->      Name`, `SKU`, `Query`, `Views`, `Clicks`, `Orders`, `ATC`,
->      `Spends`, `Revenue`, `CTR`, `ROAS`).
->    - **`Targets`** — the targeting layer (Target Value, Target Type,
->      Bid, Spends, …).
->    - also `Campaigns`, `SKUs`, `Negative Keywords`, `Placement`,
->      `Read me`. Every data sheet's row 1 is the colour-group banner;
->      **row 2 is the header** (§ 7.2).
->
-> The scroll+eval walk below is still the right tool for the **Targets**
-> tab (§ 4), and it remains a fallback for a quick eyeball of the top
-> queries — just never as the source for the 搜索词对账 line.
-
-```bash
-browser-use <<'PY'
-# After clicking the Customer Queries tab, verify activation by URL
-print(js('return location.href.includes("tab=customerQuery")'))
-# Then walk the table rows
-print(js('return JSON.stringify(Array.from(document.querySelectorAll("table tr")).map(r => Array.from(r.cells).map(c => c.innerText.trim())))'))
-PY
-```
-
-**Rendering delay.** After clicking the Customer Queries tab, the
-first `eval` may return only an empty header row (no data). This is
-a rendering delay — the table is in the DOM but data hasn't
-populated. A second eval ~2 seconds later returns full data.
-
-The on-screen state shows only the top spenders; the long-tail
-/ 0-order queries where harvest, brand-negate, and waste
-decisions live are below the fold. The eval above pulls the
-full table on most campaigns; if you see fewer than ~15 rows on
-a 14d+ campaign, scroll the inner table container and re-eval.
-Read the live header row before parsing positionally, and prefer
-the **Export** (above), which is the complete source anyway.
-
-**Auto campaign query routing per-product.** On Auto campaigns,
-the Customer Queries tab shows queries scoped to the product
-currently selected/highlighted in the Products tab — NOT the full
-campaign. If a campaign has 2+ products, switch the highlighted
-product to see each product's queries. Always check Customer Queries
-while each product is individually selected to capture all routes.
-
-**Auto campaigns: Customer Queries IS the tuning surface.**
-Auto campaigns have no Targets tab, so the Customer Queries tab
-is where most of the actionable items live (brand-negates,
-wrong-category waste, harvest candidates). Allocate equal time
-on Customer Queries for Auto as you would on Targets for
-Manual — don't treat Auto sections as "lighter" just because
-the spec template doesn't show a Targets table.
-
-> **In an audit report, that means an Auto campaign's targeting
-> table is one row per Customer-Query-derived target — not one row
-> restating the campaign total.** A table whose only row is
-> 合计 / 总计 / 汇总 / 整体活动 / 定位层汇总 / overall / total is
-> rejected as `[定向层]`：出价、暂停、加投都是逐个定向做的决策，
-> 汇总行里没有可执行的对象。合计 may only be a trailing footer row.
-> 该活动确实没有数据时写「无数据」。
-
-> **These totals feed the `搜索词对账` line — TWO checks, and they are
-> not symmetric.** Query spend can only ever be a PART of the campaign's
-> targeting / top-tile spend (每个查询的花费已经计在定向层里了).
-> **Below 40% of it** → `[对账]`, an incomplete capture — noon's floor is
-> deliberately low (`noon_reconcile_floor`; this page genuinely attributes
-> only part of campaign spend, measured median 0.779 across 13 live
-> campaigns), so under it means you really did miss rows: re-read both
-> layers on the SAME 30-day window. **Above `1.02×` it** →
-> `[对账·不可能]`, a contradiction rather than imprecision (实测同窗口下
-> 这个比值上限就是 1.00) — usually the two layers came from different
-> campaigns. **That direction does NOT fail open on a stall**: either
-> re-take both layers for the same `C_…` id, or write in that campaign's
-> block ONE line carrying BOTH halves — data unreliable AND do not act on
-> it: `⚠️ 数据不可信：本活动两层对账矛盾，请勿执行本活动的出价建议`
-> (「数据有偏差，仅供参考」 by itself does not count), or the
-> server prepends a warning banner to the delivered report naming that
-> campaign. Full rule: `../amazon-ads/references/output-spec.md`.
-
-Use this to discover high-performing queries (add as keywords) or
-low-performing queries (add as negatives).
-
-## 7. Export Data
-
-**Three exports, three behaviours. Do not conflate them.**
-
-| | `Export campaigns` (list level) | `Export` on **Customer Queries** | `Export Data` on Products / Targets |
+| | `Export campaigns` (list) | `Export` on Customer Queries | `Export Data` on Products / Targets |
 |---|---|---|---|
-| Where | Campaigns tab, top-right of the list (§ 2) | campaign detail → Customer Queries tab (§ 4) | campaign detail → those tabs |
-| Reliability | **Works** — ASYNC, ~1–5 min | **Works** — verified, ~15–25 s; **required** (the tab shows only the top 15) | **Unreliable here** — often a silent no-op |
-| On no file | keep waiting (§ 7.1) | wait ~60 s, then re-check you clicked `Export` on that tab | give up immediately, use DOM eval (§ 4 / § 5) |
-
-### 7.1 `Export campaigns` — the per-SKU ad-spend source
-
-This is the only practical way to get **ad spend per SKU**. It honours
-the list's **date-range filter**, so set the range first.
-
-> ⛔ **Never fetch this file from an internal endpoint**
-> (`/_svc/productads/v2/noon/reports` or similar). It answers with a
-> workbook holding one empty `Report` sheet (~5 KB) — a file that looks
-> downloaded and holds nothing. A downstream profit calc that reads it
-> sees "no SKU spent anything". Click the page's button; if the
-> calendar is hard to drive, keep driving it (below) rather than
-> switching to an endpoint.
-
-**Async, and the button is your progress indicator:**
-
-1. Click it once. It flips to **`disabled`** while noon builds the file.
-2. The file lands in `~/.vibe-seller/downloads/<slug>/` as
-   **`campaigns-export-*.xlsx`**, typically after 1–5 min
-   for a few dozen campaigns.
-3. **`disabled: true` means "generating", not "broken".** Poll the
-   download dir; do NOT re-click — and do NOT apply § 4's
-   "don't retry the export" rule here, that one is about the *per-tab*
-   button.
-4. **Check the file says what you asked for** before trusting it: its
-   `Read me` sheet states the range on its second row —
-   `Performance data is for 01 Sep 2026 to 30 Sep 2026`. A workbook
-   without that sheet, or a few-KB file, is a failed export — never a
-   quiet month.
-
-> ⚠️ **The file carries the date range but NOT the country.** Rename on
-> arrival (`ads_overview_{CC}_{YYYY-MM}.xlsx`) before starting the other
-> country's export, or the second download overwrites the first.
-
-Country comes from the `en-{cc}` URL segment, same as everywhere else.
-
-**Setting a custom month range** (the presets are Today / Yesterday /
-Last 7 / 30 / 90 days / Year to Date / All time / Custom range).
-
-> ⚠️ **Drive this calendar with JS `element.click()`, never `click_at_xy`.**
-> It is a React date picker, and coordinate clicks open it but do not
-> select a day. That is what made one run report the calendar as
-> unusable, while another run on the same page and the same profile
-> exported the whole month with the steps below. The Export button
-> behaves the same way: only a JS click triggers it.
-
-Set the target month once, at the top. Every step below reads it, and
-every step stops on `nf` instead of clicking on: a missed click
-followed by **Apply** keeps a stale or half-set range, and the export
-then looks fine while covering the wrong days.
-
-```bash
-browser-use <<'PY'
-import calendar, time
-YEAR, MONTH = 2026, 9                  # the service month to export
-LAST = calendar.monthrange(YEAR, MONTH)[1]   # 28 / 29 / 30 / 31
-TARGET = f'{calendar.month_name[MONTH]} {YEAR}'   # the calendar caption, e.g. "September 2026"
-
-def jsclick(expr):
-    r = js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
-    if r != 'ok':
-        raise SystemExit(f'not found: {expr[:80]} -- stop, do not Apply')
-    time.sleep(1)
-
-def caption():
-    return (js("(document.querySelector('[class*=rdp-caption]')||{}).textContent") or '').strip()
-
-# 1. open the range menu. Find it by its component class, not its label:
-#    the label is whatever is selected now (Today, All time, a past range ...).
-jsclick("document.querySelector('[class*=DateRangeFilter_trigger]')")
-# 2. Custom range
-jsclick("Array.from(document.querySelectorAll('.ant-popover-content *')).find(e=>e.children.length===0&&(e.textContent||'').trim()==='Custom range')")
-# 3. page back until the caption shows the target month (the picker opens on the current month)
-for _ in range(24):
-    if TARGET in caption():
-        break
-    jsclick("document.querySelector('[class*=rdp] button[aria-label=\"Previous month\"]')")
-else:
-    raise SystemExit(f'calendar never reached {TARGET}; caption reads {caption()!r}')
-print('caption:', caption())
-PY
-```
-
-Then pick the two days. Click the **Start date** / **End date** label
-before each one. Skip any day button whose class contains `outside`:
-the grid also draws the neighbouring months' days, and a "30" from the
-month before turns the range into `30 Aug – 30 Sep`.
-
-```bash
-browser-use <<'PY'
-import calendar, time
-YEAR, MONTH = 2026, 9                  # same month as above
-LAST = calendar.monthrange(YEAR, MONTH)[1]
-
-def jsclick(expr):
-    r = js("(function(){var el=%s; if(!el) return 'nf'; el.click(); return 'ok';})()" % expr)
-    if r != 'ok':
-        raise SystemExit(f'not found: {expr[:80]} -- stop, do not Apply')
-    time.sleep(1)
-def day(n):
-    return ("Array.from(document.querySelectorAll('[class*=rdp] button[name=day]'))"
-            ".find(b=>b.textContent.trim()==='%s'&&!/outside/i.test(b.className))" % n)
-def label(t):
-    return ("Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] span'))"
-            ".find(s=>s.textContent.trim()==='%s')" % t)
-
-for expr in (label('Start date'), day(1), label('End date'), day(LAST)):
-    jsclick(expr)
-jsclick("Array.from(document.querySelectorAll('[class*=CustomRangePicker_picker] button')).find(b=>b.textContent.trim()==='Apply')")
-time.sleep(2)
-# the trigger must now read the whole month, e.g. "01 Sep 2026 - 30 Sep 2026"
-print(js("(document.querySelector('[class*=DateRangeFilter_trigger]')||{}).textContent"))
-PY
-```
-
-Then click the export with a JS `.click()` on the **`<button>`** (not
-the label `<span>` inside it):
-
-```bash
-browser-use <<'PY'
-print(js("""(function(){
-  var d=document.querySelector('[class*=CampaignStatusTabs_headerExportAction]');
-  var b=d&&(d.querySelector('button')||d);
-  if(!b) return 'nf';
-  b.click();                 // ONCE. then poll the download dir.
-  return 'clicked, disabled=' + String(b.disabled);
-})()"""))
-PY
-```
-
-### 7.2 What's inside the workbook
-
-The file is laid out for editing and re-upload ("Noon Ads Bulk
-Update"): **one sheet per kind, all ad products mixed**.
-
-| Sheet | Grain | Key columns |
-|---|---|---|
-| `Read me` | — | row 2: the performance date range |
-| `Campaigns` | campaign | Campaign ID, **Ad Type** (product / brand / display), Campaign Name, budget, … Views, Clicks, Orders, ATC, Spends, Revenue |
-| **`SKUs`** | **campaign × offer** | Campaign ID, **SKU**, PSKU, Offer Code, … Spends, Orders |
-| `Targets` | keyword / target | Campaign ID, Ad Group ID, Target ID, Target Value, Target Type, Bid, … |
-| `Negative Keywords` | negative | Campaign ID, Keyword Text, Match Type, Status |
-| `Placement` | placement | Campaign ID, Placement Type, metrics |
-| `Queries` | search term | Campaign ID, SKU, Query, metrics |
-
-**Row 1 of every data sheet is a colour-group banner** (`OPERATION`,
-`KEYS · do not change`, `PERFORMANCE · read-only` …); **row 2 is the
-header**. Only `Campaigns` carries `Ad Type`; join the others through
-`Campaign ID`.
-
-**Per-SKU ad spend** = `Spends` from `SKUs`, grouped by `SKU`:
-
-```python
-skus = pd.read_excel(path, 'SKUs', header=1, dtype={'Campaign ID': str})
-per_sku = skus.groupby('SKU', as_index=False)[['Spends', 'Orders']].sum()
-```
-
-Product campaigns decompose **exactly** into their SKU rows. A brand
-ad's banner (and any display campaign) spends money no SKU row claims:
-`Campaigns.Spends − Σ SKUs.Spends` per campaign is real spend
-attributable to no SKU — keep it as an explicit "unattributed" bucket;
-don't drop it or charge it to a SKU.
-
-- **Parent vs variant SKUs.** `SKU` is a noon-internal variant
-  (`Z…Z-<n>`) and `PSKU` its parent (`Z…Z`). These are **not** the
-  seller codes in the Transaction View's `Partner SKUs` — bridge via that
-  export's `SKUs` column (see `noon-fbn/references/fee-reports.md` § 5).
-- **`Queries` may be capped.** A round row count means truncated, not
-  complete; narrow the range if you need full search-term coverage.
-
-### 7.3 Reconciling ad spend against the statement
-
-Ad spend does **not** tie exactly to the Transaction View's
-`Advertising Fee` (`statement_fee` rows, `Non-Order Fees`):
-
-```
-sum(Spends over the calendar month) x (1 + VAT)  ~=  sum(statement_fee Advertising Fee)
-```
-
-within a couple of percent (observed ~2–3%). The gap is structural, not
-an error: **ad statements are issued on a weekly cycle** whose periods
-straddle month boundaries, while the export is filtered on *performance*
-date. For per-SKU attribution use the **export** (so the per-SKU parts
-sum to the reported total); use `statement_fee` only when you need the
-amount actually invoiced.
-
-### 7.4 Per-tab `Export Data`
-
-Exports the current filtered view on the **Products** and **Targets**
-tabs. **Unreliable in this environment** — prefer DOM eval extraction.
-⚠️ **If the file doesn't land within ~10 s, do NOT re-click or retry** —
-a no-op export button is an environment quirk, not a transient miss.
-Switch to DOM eval extraction (§ 4 / § 5) immediately; retrying just
-burns steps.
-
-**Customer Queries is the exception and is not covered by this rule:**
-its `Export` works (~15–25 s), is the only complete source of the query
-set, and is required — follow § 4, not the 10-second cutoff above.
-
-```bash
-browser-use <<'PY'
-# click the "Export data" button (by text) — downloads CSV (may not land)
-js("Array.from(document.querySelectorAll('button')).find(b=>/export data/i.test(b.textContent))?.click()")
-PY
-```
-
-Campaign detail also has Export Data for the Products tab.
-
-## 8. Create Campaign Flow
-
-**URL**: `admanager.noon.partners/en-{cc}/campaign/start?mpCode=noon&project=PRJ{project_id}`
-
-### Step 1/3 — Ad Type
-
-Two radio options:
-- **Product Ads** — Increase product visibility by targeting
-  relevant search terms and browsing categories
-- **Brand Ads** — Boost brand discovery with ads that showcase
-  your logo, brand name and products
-
-Click Continue.
-
-### Step 2/3 — Product Selection + Bidding + Targeting
-
-The form is one page of numbered sections: **1. Product Selection\***
-→ **2. Bidding Strategy\*** → **3. Targeting\*** →
-**4. Negative Targeting (Optional)** → **5. Increase bid by
-placements (Optional)**, then General Settings and the action buttons.
-
-**1. Product Selection** — `Manual Selection` / `Bulk Upload`.
-Type into the `Search products` box (SKU or title words). Each result
-row is a `div[class*="ProductCard_cardContent"]`; the control that
-adds it is an **`img[alt="add"]`** button at the RIGHT edge of the
-row, outside `cardContent` — locate it by nearest-y to the card, not
-by descending into the card. In the selected panel each row has a
-remove control to drop it again. The panel opens at
-**Selected Products (0)** — nothing is preselected; whatever is
-listed there when you launch is what the campaign advertises, so
-re-check the counter before launching.
-
-**Pick the variant that actually sells.** A variant family
-(`…Z-3/-4/-5`) usually has ONE variant carrying the traffic and the
-others near zero; the SKU that a title search surfaces first is not
-necessarily it. Check the existing campaign's Products tab (§ 3) or a
-prior Export `Sku` sheet before choosing. For a product with no noon
-history, noon's own `High Potential` badge on the card is a
-defensible tiebreak.
-
-**2. Bidding Strategy** (choose one) — the radio group renders
-**three** options:
-
-| Strategy | Behavior |
-|----------|----------|
-| **Dynamic Bid (Up & Down)** — *Maximize Orders* | noon bids up to 1.5× your bid when it expects an order. |
-| **Dynamic Bid (Down Only)** — *Maximize ROAS* | noon lowers your bid when conversion looks unlikely. |
-| **Fixed** | Your exact per-target bids are honoured; no dynamic adjustment. |
-
-Use **Fixed** for Manual Targeting — per-keyword bids are honoured
-as-is, which is the only way to read per-keyword performance without
-dynamic-bid noise.
-
-**3. Targeting**:
-- **Auto Targeting** (default): noon matches ads automatically.
-- **Manual Targeting**: pick keywords / categories / products.
-
-> **Negative Targeting is available under Auto too** (§ 4 renders with
-> Auto selected). This is the only lever you get on an Auto campaign —
-> use it. Observed live: an Auto campaign matched a store's
-> listing to unrelated categories (`beauty/…`, `luggage-and-bags/…`) and
-> to opposite-audience queries that drew clicks and **zero** orders.
-> Seed the negative list at creation rather than waiting to harvest.
-
-### Categories tab — use the search box, not the tree
-
-The `Categories` tab renders a top-level category tree with a `Refine`
-control per row. **`Refine` does not expand** via `click_at_xy` or JS
-`.click()` in the current build — do not burn time on it.
-
-Instead use the tab's **`Search by Category name`** input: typing a
-product word returns matching categories at every depth, each as a full
-path plus its display name, e.g.
-
-```
-fashion/<gender>/clothing/<mid-category>            Mid Category
-fashion/<gender>/clothing/<mid-category>/<leaf>     Leaf Category
-```
-
-Each result row carries its own add control — **`img[alt="addButton"]`**
-(note: NOT `alt="add"`, which is the *product* picker's control; the two
-tabs use different alt text). Once added, the category appears in the
-selected-target table with its own editable bid, and the Targets tab
-(§ 4) shows it as `<path> Category Match`.
-
-> **Depth is the decision, and it is not obvious.** A bare top-level
-> category (`fashion/<gender>`) is the whole department; the leaf is a
-> single product type. Both are one click apart in this list. Pick
-> deliberately and record which depth you chose, because performance
-> between depths is not comparable.
-
-> **ant radios ignore `click_at_xy`.** Both the strategy and targeting
-> groups are ant-design radios whose real `<input>` is visually
-> replaced; coordinate clicks land on the skin and silently do
-> nothing (the group keeps its previous `checked`). Drive them with
-> JS `.click()` on the input, then READ BACK `checked` — same class of
-> gotcha as Amazon's `kat-dropdown`:
-> ```bash
-> browser-use <<'PY'
-> print(js("""var rs=[].slice.call(document.querySelectorAll('input[type=radio]'))
->   .filter(function(e){return e.getBoundingClientRect().width>=5;});
->   rs[2].click(); return JSON.stringify(rs.map(function(e){return e.checked;}));"""))
-> PY
-> ```
-> Indices shift once Manual Targeting expands its settings block, so
-> re-query the list before each click rather than caching positions.
-
-**4. Negative Targeting (Optional)**: Exclude keywords so your ad
-doesn't show on irrelevant searches. Limits are **100 Exact + 100
-Phrase** (the counter under each box reads `0/100 … Selected`); an
-earlier revision of this skill said 30/30.
-
-The two boxes are **`ant-select` in tags mode**, not plain inputs —
-their `<input>` is ~4px wide and is skipped by any `width > 60`
-filter. Identify them by their own labels (**Exact Keywords** /
-**Phrase Keywords**), never by document order: the keyword section
-above renders a select of its own that can precede them. Each box
-takes a **comma-separated list committed with one Enter** (its own
-placeholder says so): set the inner input's value with the native
-setter, dispatch `input`, then dispatch `keydown`/`keypress`/`keyup`
-for `Enter` — every word becomes a tag. A word that itself contains
-a comma must be entered on its own.
-
-### Adding keywords — the search box IS the keyword tool
-
-Under **Manual Targeting Settings** the `Keywords` tab has a
-`Search for keywords` box. Type a term and each result renders as a
-card carrying **`searches/month: <range>`** plus an `Exact` and a
-`Phrase` button — clicking one adds that keyword at that match type.
-The same box doubles as a free keyword-volume lookup; see § 9 and
-`references/ads-keyword-research.md`.
-
-> **Scroll the result row into view before clicking.** The card list
-> grows downward and rows quickly sit past the viewport bottom
-> (~839px). `click_at_xy` cannot reach an off-screen y and fails
-> **silently** — the run reports every keyword as added while the
-> selected-target table stays empty. Always: `scrollIntoView({block:
-> "center"})` on the button → re-read `getBoundingClientRect()` →
-> reject `y < 0 || y > 800` → click → and verify by counting the
-> per-target bid inputs afterwards.
-
-Each added target gets a bid input (`input[type=number]`,
-`step=0.01`, width < 60px) pre-filled with noon's suggested bid. To
-set them all, native-set every narrow number input on the page — but
-**scroll the targeting section into view first**, because the inputs
-are not in the DOM until that block renders (an off-screen read finds
-0 and silently sets nothing).
-
-**5. Top Of Search Placement Bidding (Optional)**: percentage boost
-on top-of-search placements, up to **900%**. Two `Increase bid by`
-fields (top-of-search, product-pages); blank = `0`. See
-`references/ads-creation.md` before setting this — the default of
-**0** is what the best-performing campaigns observed in this codebase
-actually run.
-
-**6. General Settings**:
-- Campaign Name (required)
-- Marketplace (auto: NOON)
-- Start Date / End Date (checkbox "No end date")
-- **Budget Details**:
-  - Shared Budget — distribute across multiple campaigns
-  - Campaign Budget — dedicated to this campaign
-- **Maximum Daily Budget** input
-
-Action buttons at bottom: **Cancel & Go Back**,
-**Launch Campaign**.
-
-> **`Launch Campaign` sits below the fold.** On a full form it lands
-> around y≈1378 in an 839px viewport, so `click_at_xy` on its
-> reported coordinates hits nothing and the page just stays on the
-> form — which reads as a silent validation failure. There is no error
-> banner because nothing was submitted. `scrollIntoView({block:
-> "center"})` the button, re-read its rect, then click. Success is
-> visible in the header, which switches to
-> `Edit - <campaign name> | Product Ad | Live`.
-
-### Post-launch verification (do this every time)
-
-Re-read the campaign list and confirm, per new campaign: status
-`Live`, the intended **daily budget**, `Manual targeting - Fixed`,
-and — most importantly — that the campaign carries **only the SKU you
-chose**. The preselect trap above is silent and only shows up here.
-
-## 9. Edit an Existing Campaign — Add / Remove Keywords & Negatives
-
-**There is no in-place "Add target" / "Add negative" button on the
-Targets tab** — the tab only *reads* and edits bids through the
-modal (§ 5). Two ways to change the keyword or negative SET of a
-live campaign:
-
-1. **The detail page's own setting cards** (§ 3). Each card's title
-   button / pencil opens that setting's editor modal — the
-   **NEGATIVE TARGETING** card opens the negatives editor: the same
-   two labelled boxes as the create form (Exact / Phrase Keywords,
-   § 8; find them by label, not order), noon's own
-   `N/100 … Selected` counters, and **Cancel / Update**. Words
-   already listed are left alone; **Update** saves.
-2. **The full editor**, same builder as § 8 in edit mode:
-   `…/campaign/v2?project=PRJ{project_id}&mpCode=noon&campaignCode={campaign_id}&mode=edit`
-   — sections **3. Targeting** (add/remove positive keyword /
-   category / product targets) and **4. Negative Targeting**
-   (limits: **100 Exact + 100 Phrase**, § 8). **Save** to apply.
-   Deleting a keyword/negative is the same flow: open the editor,
-   remove the row, Save. (The Targets-tab row button only *pauses*
-   a keyword; it does not remove it.)
-
-### The editor is also a READ-ONLY research tool
-
-Opening the editor changes nothing until you Save, which makes it the
-cheapest way to get two things the Targets tab cannot give you:
-
-- **Untruncated keyword text.** The selected-target list shows each
-  target in full, where the Targets tab truncates (§ 4).
-- **`searches/month` per target**, plus noon's suggested bid range.
-  A target rendering **no `searches/month` line at all is below
-  noon's reporting threshold** — i.e. a dead keyword. Scanning for
-  missing lines is the fastest dead-weight audit available, and it
-  needs no export.
-
-Both are reachable by parsing `document.body.innerText`: a target
-block reads `<keyword>` → `searches/month` → `<range>` →
-`Keyword <Exact|Phrase>` → `Suggested` → `<low>` → `-` → `<high>`.
-
-For using the `Search for keywords` box as a keyword-volume lookup
-across a whole category, see
-`references/ads-keyword-research.md § Step 1`.
-
-> **Leave without saving.** Navigating away discards everything. Never
-> click Save during a read-only pass.
-
-> **State-changing — confirm first.** Adding/removing keywords or
-> negatives re-saves a live campaign (per the "surface, don't
-> auto-execute" rail below). Present the proposed change (current vs
-> proposed vs reason) and get user confirmation before you Save; do a
-> round-trip (add → verify → remove → verify) only on an explicitly
-> designated test/paused campaign.
-
-## 10. Vantage Analytics
+| Use for | per-SKU spend, month ranges | the drill (both layers) | rarely — often a silent no-op |
+| Timing | async, 1–5 min; the button stays `disabled` while it builds | ~15–25 s | if no file in ~10 s, read the DOM instead |
+
+Calendar driving, workbook layout, per-SKU spend and reconciling against
+the statement: [`references/exports.md`](references/exports.md).
+
+## 8. Creating and editing campaigns
+
+- Create form (`/campaign/start`), keyword picker, category search,
+  negatives boxes, Launch, post-launch check, and editing an existing
+  campaign's keywords/negatives:
+  [`references/campaign-editor.md`](references/campaign-editor.md).
+- What to choose (targeting, strategy, bids, match types, TOS boost,
+  budget, naming): [`references/ads-creation.md`](references/ads-creation.md).
+- Building the keyword list:
+  [`references/ads-keyword-research.md`](references/ads-keyword-research.md).
+
+## 9. Vantage analytics
 
 **URL**: `https://vantage.noon.partners/en/?project=PRJ{project_id}`
 
-First visit asks to select the marketplace country and account.
-Provides deeper analytics across campaigns.
+Deeper cross-campaign analytics. The first visit asks for the
+marketplace country and account. Vantage is scoped by the sidebar store
+switcher, not the URL — read the flag first (`noon-shared` § 2).
 
-## 11. Reference catalog — "what to do" thinking
-
-The mechanics in §1–§10 above are click paths. The actual
-*thinking* — when to create a campaign, when to tune an existing
-one, how to research keywords — lives in three reference files:
+## Reference catalog
 
 | Reference | Load when |
 |---|---|
-| [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | **The report contract for every audit** (shared across noon + Amazon — same shape for both platforms). 进度 line, per-campaign drill blocks (Targets table + Customer-Queries table + `搜索词对账` reconciliation line, same date window), bid rules, TSV naming. Before finishing you MUST pass BOTH the **coverage floor** (deterministic, at `set_task_result`) AND the **`ads-report-review` reviewer** (active verification — spawn the reviewer ONCE per `../amazon-ads/references/reviewer-loop.md`; it opens the live console/export and cross-checks your report; fix any gaps it lists in place and finish — the verdict is single-round; Stop-hook enforced). A report is done only when verified against the live console, drilled to the word level. **Submit the FILE — `vibe_seller_set_task_result("./AD_AUDIT_<date>.md")`, the path, never a chat summary of the report**: the reviewer grades whatever string you pass it, and a summary has no `##` combo sections. |
-| [`../amazon-ads/references/audit-quickref.md`](../amazon-ads/references/audit-quickref.md) | **The audit procedure, one page** (shared). Enumerate ALL pages → two-layer drill per campaign (Targets + Customer Queries, same window, reconcile) → build the report with Read+Edit via INSERT markers → converge with the server reviewer. |
-| [`../amazon-ads/references/format-anchor.md`](../amazon-ads/references/format-anchor.md) | _Legacy detail._ Exact per-campaign table layouts; load only if you need the precise column shape. Superseded as a contract by `output-spec.md`. |
-| [`references/ads-creation.md`](references/ads-creation.md) | Creating a new campaign. Covers targeting choice, bidding strategy, per-keyword bid heuristic, match-type strategy, negative scoping, TOS boost rules, budget choice, the below-the-fold Launch button, naming convention, post-launch verification cadence. |
-| [`references/ads-tuning.md`](references/ads-tuning.md) | **Any task that reads existing campaigns and proposes changes** — phrasings like "review all ads", "audit the campaigns", "give me an improvement plan", "weekly ad review", "tune ads", "fix ACOS / ROAS". Defines the steps and noon-specific click paths (Customer Queries tab, Targets tab, etc.); the **output contract** lives in `output-spec.md` (shared with Amazon — same shape for both platforms). |
-| [`references/ads-keyword-research.md`](references/ads-keyword-research.md) | Building the initial keyword list for a Manual campaign. **Step 1 is noon's built-in keyword-volume tool** (`searches/month` per term, via the editor's `Search for keywords` box) — every keyword you ship must carry its volume bucket, volume is per-country, and word order changes it. Then buyer-vs-seller language, storefront autocomplete (English + local language), peer-listing reading, cross-checking against existing campaigns to avoid self-competition, parallel negative-list build, match-type assignment. |
+| [`references/data-contract.md`](references/data-contract.md) | Any audit or execution: the TSVs the server reads and the store rules. |
+| [`../amazon-ads/references/audit-quickref.md`](../amazon-ads/references/audit-quickref.md) | Running an audit — the shared procedure. |
+| [`../amazon-ads/references/output-spec.md`](../amazon-ads/references/output-spec.md) | Writing the report and filling the TSV columns. |
+| [`../amazon-ads/references/tuning-recommendation-format.md`](../amazon-ads/references/tuning-recommendation-format.md) | Deciding a row: PROTECT, bid floor and step cap, missing margin, search-term actions. |
+| [`../amazon-ads/references/execution.md`](../amazon-ads/references/execution.md) | Applying approved changes — the contract. |
+| [`references/ads-tuning.md`](references/ads-tuning.md) | noon-specific audit judgement: what to read, drill priority, SOI, head terms, category targets, report shape. |
+| [`references/applying-changes.md`](references/applying-changes.md) | noon click paths for bid edits, pauses and negatives during execution. |
+| [`references/exports.md`](references/exports.md) | Any noon export, per-SKU spend, statement reconciliation. |
+| [`references/campaign-editor.md`](references/campaign-editor.md) | Create form and edit-mode mechanics. |
+| [`references/ads-creation.md`](references/ads-creation.md) | Choosing settings for a new campaign. |
+| [`references/ads-keyword-research.md`](references/ads-keyword-research.md) | Building and sizing a keyword list. |
 
-Safety rails:
+## Safety rails
 
-- **Compare same-country with same-country.** Buyers in different
-  countries behave differently; one country's peer data isn't a fair
-  baseline for another country's campaign.
-- **Surface, don't auto-execute.** Recommendations are presented
-  to the user with current value, proposed value, and reason. The
-  user confirms before any state-changing click.
-- **Per-run captures → `/tmp/<run-slug>/`.** Live data captures
-  go to a temp dir, never under `~/.vibe-seller/knowledge/`.
+- **Never apply an ad change the user has not approved.** Audit
+  proposals go to `CHANGES.tsv`; state-changing clicks happen only in an
+  `execute` phase for rows the user picked. A read-only pass through the
+  editor never clicks Save.
+- **Compare a country only with itself.** Buyers differ between
+  countries; one country's figures are not a baseline for another's.
+- **Per-run captures go to your task directory (CWD)**, never under
+  `~/.vibe-seller/knowledge/`. The per-campaign TSVs go where the data
+  contract says.
 
 ## Tips
 
-- **Ad Manager is per country** (e.g. `/en-<cc1>/` vs `/en-<cc2>/`).
-- **Campaign Detail tabs**: Products / Placements / Targets / Customer
-  Queries / Day on Day Trends.
-- **ROAS** = Revenue / Spends, target > 1.0 minimum (but real
-  scale-target depends on margin — see `ads-tuning.md`).
-- **Export Data** buttons exist on Products, Targets, Customer Queries tabs.
-- **Negative keyword limits**: 100 Exact + 100 Phrase per campaign.
-- **Top-of-search bid boost**: up to 900%.
-- **Session timeout recovery**: during long audits (7+ campaigns,
-two countries), a `page_info()` call may time out. Recovery: pipe a
-fresh `new_tab("<any_admanager_url>")` + `wait_for_load()` to
-reconnect (the daemon lifecycle is managed by the wrapper). Login
-state is preserved.
-- **Export Data on Customer Queries WORKS and is REQUIRED** (§ 6) —
-  the tab shows only top-15. The note below applies to the other tabs:
-- **Export Data may be slow elsewhere**: clicking Export Data on Targets or
-Customer Queries tab may not produce a CSV in
-`~/.vibe-seller/downloads/<slug>/`. Use DOM eval extraction
-instead (§ 4 pattern).
-
-### Don't trust an "empty" Ad Manager that contradicts the store profile
-
-noon's Ad Manager has been observed returning a **transient empty
-state** that the UI faithfully renders as
-*"No data available / Showing 0 items per page"*, even when the
-store has 5+ active campaigns in that country (verified by
-re-navigating the same URL ~30 minutes later — same
-"Last Updated" timestamp, very different result). This isn't a
-client-render race — the page literally says zero campaigns —
-but the page is wrong.
-
-**The store profile is the durable ground truth.**
-`stores/<slug>/metadata.json` carries
-`platform_countries.noon` and `notes.md` documents prior-run
-campaigns. When the live Ad Manager for a country listed there
-shows zero campaigns, that's a contradiction — treat it as a
-transient UI/backend issue, not a fact about the store.
-
-When that contradiction fires, in order:
-
-1. **Re-navigate the same URL** (a fresh `new_tab("<url>")` +
-   `wait_for_load()`, not just refresh — open a fresh navigation).
-   If campaigns show up: trust them, audit, move on.
-2. **Check the on-page filters.** noon's overview has Status and
-   Ad Type dropdowns — clear them and re-read.
-3. **Open the Campaigns tab directly** — `…/home?…&tab=campaigns`
-   (there is no separate `/campaigns` path) — and scroll the list
-   container to force a fresh lazy-load, rather than trusting the
-   Overview view.
-4. Only after all three return zero with a fresh "Last Updated"
-   timestamp may you report the country as actually empty —
-   and even then, surface the contradiction with the store
-   profile so the user can resolve it.
-
-Dropping a country that the store profile lists as active is a
-much worse failure than spending 60 extra seconds verifying.
+- **Thresholds** (ROAS-equivalent of `acos_no_lower`, bid floor, scale
+  ROAS, cooldown, margin) are defaults in the data contract; a store
+  overrides them with `key: value` lines in `stores/<slug>/notes.md`.
+  When the user states a different standard, write it there with
+  `vibe_seller_write_workspace_file`.
+- **Negative keyword limits**: 100 Exact + 100 Phrase per campaign — read
+  the `N/100 … Selected` counter rather than trusting a number here.
+- **Top-of-search boost**: 0–900%.
+- **Session timeout during long audits**: if `page_info()` times out,
+  open a fresh `new_tab("<admanager url>")` + `wait_for_load()`; the
+  login survives.
 
 ## See also
 

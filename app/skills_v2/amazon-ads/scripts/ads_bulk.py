@@ -41,18 +41,15 @@ Safety
 
 Usage
 -----
-ALL SIX subcommands are listed here on purpose. This block is the
-inventory an agent reads to learn what the script can do, and while it
-listed only three, agents concluded the other three did not exist and
-hand-rolled openpyxl for work already implemented here — observed live
-on an audit that re-derived ``scope`` by hand.
+All six subcommands are listed here: this block is the inventory to
+check before hand-parsing a workbook with openpyxl.
 
   ads_bulk.py inspect        EXPORT.xlsx
   ads_bulk.py scope          EXPORT.xlsx [--platform amazon --country sa]
                              # -> JSON {platform, country, total_active,
                              #    active_ids}: the state=enabled campaign
-                             #    set + its independently-counted total,
-                             #    i.e. exactly what AUDIT_SCOPE.json needs
+                             #    set + its count -- a cross-check for the
+                             #    live rows of CAMPAIGNS.tsv
   ads_bulk.py clone-campaign EXPORT.xlsx --src "<name>" --new "<name>" \
                              --sku SELLER-SKU --asin B0XXXXXXXX \
                              [--daily-budget 1] [--default-bid 0.75] \
@@ -63,7 +60,7 @@ on an audit that re-derived ``scope`` by hand.
   ads_bulk.py archive-campaign EXPORT.xlsx --campaign "<name>" \
                              [--out OUT.xlsx]
   ads_bulk.py negate         EXPORT.xlsx --campaign "<name>" \
-                             --terms "<term>[,<term>…]" \
+                             --keywords "<term>[,<term>…]" \
                              [--level adgroup|campaign] \
                              [--match negativePhrase|negativeExact] \
                              [--out OUT.xlsx]
@@ -463,14 +460,13 @@ def cmd_archive_campaign(args):
 
 
 def cmd_scope(args):
-    """Print the ACTIVE (state=enabled) Campaign ids for AUDIT_SCOPE.json.
+    """Print the ACTIVE (state=enabled) Campaign ids in an export.
 
-    The completeness gate (audit-quickref Step 1) grades coverage against
-    this set so the agent cannot pass by shrinking its own denominator:
-    with --platform/--country this prints a combo object, otherwise just
-    the id array. The combo carries both ``total_active`` (the enabled-
-    row count) and ``active_ids``; the gate requires them to agree, so a
-    hand-truncated id list is rejected — copy the object verbatim.
+    Use it to check CAMPAIGNS.tsv: every id printed here should be a row
+    with ``drill_status`` ``drilled`` (or ``blocked`` with a note). With
+    --platform/--country it prints an object carrying ``total_active``
+    (the enabled-row count) next to ``active_ids``; otherwise just the
+    id array.
     """
     _wb, _ws, _header, data = load(args.file)
     active_ids = [
@@ -596,7 +592,7 @@ def main():
     p.set_defaults(func=cmd_inspect)
 
     p = sub.add_parser(
-        'scope', help='print active Campaign ids for AUDIT_SCOPE.json'
+        'scope', help='print active Campaign ids (cross-check CAMPAIGNS.tsv)'
     )
     p.add_argument('file')
     p.add_argument('--platform', help='e.g. amazon (emit a full combo obj)')

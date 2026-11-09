@@ -56,11 +56,7 @@ All three catalog levels use the same shape:
 
 **Relevance** tags a row by platform (`amazon`, `noon`, comma-separated for multiple). Empty Relevance means cross-platform / optional.
 
-The agent prompt (`design_system.md`) treats Relevance as a contract, not a hint:
-
-> For every platform the task touches, the agent MUST read every catalog row whose Relevance column contains that platform before opening any URL on that platform. Empty-Relevance rows are read by judgment.
-
-This is the design fix for "agent cherry-picked the catalog and skipped `noon-sites.md`" — Relevance turns mandatory reads into a deterministic rule. The L2/L3 sync prompts (`CATALOG_DESC_L2`/`CATALOG_DESC_L3` in `app/prompts/__init__.py`) preserve the column when copying rows from L1 → L2 → L3. Earlier versions dropped Relevance at L2 generation; that broke the contract.
+The agent prompt (`design_system.md`, Phase 1 — Knowledge Recall) tells the agent to read every row tagged with a platform the task touches before opening that platform; untagged rows are optional. This is prompt guidance — no hook enforces it (`app/ai/catalog_read.py` only records whether the catalog was read, for the PreToolUse plugin-gate signature). The L2/L3 sync prompts (`CATALOG_DESC_L2`/`CATALOG_DESC_L3` in `app/prompts/__init__.py`) preserve the column when copying rows from L1 → L2 → L3. Earlier versions dropped Relevance at L2 generation; that broke the contract.
 
 ```
 ~/.vibe-seller/
@@ -88,9 +84,26 @@ This is the design fix for "agent cherry-picked the catalog and skipped `noon-si
 - Files tracked via `MANIFEST.txt` in `app/knowledge/`
 - `get_structured()` filters `__pycache__` from knowledge listings (both project and local)
 
-### Agent Knowledge Writing (Reflection)
+### Agent Knowledge Writing
 
-Agents update knowledge after tasks via `app/prompts/reflection.md`, delivered as a Stop hook block reason post-execution:
+Knowledge is kept correct **in-task**, not in a post-task phase. The
+"Keeping knowledge correct" section of `app/prompts/design_system.md`
+tells the agent, once its result is recorded and before it ends the turn,
+to rewrite stale facts in place (the current value only — no "was stale"
+notes or dates), to add what a different task would need on its first
+try, and to write nothing when it learned nothing. Writes go through
+`vibe_seller_write_workspace_file`.
+
+`knowledge/` and `stores/` are the agents' **only** memory: Claude Code
+auto-memory is off for every agent (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`,
+set by `ProfileManager.get_env_for_profile`), and
+`app/workspace/claude_memory_cleanup.py` deletes the auto-memory folders
+earlier releases left, at boot. A store's `metadata.json` (its
+platform/country list) is written by the server, never the agent:
+`app/store_metadata.py:sync_store_metadata` records the task's
+platform/country after each store task.
+
+Where knowledge goes:
 
 | What | Where | Level |
 |---|---|---|
@@ -175,7 +188,7 @@ schedule over an API store and a console store against a fake service.
 
 Per-store **run artifacts** (reports, captures, exports) live outside the
 knowledge tree so they never surface as knowledge (catalog injection, the
-UI knowledge tab, reflection writes):
+UI knowledge tab, agent knowledge writes):
 
 ```
 ~/.vibe-seller/
