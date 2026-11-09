@@ -129,8 +129,14 @@ jobs:
           $exe = "installer\windows\out\VibeSeller-Setup.exe"
           # Inno silent flags; post-install [Run] builds the venv +
           # installs wheels + playwright. The tray launch is skipifsilent.
-          $p = Start-Process -FilePath $exe -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath $exe -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "installer exited $($p.ExitCode)" }
           $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
           if (-not (Test-Path "$install\.venv\Scripts\vibe-seller.exe")) {
@@ -418,8 +424,14 @@ jobs:
         run: |
           $browsers = "$env:LOCALAPPDATA\ms-playwright"
           $before = @(Get-ChildItem $browsers -Directory -ErrorAction SilentlyContinue).Name
-          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "install exited $($p.ExitCode)" }
           $install = "$env:LOCALAPPDATA\Programs\VibeSeller"
           if (-not (Test-Path "$install\.venv\Scripts\playwright.exe")) {
@@ -479,8 +491,14 @@ jobs:
           New-Item -ItemType Directory -Force $storeProfile | Out-Null
           $heldOld = & "$env:RUNNER_TEMP\hold_chromium.ps1" -From chromium-1000 -UserDataDir $storeProfile
           $heldNew = & "$env:RUNNER_TEMP\hold_chromium.ps1"
-          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) {
             throw "in-place reinstall over a running Chromium exited $($p.ExitCode)"
           }
@@ -581,8 +599,14 @@ jobs:
       - name: Reinstall
         shell: pwsh
         run: |
-          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath "installer-dl\VibeSeller-Setup.exe" -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "reinstall exited $($p.ExitCode)" }
 
       - name: Assert the venv rebuilt + server healthy
