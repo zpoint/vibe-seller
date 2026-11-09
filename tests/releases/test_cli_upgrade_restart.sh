@@ -8,8 +8,10 @@
 #      install.sh layout — and `vibe-seller start` it on an isolated home
 #   3. run the real `vibe-seller upgrade` with 99.0.2 offered via
 #      UV_FIND_LINKS (the CLI's own `uv tool upgrade vibe-seller`)
-#   4. assert the server on the port now reports 99.0.2, with no manual
-#      start in between
+#   4. assert the server on the port booted again and now reports
+#      99.0.2, with no manual start in between, and that the upgrade
+#      command said so before returning
+#   5. `vibe-seller stop` still stops it (the restart kept its pid file)
 #
 # Both builds come from the same checkout, so the upgrade runs the
 # checkout's own `vibe-seller upgrade`: to see this fail, build the
@@ -50,8 +52,11 @@ version_on_port() {
       2>/dev/null
 }
 
-listener_pid() {
-  lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | head -1
+LOG="$VIBE_HOME/logs/backend_$PORT.log"
+boots() {
+  # uvicorn logs this once per boot to the daemon log, which a restart
+  # in place inherits. Independent of anything the app reports.
+  grep -c 'Application startup complete' "$LOG" 2>/dev/null || echo 0
 }
 
 wait_for_version() {
@@ -105,27 +110,36 @@ UV_FIND_LINKS="$WORK/dist-$OLD_V" uv tool install -q vibe-seller \
   || fail "installed CLI is not $OLD_V"
 vibe-seller start --port "$PORT" || fail "could not start $OLD_V"
 wait_for_version "$OLD_V" || fail "$OLD_V never came up on port $PORT"
-OLD_PID=$(listener_pid)
-[ -n "$OLD_PID" ] || fail "no listener found on port $PORT"
-echo "   port $PORT serves $OLD_V (pid $OLD_PID)"
+BOOTS_BEFORE=$(boots)
+[ "$BOOTS_BEFORE" -ge 1 ] || fail "no boot recorded in $LOG"
+echo "   port $PORT serves $OLD_V (boots: $BOOTS_BEFORE)"
 
 echo "== 3. vibe-seller upgrade (offered $NEW_V)"
-UV_FIND_LINKS="$WORK/dist-$NEW_V" vibe-seller upgrade \
-  || fail "vibe-seller upgrade exited non-zero"
+UV_FIND_LINKS="$WORK/dist-$NEW_V" vibe-seller upgrade 2>&1 \
+  | tee "$WORK/upgrade.out"
+[ "${PIPESTATUS[0]}" = 0 ] || fail "vibe-seller upgrade exited non-zero"
+# The user is told the server is on the new version — the command does
+# not return while the old code is still serving.
+grep -q "now running $NEW_V" "$WORK/upgrade.out" \
+  || fail "vibe-seller upgrade returned without the server on $NEW_V"
 [ "$(vibe-seller --version | awk '{print $NF}')" = "$NEW_V" ] \
   || fail "the package on disk is not $NEW_V after the upgrade"
 
 echo "== 4. the running server is the new version"
 # Two checks, because /api/version alone was once fooled: it re-read
 # the metadata on disk per request, so an un-restarted server reported
-# the new version. A new process on the port cannot be faked that way.
+# the new version. A second boot in the daemon log cannot be faked.
 wait_for_version "$NEW_V" \
   || fail "port $PORT still is not serving $NEW_V — the upgrade left \
 the old server running"
-NEW_PID=$(listener_pid)
-[ -n "$NEW_PID" ] && [ "$NEW_PID" != "$OLD_PID" ] \
-  || fail "port $PORT is still served by pid $OLD_PID, the pre-upgrade \
-process — the upgrade did not restart the server"
-kill -0 "$OLD_PID" 2>/dev/null \
-  && fail "the pre-upgrade server (pid $OLD_PID) is still alive"
+BOOTS_AFTER=$(boots)
+[ "$BOOTS_AFTER" -gt "$BOOTS_BEFORE" ] \
+  || fail "the server never booted again ($BOOTS_BEFORE boot(s) before \
+the upgrade, $BOOTS_AFTER after) — the old process is still serving"
+
+echo "== 5. vibe-seller stop still stops it"
+vibe-seller stop --port "$PORT" || fail "vibe-seller stop failed"
+for _ in $(seq 1 15); do [ -z "$(version_on_port)" ] && break; sleep 1; done
+[ -z "$(version_on_port)" ] \
+  || fail "port $PORT still serving after vibe-seller stop"
 echo "PASS: the upgrade restarted the server onto $NEW_V"
