@@ -7,8 +7,9 @@ import pytest
 from sqlalchemy import select as sa_select
 
 from app.models.schedule import Schedule
+from app.models.task import Task
 import app.routers.tasks as tasks_mod
-from app.task_runner import sync_store_metadata
+from app.store_metadata import sync_store_metadata
 from tests.workflow.conftest import wait_for_task
 from tests.workflow.fake_agent import FakeAgentScenario
 
@@ -583,6 +584,35 @@ class TestStoreMetadata:
         # Derived fields
         assert r.json()['platforms'] == ['amazon']
         assert sorted(r.json()['countries']) == ['UK', 'US']
+
+    async def test_metadata_sync_records_the_tasks_platform(
+        self, admin_client, mock_workspace
+    ):
+        """The server, not the agent, records where a task worked."""
+        r = await admin_client.post('/api/stores', json={'name': 'Meta Two'})
+        sid = r.json()['id']
+        task = Task(
+            id='meta-two-task',
+            title='t',
+            store_id=sid,
+            platform='Noon',
+            country='sa',
+            created_by='user-1',
+            status='completed',
+        )
+        async with tasks_mod.async_session() as db:
+            db.add(task)
+            await db.commit()
+            await sync_store_metadata(sid, db, 'meta-two-task')
+
+        meta = json.loads(
+            (
+                mock_workspace.root / 'stores' / 'meta-two' / 'metadata.json'
+            ).read_text()
+        )
+        assert meta['platforms']['noon'] == ['SA']
+        r = await admin_client.get(f'/api/stores/{sid}')
+        assert r.json()['platform_countries']['noon'] == ['SA']
 
     async def test_metadata_sync_merges_platforms(
         self, admin_client, mock_workspace

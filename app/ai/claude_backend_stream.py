@@ -287,12 +287,8 @@ class _StreamMixin:
                     tool_input = block.get('input', {})
                     # Q&A finalize signal (see task_status_reconcile):
                     # a real tool action after the last answer = progress
-                    # toward done. Exclude AskUserQuestion (the question)
-                    # and reflection-phase calls (after the turn ended).
-                    if (
-                        not self._reflection_active
-                        and 'AskUserQuestion' not in tool_name
-                    ):
+                    # toward done. Exclude AskUserQuestion (the question).
+                    if 'AskUserQuestion' not in tool_name:
                         self._tool_use_since_answer = True
                     # Subagent-originated events carry the id of the
                     # Agent/Task tool_use that spawned them; the main
@@ -427,17 +423,6 @@ class _StreamMixin:
                     text = partial_banner() + (text or '')
             if event.get('subtype') == 'success' and not is_error:
                 self._agent_success = True
-            # ``None`` means Stop-hook reflection never fired this
-            # turn; '' means it fired but the agent had no pre-
-            # reflection text — in that case the post-reflection
-            # text is reflection content and must NOT become the
-            # user-facing result. Distinguish via ``is not None``.
-            reflection_suppressed = False
-            if self._pre_reflection_result is not None:
-                if not is_error:
-                    text = self._pre_reflection_result
-                reflection_suppressed = self._pre_reflection_result == ''
-                self._pre_reflection_result = None
             # A result message is the "turn ended" signal downstream
             # consumers (UI, the e2e test poll, the follow-up agent
             # loop) depend on — and a process now hosts MANY turns
@@ -449,7 +434,6 @@ class _StreamMixin:
             #
             # Keep:
             #   - any non-empty text (real result)
-            #   - reflection_suppressed (text intentionally cleared)
             #   - the first result of a TURN even if empty — the only
             #     end-of-turn signal a chat-mode follow-up session
             #     ever produces, and weaker models (GLM-4.7, observed)
@@ -461,7 +445,7 @@ class _StreamMixin:
             is_turn_first_result = (
                 self._executing and not self._turn_result_seen
             )
-            should_emit = text or reflection_suppressed or is_turn_first_result
+            should_emit = text or is_turn_first_result
             if should_emit and self._executing:
                 self._last_result_event = text
                 # Last-wins, assigned not sticky: a recovered turn

@@ -191,7 +191,6 @@ async def create_task(
         country=data.country,
         status=TaskStatus.PENDING,
         plan_mode=plan_mode,
-        skip_reflection=bool(data.skip_reflection),
         source=source,
         ai_profile_id=(
             data.profile_id
@@ -371,7 +370,6 @@ async def start_agent(
         system_extra=system_extra,
         profile_id=task.ai_profile_id or DEFAULT_PROFILE_ID,
         store_slug=slug,
-        skip_reflection=True,
     )
     if not started:
         raise HTTPException(

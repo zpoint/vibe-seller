@@ -73,7 +73,6 @@ class ScheduleResponse(BaseModel):
     is_system: bool = False
     phase_mode: str = 'fanout'
     staleness_check: str | None = None
-    skip_reflection: bool = False
     finalize_description: str | None = None
     fanout_serial: bool = False
     plan_mode: bool

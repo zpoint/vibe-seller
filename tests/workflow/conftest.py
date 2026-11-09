@@ -700,7 +700,7 @@ def mock_workspace(monkeypatch, tmp_path):
     monkeypatch.setattr(
         'app.routers.tasks_conversation.workspace_manager', mock
     )
-    monkeypatch.setattr('app.task_runner.workspace_manager', mock)
+    monkeypatch.setattr('app.store_metadata.workspace_manager', mock)
     monkeypatch.setattr('app.task_runner_auto.workspace_manager', mock)
     monkeypatch.setattr('app.task_runner_exec.workspace_manager', mock)
     monkeypatch.setattr('app.scheduler.finalize_reaper.workspace_manager', mock)

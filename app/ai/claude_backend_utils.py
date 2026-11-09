@@ -322,7 +322,7 @@ DRAIN_TIMEOUT = 2  # for _task to finish after force-kill
 TOOL_APPROVAL_CALLBACK = 'tool_approval'
 
 
-def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
+def sdk_initialize_request(mode: str) -> dict:
     """The SDK ``initialize`` control request registering this launch's
     hooks.
 
@@ -336,7 +336,8 @@ def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
       path; everything else is auto-approved with the circuit breaker
       (no ExitPlanMode hook).
 
-    ``skip_reflection`` drops the Stop hook (the reflection pass).
+    Every session gets the Stop hook: it refuses to end a turn whose own
+    work is still open (see ``claude_backend_hooks``).
     """
     if mode == 'plan_then_execute':
         interactive = '^(ExitPlanMode|AskUserQuestion)$'
@@ -355,9 +356,8 @@ def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
                 'hookCallbackIds': [AUTO_APPROVE_CALLBACK],
             },
         ],
+        'Stop': [{'hookCallbackIds': [STOP_CALLBACK]}],
     }
-    if not skip_reflection:
-        hooks['Stop'] = [{'hookCallbackIds': [STOP_REFLECTION_CALLBACK]}]
     return {
         'type': 'control_request',
         'request_id': str(uuid.uuid4()),
@@ -366,7 +366,7 @@ def sdk_initialize_request(mode: str, skip_reflection: bool) -> dict:
 
 
 AUTO_APPROVE_CALLBACK = 'auto_approve'
-STOP_REFLECTION_CALLBACK = 'stop_reflection'
+STOP_CALLBACK = 'stop'
 
 # Circuit breaker: stop agent after N identical consecutive tool calls
 MAX_REPEAT_TOOL_CALLS = Options.MAX_REPEAT_TOOL_CALLS.get_int()

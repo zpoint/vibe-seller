@@ -155,12 +155,6 @@ class TestScopeSurvivesAFollowUp:
                 'the browser-use CLI and read the last-30-days summary. '
                 'Just tell me the numbers.'
             ),
-            # Reflection is not what these tests check, and it runs after
-            # the deliverable: up to REFLECTION_BUDGET_S (240 s) plus
-            # wind-down on top of the audit, which pushed a run past its
-            # budget with the scope already proven. Same convention as
-            # the other e2e tests that don't exercise reflection.
-            skip_reflection=True,
         )
         task_id = task['id']
         first = poll_task_status(api_client, task_id, {'completed', 'failed'})
@@ -350,7 +344,6 @@ class TestAnUnscopedRequestStaysWide:
                 'me a keyword-by-keyword bid recommendation for each one. '
                 f'{SELLER_FACTS}'
             ),
-            skip_reflection=True,  # see the scoped test above
         )
         # An unscoped audit is inherently the slower job — it drills
         # every campaign rather than a named few — so it needs more than

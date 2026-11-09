@@ -266,7 +266,6 @@ def create_task(
     profile_id: str | None = None,
     plan_mode: bool | None = None,
     schedule_id: str | None = None,
-    skip_reflection: bool | None = None,
 ) -> dict:
     """Create a task via API. Auto-triggers the agent pipeline."""
     payload: dict = {'title': title}
@@ -281,8 +280,6 @@ def create_task(
         payload['plan_mode'] = plan_mode
     if schedule_id is not None:
         payload['schedule_id'] = schedule_id
-    if skip_reflection is not None:
-        payload['skip_reflection'] = skip_reflection
     resp = client.post(f'{BASE_URL}/api/tasks', json=payload)
     resp.raise_for_status()
     data = resp.json()

@@ -86,7 +86,6 @@ class _FakeSession:
         self.no_store = kwargs.get('no_store', False)
         self.auto_approve_plan = kwargs.get('auto_approve_plan', False)
         self.task_dir = kwargs.get('task_dir')
-        self.skip_reflection = kwargs.get('skip_reflection', False)
         self.resume_session_id: str | None = None
         self.session_id: str | None = None
         self._task: asyncio.Task | None = None
@@ -174,7 +173,6 @@ class TestRetryWithoutResume:
             no_store=False,
             resume=True,
             auto_approve_plan=True,
-            skip_reflection=True,
         )
         assert started is True
 
@@ -217,7 +215,6 @@ class TestRetryWithoutResume:
         assert retry.profile_id == prior.profile_id == 'p1'
         assert retry.system_prompt_extra == prior.system_prompt_extra
         assert retry.auto_approve_plan == prior.auto_approve_plan is True
-        assert retry.skip_reflection == prior.skip_reflection is True
         assert retry.task_dir == prior.task_dir
         # Registry now holds the retry, not the prior.
         assert backend.get_session('task-retry') is retry

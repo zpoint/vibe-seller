@@ -35,7 +35,6 @@ class AIAgentBackend(ABC):
         auto_approve_plan: bool = False,
         store_slug: str | None = None,
         on_start: (Callable[[], Coroutine[Any, Any, bool]] | None) = None,
-        skip_reflection: bool = False,
     ) -> bool:
         """Start an agent run for a task.
 
@@ -55,8 +54,6 @@ class AIAgentBackend(ABC):
             on_start: Optional async callback invoked after the
                 concurrency semaphore is acquired but before the
                 agent session launches. Return False to abort.
-            skip_reflection: If True, skip Stop hook reflection
-                (e.g. catalog sync tasks).
 
         Returns:
             True if started successfully, False if already running

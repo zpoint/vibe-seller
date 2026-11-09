@@ -64,7 +64,6 @@ class ClaudeCodeBackend(AIAgentBackend):
         auto_approve_plan: bool = False,
         store_slug: str | None = None,
         on_start=None,
-        skip_reflection: bool = False,
         persist_prompt: bool = True,
     ) -> bool:
         if task_id in self._sessions and self._sessions[task_id].running:
@@ -142,7 +141,6 @@ class ClaudeCodeBackend(AIAgentBackend):
                 no_store=no_store,
                 auto_approve_plan=auto_approve_plan,
                 task_dir=task_dir,
-                skip_reflection=skip_reflection,
                 persist_prompt=persist_prompt,
             )
             # Carry per-TASK hook state from the previous turn. A
@@ -243,7 +241,6 @@ class ClaudeCodeBackend(AIAgentBackend):
                 no_store=prior.no_store,
                 auto_approve_plan=prior.auto_approve_plan,
                 task_dir=prior.task_dir,
-                skip_reflection=prior.skip_reflection,
                 # The first attempt already persisted the prompt (or
                 # the router did, for follow-ups) — a retry must never
                 # write the same user message a second time.

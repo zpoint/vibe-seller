@@ -170,14 +170,12 @@ def build_store_context(
     if backend == 'ziniao':
         ctx = (
             f"You are working on store '{store.name}'.\n"
-            f'Store profile: stores/{slug}/ — read-only during '
-            f'task execution. Read STORE.md, notes.md, '
-            f'logistics.md, browser-routing.md, metadata.json '
-            f'for context. All files you produce (audit reports, '
-            f'improvement plans, captures, scripts, downloads) '
-            f'go to your CWD per the system prompt. Knowledge '
-            f'updates to stores/{slug}/ happen at reflection, '
-            f'not during the task.\n'
+            f'Store profile: stores/{slug}/ — read STORE.md, '
+            f'notes.md, logistics.md, browser-routing.md, '
+            f'metadata.json for context. Files you produce (audit '
+            f'reports, plans, captures, scripts, downloads) go to '
+            f'your CWD; stores/{slug}/ holds only knowledge, kept '
+            f'correct as the system prompt describes.\n'
             f'\n## BROWSER\n'
             f'Drive the browser by piping Python to the '
             f'`browser-use` CLI via a heredoc (0.13 has no '
@@ -235,14 +233,12 @@ def build_store_context(
     else:
         ctx = (
             f"You are working on store '{store.name}'.\n"
-            f'Store profile: stores/{slug}/ — read-only during '
-            f'task execution. Read STORE.md, notes.md, '
-            f'logistics.md, browser-routing.md, metadata.json '
-            f'for context. All files you produce (audit reports, '
-            f'improvement plans, captures, scripts, downloads) '
-            f'go to your CWD per the system prompt. Knowledge '
-            f'updates to stores/{slug}/ happen at reflection, '
-            f'not during the task.\n'
+            f'Store profile: stores/{slug}/ — read STORE.md, '
+            f'notes.md, logistics.md, browser-routing.md, '
+            f'metadata.json for context. Files you produce (audit '
+            f'reports, plans, captures, scripts, downloads) go to '
+            f'your CWD; stores/{slug}/ holds only knowledge, kept '
+            f'correct as the system prompt describes.\n'
             f'\n## BROWSER\n'
             f'Drive the browser by piping Python to the '
             f'`browser-use` CLI via a heredoc (0.13 has no '

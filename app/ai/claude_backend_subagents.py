@@ -239,7 +239,7 @@ class _SubagentMixin:
         return bool(matched)
 
     # ── Stop-hook deny chain ────────────────────────────────────────
-    # Called in order by the STOP_REFLECTION_CALLBACK handler in
+    # Called in order by the STOP_CALLBACK handler in
     # claude_backend_hooks; first deny wins.
 
     async def _deny_stop_if_tasklist_open(self, request_id: str) -> bool:

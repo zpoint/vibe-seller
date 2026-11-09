@@ -313,22 +313,22 @@ class TestAutoStoreTask:
             _plugins.reset_for_tests()
 
     @pytest.mark.asyncio
-    async def test_contains_reflection_reminder(
+    async def test_knowledge_is_kept_during_the_task(
         self,
         _patch_async_session,
         task,
         store,
     ):
+        """No post-task reflection phase: the base prompt carries the
+        knowledge rules, and nothing promises a later reflection."""
         bundle = await build_system_extra(
             task,
             store,
             header=TaskHeader.AUTO,
             store_emails=TEST_EMAILS,
         )
-        # Full REFLECTION_PROMPT is now delivered via Stop hook,
-        # only a one-liner reminder is in the system prompt.
-        assert 'reflect and update knowledge' in bundle.system_extra
-        assert 'After completing the main task' not in bundle.system_extra
+        assert '## Keeping knowledge correct' in bundle.system_extra
+        assert 'reflect' not in bundle.system_extra.lower()
 
     @pytest.mark.asyncio
     async def test_contains_store_context(
@@ -512,9 +512,9 @@ class TestAutoNoStoreTask:
             None,
             header=TaskHeader.AUTO,
         )
-        # No store context, no workspace guidance, but reflection reminder present
+        # No store context, no workspace guidance, knowledge rules present
         assert '{workspace_guidance}' not in bundle.system_extra
-        assert 'reflect and update knowledge' in bundle.system_extra
+        assert '## Keeping knowledge correct' in bundle.system_extra
 
     @pytest.mark.asyncio
     async def test_no_store_write_policy_present_no_stores(
@@ -695,7 +695,7 @@ class TestCatalogSync:
         assert 'regenerating ONLY the L3 store catalog' in bundle.system_extra
 
     @pytest.mark.asyncio
-    async def test_no_reflection_reminder(
+    async def test_catalog_run_skips_knowledge_upkeep(
         self, _patch_async_session, catalog_task, store
     ):
         bundle = await build_system_extra(
@@ -704,7 +704,7 @@ class TestCatalogSync:
             header=TaskHeader.AUTO,
             store_emails=TEST_EMAILS,
         )
-        assert 'reflect and update knowledge' not in bundle.system_extra
+        assert 'skip "Keeping knowledge correct"' in bundle.system_extra
 
     @pytest.mark.asyncio
     async def test_no_skill_creation_instructions(
@@ -735,7 +735,7 @@ class TestCatalogSyncL2:
         assert CATALOG_RESTRICTION_PROMPT_L2 in bundle.system_extra
 
     @pytest.mark.asyncio
-    async def test_no_reflection_reminder(
+    async def test_catalog_run_skips_knowledge_upkeep(
         self,
         _patch_async_session,
         catalog_l2_task,
@@ -745,7 +745,7 @@ class TestCatalogSyncL2:
             None,
             header=TaskHeader.AUTO,
         )
-        assert 'reflect and update knowledge' not in bundle.system_extra
+        assert 'skip "Keeping knowledge correct"' in bundle.system_extra
 
 
 class TestPromptOrdering:
@@ -768,13 +768,10 @@ class TestPromptOrdering:
         store_pos = sys.find('Test Store Alpha')
         # System context
         ctx_pos = sys.find('## System Context')
-        # Reflection reminder (one-liner, after system context)
-        refl_pos = sys.find('reflect and update knowledge')
 
         assert 0 <= base_pos < wait_pos, f'base={base_pos} < wait={wait_pos}'
         assert wait_pos < store_pos, f'wait={wait_pos} < store={store_pos}'
         assert store_pos < ctx_pos, f'store={store_pos} < ctx={ctx_pos}'
-        assert ctx_pos < refl_pos, f'ctx={ctx_pos} < refl={refl_pos}'
 
 
 # ── Scheduled-task state block ──────────────────────────────
@@ -1021,8 +1018,10 @@ class TestSideDutiesNeverPrecedeTheDeliverable:
     Observed in CI: an agent mid-task "updated stores/<slug>/metadata.
     json because the task said so", then a trivial task answered in
     seconds ran 9 more minutes of metadata/knowledge maintenance
-    before ending — "done" was unbounded. The duty lives ONLY in
-    post-task reflection (the Stop hook); the in-task prompt says so.
+    before ending — "done" was unbounded. metadata.json now belongs to
+    the server (``sync_store_metadata``); knowledge notes are written
+    only after the result is recorded, and only when there is something
+    to fix or learn.
     """
 
     async def test_store_context_carries_no_metadata_duty(
@@ -1040,5 +1039,7 @@ class TestSideDutiesNeverPrecedeTheDeliverable:
 
     async def test_design_system_forbids_mid_task_maintenance(self):
         for prompt in (DESIGN_SYSTEM_PROMPT, DESIGN_SYSTEM_PROMPT_AUTO):
-            assert 'do NOT read or write `metadata.json`' in prompt
-            assert 'never run before your' in prompt
+            flat = ' '.join(prompt.split())
+            assert 'not yours to edit' in flat  # metadata.json
+            assert 'Once your result is recorded' in flat
+            assert 'write nothing and end the turn' in flat

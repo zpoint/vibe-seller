@@ -55,7 +55,6 @@ async def catalog_schedule(override_async_session, admin_user):
             is_system=True,
             phase_mode=PhaseMode.TWO_PHASE,
             staleness_check=StalenessCheck.CATALOG,
-            skip_reflection=True,
             created_by=admin_user.id,
         )
         db.add(sched)

@@ -441,7 +441,6 @@ class TestCatalogSystem:
                 'files for this store. Report just the '
                 'SECRET value.'
             ),
-            skip_reflection=True,
         )
 
         result = poll_task_status(

@@ -80,7 +80,6 @@ class TestAsyncSubagentFlow:
                 '[[MOCK_ASYNC_SUBAGENT]] produce the deliverable and have '
                 'a background reviewer verify it.'
             ),
-            skip_reflection=True,
         )
         data = poll_task_status(
             api,
@@ -119,7 +118,6 @@ class TestPrematureResultBackstop:
                 '[[MOCK_PREMATURE_RESULT]] stop early while the reviewer '
                 'is still running.'
             ),
-            skip_reflection=True,
         )
         data = poll_task_status(
             api,
@@ -151,7 +149,6 @@ class TestLingerWatchdogTerminatesTurn:
                 '[[MOCK_LINGER_WAIT]] finish the work and then idle like '
                 'a real CLI until the platform ends the turn.'
             ),
-            skip_reflection=True,
         )
         data = poll_task_status(
             api,

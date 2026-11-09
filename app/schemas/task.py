@@ -11,7 +11,6 @@ class TaskCreate(BaseModel):
     platform: str | None = None
     country: str | None = None
     plan_mode: bool | None = None
-    skip_reflection: bool | None = None
     profile_id: str | None = None
     schedule_id: str | None = None
     # When true, create the task PENDING but do NOT auto-start it — the

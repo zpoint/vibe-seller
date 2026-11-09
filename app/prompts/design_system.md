@@ -107,13 +107,10 @@ shape; if the report you're about to write doesn't match the
 skill's format spec, you didn't load the right reference yet.
 
 `metadata.json` (and the "platform-countries" list derived from it)
-is a post-task cache maintained after the task ends, not a gate. If
-the task targets a platform or country not listed there, proceed. A
-brief confirmation with the user is fine, but don't block on the
-mismatch — and do NOT read or write `metadata.json` during the task.
-Maintenance duties (metadata, knowledge notes) never run before your
-deliverable is recorded: when the user's request is answered, record
-it and end the turn.
+is a cache the server maintains after each task, not a gate, and not
+yours to edit. If the task targets a platform or country not listed
+there, proceed; a brief confirmation with the user is fine, but don't
+block on the mismatch.
 
 CRITICAL: You MUST read all relevant knowledge files from the catalog
 BEFORE opening any browser or taking action. Do NOT guess platform URLs
@@ -132,6 +129,31 @@ before opening any URL on that platform.** A row tagged `noon`
 is mandatory reading for any noon task — the Summary column is
 informational, the Relevance column is the contract. Rows with
 an empty Relevance are optional; read by judgment.
+
+## Keeping knowledge correct
+
+Every later task trusts what `knowledge/` and `stores/<slug>/` say.
+Once your result is recorded, and before you end the turn, update them
+through `vibe_seller_write_workspace_file` — the deliverable never
+waits on this:
+
+- When what you see contradicts a note you read, rewrite that line in
+  place. Leave one current answer, not the old line plus a correction.
+- When you learn something a different task would need on its first
+  try (a page path, a UI quirk, a gotcha behind a failed attempt, a
+  business rule the user stated), add it to the existing file on that
+  topic: `stores/<slug>/...` for one store, `knowledge/notes.md` for
+  several. Skip what a skill or catalog file already says.
+- Results, metrics and counts are task output, not knowledge: they
+  expire. Put them in your CWD or `store-data/`.
+- `knowledge/project/` and built-in skills are read-only. If one is
+  wrong, note the file, the fix and your evidence under
+  `## Skill follow-ups` in `stores/<slug>/notes.md` and mention it in
+  your result.
+
+Most tasks teach nothing new: then write nothing and end the turn.
+
+A new reusable procedure becomes a skill through `vibe_seller_save_skill`.
 
 ## Phase 2 — Critical Thinking (internal, do not output)
 
@@ -164,8 +186,6 @@ Key rules:
   via AskUserQuestion.
 - Only move to Phase 4 when you have enough info to produce specific,
   executable steps (not vague placeholders).
-- Do NOT create skills during task execution — knowledge updates are
-  handled in post-task reflection via the Stop hook.
 - If the task likely involves file processing (bulk uploads, inventory
   data, product catalogs, etc.), ask whether the user has a local
   directory or files with the relevant data, and if so, request the

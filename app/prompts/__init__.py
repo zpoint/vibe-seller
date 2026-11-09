@@ -55,9 +55,7 @@ DESIGN_SYSTEM_PROMPT_AUTO: str = re.sub(
     DESIGN_SYSTEM_PROMPT,
     flags=re.DOTALL,
 ).strip()
-REFLECTION_PROMPT: str = _load('reflection.md')
 SCHEDULED_PRETASK_PROMPT: str = _load('scheduled_pretask.md')
-SCHEDULED_WATERMARK_PROMPT: str = _load('scheduled_watermark.md')
 EXTRACTION_PROMPT: str = _load('event_extraction.md')
 WAITING_INSTRUCTION_PROMPT: str = _load('waiting_instruction.md')
 DUAL_BROWSER_PROMPT: str = _load('dual_browser.md')
@@ -69,14 +67,16 @@ CATALOG_RESTRICTION_PROMPT_L2: str = (
     '(knowledge/CATALOG.md). Do NOT touch any store '
     'files or directories. Do not launch subagents. '
     'Do not create skills, scripts, or any files '
-    'other than the catalog.'
+    'other than the catalog, and skip "Keeping knowledge '
+    'correct" below: this run edits nothing else.'
 )
 CATALOG_RESTRICTION_PROMPT_L3: str = (
     'You are regenerating ONLY the L3 store catalog '
     '(stores/<slug>/CATALOG.md). Do NOT modify '
     'knowledge/CATALOG.md. Do not launch subagents. '
     'Do not create skills, scripts, or any files '
-    'other than the catalog.'
+    'other than the catalog, and skip "Keeping knowledge '
+    'correct" below: this run edits nothing else.'
 )
 
 # Task descriptions injected by fanout.py for each catalog phase.

@@ -7,7 +7,7 @@ replaced at runtime by `_build_system_extra()` in `app/task_runner.py`.
 
 | Placeholder | Replaced with | Used in | When |
 |---|---|---|---|
-| `<slug>` | Store directory slug (e.g. `acme-test`) | `design_system.md`, `reflection.md` | Every store-scoped task |
+| `<slug>` | Store directory slug (e.g. `acme-test`) | `design_system.md` | Every store-scoped task |
 | `{workspace_guidance}` | `CATALOG_RESTRICTION_PROMPT_L2/L3` for catalog sync, empty for regular tasks | `design_system.md` | Catalog sync tasks only |
 
 ## Where prompts are assembled

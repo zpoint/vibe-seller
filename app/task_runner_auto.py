@@ -18,6 +18,7 @@ from app.models.schedule_constants import StalenessCheck
 from app.models.store import Store
 from app.models.task import Task
 from app.routers.dida365_oauth import refresh_token_if_needed
+from app.store_metadata import sync_store_metadata
 from app.sync import jobs as sync_jobs
 from app.sync.scheduler import sync_scheduler
 from app.task_finalize import (
@@ -30,7 +31,6 @@ from app.task_runner import (
     build_system_extra,
     get_store_emails,
     maybe_inject_pending_answers,
-    sync_store_metadata,
 )
 from app.task_session_lifecycle import (
     wait_for_session_with_retry,
@@ -273,7 +273,6 @@ async def auto_run_task(task_id: str, store: Store | None):
             ),
             store_slug=(_store_slug(store.name, store.id) if store else None),
             on_start=_on_start,
-            skip_reflection=task.skip_reflection,
             resume=resume_existing_session,
         )
         if not started:
@@ -318,7 +317,7 @@ async def auto_run_task(task_id: str, store: Store | None):
         # 5c. Sync store metadata.json → DB
         if store:
             async with async_session() as db_meta:
-                await sync_store_metadata(store.id, db_meta)
+                await sync_store_metadata(store.id, db_meta, task_id)
 
         # 6. Re-check supersession before terminal writes — the
         #    awaits above (knowledge commit, metadata sync) may

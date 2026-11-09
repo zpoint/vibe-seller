@@ -93,7 +93,6 @@ class AgentSession(
         no_store: bool = False,
         auto_approve_plan: bool = False,
         task_dir: Path | None = None,
-        skip_reflection: bool = False,
         persist_prompt: bool = True,
     ):
         self.task_id = task_id
@@ -106,7 +105,6 @@ class AgentSession(
         self.no_store = no_store
         self.auto_approve_plan = auto_approve_plan
         self.task_dir = task_dir
-        self.skip_reflection = skip_reflection
         # False for follow-up spawns/retries: the conversation router
         # already persisted the user's message, and persisting it again
         # in start() duplicated every follow-up message (fresh-session
@@ -123,7 +121,6 @@ class AgentSession(
         self._last_result_event = ''  # plan-skip fallback
         self._agent_success = False  # CLI reported success
         self._is_error_result = False
-        self._pre_reflection_result: str | None = None
         self._error_category: str | None = None
         self.session_id: str | None = None
         # Plan approval state (native plan mode)
@@ -176,7 +173,6 @@ class AgentSession(
         self._had_tool_use: bool = False
         self._asked_user_question: bool = False  # see task_status_reconcile
         self._tool_use_since_answer: bool = False
-        self._reflection_active: bool = False
         self._status_reconciled: bool = False
         self._stopping: bool = False
         # True once the TURN TERMINATOR has fired — the quiescence
@@ -465,15 +461,11 @@ class AgentSession(
 
     async def _send_sdk_initialize(self):
         """Send SDK control request to configure hooks."""
-        await self._send_stdin(
-            sdk_initialize_request('plan_then_execute', self.skip_reflection)
-        )
+        await self._send_stdin(sdk_initialize_request('plan_then_execute'))
 
     async def _send_sdk_initialize_auto(self):
         """Send SDK hooks for auto mode (see sdk_initialize_request)."""
-        await self._send_stdin(
-            sdk_initialize_request('auto', self.skip_reflection)
-        )
+        await self._send_stdin(sdk_initialize_request('auto'))
 
     async def _register_vibe_seller_mcp(self, ws_dir):
         """Register the vibe-seller MCP server in .mcp.json."""

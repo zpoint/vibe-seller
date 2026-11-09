@@ -243,7 +243,6 @@ async def init_db():
                     is_system=True,
                     phase_mode=PhaseMode.TWO_PHASE,
                     staleness_check=StalenessCheck.CATALOG,
-                    skip_reflection=True,
                     created_by=AI_BOT_USER_ID,
                 )
             )

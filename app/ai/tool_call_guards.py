@@ -5,7 +5,7 @@ a vibe-seller MCP call missing required arguments
 (``mcp_args_guard``), any tool reaching into vibe-seller's own source
 (``source_guard``), an execution-only tool called while planning, a
 shell command that calls the ads service around its tool, new work
-started during post-result reflection (``reflection_guard``), or a tool
+or a tool
 search for a tool that is already loaded.
 """
 
@@ -15,7 +15,6 @@ from urllib.parse import urlsplit
 from app.ads_client import SERVICE_URL
 from app.ai.ad_scope_access import refusal as ad_scope_refusal
 from app.ai.mcp_args_guard import missing_args_deny
-from app.ai.reflection_guard import reflection_deny
 from app.ai.source_guard import source_access_deny
 from app.mcp_tool_schemas import TOOLS
 
@@ -214,6 +213,5 @@ def tool_call_deny(session, hook_input: dict) -> str | None:
         or planning_deny(session, tool_name)
         or ads_service_deny(tool_name, tool_input)
         or ad_scope_access_deny(session, tool_name, tool_input)
-        or reflection_deny(session, tool_name, tool_input)
         or loaded_tool_search_deny(tool_name, tool_input)
     )

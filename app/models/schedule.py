@@ -63,6 +63,8 @@ class Schedule(Base):
     staleness_check: Mapped[str | None] = mapped_column(
         String(32), nullable=True, default=None
     )  # StalenessCheck enum or None
+    # Retired: the post-task reflection phase is gone. Still mapped so
+    # inserts satisfy the NOT NULL column existing databases carry.
     skip_reflection: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
