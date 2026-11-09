@@ -56,8 +56,14 @@ jobs:
         shell: pwsh
         run: |
           $exe = "$env:GITHUB_WORKSPACE\installer\windows\outA\VibeSeller-Setup.exe"
-          $p = Start-Process -FilePath $exe -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath $exe -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "old installer exited $($p.ExitCode)" }
           echo "VS_INSTALL=$env:LOCALAPPDATA\Programs\VibeSeller" >> $env:GITHUB_ENV
 
@@ -111,8 +117,14 @@ jobs:
         shell: pwsh
         run: |
           $exe = "$env:GITHUB_WORKSPACE\installer\windows\outB\VibeSeller-Setup.exe"
-          $p = Start-Process -FilePath $exe -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath $exe -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "new installer exited $($p.ExitCode)" }
 
       - name: Start UPGRADED server, assert version 0.0.2
@@ -175,8 +187,14 @@ jobs:
           if (-not $oldPid) { throw "precondition failed: no server listening on 7777" }
           # Upgrade in place WITHOUT stopping the server/tray first.
           $setupLog = Join-Path $env:RUNNER_TEMP 'hot-upgrade-setup.log'
-          $p = Start-Process -FilePath $exe -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath $exe -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS',"/LOG=$setupLog"
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "hot upgrade exited $($p.ExitCode)" }
           # The installer's own account of the relaunch decision.
           Select-String -Path $setupLog -Pattern 'relaunch' -SimpleMatch |
@@ -268,8 +286,14 @@ jobs:
             $_.ExecutablePath -like '*\VibeSeller\*' }) {
             throw "venv python still running after uninstall"
           }
-          $p = Start-Process -FilePath $exe -Wait -PassThru `
+          # Wait for the INSTALLER only: `-Wait` waits for the whole process
+          # tree, and a silent upgrade over a running app relaunches the
+          # tray + server as its children (they never exit). Setup.exe
+          # itself waits for its Setup.tmp worker.
+          $p = Start-Process -FilePath $exe -PassThru `
             -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOICONS'
+          $null = $p.Handle  # cache it, or ExitCode reads $null after exit
+          $p.WaitForExit()
           if ($p.ExitCode -ne 0) { throw "reinstall exited $($p.ExitCode)" }
           foreach ($f in @('.venv\Scripts\python.exe','.venv\Scripts\playwright.exe','.venv\Scripts\vibe-seller.exe')) {
             if (-not (Test-Path "$install\$f")) { throw "missing after reinstall: $f (venv rebuild failed)" }
