@@ -10,8 +10,8 @@ What these pin, against a real server:
 * ``get_task_log`` — the conversation a real (mock-CLI) run persisted,
   paged and totalled honestly;
 * ``task_files`` — a producing run's deliverables: list, read (inline
-  text / URL + base64 blob) and the ZIP URL, fetched with the caller's
-  own ``vst_`` bearer;
+  text / URL + base64 blob, an image shown as an image block) and the
+  ZIP URL, fetched with the caller's own ``vst_`` bearer;
 * attachments round-trip — a base64 file sent over MCP lands in the
   task workspace (create flow) and is promoted to a parked agent
   (chat flow), the same routes the UI's uploads use;
@@ -219,15 +219,19 @@ class TestTaskFiles:
         assert text_read['data']['encoding'] == 'text'
         assert text_read['data']['content'].startswith('quarterly numbers')
 
-        # A binary answers with a URL and a base64 blob, not mojibake.
+        # An image answers with a URL and is SHOWN as an MCP image block
+        # (which carries the bytes — no second copy as a JSON blob).
         bin_read = mcp.call_tool(
             'task_files', task_id=task_id, action='read', path='chart.png'
         )
         assert bin_read['ok'], bin_read['text']
         assert bin_read['data']['encoding'] == 'url'
         assert '/api/tasks/' in bin_read['data']['url']
-        decoded = base64.b64decode(bin_read['data']['blob'])
-        assert decoded == OUTPUT_PNG
+        assert bin_read['data']['shown_as_image'] is True
+        assert 'blob' not in bin_read['data']
+        [shown] = bin_read['images']
+        assert shown['mimeType'] == 'image/png'
+        assert base64.b64decode(shown['data']) == OUTPUT_PNG
 
         # The URL is fetchable with the caller's own vst_ bearer.
         fetched = bearer.get(bin_read['data']['url'])

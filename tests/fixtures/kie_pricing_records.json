@@ -1,0 +1,242 @@
+[
+ {
+  "modelDescription": "gpt-image-2-6-economy, image-to-image, 1K",
+  "interfaceType": "image",
+  "creditPrice": "5",
+  "creditUnit": "per image",
+  "usdPrice": "0.025",
+  "anchor": "https://kie.ai/gpt-image-2-6?model=gpt-image-2-6%2Feconomy-image-to-image"
+ },
+ {
+  "modelDescription": "Black Forest Labs Flux 3 Klein, image editing, 4K",
+  "interfaceType": "image",
+  "creditPrice": "6.5",
+  "creditUnit": "per image",
+  "usdPrice": "0.0325",
+  "anchor": "https://kie.ai/flux-3?model=flux-3%2Fklein-edit-image"
+ },
+ {
+  "modelDescription": "Black Forest Labs Flux 3 Klein, image editing, 2K",
+  "interfaceType": "image",
+  "creditPrice": "2.5",
+  "creditUnit": "per image",
+  "usdPrice": "0.0125",
+  "anchor": "https://kie.ai/flux-3?model=flux-3%2Fklein-edit-image"
+ },
+ {
+  "modelDescription": "Black Forest Labs Flux 3 Klein, image editing, 1K",
+  "interfaceType": "image",
+  "creditPrice": "1.6",
+  "creditUnit": "per image",
+  "usdPrice": "0.008",
+  "anchor": "https://kie.ai/flux-3?model=flux-3%2Fklein-edit-image"
+ },
+ {
+  "modelDescription": "nano-banana-2-1, 4K",
+  "interfaceType": "image",
+  "creditPrice": "9",
+  "creditUnit": "per image",
+  "usdPrice": "0.045",
+  "anchor": "https://kie.ai/nano-banana-2-1"
+ },
+ {
+  "modelDescription": "nano-banana-2-1, 2K",
+  "interfaceType": "image",
+  "creditPrice": "6",
+  "creditUnit": "per image",
+  "usdPrice": "0.030",
+  "anchor": "https://kie.ai/nano-banana-2-1"
+ },
+ {
+  "modelDescription": "nano-banana-2-1, 1K",
+  "interfaceType": "image",
+  "creditPrice": "4",
+  "creditUnit": "per image",
+  "usdPrice": "0.020",
+  "anchor": "https://kie.ai/nano-banana-2-1"
+ },
+ {
+  "modelDescription": "seedream 5 Flash, Image to image, 2K",
+  "interfaceType": "image",
+  "creditPrice": "3.24",
+  "creditUnit": "per image",
+  "usdPrice": "0.0162",
+  "anchor": "https://kie.ai/seedream-5-0-flash?model=seedream%2F5-flash-image-to-image"
+ },
+ {
+  "modelDescription": "seedream 5 Flash, Image to image, 1.5K",
+  "interfaceType": "image",
+  "creditPrice": "3.24",
+  "creditUnit": "per image",
+  "usdPrice": "0.0162",
+  "anchor": "https://kie.ai/seedream-5-0-flash?model=seedream%2F5-flash-image-to-image"
+ },
+ {
+  "modelDescription": "seedream 5 Flash, Image to image, 1K",
+  "interfaceType": "image",
+  "creditPrice": "3.24",
+  "creditUnit": "per image",
+  "usdPrice": "0.0162",
+  "anchor": "https://kie.ai/seedream-5-0-flash?model=seedream%2F5-flash-image-to-image"
+ },
+ {
+  "modelDescription": "gpt-image-2-5-flare, image-to-image, 4K",
+  "interfaceType": "image",
+  "creditPrice": "16",
+  "creditUnit": "per image",
+  "usdPrice": "0.08",
+  "anchor": "https://kie.ai/gpt-image-2-5"
+ },
+ {
+  "modelDescription": "gpt-image-2-5-flare, image-to-image, 2K",
+  "interfaceType": "image",
+  "creditPrice": "10",
+  "creditUnit": "per image",
+  "usdPrice": "0.05",
+  "anchor": "https://kie.ai/gpt-image-2-5"
+ },
+ {
+  "modelDescription": "gpt-image-2-5-flare, image-to-image, 1K",
+  "interfaceType": "image",
+  "creditPrice": "6",
+  "creditUnit": "per image",
+  "usdPrice": "0.03",
+  "anchor": "https://kie.ai/gpt-image-2-5"
+ },
+ {
+  "modelDescription": "gpt-image-2-5-flare, text-to-image, 4K",
+  "interfaceType": "image",
+  "creditPrice": "16",
+  "creditUnit": "per image",
+  "usdPrice": "0.08",
+  "anchor": "https://kie.ai/gpt-image-2-5"
+ },
+ {
+  "modelDescription": "gpt-image-2-5-flare, text-to-image, 2K",
+  "interfaceType": "image",
+  "creditPrice": "10",
+  "creditUnit": "per image",
+  "usdPrice": "0.05",
+  "anchor": "https://kie.ai/gpt-image-2-5"
+ },
+ {
+  "modelDescription": "gpt-image-2-5-flare, text-to-image, 1K",
+  "interfaceType": "image",
+  "creditPrice": "6",
+  "creditUnit": "per image",
+  "usdPrice": "0.03",
+  "anchor": "https://kie.ai/gpt-image-2-5"
+ },
+ {
+  "modelDescription": "grok-imagine-image-2-0, Image Edit",
+  "interfaceType": "image",
+  "creditPrice": "4",
+  "creditUnit": "per image",
+  "usdPrice": "0.02",
+  "anchor": "https://kie.ai/grok-imagine-image-2?model=grok-imagine-image-2-0%2Fimage-edit"
+ },
+ {
+  "modelDescription": "Qwen image 3.0 Pro, output, 2K",
+  "interfaceType": "image",
+  "creditPrice": "12",
+  "creditUnit": "per image",
+  "usdPrice": "0.06",
+  "anchor": "https://kie.ai/qwen-image-3?model=qwen3%2Fpro-image-to-image"
+ },
+ {
+  "modelDescription": "Qwen image 3.0 Pro, output, 1K",
+  "interfaceType": "image",
+  "creditPrice": "6.4",
+  "creditUnit": "per image",
+  "usdPrice": "0.032",
+  "anchor": "https://kie.ai/qwen-image-3?model=qwen3%2Fpro-image-to-image"
+ },
+ {
+  "modelDescription": "Qwen image 3.0 Pro, input, 2K",
+  "interfaceType": "image",
+  "creditPrice": "0.5",
+  "creditUnit": "per image",
+  "usdPrice": "0.0025",
+  "anchor": "https://kie.ai/qwen-image-3?model=qwen3%2Fpro-image-to-image"
+ },
+ {
+  "modelDescription": "Qwen image 3.0 Pro, input, 1K",
+  "interfaceType": "image",
+  "creditPrice": "0.5",
+  "creditUnit": "per image",
+  "usdPrice": "0.0025",
+  "anchor": "https://kie.ai/qwen-image-3?model=qwen3%2Fpro-image-to-image"
+ },
+ {
+  "modelDescription": "seedream 5 Pro, image-to-image, 2K",
+  "interfaceType": "image",
+  "creditPrice": "14",
+  "creditUnit": "per image",
+  "usdPrice": "0.07",
+  "anchor": "https://kie.ai/seedream-5-0-pro"
+ },
+ {
+  "modelDescription": "seedream 5 Pro, image-to-image, 1K",
+  "interfaceType": "image",
+  "creditPrice": "7",
+  "creditUnit": "per image",
+  "usdPrice": "0.035",
+  "anchor": "https://kie.ai/seedream-5-0-pro"
+ },
+ {
+  "modelDescription": "Black Forest Labs flux-2 pro, image to image, 1.0s-2K",
+  "interfaceType": "image",
+  "creditPrice": "7.0",
+  "creditUnit": "per image",
+  "usdPrice": "0.035",
+  "anchor": "https://kie.ai/flux-2?model=flux-2%2Fpro-image-to-image"
+ },
+ {
+  "modelDescription": "Black Forest Labs flux-2 pro, image to image, 1.0s-1K",
+  "interfaceType": "image",
+  "creditPrice": "5.0",
+  "creditUnit": "per image",
+  "usdPrice": "0.025",
+  "anchor": "https://kie.ai/flux-2?model=flux-2%2Fpro-image-to-image"
+ },
+ {
+  "modelDescription": "Google nano banana pro, 1/2K",
+  "interfaceType": "image",
+  "creditPrice": "18.0",
+  "creditUnit": "per image",
+  "usdPrice": "0.09",
+  "anchor": "https://kie.ai/nano-banana-pro"
+ },
+ {
+  "modelDescription": "Google nano banana pro, 4K",
+  "interfaceType": "image",
+  "creditPrice": "24.0",
+  "creditUnit": "per image",
+  "usdPrice": "0.12",
+  "anchor": "https://kie.ai/nano-banana-pro"
+ },
+ {
+  "modelDescription": "ideogram v3-remix, image-to-image, BALANCED",
+  "interfaceType": "image",
+  "creditPrice": "7.0",
+  "creditUnit": "per image",
+  "usdPrice": "0.035",
+  "anchor": "https://kie.ai/ideogram/v3?model=ideogram%2Fv3-remix"
+ },
+ {
+  "modelDescription": "ideogram v3-remix, image-to-image, QUALITY",
+  "interfaceType": "image",
+  "creditPrice": "10.0",
+  "creditUnit": "per image",
+  "usdPrice": "0.05",
+  "anchor": "https://kie.ai/ideogram/v3?model=ideogram%2Fv3-remix"
+ },
+ {
+  "modelDescription": "ideogram v3-remix, image-to-image, TURBO",
+  "interfaceType": "image",
+  "creditPrice": "3.5",
+  "creditUnit": "per image",
+  "usdPrice": "0.0175",
+  "anchor": "https://kie.ai/ideogram/v3?model=ideogram%2Fv3-remix"
+ }
+]

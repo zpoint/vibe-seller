@@ -192,8 +192,9 @@ class TestTaskFiles:
             assert text_read['encoding'] == 'text'
             assert 'quarterly numbers' in text_read['content']
 
-            # A binary answers with a URL and a base64 blob, not text.
-            bin_read, _ = await call_tool(
+            # An image answers with a URL and is SHOWN as an image
+            # content block (which carries the bytes — no JSON blob).
+            bin_read, bin_env = await call_tool(
                 admin_client,
                 'task_files',
                 {
@@ -204,8 +205,23 @@ class TestTaskFiles:
             )
             assert bin_read['encoding'] == 'url'
             assert '/api/tasks/' in bin_read['url']
-            decoded = base64.b64decode(bin_read['blob'])
+            [shown] = [c for c in bin_env['content'] if c['type'] == 'image']
+            decoded = base64.b64decode(shown['data'])
             assert decoded[:8] == b'\x89PNG\r\n\x1a\n'
+            assert 'blob' not in bin_read
+
+            # Any other binary still rides along as a base64 blob.
+            (task_dir / 'export.xlsx').write_bytes(b'PK\x03\x04 sheet')
+            xlsx, _ = await call_tool(
+                admin_client,
+                'task_files',
+                {
+                    'task_id': task_id,
+                    'action': 'read',
+                    'path': 'export.xlsx',
+                },
+            )
+            assert base64.b64decode(xlsx['blob']) == b'PK\x03\x04 sheet'
 
             # The URL is fetchable with the caller's own session.
             rel = bin_read['url'].split('/api/', 1)[1]

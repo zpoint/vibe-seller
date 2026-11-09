@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agent_mcp.files import attachment_problem
+from app.agent_mcp.files import IMAGES_KEY, attachment_problem
 from app.agent_mcp.lifecycle import render_instructions
 from app.agent_mcp.protocol import (
     FORBIDDEN,
@@ -421,6 +421,14 @@ async def _call_tool(message: dict, ctx: McpContext) -> dict:
     # (Masking is idempotent, so the per-tool calls stay valid as a
     # second line.) Error texts above are NOT walked: they are the
     # tool's own message, already free of stored secrets.
+    # A tool that has pictures to SHOW (a generated image, a confirm
+    # card's references) hands them over under IMAGES_KEY; they go out
+    # as MCP ``image`` content blocks — the only shape a client renders
+    # and a model can look at. Base64 inside the JSON text is opaque to
+    # both.
+    images = []
+    if isinstance(result, dict):
+        images = result.pop(IMAGES_KEY, None) or []
     return success(
         request_id,
         {
@@ -433,7 +441,15 @@ async def _call_tool(message: dict, ctx: McpContext) -> dict:
                         indent=2,
                         default=str,
                     ),
-                }
+                },
+                *(
+                    {
+                        'type': 'image',
+                        'data': img['data'],
+                        'mimeType': img['mime_type'],
+                    }
+                    for img in images
+                ),
             ],
             'isError': False,
         },

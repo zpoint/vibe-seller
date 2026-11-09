@@ -21,8 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import collections
-import dataclasses
 import json
 import logging
 import os
@@ -30,6 +28,7 @@ from pathlib import Path
 
 import httpx
 
+from app import vision_catalog
 from app.config import VIBE_SELLER_DIR
 from app.events.bus import event_bus
 
@@ -42,242 +41,103 @@ _KIE_BASE = 'https://api.kie.ai'
 _KIE_UPLOAD_BASE = 'https://kieai.redpandaai.co'
 
 # kie.ai bills in credits at a flat $0.005/credit ($50 = 10,000 credits).
-# We surface a per-image price *hint* on the confirm card, not a bill —
-# actual cost varies by resolution/tier, so these are the representative
-# (typically 2K / standard) image-to-image prices from kie.ai's public
-# pricing API (POST api.kie.ai/client/v1/model-pricing/page), captured
-# 2026-07. Refresh manually if kie.ai revises them.
+# The confirm card shows a per-image price *hint*, not a bill: kie.ai's
+# live per-image price for that tier when the vision_catalog sync could
+# match it, else the bundled price in app/vision_models.py.
 CREDIT_USD = 0.005
 # Fixed USD→CNY for the ¥ hint shown to Chinese users. Illustrative, not
 # a live FX rate — the price itself is already approximate.
 USD_CNY = 7.2
 
 
-@dataclasses.dataclass(frozen=True)
-class ImageModel:
-    """One selectable image model, served through kie.ai's unified
-    ``jobs/createTask`` API.
-
-    ``id`` is OUR stable contract (what the agent/frontend/tool pass and
-    what we validate); ``slug`` is kie.ai's exact ``model`` string, which
-    we own the mapping to so kie's naming (slashes, ``-image-to-image``
-    variants) never leaks into our API. ``ref_field`` / ``ref_array``
-    capture the one thing that genuinely differs per model: the name and
-    cardinality of the reference-image input — ``image_input`` (nano),
-    ``input_urls`` (gpt/flux), ``image_urls`` (seedream), or a single
-    ``image_url`` (qwen/ideogram). ``extra`` is static per-model input
-    that the model's schema documents (aspect ratio, resolution, etc.).
-    """
-
-    id: str
-    slug: str
-    provider: str
-    label: str
-    ref_field: str
-    ref_array: bool
-    usd: float
-    extra: dict = dataclasses.field(default_factory=dict)
+# The catalog itself — which models, their kie params, prices, and
+# availability — lives in ``app/vision_catalog.py`` (served state) and
+# ``app/vision_models.py`` (the curated data). These accessors are the
+# only way the rest of the app reads it, so a sync is picked up on the
+# next call without any caller caching a stale list.
+ImageModel = vision_catalog.ImageModel
 
 
-# Verified catalog across the major image providers — every entry is
-# image-to-image capable and runs on the one configured kie.ai key.
-# Slugs, reference-field names, per-tier params, and prices were verified
-# against kie.ai docs + pricing (2026-07).
-#
-# Defined as per-family specs and flattened to ONE selectable variant per
-# resolution/quality tier, so the confirm card shows the real price of
-# each tier (GPT Image 2 at 1K/2K/4K, etc.) instead of a single
-# hand-picked number — the bug that made cross-model prices look
-# inconsistent. FIRST flattened entry is the default.
-#
-# ``_Tier`` carries the tier's own kie param (``resolution`` /
-# ``quality`` / ``rendering_speed``); ``base_extra`` is merged under every
-# tier. A lone ``_Tier('', '', usd, {})`` = a model with no tiers.
-_Tier = collections.namedtuple('_Tier', 'suffix label usd extra')
-_Family = collections.namedtuple(
-    '_Family',
-    'fid slug provider label ref_field ref_array base_extra tiers',
-)
+def image_models() -> list[ImageModel]:
+    """Selectable tiers in display order; the first is the default."""
+    return vision_catalog.current_models()
 
-_FAMILIES: list = [
-    _Family(
-        'nano-banana-pro',
-        'nano-banana-pro',
-        'Google',
-        'Nano Banana Pro',
-        'image_input',
-        True,
-        {'aspect_ratio': '1:1', 'output_format': 'png'},
-        [
-            _Tier('2k', '2K', 0.09, {'resolution': '2K'}),
-            _Tier('4k', '4K', 0.12, {'resolution': '4K'}),
-        ],
-    ),
-    _Family(
-        'nano-banana-2',
-        'nano-banana-2',
-        'Google',
-        'Nano Banana 2',
-        'image_input',
-        True,
-        {'aspect_ratio': '1:1'},
-        [
-            _Tier('1k', '1K', 0.04, {'resolution': '1K'}),
-            _Tier('2k', '2K', 0.06, {'resolution': '2K'}),
-            _Tier('4k', '4K', 0.09, {'resolution': '4K'}),
-        ],
-    ),
-    _Family(
-        'nano-banana-edit',
-        'google/nano-banana-edit',
-        'Google',
-        'Nano Banana Edit',
-        'image_urls',
-        True,
-        {},
-        [_Tier('', '', 0.02, {})],
-    ),
-    _Family(
-        'gpt-image-2',
-        'gpt-image-2-image-to-image',
-        'OpenAI',
-        'GPT Image 2',
-        'input_urls',
-        True,
-        {'aspect_ratio': '1:1'},
-        [
-            _Tier('1k', '1K', 0.03, {'resolution': '1K'}),
-            _Tier('2k', '2K', 0.05, {'resolution': '2K'}),
-            _Tier('4k', '4K', 0.08, {'resolution': '4K'}),
-        ],
-    ),
-    _Family(
-        'gpt-image-1.5',
-        'gpt-image/1.5-image-to-image',
-        'OpenAI',
-        'GPT Image 1.5',
-        'input_urls',
-        True,
-        {'aspect_ratio': '1:1'},
-        # Only the cheapest tier: GPT Image 1.5 · Medium ($0.02) is the
-        # cheapest OpenAI option. Its "high" tier ($0.11) is dropped — it
-        # costs MORE than the newer GPT Image 2 · 4K ($0.08) while being
-        # lower quality (GPT Image 2 leads 1.5 on text, resolution, prompt
-        # following, and editing), so it's a strictly dominated option.
-        [
-            _Tier('medium', 'Medium', 0.02, {'quality': 'medium'}),
-        ],
-    ),
-    _Family(
-        'seedream-5-pro',
-        'seedream/5-pro-image-to-image',
-        'ByteDance',
-        'Seedream 5 Pro',
-        'image_urls',
-        True,
-        {},
-        [
-            _Tier('basic', 'Basic', 0.035, {'quality': 'basic'}),
-            _Tier('high', 'High', 0.07, {'quality': 'high'}),
-        ],
-    ),
-    _Family(
-        'seedream-4.5',
-        'seedream/4.5-edit',
-        'ByteDance',
-        'Seedream 4.5',
-        'image_urls',
-        True,
-        {},
-        [_Tier('', '', 0.0325, {})],
-    ),
-    _Family(
-        'flux-2-pro',
-        'flux-2/pro-image-to-image',
-        'Black Forest Labs',
-        'Flux-2 Pro',
-        'input_urls',
-        True,
-        {},
-        [
-            _Tier('1k', '1K', 0.025, {'resolution': '1K'}),
-            _Tier('2k', '2K', 0.035, {'resolution': '2K'}),
-        ],
-    ),
-    _Family(
-        'flux-2-flex',
-        'flux-2/flex-image-to-image',
-        'Black Forest Labs',
-        'Flux 2 Flex',
-        'input_urls',
-        True,
-        {},
-        [
-            _Tier('1k', '1K', 0.07, {'resolution': '1K'}),
-            _Tier('2k', '2K', 0.12, {'resolution': '2K'}),
-        ],
-    ),
-    _Family(
-        'qwen-image-edit',
-        'qwen/image-edit',
-        'Qwen',
-        'Qwen Image Edit',
-        'image_url',
-        False,
-        {},
-        [_Tier('', '', 0.03, {})],
-    ),
-    _Family(
-        'ideogram-v3-remix',
-        'ideogram/v3-remix',
-        'Ideogram',
-        'Ideogram V3 Remix',
-        'image_url',
-        False,
-        {},
-        [
-            _Tier('turbo', 'Turbo', 0.0175, {'rendering_speed': 'TURBO'}),
-            _Tier(
-                'balanced', 'Balanced', 0.035, {'rendering_speed': 'BALANCED'}
-            ),
-            _Tier('quality', 'Quality', 0.05, {'rendering_speed': 'QUALITY'}),
-        ],
-    ),
-]
 
-IMAGE_MODELS: list[ImageModel] = [
-    ImageModel(
-        id=f'{fam.fid}-{tier.suffix}' if tier.suffix else fam.fid,
-        slug=fam.slug,
-        provider=fam.provider,
-        label=f'{fam.label} · {tier.label}' if tier.label else fam.label,
-        ref_field=fam.ref_field,
-        ref_array=fam.ref_array,
-        usd=tier.usd,
-        extra={**fam.base_extra, **tier.extra},
-    )
-    for fam in _FAMILIES
-    for tier in fam.tiers
-]
-
-_MODELS_BY_ID: dict[str, ImageModel] = {m.id: m for m in IMAGE_MODELS}
-DEFAULT_MODEL = IMAGE_MODELS[0].id
+def default_model() -> str:
+    """The default model id: the first selectable tier."""
+    return image_models()[0].id
 
 
 def model_ids() -> list[str]:
     """Valid model ids, in display order (default first)."""
-    return [m.id for m in IMAGE_MODELS]
+    return [m.id for m in image_models()]
+
+
+def is_known_model(model_id: str | None) -> bool:
+    """Whether ``model_id`` is in the catalog, hidden tiers included."""
+    return any(m.id == model_id for m in vision_catalog.all_models())
+
+
+def resolve_model_id(model_id: str | None) -> str:
+    """A requested id → the id to use.
+
+    A catalog id is kept as-is, EVEN if the availability check has
+    since hidden it: an id here was already chosen (proposed, confirmed
+    on a card, or named by a resume after a timeout), and silently
+    swapping it would generate — and bill — a different model than the
+    one shown, or orphan an in-flight job. kie.ai rejecting a truly
+    delisted slug is an honest error; a substitution is not. An id that
+    left the catalog maps to its named successor (agents and saved
+    prompts may still say ``gpt-image-2-2k``); anything else is the
+    default.
+    """
+    if is_known_model(model_id):
+        return model_id
+    successor = vision_catalog.retired_successor(model_id or '')
+    if is_known_model(successor):
+        return successor
+    return default_model()
+
+
+def resolve_proposal_id(model_id: str | None, keep: str | None = None) -> str:
+    """The model a NEW confirm card proposes.
+
+    Only a selectable (visible) model may be proposed: the card lists
+    and prices visible models, and kie.ai rejects a delisted slug. The
+    one exception is ``keep`` — the model of a job already in flight
+    for this task (a 504 resume), which must stay that model or the
+    billed job is orphaned and paid for twice.
+    """
+    ids = model_ids()
+    if model_id in ids:
+        return model_id
+    if model_id and model_id == keep and is_known_model(model_id):
+        return model_id
+    successor = vision_catalog.retired_successor(model_id or '')
+    if successor in ids:
+        return successor
+    return ids[0]
 
 
 def get_model(model_id: str | None) -> ImageModel:
-    """Resolve a model id to its ``ImageModel`` (falls back to default)."""
-    return _MODELS_BY_ID.get(model_id or '', _MODELS_BY_ID[DEFAULT_MODEL])
+    """Resolve a model id to its ``ImageModel`` (see resolve_model_id)."""
+    wanted = resolve_model_id(model_id)
+    return next(m for m in vision_catalog.all_models() if m.id == wanted)
 
 
-def catalog_public() -> list[dict]:
+def catalog_public(include: str | None = None) -> list[dict]:
     """The catalog as the frontend/agent see it: id, provider, label, and
     a per-image price hint in both USD and (fixed-rate) CNY. Never the
-    kie.ai slug — that stays server-side."""
+    kie.ai slug — that stays server-side.
+
+    ``include`` adds one hidden model (a resumed job's) so the card can
+    still show the model it proposes, with its price.
+    """
+    models = image_models()
+    if include and include not in {m.id for m in models}:
+        models = models + [
+            m for m in vision_catalog.all_models() if m.id == include
+        ]
     return [
         {
             'id': m.id,
@@ -285,9 +145,9 @@ def catalog_public() -> list[dict]:
             'label': m.label,
             'usd': round(m.usd, 4),
             'cny': round(m.usd * USD_CNY, 2),
-            'default': m.id == DEFAULT_MODEL,
+            'default': i == 0,
         }
-        for m in IMAGE_MODELS
+        for i, m in enumerate(models)
     ]
 
 

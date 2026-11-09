@@ -2,11 +2,12 @@
 
 Every periodic "go ask the network / re-read the world" job in the
 server runs through this one object: skills, knowledge, the ads skill
-bundle, the provider-preset catalog, email polling and the browser
-daemon reaper. Before this existed each of them had its own idea of a
-schedule — a cooldown file, a ``while True: sleep()`` loop, an extra
-APScheduler registration — and two of those forgot to record a probe
-that found nothing, so every task launch paid a GitHub round trip.
+bundle, the provider-preset catalog, the image-model catalog, email
+polling and the browser daemon reaper. Before this existed each of
+them had its own idea of a schedule — a cooldown file, a
+``while True: sleep()`` loop, an extra APScheduler registration — and
+two of those forgot to record a probe that found nothing, so every
+task launch paid a GitHub round trip.
 
 Design (see docs/subsystems.md § Central sync scheduler):
 

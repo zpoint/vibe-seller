@@ -38,6 +38,8 @@ from app.database import async_session
 from app.events.bus import event_bus
 from app.models.task_message import TaskMessage
 from app.models.user import User
+from app.sync import jobs as sync_jobs
+from app.sync.scheduler import REASON_EVENT, sync_scheduler, timers_armed
 from app.telemetry_events import TelemetryEvent
 from app.text_utils import sanitize_json
 from app.uploads import save_upload
@@ -85,6 +87,26 @@ def _safe_name(name: str) -> str:
 
 # ─────────────────────────── config ───────────────────────────
 
+# A card's references (the agent's plus any added on confirm) are capped
+# here, where every confirm path (web card, MCP, raw HTTP) passes: the
+# models take a bounded number of input images and fail AFTER the user
+# confirmed when sent more.
+MAX_CARD_REFERENCES = 14
+
+# Strong refs to fire-and-forget tasks (asyncio keeps only weak ones).
+_BACKGROUND: set[asyncio.Task] = set()
+
+
+async def _refresh_catalog() -> None:
+    try:
+        await sync_scheduler.trigger(
+            sync_jobs.VISION_JOB, reason=REASON_EVENT, force=True
+        )
+    except Exception:
+        logger.warning(
+            'vision catalog refresh after key save failed', exc_info=True
+        )
+
 
 @router.get('/vision/config')
 async def get_vision_config(current_user: User = Depends(get_current_user)):
@@ -93,7 +115,7 @@ async def get_vision_config(current_user: User = Depends(get_current_user)):
         'kie_api_key_set': bool(key),
         'kie_api_key_masked': vision.mask_key(key),
         'models': vision.catalog_public(),
-        'default_model': vision.DEFAULT_MODEL,
+        'default_model': vision.default_model(),
         # Surfaced so e2e tests can refuse to run against a server that
         # would hit the real image API (they must be offline-only).
         'fake': vision.is_fake(),
@@ -111,6 +133,15 @@ async def put_vision_config(
     vision.save_vision_config(body.get('kie_api_key', ''))
     key = vision.get_kie_api_key()
     telemetry.send(TelemetryEvent.VISION_KEY_SAVED, {'key_set': bool(key)})
+    if key and timers_armed():
+        # The scheduled run skips while no key is set and re-arms a day
+        # out, so a freshly activated install would wait that long for
+        # live prices. Run it now, in the background: the save must not
+        # wait on kie.ai. Gated like the schedule itself, so a server
+        # with sync disarmed (tests) never reaches the network.
+        task = asyncio.create_task(_refresh_catalog())
+        _BACKGROUND.add(task)
+        task.add_done_callback(_BACKGROUND.discard)
     return {
         'kie_api_key_set': bool(key),
         'kie_api_key_masked': vision.mask_key(key),
@@ -154,9 +185,12 @@ async def generate_task_image(
     prompt = (body.get('prompt') or '').strip()
     if not prompt:
         raise HTTPException(status_code=400, detail='prompt is required')
-    model = body.get('model') or vision.DEFAULT_MODEL
-    if model not in vision.model_ids():
-        model = vision.DEFAULT_MODEL
+    # A fresh proposal may only name a selectable model; the model of a
+    # job still in flight for this task (a 504 resume) is kept.
+    inflight = _INFLIGHT.get(task_id)
+    model = vision.resolve_proposal_id(
+        body.get('model'), keep=inflight[1] if inflight else None
+    )
     reference_images = body.get('reference_images') or []
     output_name = _safe_name(body.get('output_name') or 'image.png')
     kind = body.get('kind') or ''  # optional label e.g. "main"/"infographic"
@@ -175,7 +209,7 @@ async def generate_task_image(
     card = {
         'prompt': prompt,
         'model': model,
-        'models': vision.catalog_public(),
+        'models': vision.catalog_public(include=model),
         'reference_images': reference_images,
         'output_name': output_name,
         'kind': kind,
@@ -225,8 +259,10 @@ async def generate_task_image(
 
     # User-edited values win over the agent's proposal.
     final_prompt = (decision.get('prompt') or prompt).strip()
+    # The user picks from the card's list, so an id outside the catalog
+    # means a stale or forged card: keep the agent's (resolved) choice.
     final_model = decision.get('model') or model
-    if final_model not in vision.model_ids():
+    if not vision.is_known_model(final_model):
         final_model = model
     # References the user added in the confirm card (uploaded files →
     # workspace-relative paths, or pasted URLs) are appended.
@@ -376,6 +412,29 @@ async def confirm_task_image(
         'model': body.get('model'),
         'added_references': body.get('added_references') or [],
     }
+    if action == 'confirm':
+        card = vision.get_pending_request(task_id) or {}
+        if card.get('request_id') == request_id:
+            # The card's own list is the contract: an id it never
+            # offered is a forged or stale request, refused rather than
+            # silently swapped for the agent's proposal.
+            offered = {m.get('id') for m in card.get('models') or []}
+            if payload['model'] and payload['model'] not in offered:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f'Model {payload["model"]!r} is not on this card',
+                )
+            total = len(card.get('reference_images') or []) + len(
+                payload['added_references']
+            )
+            if total > MAX_CARD_REFERENCES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f'At most {MAX_CARD_REFERENCES} reference images '
+                        f'per card (got {total})'
+                    ),
+                )
     if not vision.resolve_confirm(request_id, payload):
         raise HTTPException(
             status_code=404,

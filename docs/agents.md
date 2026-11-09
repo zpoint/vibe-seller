@@ -200,12 +200,12 @@ curl -sS http://127.0.0.1:7777/api/mcp \
 | `get_pending_questions` | The question the task agent is asking, if any. |
 | `answer_question` | Your answer to that question, keyed by the full question text. |
 | `review_plan` | Approve a plan, or reject it with feedback so the agent re-plans. |
-| `image_request` | See and resolve an image-generation confirm card (get / confirm / cancel). |
+| `image_request` | See and resolve an image-generation confirm card (get / confirm / cancel): models with prices, reference images shown as images, confirm with an edited prompt / model / extra references. |
 | `send_message` | A follow-up on an existing task, optionally with attachments. |
 | `stop_task` | Halt a running task (it ends `failed`). |
 | `retry_task` | Re-run a task from scratch (the plan, transcript and workspace are wiped). |
 | `delete_task` | Remove a task and its workspace. Refused while the task or one of its children is running. |
-| `task_files` | The files a task produced: list, read (inline text or download URL + blob), ZIP URL. |
+| `task_files` | The files a task produced: list, read (inline text, or download URL + blob — an image is also shown as an image), ZIP URL. |
 | `read_knowledge` | Read the store's `knowledge/` and `stores/` files. Read-only. |
 | `workspace_file` | Read and edit the workspace the web UI edits: files, git history / version / reset, structured view, store profiles, knowledge sync. |
 | `manage_skill` | Manage the server's agent skills: list / get / create / update / **begin_upload** / **import** / delete / sync. |
@@ -304,9 +304,18 @@ through the UI, or any HTTP file path the agent can reach.
 `task_files(action=list)` names the outputs of a run; `action=read`
 returns a text file (≤ 256 KB) inline, and anything else as an
 **absolute download URL** on the server — a `vst_` bearer works on it
-— plus a base64 `blob` for binaries up to 5 MB. `action=zip_url`
-hands back the everything-in-one-ZIP URL the web UI's download button
-uses.
+— plus a base64 `blob` for binaries up to 5 MB. An **image** is instead
+returned as an MCP `image` content block (no blob — the block carries
+the bytes), so the client (and the model driving it) can look at a
+generated picture, not only fetch it; one over ~3.5 MB is shown as a
+downscaled JPEG preview (`shown_as_preview`), and then the original
+still rides along as the `blob` when under 5 MB — the URL always has
+it. Images in
+one reply share an ~8 MB budget: past it, a card's further references
+are listed rather than shown. The confirm route itself enforces the
+card's contract for every client (web card, MCP, raw HTTP): only a
+model the card offered, and at most 14 references in total. `action=zip_url` hands back the everything-in-one-ZIP
+URL the web UI's download button uses.
 
 ### The image confirm gate
 
@@ -315,11 +324,22 @@ first: the generation tool **parks** and the server holds a confirm
 card (prompt, model). `wait_task` surfaces it as
 `reason=needs_operator` with a `pending.kind=image_confirm` block
 while the task itself stays `running`, and the guidance names
-`image_request`. Resolve it with `image_request(action=confirm)` —
-optionally with your user's edited `prompt` / `model`, exactly what
-the web card's confirm does — or `action=cancel`. A card is a
-checkpoint: show the proposal to your user unless they already told
-you to proceed.
+`image_request`. `image_request(action=get)` returns the whole card:
+the prompt, the proposed model, every selectable model with its
+per-image price, and the reference images the agent attached — task
+files shown as `image` content blocks, remote URLs listed (the server
+never fetches them on your behalf). Resolve it with
+`image_request(action=confirm)` — optionally with your user's edited
+`prompt`, a different `model` (one of the card's ids; an unknown id is
+an error, a retired one maps to its successor and says so), and extra
+references (`add_references`: task paths or URLs; `reference_uploads`:
+images from your side, saved through the card's own upload route) —
+exactly what the web card's confirm does — or `action=cancel`. To
+answer in words instead ("make it brighter"), `send_message` retires
+the card and the agent replies. The finished image lands in the
+task's `generated_images/`: `task_files(action=read)` shows it,
+`zip_url` downloads everything. A card is a checkpoint: show the
+proposal to your user unless they already told you to proceed.
 
 ### Workspace, skills and the assistant
 

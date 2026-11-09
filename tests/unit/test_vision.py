@@ -2,9 +2,20 @@
 
 import pytest
 
-from app import vision
+from app import vision, vision_catalog
 
 pytestmark = pytest.mark.unit
+
+
+@pytest.fixture(autouse=True)
+def _bundled_catalog(tmp_path, monkeypatch):
+    """Serve the bundled catalog: no cache file, no prior sync state."""
+    monkeypatch.setattr(
+        vision_catalog, '_cache_path', lambda: tmp_path / 'vision_catalog.json'
+    )
+    vision_catalog.reset()
+    yield
+    vision_catalog.reset()
 
 
 def test_save_load_mask(tmp_path, monkeypatch):
@@ -44,12 +55,12 @@ def test_is_fake(monkeypatch):
 def test_models_registry():
     ids = vision.model_ids()
     # Default is the first flattened variant (nano-banana-pro @ 2K).
-    assert vision.DEFAULT_MODEL == 'nano-banana-pro-2k'
-    assert ids[0] == vision.DEFAULT_MODEL
+    assert vision.default_model() == 'nano-banana-pro-2k'
+    assert ids[0] == vision.default_model()
     # Tier variants exist for the multi-resolution models.
-    assert 'gpt-image-2-1k' in ids
-    assert 'gpt-image-2-4k' in ids
-    assert 'nano-banana-2-2k' in ids
+    assert 'gpt-image-2-5-1k' in ids
+    assert 'gpt-image-2-5-4k' in ids
+    assert 'nano-banana-2-1-2k' in ids
     # Ids are unique; every entry has a slug, a valid reference-image
     # field, and a positive price. Tiers of one model share a slug (that
     # is expected) but their ids differ.
@@ -65,15 +76,32 @@ def test_models_registry():
         )
         assert m.usd > 0
     # An unknown id falls back to the default.
-    assert vision.get_model('does-not-exist').id == vision.DEFAULT_MODEL
+    assert vision.get_model('does-not-exist').id == vision.default_model()
+
+
+def test_retired_ids_resolve_to_their_successor():
+    """Agents, skills and saved prompts still name ids that left the
+    catalog; they must keep meaning the same model line, not silently
+    become the (pricier) default."""
+    assert vision.resolve_model_id('gpt-image-2-2k') == 'gpt-image-2-5-2k'
+    assert vision.resolve_model_id('nano-banana-2-4k') == 'nano-banana-2-1-4k'
+    assert vision.resolve_model_id('qwen-image-edit') == 'qwen3-pro-1k'
+    assert vision.get_model('flux-2-flex-2k').id == 'flux-2-pro-2k'
+    # A current id is itself; None / unknown is the default.
+    assert vision.resolve_model_id('flux-3-klein-4k') == 'flux-3-klein-4k'
+    assert vision.resolve_model_id(None) == vision.default_model()
 
 
 def test_tier_variants_carry_their_param():
     """Each tier variant must inject its own kie param (resolution /
     quality / rendering_speed) so generation targets that tier — this is
     what makes the per-tier prices real rather than cosmetic."""
-    assert vision.get_model('gpt-image-2-4k').extra.get('resolution') == '4K'
-    assert vision.get_model('gpt-image-2-1k').extra.get('resolution') == '1K'
+    assert vision.get_model('gpt-image-2-5-4k').extra.get('resolution') == (
+        '4K'
+    )
+    assert vision.get_model('gpt-image-2-5-1k').extra.get('resolution') == (
+        '1K'
+    )
     assert vision.get_model('seedream-5-pro-high').extra.get('quality') == (
         'high'
     )
@@ -83,8 +111,8 @@ def test_tier_variants_carry_their_param():
     )
     # Prices differ across tiers of one model.
     assert (
-        vision.get_model('gpt-image-2-4k').usd
-        > vision.get_model('gpt-image-2-1k').usd
+        vision.get_model('gpt-image-2-5-4k').usd
+        > vision.get_model('gpt-image-2-5-1k').usd
     )
 
 
@@ -158,24 +186,24 @@ async def test_generate_image_builds_per_model_input(monkeypatch, tmp_path):
     # Single-reference model → plain string, primary ref only.
     await vision.generate_image(
         prompt='p',
-        model='qwen-image-edit',
+        model='ideogram-v3-remix-turbo',
         reference_images=refs,
         task_dir=tmp_path,
     )
     body = _FakeKieClient.last_body
-    assert body['model'] == 'qwen/image-edit'
+    assert body['model'] == 'ideogram/v3-remix'
     assert body['input']['image_url'] == 'http://a/1.png'
 
     # Array-reference model + tier → full list under the model's own
     # field name, and the tier's resolution param is injected.
     await vision.generate_image(
         prompt='p',
-        model='gpt-image-2-4k',
+        model='gpt-image-2-5-4k',
         reference_images=refs,
         task_dir=tmp_path,
     )
     body = _FakeKieClient.last_body
-    assert body['model'] == 'gpt-image-2-image-to-image'
+    assert body['model'] == 'gpt-image-2-5-flare-image-to-image'
     assert body['input']['input_urls'] == refs
     assert body['input']['resolution'] == '4K'
 
@@ -240,8 +268,8 @@ def test_poll_budget_is_per_resolution_tier():
     """
     assert vision.poll_budget_s(vision.get_model('nano-banana-pro-2k')) == 240
     assert vision.poll_budget_s(vision.get_model('nano-banana-pro-4k')) == 600
-    assert vision.poll_budget_s(vision.get_model('gpt-image-2-4k')) == 600
-    assert vision.poll_budget_s(vision.get_model('gpt-image-2-1k')) == 240
+    assert vision.poll_budget_s(vision.get_model('gpt-image-2-5-4k')) == 600
+    assert vision.poll_budget_s(vision.get_model('gpt-image-2-5-1k')) == 240
     # Quality/speed-tier models carry no `resolution` — they get the
     # default rather than a KeyError.
     speed_tier = vision.get_model('ideogram-v3-remix-turbo')
@@ -251,7 +279,7 @@ def test_poll_budget_is_per_resolution_tier():
 
 def test_every_model_has_a_poll_budget():
     """No model may fall through to an exception on budget lookup."""
-    for m in vision.IMAGE_MODELS:
+    for m in vision.image_models():
         assert vision.poll_budget_s(m) >= 240
 
 

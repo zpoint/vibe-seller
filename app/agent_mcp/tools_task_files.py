@@ -16,9 +16,16 @@ import asyncio
 import os
 from urllib.parse import quote
 
+from app import vision_catalog
 from app.agent_mcp.files import (
+    IMAGES_KEY,
+    MAX_IMAGE_BLOCK_BYTES,
+    MAX_REPLY_IMAGE_BYTES,
     absolute_url,
+    as_upload_file,
+    decode_uploads,
     file_result,
+    image_block,
     validated_task_path,
 )
 from app.agent_mcp.registry import schema, tool
@@ -159,8 +166,10 @@ async def get_task_log(ctx: McpContext, args: dict) -> dict:
 @tool(
     'task_files',
     'The files a task produced in its workspace. action=list names '
-    'them; action=read returns one (text inline, anything else as a '
-    'download URL — small binaries also ride along as base64); '
+    'them; action=read returns one (text inline; an image is SHOWN as '
+    'an image content block — a large one as a downscaled preview, '
+    'with the original as base64 when it fits; other binaries as a '
+    'download URL plus base64 when small); '
     'action=zip_url returns a URL that downloads everything as one '
     'ZIP (a vst_ bearer works on it).',
     schema(
@@ -200,6 +209,8 @@ async def task_files(ctx: McpContext, args: dict) -> dict:
             path,
             _user=ctx.user,
         )
+        # File reads and an image preview's Pillow decode block: keep
+        # them off the event loop (SSE streams share it).
         return await asyncio.to_thread(
             file_result,
             ctx,
@@ -264,15 +275,169 @@ def compact_image_card(card: dict) -> dict:
     return compact
 
 
+# A confirm card may carry this many references; more is a mistake,
+# and every one shown costs an image block in the reply. The route
+# enforces the same cap (``vision.MAX_CARD_REFERENCES``).
+MAX_CARD_REFERENCES = vision_route.MAX_CARD_REFERENCES
+# Below this much budget left, a further image is not even attempted.
+MIN_SHOWN_IMAGE_BYTES = 32 * 1024
+
+
+def _task_ref_path(task_id: str, ref: str):
+    """The on-disk file for a workspace-relative reference, or None.
+
+    Same confinement as the generator (``vision._resolve_reference``):
+    resolved, and still inside this task's directory.
+    """
+    if not isinstance(ref, str) or ref.startswith(('http://', 'https://')):
+        return None
+    task_dir = (vision_route._TASKS_DIR / task_id).resolve()
+    local = (task_dir / ref).resolve()
+    if not local.is_relative_to(task_dir) or not local.is_file():
+        return None
+    return local
+
+
+def _show_references(task_id: str, refs: list) -> tuple[list, list]:
+    """``(reference entries, image blocks)`` for a card's references.
+
+    Workspace files are SHOWN; a remote URL is listed, never fetched by
+    the server (that would be an SSRF hop) — the client can open it.
+    All blocks share :data:`MAX_REPLY_IMAGE_BYTES`: the client forwards
+    this reply to its model, whose request has a ceiling, so once the
+    budget runs low images shrink to previews and then are only listed.
+    Blocking (file I/O, Pillow) — run it in a thread.
+    """
+    entries, images = [], []
+    budget = MAX_REPLY_IMAGE_BYTES
+    for ref in (refs or [])[:MAX_CARD_REFERENCES]:
+        entry = {'ref': ref}
+        local = _task_ref_path(task_id, ref)
+        if local is None:
+            if isinstance(ref, str) and ref.startswith(('http://', 'https://')):
+                entry['url'] = ref
+            else:
+                entry['not_shown'] = 'not a file in this task'
+        elif budget < MIN_SHOWN_IMAGE_BYTES:
+            # Spent: don't open (let alone decode) what can't be shown.
+            entry['not_shown'] = 'reply image budget spent; use task_files'
+        else:
+            block = image_block(
+                local, max_bytes=min(MAX_IMAGE_BLOCK_BYTES, budget)
+            )
+            if block is not None:
+                budget -= len(block['data']) * 3 // 4
+                images.append({k: block[k] for k in ('data', 'mime_type')})
+                entry['shown'] = len(images)  # 1-based image number
+            else:
+                entry['not_shown'] = (
+                    'not a viewable image here (type, size or decoding)'
+                    '; task_files can still download it'
+                )
+        entries.append(entry)
+    return entries, images
+
+
+def _confirm_model(card: dict, requested: str) -> tuple[str, str | None]:
+    """The card model to confirm, or a ToolError naming the valid ones.
+
+    The route silently keeps the agent's proposal for an id outside the
+    card — fine for a stale browser card, wrong for an operator who
+    asked for something specific and would never hear it was ignored.
+    A retired id (``gpt-image-2-2k``) maps to its successor, said so.
+    """
+    ids = [m.get('id') for m in card.get('models') or [] if m.get('id')]
+    if requested in ids:
+        return requested, None
+    mapped = vision_catalog.retired_successor(requested)
+    if mapped in ids:
+        return mapped, f'{requested} was retired; confirmed {mapped} instead.'
+    raise ToolError(
+        f'Unknown model {requested!r} for this card. Choose one of: '
+        + ', '.join(ids)
+    )
+
+
+async def _collect_references(
+    ctx: McpContext, task_id: str, args: dict, existing: int
+):
+    """References the operator adds on confirm, as the card's own
+    "add reference" does: workspace paths, URLs, or uploaded images
+    (saved through the SAME upload route the card posts to).
+
+    Everything is validated — count included, against the card's
+    ``existing`` references — BEFORE an upload is written. Returns
+    ``(added references, paths this call uploaded)``; the uploads are
+    removed again if a later upload or the confirm itself fails."""
+    paths = args.get('add_references') or []
+    uploads = decode_uploads(args.get('reference_uploads') or [])
+    total = existing + len(paths) + len(uploads)
+    if total > MAX_CARD_REFERENCES:
+        raise ToolError(
+            f'A card takes at most {MAX_CARD_REFERENCES} reference images '
+            f'in total; this one has {existing} and you added '
+            f'{len(paths) + len(uploads)}.'
+        )
+    for filename, mime_type, _ in uploads:
+        if not mime_type.startswith('image/'):
+            raise ToolError(
+                f'reference_uploads: {filename} is {mime_type}, not an image'
+            )
+    added: list[str] = []
+    uploaded: list[str] = []
+    for raw in paths:
+        if not isinstance(raw, str) or not raw.strip():
+            raise ToolError('add_references entries must be strings')
+        ref = raw.strip()
+        if ref.startswith(('http://', 'https://')):
+            added.append(ref)
+            continue
+        ref = validated_task_path(ref)
+        if _task_ref_path(task_id, ref) is None:
+            raise ToolError(
+                f'add_references: {ref!r} is not a file in this task — '
+                'list them with task_files(action=list)'
+            )
+        added.append(ref)
+    try:
+        for filename, mime_type, data in uploads:
+            saved = await call_route(
+                vision_route.upload_reference,
+                task_id,
+                as_upload_file(filename, mime_type, data),
+                current_user=ctx.user,
+            )
+            added.append(saved['path'])
+            uploaded.append(saved['path'])
+    except BaseException:
+        _remove_uploads(task_id, uploaded)
+        raise
+    return added, uploaded
+
+
+def _remove_uploads(task_id: str, paths: list[str]) -> None:
+    """Delete uploads this call wrote, when the call did not land."""
+    for rel in paths:
+        local = _task_ref_path(task_id, rel)
+        if local is not None:
+            local.unlink(missing_ok=True)
+
+
 @tool(
     'image_request',
     'See and resolve the image-generation confirm card a task agent is '
     'parked on: the agent proposed an image (prompt, model) and the '
-    'server is WAITING for a human decision. action=get shows the '
-    'card; action=confirm approves it (optionally with an edited '
-    'prompt/model — your user may change either); action=cancel '
-    'refuses it. A card is a checkpoint: show it to your user unless '
-    'they already told you to proceed.',
+    'server is WAITING for a human decision. action=get shows the card '
+    '— prompt, the proposed model, every selectable model with its '
+    'per-image price, and the reference images themselves (as images). '
+    'action=confirm approves it, optionally with an edited prompt, a '
+    'different model (one of the card ids), and extra reference images '
+    '(task files, URLs, or uploads); action=cancel refuses it. To '
+    'answer in words instead (e.g. "make it brighter"), send_message '
+    'retires the card and the agent replies. The finished image lands '
+    "in the task's generated_images/ — task_files(action=read) shows "
+    'it; action=zip_url downloads everything. A card is a checkpoint: '
+    'show it to your user unless they already told you to proceed.',
     schema(
         {
             'task_id': {'type': 'string', 'description': 'The task id.'},
@@ -298,8 +463,33 @@ def compact_image_card(card: dict) -> dict:
             'model': {
                 'type': ['string', 'null'],
                 'description': (
-                    'confirm only: an edited model id (one of the '
-                    "card's models)."
+                    "confirm only: a model id from the card's models "
+                    '(an unknown id is an error, not silently ignored).'
+                ),
+            },
+            'add_references': {
+                'type': ['array', 'null'],
+                'items': {'type': 'string'},
+                'description': (
+                    'confirm only: extra reference images — paths of '
+                    'files already in the task (task_files list) or '
+                    'http(s) URLs.'
+                ),
+            },
+            'reference_uploads': {
+                'type': ['array', 'null'],
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'filename': {'type': 'string'},
+                        'mime_type': {'type': 'string'},
+                        'content_base64': {'type': 'string'},
+                    },
+                    'required': ['filename', 'mime_type', 'content_base64'],
+                },
+                'description': (
+                    'confirm only: reference images to upload from your '
+                    'side (e.g. a product photo your user gave you).'
                 ),
             },
         },
@@ -326,7 +516,14 @@ async def image_request(ctx: McpContext, args: dict) -> dict:
                     'working; wait_task reports one the moment it appears.'
                 ),
             }
-        return {'task_id': task_id, 'pending': True, **pending}
+        entries, images = await asyncio.to_thread(
+            _show_references, task_id, pending.get('reference_images') or []
+        )
+        out = {'task_id': task_id, 'pending': True, **pending}
+        out['references'] = entries
+        if images:
+            out[IMAGES_KEY] = images
+        return out
 
     if action not in ('confirm', 'cancel'):
         raise ToolError(
@@ -334,34 +531,61 @@ async def image_request(ctx: McpContext, args: dict) -> dict:
         )
 
     request_id = args.get('request_id') or pending.get('request_id')
-    if not request_id:
+    if not request_id or not pending.get('pending'):
         raise ToolError(
             'No pending image request for this task — call '
             'image_request(action=get) first.'
         )
+    if request_id != pending.get('request_id'):
+        raise ToolError(
+            f'Card {request_id} is no longer pending — the task now holds '
+            f'{pending.get("request_id")}; call image_request(action=get).'
+        )
     body: dict = {'request_id': request_id, 'action': action}
+    notes = []
     if action == 'confirm':
         # Only pass the edits the caller actually made: an explicit
-        # null must not override the proposed prompt (the route treats
-        # a missing key and a null the same, but staying shape-faithful
-        # keeps that contract visible here).
+        # null must not override the proposed prompt.
         if isinstance(args.get('prompt'), str) and args['prompt'].strip():
             body['prompt'] = args['prompt'].strip()
         if isinstance(args.get('model'), str) and args['model'].strip():
-            body['model'] = args['model'].strip()
-    await call_route(
-        vision_route.confirm_task_image,
-        task_id,
-        body,
-        current_user=ctx.user,
-    )
-    return {
+            body['model'], note = _confirm_model(pending, args['model'].strip())
+            if note:
+                notes.append(note)
+        added, uploaded = await _collect_references(
+            ctx, task_id, args, len(pending.get('reference_images') or [])
+        )
+        if added:
+            body['added_references'] = added
+    else:
+        uploaded = []
+    try:
+        await call_route(
+            vision_route.confirm_task_image,
+            task_id,
+            body,
+            current_user=ctx.user,
+        )
+    except BaseException:
+        # The card was superseded/resolved meanwhile: nothing will ever
+        # read what this call uploaded.
+        _remove_uploads(task_id, uploaded)
+        raise
+    out = {
         'task_id': task_id,
         'ok': True,
         'action': action,
         'request_id': request_id,
         'note': (
             'The decision was delivered; the task agent continues with '
-            'it. Follow the task with wait_task.'
+            'it. Follow the task with wait_task; the image lands in '
+            'generated_images/ (task_files shows it).'
         ),
     }
+    if action == 'confirm':
+        out['model'] = body.get('model') or pending.get('model')
+        if body.get('added_references'):
+            out['added_references'] = body['added_references']
+    if notes:
+        out['notes'] = notes
+    return out

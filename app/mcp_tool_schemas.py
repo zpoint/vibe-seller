@@ -13,12 +13,11 @@ from app.mcp_ad_tool_schemas import _ALWAYS_LOADED, AD_TOOLS
 # never drifts from the catalog the confirm card offers. The enum lists
 # every model+tier variant (the user picks the exact one on the confirm
 # card); the guidance only names the providers + the default so it costs
-# few tokens per task rather than one line per ~20 variants.
+# few tokens per task rather than one line per ~20 variants. Read at
+# import: the in-task MCP server is a fresh process per task, so each
+# task sees the catalog as the vision_catalog sync last left it.
 _IMAGE_MODEL_IDS = vision.model_ids()
-_IMAGE_MODEL_DEFAULT = next(
-    (m['id'] for m in vision.catalog_public() if m['default']),
-    vision.DEFAULT_MODEL,
-)
+_IMAGE_MODEL_DEFAULT = vision.default_model()
 _IMAGE_MODEL_PROVIDERS = ', '.join(
     dict.fromkeys(m['provider'] for m in vision.catalog_public())
 )

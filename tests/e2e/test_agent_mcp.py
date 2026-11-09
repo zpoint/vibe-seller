@@ -128,9 +128,10 @@ class McpClient:
     def call_tool(self, tool_name: str, **arguments) -> dict:
         """Call one tool.
 
-        Returns ``{'ok', 'data', 'text'}``: a tool that ran and failed
-        answers with ``isError`` and a plain-text reason; a tool that
-        succeeded answers with a JSON document in the text content.
+        Returns ``{'ok', 'data', 'text', 'images'}``: a tool that ran
+        and failed answers with ``isError`` and a plain-text reason; a
+        tool that succeeded answers with a JSON document in the text
+        content, plus any MCP ``image`` content blocks it showed.
 
         The tool name is positional on purpose: several tools take an
         argument literally called ``name`` (manage_store,
@@ -148,7 +149,8 @@ class McpClient:
                 data = json.loads(text)
             except json.JSONDecodeError:
                 data = None
-        return {'ok': ok, 'data': data, 'text': text}
+        images = [c for c in content if c.get('type') == 'image']
+        return {'ok': ok, 'data': data, 'text': text, 'images': images}
 
     def call_tool_rejected(self, tool_name: str, **arguments) -> dict:
         """Call a tool whose arguments the dispatcher must refuse.

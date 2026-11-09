@@ -22,7 +22,7 @@ import logging
 
 import httpx
 
-from app import ads_skill
+from app import ads_skill, vision, vision_catalog_sync
 from app.ai import provider_presets_sync
 from app.browser.daemon_reaper import reap_orphaned_daemons
 from app.plugins import registered_sync_jobs
@@ -47,6 +47,7 @@ ADS_SKILL_JOB = 'ads_skill'
 PRESETS_JOB = 'presets'
 EMAIL_JOB = 'email'
 REAPER_JOB = 'daemon_reaper'
+VISION_JOB = 'vision_catalog'
 
 #: AppSettings key behind the skills toggle (Settings → General).
 #: Knowledge and provider presets have NO toggle — an explicit product
@@ -174,6 +175,47 @@ async def _run_presets(ctx: SyncContext) -> SyncResult:
     )
 
 
+# ── vision catalog: image models, live prices, availability ───────
+
+
+async def _vision_ready() -> bool:
+    """Only an install that can generate images keeps the catalog
+    fresh: without a kie.ai key there is nothing to price or offer, and
+    the fake (offline) mode must never reach the network."""
+    return vision.get_kie_api_key() is not None and not vision.is_fake()
+
+
+async def _run_vision(ctx: SyncContext) -> SyncResult:
+    api_key = vision.get_kie_api_key()
+    if not api_key:
+        return SyncResult.skipped('precondition')
+    async with _client_factory() as client:
+        steps = await vision_catalog_sync.sync_once(
+            api_key, client, force=ctx.force
+        )
+    statuses = {name: step.get('status') for name, step in steps.items()}
+    detail: dict = dict(statuses)
+    for name, step in steps.items():
+        for key in ('priced', 'hidden', 'families'):
+            if key in step:
+                detail[f'{name}_{key}'] = step[key]
+    errors = [
+        f'{name}: {step["error"]}'
+        for name, step in steps.items()
+        if step.get('error')
+    ]
+    if all(s in ('failed', 'rejected') for s in statuses.values()):
+        return SyncResult(
+            status=STATUS_FAILED, error='; '.join(errors), detail=detail
+        )
+    updated = any(s == 'updated' for s in statuses.values())
+    return SyncResult(
+        status=STATUS_UPDATED if updated else STATUS_UNCHANGED,
+        error='; '.join(errors) or None,
+        detail=detail,
+    )
+
+
 # ── email: one pass over the enabled accounts ──────────────────────
 
 
@@ -224,6 +266,12 @@ def core_jobs() -> list[SyncJob]:
             name=PRESETS_JOB,
             cadence=Cadence.BIDAILY,
             run=_run_presets,
+        ),
+        SyncJob(
+            name=VISION_JOB,
+            cadence=Cadence.DAILY,
+            run=_run_vision,
+            when=_vision_ready,
         ),
         SyncJob(
             name=EMAIL_JOB,
