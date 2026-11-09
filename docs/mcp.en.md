@@ -1,5 +1,5 @@
 ---
-description: Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect Claude / Codex (desktop and CLI), WorkBuddy, Qoder, Hermes Agent or Pi, verify, try it.
+description: 'Drive Vibe Seller from the AI tool you already use — MCP setup: create an API key, connect Claude / Codex (desktop and CLI), WorkBuddy, Qoder, Hermes Agent or Pi, verify, try it.'
 ---
 
 # MCP setup
@@ -152,6 +152,8 @@ Send these one after another and watch it run an ad analysis for you:
 3. "What is this task doing right now, which step is it on?"
 4. "OK, follow it through and summarize when it's done."
 
+![Demo: driving Vibe Seller from Claude — waits sped up](images/mcp_claude_demo_en.gif)
+
 ## Codex (desktop and CLI)
 
 ### Install
@@ -203,6 +205,8 @@ Send these one after another and watch it run an ad analysis for you:
    anything yet."
 3. "What is this task doing right now, which step is it on?"
 4. "OK, follow it through and summarize when it's done."
+
+![Demo: driving Vibe Seller from Codex — waits sped up](images/mcp_codex_demo_en.gif)
 
 ## WorkBuddy (Tencent)
 
